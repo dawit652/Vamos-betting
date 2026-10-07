@@ -1,0 +1,21 @@
+{
+  "name": "@vamos/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Background workers: feed ingest, live simulator, settlement, payouts, notifications, reporting",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/main.ts",
+    "start": "node dist/main.js",
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@vamos/config": "workspace:*",
+    "pino": "10.4.0"
+  },
+  "devDependencies": {
+    "tsup": "8.5.1"
+  }
+}

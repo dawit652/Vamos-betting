@@ -1,0 +1,24 @@
+{
+  "name": "@vamos/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vamos player PWA – Betika-style lite mobile web",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "typecheck": "next typegen && tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@vamos/contracts": "workspace:*",
+    "@vamos/i18n": "workspace:*",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
+  }
+}

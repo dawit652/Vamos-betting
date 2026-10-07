@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# local services & data
+.data/
+*.log
+
+# env
+.env
+.env.*
+!.env.example
+
+# test output
+coverage/
+e2e/test-results/
+e2e/playwright-report/
+e2e/.auth/
+
+# reports produced by the regulator reporter in dev
+var/
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

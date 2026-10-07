@@ -1,0 +1,102 @@
+import { describe, expect, it } from 'vitest';
+import { ConfigError, DEV_SESSION_SECRET, isDemo, loadConfig } from './config';
+
+const LICENSED_ENV = {
+  OPERATING_MODE: 'licensed',
+  ELS_LICENSE_NUMBER: 'ELS/SB/0001',
+  ELS_REPORTING: 'file',
+  PAYMENT_PROVIDERS: 'telebirr,chapa',
+  KYC_PROVIDER: 'fayda',
+  SMS_PROVIDER: 'http',
+  FEED_PROVIDER: 'manual',
+  TAX_CONFIG_CONFIRMED: 'true',
+  SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+};
+
+function problemsOf(env: Record<string, string>): string[] {
+  try {
+    loadConfig(env);
+  } catch (error) {
+    if (error instanceof ConfigError) return error.problems;
+    throw error;
+  }
+  return [];
+}
+
+describe('loadConfig', () => {
+  it('defaults to demo mode with mock providers', () => {
+    const config = loadConfig({});
+    expect(config.mode).toBe('demo');
+    expect(isDemo(config)).toBe(true);
+    expect(config.providers.payments).toEqual(['mock']);
+    expect(config.api.port).toBe(4000);
+    expect(config.features).toEqual({
+      casino: false,
+      virtuals: false,
+      smsBetting: false,
+      ussd: false,
+    });
+  });
+
+  it('accepts a fully configured licensed environment', () => {
+    const config = loadConfig(LICENSED_ENV);
+    expect(config.mode).toBe('licensed');
+    expect(config.providers.payments).toEqual(['telebirr', 'chapa']);
+    expect(config.taxConfigConfirmed).toBe(true);
+  });
+
+  it('refuses licensed mode without a licence number', () => {
+    const { ELS_LICENSE_NUMBER: _omit, ...env } = LICENSED_ENV;
+    expect(problemsOf(env).join('\n')).toMatch(/ELS_LICENSE_NUMBER/);
+  });
+
+  it('refuses licensed mode with mock payments, mock KYC, mock SMS, mock feed or unconfirmed tax', () => {
+    const problems = problemsOf({
+      ...LICENSED_ENV,
+      PAYMENT_PROVIDERS: 'mock',
+      KYC_PROVIDER: 'mock',
+      SMS_PROVIDER: 'mock',
+      FEED_PROVIDER: 'mock',
+      TAX_CONFIG_CONFIRMED: 'false',
+    }).join('\n');
+    expect(problems).toMatch(/"mock" payment provider/);
+    expect(problems).toMatch(/at least one real payment provider/);
+    expect(problems).toMatch(/KYC_PROVIDER/);
+    expect(problems).toMatch(/SMS_PROVIDER/);
+    expect(problems).toMatch(/FEED_PROVIDER/);
+    expect(problems).toMatch(/TAX_CONFIG_CONFIRMED/);
+  });
+
+  it('refuses licensed mode with reporting disabled or casino enabled', () => {
+    const problems = problemsOf({
+      ...LICENSED_ENV,
+      ELS_REPORTING: 'disabled',
+      FEATURE_CASINO: 'true',
+    }).join('\n');
+    expect(problems).toMatch(/ELS_REPORTING/);
+    expect(problems).toMatch(/casino/);
+  });
+
+  it('requires a report URL for http reporting', () => {
+    expect(problemsOf({ ...LICENSED_ENV, ELS_REPORTING: 'http' }).join('\n')).toMatch(
+      /ELS_REPORT_URL/,
+    );
+  });
+
+  it('refuses real payment providers in demo mode', () => {
+    expect(problemsOf({ PAYMENT_PROVIDERS: 'mock,telebirr' }).join('\n')).toMatch(
+      /demo mode only allows/,
+    );
+  });
+
+  it('refuses the development session secret in production', () => {
+    expect(
+      problemsOf({ NODE_ENV: 'production', SESSION_SECRET: DEV_SESSION_SECRET }).join('\n'),
+    ).toMatch(/SESSION_SECRET/);
+  });
+
+  it('reports invalid values', () => {
+    expect(problemsOf({ API_PORT: 'not-a-port' }).join('\n')).toMatch(/API_PORT/);
+    expect(problemsOf({ OPERATING_MODE: 'live' }).join('\n')).toMatch(/OPERATING_MODE/);
+  });
+});
