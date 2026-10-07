@@ -83,12 +83,13 @@ _Research snapshot: 7 October 2026. Companion to [ethiopia-sports-betting-market
 | **Sports breadth** | ✅ very wide, including cricket and esports | ✅ wide | ✅ 100+ markets per event on average | ✅ |
 | **Live betting** | ✅ | ✅ | ✅ | ✅ "Multi-LIVE" (several live events at once) |
 | **Cash-out** | ✅ | — | — | — |
+| **Acca promotion** | ✅ "Accumulator of the Day": +10% odds | — | — | — |
 | **Bet builder** | — | — | ◐ "Custom Bet Builder" | ◐ "Bet Constructor" |
 | **Live streaming** | — (unconfirmed) | ◐ | ◐ selected sports, varies by country | — |
 | **Casino / live dealer** | ✅ casino, live dealers, poker, lotteries, 1xGames | ✅ slots, roulette, blackjack, baccarat, poker, live casino | ✅ live casino | — |
 | **Apps** | ✅ Android APK + iOS | ✅ Android + iOS | ✅ Android + iOS | ✅ |
 | **Amharic UI** | — | ◐ | — | — |
-| **Welcome bonus** | ◐ "regular generous bonuses" | ◐ 200% up to 5,000–24,100 ETB (sports). Casino 100% up to 108k ETB + 290 FS. Wagering applies. | — | — |
+| **Welcome bonus** | ◐ 200%, cap 6,400 ETB in detailed terms (headline says "up to 30,000 ETB"). 30 ETB qualifying deposit. | ◐ 200% up to 5,000–24,100 ETB (sports). Casino 100% up to 108k ETB + 290 FS. Wagering applies. | — | — |
 | **Local wallets** | Deposit: telebirr, SantimPay. Withdraw: telebirr, M-Pesa, CBE Birr. | telebirr, CBE Birr + 50+ methods (AstroPay, crypto…) | — | ◐ telebirr unconfirmed |
 | **Min deposit** | ◐ 20–85 ETB | ◐ 25–50 ETB | ◐ 130 ETB (withdraw min 200) | — |
 | **Payout speed** | ◐ ~15 min (claim) | — | ◐ 1–3 days | — |
@@ -164,7 +165,7 @@ _Research snapshot: 7 October 2026. Companion to [ethiopia-sports-betting-market
 ### Must have (features every local leader offered)
 1. Minimum stake around **5 ETB**. Low minimum deposit.
 2. **telebirr + CBE Birr + M-Pesa** deposits and withdrawals to the registered wallet.
-3. Football first, including the **Ethiopian Premier League**. Pre-match and **live** betting.
+3. Football first, including the **Ethiopian Premier League** and **CAF Champions League / Confederation Cup**. Pre-match and **live** betting.
 4. **Accumulator multi-bonus ladder.** This is Vamos's historic strength; keep it with **clear, published terms**.
 5. **Weekly and daily jackpot** (13- and 9-fixture style).
 6. **Cash-out** on main markets.
@@ -189,7 +190,51 @@ _Research snapshot: 7 October 2026. Companion to [ethiopia-sports-betting-market
 
 ---
 
-## 8. Sources
+## 8. Cross-check: external (Gemini) review, 7 Oct 2026
+
+An outside summary of the market was produced with Gemini. Each claim was checked against the sources in this document and with extra searches.
+
+### Confirmed / consistent with this research
+- All licences were revoked by ELS in Dec 2025.
+- telebirr, CBE Birr, Amole and HelloCash are the key payment rails.
+- ETB accounts and Amharic matter.
+- Mobile-first, low-bandwidth design is critical.
+- Football dominates. Coverage should include the EPL, the Ethiopian Premier League and **CAF competitions**; add CAF Champions League / Confederation Cup to the must-have coverage.
+- International sites lead on market depth, crypto and large bonuses. Local sites lead on frictionless wallet payments, low minimums and light mobile sites, but have fewer bet builders and less live streaming.
+- Melbet: Amharic and telebirr support, up to 24,100 ETB bonus (matches MightyTips).
+- 1xBet: **10% accumulator odds boost** ("Accumulator of the Day"). Confirmed by reviews and added to the matrix above.
+
+### Corrections
+| Gemini claim | Finding |
+|---|---|
+| The market "operates in a highly restricted and uncertain legal environment" | It is stronger than that. **No operator is licensed.** Banks and payment providers were ordered to block betting transactions, and ELS warns the public against illegal platforms. Offshore sites are not "operating legally with weaker footing"; they are unlicensed. |
+| HuluSport, Betika and HabeshaBet are presented as current local operators | Hulusport and Betika licences were **revoked** (Hulusport's court win is stayed on appeal). No source confirmed a betting brand called HabeshaBet. |
+| 1xBet welcome bonus "up to 30,000 ETB" | "30,000" is a headline figure. The detailed terms found show a **200% match capped at 6,400 ETB**. |
+| 1xBet minimum deposit 155 ETB | Sources report **15–85 ETB** depending on the offer. |
+| 1xBet accepts Amole | **Not found.** Documented 1xBet ET methods are telebirr and SantimPay for deposits; telebirr, M-Pesa and CBE Birr for withdrawals; plus international e-wallets and crypto. |
+| Local sites support "instant telebirr withdrawals" | Deposits are instant. Reported withdrawal times range from minutes to **24 h**. |
+| International sites require "stricter KYC" | No evidence. Local operators also required a national ID upload before the first withdrawal. |
+
+### Not verified (no Ethiopia-specific source found)
+- **Paripesa** (20,000 ETB bonus, 100 ETB min, 15 min–3 day payouts): no Ethiopia-specific data. Watch-list only.
+- **22Bet** 14,000 ETB bonus / 180 ETB minimum: earlier sources said 130 ETB minimum, and no bonus figure was found.
+- **Beguma Bet:** no trace of this brand found.
+- **Athletics** as a betting driver: plausible culturally, but no betting-specific evidence found.
+- **Esports:** sources describe it as "largely untapped" in Ethiopia, not as growing.
+- **GG.BET, Stake, Thunderpick:** no evidence of any Ethiopian presence.
+
+### Disagreement on crypto
+The Gemini review presents crypto as a way to "bypass traditional banking delays". In Ethiopia today this means getting around a **government order to block betting payments**. NISS has named crypto and hawala as the channels used for the alleged ETB 100 bn illicit outflows. For Vamos, crypto deposits and withdrawals are a **licensing and criminal risk, not a feature**, and stay excluded (see §7).
+
+### Missing from the Gemini review
+- The Ethiopian product signatures: jackpot pools, multi-bonus ladders, 5 ETB stakes.
+- The regulator's position that casino and virtual games are not separately licensable.
+- Winnings tax (20–25%) and the Fayda ID KYC direction.
+- The planned real-time ELS monitoring system that will gate new licences.
+
+---
+
+## 9. Sources
 
 **Local operators**
 - Hulusport: [Ghanasoccernet review](https://ghanasoccernet.com/et/review/hulusport-ethiopia-bookmaker-review-rules-support-sign-up/) · [Ghanasoccernet app review](https://ghanasoccernet.com/et/app-reviews/hulusport-ethiopia/) · [Betting Dog](https://bettingdog.com/hulusport-ethiopia-review/) · [Ethiopiabetting](https://ethiopiabetting.com/hulusport/) · [Ethiopiabetting.online](https://ethiopiabetting.online/review/hulusport/) · [Paris-sportifs.africa](https://paris-sportifs.africa/en/hulusport/) · [hulusport.et](https://www.hulusport.et/) · [Bet24](https://bet24.et/casino/hulusport/)
@@ -206,4 +251,5 @@ _Research snapshot: 7 October 2026. Companion to [ethiopia-sports-betting-market
 - [Dailysports – Top Ethiopian betting sites](https://dailysports.net/en-et/bookmakers/) · [RatingBet](https://ratingbet.com/en-et/bookmakers/) · [Foot-Africa – 22Bet app](https://foot-africa.com/en/betting-sites/22bet/) · [SoccerNews – 22Bet](https://www.soccernews.com/soccer-betting/bookmakers/22bet/) · [Capital Ethiopia – Top betting sites (2025)](https://capitalethiopia.com/2025/01/31/top-betting-sites-in-ethiopia-legal-secure-and-trusted-options/)
 
 **Regulation**
+- Gemini cross-check: [MightyTips – 1xBet Ethiopia bonus](https://www.mightytips.com/bonuses/ethiopia/1xbet/) · [MightyTips – Ethiopia betting sites](https://www.mightytips.com/bookmakers/ethiopia-betting-sites)
 - [Shega – Lottery admin cracks down on virtual game betting](https://shega.co/news/issue-64-lottery-admin-cracks-down-on-virtual-game-betting) · [The Reporter – Betting booms](https://www.thereporterethiopia.com/28905/) · [iGaming Business – Ban reaffirmed](https://igamingbusiness.com/legal-compliance/ethiopia-betting-ban-regulatory-uncertainty/) · [SiGMA – Hulu Sport appeal](https://sigma.world/news/ethiopia-appeal-blocks-hulu-sport-comeback/) · [Guardian NG – on affiliate review reliability](https://guardian.ng/?p=2922443)
