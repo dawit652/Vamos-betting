@@ -1,0 +1,169 @@
+import { type Santim, birr } from './money';
+import type { OddsMilli } from './odds';
+
+/**
+ * Business-rule configuration types and their defaults. Every value is
+ * editable in the back office (stored in the `settings` table) and must be
+ * confirmed with counsel before a licensed launch.
+ */
+
+export interface BetRules {
+  /** Minimum stake per bet. Betika-style low entry: 5 ETB. */
+  minStake: Santim;
+  /** Maximum stake per bet. */
+  maxStake: Santim;
+  /** Maximum gross payout (return + bonus) per bet; anything above is capped. */
+  maxPayout: Santim;
+  /** Maximum number of legs in an accumulator. */
+  maxLegs: number;
+  /** Lowest odds accepted on any leg. */
+  minLegOddsMilli: OddsMilli;
+  /** Highest combined odds accepted (milli). */
+  maxTotalOddsMilli: bigint;
+}
+
+export interface MultiBonusTier {
+  /** Minimum number of qualifying legs for this tier. */
+  minLegs: number;
+  /** Bonus on winnings (gross return − stake) in basis points. */
+  percentBps: number;
+}
+
+export interface MultiBonusConfig {
+  enabled: boolean;
+  /** A leg qualifies for the bonus only if its odds are at least this. */
+  minLegOddsMilli: OddsMilli;
+  /** Tiers sorted by ascending `minLegs`; the highest reached tier applies. */
+  tiers: MultiBonusTier[];
+  /** Maximum bonus amount per bet. */
+  maxBonus: Santim;
+}
+
+export type TaxBase = 'net_winnings' | 'gross_payout';
+
+export interface TaxConfig {
+  /** Winnings tax rate in basis points (2000 = 20%). */
+  rateBps: number;
+  /**
+   * What the rate applies to. `net_winnings` = gross payout − stake (a winning
+   * bet can never pay less than its stake); `gross_payout` = the whole payout.
+   */
+  base: TaxBase;
+  /** No tax when the taxable base is strictly below this amount. */
+  exemptBelow: Santim;
+}
+
+export interface CashOutConfig {
+  enabled: boolean;
+  /** House margin taken from the fair cash-out value, in basis points. */
+  marginBps: number;
+  /** Offers below this amount are not shown. */
+  minOffer: Santim;
+}
+
+export type JackpotCancelledRule = 'all_win';
+
+export interface JackpotPrizeTier {
+  /** Number of correct predictions required (e.g. 13 of 13). */
+  correct: number;
+  /**
+   * `shared`: `amount` is a pool split equally between all winning combinations.
+   * `fixed`: every winning combination receives `amount`.
+   */
+  kind: 'shared' | 'fixed';
+  amount: Santim;
+}
+
+export interface JackpotTemplate {
+  code: 'daily9' | 'weekly13';
+  gameCount: number;
+  costPerCombination: Santim;
+  maxCombinations: number;
+  cancelledRule: JackpotCancelledRule;
+  /** Sorted by descending `correct`. */
+  prizeTiers: JackpotPrizeTier[];
+}
+
+export interface ResponsibleGamblingRules {
+  minAge: number;
+}
+
+export const DEFAULT_BET_RULES: BetRules = {
+  minStake: birr(5),
+  maxStake: birr(100_000),
+  maxPayout: birr(500_000),
+  maxLegs: 40,
+  minLegOddsMilli: 1010,
+  maxTotalOddsMilli: 1_000_000_000n, // 1,000,000.000
+};
+
+/** Vamos accumulator bonus ladder (on winnings). */
+export const DEFAULT_MULTI_BONUS: MultiBonusConfig = {
+  enabled: true,
+  minLegOddsMilli: 1300,
+  tiers: [
+    { minLegs: 3, percentBps: 300 },
+    { minLegs: 4, percentBps: 500 },
+    { minLegs: 5, percentBps: 800 },
+    { minLegs: 6, percentBps: 1_000 },
+    { minLegs: 7, percentBps: 1_500 },
+    { minLegs: 8, percentBps: 2_000 },
+    { minLegs: 9, percentBps: 2_500 },
+    { minLegs: 10, percentBps: 3_000 },
+    { minLegs: 12, percentBps: 4_000 },
+    { minLegs: 15, percentBps: 5_000 },
+    { minLegs: 20, percentBps: 10_000 },
+    { minLegs: 25, percentBps: 15_000 },
+    { minLegs: 30, percentBps: 20_000 },
+  ],
+  maxBonus: birr(50_000),
+};
+
+/**
+ * Proclamation 1395/2025 reportedly sets 20–25% on lottery/betting winnings.
+ * Rate, base and exemption are placeholders pending legal confirmation.
+ */
+export const DEFAULT_TAX: TaxConfig = {
+  rateBps: 2_000,
+  base: 'net_winnings',
+  exemptBelow: birr(100),
+};
+
+export const DEFAULT_CASH_OUT: CashOutConfig = {
+  enabled: true,
+  marginBps: 500,
+  minOffer: birr(1),
+};
+
+export const DEFAULT_LIVE_BET_DELAY_MS = 6_000;
+
+export const DEFAULT_RESPONSIBLE_GAMBLING: ResponsibleGamblingRules = {
+  minAge: 21,
+};
+
+export const DEFAULT_JACKPOTS: Record<JackpotTemplate['code'], JackpotTemplate> = {
+  daily9: {
+    code: 'daily9',
+    gameCount: 9,
+    costPerCombination: birr(10),
+    maxCombinations: 1_024,
+    cancelledRule: 'all_win',
+    prizeTiers: [
+      { correct: 9, kind: 'shared', amount: birr(100_000) },
+      { correct: 8, kind: 'fixed', amount: birr(200) },
+    ],
+  },
+  weekly13: {
+    code: 'weekly13',
+    gameCount: 13,
+    costPerCombination: birr(10),
+    maxCombinations: 4_096,
+    cancelledRule: 'all_win',
+    prizeTiers: [
+      { correct: 13, kind: 'shared', amount: birr(1_000_000) },
+      { correct: 12, kind: 'shared', amount: birr(100_000) },
+      { correct: 11, kind: 'fixed', amount: birr(500) },
+      { correct: 10, kind: 'fixed', amount: birr(50) },
+    ],
+  },
+};
