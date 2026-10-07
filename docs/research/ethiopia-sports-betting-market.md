@@ -2,6 +2,8 @@
 
 _Research snapshot: 7 October 2026. Sources are listed at the end. Most operator data comes from affiliate or review sites, so treat any figure marked "reported" as unverified until it is checked against an operator's own cashier or an official notice._
 
+_See also: [ethiopia-betting-sites-feature-comparison.md](./ethiopia-betting-sites-feature-comparison.md) for a site-by-site feature comparison._
+
 ---
 
 ## 1. Executive summary
