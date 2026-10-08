@@ -8,8 +8,9 @@ import {
   quoteBet,
   validateSlip,
 } from './betslip';
-import { birr } from './money';
-import { productOddsMilli } from './odds';
+import { birr, maxSantim, minSantim } from './money';
+import { computeMultiBonus } from './multibonus';
+import { MAX_ODDS_MILLI, grossReturn, productOddsMilli } from './odds';
 import {
   DEFAULT_BET_RULES,
   DEFAULT_MULTI_BONUS,
@@ -389,6 +390,37 @@ describe('computePayout', () => {
     }
   });
 
+  it('prices and settles a leg at the maximum odds of 1000.00', () => {
+    expect(
+      computePayout({
+        stake: birr(1),
+        legOdds: [MAX_ODDS_MILLI],
+        maxPayout: rules.maxPayout,
+        multiBonus,
+        tax,
+      }).grossReturn,
+    ).toBe(birr(1_000));
+    // Inside a multi too, and the same price one milli lower.
+    expect(
+      computePayout({
+        stake: birr(1),
+        legOdds: [MAX_ODDS_MILLI, 2000],
+        maxPayout: rules.maxPayout,
+        multiBonus: noBonus,
+        tax,
+      }).grossReturn,
+    ).toBe(birr(2_000));
+    expect(
+      computePayout({
+        stake: birr(1),
+        legOdds: [MAX_ODDS_MILLI - 1],
+        maxPayout: rules.maxPayout,
+        multiBonus,
+        tax,
+      }).grossReturn,
+    ).toBe(99_999n);
+  });
+
   it('rejects invalid inputs', () => {
     const base = { stake: birr(10), legOdds: [2000], maxPayout: rules.maxPayout, multiBonus, tax };
     expect(() => computePayout({ ...base, stake: -1n })).toThrow(RangeError);
@@ -402,7 +434,7 @@ describe('computePayout', () => {
     fc.assert(
       fc.property(
         fc.bigInt({ min: 0n, max: birr(100_000) }),
-        fc.array(fc.integer({ min: 1000, max: 50_000 }), { maxLength: 20 }),
+        fc.array(fc.integer({ min: 1000, max: MAX_ODDS_MILLI }), { maxLength: 40, size: 'max' }),
         fc.bigInt({ min: 0n, max: birr(1_000_000) }),
         multiBonusArb,
         taxConfigArb,
@@ -426,6 +458,45 @@ describe('computePayout', () => {
           expect(r.grossPayout).toBe(capped + r.bonusAmount);
           expect(r.netPayout).toBe(r.grossPayout - r.taxAmount);
           if (r.grossPayout >= stake) expect(r.netPayout).toBeGreaterThanOrEqual(stake);
+        },
+      ),
+    );
+  });
+
+  it('the max-payout cap reduces the bonus first (property)', () => {
+    // computeMultiBonus is the oracle for the bonus earned. Half the runs put the cap
+    // inside [gross, gross + bonus], the region where the cap only trims the bonus.
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 0n, max: birr(100_000) }),
+        fc.array(fc.integer({ min: 1000, max: MAX_ODDS_MILLI }), { maxLength: 40, size: 'max' }),
+        fc.bigInt({ min: 0n, max: 10_000n }),
+        fc.bigInt({ min: 0n, max: birr(1_000_000) }),
+        fc.boolean(),
+        multiBonusArb,
+        taxConfigArb,
+        (stake, legOdds, frac, freeCap, capInBonus, bonusConfig, taxConfig) => {
+          const gross = grossReturn(stake, legOdds);
+          const bonus = computeMultiBonus({
+            stake,
+            grossReturn: gross,
+            legOdds,
+            config: bonusConfig,
+          });
+          const maxPayout = capInBonus ? gross + (bonus.amount * frac) / 10_000n : freeCap;
+          const r = computePayout({
+            stake,
+            legOdds,
+            maxPayout,
+            multiBonus: bonusConfig,
+            tax: taxConfig,
+          });
+          expect(r.grossReturn).toBe(gross);
+          expect(r.bonusPercentBps).toBe(bonus.percentBps);
+          expect(r.qualifyingLegs).toBe(bonus.qualifyingLegs);
+          expect(r.bonusAmount).toBe(minSantim(bonus.amount, maxSantim(0n, maxPayout - gross)));
+          expect(r.grossPayout).toBe(minSantim(gross + bonus.amount, maxPayout));
+          expect(r.cappedByMaxPayout).toBe(gross + bonus.amount > maxPayout);
         },
       ),
     );

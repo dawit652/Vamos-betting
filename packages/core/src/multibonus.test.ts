@@ -32,7 +32,7 @@ describe('qualifyingLegCount', () => {
 
   it('is between 0 and the number of legs', () => {
     fc.assert(
-      fc.property(fc.array(oddsArb, { maxLength: 40 }), (legs) => {
+      fc.property(fc.array(oddsArb, { maxLength: 40, size: 'max' }), (legs) => {
         const count = qualifyingLegCount(legs, config);
         return count >= 0 && count <= legs.length;
       }),
@@ -45,6 +45,23 @@ describe('multiBonusPercentBps', () => {
     expect(multiBonusPercentBps(0, config)).toBe(0);
     expect(multiBonusPercentBps(1, config)).toBe(0);
     expect(multiBonusPercentBps(2, config)).toBe(0);
+  });
+
+  it('applies every rung of the default ladder at and between its boundaries', () => {
+    // Rate for 0..41 qualifying legs. Pins the tier boundaries (5–9, 15, 25 included)
+    // through the function, not just the config literal (see rules.test.ts).
+    const expected = (legs: number): number => {
+      if (legs >= 30) return 20_000;
+      if (legs >= 25) return 15_000;
+      if (legs >= 20) return 10_000;
+      if (legs >= 15) return 5_000;
+      if (legs >= 12) return 4_000;
+      if (legs >= 10) return 3_000;
+      return [0, 0, 0, 300, 500, 800, 1_000, 1_500, 2_000, 2_500][legs] ?? Number.NaN;
+    };
+    for (let legs = 0; legs <= 41; legs += 1) {
+      expect(multiBonusPercentBps(legs, config), `${legs} legs`).toBe(expected(legs));
+    }
   });
 
   it('picks the highest reached tier', () => {
@@ -89,6 +106,12 @@ describe('multiBonusPercentBps', () => {
     expect(multiBonusPercentBps(3, tied)).toBe(700);
   });
 
+  it('accepts a tier with minLegs 0', () => {
+    expect(multiBonusPercentBps(0, withConfig({ tiers: [{ minLegs: 0, percentBps: 100 }] }))).toBe(
+      100,
+    );
+  });
+
   it('rejects malformed tiers', () => {
     expect(() =>
       multiBonusPercentBps(3, withConfig({ tiers: [{ minLegs: 3, percentBps: -1 }] })),
@@ -112,7 +135,7 @@ describe('multiBonusPercentBps', () => {
   it('adding a qualifying leg to a slip never decreases the rate (default ladder)', () => {
     fc.assert(
       fc.property(
-        fc.array(oddsArb, { maxLength: 40 }),
+        fc.array(oddsArb, { maxLength: 40, size: 'max' }),
         fc.integer({ min: config.minLegOddsMilli, max: 20_000 }),
         (legs, extra) => {
           const before = multiBonusPercentBps(qualifyingLegCount(legs, config), config);
@@ -167,6 +190,37 @@ describe('computeMultiBonus', () => {
     expect(
       computeMultiBonus({ stake: birr(10), grossReturn: birr(10), legOdds: [], config: generous }),
     ).toEqual({ percentBps: 0, qualifyingLegs: 0, amount: 0n });
+  });
+
+  it('pays a two-leg multi when the ladder has a 2-leg tier', () => {
+    // Only singles are excluded; a configured doubles tier must pay.
+    const doubles = withConfig({ tiers: [{ minLegs: 2, percentBps: 1_000 }] });
+    expect(
+      computeMultiBonus({
+        stake: birr(100),
+        grossReturn: birr(400),
+        legOdds: [2000, 2000],
+        config: doubles,
+      }),
+    ).toEqual({ percentBps: 1_000, qualifyingLegs: 2, amount: birr(30) });
+    // A 0-leg tier still never pays a single.
+    const everything = withConfig({ tiers: [{ minLegs: 0, percentBps: 1_000 }] });
+    expect(
+      computeMultiBonus({
+        stake: birr(100),
+        grossReturn: birr(400),
+        legOdds: [2000, 2000],
+        config: everything,
+      }).amount,
+    ).toBe(birr(30));
+    expect(
+      computeMultiBonus({
+        stake: birr(100),
+        grossReturn: birr(200),
+        legOdds: [2000],
+        config: everything,
+      }).amount,
+    ).toBe(0n);
   });
 
   it('gives no bonus below the lowest tier or with non-qualifying legs', () => {
@@ -256,7 +310,7 @@ describe('computeMultiBonus', () => {
     fc.assert(
       fc.property(
         stakeArb,
-        fc.array(oddsArb, { maxLength: 40 }),
+        fc.array(oddsArb, { maxLength: 40, size: 'max' }),
         fc.bigInt({ min: 0n, max: birr(1_000_000) }),
         fc.boolean(),
         (stake, legOdds, maxBonus, enabled) => {

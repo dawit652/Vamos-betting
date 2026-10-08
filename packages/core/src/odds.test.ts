@@ -4,6 +4,7 @@ import {
   MAX_ODDS_MILLI,
   formatOdds,
   grossReturn,
+  impliedProbability,
   isValidOddsMilli,
   oddsFromProbability,
   parseOdds,
@@ -94,6 +95,30 @@ describe('combined odds and returns', () => {
   });
 });
 
+describe('impliedProbability', () => {
+  it('is 1 / decimal odds', () => {
+    expect(impliedProbability(2000)).toBe(0.5);
+    expect(impliedProbability(4000)).toBe(0.25);
+    expect(impliedProbability(1000)).toBe(1);
+    expect(impliedProbability(MAX_ODDS_MILLI)).toBe(0.001);
+    expect(impliedProbability(1850)).toBeCloseTo(0.540_540_54, 8);
+  });
+
+  it('is in (0, 1) for valid odds and strictly decreasing in the odds', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1001, max: MAX_ODDS_MILLI - 1 }),
+        fc.integer({ min: 1, max: 1000 }),
+        (odds, step) => {
+          const p = impliedProbability(odds);
+          const higher = impliedProbability(Math.min(MAX_ODDS_MILLI, odds + step));
+          return p > 0 && p < 1 && higher < p && Math.abs((p * odds) / 1000 - 1) < 1e-12;
+        },
+      ),
+    );
+  });
+});
+
 describe('oddsFromProbability', () => {
   it('prices fair odds rounded down to hundredths', () => {
     expect(oddsFromProbability(0.5)).toBe(2000);
@@ -106,6 +131,26 @@ describe('oddsFromProbability', () => {
     expect(oddsFromProbability(1e-9)).toBe(MAX_ODDS_MILLI);
     expect(() => oddsFromProbability(0)).toThrow(RangeError);
     expect(() => oddsFromProbability(1.2)).toThrow(RangeError);
+  });
+
+  it('round-trips every hundredth price through its implied probability', () => {
+    // Without the float-noise epsilon 1000 / (1000 / 1510) = 1509.9999999999998 → 1.50.
+    expect(oddsFromProbability(1000 / 1510)).toBe(1510);
+    // Exhaustive over 1.01 … 1000.00 (99 900 prices).
+    const failures: number[] = [];
+    for (let h = 101; h <= MAX_ODDS_MILLI / 10; h += 1) {
+      if (oddsFromProbability(impliedProbability(h * 10)) !== h * 10) failures.push(h * 10);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it('prices any odds back down to the hundredth from its implied probability', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1001, max: MAX_ODDS_MILLI }), (odds) => {
+        const expected = Math.max(1010, Math.floor(odds / 10) * 10);
+        return oddsFromProbability(impliedProbability(odds)) === expected;
+      }),
+    );
   });
 
   it('adding margin never increases the price', () => {

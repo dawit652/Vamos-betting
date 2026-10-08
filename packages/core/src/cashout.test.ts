@@ -273,6 +273,27 @@ describe('cashOutOffer – amounts', () => {
     expect(offer.potentialReturn).toBe(birr(900));
   });
 
+  it('can equal the floored potential return even with a margin (regression)', () => {
+    // potentialReturn = floor(1 × 1.002) = 1; offer = floor(1 × 1.002 / 1.001 × 0.9999) = 1.
+    expect(
+      cashOutOffer({
+        stake: 1n,
+        legs: [open(1002, 1001)],
+        config: { enabled: true, marginBps: 1, minOffer: 0n },
+        maxPayout: 2n,
+      }),
+    ).toEqual({ available: true, amount: 1n, potentialReturn: 1n });
+    // Shrunk counterexample of the old (wrong) "strictly below potentialReturn" property.
+    expect(
+      cashOutOffer({
+        stake: 1n,
+        legs: [open(1001, 1001), won(1001)],
+        config: { enabled: true, marginBps: 1, minOffer: 0n },
+        maxPayout: 2n,
+      }),
+    ).toEqual({ available: true, amount: 1n, potentialReturn: 1n });
+  });
+
   it('a zero stake has a zero offer (available when minOffer is 0)', () => {
     const offer = cashOutOffer({
       stake: 0n,
@@ -566,7 +587,10 @@ describe('cashOutOffer – properties', () => {
     );
   });
 
-  it('with a positive margin and an open leg the offer is strictly below the potential return', () => {
+  it('with a positive margin and an open leg the offer is strictly below the exact return and the cap', () => {
+    // Not "strictly below potentialReturn": that value is floor(return), and the offer is
+    // floor(return × discount), so both floors can land on the same integer (see the
+    // 'can equal the floored potential return' example above).
     fc.assert(
       fc.property(
         stakeArb,
@@ -580,9 +604,14 @@ describe('cashOutOffer – properties', () => {
             config: { enabled: true, marginBps, minOffer: 0n },
             maxPayout,
           });
-          if (offer.available && offer.potentialReturn > 0n) {
-            expect(offer.amount).toBeLessThan(offer.potentialReturn);
-          }
+          fc.pre(offer.available && offer.potentialReturn > 0n);
+          // Exact (unfloored) return: stake × Π placed / 1000^n over the non-void legs.
+          const nonVoid = legs.filter((l) => l.state !== 'void');
+          const num = nonVoid.reduce((acc, l) => acc * BigInt(l.placedOddsMilli), stake);
+          const den = 1000n ** BigInt(nonVoid.length);
+          expect(offer.amount * den < num).toBe(true);
+          expect(offer.amount < maxPayout).toBe(true);
+          expect(offer.amount <= offer.potentialReturn).toBe(true);
         },
       ),
     );

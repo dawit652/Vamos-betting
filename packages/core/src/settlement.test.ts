@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { computePayout } from './betslip';
 import { birr } from './money';
-import { VOID_ODDS_MILLI } from './odds';
+import { MAX_ODDS_MILLI, VOID_ODDS_MILLI } from './odds';
 import {
   DEFAULT_BET_RULES,
   DEFAULT_MULTI_BONUS,
@@ -41,8 +41,11 @@ const taxConfigArb: fc.Arbitrary<TaxConfig> = fc.record({
 /** A settleable winning bet: at least one won leg, the rest won or void. */
 const wonOrVoidLegsArb = fc
   .tuple(
+    // 39 others + the inserted won leg = DEFAULT_BET_RULES.maxLegs (40). fast-check 4
+    // ignores maxLength when sizing arrays unless size is 'max' (default 'small' caps at ~10).
     fc.array(fc.record({ oddsMilli: oddsArb, state: fc.constantFrom<LegState>('won', 'void') }), {
-      maxLength: 15,
+      maxLength: 39,
+      size: 'max',
     }),
     oddsArb,
     fc.nat(),
@@ -209,6 +212,26 @@ describe('settleBet', () => {
     expect(single).toMatchObject({ status: 'won', grossReturn: birr(300), bonusAmount: 0n });
   });
 
+  it('settles a won leg at the maximum odds of 1000.00', () => {
+    expect(
+      settleBet({ stake: birr(1), legs: [won(MAX_ODDS_MILLI)], maxPayout, multiBonus, tax })
+        .grossReturn,
+    ).toBe(birr(1_000));
+    expect(
+      settleBet({
+        stake: birr(1),
+        legs: [voided(MAX_ODDS_MILLI), won(MAX_ODDS_MILLI), won(2000)],
+        maxPayout,
+        multiBonus: noBonus,
+        tax,
+      }),
+    ).toMatchObject({
+      status: 'won',
+      effectiveOddsMilli: [1000, MAX_ODDS_MILLI, 2000],
+      grossReturn: birr(2_000),
+    });
+  });
+
   it('applies the max payout cap and the winnings tax', () => {
     const result = settleBet({
       stake: birr(100_000),
@@ -231,7 +254,7 @@ describe('settleBet', () => {
   it('pays nothing when a lost leg is anywhere in the bet', () => {
     fc.assert(
       fc.property(
-        fc.array(legArb, { maxLength: 15 }),
+        fc.array(legArb, { maxLength: 39, size: 'max' }),
         oddsArb,
         fc.nat(),
         stakeArb,

@@ -62,6 +62,11 @@ describe('parseBirr / birr', () => {
   it('accepts commas only as thousands grouping', () => {
     expect(parseBirr('1,250.75')).toBe(125075n);
     expect(parseBirr('12,345,678')).toBe(1234567800n);
+    // At most 15 whole digits, with or without grouping commas.
+    expect(parseBirr('100,000,000,000,000')).toBe(10n ** 16n); // 15 whole digits
+    expect(parseBirr('999,999,999,999,999.99')).toBe(10n ** 17n - 1n);
+    expect(() => parseBirr('1,000,000,000,000,000')).toThrow(RangeError); // 16 digits via grouping
+    expect(() => parseBirr('1000000000000000')).toThrow(RangeError); // 16 digits ungrouped
     for (const bad of ['12,34', '1,5', '1,,000', ',5', '5,', '1,2345', '12,34.5']) {
       expect(() => parseBirr(bad), bad).toThrow(RangeError);
     }

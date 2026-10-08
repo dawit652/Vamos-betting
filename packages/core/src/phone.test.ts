@@ -197,11 +197,21 @@ describe('normalizeEthiopianMsisdn', () => {
   });
 
   it('only ever returns +2519/+2517 followed by eight digits', () => {
+    // Half the inputs are valid numbers with random separators, so the format check runs
+    // (random digit strings alone essentially never normalise).
     fc.assert(
-      fc.property(fc.stringMatching(/^[+0-9 \-.()]{0,20}$/), (input) => {
-        const normalized = normalizeEthiopianMsisdn(input);
-        return normalized === null || /^\+251[79]\d{8}$/.test(normalized);
-      }),
+      fc.property(
+        fc.oneof(
+          fc.stringMatching(/^[+0-9 \-.()]{0,20}$/),
+          fc
+            .tuple(subscriberArb, prefixArb)
+            .chain(([subscriber, prefix]) => withSeparators(`${prefix}${subscriber}`)),
+        ),
+        (input) => {
+          const normalized = normalizeEthiopianMsisdn(input);
+          return normalized === null || /^\+251[79]\d{8}$/.test(normalized);
+        },
+      ),
     );
   });
 });
