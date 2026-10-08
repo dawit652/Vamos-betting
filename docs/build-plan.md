@@ -7,31 +7,33 @@ research is in `docs/research/`.
 
 ## Status
 
-| Phase | Scope                                                         | State                  | Commits                             |
-| ----- | ------------------------------------------------------------- | ---------------------- | ----------------------------------- |
-| 0     | Foundation: workspace, config guard, infra, CI                | Done                   | `f81d44e`                           |
-| 1     | Domain core (`packages/core`)                                 | Done                   | `dccd213`, `4a8d03f`                |
-| 2     | Database, accounts, ledger, auth, KYC, RG, wallet             | Done                   | `2131ee7`, `d26120d`                |
-| 3     | Sports catalogue, odds feed, live simulator, trading services | **Needs verification** | `0c02e89`, `e381576`, WIP `f80ccf5` |
-| 4     | Betslip, bet placement, booking codes, settlement             | Not started            |                                     |
-| 5     | Player web app (Betika-style lite PWA), the demo MVP          | Not started            |                                     |
-| 6     | Payments: deposits and withdrawals                            | Not started            |                                     |
-| 7     | Live betting and cash-out                                     | Not started            |                                     |
-| 8     | Jackpots and promotions                                       | Not started            |                                     |
-| 9     | Back office (`apps/admin`)                                    | Not started            |                                     |
-| 10    | Compliance and regulator reporting                            | Not started            |                                     |
-| 11    | SMS/USSD channel (feature-flagged)                            | Not started            |                                     |
-| 12    | Hardening and deployment                                      | Not started            |                                     |
+| Phase | Scope                                                         | State       | Commits                         |
+| ----- | ------------------------------------------------------------- | ----------- | ------------------------------- |
+| 0     | Foundation: workspace, config guard, infra, CI                | Done        | `f81d44e`                       |
+| 1     | Domain core (`packages/core`)                                 | Done        | `dccd213`, `4a8d03f`            |
+| 2     | Database, accounts, ledger, auth, KYC, RG, wallet             | Done        | `2131ee7`, `d26120d`            |
+| 3     | Sports catalogue, odds feed, live simulator, trading services | Done        | `0c02e89`, `e381576`, `f80ccf5` |
+| 4     | Betslip, bet placement, booking codes, settlement             | Not started |                                 |
+| 5     | Player web app (Betika-style lite PWA), the demo MVP          | Not started |                                 |
+| 6     | Payments: deposits and withdrawals                            | Not started |                                 |
+| 7     | Live betting and cash-out                                     | Not started |                                 |
+| 8     | Jackpots and promotions                                       | Not started |                                 |
+| 9     | Back office (`apps/admin`)                                    | Not started |                                 |
+| 10    | Compliance and regulator reporting                            | Not started |                                 |
+| 11    | SMS/USSD channel (feature-flagged)                            | Not started |                                 |
+| 12    | Hardening and deployment                                      | Not started |                                 |
 
-Commit `f80ccf5` holds fixes for all 13 Phase 3 review findings. It has **not** been through lint,
-typecheck or the full test run yet. The agent that wrote it reported these package test counts as passing:
+Phase 3 was verified on 8 Oct 2026: format, lint, typecheck, build and every test pass.
 
 | Package | Tests |
 | ------- | ----- |
+| core    | 492   |
 | db      | 99    |
 | feed    | 143   |
 | worker  | 37    |
 | api     | 198   |
+| config  | 10    |
+| i18n    | 3     |
 
 ## Legal context (do not change)
 
@@ -60,7 +62,7 @@ typecheck or the full test run yet. The agent that wrote it reported these packa
    ```
    Postgres refuses to run as root, so the script uses `runuser -u postgres`. If services stop
    (they do after container restarts), run the start command again.
-3. **Finish Phase 3:**
+3. **Check the baseline** (Phase 3 is verified, so this should pass):
    ```bash
    pnpm format && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test
    ```
