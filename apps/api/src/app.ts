@@ -1,16 +1,36 @@
+import fastifyCookie from '@fastify/cookie';
+import fastifyCors from '@fastify/cors';
+import fastifyHelmet from '@fastify/helmet';
+import fastifyRateLimit from '@fastify/rate-limit';
 import type { AppConfig } from '@vamos/config';
 import type { HealthResponse } from '@vamos/contracts';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import type { AppDeps } from './deps';
 import { AppError } from './lib/errors';
+import { registerModules } from './modules/index';
+import { sessionPlugin } from './plugins/session';
+
+export type { AppDeps } from './deps';
 
 export const API_VERSION = '0.1.0';
 
-export interface AppDeps {
-  config: AppConfig;
+declare module 'fastify' {
+  interface FastifyInstance {
+    deps: AppDeps;
+  }
 }
 
 export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
+  /** Redis key namespace for rate-limit counters (tests use one per app instance). */
+  rateLimitNameSpace?: string;
+}
+
+/** Browser origins allowed to call the API with credentials (player web app and back office). */
+function allowedOrigins(config: AppConfig): string[] {
+  return [
+    ...new Set([config.web.publicUrl, config.web.adminUrl].map((url) => new URL(url).origin)),
+  ];
 }
 
 export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyInstance {
@@ -22,6 +42,39 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     genReqId: () => crypto.randomUUID(),
     requestIdHeader: 'x-request-id',
   });
+
+  app.decorate('deps', deps);
+
+  void app.register(fastifyCookie);
+  void app.register(fastifyHelmet, {
+    // A JSON API serves no documents: forbid everything if a response is ever rendered.
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
+    },
+    // The web app (another port or subdomain) is same-site with the API.
+    crossOriginResourcePolicy: { policy: 'same-site' },
+  });
+  void app.register(fastifyCors, {
+    origin: allowedOrigins(config),
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: ['content-type', 'authorization', 'x-csrf-token', 'x-request-id'],
+    exposedHeaders: ['x-request-id', 'retry-after'],
+    maxAge: 600,
+  });
+  void app.register(fastifyRateLimit, {
+    // Limits are opt-in per route via `config.rateLimit`.
+    global: false,
+    redis: deps.redis,
+    nameSpace: options.rateLimitNameSpace ?? 'vamos-rl:',
+    errorResponseBuilder: (_request, context) =>
+      new AppError(429, 'rate_limited', `Too many requests. Try again in ${context.after}.`, {
+        retryAfterSeconds: Math.ceil(context.ttl / 1000),
+      }),
+  });
+  // After @fastify/cookie, so cookies are parsed when the session hook runs.
+  void app.register(sessionPlugin);
 
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -58,8 +111,12 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     service: 'vamos-api',
     mode: config.mode,
     version: API_VERSION,
-    time: new Date().toISOString(),
+    time: deps.clock().toISOString(),
   }));
+
+  void app.register(async (instance) => {
+    await registerModules(instance, deps);
+  });
 
   return app;
 }
