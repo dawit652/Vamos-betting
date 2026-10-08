@@ -90,6 +90,9 @@ importers:
       '@vamos/db':
         specifier: workspace:*
         version: link:../../packages/db
+      drizzle-orm:
+        specifier: 0.45.3
+        version: 0.45.3(@types/pg@8.23.1)(pg@8.23.1)
       fastify:
         specifier: 5.12.5
         version: 5.12.5

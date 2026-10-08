@@ -26,7 +26,10 @@ export function idNumberHash(secret: string, idNumber: string): string {
  * ignoring whitespace (including the Ethiopic word space ፡).
  */
 export function nameKey(name: string): string {
-  return name.normalize('NFKC').toLowerCase().replace(/[\s፡]+/gu, '');
+  return name
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s፡]+/gu, '');
 }
 
 export function namesMatch(submitted: string, verified: string): boolean {

@@ -153,7 +153,9 @@ function resolveLimitRows(rows: readonly LimitRow[], now: Date): LimitShape<Limi
     if (list) list.push(row);
     else bySlot.set(key, [row]);
   }
-  return shapeLimits((kind, period) => resolveLimitSlot(bySlot.get(slotKey(kind, period)) ?? [], now));
+  return shapeLimits((kind, period) =>
+    resolveLimitSlot(bySlot.get(slotKey(kind, period)) ?? [], now),
+  );
 }
 
 /** Active and pending state of every limit slot of the player at `now`. */
@@ -207,13 +209,16 @@ export async function getLimits(
   return shapeLimits((kind, period) => limitEntry(slotOf(states, kind, period)));
 }
 
-function parseLimitAmount(field: string, value: string): bigint {
-  let amount: bigint | null = null;
+function trySantim(value: string): bigint | null {
   try {
-    amount = parseSantim(value);
+    return parseSantim(value);
   } catch {
-    amount = null;
+    return null;
   }
+}
+
+function parseLimitAmount(field: string, value: string): bigint {
+  const amount = trySantim(value);
   if (amount === null || amount < MIN_LIMIT || amount > MAX_LIMIT) {
     throw badRequest(
       'invalid_limit',
@@ -245,8 +250,12 @@ export function decideLimitChange(
   return requested < active ? 'immediate' : 'delayed';
 }
 
-/** Takes the player's row lock so RG changes (and checks made under it) are serialised. */
-async function lockUser(tx: DbTransaction, userId: string): Promise<void> {
+/**
+ * Takes the player's row lock (FOR NO KEY UPDATE) so RG changes, and checks
+ * such as assertDepositAllowed made under it, are serialised per player.
+ * Throws 404 when the user does not exist.
+ */
+export async function lockUser(tx: DbTransaction, userId: string): Promise<void> {
   const [row] = await tx
     .select({ id: users.id })
     .from(users)
@@ -263,7 +272,7 @@ interface RequestedLimit extends LimitSlot {
 function requestedLimits(input: RgLimitsRequest): RequestedLimit[] {
   const requested: RequestedLimit[] = [];
   for (const { kind, period } of LIMIT_SLOTS) {
-    const group = input[kind] as Partial<Record<LimitPeriod, string | null | undefined>> | undefined;
+    const group: Partial<Record<LimitPeriod, string | null>> | undefined = input[kind];
     const value = group?.[period];
     if (value === undefined) continue;
     const field = slotKey(kind, period);
@@ -370,8 +379,8 @@ function assertPositive(amount: bigint, label: string): void {
  * Throws 403 when the player may not gamble, or 422 `deposit_limit_exceeded`
  * (details `{ period, limit, used }`, santim strings) when the deposits of a
  * rolling window plus `amount` would exceed a deposit limit. Run it in the
- * transaction that records the deposit, under the player's row lock, so
- * concurrent deposits cannot both slip under the limit.
+ * transaction that records the deposit, after `lockUser`, so concurrent
+ * deposits cannot both slip under the limit.
  */
 export async function assertDepositAllowed(
   exec: DbExecutor,
@@ -401,7 +410,8 @@ export async function assertDepositAllowed(
  * (details `{ period: 'bet', limit, stake }`) when `stake` is above the
  * per-bet limit, or 422 `loss_limit_exceeded` (details `{ period, limit,
  * used }`) when the net loss of a rolling window plus `stake` would exceed a
- * loss limit. Amounts in details are santim strings.
+ * loss limit (open stakes count as lost until settled). Amounts in details
+ * are santim strings. Run it in the bet-placement transaction after `lockUser`.
  */
 export async function assertStakeAllowed(
   exec: DbExecutor,
