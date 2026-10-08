@@ -1,29 +1,21 @@
 import type { ApiError } from '@vamos/contracts';
+import { DomainError } from '@vamos/db';
 import type { z } from 'zod';
 
 /**
  * A failure that is safe to show to the client. Anything else that escapes a
- * handler is logged and returned as a generic 500.
+ * handler is logged and returned as a generic 500. It extends the shared
+ * DomainError of @vamos/db, which services there (responsible gambling,
+ * betting) throw; the error handler renders both the same way.
  */
-export class AppError extends Error {
-  constructor(
-    public readonly statusCode: number,
-    public readonly code: string,
-    message: string,
-    public readonly details?: unknown,
-  ) {
-    super(message);
+export class AppError extends DomainError {
+  constructor(statusCode: number, code: string, message: string, details?: unknown) {
+    super(statusCode, code, message, details);
     this.name = 'AppError';
   }
 
-  toBody(): ApiError {
-    return {
-      error: {
-        code: this.code,
-        message: this.message,
-        ...(this.details === undefined ? {} : { details: this.details }),
-      },
-    };
+  override toBody(): ApiError {
+    return super.toBody();
   }
 }
 

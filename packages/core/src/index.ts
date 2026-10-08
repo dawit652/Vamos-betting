@@ -18,3 +18,4 @@ export * from './markets';
 export * from './phone';
 export * from './age';
 export * from './codes';
+export * from './oddspolicy';

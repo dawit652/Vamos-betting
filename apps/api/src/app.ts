@@ -4,6 +4,7 @@ import fastifyHelmet from '@fastify/helmet';
 import fastifyRateLimit from '@fastify/rate-limit';
 import type { AppConfig } from '@vamos/config';
 import type { HealthResponse } from '@vamos/contracts';
+import { DomainError } from '@vamos/db';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { AppDeps } from './deps';
 import { BackgroundTasks } from './lib/background';
@@ -109,8 +110,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   });
 
   app.setErrorHandler((error, request, reply) => {
-    if (error instanceof AppError) {
-      return reply.status(error.statusCode).send(error.toBody());
+    // AppError and the DomainError thrown by shared @vamos/db services.
+    if (error instanceof DomainError) {
+      return reply.status(error.status).send(error.toBody());
     }
     const statusCode = (error as { statusCode?: number }).statusCode;
     if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {

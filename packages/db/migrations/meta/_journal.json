@@ -43,6 +43,13 @@
       "when": 1791485238010,
       "tag": "0005_phase3_review_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791502268491,
+      "tag": "0006_phase4_betting",
+      "breakpoints": true
     }
   ]
 }
