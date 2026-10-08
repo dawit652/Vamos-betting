@@ -1,0 +1,428 @@
+import type {
+  CompetitionsResponse,
+  EventDetail,
+  EventListQuery,
+  EventListResponse,
+  SportsResponse,
+} from '@vamos/contracts';
+import { parseGameId } from '@vamos/core';
+import type { DbExecutor } from '@vamos/db';
+import {
+  categories,
+  competitions,
+  events,
+  markets,
+  selections,
+  sports,
+  teams,
+} from '@vamos/db/schema';
+import { and, asc, eq, gte, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import { badRequest } from '../../lib/errors';
+import {
+  eventDetailView,
+  eventSummaryView,
+  findMainMarket,
+  groupBy,
+  isSportCode,
+  localized,
+  type EventRow,
+  type MarketRow,
+  type SelectionRow,
+} from './views';
+
+const HOUR_MS = 60 * 60_000;
+/** "Upcoming" (and a competition's event count) looks this far ahead. */
+export const UPCOMING_WINDOW_MS = 72 * HOUR_MS;
+/** Highlights show scheduled events of featured competitions starting this soon. */
+export const HIGHLIGHTS_WINDOW_MS = 24 * HOUR_MS;
+/** Africa/Addis_Ababa is UTC+3 all year (no daylight saving). */
+export const ADDIS_ABABA_OFFSET_MS = 3 * HOUR_MS;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CURSOR_RE = /^[A-Za-z0-9_-]{1,200}$/;
+/** start_time as written by `cursorTime` below: UTC with microseconds. */
+const CURSOR_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+export function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
+/** [start, end) of the Addis Ababa calendar day that contains `now`. */
+export function addisAbabaDay(now: Date): { start: Date; end: Date } {
+  const local = new Date(now.getTime() + ADDIS_ABABA_OFFSET_MS);
+  const start =
+    Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) -
+    ADDIS_ABABA_OFFSET_MS;
+  return { start: new Date(start), end: new Date(start + 24 * HOUR_MS) };
+}
+
+/** Position of an event in a list: its exact start time (microseconds) and id. */
+export interface EventCursor {
+  startTime: string;
+  id: string;
+}
+
+/** Opaque page cursor: base64url of `[startTime, id]`. */
+export function encodeEventCursor(cursor: EventCursor): string {
+  return Buffer.from(JSON.stringify([cursor.startTime, cursor.id])).toString('base64url');
+}
+
+/** Decodes a page cursor; anything malformed is a 400 `invalid_cursor`. */
+export function decodeEventCursor(cursor: string): EventCursor {
+  const invalid = () =>
+    badRequest('invalid_cursor', 'The page cursor is not valid. Start again from the first page.');
+  if (!CURSOR_RE.test(cursor)) throw invalid();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+  } catch {
+    throw invalid();
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 2) throw invalid();
+  const [startTime, id] = parsed as unknown[];
+  if (typeof startTime !== 'string' || typeof id !== 'string') throw invalid();
+  if (!CURSOR_TIME_RE.test(startTime) || !isUuid(id)) throw invalid();
+  // Reject impossible dates (month 13, 30 February) before Postgres sees them.
+  const millis = `${startTime.slice(0, 23)}Z`;
+  const date = new Date(millis);
+  if (Number.isNaN(date.getTime()) || date.toISOString() !== millis) throw invalid();
+  return { startTime, id };
+}
+
+/** Scheduled and starting in [from, to), or live. */
+function liveOrStartingBetween(from: Date, to: Date): SQL {
+  return or(
+    eq(events.status, 'live'),
+    and(eq(events.status, 'scheduled'), gte(events.startTime, from), lt(events.startTime, to)),
+  )!;
+}
+
+/** GET /sports: active sports with their live and upcoming (next 72h) event counts. */
+export async function listSports(db: DbExecutor, now: Date): Promise<SportsResponse> {
+  const upcomingEnd = new Date(now.getTime() + UPCOMING_WINDOW_MS);
+  const [sportRows, countRows] = await Promise.all([
+    db
+      .select({ id: sports.id, name: sports.name })
+      .from(sports)
+      .where(eq(sports.active, true))
+      .orderBy(asc(sports.sortOrder), asc(sports.id)),
+    db
+      .select({
+        sportId: events.sportId,
+        live: sql<number>`count(*) FILTER (WHERE ${events.status} = 'live')`.mapWith(Number),
+        upcoming: sql<number>`count(*) FILTER (WHERE ${events.status} = 'scheduled')`.mapWith(
+          Number,
+        ),
+      })
+      .from(events)
+      .innerJoin(competitions, eq(competitions.id, events.competitionId))
+      .where(and(eq(competitions.active, true), liveOrStartingBetween(now, upcomingEnd)))
+      .groupBy(events.sportId),
+  ]);
+  const counts = new Map(countRows.map((row) => [row.sportId, row]));
+  return {
+    items: sportRows.flatMap((sport) => {
+      if (!isSportCode(sport.id)) return [];
+      const count = counts.get(sport.id);
+      return [
+        {
+          id: sport.id,
+          name: localized(sport.name),
+          liveCount: count?.live ?? 0,
+          upcomingCount: count?.upcoming ?? 0,
+        },
+      ];
+    }),
+  };
+}
+
+/**
+ * GET /sports/:sport/competitions: the sport's active competitions grouped by
+ * category, each with its live and next-72h scheduled event count. Null when
+ * the sport is unknown or inactive.
+ */
+export async function listCompetitions(
+  db: DbExecutor,
+  sport: string,
+  now: Date,
+): Promise<CompetitionsResponse | null> {
+  if (!isSportCode(sport)) return null;
+  const [sportRow] = await db
+    .select({ id: sports.id })
+    .from(sports)
+    .where(and(eq(sports.id, sport), eq(sports.active, true)));
+  if (sportRow === undefined) return null;
+
+  const counts = db
+    .select({
+      competitionId: events.competitionId,
+      eventCount: sql<number>`count(*)::int`.as('event_count'),
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.sportId, sport),
+        liveOrStartingBetween(now, new Date(now.getTime() + UPCOMING_WINDOW_MS)),
+      ),
+    )
+    .groupBy(events.competitionId)
+    .as('counts');
+  const rows = await db
+    .select({
+      categorySlug: categories.slug,
+      categoryName: categories.name,
+      slug: competitions.slug,
+      name: competitions.name,
+      eventCount: sql<number>`coalesce(${counts.eventCount}, 0)`.mapWith(Number),
+    })
+    .from(competitions)
+    .innerJoin(categories, eq(categories.id, competitions.categoryId))
+    .leftJoin(counts, eq(counts.competitionId, competitions.id))
+    .where(and(eq(competitions.sportId, sport), eq(competitions.active, true)))
+    .orderBy(
+      asc(categories.sortOrder),
+      asc(categories.slug),
+      asc(competitions.sortOrder),
+      asc(competitions.slug),
+    );
+
+  return {
+    items: [...groupBy(rows, (row) => row.categorySlug).values()].map((group) => {
+      const [first] = group as [(typeof rows)[number], ...typeof rows];
+      return {
+        category: { slug: first.categorySlug, name: localized(first.categoryName) },
+        competitions: group.map((row) => ({
+          slug: row.slug,
+          name: localized(row.name),
+          eventCount: row.eventCount,
+        })),
+      };
+    }),
+  };
+}
+
+const homeTeam = alias(teams, 'home_team');
+const awayTeam = alias(teams, 'away_team');
+
+/** Event rows with their competition, category and teams (one query). */
+function selectEvents(db: DbExecutor) {
+  return db
+    .select({
+      id: events.id,
+      gameId: events.gameId,
+      sport: events.sportId,
+      startTime: events.startTime,
+      // Exact (microsecond) start time for the page cursor; a JS Date keeps milliseconds only.
+      cursorTime: sql<string>`to_char(${events.startTime} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+      status: events.status,
+      bettingOpen: events.bettingOpen,
+      liveMinute: events.liveMinute,
+      period: events.period,
+      scoreHome: events.scoreHome,
+      scoreAway: events.scoreAway,
+      htScoreHome: events.htScoreHome,
+      htScoreAway: events.htScoreAway,
+      competitionSlug: competitions.slug,
+      competitionName: competitions.name,
+      categoryName: categories.name,
+      homeId: homeTeam.id,
+      homeName: homeTeam.name,
+      homeShortName: homeTeam.shortName,
+      awayId: awayTeam.id,
+      awayName: awayTeam.name,
+      awayShortName: awayTeam.shortName,
+    })
+    .from(events)
+    .innerJoin(competitions, eq(competitions.id, events.competitionId))
+    .innerJoin(categories, eq(categories.id, competitions.categoryId))
+    .innerJoin(sports, eq(sports.id, events.sportId))
+    .innerJoin(homeTeam, eq(homeTeam.id, events.homeTeamId))
+    .innerJoin(awayTeam, eq(awayTeam.id, events.awayTeamId));
+}
+
+type SelectedEvent = Awaited<ReturnType<ReturnType<typeof selectEvents>['execute']>>[number];
+
+function toEventRow(row: SelectedEvent): EventRow | null {
+  if (!isSportCode(row.sport)) return null;
+  return {
+    id: row.id,
+    gameId: row.gameId,
+    sport: row.sport,
+    competitionSlug: row.competitionSlug,
+    competitionName: row.competitionName,
+    categoryName: row.categoryName,
+    home: { id: row.homeId, name: row.homeName, shortName: row.homeShortName },
+    away: { id: row.awayId, name: row.awayName, shortName: row.awayShortName },
+    startTime: row.startTime,
+    status: row.status,
+    bettingOpen: row.bettingOpen,
+    liveMinute: row.liveMinute,
+    period: row.period,
+    scoreHome: row.scoreHome,
+    scoreAway: row.scoreAway,
+    htScoreHome: row.htScoreHome,
+    htScoreAway: row.htScoreAway,
+  };
+}
+
+async function loadMarkets(db: DbExecutor, eventIds: readonly string[]): Promise<MarketRow[]> {
+  if (eventIds.length === 0) return [];
+  return db
+    .select({
+      id: markets.id,
+      eventId: markets.eventId,
+      type: markets.type,
+      line: markets.line,
+      status: markets.status,
+    })
+    .from(markets)
+    .where(inArray(markets.eventId, [...eventIds]));
+}
+
+async function loadSelections(
+  db: DbExecutor,
+  marketIds: readonly string[],
+): Promise<SelectionRow[]> {
+  if (marketIds.length === 0) return [];
+  return db
+    .select({
+      id: selections.id,
+      marketId: selections.marketId,
+      code: selections.code,
+      oddsMilli: selections.oddsMilli,
+      status: selections.status,
+    })
+    .from(selections)
+    .where(inArray(selections.marketId, [...marketIds]));
+}
+
+function filterCondition(query: EventListQuery, now: Date): SQL {
+  switch (query.filter) {
+    case 'highlights':
+      return and(
+        eq(competitions.featured, true),
+        liveOrStartingBetween(now, new Date(now.getTime() + HIGHLIGHTS_WINDOW_MS)),
+      )!;
+    case 'today': {
+      const { start, end } = addisAbabaDay(now);
+      return and(
+        inArray(events.status, ['scheduled', 'live']),
+        gte(events.startTime, start),
+        lt(events.startTime, end),
+      )!;
+    }
+    case 'upcoming':
+      return and(
+        eq(events.status, 'scheduled'),
+        gte(events.startTime, now),
+        lt(events.startTime, new Date(now.getTime() + UPCOMING_WINDOW_MS)),
+      )!;
+    case 'live':
+      return eq(events.status, 'live');
+    default: {
+      const unreachable: never = query.filter;
+      throw new RangeError(`unknown event filter: ${String(unreachable)}`);
+    }
+  }
+}
+
+/**
+ * GET /events: a page of a sport's events of active competitions.
+ * - highlights: featured competitions, live or starting within 24h;
+ * - today: scheduled or live, starting on today's Addis Ababa date;
+ * - upcoming: scheduled, starting within 72h;
+ * - live: in play.
+ * Ordered by (start time, id), which puts live events (already started)
+ * first, and paged by keyset on the same pair.
+ */
+export async function listEvents(
+  db: DbExecutor,
+  query: EventListQuery,
+  now: Date,
+): Promise<EventListResponse> {
+  const cursor = query.cursor === undefined ? undefined : decodeEventCursor(query.cursor);
+  const conditions: SQL[] = [
+    eq(events.sportId, query.sport),
+    eq(sports.active, true),
+    eq(competitions.active, true),
+    filterCondition(query, now),
+  ];
+  if (query.competition !== undefined) conditions.push(eq(competitions.slug, query.competition));
+  if (cursor !== undefined) {
+    conditions.push(
+      sql`(${events.startTime}, ${events.id}) > (${cursor.startTime}::timestamptz, ${cursor.id}::uuid)`,
+    );
+  }
+
+  const rows = await selectEvents(db)
+    .where(and(...conditions))
+    .orderBy(asc(events.startTime), asc(events.id))
+    .limit(query.limit + 1);
+  const page = rows.slice(0, query.limit);
+  const last = page.at(-1);
+  const nextCursor =
+    rows.length > query.limit && last !== undefined
+      ? encodeEventCursor({ startTime: last.cursorTime, id: last.id })
+      : null;
+
+  const eventRows = page.map(toEventRow).filter((row): row is EventRow => row !== null);
+  const marketRows = await loadMarkets(
+    db,
+    eventRows.map((event) => event.id),
+  );
+  const marketsByEvent = groupBy(marketRows, (market) => market.eventId);
+  const mainMarketIds = eventRows.flatMap((event) => {
+    const main = findMainMarket(event, marketsByEvent.get(event.id) ?? []);
+    return main === null ? [] : [main.id];
+  });
+  const selectionsByMarket = groupBy(
+    await loadSelections(db, mainMarketIds),
+    (selection) => selection.marketId,
+  );
+
+  return {
+    items: eventRows.map((event) => {
+      const eventMarkets = marketsByEvent.get(event.id) ?? [];
+      const main = findMainMarket(event, eventMarkets);
+      return eventSummaryView(
+        event,
+        eventMarkets,
+        main === null ? [] : (selectionsByMarket.get(main.id) ?? []),
+      );
+    }),
+    nextCursor,
+  };
+}
+
+async function eventDetail(db: DbExecutor, where: SQL): Promise<EventDetail | null> {
+  const [row] = await selectEvents(db).where(where).limit(1);
+  const event = row === undefined ? null : toEventRow(row);
+  if (event === null) return null;
+  const marketRows = await loadMarkets(db, [event.id]);
+  const selectionRows = await loadSelections(
+    db,
+    marketRows.map((market) => market.id),
+  );
+  return eventDetailView(
+    event,
+    marketRows,
+    groupBy(selectionRows, (selection) => selection.marketId),
+  );
+}
+
+/** GET /events/:id. Null for an unknown or malformed id. */
+export async function getEventById(db: DbExecutor, id: string): Promise<EventDetail | null> {
+  if (!isUuid(id)) return null;
+  return eventDetail(db, eq(events.id, id));
+}
+
+/** GET /events/by-game-id/:gameId ('0123' or '123'). Null for an unknown or malformed id. */
+export async function getEventByGameId(
+  db: DbExecutor,
+  gameId: string,
+): Promise<EventDetail | null> {
+  const parsed = parseGameId(gameId);
+  if (parsed === null) return null;
+  return eventDetail(db, eq(events.gameId, parsed));
+}

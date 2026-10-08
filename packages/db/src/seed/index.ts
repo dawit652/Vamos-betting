@@ -17,6 +17,18 @@ import {
   type DatabaseOperatingMode,
 } from '../platform/operating-mode';
 import { settings } from '../schema/platform';
+import { seedCatalog } from './catalog';
+
+export {
+  CATALOG_CATEGORIES,
+  CATALOG_SPORTS,
+  CATALOG_TEAMS,
+  DEFAULT_TEAM_RATINGS,
+  loadFeedTeams,
+  seedCatalog,
+  type CatalogSeedSummary,
+  type FeedTeamsConfig,
+} from './catalog';
 
 /** Every house ledger account with a fixed key (PSP clearing accounts are opened per provider). */
 export const HOUSE_ACCOUNT_KINDS = [
@@ -65,11 +77,13 @@ export interface SeedOptions {
  * - opens every house ledger account the mode needs. A licensed database
  *   gets no demo funding account. Existing accounts and balances are untouched;
  * - writes the default business settings that are absent. Settings that already
- *   exist (possibly edited in the back office) are never overwritten.
+ *   exist (possibly edited in the back office) are never overwritten;
+ * - upserts the sports catalogue reference data (sports, categories,
+ *   competitions, teams; see `seedCatalog`). Back-office edits survive.
  *
  * Returns `{ houseAccounts, settingsCreated }`: the number of house accounts
  * that exist after the run and the number of settings rows inserted by it.
- * Reference data (sports, competitions, teams) is added here in later phases.
+ * Call `seedCatalog` directly for the catalogue's own counts.
  */
 export async function seed(
   db: Database,
@@ -97,6 +111,8 @@ export async function seed(
       .values(rows)
       .onConflictDoNothing({ target: settings.key })
       .returning({ key: settings.key });
+
+    await seedCatalog(tx);
 
     return { houseAccounts: kinds.length, settingsCreated: created.length };
   });

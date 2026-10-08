@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppDeps } from '../deps';
 import authRoutes from './auth/routes';
+import catalogRoutes from './catalog/routes';
 import devRoutes, { devInboxEnabled } from './dev/routes';
 import kycRoutes from './kyc/routes';
 import meRoutes from './me/routes';
@@ -17,6 +18,7 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   await app.register(kycRoutes);
   await app.register(rgRoutes);
   await app.register(walletRoutes);
+  await app.register(catalogRoutes);
   if (devInboxEnabled(deps)) {
     await app.register(devRoutes);
   }
