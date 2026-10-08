@@ -3,3 +3,4 @@ export * from './health';
 export * from './auth';
 export * from './account';
 export * from './wallet';
+export * from './catalog';
