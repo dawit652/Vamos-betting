@@ -29,6 +29,13 @@
       "when": 1791444080685,
       "tag": "0003_ledger_integrity_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791445460563,
+      "tag": "0004_phase3_catalog",
+      "breakpoints": true
     }
   ]
 }

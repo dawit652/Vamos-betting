@@ -8,3 +8,4 @@ export * from './enums';
 export * from './accounts';
 export * from './ledger';
 export * from './platform';
+export * from './catalog';
