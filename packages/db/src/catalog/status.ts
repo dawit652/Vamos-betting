@@ -1,7 +1,7 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
 import type { DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
-import { events, markets } from '../schema/catalog';
+import { events, markets, type MarketSuspendedBy } from '../schema/catalog';
 import { CatalogNotFoundError, CatalogStateError } from './errors';
 import {
   marketMessage,
@@ -18,7 +18,16 @@ export interface CatalogChange {
   messages: LiveMessage[];
 }
 
-/** A back-office actor, recorded in the audit log. */
+/**
+ * A back-office actor (a person), recorded in the audit log. Calls without one
+ * are automatic: the feed or the demo live simulator.
+ *
+ * Suspensions remember who made them (markets.suspended_by): an automatic
+ * re-open (resumeEvent or setMarketStatus 'open' without an actor) re-opens
+ * only markets suspended automatically, never a trader's suspension, which
+ * only a trader lifts. A trader suspending an already suspended market takes
+ * it over.
+ */
 export interface TradingActor {
   adminId: string;
   ip?: string | null;
@@ -66,7 +75,8 @@ function assertOpenEvent(event: { id: string; status: EventStatus }, action: str
  * Opens, suspends or closes one market. 'closed' takes a market off the board
  * without settling it (e.g. its outcome became certain in play). Settled and
  * void markets are final; markets of an event that is not scheduled or live
- * cannot change either (CatalogStateError).
+ * cannot change either (CatalogStateError). Without an actor a market a
+ * trader suspended stays suspended (see TradingActor).
  */
 export async function setMarketStatus(
   tx: DbTransaction,
@@ -84,6 +94,7 @@ export async function setMarketStatus(
     .select({
       id: markets.id,
       status: markets.status,
+      suspendedBy: markets.suspendedBy,
       eventId: markets.eventId,
       eventStatus: events.status,
     })
@@ -92,15 +103,32 @@ export async function setMarketStatus(
     .where(eq(markets.id, marketId))
     .for('update', { of: markets });
   if (row === undefined) throw new CatalogNotFoundError('market', marketId);
-  if (row.status === status) return { changed: false, messages: [] };
-  if (FINAL_MARKET_STATUSES.has(row.status)) {
+  const suspendedBy: MarketSuspendedBy = actor === undefined ? 'feed' : 'trader';
+  const unchanged: CatalogChange = { changed: false, messages: [] };
+  if (row.status === status) {
+    // A trader suspending a market the feed suspended takes the suspension over.
+    if (status !== 'suspended' || actor === undefined || row.suspendedBy === 'trader') {
+      return unchanged;
+    }
+  } else if (FINAL_MARKET_STATUSES.has(row.status)) {
     throw new CatalogStateError(`market ${marketId} is already ${row.status}`);
+  } else if (
+    status === 'open' &&
+    row.status === 'suspended' &&
+    actor === undefined &&
+    row.suspendedBy !== 'feed'
+  ) {
+    return unchanged;
   }
   assertOpenEvent({ id: row.eventId, status: row.eventStatus }, `${status} market ${marketId}`);
 
   await tx
     .update(markets)
-    .set({ status, updatedAt: sql`now()` })
+    .set({
+      status,
+      suspendedBy: status === 'suspended' ? suspendedBy : null,
+      updatedAt: sql`now()`,
+    })
     .where(eq(markets.id, marketId));
   if (actor !== undefined) {
     await audit(tx, actor, `catalog.market.${status}`, 'market', marketId, {
@@ -108,7 +136,10 @@ export async function setMarketStatus(
       from: row.status,
     });
   }
-  return { changed: true, messages: [marketMessage(row.eventId, marketId, status)] };
+  return {
+    changed: true,
+    messages: row.status === status ? [] : [marketMessage(row.eventId, marketId, status)],
+  };
 }
 
 /**
@@ -201,51 +232,81 @@ export async function applyLiveState(
   return { changed: true, messages: [matchMessage(row)] };
 }
 
-/** Suspends every open market of a scheduled or live event. */
+/**
+ * Suspends every open market of a scheduled or live event. A trader's
+ * suspension also takes over the markets the feed had suspended already.
+ */
 export async function suspendEvent(
   tx: DbTransaction,
   eventId: string,
   actor?: TradingActor,
 ): Promise<CatalogChange> {
-  return moveMarkets(tx, eventId, 'open', 'suspended', actor);
+  const event = await lockEvent(tx, eventId);
+  assertOpenEvent(event, 'suspend markets');
+  const moved = await tx
+    .update(markets)
+    .set({
+      status: 'suspended',
+      suspendedBy: actor === undefined ? 'feed' : 'trader',
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(markets.eventId, eventId), eq(markets.status, 'open')))
+    .returning({ id: markets.id });
+  let claimed = 0;
+  if (actor !== undefined) {
+    const taken = await tx
+      .update(markets)
+      .set({ suspendedBy: 'trader', updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(markets.eventId, eventId),
+          eq(markets.status, 'suspended'),
+          sql`${markets.suspendedBy} IS DISTINCT FROM 'trader'`,
+        ),
+      )
+      .returning({ id: markets.id });
+    claimed = taken.length;
+    await audit(tx, actor, 'catalog.event.suspended', 'event', eventId, {
+      markets: moved.length,
+      ...(claimed > 0 ? { takenOver: claimed } : {}),
+    });
+  }
+  return changeOf(eventId, moved, 'suspended', claimed > 0);
 }
 
-/** Re-opens every suspended market of a scheduled or live event. */
+/**
+ * Re-opens the suspended markets of a scheduled or live event: every one for a
+ * trader, only those the feed suspended for an automatic call (TradingActor).
+ */
 export async function resumeEvent(
   tx: DbTransaction,
   eventId: string,
   actor?: TradingActor,
 ): Promise<CatalogChange> {
-  return moveMarkets(tx, eventId, 'suspended', 'open', actor);
-}
-
-async function moveMarkets(
-  tx: DbTransaction,
-  eventId: string,
-  from: 'open' | 'suspended',
-  to: 'open' | 'suspended',
-  actor: TradingActor | undefined,
-): Promise<CatalogChange> {
   const event = await lockEvent(tx, eventId);
-  assertOpenEvent(event, to === 'suspended' ? 'suspend markets' : 'resume markets');
+  assertOpenEvent(event, 'resume markets');
+  const conditions: SQL[] = [eq(markets.eventId, eventId), eq(markets.status, 'suspended')];
+  if (actor === undefined) conditions.push(eq(markets.suspendedBy, 'feed'));
   const moved = await tx
     .update(markets)
-    .set({ status: to, updatedAt: sql`now()` })
-    .where(and(eq(markets.eventId, eventId), eq(markets.status, from)))
+    .set({ status: 'open', suspendedBy: null, updatedAt: sql`now()` })
+    .where(and(...conditions))
     .returning({ id: markets.id });
-  moved.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   if (actor !== undefined) {
-    await audit(
-      tx,
-      actor,
-      to === 'suspended' ? 'catalog.event.suspended' : 'catalog.event.resumed',
-      'event',
-      eventId,
-      { markets: moved.length },
-    );
+    await audit(tx, actor, 'catalog.event.resumed', 'event', eventId, { markets: moved.length });
   }
+  return changeOf(eventId, moved, 'open', false);
+}
+
+function changeOf(
+  eventId: string,
+  moved: Array<{ id: string }>,
+  to: 'open' | 'suspended',
+  changedOtherwise: boolean,
+): CatalogChange {
+  moved.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return {
-    changed: moved.length > 0,
+    changed: moved.length > 0 || changedOtherwise,
     messages: moved.map((market) => marketMessage(eventId, market.id, to)),
   };
 }

@@ -1,14 +1,13 @@
 import { SPORT_MARKETS, type SportCode, resolveSelection, selectionsFor } from '@vamos/core';
 import { describe, expect, it } from 'vitest';
 import { type MatchStrengths, expectedGoals, priceMatch } from './pricing';
+import { FIRST_HALF_ADDED_TIME, SECOND_HALF_ADDED_TIME } from './pricing/football';
 import { createRng } from './random';
 import {
-  FIRST_HALF_ADDED_TIME,
   GOAL_SUSPENSION_MINUTES,
   HALF_TIME_BREAK_MINUTES,
   type LiveMatchState,
   type MatchEvent,
-  SECOND_HALF_ADDED_TIME,
   advance,
   finalResult,
   initialState,

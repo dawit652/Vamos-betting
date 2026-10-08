@@ -19,6 +19,8 @@ import {
 import {
   allocateGameId,
   applyLiveState,
+  ensureSimulationSeed,
+  isSelectionBettable,
   CatalogError,
   CatalogNotFoundError,
   CatalogStateError,
@@ -28,6 +30,7 @@ import {
   GAME_ID_RANGE,
   LIVE_CHANNEL,
   listScheduledEventIds,
+  listScheduledFeedEvents,
   listSimulationCandidates,
   loadCatalogIds,
   lockEventForSimulation,
@@ -56,7 +59,7 @@ import {
 } from '../src/schema/index';
 import { seedCatalog } from '../src/seed/index';
 import { createTestDatabase } from '../src/testing';
-import { dropTestDatabase, sleep } from './helpers';
+import { dropTestDatabase, pgCode, sleep } from './helpers';
 
 type TestDb = Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -704,6 +707,90 @@ describe('market and event state', () => {
     ]);
   });
 
+  it("never lets an automatic re-open lift a trader's suspension (regression)", async () => {
+    const created = await upsert(fixture(), marketsFor('football', ['2.5']));
+    const home = await selectionOf(created.eventId, '1x2', '1');
+    const yes = await selectionOf(created.eventId, 'btts', 'yes');
+    const over = await selectionOf(created.eventId, 'ou:2.5', 'over');
+    const trader = { adminId: randomUUID(), reason: 'integrity alert' };
+    const suspendedBy = async () =>
+      new Map(
+        (await marketsWithSelections(handle.db, created.eventId)).map((m) => [
+          m.id,
+          `${m.status}/${m.suspendedBy ?? '-'}`,
+        ]),
+      );
+
+    // A trader suspends 1X2; then a goal suspends the rest automatically.
+    await tx((t) => setMarketStatus(t, home.marketId, 'suspended', trader));
+    const automatic = await tx((t) => suspendEvent(t, created.eventId));
+    expect(automatic.messages.some((m) => m.type === 'market' && m.data.k === home.marketId)).toBe(
+      false,
+    );
+    // During the automatic suspension a trader suspends BTTS too: it is taken over, silently.
+    const takeover = await tx((t) => setMarketStatus(t, yes.marketId, 'suspended', trader));
+    expect(takeover).toEqual({ changed: true, messages: [] });
+    let states = await suspendedBy();
+    expect(states.get(home.marketId)).toBe('suspended/trader');
+    expect(states.get(yes.marketId)).toBe('suspended/trader');
+    expect(states.get(over.marketId)).toBe('suspended/feed');
+
+    // The automatic resume re-opens only what was suspended automatically.
+    const resumed = await tx((t) => resumeEvent(t, created.eventId));
+    expect(resumed.messages.map((m) => m.type === 'market' && m.data.k)).not.toContain(
+      home.marketId,
+    );
+    expect(await tx((t) => setMarketStatus(t, home.marketId, 'open'))).toEqual({
+      changed: false,
+      messages: [],
+    });
+    states = await suspendedBy();
+    expect(states.get(home.marketId)).toBe('suspended/trader');
+    expect(states.get(yes.marketId)).toBe('suspended/trader');
+    expect(states.get(over.marketId)).toBe('open/-');
+
+    // A trader's event suspension takes over the feed's; only a trader lifts it.
+    await tx((t) => setMarketStatus(t, over.marketId, 'suspended'));
+    await tx((t) => suspendEvent(t, created.eventId, trader));
+    expect([...(await suspendedBy()).values()].every((v) => v === 'suspended/trader')).toBe(true);
+    expect((await tx((t) => resumeEvent(t, created.eventId))).changed).toBe(false);
+    const lifted = await tx((t) => resumeEvent(t, created.eventId, trader));
+    expect(lifted.messages.length).toBe((await suspendedBy()).size);
+    expect([...(await suspendedBy()).values()].every((v) => v === 'open/-')).toBe(true);
+    // The schema keeps the owner consistent with the status.
+    await expect(
+      handle.db.update(markets).set({ suspendedBy: 'feed' }).where(eq(markets.id, home.marketId)),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '23514');
+  });
+
+  it('closes prematch betting at the start time, in odds deltas too (regression)', async () => {
+    const start = new Date('2026-10-08T11:30:00Z');
+    const event = { status: 'scheduled', bettingOpen: true, startTime: start } as const;
+    const before = new Date(start.getTime() - 1);
+    expect(isSelectionBettable(event, 'open', 'open', before)).toBe(true);
+    expect(isSelectionBettable(event, 'open', 'open', start)).toBe(false);
+    expect(isSelectionBettable({ ...event, status: 'live' }, 'open', 'open', start)).toBe(true);
+    expect(isSelectionBettable(event, 'suspended', 'open', before)).toBe(false);
+    expect(isSelectionBettable({ ...event, bettingOpen: false }, 'open', 'open', before)).toBe(
+      false,
+    );
+
+    const created = await upsert(fixture('football', { startTime: start }), marketsFor('football'));
+    const home = await selectionOf(created.eventId, '1x2', '1');
+    const late = await tx((t) =>
+      setSelectionOdds(t, [{ selectionId: home.id, oddsMilli: 2345, source: 'test' }], {
+        now: new Date('2026-10-08T12:00:00Z'),
+      }),
+    );
+    expect(late.messages[0]?.data).toEqual({ s: home.id, o: 2345, st: 'suspended' });
+    const early = await tx((t) =>
+      setSelectionOdds(t, [{ selectionId: home.id, oddsMilli: 2346, source: 'test' }], {
+        now: before,
+      }),
+    );
+    expect(early.messages[0]?.data).toEqual({ s: home.id, o: 2346, st: 'open' });
+  });
+
   it('records manual odds in the audit log and refuses settled selections', async () => {
     const created = await upsert(fixture(), marketsFor('football', ['2.5']));
     const home = await selectionOf(created.eventId, '1x2', '1');
@@ -1045,6 +1132,50 @@ describe('worker queries', () => {
     const locked = await handle.db.transaction((t) => lockEventForSimulation(t, due.eventId));
     expect(locked).toMatchObject({ id: due.eventId, sport: 'football', status: 'scheduled' });
     expect(locked.homeRatings).toEqual({ attack: 1.5, defence: 0.68 });
+    expect(locked.simSeed).toBeNull();
+
+    // The feed's scheduled events in a window, for withdrawing fixtures it stopped offering.
+    const window = await listScheduledFeedEvents(handle.db, {
+      feedProvider: provider,
+      from: now,
+      to: new Date(now.getTime() + 90_000),
+    });
+    expect(window.map((e) => e.id)).toEqual([later.eventId]);
+    expect(window[0]?.feedRef).toMatch(/^test:/);
+  });
+
+  it('stores one secret simulation seed per event', async () => {
+    const created = await upsert(fixture(), marketsFor('football', ['2.5']));
+    const first = await handle.db.transaction(async (t) => {
+      await lockEventForSimulation(t, created.eventId);
+      return ensureSimulationSeed(t, created.eventId, 'seed-one');
+    });
+    expect(first).toBe('seed-one');
+    const second = await handle.db.transaction((t) =>
+      ensureSimulationSeed(t, created.eventId, 'seed-two'),
+    );
+    expect(second).toBe('seed-one');
+    expect(
+      (await handle.db.transaction((t) => lockEventForSimulation(t, created.eventId))).simSeed,
+    ).toBe('seed-one');
+    await expect(
+      handle.db.transaction((t) => ensureSimulationSeed(t, randomUUID(), 'x')),
+    ).rejects.toBeInstanceOf(CatalogNotFoundError);
+  });
+
+  it('refuses game ids outside 100–999999, which no view could format (regression)', async () => {
+    const valid = await upsert(fixture(), []);
+    const row = await eventRow(valid.eventId);
+    for (const gameId of [42, 1_000_000]) {
+      await expect(
+        handle.db.insert(events).values({
+          ...row,
+          id: randomUUID(),
+          gameId,
+          feedRef: `test:${randomUUID()}`,
+        }),
+      ).rejects.toSatisfy((error: unknown) => pgCode(error) === '23514');
+    }
   });
 });
 

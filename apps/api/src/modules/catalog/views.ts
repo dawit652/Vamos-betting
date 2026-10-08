@@ -15,6 +15,7 @@ import {
   type MarketTypeCode,
   type SportCode,
 } from '@vamos/core';
+import { isSelectionBettable } from '@vamos/db';
 
 /**
  * Pure builders of the catalogue's wire views (no I/O). The queries load
@@ -68,7 +69,6 @@ export interface SelectionRow {
 }
 
 const SPORT_CODES: ReadonlySet<string> = new Set(Object.keys(SPORT_MARKETS));
-const BETTABLE_EVENT_STATUSES: ReadonlySet<EventStatus> = new Set(['scheduled', 'live']);
 /** Market statuses that count towards "+N markets". */
 const LISTED_MARKET_STATUSES: ReadonlySet<MarketStatus> = new Set(['open', 'suspended']);
 
@@ -96,18 +96,18 @@ export function localized(name: LocalizedNameValue): LocalizedNameValue {
   return result;
 }
 
-/** Whether a selection can be put on a bet slip right now. */
+/**
+ * Whether a selection can be put on a bet slip at `now`: the shared rule of
+ * isSelectionBettable (@vamos/db), which the odds deltas use too. Prematch
+ * betting closes at the start time even before the kick-off is recorded.
+ */
 export function isSelectionOpen(
-  event: Pick<EventRow, 'status' | 'bettingOpen'>,
+  event: Pick<EventRow, 'status' | 'bettingOpen' | 'startTime'>,
   market: Pick<MarketRow, 'status'>,
   selection: Pick<SelectionRow, 'status'>,
+  now: Date,
 ): boolean {
-  return (
-    selection.status === 'open' &&
-    market.status === 'open' &&
-    event.bettingOpen &&
-    BETTABLE_EVENT_STATUSES.has(event.status)
-  );
+  return isSelectionBettable(event, market.status, selection.status, now);
 }
 
 /** The numeric value of a half-point line, or null when it is malformed. */
@@ -154,6 +154,7 @@ export function marketView(
   event: EventRow,
   market: MarketRow,
   selections: readonly SelectionRow[],
+  now: Date,
 ): MarketView | null {
   if (!isMarketTypeCode(market.type) || !isDisplayableMarket(event.sport, market)) return null;
   const type = market.type;
@@ -177,7 +178,7 @@ export function marketView(
           am: selectionLabel(type, selection.code, am, market.line).am,
         },
         oddsMilli: selection.oddsMilli,
-        open: isSelectionOpen(event, market, selection),
+        open: isSelectionOpen(event, market, selection, now),
       },
     });
   }
@@ -244,6 +245,7 @@ export function eventSummaryView(
   event: EventRow,
   markets: readonly MarketRow[],
   mainSelections: readonly SelectionRow[],
+  now: Date,
 ): EventSummary {
   const main = findMainMarket(event, markets);
   const marketCount = markets.filter(
@@ -254,7 +256,7 @@ export function eventSummaryView(
   ).length;
   return {
     ...summaryFields(event),
-    mainMarket: main === null ? null : marketView(event, main, mainSelections),
+    mainMarket: main === null ? null : marketView(event, main, mainSelections, now),
     marketCount,
   };
 }
@@ -264,16 +266,18 @@ export function eventDetailView(
   event: EventRow,
   markets: readonly MarketRow[],
   selectionsByMarket: ReadonlyMap<string, readonly SelectionRow[]>,
+  now: Date,
 ): EventDetail {
   const views = [...markets]
     .sort(compareMarkets)
-    .map((market) => marketView(event, market, selectionsByMarket.get(market.id) ?? []))
+    .map((market) => marketView(event, market, selectionsByMarket.get(market.id) ?? [], now))
     .filter((view): view is MarketView => view !== null);
   const main = findMainMarket(event, markets);
   const summary = eventSummaryView(
     event,
     markets,
     main === null ? [] : (selectionsByMarket.get(main.id) ?? []),
+    now,
   );
   const htScore =
     event.status === 'scheduled' || event.htScoreHome === null || event.htScoreAway === null

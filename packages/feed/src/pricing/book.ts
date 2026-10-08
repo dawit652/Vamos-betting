@@ -123,6 +123,21 @@ function erfc(x: number): number {
   return x >= 0 ? r : 2 - r;
 }
 
+/**
+ * Poisson probabilities P(k) for k = 0..maxK (not renormalised; callers that
+ * truncate a relevant tail renormalise themselves).
+ */
+export function poissonPmf(lambda: number, maxK: number): number[] {
+  const pmf: number[] = [];
+  let p = Math.exp(-lambda);
+  pmf.push(p);
+  for (let k = 1; k <= maxK; k++) {
+    p *= lambda / k;
+    pmf.push(p);
+  }
+  return pmf;
+}
+
 /** Clamps x into [min, max]. */
 export function clamp(x: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, x));

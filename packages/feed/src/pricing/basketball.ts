@@ -6,22 +6,22 @@ import {
   clamp,
   defaultMarginBps,
   isPositiveFinite,
-  normalCdf,
+  poissonPmf,
 } from './book';
 
 /**
- * Basketball pricing with a normal model: the final margin (home − away) and
- * the final total are normal around their expected values. In play only the
- * remaining minutes are uncertain: their mean and variance scale with the
- * remaining fraction of the 48 minutes (or of the current 5-minute overtime).
+ * Basketball pricing in the live simulator's own model (simulator.ts), whose
+ * results settle the mock feed's markets: each team scores single points as
+ * a Poisson process at its expected points / 48 per minute, through
+ * regulation and every 5-minute overtime. The points still to come in the
+ * current period are therefore independent Poisson counts, and a period that
+ * ends level is followed by overtime until one ends with a winner. Winner and
+ * total probabilities are computed exactly from these distributions,
+ * overtime points included (both markets settle on the final score).
  */
 
 export const BASKETBALL_REGULATION_MINUTES = 48;
 export const BASKETBALL_OVERTIME_MINUTES = 5;
-/** Standard deviation of the total points over 48 minutes. */
-export const BASKETBALL_TOTAL_SD = 12;
-/** Standard deviation of the margin (home − away) over 48 minutes. */
-export const BASKETBALL_MARGIN_SD = 11;
 /** Average points per team per game. */
 export const BASKETBALL_BASE_POINTS = 97.5;
 export const BASKETBALL_HOME_COURT = 1.015;
@@ -36,6 +36,13 @@ export const BASKETBALL_LINE_SPACING = 5;
 /** A tiny remaining time at the end of a period keeps the distributions proper. */
 const MIN_REMAINING_MINUTES = 0.01;
 const MAX_LINE = 999.5;
+/** Overtimes after the first that are still modelled (each ends level only ~6% of the time). */
+const EXTRA_OVERTIMES = 4;
+/** Probabilities below this are dropped from the point distributions. */
+const NEGLIGIBLE = 1e-16;
+/** Overtime outcomes depend only on the scoring rates; recent ones are kept. */
+const OVERTIME_CACHE_SIZE = 64;
+const overtimeCache = new Map<string, OvertimeOutcome>();
 
 export interface BasketballTeamStrength {
   /** Scoring strength, ~1.0; higher scores more. */
@@ -81,8 +88,7 @@ export interface BasketballPricingOptions {
 
 /**
  * Prices 'ml' (winner including overtime) and 'total' with three half-point
- * lines around the expected final total. A tie after the remaining time goes
- * to overtime, so its probability is split evenly between the teams. Lines
+ * lines around the expected total at the end of the current period. Lines
  * already exceeded in play are omitted, and a finished game prices nothing.
  */
 export function priceBasketball(
@@ -98,34 +104,157 @@ export function priceBasketball(
 
   const remaining = remainingMinutes(state);
   if (remaining === null) return [];
-  const fraction = remaining / BASKETBALL_REGULATION_MINUTES;
   const home0 = state?.home ?? 0;
   const away0 = state?.away ?? 0;
+  const pointsSoFar = home0 + away0;
+  const rateHome = meanHome / BASKETBALL_REGULATION_MINUTES;
+  const rateAway = meanAway / BASKETBALL_REGULATION_MINUTES;
 
-  const marginMean = home0 - away0 + (meanHome - meanAway) * fraction;
-  const marginSd = BASKETBALL_MARGIN_SD * Math.sqrt(fraction);
-  // Final margin is an integer: ≥ 1 wins, 0 ties (→ overtime), ≤ −1 loses.
-  const homeWins = 1 - normalCdf((0.5 - marginMean) / marginSd);
-  const awayWins = normalCdf((-0.5 - marginMean) / marginSd);
-  const tie = Math.max(0, 1 - homeWins - awayWins);
+  const period = periodOutcome(rateHome * remaining, rateAway * remaining, home0 - away0);
+  const overtime = overtimeOutcome(rateHome, rateAway);
+  const homeWins = period.home + period.tie * overtime.homeWins;
+  const awayWins = period.away + period.tie * (1 - overtime.homeWins);
 
   const markets: FeedMarket[] = [];
-  const ml = buildMarket('ml', null, { '1': homeWins + tie / 2, '2': awayWins + tie / 2 }, margin);
+  const ml = buildMarket('ml', null, { '1': homeWins, '2': awayWins }, margin);
   if (ml !== null) markets.push(ml);
 
-  const pointsSoFar = home0 + away0;
+  const fraction = remaining / BASKETBALL_REGULATION_MINUTES;
   const totalMean = pointsSoFar + (meanHome + meanAway) * fraction;
-  const totalSd = BASKETBALL_TOTAL_SD * Math.sqrt(fraction);
   const spacing = Math.max(1, Math.round(BASKETBALL_LINE_SPACING * Math.sqrt(fraction)));
   const centre = Math.floor(totalMean) + 0.5;
   for (const value of [centre - spacing, centre, centre + spacing]) {
     if (value < 0.5 || value > MAX_LINE || pointsSoFar > value) continue;
-    // The final total is an integer, so 'over' means ≥ value + 0.5.
-    const over = 1 - normalCdf((value - totalMean) / totalSd);
-    const market = buildMarket('total', value.toFixed(1), { over, under: 1 - over }, margin);
+    // P(final total > value): the period's points when it produces a winner,
+    // plus every overtime point after a level period.
+    let over = 0;
+    period.decidedTotals.forEach((p, points) => {
+      if (pointsSoFar + points > value) over += p;
+    });
+    period.levelTotals.forEach((p, points) => {
+      over += p * overtime.pointsAbove(value - pointsSoFar - points);
+    });
+    const under = Math.max(0, 1 - over);
+    const market = buildMarket('total', value.toFixed(1), { over, under }, margin);
     if (market !== null) markets.push(market);
   }
   return markets;
+}
+
+interface PeriodOutcome {
+  /** The period ends with the home / away side ahead, or level (→ overtime). */
+  home: number;
+  away: number;
+  tie: number;
+  /** P(the period's points = k and it produces a winner), by k. */
+  decidedTotals: number[];
+  /** P(the period's points = k and it ends level), by k. */
+  levelTotals: number[];
+}
+
+/**
+ * The rest of a period with Poisson(meanHome) and Poisson(meanAway) points
+ * still to come, starting `lead` points ahead (home − away).
+ */
+function periodOutcome(meanHome: number, meanAway: number, lead: number): PeriodOutcome {
+  const home = truncatedPoisson(meanHome);
+  const away = truncatedPoisson(meanAway);
+  const awayCdf: number[] = [];
+  let cumulative = 0;
+  for (const p of away) {
+    cumulative += p;
+    awayCdf.push(cumulative);
+  }
+  const cdfAway = (k: number): number =>
+    k < 0 ? 0 : (awayCdf[Math.min(k, awayCdf.length - 1)] ?? 0);
+
+  let homeAhead = 0;
+  let level = 0;
+  const levelTotals: number[] = [];
+  home.forEach((ph, h) => {
+    // Home ahead at the end: away scores fewer than h + lead more points.
+    homeAhead += ph * cdfAway(h + lead - 1);
+    const a = h + lead;
+    const pa = a >= 0 ? (away[a] ?? 0) : 0;
+    if (pa > 0) {
+      level += ph * pa;
+      levelTotals[h + a] = (levelTotals[h + a] ?? 0) + ph * pa;
+    }
+  });
+  const totals = truncatedPoisson(meanHome + meanAway);
+  const decidedTotals = totals.map((p, k) => Math.max(0, p - (levelTotals[k] ?? 0)));
+  return {
+    home: homeAhead,
+    away: Math.max(0, 1 - homeAhead - level),
+    tie: level,
+    decidedTotals,
+    levelTotals: Array.from(levelTotals, (p) => p ?? 0),
+  };
+}
+
+interface OvertimeOutcome {
+  /** P(home wins) from a level score, however many overtimes it takes. */
+  homeWins: number;
+  /** P(the overtime points, all overtimes together, exceed x). */
+  pointsAbove(x: number): number;
+}
+
+function overtimeOutcome(rateHome: number, rateAway: number): OvertimeOutcome {
+  const key = `${rateHome}|${rateAway}`;
+  const cached = overtimeCache.get(key);
+  if (cached !== undefined) return cached;
+  const outcome = computeOvertimeOutcome(rateHome, rateAway);
+  if (overtimeCache.size >= OVERTIME_CACHE_SIZE) {
+    const oldest = overtimeCache.keys().next().value;
+    if (oldest !== undefined) overtimeCache.delete(oldest);
+  }
+  overtimeCache.set(key, outcome);
+  return outcome;
+}
+
+function computeOvertimeOutcome(rateHome: number, rateAway: number): OvertimeOutcome {
+  const one = periodOutcome(
+    rateHome * BASKETBALL_OVERTIME_MINUTES,
+    rateAway * BASKETBALL_OVERTIME_MINUTES,
+    0,
+  );
+  const decided = one.home + one.away;
+  const homeWins = decided > 0 ? one.home / decided : 0.5;
+  // Points of all overtimes: G = (this overtime's points) + G' if it ends level.
+  const level = [...one.levelTotals.entries()].filter(([, p]) => p > NEGLIGIBLE);
+  let points = one.decidedTotals.slice();
+  for (let i = 0; i < EXTRA_OVERTIMES; i++) {
+    const next = one.decidedTotals.slice();
+    for (const [k, pLevel] of level) {
+      points.forEach((p, j) => {
+        if (p > NEGLIGIBLE) next[k + j] = (next[k + j] ?? 0) + pLevel * p;
+      });
+    }
+    points = Array.from(next, (p) => p ?? 0);
+  }
+  // atLeast[k] = P(G ≥ k).
+  const atLeast = new Array<number>(points.length).fill(0);
+  let tail = 0;
+  for (let k = points.length - 1; k >= 0; k--) {
+    tail += points[k] ?? 0;
+    atLeast[k] = tail;
+  }
+  return {
+    homeWins,
+    pointsAbove(x: number): number {
+      const k = Math.floor(x) + 1; // G > x ⟺ G ≥ ⌊x⌋ + 1 for an integer G
+      if (k <= 0) return 1;
+      return atLeast[k] ?? 0;
+    },
+  };
+}
+
+/** Poisson(mean) probabilities up to far into the upper tail, renormalised to sum to 1. */
+function truncatedPoisson(mean: number): number[] {
+  const maxK = Math.ceil(mean + 12 * Math.sqrt(mean) + 12);
+  const pmf = poissonPmf(mean, maxK);
+  const total = pmf.reduce((sum, p) => sum + p, 0);
+  return pmf.map((p) => p / total);
 }
 
 /**

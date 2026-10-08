@@ -1,10 +1,14 @@
-import { createRng } from '@vamos/feed';
+import { marketKey } from '@vamos/core';
+import { createRng, expectedGoals, priceFootball } from '@vamos/feed';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createMockFeedProvider, runFeedIngest } from '../src/tasks/feed-ingest';
 import {
   bookOverround,
+  DEFAULT_MAX_RISE,
   driftMarketOdds,
   DRIFT_ODDS_SOURCE,
+  fairOverround,
+  maxDriftedOdds,
   runPrematchDrift,
 } from '../src/tasks/prematch-drift';
 import {
@@ -115,7 +119,7 @@ describe('feed ingest', () => {
 
 describe('prematch drift', () => {
   it(
-    'nudges a few scheduled events within bounds, keeping every book at overround >= 1',
+    'nudges a few scheduled events within bounds, keeping every book at its fair overround',
     async () => {
       const before = t.received.length;
       const rng = createRng('drift-test');
@@ -133,7 +137,7 @@ describe('prematch drift', () => {
       ).toBe(changed);
       await t.waitForMessages((messages) => messages.length - before >= changed);
 
-      // Every drifted price stays within 10% of the feed's last price for it.
+      // Every drifted price stays within -10% / +3% of the feed's last price for it.
       const { rows } = await t.db.pool.query<{ odds: number; feed: number }>(
         `SELECT s.odds_milli AS odds,
                 (SELECT h.odds_milli FROM odds_history h
@@ -147,20 +151,22 @@ describe('prematch drift', () => {
       expect(rows.length).toBeGreaterThan(0);
       for (const { odds, feed } of rows) {
         expect(odds).toBeGreaterThanOrEqual(Math.ceil(feed * 0.9) - 10);
-        expect(odds).toBeLessThanOrEqual(Math.floor(feed * 1.1));
+        expect(odds).toBeLessThanOrEqual(maxDriftedOdds(feed, DEFAULT_MAX_RISE));
         expect(odds).toBeGreaterThanOrEqual(1001);
       }
-      // Every book that was nudged still has an overround of at least 1.
-      const { rows: books } = await t.db.pool.query<{ overround: number }>(
-        `SELECT sum(1000.0 / s.odds_milli)::float AS overround
+      // Every book that was nudged still has its fair overround (2 for double chance).
+      const { rows: books } = await t.db.pool.query<{ type: string; overround: number }>(
+        `SELECT m.type, sum(1000.0 / s.odds_milli)::float AS overround
            FROM markets m JOIN selections s ON s.market_id = m.id
           WHERE m.id IN (SELECT s2.market_id FROM selections s2
                            JOIN odds_history d ON d.selection_id = s2.id AND d.source = $1)
-          GROUP BY m.id`,
+          GROUP BY m.id, m.type`,
         [DRIFT_ODDS_SOURCE],
       );
       expect(books.length).toBeGreaterThan(0);
-      for (const { overround } of books) expect(overround).toBeGreaterThanOrEqual(1);
+      for (const { type, overround } of books) {
+        expect(overround).toBeGreaterThanOrEqual(fairOverround(type));
+      }
 
       // The feed has not moved since, so the next ingest keeps the drifted prices.
       const feedRows = await count(`SELECT count(*) AS n FROM odds_history WHERE source = 'feed'`);
@@ -223,7 +229,7 @@ describe('prematch drift', () => {
 });
 
 describe('driftMarketOdds', () => {
-  const bounds = { minStep: 0.01, maxStep: 0.03, maxDeviation: 0.1 };
+  const bounds = { minStep: 0.01, maxStep: 0.03, maxDeviation: 0.1, maxRise: DEFAULT_MAX_RISE };
 
   it('keeps every price within its bounds and every book at overround >= 1', () => {
     const rng = createRng('drift-property');
@@ -248,9 +254,89 @@ describe('driftMarketOdds', () => {
       next.forEach((odds, index) => {
         expect(Number.isSafeInteger(odds)).toBe(true);
         expect(odds).toBeGreaterThanOrEqual(1001);
-        expect(odds).toBeLessThanOrEqual(Math.floor(base[index]! * 1.1));
+        expect(odds).toBeLessThanOrEqual(maxDriftedOdds(base[index]!, DEFAULT_MAX_RISE));
       });
     }
+  });
+
+  it('never drifts a selection above its fair price, so no book or market mix is a sure win (regression)', () => {
+    const complements: Array<[string, string]> = [
+      ['1', 'X2'],
+      ['X', '12'],
+      ['2', '1X'],
+    ];
+    const violations: string[] = [];
+    for (const [name, home, away] of [
+      ['equal teams', { attack: 1, defence: 1 }, { attack: 1, defence: 1 }],
+      ['a favourite', { attack: 1.75, defence: 0.78 }, { attack: 0.9, defence: 1.02 }],
+    ] as const) {
+      const goals = expectedGoals(home, away);
+      const feed = priceFootball(goals.home, goals.away);
+      const rng = createRng(`drift-arbitrage|${name}`);
+      for (let run = 0; run < 100; run++) {
+        const drifted = new Map(
+          feed.map((m) => [
+            marketKey(m.type, m.line),
+            new Map(m.selections.map((s) => [s.code, s.oddsMilli])),
+          ]),
+        );
+        for (let round = 0; round < 30; round++) {
+          for (const market of feed) {
+            const key = marketKey(market.type, market.line);
+            const current = drifted.get(key)!;
+            const next = driftMarketOdds(
+              market.selections.map((s) => ({
+                oddsMilli: current.get(s.code)!,
+                baseOddsMilli: s.oddsMilli,
+              })),
+              rng,
+              bounds,
+              fairOverround(market.type),
+            );
+            if (next === null) continue;
+            market.selections.forEach((s, i) => current.set(s.code, next[i]!));
+            const sum = bookOverround([...current.values()]);
+            if (sum < fairOverround(market.type)) violations.push(`${name} ${key} book ${sum}`);
+            for (const s of market.selections) {
+              // The feed prices at most 1 / (p × 1.06): up to +3% keeps odds × p < 1.
+              if (current.get(s.code)! > Math.floor(s.oddsMilli * (1 + DEFAULT_MAX_RISE))) {
+                violations.push(`${name} ${key} ${s.code} ${current.get(s.code)}`);
+              }
+            }
+          }
+          // Backing complementary 1X2 and double-chance selections is never a sure win.
+          const result = drifted.get('1x2')!;
+          const chance = drifted.get('dc')!;
+          for (const [single, double] of complements) {
+            const sum = 1000 / result.get(single)! + 1000 / chance.get(double)!;
+            if (sum < 1) violations.push(`${name} ${single}+${double} ${sum}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('never raises a price of 1.01 or less, whose margin may already be gone', () => {
+    const rng = createRng('drift-floor');
+    for (let i = 0; i < 200; i++) {
+      const next = driftMarketOdds(
+        [
+          { oddsMilli: 1010, baseOddsMilli: 1010 },
+          { oddsMilli: 1005, baseOddsMilli: 1005 },
+          { oddsMilli: 60_000, baseOddsMilli: 60_000 },
+        ],
+        rng,
+        bounds,
+      );
+      if (next === null) continue;
+      expect(next[0]).toBeLessThanOrEqual(1010);
+      expect(next[1]).toBeLessThanOrEqual(1005);
+    }
+    expect(maxDriftedOdds(1010, DEFAULT_MAX_RISE)).toBe(1010);
+    expect(maxDriftedOdds(2000, DEFAULT_MAX_RISE)).toBe(2060);
+    expect(fairOverround('dc')).toBe(2);
+    expect(fairOverround('1x2')).toBe(1);
   });
 
   it('is deterministic for a seeded random source', () => {

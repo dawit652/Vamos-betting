@@ -58,7 +58,7 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
   app.get<{ Params: { gameId: string } }>(
     '/events/by-game-id/:gameId',
     async (request, reply): Promise<EventDetail> => {
-      const body = await getEventByGameId(deps.db, request.params.gameId);
+      const body = await getEventByGameId(deps.db, request.params.gameId, deps.clock());
       if (body === null) throw notFound('Event');
       cache(reply, DETAIL_CACHE_CONTROL);
       return body;
@@ -68,12 +68,15 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
   app.get<{ Params: { id: string } }>(
     '/events/:id',
     async (request, reply): Promise<EventDetail> => {
-      const body = await getEventById(deps.db, request.params.id);
+      const body = await getEventById(deps.db, request.params.id, deps.clock());
       if (body === null) throw notFound('Event');
       cache(reply, DETAIL_CACHE_CONTROL);
       return body;
     },
   );
 
-  await app.register(liveRoutes);
+  await app.register(
+    liveRoutes,
+    deps.liveChannel === undefined ? {} : { channel: deps.liveChannel },
+  );
 }

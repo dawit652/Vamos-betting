@@ -1,8 +1,15 @@
 import type { SportCode } from '@vamos/core';
-import { and, asc, eq, gt, inArray, lte, or } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
-import { competitions, events, markets, selections, teams } from '../schema/catalog';
+import {
+  competitions,
+  events,
+  markets,
+  selections,
+  teams,
+  type MarketSuspendedBy,
+} from '../schema/catalog';
 import { CatalogNotFoundError } from './errors';
 import type { EventStatus, MarketStatus, SelectionStatus } from './live';
 
@@ -89,12 +96,40 @@ export async function listScheduledEventIds(
   return rows.map((row) => row.id);
 }
 
+/** A provider's scheduled event, for reconciling the catalogue with the feed's fixtures. */
+export interface ScheduledFeedEvent {
+  id: string;
+  feedRef: string;
+  startTime: Date;
+}
+
+/** A provider's scheduled events starting in [from, to], soonest first. */
+export async function listScheduledFeedEvents(
+  exec: DbExecutor,
+  options: { feedProvider: string; from: Date; to: Date },
+): Promise<ScheduledFeedEvent[]> {
+  return exec
+    .select({ id: events.id, feedRef: events.feedRef, startTime: events.startTime })
+    .from(events)
+    .where(
+      and(
+        eq(events.feedProvider, options.feedProvider),
+        eq(events.status, 'scheduled'),
+        gte(events.startTime, options.from),
+        lte(events.startTime, options.to),
+      ),
+    )
+    .orderBy(asc(events.startTime), asc(events.id));
+}
+
 export interface EventForSimulation {
   id: string;
   sport: SportCode;
   status: EventStatus;
   bettingOpen: boolean;
   startTime: Date;
+  /** The simulator's secret seed (events.sim_seed); null until the simulator kicks off. */
+  simSeed: string | null;
   /** teams.ratings of both sides (pricing inputs of the mock feed). */
   homeRatings: Record<string, number> | null;
   awayRatings: Record<string, number> | null;
@@ -114,6 +149,7 @@ export async function lockEventForSimulation(
       status: events.status,
       bettingOpen: events.bettingOpen,
       startTime: events.startTime,
+      simSeed: events.simSeed,
       homeRatings: home.ratings,
       awayRatings: away.ratings,
     })
@@ -126,12 +162,33 @@ export async function lockEventForSimulation(
   return { ...row, sport: row.sport as SportCode };
 }
 
+/**
+ * The event's simulator seed: the stored one, or `seed` stored now when it has
+ * none yet. Call with the event row locked (lockEventForSimulation).
+ */
+export async function ensureSimulationSeed(
+  tx: DbTransaction,
+  eventId: string,
+  seed: string,
+): Promise<string> {
+  if (seed.length === 0) throw new RangeError('the simulation seed must not be empty');
+  const [row] = await tx
+    .update(events)
+    .set({ simSeed: sql`coalesce(${events.simSeed}, ${seed})` })
+    .where(eq(events.id, eventId))
+    .returning({ simSeed: events.simSeed });
+  if (row === undefined || row.simSeed === null) throw new CatalogNotFoundError('event', eventId);
+  return row.simSeed;
+}
+
 export interface MarketWithSelections {
   id: string;
   type: string;
   line: string | null;
   key: string;
   status: MarketStatus;
+  /** Who suspended a suspended market (null otherwise, or when unknown). */
+  suspendedBy: MarketSuspendedBy | null;
   /** In display order. */
   selections: Array<{ id: string; code: string; oddsMilli: number; status: SelectionStatus }>;
 }
@@ -148,6 +205,7 @@ export async function marketsWithSelections(
       line: markets.line,
       key: markets.key,
       status: markets.status,
+      suspendedBy: markets.suspendedBy,
     })
     .from(markets)
     .where(eq(markets.eventId, eventId))

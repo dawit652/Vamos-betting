@@ -7,17 +7,26 @@ import {
   clamp,
   defaultMarginBps,
   isPositiveFinite,
+  poissonPmf,
 } from './book';
 
 /**
- * Football pricing with independent Poisson goal counts per team.
+ * Football pricing with independent Poisson goal counts per team, in the same
+ * units as the live simulator (simulator.ts), whose results settle the mock
+ * feed's markets.
  *
- * Prematch the expected goals λh, λa cover the whole match. In play the goals
- * still to come are Poisson with λ scaled by the remaining fraction of the 90
- * minutes (45 for first-half markets), added to the current score. Markets
- * whose outcome is already certain are left out instead of being priced at
- * 1.00, and so is any market whose favourite is too likely to be offered at
- * 1.001 or more (see priceProbability).
+ * The expected goals λh, λa cover the whole match including added time, so
+ * goals arrive at λ / FOOTBALL_PLAYING_MINUTES per minute of play. Each half
+ * runs on for a whole number of added minutes drawn uniformly from
+ * FIRST_HALF_ADDED_TIME / SECOND_HALF_ADDED_TIME. The goals still to come are
+ * therefore a mixture of Poisson counts over the possible remaining playing
+ * times: a half that has reached added time has at least one more added
+ * minute than the clock shows. They are added to the current score. Prematch
+ * is the same model from minute 0.
+ *
+ * Markets whose outcome is already certain are left out instead of being
+ * priced at 1.00, and so is any market whose favourite is too likely to be
+ * offered at 1.001 or more (see priceProbability).
  */
 
 export const FOOTBALL_BASE_GOALS = 1.35;
@@ -34,10 +43,28 @@ export const DEFAULT_GOAL_LINES: readonly string[] = Object.freeze([
 ]);
 export const DEFAULT_MAX_GOALS = 10;
 
+/** Added time of each half: whole minutes, each value equally likely. */
+export const FIRST_HALF_ADDED_TIME: readonly [number, number] = Object.freeze([1, 3] as const);
+export const SECOND_HALF_ADDED_TIME: readonly [number, number] = Object.freeze([2, 6] as const);
+
 const FULL_TIME_MINUTES = 90;
 const HALF_MINUTES = 45;
-/** Playing time still assumed while a half runs on (added time), so prices stay finite. */
+/**
+ * Mean minutes of play in a match: 90 plus the mean added time of both halves
+ * (96). Expected goals are per match, so the goal rate per minute of play is
+ * λ / FOOTBALL_PLAYING_MINUTES and the expected goals of a whole match are λ.
+ */
+export const FOOTBALL_PLAYING_MINUTES =
+  FULL_TIME_MINUTES +
+  (FIRST_HALF_ADDED_TIME[0] + FIRST_HALF_ADDED_TIME[1]) / 2 +
+  (SECOND_HALF_ADDED_TIME[0] + SECOND_HALF_ADDED_TIME[1]) / 2;
+/**
+ * Playing time still assumed when a half runs on beyond its longest added
+ * time (possible only with a real feed's clock), so prices stay finite.
+ */
 const MIN_REMAINING_MINUTES = 0.5;
+/** Clock values closer than this to a period end count as having reached it. */
+const CLOCK_EPSILON = 1e-9;
 /** Highest per-team goal count with its own correct-score selection (see @vamos/core). */
 const CORRECT_SCORE_MAX_GOALS = 4;
 const MAX_GRID_GOALS = 50;
@@ -157,8 +184,8 @@ export function priceFootball(
   const home0 = state?.home ?? 0;
   const away0 = state?.away ?? 0;
   const firstHalfOver = state !== null && state.htHome !== null && state.htAway !== null;
-  const fullTimeLeft = remainingFraction(state, firstHalfOver, FULL_TIME_MINUTES);
-  const grid = scoreMatrix(lambdaHome * fullTimeLeft, lambdaAway * fullTimeLeft);
+  const playing = remainingPlayingTime(state?.minute ?? 0, firstHalfOver);
+  const grid = mixedScoreMatrix(lambdaHome, lambdaAway, playing.fullTime);
 
   const markets: FeedMarket[] = [];
   const offer = (market: FeedMarket | null): void => {
@@ -216,12 +243,8 @@ export function priceFootball(
     );
   }
 
-  if (!firstHalfOver) {
-    const firstHalfLeft = remainingFraction(state, false, HALF_MINUTES);
-    const halfGrid = scoreMatrix(
-      (lambdaHome / 2) * firstHalfLeft,
-      (lambdaAway / 2) * firstHalfLeft,
-    );
+  if (playing.firstHalf !== null) {
+    const halfGrid = mixedScoreMatrix(lambdaHome, lambdaAway, playing.firstHalf);
     const half = outcomes(halfGrid, home0, away0);
     offer(buildMarket('ht_1x2', null, { '1': half.home, X: half.draw, '2': half.away }, margin));
   }
@@ -230,20 +253,88 @@ export function priceFootball(
   return markets;
 }
 
+/** Possible playing times (minutes) with their probabilities, summing to 1. */
+export type PlayingTime = ReadonlyArray<{ minutes: number; weight: number }>;
+
 /**
- * Fraction of `periodMinutes` (90 full time, 45 first half) still to play.
- * Prematch 1. A half running into added time keeps MIN_REMAINING_MINUTES.
+ * Minutes of play still to come, as the live simulator plays them: until full
+ * time, and until half time while the first half runs (null once it is over).
+ * `minute` is the match clock: 0 to 45 plus added time in the first half, 45
+ * to 90 plus added time in the second half (45 during the break). A half
+ * whose clock is past its regular end has not ended yet, so its added time is
+ * longer than the time already played.
  */
-function remainingFraction(
-  state: Required<LiveScoreState> | null,
+export function remainingPlayingTime(
+  minute: number,
   firstHalfOver: boolean,
-  periodMinutes: number,
-): number {
-  if (state === null) return 1;
-  const clock = firstHalfOver
-    ? clamp(state.minute, HALF_MINUTES, FULL_TIME_MINUTES)
-    : Math.min(state.minute, HALF_MINUTES);
-  return Math.max(periodMinutes - clock, MIN_REMAINING_MINUTES) / periodMinutes;
+): { fullTime: PlayingTime; firstHalf: PlayingTime | null } {
+  if (!Number.isFinite(minute) || minute < 0) {
+    throw new RangeError(`invalid live minute: ${String(minute)}`);
+  }
+  const secondHalf = halfLeft(HALF_MINUTES, FULL_TIME_MINUTES, SECOND_HALF_ADDED_TIME);
+  if (firstHalfOver) {
+    const clock = Math.max(minute, HALF_MINUTES);
+    return {
+      fullTime: halfLeft(clock, FULL_TIME_MINUTES, SECOND_HALF_ADDED_TIME),
+      firstHalf: null,
+    };
+  }
+  const firstHalf = halfLeft(minute, HALF_MINUTES, FIRST_HALF_ADDED_TIME);
+  return { fullTime: sumOf(firstHalf, secondHalf), firstHalf };
+}
+
+/**
+ * Minutes left in a half ending at `regularEnd` plus added time drawn from
+ * `addedTime`, with the clock at `clock`: the added times still possible
+ * (the half has not ended at `clock`), equally likely.
+ */
+function halfLeft(
+  clock: number,
+  regularEnd: number,
+  addedTime: readonly [number, number],
+): PlayingTime {
+  const left: number[] = [];
+  for (let added = addedTime[0]; added <= addedTime[1]; added++) {
+    const minutes = regularEnd + added - clock;
+    if (minutes > CLOCK_EPSILON) left.push(minutes);
+  }
+  if (left.length === 0) return [{ minutes: MIN_REMAINING_MINUTES, weight: 1 }];
+  return left.map((minutes) => ({ minutes, weight: 1 / left.length }));
+}
+
+/** The distribution of the sum of two independent playing times. */
+function sumOf(a: PlayingTime, b: PlayingTime): PlayingTime {
+  const byMinutes = new Map<number, { minutes: number; weight: number }>();
+  for (const x of a) {
+    for (const y of b) {
+      const minutes = x.minutes + y.minutes;
+      const key = Math.round(minutes * 1e6);
+      const entry = byMinutes.get(key);
+      if (entry === undefined) byMinutes.set(key, { minutes, weight: x.weight * y.weight });
+      else entry.weight += x.weight * y.weight;
+    }
+  }
+  return [...byMinutes.values()];
+}
+
+/** Score grid of the goals still to come: Poisson grids mixed over the playing time left. */
+function mixedScoreMatrix(lambdaHome: number, lambdaAway: number, time: PlayingTime): number[][] {
+  let mixed: number[][] | null = null;
+  for (const { minutes, weight } of time) {
+    const share = minutes / FOOTBALL_PLAYING_MINUTES;
+    const grid = scoreMatrix(lambdaHome * share, lambdaAway * share);
+    if (mixed === null) {
+      mixed = grid.map((row) => row.map((p) => p * weight));
+    } else {
+      for (const [h, row] of grid.entries()) {
+        const target = mixed[h];
+        if (target === undefined) continue;
+        for (const [a, p] of row.entries()) target[a] = (target[a] ?? 0) + p * weight;
+      }
+    }
+  }
+  if (mixed === null) throw new RangeError('no playing time to price');
+  return mixed;
 }
 
 /** Final 1X2 probabilities: remaining goals from the grid added to the current score. */
@@ -299,17 +390,6 @@ function correctScoreProbabilities(
 
 function eachCell(grid: number[][], visit: (home: number, away: number, p: number) => void): void {
   grid.forEach((row, h) => row.forEach((p, a) => visit(h, a, p)));
-}
-
-function poissonPmf(lambda: number, maxGoals: number): number[] {
-  const pmf: number[] = [];
-  let p = Math.exp(-lambda);
-  pmf.push(p);
-  for (let k = 1; k <= maxGoals; k++) {
-    p *= lambda / k;
-    pmf.push(p);
-  }
-  return pmf;
 }
 
 function checkLambda(lambda: number, what: string): void {

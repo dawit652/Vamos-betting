@@ -19,6 +19,8 @@ export interface AppDeps {
   kyc: KycVerifier;
   /** Cryptographically secure random bytes (session and CSRF tokens). */
   randomBytes: (size: number) => Buffer;
+  /** Redis channel of live deltas relayed by GET /live/stream (default LIVE_CHANNEL; tests use their own). */
+  liveChannel?: string;
 }
 
 export interface DefaultDeps extends AppDeps {

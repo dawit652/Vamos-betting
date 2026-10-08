@@ -83,10 +83,12 @@ export function decodeEventCursor(cursor: string): EventCursor {
   const [startTime, id] = parsed as unknown[];
   if (typeof startTime !== 'string' || typeof id !== 'string') throw invalid();
   if (!CURSOR_TIME_RE.test(startTime) || !isUuid(id)) throw invalid();
-  // Reject impossible dates (month 13, 30 February) before Postgres sees them.
+  // Reject impossible dates (month 13, 30 February) before Postgres sees them,
+  // and year 0000, which JavaScript accepts but PostgreSQL has no year for.
   const millis = `${startTime.slice(0, 23)}Z`;
   const date = new Date(millis);
   if (Number.isNaN(date.getTime()) || date.toISOString() !== millis) throw invalid();
+  if (date.getUTCFullYear() < 1) throw invalid();
   return { startTime, id };
 }
 
@@ -330,7 +332,9 @@ function filterCondition(query: EventListQuery, now: Date): SQL {
 /**
  * GET /events: a page of a sport's events of active competitions.
  * - highlights: featured competitions, live or starting within 24h;
- * - today: scheduled or live, starting on today's Addis Ababa date;
+ * - today: scheduled or live, starting on today's Addis Ababa date (a
+ *   scheduled event whose start has passed is listed, not bettable, until
+ *   the feed reports its kick-off);
  * - upcoming: scheduled, starting within 72h;
  * - live: in play.
  * Ordered by (start time, id), which puts live events (already started)
@@ -389,14 +393,21 @@ export async function listEvents(
         event,
         eventMarkets,
         main === null ? [] : (selectionsByMarket.get(main.id) ?? []),
+        now,
       );
     }),
     nextCursor,
   };
 }
 
-async function eventDetail(db: DbExecutor, where: SQL): Promise<EventDetail | null> {
-  const [row] = await selectEvents(db).where(where).limit(1);
+/**
+ * One event page. Events of an inactive competition or sport are not part of
+ * the public catalogue (no list shows them), so they are not found here either.
+ */
+async function eventDetail(db: DbExecutor, where: SQL, now: Date): Promise<EventDetail | null> {
+  const [row] = await selectEvents(db)
+    .where(and(where, eq(competitions.active, true), eq(sports.active, true)))
+    .limit(1);
   const event = row === undefined ? null : toEventRow(row);
   if (event === null) return null;
   const marketRows = await loadMarkets(db, [event.id]);
@@ -408,21 +419,33 @@ async function eventDetail(db: DbExecutor, where: SQL): Promise<EventDetail | nu
     event,
     marketRows,
     groupBy(selectionRows, (selection) => selection.marketId),
+    now,
   );
 }
 
-/** GET /events/:id. Null for an unknown or malformed id. */
-export async function getEventById(db: DbExecutor, id: string): Promise<EventDetail | null> {
+/**
+ * GET /events/:id. Null for an unknown or malformed id, or an event of an
+ * inactive competition or sport.
+ */
+export async function getEventById(
+  db: DbExecutor,
+  id: string,
+  now: Date,
+): Promise<EventDetail | null> {
   if (!isUuid(id)) return null;
-  return eventDetail(db, eq(events.id, id));
+  return eventDetail(db, eq(events.id, id), now);
 }
 
-/** GET /events/by-game-id/:gameId ('0123' or '123'). Null for an unknown or malformed id. */
+/**
+ * GET /events/by-game-id/:gameId ('0123' or '123'). Null for an unknown or
+ * malformed id, or an event of an inactive competition or sport.
+ */
 export async function getEventByGameId(
   db: DbExecutor,
   gameId: string,
+  now: Date,
 ): Promise<EventDetail | null> {
   const parsed = parseGameId(gameId);
   if (parsed === null) return null;
-  return eventDetail(db, eq(events.gameId, parsed));
+  return eventDetail(db, eq(events.gameId, parsed), now);
 }

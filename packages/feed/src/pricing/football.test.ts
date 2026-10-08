@@ -11,12 +11,17 @@ import type { FeedMarket, LiveScoreState } from '../types';
 import { bookOverround } from './book';
 import {
   DEFAULT_GOAL_LINES,
+  FIRST_HALF_ADDED_TIME,
   FOOTBALL_BASE_GOALS,
   FOOTBALL_HOME_ADVANTAGE,
+  FOOTBALL_PLAYING_MINUTES,
   MAX_EXPECTED_GOALS,
   MIN_EXPECTED_GOALS,
+  type PlayingTime,
+  SECOND_HALF_ADDED_TIME,
   expectedGoals,
   priceFootball,
+  remainingPlayingTime,
   scoreMatrix,
 } from './football';
 
@@ -151,6 +156,38 @@ describe('scoreMatrix', () => {
     expect(() => scoreMatrix(1, Number.POSITIVE_INFINITY)).toThrow(RangeError);
     expect(() => scoreMatrix(1, 1, 2.5)).toThrow(RangeError);
     expect(() => scoreMatrix(1, 1, 500)).toThrow(RangeError);
+  });
+});
+
+describe('remainingPlayingTime', () => {
+  const minutes = (time: PlayingTime | null) =>
+    (time ?? []).map((t) => Math.round(t.minutes * 1000) / 1000).sort((a, b) => a - b);
+  const mean = (time: PlayingTime) => time.reduce((sum, t) => sum + t.minutes * t.weight, 0);
+
+  it('covers the whole match, added time included, before kick-off', () => {
+    const { fullTime, firstHalf } = remainingPlayingTime(0, false);
+    expect(FOOTBALL_PLAYING_MINUTES).toBe(96);
+    expect(mean(fullTime)).toBeCloseTo(FOOTBALL_PLAYING_MINUTES, 9);
+    expect(fullTime.reduce((sum, t) => sum + t.weight, 0)).toBeCloseTo(1, 12);
+    expect(minutes(fullTime)).toEqual([93, 94, 95, 96, 97, 98, 99]);
+    expect(minutes(firstHalf)).toEqual([46, 47, 48]);
+    expect(FIRST_HALF_ADDED_TIME).toEqual([1, 3]);
+    expect(SECOND_HALF_ADDED_TIME).toEqual([2, 6]);
+  });
+
+  it('keeps the added time still possible once a half runs on', () => {
+    // 47th minute of the first half: only 3 minutes of added time remain possible.
+    expect(minutes(remainingPlayingTime(47, false).firstHalf)).toEqual([1]);
+    expect(minutes(remainingPlayingTime(45, false).firstHalf)).toEqual([1, 2, 3]);
+    // Half time and the start of the second half: 45 minutes plus 2–6 added.
+    const halfTime = remainingPlayingTime(45, true);
+    expect(halfTime.firstHalf).toBeNull();
+    expect(minutes(halfTime.fullTime)).toEqual([47, 48, 49, 50, 51]);
+    expect(minutes(remainingPlayingTime(90, true).fullTime)).toEqual([2, 3, 4, 5, 6]);
+    expect(minutes(remainingPlayingTime(92, true).fullTime)).toEqual([1, 2, 3, 4]);
+    // Beyond the longest added time (a real feed's clock): a token half minute.
+    expect(minutes(remainingPlayingTime(97, true).fullTime)).toEqual([0.5]);
+    expect(() => remainingPlayingTime(-1, false)).toThrow(RangeError);
   });
 });
 
@@ -347,6 +384,21 @@ describe('priceFootball in play', () => {
     expect(odds(priced, 'cs', '2-1')).toBeLessThan(10_000);
     const outsideGrid = { minute: 70, home: 5, away: 0, htHome: 3, htAway: 0 };
     expect(find(priceFootball(home, away, { state: outsideGrid }), 'cs')).toBeUndefined();
+  });
+
+  it('prices the goals still to come in added time (regression)', () => {
+    // 0-0 at 90:00 still has 2–6 minutes of added time (4 on average) to play,
+    // at the simulator's rate of λ / 96 per minute: a goal in about 11% of matches.
+    const state = { minute: 90, home: 0, away: 0, htHome: 0, htAway: 0 };
+    const priced = priceFootball(home, away, { state });
+    const over = odds(priced, 'ou', 'over', '0.5');
+    expect(over).toBeGreaterThan(7000);
+    expect(over).toBeLessThan(9500);
+    expect(odds(priced, '1x2', 'X')).toBeGreaterThan(1020);
+    // The same in first-half added time for the half-time result.
+    const firstHalf = priceFootball(home, away, { state: { minute: 45, home: 0, away: 0 } });
+    expect(odds(firstHalf, 'ht_1x2', '1')).toBeLessThan(40_000);
+    expect(odds(firstHalf, 'ht_1x2', '2')).toBeLessThan(40_000);
   });
 
   it('drops a market once its outcome is practically decided', () => {

@@ -1,5 +1,13 @@
-import { loadCatalogIds, loadFeedTeams, upsertFixture, type Database } from '@vamos/db';
-import { MockFeedProvider, type MockFeedProviderConfig } from '@vamos/feed';
+import {
+  listScheduledFeedEvents,
+  loadCatalogIds,
+  loadFeedTeams,
+  lockEvent,
+  resultEvent,
+  upsertFixture,
+  type Database,
+} from '@vamos/db';
+import { MockFeedProvider, type FeedFixture, type MockFeedProviderConfig } from '@vamos/feed';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import { publishAfterCommit } from '../lib/publish';
 import type { TaskContext } from './context';
@@ -13,6 +21,11 @@ import type { TaskContext } from './context';
  *
  * The provider is rebuilt from the catalogue on every run, so teams,
  * ratings and competitions edited in the back office apply at the next run.
+ * Such edits can change the generated fixtures (pairings, counts, rolling
+ * rotation), so each run then withdraws the provider's scheduled events in
+ * its window that the feed no longer offers: they are cancelled
+ * (resultEvent voids their markets and writes the outbox event), which keeps
+ * a team from being left with two fixtures at once.
  */
 
 export interface RollingOptions {
@@ -34,6 +47,7 @@ export interface FeedIngestOptions {
 }
 
 export const FEED_INGEST_INTERVAL_MS = 60_000;
+const HOUR_MS = 3_600_000;
 export const FEED_HORIZON_HOURS = 72;
 export const DEFAULT_ROLLING: Readonly<RollingOptions> = Object.freeze({
   everyMinutes: 5,
@@ -48,6 +62,8 @@ export interface FeedIngestSummary {
   unchanged: number;
   /** Fixtures naming a competition or team that is not in the catalogue. */
   skipped: number;
+  /** Scheduled events the feed no longer offers, cancelled. */
+  withdrawn: number;
   failed: number;
   /** Live deltas published. */
   published: number;
@@ -88,8 +104,9 @@ export async function runFeedIngest(
   options: FeedIngestOptions = {},
 ): Promise<FeedIngestSummary> {
   const now = ctx.clock();
+  const horizonHours = options.horizonHours ?? FEED_HORIZON_HOURS;
   const provider = await createMockFeedProvider(ctx.db, options);
-  const fixtures = provider.fixtures(now, options.horizonHours ?? FEED_HORIZON_HOURS);
+  const fixtures = provider.fixtures(now, horizonHours);
   const ids = await loadCatalogIds(ctx.db);
   const summary: FeedIngestSummary = {
     fixtures: fixtures.length,
@@ -97,6 +114,7 @@ export async function runFeedIngest(
     updated: 0,
     unchanged: 0,
     skipped: 0,
+    withdrawn: 0,
     failed: 0,
     published: 0,
   };
@@ -124,6 +142,7 @@ export async function runFeedIngest(
             startTime: fixture.startTime,
           },
           provider.price(fixture),
+          { now },
         ),
       );
       if (result.created) summary.created++;
@@ -141,9 +160,62 @@ export async function runFeedIngest(
     }
   }
 
-  const changed = summary.created + summary.updated + summary.skipped + summary.failed > 0;
+  await withdrawUnoffered(ctx, provider.name, fixtures, now, horizonHours, summary);
+
+  const changed =
+    summary.created + summary.updated + summary.skipped + summary.withdrawn + summary.failed > 0;
   ctx.logger[changed ? 'info' : 'debug']({ ...summary }, 'feed ingest run');
   return summary;
+}
+
+/**
+ * Cancels the provider's scheduled events starting in [now, now + horizon]
+ * whose fixture is no longer offered. Does nothing when the feed offers no
+ * fixture at all, so an empty or unreadable catalogue cannot wipe the board.
+ */
+async function withdrawUnoffered(
+  ctx: TaskContext,
+  feedProvider: string,
+  fixtures: readonly FeedFixture[],
+  now: Date,
+  horizonHours: number,
+  summary: FeedIngestSummary,
+): Promise<void> {
+  if (fixtures.length === 0) {
+    ctx.logger.warn('the feed offers no fixtures; not withdrawing any');
+    return;
+  }
+  const offered = new Set(fixtures.map((fixture) => fixture.feedRef));
+  const scheduled = await listScheduledFeedEvents(ctx.db, {
+    feedProvider,
+    from: now,
+    to: new Date(now.getTime() + horizonHours * HOUR_MS),
+  });
+  for (const event of scheduled) {
+    if (offered.has(event.feedRef)) continue;
+    try {
+      const result = await ctx.db.transaction(async (tx) => {
+        const locked = await lockEvent(tx, event.id);
+        if (locked.status !== 'scheduled') return null;
+        return resultEvent(tx, event.id, { status: 'cancelled' });
+      });
+      if (result === null) continue;
+      summary.withdrawn++;
+      ctx.logger.info(
+        { eventId: event.id, feedRef: event.feedRef },
+        'withdrew a fixture the feed no longer offers',
+      );
+      summary.published += await publishAfterCommit(
+        ctx.redis,
+        result.messages,
+        ctx.channel,
+        ctx.logger,
+      );
+    } catch (error) {
+      summary.failed++;
+      ctx.logger.error({ err: error, eventId: event.id }, 'withdrawing a fixture failed');
+    }
+  }
 }
 
 export function feedIngestTask(ctx: TaskContext, options: FeedIngestOptions = {}): IntervalTask {

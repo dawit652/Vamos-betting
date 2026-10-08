@@ -4,6 +4,7 @@
  * players see returns LiveMessage deltas; publish them on LIVE_CHANNEL only
  * after the transaction has committed.
  */
+export { MARKET_SUSPENDED_BY, type MarketSuspendedBy } from '../schema/catalog';
 export {
   CatalogError,
   CatalogNotFoundError,
@@ -21,6 +22,7 @@ export {
 export {
   isSelectionBettable,
   LIVE_CHANNEL,
+  type BettableEvent,
   marketMessage,
   matchMessage,
   oddsMessage,
@@ -42,6 +44,7 @@ export {
   type ManualOddsOptions,
   type OddsChange,
   type OddsProvenance,
+  type SetOddsOptions,
   type SetOddsResult,
 } from './odds';
 export {
@@ -73,7 +76,9 @@ export {
   type ResultStatus,
 } from './results';
 export {
+  ensureSimulationSeed,
   listScheduledEventIds,
+  listScheduledFeedEvents,
   listSimulationCandidates,
   loadCatalogIds,
   lockEventForSimulation,
@@ -81,5 +86,6 @@ export {
   type CatalogIds,
   type EventForSimulation,
   type MarketWithSelections,
+  type ScheduledFeedEvent,
   type SimulationCandidate,
 } from './queries';

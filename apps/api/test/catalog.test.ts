@@ -805,6 +805,11 @@ describe('GET /events', () => {
     });
     expect(decodeEventCursor(valid).startTime).toBe('2026-10-08T13:00:00.123456Z');
     expect((await get(`/events?cursor=${valid}`)).statusCode).toBe(200);
+    const yearOne = encodeEventCursor({
+      startTime: '0001-01-01T00:00:00.000000Z',
+      id: randomUUID(),
+    });
+    expect((await get(`/events?cursor=${yearOne}`)).statusCode).toBe(200);
 
     const bad = [
       'not a cursor!',
@@ -814,6 +819,10 @@ describe('GET /events', () => {
       ),
       Buffer.from(JSON.stringify(['2026-10-08T13:00:00.000000Z', 'x'])).toString('base64url'),
       Buffer.from(JSON.stringify(['2026-10-08T13:00:00Z', randomUUID()])).toString('base64url'),
+      // Year 0000 is a valid JavaScript date but out of PostgreSQL's range (regression: was 500).
+      Buffer.from(JSON.stringify(['0000-01-01T00:00:00.000000Z', randomUUID()])).toString(
+        'base64url',
+      ),
     ];
     for (const cursor of bad) {
       const response = await get(`/events?cursor=${encodeURIComponent(cursor)}`);
@@ -909,6 +918,24 @@ describe('GET /events/:id and /events/by-game-id/:gameId', () => {
     expect(body.markets.flatMap((m) => m.selections).every((s) => !s.open)).toBe(true);
   });
 
+  it('is 404 for events of an inactive competition or sport, like every list (regression)', async () => {
+    // The closed cup's match is in no list, so it is not found by id or Game ID either.
+    expect(await listIds('/events?filter=upcoming')).not.toContain(ev.inactive.id);
+    for (const url of [`/events/${ev.inactive.id}`, `/events/by-game-id/${ev.inactive.gameId}`]) {
+      const response = await get(url);
+      expect(response.statusCode, url).toBe(404);
+      expect(response.json()).toMatchObject({ error: { code: 'not_found' } });
+    }
+    await db.update(sports).set({ active: false }).where(eq(sports.id, 'basketball'));
+    try {
+      expect((await get(`/events/${ev.nbaSoon.id}`)).statusCode).toBe(404);
+      expect((await get(`/events/by-game-id/${ev.nbaLive.gameId}`)).statusCode).toBe(404);
+    } finally {
+      await db.update(sports).set({ active: true }).where(eq(sports.id, 'basketball'));
+    }
+    expect((await get(`/events/${ev.nbaSoon.id}`)).statusCode).toBe(200);
+  });
+
   it('is 404 for unknown or malformed ids', async () => {
     for (const url of [
       `/events/${randomUUID()}`,
@@ -927,21 +954,61 @@ describe('GET /events/:id and /events/by-game-id/:gameId', () => {
 });
 
 describe('selection open flag', () => {
-  const event = { status: 'scheduled', bettingOpen: true } as const;
+  const event = { status: 'scheduled', bettingOpen: true, startTime: hours(1) } as const;
   const market = { status: 'open' } as const;
   const selection = { status: 'open' } as const;
 
   it('is open only when selection, market and event all allow betting', () => {
-    expect(isSelectionOpen(event, market, selection)).toBe(true);
-    expect(isSelectionOpen({ ...event, status: 'live' }, market, selection)).toBe(true);
-    expect(isSelectionOpen(event, market, { status: 'suspended' })).toBe(false);
-    expect(isSelectionOpen(event, market, { status: 'settled' })).toBe(false);
+    expect(isSelectionOpen(event, market, selection, NOW)).toBe(true);
+    expect(isSelectionOpen({ ...event, status: 'live' }, market, selection, NOW)).toBe(true);
+    expect(isSelectionOpen(event, market, { status: 'suspended' }, NOW)).toBe(false);
+    expect(isSelectionOpen(event, market, { status: 'settled' }, NOW)).toBe(false);
     for (const status of ['suspended', 'closed', 'settled', 'void'] as const) {
-      expect(isSelectionOpen(event, { status }, selection)).toBe(false);
+      expect(isSelectionOpen(event, { status }, selection, NOW)).toBe(false);
     }
-    expect(isSelectionOpen({ ...event, bettingOpen: false }, market, selection)).toBe(false);
+    expect(isSelectionOpen({ ...event, bettingOpen: false }, market, selection, NOW)).toBe(false);
     for (const status of ['finished', 'cancelled', 'postponed', 'abandoned'] as const) {
-      expect(isSelectionOpen({ ...event, status }, market, selection)).toBe(false);
+      expect(isSelectionOpen({ ...event, status }, market, selection, NOW)).toBe(false);
+    }
+    // Prematch betting closes at the start time, even before the kick-off is recorded.
+    expect(isSelectionOpen(event, market, selection, hours(1))).toBe(false);
+    expect(isSelectionOpen({ ...event, startTime: minutes(-30) }, market, selection, NOW)).toBe(
+      false,
+    );
+    expect(
+      isSelectionOpen(
+        { ...event, status: 'live', startTime: minutes(-30) },
+        market,
+        selection,
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it('closes a scheduled event past its start time in every view (regression)', async () => {
+    const late = await insertEvent(db, {
+      sportId: 'football',
+      competitionId: ids.premier,
+      homeTeamId: ids.liverpool,
+      awayTeamId: ids.chelsea,
+      startTime: minutes(-30),
+    });
+    await insertMarket(db, late.id, '1x2', null, ONE_X_TWO);
+    try {
+      const detail = EventDetail.parse((await get(`/events/${late.id}`)).json());
+      expect(detail.status).toBe('scheduled');
+      expect(detail.markets[0]?.selections.map((s) => s.open)).toEqual([false, false, false]);
+      const today = EventListResponse.parse((await get('/events?filter=today')).json());
+      const row = today.items.find((item) => item.id === late.id);
+      expect(row?.mainMarket?.selections.every((s) => !s.open)).toBe(true);
+      expect(await listIds('/events?filter=highlights')).not.toContain(late.id);
+      // Until its start time the same event is open.
+      ctx.clock.now = minutes(-31);
+      const before = EventDetail.parse((await get(`/events/${late.id}`)).json());
+      expect(before.markets[0]?.selections.every((s) => s.open)).toBe(true);
+    } finally {
+      ctx.clock.now = NOW;
+      await db.delete(events).where(eq(events.id, late.id));
     }
   });
 

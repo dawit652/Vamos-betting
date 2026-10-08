@@ -134,6 +134,11 @@ export const events = pgTable(
     htScoreAway: integer('ht_score_away'),
     feedProvider: text('feed_provider').notNull(),
     feedRef: text('feed_ref').notNull(),
+    /**
+     * Secret seed of the demo live simulator, drawn at kick-off, so simulated
+     * results cannot be computed in advance from public data. Never exposed.
+     */
+    simSeed: text('sim_seed'),
     resultedAt: timestamp('resulted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -143,8 +148,18 @@ export const events = pgTable(
     index('events_status_start_idx').on(t.status, t.startTime),
     index('events_competition_start_idx').on(t.competitionId, t.startTime),
     index('events_sport_start_idx').on(t.sportId, t.startTime),
+    // The range of formatGameId / parseGameId in @vamos/core (3 to 6 digits).
+    check('events_game_id_range', sql`${t.gameId} BETWEEN 100 AND 999999`),
   ],
 );
+
+/**
+ * Who suspended a suspended market: 'feed' for automatic suspensions (the
+ * feed or the demo live simulator, which re-opens only these), 'trader' for a
+ * person in the back office (only a trader re-opens those).
+ */
+export const MARKET_SUSPENDED_BY = ['feed', 'trader'] as const;
+export type MarketSuspendedBy = (typeof MARKET_SUSPENDED_BY)[number];
 
 export const markets = pgTable(
   'markets',
@@ -160,11 +175,19 @@ export const markets = pgTable(
     /** marketKey(type, line) – unique per event. */
     key: text('key').notNull(),
     status: marketStatus('status').notNull().default('open'),
+    /** MarketSuspendedBy while suspended (null for suspensions made before it was recorded). */
+    suspendedBy: text('suspended_by').$type<MarketSuspendedBy>(),
     sortOrder: integer('sort_order').notNull().default(0),
     settledAt: timestamp('settled_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('markets_event_key_uq').on(t.eventId, t.key)],
+  (t) => [
+    uniqueIndex('markets_event_key_uq').on(t.eventId, t.key),
+    check(
+      'markets_suspended_by_valid',
+      sql`${t.suspendedBy} IS NULL OR (${t.suspendedBy} IN ('feed', 'trader') AND ${t.status} = 'suspended')`,
+    ),
+  ],
 );
 
 export const selections = pgTable(

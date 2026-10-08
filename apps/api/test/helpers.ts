@@ -62,6 +62,8 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
     sms: new MockSmsProvider(db.db),
     kyc: new MockKycVerifier(),
     randomBytes: (size) => randomBytes(size),
+    // Never the shared production channel: a dev stack on the same Redis would see test deltas.
+    liveChannel: `vamos-test:${id}:live`,
   };
   const app = buildApp(deps, { logger: false, rateLimitNameSpace: `vamos-rl-${id}:` });
   await app.ready();

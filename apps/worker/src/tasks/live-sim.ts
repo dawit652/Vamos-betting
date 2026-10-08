@@ -1,9 +1,13 @@
+import { randomBytes } from 'node:crypto';
 import { marketKey } from '@vamos/core';
 import {
   applyLiveState,
+  ensureSimulationSeed,
+  isSelectionBettable,
   listSimulationCandidates,
   lockEventForSimulation,
   marketsWithSelections,
+  oddsMessage,
   resultEvent,
   resumeEvent,
   setMarketStatus,
@@ -12,6 +16,7 @@ import {
   type DbTransaction,
   type EventForSimulation,
   type LiveMessage,
+  type MarketWithSelections,
   type OddsChange,
   type SimulationCandidate,
 } from '@vamos/db';
@@ -25,6 +30,7 @@ import {
   matchStrengths,
   MOCK_PROVIDER_NAME,
   priceState,
+  type FeedMarket,
   type LiveMatchState,
   type MatchStrengths,
 } from '@vamos/feed';
@@ -39,18 +45,24 @@ import type { TaskContext } from './context';
  * - kicks off scheduled mock events whose start time has come (status live);
  * - advances each live match to SIM_SPEED × (real seconds since its start
  *   time) simulated minutes and writes the score, clock and period;
+ * - closes markets the model no longer offers (their outcome is certain);
  * - suspends every open market while the simulator says so (after a goal or
- *   a set) and re-opens them afterwards;
- * - reprices open and suspended markets from the in-play model, writing only
- *   odds that moved by at least 1%, and closes markets the model no longer
- *   offers (their outcome is certain);
+ *   a set) and afterwards re-opens the markets it suspended itself (never a
+ *   trader's suspension: see TradingActor in @vamos/db);
+ * - reprices open and suspended markets from the in-play model, writing odds
+ *   that moved by at least 1% (and every shortening below 1.10, see
+ *   shouldWriteOdds). The statuses change first, so each `odds` delta carries
+ *   the bettability that is committed; the selections of a market suspended
+ *   or re-opened in the tick get an `odds` delta with their new `st` too;
  * - at full time results the event (resultEvent settles every market).
  * Deltas are published after each event's transaction commits.
  *
  * Determinism: the match is advanced in fixed steps of SIM_STEP_MINUTES and
- * step n draws from an RNG seeded with (event id, n), so a match plays out
+ * step n draws from an RNG seeded with (event seed, n), so a match plays out
  * the same way however the ticks fall, across restarts, and even when its
- * Redis state is lost (it is then replayed from the start time).
+ * Redis state is lost (it is then replayed from the start time). The event
+ * seed is random, drawn at kick-off and kept in events.sim_seed, so the
+ * result cannot be computed in advance from public data (event id, ratings).
  *
  * A Redis lock (SET NX PX) per event keeps two worker instances from
  * simulating the same event at once; the event row lock (FOR UPDATE) backs
@@ -89,11 +101,20 @@ const DEFAULT_STATE_TTL_SECONDS = 6 * 3600;
 const DEFAULT_REPRICE_THRESHOLD = 0.01;
 /** Bounds the catch-up work of one tick (a whole match is ~110–250 steps). */
 const MAX_STEPS_PER_TICK = 1000;
+/**
+ * Below this price a shortening move is written however small: the model's
+ * margin can be squeezed there (priceProbability falls back to thousandths
+ * below 1.01), so a stale, longer price could pay more than the model allows.
+ */
+export const ALWAYS_WRITE_BELOW_MILLI = 1100;
+const SIM_RECORD_VERSION = 2;
 
 /** Simulator state of one event, kept in Redis between ticks. */
 export interface SimRecord {
-  v: 1;
+  v: typeof SIM_RECORD_VERSION;
   eventId: string;
+  /** The event's secret simulator seed (events.sim_seed). */
+  seed: string;
   /** The event's start time (epoch ms): the simulated clock runs from here. */
   kickoffAt: number;
   /** Simulator steps taken so far. */
@@ -123,13 +144,23 @@ export function simLockKey(eventId: string, prefix = DEFAULT_KEY_PREFIX): string
   return `${prefix}lock:${eventId}`;
 }
 
+/** A fresh random simulator seed (stored in events.sim_seed at kick-off). */
+export function newSimulationSeed(): string {
+  return randomBytes(16).toString('hex');
+}
+
 /** The state of a match that has not been simulated yet. */
 export function newSimRecord(
   event: Pick<EventForSimulation, 'id' | 'sport' | 'startTime'>,
+  seed: string,
 ): SimRecord {
+  if (typeof seed !== 'string' || seed.length === 0) {
+    throw new RangeError('a simulation seed is required');
+  }
   return {
-    v: 1,
+    v: SIM_RECORD_VERSION,
     eventId: event.id,
+    seed,
     kickoffAt: event.startTime.getTime(),
     steps: 0,
     suspended: false,
@@ -155,13 +186,13 @@ export function simulateTo(
   if (elapsedMs < 0) return record;
   let state = record.state;
   if (state.phase === 'pre') {
-    const rng = createRng(`${record.eventId}|kick-off`);
+    const rng = createRng(`${record.seed}|kick-off`);
     state = advance(state, { strengths, rng, minutes: 0 }).state;
   }
   const target = Math.floor(((elapsedMs / 1000) * simSpeed) / SIM_STEP_MINUTES + 1e-9);
   let steps = record.steps;
   for (let i = 0; i < MAX_STEPS_PER_TICK && steps < target && state.phase !== 'finished'; i++) {
-    const rng = createRng(`${record.eventId}|${steps}`);
+    const rng = createRng(`${record.seed}|${steps}`);
     state = advance(state, { strengths, rng, minutes: SIM_STEP_MINUTES }).state;
     steps++;
   }
@@ -245,15 +276,18 @@ async function simulateEvent(
       if (event.status !== 'scheduled' && event.status !== 'live') return null;
       if (event.status === 'scheduled' && event.startTime.getTime() > now.getTime()) return null;
 
+      const seed = event.simSeed ?? (await ensureSimulationSeed(tx, event.id, newSimulationSeed()));
       const strengths = matchStrengths(event.sport, event.homeRatings, event.awayRatings);
       const base =
         stored !== null &&
+        stored.seed === seed &&
         stored.state.sport === event.sport &&
         stored.kickoffAt === event.startTime.getTime()
           ? stored
           : // No usable state: replay from the start. A live event's markets may
-            // still be suspended by the lost state, so re-open them when calm.
-            { ...newSimRecord(event), suspended: event.status === 'live' };
+            // still be suspended by the lost state, so re-open them when calm
+            // (resumeEvent re-opens only the simulator's own suspensions).
+            { ...newSimRecord(event, seed), suspended: event.status === 'live' };
       const record = simulateTo(base, strengths, now, options.simSpeed);
       const { state } = record;
       const kickedOff = event.status === 'scheduled';
@@ -276,16 +310,27 @@ async function simulateEvent(
         return { record: { ...record, suspended: false }, messages, kickedOff, finished: true };
       }
 
-      messages.push(...(await reprice(tx, event.id, state, strengths, options)));
+      const priced = new Map(
+        priceState(state, strengths).map((market) => [marketKey(market.type, market.line), market]),
+      );
+      const current = await marketsWithSelections(tx, event.id);
+      messages.push(...(await closeUnpriced(tx, current, priced)));
 
+      // Statuses before prices, so the odds deltas carry the committed bettability.
       let suspended = record.suspended;
+      let moved: LiveMessage[] = [];
       if (isSuspended(state) && !suspended) {
-        messages.push(...(await suspendEvent(tx, event.id)).messages);
+        moved = (await suspendEvent(tx, event.id)).messages;
         suspended = true;
       } else if (!isSuspended(state) && suspended) {
-        messages.push(...(await resumeEvent(tx, event.id)).messages);
+        moved = (await resumeEvent(tx, event.id)).messages;
         suspended = false;
       }
+      messages.push(...moved);
+
+      const repriced = await reprice(tx, current, priced, options, now);
+      messages.push(...repriced.messages);
+      messages.push(...restatedOdds(event, current, moved, repriced.written, now));
       return { record: { ...record, suspended }, messages, kickedOff, finished: false };
     });
     if (outcome === null) return null;
@@ -310,37 +355,96 @@ async function simulateEvent(
   }
 }
 
-/** Closes markets the model no longer offers and writes odds that moved enough. */
+/**
+ * Whether a new in-play price replaces the current one: a move of at least
+ * `threshold` (relative), or any shortening below ALWAYS_WRITE_BELOW_MILLI.
+ */
+export function shouldWriteOdds(current: number, next: number, threshold: number): boolean {
+  if (next === current) return false;
+  if (Math.abs(next - current) >= current * threshold) return true;
+  return next < current && next < ALWAYS_WRITE_BELOW_MILLI;
+}
+
+/** Closes the open or suspended markets the model no longer offers (their outcome is certain). */
+async function closeUnpriced(
+  tx: DbTransaction,
+  current: MarketWithSelections[],
+  priced: ReadonlyMap<string, FeedMarket>,
+): Promise<LiveMessage[]> {
+  const messages: LiveMessage[] = [];
+  for (const market of current) {
+    if (market.status !== 'open' && market.status !== 'suspended') continue;
+    if (priced.has(market.key)) continue;
+    messages.push(...(await setMarketStatus(tx, market.id, 'closed')).messages);
+    market.status = 'closed';
+  }
+  return messages;
+}
+
+/** Writes the model's prices that moved enough (see shouldWriteOdds). */
 async function reprice(
   tx: DbTransaction,
-  eventId: string,
-  state: LiveMatchState,
-  strengths: MatchStrengths,
+  current: readonly MarketWithSelections[],
+  priced: ReadonlyMap<string, FeedMarket>,
   options: LiveSimOptions,
-): Promise<LiveMessage[]> {
+  now: Date,
+): Promise<{ messages: LiveMessage[]; written: ReadonlyMap<string, number> }> {
   const threshold = options.repriceThreshold ?? DEFAULT_REPRICE_THRESHOLD;
-  const priced = new Map(
-    priceState(state, strengths).map((market) => [marketKey(market.type, market.line), market]),
-  );
-  const messages: LiveMessage[] = [];
   const changes: OddsChange[] = [];
-  for (const market of await marketsWithSelections(tx, eventId)) {
+  for (const market of current) {
     if (market.status !== 'open' && market.status !== 'suspended') continue;
     const price = priced.get(market.key);
-    if (price === undefined) {
-      messages.push(...(await setMarketStatus(tx, market.id, 'closed')).messages);
-      continue;
-    }
+    if (price === undefined) continue;
     const odds = new Map(price.selections.map((s) => [s.code, s.oddsMilli]));
     for (const selection of market.selections) {
       const next = odds.get(selection.code);
       if (next === undefined || selection.status !== 'open') continue;
-      if (Math.abs(next - selection.oddsMilli) >= selection.oddsMilli * threshold) {
+      if (shouldWriteOdds(selection.oddsMilli, next, threshold)) {
         changes.push({ selectionId: selection.id, oddsMilli: next, source: LIVE_ODDS_SOURCE });
       }
     }
   }
-  messages.push(...(await setSelectionOdds(tx, changes)).messages);
+  const result = await setSelectionOdds(tx, changes, { now });
+  return {
+    messages: result.messages,
+    written: new Map(result.changed.map((c) => [c.selectionId, c.oddsMilli])),
+  };
+}
+
+/**
+ * `odds` deltas restating the bettability of the selections of markets
+ * suspended or re-opened in this tick whose price did not change (those that
+ * changed already have a delta with the new status).
+ */
+function restatedOdds(
+  event: EventForSimulation,
+  current: readonly MarketWithSelections[],
+  moved: readonly LiveMessage[],
+  written: ReadonlyMap<string, number>,
+  now: Date,
+): LiveMessage[] {
+  const statusOf = new Map<string, 'open' | 'suspended'>();
+  for (const message of moved) {
+    if (message.type !== 'market') continue;
+    if (message.data.st === 'open' || message.data.st === 'suspended') {
+      statusOf.set(message.data.k, message.data.st);
+    }
+  }
+  const messages: LiveMessage[] = [];
+  for (const market of current) {
+    const status = statusOf.get(market.id);
+    if (status === undefined) continue;
+    for (const selection of market.selections) {
+      if (selection.status !== 'open' || written.has(selection.id)) continue;
+      const bettable = isSelectionBettable(
+        { status: 'live', bettingOpen: event.bettingOpen, startTime: event.startTime },
+        status,
+        selection.status,
+        now,
+      );
+      messages.push(oddsMessage(event.id, selection.id, selection.oddsMilli, bettable));
+    }
+  }
   return messages;
 }
 
@@ -355,8 +459,10 @@ export async function loadSimRecord(
   try {
     const record = JSON.parse(raw) as Partial<SimRecord> | null;
     if (
-      record?.v !== 1 ||
+      record?.v !== SIM_RECORD_VERSION ||
       record.eventId !== eventId ||
+      typeof record.seed !== 'string' ||
+      record.seed.length === 0 ||
       !Number.isSafeInteger(record.steps) ||
       typeof record.kickoffAt !== 'number' ||
       typeof record.suspended !== 'boolean' ||

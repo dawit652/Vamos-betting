@@ -42,6 +42,8 @@ export interface FixtureMarketInput {
 export interface UpsertFixtureOptions {
   /** odds_history.source of these prices (default 'feed'). */
   source?: string;
+  /** The current time, for the bettability of odds deltas (see setSelectionOdds). */
+  now?: Date;
   /** Random source for the Game ID (tests). */
   randomInt?: AllocateGameIdOptions['randomInt'];
 }
@@ -214,7 +216,11 @@ export async function upsertFixture(
         .values(rows.map((r) => ({ selectionId: r.id, oddsMilli: r.oddsMilli, source })));
     }
   }
-  const repriced = await setSelectionOdds(tx, changes);
+  const repriced = await setSelectionOdds(
+    tx,
+    changes,
+    options.now === undefined ? {} : { now: options.now },
+  );
   messages.push(...repriced.messages);
 
   return {

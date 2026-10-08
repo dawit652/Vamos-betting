@@ -56,24 +56,30 @@ export interface MatchDeltaSource {
   scoreAway: number | null;
 }
 
-const BETTABLE_EVENT_STATUSES: ReadonlySet<EventStatus> = new Set(['scheduled', 'live']);
+/** The event fields that decide whether its selections can be bet on. */
+export interface BettableEvent {
+  status: EventStatus;
+  bettingOpen: boolean;
+  startTime: Date;
+}
 
 /**
- * Whether a selection can be put on a bet slip: the same rule as the read API
- * (`isSelectionOpen` in apps/api), so an `odds` delta and a fresh GET agree.
+ * Whether a selection can be put on a bet slip at `now`: the selection and
+ * its market are open, betting on the event is open, and the event is live,
+ * or scheduled and not started yet (prematch betting closes at the start
+ * time, even when the kick-off has not been recorded yet). The read API
+ * (`isSelectionOpen` in apps/api) uses this same rule, so an `odds` delta and
+ * a fresh GET agree; bet placement must use it too.
  */
 export function isSelectionBettable(
-  eventStatus: EventStatus,
-  bettingOpen: boolean,
+  event: BettableEvent,
   marketStatus: MarketStatus,
   selectionStatus: SelectionStatus,
+  now: Date,
 ): boolean {
-  return (
-    selectionStatus === 'open' &&
-    marketStatus === 'open' &&
-    bettingOpen &&
-    BETTABLE_EVENT_STATUSES.has(eventStatus)
-  );
+  if (selectionStatus !== 'open' || marketStatus !== 'open' || !event.bettingOpen) return false;
+  if (event.status === 'live') return true;
+  return event.status === 'scheduled' && event.startTime.getTime() > now.getTime();
 }
 
 export function matchMessage(event: MatchDeltaSource): LiveMessage {

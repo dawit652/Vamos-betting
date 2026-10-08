@@ -45,6 +45,14 @@ export interface SetOddsResult {
   messages: LiveMessage[];
 }
 
+export interface SetOddsOptions {
+  /**
+   * The current time, for the bettability (`st`) of the deltas: a scheduled
+   * event past its start time is not bettable. Default: the system clock.
+   */
+  now?: Date;
+}
+
 const REPRICEABLE_MARKETS: ReadonlySet<MarketStatus> = new Set(['open', 'suspended']);
 const REPRICEABLE_EVENTS: ReadonlySet<EventStatus> = new Set(['scheduled', 'live']);
 
@@ -58,6 +66,7 @@ const REPRICEABLE_EVENTS: ReadonlySet<EventStatus> = new Set(['scheduled', 'live
 export async function setSelectionOdds(
   tx: DbTransaction,
   changes: readonly OddsChange[],
+  options: SetOddsOptions = {},
 ): Promise<SetOddsResult> {
   const wanted = new Map<string, OddsChange>();
   for (const change of changes) {
@@ -86,6 +95,7 @@ export async function setSelectionOdds(
       eventId: events.id,
       eventStatus: events.status,
       bettingOpen: events.bettingOpen,
+      startTime: events.startTime,
     })
     .from(selections)
     .innerJoin(markets, eq(markets.id, selections.marketId))
@@ -99,6 +109,7 @@ export async function setSelectionOdds(
     if (!found.has(id)) throw new CatalogNotFoundError('selection', id);
   }
 
+  const now = options.now ?? new Date();
   const changed: ChangedOdds[] = [];
   const skipped: string[] = [];
   const messages: LiveMessage[] = [];
@@ -127,7 +138,12 @@ export async function setSelectionOdds(
         row.eventId,
         row.id,
         change.oddsMilli,
-        isSelectionBettable(row.eventStatus, row.bettingOpen, row.marketStatus, row.status),
+        isSelectionBettable(
+          { status: row.eventStatus, bettingOpen: row.bettingOpen, startTime: row.startTime },
+          row.marketStatus,
+          row.status,
+          now,
+        ),
       ),
     );
   }
@@ -157,7 +173,7 @@ export async function setSelectionOdds(
   return { changed, skipped, messages };
 }
 
-export interface ManualOddsOptions {
+export interface ManualOddsOptions extends SetOddsOptions {
   ip?: string | null;
   reason?: string;
 }
@@ -174,9 +190,11 @@ export async function setManualOdds(
   adminId: string,
   options: ManualOddsOptions = {},
 ): Promise<SetOddsResult> {
-  const result = await setSelectionOdds(tx, [
-    { selectionId, oddsMilli, source: MANUAL_ODDS_SOURCE },
-  ]);
+  const result = await setSelectionOdds(
+    tx,
+    [{ selectionId, oddsMilli, source: MANUAL_ODDS_SOURCE }],
+    options.now === undefined ? {} : { now: options.now },
+  );
   if (result.skipped.length > 0) {
     throw new CatalogStateError(
       `selection ${selectionId} cannot be repriced: it is settled, its market is not open or ` +

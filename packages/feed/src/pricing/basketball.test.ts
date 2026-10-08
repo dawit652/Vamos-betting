@@ -81,10 +81,26 @@ describe('priceBasketball', () => {
     expect(Math.abs(over - under)).toBeLessThan(200);
   });
 
-  it('splits the tie evenly: equal teams are priced equally', () => {
+  it('prices equal teams equally', () => {
     const markets = priceBasketball(100, 100);
     expect(odds(markets, 'ml', '1')).toBe(odds(markets, 'ml', '2'));
     expect(odds(markets, 'ml', '1')).toBe(1880); // 1 / (0.5 × 1.06), rounded down
+  });
+
+  it('uses the spread of single Poisson points, as simulated (regression)', () => {
+    // 108 v 87 expected points: the margin's SD is √(108 + 87) ≈ 14, so the
+    // underdog wins about 6% of games (an SD of 11 would make it 2.5%).
+    const markets = priceBasketball(108.05, 87.01);
+    const underdog = odds(markets, 'ml', '2');
+    expect(underdog).toBeGreaterThan(12_000);
+    expect(underdog).toBeLessThan(18_000);
+    // Overtime points count towards the total: level at 100-100 with seconds to go,
+    // 200.5 is all but certain to be passed (in regulation or in overtime).
+    const late = priceBasketball(100, 100, { state: { minute: 47.9, home: 100, away: 100 } });
+    expect(totalLines(late)).toEqual([201.5]);
+    expect(odds(late, 'total', 'over', '201.5')).toBeLessThan(
+      odds(late, 'total', 'under', '201.5'),
+    );
   });
 
   it('follows the score in play', () => {

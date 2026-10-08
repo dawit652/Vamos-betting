@@ -2,6 +2,11 @@ import type { FinalScore, SportCode } from '@vamos/core';
 import { type MatchStrengths, priceMatch } from './pricing';
 import { BASKETBALL_OVERTIME_MINUTES, BASKETBALL_REGULATION_MINUTES } from './pricing/basketball';
 import { clamp } from './pricing/book';
+import {
+  FIRST_HALF_ADDED_TIME,
+  FOOTBALL_PLAYING_MINUTES,
+  SECOND_HALF_ADDED_TIME,
+} from './pricing/football';
 import { SETS_TO_WIN, type SetSport, eloWinProbability, setWinProbability } from './pricing/tennis';
 import type { Rng } from './random';
 import type { FeedMarket, LiveScoreState } from './types';
@@ -76,20 +81,9 @@ export interface AdvanceResult {
 export const HALF_TIME_BREAK_MINUTES = 15;
 export const GOAL_SUSPENSION_MINUTES = 2;
 export const SET_SUSPENSION_MINUTES = 1;
-/** Football added time per half, whole minutes drawn uniformly from these ranges. */
-export const FIRST_HALF_ADDED_TIME: readonly [number, number] = [1, 3];
-export const SECOND_HALF_ADDED_TIME: readonly [number, number] = [2, 6];
 
 const HALF_MINUTES = 45;
 const FULL_TIME_MINUTES = 90;
-/**
- * Expected goals are per match including added time, so the per-minute goal
- * rate is λ / (90 + mean added time); the simulated mean is then exactly λ.
- */
-const FOOTBALL_PLAYING_MINUTES =
-  FULL_TIME_MINUTES +
-  (FIRST_HALF_ADDED_TIME[0] + FIRST_HALF_ADDED_TIME[1]) / 2 +
-  (SECOND_HALF_ADDED_TIME[0] + SECOND_HALF_ADDED_TIME[1]) / 2;
 const QUARTER_MINUTES = BASKETBALL_REGULATION_MINUTES / 4;
 /** Set length in minutes: N(mean, sd) clamped to [min, max]. */
 const SET_DURATION: Readonly<

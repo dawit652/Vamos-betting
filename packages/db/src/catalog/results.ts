@@ -174,7 +174,7 @@ export async function resultEvent(
     if (ids.length === 0) continue;
     await tx
       .update(markets)
-      .set({ status, settledAt: sql`now()`, updatedAt: sql`now()` })
+      .set({ status, suspendedBy: null, settledAt: sql`now()`, updatedAt: sql`now()` })
       .where(inArray(markets.id, ids));
   }
 

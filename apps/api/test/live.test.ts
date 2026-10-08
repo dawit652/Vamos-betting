@@ -111,9 +111,10 @@ describe('GET /live/stream', () => {
     return client;
   }
 
+  /** This app's own channel: tests never publish on the shared LIVE_CHANNEL. */
   async function publish(message: LiveMessage | string) {
     await publisher.publish(
-      LIVE_CHANNEL,
+      ctx.deps.liveChannel!,
       typeof message === 'string' ? message : JSON.stringify(message),
     );
   }
@@ -136,6 +137,13 @@ describe('GET /live/stream', () => {
     // sends a request, so server.close() would wait for the headers timeout.
     ctx.app.server.closeAllConnections();
     await ctx.close();
+  });
+
+  it('relays the channel of its dependencies, never the shared one in tests (regression)', () => {
+    const hub = liveHubOf(ctx.app);
+    expect(ctx.deps.liveChannel).toMatch(/^vamos-test:[0-9a-f]+:live$/);
+    expect(hub?.channel).toBe(ctx.deps.liveChannel);
+    expect(hub?.channel).not.toBe(LIVE_CHANNEL);
   });
 
   it('opens one shared subscriber lazily and streams with SSE headers', async () => {
