@@ -37,7 +37,12 @@ describe('parseOdds / formatOdds', () => {
   });
 
   it('round-trips through format and parse', () => {
-    fc.assert(fc.property(fc.integer({ min: 1001, max: MAX_ODDS_MILLI }), (odds) => parseOdds(formatOdds(odds)) === odds));
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1001, max: MAX_ODDS_MILLI }),
+        (odds) => parseOdds(formatOdds(odds)) === odds,
+      ),
+    );
   });
 
   it('validates the range', () => {
@@ -65,18 +70,26 @@ describe('combined odds and returns', () => {
 
   it('is never above the exact value and within 1 santim of it', () => {
     fc.assert(
-      fc.property(fc.bigInt({ min: 0n, max: 10n ** 9n }), fc.array(oddsArb, { minLength: 1, maxLength: 12 }), (stake, legs) => {
-        const result = grossReturn(stake, legs);
-        const numerator = legs.reduce((acc, o) => acc * BigInt(o), stake);
-        const denominator = 1000n ** BigInt(legs.length);
-        return result * denominator <= numerator && (result + 1n) * denominator > numerator;
-      }),
+      fc.property(
+        fc.bigInt({ min: 0n, max: 10n ** 9n }),
+        fc.array(oddsArb, { minLength: 1, maxLength: 12 }),
+        (stake, legs) => {
+          const result = grossReturn(stake, legs);
+          const numerator = legs.reduce((acc, o) => acc * BigInt(o), stake);
+          const denominator = 1000n ** BigInt(legs.length);
+          return result * denominator <= numerator && (result + 1n) * denominator > numerator;
+        },
+      ),
     );
   });
 
   it('never returns less than the stake when every leg is above 1.00', () => {
     fc.assert(
-      fc.property(fc.bigInt({ min: 0n, max: 10n ** 9n }), fc.array(oddsArb, { maxLength: 10 }), (stake, legs) => grossReturn(stake, legs) >= stake),
+      fc.property(
+        fc.bigInt({ min: 0n, max: 10n ** 9n }),
+        fc.array(oddsArb, { maxLength: 10 }),
+        (stake, legs) => grossReturn(stake, legs) >= stake,
+      ),
     );
   });
 });
@@ -97,7 +110,11 @@ describe('oddsFromProbability', () => {
 
   it('adding margin never increases the price', () => {
     fc.assert(
-      fc.property(fc.double({ min: 0.001, max: 0.999, noNaN: true }), fc.integer({ min: 0, max: 2000 }), (p, margin) => oddsFromProbability(p, margin) <= oddsFromProbability(p)),
+      fc.property(
+        fc.double({ min: 0.001, max: 0.999, noNaN: true }),
+        fc.integer({ min: 0, max: 2000 }),
+        (p, margin) => oddsFromProbability(p, margin) <= oddsFromProbability(p),
+      ),
     );
   });
 });

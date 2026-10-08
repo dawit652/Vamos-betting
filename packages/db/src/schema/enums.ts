@@ -7,7 +7,12 @@ export const userStatus = pgEnum('user_status', [
   'closed',
 ]);
 
-export const otpPurpose = pgEnum('otp_purpose', ['register', 'login', 'password_reset', 'phone_change']);
+export const otpPurpose = pgEnum('otp_purpose', [
+  'register',
+  'login',
+  'password_reset',
+  'phone_change',
+]);
 
 export const kycStatus = pgEnum('kyc_status', ['unverified', 'pending', 'verified', 'rejected']);
 

@@ -9,7 +9,9 @@ export const SANTIM_PER_BIRR = 100n;
 /** Basis points denominator: 10_000 bps = 100%. */
 export const BPS_DENOMINATOR = 10_000n;
 
-const BIRR_PATTERN = /^(-)?(\d{1,15})(?:\.(\d{1,2}))?$/;
+// Commas are only accepted as proper thousands grouping ("1,250.75"); a decimal
+// comma ("12,34") or stray commas are rejected rather than silently read as 100×.
+const BIRR_PATTERN = /^(-)?(\d{1,3}(?:,\d{3})+|\d{1,15})(?:\.(\d{1,2}))?$/;
 const SANTIM_PATTERN = /^-?\d{1,20}$/;
 
 /** Integer division rounding toward negative infinity. Throws on division by zero. */
@@ -36,12 +38,15 @@ export function applyBps(amount: Santim, bps: number | bigint): Santim {
  * At most two decimal places are accepted; grouping commas are ignored.
  */
 export function parseBirr(input: string, options: { allowNegative?: boolean } = {}): Santim {
-  const cleaned = input.trim().replace(/,/g, '');
-  const match = BIRR_PATTERN.exec(cleaned);
+  const match = BIRR_PATTERN.exec(input.trim());
   if (!match) {
     throw new RangeError(`invalid birr amount: "${input}"`);
   }
-  const [, sign, whole = '0', fraction = ''] = match;
+  const [, sign, grouped = '0', fraction = ''] = match;
+  const whole = grouped.replace(/,/g, '');
+  if (whole.length > 15) {
+    throw new RangeError(`birr amount too large: "${input}"`);
+  }
   if (sign && !options.allowNegative) {
     throw new RangeError(`negative birr amount not allowed: "${input}"`);
   }
@@ -115,6 +120,7 @@ export function assertNonNegative(amount: Santim, label = 'amount'): Santim {
 }
 
 function assertInteger(value: number, label: string): number {
-  if (!Number.isSafeInteger(value)) throw new RangeError(`${label} must be a safe integer (got ${value})`);
+  if (!Number.isSafeInteger(value))
+    throw new RangeError(`${label} must be a safe integer (got ${value})`);
   return value;
 }

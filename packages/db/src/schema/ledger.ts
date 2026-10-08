@@ -30,7 +30,9 @@ export const ledgerAccounts = pgTable(
     /** Payment provider for house_psp_clearing accounts. */
     provider: text('provider'),
     currency: text('currency').notNull().default('ETB'),
-    balance: bigint('balance', { mode: 'bigint' }).notNull().default(sql`0`),
+    balance: bigint('balance', { mode: 'bigint' })
+      .notNull()
+      .default(sql`0`),
     allowNegative: boolean('allow_negative').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

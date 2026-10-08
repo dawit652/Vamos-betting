@@ -57,6 +57,14 @@ describe('parseBirr / birr', () => {
     expect(() => parseBirr('-5')).toThrow(RangeError);
     expect(parseBirr('-5', { allowNegative: true })).toBe(-500n);
     expect(() => birr(1.005)).toThrow(RangeError);
+  });
+
+  it('accepts commas only as thousands grouping', () => {
+    expect(parseBirr('1,250.75')).toBe(125075n);
+    expect(parseBirr('12,345,678')).toBe(1234567800n);
+    for (const bad of ['12,34', '1,5', '1,,000', ',5', '5,', '1,2345', '12,34.5']) {
+      expect(() => parseBirr(bad), bad).toThrow(RangeError);
+    }
     expect(() => birr(Number.NaN)).toThrow(RangeError);
   });
 
@@ -103,7 +111,10 @@ describe('arithmetic helpers', () => {
         fc.integer({ min: 0, max: 100_000 }),
         (amount, bps) => {
           const result = applyBps(amount, bps);
-          return result * 10_000n <= amount * BigInt(bps) && (result + 1n) * 10_000n > amount * BigInt(bps);
+          return (
+            result * 10_000n <= amount * BigInt(bps) &&
+            (result + 1n) * 10_000n > amount * BigInt(bps)
+          );
         },
       ),
     );

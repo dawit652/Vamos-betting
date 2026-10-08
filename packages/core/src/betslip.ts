@@ -102,8 +102,10 @@ export function validateSlip(input: {
 
     const oddsValid = isValidOddsMilli(oddsMilli);
     if (!oddsValid) allOddsValid = false;
-    // A repeated selection is already reported above; do not repeat its odds errors.
-    if (timesSeen > 1) continue;
+    // A repeated selection is already reported above, so its below-minimum odds are not
+    // reported again. Invalid odds still are: they suppress the total-odds check and zero
+    // the quote, and the player must be told why.
+    if (timesSeen > 1 && oddsValid) continue;
 
     if (!oddsValid) {
       errors.push({

@@ -216,15 +216,40 @@ describe('cashOutOffer – amounts', () => {
     expect(offer.amount).toBe(332n);
   });
 
-  it('caps the offer at the potential return (and that at maxPayout)', () => {
-    // Odds shortened a lot: 100 × 10 / 1.001 ≈ 999 ETB fair but potential return capped at 500.
+  it('discounts the capped return when maxPayout binds', () => {
+    // Uncapped: 100 × 10 / 1.001 ≈ 999 ETB, but the bet can never pay more than 500 ETB,
+    // so the offer is 500 × 1000/1001 = 499.50 ETB (rounded down), not the full 500.
     const offer = cashOutOffer({
       stake: birr(100),
       legs: [open(10_000, 1001)],
       config: NO_MARGIN,
       maxPayout: birr(500),
     });
-    expect(offer).toEqual({ available: true, amount: birr(500), potentialReturn: birr(500) });
+    expect(offer).toEqual({ available: true, amount: 49_950n, potentialReturn: birr(500) });
+  });
+
+  it('never pays the full max payout on a capped accumulator with an open leg (regression)', () => {
+    // 10,000 ETB on 5 won legs at 3.00 + one open leg at 4.00: uncapped return 9.72m ETB,
+    // capped at 500,000. Fair value = 500,000 × 1/4 × 0.95 = 118,750 ETB.
+    const offer = cashOutOffer({
+      stake: birr(10_000),
+      legs: [won(3000), won(3000), won(3000), won(3000), won(3000), open(4000, 4000)],
+      config: DEFAULT_CASH_OUT,
+      maxPayout: MAX,
+    });
+    expect(offer).toEqual({ available: true, amount: birr(118_750), potentialReturn: MAX });
+  });
+
+  it('applies the live odds of the open leg to the capped value (regression)', () => {
+    // 9 won legs at 2.00 + an open leg now at 50.00: 500,000 / 50 × 0.95 = 9,500 ETB.
+    const legs = [...Array.from({ length: 9 }, () => won(2000)), open(2000, 50_000)];
+    const offer = cashOutOffer({
+      stake: birr(1000),
+      legs,
+      config: DEFAULT_CASH_OUT,
+      maxPayout: MAX,
+    });
+    expect(offer.amount).toBe(birr(9_500));
   });
 
   it('offers nothing with a 100% margin', () => {
@@ -404,7 +429,14 @@ describe('cashOutOffer – properties', () => {
           let den = 10_000n * 1000n ** BigInt(nonVoid.length);
           for (const l of openLegs) den *= BigInt(l.currentOddsMilli!);
           const raw = num / den;
-          const capped = raw < offer.potentialReturn ? raw : offer.potentialReturn;
+          // When maxPayout binds, the capped return is discounted instead.
+          const cNum =
+            maxPayout * BigInt(10_000 - config.marginBps) * 1000n ** BigInt(openLegs.length);
+          let cDen = 10_000n;
+          for (const l of openLegs) cDen *= BigInt(l.currentOddsMilli!);
+          const rawCapped = cNum / cDen;
+          let capped = raw < rawCapped ? raw : rawCapped;
+          capped = capped < offer.potentialReturn ? capped : offer.potentialReturn;
           expect(offer.amount).toBe(capped >= config.minOffer ? capped : 0n);
           expect(offer.available).toBe(capped >= config.minOffer);
         },
@@ -474,11 +506,19 @@ describe('cashOutOffer – properties', () => {
         );
         const offer = cashOutOffer({ stake, legs: unchanged, config: NO_MARGIN, maxPayout });
         const wonOdds = unchanged.filter((l) => l.state === 'won').map((l) => l.placedOddsMilli);
-        const expected = grossReturn(stake, wonOdds);
+        const uncapped = grossReturn(stake, wonOdds);
+        // Capped value: maxPayout × Π_open(1000 / placed).
+        let cNum = maxPayout;
+        let cDen = 1n;
+        for (const l of unchanged.filter((leg) => leg.state === 'open')) {
+          cNum *= 1000n;
+          cDen *= BigInt(l.placedOddsMilli);
+        }
+        const capped = cNum / cDen;
+        let expected = uncapped < capped ? uncapped : capped;
+        expected = expected < offer.potentialReturn ? expected : offer.potentialReturn;
         expect(offer.available).toBe(true);
-        expect(offer.amount).toBe(
-          expected < offer.potentialReturn ? expected : offer.potentialReturn,
-        );
+        expect(offer.amount).toBe(expected);
       }),
     );
   });
@@ -521,6 +561,28 @@ describe('cashOutOffer – properties', () => {
           const a = cashOutOffer({ stake, legs, config, maxPayout });
           const b = cashOutOffer({ stake, legs: [...legs, voided(placed)], config, maxPayout });
           expect(b).toEqual(a);
+        },
+      ),
+    );
+  });
+
+  it('with a positive margin and an open leg the offer is strictly below the potential return', () => {
+    fc.assert(
+      fc.property(
+        stakeArb,
+        offerableLegsArb,
+        fc.integer({ min: 1, max: 10_000 }),
+        maxPayoutArb,
+        (stake, legs, marginBps, maxPayout) => {
+          const offer = cashOutOffer({
+            stake,
+            legs,
+            config: { enabled: true, marginBps, minOffer: 0n },
+            maxPayout,
+          });
+          if (offer.available && offer.potentialReturn > 0n) {
+            expect(offer.amount).toBeLessThan(offer.potentialReturn);
+          }
         },
       ),
     );

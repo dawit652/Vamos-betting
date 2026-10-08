@@ -45,9 +45,10 @@ const LEG_STATES: ReadonlySet<string> = new Set(['open', 'won', 'lost', 'void'])
  * no open legs left → `all_legs_settled` (the bet awaits normal settlement).
  *
  * Fair value = stake × Π effective placed odds × Π_open (1 / current odds),
- * where void legs count as 1.000 and won legs keep their placed odds. The offer
- * is floor(fair × (10 000 − marginBps) / 10 000), computed exactly as one
- * bigint fraction and rounded down once, then capped at `potentialReturn`.
+ * where void legs count as 1.000 and won legs keep their placed odds. When the
+ * max-payout cap binds, the capped return is what gets discounted. The offer is
+ * floor(min(return, maxPayout) × Π_open(1 / current) × (10 000 − marginBps) / 10 000),
+ * computed exactly in bigint and rounded down once.
  * Offers below `config.minOffer` are unavailable (`below_minimum`).
  */
 export function cashOutOffer(input: {
@@ -101,8 +102,23 @@ export function cashOutOffer(input: {
     // Open legs were checked above to have valid live odds; `?? 0` is unreachable.
     denominator *= leg.state === 'open' ? BigInt(leg.currentOddsMilli ?? 0) : ODDS_SCALE;
   }
-  const offer = floorDiv(numerator, denominator);
-  const amount = minSantim(offer, potentialReturn);
+  const offerUncapped = floorDiv(numerator, denominator);
+
+  // A bet can never pay more than maxPayout, so when the cap binds the value
+  // that must be discounted is the CAPPED return, not the uncapped one:
+  // floor(maxPayout × Π_open(1000 / current) × (10000 − margin) / 10000).
+  // min() commutes with multiplying by the positive discount factor, so
+  // min(offerUncapped, offerCapped) = floor(min(return, maxPayout) × discount).
+  let cappedNumerator = maxPayout * (BPS_DENOMINATOR - BigInt(marginBps));
+  let cappedDenominator = BPS_DENOMINATOR;
+  for (const leg of openLegs) {
+    cappedNumerator *= ODDS_SCALE;
+    cappedDenominator *= BigInt(leg.currentOddsMilli ?? 0);
+  }
+  const offerCapped = floorDiv(cappedNumerator, cappedDenominator);
+
+  // potentialReturn is kept as a final safety net.
+  const amount = minSantim(minSantim(offerUncapped, offerCapped), potentialReturn);
   if (amount < config.minOffer) return unavailable('below_minimum');
   return { available: true, amount, potentialReturn };
 }

@@ -50,6 +50,29 @@ const multiBonusArb: fc.Arbitrary<MultiBonusConfig> = fc.record({
 });
 
 describe('validateSlip', () => {
+  it('reports invalid odds on a repeated selection instead of hiding them (regression)', () => {
+    const legs: SlipLeg[] = [
+      { selectionId: 'a', eventId: 'e1', oddsMilli: 500_000 },
+      { selectionId: 'b', eventId: 'e2', oddsMilli: 500_000 },
+      { selectionId: 'c', eventId: 'e3', oddsMilli: 500_000 },
+      { selectionId: 'a', eventId: 'e1', oddsMilli: 0 },
+    ];
+    const codes = validateSlip({ stake: birr(10), legs, rules: DEFAULT_BET_RULES }).map(
+      (e) => e.code,
+    );
+    expect(codes).toContain('duplicate_selection');
+    expect(codes).toContain('invalid_odds');
+    const quote = quoteBet({
+      stake: birr(10),
+      legs,
+      rules: DEFAULT_BET_RULES,
+      multiBonus: DEFAULT_MULTI_BONUS,
+      tax: DEFAULT_TAX,
+    });
+    expect(quote.errors.map((e) => e.code)).toContain('invalid_odds');
+    expect(quote.netPayout).toBe(0n);
+  });
+
   it('accepts a valid single and a valid multi', () => {
     expect(validateSlip({ stake: birr(10), legs: legsOf([1850]), rules })).toEqual([]);
     expect(validateSlip({ stake: birr(10), legs: legsOf([1850, 2100, 1500]), rules })).toEqual([]);
