@@ -527,6 +527,183 @@ describe('database integrity triggers', () => {
     expect(errorText(stale)).toMatch(/cached balance/);
     expect(await getBalance(handle.db, cash(userId))).toBe(0n);
   });
+
+  /** SUM(entries) and the latest balance_after of an account. */
+  async function entryTotals(accountId: string) {
+    const [row] = (
+      await handle.db.execute<{ total: string; latest: string | null }>(sql`
+        SELECT COALESCE(SUM(amount), 0)::text AS total,
+               (SELECT balance_after::text FROM ledger_entries
+                  WHERE account_id = ${accountId} ORDER BY id DESC LIMIT 1) AS latest
+        FROM ledger_entries WHERE account_id = ${accountId}`)
+    ).rows;
+    return { total: BigInt(row!.total), latest: row!.latest === null ? null : BigInt(row!.latest) };
+  }
+
+  it('reject a cached balance changed without entries', async () => {
+    const userId = await createUser(handle.db);
+    await fund(handle.db, userId, 100n);
+    const account = await ensureAccount(handle.db, cash(userId));
+
+    const inflated = await handle.db
+      .transaction((tx) =>
+        tx.execute(
+          sql`UPDATE ledger_accounts SET balance = balance + 500000 WHERE id = ${account.id}`,
+        ),
+      )
+      .catch((e: unknown) => e);
+    expect(errorText(inflated)).toMatch(/cached balance 500100 does not match its entries/);
+    expect(pgCode(inflated)).toBe('23514');
+    expect(await getBalance(handle.db, cash(userId))).toBe(100n);
+    expect(await entryTotals(account.id)).toEqual({ total: 100n, latest: 100n });
+
+    // A brand-new account must start at zero as well.
+    const opened = await handle.db
+      .transaction(async (tx) => {
+        await tx.insert(ledgerAccounts).values({
+          key: `house:psp:raw-${randomUUID().slice(0, 8)}`,
+          ownerType: 'house',
+          kind: 'house_psp_clearing',
+          provider: 'raw',
+          allowNegative: true,
+          balance: 1_000n,
+        });
+      })
+      .catch((e: unknown) => e);
+    expect(errorText(opened)).toMatch(/cached balance 1000 does not match its entries/);
+  });
+
+  it('reject entries that echo an inflated cached balance instead of continuing the running balance', async () => {
+    const userId = await createUser(handle.db);
+    await fund(handle.db, userId, 100n);
+    const account = await ensureAccount(handle.db, cash(userId));
+    const house = await ensureAccount(handle.db, revenue);
+    const houseBefore = await getBalance(handle.db, revenue);
+
+    const forged = await handle.db
+      .transaction(async (tx) => {
+        const [row] = await tx
+          .insert(ledgerTransactions)
+          .values({ type: 'adjustment', idempotencyKey: uniqueKey('forged') })
+          .returning({ id: ledgerTransactions.id });
+        const [cashRow] = await tx
+          .update(ledgerAccounts)
+          .set({ balance: sql`${ledgerAccounts.balance} + 100000` })
+          .where(eq(ledgerAccounts.id, account.id))
+          .returning({ balance: ledgerAccounts.balance });
+        const [houseRow] = await tx
+          .update(ledgerAccounts)
+          .set({ balance: sql`${ledgerAccounts.balance} - 100` })
+          .where(eq(ledgerAccounts.id, house.id))
+          .returning({ balance: ledgerAccounts.balance });
+        // Balanced (+100 / -100), but the cash entry claims the inflated balance.
+        await tx.insert(ledgerEntries).values([
+          {
+            transactionId: row!.id,
+            accountId: account.id,
+            amount: 100n,
+            balanceAfter: cashRow!.balance,
+          },
+          {
+            transactionId: row!.id,
+            accountId: house.id,
+            amount: -100n,
+            balanceAfter: houseRow!.balance,
+          },
+        ]);
+      })
+      .catch((e: unknown) => e);
+    expect(errorText(forged)).toMatch(/breaks the running balance/);
+    expect(await getBalance(handle.db, cash(userId))).toBe(100n);
+    expect(await getBalance(handle.db, revenue)).toBe(houseBefore);
+    expect(await entryTotals(account.id)).toEqual({ total: 100n, latest: 100n });
+  });
+
+  it('reject a ledger transaction without entries', async () => {
+    const before = await countRows();
+    const empty = await handle.db
+      .transaction(async (tx) => {
+        await tx
+          .insert(ledgerTransactions)
+          .values({ type: 'adjustment', idempotencyKey: uniqueKey('empty') });
+      })
+      .catch((e: unknown) => e);
+    expect(errorText(empty)).toMatch(/has 0 entries; at least 2 are required/);
+    expect(await countRows()).toEqual(before);
+  });
+
+  it('reject UPDATE, DELETE and TRUNCATE of ledger transactions (and TRUNCATE of entries and audit)', async () => {
+    const userId = await createUser(handle.db);
+    const { transactionId } = await fund(handle.db, userId, 100n);
+    const [original] = await handle.db
+      .select()
+      .from(ledgerTransactions)
+      .where(eq(ledgerTransactions.id, transactionId));
+
+    const retyped = await handle.db
+      .execute(
+        sql`UPDATE ledger_transactions
+            SET type = 'bet_payout', created_at = now() - interval '400 days'
+            WHERE id = ${transactionId}`,
+      )
+      .catch((e: unknown) => e);
+    expect(errorText(retyped)).toMatch(/ledger_transactions is append-only \(UPDATE rejected\)/);
+    expect(pgCode(retyped)).toBe('23001');
+
+    const deleted = await handle.db
+      .execute(sql`DELETE FROM ledger_transactions WHERE id = ${transactionId}`)
+      .catch((e: unknown) => e);
+    expect(errorText(deleted)).toMatch(/append-only \(DELETE rejected\)/);
+
+    for (const table of ['ledger_transactions', 'ledger_entries', 'audit_log']) {
+      const truncated = await handle.db
+        .execute(sql.raw(`TRUNCATE ${table} CASCADE`))
+        .catch((e: unknown) => e);
+      expect(errorText(truncated), table).toMatch(/append-only \(TRUNCATE rejected\)/);
+    }
+
+    const [after] = await handle.db
+      .select()
+      .from(ledgerTransactions)
+      .where(eq(ledgerTransactions.id, transactionId));
+    expect(after).toEqual(original);
+    expect(await getBalance(handle.db, cash(userId))).toBe(100n);
+  });
+
+  it('let a posting carry its own timestamp, on the transaction and its entries', async () => {
+    const userId = await createUser(handle.db);
+    await fund(handle.db, userId, 1_000n);
+    const createdAt = new Date('2026-01-15T08:30:00.000Z');
+    const { transactionId } = await handle.db.transaction((tx) =>
+      postTransaction(tx, { ...stake(userId, 100n), createdAt }),
+    );
+    const [row] = await handle.db
+      .select({ createdAt: ledgerTransactions.createdAt })
+      .from(ledgerTransactions)
+      .where(eq(ledgerTransactions.id, transactionId));
+    expect(row!.createdAt).toEqual(createdAt);
+    const entries = await handle.db
+      .select({ createdAt: ledgerEntries.createdAt })
+      .from(ledgerEntries)
+      .where(eq(ledgerEntries.transactionId, transactionId));
+    expect(entries.map((e) => e.createdAt)).toEqual([createdAt, createdAt]);
+
+    // It counts in the flow windows by that timestamp.
+    expect(
+      await sumPlayerFlows(handle.db, {
+        userId,
+        since: new Date('2026-01-15T08:00:00.000Z'),
+        types: ['bet_stake'],
+      }),
+    ).toBe(-100n);
+
+    await expect(
+      handle.db.transaction((tx) =>
+        postTransaction(tx, { ...stake(userId, 100n), createdAt: new Date(Number.NaN) }),
+      ),
+    ).rejects.toThrow(/createdAt must be a valid Date/);
+    expect(await getBalance(handle.db, cash(userId))).toBe(900n);
+  });
 });
 
 describe('ledger queries', () => {

@@ -2,14 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { birr } from '@vamos/core';
 import { ApiErrorSchema, MeResponse, RgLimitsResponse, SessionResponse } from '@vamos/contracts';
 import { postTransaction, type LedgerTransactionType, type PostingEntry } from '@vamos/db';
-import {
-  auditLog,
-  ledgerTransactions,
-  outboxEvents,
-  rgExclusions,
-  rgLimits,
-  sessions,
-} from '@vamos/db/schema';
+import { auditLog, outboxEvents, rgExclusions, rgLimits, sessions } from '@vamos/db/schema';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -102,21 +95,23 @@ describe('responsible gambling', () => {
       .orderBy(asc(auditLog.id));
   }
 
-  /** Posts a balanced ledger transaction, back-dated to `createdAt` when given. */
+  /**
+   * Posts a balanced ledger transaction, dated `createdAt` when given (ledger
+   * rows are append-only, so they cannot be back-dated afterwards).
+   */
   async function postLedger(
     type: LedgerTransactionType,
     entries: PostingEntry[],
     createdAt?: Date,
   ) {
-    const result = await ctx.db.db.transaction((tx) =>
-      postTransaction(tx, { type, idempotencyKey: `test:${randomUUID()}`, entries }),
+    await ctx.db.db.transaction((tx) =>
+      postTransaction(tx, {
+        type,
+        idempotencyKey: `test:${randomUUID()}`,
+        entries,
+        ...(createdAt === undefined ? {} : { createdAt }),
+      }),
     );
-    if (createdAt !== undefined) {
-      await ctx.db.db
-        .update(ledgerTransactions)
-        .set({ createdAt })
-        .where(eq(ledgerTransactions.id, result.transactionId));
-    }
   }
 
   const cash = (userId: string) => ({ kind: 'player_cash' as const, userId });

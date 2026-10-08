@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { maskMsisdn } from '@vamos/core';
 import {
   ApiErrorSchema,
@@ -18,10 +19,12 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
+import { sha256Hex } from '../src/lib/crypto';
 import { OTP_TTL_MS } from '../src/lib/otp';
+import { DEFAULT_AUTH_LIMITS } from '../src/lib/rate-limits';
 import type { DevSmsResponse } from '../src/modules/dev/routes';
 import { assertCanGamble, getActiveExclusion } from '../src/modules/rg/guard';
-import { SESSION_TTL_MS, type SessionUser } from '../src/plugins/session';
+import { SESSION_TTL_MS, secureCookies, type SessionUser } from '../src/plugins/session';
 import type { SmsMessage, SmsProvider } from '../src/providers/sms';
 import {
   ADULT_DOB,
@@ -68,6 +71,26 @@ class RecordingSms implements SmsProvider {
   }
 }
 
+/** A gateway that holds every message until `release()` (a slow network). */
+class BlockingSms implements SmsProvider {
+  readonly name = 'blocking-gateway';
+  readonly started: SmsMessage[] = [];
+  readonly delivered: SmsMessage[] = [];
+  private open!: () => void;
+  private readonly gate = new Promise<void>((resolve) => {
+    this.open = resolve;
+  });
+  release() {
+    this.open();
+  }
+  async send(message: SmsMessage) {
+    this.started.push(message);
+    await this.gate;
+    this.delivered.push(message);
+    return { id: String(this.delivered.length) };
+  }
+}
+
 describe('auth', () => {
   let ctx: TestContext;
   /** Same deps plus a GET /test/whoami route that exposes request.user. */
@@ -102,6 +125,17 @@ describe('auth', () => {
     return user;
   }
 
+  /** POST /auth/register; expects 201 and returns the parsed body. */
+  async function register(phone: string, overrides: Record<string, unknown> = {}) {
+    const response = await post(ctx, '/auth/register', registerPayload(phone, overrides));
+    expect(response.statusCode, response.body).toBe(201);
+    return RegisterResponse.parse(response.json());
+  }
+
+  function verify(phone: string, code: string, registrationToken: string) {
+    return post(ctx, '/auth/verify-otp', { phone, code, purpose: 'register', registrationToken });
+  }
+
   async function auditActions(userId: string) {
     const rows = await ctx.db.db
       .select({ action: auditLog.action, metadata: auditLog.metadata })
@@ -120,11 +154,20 @@ describe('auth', () => {
       expect(new Date(body.otpExpiresAt).getTime()).toBe(ctx.clock.now.getTime() + OTP_TTL_MS);
       expect(body.demoOtp).toMatch(/^\d{6}$/);
       expect(await latestOtp(ctx, phone)).toBe(body.demoOtp);
+      // The account id is not disclosed before the phone is verified.
+      expect(Object.keys(response.json<Record<string, unknown>>()).sort()).toEqual([
+        'demoOtp',
+        'otpExpiresAt',
+        'otpSentTo',
+        'registrationToken',
+      ]);
+      expect(body.registrationToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
       const user = await findUser(phone);
       expect(user).toMatchObject({
-        id: body.userId,
         status: 'pending_verification',
+        // Only a hash of the registration token is stored.
+        registrationTokenHash: sha256Hex(body.registrationToken),
         fullName: 'Tirunesh Dibaba',
         dateOfBirth: ADULT_DOB,
         locale: 'am',
@@ -147,9 +190,7 @@ describe('auth', () => {
       expect(challenge!.codeHash).toMatch(/^[0-9a-f]{64}$/);
       expect(challenge!.codeHash).not.toContain(body.demoOtp!);
 
-      expect((await auditActions(body.userId)).map((row) => row.action)).toContain(
-        'user.registered',
-      );
+      expect((await auditActions(user!.id)).map((row) => row.action)).toContain('user.registered');
     });
 
     it('rejects numbers that are not Ethiopian mobiles', async () => {
@@ -239,11 +280,9 @@ describe('auth', () => {
       expect(apiError(suspended).code).toBe('phone_taken');
     });
 
-    it('lets a pending number register again, replacing its details and code', async () => {
+    it('lets a pending number register again, replacing its details, code and token', async () => {
       const phone = randomPhone();
-      const first = RegisterResponse.parse(
-        (await post(ctx, '/auth/register', registerPayload(phone))).json(),
-      );
+      const first = await register(phone);
 
       // Within the resend cooldown nothing changes.
       const tooSoon = await post(
@@ -260,20 +299,13 @@ describe('auth', () => {
 
       ctx.clock.advance(61_000);
       const newPassword = 'Derartu-Tulu-1992';
-      const second = await post(
-        ctx,
-        '/auth/register',
-        registerPayload(phone, {
-          password: newPassword,
-          fullName: 'Derartu Tulu',
-          dateOfBirth: '1972-03-21',
-          locale: 'en',
-        }),
-      );
-      expect(second.statusCode).toBe(201);
-      const body = RegisterResponse.parse(second.json());
-      expect(body.userId).toBe(first.userId);
-      expect(body.demoOtp).toBeDefined();
+      const second = await register(phone, {
+        password: newPassword,
+        fullName: 'Derartu Tulu',
+        dateOfBirth: '1972-03-21',
+        locale: 'en',
+      });
+      expect(second.registrationToken).not.toBe(first.registrationToken);
       expect(await findUser(phone)).toMatchObject({
         fullName: 'Derartu Tulu',
         dateOfBirth: '1972-03-21',
@@ -281,20 +313,12 @@ describe('auth', () => {
         status: 'pending_verification',
       });
 
-      // The first code was retired by the new challenge.
-      if (first.demoOtp !== body.demoOtp) {
-        const stale = await post(ctx, '/auth/verify-otp', {
-          phone,
-          code: first.demoOtp,
-          purpose: 'register',
-        });
+      // The first code was retired by the new challenge, and the first token too.
+      if (first.demoOtp !== second.demoOtp) {
+        const stale = await verify(phone, first.demoOtp!, second.registrationToken);
         expect(apiError(stale).code).toBe('otp_invalid');
       }
-      const verified = await post(ctx, '/auth/verify-otp', {
-        phone,
-        code: body.demoOtp,
-        purpose: 'register',
-      });
+      const verified = await verify(phone, second.demoOtp!, second.registrationToken);
       expect(verified.statusCode).toBe(200);
       expect(SessionResponse.parse(verified.json()).user.locale).toBe('en');
 
@@ -303,23 +327,140 @@ describe('auth', () => {
       const newLogin = await post(ctx, '/auth/login', { phone, password: newPassword });
       expect(newLogin.statusCode).toBe(200);
     });
+
+    it('never lets a re-registration plant its password on the account the owner verifies', async () => {
+      // A real gateway: codes reach only the phone, never the HTTP response.
+      const gateway = new RecordingSms();
+      const app = buildApp(
+        { ...ctx.deps, sms: gateway },
+        { logger: false, rateLimitNameSpace: `takeover-${randomUUID()}:` },
+      );
+      try {
+        const send = (url: string, payload: Record<string, unknown>, remoteAddress: string) =>
+          app.inject({ method: 'POST', url, payload, remoteAddress });
+        const codeSentTo = (phone: string) =>
+          /\b(\d{6})\b/.exec(gateway.sent.filter((m) => m.to === phone).at(-1)!.body)![1]!;
+        const phone = randomPhone();
+        const ownerPassword = 'Victim-Secret-2024';
+        const attackerPassword = 'Attacker-Knows-This-1';
+
+        const owner = RegisterResponse.parse(
+          (
+            await send(
+              '/auth/register',
+              registerPayload(phone, { password: ownerPassword }),
+              '198.51.100.1',
+            )
+          ).json(),
+        );
+        ctx.clock.advance(61_000);
+        const attackerResponse = await send(
+          '/auth/register',
+          registerPayload(phone, {
+            password: attackerPassword,
+            fullName: 'Attacker Name',
+            dateOfBirth: '1980-01-01',
+          }),
+          '203.0.113.66',
+        );
+        expect(attackerResponse.statusCode).toBe(201);
+        const attacker = RegisterResponse.parse(attackerResponse.json());
+        expect(attacker.demoOtp).toBeUndefined();
+        expect(attackerResponse.json()).not.toHaveProperty('userId');
+
+        // The owner types the newest code from their phone: refused, loudly.
+        const newestCode = codeSentTo(phone);
+        const ownerVerify = await send(
+          '/auth/verify-otp',
+          {
+            phone,
+            code: newestCode,
+            purpose: 'register',
+            registrationToken: owner.registrationToken,
+          },
+          '198.51.100.1',
+        );
+        expect(ownerVerify.statusCode).toBe(400);
+        expect(apiError(ownerVerify).code).toBe('registration_expired');
+        expect((await findUser(phone))!.status).toBe('pending_verification');
+
+        // The attacker has the token but not the code.
+        const guess = newestCode === '000000' ? '111111' : '000000';
+        const attackerVerify = await send(
+          '/auth/verify-otp',
+          {
+            phone,
+            code: guess,
+            purpose: 'register',
+            registrationToken: attacker.registrationToken,
+          },
+          '203.0.113.66',
+        );
+        expect(apiError(attackerVerify).code).toBe('otp_invalid');
+
+        // The owner registers again; now their password is the one activated.
+        ctx.clock.advance(61_000);
+        const again = RegisterResponse.parse(
+          (
+            await send(
+              '/auth/register',
+              registerPayload(phone, { password: ownerPassword }),
+              '198.51.100.1',
+            )
+          ).json(),
+        );
+        const stale = await send(
+          '/auth/verify-otp',
+          {
+            phone,
+            code: codeSentTo(phone),
+            purpose: 'register',
+            registrationToken: attacker.registrationToken,
+          },
+          '203.0.113.66',
+        );
+        expect(apiError(stale).code).toBe('registration_expired');
+        const activated = await send(
+          '/auth/verify-otp',
+          {
+            phone,
+            code: codeSentTo(phone),
+            purpose: 'register',
+            registrationToken: again.registrationToken,
+          },
+          '198.51.100.1',
+        );
+        expect(activated.statusCode).toBe(200);
+        expect(await findUser(phone)).toMatchObject({
+          status: 'active',
+          fullName: 'Tirunesh Dibaba',
+          registrationTokenHash: null,
+        });
+
+        const attackerLogin = await post(ctx, '/auth/login', { phone, password: attackerPassword });
+        expect(attackerLogin.statusCode).toBe(401);
+        const ownerLogin = await post(ctx, '/auth/login', { phone, password: ownerPassword });
+        expect(ownerLogin.statusCode).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
   });
 
   describe('POST /auth/verify-otp', () => {
     it('activates the account and opens a cookie + bearer session', async () => {
       const phone = randomPhone();
-      const registered = RegisterResponse.parse(
-        (await post(ctx, '/auth/register', registerPayload(phone))).json(),
+      const registered = await register(phone);
+      const response = await verify(
+        localForm(phone),
+        await latestOtp(ctx, phone),
+        registered.registrationToken,
       );
-      const response = await post(ctx, '/auth/verify-otp', {
-        phone: localForm(phone),
-        code: await latestOtp(ctx, phone),
-        purpose: 'register',
-      });
       expect(response.statusCode).toBe(200);
       const body = SessionResponse.parse(response.json());
+      const userId = (await findUser(phone))!.id;
       expect(body.user).toEqual({
-        id: registered.userId,
+        id: userId,
         phone,
         status: 'active',
         locale: 'am',
@@ -341,19 +482,17 @@ describe('auth', () => {
       const user = await findUser(phone);
       expect(user!.status).toBe('active');
       expect(user!.phoneVerifiedAt).toBeInstanceOf(Date);
+      expect(user!.registrationTokenHash).toBeNull();
 
       // Only hashes of the tokens are stored.
-      const [stored] = await ctx.db.db
-        .select()
-        .from(sessions)
-        .where(eq(sessions.userId, registered.userId));
+      const [stored] = await ctx.db.db.select().from(sessions).where(eq(sessions.userId, userId));
       expect(stored!.tokenHash).toMatch(/^[0-9a-f]{64}$/);
       expect(stored!.tokenHash).not.toBe(body.sessionToken);
       expect(stored!.csrfHash).not.toBe(body.csrfToken);
 
       const me = await whoami({ cookie: cookieHeader(response) });
       expect(me.user).toEqual({
-        id: registered.userId,
+        id: userId,
         phone,
         status: 'active',
         locale: 'am',
@@ -373,23 +512,19 @@ describe('auth', () => {
 
     it('counts wrong codes and kills the challenge after 5 attempts', async () => {
       const phone = randomPhone();
-      await post(ctx, '/auth/register', registerPayload(phone));
+      const { registrationToken } = await register(phone);
       const code = await latestOtp(ctx, phone);
       const wrong = code === '000000' ? '111111' : '000000';
 
       for (const attemptsLeft of [4, 3, 2, 1, 0]) {
-        const response = await post(ctx, '/auth/verify-otp', {
-          phone,
-          code: wrong,
-          purpose: 'register',
-        });
+        const response = await verify(phone, wrong, registrationToken);
         expect(response.statusCode).toBe(400);
         expect(apiError(response)).toMatchObject({
           code: 'otp_invalid',
           details: { attemptsLeft },
         });
       }
-      const dead = await post(ctx, '/auth/verify-otp', { phone, code, purpose: 'register' });
+      const dead = await verify(phone, code, registrationToken);
       expect(dead.statusCode).toBe(400);
       expect(apiError(dead).code).toBe('otp_expired');
       expect((await findUser(phone))!.status).toBe('pending_verification');
@@ -397,42 +532,61 @@ describe('auth', () => {
 
     it('rejects an expired code', async () => {
       const phone = randomPhone();
-      await post(ctx, '/auth/register', registerPayload(phone));
+      const { registrationToken } = await register(phone);
       const code = await latestOtp(ctx, phone);
       ctx.clock.advance(OTP_TTL_MS);
-      const response = await post(ctx, '/auth/verify-otp', { phone, code, purpose: 'register' });
+      const response = await verify(phone, code, registrationToken);
       expect(response.statusCode).toBe(400);
       expect(apiError(response).code).toBe('otp_expired');
     });
 
-    it('rejects a code that was already used, or a number without a challenge', async () => {
-      const player = await registerAndLogin(ctx);
-      const code = await latestOtp(ctx, player.phone);
-      const reused = await post(ctx, '/auth/verify-otp', {
-        phone: player.phone,
-        code,
-        purpose: 'register',
-      });
-      expect(apiError(reused).code).toBe('otp_expired');
+    it('rejects a completed registration, or a number that was never registered', async () => {
+      const phone = randomPhone();
+      const { registrationToken } = await register(phone);
+      const code = await latestOtp(ctx, phone);
+      expect((await verify(phone, code, registrationToken)).statusCode).toBe(200);
+      const reused = await verify(phone, code, registrationToken);
+      expect(reused.statusCode).toBe(400);
+      expect(apiError(reused).code).toBe('registration_expired');
 
-      const unknown = await post(ctx, '/auth/verify-otp', {
-        phone: randomPhone(),
-        code: '123456',
-        purpose: 'register',
-      });
+      const unknown = await verify(randomPhone(), '123456', registrationToken);
       expect(unknown.statusCode).toBe(400);
-      expect(apiError(unknown).code).toBe('otp_expired');
+      expect(apiError(unknown).code).toBe('registration_expired');
+    });
+
+    it('requires the registration token, and a wrong one does not use up attempts', async () => {
+      const phone = randomPhone();
+      const { registrationToken } = await register(phone);
+      const code = await latestOtp(ctx, phone);
+
+      const missing = await post(ctx, '/auth/verify-otp', { phone, code, purpose: 'register' });
+      expect(missing.statusCode).toBe(400);
+      expect(apiError(missing).code).toBe('validation_error');
+
+      for (let i = 0; i < 6; i += 1) {
+        const forged = await verify(phone, code, `forged-${'x'.repeat(30)}-${i}`);
+        expect(apiError(forged).code).toBe('registration_expired');
+      }
+      const [challenge] = await ctx.db.db
+        .select({ attempts: otpChallenges.attempts, consumedAt: otpChallenges.consumedAt })
+        .from(otpChallenges)
+        .where(eq(otpChallenges.phone, phone));
+      expect(challenge).toEqual({ attempts: 0, consumedAt: null });
+
+      expect((await verify(phone, code, registrationToken)).statusCode).toBe(200);
     });
   });
 
   describe('POST /auth/otp/resend', () => {
     it('enforces a 60 s cooldown and retires the previous code', async () => {
       const phone = randomPhone();
-      await post(ctx, '/auth/register', registerPayload(phone));
+      const { registrationToken } = await register(phone);
       const firstCode = await latestOtp(ctx, phone);
+      const resend = () =>
+        post(ctx, '/auth/otp/resend', { phone, purpose: 'register', registrationToken });
 
       ctx.clock.advance(20_000);
-      const tooSoon = await post(ctx, '/auth/otp/resend', { phone, purpose: 'register' });
+      const tooSoon = await resend();
       expect(tooSoon.statusCode).toBe(429);
       expect(apiError(tooSoon)).toMatchObject({
         code: 'otp_cooldown',
@@ -440,38 +594,32 @@ describe('auth', () => {
       });
 
       ctx.clock.advance(40_000);
-      const resent = await post(ctx, '/auth/otp/resend', { phone, purpose: 'register' });
+      const resent = await resend();
       expect(resent.statusCode).toBe(200);
       const body = OtpSentResponse.parse(resent.json());
       const secondCode = await latestOtp(ctx, phone);
       expect(body.demoOtp).toBe(secondCode);
 
       if (firstCode !== secondCode) {
-        const stale = await post(ctx, '/auth/verify-otp', {
-          phone,
-          code: firstCode,
-          purpose: 'register',
-        });
+        const stale = await verify(phone, firstCode, registrationToken);
         expect(apiError(stale).code).toBe('otp_invalid');
       }
-      const ok = await post(ctx, '/auth/verify-otp', {
-        phone,
-        code: secondCode,
-        purpose: 'register',
-      });
+      const ok = await verify(phone, secondCode, registrationToken);
       expect(ok.statusCode).toBe(200);
     });
 
     it('allows at most 5 codes per number per rolling hour', async () => {
       const phone = randomPhone();
-      await post(ctx, '/auth/register', registerPayload(phone));
+      const { registrationToken } = await register(phone);
+      const resend = (extra: Parameters<typeof post>[3] = {}) =>
+        post(ctx, '/auth/otp/resend', { phone, purpose: 'register', registrationToken }, extra);
       for (let i = 0; i < 4; i += 1) {
         ctx.clock.advance(61_000);
-        const response = await post(ctx, '/auth/otp/resend', { phone, purpose: 'register' });
+        const response = await resend();
         expect(response.statusCode).toBe(200);
       }
       ctx.clock.advance(61_000);
-      const limited = await post(ctx, '/auth/otp/resend', { phone, purpose: 'register' });
+      const limited = await resend();
       expect(limited.statusCode).toBe(429);
       const error = apiError(limited);
       expect(error.code).toBe('otp_limit');
@@ -479,30 +627,67 @@ describe('auth', () => {
       expect(error.details).toEqual({ retryAfterSeconds: 3600 - 5 * 61 });
 
       ctx.clock.advance((3600 - 5 * 61) * 1000);
-      const later = await post(
-        ctx,
-        '/auth/otp/resend',
-        { phone, purpose: 'register' },
-        { remoteAddress: '10.20.30.40' },
-      );
+      const later = await resend({ remoteAddress: '10.20.30.40' });
       expect(later.statusCode).toBe(200);
     });
 
-    it('only resends registration codes to pending numbers', async () => {
-      const unknown = await post(ctx, '/auth/otp/resend', {
+    it('does not let password-reset requests for a number use up its registration codes', async () => {
+      // Anyone can ask for reset codes for any number; nothing is sent without an account.
+      const phone = randomPhone();
+      for (let i = 0; i < 5; i += 1) {
+        ctx.clock.advance(61_000);
+        const forgot = await post(
+          ctx,
+          '/auth/password/forgot',
+          { phone },
+          { remoteAddress: `192.0.2.${100 + i}` },
+        );
+        expect(forgot.statusCode).toBe(200);
+      }
+      ctx.clock.advance(61_000);
+      const registered = await post(ctx, '/auth/register', registerPayload(phone));
+      expect(registered.statusCode).toBe(201);
+      // The reset bucket itself is still capped.
+      const sixth = await post(
+        ctx,
+        '/auth/password/forgot',
+        { phone },
+        { remoteAddress: '192.0.2.99' },
+      );
+      expect(apiError(sixth).code).toBe('otp_limit');
+    });
+
+    it('only resends registration codes to the holder of the registration token', async () => {
+      const missing = await post(ctx, '/auth/otp/resend', {
         phone: randomPhone(),
         purpose: 'register',
       });
-      expect(unknown.statusCode).toBe(404);
-      expect(apiError(unknown).code).toBe('not_found');
+      expect(missing.statusCode).toBe(400);
+      expect(apiError(missing)).toMatchObject({
+        code: 'validation_error',
+        details: [expect.objectContaining({ path: 'registrationToken' })],
+      });
 
+      // Unknown, pending (with someone else's token) and active numbers all get the same answer.
+      const pendingPhone = randomPhone();
+      await register(pendingPhone);
       const player = await registerAndLogin(ctx);
       ctx.clock.advance(61_000);
-      const active = await post(ctx, '/auth/otp/resend', {
-        phone: player.phone,
-        purpose: 'register',
-      });
-      expect(active.statusCode).toBe(404);
+      const foreignToken = (await register(randomPhone())).registrationToken;
+      for (const phone of [randomPhone(), pendingPhone, player.phone]) {
+        const response = await post(ctx, '/auth/otp/resend', {
+          phone,
+          purpose: 'register',
+          registrationToken: foreignToken,
+        });
+        expect(response.statusCode).toBe(400);
+        expect(apiError(response).code).toBe('registration_expired');
+      }
+      const sent = await ctx.db.db
+        .select()
+        .from(smsMessages)
+        .where(eq(smsMessages.to, pendingPhone));
+      expect(sent).toHaveLength(1);
     });
 
     it('answers password_reset resends for unknown numbers without sending anything', async () => {
@@ -747,6 +932,36 @@ describe('auth', () => {
       expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(401);
     });
 
+    it('marks cookies Secure in production, in licensed mode and behind HTTPS', async () => {
+      const { config } = ctx.deps;
+      expect(secureCookies(config)).toBe(false);
+      expect(secureCookies({ ...config, nodeEnv: 'production' })).toBe(true);
+      expect(secureCookies({ ...config, mode: 'licensed' })).toBe(true);
+      expect(
+        secureCookies({ ...config, api: { ...config.api, publicUrl: 'https://api.vamos.et' } }),
+      ).toBe(true);
+
+      const licensed = buildApp(
+        { ...ctx.deps, config: { ...config, mode: 'licensed' } },
+        { logger: false, rateLimitNameSpace: `secure-${randomUUID()}:` },
+      );
+      try {
+        const player = await registerAndLogin(ctx);
+        const response = await licensed.inject({
+          method: 'POST',
+          url: '/auth/login',
+          payload: { phone: player.phone, password: player.password },
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.cookies.map((cookie) => [cookie.name, cookie.secure])).toEqual([
+          ['vamos_session', true],
+          ['vamos_csrf', true],
+        ]);
+      } finally {
+        await licensed.close();
+      }
+    });
+
     it('updates last_seen_at at most once a minute', async () => {
       const player = await registerAndLogin(ctx);
       const lastSeen = async () => {
@@ -776,8 +991,9 @@ describe('auth', () => {
       const forgot = await post(ctx, '/auth/password/forgot', { phone: localForm(player.phone) });
       expect(forgot.statusCode).toBe(200);
       const body = OtpSentResponse.parse(forgot.json());
+      // A reset code only ever reaches the phone, even in demo mode.
+      expect(body.demoOtp).toBeUndefined();
       const code = await latestOtp(ctx, player.phone);
-      expect(body.demoOtp).toBe(code);
       const [sms] = await ctx.db.db
         .select()
         .from(smsMessages)
@@ -842,17 +1058,36 @@ describe('auth', () => {
 
       const known = await post(ctx, '/auth/password/forgot', { phone: player.phone });
       const unknown = await post(ctx, '/auth/password/forgot', { phone: unknownPhone });
+      expect(known.statusCode).toBe(200);
       expect(unknown.statusCode).toBe(200);
       const knownBody = OtpSentResponse.parse(known.json());
       const unknownBody = OtpSentResponse.parse(unknown.json());
-      expect(unknownBody.otpSentTo).toBe(maskMsisdn(unknownPhone));
-      expect(unknownBody.otpExpiresAt).toBe(knownBody.otpExpiresAt);
-      expect(unknownBody.demoOtp).toBeUndefined();
+      expect(unknownBody).toEqual({
+        otpSentTo: maskMsisdn(unknownPhone),
+        otpExpiresAt: knownBody.otpExpiresAt,
+      });
+      expect(knownBody).toEqual({
+        otpSentTo: maskMsisdn(player.phone),
+        otpExpiresAt: knownBody.otpExpiresAt,
+      });
+      await ctx.app.background.idle();
       const sent = await ctx.db.db
         .select()
         .from(smsMessages)
         .where(eq(smsMessages.to, unknownPhone));
       expect(sent).toHaveLength(0);
+
+      // Both requests are audited alike.
+      const requests = await ctx.db.db
+        .select({ actorId: auditLog.actorId, metadata: auditLog.metadata })
+        .from(auditLog)
+        .where(eq(auditLog.action, 'user.password_reset_requested'));
+      expect(requests).toEqual(
+        expect.arrayContaining([
+          { actorId: player.userId, metadata: { phone: maskMsisdn(player.phone), smsSent: true } },
+          { actorId: null, metadata: { phone: maskMsisdn(unknownPhone), smsSent: false } },
+        ]),
+      );
 
       // The cooldown applies to both, so it reveals nothing either.
       const knownAgain = await post(ctx, '/auth/password/forgot', { phone: player.phone });
@@ -867,6 +1102,42 @@ describe('auth', () => {
       });
       expect(guess.statusCode).toBe(400);
       expect(apiError(guess).code).toBe('otp_invalid');
+    });
+
+    it('answers before the SMS gateway does, so its latency reveals no account', async () => {
+      const gateway = new BlockingSms();
+      const app = buildApp(
+        { ...ctx.deps, sms: gateway },
+        { logger: false, rateLimitNameSpace: `slow-sms-${randomUUID()}:` },
+      );
+      try {
+        const player = await registerAndLogin(ctx);
+        const known = await app.inject({
+          method: 'POST',
+          url: '/auth/password/forgot',
+          payload: { phone: player.phone },
+        });
+        // The gateway has not answered yet, but the response is already out.
+        expect(known.statusCode).toBe(200);
+        expect(gateway.started).toHaveLength(1);
+        expect(gateway.delivered).toHaveLength(0);
+        const unknown = await app.inject({
+          method: 'POST',
+          url: '/auth/password/forgot',
+          payload: { phone: randomPhone() },
+        });
+        expect(unknown.statusCode).toBe(200);
+        expect(Object.keys(unknown.json<object>())).toEqual(Object.keys(known.json<object>()));
+
+        gateway.release();
+        await app.background.idle();
+        expect(gateway.delivered).toEqual([
+          expect.objectContaining({ to: player.phone, template: 'otp_password_reset' }),
+        ]);
+      } finally {
+        gateway.release();
+        await app.close();
+      }
     });
   });
 
@@ -910,6 +1181,150 @@ describe('auth', () => {
       expect(otherIp.statusCode).toBe(401);
     });
 
+    it('ignores X-Forwarded-For from clients: it cannot dodge the limit or forge the logged IP', async () => {
+      const phone = randomPhone();
+      const remoteAddress = '192.0.2.30';
+      const attempt = (i: number) =>
+        post(
+          ctx,
+          '/auth/login',
+          { phone, password: `wrong-password-${i}` },
+          { remoteAddress, headers: { 'x-forwarded-for': `198.51.100.${i}` } },
+        );
+      for (let i = 0; i < 10; i += 1) {
+        expect((await attempt(i)).statusCode).toBe(401);
+      }
+      const limited = await attempt(10);
+      expect(limited.statusCode).toBe(429);
+      expect(apiError(limited).code).toBe('rate_limited');
+
+      const failures = await ctx.db.db
+        .select({ ip: auditLog.ip })
+        .from(auditLog)
+        .where(and(eq(auditLog.action, 'user.login_failed'), eq(auditLog.ip, remoteAddress)));
+      expect(failures).toHaveLength(10);
+    });
+
+    it('reads the client address from X-Forwarded-For only when a trusted proxy sends it', async () => {
+      const app = buildApp(ctx.deps, {
+        logger: false,
+        rateLimitNameSpace: `proxy-${randomUUID()}:`,
+        trustProxy: ['10.0.0.0/8'],
+      });
+      try {
+        const phone = randomPhone();
+        const login = (remoteAddress: string, forwardedFor: string) =>
+          app.inject({
+            method: 'POST',
+            url: '/auth/login',
+            payload: { phone, password: 'wrong-password' },
+            remoteAddress,
+            headers: { 'x-forwarded-for': forwardedFor },
+          });
+        // Behind the load balancer, each forwarded client has its own budget.
+        for (let i = 0; i < 10; i += 1) {
+          expect((await login('10.1.2.3', `spoofed, 203.0.113.7`)).statusCode).toBe(401);
+        }
+        expect((await login('10.9.9.9', '203.0.113.7')).statusCode).toBe(429);
+        expect((await login('10.1.2.3', '203.0.113.8')).statusCode).toBe(401);
+        // A client outside the trusted range is keyed by its own address.
+        expect((await login('192.0.2.40', '203.0.113.9')).statusCode).toBe(401);
+
+        const ips = await ctx.db.db
+          .select({ ip: auditLog.ip })
+          .from(auditLog)
+          .where(and(eq(auditLog.action, 'user.login_failed'), eq(auditLog.ip, '203.0.113.7')));
+        expect(ips).toHaveLength(10);
+        const direct = await ctx.db.db
+          .select({ ip: auditLog.ip })
+          .from(auditLog)
+          .where(and(eq(auditLog.action, 'user.login_failed'), eq(auditLog.ip, '192.0.2.40')));
+        expect(direct).toHaveLength(1);
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('locks a phone number after too many login attempts from any addresses', async () => {
+      expect(DEFAULT_AUTH_LIMITS.loginPerPhone).toEqual({ max: 20, timeWindow: 15 * 60_000 });
+      const app = buildApp(ctx.deps, {
+        logger: false,
+        rateLimitNameSpace: `per-phone-${randomUUID()}:`,
+        authLimits: { loginPerPhone: { max: 3, timeWindow: 15 * 60_000 } },
+      });
+      try {
+        const player = await registerAndLogin(ctx);
+        const login = (password: string, i: number, phone = player.phone) =>
+          app.inject({
+            method: 'POST',
+            url: '/auth/login',
+            payload: { phone, password },
+            remoteAddress: `198.51.100.${i}`,
+          });
+        for (let i = 0; i < 3; i += 1) {
+          expect((await login(`guess-${i}`, i)).statusCode).toBe(401);
+        }
+        const locked = await login('guess-3', 3);
+        expect(locked.statusCode).toBe(429);
+        expect(apiError(locked)).toMatchObject({
+          code: 'rate_limited',
+          details: { retryAfterSeconds: expect.any(Number) },
+        });
+        expect(Number(locked.headers['retry-after'])).toBeGreaterThan(0);
+        // While locked, even the right password waits; other numbers are unaffected.
+        expect((await login(player.password, 4)).statusCode).toBe(429);
+        expect((await login('guess', 5, randomPhone())).statusCode).toBe(401);
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('caps auth requests per client address across phone numbers (IPv6 per /64)', async () => {
+      expect(DEFAULT_AUTH_LIMITS.perClient.max).toBeGreaterThanOrEqual(100);
+      const app = buildApp(ctx.deps, {
+        logger: false,
+        rateLimitNameSpace: `per-client-${randomUUID()}:`,
+        authLimits: { perClient: { max: 3, timeWindow: 60 * 60_000 } },
+      });
+      try {
+        const forgot = (remoteAddress: string) =>
+          app.inject({
+            method: 'POST',
+            url: '/auth/password/forgot',
+            payload: { phone: randomPhone() },
+            remoteAddress,
+          });
+        const login = (remoteAddress: string) =>
+          app.inject({
+            method: 'POST',
+            url: '/auth/login',
+            payload: { phone: randomPhone(), password: 'whatever-1' },
+            remoteAddress,
+          });
+        expect((await forgot('192.0.2.50')).statusCode).toBe(200);
+        expect((await login('192.0.2.50')).statusCode).toBe(401);
+        expect((await forgot('192.0.2.50')).statusCode).toBe(200);
+        const limited = await app.inject({
+          method: 'POST',
+          url: '/auth/register',
+          payload: registerPayload(randomPhone()),
+          remoteAddress: '192.0.2.50',
+        });
+        expect(limited.statusCode).toBe(429);
+        expect(apiError(limited).code).toBe('rate_limited');
+        expect((await forgot('192.0.2.51')).statusCode).toBe(200);
+
+        // One IPv6 subscriber (/64) shares a budget; the next /64 does not.
+        for (const address of ['2001:db8:1:2::1', '2001:db8:1:2::abcd', '2001:db8:1:2:ffff::9']) {
+          expect((await forgot(address)).statusCode).toBe(200);
+        }
+        expect((await forgot('2001:db8:1:2::77')).statusCode).toBe(429);
+        expect((await forgot('2001:db8:1:3::1')).statusCode).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+
     it('limits forgot-password requests to 5 an hour', async () => {
       const phone = randomPhone();
       const remoteAddress = '192.0.2.20';
@@ -928,9 +1343,9 @@ describe('auth', () => {
   describe('dev SMS inbox', () => {
     it('lists the mock gateway messages for a number, newest first', async () => {
       const phone = randomPhone();
-      await post(ctx, '/auth/register', registerPayload(phone));
+      const { registrationToken } = await register(phone);
       ctx.clock.advance(61_000);
-      await post(ctx, '/auth/otp/resend', { phone, purpose: 'register' });
+      await post(ctx, '/auth/otp/resend', { phone, purpose: 'register', registrationToken });
 
       const response = await ctx.app.inject({
         method: 'GET',
@@ -947,8 +1362,10 @@ describe('auth', () => {
         Date.parse(items[1]!.createdAt),
       );
 
+      // There is no listing of every number.
       const all = await ctx.app.inject({ method: 'GET', url: '/dev/sms' });
-      expect(all.json<DevSmsResponse>().items.length).toBeLessThanOrEqual(20);
+      expect(all.statusCode).toBe(400);
+      expect(apiError(all).code).toBe('validation_error');
 
       const invalid = await ctx.app.inject({ method: 'GET', url: '/dev/sms?phone=123' });
       expect(invalid.statusCode).toBe(400);
@@ -964,9 +1381,17 @@ describe('auth', () => {
         { ...ctx.deps, config: { ...ctx.deps.config, mode: 'licensed' } },
         { logger: false, rateLimitNameSpace: `licensed-${Date.now()}:` },
       );
+      // A public demo runs with NODE_ENV=production: no inbox there either.
+      const publicDemo = buildApp(
+        { ...ctx.deps, config: { ...ctx.deps.config, nodeEnv: 'production' } },
+        { logger: false, rateLimitNameSpace: `public-demo-${Date.now()}:` },
+      );
       try {
-        for (const app of [withGateway, licensed]) {
-          const inbox = await app.inject({ method: 'GET', url: '/dev/sms' });
+        for (const app of [withGateway, licensed, publicDemo]) {
+          const inbox = await app.inject({
+            method: 'GET',
+            url: `/dev/sms?phone=${encodeURIComponent(randomPhone())}`,
+          });
           expect(inbox.statusCode).toBe(404);
         }
 
@@ -992,6 +1417,7 @@ describe('auth', () => {
       } finally {
         await withGateway.close();
         await licensed.close();
+        await publicDemo.close();
       }
     });
   });

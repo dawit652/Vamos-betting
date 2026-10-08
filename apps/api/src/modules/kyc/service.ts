@@ -6,6 +6,7 @@ import { and, eq, inArray, ne } from 'drizzle-orm';
 import type { AppDeps } from '../../deps';
 import { hmacSha256Hex } from '../../lib/crypto';
 import { badRequest, conflict, serviceUnavailable, unprocessable } from '../../lib/errors';
+import { revokeAllUserSessions } from '../../plugins/session';
 import type { KycVerificationResult } from '../../providers/kyc';
 import type { RequestMeta } from '../auth/service';
 
@@ -161,9 +162,12 @@ function isUniqueViolation(error: unknown, constraint: string): boolean {
 /**
  * POST /me/kyc: verifies a Fayda ID with `deps.kyc` and stores the outcome.
  * Throws 409 `kyc_already_verified` / `id_already_used`, 503 `kyc_unavailable`
- * when the provider fails, and 422 `underage` (after storing the rejection)
- * when the registry shows the player is under 21. On success the profile's
- * name and date of birth are replaced by the verified ones.
+ * when the provider fails, and 422 `underage` when the registry shows the
+ * player is under 21. In that case, in the same transaction as the stored
+ * rejection, the account is suspended (so it can no longer log in, bet or
+ * deposit, and `canGamble` is false) and every session is revoked. That is
+ * audited as `user.suspended` and published as `user.suspended` for review.
+ * On success the profile's name and date of birth are replaced by the verified ones.
  */
 export async function submitKyc(
   deps: Pick<AppDeps, 'db' | 'clock' | 'kyc' | 'config'>,
@@ -197,7 +201,11 @@ export async function submitKyc(
   try {
     await deps.db.transaction(async (tx) => {
       const [user] = await tx
-        .select({ fullName: users.fullName, dateOfBirth: users.dateOfBirth })
+        .select({
+          fullName: users.fullName,
+          dateOfBirth: users.dateOfBirth,
+          status: users.status,
+        })
         .from(users)
         .where(eq(users.id, userId))
         .for('no key update');
@@ -278,6 +286,35 @@ export async function submitKyc(
           reason: decision.rejectionReason,
         },
       });
+
+      // The registry says the player is under 21: stop all play until support reviews it.
+      if (decision.rejectionReason === 'underage' && user.status === 'active') {
+        await tx
+          .update(users)
+          .set({ status: 'suspended', updatedAt: now })
+          .where(eq(users.id, userId));
+        const revokedSessions = await revokeAllUserSessions(tx, userId, now);
+        const suspension = {
+          reason: 'kyc_underage',
+          previousStatus: user.status,
+          provider: deps.kyc.name,
+          reference: decision.reference,
+        };
+        await writeAudit(tx, {
+          actorType: 'system',
+          action: 'user.suspended',
+          targetType: 'user',
+          targetId: userId,
+          metadata: { ...suspension, revokedSessions },
+          ip: meta.ip,
+        });
+        await enqueueOutbox(tx, {
+          type: 'user.suspended',
+          aggregateType: 'user',
+          aggregateId: userId,
+          payload: { userId, ...suspension },
+        });
+      }
     });
   } catch (error) {
     // Lost a race with another account submitting the same ID.
@@ -287,9 +324,12 @@ export async function submitKyc(
 
   if (decision.rejectionReason === 'underage') {
     const { minAge } = DEFAULT_RESPONSIBLE_GAMBLING;
-    throw unprocessable('underage', `You must be at least ${minAge} years old to use Vamos.`, {
-      minAge,
-    });
+    throw unprocessable(
+      'underage',
+      `You must be at least ${minAge} years old to use Vamos. ` +
+        'Your account has been suspended; contact support if this is a mistake.',
+      { minAge, accountSuspended: true },
+    );
   }
   return {
     status: decision.status,

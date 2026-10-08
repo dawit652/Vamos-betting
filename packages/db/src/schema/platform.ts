@@ -1,5 +1,8 @@
+import { sql } from 'drizzle-orm';
 import {
   bigserial,
+  boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -8,7 +11,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { actorType, smsStatus } from './enums';
+import { actorType, operatingMode, smsStatus } from './enums';
 
 /**
  * Transactional outbox: business events written in the same transaction as
@@ -79,4 +82,22 @@ export const smsMessages = pgTable(
     sentAt: timestamp('sent_at', { withTimezone: true }),
   },
   (t) => [index('sms_to_idx').on(t.to, t.createdAt)],
+);
+
+/**
+ * Which operating mode this database belongs to: a single row, written by
+ * the first API start (or seed) and never changed afterwards (UPDATE/DELETE
+ * are rejected by a trigger). A demo database, whose balances are play
+ * money, can therefore never be started in licensed (real-money) mode, nor
+ * the other way round. In a licensed database, triggers also refuse
+ * `demo_topup` transactions and the `house_demo_funding` account.
+ */
+export const databaseIdentity = pgTable(
+  'database_identity',
+  {
+    id: boolean('id').primaryKey().default(true),
+    operatingMode: operatingMode('operating_mode').notNull(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('database_identity_singleton', sql`${t.id}`)],
 );

@@ -36,6 +36,12 @@ export const users = pgTable('users', {
   locale: text('locale').notNull().default('am'),
   status: userStatus('status').notNull().default('pending_verification'),
   phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),
+  /**
+   * SHA-256 of the token handed to whoever last submitted the registration of
+   * a pending account. Verifying the phone requires it, so only the person who
+   * chose the password can activate the account. Cleared on verification.
+   */
+  registrationTokenHash: text('registration_token_hash'),
   termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }).notNull(),
   ...timestamps,
 });

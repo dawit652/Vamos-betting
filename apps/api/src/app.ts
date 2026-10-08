@@ -6,9 +6,13 @@ import type { AppConfig } from '@vamos/config';
 import type { HealthResponse } from '@vamos/contracts';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { AppDeps } from './deps';
+import { BackgroundTasks } from './lib/background';
 import { AppError } from './lib/errors';
+import { IDEMPOTENCY_KEY_HEADER, IDEMPOTENT_REPLAYED_HEADER } from './lib/idempotency';
+import { DEFAULT_AUTH_LIMITS, type AuthLimits } from './lib/rate-limits';
 import { registerModules } from './modules/index';
-import { sessionPlugin } from './plugins/session';
+import { CSRF_HEADER, sessionPlugin } from './plugins/session';
+import type { TrustProxySetting } from './startup';
 
 export type { AppDeps } from './deps';
 
@@ -17,6 +21,10 @@ export const API_VERSION = '0.1.0';
 declare module 'fastify' {
   interface FastifyInstance {
     deps: AppDeps;
+    /** Brute-force limits of the auth endpoints (defaults, or BuildAppOptions.authLimits). */
+    authLimits: AuthLimits;
+    /** Work that runs after a response (see BackgroundTasks); awaited on close. */
+    background: BackgroundTasks;
   }
 }
 
@@ -24,6 +32,13 @@ export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
   /** Redis key namespace for rate-limit counters (tests use one per app instance). */
   rateLimitNameSpace?: string;
+  /**
+   * Whose X-Forwarded-For may set `request.ip` (see `parseTrustProxy`).
+   * Default false: `request.ip` is the TCP peer, which clients cannot forge.
+   */
+  trustProxy?: TrustProxySetting;
+  /** Overrides of DEFAULT_AUTH_LIMITS. */
+  authLimits?: Partial<AuthLimits>;
 }
 
 /** Browser origins allowed to call the API with credentials (player web app and back office). */
@@ -37,13 +52,19 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   const { config } = deps;
   const app = Fastify({
     logger: options.logger ?? { level: config.logLevel },
-    trustProxy: true,
+    // Never `true`: trusting every hop would let clients pick their own IP.
+    trustProxy: options.trustProxy ?? false,
     bodyLimit: 64 * 1024,
     genReqId: () => crypto.randomUUID(),
     requestIdHeader: 'x-request-id',
   });
 
   app.decorate('deps', deps);
+  app.decorate('authLimits', { ...DEFAULT_AUTH_LIMITS, ...options.authLimits });
+  app.decorate('background', new BackgroundTasks(app.log));
+  app.addHook('onClose', async () => {
+    await app.background.idle();
+  });
 
   void app.register(fastifyCookie);
   void app.register(fastifyHelmet, {
@@ -59,8 +80,14 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     origin: allowedOrigins(config),
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['content-type', 'authorization', 'x-csrf-token', 'x-request-id'],
-    exposedHeaders: ['x-request-id', 'retry-after'],
+    allowedHeaders: [
+      'content-type',
+      'authorization',
+      CSRF_HEADER,
+      'x-request-id',
+      IDEMPOTENCY_KEY_HEADER,
+    ],
+    exposedHeaders: ['x-request-id', 'retry-after', IDEMPOTENT_REPLAYED_HEADER],
     maxAge: 600,
   });
   void app.register(fastifyRateLimit, {

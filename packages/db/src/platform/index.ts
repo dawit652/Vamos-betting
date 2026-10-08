@@ -9,3 +9,9 @@ export {
 } from './outbox';
 export { writeAudit, type AuditEntry } from './audit';
 export { getSetting, setSetting } from './settings';
+export {
+  claimOperatingMode,
+  getDatabaseOperatingMode,
+  OperatingModeMismatchError,
+  type DatabaseOperatingMode,
+} from './operating-mode';

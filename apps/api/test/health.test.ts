@@ -1,5 +1,6 @@
 import { HealthResponseSchema } from '@vamos/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { IDEMPOTENCY_KEY_HEADER, IDEMPOTENT_REPLAYED_HEADER } from '../src/lib/idempotency';
 import { createTestContext, type TestContext } from './helpers';
 
 describe('GET /health', () => {
@@ -58,6 +59,38 @@ describe('GET /health', () => {
     });
     expect(response.statusCode).toBe(204);
     expect(response.headers['access-control-allow-headers']).toContain('x-csrf-token');
+  });
+
+  it('lets browsers send Idempotency-Key and read Idempotent-Replayed', async () => {
+    const response = await ctx.app.inject({
+      method: 'OPTIONS',
+      url: '/wallet/demo-topup',
+      headers: {
+        origin: 'http://localhost:3000',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type,x-csrf-token,idempotency-key',
+      },
+    });
+    expect(response.statusCode).toBe(204);
+    expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3000');
+    const allowed = String(response.headers['access-control-allow-headers'])
+      .split(',')
+      .map((header) => header.trim());
+    expect(allowed).toEqual(
+      expect.arrayContaining(['content-type', 'x-csrf-token', IDEMPOTENCY_KEY_HEADER]),
+    );
+
+    const get = await ctx.app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { origin: 'http://localhost:3000' },
+    });
+    const exposed = String(get.headers['access-control-expose-headers'])
+      .split(',')
+      .map((header) => header.trim());
+    expect(exposed).toEqual(
+      expect.arrayContaining(['x-request-id', 'retry-after', IDEMPOTENT_REPLAYED_HEADER]),
+    );
   });
 
   it('returns the API error shape for unknown routes', async () => {

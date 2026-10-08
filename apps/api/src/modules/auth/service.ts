@@ -10,6 +10,7 @@ import type {
   LoginRequest,
   OtpSentResponse,
   RegisterRequest,
+  RegisterResponse,
   ResendOtpRequest,
   ResetPasswordRequest,
   VerifyOtpRequest,
@@ -19,14 +20,8 @@ import { users } from '@vamos/db/schema';
 import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AppDeps } from '../../deps';
-import {
-  AppError,
-  badRequest,
-  conflict,
-  forbidden,
-  notFound,
-  unprocessable,
-} from '../../lib/errors';
+import { randomToken, safeEqualHex, sha256Hex } from '../../lib/crypto';
+import { AppError, badRequest, conflict, forbidden, unprocessable } from '../../lib/errors';
 import { toLocale } from '../../lib/locale';
 import {
   consumeOtp,
@@ -83,6 +78,41 @@ const phoneTaken = () =>
 const invalidCredentials = () =>
   new AppError(401, 'invalid_credentials', 'Incorrect phone number or password.');
 
+/**
+ * The registration token does not belong to a pending registration of the
+ * number: the number was registered again since (which replaces the token),
+ * is already verified, or was never registered. Deliberately the same answer
+ * in every case.
+ */
+const registrationExpired = () =>
+  badRequest(
+    'registration_expired',
+    'This sign-up is no longer valid. It was completed, or the number was registered again. ' +
+      'Register again to get a new code.',
+  );
+
+/** True when `token` is the registration token of `user`, a pending account. */
+function holdsRegistration(
+  user: Pick<UserRow, 'status' | 'registrationTokenHash'> | null | undefined,
+  token: string,
+): boolean {
+  if (!user || user.status !== 'pending_verification' || user.registrationTokenHash === null) {
+    return false;
+  }
+  return safeEqualHex(sha256Hex(token), user.registrationTokenHash);
+}
+
+/**
+ * The OtpSentResponse of a request, plus the SMS still to send. The route
+ * sends it after answering, so the response time is the same whether or not
+ * an SMS is due (and does not reveal whether the number has an account).
+ */
+export interface OtpDispatch {
+  response: OtpSentResponse;
+  /** Sends the SMS (never throws; failures are logged). null when no SMS is due. */
+  deliver: (() => Promise<void>) | null;
+}
+
 async function findUserByPhone(exec: DbExecutor, phone: string): Promise<UserRow | null> {
   const [user] = await exec.select().from(users).where(eq(users.phone, phone)).limit(1);
   return user ?? null;
@@ -91,12 +121,19 @@ async function findUserByPhone(exec: DbExecutor, phone: string): Promise<UserRow
 /**
  * Creates a pending account (or refreshes an unverified one) and sends the
  * registration code. Nothing is written for an underage applicant.
+ *
+ * The response carries a fresh registration token; only its hash is stored.
+ * Verifying the code requires it. A new registration of a pending number
+ * replaces the password, the details and the token, so the earlier
+ * registrant's token stops working. Whoever activates the account is the
+ * person who chose its password and also received the SMS. The user id is
+ * not returned.
  */
 export async function registerUser(
   deps: AppDeps,
   input: RegisterRequest,
   meta: RequestMeta,
-): Promise<{ userId: string; response: OtpSentResponse }> {
+): Promise<{ userId: string; response: RegisterResponse }> {
   const phone = requirePhone(input.phone);
   const now = deps.clock();
   const { minAge } = DEFAULT_RESPONSIBLE_GAMBLING;
@@ -116,6 +153,7 @@ export async function registerUser(
     throw phoneTaken();
   }
   const passwordHash = await hashPassword(input.password);
+  const registrationToken = randomToken(deps.randomBytes);
 
   const { userId, otp } = await deps.db.transaction(async (tx) => {
     const [current] = await tx
@@ -129,6 +167,7 @@ export async function registerUser(
       fullName: input.fullName ?? null,
       locale: input.locale,
       termsAcceptedAt: now,
+      registrationTokenHash: sha256Hex(registrationToken),
     };
     let id: string;
     if (current) {
@@ -177,10 +216,18 @@ export async function registerUser(
     { phone, purpose: 'register', code: otp.code, locale: input.locale },
     meta.log,
   );
-  return { userId, response: otpSentBody(deps, phone, otp, true) };
+  return {
+    userId,
+    response: { ...otpSentBody(deps, phone, otp, 'register'), registrationToken },
+  };
 }
 
-/** Confirms the registration code: activates the account and opens a session. */
+/**
+ * Confirms the registration code: activates the account and opens a session.
+ * The registration token must belong to the pending registration (400
+ * `registration_expired` otherwise). It is checked before the code, so
+ * nobody without it can use up the code's attempts.
+ */
 export async function verifyRegistration(
   deps: AppDeps,
   input: VerifyOtpRequest,
@@ -188,21 +235,27 @@ export async function verifyRegistration(
 ): Promise<AuthenticatedUser> {
   const phone = requirePhone(input.phone);
   const now = deps.clock();
+  if (!holdsRegistration(await findUserByPhone(deps.db, phone), input.registrationToken)) {
+    throw registrationExpired();
+  }
   return consumeOtp(
     deps.db,
     { secret: deps.config.sessionSecret, phone, purpose: input.purpose, code: input.code, now },
     async (tx) => {
       const [user] = await tx.select().from(users).where(eq(users.phone, phone)).for('update');
-      if (!user) throw otpExpired();
-      if (user.status !== 'pending_verification') {
-        throw conflict(
-          'already_verified',
-          'This phone number is already verified. Log in instead.',
-        );
+      // Again under the row lock: a concurrent registration may have replaced the token.
+      // Throwing rolls back the consumption of the code.
+      if (!user || !holdsRegistration(user, input.registrationToken)) {
+        throw registrationExpired();
       }
       const [activated] = await tx
         .update(users)
-        .set({ status: 'active', phoneVerifiedAt: now, updatedAt: now })
+        .set({
+          status: 'active',
+          phoneVerifiedAt: now,
+          registrationTokenHash: null,
+          updatedAt: now,
+        })
         .where(eq(users.id, user.id))
         .returning();
       if (!activated) throw new Error('user activation returned no row');
@@ -316,16 +369,19 @@ export async function logout(deps: AppDeps, user: SessionUser, meta: RequestMeta
 }
 
 /**
- * Starts a password reset. The response (and the cooldown / hourly limits)
- * are the same whether or not the number belongs to an active account, so
- * the endpoint cannot be used to discover accounts; the SMS is only sent to
- * active accounts.
+ * Starts a password reset. Every valid number gets the same answer after the
+ * same work: a challenge (so the cooldown and the hourly cap apply alike), an
+ * audit record and an identical body (reset codes are never echoed, even in
+ * demo mode). Only an active account is sent the SMS, by `deliver` after the
+ * response, so neither the body nor the response time tells numbers with an
+ * account apart. (Registration still answers 409 `phone_taken` for a taken
+ * number; that is deliberate UX.)
  */
 export async function requestPasswordReset(
   deps: AppDeps,
   input: ForgotPasswordRequest,
   meta: RequestMeta,
-): Promise<OtpSentResponse> {
+): Promise<OtpDispatch> {
   const phone = requirePhone(input.phone);
   const now = deps.clock();
   const user = await findUserByPhone(deps.db, phone);
@@ -338,27 +394,30 @@ export async function requestPasswordReset(
       purpose: 'password_reset',
       now,
     });
-    if (eligible) {
-      await writeAudit(tx, {
-        actorType: 'user',
-        actorId: user.id,
-        action: 'user.password_reset_requested',
-        targetType: 'user',
-        targetId: user.id,
-        ip: meta.ip,
-      });
-    }
+    await writeAudit(tx, {
+      actorType: 'user',
+      actorId: user?.id ?? null,
+      action: 'user.password_reset_requested',
+      targetType: 'user',
+      ...(user ? { targetId: user.id } : {}),
+      metadata: { phone: maskMsisdn(phone), smsSent: eligible },
+      ip: meta.ip,
+    });
     return issued;
   });
 
-  if (eligible) {
-    await sendOtpSms(
-      deps,
-      { phone, purpose: 'password_reset', code: otp.code, locale: toLocale(user.locale) },
-      meta.log,
-    );
-  }
-  return otpSentBody(deps, phone, otp, eligible);
+  const locale = toLocale(user?.locale);
+  const deliver = eligible
+    ? async () => {
+        // sendOtpSms logs a gateway failure; the requester can simply ask again.
+        await sendOtpSms(
+          deps,
+          { phone, purpose: 'password_reset', code: otp.code, locale },
+          meta.log,
+        ).catch(() => undefined);
+      }
+    : null;
+  return { response: otpSentBody(deps, phone, otp, 'password_reset'), deliver };
 }
 
 /** Sets a new password with a reset code and revokes every session of the account. */
@@ -397,19 +456,26 @@ export async function resetPassword(
   );
 }
 
-/** Re-sends a registration or password-reset code. */
+/**
+ * Re-sends a registration code (only to the holder of the registration
+ * token: 400 `registration_expired` otherwise, whatever the number) or a
+ * password-reset code (exactly like a new reset request).
+ */
 export async function resendOtp(
   deps: AppDeps,
   input: ResendOtpRequest,
   meta: RequestMeta,
-): Promise<OtpSentResponse> {
+): Promise<OtpDispatch> {
   switch (input.purpose) {
     case 'register': {
       const phone = requirePhone(input.phone);
       const now = deps.clock();
       const user = await findUserByPhone(deps.db, phone);
-      if (user === null || user.status !== 'pending_verification') {
-        throw notFound('Pending registration for this phone number');
+      if (
+        input.registrationToken === undefined ||
+        !holdsRegistration(user, input.registrationToken)
+      ) {
+        throw registrationExpired();
       }
       const otp = await deps.db.transaction((tx) =>
         createOtpChallenge(tx, {
@@ -421,10 +487,10 @@ export async function resendOtp(
       );
       await sendOtpSms(
         deps,
-        { phone, purpose: 'register', code: otp.code, locale: toLocale(user.locale) },
+        { phone, purpose: 'register', code: otp.code, locale: toLocale(user?.locale) },
         meta.log,
       );
-      return otpSentBody(deps, phone, otp, true);
+      return { response: otpSentBody(deps, phone, otp, 'register'), deliver: null };
     }
     case 'password_reset':
       return requestPasswordReset(deps, { phone: input.phone }, meta);

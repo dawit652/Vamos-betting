@@ -96,11 +96,23 @@ export async function revokeAllUserSessions(
   return revoked.length;
 }
 
+/**
+ * Whether session cookies carry the Secure flag: in production, in licensed
+ * (real-money) mode whatever NODE_ENV says, and whenever the API is public over HTTPS.
+ */
+export function secureCookies(config: Pick<AppConfig, 'nodeEnv' | 'mode' | 'api'>): boolean {
+  return (
+    config.nodeEnv === 'production' ||
+    config.mode === 'licensed' ||
+    new URL(config.api.publicUrl).protocol === 'https:'
+  );
+}
+
 function cookieOptions(config: AppConfig, httpOnly: boolean) {
   return {
     httpOnly,
     sameSite: 'lax' as const,
-    secure: config.nodeEnv === 'production',
+    secure: secureCookies(config),
     path: '/',
   };
 }

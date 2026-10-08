@@ -1,6 +1,10 @@
+import { DEV_SESSION_SECRET, loadConfig } from '@vamos/config';
+import { isOfAge } from '@vamos/core';
 import { describe, expect, it } from 'vitest';
+import { BackgroundTasks } from '../src/lib/background';
+import { clientAddressKey } from '../src/lib/client-address';
 import { hmacSha256Hex, randomToken, safeEqualHex, sha256Hex } from '../src/lib/crypto';
-import { generateOtpCode, hashOtpCode } from '../src/lib/otp';
+import { generateOtpCode, hashOtpCode, otpSentBody } from '../src/lib/otp';
 import {
   assertPasswordAcceptable,
   hashPassword,
@@ -8,7 +12,9 @@ import {
   verifyPassword,
 } from '../src/lib/passwords';
 import { MockKycVerifier } from '../src/providers/kyc';
-import { otpSmsBody } from '../src/providers/sms';
+import { otpSmsBody, type SmsProvider } from '../src/providers/sms';
+import { apiConfigProblems, parseTrustProxy, StartupError } from '../src/startup';
+import { dobForAge } from './helpers';
 
 describe('crypto helpers', () => {
   it('hashes and compares digests in constant time', () => {
@@ -40,6 +46,21 @@ describe('OTP codes', () => {
     expect(hash).toBe(hmacSha256Hex('secret', '+251911234567:register:123456'));
     expect(hashOtpCode('secret', '+251911234567', 'password_reset', '123456')).not.toBe(hash);
     expect(hashOtpCode('secret', '+251911234568', 'register', '123456')).not.toBe(hash);
+  });
+
+  it('are echoed on screen only for registration, and only in demo mode with the mock SMS', () => {
+    const otp = { code: '123456', expiresAt: new Date('2026-10-08T10:05:00.000Z') };
+    const gateway = (name: string): SmsProvider => ({ name, send: async () => ({ id: '1' }) });
+    const demo = { config: loadConfig({ LOG_LEVEL: 'silent' }), sms: gateway('mock') };
+    expect(otpSentBody(demo, '+251911234567', otp, 'register')).toEqual({
+      otpSentTo: expect.any(String),
+      otpExpiresAt: '2026-10-08T10:05:00.000Z',
+      demoOtp: '123456',
+    });
+    expect(otpSentBody(demo, '+251911234567', otp, 'password_reset')).not.toHaveProperty('demoOtp');
+    expect(
+      otpSentBody({ ...demo, sms: gateway('http') }, '+251911234567', otp, 'register'),
+    ).not.toHaveProperty('demoOtp');
   });
 
   it('are sent in Amharic and English', () => {
@@ -107,5 +128,126 @@ describe('MockKycVerifier', () => {
       verifiedDateOfBirth: '1932-08-07',
       reference: 'mock-1234',
     });
+  });
+});
+
+describe('dobForAge (test helper)', () => {
+  it('gives an exact 21st birthday today and a not-yet-21 date, even on 29 February', () => {
+    for (const today of [
+      '2026-10-08T12:00:00Z',
+      '2028-02-29T12:00:00Z',
+      '2028-02-28T12:00:00Z',
+      '2029-02-28T12:00:00Z',
+      '2027-12-31T23:59:00Z',
+    ]) {
+      const now = new Date(today);
+      expect(isOfAge(dobForAge(now, 21), 21, now), today).toBe(true);
+      expect(isOfAge(dobForAge(now, 21, 1), 21, now), today).toBe(false);
+    }
+    expect(dobForAge(new Date('2028-02-29T12:00:00Z'), 21)).toBe('2007-02-28');
+    expect(dobForAge(new Date('2028-02-29T12:00:00Z'), 21, 1)).toBe('2007-03-01');
+    expect(dobForAge(new Date('2026-10-08T12:00:00Z'), 21)).toBe('2005-10-08');
+  });
+});
+
+describe('client address keys', () => {
+  it('keeps IPv4 addresses and groups IPv6 addresses by /64', () => {
+    expect(clientAddressKey('203.0.113.5')).toBe('203.0.113.5');
+    expect(clientAddressKey('::ffff:203.0.113.5')).toBe('203.0.113.5');
+    expect(clientAddressKey('2001:db8:1:2::1')).toBe('2001:db8:1:2::/64');
+    expect(clientAddressKey('2001:DB8:1:2:ffff:ffff:ffff:ffff')).toBe('2001:db8:1:2::/64');
+    expect(clientAddressKey('2001:0db8:0001:0002::')).toBe('2001:db8:1:2::/64');
+    expect(clientAddressKey('2001:db8:1:3::1')).toBe('2001:db8:1:3::/64');
+    expect(clientAddressKey('::1')).toBe('0:0:0:0::/64');
+    expect(clientAddressKey('fe80::1%eth0')).toBe('fe80:0:0:0::/64');
+    expect(clientAddressKey('64:ff9b::192.0.2.1')).toBe('64:ff9b:0:0::/64');
+    expect(clientAddressKey('not-an-ip')).toBe('not-an-ip');
+  });
+});
+
+describe('startup checks', () => {
+  it('parses TRUST_PROXY and never trusts every hop', () => {
+    for (const off of [undefined, '', ' ', 'false', '0']) {
+      expect(parseTrustProxy(off)).toBe(false);
+    }
+    expect(parseTrustProxy('10.0.0.0/8, 192.168.1.10 ,fd00::/8,loopback')).toEqual([
+      '10.0.0.0/8',
+      '192.168.1.10',
+      'fd00::/8',
+      'loopback',
+    ]);
+    for (const bad of ['true', '1', '2', '10.0.0.0/33', 'proxy.internal', '10.0.0.1/8/1', ',']) {
+      expect(() => parseTrustProxy(bad), bad).toThrow(StartupError);
+    }
+  });
+
+  it('refuses licensed mode without NODE_ENV=production and a unique SESSION_SECRET', () => {
+    const licensedEnv = {
+      LOG_LEVEL: 'silent',
+      OPERATING_MODE: 'licensed',
+      ELS_LICENSE_NUMBER: 'ELS-1',
+      PAYMENT_PROVIDERS: 'telebirr',
+      KYC_PROVIDER: 'fayda',
+      SMS_PROVIDER: 'http',
+      FEED_PROVIDER: 'manual',
+      TAX_CONFIG_CONFIRMED: 'true',
+    } as const;
+    // loadConfig itself now refuses these (packages/config licensedModeViolations); the API
+    // check stays as defence in depth for configs built by other means.
+    expect(() => loadConfig(licensedEnv)).toThrow(/NODE_ENV=production/);
+    const production = loadConfig({
+      ...licensedEnv,
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'a-unique-production-secret-0123456789abcdef',
+    });
+    const devDefaults = {
+      ...production,
+      nodeEnv: 'development' as const,
+      sessionSecret: DEV_SESSION_SECRET,
+    };
+    expect(apiConfigProblems(devDefaults)).toEqual([
+      expect.stringMatching(/NODE_ENV=production is required/),
+      expect.stringMatching(/SESSION_SECRET must be set/),
+    ]);
+    expect(
+      apiConfigProblems(
+        loadConfig({
+          ...licensedEnv,
+          NODE_ENV: 'production',
+          SESSION_SECRET: 'a-unique-production-secret-0123456789abcdef',
+        }),
+      ),
+    ).toEqual([]);
+    // Demo mode keeps working with the development defaults.
+    expect(apiConfigProblems(loadConfig({ LOG_LEVEL: 'silent' }))).toEqual([]);
+  });
+});
+
+describe('BackgroundTasks', () => {
+  it('runs tasks without blocking, logs failures and waits for all of them when idle', async () => {
+    const errors: unknown[] = [];
+    const tasks = new BackgroundTasks({ error: (...args: unknown[]) => void errors.push(args) });
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    tasks.run('slow', async () => {
+      await gate;
+      order.push('slow');
+      tasks.run('follow-up', async () => {
+        order.push('follow-up');
+      });
+    });
+    tasks.run('failing', async () => {
+      throw new Error('gateway down');
+    });
+    order.push('caller');
+    const idle = tasks.idle();
+    release();
+    await idle;
+    expect(order).toEqual(['caller', 'slow', 'follow-up']);
+    expect(errors).toHaveLength(1);
+    await expect(tasks.idle()).resolves.toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 import { SubmitKycRequest, type KycResponse } from '@vamos/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { parseInput } from '../../lib/errors';
-import { requireUser } from '../../plugins/session';
+import { AppError, parseInput } from '../../lib/errors';
+import { clearSessionCookies, requireUser } from '../../plugins/session';
 import { getKyc, submitKyc } from './service';
 
 const HOUR_MS = 60 * 60_000;
@@ -31,10 +31,18 @@ export default async function kycRoutes(app: FastifyInstance): Promise<void> {
         },
       },
     },
-    async (request): Promise<KycResponse> => {
+    async (request, reply): Promise<KycResponse> => {
       const user = requireUser(request);
       const input = parseInput(SubmitKycRequest, request.body);
-      return submitKyc(deps, user.id, input, { ip: request.ip, log: request.log });
+      try {
+        return await submitKyc(deps, user.id, input, { ip: request.ip, log: request.log });
+      } catch (error) {
+        // An underage finding suspends the account and revokes this session too.
+        if (error instanceof AppError && error.code === 'underage') {
+          clearSessionCookies(reply, deps.config);
+        }
+        throw error;
+      }
     },
   );
 }

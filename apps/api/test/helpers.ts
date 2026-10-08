@@ -1,6 +1,6 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { loadConfig } from '@vamos/config';
-import { SessionResponse } from '@vamos/contracts';
+import { RegisterResponse, SessionResponse } from '@vamos/contracts';
 import { smsMessages } from '@vamos/db/schema';
 import { createTestDatabase } from '@vamos/db/testing';
 import { desc, eq } from 'drizzle-orm';
@@ -85,16 +85,27 @@ export function randomPhone(): string {
   return `+2519${randomInt(0, 100_000_000).toString().padStart(8, '0')}`;
 }
 
-/** `YYYY-MM-DD` for the person who turns `years` old `offsetDays` days from `now`. */
+/**
+ * `YYYY-MM-DD` of a birth date `years` years before `now`, moved `offsetDays`
+ * days later. With offset 0 the person is exactly `years` old today (or since
+ * yesterday when today is 29 February and that year had none); with offset 1
+ * they are not `years` old yet. The day is clamped to the end of the month
+ * before the offset is added, so 29 February never rolls over to 1 March.
+ */
 export function dobForAge(now: Date, years: number, offsetDays = 0): string {
-  const date = new Date(
-    Date.UTC(now.getUTCFullYear() - years, now.getUTCMonth(), now.getUTCDate() + offsetDays),
-  );
+  const year = now.getUTCFullYear() - years;
+  const month = now.getUTCMonth();
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const date = new Date(Date.UTC(year, month, Math.min(now.getUTCDate(), lastDay) + offsetDays));
   return date.toISOString().slice(0, 10);
 }
 
-/** The code in the newest SMS sent to `phone` (read from the mock gateway's table). */
+/**
+ * The code in the newest SMS sent to `phone` (read from the mock gateway's
+ * table), once SMS sent after a response (password resets) have gone out.
+ */
 export async function latestOtp(ctx: TestContext, phone: string): Promise<string> {
+  await ctx.app.background.idle();
   const [message] = await ctx.db.db
     .select({ body: smsMessages.body })
     .from(smsMessages)
@@ -146,8 +157,14 @@ export async function registerAndLogin(
   if (registered.statusCode !== 201) {
     throw new Error(`register failed: ${registered.statusCode} ${registered.body}`);
   }
+  const { registrationToken } = RegisterResponse.parse(registered.json());
   const code = await latestOtp(ctx, phone);
-  const verified = await post(ctx, '/auth/verify-otp', { phone, code, purpose: 'register' });
+  const verified = await post(ctx, '/auth/verify-otp', {
+    phone,
+    code,
+    purpose: 'register',
+    registrationToken,
+  });
   if (verified.statusCode !== 200) {
     throw new Error(`verify-otp failed: ${verified.statusCode} ${verified.body}`);
   }

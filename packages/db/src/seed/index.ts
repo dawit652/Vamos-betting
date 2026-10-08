@@ -11,6 +11,11 @@ import type { Database } from '../client';
 import { ensureAccount } from '../ledger/accounts';
 import type { HouseAccountKind } from '../ledger/types';
 import { toJsonSafe } from '../platform/json';
+import {
+  claimOperatingMode,
+  getDatabaseOperatingMode,
+  type DatabaseOperatingMode,
+} from '../platform/operating-mode';
 import { settings } from '../schema/platform';
 
 /** Every house ledger account with a fixed key (PSP clearing accounts are opened per provider). */
@@ -40,9 +45,25 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, unknown>> = {
 /** `settings.updated_by` for rows written by the seed. */
 export const SEED_ACTOR = 'seed';
 
+/** The house accounts a database of the given mode needs (no demo funding when licensed). */
+export function houseAccountKinds(mode: DatabaseOperatingMode | null): HouseAccountKind[] {
+  return HOUSE_ACCOUNT_KINDS.filter((kind) => mode !== 'licensed' || kind !== 'house_demo_funding');
+}
+
+export interface SeedOptions {
+  /**
+   * The configured operating mode. When given, it is claimed for the database
+   * first (OperatingModeMismatchError if the database belongs to the other
+   * mode). Without it, the mode already recorded in the database (if any) is used.
+   */
+  mode?: DatabaseOperatingMode;
+}
+
 /**
  * Idempotent seed, safe to run on every deploy and concurrently:
- * - opens every house ledger account (existing accounts and balances are untouched);
+ * - claims or checks the operating mode (see `SeedOptions.mode`);
+ * - opens every house ledger account the mode needs. A licensed database
+ *   gets no demo funding account. Existing accounts and balances are untouched;
  * - writes the default business settings that are absent. Settings that already
  *   exist (possibly edited in the back office) are never overwritten.
  *
@@ -50,9 +71,17 @@ export const SEED_ACTOR = 'seed';
  * that exist after the run and the number of settings rows inserted by it.
  * Reference data (sports, competitions, teams) is added here in later phases.
  */
-export async function seed(db: Database): Promise<Record<string, number>> {
+export async function seed(
+  db: Database,
+  options: SeedOptions = {},
+): Promise<Record<string, number>> {
   return db.transaction(async (tx) => {
-    for (const kind of HOUSE_ACCOUNT_KINDS) {
+    const mode =
+      options.mode === undefined
+        ? await getDatabaseOperatingMode(tx)
+        : (await claimOperatingMode(tx, options.mode)).mode;
+    const kinds = houseAccountKinds(mode);
+    for (const kind of kinds) {
       await ensureAccount(tx, { kind });
     }
 
@@ -69,6 +98,6 @@ export async function seed(db: Database): Promise<Record<string, number>> {
       .onConflictDoNothing({ target: settings.key })
       .returning({ key: settings.key });
 
-    return { houseAccounts: HOUSE_ACCOUNT_KINDS.length, settingsCreated: created.length };
+    return { houseAccounts: kinds.length, settingsCreated: created.length };
   });
 }

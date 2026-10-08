@@ -26,6 +26,12 @@ export function normalizePosting(input: PostingInput): MergedEntry[] {
       `idempotency key is longer than ${MAX_IDEMPOTENCY_KEY_LENGTH} characters`,
     );
   }
+  if (
+    input.createdAt !== undefined &&
+    (!(input.createdAt instanceof Date) || Number.isNaN(input.createdAt.getTime()))
+  ) {
+    throw new LedgerError('createdAt must be a valid Date');
+  }
   if (!Array.isArray(input.entries)) {
     throw new UnbalancedTransactionError('a ledger transaction needs entries');
   }
@@ -115,6 +121,7 @@ export async function postTransaction(
         description: input.description ?? null,
         actorType: input.actor?.type ?? 'system',
         actorId: input.actor?.id ?? null,
+        ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
       })
       .onConflictDoNothing({ target: ledgerTransactions.idempotencyKey })
       .returning({ id: ledgerTransactions.id });
@@ -165,6 +172,7 @@ export async function postTransaction(
         accountId: entry.id,
         amount: entry.amount,
         balanceAfter: updated.balance,
+        ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
       });
     }
 

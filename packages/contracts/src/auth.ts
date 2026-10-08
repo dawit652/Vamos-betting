@@ -23,8 +23,9 @@ export const RegisterRequest = z.object({
 export type RegisterRequest = z.infer<typeof RegisterRequest>;
 
 /**
- * `demoOtp` is only present when the mock SMS provider is active (demo mode),
- * where no real SMS can be delivered; the web app shows it on screen.
+ * `demoOtp` is only present for registration codes when the mock SMS provider
+ * is active (demo mode), where no real SMS can be delivered; the web app
+ * shows it on screen. Password-reset codes are never echoed.
  */
 export const OtpSentResponse = z.object({
   otpSentTo: z.string(),
@@ -33,8 +34,17 @@ export const OtpSentResponse = z.object({
 });
 export type OtpSentResponse = z.infer<typeof OtpSentResponse>;
 
+/** The secret returned by POST /auth/register; it proves who chose the password. */
+export const RegistrationToken = z.string().min(16).max(200);
+
+/**
+ * `registrationToken` must be sent back with the SMS code (verify-otp) and
+ * with resend requests. A newer registration of the same number replaces it,
+ * so a code can only activate the account for the person who last chose its
+ * password. Keep it in memory only; it is useless once the phone is verified.
+ */
 export const RegisterResponse = OtpSentResponse.extend({
-  userId: z.string(),
+  registrationToken: RegistrationToken,
 });
 export type RegisterResponse = z.infer<typeof RegisterResponse>;
 
@@ -44,13 +54,21 @@ export const VerifyOtpRequest = z.object({
   phone: PhoneInput,
   code: OtpCode,
   purpose: z.literal('register'),
+  registrationToken: RegistrationToken,
 });
 export type VerifyOtpRequest = z.infer<typeof VerifyOtpRequest>;
 
-export const ResendOtpRequest = z.object({
-  phone: PhoneInput,
-  purpose: OtpPurposeSchema,
-});
+/** `registrationToken` (from POST /auth/register) is required to resend a registration code. */
+export const ResendOtpRequest = z
+  .object({
+    phone: PhoneInput,
+    purpose: OtpPurposeSchema,
+    registrationToken: RegistrationToken.optional(),
+  })
+  .refine((value) => value.purpose !== 'register' || value.registrationToken !== undefined, {
+    path: ['registrationToken'],
+    message: 'required to resend a registration code',
+  });
 export type ResendOtpRequest = z.infer<typeof ResendOtpRequest>;
 
 export const LoginRequest = z.object({

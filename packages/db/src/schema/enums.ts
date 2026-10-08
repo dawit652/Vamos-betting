@@ -73,4 +73,7 @@ export const ledgerTransactionType = pgEnum('ledger_transaction_type', [
 
 export const actorType = pgEnum('actor_type', ['user', 'admin', 'system']);
 
+/** The operating mode a database belongs to (see `database_identity`). */
+export const operatingMode = pgEnum('operating_mode', ['demo', 'licensed']);
+
 export const smsStatus = pgEnum('sms_status', ['queued', 'sent', 'failed']);

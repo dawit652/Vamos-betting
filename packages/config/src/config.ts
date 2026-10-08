@@ -92,6 +92,16 @@ export class ConfigError extends Error {
  */
 export function licensedModeViolations(config: AppConfig): string[] {
   const problems: string[] = [];
+  if (config.nodeEnv !== 'production') {
+    problems.push(
+      'NODE_ENV=production is required in licensed mode (Secure cookies, no dev tools)',
+    );
+  }
+  if (config.sessionSecret === DEV_SESSION_SECRET) {
+    problems.push(
+      'SESSION_SECRET must be a unique secret in licensed mode (it keys OTP and ID hashes)',
+    );
+  }
   if (!config.els.licenseNumber) {
     problems.push(
       'ELS_LICENSE_NUMBER is required: real-money betting needs an Ethiopian Lottery Service licence',

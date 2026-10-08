@@ -1,7 +1,7 @@
 import type { DbExecutor } from '@vamos/db';
-import { rgExclusions, type rgExclusionKind } from '@vamos/db/schema';
+import { rgExclusions, users, type rgExclusionKind } from '@vamos/db/schema';
 import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
-import { forbidden, type AppError } from '../../lib/errors';
+import { forbidden, notFound, type AppError } from '../../lib/errors';
 
 export type ExclusionKind = (typeof rgExclusionKind.enumValues)[number];
 
@@ -72,10 +72,23 @@ export function exclusionError(exclusion: ActiveExclusion): AppError {
 }
 
 /**
- * Throws 403 `self_excluded` or `cooling_off` when the player may not gamble
- * (bet, deposit, enter jackpots) at `now`.
+ * Throws when the player may not gamble (bet, deposit, enter jackpots) at
+ * `now`: 404 for an unknown user, 403 `account_disabled` when the account is
+ * not active (e.g. suspended after an underage KYC finding), and 403
+ * `self_excluded` or `cooling_off` during an exclusion.
  */
 export async function assertCanGamble(exec: DbExecutor, userId: string, now: Date): Promise<void> {
+  const [user] = await exec
+    .select({ status: users.status })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!user) throw notFound('User');
+  if (user.status !== 'active') {
+    throw forbidden('account_disabled', 'This account is disabled. Please contact support.', {
+      status: user.status,
+    });
+  }
   const exclusion = await getActiveExclusion(exec, userId, now);
   if (exclusion !== null) {
     throw exclusionError(exclusion);

@@ -6,7 +6,7 @@ loadDotEnv();
 const config = loadConfig();
 const handle = createDb(config.databaseUrl, { max: 1 });
 try {
-  const summary = await seed(handle.db);
+  const summary = await seed(handle.db, { mode: config.mode });
   console.warn(`seed complete: ${JSON.stringify(summary)}`);
 } finally {
   await handle.close();

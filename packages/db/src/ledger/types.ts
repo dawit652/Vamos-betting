@@ -39,6 +39,12 @@ export interface PostingInput {
   refId?: string;
   description?: string;
   actor?: { type: ActorType; id?: string };
+  /**
+   * Timestamp of the transaction and its entries. Defaults to the database
+   * clock (`now()`). Pass the caller's clock only when it is the time source
+   * of record. Rows cannot be re-dated later: ledger tables are append-only.
+   */
+  createdAt?: Date;
   entries: PostingEntry[];
 }
 

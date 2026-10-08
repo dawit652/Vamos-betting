@@ -1,13 +1,17 @@
 import { randomBytes } from 'node:crypto';
-import { ApiErrorSchema, KycResponse, MeResponse } from '@vamos/contracts';
+import { ApiErrorSchema, KycResponse, MeResponse, SessionResponse } from '@vamos/contracts';
+import { getPlayerBalances } from '@vamos/db';
 import { auditLog, kycProfiles, outboxEvents, users } from '@vamos/db/schema';
-import { and, asc, eq, like } from 'drizzle-orm';
+import { and, asc, eq, like, sql } from 'drizzle-orm';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
 import { hmacSha256Hex } from '../src/lib/crypto';
 import { KYC_SUBMISSIONS_PER_HOUR } from '../src/modules/kyc/routes';
-import { idNumberHash, nameKey, namesMatch } from '../src/modules/kyc/service';
+import { getKyc, idNumberHash, nameKey, namesMatch } from '../src/modules/kyc/service';
+import { getMe } from '../src/modules/me/service';
+import { assertStakeAllowed } from '../src/modules/rg/service';
+import { demoTopUp } from '../src/modules/wallet/service';
 import type {
   KycVerificationRequest,
   KycVerificationResult,
@@ -353,7 +357,10 @@ describe('KYC: GET/POST /me/kyc', () => {
     const dob = dobForAge(ctx.clock.now, 21, 1);
     const response = await submit(player, kycPayload(freshFin(), { dateOfBirth: dob }));
     expect(response.statusCode).toBe(422);
-    expect(apiError(response)).toMatchObject({ code: 'underage', details: { minAge: 21 } });
+    expect(apiError(response)).toMatchObject({
+      code: 'underage',
+      details: { minAge: 21, accountSuspended: true },
+    });
 
     expect(await profileOf(player.userId)).toMatchObject({
       status: 'rejected',
@@ -374,11 +381,89 @@ describe('KYC: GET/POST /me/kyc', () => {
       status: 'rejected',
       reason: 'underage',
     });
-    const kyc = await ctx.app.inject({ method: 'GET', url: '/me/kyc', headers: bearer(player) });
-    expect(KycResponse.parse(kyc.json())).toMatchObject({
+    expect(await getKyc(ctx.db.db, player.userId)).toMatchObject({
       status: 'rejected',
       rejectionReason: 'underage',
     });
+  });
+
+  it('suspends a player the registry shows to be under 21, so they can no longer play', async () => {
+    const player = await registerAndLogin(ctx);
+    const otherSession = SessionResponse.parse(
+      (
+        await ctx.app.inject({
+          method: 'POST',
+          url: '/auth/login',
+          payload: { phone: player.phone, password: player.password },
+        })
+      ).json(),
+    );
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/me/kyc',
+      payload: kycPayload(freshFin(), { dateOfBirth: dobForAge(ctx.clock.now, 18) }),
+      headers: { cookie: player.cookie, 'x-csrf-token': player.csrfToken },
+    });
+    expect(response.statusCode).toBe(422);
+    expect(apiError(response).code).toBe('underage');
+    // The cookies of the (now revoked) session are cleared.
+    const cleared = response.cookies.filter((cookie) => cookie.value === '');
+    expect(cleared.map((cookie) => cookie.name).sort()).toEqual(['vamos_csrf', 'vamos_session']);
+
+    expect((await userOf(player.userId)).status).toBe('suspended');
+    const me = await getMe(ctx.db.db, player.userId, ctx.clock.now);
+    expect(me).toMatchObject({ status: 'suspended', canGamble: false });
+    expect(me.kyc.status).toBe('rejected');
+
+    // Every session is revoked and logging in again is refused.
+    for (const token of [player.sessionToken, otherSession.sessionToken]) {
+      const wallet = await ctx.app.inject({
+        method: 'GET',
+        url: '/wallet',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(wallet.statusCode).toBe(401);
+    }
+    const login = await ctx.app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { phone: player.phone, password: player.password },
+    });
+    expect(login.statusCode).toBe(403);
+    expect(apiError(login).code).toBe('account_disabled');
+
+    // The gambling guards refuse money in and stakes, whatever the caller.
+    await expect(
+      demoTopUp(ctx.deps, { userId: player.userId, idempotencyKey: 'underage-topup-1' }),
+    ).rejects.toMatchObject({ statusCode: 403, code: 'account_disabled' });
+    await expect(
+      assertStakeAllowed(ctx.db.db, player.userId, 500n, ctx.clock.now),
+    ).rejects.toMatchObject({ statusCode: 403, code: 'account_disabled' });
+    expect((await getPlayerBalances(ctx.db.db, player.userId)).cash).toBe(0n);
+
+    const [suspended] = await ctx.db.db
+      .select({ actorType: auditLog.actorType, metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(and(eq(auditLog.targetId, player.userId), eq(auditLog.action, 'user.suspended')));
+    expect(suspended).toMatchObject({
+      actorType: 'system',
+      metadata: { reason: 'kyc_underage', previousStatus: 'active', revokedSessions: 2 },
+    });
+    const events = await ctx.db.db
+      .select({ payload: outboxEvents.payload })
+      .from(outboxEvents)
+      .where(
+        and(eq(outboxEvents.aggregateId, player.userId), eq(outboxEvents.type, 'user.suspended')),
+      );
+    expect(events).toEqual([
+      {
+        payload: expect.objectContaining({
+          userId: player.userId,
+          reason: 'kyc_underage',
+          previousStatus: 'active',
+        }),
+      },
+    ]);
   });
 
   it('verifies someone who turns 21 today and syncs the date of birth', async () => {
@@ -469,7 +554,7 @@ describe('KYC: GET/POST /me/kyc', () => {
     expect(await kycEvents(player.userId)).toHaveLength(0);
   });
 
-  it('turns a lost race for the same ID into 409 id_already_used', async () => {
+  it('re-checks the ID after the registry call: 409 id_already_used if another account took it meanwhile', async () => {
     const player = await registerAndLogin(ctx);
     const rival = await registerAndLogin(ctx);
     const fin = freshFin('5555');
@@ -498,6 +583,71 @@ describe('KYC: GET/POST /me/kyc', () => {
     }
     expect(await profileOf(player.userId)).toBeUndefined();
     expect(await kycAudits(player.userId)).toHaveLength(0);
+  });
+
+  it('turns a unique-index conflict with a concurrent submission into 409 id_already_used', async () => {
+    const player = await registerAndLogin(ctx);
+    const rival = await registerAndLogin(ctx);
+    const fin = freshFin('6666');
+    let releaseRival!: () => void;
+    const rivalMayCommit = new Promise<void>((resolve) => {
+      releaseRival = resolve;
+    });
+    let rivalTransaction: Promise<void> | undefined;
+    scripted.respond = async (request) => {
+      // The rival's verified row is written but not committed while this
+      // submission runs its in-transaction re-check, so only the unique index
+      // can catch the clash.
+      let rowWritten!: () => void;
+      const written = new Promise<void>((resolve) => {
+        rowWritten = resolve;
+      });
+      rivalTransaction = ctx.db.db.transaction(async (tx) => {
+        await tx.insert(kycProfiles).values({
+          userId: rival.userId,
+          status: 'verified',
+          provider: 'scripted',
+          idNumberHash: idNumberHash(ctx.deps.config.sessionSecret, request.idNumber),
+          idNumberLast4: '6666',
+        });
+        rowWritten();
+        await rivalMayCommit;
+      });
+      await written;
+      return {
+        status: 'verified',
+        verifiedName: request.fullName,
+        verifiedDateOfBirth: request.dateOfBirth,
+        reference: 'ref-concurrent',
+      };
+    };
+    const lockWaits = async () => {
+      const result = await ctx.db.db.execute<{ waiting: number }>(sql`
+        SELECT count(*)::int AS waiting FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'`);
+      return result.rows[0]?.waiting ?? 0;
+    };
+    try {
+      const submission = submit(player, kycPayload(fin), scriptedApp);
+      // The submission's INSERT passed the re-check and now waits on the rival's row.
+      const deadline = Date.now() + 10_000;
+      while ((await lockWaits()) === 0) {
+        if (Date.now() > deadline) throw new Error('the submission never reached the INSERT');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      releaseRival();
+      const response = await submission;
+      expect(response.statusCode).toBe(409);
+      expect(apiError(response).code).toBe('id_already_used');
+      await rivalTransaction;
+    } finally {
+      releaseRival();
+      scripted.respond = new ScriptedKyc().respond;
+    }
+    expect(await profileOf(player.userId)).toBeUndefined();
+    expect(await profileOf(rival.userId)).toMatchObject({ status: 'verified' });
+    expect(await kycAudits(player.userId)).toHaveLength(0);
+    expect(await kycEvents(player.userId)).toHaveLength(0);
   });
 
   it('validates the body before calling the provider', async () => {

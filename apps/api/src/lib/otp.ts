@@ -17,7 +17,11 @@ export const OTP_TTL_MS = 5 * 60_000;
 export const OTP_MAX_ATTEMPTS = 5;
 /** Minimum time between two challenges for the same (phone, purpose). */
 export const OTP_RESEND_COOLDOWN_MS = 60_000;
-/** Maximum challenges per phone (all purposes) in a rolling hour. */
+/**
+ * Maximum challenges per (phone, purpose) in a rolling hour. Per purpose, so
+ * that password-reset requests for a number (which anyone can make, and which
+ * send nothing when the number has no account) cannot block its registration.
+ */
 export const OTP_HOURLY_LIMIT = 5;
 const HOUR_MS = 60 * 60_000;
 
@@ -48,7 +52,8 @@ const retryAfterSeconds = (until: number, now: Date) =>
 
 /**
  * Creates a challenge for (phone, purpose) inside `tx`, enforcing the resend
- * cooldown and the hourly cap (429 `otp_cooldown` / `otp_limit`), and retires
+ * cooldown and the hourly cap of that purpose (429 `otp_cooldown` /
+ * `otp_limit`), and retires
  * any older unconsumed challenge for the same purpose. Challenges for one
  * phone are serialised with a transaction-scoped advisory lock. The SMS is
  * sent by the caller after commit (see `sendOtpSms`).
@@ -81,6 +86,7 @@ export async function createOtpChallenge(
     .where(
       and(
         eq(otpChallenges.phone, phone),
+        eq(otpChallenges.purpose, purpose),
         gt(otpChallenges.createdAt, new Date(now.getTime() - HOUR_MS)),
       ),
     )
@@ -223,18 +229,27 @@ export function exposesDemoOtp(deps: Pick<AppDeps, 'config' | 'sms'>): boolean {
 }
 
 /**
- * The `OtpSentResponse` body. `demoOtp` is included only when a code was
- * actually sent and the deployment is demo + mock SMS.
+ * Purposes whose code may be shown on screen (demo + mock SMS only). Only
+ * registration, where the requester has just chosen the password and holds
+ * the registration token. A password-reset code would hand any account to
+ * whoever asks, so it is never echoed.
+ */
+const ECHOED_PURPOSES: ReadonlySet<OtpPurpose> = new Set<OtpPurpose>(['register']);
+
+/**
+ * The `OtpSentResponse` body for a code of `purpose`. `demoOtp` is included
+ * only for registration codes on a demo + mock SMS deployment, so the body is
+ * the same for every number a password-reset code is requested for.
  */
 export function otpSentBody(
   deps: Pick<AppDeps, 'config' | 'sms'>,
   phone: string,
   otp: Pick<IssuedOtp, 'code' | 'expiresAt'>,
-  sent: boolean,
+  purpose: OtpPurpose,
 ): OtpSentResponse {
   return {
     otpSentTo: maskMsisdn(phone),
     otpExpiresAt: otp.expiresAt.toISOString(),
-    ...(sent && exposesDemoOtp(deps) ? { demoOtp: otp.code } : {}),
+    ...(ECHOED_PURPOSES.has(purpose) && exposesDemoOtp(deps) ? { demoOtp: otp.code } : {}),
   };
 }

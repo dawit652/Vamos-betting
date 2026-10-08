@@ -5,7 +5,14 @@ import {
   WalletTransactionsResponse,
   type WalletTransaction,
 } from '@vamos/contracts';
-import { accountKey, postTransaction, type AccountRef } from '@vamos/db';
+import {
+  accountKey,
+  claimOperatingMode,
+  getDatabaseOperatingMode,
+  OperatingModeMismatchError,
+  postTransaction,
+  type AccountRef,
+} from '@vamos/db';
 import {
   auditLog,
   ledgerAccounts,
@@ -606,6 +613,16 @@ describe('wallet', () => {
       expect(statement.statusCode).toBe(200);
     });
 
+    it('cannot start on this database, which holds play money', async () => {
+      const user = await registerAndLogin(ctx);
+      expect((await topUp(user, newKey(), { amount: '500000' })).statusCode).toBe(200);
+      // server.ts claims the configured mode before serving; licensed is refused here.
+      const claim = claimOperatingMode(ctx.db.db, 'licensed');
+      await expect(claim).rejects.toBeInstanceOf(OperatingModeMismatchError);
+      await expect(claim).rejects.toThrow(/play money from demo mode/);
+      expect(await getDatabaseOperatingMode(ctx.db.db)).toBeNull();
+    });
+
     it('refuses demo top-ups in the service as well', async () => {
       const user = await registerAndLogin(ctx);
       const attempt = demoTopUp(
@@ -620,6 +637,27 @@ describe('wallet', () => {
 
   describe('ledger integrity', () => {
     it('keeps every transaction balanced and every cached balance equal to its entries', async () => {
+      // Self-contained: its own activity, whatever else ran before in this file.
+      const players = [await registerAndLogin(ctx), await registerAndLogin(ctx)];
+      const topUps: Array<{ userId: string; key: string; amount: bigint }> = [];
+      for (const [index, player] of players.entries()) {
+        for (const amount of [25_000n, 1_000n, 333_333n]) {
+          const key = newKey();
+          expect((await topUp(player, key, { amount: amount.toString() })).statusCode).toBe(200);
+          topUps.push({ userId: player.userId, key, amount });
+        }
+        await stake(player.userId, 10_000n * BigInt(index + 1));
+      }
+      // A replay and a refusal must not leave anything behind either.
+      const first = topUps[0]!;
+      expect((await topUp(players[0]!, first.key, { amount: '25000' })).statusCode).toBe(200);
+      expect((await topUp(players[1]!, newKey(), { amount: '0' })).statusCode).toBe(400);
+      expect(await wallet(players[0]!)).toMatchObject({ cash: (359_333n - 10_000n).toString() });
+      expect(await wallet(players[1]!)).toMatchObject({ cash: (359_333n - 20_000n).toString() });
+      for (const topUpRow of topUps) {
+        expect(await ledgerTransactionFor(topUpRow.userId, topUpRow.key)).toHaveLength(1);
+      }
+
       const unbalanced = await ctx.db.db.execute<{ transaction_id: string }>(sql`
         SELECT transaction_id FROM ledger_entries
         GROUP BY transaction_id HAVING SUM(amount) <> 0 OR COUNT(*) < 2
@@ -655,7 +693,7 @@ describe('wallet', () => {
           WHERE t.type = 'demo_topup' AND a.kind = 'player_cash'
         `)
       ).rows;
-      expect(Number(credited?.count)).toBeGreaterThan(20);
+      expect(Number(credited?.count)).toBeGreaterThanOrEqual(topUps.length);
       expect(funding?.balance).toBe(-BigInt(credited!.total));
 
       // Every demo top-up has exactly one outbox event and one audit record.

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ConfigError, DEV_SESSION_SECRET, isDemo, loadConfig } from './config';
 
 const LICENSED_ENV = {
+  NODE_ENV: 'production',
   OPERATING_MODE: 'licensed',
   ELS_LICENSE_NUMBER: 'ELS/SB/0001',
   ELS_REPORTING: 'file',
@@ -75,6 +76,16 @@ describe('loadConfig', () => {
     }).join('\n');
     expect(problems).toMatch(/ELS_REPORTING/);
     expect(problems).toMatch(/casino/);
+  });
+
+  it('refuses licensed mode outside production or with the development secret', () => {
+    const problems = problemsOf({
+      ...LICENSED_ENV,
+      NODE_ENV: 'development',
+      SESSION_SECRET: DEV_SESSION_SECRET,
+    }).join('\n');
+    expect(problems).toMatch(/NODE_ENV=production/);
+    expect(problems).toMatch(/SESSION_SECRET/);
   });
 
   it('requires a report URL for http reporting', () => {
