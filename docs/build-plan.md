@@ -54,6 +54,7 @@ typecheck or the full test run yet. The agent that wrote it reported these packa
 2. Install and start services:
    ```bash
    pnpm install
+   cp -n .env.example .env                    # optional; the defaults work in demo mode
    bash infra/scripts/dev-services.sh start   # native Postgres 16 + Redis 7, no Docker
    pnpm db:migrate && pnpm db:seed
    ```
@@ -61,10 +62,11 @@ typecheck or the full test run yet. The agent that wrote it reported these packa
    (they do after container restarts), run the start command again.
 3. **Finish Phase 3:**
    ```bash
-   pnpm format && pnpm lint && pnpm typecheck && pnpm -r --if-present test
+   pnpm format && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test
    ```
-   Fix anything that fails, then commit "Phase 3: review fixes verified" (or amend nothing; add a new
-   commit) and push.
+   Fix anything that fails in a new commit (do not amend or force-push), commit "Phase 3: review
+   fixes verified", push, and update the status table above. CI (`.github/workflows/ci.yml`) runs the
+   same steps plus `db:migrate` and `build` on every push to `claude/**`.
 4. Optional smoke test of the real stack:
    - `pnpm --filter @vamos/worker build && pnpm --filter @vamos/api build`
    - run the built worker and API. Expect fixtures to appear, an event to go live then finished and
@@ -128,6 +130,128 @@ typecheck or the full test run yet. The agent that wrote it reported these packa
 - **Game ID:** every fixture has a numeric Game ID (100 to 999999, DB CHECK) used for SMS/USSD/shop
   betting.
 
+## Codebase map and reuse points
+
+These were checked against the code on 8 Oct 2026. Read the source before relying on a signature.
+
+### Packages
+
+- **`packages/core`** (pure, re-exported from `@vamos/core`):
+  - **Bet slip.** `betslip.ts` has `validateSlip({stake, legs, rules})`, which returns `SlipError[]`.
+    It checks only numbers, not bettability or odds changes. `quoteBet({stake, legs, rules,
+multiBonus, tax})` returns a `BetQuote` with `totalOddsMilli`, `grossReturn`, `bonusAmount`,
+    `grossPayout`, `cappedByMaxPayout`, `taxAmount`, `netPayout` and `errors`.
+  - **Settlement.** `settlement.ts` has `canSettle(legs)` and `settleBet({stake, legs, maxPayout,
+multiBonus, tax})`. A leg state is `open | won | lost | void`. `settleBet` throws `RangeError`
+    when the bet is not settleable. An all-void bet refunds the stake with no tax.
+  - **Cash-out.** `cashout.ts` has `cashOutOffer({stake, legs, config, maxPayout})`. Each leg is
+    `{placedOddsMilli, state, currentOddsMilli | null}`; pass `null` when the selection is suspended.
+  - **Booking codes.** `codes.ts` has `encodeCode(randomBytes, length)`, `normalizeCode`,
+    `isValidCode`, `BOOKING_CODE_LENGTH = 6`, `BET_SHORT_ID_LENGTH = 8`, `formatGameId` and
+    `parseGameId`. Get the random bytes from `deps.randomBytes(n)`.
+  - **Rules and other modules.** `rules.ts` holds the `DEFAULT_*` constants and types. `jackpot.ts`
+    has `validateJackpotEntry`, `correctDistribution`, `jackpotTierWinners`, `computeTierPayouts` and
+    `entryPrize`. `markets.ts` has `resolveSelection` and `selectionLabel`. `money.ts` and `odds.ts`
+    have `toWire`, `parseSantim`, `productOddsMilli` and `VOID_ODDS_MILLI`.
+- **`packages/db`** (`@vamos/db`, plus `@vamos/db/testing`):
+  - **Posting.** `postTransaction(tx, {type, idempotencyKey, refType?, refId?, actor?, entries:
+[{account, amount}]})`. A positive amount is a credit. Entries must sum to zero. It returns
+    `{transactionId, created, balances}`, with `created: false` on a replayed key. A player account
+    that would go negative throws `InsufficientFundsError`.
+  - **Accounts.** An `AccountRef` is `{kind: 'player_cash' | 'player_bonus', userId}`, a house kind,
+    or `{kind: 'house_psp_clearing', provider}`. The house kinds are `house_stakes` (open-stake
+    liability), `house_revenue`, `house_tax_payable`, `house_demo_funding`, `house_promotions` and
+    `house_jackpot`.
+  - **Ledger transaction types** (the enum already exists): `demo_topup`, `deposit`, `withdrawal`,
+    `withdrawal_reversal`, `bet_stake`, `bet_payout`, `bet_refund`, `bet_cashout`, `tax_withholding`,
+    `settlement_reversal`, `bonus`, `adjustment`, `jackpot_entry` and `jackpot_prize`.
+  - **Queries.** `getPlayerBalances`, `netLossSince`, `depositTotalSince`, `sumPlayerFlows` and
+    `withTransaction`. `BETTING_FLOW_TYPES` does **not** include `tax_withholding`.
+  - **Outbox, audit and settings.** `enqueueOutbox(exec, {type, aggregateType, aggregateId,
+payload})`, `claimOutboxBatch(tx, limit, {maxAttempts})` (FOR UPDATE SKIP LOCKED),
+    `markOutboxPublished`, `markOutboxFailed`, `writeAudit(...)`, and `getSetting` / `setSetting`.
+    `getSetting` returns raw JSON, so santim values come back as strings.
+  - **Settings keys:** `bet_rules`, `multi_bonus`, `tax`, `cash_out`, `live_bet_delay_ms`,
+    `responsible_gambling` and `jackpots`.
+  - **Catalogue.** `isSelectionBettable(event, marketStatus, selectionStatus, now)`.
+    `resultEvent(tx, eventId, input)` sets `selections.result` and the market status, then writes the
+    outbox event `event.resulted` or `event.result_corrected`. The payload is `{eventId, status,
+score, previous?}`. It also returns `'unchanged'` when nothing changed. The services
+    `setManualOdds`, `setMarketStatus`, `suspendEvent` / `resumeEvent` and `upsertFixture` exist.
+  - **Admin tables already exist** (`schema/accounts.ts`): `admin_users` (role enum `admin`,
+    `trader`, `finance`, `kyc`, `support`, `compliance`; `totp_secret_enc`) and `admin_sessions`.
+  - **KYC** status lives in `kyc_profiles.status` (`unverified | pending | verified | rejected`), not
+    on `users`.
+- **`packages/contracts`:** `common`, `health`, `auth`, `account`, `wallet` and `catalog`. There are no
+  betting, payment, cash-out, jackpot or admin contracts yet. `WalletTransactionType` already lists the
+  bet and jackpot types.
+- **`packages/feed`:** `MockFeedProvider`, the pricing models and the simulator. Pure, no I/O.
+- **`packages/config`:** `loadConfig`, the licensed-mode guard and `loadDotEnv`. The environment
+  variables are listed in `.env.example`. `TRUST_PROXY` is still read in `apps/api/src/server.ts`,
+  outside the schema.
+- **`packages/i18n`:** `LOCALES = ['am', 'en', 'om', 'ti']`, `messagesFor(locale)`. It has only a few
+  keys so far, and `en.ts` defines the shape.
+
+### API (`apps/api`, Fastify, :4000)
+
+- **Modules.** A new module is a default-export `async function xRoutes(app)` in
+  `src/modules/<x>/routes.ts`, added to `src/modules/index.ts`. Routes stay thin: auth, then
+  `parseInput(Schema, body)`, then a service call. Services take `deps` and run
+  `deps.db.transaction(...)`. Always use `deps.clock()`, never `new Date()`.
+- **Auth.** Put `preHandler: app.requireAuth` on the route, then call `requireUser(request)`. Cookie
+  auth on unsafe methods needs the `x-csrf-token` header; Bearer requests are exempt.
+- **Errors.** `lib/errors.ts`: `AppError(status, code, message, details?)` plus helpers such as
+  `badRequest`, `notFound`, `conflict` and `unprocessable`.
+- **Idempotency.** `readIdempotencyKey(request)` reads the `idempotency-key` header (8 to 100
+  printable characters). There is no generic idempotency table. Keys are scoped into the ledger key,
+  for example `demo_topup:${userId}:${key}`. When the key is replayed, compare the payload (422
+  `idempotency_key_reused` if it differs), write no second outbox or audit row, and set the
+  `idempotent-replayed: true` header.
+- **RG.** `src/modules/rg/service.ts` has `lockUser(tx, userId)` (FOR NO KEY UPDATE),
+  `assertStakeAllowed(exec, userId, stake, now)` and `assertDepositAllowed(exec, userId, amount, now)`.
+  Call `lockUser` first, inside the same transaction. These throw `AppError`, so the worker cannot
+  reuse them yet.
+- **Routes today:**
+  - `/health`
+  - `/auth/*`: register, verify-otp, otp/resend, login, logout, password forgot and reset
+  - `/me`, `/me/kyc`, `/me/limits`, `/me/exclusions`
+  - `/wallet`, `/wallet/transactions`, `/wallet/demo-topup`
+  - `/sports`, `/sports/:sport/competitions`, `/events`, `/events/by-game-id/:gameId`, `/events/:id`
+  - `/live/stream` (public SSE, no per-user channel)
+  - `/dev/sms?phone=` (the dev OTP inbox; demo mode only)
+- **Tests.** `test/helpers.ts` has `createTestContext()` (throwaway DB, prefixed Redis, a manual
+  clock, mock providers, a unique live channel) and `registerAndLogin(ctx)`, which returns
+  `sessionToken` among other things. The catalogue fixture inserters are local to
+  `test/catalog.test.ts`.
+
+### Worker (`apps/worker`)
+
+- **Tasks.** A task is `WorkerTask {name, start, stop}`. Most are built with
+  `intervalTask({name, intervalMs, run})`. They are registered in `src/tasks/index.ts`, where
+  `createTasks` adds the feed tasks **only** when `FEED_PROVIDER=mock` and the mode is demo. Register
+  new tasks (settlement, outbox) outside that `if`.
+- **Existing tasks:**
+  - `feed-ingest` (60 s) also withdraws stale fixtures through `resultEvent(..., {status:
+'cancelled'})`.
+  - `live-sim` (1 s) results finished matches.
+  - `prematch-drift` (30 s).
+- **Helpers.** `lib/lock.ts` has `tryLock(redis, key, ttlMs)`. `lib/publish.ts` has
+  `publishAfterCommit`: collect `LiveMessage`s inside the transaction and publish only after commit.
+- **BullMQ is installed but unused.** There is **no outbox consumer** yet.
+- **Tests.** `test/helpers.ts` has `createWorkerTestContext()` (seeded test DB, fake clock, unique
+  channel, `waitForMessages`). Tests call the `run*` functions directly, for example
+  `runLiveSimTick(t.ctx, {simSpeed: 10, ...})`.
+- **Speed knob.** `SIM_SPEED` (simulated minutes per real second). At 10, a football match takes about
+  11 s. The rolling-fixture interval (5 min) has no env knob yet.
+
+### Front ends and e2e
+
+- **`apps/web`** and **`apps/admin`** are Next.js 16 / React 19 scaffolds: a layout, one page and the
+  demo banner. They have no Tailwind, next-intl, PWA manifest, API client, `lint` or `test` script.
+  Both list `@vamos/core` in `transpilePackages` but do not depend on it.
+- **`e2e`** has `@playwright/test` 1.56.1, a mobile Chromium project and one smoke test. Its tsconfig
+  lists a `support/` folder that does not exist. CI does not run e2e.
+
 ## Business defaults
 
 All of these become editable in admin (Phase 9) and are listed in `docs/compliance.md` as
@@ -153,44 +277,112 @@ commit and push.
 
 ### Phase 4: Betslip, bet placement, booking codes and settlement
 
+**Groundwork first** (small, separate commits):
+
+- **Typed settings loader** in `@vamos/db`: zod with bigint coercion, built on `getSetting`. It
+  returns `BetRules`, `MultiBonusConfig`, `TaxConfig`, `CashOutConfig`, the live bet delay and the
+  jackpot templates, falling back to the core `DEFAULT_*` values. The API, worker and admin all use
+  it.
+- **Shared RG guard.** Move `lockUser`, `assertCanGamble` and `assertStakeAllowed` /
+  `assertDepositAllowed` into `@vamos/db` (or a new shared package) so the worker can use them.
+  Introduce a small domain error type that the API maps to `AppError`. Keep the API behaviour and
+  tests unchanged.
+- **Outbox dispatcher** (`apps/worker/src/tasks/outbox-dispatch.ts`): an `intervalTask` of about
+  1 s that calls `claimOutboxBatch` and hands each row to a BullMQ queue by type, using
+  `jobId = 'outbox:' + id` so a row is never queued twice, then calls `markOutboxPublished`. The
+  outbox has a single `published_at` column, so one dispatcher must fan out to every consumer. Do
+  not let several consumers claim rows directly. Add a backoff and a dead-letter log for rows that
+  reach `maxAttempts`.
+- **Shared catalogue fixtures.** Move the inserters out of `apps/api/test/catalog.test.ts` into
+  `apps/api/test/fixtures.ts`.
+
 **Build:**
 
-- **Schema** (`packages/db/src/schema/betting.ts`, new migration): `bets` (user, stake, total odds,
-  potential return, bonus, tax, status: `pending_acceptance` / `open` / `won` / `lost` / `void` /
-  `cashed_out`, odds-change policy, channel, idempotency key unique per user, placed/accepted/settled
-  timestamps), `bet_legs` (bet, event, market, selection, odds at placement, result), `booking_codes`
-  (code, legs JSON, created by, expiry).
-- **Ledger accounts** for open stakes, house, and `tax_payable`. Add any missing account kinds and
-  transaction kinds: `bet_stake`, `bet_payout`, `bet_void_refund`, `tax_withheld`,
-  `bet_resettle_reversal`.
-- **Contracts** (`packages/contracts/src/betting.ts`): quote request/response, place request (legs,
-  stake, odds-change policy `none` / `higher` / `any`), bet view, booking code create/load, my-bets list
-  with cursor.
-- **API** (`apps/api/src/modules/betting`):
-  - `POST /betslip/quote`: priced with core `quoteBet`; returns total odds, potential win, bonus, tax,
-    net, and per-leg errors.
-  - `POST /bets` (idempotency key required): in **one** DB transaction, lock the user (`lockUser`),
-    run `assertStakeAllowed` (RG loss limits, self-exclusion), check every leg with
-    `isSelectionBettable(event, market, selection, now)` plus an active sport/competition, apply the
-    odds-change policy, debit the stake with `postTransaction`, insert the bet and legs, and enqueue an
-    outbox event `bet.placed`.
-  - Live legs: the bet starts as `pending_acceptance`. A worker accepts it after the live delay (6 s)
-    if the odds are unchanged within the policy and the markets are still open, otherwise rejects it
-    and refunds the stake.
-  - `POST /booking-codes` and `GET /booking-codes/:code`.
-  - `GET /me/bets?status=open|settled` and `GET /me/bets/:id`.
-- **Settlement worker:** consume the outbox events `event.resulted` and `event.result_corrected`.
-  Resolve selections with core `resolveSelection`, settle each affected bet with core `settleBet`
-  once `canSettle` allows, count void legs as 1.00, withhold tax into `tax_payable`, and credit the
-  net payout.
-  - Re-settlement after a result correction posts **reversal entries**, never edits ledger rows.
-  - Void the open legs of fixtures the feed withdraws (feed-ingest already withdraws stale fixtures).
-  - Make the consumer idempotent: settling the same bet twice must do nothing.
+- **Schema:** a new file `packages/db/src/schema/betting.ts`, exported from `schema/index.ts`. Then
+  run `pnpm db:generate`; never hand-edit `migrations/meta`.
+  - `bets`: user, short ID (`BET_SHORT_ID_LENGTH`), stake, total odds, potential return, bonus,
+    tax, net potential, status, odds-change policy, channel, `idempotency_key` with a UNIQUE
+    `(user_id, idempotency_key)`, and placed / accepted / settled timestamps, plus a settlement
+    version. Status is one of `pending_acceptance`, `open`, `won`, `lost`, `void`, `cashed_out`
+    or `rejected`.
+  - `bet_legs`: bet, event, market, selection, odds at placement, leg state and the result.
+  - `booking_codes`: code (unique), legs JSON, creator (nullable), and creation and expiry times.
+  - Add CHECK constraints: stake > 0, odds ≥ 1001.
+- **Ledger postings** use the existing enum types and accounts; no new kinds are needed. Each row
+  below is one `postTransaction`:
 
-**Check:** integration tests on a real Postgres for every outcome path: won, lost, void leg, all
-void, cashed out, result corrected, odds changed under each policy, pending acceptance accepted and
-rejected, idempotent replay, and 50 concurrent bets that never overdraw. Balances and tax must
-reconcile through the ledger.
+  | Event           | Type                                     | Entries                                                                                               |
+  | --------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+  | Stake           | `bet_stake`                              | `player_cash` −stake, `house_stakes` +stake                                                           |
+  | Lost            | `bet_payout` or `adjustment` (see below) | `house_stakes` −stake, `house_revenue` +stake                                                         |
+  | Won             | `bet_payout`                             | `player_cash` +net, `house_tax_payable` +tax, `house_stakes` −stake, `house_revenue` −(gross − stake) |
+  | Void / rejected | `bet_refund`                             | `house_stakes` −stake, `player_cash` +stake                                                           |
+  | Cash-out        | `bet_cashout`                            | `house_stakes` −stake, `player_cash` +amount, `house_revenue` ±(stake − amount)                       |
+  | Correction      | `settlement_reversal`                    | the exact negation of the previous settlement, then settle again                                      |
+  - Putting tax inside the single `bet_payout` keeps the responsible-gambling loss maths correct,
+    because `BETTING_FLOW_TYPES` excludes `tax_withholding`.
+  - For a lost bet, decide whether to post the `house_stakes` → `house_revenue` move as
+    `bet_payout` or as `adjustment`. Document the choice.
+  - Leave out entries whose amount is zero, for example tax under the exemption, because
+    `postTransaction` rejects an account whose merged amount is 0.
+  - Idempotency keys:
+    - stake: `bet:${userId}:${clientKey}`
+    - settlement: `settle:${betId}:${version}`
+    - reversal: `reverse:${betId}:${version}`
+
+- **Contracts** (`packages/contracts/src/betting.ts`, re-exported from `index.ts`):
+  - quote request and response
+  - place request: legs `{selectionId, oddsMilli}`, stake, and the odds-change policy
+    `none | higher | any`
+  - `BetView` with legs
+  - booking code create, response and load
+  - the my-bets list, with cursor (`PageQuery`)
+- **API** (`apps/api/src/modules/betting`):
+  - **`POST /betslip/quote`** (public): loads current prices and runs `quoteBet` with the loaded
+    settings. It returns the totals and errors per leg, including legs that are not bettable.
+  - **`POST /bets`** (auth, idempotency key required). Use per-user rate limiting. Everything runs in
+    **one** transaction, in this order:
+    1. `lockUser`
+    2. `assertStakeAllowed`
+    3. load the legs, locking selections `FOR SHARE`
+    4. check `isSelectionBettable(event, market.status, selection.status, now)` and that the sport
+       and competition are active
+    5. apply the odds-change policy, comparing `selections.oddsMilli` with the client's odds (there
+       is no odds version column)
+    6. `validateSlip` / `quoteBet`
+    7. `postTransaction(bet_stake)`
+    8. insert the bet and its legs
+    9. `enqueueOutbox('bet.placed')` and `writeAudit`
+    - On a replay, return the existing bet with `idempotent-replayed: true`.
+  - **Live legs:** the bet starts as `pending_acceptance` and a delayed BullMQ job runs after
+    `live_bet_delay_ms` (6 s). It accepts the bet if the markets are still open and the odds are
+    within the policy; otherwise it rejects the bet and refunds the stake (`bet_refund`).
+  - **Booking codes:** `POST /booking-codes` returns a 6-character code and
+    `GET /booking-codes/:code` returns its legs with current odds.
+  - **My bets:** `GET /me/bets?status=open|settled&cursor=` and `GET /me/bets/:id`.
+- **Settlement consumer** (BullMQ worker on the `settlement` queue, fed by the dispatcher):
+  - On `event.resulted` / `event.result_corrected`, read `selections.result`, which `resultEvent` has
+    already set, for every open leg on that event, and update the leg states.
+  - For each affected bet, lock the bet row. Once `canSettle` allows, run `settleBet`, post the
+    ledger entries and set the status. Then enqueue `bet.settled`; SMS and ELS consume it later.
+  - A `cancelled` result (feed withdrawal, postponement) voids the legs. A void leg counts as 1.00.
+  - A correction reverses the old settlement with `settlement_reversal` and settles again with the
+    next version. Never edit ledger rows.
+  - Replaying the same outbox row or job must change nothing.
+
+**Check:** integration tests on a real Postgres (`createTestContext` / `createWorkerTestContext`) for
+every outcome path:
+
+- won, lost, a void leg, all legs void, the max-payout cap, the multi bonus, and tax
+- a corrected result, from won to lost and from lost to won
+- odds changed under each policy
+- live pending acceptance, both accepted and rejected
+- an idempotent replay of placement and of settlement
+- a self-excluded user is refused, and a loss limit is enforced
+- 50 concurrent bets never overdraw
+
+Balances, `house_stakes`, `house_revenue` and `house_tax_payable` must reconcile through the ledger.
+Add core property tests for any new pure helpers.
 
 ### Phase 5: Player web app (Betika-style lite PWA): the MVP
 
@@ -209,6 +401,15 @@ reconcile through the ledger.
   ≤ 150 KB transferred on the first home-page load.
 - A permanent "DEMO – no real money" banner in demo mode.
 - In dev, the OTP can be read from the dev SMS inbox (mock SMS provider).
+- **Groundwork:**
+  - add Tailwind and next-intl (or wire `messagesFor` into a locale cookie)
+  - add the many missing i18n keys in all four locales
+  - add `public/` icons, a typed API client that sends credentials and the CSRF header, and `lint`
+    and `test` scripts
+  - add `@vamos/core` as a real dependency
+- **Fast simulation for e2e:** add an env knob for the rolling-fixture interval, or a dev-only
+  "kick off now" endpoint, and run the worker with `SIM_SPEED>=10`.
+- **E2e plumbing:** create `e2e/support/` with an OTP-inbox helper, and add an e2e job to CI.
 
 **Check:** a Playwright flow (`pnpm e2e`, Chromium from `/opt/pw-browsers`; `@playwright/test`
 1.56.1 matches it): register, read the OTP from the dev SMS inbox, demo top-up, build a 3-leg
@@ -233,6 +434,13 @@ build-size budget check.
   manual review above it. Use the existing `assertDepositAllowed` for deposit RG checks.
 - **Payout worker** with retries, and a payout status tracker (pending → approved → paid).
 - **SMS notifications** through the mock outbox.
+- **Wiring:**
+  - add `payments` to `AppDeps`, using the existing `createXProvider(config)` pattern
+  - post through the `house_psp_clearing` account for each provider
+  - add the provider environment variables to the `@vamos/config` schema and `.env.example`, without
+    changing `licensedModeViolations`
+  - webhook routes have no session, so CSRF does not apply. Each one needs its own signature check and
+    an idempotency key from the provider's event ID.
 
 **Check:** webhook signature and idempotency tests; end to end: deposit through the simulator, request
 a withdrawal, approve it in admin, and see it marked paid.
@@ -244,6 +452,12 @@ a withdrawal, approve it in admin, and see it marked paid.
 - **Live page:** SSE odds, a score and minute tracker, suspended-market UI, delayed acceptance.
 - **Cash-out:** an offer endpoint (core `cashOutOffer`, which discounts the _capped_ return) and an
   execute endpoint that re-quotes and checks the offer is still valid; a Cash out button in My Bets.
+  Post a `bet_cashout`.
+- **Per-user push channel:** an authenticated SSE stream, or a Redis channel `vamos:user:<id>`, for
+  bet settled, bet accepted or rejected, and cash-out offer updates. Today `/live/stream` is public
+  only.
+- **Early settlement:** settle markets that live-sim closes mid-match before full time, so that
+  cash-out and settlement see legs that are already decided.
 
 **Check:** tests on a simulated live match and an end-to-end cash-out.
 
@@ -263,11 +477,15 @@ a withdrawal, approve it in admin, and see it marked paid.
 
 **Build:**
 
-- login with TOTP; roles: admin, trader, finance, KYC, support, compliance
+- login with TOTP; roles: admin, trader, finance, KYC, support, compliance. Build on the existing
+  `admin_users` and `admin_sessions` tables and the `admin_role` enum; do not create new ones. Add a
+  separate staff session plugin with an RBAC guard.
 - dashboard: turnover, GGR, liabilities
 - users, KYC queue, trading (odds, suspend, results, void), risk (liability per selection, big bets)
 - the trader HTTP routes over the existing catalog services (`setManualOdds`, `setMarketStatus`,
-  `suspendEvent` / `resumeEvent`, `resultEvent`): these services exist, the routes do not yet
+  `suspendEvent` / `resumeEvent`, `resultEvent`): these services exist, the routes do not yet.
+  Add a way to void a single market or selection (today only a whole event can be voided, through
+  `resultEvent`).
 - bets search, withdrawal approvals, jackpots, settings (limits, tax, ladder), audit log viewer
 
 Every admin action writes to the audit log (`writeAudit`).
@@ -284,8 +502,9 @@ Every admin action writes to the audit log (`writeAudit`).
 - **Reconciliation job:** ledger vs wallet balances vs PSP statements.
 - **AML rules:** transaction velocity, structuring, deposit then withdraw without betting. These
   flag users for review.
-- **Docs:** `docs/compliance.md`, including data retention and the business defaults to confirm with
-  counsel.
+- **Docs:** create `docs/compliance.md` (it does not exist yet), including data retention and the
+  business defaults to confirm with counsel.
+- **Outbox consumer:** ELS reporting gets its own queue from the Phase 4 outbox dispatcher.
 
 **Check:** report fixtures match the ledger totals, and reconciliation detects an injected mismatch.
 
@@ -306,7 +525,8 @@ Every admin action writes to the audit log (`writeAudit`).
 **Build:**
 
 - **Load and security:** an autocannon load test on bet placement and a security review pass.
-- **Operations:** pino logs with request IDs, OpenTelemetry hooks, production Dockerfiles and compose.
+- **Operations:** pino logs with request IDs, OpenTelemetry hooks, a worker health endpoint, and
+  production Dockerfiles and compose. Move `TRUST_PROXY` into the `@vamos/config` schema.
 - **Docs:** a deployment guide (hosting in Ethiopia; PDPP data residency to be confirmed), backups,
   and runbooks.
 
