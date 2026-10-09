@@ -49,7 +49,13 @@ export type SlipLegInput = z.infer<typeof SlipLegInput>;
 
 export const QuoteRequest = z.object({
   legs: z
-    .array(z.object({ selectionId: Id }))
+    .array(
+      z.object({
+        selectionId: Id,
+        /** The price the player saw, if any: the leg then reports `oddsChanged`. */
+        oddsMilli: OddsMilli.optional(),
+      }),
+    )
     .min(1)
     .max(MAX_SLIP_LEGS),
   stake: Stake,
@@ -64,6 +70,25 @@ export const SlipErrorSchema = z.object({
 });
 export type SlipErrorView = z.infer<typeof SlipErrorSchema>;
 
+/**
+ * Why a selection cannot be bet on now:
+ * - not_found: no such selection
+ * - inactive: its sport or competition is switched off
+ * - event_started: prematch betting closed at the start time
+ * - event_closed: the event is finished, cancelled, postponed or abandoned
+ * - suspended: betting on the event, the market or the selection is suspended
+ * - market_closed: the market is closed, settled or void
+ */
+export const UnavailableReasonSchema = z.enum([
+  'not_found',
+  'inactive',
+  'event_started',
+  'event_closed',
+  'suspended',
+  'market_closed',
+]);
+export type UnavailableReason = z.infer<typeof UnavailableReasonSchema>;
+
 export const QuoteLeg = z.object({
   selectionId: z.string(),
   eventId: z.string().nullable(),
@@ -71,9 +96,17 @@ export const QuoteLeg = z.object({
   eventName: z.string().nullable(),
   marketName: LocalizedNameSchema.nullable(),
   selectionName: LocalizedNameSchema.nullable(),
+  /** The current price (null when the selection does not exist). */
   oddsMilli: z.number().int().nullable(),
+  /** The price the client sent (quotes only; null when none was sent). */
+  requestedOddsMilli: z.number().int().nullable(),
+  /** A price was sent and it differs from the current one. */
+  oddsChanged: z.boolean(),
   /** false when the selection is unknown, suspended or no longer bettable. */
   available: z.boolean(),
+  /** Why the selection is not available (null when it is). */
+  reason: UnavailableReasonSchema.nullable(),
+  /** The event is live: a bet waits for delayed acceptance. */
   live: z.boolean(),
 });
 export type QuoteLeg = z.infer<typeof QuoteLeg>;
@@ -137,6 +170,8 @@ export const BetView = z.object({
   settledNet: Santim.nullable(),
   rejectReason: z.string().nullable(),
   placedAt: z.string(),
+  /** While `pending_acceptance`: when the live delay ends. */
+  acceptAfter: z.string().nullable(),
   acceptedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
   legs: z.array(BetLegView),
@@ -164,6 +199,7 @@ export type CreateBookingCodeRequest = z.infer<typeof CreateBookingCodeRequest>;
 
 export const BookingCodeResponse = z.object({
   code: z.string(),
+  createdAt: z.string(),
   expiresAt: z.string(),
   legs: z.array(QuoteLeg),
 });
