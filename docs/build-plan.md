@@ -291,7 +291,7 @@ commit and push.
   tests unchanged.
 - **Outbox dispatcher** (`apps/worker/src/tasks/outbox-dispatch.ts`): an `intervalTask` of about
   1 s that calls `claimOutboxBatch` and hands each row to a BullMQ queue by type, using
-  `jobId = 'outbox:' + id` so a row is never queued twice, then calls `markOutboxPublished`. The
+  `jobId = 'outbox-' + id` (BullMQ rejects most ids containing ':') so a row is never queued twice, then calls `markOutboxPublished`. The
   outbox has a single `published_at` column, so one dispatcher must fan out to every consumer. Do
   not let several consumers claim rows directly. Add a backoff and a dead-letter log for rows that
   reach `maxAttempts`.

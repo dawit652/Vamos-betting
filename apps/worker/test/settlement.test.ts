@@ -146,6 +146,8 @@ describe('settlement consumer', () => {
       await dispatcher.run();
       await waitForStatus(homeBet.bet.id, 'lost');
       await waitForStatus(awayBet.bet.id, 'won');
+      // The accumulator's home leg lost too (settled by the same job, after the singles).
+      await waitForStatus(accaBet.bet.id, 'lost');
       const relost = await betRow(t.db.db, homeBet.bet.id);
       const rewon = await betRow(t.db.db, awayBet.bet.id);
       expect(relost.settlementVersion).toBe(1);
@@ -156,8 +158,7 @@ describe('settlement consumer', () => {
       expect((await balances(t.db.db, loser)).cash).toBe(
         100_000n - 5_000n + rewon.settledNetPayout!,
       );
-      // The accumulator's home leg lost too, so every stake has left house_stakes.
-      expect(await status(accaBet.bet.id)).toBe('lost');
+      // Every stake has left house_stakes.
       expect(afterCorrection.stakes).toBe(placed.stakes - 17_000n);
       expect(afterCorrection.tax).toBe(placed.tax + rewon.settledTax!);
       expect(afterCorrection.revenue).toBe(placed.revenue + 10_000n + 2_000n - (17_500n - 5_000n));
