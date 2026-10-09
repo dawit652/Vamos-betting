@@ -13,7 +13,7 @@ research is in `docs/research/`.
 | 1     | Domain core (`packages/core`)                                 | Done        | `dccd213`, `4a8d03f`            |
 | 2     | Database, accounts, ledger, auth, KYC, RG, wallet             | Done        | `2131ee7`, `d26120d`            |
 | 3     | Sports catalogue, odds feed, live simulator, trading services | Done        | `0c02e89`, `e381576`, `f80ccf5` |
-| 4     | Betslip, bet placement, booking codes, settlement             | Not started |                                 |
+| 4     | Betslip, bet placement, booking codes, settlement             | Done        | `a04beab` … `0af1dca` + fixes   |
 | 5     | Player web app (Betika-style lite PWA), the demo MVP          | Not started |                                 |
 | 6     | Payments: deposits and withdrawals                            | Not started |                                 |
 | 7     | Live betting and cash-out                                     | Not started |                                 |
@@ -23,15 +23,16 @@ research is in `docs/research/`.
 | 11    | SMS/USSD channel (feature-flagged)                            | Not started |                                 |
 | 12    | Hardening and deployment                                      | Not started |                                 |
 
-Phase 3 was verified on 8 Oct 2026: format, lint, typecheck, build and every test pass.
+Phase 4 was finished on 9 Oct 2026 after an adversarial review (21 confirmed findings, all fixed). Format,
+lint, typecheck, build and every test pass.
 
 | Package | Tests |
 | ------- | ----- |
-| core    | 492   |
-| db      | 99    |
+| core    | 501   |
+| db      | 207   |
 | feed    | 143   |
-| worker  | 37    |
-| api     | 198   |
+| worker  | 58    |
+| api     | 226   |
 | config  | 10    |
 | i18n    | 3     |
 

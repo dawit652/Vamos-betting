@@ -33,6 +33,19 @@ export async function getDatabaseOperatingMode(
   return row?.mode ?? null;
 }
 
+/**
+ * The random installation id of this database (written with its operating
+ * mode by claimOperatingMode), or null before the mode is claimed. A rebuilt
+ * database gets a new one; a restored backup keeps it.
+ */
+export async function getDatabaseInstallationId(exec: DbExecutor): Promise<string | null> {
+  const [row] = await exec
+    .select({ id: databaseIdentity.installationId })
+    .from(databaseIdentity)
+    .limit(1);
+  return row?.id ?? null;
+}
+
 /** SQLSTATE and message of the Postgres error along a driver/ORM cause chain. */
 function postgresError(error: unknown): { code: string; message: string } | null {
   for (let e: unknown = error, depth = 0; e && depth < 5; depth += 1) {

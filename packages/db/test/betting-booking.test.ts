@@ -222,6 +222,26 @@ describe('my bets', () => {
     for (const junk of ['', 'abc', Buffer.from('1.x').toString('base64url')]) {
       expect(() => decodeBetCursor(junk)).toThrow(DomainError);
     }
+    // The last millisecond of year 9999 is the latest cursor time.
+    const latest = { placedAt: new Date('9999-12-31T23:59:59.999Z'), id: randomUUID() };
+    expect(decodeBetCursor(encodeBetCursor(latest))).toEqual(latest);
+    const userId0 = await createUser(handle.db);
+    await expect(
+      listUserBets(handle.db, {
+        userId: userId0,
+        status: 'settled',
+        limit: 5,
+        cursor: encodeBetCursor(latest),
+      }),
+    ).resolves.toMatchObject({ items: [] });
+    // Later times are valid JS dates whose ISO form Postgres cannot read: 400, not 500.
+    for (const millis of ['253402300800000', '999999999999999']) {
+      const crafted = Buffer.from(`${millis}.${randomUUID()}`).toString('base64url');
+      expect(() => decodeBetCursor(crafted)).toThrow(DomainError);
+      await expect(
+        listUserBets(handle.db, { userId: userId0, status: 'open', limit: 5, cursor: crafted }),
+      ).rejects.toMatchObject({ status: 400, code: 'invalid_cursor' });
+    }
     const userId = await createUser(handle.db);
     await expect(
       listUserBets(handle.db, { userId, status: 'open', limit: 5, cursor: 'nope' }),

@@ -9,6 +9,13 @@ export * from './settings/index';
 export * from './rg/index';
 export * from './betting/index';
 export {
+  isRetryableTxError,
+  pgCode,
+  RETRYABLE_SQLSTATES,
+  withTxRetry,
+  type TxRetryOptions,
+} from './retry';
+export {
   loadFeedTeams,
   seedCatalog,
   type CatalogSeedSummary,

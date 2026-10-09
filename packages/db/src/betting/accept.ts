@@ -75,7 +75,8 @@ export async function rejectPendingBet(
  * bet's odds-change policy against the odds it was placed at (none: equal;
  * higher: not lower, a higher price is taken; any: the current price). When
  * odds moved and were taken, the bet is re-quoted with its stored terms.
- * Prematch legs were accepted at placement and are not re-checked.
+ * Prematch legs were accepted at placement and are not re-checked (their
+ * selections are locked FOR SHARE too, so they cannot be resulted meanwhile).
  *
  * Accepted: status `open`, `bet.accepted`, then settlePlacedBet runs at once
  * in case a leg was resulted while the bet was pending (settlement skips
@@ -102,9 +103,13 @@ export async function acceptPendingBet(
     .where(eq(betLegs.betId, betId))
     .orderBy(asc(betLegs.position));
   const liveLegs = legs.filter((leg) => leg.isLive);
+  // Every leg's selection is locked FOR SHARE, the prematch ones too: resulting
+  // a prematch leg then waits for this transaction, so its settlement job
+  // finds the bet open (and settles that leg) instead of skipping it as
+  // pending while the settlePlacedBet below still sees the leg open.
   const snapshots = await loadSelectionSnapshots(
     tx,
-    liveLegs.map((leg) => leg.selectionId),
+    legs.map((leg) => leg.selectionId),
     { lock: 'share' },
   );
   if (liveLegs.some((leg) => unavailableReason(snapshots.get(leg.selectionId), now) !== null)) {

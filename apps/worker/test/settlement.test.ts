@@ -1,11 +1,12 @@
-import { BET_PLACED, schema, type GameSettings } from '@vamos/db';
-import { Queue } from 'bullmq';
+import { BET_PLACED, EVENT_RESULTED, schema, type GameSettings } from '@vamos/db';
+import { DelayedError, Queue } from 'bullmq';
 import { and, eq, isNull } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { QUEUE_NAMES } from '../src/lib/queues';
 import {
   betAcceptanceTask,
   decidePendingBet,
+  processBetAcceptanceJob,
   runAcceptanceSweep,
 } from '../src/tasks/bet-acceptance';
 import {
@@ -13,7 +14,7 @@ import {
   outboxJobId,
   type OutboxDispatcher,
 } from '../src/tasks/outbox-dispatch';
-import { processSettlementJob, settlementTask } from '../src/tasks/settlement';
+import { processSettlementJob, runSettlementSweep, settlementTask } from '../src/tasks/settlement';
 import type { WorkerTask } from '../src/worker';
 import {
   balances,
@@ -163,11 +164,125 @@ describe('settlement consumer', () => {
       expect(afterCorrection.tax).toBe(placed.tax + rewon.settledTax!);
       expect(afterCorrection.revenue).toBe(placed.revenue + 10_000n + 2_000n - (17_500n - 5_000n));
 
-      // Every job of this file ran once per outbox row.
-      const completed = await settlementQueue.getCompleted();
-      const ids = completed.map((job) => job.id);
-      expect(new Set(ids).size).toBe(ids.length);
-      expect(ids.every((id) => id?.startsWith('outbox-'))).toBe(true);
+      // The first event.resulted row dispatched again after its job completed
+      // (a crash between the enqueue and the COMMIT, found later) maps to the
+      // kept completed job: nothing runs a second time.
+      const [resultedRow] = await t.db.db
+        .select()
+        .from(schema.outboxEvents)
+        .where(
+          and(
+            eq(schema.outboxEvents.type, EVENT_RESULTED),
+            eq(schema.outboxEvents.aggregateId, event.eventId),
+          ),
+        );
+      const jobId = outboxJobId(resultedRow!);
+      const done = await settlementQueue.getJob(jobId);
+      expect(await done?.getState()).toBe('completed');
+      await dispatcher.run(); // flush the rows the correction wrote (bet.settled…)
+      const countsBefore = await settlementQueue.getJobCounts();
+      await t.db.db
+        .update(schema.outboxEvents)
+        .set({ publishedAt: null })
+        .where(eq(schema.outboxEvents.id, resultedRow!.id));
+      expect(await dispatcher.run()).toMatchObject({ claimed: 1, published: 1, jobs: 1 });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await settlementQueue.getJobCounts()).toEqual(countsBefore);
+      const again = await settlementQueue.getJob(jobId);
+      expect(again?.attemptsMade).toBe(done?.attemptsMade);
+      expect(again?.finishedOn).toBe(done?.finishedOn);
+      expect(await balances(t.db.db, winner)).toEqual(afterCorrection);
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+describe('settlement sweep', () => {
+  it(
+    'settles the bets of an event whose settlement job was lost or failed for good',
+    async () => {
+      const event = await createEvent(t);
+      const userId = await fundedUser(t.db.db);
+      const { bet } = await place(t.db.db, userId, {
+        stake: 1_000n,
+        legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+        settings,
+        now: t.clock.now,
+      });
+      t.clock.advance(3 * 3600_000);
+      await finish(t.db.db, event.eventId, 1, 0);
+      // The job is lost: its event.resulted row is marked published without being queued.
+      await t.db.db
+        .update(schema.outboxEvents)
+        .set({ publishedAt: new Date() })
+        .where(
+          and(
+            eq(schema.outboxEvents.type, EVENT_RESULTED),
+            eq(schema.outboxEvents.aggregateId, event.eventId),
+            isNull(schema.outboxEvents.publishedAt),
+          ),
+        );
+      expect(await status(bet.id)).toBe('open');
+
+      // Within the grace period the sweep leaves the event to its job.
+      const sweep = (graceMs: number) => runSettlementSweep(t.ctx, { graceMs });
+      expect((await sweep(24 * 3600_000)).due).toBe(0);
+      const summary = await sweep(0);
+      expect(summary).toMatchObject({ outcomes: { settled: 1 }, failed: 0 });
+      expect(await status(bet.id)).toBe('won');
+      expect((await balances(t.db.db, userId)).cash).toBe(100_000n - 1_000n + 2_000n);
+      // Settled: nothing left to do.
+      expect((await sweep(0)).due).toBe(0);
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+describe('processBetAcceptanceJob', () => {
+  it(
+    'a job that runs before its bet is due is delayed again (DelayedError), not failed',
+    async () => {
+      const event = await createEvent(t);
+      await goLive(t.db.db, event.eventId);
+      const userId = await fundedUser(t.db.db);
+      const { bet } = await place(t.db.db, userId, {
+        stake: 1_000n,
+        legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+        settings,
+        now: t.clock.now,
+      });
+      const moveToDelayed = vi.fn(async () => undefined);
+      const job = {
+        data: { outboxId: '0', betId: bet.id, acceptAfter: bet.acceptAfter!.toISOString() },
+        moveToDelayed,
+      };
+      // 100 ms before the bet is due by the clock.
+      t.clock.advance(LIVE_DELAY_MS - 100);
+      const before = Date.now();
+      await expect(processBetAcceptanceJob(t.ctx, job, 'token-1')).rejects.toBeInstanceOf(
+        DelayedError,
+      );
+      expect(moveToDelayed).toHaveBeenCalledTimes(1);
+      const [until, token] = moveToDelayed.mock.calls[0] as unknown as [number, string];
+      expect(token).toBe('token-1');
+      expect(until).toBeGreaterThanOrEqual(before + 100);
+      expect(until).toBeLessThanOrEqual(Date.now() + 100);
+      expect(await status(bet.id)).toBe('pending_acceptance');
+
+      // 1 ms before: the re-delay is at least the 100 ms floor.
+      t.clock.advance(99);
+      moveToDelayed.mockClear();
+      const floor = Date.now();
+      await expect(processBetAcceptanceJob(t.ctx, job)).rejects.toBeInstanceOf(DelayedError);
+      const [later] = moveToDelayed.mock.calls[0] as unknown as [number];
+      expect(later).toBeGreaterThanOrEqual(floor + 100);
+
+      // Due: decided, no re-delay.
+      t.clock.advance(1);
+      moveToDelayed.mockClear();
+      expect(await processBetAcceptanceJob(t.ctx, job)).toBe('accepted');
+      expect(moveToDelayed).not.toHaveBeenCalled();
+      expect(await status(bet.id)).toBe('open');
     },
     TEST_TIMEOUT,
   );
@@ -204,6 +319,32 @@ describe('live bet acceptance', () => {
       const row = await betRow(t.db.db, bet.id);
       expect(row.acceptedAt).toEqual(t.clock.now);
       expect((await balances(t.db.db, userId)).cash).toBe(100_000n - 1_000n);
+      // The early runs were re-delays, not failed attempts.
+      const acceptance = new Queue(QUEUE_NAMES.betAcceptance, {
+        connection: { url: REDIS_URL },
+        prefix: t.queuePrefix,
+      });
+      try {
+        const [placedRow] = await t.db.db
+          .select()
+          .from(schema.outboxEvents)
+          .where(
+            and(
+              eq(schema.outboxEvents.type, BET_PLACED),
+              eq(schema.outboxEvents.aggregateId, bet.id),
+            ),
+          );
+        const job = await acceptance.getJob(outboxJobId(placedRow!));
+        await eventually(async () => (await job?.getState()) === 'completed', 5000, 'job done');
+        const finished = await acceptance.getJob(outboxJobId(placedRow!));
+        // Only the run that accepted the bet counts (a completed job has made 1 attempt);
+        // a re-delay that failed instead would have used up attempts.
+        expect(finished?.attemptsMade).toBe(1);
+        expect(finished?.attemptsStarted).toBeGreaterThanOrEqual(2);
+        expect(finished?.returnvalue).toBe('accepted');
+      } finally {
+        await acceptance.close();
+      }
     },
     TEST_TIMEOUT,
   );
@@ -274,7 +415,7 @@ describe('live bet acceptance', () => {
       });
       try {
         const [row] = await t.db.db
-          .select({ id: schema.outboxEvents.id })
+          .select()
           .from(schema.outboxEvents)
           .where(
             and(
@@ -282,7 +423,7 @@ describe('live bet acceptance', () => {
               eq(schema.outboxEvents.aggregateId, bet.id),
             ),
           );
-        expect(await acceptance.getJob(outboxJobId(row!.id))).toBeUndefined();
+        expect(await acceptance.getJob(outboxJobId(row!))).toBeUndefined();
       } finally {
         await acceptance.close();
       }

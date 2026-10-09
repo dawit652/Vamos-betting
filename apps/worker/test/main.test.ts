@@ -2,9 +2,11 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { claimOperatingMode, getDatabaseOperatingMode } from '@vamos/db';
+import { claimOperatingMode, getDatabaseInstallationId, getDatabaseOperatingMode } from '@vamos/db';
 import { createTestDatabase } from '@vamos/db/testing';
+import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { queuePrefixBindingKey } from '../src/lib/queues';
 import { deleteQueueKeys, REDIS_URL, SETUP_TIMEOUT, type TestDatabase } from './helpers';
 
 const WORKER_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -93,6 +95,40 @@ describe('worker main', () => {
       expect(run.stdout).toContain('running in DEMO mode');
       expect(run.stdout).toContain('shutting down');
       expect(await getDatabaseOperatingMode(demo.db)).toBe('demo');
+      // The queue prefix is now bound to this database.
+      const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 2 });
+      try {
+        expect(await redis.get(queuePrefixBindingKey(QUEUE_PREFIX))).toBe(
+          await getDatabaseInstallationId(demo.db),
+        );
+      } finally {
+        await redis.quit();
+      }
+    },
+    SETUP_TIMEOUT,
+  );
+
+  it(
+    "refuses to start on a queue prefix bound to another database's queues",
+    async () => {
+      const prefix = `${QUEUE_PREFIX}-taken`;
+      const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 2 });
+      try {
+        await redis.set(queuePrefixBindingKey(prefix), '00000000-0000-4000-8000-00000000abcd');
+        const run = await runWorker({
+          DATABASE_URL: demo.url,
+          OPERATING_MODE: 'demo',
+          FEED_PROVIDER: 'manual',
+          QUEUE_PREFIX: prefix,
+        });
+        expect(run.code).toBe(1);
+        expect(run.stderr).toContain('[vamos-worker] refusing to start');
+        expect(run.stderr).toContain(`queue prefix "${prefix}"`);
+        expect(run.stdout).not.toContain('starting worker');
+      } finally {
+        await redis.del(queuePrefixBindingKey(prefix));
+        await redis.quit();
+      }
     },
     SETUP_TIMEOUT,
   );

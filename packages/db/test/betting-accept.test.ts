@@ -232,12 +232,13 @@ describe('live bets: delayed acceptance', () => {
   });
 
   it('a prematch leg resulted while the bet waited is settled on acceptance', async () => {
+    const now = new Date();
     const live = await liveEvent();
+    // Kick-off an hour after placement: placement at `now` never races the wall clock.
     const prematch = await createEvent(handle.db, ids, {
-      startTime: new Date(Date.now() + 2_000),
+      startTime: new Date(now.getTime() + 3600_000),
     });
     const userId = await player();
-    const now = new Date();
     const { bet } = await place(handle.db, userId, {
       stake: birr(100),
       legs: [
@@ -256,5 +257,56 @@ describe('live bets: delayed acceptance', () => {
     expect(result.bet.status).toBe('lost');
     expect(result.bet.legs.map((leg) => leg.state)).toEqual(['open', 'lost']);
     expect(await outboxTypes(bet.id)).toEqual(['bet.placed', 'bet.accepted', 'bet.settled']);
+  });
+
+  it('acceptance locks the prematch legs too, so resulting them waits for it', async () => {
+    const now = new Date();
+    const live = await liveEvent();
+    const prematch = await createEvent(handle.db, ids, {
+      startTime: new Date(now.getTime() + 3600_000),
+    });
+    const userId = await player();
+    const { bet } = await place(handle.db, userId, {
+      stake: birr(100),
+      legs: [
+        { selectionId: live.home, oddsMilli: 2000 },
+        { selectionId: prematch.away, oddsMilli: 3500 },
+      ],
+      settings,
+      now,
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let accepted!: () => void;
+    const inside = new Promise<void>((resolve) => {
+      accepted = resolve;
+    });
+    const acceptance = handle.db.transaction(async (tx) => {
+      const result = await acceptPendingBet(tx, bet.id, new Date(now.getTime() + DELAY));
+      accepted();
+      await held;
+      return result;
+    });
+    await inside;
+    const client = await handle.pool.connect();
+    try {
+      // resultEvent locks the event's selections FOR UPDATE: it must wait.
+      await expect(
+        client.query('SELECT id FROM selections WHERE id = $1 FOR UPDATE NOWAIT', [prematch.away]),
+      ).rejects.toMatchObject({ code: '55P03' });
+    } finally {
+      client.release();
+      release();
+    }
+    expect((await acceptance).outcome).toBe('accepted');
+    // Resulted after the acceptance committed: the bet is open, so settlement sees it.
+    await finish(handle.db, prematch.eventId, 3, 0);
+    const summary = await handle.db.transaction((tx) =>
+      settleEventBets(tx, prematch.eventId, new Date()),
+    );
+    expect(summary).toMatchObject({ bets: 1, outcomes: { settled: 1 } });
+    expect((await getBetById(handle.db, bet.id))?.status).toBe('lost');
   });
 });

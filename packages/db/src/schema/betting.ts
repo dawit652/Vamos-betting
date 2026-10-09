@@ -94,6 +94,12 @@ export const bets = pgTable(
     settledAt: timestamp('settled_at', { withTimezone: true }),
     /** Why a pending bet was rejected ('selection_unavailable', 'odds_changed', …). */
     rejectReason: text('reject_reason'),
+    /**
+     * Set while a result correction is blocked (its reversal would take the
+     * player's cash below zero): the earliest time the settlement sweep tries
+     * the bet again. Cleared once settlement goes through.
+     */
+    settlementRetryAt: timestamp('settlement_retry_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -102,6 +108,9 @@ export const bets = pgTable(
     index('bets_pending_accept_idx')
       .on(t.acceptAfter)
       .where(sql`${t.status} = 'pending_acceptance'`),
+    index('bets_settlement_retry_idx')
+      .on(t.settlementRetryAt)
+      .where(sql`${t.settlementRetryAt} IS NOT NULL`),
     check('bets_stake_positive', sql`${t.stake} > 0`),
     check('bets_total_odds_valid', sql`${t.totalOddsMilli} >= 1001`),
     check(

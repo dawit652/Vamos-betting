@@ -29,6 +29,7 @@ import { and, eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IDEMPOTENT_REPLAYED_HEADER } from '../src/lib/idempotency';
+import { BETTING_RATE_LIMITS } from '../src/modules/betting/routes';
 import {
   insertCategory,
   insertCompetition,
@@ -633,6 +634,29 @@ describe('POST /bets', () => {
       headers: { cookie: user.cookie, 'x-csrf-token': user.csrfToken, 'idempotency-key': newKey() },
     });
     expect(genuine.statusCode).toBe(201);
+  });
+
+  it('limits each player to BETTING_RATE_LIMITS.placeBet placements a minute (429), per player', async () => {
+    const a = await fundedPlayer();
+    const b = await fundedPlayer();
+    // Both players share one address (a carrier NAT); only A uses up their budget.
+    const from = { remoteAddress: '198.51.100.7' };
+    const send = (user: LoggedInUser, stake: string) =>
+      ctx.app.inject({
+        method: 'POST',
+        url: '/bets',
+        payload: { stake, legs: [{ selectionId: sel.aHome, oddsMilli: 1850 }] },
+        headers: { ...bearer(user), 'idempotency-key': newKey() },
+        ...from,
+      });
+    for (let i = 0; i < BETTING_RATE_LIMITS.placeBet; i += 1) {
+      // Refused requests count too (a zero stake is a 400).
+      expect((await send(a, '0')).statusCode).toBe(400);
+    }
+    const limited = await send(a, toWire(birr(10)));
+    expect(limited.statusCode).toBe(429);
+    expect(apiError(limited).code).toBe('rate_limited');
+    expect((await send(b, toWire(birr(10)))).statusCode).toBe(201);
   });
 });
 

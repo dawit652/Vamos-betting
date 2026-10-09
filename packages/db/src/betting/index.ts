@@ -36,9 +36,12 @@ export {
   type RejectReason,
 } from './accept';
 export {
+  CORRECTION_RETRY_DELAY_MS,
   listBetIdsForEvent,
+  listBetsToSettle,
   settleEventBets,
   settlePlacedBet,
+  type ListBetsToSettleOptions,
   type SettleBetResult,
   type SettleEventSummary,
   type SettleOutcome,

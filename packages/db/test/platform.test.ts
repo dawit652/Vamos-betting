@@ -1,11 +1,15 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  claimOperatingMode,
   claimOutboxBatch,
+  countDeadLetteredOutbox,
   enqueueOutbox,
+  getDatabaseInstallationId,
   getSetting,
   markOutboxFailed,
   markOutboxPublished,
+  redriveOutboxEvents,
   setSetting,
   toJsonSafe,
   writeAudit,
@@ -195,6 +199,106 @@ describe('outbox', () => {
     const [published] = await handle.db.select().from(outboxEvents).where(eq(outboxEvents.id, id));
     expect(published!.publishedAt).toBeInstanceOf(Date);
     await markOutboxPublished(handle.db, []);
+  });
+
+  it('leaves rows backing off unclaimed (so newer rows go first) and outages uncounted', async () => {
+    // Earlier tests' rows are out of the way.
+    await handle.db.update(outboxEvents).set({ publishedAt: new Date() });
+    const now = new Date('2026-10-09T12:00:00.000Z');
+    const add = (aggregateId: string) =>
+      enqueueOutbox(handle.db, { type: 't', aggregateType: 'x', aggregateId, payload: {} });
+    const failing = await add('a');
+    const newer = await add('b');
+    await markOutboxFailed(handle.db, failing, 'nope', {
+      retryAt: new Date(now.getTime() + 5000),
+    });
+    const claim = (at: Date, limit = 1) =>
+      handle.db.transaction(async (tx) =>
+        (await claimOutboxBatch(tx, limit, { maxAttempts: 3, now: at })).map((e) => e.id),
+      );
+    expect(await claim(now)).toEqual([newer]);
+    expect(await claim(new Date(now.getTime() + 5000), 2)).toEqual([failing, newer]);
+
+    // An outage records the error and the retry time but uses up no attempt.
+    await markOutboxFailed(handle.db, failing, 'OOM command not allowed', {
+      countAttempt: false,
+      retryAt: new Date(now.getTime() + 7000),
+    });
+    const [row] = await handle.db.select().from(outboxEvents).where(eq(outboxEvents.id, failing));
+    expect(row).toMatchObject({ attempts: 1, lastError: 'OOM command not allowed' });
+    expect(row!.nextAttemptAt).toEqual(new Date(now.getTime() + 7000));
+    await markOutboxPublished(handle.db, [newer]);
+    const [cleared] = await handle.db.select().from(outboxEvents).where(eq(outboxEvents.id, newer));
+    expect(cleared!.nextAttemptAt).toBeNull();
+  });
+
+  it('counts dead letters and redrives them under a new job key', async () => {
+    await handle.db.update(outboxEvents).set({ publishedAt: new Date() });
+    const id = await enqueueOutbox(handle.db, {
+      type: 't',
+      aggregateType: 'x',
+      aggregateId: 'dead',
+      payload: {},
+    });
+    for (let i = 0; i < 3; i += 1) await markOutboxFailed(handle.db, id, 'bad payload');
+    expect(await countDeadLetteredOutbox(handle.db, 3)).toBe(1);
+    expect(
+      await handle.db.transaction((tx) => claimOutboxBatch(tx, 10, { maxAttempts: 3 })),
+    ).toEqual([]);
+    const [before] = await handle.db.select().from(outboxEvents).where(eq(outboxEvents.id, id));
+
+    expect(await redriveOutboxEvents(handle.db, [id])).toEqual([id]);
+    expect(await countDeadLetteredOutbox(handle.db, 3)).toBe(0);
+    const [after] = await handle.db.select().from(outboxEvents).where(eq(outboxEvents.id, id));
+    expect(after).toMatchObject({ attempts: 0, publishedAt: null, lastError: null });
+    expect(after!.jobKey).not.toBe(before!.jobKey);
+    const claimed = await handle.db.transaction((tx) =>
+      claimOutboxBatch(tx, 10, { maxAttempts: 3 }),
+    );
+    expect(claimed.map((e) => e.id)).toEqual([id]);
+    // A published row can be redriven too (re-running a consumer job that failed for good).
+    await markOutboxPublished(handle.db, [id]);
+    expect(await redriveOutboxEvents(handle.db, [id])).toEqual([id]);
+    expect(await redriveOutboxEvents(handle.db, [])).toEqual([]);
+  });
+
+  it('gives every row a random job key', async () => {
+    const a = await enqueueOutbox(handle.db, {
+      type: 't',
+      aggregateType: 'x',
+      aggregateId: 'k1',
+      payload: {},
+    });
+    const b = await enqueueOutbox(handle.db, {
+      type: 't',
+      aggregateType: 'x',
+      aggregateId: 'k2',
+      payload: {},
+    });
+    const rows = await handle.db
+      .select({ jobKey: outboxEvents.jobKey })
+      .from(outboxEvents)
+      .where(sql`${outboxEvents.id} IN (${a}, ${b})`);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.jobKey).toMatch(/^[0-9a-f-]{36}$/);
+    expect(rows[0]!.jobKey).not.toBe(rows[1]!.jobKey);
+  });
+});
+
+describe('database installation id', () => {
+  it('is null until the operating mode is claimed, then a fixed random uuid', async () => {
+    const other = await createTestDatabase();
+    try {
+      expect(await getDatabaseInstallationId(other.db)).toBeNull();
+      await claimOperatingMode(other.db, 'demo');
+      const id = await getDatabaseInstallationId(other.db);
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(await getDatabaseInstallationId(other.db)).toBe(id);
+      await claimOperatingMode(handle.db, 'demo');
+      expect(await getDatabaseInstallationId(handle.db)).not.toBe(id);
+    } finally {
+      await dropTestDatabase(other);
+    }
   });
 });
 

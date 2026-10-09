@@ -16,6 +16,7 @@ import {
   loadGameSettings,
   placeBet,
   quoteSlip,
+  withTxRetry,
   type DbExecutor,
   type GameSettings,
 } from '@vamos/db';
@@ -99,7 +100,8 @@ export interface PlacedBet {
 
 /**
  * Places a bet in one transaction (see placeBet in @vamos/db for the order
- * of checks and their errors), with the settings loaded in that transaction.
+ * of checks and their errors), with the settings loaded in that transaction,
+ * retried when Postgres aborts it with a deadlock or serialization failure.
  */
 export async function placePlayerBet(
   deps: Pick<AppDeps, 'db' | 'clock' | 'randomBytes'>,
@@ -107,7 +109,10 @@ export async function placePlayerBet(
 ): Promise<PlacedBet> {
   const now = deps.clock();
   const { request } = command;
-  const result = await deps.db.transaction(async (tx) => {
+  // Retried on deadlock / serialization failure (a settlement or another
+  // posting can lock the same ledger accounts): safe, as nothing of the failed
+  // try was committed and the bet is keyed by its idempotency key.
+  const result = await withTxRetry(deps.db, async (tx) => {
     const settings = await loadGameSettings(tx);
     return placeBet(tx, {
       userId: command.userId,

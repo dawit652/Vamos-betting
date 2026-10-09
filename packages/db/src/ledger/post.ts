@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../client';
 import { ledgerAccounts, ledgerEntries, ledgerTransactions } from '../schema/ledger';
 import { accountKey, ensureAccount } from './accounts';
@@ -180,6 +180,32 @@ export async function postTransaction(
 
     return { transactionId: created.id, created: true, balances };
   });
+}
+
+/**
+ * Locks the ledger accounts of `refs` (creating missing ones) FOR UPDATE in
+ * ascending account id order, the order postTransaction locks in. A
+ * transaction that posts several ledger transactions over different account
+ * sets (a settlement correction: the reversal, then the new settlement) calls
+ * this first with the union of their accounts, so it never holds one account
+ * while waiting for another that a single posting elsewhere locks first.
+ */
+export async function lockAccounts(tx: DbTransaction, refs: readonly AccountRef[]): Promise<void> {
+  const byKey = new Map<string, AccountRef>();
+  for (const ref of refs) byKey.set(accountKey(ref), ref);
+  const keys = [...byKey.keys()].sort();
+  const ids: string[] = [];
+  for (const key of keys) {
+    const ref = byKey.get(key);
+    if (ref !== undefined) ids.push((await ensureAccount(tx, ref)).id);
+  }
+  if (ids.length === 0) return;
+  await tx
+    .select({ id: ledgerAccounts.id })
+    .from(ledgerAccounts)
+    .where(inArray(ledgerAccounts.id, ids))
+    .orderBy(asc(ledgerAccounts.id))
+    .for('update');
 }
 
 /** Thin wrapper over `db.transaction` for call sites that only need the ledger. */

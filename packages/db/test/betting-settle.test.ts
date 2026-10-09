@@ -2,7 +2,9 @@ import { birr } from '@vamos/core';
 import { and, count, eq, inArray, like, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  CORRECTION_RETRY_DELAY_MS,
   getBetById,
+  listBetsToSettle,
   postTransaction,
   settleEventBets,
   settlePlacedBet,
@@ -10,7 +12,14 @@ import {
   type GameSettings,
   type UserBet,
 } from '../src/index';
-import { betLegs, ledgerAccounts, ledgerTransactions, outboxEvents } from '../src/schema/index';
+import {
+  auditLog,
+  betLegs,
+  bets,
+  ledgerAccounts,
+  ledgerTransactions,
+  outboxEvents,
+} from '../src/schema/index';
 import {
   balances,
   cancel,
@@ -20,7 +29,7 @@ import {
   place,
   type TestDb,
 } from './betting-fixtures';
-import { cash, createUser, dropTestDatabase, fund, uniqueKey } from './helpers';
+import { cash, createUser, dropTestDatabase, fund, pgCode, sleep, uniqueKey } from './helpers';
 
 let handle: TestDb;
 let ids: CatalogIds;
@@ -66,6 +75,29 @@ async function outboxTypes(betId: string): Promise<string[]> {
     .where(eq(outboxEvents.aggregateId, betId))
     .orderBy(outboxEvents.id);
   return rows.map((row) => row.type);
+}
+
+/** The player spends (here: withdraws) `amount` of their cash. */
+async function withdraw(userId: string, amount: bigint): Promise<void> {
+  await handle.db.transaction((tx) =>
+    postTransaction(tx, {
+      type: 'withdrawal',
+      idempotencyKey: uniqueKey('withdraw'),
+      entries: [
+        { account: cash(userId), amount: -amount },
+        { account: { kind: 'house_demo_funding' }, amount },
+      ],
+    }),
+  );
+}
+
+const settleBet = (betId: string, now = new Date()) =>
+  handle.db.transaction((tx) => settlePlacedBet(tx, betId, now));
+
+async function betRow(betId: string) {
+  const [row] = await handle.db.select().from(bets).where(eq(bets.id, betId));
+  if (row === undefined) throw new Error(`no bet ${betId}`);
+  return row;
 }
 
 type Balances = Awaited<ReturnType<typeof balances>>;
@@ -455,7 +487,7 @@ describe('result corrections', () => {
     ]);
   });
 
-  it('a reversal that would overdraw the player is blocked and reported', async () => {
+  it('a correction that would overdraw the player is blocked, reported once and retried by the sweep', async () => {
     const event = await createEvent(handle.db, ids);
     const userId = await player(birr(100));
     const placed = await place(handle.db, userId, {
@@ -465,34 +497,192 @@ describe('result corrections', () => {
     });
     await finish(handle.db, event.eventId, 2, 1);
     await settle(event.eventId);
-    // The player spends (here: withdraws) the 180 ETB payout.
-    await handle.db.transaction((tx) =>
-      postTransaction(tx, {
-        type: 'withdrawal',
-        idempotencyKey: uniqueKey('withdraw'),
-        entries: [
-          { account: cash(userId), amount: -birr(180) },
-          { account: { kind: 'house_demo_funding' }, amount: birr(180) },
-        ],
-      }),
-    );
+    // The player withdraws all but 50 ETB of the 180 ETB payout.
+    await withdraw(userId, birr(130));
     await finish(handle.db, event.eventId, 0, 1);
-    const result = await handle.db.transaction((tx) =>
-      settlePlacedBet(tx, placed.bet.id, new Date()),
-    );
+    const now = new Date();
+    const result = await settleBet(placed.bet.id, now);
     expect(result).toMatchObject({ outcome: 'correction_blocked', status: 'won', version: 0 });
     const after = await bet(placed.bet.id);
     expect(after).toMatchObject({ status: 'won', settledNetPayout: birr(180) });
     expect(after.legs[0]?.state).toBe('lost');
-    expect(await outboxTypes(placed.bet.id)).toContain('bet.correction_blocked');
-    expect(await postingsOf(placed.bet.id)).toHaveLength(2);
-
-    // Once the money is back, running settlement again completes the correction.
-    await fund(handle.db, userId, birr(180));
-    const retried = await handle.db.transaction((tx) =>
-      settlePlacedBet(tx, placed.bet.id, new Date()),
+    expect((await betRow(placed.bet.id)).settlementRetryAt).toEqual(
+      new Date(now.getTime() + CORRECTION_RETRY_DELAY_MS),
     );
+    expect(await outboxTypes(placed.bet.id)).toEqual([
+      'bet.placed',
+      'bet.settled',
+      'bet.correction_blocked',
+    ]);
+    const [blocked] = await handle.db
+      .select({ payload: outboxEvents.payload })
+      .from(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.aggregateId, placed.bet.id),
+          eq(outboxEvents.type, 'bet.correction_blocked'),
+        ),
+      );
+    // The player owes the whole 180 ETB and holds 50.
+    expect(blocked?.payload).toMatchObject({
+      current: 'won',
+      corrected: 'lost',
+      shortfall: '13000',
+    });
+    expect(await postingsOf(placed.bet.id)).toHaveLength(2);
+    expect((await balances(handle.db, userId)).cash).toBe(birr(50));
+
+    // The sweep picks the bet up only once its retry is due.
+    const sweep = { graceMs: 0, lookbackMs: 3600_000, limit: 1000 };
+    expect(await listBetsToSettle(handle.db, now, sweep)).not.toContain(placed.bet.id);
+    const due = new Date(now.getTime() + CORRECTION_RETRY_DELAY_MS);
+    expect(await listBetsToSettle(handle.db, due, sweep)).toContain(placed.bet.id);
+    // Still blocked: the retry moves on, and nothing is reported again.
+    expect(await settleBet(placed.bet.id, due)).toMatchObject({ outcome: 'correction_blocked' });
+    expect((await betRow(placed.bet.id)).settlementRetryAt).toEqual(
+      new Date(due.getTime() + CORRECTION_RETRY_DELAY_MS),
+    );
+    expect(
+      (await outboxTypes(placed.bet.id)).filter((t) => t === 'bet.correction_blocked'),
+    ).toHaveLength(1);
+    const [audits] = await handle.db
+      .select({ n: count() })
+      .from(auditLog)
+      .where(
+        and(eq(auditLog.targetId, placed.bet.id), eq(auditLog.action, 'bet.correction_blocked')),
+      );
+    expect(audits?.n).toBe(1);
+
+    // Once the money is back, the next retry completes the correction.
+    await fund(handle.db, userId, birr(130));
+    const later = new Date(due.getTime() + CORRECTION_RETRY_DELAY_MS);
+    expect(await listBetsToSettle(handle.db, later, sweep)).toContain(placed.bet.id);
+    const retried = await settleBet(placed.bet.id, later);
     expect(retried).toMatchObject({ outcome: 'resettled', status: 'lost', version: 1 });
+    expect((await betRow(placed.bet.id)).settlementRetryAt).toBeNull();
+    expect((await balances(handle.db, userId)).cash).toBe(0n);
+    expect(await listBetsToSettle(handle.db, later, sweep)).not.toContain(placed.bet.id);
+  });
+
+  it('void → won pays the player even when the refund was spent', async () => {
+    const event = await createEvent(handle.db, ids);
+    const userId = await player(birr(100));
+    const placed = await place(handle.db, userId, {
+      stake: birr(100),
+      legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+      settings,
+    });
+    await cancel(handle.db, event.eventId);
+    await settle(event.eventId);
+    expect((await bet(placed.bet.id)).status).toBe('void');
+    // The 100 ETB refund is withdrawn: the player holds nothing.
+    await withdraw(userId, birr(100));
+    await finish(handle.db, event.eventId, 2, 0);
+    expect(await settleBet(placed.bet.id)).toMatchObject({
+      outcome: 'resettled',
+      status: 'won',
+      version: 1,
+    });
+    expect(await bet(placed.bet.id)).toMatchObject({ status: 'won', settledNetPayout: birr(180) });
+    // Net change: +180 payout − 100 refund already paid.
+    expect((await balances(handle.db, userId)).cash).toBe(birr(80));
+    expect(await postingsOf(placed.bet.id)).toEqual([
+      ['bet_stake', 'bet:…'],
+      ['bet_refund', 'settle:ID:0'],
+      ['settlement_reversal', 'reverse:ID:0'],
+      ['bet_payout', 'settle:ID:1'],
+    ]);
+  });
+
+  it('won → won higher (a void leg corrected to won) pays the difference from a zero balance', async () => {
+    const a = await createEvent(handle.db, ids);
+    const b = await createEvent(handle.db, ids);
+    const userId = await player(birr(100));
+    const placed = await place(handle.db, userId, {
+      stake: birr(100),
+      legs: [
+        { selectionId: a.home, oddsMilli: 2000 },
+        { selectionId: b.dnbHome, oddsMilli: 1500 },
+      ],
+      settings,
+    });
+    await finish(handle.db, a.eventId, 1, 0);
+    await settle(a.eventId);
+    await finish(handle.db, b.eventId, 1, 1);
+    await settle(b.eventId);
+    expect(await bet(placed.bet.id)).toMatchObject({ status: 'won', settledNetPayout: birr(180) });
+    await withdraw(userId, birr(180));
+
+    await finish(handle.db, b.eventId, 2, 0);
+    expect(await settleBet(placed.bet.id)).toMatchObject({ outcome: 'resettled', status: 'won' });
+    const corrected = await bet(placed.bet.id);
+    // 2.00 × 1.50 = 3.00 → 300 gross, 200 winnings, 40 tax.
+    expect(corrected).toMatchObject({
+      settledGrossPayout: birr(300),
+      settledTax: birr(40),
+      settledNetPayout: birr(260),
+    });
+    expect((await balances(handle.db, userId)).cash).toBe(birr(80));
+  });
+
+  it('won → won lower goes through when the balance covers the difference', async () => {
+    const a = await createEvent(handle.db, ids);
+    const b = await createEvent(handle.db, ids);
+    const userId = await player(birr(100));
+    const placed = await place(handle.db, userId, {
+      stake: birr(100),
+      legs: [
+        { selectionId: a.home, oddsMilli: 2000 },
+        { selectionId: b.dnbHome, oddsMilli: 1500 },
+      ],
+      settings,
+    });
+    await finish(handle.db, a.eventId, 1, 0);
+    await finish(handle.db, b.eventId, 2, 0);
+    await settle(b.eventId);
+    expect(await bet(placed.bet.id)).toMatchObject({ status: 'won', settledNetPayout: birr(260) });
+    // 100 ETB left: less than the old 260 net, more than the 80 owed.
+    await withdraw(userId, birr(160));
+
+    await finish(handle.db, b.eventId, 1, 1);
+    expect(await settleBet(placed.bet.id)).toMatchObject({ outcome: 'resettled', status: 'won' });
+    expect(await bet(placed.bet.id)).toMatchObject({ settledNetPayout: birr(180) });
+    expect((await balances(handle.db, userId)).cash).toBe(birr(20));
+    expect((await betRow(placed.bet.id)).settlementRetryAt).toBeNull();
+  });
+});
+
+describe('settlement sweep (listBetsToSettle)', () => {
+  it('lists a bet whose event was resulted but never settled, after the grace period', async () => {
+    const event = await createEvent(handle.db, ids);
+    const userId = await player();
+    const placed = await place(handle.db, userId, {
+      stake: birr(10),
+      legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+      settings,
+    });
+    const options = { graceMs: 0, lookbackMs: 3600_000, limit: 1000 };
+    expect(await listBetsToSettle(handle.db, new Date(), options)).not.toContain(placed.bet.id);
+    // Resulted, but its settlement job never ran.
+    await finish(handle.db, event.eventId, 1, 0);
+    const now = new Date(Date.now() + 1000);
+    expect(await listBetsToSettle(handle.db, now, options)).toContain(placed.bet.id);
+    // Within the grace period the job goes first; outside the lookback it is not looked at.
+    expect(await listBetsToSettle(handle.db, now, { ...options, graceMs: 60_000 })).not.toContain(
+      placed.bet.id,
+    );
+    expect(
+      await listBetsToSettle(handle.db, new Date(now.getTime() + 2 * 3600_000), options),
+    ).not.toContain(placed.bet.id);
+
+    expect(await settleBet(placed.bet.id)).toMatchObject({ outcome: 'settled', status: 'won' });
+    expect(await listBetsToSettle(handle.db, now, options)).not.toContain(placed.bet.id);
+    // A correction whose job is lost makes the settled bet due again.
+    await finish(handle.db, event.eventId, 0, 1);
+    const later = new Date(Date.now() + 1000);
+    expect(await listBetsToSettle(handle.db, later, options)).toContain(placed.bet.id);
+    expect(await settleBet(placed.bet.id)).toMatchObject({ outcome: 'resettled', status: 'lost' });
+    expect(await listBetsToSettle(handle.db, later, options)).not.toContain(placed.bet.id);
   });
 });
 
@@ -521,6 +711,82 @@ describe('idempotency and concurrency', () => {
     await settle(event.eventId);
     expect(await snapshot()).toEqual(before);
   });
+
+  it.each([
+    ['lost → won', 'away', [2, 1], [1, 2], 'won'],
+    ['won → lost', 'home', [2, 1], [1, 2], 'lost'],
+  ] as const)(
+    'a %s correction does not deadlock with a posting on the player cash (accounts locked up front)',
+    async (_, pick, first, second, final) => {
+      // The deadlock needs the player's cash account to sort (by id) before
+      // the house accounts: a placement then locks cash and waits for
+      // house_stakes. The cash account is opened with the smallest id.
+      const [stakes] = await handle.db
+        .select({ id: ledgerAccounts.id })
+        .from(ledgerAccounts)
+        .where(eq(ledgerAccounts.key, 'house:stakes'));
+      const userId = await createUser(handle.db);
+      const cashId = `00000000-0000-4000-8000-${String(final === 'won' ? 1 : 2).padStart(12, '0')}`;
+      await handle.db.insert(ledgerAccounts).values({
+        id: cashId,
+        key: `user:${userId}:cash`,
+        ownerType: 'user',
+        userId,
+        kind: 'player_cash',
+        allowNegative: false,
+      });
+      await fund(handle.db, userId, birr(1_000));
+      expect(cashId < stakes!.id).toBe(true);
+
+      const event = await createEvent(handle.db, ids);
+      const placed = await place(handle.db, userId, {
+        stake: birr(100),
+        legs: [{ selectionId: event[pick], oddsMilli: pick === 'home' ? 2000 : 3500 }],
+        settings,
+      });
+      await finish(handle.db, event.eventId, ...first);
+      await settle(event.eventId);
+      expect((await bet(placed.bet.id)).status).not.toBe(final);
+      await finish(handle.db, event.eventId, ...second);
+
+      // Another transaction (as placeBet's stake posting does, in id order)
+      // holds the player's cash, then wants house_stakes.
+      const waiting = async () => {
+        const r = await handle.pool.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM pg_stat_activity
+           WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+        );
+        return r.rows[0]?.n ?? 0;
+      };
+      const client = await handle.pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT id FROM ledger_accounts WHERE id = $1 FOR UPDATE', [cashId]);
+        // The correction posts two ledger transactions; one of them needs the cash.
+        const correction = settleBet(placed.bet.id).then(
+          (result) => ({ result }),
+          (error: unknown) => ({ error }),
+        );
+        for (let i = 0; i < 200 && (await waiting()) === 0; i += 1) await sleep(10);
+        expect(await waiting()).toBeGreaterThan(0);
+        let failure: string | undefined;
+        try {
+          await client.query('SELECT id FROM ledger_accounts WHERE id = $1 FOR UPDATE', [
+            stakes!.id,
+          ]);
+          await client.query('COMMIT');
+        } catch (error) {
+          failure = pgCode(error) ?? String(error);
+          await client.query('ROLLBACK');
+        }
+        const outcome = await correction;
+        expect(failure).toBeUndefined();
+        expect(outcome).toMatchObject({ result: { outcome: 'resettled', status: final } });
+      } finally {
+        client.release();
+      }
+    },
+  );
 
   it('concurrent settlement runs post once', async () => {
     const event = await createEvent(handle.db, ids);

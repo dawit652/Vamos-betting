@@ -384,7 +384,22 @@ describe('live simulator', () => {
       const start = due(0);
       const fixture = feedFixture('football', 'premier-league', 'Arsenal', 'Wolves', start);
       const eventId = await insertFixture(t, provider, fixture, feedProvider);
-      t.clock.set(new Date(start.getTime() + 1000));
+      // A seed whose first simulated minute is calm: a random one has a goal (and so
+      // a simulator suspension) in that minute a few percent of the time.
+      const oneSecondIn = new Date(start.getTime() + 1000);
+      let seed = '';
+      for (let i = 0; seed === ''; i++) {
+        const candidate = `calm-${eventId}-${i}`;
+        const record = simulateTo(
+          newSimRecord({ id: eventId, sport: 'football', startTime: start }, candidate),
+          provider.strengths(fixture),
+          oneSecondIn,
+          1,
+        );
+        if (!isSuspended(record.state)) seed = candidate;
+      }
+      await setSeed(eventId, seed);
+      t.clock.set(oneSecondIn);
       await runLiveSimTick(t.ctx, opts);
       const { rows } = await t.db.pool.query<{ id: string }>(
         `SELECT id FROM markets WHERE event_id = $1 AND key = 'btts'`,
@@ -489,14 +504,16 @@ describe('live simulator', () => {
       await runLiveSimTick(t.ctx, options(feedProvider));
       expect(await seedOf(ids[0]!)).toBe(seeds[0]);
       const replayed = await loadSimRecord(t.redis, simStateKey(ids[0]!, KEY_PREFIX), ids[0]!);
-      expect(replayed).toEqual(
-        simulateTo(
-          newSimRecord({ id: ids[0]!, sport: 'football', startTime: start }, seeds[0]!),
-          provider.strengths(fixtures[0]!),
-          t.clock.now,
-          SIM_SPEED,
-        ),
+      const expected = simulateTo(
+        newSimRecord({ id: ids[0]!, sport: 'football', startTime: start }, seeds[0]!),
+        provider.strengths(fixtures[0]!),
+        t.clock.now,
+        SIM_SPEED,
       );
+      // After a tick, `suspended` tells whether the simulator holds the markets
+      // suspended, i.e. whether the replayed state is in a goal's suspension
+      // (the seed is random, so sometimes it is).
+      expect(replayed).toEqual({ ...expected, suspended: isSuspended(expected.state) });
     },
     TEST_TIMEOUT,
   );

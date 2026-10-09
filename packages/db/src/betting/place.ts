@@ -117,6 +117,14 @@ const EARLY_SLIP_ERRORS: ReadonlySet<SlipError['code']> = new Set([
   'invalid_stake',
 ]);
 
+/** Early errors that do not depend on the bet rules (a bet already placed can never have them). */
+const RULE_FREE_SLIP_ERRORS: ReadonlySet<SlipError['code']> = new Set([
+  'no_selections',
+  'duplicate_selection',
+  'invalid_odds',
+  'invalid_stake',
+]);
+
 /** Errors visible from the request alone (before anything is loaded or locked). */
 function requestErrors(input: PlaceBetInput): SlipError[] {
   const legs = input.legs.map((leg) => ({
@@ -191,14 +199,18 @@ async function insertBetRow(
  * 8. the bet and its legs are inserted: `pending_acceptance` until
  *    now + liveBetDelayMs when any leg's event is live, else `open`;
  * 9. the `bet.placed` outbox event and the audit record.
- * Request-level slip errors (no legs, too many, duplicates, invalid odds or
- * stake) are refused before anything is locked.
+ * Request-level slip errors (no legs, duplicates, invalid odds or stake) are
+ * refused before anything is locked; too many legs (which depends on the
+ * current bet rules) only after the replay check, so a replay always returns
+ * the bet already placed, whatever the rules say now.
  */
 export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise<PlaceBetResult> {
   const { userId, stake, policy, now, settings } = input;
   const channel = input.channel ?? 'web';
   const early = requestErrors(input);
-  if (early.length > 0) throw slipInvalidError(early);
+  if (early.some((error) => RULE_FREE_SLIP_ERRORS.has(error.code))) {
+    throw slipInvalidError(early);
+  }
 
   await lockUser(tx, userId);
 
@@ -223,6 +235,9 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
     if (bet === null) throw new Error(`bet ${existing.id} vanished`);
     return { bet, replayed: true };
   }
+  // Checked against the current rules only now: a replay returns the bet
+  // placed under the rules of the day even if they were tightened since.
+  if (early.length > 0) throw slipInvalidError(early);
 
   await assertStakeAllowed(tx, userId, stake, now);
 

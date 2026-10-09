@@ -30,6 +30,48 @@ export const DEFAULT_JOB_OPTIONS: JobsOptions = {
   removeOnFail: KEEP_FAILED,
 };
 
+/** The queue prefix is in use by the worker of another database. */
+export class QueuePrefixBoundError extends Error {
+  constructor(
+    readonly prefix: string,
+    readonly boundTo: string,
+    readonly installationId: string,
+  ) {
+    super(
+      `queue prefix "${prefix}" belongs to database installation ${boundTo}, but this database is ` +
+        `${installationId}. Its queues hold the other database's jobs: give each database its own ` +
+        `QUEUE_PREFIX, or, if the old database is gone for good, delete the Redis keys "${prefix}:*".`,
+    );
+    this.name = 'QueuePrefixBoundError';
+  }
+}
+
+/** Redis key recording which database installation a queue prefix belongs to. */
+export const queuePrefixBindingKey = (prefix: string) => `${prefix}:installation`;
+
+/**
+ * Binds the BullMQ queue prefix to this database's installation id (first
+ * use), or checks that it is bound to it. Two stacks (or a rebuilt database)
+ * on one Redis with the same prefix would otherwise consume each other's
+ * jobs against the wrong database. Throws QueuePrefixBoundError on a
+ * mismatch; Redis errors are thrown as they are.
+ */
+export async function bindQueuePrefix(
+  redis: Redis,
+  prefix: string,
+  installationId: string,
+): Promise<{ bound: boolean }> {
+  const key = queuePrefixBindingKey(prefix);
+  const set = await redis.set(key, installationId, 'NX');
+  if (set === 'OK') return { bound: true };
+  const current = await redis.get(key);
+  if (current !== null && current !== installationId) {
+    throw new QueuePrefixBoundError(prefix, current, installationId);
+  }
+  if (current === null) return bindQueuePrefix(redis, prefix, installationId);
+  return { bound: false };
+}
+
 /** Producer side: lazily created queues sharing one Redis connection. */
 export interface QueueSet {
   get(name: QueueName): Queue;
@@ -47,11 +89,19 @@ async function closeRedis(redis: Redis): Promise<void> {
   }
 }
 
-/** Rejects after `ms` (the promise itself carries on; callers must tolerate a late success). */
+/** The error of withTimeout. */
+export class TimeoutError extends Error {
+  constructor(what: string, ms: number) {
+    super(`${what} timed out after ${ms} ms`);
+    this.name = 'TimeoutError';
+  }
+}
+
+/** Rejects with TimeoutError after `ms` (the promise itself carries on; callers must tolerate a late success). */
 export function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms);
+    timer = setTimeout(() => reject(new TimeoutError(what, ms)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
@@ -107,8 +157,21 @@ export function createQueueSet(config: QueueConfig, logger: Logger): QueueSet {
 
 export interface QueueWorker<Data, Result> {
   worker: Worker<Data, Result>;
-  /** Closes the worker (waiting for active jobs) and then its connection. */
+  /**
+   * Closes the worker (waiting for active jobs) and then its connection. When
+   * that takes longer than the close timeout (Redis unreachable: BullMQ's
+   * close never settles then), the connection is dropped and the worker
+   * force-closed; unfinished jobs are picked up again as stalled jobs.
+   */
   close(): Promise<void>;
+}
+
+/** Default time limit of QueueWorker.close(). */
+export const WORKER_CLOSE_TIMEOUT_MS = 20_000;
+
+export interface QueueWorkerOptions extends Omit<WorkerOptions, 'connection' | 'prefix'> {
+  /** Time limit of close() before the worker is forced shut (default WORKER_CLOSE_TIMEOUT_MS). */
+  closeTimeoutMs?: number;
 }
 
 /**
@@ -120,14 +183,15 @@ export function createQueueWorker<Data, Result>(
   name: QueueName,
   processor: Processor<Data, Result>,
   logger: Logger,
-  options: Omit<WorkerOptions, 'connection' | 'prefix'> = {},
+  options: QueueWorkerOptions = {},
 ): QueueWorker<Data, Result> {
+  const { closeTimeoutMs = WORKER_CLOSE_TIMEOUT_MS, ...workerOptions } = options;
   const connection = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
   connection.on('error', (error: unknown) =>
     logger.debug({ err: error, queue: name }, 'worker redis connection error'),
   );
   const worker = new Worker<Data, Result>(name, processor, {
-    ...options,
+    ...workerOptions,
     connection,
     prefix: config.prefix,
   });
@@ -143,9 +207,20 @@ export function createQueueWorker<Data, Result>(
     worker,
     async close() {
       try {
-        await worker.close();
+        await withTimeout(worker.close(), closeTimeoutMs, `closing the ${name} worker`);
+      } catch (error) {
+        logger.warn(
+          { err: error, queue: name },
+          'queue worker did not close in time (redis unreachable?); forcing it shut',
+        );
+        connection.disconnect();
+        await withTimeout(worker.close(true), 1000, `force-closing the ${name} worker`).catch(
+          () => undefined,
+        );
       } finally {
-        await closeRedis(connection);
+        await withTimeout(closeRedis(connection), 1000, 'closing redis').catch(() =>
+          connection.disconnect(),
+        );
       }
     },
   };

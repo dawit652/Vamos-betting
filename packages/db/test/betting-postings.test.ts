@@ -103,24 +103,30 @@ describe('betting postings', () => {
       base: fc.constantFrom('net_winnings' as const, 'gross_payout' as const),
       exemptBelow: fc.bigInt({ min: 0n, max: 100_000n }),
     });
+    // The bet rules guarantee maxStake <= maxPayout (BetRulesSchema, see settings.test.ts),
+    // so every bet's cap is at least its stake: generated that way, not filtered.
     const settlement = fc
       .record({
         stake: fc.bigInt({ min: 1n, max: 10_000_000n }),
         legs: fc.array(leg, { minLength: 1, maxLength: 12 }),
-        maxPayout: fc.bigInt({ min: 1n, max: 10_000_000_000n }),
+        capAboveStake: fc.bigInt({ min: 0n, max: 10_000_000_000n }),
         tax,
       })
-      .map(({ stake, legs, maxPayout, tax }) => ({
+      .map(({ stake, legs, capAboveStake, tax }) => ({
         stake,
-        result: settleBet({ stake, legs, maxPayout, multiBonus: DEFAULT_MULTI_BONUS, tax }),
+        result: settleBet({
+          stake,
+          legs,
+          maxPayout: stake + capAboveStake,
+          multiBonus: DEFAULT_MULTI_BONUS,
+          tax,
+        }),
       }));
 
     it('balances, has no zero entries, pays the player net and keeps house_stakes whole', () => {
       fc.assert(
         fc.property(settlement, ({ stake, result }) => {
-          // A cap below the stake can make a "won" bet pay less than its stake; core guarantees
-          // grossPayout >= stake only when maxPayout >= stake, which the settings enforce.
-          fc.pre(result.status !== 'won' || result.grossPayout >= stake);
+          if (result.status === 'won') expect(result.grossPayout).toBeGreaterThanOrEqual(stake);
           const posting = settlementPosting(userId, stake, result);
           expect(() =>
             normalizePosting({ type: posting.type, idempotencyKey: 'k', entries: posting.entries }),
@@ -139,7 +145,6 @@ describe('betting postings', () => {
     it('the negation of a settlement exactly cancels it', () => {
       fc.assert(
         fc.property(settlement, ({ stake, result }) => {
-          fc.pre(result.status !== 'won' || result.grossPayout >= stake);
           const { entries } = settlementPosting(userId, stake, result);
           const total = new Map<string, bigint>();
           for (const e of [...entries, ...negateEntries(entries)]) {

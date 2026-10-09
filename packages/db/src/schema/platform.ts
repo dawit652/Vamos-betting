@@ -31,6 +31,14 @@ export const outboxEvents = pgTable(
     publishedAt: timestamp('published_at', { withTimezone: true }),
     attempts: integer('attempts').notNull().default(0),
     lastError: text('last_error'),
+    /** After a failed publish: not claimed again before this time (null = due now). */
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+    /**
+     * Random per row: part of the BullMQ job id, so job ids never repeat
+     * across database rebuilds or restores (the id sequence can restart) or
+     * between stacks sharing a Redis. A redrive draws a new one.
+     */
+    jobKey: uuid('job_key').notNull().defaultRandom(),
   },
   (t) => [
     index('outbox_unpublished_idx').on(t.publishedAt, t.id),
@@ -97,6 +105,8 @@ export const databaseIdentity = pgTable(
   {
     id: boolean('id').primaryKey().default(true),
     operatingMode: operatingMode('operating_mode').notNull(),
+    /** Random identity of this database (the worker binds its queue prefix to it). */
+    installationId: uuid('installation_id').notNull().defaultRandom(),
     claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [check('database_identity_singleton', sql`${t.id}`)],

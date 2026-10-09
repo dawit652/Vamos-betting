@@ -13,7 +13,7 @@ export type {
 } from './types';
 export { InsufficientFundsError, LedgerError, UnbalancedTransactionError } from './errors';
 export { accountKey, ensureAccount } from './accounts';
-export { postTransaction, withTransaction } from './post';
+export { lockAccounts, postTransaction, withTransaction } from './post';
 export {
   BETTING_FLOW_TYPES,
   depositTotalSince,

@@ -1,7 +1,7 @@
 import { canSettle, settleBet, toWire, type LegState } from '@vamos/core';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { InsufficientFundsError } from '../ledger/errors';
-import { postTransaction } from '../ledger/post';
+import { lockAccounts, postTransaction } from '../ledger/post';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
@@ -27,10 +27,13 @@ import { parseTerms, type BetStatus } from './types';
  *   settlement was reversed and the bet is open;
  * - unchanged: nothing to post (leg states may still have been updated);
  * - skipped: the bet is pending acceptance, rejected or cashed out;
- * - correction_blocked: the reversal of a winning settlement would take the
- *   player's cash balance below zero, so the old settlement stays in place
- *   and a `bet.correction_blocked` event asks the back office to step in.
- *   Running settlement again retries the correction.
+ * - correction_blocked: the correction would take the player's cash balance
+ *   below zero (the player owes more than they hold: the new net payout is
+ *   lower than the old one by more than their balance), so the old
+ *   settlement stays in place. The bet gets settlement_retry_at (now +
+ *   CORRECTION_RETRY_DELAY_MS), which the settlement sweep (listBetsToSettle)
+ *   picks up to try again, and the first block writes a
+ *   `bet.correction_blocked` event for the back office.
  */
 export type SettleOutcome =
   'settled' | 'resettled' | 'reopened' | 'unchanged' | 'skipped' | 'correction_blocked';
@@ -44,6 +47,9 @@ export interface SettleBetResult {
   /** Legs whose state changed in this call. */
   legsChanged: number;
 }
+
+/** How long a blocked correction waits before the settlement sweep tries it again. */
+export const CORRECTION_RETRY_DELAY_MS = 5 * 60_000;
 
 const MONEY_STATUSES: ReadonlySet<BetStatus> = new Set(['open', 'won', 'lost', 'void']);
 const SETTLED: ReadonlySet<BetStatus> = new Set(['won', 'lost', 'void']);
@@ -76,6 +82,56 @@ function sameSettlement(a: SettlementAmounts | null, b: SettlementAmounts | null
   );
 }
 
+type ResultOf = (outcome: SettleOutcome, legsChanged: number, row?: BetRow) => SettleBetResult;
+
+/**
+ * Leaves a settled bet as it is because its correction would overdraw the
+ * player: marks it for the settlement sweep (settlement_retry_at) and, the
+ * first time only, writes `bet.correction_blocked` and an audit record.
+ */
+async function blockCorrection(
+  tx: DbTransaction,
+  bet: BetRow,
+  info: {
+    now: Date;
+    legsChanged: number;
+    current: SettlementAmounts;
+    corrected: SettlementAmounts['status'] | 'open';
+    shortfall: bigint;
+    result: ResultOf;
+  },
+): Promise<SettleBetResult> {
+  const { now } = info;
+  await tx
+    .update(bets)
+    .set({ settlementRetryAt: new Date(now.getTime() + CORRECTION_RETRY_DELAY_MS), updatedAt: now })
+    .where(eq(bets.id, bet.id));
+  if (bet.settlementRetryAt === null) {
+    const details = {
+      betId: bet.id,
+      userId: bet.userId,
+      version: bet.settlementVersion,
+      current: info.current.status,
+      corrected: info.corrected,
+      shortfall: toWire(info.shortfall),
+    };
+    await enqueueOutbox(tx, {
+      type: BET_CORRECTION_BLOCKED,
+      aggregateType: 'bet',
+      aggregateId: bet.id,
+      payload: details,
+    });
+    await writeAudit(tx, {
+      actorType: 'system',
+      action: BET_CORRECTION_BLOCKED,
+      targetType: 'bet',
+      targetId: bet.id,
+      metadata: details,
+    });
+  }
+  return info.result('correction_blocked', info.legsChanged);
+}
+
 /**
  * Brings one bet in line with the current results of its selections, in the
  * caller's transaction. The bet row is locked FOR UPDATE, so concurrent runs
@@ -85,10 +141,14 @@ function sameSettlement(a: SettlementAmounts | null, b: SettlementAmounts | null
  * otherwise `selections.result` (null = still open). When core `canSettle`
  * allows it, core `settleBet` (with the terms stored on the bet) gives the
  * settlement, posted as `settlementPosting` under `settle:<betId>:<version>`.
- * When an already settled bet's result changes, its settlement posting is
- * reversed exactly (`settlement_reversal`, `reverse:<betId>:<version>`), the
- * version is bumped and the bet is settled again, or reopened when a leg is
- * open again. Every change writes a `bet.settled` / `bet.reopened` outbox event.
+ * When an already settled bet's result changes, the new settlement is posted
+ * under `settle:<betId>:<version + 1>` and the old posting is reversed exactly
+ * (`settlement_reversal`, `reverse:<betId>:<version>`), in that order and in
+ * one savepoint, so the player's balance only has to cover the net change;
+ * the version is bumped. A bet with an open leg again is only reversed and
+ * reopened. The accounts of both postings are locked up front in id order
+ * (lockAccounts). Every change writes a `bet.settled` / `bet.reopened`
+ * outbox event.
  *
  * Idempotent: running it again with the same results changes nothing.
  * Pending-acceptance, rejected and cashed-out bets are skipped (a pending bet
@@ -101,7 +161,7 @@ export async function settlePlacedBet(
 ): Promise<SettleBetResult> {
   const [bet] = await tx.select().from(bets).where(eq(bets.id, betId)).for('update');
   if (bet === undefined) throw new Error(`bet ${betId} not found`);
-  const result = (outcome: SettleOutcome, legsChanged: number, row: BetRow = bet) => ({
+  const result: ResultOf = (outcome, legsChanged, row = bet) => ({
     betId,
     outcome,
     status: row.status,
@@ -161,53 +221,72 @@ export async function settlePlacedBet(
     };
   }
   const current = currentSettlement(bet);
-  if (sameSettlement(current, desired)) return result('unchanged', legsChanged);
+  if (sameSettlement(current, desired)) {
+    if (bet.settlementRetryAt !== null) {
+      // A blocked correction was undone by another correction: nothing is pending any more.
+      await tx
+        .update(bets)
+        .set({ settlementRetryAt: null, updatedAt: now })
+        .where(eq(bets.id, betId));
+    }
+    return result('unchanged', legsChanged);
+  }
 
+  const next = desired === null ? null : settlementPosting(bet.userId, bet.stake, desired);
   let version = bet.settlementVersion;
   if (current !== null) {
     const previous = await loadPostingEntries(tx, settlementLedgerKey(betId, version));
     if (previous === null) {
       throw new Error(`settled bet ${betId} has no posting ${settlementLedgerKey(betId, version)}`);
     }
+    const reversal = negateEntries(previous.entries);
+    // Two postings over different accounts: lock all of them first, in the
+    // ledger's id order, so this cannot deadlock with a single posting
+    // (e.g. the player placing a bet) that locks the same accounts.
+    await lockAccounts(
+      tx,
+      [...reversal, ...(next?.entries ?? [])].map((entry) => entry.account),
+    );
     try {
-      await postTransaction(tx, {
-        type: 'settlement_reversal',
-        idempotencyKey: reversalLedgerKey(betId, version),
-        refType: 'bet',
-        refId: betId,
-        description: `Reversal of settlement ${version} (result corrected)`,
-        entries: negateEntries(previous.entries),
+      // One savepoint for both postings. The new settlement goes first, so the
+      // player's balance is checked against the net change (new net payout −
+      // old net payout), not against the whole old payout on its own.
+      await tx.transaction(async (sp) => {
+        if (next !== null && desired !== null) {
+          await postTransaction(sp, {
+            type: next.type,
+            idempotencyKey: settlementLedgerKey(betId, version + 1),
+            refType: 'bet',
+            refId: betId,
+            description: `Bet ${desired.status} (settlement ${version + 1})`,
+            entries: next.entries,
+          });
+        }
+        await postTransaction(sp, {
+          type: 'settlement_reversal',
+          idempotencyKey: reversalLedgerKey(betId, version),
+          refType: 'bet',
+          refId: betId,
+          description: `Reversal of settlement ${version} (result corrected)`,
+          entries: reversal,
+        });
       });
     } catch (error) {
       if (!(error instanceof InsufficientFundsError)) throw error;
-      // postTransaction ran in a savepoint, so nothing of the reversal remains.
-      const details = {
-        betId,
-        userId: bet.userId,
-        version,
-        current: current.status,
+      // The savepoint rolled back, so neither posting remains.
+      return blockCorrection(tx, bet, {
+        now,
+        legsChanged,
+        current,
         corrected: desired?.status ?? 'open',
-        shortfall: toWire(error.amount - error.available),
-      };
-      await enqueueOutbox(tx, {
-        type: BET_CORRECTION_BLOCKED,
-        aggregateType: 'bet',
-        aggregateId: betId,
-        payload: details,
+        shortfall: error.amount - error.available,
+        result,
       });
-      await writeAudit(tx, {
-        actorType: 'system',
-        action: BET_CORRECTION_BLOCKED,
-        targetType: 'bet',
-        targetId: betId,
-        metadata: details,
-      });
-      return result('correction_blocked', legsChanged);
     }
     version += 1;
   }
 
-  if (desired === null) {
+  if (desired === null || next === null) {
     const [row] = await tx
       .update(bets)
       .set({
@@ -217,6 +296,7 @@ export async function settlePlacedBet(
         settledTax: null,
         settledNetPayout: null,
         settledAt: null,
+        settlementRetryAt: null,
         updatedAt: now,
       })
       .where(eq(bets.id, betId))
@@ -231,15 +311,16 @@ export async function settlePlacedBet(
     return result('reopened', legsChanged, row);
   }
 
-  const posting = settlementPosting(bet.userId, bet.stake, desired);
-  await postTransaction(tx, {
-    type: posting.type,
-    idempotencyKey: settlementLedgerKey(betId, version),
-    refType: 'bet',
-    refId: betId,
-    description: `Bet ${desired.status}${version > 0 ? ` (settlement ${version})` : ''}`,
-    entries: posting.entries,
-  });
+  if (current === null) {
+    await postTransaction(tx, {
+      type: next.type,
+      idempotencyKey: settlementLedgerKey(betId, version),
+      refType: 'bet',
+      refId: betId,
+      description: `Bet ${desired.status}${version > 0 ? ` (settlement ${version})` : ''}`,
+      entries: next.entries,
+    });
+  }
   const [row] = await tx
     .update(bets)
     .set({
@@ -249,6 +330,7 @@ export async function settlePlacedBet(
       settledTax: desired.taxAmount,
       settledNetPayout: desired.netPayout,
       settledAt: now,
+      settlementRetryAt: null,
       updatedAt: now,
     })
     .where(eq(bets.id, betId))
@@ -284,6 +366,60 @@ export async function listBetIdsForEvent(exec: DbExecutor, eventId: string): Pro
     .where(and(eq(betLegs.eventId, eventId), inArray(bets.status, [...MONEY_STATUSES])))
     .orderBy(asc(bets.id));
   return rows.map((row) => row.id);
+}
+
+export interface ListBetsToSettleOptions {
+  /** Only events resulted at least this long before `now`, so the settlement job goes first. */
+  graceMs: number;
+  /** Only events resulted within this long before `now`. */
+  lookbackMs: number;
+  limit: number;
+}
+
+/**
+ * Bets the settlement sweep should run settlePlacedBet on, in id order:
+ * - blocked corrections whose settlement_retry_at is due;
+ * - bets in a money status (open, won, lost, void) with a leg on an event
+ *   resulted between `now − lookbackMs` and `now − graceMs` whose state
+ *   differs from its selection's result (void market → void, else the
+ *   result, null → open). settlePlacedBet writes leg states and the
+ *   settlement in one transaction, so such a leg means the bet was never
+ *   settled for that result: its settlement job failed for good or was
+ *   lost, or the bet was accepted while a prematch leg was being resulted.
+ */
+export async function listBetsToSettle(
+  exec: DbExecutor,
+  now: Date,
+  options: ListBetsToSettleOptions,
+): Promise<string[]> {
+  const from = new Date(now.getTime() - options.lookbackMs);
+  const to = new Date(now.getTime() - options.graceMs);
+  const statuses = sql.join(
+    [...MONEY_STATUSES].map((status) => sql`${status}`),
+    sql`, `,
+  );
+  const result = await exec.execute<{ id: string }>(sql`
+    SELECT id FROM (
+      SELECT b.id FROM bets b
+      WHERE b.settlement_retry_at IS NOT NULL
+        AND b.settlement_retry_at <= ${now.toISOString()}::timestamptz
+        AND b.status IN (${statuses})
+      UNION
+      SELECT l.bet_id FROM events e
+      JOIN bet_legs l ON l.event_id = e.id
+      JOIN bets b ON b.id = l.bet_id
+      JOIN markets m ON m.id = l.market_id
+      JOIN selections s ON s.id = l.selection_id
+      WHERE e.resulted_at >= ${from.toISOString()}::timestamptz
+        AND e.resulted_at <= ${to.toISOString()}::timestamptz
+        AND b.status IN (${statuses})
+        AND l.state::text <> CASE WHEN m.status = 'void' THEN 'void'
+                                  ELSE COALESCE(s.result::text, 'open') END
+    ) due
+    ORDER BY id
+    LIMIT ${options.limit}
+  `);
+  return result.rows.map((row) => row.id);
 }
 
 export interface SettleEventSummary {

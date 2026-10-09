@@ -1,11 +1,20 @@
-import { BET_PLACED, enqueueOutbox, EVENT_RESULTED, schema } from '@vamos/db';
+import {
+  BET_PLACED,
+  enqueueOutbox,
+  EVENT_RESULTED,
+  redriveOutboxEvents,
+  schema,
+  type Database,
+} from '@vamos/db';
 import { Queue } from 'bullmq';
 import { eq, inArray } from 'drizzle-orm';
+import { ReplyError } from 'ioredis';
 import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { QUEUE_NAMES } from '../src/lib/queues';
+import { QUEUE_NAMES, TimeoutError, type QueueSet } from '../src/lib/queues';
 import {
   createOutboxDispatcher,
+  isQueueOutageError,
   outboxDispatchTask,
   outboxJobId,
   type BetAcceptanceJobData,
@@ -50,6 +59,12 @@ async function outboxRow(id: bigint) {
 async function enqueue(type: string, aggregateType: string, payload: Record<string, unknown>) {
   const aggregateId = (payload.eventId ?? payload.betId ?? 'x') as string;
   return enqueueOutbox(t.db.db, { type, aggregateType, aggregateId, payload });
+}
+
+/** An ioredis ReplyError (the error of a command Redis refused), typed. */
+function replyError(text: string): Error {
+  const Reply = ReplyError as unknown as new (message: string) => Error;
+  return new Reply(text);
 }
 
 function capturingLogger() {
@@ -98,14 +113,14 @@ describe('outbox dispatcher', () => {
           expect((await outboxRow(id)).publishedAt).not.toBeNull();
         }
 
-        const settle = await settlementQueue.getJob(outboxJobId(resulted));
+        const settle = await settlementQueue.getJob(outboxJobId(await outboxRow(resulted)));
         expect(settle?.name).toBe(EVENT_RESULTED);
         expect(settle?.data as SettlementJobData).toEqual({
           outboxId: resulted.toString(),
           type: EVENT_RESULTED,
           eventId,
         });
-        const accept = await acceptanceQueue.getJob(outboxJobId(pending));
+        const accept = await acceptanceQueue.getJob(outboxJobId(await outboxRow(pending)));
         expect(accept?.data as BetAcceptanceJobData).toEqual({
           outboxId: pending.toString(),
           betId: 'bet-pending',
@@ -113,7 +128,8 @@ describe('outbox dispatcher', () => {
         });
         expect(accept?.opts.delay).toBe(4000);
         expect(await accept?.getState()).toBe('delayed');
-        expect(await acceptanceQueue.getJob(outboxJobId(open))).toBeUndefined();
+        expect(await acceptanceQueue.getJob(outboxJobId(await outboxRow(open)))).toBeUndefined();
+        expect(settle?.id).toBe(`outbox-${resulted}-${(await outboxRow(resulted)).jobKey}`);
 
         // A second run finds nothing to do.
         expect(await dispatcher.run()).toMatchObject({ claimed: 0, published: 0, jobs: 0 });
@@ -171,7 +187,7 @@ describe('outbox dispatcher', () => {
   );
 
   it(
-    'backs off a row that cannot be queued and dead-letters it, logged once, at maxAttempts',
+    'backs off a row that cannot be queued (stored in the row) and dead-letters it at maxAttempts',
     async () => {
       const bad = await enqueue(BET_PLACED, 'bet', { status: 'pending_acceptance' });
       const fine = await enqueue('user.registered', 'user', { userId: 'u3' });
@@ -186,16 +202,22 @@ describe('outbox dispatcher', () => {
         let row = await outboxRow(bad);
         expect(row.attempts).toBe(1);
         expect(row.lastError).toContain('ZodError');
+        expect(row.nextAttemptAt).toEqual(new Date(t.clock.now.getTime() + 1000));
 
-        // Within the backoff (1 s after the first failure) the row is left alone.
+        // Within the backoff (1 s after the first failure) the row is not even claimed.
         t.clock.advance(500);
-        expect(await dispatcher.run()).toMatchObject({ claimed: 1, backingOff: 1, failed: 0 });
+        expect(await dispatcher.run()).toMatchObject({ claimed: 0, failed: 0 });
         t.clock.advance(500);
         expect(await dispatcher.run()).toMatchObject({ failed: 1, deadLettered: 0 });
         expect((await outboxRow(bad)).attempts).toBe(2);
-        // The second backoff is 2 s.
+        // The second backoff is 2 s, honoured by any dispatcher (it is stored in the row).
         t.clock.advance(1000);
-        expect(await dispatcher.run()).toMatchObject({ backingOff: 1 });
+        const other = createOutboxDispatcher(t.ctx, { maxAttempts: 3 });
+        try {
+          expect(await other.run()).toMatchObject({ claimed: 0 });
+        } finally {
+          await other.close();
+        }
         t.clock.advance(1000);
         expect(await dispatcher.run()).toMatchObject({ failed: 1, deadLettered: 1 });
         row = await outboxRow(bad);
@@ -211,21 +233,171 @@ describe('outbox dispatcher', () => {
         await dispatcher.close();
       }
 
-      // A new dispatcher (a restart) reports the dead letters once, at its first run.
+      // A new dispatcher (a restart) reports the dead letters at its first run, then
+      // again only every deadLetterReportMs.
       const restarted = capturingLogger();
       const again = createOutboxDispatcher(
         { ...t.ctx, logger: restarted.logger },
-        { maxAttempts: 3 },
+        { maxAttempts: 3, deadLetterReportMs: 60_000 },
       );
+      const reported = () => restarted.lines.filter((l) => l.msg.includes('dead-lettered events'));
       try {
         await again.run();
         await again.run();
+        expect(reported()).toHaveLength(1);
+        expect(reported()[0]).toMatchObject({ count: 1 });
+        t.clock.advance(60_000);
+        await again.run();
+        expect(reported()).toHaveLength(2);
       } finally {
         await again.close();
       }
-      const reported = restarted.lines.filter((l) => l.msg.includes('dead-lettered events'));
+
+      // Redriven, the row is queued again (and fails again: its payload is still bad).
+      expect(await redriveOutboxEvents(t.db.db, [bad])).toEqual([bad]);
+      const redriven = createOutboxDispatcher(t.ctx, { maxAttempts: 3 });
+      try {
+        expect(await redriven.run()).toMatchObject({ claimed: 1, failed: 1 });
+        expect((await outboxRow(bad)).attempts).toBe(1);
+      } finally {
+        await redriven.close();
+      }
+      await t.db.db
+        .update(schema.outboxEvents)
+        .set({ publishedAt: new Date() })
+        .where(eq(schema.outboxEvents.id, bad));
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'rows backing off never hold back newer rows',
+    async () => {
+      const bad = await enqueue(BET_PLACED, 'bet', { status: 'pending_acceptance' });
+      const newer = await enqueue('user.registered', 'user', { userId: 'u5' });
+      const dispatcher = createOutboxDispatcher(t.ctx, { batchSize: 1, maxAttempts: 5 });
+      try {
+        expect(await dispatcher.run()).toMatchObject({ claimed: 1, failed: 1 });
+        // The oldest row is backing off: the next run takes the newer one.
+        expect(await dispatcher.run()).toMatchObject({ claimed: 1, published: 1 });
+        expect((await outboxRow(newer)).publishedAt).not.toBeNull();
+      } finally {
+        await dispatcher.close();
+        await t.db.db
+          .update(schema.outboxEvents)
+          .set({ publishedAt: new Date() })
+          .where(eq(schema.outboxEvents.id, bad));
+      }
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'a Redis that answers PING but refuses writes (OOM, READONLY…) never dead-letters a row',
+    async () => {
+      const id = await enqueue(EVENT_RESULTED, 'event', {
+        eventId: '00000000-0000-4000-8000-000000000002',
+        status: 'finished',
+      });
+      let added = 0;
+      const refusing: QueueSet = {
+        get: () =>
+          ({
+            add: async () => {
+              added += 1;
+              throw replyError("OOM command not allowed when used memory > 'maxmemory'.");
+            },
+          }) as unknown as ReturnType<QueueSet['get']>,
+        ping: async () => undefined,
+        close: async () => undefined,
+      };
+      const { logger, lines } = capturingLogger();
+      const dispatcher = createOutboxDispatcher(
+        { ...t.ctx, logger },
+        { maxAttempts: 3, queueSet: refusing, outageRetryMs: 1000 },
+      );
+      try {
+        for (let i = 0; i < 10; i += 1) {
+          expect(await dispatcher.run()).toMatchObject({ claimed: 1, failed: 1, outage: 1 });
+          t.clock.advance(1000);
+        }
+      } finally {
+        await dispatcher.close();
+      }
+      expect(added).toBe(10);
+      const row = await outboxRow(id);
+      expect(row).toMatchObject({ attempts: 0, publishedAt: null });
+      expect(row.lastError).toContain('OOM');
+      expect(lines.filter((l) => l.msg.includes('refuses jobs'))).toHaveLength(1);
+
+      // Redis takes writes again: the row goes out.
+      const healthy = createOutboxDispatcher(t.ctx, { maxAttempts: 3 });
+      try {
+        expect(await healthy.run()).toMatchObject({ claimed: 1, published: 1, jobs: 1 });
+      } finally {
+        await healthy.close();
+        await settlementQueue.obliterate({ force: true });
+      }
+    },
+    TEST_TIMEOUT,
+  );
+
+  it('tells queue outages from bad rows', () => {
+    for (const reply of [
+      "OOM command not allowed when used memory > 'maxmemory'.",
+      "READONLY You can't write against a read only replica.",
+      'MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk.',
+      'LOADING Redis is loading the dataset in memory',
+    ]) {
+      expect(isQueueOutageError(replyError(reply)), reply).toBe(true);
+    }
+    expect(isQueueOutageError(new TimeoutError('enqueue to settlement', 5000))).toBe(true);
+    expect(isQueueOutageError(new Error('Connection is closed.'))).toBe(true);
+    expect(isQueueOutageError(Object.assign(new Error('x'), { code: 'ECONNREFUSED' }))).toBe(true);
+    expect(isQueueOutageError(replyError('ERR Error running script'))).toBe(false);
+    expect(isQueueOutageError(new Error('pending bet b1 has no acceptAfter'))).toBe(false);
+    expect(isQueueOutageError('weird')).toBe(false);
+  });
+
+  it(
+    'a failed dead-letter count is tried again on the next run',
+    async () => {
+      const bad = await enqueue('user.registered', 'user', { userId: 'u6' });
+      await t.db.db
+        .update(schema.outboxEvents)
+        .set({ attempts: 3 })
+        .where(eq(schema.outboxEvents.id, bad));
+      // The first count query fails (Postgres failing over at boot).
+      let failures = 1;
+      const db: Database = new Proxy(t.db.db, {
+        get(target, prop, receiver): unknown {
+          if (prop === 'select' && failures > 0) {
+            failures -= 1;
+            return () => {
+              throw new Error('connection terminated');
+            };
+          }
+          const value: unknown = Reflect.get(target, prop, receiver);
+          return typeof value === 'function'
+            ? (value as (...args: unknown[]) => unknown).bind(target)
+            : value;
+        },
+      });
+      const { logger, lines } = capturingLogger();
+      const dispatcher = createOutboxDispatcher({ ...t.ctx, db, logger }, { maxAttempts: 3 });
+      try {
+        await expect(dispatcher.run()).rejects.toThrow('connection terminated');
+        await dispatcher.run();
+      } finally {
+        await dispatcher.close();
+        await t.db.db
+          .update(schema.outboxEvents)
+          .set({ publishedAt: new Date() })
+          .where(eq(schema.outboxEvents.id, bad));
+      }
+      const reported = lines.filter((l) => l.msg.includes('dead-lettered events'));
       expect(reported).toHaveLength(1);
-      expect(reported[0]).toMatchObject({ count: 1 });
+      expect(reported[0]?.count).toBeGreaterThanOrEqual(1);
     },
     TEST_TIMEOUT,
   );

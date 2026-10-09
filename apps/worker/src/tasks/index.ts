@@ -11,7 +11,12 @@ import { feedIngestTask, type FeedIngestOptions } from './feed-ingest';
 import { liveSimTask, type LiveSimOptions } from './live-sim';
 import { outboxDispatchTask, type OutboxDispatchOptions } from './outbox-dispatch';
 import { prematchDriftTask, type PrematchDriftOptions } from './prematch-drift';
-import { settlementTask, type SettlementOptions } from './settlement';
+import {
+  settlementSweepTask,
+  settlementTask,
+  type SettlementOptions,
+  type SettlementSweepOptions,
+} from './settlement';
 
 export type { TaskContext } from './context';
 
@@ -20,6 +25,7 @@ export interface TaskOptions {
   liveSim?: Partial<LiveSimOptions>;
   prematchDrift?: PrematchDriftOptions;
   settlement?: SettlementOptions;
+  settlementSweep?: SettlementSweepOptions;
   betAcceptance?: BetAcceptanceOptions;
   betAcceptanceSweep?: BetAcceptanceSweepOptions;
   outboxDispatch?: OutboxDispatchOptions;
@@ -31,7 +37,7 @@ export interface TaskOptions {
  * loadConfig() already refuses outside demo mode; the mode is checked here
  * again so simulated odds can never reach a licensed (real-money) database.
  *
- * Settlement, live bet acceptance and the outbox dispatcher run in every
+ * Settlement (and its sweep), live bet acceptance and the outbox dispatcher run in every
  * mode and with every feed. The consumers come before the dispatcher, so
  * they are started first and stopped last.
  */
@@ -53,6 +59,7 @@ export function createTasks(
   }
   tasks.push(
     settlementTask(ctx, options.settlement),
+    settlementSweepTask(ctx, options.settlementSweep),
     betAcceptanceTask(ctx, options.betAcceptance),
     betAcceptanceSweepTask(ctx, options.betAcceptanceSweep),
     outboxDispatchTask(ctx, options.outboxDispatch),

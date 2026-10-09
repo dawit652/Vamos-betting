@@ -111,6 +111,9 @@ export function encodeBetCursor(bet: Pick<UserBet, 'placedAt' | 'id'>): string {
   return Buffer.from(`${bet.placedAt.getTime()}.${bet.id}`, 'utf8').toString('base64url');
 }
 
+/** 9999-12-31T23:59:59.999Z: the latest time a cursor can carry. */
+const MAX_CURSOR_MS = 253_402_300_799_999;
+
 /** Decodes a cursor from encodeBetCursor; 400 `invalid_cursor` when it is not one. */
 export function decodeBetCursor(cursor: string): BetCursor {
   const invalid = () =>
@@ -123,7 +126,11 @@ export function decodeBetCursor(cursor: string): BetCursor {
   const match = /^(\d{1,15})\.([0-9a-f-]{36})$/.exec(text);
   if (match === null) throw invalid();
   const [, millis, id] = match;
-  const placedAt = new Date(Number(millis));
+  const ms = Number(millis);
+  // After year 9999 toISOString() gives an extended year ('+033658-…') that
+  // Postgres refuses to cast; no bet is placed that late anyway.
+  if (!Number.isSafeInteger(ms) || ms > MAX_CURSOR_MS) throw invalid();
+  const placedAt = new Date(ms);
   if (id === undefined || !isUuid(id) || Number.isNaN(placedAt.getTime())) throw invalid();
   return { placedAt, id };
 }

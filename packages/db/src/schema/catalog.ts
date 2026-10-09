@@ -148,6 +148,8 @@ export const events = pgTable(
     index('events_status_start_idx').on(t.status, t.startTime),
     index('events_competition_start_idx').on(t.competitionId, t.startTime),
     index('events_sport_start_idx').on(t.sportId, t.startTime),
+    // The settlement sweep looks at recently resulted events.
+    index('events_resulted_idx').on(t.resultedAt),
     // The range of formatGameId / parseGameId in @vamos/core (3 to 6 digits).
     check('events_game_id_range', sql`${t.gameId} BETWEEN 100 AND 999999`),
   ],

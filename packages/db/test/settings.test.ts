@@ -6,6 +6,8 @@ import {
   InvalidSettingError,
   loadGameSettings,
   parseGameSettings,
+  parseTerms,
+  serializeTerms,
   setSetting,
 } from '../src/index';
 import { DEFAULT_SETTINGS, seed } from '../src/seed/index';
@@ -57,6 +59,8 @@ describe('parseGameSettings', () => {
     ['bet_rules', { minStake: '-1' }],
     ['bet_rules', { minStake: '12.5' }],
     ['bet_rules', { minStake: '600000', maxStake: '500000' }],
+    // A winning bet must return at least its stake (settlementPosting refuses less).
+    ['bet_rules', { maxStake: '600000', maxPayout: '500000' }],
     [
       'multi_bonus',
       {
@@ -82,6 +86,23 @@ describe('parseGameSettings', () => {
     expect(error).toBeInstanceOf(InvalidSettingError);
     expect((error as InvalidSettingError).key).toBe(key);
     expect((error as InvalidSettingError).issues.length).toBeGreaterThan(0);
+  });
+});
+
+describe('parseTerms (the terms stored on a bet)', () => {
+  it('round-trips the terms and refuses stored rules whose cap is below the max stake', () => {
+    const terms = {
+      betRules: DEFAULT_GAME_SETTINGS.betRules,
+      multiBonus: DEFAULT_GAME_SETTINGS.multiBonus,
+      tax: DEFAULT_GAME_SETTINGS.tax,
+    };
+    const stored = serializeTerms(terms);
+    expect(parseTerms(stored)).toEqual(terms);
+    const tampered = {
+      ...stored,
+      betRules: { ...stored.betRules, maxStake: '600000', maxPayout: '500000' },
+    };
+    expect(() => parseTerms(tampered)).toThrow(/maxStake must not exceed maxPayout/);
   });
 });
 

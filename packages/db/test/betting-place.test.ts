@@ -232,6 +232,34 @@ describe('placeBet', () => {
       expect(error).toMatchObject({ status: 422, code: 'idempotency_key_reused' });
     });
 
+    it('a replay returns the bet even after the bet rules were tightened', async () => {
+      const legsOn = await Promise.all([1, 2, 3].map(() => createEvent(handle.db, ids)));
+      const userId = await player();
+      const key = betKey();
+      const legs = legsOn.map((e) => ({ selectionId: e.home, oddsMilli: 2000 }));
+      const first = await place(handle.db, userId, { stake: birr(5), legs, key, settings });
+      const balance = await getBalance(handle.db, cash(userId));
+      // The back office lowers the leg limit and raises the minimum stake afterwards.
+      const tightened: GameSettings = {
+        ...settings,
+        betRules: { ...settings.betRules, maxLegs: 2, minStake: birr(10) },
+      };
+      const again = await place(handle.db, userId, {
+        stake: birr(5),
+        legs,
+        key,
+        settings: tightened,
+      });
+      expect(again).toMatchObject({ replayed: true, bet: { id: first.bet.id } });
+      expect(await getBalance(handle.db, cash(userId))).toBe(balance);
+      // A new key is checked against the new rules.
+      const error = await domainError(
+        place(handle.db, userId, { stake: birr(5), legs, settings: tightened }),
+      );
+      expect(error).toMatchObject({ status: 422, code: 'slip_invalid' });
+      expect(JSON.stringify(error.details)).toContain('too_many_legs');
+    });
+
     it('the same key may be used by another player', async () => {
       const key = betKey();
       const legs = [{ selectionId: event.draw, oddsMilli: 3200 }];

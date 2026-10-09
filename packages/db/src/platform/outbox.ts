@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lt, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lt, lte, or, sql, type SQL } from 'drizzle-orm';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { outboxEvents } from '../schema/platform';
 import { toJsonSafe } from './json';
@@ -36,13 +36,16 @@ export async function enqueueOutbox(exec: DbExecutor, event: OutboxEventInput): 
 /**
  * Locks up to `limit` unpublished events (oldest first) for this transaction.
  * Rows already locked by another publisher are skipped (FOR UPDATE SKIP
- * LOCKED), so several workers can drain the outbox in parallel. Publish, then
- * markOutboxPublished / markOutboxFailed before the transaction commits.
+ * LOCKED), so several workers can drain the outbox in parallel. With `now`,
+ * rows whose next_attempt_at is still ahead (backing off after a failure)
+ * are left out, so they never hold back newer rows; with `maxAttempts`,
+ * dead letters are left out. Publish, then markOutboxPublished /
+ * markOutboxFailed before the transaction commits.
  */
 export async function claimOutboxBatch(
   tx: DbTransaction,
   limit: number,
-  options: { maxAttempts?: number } = {},
+  options: { maxAttempts?: number; now?: Date } = {},
 ): Promise<OutboxEvent[]> {
   if (!Number.isInteger(limit) || limit < 1) {
     throw new RangeError('claimOutboxBatch: limit must be a positive integer');
@@ -50,6 +53,13 @@ export async function claimOutboxBatch(
   const conditions: SQL[] = [isNull(outboxEvents.publishedAt)];
   if (options.maxAttempts !== undefined) {
     conditions.push(lt(outboxEvents.attempts, options.maxAttempts));
+  }
+  if (options.now !== undefined) {
+    const due = or(
+      isNull(outboxEvents.nextAttemptAt),
+      lte(outboxEvents.nextAttemptAt, options.now),
+    );
+    if (due !== undefined) conditions.push(due);
   }
   return tx
     .select()
@@ -65,17 +75,69 @@ export async function markOutboxPublished(exec: DbExecutor, ids: bigint[]): Prom
   if (ids.length === 0) return;
   await exec
     .update(outboxEvents)
-    .set({ publishedAt: sql`now()` })
+    .set({ publishedAt: sql`now()`, nextAttemptAt: null })
     .where(and(inArray(outboxEvents.id, ids), isNull(outboxEvents.publishedAt)));
 }
 
+export interface OutboxFailureOptions {
+  /** Not claimed (by claimOutboxBatch with `now`) before this time. */
+  retryAt?: Date;
+  /**
+   * false for an outage (the queue's Redis refusing writes, a timeout): the
+   * error and retry time are recorded but `attempts` is not used up, so an
+   * outage never dead-letters a row. Default true.
+   */
+  countAttempt?: boolean;
+}
+
 /** Records a failed publish attempt; the event stays unpublished for a retry. */
-export async function markOutboxFailed(exec: DbExecutor, id: bigint, error: string): Promise<void> {
+export async function markOutboxFailed(
+  exec: DbExecutor,
+  id: bigint,
+  error: string,
+  options: OutboxFailureOptions = {},
+): Promise<void> {
   await exec
     .update(outboxEvents)
     .set({
-      attempts: sql`${outboxEvents.attempts} + 1`,
+      ...(options.countAttempt === false ? {} : { attempts: sql`${outboxEvents.attempts} + 1` }),
       lastError: error.slice(0, MAX_ERROR_LENGTH),
+      nextAttemptAt: options.retryAt ?? null,
     })
     .where(eq(outboxEvents.id, id));
+}
+
+/** Unpublished events that reached `maxAttempts` (no longer claimed by the dispatcher). */
+export async function countDeadLetteredOutbox(
+  exec: DbExecutor,
+  maxAttempts: number,
+): Promise<number> {
+  const [row] = await exec
+    .select({ n: sql<number>`count(*)::int` })
+    .from(outboxEvents)
+    .where(and(isNull(outboxEvents.publishedAt), gte(outboxEvents.attempts, maxAttempts)));
+  return row?.n ?? 0;
+}
+
+/**
+ * Queues events again (an operator's redrive, e.g. after fixing what made
+ * them dead-letter, or to re-run a consumer job that failed for good): they
+ * become unpublished with no attempts and a new job_key, so the dispatcher
+ * enqueues them under a new job id rather than finding the old (failed or
+ * completed) job. Consumers are idempotent. Returns the ids redriven.
+ */
+export async function redriveOutboxEvents(exec: DbExecutor, ids: bigint[]): Promise<bigint[]> {
+  if (ids.length === 0) return [];
+  const rows = await exec
+    .update(outboxEvents)
+    .set({
+      publishedAt: null,
+      attempts: 0,
+      nextAttemptAt: null,
+      lastError: null,
+      jobKey: sql`gen_random_uuid()`,
+    })
+    .where(inArray(outboxEvents.id, ids))
+    .returning({ id: outboxEvents.id });
+  return rows.map((row) => row.id);
 }

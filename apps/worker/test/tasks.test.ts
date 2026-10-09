@@ -147,7 +147,13 @@ describe('createTasks', () => {
     channel,
     queues: { redisUrl: REDIS_URL, prefix: `vamos-test-${id}-bull` },
   };
-  const PHASE_4 = ['settlement', 'bet-acceptance', 'bet-acceptance-sweep', 'outbox-dispatch'];
+  const PHASE_4 = [
+    'settlement',
+    'settlement-sweep',
+    'bet-acceptance',
+    'bet-acceptance-sweep',
+    'outbox-dispatch',
+  ];
 
   it('runs the simulated feed only with the mock feed provider in demo mode', () => {
     expect(createTasks(loadConfig({ FEED_PROVIDER: 'mock' }), ctx).map((t) => t.name)).toEqual([
