@@ -20,7 +20,8 @@
     "drizzle-orm": "0.45.3",
     "ioredis": "5.11.1",
     "pg": "8.23.1",
-    "pino": "10.4.0"
+    "pino": "10.4.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "tsup": "8.5.1"

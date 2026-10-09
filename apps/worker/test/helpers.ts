@@ -29,6 +29,8 @@ export interface WorkerTestContext {
   clock: TestClock;
   /** Unique live channel of this test file. */
   channel: string;
+  /** Unique BullMQ key prefix of this test file (ctx.queues.prefix). */
+  queuePrefix: string;
   /** Every LiveMessage received on `channel`, in order. */
   received: LiveMessage[];
   ctx: TaskContext;
@@ -52,6 +54,7 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
   const redis = new Redis(REDIS_URL, { keyPrefix: `vamos-test:${id}:`, maxRetriesPerRequest: 2 });
   const subscriber = new Redis(REDIS_URL, { maxRetriesPerRequest: 2 });
   const channel = `vamos-test:${id}:live`;
+  const queuePrefix = `vamos-test-${id}-bull`;
   const received: LiveMessage[] = [];
   subscriber.on('message', (from: string, payload: string) => {
     if (from === channel) received.push(JSON.parse(payload) as LiveMessage);
@@ -73,6 +76,7 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
     logger: pino({ level: 'silent' }),
     clock: () => new Date(clock.now.getTime()),
     channel,
+    queues: { redisUrl: REDIS_URL, prefix: queuePrefix },
   };
 
   return {
@@ -81,6 +85,7 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
     ids,
     clock,
     channel,
+    queuePrefix,
     received,
     ctx,
     async waitForMessages(predicate, ms = 5000) {
@@ -99,10 +104,22 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
       const keys = (await redis.keys(`${prefix}*`)).filter((key) => key.startsWith(prefix));
       if (keys.length > 0) await redis.del(...keys.map((key) => key.slice(prefix.length)));
       await redis.quit();
+      await deleteQueueKeys(queuePrefix);
       db.pool.on('error', () => undefined);
       await db.drop();
     },
   };
+}
+
+/** Deletes every BullMQ key under `prefix` (close Queues and Workers first). */
+export async function deleteQueueKeys(prefix: string): Promise<void> {
+  const client = new Redis(REDIS_URL, { maxRetriesPerRequest: 2 });
+  try {
+    const keys = await client.keys(`${prefix}:*`);
+    if (keys.length > 0) await client.del(...keys);
+  } finally {
+    await client.quit();
+  }
 }
 
 /** A FeedFixture between two seeded teams. */

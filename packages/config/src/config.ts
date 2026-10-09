@@ -34,6 +34,11 @@ const envSchema = z.object({
 
   DATABASE_URL: z.string().min(1).default('postgres://vamos:vamos@localhost:5432/vamos'),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
+  /** Key prefix of the worker's BullMQ queues (tests and parallel stacks use their own). */
+  QUEUE_PREFIX: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,64}$/, 'letters, digits, "_" or "-" (at most 64)')
+    .default('vamos'),
   SESSION_SECRET: z.string().min(32).default(DEV_SESSION_SECRET),
 
   FEED_PROVIDER: z.enum(['mock', 'manual']).default('mock'),
@@ -66,6 +71,7 @@ export interface AppConfig {
   web: { publicUrl: string; adminUrl: string };
   databaseUrl: string;
   redisUrl: string;
+  queuePrefix: string;
   sessionSecret: string;
   feed: { provider: 'mock' | 'manual'; simSpeed: number };
   providers: { payments: string[]; kyc: 'mock' | 'fayda'; sms: 'mock' | 'http' };
@@ -157,6 +163,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     web: { publicUrl: e.PUBLIC_WEB_URL, adminUrl: e.ADMIN_WEB_URL },
     databaseUrl: e.DATABASE_URL,
     redisUrl: e.REDIS_URL,
+    queuePrefix: e.QUEUE_PREFIX,
     sessionSecret: e.SESSION_SECRET,
     feed: { provider: e.FEED_PROVIDER, simSpeed: e.SIM_SPEED },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },

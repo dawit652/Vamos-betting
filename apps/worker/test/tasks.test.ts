@@ -145,14 +145,22 @@ describe('createTasks', () => {
     logger: silent,
     clock: () => new Date(),
     channel,
+    queues: { redisUrl: REDIS_URL, prefix: `vamos-test-${id}-bull` },
   };
+  const PHASE_4 = ['settlement', 'bet-acceptance', 'bet-acceptance-sweep', 'outbox-dispatch'];
 
   it('runs the simulated feed only with the mock feed provider in demo mode', () => {
     expect(createTasks(loadConfig({ FEED_PROVIDER: 'mock' }), ctx).map((t) => t.name)).toEqual([
       'feed-ingest',
       'live-sim',
       'prematch-drift',
+      ...PHASE_4,
     ]);
-    expect(createTasks(loadConfig({ FEED_PROVIDER: 'manual' }), ctx)).toEqual([]);
+  });
+
+  it('runs settlement, live bet acceptance and the outbox dispatcher with every feed', () => {
+    expect(createTasks(loadConfig({ FEED_PROVIDER: 'manual' }), ctx).map((t) => t.name)).toEqual(
+      PHASE_4,
+    );
   });
 });

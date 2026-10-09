@@ -1,12 +1,15 @@
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claimOperatingMode, getDatabaseOperatingMode } from '@vamos/db';
 import { createTestDatabase } from '@vamos/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { REDIS_URL, SETUP_TIMEOUT, type TestDatabase } from './helpers';
+import { deleteQueueKeys, REDIS_URL, SETUP_TIMEOUT, type TestDatabase } from './helpers';
 
 const WORKER_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
+/** The worker's BullMQ queues of this file (never the dev stack's). */
+const QUEUE_PREFIX = `vamos-test-${randomBytes(6).toString('hex')}-main`;
 
 interface Run {
   code: number | null;
@@ -22,7 +25,7 @@ function runWorker(env: Record<string, string>, stopWhen?: RegExp): Promise<Run>
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], {
       cwd: WORKER_DIR,
-      env: { ...process.env, NODE_ENV: 'test', REDIS_URL, ...env },
+      env: { ...process.env, NODE_ENV: 'test', REDIS_URL, QUEUE_PREFIX, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -64,6 +67,7 @@ describe('worker main', () => {
       handle?.pool.on('error', () => undefined);
       await handle?.drop();
     }
+    await deleteQueueKeys(QUEUE_PREFIX);
   }, SETUP_TIMEOUT);
 
   it(

@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     logger,
     clock: () => new Date(),
     channel: LIVE_CHANNEL,
+    queues: { redisUrl: config.redisUrl, prefix: config.queuePrefix },
   });
   let worker: WorkerHandle;
   try {

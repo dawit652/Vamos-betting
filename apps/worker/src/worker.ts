@@ -15,7 +15,8 @@ export interface WorkerHandle {
 
 /**
  * Starts every registered task. Tasks are added per phase (feed ingest and the
- * live simulator in Phase 3, settlement in Phase 4, payouts in Phase 6, …).
+ * live simulator in Phase 3, settlement, live bet acceptance and the outbox
+ * dispatcher in Phase 4, payouts in Phase 6, …).
  */
 export async function startWorker(
   config: AppConfig,
