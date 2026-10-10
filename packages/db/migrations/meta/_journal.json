@@ -57,6 +57,13 @@
       "when": 1791574201454,
       "tag": "0007_phase4_review_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791625448068,
+      "tag": "0008_phase6_payments",
+      "breakpoints": true
     }
   ]
 }

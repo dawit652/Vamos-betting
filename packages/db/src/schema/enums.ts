@@ -41,6 +41,10 @@ export const ledgerOwnerType = pgEnum('ledger_owner_type', ['user', 'house']);
  * - house_demo_funding: source of play money in demo mode.
  * - house_promotions: cost of bonuses.
  * - house_jackpot: jackpot entry pool and prizes.
+ * - house_withdrawals_pending: withdrawals requested but not paid out yet
+ *   (taken from the player's cash at request time, so they cannot be bet;
+ *   moved to the provider's clearing account when paid, back to the player
+ *   when rejected, cancelled or failed).
  */
 export const ledgerAccountKind = pgEnum('ledger_account_kind', [
   'player_cash',
@@ -52,6 +56,7 @@ export const ledgerAccountKind = pgEnum('ledger_account_kind', [
   'house_demo_funding',
   'house_promotions',
   'house_jackpot',
+  'house_withdrawals_pending',
 ]);
 
 export const ledgerTransactionType = pgEnum('ledger_transaction_type', [

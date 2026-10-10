@@ -8,6 +8,7 @@ export * from './catalog/index';
 export * from './settings/index';
 export * from './rg/index';
 export * from './betting/index';
+export * from './payments/index';
 export {
   isRetryableTxError,
   pgCode,

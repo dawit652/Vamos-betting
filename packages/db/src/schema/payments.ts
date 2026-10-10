@@ -58,12 +58,13 @@ export const payoutStatus = pgEnum('payout_status', [
   'cancelled',
 ]);
 
-export const depositInitiationKind = pgEnum('deposit_initiation_kind', ['push', 'redirect', 'ussd']);
+export const depositInitiationKind = pgEnum('deposit_initiation_kind', [
+  'push',
+  'redirect',
+  'ussd',
+]);
 
 export const paymentEventKind = pgEnum('payment_event_kind', ['deposit', 'payout']);
-
-/** Matches the ledger's provider name rule (house_psp_clearing accounts). */
-const PROVIDER_CHECK = `^[a-z0-9_-]{2,32}$`;
 
 export const paymentIntents = pgTable(
   'payment_intents',
@@ -72,6 +73,7 @@ export const paymentIntents = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
+    /** Provider name; the ledger's rule for PSP clearing accounts (^[a-z0-9_-]{2,32}$). */
     provider: text('provider').notNull(),
     amount: bigint('amount', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull().default('ETB'),
@@ -111,7 +113,7 @@ export const paymentIntents = pgTable(
       .on(t.flaggedAt)
       .where(sql`${t.flaggedAt} IS NOT NULL`),
     check('payment_intents_amount_positive', sql`${t.amount} > 0`),
-    check('payment_intents_provider_name', sql`${t.provider} ~ ${sql.raw(`'${PROVIDER_CHECK}'`)}`),
+    check('payment_intents_provider_name', sql`${t.provider} ~ '^[a-z0-9_-]{2,32}$'`),
     check(
       'payment_intents_succeeded_ledger',
       sql`(${t.status} = 'succeeded') = (${t.ledgerTransactionId} IS NOT NULL)`,
@@ -173,7 +175,7 @@ export const payouts = pgTable(
       .where(sql`${t.status} IN ('approved', 'processing')`),
     check('payouts_amount_positive', sql`${t.amount} > 0`),
     check('payouts_attempts_non_negative', sql`${t.attempts} >= 0`),
-    check('payouts_provider_name', sql`${t.provider} ~ ${sql.raw(`'${PROVIDER_CHECK}'`)}`),
+    check('payouts_provider_name', sql`${t.provider} ~ '^[a-z0-9_-]{2,32}$'`),
     check(
       'payouts_paid_ledger',
       sql`(${t.status} = 'paid') = (${t.paidLedgerTransactionId} IS NOT NULL)`,

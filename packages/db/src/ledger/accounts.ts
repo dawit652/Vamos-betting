@@ -13,6 +13,7 @@ const HOUSE_KEYS = {
   house_demo_funding: 'house:demo_funding',
   house_promotions: 'house:promotions',
   house_jackpot: 'house:jackpot',
+  house_withdrawals_pending: 'house:withdrawals_pending',
 } as const;
 
 /**

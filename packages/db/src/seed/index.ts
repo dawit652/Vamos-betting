@@ -4,6 +4,7 @@ import {
   DEFAULT_JACKPOTS,
   DEFAULT_LIVE_BET_DELAY_MS,
   DEFAULT_MULTI_BONUS,
+  DEFAULT_PAYMENT_RULES,
   DEFAULT_RESPONSIBLE_GAMBLING,
   DEFAULT_TAX,
 } from '@vamos/core';
@@ -38,6 +39,7 @@ export const HOUSE_ACCOUNT_KINDS = [
   'house_demo_funding',
   'house_promotions',
   'house_jackpot',
+  'house_withdrawals_pending',
 ] as const satisfies readonly HouseAccountKind[];
 
 /**
@@ -52,6 +54,7 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, unknown>> = {
   live_bet_delay_ms: DEFAULT_LIVE_BET_DELAY_MS,
   responsible_gambling: DEFAULT_RESPONSIBLE_GAMBLING,
   jackpots: DEFAULT_JACKPOTS,
+  payments: DEFAULT_PAYMENT_RULES,
 };
 
 /** `settings.updated_by` for rows written by the seed. */

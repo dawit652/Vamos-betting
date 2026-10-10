@@ -11,3 +11,4 @@ export * from './ledger';
 export * from './platform';
 export * from './catalog';
 export * from './betting';
+export * from './payments';

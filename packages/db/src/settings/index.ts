@@ -4,6 +4,7 @@ import {
   DEFAULT_JACKPOTS,
   DEFAULT_LIVE_BET_DELAY_MS,
   DEFAULT_MULTI_BONUS,
+  DEFAULT_PAYMENT_RULES,
   DEFAULT_RESPONSIBLE_GAMBLING,
   DEFAULT_TAX,
   MAX_ODDS_MILLI,
@@ -12,6 +13,7 @@ import {
   type CashOutConfig,
   type JackpotTemplate,
   type MultiBonusConfig,
+  type PaymentRules,
   type ResponsibleGamblingRules,
   type TaxConfig,
 } from '@vamos/core';
@@ -39,6 +41,8 @@ export interface GameSettings {
   liveBetDelayMs: number;
   responsibleGambling: ResponsibleGamblingRules;
   jackpots: JackpotTemplates;
+  /** Deposit and withdrawal limits, auto-approval and wagering (Phase 6). */
+  payments: PaymentRules;
 }
 
 /** `settings.key` of each game setting. */
@@ -50,6 +54,7 @@ export const GAME_SETTING_KEYS = {
   liveBetDelayMs: 'live_bet_delay_ms',
   responsibleGambling: 'responsible_gambling',
   jackpots: 'jackpots',
+  payments: 'payments',
 } as const satisfies Record<keyof GameSettings, string>;
 
 export type GameSettingKey = (typeof GAME_SETTING_KEYS)[keyof typeof GAME_SETTING_KEYS];
@@ -62,6 +67,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   liveBetDelayMs: DEFAULT_LIVE_BET_DELAY_MS,
   responsibleGambling: DEFAULT_RESPONSIBLE_GAMBLING,
   jackpots: DEFAULT_JACKPOTS,
+  payments: DEFAULT_PAYMENT_RULES,
 };
 
 /** A stored setting does not match its schema. */
@@ -170,6 +176,32 @@ const JackpotsSchema = z
     'each template must carry its own code',
   );
 
+export const PaymentRulesSchema = z
+  .object({
+    minDeposit: positiveSantim,
+    maxDeposit: positiveSantim,
+    minWithdrawal: positiveSantim,
+    maxWithdrawal: positiveSantim,
+    dailyWithdrawalCap: positiveSantim,
+    autoApproveBelow: santim,
+    wageringMultiplierBps: z.number().int().min(0).max(1_000_000),
+    depositIntentTtlMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(7 * 24 * 60),
+    payoutMaxAttempts: z.number().int().min(1).max(100),
+  })
+  .refine((rules) => rules.minDeposit <= rules.maxDeposit, 'minDeposit must not exceed maxDeposit')
+  .refine(
+    (rules) => rules.minWithdrawal <= rules.maxWithdrawal,
+    'minWithdrawal must not exceed maxWithdrawal',
+  )
+  .refine(
+    (rules) => rules.minWithdrawal <= rules.dailyWithdrawalCap,
+    'minWithdrawal must not exceed dailyWithdrawalCap',
+  );
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -235,6 +267,11 @@ export function parseGameSettings(raw: Partial<Record<GameSettingKey, unknown>>)
       overDefault(defaults.responsibleGambling, raw[k.responsibleGambling]),
     ),
     jackpots: parseWith(JackpotsSchema, k.jackpots, jackpots),
+    payments: parseWith(
+      PaymentRulesSchema,
+      k.payments,
+      overDefault(defaults.payments, raw[k.payments]),
+    ),
   };
 }
 

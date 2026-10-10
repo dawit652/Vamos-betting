@@ -17,7 +17,8 @@ export type HouseAccountKind =
   | 'house_tax_payable'
   | 'house_demo_funding'
   | 'house_promotions'
-  | 'house_jackpot';
+  | 'house_jackpot'
+  | 'house_withdrawals_pending';
 
 /** Identifies a ledger account independently of its database id. */
 export type AccountRef =
