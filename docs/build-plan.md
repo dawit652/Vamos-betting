@@ -97,6 +97,23 @@ suite covers register, OTP, demo top-up, a 3-leg bet, settlement and My Bets
   `resumeFromRunId` after the reset time, or do the remaining verification directly.
 - **Progress notes:** the user wants them short.
 
+## Model and effort per task
+
+The person building this approved this policy: choose the model and reasoning effort per task by how
+much judgement it needs. Use the strongest settings where a mistake costs money or safety, and lighter
+models where the work is routine, so usage limits stretch further.
+
+| Task                                                                                                                            | Model  | Effort            |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------ | ----------------- |
+| Money and safety logic: ledger, settlement, cash-out, payments, payouts, jackpot settlement, AML rules, the licensed-mode guard | Opus   | max               |
+| Adversarial reviews and their verifiers; the fix pass after a review                                                            | Opus   | high (fix: xhigh) |
+| API routes and worker tasks around that logic; integration tests                                                                | Opus   | high              |
+| UI pages, components, i18n strings, admin screens, SMS/USSD menus (not their bet logic)                                         | Sonnet | medium            |
+| E2E tests, CI config, docs, runbooks                                                                                            | Sonnet | high              |
+| Mechanical work: renames, formatting, simple searches and inventories                                                           | Haiku  | low               |
+
+In Workflow scripts set `model` and `effort` on each `agent()` call to match this table.
+
 ## Lessons learned (avoid repeating these)
 
 - drizzle-kit cannot serialise BigInt defaults. Write ``.default(sql`0`)``, not `.default(0n)`.
