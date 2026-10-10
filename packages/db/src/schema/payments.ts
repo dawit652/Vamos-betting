@@ -45,8 +45,9 @@ export const paymentIntentStatus = pgEnum('payment_intent_status', [
  * - failed: the provider refused it, or it ran out of attempts; the hold is
  *   returned to the player (terminal);
  * - rejected: refused in review; the hold is returned (terminal);
- * - cancelled: withdrawn by the player before approval; the hold is
+ * - cancelled: withdrawn by the player before it was sent; the hold is
  *   returned (terminal).
+ * A flagged payout (flag_reason) waits for staff whatever its status.
  */
 export const payoutStatus = pgEnum('payout_status', [
   'requested',
@@ -90,8 +91,9 @@ export const paymentIntents = pgTable(
     failureReason: text('failure_reason'),
     /**
      * Set when a provider event cannot be applied automatically (amount or
-     * currency mismatch, success after a failure…): nothing is credited and
-     * the intent waits for the back office. Flagged intents never expire.
+     * currency mismatch, success after a failure…): nothing is credited, the
+     * intent ignores further events and waits for the back office
+     * (resolveFlaggedDeposit clears it). Flagged intents never expire.
      */
     flagReason: text('flag_reason'),
     flaggedAt: timestamp('flagged_at', { withTimezone: true }),
@@ -118,6 +120,7 @@ export const paymentIntents = pgTable(
       'payment_intents_succeeded_ledger',
       sql`(${t.status} = 'succeeded') = (${t.ledgerTransactionId} IS NOT NULL)`,
     ),
+    check('payment_intents_flag', sql`(${t.flagReason} IS NULL) = (${t.flaggedAt} IS NULL)`),
   ],
 );
 
@@ -151,6 +154,17 @@ export const payouts = pgTable(
     nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
     lastError: text('last_error'),
     failureReason: text('failure_reason'),
+    /**
+     * Set when staff must look before anything else happens:
+     * `ambiguous_result` (the provider's answer leaves open whether money
+     * left), `attempts_exhausted` (retries ran out without an answer) or
+     * `provider_conflict` (a provider event contradicts the payout). The
+     * payout worker skips flagged payouts; a provider event that settles the
+     * payout, or the back office (markPayoutPaid / markPayoutFailed /
+     * clearPayoutFlag), clears it.
+     */
+    flagReason: text('flag_reason'),
+    flaggedAt: timestamp('flagged_at', { withTimezone: true }),
     /** The client's idempotency key, unique per player. */
     idempotencyKey: text('idempotency_key').notNull(),
     holdLedgerTransactionId: uuid('hold_ledger_transaction_id').notNull(),
@@ -172,7 +186,10 @@ export const payouts = pgTable(
       .where(sql`${t.status} = 'requested'`),
     index('payouts_due_idx')
       .on(t.nextAttemptAt)
-      .where(sql`${t.status} IN ('approved', 'processing')`),
+      .where(sql`${t.status} IN ('approved', 'processing') AND ${t.flaggedAt} IS NULL`),
+    index('payouts_flagged_idx')
+      .on(t.flaggedAt)
+      .where(sql`${t.flaggedAt} IS NOT NULL`),
     check('payouts_amount_positive', sql`${t.amount} > 0`),
     check('payouts_attempts_non_negative', sql`${t.attempts} >= 0`),
     check('payouts_provider_name', sql`${t.provider} ~ '^[a-z0-9_-]{2,32}$'`),
@@ -188,6 +205,7 @@ export const payouts = pgTable(
       'payouts_approved',
       sql`${t.status} IN ('requested', 'rejected', 'cancelled') OR ${t.approvedAt} IS NOT NULL`,
     ),
+    check('payouts_flag', sql`(${t.flagReason} IS NULL) = (${t.flaggedAt} IS NULL)`),
   ],
 );
 

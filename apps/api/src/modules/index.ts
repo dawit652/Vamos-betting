@@ -6,6 +6,8 @@ import catalogRoutes from './catalog/routes';
 import devRoutes, { devInboxEnabled } from './dev/routes';
 import kycRoutes from './kyc/routes';
 import meRoutes from './me/routes';
+import devPaymentRoutes, { devPaymentsEnabled } from './payments/dev-routes';
+import paymentRoutes from './payments/routes';
 import rgRoutes from './rg/routes';
 import walletRoutes from './wallet/routes';
 
@@ -21,7 +23,12 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   await app.register(walletRoutes);
   await app.register(catalogRoutes);
   await app.register(bettingRoutes);
+  await app.register(paymentRoutes);
   if (devInboxEnabled(deps)) {
     await app.register(devRoutes);
+  }
+  // DEV ONLY: the phone simulator and the stand-in back office (demo + mock provider, not production).
+  if (devPaymentsEnabled(deps)) {
+    await app.register(devPaymentRoutes);
   }
 }

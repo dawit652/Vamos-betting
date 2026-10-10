@@ -2,10 +2,14 @@ import {
   BET_PLACED,
   claimOutboxBatch,
   countDeadLetteredOutbox,
+  DEPOSIT_SUCCEEDED,
   EVENT_RESULT_CORRECTED,
   EVENT_RESULTED,
   markOutboxFailed,
   markOutboxPublished,
+  WITHDRAWAL_APPROVED,
+  WITHDRAWAL_FAILED,
+  WITHDRAWAL_PAID,
   type OutboxEvent,
 } from '@vamos/db';
 import type { JobsOptions } from 'bullmq';
@@ -91,6 +95,22 @@ export interface BetAcceptanceJobData {
   acceptAfter: string;
 }
 
+/** Data of a `payouts` job (payment.withdrawal_approved): send this payout. */
+export interface PayoutJobData {
+  outboxId: string;
+  payoutId: string;
+}
+
+/** Data of an `sms` job: a payment notification to the player. */
+export interface SmsJobData {
+  outboxId: string;
+  /** The outbox type (payment.deposit_succeeded, payment.withdrawal_paid / _failed). */
+  type: string;
+  userId: string;
+  /** Santim, decimal string. */
+  amount: string;
+}
+
 export interface RoutedJob {
   queue: QueueName;
   name: string;
@@ -136,11 +156,41 @@ const betAcceptanceRoute: OutboxRoute = (row, now) => {
   };
 };
 
+const approvedPayload = z.object({ payoutId: z.uuid() });
+
+/** An approved withdrawal (automatically or by staff) goes to the payout worker at once. */
+const payoutRoute: OutboxRoute = (row) => {
+  const payload = approvedPayload.parse(row.payload);
+  const data: PayoutJobData = { outboxId: row.id.toString(), payoutId: payload.payoutId };
+  return { queue: QUEUE_NAMES.payouts, name: 'payout', data };
+};
+
+const notificationPayload = z.object({
+  userId: z.uuid(),
+  amount: z.union([z.string().regex(/^\d+$/), z.number().int().nonnegative()]),
+});
+
+/** Payment outcomes the player hears about by SMS. */
+const smsRoute: OutboxRoute = (row) => {
+  const payload = notificationPayload.parse(row.payload);
+  const data: SmsJobData = {
+    outboxId: row.id.toString(),
+    type: row.type,
+    userId: payload.userId,
+    amount: String(payload.amount),
+  };
+  return { queue: QUEUE_NAMES.sms, name: row.type, data };
+};
+
 /** Outbox type -> the jobs it fans out to. */
 export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = {
   [EVENT_RESULTED]: [settlementRoute],
   [EVENT_RESULT_CORRECTED]: [settlementRoute],
   [BET_PLACED]: [betAcceptanceRoute],
+  [WITHDRAWAL_APPROVED]: [payoutRoute],
+  [DEPOSIT_SUCCEEDED]: [smsRoute],
+  [WITHDRAWAL_PAID]: [smsRoute],
+  [WITHDRAWAL_FAILED]: [smsRoute],
 };
 
 /** The job id of an outbox row (the same in every queue it fans out to). */

@@ -70,8 +70,10 @@ const envSchema = z.object({
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
-   * Public base URL the payment providers call back (webhooks) and send the
-   * player back to; defaults to PUBLIC_API_URL.
+   * Public base URL of the API that payment providers call back (webhooks,
+   * see paymentWebhookUrl in @vamos/payments); defaults to PUBLIC_API_URL.
+   * A redirect checkout sends the player back to the web app instead
+   * (PUBLIC_WEB_URL).
    */
   PAYMENT_CALLBACK_BASE_URL: z.url().optional(),
   MOCK_PAYMENT_WEBHOOK_SECRET: z.string().min(16).default(DEV_MOCK_PAYMENT_WEBHOOK_SECRET),
@@ -139,7 +141,7 @@ export interface AppConfig {
 }
 
 export interface PaymentProvidersConfig {
-  /** Base URL for webhooks and return URLs (PAYMENT_CALLBACK_BASE_URL, else PUBLIC_API_URL). */
+  /** Base URL of the provider webhooks (PAYMENT_CALLBACK_BASE_URL, else PUBLIC_API_URL). */
   callbackBaseUrl: string;
   mock: { webhookSecret: string };
   chapa: { baseUrl: string; secretKey: string | undefined; webhookSecret: string | undefined };

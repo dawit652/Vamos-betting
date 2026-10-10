@@ -1,5 +1,6 @@
 import { ConfigError, loadConfig, loadDotEnv, type AppConfig } from '@vamos/config';
 import { claimOperatingMode, OperatingModeMismatchError } from '@vamos/db';
+import { PaymentProviderError } from '@vamos/payments';
 import { buildApp } from './app';
 import { createDefaultDeps, ProviderNotImplementedError, type DefaultDeps } from './deps';
 import {
@@ -38,6 +39,8 @@ async function main(): Promise<void> {
     deps = createDefaultDeps(config);
   } catch (error) {
     if (error instanceof ProviderNotImplementedError) refuseToStart(error.message);
+    // A payment provider without credentials (or a skeleton) must not run.
+    if (error instanceof PaymentProviderError) refuseToStart(`payments: ${error.message}`);
     throw error;
   }
 

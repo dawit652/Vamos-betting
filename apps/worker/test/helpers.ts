@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { loadConfig } from '@vamos/config';
 import type { SportCode } from '@vamos/core';
 import {
   loadCatalogIds,
@@ -9,8 +10,14 @@ import {
 } from '@vamos/db';
 import { createTestDatabase } from '@vamos/db/testing';
 import type { FeedFixture, MockFeedProvider } from '@vamos/feed';
+import {
+  createPaymentProviders,
+  MockPaymentProvider,
+  type PaymentProviderRegistry,
+} from '@vamos/payments';
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
+import { MockSmsSender } from '../src/lib/sms';
 import type { TaskContext } from '../src/tasks/context';
 
 export type TestDatabase = Awaited<ReturnType<typeof createTestDatabase>>;
@@ -34,6 +41,8 @@ export interface WorkerTestContext {
   /** Every LiveMessage received on `channel`, in order. */
   received: LiveMessage[];
   ctx: TaskContext;
+  /** The mock payment provider in ctx.payments (on the test clock). */
+  mockPayments: MockPaymentProvider;
   /** Waits until `predicate` holds for the received messages (or fails after `ms`). */
   waitForMessages(predicate: (messages: LiveMessage[]) => boolean, ms?: number): Promise<void>;
   close(): Promise<void>;
@@ -70,13 +79,19 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
       this.now = new Date(this.now.getTime() + ms);
     },
   };
+  const now = () => new Date(clock.now.getTime());
+  const payments = testPaymentProviders(now);
+  const mockPayments = payments.get('mock');
+  if (!(mockPayments instanceof MockPaymentProvider)) throw new Error('mock provider missing');
   const ctx: TaskContext = {
     db: db.db,
     redis,
     logger: pino({ level: 'silent' }),
-    clock: () => new Date(clock.now.getTime()),
+    clock: now,
     channel,
     queues: { redisUrl: REDIS_URL, prefix: queuePrefix },
+    payments,
+    sms: new MockSmsSender(db.db),
   };
 
   return {
@@ -88,6 +103,7 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
     queuePrefix,
     received,
     ctx,
+    mockPayments,
     async waitForMessages(predicate, ms = 5000) {
       const deadline = Date.now() + ms;
       while (!predicate(received)) {
@@ -109,6 +125,15 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
       await db.drop();
     },
   };
+}
+
+/** The demo payment providers (the mock one only) on the given clock; no network. */
+export function testPaymentProviders(clock: () => Date): PaymentProviderRegistry {
+  return createPaymentProviders(loadConfig({ NODE_ENV: 'test' }), {
+    fetch: () => Promise.reject(new Error('no network in tests')),
+    clock,
+    randomBytes: (size) => randomBytes(size),
+  });
 }
 
 /** Deletes every BullMQ key under `prefix` (close Queues and Workers first). */

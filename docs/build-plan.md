@@ -276,7 +276,9 @@ score, previous?}`. It also returns `'unchanged'` when nothing changed. The serv
   session context, the betslip store and the PWA files. Conventions are in `apps/web/README.md`.
 - **`apps/admin`** is a Next.js 16 / React 19 scaffold: a layout, one page and the demo banner.
 - **`e2e`** has `@playwright/test` 1.56.1 and a mobile Chromium project: smoke tests, the full bet
-  flow (register → OTP → top-up → 3-leg multi → settled) and the home page-weight budget. Helpers
+  flow (register → OTP → top-up → 3-leg multi → settled), the payments flow (KYC → deposit approved
+  on the simulated phone → wagering → withdrawal approved by the dev back-office stand-in → paid) and
+  the home page-weight budget. Helpers
   are in `e2e/support/`; `e2e/scripts/stack.sh` builds and starts the API, the worker with the fast
   simulator (`SIM_SPEED`, `FEED_ROLLING_EVERY_MINUTES`, `FEED_ROLLING_HORIZON_MINUTES`) and
   `apps/web/server.mjs` (`next start` plus brotli, the production server). CI runs it in the `e2e`

@@ -8,7 +8,8 @@ import { intervalTask } from '../src/lib/interval';
 import { tryLock } from '../src/lib/lock';
 import { publish, publishAfterCommit } from '../src/lib/publish';
 import { createTasks } from '../src/tasks/index';
-import { REDIS_URL } from './helpers';
+import { MockSmsSender } from '../src/lib/sms';
+import { REDIS_URL, testPaymentProviders } from './helpers';
 
 const silent = pino({ level: 'silent' });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -146,12 +147,18 @@ describe('createTasks', () => {
     clock: () => new Date(),
     channel,
     queues: { redisUrl: REDIS_URL, prefix: `vamos-test-${id}-bull` },
+    payments: testPaymentProviders(() => new Date()),
+    sms: new MockSmsSender({} as Database),
   };
   const PHASE_4 = [
     'settlement',
     'settlement-sweep',
     'bet-acceptance',
     'bet-acceptance-sweep',
+    'payouts',
+    'payout-sweep',
+    'deposit-reconcile',
+    'sms-notify',
     'outbox-dispatch',
   ];
 
@@ -164,7 +171,7 @@ describe('createTasks', () => {
     ]);
   });
 
-  it('runs settlement, live bet acceptance and the outbox dispatcher with every feed', () => {
+  it('runs settlement, live bet acceptance, payments, SMS and the outbox dispatcher with every feed', () => {
     expect(createTasks(loadConfig({ FEED_PROVIDER: 'manual' }), ctx).map((t) => t.name)).toEqual(
       PHASE_4,
     );

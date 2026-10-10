@@ -1,9 +1,9 @@
 /**
  * Deposits and withdrawals: intents, provider events (webhook idempotency),
- * payouts with review, retries and reversals. Pure DB + @vamos/core; the
- * provider adapters live in @vamos/payments and are called by the API and
- * worker outside these transactions. Errors meant for players are
- * DomainError (see each function).
+ * payouts with review, retries, flags and reversals. Pure DB + @vamos/core;
+ * the provider adapters live in @vamos/payments and are called by the API
+ * and the worker between these transactions, never inside them. Errors
+ * meant for players and staff are DomainError (see each function).
  */
 export {
   DEPOSIT_FAILED,
@@ -11,8 +11,8 @@ export {
   DEPOSIT_SUCCEEDED,
   WITHDRAWAL_APPROVED,
   WITHDRAWAL_CANCELLED,
-  WITHDRAWAL_CONFLICT,
   WITHDRAWAL_FAILED,
+  WITHDRAWAL_FLAGGED,
   WITHDRAWAL_PAID,
   WITHDRAWAL_REJECTED,
   WITHDRAWAL_REQUESTED,
@@ -21,36 +21,48 @@ export {
   applyDepositEvent,
   createDepositIntent,
   expireStaleDepositIntents,
+  getDepositIntent,
   getUserDepositIntent,
+  listFlaggedDepositIntents,
   listOpenDepositIntentsForPhone,
+  listPendingDepositIntents,
+  listUserDepositIntents,
   markDepositInitiated,
   markDepositInitiationFailed,
+  resolveFlaggedDeposit,
   type ApplyDepositEventResult,
   type CreateDepositIntentInput,
   type CreateDepositIntentResult,
   type DepositEventOutcome,
   type DepositFlagReason,
+  type DepositResolution,
   type ExpiredIntent,
 } from './deposits';
 export {
+  applyPayoutAttempt,
   applyPayoutEvent,
   approveWithdrawal,
   AUTO_APPROVER,
   cancelWithdrawal,
   claimDuePayouts,
+  clearPayoutFlag,
+  getPayout,
   getUserPayout,
+  listFlaggedPayouts,
   listPayoutsForReview,
   listUserPayouts,
   markPayoutFailed,
   markPayoutPaid,
   markPayoutProcessing,
   openPayoutTotal,
-  recordPayoutSubmission,
   rejectWithdrawal,
   requestWithdrawal,
-  schedulePayoutRetry,
+  type AdminActor,
+  type AppliedPayoutAttempt,
+  type PayoutAttemptOutcome,
   type PayoutChange,
   type PayoutEventOutcome,
+  type PayoutFlagReason,
   type RequestWithdrawalInput,
   type RequestWithdrawalResult,
   type ReviewReason,

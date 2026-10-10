@@ -7,6 +7,7 @@ import type {
   PaymentEventKind,
   PaymentProvider,
   PayoutInitiation,
+  ProviderCapabilities,
   ProviderDeps,
   ProviderPaymentStatus,
   ProviderStatusResult,
@@ -41,12 +42,24 @@ import {
  *   HMAC-SHA256 of the raw request body under the webhook secret set in the
  *   Chapa dashboard. It is compared in constant time before the body is
  *   parsed. Chapa sends no timestamp, so redeliveries are made harmless by
- *   the event id (payment_events) rather than refused. Chapa recommends
- *   confirming a charge with the verify endpoint before giving value; the
- *   deposit service checks the amount and currency either way.
+ *   the event id (payment_events) rather than refused.
+ * - confirmation: Chapa asks merchants to verify a transaction before giving
+ *   value. A signed webhook that would move money (a successful charge; a
+ *   paid or failed transfer) is confirmed with the verify endpoint, whose
+ *   status, amount and currency replace the webhook's. While the verify
+ *   endpoint does not confirm a final status yet (or cannot be reached),
+ *   verifyWebhook throws a retryable ProviderRequestError and records
+ *   nothing, so the route answers 503 and Chapa delivers the webhook again.
+ *   `confirmWebhooks: false` turns this off (tests of the signature only).
  */
 
 const NAME = 'chapa';
+
+/**
+ * Headers that may carry the HMAC-SHA256 of the raw body. A value that is not
+ * that HMAC (e.g. a static HMAC of the secret itself) never verifies.
+ */
+const SIGNATURE_HEADERS = ['x-chapa-signature', 'chapa-signature'] as const;
 
 /**
  * Chapa bank codes of the mobile-money wallets a payout can go to, by the
@@ -63,6 +76,8 @@ export interface ChapaOptions {
   secretKey: string;
   webhookSecret: string;
   walletBankCodes?: Readonly<Record<MobileOperator, number>>;
+  /** Confirm money-moving webhooks with the verify endpoints (default true). */
+  confirmWebhooks?: boolean;
 }
 
 function mapStatus(value: string | undefined): ProviderPaymentStatus {
@@ -84,8 +99,19 @@ function mapStatus(value: string | undefined): ProviderPaymentStatus {
   }
 }
 
+/**
+ * Webhooks whose outcome moves money and so must be confirmed: a successful
+ * charge (credits the player) and a final transfer status (pays out, or
+ * returns the hold to the player). A failed charge gives nothing away.
+ */
+function movesMoney(event: VerifiedWebhookEvent): boolean {
+  if (event.status === 'pending') return false;
+  return event.kind === 'payout' || event.status === 'succeeded';
+}
+
 export class ChapaProvider implements PaymentProvider {
   readonly name = NAME;
+  readonly capabilities: ProviderCapabilities = { deposits: true, payouts: true };
   private readonly options: ChapaOptions;
   private readonly deps: ProviderDeps;
 
@@ -128,15 +154,41 @@ export class ChapaProvider implements PaymentProvider {
   }
 
   async verifyWebhook(input: WebhookInput): Promise<VerifiedWebhookEvent> {
-    const signature =
-      headerValue(input.headers, 'x-chapa-signature') ??
-      headerValue(input.headers, 'chapa-signature');
-    if (signature === undefined) {
+    const event = this.parseSignedWebhook(input);
+    if (this.options.confirmWebhooks === false || !movesMoney(event)) return event;
+    const confirmed =
+      event.kind === 'deposit'
+        ? await this.queryDeposit(event.providerRef)
+        : await this.queryPayout(event.providerRef);
+    if (confirmed.status === 'pending') {
+      throw new ProviderRequestError(
+        NAME,
+        `chapa has not confirmed ${event.kind} ${event.providerRef} yet`,
+        { status: null, retryable: true },
+      );
+    }
+    return {
+      ...event,
+      status: confirmed.status,
+      amount: confirmed.amount ?? event.amount,
+      currency: confirmed.currency ?? event.currency,
+      raw: { webhook: event.raw, verify: confirmed.raw },
+    };
+  }
+
+  /** Checks the signature (constant time) and parses the body; no network calls. */
+  parseSignedWebhook(input: WebhookInput): VerifiedWebhookEvent {
+    const signatures = SIGNATURE_HEADERS.map((name) => headerValue(input.headers, name)).filter(
+      (value): value is string => value !== undefined,
+    );
+    if (signatures.length === 0) {
       throw new WebhookVerificationError(NAME, 'missing_signature', 'missing x-chapa-signature');
     }
     const body = rawBytes(input.rawBody);
     const expected = hmacSha256Hex(this.options.webhookSecret, body);
-    if (!hexDigestEquals(expected, signature)) {
+    // Every candidate is compared (no early exit), each in constant time.
+    const matches = signatures.map((signature) => hexDigestEquals(expected, signature));
+    if (!matches.includes(true)) {
       throw new WebhookVerificationError(NAME, 'bad_signature', 'signature does not match');
     }
 
@@ -151,7 +203,7 @@ export class ChapaProvider implements PaymentProvider {
     const providerRef =
       kind === 'deposit' ? stringField(payload, 'tx_ref') : stringField(payload, 'reference');
     const status = stringField(payload, 'status');
-    if (providerRef === undefined || status === undefined) {
+    if (providerRef === undefined || providerRef.length === 0 || status === undefined) {
       throw new WebhookVerificationError(
         NAME,
         'malformed_payload',
@@ -159,7 +211,9 @@ export class ChapaProvider implements PaymentProvider {
       );
     }
     const chapaRef =
-      stringField(payload, 'reference') ?? stringField(payload, 'chapa_reference') ?? '';
+      kind === 'deposit'
+        ? (stringField(payload, 'reference') ?? '')
+        : (stringField(payload, 'chapa_reference') ?? '');
     return {
       providerEventId: `${event ?? `${kind}.${status}`}:${providerRef}:${chapaRef}`,
       kind,

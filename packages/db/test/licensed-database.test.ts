@@ -30,12 +30,12 @@ describe('a licensed database', () => {
     expect(houseAccountKinds(null)).toContain('house_demo_funding');
 
     expect(await seed(handle.db, { mode: 'licensed' })).toEqual({
-      houseAccounts: 5,
-      settingsCreated: 7,
+      houseAccounts: 6,
+      settingsCreated: 8,
     });
     expect(await getDatabaseOperatingMode(handle.db)).toBe('licensed');
     // Without a mode the seed follows the recorded one.
-    expect(await seed(handle.db)).toEqual({ houseAccounts: 5, settingsCreated: 0 });
+    expect(await seed(handle.db)).toEqual({ houseAccounts: 6, settingsCreated: 0 });
   });
 
   it('refuses demo mode', async () => {

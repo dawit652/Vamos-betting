@@ -109,19 +109,38 @@ export interface PayoutInitiation {
   raw?: unknown;
 }
 
+/** What a provider can be used for (the wallet pages list methods by these). */
+export interface ProviderCapabilities {
+  deposits: boolean;
+  /** false: initiatePayout / queryPayout throw ProviderNotConfiguredError. */
+  payouts: boolean;
+}
+
 export interface PaymentProvider {
   readonly name: PaymentProviderName;
-  /** Starts a deposit. Throws PaymentProviderError (see `retryable`). */
+  readonly capabilities: ProviderCapabilities;
+  /**
+   * Starts a deposit. Calling it again for the same intentId does not
+   * create a second charge. Throws PaymentProviderError (see `retryable`).
+   */
   initiateDeposit(input: InitiateDepositInput): Promise<DepositInitiation>;
   /**
    * Checks the webhook's signature (constant-time) and parses it. Throws
    * WebhookVerificationError for a missing or bad signature, a stale
    * timestamp or a malformed payload; never returns an unverified event.
+   * Providers whose documentation asks for it (Chapa) also confirm the
+   * outcome with their status endpoint first, and then throw a retryable
+   * ProviderRequestError when it cannot be reached: answer 503 so the
+   * provider delivers the webhook again.
    */
   verifyWebhook(input: WebhookInput): Promise<VerifiedWebhookEvent>;
   /** Asks the provider for the status of a deposit. */
   queryDeposit(providerRef: string): Promise<ProviderStatusResult>;
-  /** Sends money to the player's own wallet. */
+  /**
+   * Sends money to the player's own wallet. The payout id is the provider's
+   * idempotency reference: submitting the same payout again never pays twice.
+   * Prefer `attemptPayout`, which decides what an error means for the money.
+   */
   initiatePayout(input: InitiatePayoutInput): Promise<PayoutInitiation>;
   /** Asks the provider for the status of a payout. */
   queryPayout(providerRef: string): Promise<ProviderStatusResult>;

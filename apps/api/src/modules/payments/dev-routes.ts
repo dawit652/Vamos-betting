@@ -1,0 +1,176 @@
+import {
+  DevPhoneDecisionRequest,
+  DevPhoneQuery,
+  DevRejectWithdrawalRequest,
+  type DevPhoneDecisionResponse,
+  type DevPhonePushesResponse,
+  type DevWithdrawalQueueResponse,
+  type WithdrawalView,
+} from '@vamos/contracts';
+import { normalizeEthiopianMsisdn } from '@vamos/core';
+import {
+  approveWithdrawal,
+  getDepositIntent,
+  listOpenDepositIntentsForPhone,
+  listPayoutsForReview,
+  rejectWithdrawal,
+  withTxRetry,
+} from '@vamos/db';
+import { MockPaymentProvider, MockPinError } from '@vamos/payments';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { AppDeps } from '../../deps';
+import { clientAddressKey } from '../../lib/client-address';
+import { badRequest, notFound, parseInput, unprocessable } from '../../lib/errors';
+import { parseId, receiveWebhook } from './service';
+import { depositView, withdrawalView } from './views';
+
+/**
+ * DEV ONLY. The actor recorded (audit log, ledger, approved_by / closed_by)
+ * for withdrawals approved or rejected through the stand-in back office.
+ */
+export const DEV_BACK_OFFICE_ACTOR = 'dev:back-office-stand-in';
+
+/**
+ * The dev payment tools exist only for local development, tests and e2e:
+ * demo mode, the mock (play-money) payment provider enabled and NODE_ENV other
+ * than production, like the dev SMS inbox. A public deployment (production)
+ * never has them, and licensed mode never does.
+ */
+export function devPaymentsEnabled(deps: Pick<AppDeps, 'config' | 'payments'>): boolean {
+  return (
+    deps.config.mode === 'demo' &&
+    deps.config.nodeEnv !== 'production' &&
+    deps.payments.get('mock') instanceof MockPaymentProvider
+  );
+}
+
+function mockProvider(deps: Pick<AppDeps, 'payments'>): MockPaymentProvider {
+  const provider = deps.payments.get('mock');
+  if (!(provider instanceof MockPaymentProvider)) throw notFound('Mock payment provider');
+  return provider;
+}
+
+function phoneOf(input: string): string {
+  const phone = normalizeEthiopianMsisdn(input);
+  if (phone === null) throw badRequest('invalid_phone', 'Not an Ethiopian mobile number.');
+  return phone;
+}
+
+/**
+ * DEV ONLY – not part of the product.
+ *
+ * The dev phone simulator for the mock provider:
+ * - GET /dev/payments/phone?phone= lists the deposit pushes waiting on a phone;
+ * - POST /dev/payments/phone approves (PIN 1234) or declines one. It builds
+ *   the signed mock webhook and feeds it through the same verification and
+ *   apply path as POST /payments/webhooks/mock.
+ *
+ * A STAND-IN for the Phase 9 back office (no staff login yet), so e2e can
+ * walk a withdrawal through review:
+ * - GET /dev/payments/withdrawals lists withdrawals waiting for review;
+ * - POST /dev/payments/withdrawals/:id/approve and …/reject.
+ */
+export default async function devPaymentRoutes(app: FastifyInstance): Promise<void> {
+  const { deps } = app;
+  if (!devPaymentsEnabled(deps)) return;
+
+  app.get('/dev/payments/phone', async (request): Promise<DevPhonePushesResponse> => {
+    const query = parseInput(DevPhoneQuery, request.query);
+    const rows = await listOpenDepositIntentsForPhone(deps.db, {
+      provider: 'mock',
+      phone: phoneOf(query.phone),
+      now: deps.clock(),
+    });
+    return {
+      items: rows.map((row) => ({
+        depositId: row.id,
+        amount: row.amount.toString(),
+        instructions: row.instructions,
+        createdAt: row.createdAt.toISOString(),
+        expiresAt: row.expiresAt.toISOString(),
+      })),
+    };
+  });
+
+  app.post(
+    '/dev/payments/phone',
+    {
+      config: {
+        rateLimit: {
+          max: 60,
+          timeWindow: 60_000,
+          keyGenerator: (request: FastifyRequest) =>
+            `dev-payments-phone|${clientAddressKey(request.ip)}`,
+        },
+      },
+    },
+    async (request): Promise<DevPhoneDecisionResponse> => {
+      const input = parseInput(DevPhoneDecisionRequest, request.body);
+      const phone = phoneOf(input.phone);
+      const intent = await getDepositIntent(deps.db, parseId(input.depositId, 'Payment request'));
+      if (
+        intent === null ||
+        intent.provider !== 'mock' ||
+        intent.phone !== phone ||
+        intent.providerRef === null
+      ) {
+        throw notFound('Payment request');
+      }
+      const provider = mockProvider(deps);
+      let webhook;
+      try {
+        webhook = provider.simulateDepositDecision({
+          providerRef: intent.providerRef,
+          amount: intent.amount,
+          decision: input.decision,
+          ...(input.pin === undefined ? {} : { pin: input.pin }),
+        });
+      } catch (error) {
+        if (error instanceof MockPinError) {
+          throw unprocessable('wrong_pin', 'Wrong PIN. The demo PIN is 1234.');
+        }
+        throw error;
+      }
+      const ack = await receiveWebhook(deps, 'mock', webhook);
+      const updated = await getDepositIntent(deps.db, intent.id);
+      if (updated === null) throw notFound('Payment request');
+      return { outcome: ack.outcome, deposit: depositView(updated) };
+    },
+  );
+
+  app.get('/dev/payments/withdrawals', async (): Promise<DevWithdrawalQueueResponse> => {
+    const rows = await listPayoutsForReview(deps.db);
+    return { items: rows.map((row) => ({ ...withdrawalView(row), userId: row.userId })) };
+  });
+
+  app.post<{ Params: { id: string } }>(
+    '/dev/payments/withdrawals/:id/approve',
+    async (request): Promise<WithdrawalView> => {
+      const payoutId = parseId(request.params.id, 'Withdrawal');
+      const now = deps.clock();
+      const change = await withTxRetry(deps.db, (tx) =>
+        approveWithdrawal(tx, { payoutId, adminId: DEV_BACK_OFFICE_ACTOR, now, ip: request.ip }),
+      );
+      return withdrawalView(change.payout);
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/dev/payments/withdrawals/:id/reject',
+    async (request): Promise<WithdrawalView> => {
+      const payoutId = parseId(request.params.id, 'Withdrawal');
+      const input = parseInput(DevRejectWithdrawalRequest, request.body ?? {});
+      const now = deps.clock();
+      const change = await withTxRetry(deps.db, (tx) =>
+        rejectWithdrawal(tx, {
+          payoutId,
+          adminId: DEV_BACK_OFFICE_ACTOR,
+          reason: input.reason ?? 'Rejected in the dev back office',
+          now,
+          ip: request.ip,
+        }),
+      );
+      return withdrawalView(change.payout);
+    },
+  );
+}

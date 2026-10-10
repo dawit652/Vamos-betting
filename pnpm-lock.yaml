@@ -90,6 +90,9 @@ importers:
       '@vamos/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@vamos/payments':
+        specifier: workspace:*
+        version: link:../../packages/payments
       drizzle-orm:
         specifier: 0.45.3
         version: 0.45.3(@types/pg@8.23.1)(pg@8.23.1)
@@ -161,6 +164,9 @@ importers:
       '@vamos/feed':
         specifier: workspace:*
         version: link:../../packages/feed
+      '@vamos/payments':
+        specifier: workspace:*
+        version: link:../../packages/payments
       bullmq:
         specifier: 6.3.11
         version: 6.3.11(ioredis@5.11.1)(pg@8.23.1)
@@ -235,6 +241,9 @@ importers:
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
+      '@vamos/payments':
+        specifier: workspace:*
+        version: link:../payments
       drizzle-kit:
         specifier: 0.31.11
         version: 0.31.11

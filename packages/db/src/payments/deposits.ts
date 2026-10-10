@@ -1,5 +1,5 @@
 import { normalizeEthiopianMsisdn, toWire, type PaymentRules } from '@vamos/core';
-import { and, asc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm';
 import {
   DomainError,
   domainBadRequest,
@@ -86,7 +86,10 @@ async function lockIntent(tx: DbTransaction, intentId: string): Promise<PaymentI
  *    if they had been paid, so concurrent intents cannot slip past a limit;
  * 6. insert, expiring `depositIntentTtlMinutes` after `now`, and audit.
  * Then (outside the transaction) call provider.initiateDeposit and record
- * the answer with markDepositInitiated, or markDepositInitiationFailed.
+ * the answer with markDepositInitiated, or markDepositInitiationFailed. On
+ * a replay of an intent still `created` without a provider reference (the
+ * first provider call never got an answer), call initiateDeposit again: the
+ * providers key the deposit by intent id.
  */
 export async function createDepositIntent(
   tx: DbTransaction,
@@ -592,4 +595,189 @@ export async function listOpenDepositIntentsForPhone(
     )
     .orderBy(asc(paymentIntents.createdAt))
     .limit(options.limit ?? 20);
+}
+
+export type DepositResolution = 'credit' | 'close';
+
+/**
+ * Staff resolve a flagged deposit intent (after checking the provider's
+ * records), clearing the flag:
+ * - `credit`: the provider did collect the intent's amount; it is credited
+ *   now exactly as applyDepositEvent would (ledger key `deposit:<intentId>`,
+ *   `payment.deposit_succeeded`). 409 `deposit_already_credited` for an
+ *   intent that succeeded (close its flag instead). An amount other than
+ *   the intent's is not credited here: close the intent and correct the
+ *   balance with a separate adjustment.
+ * - `close`: nothing is credited; an intent that was still open (or
+ *   expired) becomes `failed` (`payment.deposit_failed`), a failed or
+ *   succeeded one keeps its status (e.g. a refund at the provider after a
+ *   credit, handled outside this function).
+ * 409 `deposit_not_flagged` for an intent that is not flagged.
+ */
+export async function resolveFlaggedDeposit(
+  tx: DbTransaction,
+  input: {
+    intentId: string;
+    adminId: string;
+    resolution: DepositResolution;
+    note: string;
+    now: Date;
+    ip?: string | null;
+  },
+): Promise<PaymentIntent> {
+  const { now } = input;
+  const note = input.note.trim().slice(0, MAX_REASON_LENGTH);
+  if (note.length === 0) throw new RangeError('resolveFlaggedDeposit: a note is required');
+  const intent = await lockIntent(tx, input.intentId);
+  if (intent.flaggedAt === null) {
+    throw domainConflict('deposit_not_flagged', 'This deposit is not waiting for staff.');
+  }
+  const audit = {
+    actorType: 'admin' as const,
+    actorId: input.adminId,
+    targetType: 'payment_intent',
+    targetId: intent.id,
+    ip: input.ip ?? null,
+  };
+  const metadata = {
+    resolution: input.resolution,
+    flagReason: intent.flagReason,
+    status: intent.status,
+    amount: intent.amount,
+    note,
+  };
+
+  if (input.resolution === 'credit') {
+    if (intent.status === 'succeeded') {
+      throw domainConflict(
+        'deposit_already_credited',
+        'This deposit was already credited; close its flag instead.',
+      );
+    }
+    await lockUser(tx, intent.userId);
+    const posting = await postTransaction(tx, {
+      type: 'deposit',
+      idempotencyKey: depositLedgerKey(intent.id),
+      refType: 'payment_intent',
+      refId: intent.id,
+      description: `Deposit via ${intent.provider} (confirmed by staff)`,
+      actor: { type: 'admin', id: input.adminId },
+      entries: depositEntries(intent.provider, intent.userId, intent.amount),
+    });
+    const updated = await updateIntent(tx, intent.id, {
+      status: 'succeeded',
+      ledgerTransactionId: posting.transactionId,
+      failureReason: null,
+      flagReason: null,
+      flaggedAt: null,
+      completedAt: now,
+      updatedAt: now,
+    });
+    await enqueueOutbox(tx, {
+      type: DEPOSIT_SUCCEEDED,
+      aggregateType: 'payment_intent',
+      aggregateId: intent.id,
+      payload: {
+        intentId: intent.id,
+        userId: intent.userId,
+        provider: intent.provider,
+        amount: intent.amount,
+        providerRef: intent.providerRef,
+      },
+    });
+    await writeAudit(tx, { ...audit, action: 'payment.deposit_resolved', metadata });
+    return updated;
+  }
+
+  const stillOpen = intent.status !== 'succeeded' && intent.status !== 'failed';
+  const updated = await updateIntent(tx, intent.id, {
+    flagReason: null,
+    flaggedAt: null,
+    ...(stillOpen
+      ? { status: 'failed' as const, failureReason: 'closed_by_staff', completedAt: now }
+      : {}),
+    updatedAt: now,
+  });
+  if (stillOpen) {
+    await enqueueOutbox(tx, {
+      type: DEPOSIT_FAILED,
+      aggregateType: 'payment_intent',
+      aggregateId: intent.id,
+      payload: {
+        intentId: intent.id,
+        userId: intent.userId,
+        provider: intent.provider,
+        amount: intent.amount,
+        reason: 'closed_by_staff',
+      },
+    });
+  }
+  await writeAudit(tx, { ...audit, action: 'payment.deposit_resolved', metadata });
+  return updated;
+}
+
+/** One deposit intent by id (back office), or null. */
+export async function getDepositIntent(
+  exec: DbExecutor,
+  intentId: string,
+): Promise<PaymentIntent | null> {
+  const [row] = await exec
+    .select()
+    .from(paymentIntents)
+    .where(eq(paymentIntents.id, intentId))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The player's deposit intents, newest first (at most 100). */
+export async function listUserDepositIntents(
+  exec: DbExecutor,
+  userId: string,
+  options: { limit?: number } = {},
+): Promise<PaymentIntent[]> {
+  return exec
+    .select()
+    .from(paymentIntents)
+    .where(eq(paymentIntents.userId, userId))
+    .orderBy(desc(paymentIntents.createdAt), desc(paymentIntents.id))
+    .limit(Math.min(Math.max(options.limit ?? 20, 1), 100));
+}
+
+/** Flagged deposit intents, oldest flag first (the back office's queue). */
+export async function listFlaggedDepositIntents(
+  exec: DbExecutor,
+  options: { limit?: number } = {},
+): Promise<PaymentIntent[]> {
+  return exec
+    .select()
+    .from(paymentIntents)
+    .where(isNotNull(paymentIntents.flaggedAt))
+    .orderBy(asc(paymentIntents.flaggedAt), asc(paymentIntents.id))
+    .limit(Math.min(Math.max(options.limit ?? 50, 1), 500));
+}
+
+/**
+ * Pending, unflagged intents with a provider reference created before
+ * `createdBefore`, oldest first: what a status poller asks the provider
+ * about (provider.queryDeposit + eventFromStatusQuery + applyDepositEvent),
+ * e.g. before they expire. Read-only; applyDepositEvent locks.
+ */
+export async function listPendingDepositIntents(
+  exec: DbExecutor,
+  options: { createdBefore: Date; provider?: string; limit?: number },
+): Promise<PaymentIntent[]> {
+  return exec
+    .select()
+    .from(paymentIntents)
+    .where(
+      and(
+        eq(paymentIntents.status, 'pending'),
+        isNull(paymentIntents.flaggedAt),
+        isNotNull(paymentIntents.providerRef),
+        lt(paymentIntents.createdAt, options.createdBefore),
+        options.provider === undefined ? undefined : eq(paymentIntents.provider, options.provider),
+      ),
+    )
+    .orderBy(asc(paymentIntents.createdAt), asc(paymentIntents.id))
+    .limit(Math.min(Math.max(options.limit ?? 50, 1), 500));
 }

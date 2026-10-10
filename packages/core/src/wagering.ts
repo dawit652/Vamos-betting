@@ -18,6 +18,12 @@ import { BPS_DENOMINATOR, type Santim } from './money';
  * withdraw straight back out" pattern while winnings from wagered deposits
  * stay withdrawable. The requirement is rounded up (in the house's favour
  * only by at most one santim per deposit).
+ *
+ * Relation to the plain rule "total staked since the first deposit >= total
+ * deposited × multiplier": R = 0 implies it, and implies the same from every
+ * later deposit on (R_final >= the requirements minus the stakes of any
+ * suffix of the history). It is stricter only in that old turnover cannot
+ * cover a new deposit.
  */
 export type WageringEvent = { kind: 'funding'; amount: Santim } | { kind: 'stake'; amount: Santim };
 

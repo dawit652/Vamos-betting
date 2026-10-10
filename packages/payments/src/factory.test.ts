@@ -32,6 +32,7 @@ describe('createPaymentProviders', () => {
     const registry = createPaymentProviders(loadConfig({}), deps);
     expect(registry.names).toEqual(['mock']);
     expect(registry.require('mock')).toBeInstanceOf(MockPaymentProvider);
+    expect(registry.require('mock').capabilities).toEqual({ deposits: true, payouts: true });
     expect(registry.get('chapa')).toBeUndefined();
     expect(registry.get('anything')).toBeUndefined();
     expect(() => registry.require('chapa')).toThrow(UnknownPaymentProviderError);
@@ -66,7 +67,9 @@ describe('createPaymentProviders', () => {
       CHAPA_SECRET_KEY: 'CHASECK-live',
       CHAPA_WEBHOOK_SECRET: 'whsec',
     });
-    expect(createPaymentProviders(ok, deps).require('chapa')).toBeInstanceOf(ChapaProvider);
+    const chapa = createPaymentProviders(ok, deps).require('chapa');
+    expect(chapa).toBeInstanceOf(ChapaProvider);
+    expect(chapa.capabilities).toEqual({ deposits: true, payouts: true });
   });
 
   it('builds telebirr from PEM keys written with \\n escapes', () => {
@@ -88,9 +91,10 @@ describe('createPaymentProviders', () => {
       TELEBIRR_PRIVATE_KEY: escape(keys.privateKey),
       TELEBIRR_PUBLIC_KEY: escape(keys.publicKey),
     });
-    expect(createPaymentProviders(config, deps).require('telebirr')).toBeInstanceOf(
-      TelebirrProvider,
-    );
+    const telebirr = createPaymentProviders(config, deps).require('telebirr');
+    expect(telebirr).toBeInstanceOf(TelebirrProvider);
+    // telebirr B2C payouts need a separate agreement: deposits only.
+    expect(telebirr.capabilities).toEqual({ deposits: true, payouts: false });
     const missing = loadConfig({ ...LICENSED, PAYMENT_PROVIDERS: 'telebirr' });
     expect(() => createPaymentProviders(missing, deps)).toThrow(/TELEBIRR_BASE_URL/);
   });
@@ -115,6 +119,7 @@ describe('createPaymentProviders', () => {
 describe('skeleton providers', () => {
   it('throw ProviderNotConfiguredError from every call', async () => {
     for (const provider of [new CbeBirrProvider(), new MpesaEthiopiaProvider()]) {
+      expect(provider.capabilities).toEqual({ deposits: false, payouts: false });
       await expect(provider.initiateDeposit()).rejects.toBeInstanceOf(ProviderNotConfiguredError);
       await expect(provider.verifyWebhook()).rejects.toBeInstanceOf(ProviderNotConfiguredError);
       await expect(provider.queryDeposit()).rejects.toBeInstanceOf(ProviderNotConfiguredError);

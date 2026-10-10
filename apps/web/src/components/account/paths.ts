@@ -13,8 +13,8 @@ export const accountPaths = {
   kyc: `${routes.account}/kyc`,
   limits: `${routes.account}/limits`,
   selfExclusion: `${routes.account}/self-exclusion`,
-  deposit: `${routes.wallet}/deposit`,
-  withdraw: `${routes.wallet}/withdraw`,
+  deposit: routes.deposit,
+  withdraw: routes.withdraw,
 } as const;
 
 /**

@@ -1,4 +1,10 @@
-import { birr, DEFAULT_BET_RULES, DEFAULT_JACKPOTS, DEFAULT_TAX } from '@vamos/core';
+import {
+  birr,
+  DEFAULT_BET_RULES,
+  DEFAULT_JACKPOTS,
+  DEFAULT_PAYMENT_RULES,
+  DEFAULT_TAX,
+} from '@vamos/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   DEFAULT_GAME_SETTINGS,
@@ -46,6 +52,20 @@ describe('parseGameSettings', () => {
     expect(parsed.liveBetDelayMs).toBe(3000);
   });
 
+  it('parses the payments block (santim strings) over the defaults', () => {
+    const parsed = parseGameSettings({
+      payments: { minWithdrawal: '10000', autoApproveBelow: '0', wageringMultiplierBps: 15_000 },
+    });
+    expect(parsed.payments).toEqual({
+      ...DEFAULT_PAYMENT_RULES,
+      minWithdrawal: 10_000n,
+      autoApproveBelow: 0n,
+      wageringMultiplierBps: 15_000,
+    });
+    // The default wagering multiplier is 1.0: every deposit staked once.
+    expect(DEFAULT_GAME_SETTINGS.payments.wageringMultiplierBps).toBe(10_000);
+  });
+
   it('merges jackpot templates one by one', () => {
     const parsed = parseGameSettings({ jackpots: { daily9: { costPerCombination: '2000' } } });
     expect(parsed.jackpots.daily9).toEqual({
@@ -76,6 +96,15 @@ describe('parseGameSettings', () => {
     ['live_bet_delay_ms', 'soon'],
     ['responsible_gambling', { minAge: 16 }],
     ['jackpots', { weekly13: { code: 'daily9' } }],
+    ['payments', { minDeposit: '0' }],
+    ['payments', { minDeposit: '20000000', maxDeposit: '10000000' }],
+    ['payments', { minWithdrawal: '600000', maxWithdrawal: '500000' }],
+    ['payments', { minWithdrawal: '5000', dailyWithdrawalCap: '4000' }],
+    ['payments', { autoApproveBelow: '-1' }],
+    ['payments', { wageringMultiplierBps: 1.5 }],
+    ['payments', { wageringMultiplierBps: -1 }],
+    ['payments', { depositIntentTtlMinutes: 0 }],
+    ['payments', { payoutMaxAttempts: 0 }],
   ] as const)('rejects an invalid %s (%j), naming the key', (key, value) => {
     let error: unknown;
     try {
@@ -130,9 +159,11 @@ describe('loadGameSettings', () => {
   it('reads back-office edits', async () => {
     await setSetting(handle.db, 'bet_rules', { ...DEFAULT_BET_RULES, maxPayout: birr(250_000) });
     await setSetting(handle.db, 'live_bet_delay_ms', 8000);
+    await setSetting(handle.db, 'payments', { dailyWithdrawalCap: birr(50_000) });
     const loaded = await loadGameSettings(handle.db);
     expect(loaded.betRules.maxPayout).toBe(birr(250_000));
     expect(loaded.liveBetDelayMs).toBe(8000);
+    expect(loaded.payments).toEqual({ ...DEFAULT_PAYMENT_RULES, dailyWithdrawalCap: birr(50_000) });
     expect(loaded.tax).toEqual(DEFAULT_TAX);
   });
 

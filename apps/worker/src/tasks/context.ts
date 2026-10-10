@@ -1,7 +1,9 @@
 import type { Database } from '@vamos/db';
+import type { PaymentProviderRegistry } from '@vamos/payments';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { QueueConfig } from '../lib/queues';
+import type { SmsSender } from '../lib/sms';
 
 /** What the worker tasks need from the outside world (tests pass their own). */
 export interface TaskContext {
@@ -14,4 +16,11 @@ export interface TaskContext {
   channel: string;
   /** BullMQ queues (settlement, live bet acceptance); tests use a unique prefix. */
   queues: QueueConfig;
+  /**
+   * The enabled payment providers (PAYMENT_PROVIDERS; only the mock provider
+   * in demo mode), used by the payout worker and the deposit reconciliation.
+   */
+  payments: PaymentProviderRegistry;
+  /** The SMS gateway for player notifications (SMS_PROVIDER). */
+  sms: SmsSender;
 }

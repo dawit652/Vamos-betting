@@ -8,6 +8,10 @@ export const QUEUE_NAMES = {
   settlement: 'settlement',
   /** bet.placed of a live bet: accept or reject it once its delay is over (delayed job). */
   betAcceptance: 'bet-acceptance',
+  /** payment.withdrawal_approved: send the payout to the provider. */
+  payouts: 'payouts',
+  /** Player notifications by SMS (deposit credited, withdrawal paid / failed). */
+  sms: 'sms',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

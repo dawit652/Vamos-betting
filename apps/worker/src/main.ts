@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { ConfigError, loadConfig, loadDotEnv, type AppConfig } from '@vamos/config';
 import {
   claimOperatingMode,
@@ -6,9 +7,11 @@ import {
   LIVE_CHANNEL,
   OperatingModeMismatchError,
 } from '@vamos/db';
+import { createPaymentProviders, PaymentProviderError } from '@vamos/payments';
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
 import { bindQueuePrefix, QueuePrefixBoundError, withTimeout } from './lib/queues';
+import { createSmsSender, SmsProviderNotImplementedError } from './lib/sms';
 import { createTasks } from './tasks/index';
 import { startWorker, type WorkerHandle } from './worker';
 
@@ -31,7 +34,30 @@ async function main(): Promise<void> {
   }
 
   const logger = pino({ level: config.logLevel, base: { service: 'vamos-worker' } });
+
+  // Payment providers (only the mock one in demo mode): one that is not
+  // configured must not run, like in the API.
+  let payments;
+  try {
+    payments = createPaymentProviders(config, {
+      fetch: globalThis.fetch,
+      clock: () => new Date(),
+      randomBytes: (size) => randomBytes(size),
+    });
+  } catch (error) {
+    if (error instanceof PaymentProviderError) refuseToStart(`payments: ${error.message}`);
+    throw error;
+  }
+
   const handle = createDb(config.databaseUrl, { max: 10 });
+  let sms;
+  try {
+    sms = createSmsSender(config.providers.sms, handle.db);
+  } catch (error) {
+    await handle.close();
+    if (error instanceof SmsProviderNotImplementedError) refuseToStart(error.message);
+    throw error;
+  }
 
   // A demo database (play money) must never serve licensed mode, nor the reverse.
   try {
@@ -82,6 +108,8 @@ async function main(): Promise<void> {
       clock: () => new Date(),
       channel: LIVE_CHANNEL,
       queues: { redisUrl: config.redisUrl, prefix: config.queuePrefix },
+      payments,
+      sms,
     },
     {
       // FEED_ROLLING_* (e2e runs with a fixture every minute); the competitions

@@ -7,6 +7,7 @@ import type {
   PaymentEventKind,
   PaymentProvider,
   PayoutInitiation,
+  ProviderCapabilities,
   ProviderPaymentStatus,
   ProviderStatusResult,
   VerifiedWebhookEvent,
@@ -75,6 +76,7 @@ const STATUSES: readonly ProviderPaymentStatus[] = ['succeeded', 'failed', 'pend
 
 export class MockPaymentProvider implements PaymentProvider {
   readonly name = NAME;
+  readonly capabilities: ProviderCapabilities = { deposits: true, payouts: true };
   private readonly secret: string;
   private readonly clock: () => Date;
   private readonly pin: string;

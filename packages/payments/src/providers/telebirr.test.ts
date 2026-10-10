@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { constants, createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { fakeDeps, fakeFetch, type RecordedCall } from '../../test/fakes';
 import { ProviderNotConfiguredError, WebhookVerificationError } from '../errors';
@@ -163,6 +163,35 @@ describe('telebirr notify_url', () => {
     expect(
       (await rejection(provider().verifyWebhook({ headers: {}, rawBody: '<xml/>' }))).reason,
     ).toBe('malformed_payload');
+  });
+
+  it('accepts a notification whose empty fields were signed as "k=" (reference signer)', async () => {
+    const fields: Record<string, unknown> = {
+      merch_code: '123456',
+      merch_order_id: ORDER,
+      payment_order_id: '00801104C911443200001003',
+      total_amount: '150.00',
+      trans_currency: 'ETB',
+      trade_status: 'Completed',
+      trans_end_time: '',
+    };
+    const canonical = telebirrCanonicalString(fields, { keepEmpty: true });
+    expect(canonical).toContain('&trans_end_time=');
+    expect(telebirrCanonicalString(fields)).not.toContain('trans_end_time');
+    const signature = sign('sha256', Buffer.from(canonical, 'utf8'), {
+      key: createPrivateKey(telebirr.privateKey),
+      padding: constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: 32,
+    }).toString('base64');
+    const body = { ...fields, sign: signature, sign_type: 'SHA256WithRSA' };
+    const event = await provider().verifyWebhook({ headers: {}, rawBody: JSON.stringify(body) });
+    expect(event).toMatchObject({ status: 'succeeded', amount: 15_000n, providerRef: ORDER });
+    // The empty field cannot be turned into a value under the same signature.
+    const filled = { ...body, trans_end_time: '1791622790000' };
+    const error = await rejection(
+      provider().verifyWebhook({ headers: {}, rawBody: JSON.stringify(filled) }),
+    );
+    expect(error.reason).toBe('bad_signature');
   });
 
   it('rejects a genuine notification for another merchant', async () => {

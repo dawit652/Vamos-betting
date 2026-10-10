@@ -33,16 +33,18 @@ pnpm lint                           # repo ESLint covers apps/web
 
 All paths come from `routes` in `src/lib/routes.ts`; link with it instead of writing strings.
 
-| Route                                      | Page                                                    |
-| ------------------------------------------ | ------------------------------------------------------- |
-| `/`, `/sport/[sport]`                      | Sport home (football is `/`); tabs as `?tab=`           |
-| `/sport/[sport]/[competition]`             | Competition                                             |
-| `/live`, `/live/[sport]`                   | Live list                                               |
-| `/event/[id]`                              | Event page (market accordions)                          |
-| `/my-bets`                                 | My Bets                                                 |
-| `/account`, `/wallet`                      | Account (KYC, limits, self-exclusion, language), wallet |
-| `/login`, `/register`, `/forgot-password`  | Auth                                                    |
-| `/help`, `/terms`, `/responsible-gambling` | Static pages                                            |
+| Route                                      | Page                                                                       |
+| ------------------------------------------ | -------------------------------------------------------------------------- |
+| `/`, `/sport/[sport]`                      | Sport home (football is `/`); tabs as `?tab=`                              |
+| `/sport/[sport]/[competition]`             | Competition                                                                |
+| `/live`, `/live/[sport]`                   | Live list                                                                  |
+| `/event/[id]`                              | Event page (market accordions)                                             |
+| `/my-bets`                                 | My Bets                                                                    |
+| `/account`, `/wallet`                      | Account (KYC, limits, self-exclusion, language), wallet                    |
+| `/wallet/deposit`, `/wallet/withdraw`      | Deposit (push/USSD/checkout, polled) and withdraw (rules, tracker, cancel) |
+| `/dev/phone`                               | Demo-only simulated phone: approve (PIN) or decline pending pushes         |
+| `/login`, `/register`, `/forgot-password`  | Auth                                                                       |
+| `/help`, `/terms`, `/responsible-gambling` | Static pages                                                               |
 
 The sport chips show on `/`, `/sport/*` and `/live*` (see `sportFromPath`). Sports are
 `SPORTS` in `routes.ts` (football, basketball, tennis, volleyball).
@@ -171,3 +173,15 @@ The app's own shell JS is about 10 KB. Keep new client code small (code only the
 the drawer's lazy chunk), keep lists server-rendered, and avoid client-side libraries (no zod, date
 libraries or icon packs in the browser). Links in view prefetch their route; use `prefetch={false}`
 for rarely used links.
+
+## Payments (`src/components/payments`, `src/lib/api/payments.ts`)
+
+- `payments.ts` holds the pure rules (amount check in santim, idempotency keys per intent, deposit and
+  withdrawal status, tracker labels, error mapping); `payments.test.ts` covers them.
+- Deposit and withdraw each keep one idempotency key per intent at module level (`createIntentKeys`):
+  a retry after a timeout or 5xx reuses it, a definite 4xx refusal or success clears it.
+- Deposits poll `GET /payments/deposits/:id` (2 s easing to 5 s, stops after 10 min) until final, then
+  `refreshWallet()`. A redirect checkout comes back to `/wallet/deposit?id=<id>`.
+- Withdrawals send no phone: the API pays the registered phone only. Open ones refresh every 8 s.
+- `/dev/phone` renders the simulator only when `GET /payments/options` says `demo: true`. Every payment
+  screen shows the play-money notice (`account.payments.demoNotice`).

@@ -17,6 +17,7 @@ import type {
   InitiateDepositInput,
   PaymentProvider,
   PayoutInitiation,
+  ProviderCapabilities,
   ProviderDeps,
   ProviderPaymentStatus,
   ProviderStatusResult,
@@ -97,9 +98,13 @@ const DEFAULT_TOKEN_TTL_MS = 30 * 60_000;
 /**
  * The string telebirr signs: biz_content's fields lifted to the top level,
  * excluded fields and empty values dropped, sorted by key (code point order)
- * and joined as `k=v&…`.
+ * and joined as `k=v&…`. With `keepEmpty`, empty strings stay in as `k=`
+ * (what telebirr's reference signer produces for an empty field).
  */
-export function telebirrCanonicalString(fields: Readonly<Record<string, unknown>>): string {
+export function telebirrCanonicalString(
+  fields: Readonly<Record<string, unknown>>,
+  options: { keepEmpty?: boolean } = {},
+): string {
   const flat = new Map<string, string>();
   const add = (key: string, value: unknown) => {
     if (UNSIGNED_FIELDS.has(key) || value === undefined || value === null) return;
@@ -109,7 +114,7 @@ export function telebirrCanonicalString(fields: Readonly<Record<string, unknown>
         : typeof value === 'number' || typeof value === 'boolean'
           ? String(value)
           : JSON.stringify(value);
-    if (text.length > 0) flat.set(key, text);
+    if (text.length > 0 || options.keepEmpty === true) flat.set(key, text);
   };
   for (const [key, value] of Object.entries(fields)) {
     if (key === 'biz_content' && isRecord(value)) {
@@ -141,7 +146,12 @@ export function telebirrSign(
   return sign('sha256', data, { key, ...padding(scheme) }).toString('base64');
 }
 
-/** True when `fields.sign` is a valid signature of the other fields under `publicKey`. */
+/**
+ * True when `fields.sign` is a valid signature of the other fields under
+ * `publicKey`. When a field is an empty string, the form that keeps it
+ * (`k=`) is accepted too: the two forms differ only in fields that carry
+ * no value, so neither lets a signature cover a different payment.
+ */
 export function telebirrVerify(
   fields: Readonly<Record<string, unknown>>,
   publicKey: KeyObject | string,
@@ -150,12 +160,23 @@ export function telebirrVerify(
   const signature = fields.sign;
   if (typeof signature !== 'string' || signature.length === 0) return false;
   const key = typeof publicKey === 'string' ? createPublicKey(publicKey) : publicKey;
-  const data = Buffer.from(telebirrCanonicalString(fields), 'utf8');
-  try {
-    return verify('sha256', data, { key, ...padding(scheme) }, Buffer.from(signature, 'base64'));
-  } catch {
-    return false;
-  }
+  const signatureBytes = Buffer.from(signature, 'base64');
+  const check = (canonical: string) => {
+    try {
+      return verify(
+        'sha256',
+        Buffer.from(canonical, 'utf8'),
+        { key, ...padding(scheme) },
+        signatureBytes,
+      );
+    } catch {
+      return false;
+    }
+  };
+  const compact = telebirrCanonicalString(fields);
+  if (check(compact)) return true;
+  const withEmpty = telebirrCanonicalString(fields, { keepEmpty: true });
+  return withEmpty !== compact && check(withEmpty);
 }
 
 /** telebirr's merch_order_id for an intent: the UUID without dashes. */
@@ -183,6 +204,8 @@ function tradeStatus(value: string | undefined): ProviderPaymentStatus {
 
 export class TelebirrProvider implements PaymentProvider {
   readonly name = NAME;
+  /** B2C payouts need a separate agreement with Ethio Telecom. */
+  readonly capabilities: ProviderCapabilities = { deposits: true, payouts: false };
   private readonly options: TelebirrOptions;
   private readonly deps: ProviderDeps;
   private readonly privateKey: KeyObject;

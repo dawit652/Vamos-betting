@@ -80,7 +80,7 @@ describe('operating mode of a database used in demo mode', () => {
       message: expect.stringMatching(/belongs to demo mode and cannot be used in licensed mode/),
     });
 
-    expect(await seed(handle.db, { mode: 'demo' })).toMatchObject({ houseAccounts: 6 });
+    expect(await seed(handle.db, { mode: 'demo' })).toMatchObject({ houseAccounts: 7 });
     await expect(seed(handle.db, { mode: 'licensed' })).rejects.toBeInstanceOf(
       OperatingModeMismatchError,
     );

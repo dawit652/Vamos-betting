@@ -28,6 +28,10 @@ export const routes = {
   myBets: '/my-bets',
   account: '/account',
   wallet: '/wallet',
+  deposit: '/wallet/deposit',
+  withdraw: '/wallet/withdraw',
+  /** Demo-only simulated phone for approving mock deposits. */
+  devPhone: '/dev/phone',
   login: '/login',
   register: '/register',
   forgotPassword: '/forgot-password',

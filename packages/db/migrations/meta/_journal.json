@@ -64,6 +64,20 @@
       "when": 1791625448068,
       "tag": "0008_phase6_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791640110369,
+      "tag": "0009_phase6_payout_flags",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791640158190,
+      "tag": "0010_phase6_mock_payments_guard",
+      "breakpoints": true
     }
   ]
 }

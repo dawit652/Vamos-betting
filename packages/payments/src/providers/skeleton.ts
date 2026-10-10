@@ -3,6 +3,7 @@ import type {
   DepositInitiation,
   PaymentProvider,
   PayoutInitiation,
+  ProviderCapabilities,
   ProviderStatusResult,
   VerifiedWebhookEvent,
 } from '../types';
@@ -15,6 +16,7 @@ import type {
  */
 abstract class UnconfiguredProvider implements PaymentProvider {
   abstract readonly name: 'cbebirr' | 'mpesa-et';
+  readonly capabilities: ProviderCapabilities = { deposits: false, payouts: false };
   protected abstract readonly label: string;
 
   /** The error every call throws (the factory throws it at startup). */

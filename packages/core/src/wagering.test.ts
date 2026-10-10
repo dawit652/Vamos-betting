@@ -120,6 +120,28 @@ describe('remainingWagering', () => {
     );
   });
 
+  it('when met, implies the plain rule from every deposit on: staked since >= required since', () => {
+    // In particular from the first deposit: total staked since the first
+    // deposit >= total deposited x multiplier. The running rule is stricter
+    // only in that stakes never count towards a deposit made after them.
+    fc.assert(
+      fc.property(fc.array(eventArb, { maxLength: 40 }), multiplierArb, (events, bps) => {
+        if (remainingWagering(events, bps) !== 0n) return;
+        events.forEach((event, start) => {
+          if (event.kind !== 'funding') return;
+          const suffix = events.slice(start);
+          const required = suffix
+            .filter((e) => e.kind === 'funding')
+            .reduce((sum, e) => sum + wageringRequirementOf(e.amount, bps), 0n);
+          const staked = suffix
+            .filter((e) => e.kind === 'stake')
+            .reduce((sum, e) => sum + e.amount, 0n);
+          expect(staked >= required).toBe(true);
+        });
+      }),
+    );
+  });
+
   it('is monotone in the multiplier', () => {
     fc.assert(
       fc.property(

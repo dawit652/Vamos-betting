@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { AppConfig } from '@vamos/config';
 import { createDb, type Database } from '@vamos/db';
+import { createPaymentProviders, type PaymentProviderRegistry } from '@vamos/payments';
 import { Redis } from 'ioredis';
 import { MockKycVerifier, type KycVerifier } from './providers/kyc';
 import { MockSmsProvider, type SmsProvider } from './providers/sms';
@@ -17,6 +18,12 @@ export interface AppDeps {
   clock: () => Date;
   sms: SmsProvider;
   kyc: KycVerifier;
+  /**
+   * The enabled payment providers (PAYMENT_PROVIDERS). Demo mode allows only
+   * the play-money mock provider (@vamos/config guard, and the factory refuses
+   * the mock outside demo mode).
+   */
+  payments: PaymentProviderRegistry;
   /** Cryptographically secure random bytes (session and CSRF tokens). */
   randomBytes: (size: number) => Buffer;
   /** Redis channel of live deltas relayed by GET /live/stream (default LIVE_CHANNEL; tests use their own). */
@@ -57,9 +64,26 @@ export function createKycVerifier(config: AppConfig): KycVerifier {
   }
 }
 
-/** Production wiring used by `server.ts`. Throws on a provider that has no adapter yet. */
+/**
+ * The payment providers of PAYMENT_PROVIDERS, with the real fetch, clock and
+ * random source. Throws ProviderNotConfiguredError / UnknownPaymentProviderError
+ * (@vamos/payments) for a provider that cannot run, so the API refuses to start.
+ */
+export function createPaymentRegistry(config: AppConfig): PaymentProviderRegistry {
+  return createPaymentProviders(config, {
+    fetch: globalThis.fetch,
+    clock: () => new Date(),
+    randomBytes: (size) => randomBytes(size),
+  });
+}
+
+/**
+ * Production wiring used by `server.ts`. Throws on a provider that has no
+ * adapter yet, and on a payment provider that is not configured.
+ */
 export function createDefaultDeps(config: AppConfig): DefaultDeps {
   const kyc = createKycVerifier(config);
+  const payments = createPaymentRegistry(config);
   // The pool connects lazily, so nothing is open yet if the SMS provider is rejected.
   const handle = createDb(config.databaseUrl);
   let sms: SmsProvider;
@@ -77,6 +101,7 @@ export function createDefaultDeps(config: AppConfig): DefaultDeps {
     clock: () => new Date(),
     sms,
     kyc,
+    payments,
     randomBytes: (size) => randomBytes(size),
     close: async () => {
       await Promise.allSettled([handle.close(), redis.quit()]);

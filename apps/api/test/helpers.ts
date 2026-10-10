@@ -3,6 +3,7 @@ import { loadConfig } from '@vamos/config';
 import { RegisterResponse, SessionResponse } from '@vamos/contracts';
 import { smsMessages } from '@vamos/db/schema';
 import { createTestDatabase } from '@vamos/db/testing';
+import { createPaymentProviders } from '@vamos/payments';
 import { desc, eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { Redis } from 'ioredis';
@@ -54,13 +55,20 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
       this.now = new Date(this.now.getTime() + ms);
     },
   };
+  const now = () => new Date(clock.now.getTime());
   const deps: AppDeps = {
     config,
     db: db.db,
     redis,
-    clock: () => new Date(clock.now.getTime()),
+    clock: now,
     sms: new MockSmsProvider(db.db),
     kyc: new MockKycVerifier(),
+    // The mock provider only (demo mode); its webhooks are checked against the test clock.
+    payments: createPaymentProviders(config, {
+      fetch: () => Promise.reject(new Error('no network in tests')),
+      clock: now,
+      randomBytes: (size) => randomBytes(size),
+    }),
     randomBytes: (size) => randomBytes(size),
     // Never the shared production channel: a dev stack on the same Redis would see test deltas.
     liveChannel: `vamos-test:${id}:live`,
