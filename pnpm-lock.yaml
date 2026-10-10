@@ -250,6 +250,15 @@ importers:
 
   packages/i18n: {}
 
+  packages/payments:
+    dependencies:
+      '@vamos/config':
+        specifier: workspace:*
+        version: link:../config
+      '@vamos/core':
+        specifier: workspace:*
+        version: link:../core
+
 packages:
 
   '@alloc/quick-lru@5.3.0':

@@ -12,6 +12,22 @@ import { z } from 'zod';
 
 export const DEV_SESSION_SECRET = 'dev-only-session-secret-change-me-0123456789';
 
+/**
+ * HMAC key of the mock payment provider's webhooks (demo mode only: the
+ * licensed-mode guard refuses the mock provider altogether).
+ */
+export const DEV_MOCK_PAYMENT_WEBHOOK_SECRET = 'dev-only-mock-payment-webhook-secret-0123456789';
+
+/** An optional secret: unset and blank both mean "not configured". */
+const secret = z
+  .string()
+  .trim()
+  .transform((value) => (value.length === 0 ? undefined : value))
+  .optional();
+
+/** A PEM key from the environment, where newlines are often written as "\n". */
+const pem = secret.transform((value) => value?.replace(/\\n/g, '\n'));
+
 const csv = z.string().transform((value) =>
   value
     .split(',')
@@ -53,6 +69,25 @@ const envSchema = z.object({
   FEED_ROLLING_HORIZON_MINUTES: z.coerce.number().int().min(0).max(4320).default(120),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
+  /**
+   * Public base URL the payment providers call back (webhooks) and send the
+   * player back to; defaults to PUBLIC_API_URL.
+   */
+  PAYMENT_CALLBACK_BASE_URL: z.url().optional(),
+  MOCK_PAYMENT_WEBHOOK_SECRET: z.string().min(16).default(DEV_MOCK_PAYMENT_WEBHOOK_SECRET),
+  CHAPA_BASE_URL: z.url().default('https://api.chapa.co/v1'),
+  CHAPA_SECRET_KEY: secret,
+  CHAPA_WEBHOOK_SECRET: secret,
+  TELEBIRR_BASE_URL: z.url().optional(),
+  TELEBIRR_CHECKOUT_URL: z.url().optional(),
+  TELEBIRR_FABRIC_APP_ID: secret,
+  TELEBIRR_APP_SECRET: secret,
+  TELEBIRR_MERCHANT_APP_ID: secret,
+  TELEBIRR_SHORT_CODE: secret,
+  /** Our RSA private key (PEM) that signs telebirr requests. */
+  TELEBIRR_PRIVATE_KEY: pem,
+  /** telebirr's RSA public key (PEM) that verifies its notify_url callbacks. */
+  TELEBIRR_PUBLIC_KEY: pem,
   KYC_PROVIDER: z.enum(['mock', 'fayda']).default('mock'),
   SMS_PROVIDER: z.enum(['mock', 'http']).default('mock'),
 
@@ -87,6 +122,12 @@ export interface AppConfig {
     rolling: { everyMinutes: number; horizonMinutes: number };
   };
   providers: { payments: string[]; kyc: 'mock' | 'fayda'; sms: 'mock' | 'http' };
+  /**
+   * Payment provider settings (PAYMENT_*, MOCK_PAYMENT_*, CHAPA_*, TELEBIRR_*).
+   * Which providers are enabled is `providers.payments`; credentials are
+   * checked when a provider is built (@vamos/payments), not here.
+   */
+  payments: PaymentProvidersConfig;
   els: {
     licenseNumber: string | undefined;
     reporting: 'disabled' | 'file' | 'http';
@@ -95,6 +136,23 @@ export interface AppConfig {
   };
   taxConfigConfirmed: boolean;
   features: { casino: boolean; virtuals: boolean; smsBetting: boolean; ussd: boolean };
+}
+
+export interface PaymentProvidersConfig {
+  /** Base URL for webhooks and return URLs (PAYMENT_CALLBACK_BASE_URL, else PUBLIC_API_URL). */
+  callbackBaseUrl: string;
+  mock: { webhookSecret: string };
+  chapa: { baseUrl: string; secretKey: string | undefined; webhookSecret: string | undefined };
+  telebirr: {
+    baseUrl: string | undefined;
+    checkoutUrl: string | undefined;
+    fabricAppId: string | undefined;
+    appSecret: string | undefined;
+    merchantAppId: string | undefined;
+    shortCode: string | undefined;
+    privateKey: string | undefined;
+    publicKey: string | undefined;
+  };
 }
 
 export class ConfigError extends Error {
@@ -186,6 +244,25 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       },
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
+    payments: {
+      callbackBaseUrl: e.PAYMENT_CALLBACK_BASE_URL ?? e.PUBLIC_API_URL,
+      mock: { webhookSecret: e.MOCK_PAYMENT_WEBHOOK_SECRET },
+      chapa: {
+        baseUrl: e.CHAPA_BASE_URL,
+        secretKey: e.CHAPA_SECRET_KEY,
+        webhookSecret: e.CHAPA_WEBHOOK_SECRET,
+      },
+      telebirr: {
+        baseUrl: e.TELEBIRR_BASE_URL,
+        checkoutUrl: e.TELEBIRR_CHECKOUT_URL,
+        fabricAppId: e.TELEBIRR_FABRIC_APP_ID,
+        appSecret: e.TELEBIRR_APP_SECRET,
+        merchantAppId: e.TELEBIRR_MERCHANT_APP_ID,
+        shortCode: e.TELEBIRR_SHORT_CODE,
+        privateKey: e.TELEBIRR_PRIVATE_KEY,
+        publicKey: e.TELEBIRR_PUBLIC_KEY,
+      },
+    },
     els: {
       licenseNumber: e.ELS_LICENSE_NUMBER,
       reporting: e.ELS_REPORTING,
@@ -204,6 +281,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const problems: string[] = [];
   if (config.nodeEnv === 'production' && config.sessionSecret === DEV_SESSION_SECRET) {
     problems.push('SESSION_SECRET must be set to a unique secret in production');
+  }
+  if (
+    config.nodeEnv === 'production' &&
+    config.providers.payments.includes('mock') &&
+    config.payments.mock.webhookSecret === DEV_MOCK_PAYMENT_WEBHOOK_SECRET
+  ) {
+    // Anyone could forge the public demo's mock deposit webhooks otherwise.
+    problems.push('MOCK_PAYMENT_WEBHOOK_SECRET must be set to a unique secret in production');
   }
   if (config.mode === 'demo') {
     const nonMock = config.providers.payments.filter((p) => p !== 'mock');

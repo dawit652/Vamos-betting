@@ -88,6 +88,37 @@ export interface ResponsibleGamblingRules {
   minAge: number;
 }
 
+/**
+ * Deposit and withdrawal limits (the `payments` setting). A "day" is the
+ * last 24 hours (rolling), like the responsible-gambling windows.
+ */
+export interface PaymentRules {
+  /** Smallest deposit accepted. */
+  minDeposit: Santim;
+  /** Largest single deposit accepted. */
+  maxDeposit: Santim;
+  /** Smallest withdrawal accepted. */
+  minWithdrawal: Santim;
+  /** Largest single withdrawal accepted. */
+  maxWithdrawal: Santim;
+  /** Most a player may withdraw over any rolling 24 hours (open and paid requests). */
+  dailyWithdrawalCap: Santim;
+  /**
+   * Withdrawals strictly below this amount are approved automatically (when
+   * every other check passes); the rest wait for manual review.
+   */
+  autoApproveBelow: Santim;
+  /**
+   * Turnover required per deposited birr before a withdrawal, in basis points
+   * (10_000 = each deposit must be staked once). See `remainingWagering`.
+   */
+  wageringMultiplierBps: number;
+  /** A deposit intent not completed within this many minutes expires. */
+  depositIntentTtlMinutes: number;
+  /** Payout attempts at the provider before a payout needs manual handling. */
+  payoutMaxAttempts: number;
+}
+
 export const DEFAULT_BET_RULES: BetRules = {
   minStake: birr(5),
   maxStake: birr(100_000),
@@ -166,4 +197,17 @@ export const DEFAULT_JACKPOTS: Record<JackpotTemplate['code'], JackpotTemplate> 
       { correct: 10, kind: 'fixed', amount: birr(50) },
     ],
   },
+};
+
+/** Payment limits (placeholders to confirm with counsel and the PSPs). */
+export const DEFAULT_PAYMENT_RULES: PaymentRules = {
+  minDeposit: birr(10),
+  maxDeposit: birr(100_000),
+  minWithdrawal: birr(50),
+  maxWithdrawal: birr(100_000),
+  dailyWithdrawalCap: birr(200_000),
+  autoApproveBelow: birr(5_000),
+  wageringMultiplierBps: 10_000,
+  depositIntentTtlMinutes: 30,
+  payoutMaxAttempts: 5,
 };

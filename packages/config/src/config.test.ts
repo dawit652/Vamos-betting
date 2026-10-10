@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, DEV_SESSION_SECRET, isDemo, loadConfig } from './config';
+import {
+  ConfigError,
+  DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
+  DEV_SESSION_SECRET,
+  isDemo,
+  licensedModeViolations,
+  loadConfig,
+} from './config';
 
 const LICENSED_ENV = {
   NODE_ENV: 'production',
@@ -104,6 +111,64 @@ describe('loadConfig', () => {
     expect(
       problemsOf({ NODE_ENV: 'production', SESSION_SECRET: DEV_SESSION_SECRET }).join('\n'),
     ).toMatch(/SESSION_SECRET/);
+  });
+
+  it('refuses the development mock payment webhook secret in production', () => {
+    const problems = problemsOf({
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+    }).join('\n');
+    expect(problems).toMatch(/MOCK_PAYMENT_WEBHOOK_SECRET/);
+    expect(
+      problemsOf({
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+        MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret-for-the-demo',
+      }),
+    ).toEqual([]);
+  });
+
+  it('reads the payment provider settings with demo-safe defaults', () => {
+    const config = loadConfig({});
+    expect(config.payments).toEqual({
+      callbackBaseUrl: 'http://localhost:4000',
+      mock: { webhookSecret: DEV_MOCK_PAYMENT_WEBHOOK_SECRET },
+      chapa: { baseUrl: 'https://api.chapa.co/v1', secretKey: undefined, webhookSecret: undefined },
+      telebirr: {
+        baseUrl: undefined,
+        checkoutUrl: undefined,
+        fabricAppId: undefined,
+        appSecret: undefined,
+        merchantAppId: undefined,
+        shortCode: undefined,
+        privateKey: undefined,
+        publicKey: undefined,
+      },
+    });
+    const custom = loadConfig({
+      PAYMENT_CALLBACK_BASE_URL: 'https://pay.example.et',
+      CHAPA_SECRET_KEY: ' CHASECK_TEST-abc ',
+      CHAPA_WEBHOOK_SECRET: '',
+      TELEBIRR_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----',
+    });
+    expect(custom.payments.callbackBaseUrl).toBe('https://pay.example.et');
+    expect(custom.payments.chapa.secretKey).toBe('CHASECK_TEST-abc');
+    expect(custom.payments.chapa.webhookSecret).toBeUndefined();
+    expect(custom.payments.telebirr.privateKey).toBe(
+      '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+    );
+  });
+
+  it('keeps the licensed-mode guard independent of provider credentials', () => {
+    // Credentials are checked when a provider is built; the guard itself is unchanged.
+    const config = loadConfig(LICENSED_ENV);
+    expect(licensedModeViolations(config)).toEqual([]);
+    expect(
+      licensedModeViolations({ ...config, providers: { ...config.providers, payments: ['mock'] } }),
+    ).toEqual([
+      'the "mock" payment provider is not allowed in licensed mode',
+      'at least one real payment provider must be configured in PAYMENT_PROVIDERS',
+    ]);
   });
 
   it('reads the simulator speed and the rolling-fixture knobs', () => {

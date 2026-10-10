@@ -1,0 +1,18 @@
+{
+  "name": "@vamos/payments",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Payment provider adapters (mock, Chapa, telebirr; CBE Birr and M-Pesa skeletons). Pure: no database, injected fetch and clock",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@vamos/config": "workspace:*",
+    "@vamos/core": "workspace:*"
+  }
+}
