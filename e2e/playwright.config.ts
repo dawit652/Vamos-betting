@@ -1,12 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
+import { WEB_URL } from './support/env';
 
 // @playwright/test is pinned to 1.56.1, which matches the Chromium build
 // (revision 1194) preinstalled at PLAYWRIGHT_BROWSERS_PATH in the cloud dev
 // container, so no browser download is needed there.
-const WEB_URL = process.env.E2E_WEB_URL ?? 'http://localhost:3000';
 
 export default defineConfig({
   testDir: './tests',
+  globalSetup: './global-setup.ts',
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,

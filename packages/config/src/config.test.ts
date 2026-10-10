@@ -106,6 +106,35 @@ describe('loadConfig', () => {
     ).toMatch(/SESSION_SECRET/);
   });
 
+  it('reads the simulator speed and the rolling-fixture knobs', () => {
+    expect(loadConfig({}).feed).toEqual({
+      provider: 'mock',
+      simSpeed: 1,
+      rolling: { everyMinutes: 5, horizonMinutes: 120 },
+    });
+    const fast = loadConfig({
+      SIM_SPEED: '60',
+      FEED_ROLLING_EVERY_MINUTES: '1',
+      FEED_ROLLING_HORIZON_MINUTES: '10',
+    });
+    expect(fast.feed.simSpeed).toBe(60);
+    expect(fast.feed.rolling).toEqual({ everyMinutes: 1, horizonMinutes: 10 });
+    expect(loadConfig({ FEED_ROLLING_HORIZON_MINUTES: '0' }).feed.rolling.horizonMinutes).toBe(0);
+  });
+
+  it('refuses rolling intervals that are not whole positive minutes', () => {
+    for (const value of ['0', '-5', '1.5', 'soon', '1441']) {
+      expect(problemsOf({ FEED_ROLLING_EVERY_MINUTES: value }).join('\n')).toMatch(
+        /FEED_ROLLING_EVERY_MINUTES/,
+      );
+    }
+    for (const value of ['-1', '2.5', '4321']) {
+      expect(problemsOf({ FEED_ROLLING_HORIZON_MINUTES: value }).join('\n')).toMatch(
+        /FEED_ROLLING_HORIZON_MINUTES/,
+      );
+    }
+  });
+
   it('reports invalid values', () => {
     expect(problemsOf({ API_PORT: 'not-a-port' }).join('\n')).toMatch(/API_PORT/);
     expect(problemsOf({ OPERATING_MODE: 'live' }).join('\n')).toMatch(/OPERATING_MODE/);

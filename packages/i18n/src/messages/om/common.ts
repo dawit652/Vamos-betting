@@ -1,7 +1,8 @@
-import type { Messages } from './en';
+import type { DeepPartial } from '../../fallback';
+import type { Messages } from '../en';
 
-// Afaan Oromoo. Pending native-speaker review before a licensed launch.
-export const om: Messages = {
+// Afaan Oromoo. UNREVIEWED: untranslated keys fall back to English (see ./index.ts).
+export const common: DeepPartial<Messages['common']> = {
   app: {
     name: 'Vamos',
     tagline: 'Qabsiisa ispoortii salphaa',

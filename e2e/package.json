@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "e2e": "playwright test",
+    "e2e:flow": "playwright test tests/bet-flow.spec.ts",
+    "budget": "playwright test tests/budget.spec.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1"
+    "@playwright/test": "1.56.1",
+    "@vamos/contracts": "workspace:*",
+    "@vamos/core": "workspace:*"
   }
 }

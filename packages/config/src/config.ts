@@ -44,6 +44,13 @@ const envSchema = z.object({
   FEED_PROVIDER: z.enum(['mock', 'manual']).default('mock'),
   /** Simulated match minutes per real second for the mock live simulator. */
   SIM_SPEED: z.coerce.number().positive().default(1),
+  /**
+   * Rolling demo fixtures of the mock feed: one kicks off every N minutes
+   * (whole minutes, at least 1), generated up to the horizon ahead. Lower
+   * both (e.g. 1 and 10) so a fixture starts within a minute or two in e2e.
+   */
+  FEED_ROLLING_EVERY_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
+  FEED_ROLLING_HORIZON_MINUTES: z.coerce.number().int().min(0).max(4320).default(120),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   KYC_PROVIDER: z.enum(['mock', 'fayda']).default('mock'),
@@ -73,7 +80,12 @@ export interface AppConfig {
   redisUrl: string;
   queuePrefix: string;
   sessionSecret: string;
-  feed: { provider: 'mock' | 'manual'; simSpeed: number };
+  feed: {
+    provider: 'mock' | 'manual';
+    simSpeed: number;
+    /** Rolling demo fixtures of the mock feed (FEED_ROLLING_*). */
+    rolling: { everyMinutes: number; horizonMinutes: number };
+  };
   providers: { payments: string[]; kyc: 'mock' | 'fayda'; sms: 'mock' | 'http' };
   els: {
     licenseNumber: string | undefined;
@@ -165,7 +177,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     redisUrl: e.REDIS_URL,
     queuePrefix: e.QUEUE_PREFIX,
     sessionSecret: e.SESSION_SECRET,
-    feed: { provider: e.FEED_PROVIDER, simSpeed: e.SIM_SPEED },
+    feed: {
+      provider: e.FEED_PROVIDER,
+      simSpeed: e.SIM_SPEED,
+      rolling: {
+        everyMinutes: e.FEED_ROLLING_EVERY_MINUTES,
+        horizonMinutes: e.FEED_ROLLING_HORIZON_MINUTES,
+      },
+    },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     els: {
       licenseNumber: e.ELS_LICENSE_NUMBER,

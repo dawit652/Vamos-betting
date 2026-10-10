@@ -1,49 +1,175 @@
-:root {
-  --brand: #0b6e4f;
-  --brand-ink: #ffffff;
-  --bg: #f4f6f5;
-  --ink: #14211c;
-  --muted: #5b6b64;
-  --warn-bg: #fff4d6;
-  --warn-ink: #6b4e00;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    'Noto Sans Ethiopic',
-    'Abyssinica SIL',
-    'Nyala',
-    sans-serif;
+@import 'tailwindcss';
+
+/*
+ * Design tokens (Betika-like): dark green chrome, yellow odds buttons, compact rows.
+ * Every token becomes a Tailwind utility: --color-brand → bg-brand / text-brand / border-brand,
+ * --color-accent → bg-accent, --text-xxs → text-xxs, and so on. Prefer the tokens over raw colours.
+ */
+@theme {
+  /* Latin system fonts first, then Ethiopic system fonts (Android, macOS/iOS, Windows, Linux). */
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans Ethiopic', 'Noto Sans', Kefa, Nyala,
+    'Abyssinica SIL', 'Ebrima', sans-serif;
+
+  --color-brand: #0a5c36;
+  --color-brand-strong: #07432a;
+  --color-brand-soft: #e3f1ea;
+  --color-brand-ink: #ffffff;
+
+  --color-accent: #ffd200;
+  --color-accent-strong: #f0b900;
+  --color-accent-ink: #1b1b1b;
+
+  --color-page: #eef1ef;
+  --color-surface: #ffffff;
+  --color-ink: #16211c;
+  --color-muted: #5f6e67;
+  --color-line: #dde3df;
+
+  --color-up: #12884a;
+  --color-down: #d23a2a;
+  --color-live: #e0262f;
+
+  --color-demo-bg: #fff1c2;
+  --color-demo-ink: #5c4300;
+
+  --text-xxs: 0.6875rem;
+  --text-xxs--line-height: 1rem;
+
+  /* Fixed heights of the shell bars, used for sticky offsets and bottom padding. */
+  --spacing-header: 3rem;
+  --spacing-bottom-nav: 3.5rem;
 }
 
-* {
-  box-sizing: border-box;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: var(--color-page);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.35;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent-strong);
+    outline-offset: 1px;
+  }
 }
 
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-}
+/*
+ * Shared component classes. Use these instead of re-styling the same element in every page.
+ */
+@layer components {
+  /* Yellow odds button. Set aria-pressed="true" when the selection is on the slip. */
+  .odds-btn {
+    display: flex;
+    min-height: 2.5rem;
+    min-width: 0;
+    flex: 1 1 0%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .odds-btn[aria-pressed='true'] {
+    background: var(--color-brand);
+    color: var(--color-brand-ink);
+  }
+  .odds-btn:disabled {
+    background: var(--color-line);
+    color: var(--color-muted);
+  }
+  .odds-btn .odds-label {
+    font-size: var(--text-xxs);
+    font-weight: 500;
+    opacity: 0.8;
+  }
 
-.shell {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 16px;
-}
+  /* Horizontal chip (sports, tabs, filters). aria-current="page" marks the active one. */
+  .chip {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .chip[aria-current='page'],
+  .chip[aria-selected='true'] {
+    border-color: var(--color-brand);
+    background: var(--color-brand);
+    color: var(--color-brand-ink);
+  }
 
-.demo-banner {
-  margin: 0 0 16px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: var(--warn-bg);
-  color: var(--warn-ink);
-  font-size: 14px;
-  font-weight: 600;
-}
+  /* A compact list row (match rows, transactions, bets). */
+  .list-row {
+    border-bottom: 1px solid var(--color-line);
+    background: var(--color-surface);
+    padding: 0.5rem 0.75rem;
+  }
 
-.muted {
-  color: var(--muted);
-  font-size: 14px;
+  .card {
+    border-radius: 0.375rem;
+    background: var(--color-surface);
+    padding: 0.75rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    border-radius: 0.25rem;
+    padding: 0 1rem;
+    font-weight: 700;
+  }
+  .btn:disabled {
+    opacity: 0.55;
+  }
+  .btn-primary {
+    background: var(--color-brand);
+    color: var(--color-brand-ink);
+  }
+  .btn-accent {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+  .btn-outline {
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+
+  .input {
+    width: 100%;
+    min-height: 2.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    padding: 0 0.75rem;
+    font-size: 1rem; /* 16px stops iOS zooming on focus */
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }

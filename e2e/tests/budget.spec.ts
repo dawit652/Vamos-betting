@@ -1,0 +1,93 @@
+import { expect, test } from '@playwright/test';
+
+/**
+ * Page-weight budget: bytes transferred (compressed bodies plus headers, as
+ * the network sees them) by a first, cold-cache load of the home page by an
+ * anonymous visitor on a phone, until the network is idle. Router prefetches
+ * of other pages are speculative and reported separately, not counted.
+ *
+ * The plan's target is 150 KB, but the Next 16 + React 19 runtime alone is
+ * about 135 KB (gzip) of it. Measured on 10 Oct 2026 against `next start`
+ * (gzip, no brotli): 176.5 KB = JS 151.2 KB + HTML 18.5 KB + CSS 6.8 KB, in
+ * 12 requests (headers included). Brotli at the edge would save about 25 KB.
+ * So the budget is the measurement plus 10%: the check catches growth
+ * instead of failing on the framework. Lower it when the page gets lighter;
+ * raise it only with a reason. The HTML grows with the number of listed
+ * matches (about 0.5 KB per row, 20 rows per tab).
+ */
+const TARGET_BYTES = 150 * 1024;
+const BUDGET_BYTES = 195 * 1024; // measured 176.5 KB + 10%, rounded up
+
+interface Transfer {
+  url: string;
+  type: string;
+  bytes: number;
+  prefetch: boolean;
+}
+
+const kb = (bytes: number) => `${(bytes / 1024).toFixed(1)} KB`;
+
+test('first home page load stays within the page-weight budget', async ({ page, request }) => {
+  const html = await (await request.get('/')).text();
+  test.skip(
+    html.includes('hmr-client'),
+    'the web app runs in dev mode (next dev); the budget applies to a production build (next start)',
+  );
+
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Network.enable');
+  await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+
+  const pending = new Map<string, { url: string; type: string; prefetch: boolean }>();
+  const transfers: Transfer[] = [];
+  cdp.on('Network.requestWillBeSent', (event) => {
+    const headers = Object.fromEntries(
+      Object.entries(event.request.headers).map(([name, value]) => [name.toLowerCase(), value]),
+    );
+    pending.set(event.requestId, {
+      url: event.request.url,
+      type: event.type ?? 'Other',
+      prefetch:
+        headers['next-router-prefetch'] !== undefined ||
+        headers['purpose'] === 'prefetch' ||
+        headers['sec-purpose']?.startsWith('prefetch') === true,
+    });
+  });
+  cdp.on('Network.loadingFinished', (event) => {
+    const request = pending.get(event.requestId);
+    if (request !== undefined) transfers.push({ ...request, bytes: event.encodedDataLength });
+  });
+
+  await page.goto('/', { waitUntil: 'load' });
+  await page.waitForLoadState('networkidle');
+  // Late lazy chunks (hydration-time imports) settle within a moment of idle.
+  await page.waitForTimeout(500);
+
+  const counted = transfers.filter((t) => !t.prefetch && !t.url.startsWith('data:'));
+  const prefetched = transfers.filter((t) => t.prefetch);
+  const total = counted.reduce((sum, t) => sum + t.bytes, 0);
+  const byType = new Map<string, number>();
+  for (const t of counted) byType.set(t.type, (byType.get(t.type) ?? 0) + t.bytes);
+
+  const report = [
+    `home page, first load: ${kb(total)} transferred in ${counted.length} requests ` +
+      `(target ${kb(TARGET_BYTES)}, budget ${kb(BUDGET_BYTES)})`,
+    ...[...byType.entries()].sort((a, b) => b[1] - a[1]).map(([type, n]) => `  ${type}: ${kb(n)}`),
+    `  not counted: ${prefetched.length} router prefetches, ` +
+      kb(prefetched.reduce((sum, t) => sum + t.bytes, 0)),
+    ...counted
+      .sort((a, b) => b.bytes - a.bytes)
+      .slice(0, 8)
+      .map((t) => `    ${kb(t.bytes).padStart(9)}  ${new URL(t.url).pathname}`),
+  ].join('\n');
+  console.log(report);
+  await test.info().attach('page-weight.txt', { body: report, contentType: 'text/plain' });
+
+  if (total > TARGET_BYTES) {
+    test.info().annotations.push({
+      type: 'over target',
+      description: `${kb(total)} is over the ${kb(TARGET_BYTES)} target (budget ${kb(BUDGET_BYTES)})`,
+    });
+  }
+  expect(total, report).toBeLessThanOrEqual(BUDGET_BYTES);
+});

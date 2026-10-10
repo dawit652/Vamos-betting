@@ -77,6 +77,10 @@ export default tseslint.config(
     ...tseslint.configs.disableTypeChecked,
   },
   {
+    files: ['apps/*/public/sw.js'],
+    languageOptions: { globals: { ...globals.serviceworker } },
+  },
+  {
     files: ['infra/scripts/**/*.{ts,js,mjs}', '**/scripts/**/*.ts'],
     rules: { 'no-console': 'off' },
   },

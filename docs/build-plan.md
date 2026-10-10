@@ -249,9 +249,10 @@ score, previous?}`. It also returns `'unchanged'` when nothing changed. The serv
 
 ### Front ends and e2e
 
-- **`apps/web`** and **`apps/admin`** are Next.js 16 / React 19 scaffolds: a layout, one page and the
-  demo banner. They have no Tailwind, next-intl, PWA manifest, API client, `lint` or `test` script.
-  Both list `@vamos/core` in `transpilePackages` but do not depend on it.
+- **`apps/web`** has the Phase 5 foundation: Tailwind v4 tokens, the app shell, i18n (`getT` /
+  `useT`, `vamos_locale` cookie, namespaced messages in `packages/i18n`), the typed API client, the
+  session context, the betslip store and the PWA files. Conventions are in `apps/web/README.md`.
+- **`apps/admin`** is a Next.js 16 / React 19 scaffold: a layout, one page and the demo banner.
 - **`e2e`** has `@playwright/test` 1.56.1, a mobile Chromium project and one smoke test. Its tsconfig
   lists a `support/` folder that does not exist. CI does not run e2e.
 

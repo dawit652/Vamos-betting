@@ -1,7 +1,8 @@
-import type { Messages } from './en';
+import type { DeepPartial } from '../../fallback';
+import type { Messages } from '../en';
 
-// Tigrinya. Pending native-speaker review before a licensed launch.
-export const ti: Messages = {
+// Tigrinya. UNREVIEWED: untranslated keys fall back to English (see ./index.ts).
+export const common: DeepPartial<Messages['common']> = {
   app: {
     name: 'ቫሞስ',
     tagline: 'ቀሊል ናይ ስፖርት ውርርድ',

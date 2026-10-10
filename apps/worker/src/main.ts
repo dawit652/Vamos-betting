@@ -73,14 +73,22 @@ async function main(): Promise<void> {
     logger.warn({ err: error }, 'could not check the queue prefix binding (redis unreachable?)');
   }
 
-  const tasks = createTasks(config, {
-    db: handle.db,
-    redis,
-    logger,
-    clock: () => new Date(),
-    channel: LIVE_CHANNEL,
-    queues: { redisUrl: config.redisUrl, prefix: config.queuePrefix },
-  });
+  const tasks = createTasks(
+    config,
+    {
+      db: handle.db,
+      redis,
+      logger,
+      clock: () => new Date(),
+      channel: LIVE_CHANNEL,
+      queues: { redisUrl: config.redisUrl, prefix: config.queuePrefix },
+    },
+    {
+      // FEED_ROLLING_* (e2e runs with a fixture every minute); the competitions
+      // stay the feed's default (the featured ones).
+      feedIngest: { rolling: config.feed.rolling },
+    },
+  );
   // Signal handlers go in before the tasks start, so a SIGTERM during startup
   // still shuts down cleanly (after the start finished) instead of killing
   // the process mid-way.

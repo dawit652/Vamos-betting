@@ -1,35 +1,30 @@
+import { resolveLocale, type Locale } from './locales';
 import { am } from './messages/am';
 import { en, type Messages } from './messages/en';
 import { om } from './messages/om';
 import { ti } from './messages/ti';
 
-export type { Messages };
-
-/** Supported UI locales. Amharic is the default for Ethiopian users. */
-export const LOCALES = ['am', 'en', 'om', 'ti'] as const;
-export type Locale = (typeof LOCALES)[number];
-export const DEFAULT_LOCALE: Locale = 'am';
-
-/** Native names shown in the language switcher. */
-export const LOCALE_NAMES: Record<Locale, string> = {
-  am: 'አማርኛ',
-  en: 'English',
-  om: 'Afaan Oromoo',
-  ti: 'ትግርኛ',
-};
-
-/**
- * Locales whose translations have not yet been reviewed by a native speaker.
- * The UI shows them but they must be reviewed before a licensed launch.
+/*
+ * Server-side entry: it bundles every locale's messages. Client components import
+ * `@vamos/i18n/locales` and `@vamos/i18n/translate` instead (no message text), and
+ * receive the current locale's messages from the server through a provider.
  */
-export const UNREVIEWED_LOCALES: readonly Locale[] = ['am', 'om', 'ti'];
+
+export type { Messages };
+export { withFallback, type DeepPartial } from './fallback';
+export * from './locales';
+export {
+  createTranslator,
+  interpolate,
+  lookup,
+  placeholders,
+  type MessageKey,
+  type MessageVars,
+  type Translator,
+} from './translate';
 
 export const MESSAGES: Record<Locale, Messages> = { am, en, om, ti };
 
-export function isLocale(value: string): value is Locale {
-  return (LOCALES as readonly string[]).includes(value);
-}
-
 export function messagesFor(locale: string): Messages {
-  return isLocale(locale) ? MESSAGES[locale] : MESSAGES[DEFAULT_LOCALE];
+  return MESSAGES[resolveLocale(locale)];
 }

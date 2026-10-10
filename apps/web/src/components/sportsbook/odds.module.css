@@ -1,0 +1,14 @@
+/* A price move arrow shows for a few seconds after a live update, then fades out. */
+.move {
+  animation: odds-move 4s ease-in forwards;
+}
+
+@keyframes odds-move {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

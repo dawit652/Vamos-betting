@@ -5,8 +5,11 @@
   "description": "UI messages for Amharic, English, Afaan Oromo and Tigrinya",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./locales": "./src/locales.ts",
+    "./translate": "./src/translate.ts"
   },
+  "sideEffects": false,
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests"
