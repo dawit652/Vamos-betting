@@ -373,6 +373,9 @@ describe('POST /bets', () => {
           gameId: String(eventIds.a.gameId).padStart(4, '0'),
           sport: 'football',
           eventName: 'St. George vs Fasil Kenema',
+          // Team names in every language they have, so My Bets can show them localised.
+          homeTeam: { en: 'St. George', am: 'ቅዱስ ጊዮርጊስ' },
+          awayTeam: { en: 'Fasil Kenema' },
           startTime: minutes(120).toISOString(),
           marketName: { en: 'Match Result', am: 'የጨዋታ ውጤት' },
           selectionName: { en: 'St. George', am: 'ቅዱስ ጊዮርጊስ' },

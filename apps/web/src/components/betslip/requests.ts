@@ -77,19 +77,6 @@ export function bookingCodeRequest(legs: readonly SlipLeg[]): CreateBookingCodeR
   return { legs: legs.map((leg) => ({ selectionId: leg.selectionId })) };
 }
 
-/**
- * Identifies one placement intent. The idempotency key is reused while this
- * stays the same (a retry after a timeout), and replaced when the player
- * changes the slip, so a changed slip is never answered with an older bet.
- */
-export function placementFingerprint(request: PlaceBetRequest): string {
-  return JSON.stringify([
-    request.legs.map((leg) => [leg.selectionId, leg.oddsMilli]),
-    request.stake,
-    request.oddsChangePolicy,
-  ]);
-}
-
 /** Legs whose current price differs from the slip's, from a quote. */
 export function quoteOddsChanges(
   quote: Pick<QuoteResponse, 'legs'>,

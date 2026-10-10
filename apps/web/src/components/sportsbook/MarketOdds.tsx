@@ -86,8 +86,22 @@ function OddsButton({
     oddsMilli: live.oddsMilli,
   });
   const selected = slip.has(selection.id);
-  const label = layout === 'row' ? shortLabel(selection.code) : localName(selection.label, locale);
+  const name = localName(selection.label, locale);
+  const label = layout === 'row' ? shortLabel(selection.code) : name;
   const move = usePriceMove(live.oddsMilli);
+  // The visible "1 / 1.68" says nothing to a screen reader on a list of 20
+  // rows: name the selection, the market and the match, and the price or that it is suspended.
+  const described = {
+    selection: name,
+    market: localName(market.name, locale),
+    event: t('sportsbook.match.versus', {
+      home: localName(event.home, locale),
+      away: localName(event.away, locale),
+    }),
+  };
+  const ariaLabel = enabled
+    ? t('sportsbook.markets.oddsLabel', { ...described, odds: formatOddsMilli(live.oddsMilli) })
+    : t('sportsbook.markets.oddsLabelSuspended', described);
 
   return (
     <button
@@ -96,7 +110,8 @@ function OddsButton({
       aria-pressed={selected}
       // A selection already on the slip can always be removed.
       disabled={!enabled && !selected}
-      title={localName(selection.label, locale)}
+      aria-label={ariaLabel}
+      title={name}
       onClick={() => {
         const outcome = slip.toggle(slipLeg(event, market, selection, live.oddsMilli));
         if (outcome === 'limit') {
@@ -104,8 +119,10 @@ function OddsButton({
         }
       }}
     >
-      <span className="odds-label w-full truncate">{label}</span>
-      <span>{enabled ? formatOddsMilli(live.oddsMilli) : '–'}</span>
+      <span aria-hidden="true" className="odds-label w-full truncate">
+        {label}
+      </span>
+      <span aria-hidden="true">{enabled ? formatOddsMilli(live.oddsMilli) : '–'}</span>
       {enabled && move !== null ? (
         <span
           key={live.oddsMilli}

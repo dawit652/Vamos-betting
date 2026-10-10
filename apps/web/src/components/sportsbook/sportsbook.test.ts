@@ -6,6 +6,7 @@ import {
   isBettable,
   isListedMarket,
   matchClock,
+  periodMessageKey,
   shortLabel,
   slipLeg,
   streamEventIds,
@@ -130,6 +131,16 @@ describe('match clock', () => {
   });
 });
 
+describe('period labels', () => {
+  it('translates the feed period codes and leaves unknown ones as they are', () => {
+    expect(periodMessageKey('Q2')).toBe('sportsbook.match.period.Q2');
+    expect(periodMessageKey('s3')).toBe('sportsbook.match.period.S3');
+    expect(periodMessageKey('OT')).toBe('sportsbook.match.period.OT');
+    expect(periodMessageKey('2H')).toBe('sportsbook.match.period.2H');
+    expect(periodMessageKey('P7')).toBeNull();
+  });
+});
+
 describe('list tabs', () => {
   it('parses the tab and cursor from the query string', () => {
     expect(parseTab(undefined)).toBe(DEFAULT_TAB);
@@ -229,5 +240,35 @@ describe('live stream frames', () => {
     store.setConnected(true);
     store.flush();
     expect(calls).toBe(2);
+  });
+
+  it('drops live values older than a server re-render, keeps newer ones', () => {
+    const store = new LiveStore();
+    let calls = 0;
+    store.subscribe(() => {
+      calls += 1;
+    });
+    store.apply({ type: 'odds', selectionId: 's1', state: { oddsMilli: 1850, open: true } });
+    store.apply({ type: 'market', marketId: 'm1', status: 'suspended' });
+    // The stream drops; on reconnect the provider asks the server for a re-render.
+    const mark = store.mark();
+    // A frame arrives while that render is on its way: it is newer than the render.
+    store.apply({ type: 'odds', selectionId: 's2', state: { oddsMilli: 2400, open: true } });
+    store.flush();
+    calls = 0;
+    // The new server props arrive (market reopened at 2.10 on the server).
+    store.dropUpTo(mark);
+    store.flush();
+    expect(calls).toBe(1);
+    expect(store.getOdds('s1')).toBeUndefined(); // the server's 2.10 shows again
+    expect(store.getMarket('m1')).toBeUndefined(); // no longer stuck on suspended
+    expect(store.getOdds('s2')).toEqual({ oddsMilli: 2400, open: true });
+    // Without a mark (someone else's refresh) everything so far goes.
+    store.dropUpTo(store.mark());
+    expect(store.getOdds('s2')).toBeUndefined();
+    store.flush();
+    store.dropUpTo(store.mark());
+    store.flush();
+    expect(calls).toBe(2); // nothing dropped, nobody notified
   });
 });

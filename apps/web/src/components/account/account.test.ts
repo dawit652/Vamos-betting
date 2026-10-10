@@ -234,7 +234,10 @@ describe('formErrors', () => {
     expect(isExclusionError(apiError(403, 'self_excluded'))).toBe(true);
     expect(isExclusionError(apiError(403, 'forbidden'))).toBe(false);
     expect(retryAfterSeconds(apiError(429, 'otp_cooldown', { retryAfterSeconds: 42 }))).toBe(42);
-    expect(retryAfterSeconds(apiError(429, 'otp_limit', { retryAfterSeconds: 42 }))).toBeNull();
+    // The hourly cap (otp_limit) also says how long to wait: a countdown, not a generic error.
+    expect(retryAfterSeconds(apiError(429, 'otp_limit', { retryAfterSeconds: 1800 }))).toBe(1800);
+    expect(retryAfterSeconds(apiError(429, 'otp_limit', { retryAfterSeconds: 9000 }))).toBe(3600);
+    expect(retryAfterSeconds(apiError(429, 'rate_limited', { retryAfterSeconds: 42 }))).toBeNull();
     expect(retryAfterSeconds(apiError(429, 'otp_cooldown', {}))).toBeNull();
   });
 });

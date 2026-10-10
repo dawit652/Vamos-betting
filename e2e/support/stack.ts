@@ -36,8 +36,9 @@ async function stackProblem(): Promise<string> {
     if (!web.ok) return `GET ${WEB_URL}/ answered ${web.status}`;
     return '';
   } catch (error) {
-    return error instanceof Error
-      ? `${error.message} (${String(error.cause ?? '')})`
-      : String(error);
+    if (!(error instanceof Error)) return String(error);
+    // fetch() failures carry the real reason (ECONNREFUSED, ...) in `cause`.
+    const cause = error.cause instanceof Error ? ` (${error.cause.message})` : '';
+    return `${error.message}${cause}`;
   }
 }

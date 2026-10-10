@@ -34,12 +34,16 @@ export function usePagedList<T extends { id: string }>(
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [generation, setGeneration] = useState(0);
-  const controller = useRef<AbortController | null>(null);
+  // The "load more" request in flight; a reload (or unmount) drops it.
+  const moreController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const abort = new AbortController();
-    controller.current?.abort();
-    controller.current = abort;
+    // A "load more" of the old list must not append to the new one, and its
+    // spinner must not outlive it (its handlers return early once aborted).
+    moreController.current?.abort();
+    moreController.current = null;
+    setLoadingMore(false);
     setLoading(true);
     setError(null);
     fetchPage(null, abort.signal).then(
@@ -61,7 +65,7 @@ export function usePagedList<T extends { id: string }>(
   const loadMore = useCallback(() => {
     if (cursor === null || loadingMore) return;
     const abort = new AbortController();
-    controller.current = abort;
+    moreController.current = abort;
     setLoadingMore(true);
     setError(null);
     fetchPage(cursor, abort.signal).then(
@@ -80,7 +84,7 @@ export function usePagedList<T extends { id: string }>(
   }, [cursor, fetchPage, loadingMore]);
 
   // A "load more" still in flight is dropped when the list goes away.
-  useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => () => moreController.current?.abort(), []);
 
   const reload = useCallback(() => setGeneration((g) => g + 1), []);
 

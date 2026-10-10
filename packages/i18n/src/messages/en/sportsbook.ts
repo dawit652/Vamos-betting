@@ -27,6 +27,23 @@ export const sportsbook = {
     halfTime: 'HT',
     fullTime: 'FT',
     htScore: 'HT {home}-{away}',
+    versus: '{home} v {away}',
+    vs: 'v',
+    /** Live period codes from the feed; an unknown code is shown as it is. */
+    period: {
+      '1H': '1st half',
+      '2H': '2nd half',
+      Q1: 'Q1',
+      Q2: 'Q2',
+      Q3: 'Q3',
+      Q4: 'Q4',
+      OT: 'Overtime',
+      S1: 'Set 1',
+      S2: 'Set 2',
+      S3: 'Set 3',
+      S4: 'Set 4',
+      S5: 'Set 5',
+    },
     status: {
       scheduled: 'Not started',
       live: 'Live',
@@ -42,6 +59,8 @@ export const sportsbook = {
     none: 'No markets are open right now.',
     suspended: 'Suspended',
     count: '{count} markets',
+    oddsLabel: '{selection}, {market}, {event}: odds {odds}',
+    oddsLabelSuspended: '{selection}, {market}, {event}: suspended',
   },
   live: {
     title: 'Live',
@@ -73,6 +92,9 @@ export const sportsbook = {
     netPayout: 'Net payout',
     capped: 'Capped at the maximum payout.',
     updating: 'Updating…',
+    quoteFailed: 'Could not update the payout.',
+    unresolved:
+      'Your last attempt got no answer. Placing again is safe: the bet cannot be placed twice.',
     oddsChanged: 'Odds have changed.',
     acceptOdds: 'Accept odds',
     removeUnavailable: 'Remove unavailable',
@@ -109,6 +131,7 @@ export const sportsbook = {
       stakeLimit: 'This bet goes over your stake limit.',
       lossLimit: 'This bet goes over your loss limit.',
       excluded: 'Your account cannot place bets right now.',
+      earlierPlaced: 'Your earlier attempt was placed. Check My Bets.',
     },
     success: {
       title: 'Bet placed',
@@ -118,6 +141,7 @@ export const sportsbook = {
       rejected: 'Rejected: the odds or the match changed. Your stake was returned.',
       done: 'Done',
       myBets: 'My Bets',
+      earlier: 'Your earlier attempt went through: this is that bet.',
     },
     booking: {
       share: 'Share',

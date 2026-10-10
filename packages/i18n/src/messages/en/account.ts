@@ -46,6 +46,7 @@ export const account = {
     accountDisabled: 'This account is disabled. Please contact support.',
     selfExcluded: 'You have self-excluded. You cannot log in until your exclusion ends.',
     coolingOff: 'You are on a cool-off break. Betting and deposits are paused until it ends.',
+    otpWait: 'Please wait {seconds} s before requesting another code.',
     registrationExpired:
       'This sign-up is no longer valid. Register again with the same number to get a new code.',
   },
@@ -130,6 +131,8 @@ export const account = {
       responsibleGambling: 'Responsible gambling',
     },
     logout: 'Log out',
+    logoutFailed:
+      'You are still logged in: logging out failed. Check your connection and try again.',
   },
   kyc: {
     title: 'Verify your identity',

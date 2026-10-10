@@ -7,6 +7,9 @@ const publicApiUrl =
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // server.mjs (the production server) compresses with brotli itself; plain
+  // `next start` (e.g. behind a CDN) keeps Next's gzip.
+  compress: process.env.VAMOS_WEB_COMPRESSION !== 'server',
   // Workspace packages ship TypeScript source.
   transpilePackages: ['@vamos/contracts', '@vamos/i18n', '@vamos/core'],
   env: {

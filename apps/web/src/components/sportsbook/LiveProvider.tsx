@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -31,6 +32,9 @@ const LiveContext = createContext<LiveStore | null>(null);
 const FLUSH_MS = 250;
 /** Live lists refresh from the server this often (new matches, finished ones). */
 const DEFAULT_REFRESH_MS = 60_000;
+/** Reopening a stream the browser gave up on (non-200 answer): 3 s, 6 s, 12 s … up to 60 s. */
+const RECONNECT_MIN_MS = 3_000;
+const RECONNECT_MAX_MS = 60_000;
 
 export function LiveProvider({
   eventIds,
@@ -53,13 +57,36 @@ export function LiveProvider({
   }, [slip]);
   const ids = eventIds.join(',');
 
+  // Where the frame sequence stood when we last asked the server for a re-render.
+  const refreshMark = useRef<number | null>(null);
+  const requestRefresh = useCallback(() => {
+    refreshMark.current = store.mark();
+    router.refresh();
+  }, [router, store]);
+
+  // New server props (a refresh, the stream's or anyone's): they are fresher
+  // than the live values received before the refresh was asked for, so those
+  // stop overriding them. `eventIds` is a new array for every server render
+  // and the same one for client re-renders, which makes it the signal.
+  useEffect(() => {
+    const mark = refreshMark.current;
+    refreshMark.current = null;
+    store.dropUpTo(mark ?? store.mark());
+    store.flush();
+  }, [eventIds, store]);
+
   useEffect(() => {
     if (ids === '' || typeof EventSource === 'undefined') return;
     const url = `${PUBLIC_API_URL}/live/stream?events=${encodeURIComponent(ids)}`;
-    const source = new EventSource(url);
-    let opened = false;
+    let source: EventSource | null = null;
+    let flushTimer: ReturnType<typeof setInterval> | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+    // Frames were (or may have been) missed: re-render from the server once connected.
+    let missed = false;
     let slipChanges = new Map<string, number>();
-    const flush = setInterval(() => {
+
+    const flush = () => {
       store.flush();
       if (slipChanges.size > 0) {
         const changes = [...slipChanges].map(([selectionId, oddsMilli]) => ({
@@ -69,7 +96,7 @@ export function LiveProvider({
         slipChanges = new Map();
         slipRef.current.updateOdds(changes);
       }
-    }, FLUSH_MS);
+    };
 
     const onFrame = (event: MessageEvent<string>) => {
       const change = parseLiveFrame(event.type, event.data);
@@ -79,32 +106,76 @@ export function LiveProvider({
         slipChanges.set(change.selectionId, change.state.oddsMilli);
       }
     };
-    source.addEventListener('odds', onFrame);
-    source.addEventListener('match', onFrame);
-    source.addEventListener('market', onFrame);
-    source.onopen = () => {
-      store.setConnected(true);
-      // Frames sent while we were away are lost: re-render from the server.
-      if (opened) router.refresh();
-      opened = true;
-    };
-    source.onerror = () => {
-      // EventSource reconnects by itself (the API suggests a 3 s retry).
-      store.setConnected(false);
-    };
-    return () => {
-      clearInterval(flush);
+
+    const disconnect = () => {
+      if (source === null) return;
       source.close();
+      source = null;
+      clearInterval(flushTimer);
+      flush();
+      missed = true;
     };
-  }, [ids, store, router]);
+
+    const connect = () => {
+      clearTimeout(retryTimer);
+      if (source !== null) return;
+      const next = new EventSource(url);
+      source = next;
+      next.addEventListener('odds', onFrame);
+      next.addEventListener('match', onFrame);
+      next.addEventListener('market', onFrame);
+      next.onopen = () => {
+        failures = 0;
+        store.setConnected(true);
+        store.flush();
+        if (missed) requestRefresh();
+        missed = false;
+      };
+      next.onerror = () => {
+        store.setConnected(false);
+        store.flush();
+        missed = true;
+        // After a network error the browser reconnects by itself (CONNECTING).
+        // A non-200 answer (503 live_unavailable, a proxy's 502 during a
+        // deploy) or a wrong content type closes the stream for good: reopen
+        // it ourselves, backing off.
+        if (next.readyState !== EventSource.CLOSED) return;
+        disconnect();
+        const delay = Math.min(RECONNECT_MIN_MS * 2 ** failures, RECONNECT_MAX_MS);
+        failures += 1;
+        retryTimer = setTimeout(connect, delay);
+      };
+      flushTimer = setInterval(flush, FLUSH_MS);
+    };
+
+    // A hidden tab gets no frames (mobile data, battery); back in view it
+    // reconnects and re-renders from the server.
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        clearTimeout(retryTimer);
+        disconnect();
+      } else {
+        connect();
+      }
+    };
+
+    if (document.visibilityState === 'hidden') missed = true;
+    else connect();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearTimeout(retryTimer);
+      disconnect();
+    };
+  }, [ids, store, requestRefresh]);
 
   useEffect(() => {
     if (refreshMs <= 0) return;
     const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') router.refresh();
+      if (document.visibilityState === 'visible') requestRefresh();
     }, refreshMs);
     return () => clearInterval(timer);
-  }, [refreshMs, router]);
+  }, [refreshMs, requestRefresh]);
 
   return <LiveContext value={store}>{children}</LiveContext>;
 }

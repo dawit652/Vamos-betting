@@ -31,6 +31,15 @@ export function eventName(selection: Pick<SelectionSnapshot, 'homeTeam' | 'awayT
   return `${selection.homeTeam.en} vs ${selection.awayTeam.en}`;
 }
 
+/** A team's name as a wire LocalizedName (only the languages it has). */
+function teamName(name: SelectionSnapshot['homeTeam']): LocalizedNameValue {
+  const out: LocalizedNameValue = { en: name.en };
+  if (name.am !== undefined) out.am = name.am;
+  if (name.om !== undefined) out.om = name.om;
+  if (name.ti !== undefined) out.ti = name.ti;
+  return out;
+}
+
 /** The market type's display name; an unknown type falls back to its code. */
 export function marketName(selection: Pick<SelectionSnapshot, 'marketType'>): LocalizedNameValue {
   const type = selection.marketType;
@@ -141,6 +150,8 @@ export function betLegView(leg: UserBetLeg): BetLegView {
     gameId: formatGameId(selection.gameId),
     sport: selection.sportId,
     eventName: eventName(selection),
+    homeTeam: teamName(selection.homeTeam),
+    awayTeam: teamName(selection.awayTeam),
     startTime: selection.startTime.toISOString(),
     marketName: marketName(selection),
     selectionName: selectionName(selection),

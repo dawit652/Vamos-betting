@@ -57,6 +57,7 @@ export const common: Messages['common'] = {
   },
   language: {
     label: 'ቋንቋ',
+    switchTo: 'ወደ {language} ቀይር',
     unreviewed: 'ትርጉሙ ገና አልተገመገመም',
   },
   errors: {

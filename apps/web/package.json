@@ -2,12 +2,12 @@
   "name": "@vamos/web",
   "version": "0.1.0",
   "private": true,
-  "description": "Vamos player PWA \u2013 Betika-style lite mobile web",
+  "description": "Vamos player PWA – Betika-style lite mobile web",
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
-    "start": "next start --port 3000",
+    "start": "PORT=${PORT:-3000} node server.mjs",
     "typecheck": "next typegen && tsc -p tsconfig.json",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
@@ -17,6 +17,7 @@
     "@vamos/contracts": "workspace:*",
     "@vamos/core": "workspace:*",
     "@vamos/i18n": "workspace:*",
+    "compression": "1.8.1",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"

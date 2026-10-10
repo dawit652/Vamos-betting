@@ -13,7 +13,7 @@ inbox on) and the web app answer, and fails with the start-up commands otherwise
 pnpm services:start                 # Postgres + Redis (or docker compose)
 pnpm db:migrate && pnpm db:seed
 e2e/scripts/stack.sh build          # API + worker (tsup), web (next build)
-e2e/scripts/stack.sh start          # API :4000, worker (fast simulator), web via next start :3000
+e2e/scripts/stack.sh start          # API :4000, worker (fast simulator), web via server.mjs :3000
 pnpm e2e                            # all specs (about 2–5 min, mostly waiting for kick-off)
 e2e/scripts/stack.sh stop
 ```
@@ -27,11 +27,11 @@ Single specs: `pnpm --filter @vamos/e2e e2e:flow` (bet flow), `pnpm --filter @va
 
 ## Specs
 
-| Spec                   | What                                                                                                                                                                                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `smoke.spec.ts`        | Amharic by default, DEMO notice in both launch languages                                                                                                                                                                             |
-| `bet-flow.spec.ts`     | Register → OTP from `GET /dev/sms` → verify → ETB 1,000 top-up → one pick from each of the 3 soonest fixtures (≥ 60 s ahead) → place a ETB 50 multi → My Bets (open) → simulator plays, worker settles → balance and My Bets (settled) |
-| `budget.spec.ts`       | Bytes transferred by a cold first load of `/` (production build only; skipped against `next dev`). Fails above the budget; see the comment in the spec for the measured weight and why the budget is above the 150 KB target         |
+| Spec               | What                                                                                                                                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `smoke.spec.ts`    | Amharic by default, DEMO notice in both launch languages                                                                                                                                                                               |
+| `bet-flow.spec.ts` | Register → OTP from `GET /dev/sms` → verify → ETB 1,000 top-up → one pick from each of the 3 soonest fixtures (≥ 60 s ahead) → place a ETB 50 multi → My Bets (open) → simulator plays, worker settles → balance and My Bets (settled) |
+| `budget.spec.ts`   | Bytes transferred by a cold first load of `/` (production build only; skipped against `next dev`). Fails above the budget; see the comment in the spec for the measured weight (about 150 KB with the brotli server)                   |
 
 ## Helpers (`support/`)
 

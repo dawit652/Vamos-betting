@@ -128,13 +128,19 @@ export function AccountOverview() {
   const router = useRouter();
   const session = useSession();
   const [leaving, setLeaving] = useState(false);
+  const [logoutFailed, setLogoutFailed] = useState(false);
   const me = session.me;
   if (me === null) return null;
 
   const logout = async () => {
     setLeaving(true);
-    await session.logout();
-    router.replace(routes.home);
+    setLogoutFailed(false);
+    if (await session.logout()) {
+      router.replace(routes.home);
+      return;
+    }
+    setLeaving(false);
+    setLogoutFailed(true);
   };
 
   const exclusion = me.exclusion;
@@ -182,6 +188,7 @@ export function AccountOverview() {
         </ul>
       </nav>
 
+      {logoutFailed ? <Alert>{t('account.overview.logoutFailed')}</Alert> : null}
       <button
         type="button"
         className="btn btn-outline w-full text-down"

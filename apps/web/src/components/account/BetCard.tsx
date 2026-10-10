@@ -16,7 +16,12 @@ export function BetLegLine({ leg, detailed = false }: { leg: BetLegView; detaile
   return (
     <li className="flex items-start justify-between gap-2 py-1.5">
       <div className="min-w-0">
-        <p className="truncate font-semibold">{leg.eventName}</p>
+        <p className="truncate font-semibold">
+          {t('sportsbook.match.versus', {
+            home: localName(leg.homeTeam, locale),
+            away: localName(leg.awayTeam, locale),
+          })}
+        </p>
         <p className="text-xs text-muted">
           {localName(leg.marketName, locale)}:{' '}
           <span className="font-semibold text-ink">{localName(leg.selectionName, locale)}</span>

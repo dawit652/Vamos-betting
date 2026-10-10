@@ -6,17 +6,17 @@ import { expect, test } from '@playwright/test';
  * anonymous visitor on a phone, until the network is idle. Router prefetches
  * of other pages are speculative and reported separately, not counted.
  *
- * The plan's target is 150 KB, but the Next 16 + React 19 runtime alone is
- * about 135 KB (gzip) of it. Measured on 10 Oct 2026 against `next start`
- * (gzip, no brotli): 176.5 KB = JS 151.2 KB + HTML 18.5 KB + CSS 6.8 KB, in
- * 12 requests (headers included). Brotli at the edge would save about 25 KB.
- * So the budget is the measurement plus 10%: the check catches growth
- * instead of failing on the framework. Lower it when the page gets lighter;
- * raise it only with a reason. The HTML grows with the number of listed
- * matches (about 0.5 KB per row, 20 rows per tab).
+ * The plan's target is 150 KB. The Next 16 + React 19 runtime is about 110 KB
+ * of it even with brotli, so the web app runs behind apps/web/server.mjs
+ * (next start plus brotli: static JS/CSS at maximum quality, pages at a fast
+ * level). Measured on 10 Oct 2026 against server.mjs: 149.8 KB = JS 129.4 KB +
+ * HTML 14.8 KB + CSS 5.7 KB, in 12 requests (headers included); with plain
+ * `next start` (gzip) it was 179 KB. The budget leaves a little room for the
+ * HTML, which grows with the listed matches (about 0.4 KB per row, 20 rows
+ * per tab). Lower it when the page gets lighter; raise it only with a reason.
  */
 const TARGET_BYTES = 150 * 1024;
-const BUDGET_BYTES = 195 * 1024; // measured 176.5 KB + 10%, rounded up
+const BUDGET_BYTES = 160 * 1024; // measured 149.8 KB, plus room for more or longer rows
 
 interface Transfer {
   url: string;

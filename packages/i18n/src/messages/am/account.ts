@@ -41,6 +41,7 @@ export const account: Messages['account'] = {
     accountDisabled: 'ይህ መለያ ታግዷል። እባክዎ የደንበኞች አገልግሎትን ያነጋግሩ።',
     selfExcluded: 'ራስዎን አግልለዋል። የማግለያ ጊዜው እስኪያበቃ ድረስ መግባት አይችሉም።',
     coolingOff: 'በእረፍት ጊዜ ላይ ነዎት። እረፍቱ እስኪያበቃ ድረስ ውርርድና ገንዘብ ማስገባት ተቋርጠዋል።',
+    otpWait: 'ሌላ ኮድ ከመጠየቅዎ በፊት {seconds} ሰከንድ ይጠብቁ።',
     registrationExpired: 'ይህ ምዝገባ ከአሁን በኋላ አያገለግልም። አዲስ ኮድ ለማግኘት በዚሁ ቁጥር እንደገና ይመዝገቡ።',
   },
   demo: {
@@ -125,6 +126,7 @@ export const account: Messages['account'] = {
       responsibleGambling: 'ኃላፊነት የተሞላበት ውርርድ',
     },
     logout: 'ውጣ',
+    logoutFailed: 'አሁንም ገብተዋል፦ መውጣት አልተሳካም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።',
   },
   kyc: {
     title: 'ማንነትዎን ያረጋግጡ',

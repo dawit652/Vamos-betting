@@ -16,10 +16,13 @@ const loadEvent = cache((id: string) => getEvent(id));
 
 export async function generateMetadata(props: PageProps<'/event/[id]'>): Promise<Metadata> {
   const { id } = await props.params;
-  const [event, locale] = await Promise.all([loadEvent(id), getLocale()]);
+  const [event, locale, t] = await Promise.all([loadEvent(id), getLocale(), getT()]);
   if (event === null) return {};
   return {
-    title: `${localName(event.home.name, locale)} v ${localName(event.away.name, locale)}`,
+    title: t('sportsbook.match.versus', {
+      home: localName(event.home.name, locale),
+      away: localName(event.away.name, locale),
+    }),
   };
 }
 
@@ -63,7 +66,7 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
                 <LiveScore eventId={event.id} side="away" initial={event.score?.away ?? 0} />
               </span>
             ) : (
-              <span className="text-sm opacity-80">v</span>
+              <span className="text-sm opacity-80">{t('sportsbook.match.vs')}</span>
             )}
           </span>
           <span className="break-words">{away}</span>

@@ -2,8 +2,9 @@ import Link from 'next/link';
 import { getT } from '@/i18n/server';
 import { routes } from '@/lib/routes';
 import { HeaderAccount } from './HeaderAccount';
+import { LocaleToggle } from './LocaleSwitcher';
 
-/** Dark green top bar: logo, then balance (signed in) or log in / register. */
+/** Dark green top bar: logo, language toggle, then balance (signed in) or log in / register. */
 export async function Header() {
   const t = await getT();
   return (
@@ -20,6 +21,7 @@ export async function Header() {
           {t('common.demo.badge')}
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <LocaleToggle />
           <HeaderAccount />
         </div>
       </div>

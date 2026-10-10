@@ -94,12 +94,20 @@ export function parseLiveFrame(type: string, data: string): LiveChange | null {
  * The latest live state. `apply` records a change; listeners are notified
  * once per `flush` (the provider batches frames so a burst of odds ticks
  * re-renders once).
+ *
+ * Live values win over the server-rendered ones they patch, so they must not
+ * outlive fresher server data: every value carries the sequence number of the
+ * frame that set it, the provider takes a `mark()` when it asks the server for
+ * a re-render, and calls `dropUpTo(mark)` when the new server props arrive.
+ * Values from frames received after the mark are newer than that render and
+ * stay; older ones are dropped, so the server's values show again.
  */
 export class LiveStore {
-  private readonly odds = new Map<string, OddsState>();
-  private readonly markets = new Map<string, MarketStatus>();
-  private readonly matches = new Map<string, MatchState>();
+  private readonly odds = new Map<string, { value: OddsState; seq: number }>();
+  private readonly markets = new Map<string, { value: MarketStatus; seq: number }>();
+  private readonly matches = new Map<string, { value: MatchState; seq: number }>();
   private readonly listeners = new Set<() => void>();
+  private seq = 0;
   private dirty = false;
   private online = true;
 
@@ -111,15 +119,15 @@ export class LiveStore {
   };
 
   getOdds(selectionId: string): OddsState | undefined {
-    return this.odds.get(selectionId);
+    return this.odds.get(selectionId)?.value;
   }
 
   getMarket(marketId: string): MarketStatus | undefined {
-    return this.markets.get(marketId);
+    return this.markets.get(marketId)?.value;
   }
 
   getMatch(eventId: string): MatchState | undefined {
-    return this.matches.get(eventId.toLowerCase());
+    return this.matches.get(eventId.toLowerCase())?.value;
   }
 
   get connected(): boolean {
@@ -127,18 +135,36 @@ export class LiveStore {
   }
 
   apply(change: LiveChange): void {
+    const seq = ++this.seq;
     switch (change.type) {
       case 'odds':
-        this.odds.set(change.selectionId, change.state);
+        this.odds.set(change.selectionId, { value: change.state, seq });
         break;
       case 'market':
-        this.markets.set(change.marketId, change.status);
+        this.markets.set(change.marketId, { value: change.status, seq });
         break;
       case 'match':
-        this.matches.set(change.eventId, change.state);
+        this.matches.set(change.eventId, { value: change.state, seq });
         break;
     }
     this.dirty = true;
+  }
+
+  /** A point in the frame sequence: values applied so far are at or before it. */
+  mark(): number {
+    return this.seq;
+  }
+
+  /** Drops the values set at or before `mark` (the server's props are fresher than them). */
+  dropUpTo(mark: number): void {
+    for (const map of [this.odds, this.markets, this.matches] as Map<string, { seq: number }>[]) {
+      for (const [key, entry] of map) {
+        if (entry.seq <= mark) {
+          map.delete(key);
+          this.dirty = true;
+        }
+      }
+    }
   }
 
   setConnected(connected: boolean): void {

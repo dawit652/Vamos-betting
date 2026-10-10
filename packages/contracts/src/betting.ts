@@ -140,7 +140,11 @@ export const BetLegView = z.object({
   eventId: z.string(),
   gameId: z.string(),
   sport: SportCodeSchema,
+  /** "Home vs Away" in English (kept for older clients; show `homeTeam` / `awayTeam`). */
   eventName: z.string(),
+  /** The teams' names in every language the catalogue has (render with the player's locale). */
+  homeTeam: LocalizedNameSchema,
+  awayTeam: LocalizedNameSchema,
   startTime: z.string(),
   marketName: LocalizedNameSchema,
   selectionName: LocalizedNameSchema,

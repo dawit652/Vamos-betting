@@ -1,4 +1,5 @@
 import type { EventSummary, MarketView, SelectionView } from '@vamos/contracts';
+import type { MessageKey } from '@vamos/i18n/translate';
 import type { NewSlipLeg } from '@/lib/betslip/state';
 
 /**
@@ -133,6 +134,31 @@ export function matchClock(input: {
     return { kind: 'period', period: input.period };
   }
   return { kind: 'none' };
+}
+
+/** Period codes of the feed that have a translation (sportsbook.match.period.*). */
+const PERIOD_CODES = [
+  '1H',
+  '2H',
+  'Q1',
+  'Q2',
+  'Q3',
+  'Q4',
+  'OT',
+  'S1',
+  'S2',
+  'S3',
+  'S4',
+  'S5',
+] as const;
+type PeriodCode = (typeof PERIOD_CODES)[number];
+
+/** The message for a live period code ("Q2" → "2ኛ ሩብ" in Amharic); null for an unknown code. */
+export function periodMessageKey(period: string): MessageKey | null {
+  const code = period.toUpperCase();
+  return (PERIOD_CODES as readonly string[]).includes(code)
+    ? (`sportsbook.match.period.${code as PeriodCode}` as const)
+    : null;
 }
 
 /** Live-stream filter ids: unique, at most the API's 50. */

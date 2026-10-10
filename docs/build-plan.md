@@ -14,7 +14,7 @@ research is in `docs/research/`.
 | 2     | Database, accounts, ledger, auth, KYC, RG, wallet             | Done        | `2131ee7`, `d26120d`            |
 | 3     | Sports catalogue, odds feed, live simulator, trading services | Done        | `0c02e89`, `e381576`, `f80ccf5` |
 | 4     | Betslip, bet placement, booking codes, settlement             | Done        | `a04beab` … `0af1dca` + fixes   |
-| 5     | Player web app (Betika-style lite PWA), the demo MVP          | Not started |                                 |
+| 5     | Player web app (Betika-style lite PWA), the demo MVP          | Done        |                                 |
 | 6     | Payments: deposits and withdrawals                            | Not started |                                 |
 | 7     | Live betting and cash-out                                     | Not started |                                 |
 | 8     | Jackpots and promotions                                       | Not started |                                 |
@@ -23,8 +23,10 @@ research is in `docs/research/`.
 | 11    | SMS/USSD channel (feature-flagged)                            | Not started |                                 |
 | 12    | Hardening and deployment                                      | Not started |                                 |
 
-Phase 4 was finished on 9 Oct 2026 after an adversarial review (21 confirmed findings, all fixed). Format,
-lint, typecheck, build and every test pass.
+Phase 5 (the demo MVP) was finished on 10 Oct 2026 after an adversarial review (19 confirmed findings,
+all fixed). Format, lint, typecheck, build, every unit test and the Playwright e2e suite pass. The e2e
+suite covers register, OTP, demo top-up, a 3-leg bet, settlement and My Bets
+(`bash e2e/scripts/stack.sh start && pnpm e2e`).
 
 | Package | Tests |
 | ------- | ----- |
@@ -33,8 +35,9 @@ lint, typecheck, build and every test pass.
 | feed    | 143   |
 | worker  | 58    |
 | api     | 226   |
-| config  | 10    |
-| i18n    | 3     |
+| config  | 12    |
+| i18n    | 9     |
+| web     | 96    |
 
 ## Legal context (do not change)
 
@@ -245,7 +248,9 @@ score, previous?}`. It also returns `'unchanged'` when nothing changed. The serv
   channel, `waitForMessages`). Tests call the `run*` functions directly, for example
   `runLiveSimTick(t.ctx, {simSpeed: 10, ...})`.
 - **Speed knob.** `SIM_SPEED` (simulated minutes per real second). At 10, a football match takes about
-  11 s. The rolling-fixture interval (5 min) has no env knob yet.
+  11 s. Rolling demo fixtures: `FEED_ROLLING_EVERY_MINUTES` (default 5) and
+  `FEED_ROLLING_HORIZON_MINUTES` (default 120), read by `@vamos/config` (`config.feed.rolling`) and
+  passed to `feedIngest.rolling` in `main.ts`. e2e uses 60 / 1 / 10.
 
 ### Front ends and e2e
 
@@ -253,8 +258,12 @@ score, previous?}`. It also returns `'unchanged'` when nothing changed. The serv
   `useT`, `vamos_locale` cookie, namespaced messages in `packages/i18n`), the typed API client, the
   session context, the betslip store and the PWA files. Conventions are in `apps/web/README.md`.
 - **`apps/admin`** is a Next.js 16 / React 19 scaffold: a layout, one page and the demo banner.
-- **`e2e`** has `@playwright/test` 1.56.1, a mobile Chromium project and one smoke test. Its tsconfig
-  lists a `support/` folder that does not exist. CI does not run e2e.
+- **`e2e`** has `@playwright/test` 1.56.1 and a mobile Chromium project: smoke tests, the full bet
+  flow (register → OTP → top-up → 3-leg multi → settled) and the home page-weight budget. Helpers
+  are in `e2e/support/`; `e2e/scripts/stack.sh` builds and starts the API, the worker with the fast
+  simulator (`SIM_SPEED`, `FEED_ROLLING_EVERY_MINUTES`, `FEED_ROLLING_HORIZON_MINUTES`) and
+  `apps/web/server.mjs` (`next start` plus brotli, the production server). CI runs it in the `e2e`
+  job. See `e2e/README.md`.
 
 ## Business defaults
 

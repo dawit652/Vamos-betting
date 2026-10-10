@@ -9,6 +9,8 @@ import { useLocale, useT } from '@/i18n/client';
 import { bettingApi } from '@/lib/api/betting';
 import { errorMessageKey, isApiClientError } from '@/lib/api/errors';
 import { newIdempotencyKey } from '@/lib/api/idempotency';
+import { placeOnce, sameSelections } from '@/lib/betslip/placement';
+import { getPlacement, setPlacement, usePendingPlacement } from '@/lib/betslip/placement-store';
 import { formatOddsMilli, formatSantim, formatTotalOdds } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes } from '@/lib/routes';
@@ -20,7 +22,6 @@ import {
   oddsChangesFromDetails,
   PLACE_BET_ERROR_KEYS,
   placeBetRequest,
-  placementFingerprint,
   policyCoversChanges,
   QUICK_STAKES,
   slipErrorKey,
@@ -36,6 +37,11 @@ import { useSlipQuote } from './useSlipQuote';
  * opens. Legs with remove, stake with quick stakes, a live quote (total odds,
  * potential win, multi bonus, tax, net payout), odds-change handling, bet
  * placement with an idempotency key, and booking codes.
+ *
+ * The placement key lives outside this component (module state +
+ * sessionStorage, src/lib/betslip/placement-store.ts): the drawer unmounts
+ * when it closes. See src/lib/betslip/placement.ts for why a retry can never
+ * place a bet twice.
  */
 
 const POLICIES: readonly OddsChangePolicy[] = ['none', 'higher', 'any'];
@@ -52,13 +58,21 @@ function loginHref(): string {
 interface PlaceError {
   key: MessageKey;
   topUp: boolean;
+  /** Link to My Bets (the bet was placed by an earlier attempt). */
+  myBets?: boolean;
+}
+
+interface Placed {
+  bet: BetView;
+  /** The bet comes from an earlier attempt whose answer was lost. */
+  earlier: boolean;
 }
 
 export default function BetslipDrawer() {
   const t = useT();
   const slip = useBetslip();
   const panelRef = useRef<HTMLDivElement>(null);
-  const [placed, setPlaced] = useState<BetView | null>(null);
+  const [placed, setPlaced] = useState<Placed | null>(null);
 
   const { close } = slip;
   useEffect(() => {
@@ -113,9 +127,9 @@ export default function BetslipDrawer() {
         </header>
         <div className="overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
           {placed !== null ? (
-            <PlacedBet bet={placed} onDone={close} />
+            <PlacedBet bet={placed.bet} earlier={placed.earlier} onDone={close} />
           ) : (
-            <SlipBody onPlaced={setPlaced} />
+            <SlipBody onPlaced={(bet, earlier) => setPlaced({ bet, earlier })} />
           )}
         </div>
       </div>
@@ -123,7 +137,7 @@ export default function BetslipDrawer() {
   );
 }
 
-function SlipBody({ onPlaced }: { onPlaced: (bet: BetView) => void }) {
+function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => void }) {
   const t = useT();
   const locale = useLocale();
   const router = useRouter();
@@ -140,7 +154,6 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView) => void }) {
   const [placeUnavailable, setPlaceUnavailable] = useState<ReadonlyMap<string, UnavailableReason>>(
     new Map(),
   );
-  const intent = useRef<{ fingerprint: string; key: string } | null>(null);
 
   // A fresh quote supersedes what a failed placement reported.
   useEffect(() => {
@@ -151,6 +164,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView) => void }) {
   const unavailableLegs = slip.legs.filter((leg) => unavailable.has(leg.selectionId));
   const needsAccept = slip.oddsChanged && !policyCoversChanges(slip.oddsChangePolicy, slip.legs);
   const quoteErrors = quote?.errors ?? [];
+  const unresolved = (usePendingPlacement()?.unresolved.length ?? 0) > 0;
 
   const setStakeFromText = (text: string) => {
     setStakeText(text);
@@ -167,45 +181,55 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView) => void }) {
     }
     if (stake === null || slip.count === 0) return;
     const body = placeBetRequest(slip.legs, stake, slip.oddsChangePolicy);
-    const fingerprint = placementFingerprint(body);
-    // One key per intent: a retry of the same slip reuses it, a changed slip gets a new one.
-    if (intent.current?.fingerprint !== fingerprint) {
-      intent.current = { fingerprint, key: newIdempotencyKey('bet') };
-    }
     setPlacing(true);
     setPlaceError(null);
-    try {
-      const bet = await bettingApi.place(body, intent.current.key);
-      intent.current = null;
-      slip.clear();
-      onPlaced(bet);
+    // One key until a bet comes back for it, whatever changed since the last
+    // attempt (odds, legs, stake); see src/lib/betslip/placement.ts.
+    const result = await placeOnce({
+      body,
+      pending: getPlacement(),
+      newKey: () => newIdempotencyKey('bet'),
+      send: (request, key) => bettingApi.place(request, key),
+      save: setPlacement,
+    });
+    setPlacing(false);
+
+    if (result.kind === 'placed') {
+      if (result.earlier === null || sameSelections(result.earlier, slip.legs, slip.stake)) {
+        slip.clear();
+      }
+      onPlaced(result.bet, result.earlier !== null);
       void session.refreshWallet();
-    } catch (error) {
-      if (isApiClientError(error)) {
-        if (error.status === 401) {
-          slip.close();
-          router.push(loginHref());
+      return;
+    }
+    if (result.kind === 'placedEarlier') {
+      setPlaceError({ key: 'sportsbook.betslip.errors.earlierPlaced', topUp: false, myBets: true });
+      void session.refreshWallet();
+      return;
+    }
+    const { error } = result;
+    if (isApiClientError(error)) {
+      if (error.status === 401) {
+        slip.close();
+        router.push(loginHref());
+        return;
+      }
+      if (error.code === 'odds_changed') {
+        slip.updateOdds(oddsChangesFromDetails(error.details));
+      } else if (error.code === 'selection_unavailable') {
+        setPlaceUnavailable(unavailableFromDetails(error.details));
+      } else if (error.code === 'slip_invalid') {
+        const [first] = slipErrorsFromDetails(error.details);
+        if (first !== undefined) {
+          setPlaceError({ key: slipErrorKey(first.code), topUp: false });
           return;
         }
-        if (error.code === 'odds_changed') {
-          slip.updateOdds(oddsChangesFromDetails(error.details));
-        } else if (error.code === 'selection_unavailable') {
-          setPlaceUnavailable(unavailableFromDetails(error.details));
-        } else if (error.code === 'slip_invalid') {
-          const [first] = slipErrorsFromDetails(error.details);
-          if (first !== undefined) {
-            setPlaceError({ key: slipErrorKey(first.code), topUp: false });
-            return;
-          }
-        }
       }
-      setPlaceError({
-        key: errorMessageKey(error, PLACE_BET_ERROR_KEYS),
-        topUp: isApiClientError(error) && error.code === 'insufficient_funds',
-      });
-    } finally {
-      setPlacing(false);
     }
+    setPlaceError({
+      key: errorMessageKey(error, PLACE_BET_ERROR_KEYS),
+      topUp: isApiClientError(error) && error.code === 'insufficient_funds',
+    });
   }
 
   if (slip.count === 0) {
@@ -221,6 +245,8 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView) => void }) {
     !placing &&
     stake !== null &&
     unavailableLegs.length === 0 &&
+    // Only with a quote for these selections and stake: the player sees what they bet.
+    quote !== null &&
     quoteErrors.length === 0 &&
     session.status !== 'loading';
 
@@ -254,8 +280,11 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView) => void }) {
                 </p>
                 <p className="truncate text-xxs text-muted">{localName(leg.marketName, locale)}</p>
                 <p className="truncate text-xxs text-muted">
-                  {localName(leg.home, locale)} v {localName(leg.away, locale)} ·{' '}
-                  {t('sportsbook.list.gameId', { id: leg.gameId })}
+                  {t('sportsbook.match.versus', {
+                    home: localName(leg.home, locale),
+                    away: localName(leg.away, locale),
+                  })}{' '}
+                  · {t('sportsbook.list.gameId', { id: leg.gameId })}
                 </p>
                 {reason !== undefined ? (
                   <p className="text-xxs font-semibold text-down">
@@ -386,6 +415,18 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView) => void }) {
         <p aria-live="polite" className="min-h-4 text-xxs text-muted">
           {quoteState.pending ? t('sportsbook.betslip.updating') : ''}
         </p>
+        {quoteState.error !== null && !quoteState.pending ? (
+          <p role="alert" className="flex items-center justify-between gap-2 text-xs text-down">
+            <span className="font-semibold">{t('sportsbook.betslip.quoteFailed')}</span>
+            <button
+              type="button"
+              className="btn btn-outline min-h-8 px-3 text-xs"
+              onClick={quoteState.retry}
+            >
+              {t('common.actions.retry')}
+            </button>
+          </p>
+        ) : null}
         {quoteErrors.length > 0 ? (
           <ul className="space-y-0.5 text-xs font-semibold text-down">
             {[...new Set(quoteErrors.map((error) => slipErrorKey(error.code)))].map((key) => (
@@ -426,7 +467,21 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView) => void }) {
               {t('sportsbook.betslip.topUp')}
             </Link>
           ) : null}
+          {placeError.myBets === true ? (
+            <Link
+              href={routes.myBets}
+              prefetch={false}
+              onClick={slip.close}
+              className="ml-2 text-brand underline"
+            >
+              {t('sportsbook.betslip.success.myBets')}
+            </Link>
+          ) : null}
         </div>
+      ) : unresolved && !placing ? (
+        <p role="status" className="px-1 text-xs text-muted">
+          {t('sportsbook.betslip.unresolved')}
+        </p>
       ) : null}
 
       {session.status === 'anonymous' ? (
@@ -482,7 +537,15 @@ function SummaryRow({
 }
 
 /** After placement: the bet's short id and, for a live bet, its acceptance. */
-function PlacedBet({ bet: initial, onDone }: { bet: BetView; onDone: () => void }) {
+function PlacedBet({
+  bet: initial,
+  earlier,
+  onDone,
+}: {
+  bet: BetView;
+  earlier: boolean;
+  onDone: () => void;
+}) {
   const t = useT();
   const { refreshWallet } = useSession();
   const [bet, setBet] = useState(initial);
@@ -520,6 +583,9 @@ function PlacedBet({ bet: initial, onDone }: { bet: BetView; onDone: () => void 
           ✓
         </p>
         <p className="text-lg font-bold">{t('sportsbook.betslip.success.title')}</p>
+        {earlier ? (
+          <p className="text-xs text-muted">{t('sportsbook.betslip.success.earlier')}</p>
+        ) : null}
         <p className="font-mono text-sm font-semibold">
           {t('sportsbook.betslip.success.betId', { id: bet.shortId })}
         </p>

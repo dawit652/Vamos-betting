@@ -7,7 +7,6 @@ import {
   legsFromBooking,
   oddsChangesFromDetails,
   placeBetRequest,
-  placementFingerprint,
   policyCoversChanges,
   QUICK_STAKES,
   quoteOddsChanges,
@@ -111,16 +110,6 @@ describe('slip → requests', () => {
     expect(bookingCodeRequest(legs)).toEqual({
       legs: [{ selectionId: 'a' }, { selectionId: 'b' }],
     });
-  });
-
-  it('keeps one placement fingerprint per intent', () => {
-    const a = placementFingerprint(placeBetRequest(legs, '5000', 'higher'));
-    expect(placementFingerprint(placeBetRequest(legs, '5000', 'higher'))).toBe(a);
-    expect(placementFingerprint(placeBetRequest(legs, '5001', 'higher'))).not.toBe(a);
-    expect(placementFingerprint(placeBetRequest(legs, '5000', 'any'))).not.toBe(a);
-    expect(
-      placementFingerprint(placeBetRequest([leg('a', 1860), legs[1]!], '5000', 'higher')),
-    ).not.toBe(a);
   });
 });
 

@@ -59,6 +59,7 @@ export const common = {
   },
   language: {
     label: 'Language',
+    switchTo: 'Switch to {language}',
     unreviewed: 'Translation not yet reviewed',
   },
   errors: {

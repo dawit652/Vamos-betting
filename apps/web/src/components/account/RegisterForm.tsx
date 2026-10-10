@@ -9,7 +9,7 @@ import { authApi } from '@/lib/api/account';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { formatBirthDate } from './dates';
-import { formErrors } from './errors';
+import { formErrors, retryAfterSeconds } from './errors';
 import { PasswordInput, PhoneInput } from './inputs';
 import { accountPaths, loginHref } from './paths';
 import { setPendingRegistration } from './pending';
@@ -51,6 +51,8 @@ export function RegisterForm({ next }: { next: string }) {
   const [fields, setFields] = useState<FieldErrors<RegisterField>>({});
   const [formError, setFormError] = useState<MessageKey | null>(null);
   const [busy, setBusy] = useState(false);
+  // Seconds until the API sends another code (after a 429 otp_cooldown / otp_limit).
+  const [cooldown, setCooldown] = useState(0);
   // The date input's max (the latest birth date that is 21 today), set after mount
   // so server and client render the same markup.
   const [maxBirthDate, setMaxBirthDate] = useState<string | null>(null);
@@ -60,12 +62,18 @@ export function RegisterForm({ next }: { next: string }) {
   }, []);
 
   useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  useEffect(() => {
     if (session.status === 'authenticated') router.replace(next);
   }, [session.status, next, router]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy) return;
+    if (busy || cooldown > 0) return;
     const local = validateRegister({ phone, password, dateOfBirth, acceptTerms }, new Date());
     setFields(local);
     setFormError(null);
@@ -90,6 +98,14 @@ export function RegisterForm({ next }: { next: string }) {
       });
       router.push(accountPaths.verify);
     } catch (error) {
+      // Registering again soon after a first try (e.g. the verify page was
+      // reloaded) hits the SMS cooldown: say how long to wait, then allow it.
+      const wait = retryAfterSeconds(error);
+      if (wait !== null) {
+        setCooldown(wait);
+        setBusy(false);
+        return;
+      }
       const result = formErrors<RegisterField>(error, ERRORS);
       setFields(result.fields);
       setFormError(result.form);
@@ -103,6 +119,9 @@ export function RegisterForm({ next }: { next: string }) {
     <form noValidate onSubmit={submit} className="card mx-3 space-y-3">
       <p className="text-muted">{t('account.register.intro')}</p>
       {formError ? <Alert>{t(formError)}</Alert> : null}
+      {cooldown > 0 ? (
+        <Alert tone="info">{t('account.errors.otpWait', { seconds: cooldown })}</Alert>
+      ) : null}
       <Field
         id="reg-phone"
         label={t('account.fields.phone')}
@@ -187,7 +206,7 @@ export function RegisterForm({ next }: { next: string }) {
           {t('account.register.readTerms')}
         </Link>
       </div>
-      <button type="submit" className="btn btn-accent w-full" disabled={busy}>
+      <button type="submit" className="btn btn-accent w-full" disabled={busy || cooldown > 0}>
         {busy ? t('common.actions.loading') : t('account.register.submit')}
       </button>
       <p className="text-center text-xs text-muted">{t('account.register.playMoney')}</p>

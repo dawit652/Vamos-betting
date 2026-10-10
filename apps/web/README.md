@@ -93,12 +93,15 @@ The sport chips show on `/`, `/sport/*` and `/live*` (see `sportFromPath`). Spor
   and an optional `idempotency-key`:
 
   ```ts
-  import type { BetView, PlaceBetRequest } from '@vamos/contracts'; // types only: no zod in the bundle
-  const key = useRef(newIdempotencyKey('bet')); // one key per intent, reused on retry
-  const bet = await api.post<BetView>('/bets', body satisfies PlaceBetRequest, {
-    idempotencyKey: key.current,
-  });
+  import type { WalletResponse } from '@vamos/contracts'; // types only: no zod in the bundle
+  const key = useRef(newIdempotencyKey('topup')); // one key per intent, reused on retry
+  await api.post<WalletResponse>('/wallet/demo-topup', body, { idempotencyKey: key.current });
   ```
+
+  A key must outlive whatever may unmount before the answer is known (a drawer, a page). Bet
+  placement keeps its key outside the drawer (`src/lib/betslip/placement-store.ts`, module state +
+  sessionStorage) until a bet comes back for it, whatever the network, the odds or the player did
+  in between; `placeOnce` in `src/lib/betslip/placement.ts` explains why that rules out a double bet.
 
 - Failures reject with `ApiClientError` (`status`, `code`, `message`, `details`; `status 0` with
   `network_error` / `timeout` when there was no answer). Show it with `t(errorMessageKey(error, overrides))`, where `overrides` maps your codes to keys,
@@ -114,8 +117,11 @@ The sport chips show on `/`, `/sport/*` and `/live*` (see `sportFromPath`). Spor
 
 `const { status, me, wallet, refresh, refreshWallet, logout } = useSession()` from
 `@/providers/SessionProvider`. `status` is `loading | anonymous | authenticated`. Call `refresh()` after
-login, OTP verification or logout, and `refreshWallet()` after anything that moves money (bet placed,
-demo top-up). No `vamos_csrf` cookie means anonymous without any request.
+login or OTP verification, and `refreshWallet()` after anything that moves money (bet placed,
+demo top-up). No `vamos_csrf` cookie means anonymous without any request. `logout()` resolves `false`
+when the API did not confirm it (no connection, 5xx, 403): the session is still valid then, so the
+UI stays signed in and shows an error instead of a false signed-out state. When the browser has no
+`vamos_locale` cookie, a signed-in player's profile language is applied.
 
 ## Money and odds
 
@@ -154,10 +160,14 @@ Tailwind CSS v4; tokens in `src/app/globals.css` (`@theme`): `bg-brand` (dark gr
 It is registered in production only (`ServiceWorkerRegister`); bump `VERSION` in `sw.js` to drop old
 caches.
 
-## Weight budget
+## Weight budget and the production server
 
-Target: ≤ 150 KB transferred on the first home load. The shell alone transfers about 161 KB with
-Next's gzip (about 133 KB with brotli at the edge); about 135 KB of that is the React and Next
-runtime. The app's own shell JS is about 9 KB gzip. Keep new client code small, keep lists
-server-rendered, and avoid client-side libraries (no zod, date libraries or icon packs in the
-browser). Links in view prefetch their route; use `prefetch={false}` for rarely used links.
+Target: ≤ 150 KB transferred on the first home load, checked by `e2e/tests/budget.spec.ts`. About
+110 KB of it is the React and Next runtime even with brotli, and Next compresses with gzip only
+(179 KB measured). So production runs `server.mjs` (`pnpm start`): `next start` plus brotli, with
+static JS/CSS compressed once at maximum quality and kept in memory, and pages compressed at a fast
+level (149.8 KB measured). Behind a CDN that does brotli itself, plain `next start` works too.
+The app's own shell JS is about 10 KB. Keep new client code small (code only the drawer needs goes in
+the drawer's lazy chunk), keep lists server-rendered, and avoid client-side libraries (no zod, date
+libraries or icon packs in the browser). Links in view prefetch their route; use `prefetch={false}`
+for rarely used links.

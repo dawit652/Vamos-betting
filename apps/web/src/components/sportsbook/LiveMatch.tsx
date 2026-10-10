@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { useT } from '@/i18n/client';
-import { matchClock } from './events';
+import { matchClock, periodMessageKey } from './events';
 import { useLiveMatch } from './LiveProvider';
 import type { EventStatus } from './live-store';
 
@@ -50,11 +50,17 @@ export function LiveClock({
           : clock.kind === 'halfTime'
             ? t('sportsbook.match.halfTime')
             : clock.kind === 'period'
-              ? clock.period
+              ? periodText(clock.period, t)
               : t('sportsbook.match.live')}
       </span>
     </span>
   );
+}
+
+/** A translated period ("Q2", "Set 3"); a code the app does not know is shown as sent. */
+function periodText(period: string, t: ReturnType<typeof useT>): string {
+  const key = periodMessageKey(period);
+  return key === null ? period : t(key);
 }
 
 /** One side's score, patched by the live stream. */

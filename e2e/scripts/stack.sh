@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Starts or stops the stack the e2e suite runs against: the built API, the
-# worker with the fast simulator and the production web build (next start).
+# worker with the fast simulator and the production web build (server.mjs:
+# next start plus brotli).
 # Postgres and Redis must already run (pnpm services:start, Docker, or CI
 # services), migrated and seeded (pnpm db:migrate && pnpm db:seed).
 #
@@ -93,7 +94,8 @@ case "${1:-}" in
     done
     launch api apps/api node dist/server.js
     launch worker apps/worker node dist/main.js
-    launch web apps/web node "$REPO_ROOT/apps/web/node_modules/next/dist/bin/next" start --port "${WEB_URL##*:}"
+    # server.mjs: next start plus brotli (what production runs; see apps/web/server.mjs).
+    launch web apps/web env PORT="${WEB_URL##*:}" node server.mjs
     wait_for api "$API_URL/health"
     wait_for web "$WEB_URL/"
     running worker || {

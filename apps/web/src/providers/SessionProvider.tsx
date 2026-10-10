@@ -1,6 +1,7 @@
 'use client';
 
 import type { MeResponse, WalletResponse } from '@vamos/contracts';
+import { isLocale } from '@vamos/i18n/locales';
 import {
   createContext,
   useCallback,
@@ -14,7 +15,8 @@ import {
 import { UNAUTHORIZED_EVENT } from '@/lib/api/client';
 import { isApiClientError } from '@/lib/api/errors';
 import { sessionApi } from '@/lib/api/session';
-import { CSRF_COOKIE, readBrowserCookie } from '@/lib/cookies';
+import { useLocale, useSetLocale } from '@/i18n/client';
+import { CSRF_COOKIE, LOCALE_COOKIE, readBrowserCookie } from '@/lib/cookies';
 
 /**
  * The signed-in player, on the client. `status` is:
@@ -35,8 +37,13 @@ export interface SessionValue {
   refresh: () => Promise<void>;
   /** Reloads /wallet only. Resolves when done; never rejects. */
   refreshWallet: () => Promise<void>;
-  /** Calls /auth/logout (best effort) and clears the session. */
-  logout: () => Promise<void>;
+  /**
+   * Calls POST /auth/logout. Resolves true once the API ended the session (2xx,
+   * or 401: it was already gone) and the state is anonymous; false when the
+   * call failed (no connection, 5xx, 403), in which case the session is still
+   * valid and stays signed in here too: show an error and let the player retry.
+   */
+  logout: () => Promise<boolean>;
 }
 
 interface State {
@@ -100,15 +107,30 @@ export function SessionProvider({
     }
   }, []);
 
-  const logout = useCallback(async () => {
-    generation.current++;
+  const logout = useCallback(async (): Promise<boolean> => {
     try {
       await sessionApi.logout();
-    } catch {
-      // The session may already be gone; clear locally either way.
+    } catch (error) {
+      // 401: the session had already ended. Anything else: the httpOnly
+      // session cookie and the server session may still be valid, so a
+      // signed-out screen would be a lie (someone else could reload into it).
+      if (!(isApiClientError(error) && error.status === 401)) return false;
     }
+    generation.current++;
     setState(ANONYMOUS);
+    return true;
   }, []);
+
+  // A player who chose a language (at registration or in the account) gets it
+  // back on a new device: when this browser has no language cookie yet.
+  const locale = useLocale();
+  const setLocale = useSetLocale();
+  const profileLocale = state.me?.locale;
+  useEffect(() => {
+    if (profileLocale === undefined || !isLocale(profileLocale) || profileLocale === locale) return;
+    if (readBrowserCookie(LOCALE_COOKIE) !== null) return;
+    setLocale(profileLocale);
+  }, [profileLocale, locale, setLocale]);
 
   useEffect(() => {
     // Initial load (the server may not have seen the cookie, e.g. when the API is on another host).

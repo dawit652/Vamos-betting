@@ -87,9 +87,14 @@ export function isExclusionError(error: unknown): boolean {
   );
 }
 
-/** `retryAfterSeconds` of an `otp_cooldown` answer (429), or null. */
+/**
+ * `retryAfterSeconds` of a 429 about SMS codes, or null: `otp_cooldown` (a code
+ * went out less than a minute ago) and `otp_limit` (the hourly cap).
+ */
 export function retryAfterSeconds(error: unknown): number | null {
-  if (!isApiClientError(error) || error.code !== 'otp_cooldown') return null;
+  if (!isApiClientError(error) || (error.code !== 'otp_cooldown' && error.code !== 'otp_limit')) {
+    return null;
+  }
   const details = error.details as { retryAfterSeconds?: unknown } | null | undefined;
   const value = details?.retryAfterSeconds;
   return typeof value === 'number' && Number.isInteger(value) && value > 0

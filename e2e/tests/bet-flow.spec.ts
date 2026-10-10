@@ -24,7 +24,13 @@ const MIN_LEAD_MS = 60_000;
 /** ...and kick off soon, so the whole test stays well under its timeout. */
 const MAX_LEAD_MS = 4 * 60_000;
 /** After the last kick-off: the match itself (seconds), result, outbox and settlement. */
-const SETTLE_GRACE_MS = 90_000;
+const SETTLE_GRACE_MS = 75_000;
+/** How long to wait for the feed to offer 3 such events (one rolling fixture a minute). */
+const FIND_EVENTS_MS = 90_000;
+/** Sign-up and top-up, before the events are chosen. */
+const SIGN_UP_MS = 60_000;
+/** Picking, placing and the checks around them, besides waiting for kick-off and settlement. */
+const UI_MARGIN_MS = 90_000;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -51,7 +57,12 @@ async function pick(button: Locator): Promise<void> {
 }
 
 test('register, top up, place a 3-leg multi and see it settled', async ({ page }) => {
-  test.setTimeout(330_000);
+  // The budget is set in two steps so a slow feed fails with the poll's own
+  // message instead of a bare test timeout: enough to sign up and find the
+  // events first, then, once the last kick-off is known, exactly the time
+  // still needed (kick-off + SETTLE_GRACE_MS + the UI work around it).
+  const startedAt = Date.now();
+  test.setTimeout(SIGN_UP_MS + FIND_EVENTS_MS + UI_MARGIN_MS);
   const phone = randomPhone();
 
   await test.step('register and verify with the OTP from the dev SMS inbox', async () => {
@@ -83,8 +94,12 @@ test('register, top up, place a 3-leg multi and see it settled', async ({ page }
   const events = await soonestEvents(page.request, 3, {
     minLeadMs: MIN_LEAD_MS,
     maxLeadMs: MAX_LEAD_MS,
+    timeoutMs: FIND_EVENTS_MS,
   });
   const lastKickOff = Math.max(...events.map((event) => Date.parse(event.startTime)));
+  test.setTimeout(
+    Date.now() - startedAt + Math.max(0, lastKickOff - Date.now()) + SETTLE_GRACE_MS + UI_MARGIN_MS,
+  );
   console.log(
     'legs kick off in ' +
       events
@@ -117,12 +132,15 @@ test('register, top up, place a 3-leg multi and see it settled', async ({ page }
       .getByRole('button', { name: '50', exact: true })
       .click();
 
+    // A prematch price can drift (every 30 s) between opening an event page and
+    // placing: take any price, so the result does not depend on that timing.
+    await slip.getByLabel('If odds change').selectOption('any');
+
     const place = slip.getByRole('button', { name: `Place bet · ETB ${birr(STAKE)}` });
-    const accept = slip.getByRole('button', { name: 'Accept odds' });
-    await expect(place.or(accept)).toBeVisible();
-    // A prematch price can drift between choosing and placing.
-    if (await accept.isVisible()) await accept.click();
+    // Place is enabled once the quote for these legs and this stake is in.
     await expect(place).toBeEnabled({ timeout: 15_000 });
+    const netPayout = slip.getByText('Net payout', { exact: true }).locator('xpath=../dd');
+    await expect(netPayout).toHaveText(/^ETB \d/);
     await place.click();
 
     await expect(slip.getByText('Bet placed')).toBeVisible({ timeout: 15_000 });
@@ -156,6 +174,7 @@ test('register, top up, place a 3-leg multi and see it settled', async ({ page }
         { timeout: waitMs, intervals: [2000] },
       )
       .toMatch(/^(won|lost|void)$/);
+    console.log(`bet ${shortId} settled ${settled!.status}, net payout ${settled!.settledNet}`);
     return settled!;
   });
 

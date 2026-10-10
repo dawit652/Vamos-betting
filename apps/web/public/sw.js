@@ -6,7 +6,7 @@
  * - API calls (another origin) and everything else: never intercepted or cached.
  * Bump VERSION to drop old caches.
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `vamos-static-${VERSION}`;
 const OFFLINE_URL = '/offline.html';
 const PRECACHE = [OFFLINE_URL];
