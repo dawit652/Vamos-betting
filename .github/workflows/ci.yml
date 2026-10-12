@@ -45,8 +45,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
-      - run: pnpm lint
+      # typecheck first: it runs `next typegen`, whose route types lint needs
       - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm db:migrate
       - run: pnpm test
       - run: pnpm build
