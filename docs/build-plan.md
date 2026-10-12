@@ -7,37 +7,59 @@ research is in `docs/research/`.
 
 ## Status
 
-| Phase | Scope                                                         | State       | Commits                         |
-| ----- | ------------------------------------------------------------- | ----------- | ------------------------------- |
-| 0     | Foundation: workspace, config guard, infra, CI                | Done        | `f81d44e`                       |
-| 1     | Domain core (`packages/core`)                                 | Done        | `dccd213`, `4a8d03f`            |
-| 2     | Database, accounts, ledger, auth, KYC, RG, wallet             | Done        | `2131ee7`, `d26120d`            |
-| 3     | Sports catalogue, odds feed, live simulator, trading services | Done        | `0c02e89`, `e381576`, `f80ccf5` |
-| 4     | Betslip, bet placement, booking codes, settlement             | Done        | `a04beab` … `0af1dca` + fixes   |
-| 5     | Player web app (Betika-style lite PWA), the demo MVP          | Done        |                                 |
-| 6     | Payments: deposits and withdrawals                            | Not started |                                 |
-| 7     | Live betting and cash-out                                     | Not started |                                 |
-| 8     | Jackpots and promotions                                       | Not started |                                 |
-| 9     | Back office (`apps/admin`)                                    | Not started |                                 |
-| 10    | Compliance and regulator reporting                            | Not started |                                 |
-| 11    | SMS/USSD channel (feature-flagged)                            | Not started |                                 |
-| 12    | Hardening and deployment                                      | Not started |                                 |
+Last updated 12 Oct 2026.
 
-Phase 5 (the demo MVP) was finished on 10 Oct 2026 after an adversarial review (19 confirmed findings,
-all fixed). Format, lint, typecheck, build, every unit test and the Playwright e2e suite pass. The e2e
-suite covers register, OTP, demo top-up, a 3-leg bet, settlement and My Bets
-(`bash e2e/scripts/stack.sh start && pnpm e2e`).
+| Phase | Scope                                                         | State                     | Commits                                    |
+| ----- | ------------------------------------------------------------- | ------------------------- | ------------------------------------------ |
+| 0     | Foundation: workspace, config guard, infra, CI                | Done                      | `f81d44e`                                  |
+| 1     | Domain core (`packages/core`)                                 | Done                      | `dccd213`, `4a8d03f`                       |
+| 2     | Database, accounts, ledger, auth, KYC, RG, wallet             | Done                      | `2131ee7`, `d26120d`                       |
+| 3     | Sports catalogue, odds feed, live simulator, trading services | Done                      | `0c02e89`, `e381576`, `f80ccf5`, `d14a18e` |
+| 4     | Betslip, bet placement, booking codes, settlement             | Done (reviewed, 21 fixes) | `a04beab` … `50c1e7e`                      |
+| 5     | Player web app (Betika-style lite PWA), the demo MVP          | Done (reviewed, 19 fixes) | `8503bac`                                  |
+| 6     | Payments: deposits and withdrawals                            | **Built, not verified**   | WIP `7183ee9`, `a730b28`, `e555ef6`        |
+| 7     | Live betting and cash-out                                     | Not started               |                                            |
+| 8     | Jackpots and promotions                                       | Not started               |                                            |
+| 9     | Back office (`apps/admin`)                                    | Not started               |                                            |
+| 10    | Compliance and regulator reporting                            | Not started               |                                            |
+| 11    | SMS/USSD channel (feature-flagged)                            | Not started               |                                            |
+| 12    | Hardening and deployment                                      | Not started               |                                            |
 
-| Package | Tests |
-| ------- | ----- |
-| core    | 501   |
-| db      | 207   |
-| feed    | 143   |
-| worker  | 58    |
-| api     | 226   |
-| config  | 12    |
-| i18n    | 9     |
-| web     | 96    |
+**Phases 0–5 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
+passed at `8503bac`. The e2e suite covers this flow: register, OTP, demo top-up, a 3-leg bet,
+settlement, My Bets (`bash e2e/scripts/stack.sh start && pnpm e2e`).
+
+**Phase 6 is built but not verified.** The usage limit stopped the run after the core, API/worker and
+web agents had finished. The e2e agent had not run, and neither had the review and fix. Each agent
+reported its own checks green. Nobody has yet run the whole suite on the combined tree. What exists:
+
+- **`packages/payments`:** the `PaymentProvider` interface and the providers `mock`, `chapa`,
+  `telebirr`, `cbebirr` and `mpesa-et`. `cbebirr` and `mpesa-et` are skeletons that throw
+  `ProviderNotConfiguredError`. Also signature verification and `attemptPayout`.
+- **`packages/db`:** the schema (`payment_intents`, `payouts`, `payment_events`), migrations
+  0008–0010, and the deposit, webhook, withdrawal and payout services. The payment settings are part
+  of the typed settings loader.
+- **API:** `/payments/options`; deposits; withdrawals with a status tracker and cancel;
+  `/payments/webhooks/:provider`, which keeps the raw body, checks the signature and is idempotent by
+  provider event id. Two demo-only dev routes: `/dev/payments/phone` (simulator) and
+  `/dev/payments/withdrawals/:id/approve|reject` (a stand-in until the Phase 9 back office).
+- **Worker:** the payout task with retries, deposit reconciliation and expiry, and SMS notifications
+  sent through outbox routes.
+- **Web:** `/wallet/deposit`, `/wallet/withdraw` with the tracker, and the `/dev/phone` simulator.
+
+Test counts the agents reported:
+
+| Package  | Tests |
+| -------- | ----- |
+| payments | 79    |
+| db       | 272   |
+| config   | 15    |
+| core     | 515   |
+| api      | 253   |
+| worker   | 70    |
+| web      | 116   |
+| i18n     | 9     |
+| feed     | 143   |
 
 ## Legal context (do not change)
 
@@ -56,7 +78,7 @@ suite covers register, OTP, demo top-up, a 3-leg bet, settlement and My Bets
 
 ## Start here in a new session
 
-1. Check out the branch: `git checkout claude/quirky-ramanujan-xb7e2u && git pull`.
+1. Check out the branch and pull: `git checkout claude/quirky-ramanujan-xb7e2u && git pull`.
 2. Install and start services:
    ```bash
    pnpm install
@@ -64,22 +86,15 @@ suite covers register, OTP, demo top-up, a 3-leg bet, settlement and My Bets
    bash infra/scripts/dev-services.sh start   # native Postgres 16 + Redis 7, no Docker
    pnpm db:migrate && pnpm db:seed
    ```
-   Postgres refuses to run as root, so the script uses `runuser -u postgres`. If services stop
-   (they do after container restarts), run the start command again.
-3. **Check the baseline** (Phase 3 is verified, so this should pass):
-   ```bash
-   pnpm format && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test
-   ```
-   Fix anything that fails in a new commit (do not amend or force-push), commit "Phase 3: review
-   fixes verified", push, and update the status table above. CI (`.github/workflows/ci.yml`) runs the
-   same steps plus `db:migrate` and `build` on every push to `claude/**`.
-4. Optional smoke test of the real stack:
-   - `pnpm --filter @vamos/worker build && pnpm --filter @vamos/api build`
-   - run the built worker and API. Expect fixtures to appear, an event to go live then finished and
-     be resulted with an outbox event, `/health` and `/sports` to answer, and `/live/stream` to send
-     heartbeats.
-5. Build Phases 4 to 12 in order, as described below. After each phase: lint, typecheck and tests
-   green, then commit and push, with a short progress note to the user.
+   Postgres refuses to run as root, so the script uses `runuser -u postgres`. Services stop whenever
+   the container restarts; run the start command again.
+3. **Finish Phase 6** (see "Phase 6: remaining steps" below):
+   1. verify the combined tree
+   2. add the payments e2e test
+   3. run the adversarial review and fix the confirmed findings
+   4. commit "Phase 6: payments", push, and update the status table
+4. Then build Phases 7 to 12 in order. After each phase: format, lint, typecheck, unit tests, build
+   and the e2e suite all green; then commit and push, with a short progress note to the user.
 
 ## How to work
 
@@ -96,6 +111,23 @@ suite covers register, OTP, demo top-up, a 3-leg bet, settlement and My Bets
   have hit their session limit several times. When that happens, resume the run with
   `resumeFromRunId` after the reset time, or do the remaining verification directly.
 - **Progress notes:** the user wants them short.
+
+### Working within usage limits
+
+Long runs hit the subagent usage limit many times (it resets every few hours). What worked:
+
+- **Save often.** Commit and push a `WIP: …` snapshot whenever agents have left uncommitted work,
+  and always before ending a turn. The container can restart at any time, and anything not pushed is
+  lost.
+- **Guard each stage.** Make each workflow stage fail fast when the stage before it returned
+  `null`: `if (!core) throw new Error(...)`. Otherwise later agents run on missing input.
+- **Resume, don't restart.** In the same session, resume a stopped run with `resumeFromRunId`;
+  finished agents replay from the cache. A new session cannot resume an old run. It continues from
+  the WIP commits instead, and the first agent's prompt should say "inspect the existing work and
+  finish it rather than starting over".
+- **Keep workflows small.** Use at most about 6–8 agents per workflow (one implementation stage,
+  then review). The machine runs only 2 agents at a time.
+- **Use lighter models for routine work** (see the table below) so the limit lasts longer.
 
 ## Model and effort per task
 
@@ -304,10 +336,30 @@ All of these become editable in admin (Phase 9) and are listed in `docs/complian
 
 ## Remaining phases
 
-Phases 0 to 5 make the demo-ready MVP. Each phase ends with lint, typecheck and tests green, then a
-commit and push.
+Each phase ends with format, lint, typecheck, unit tests, build and the e2e suite all green, then a
+commit and a push.
 
-### Phase 4: Betslip, bet placement, booking codes and settlement
+**Per-phase workflow template** (models follow "Model and effort per task"):
+
+1. **Core logic:** schema, `packages/db` services and pure helpers in `packages/core`, with unit and
+   property tests. Opus, max effort for money logic, otherwise high.
+2. **Surfaces**, as separate agents on separate folders:
+   - API and worker: Opus, high
+   - web or admin UI: Sonnet, medium
+3. **E2E test:** Sonnet, high.
+4. **Review:** 3 dimensions with one verifier each, all Opus, high.
+5. **Fix:** Opus, xhigh. Then verify everything yourself, commit and push.
+
+| Phase               | Highest-risk part (use Opus, max)                                                       | Routine parts (lighter models)         |
+| ------------------- | --------------------------------------------------------------------------------------- | -------------------------------------- |
+| 7 Live and cash-out | Cash-out execution, re-quote and the race with settlement; early market settlement      | Live page UI, cash-out button          |
+| 8 Jackpots          | Combination pricing, prize-tier split, cancelled-game rule, jackpot ledger              | Jackpot UI, admin config forms         |
+| 9 Back office       | Staff auth (TOTP, RBAC), audit trail, manual resulting and voiding, withdrawal approval | Dashboards, lists, search screens      |
+| 10 Compliance       | Reconciliation, daily totals, AML rules                                                 | Report formats, `docs/compliance.md`   |
+| 11 SMS/USSD         | Bet placement through text commands (reuses `placeBet`)                                 | Parser and menu text, simulator page   |
+| 12 Hardening        | Security review, load test on bet placement                                             | Dockerfiles, runbooks, deployment docs |
+
+### Phase 4: Betslip, bet placement, booking codes and settlement (done; kept as reference)
 
 **Groundwork first** (small, separate commits):
 
@@ -416,7 +468,7 @@ every outcome path:
 Balances, `house_stakes`, `house_revenue` and `house_tax_payable` must reconcile through the ledger.
 Add core property tests for any new pure helpers.
 
-### Phase 5: Player web app (Betika-style lite PWA): the MVP
+### Phase 5: Player web app (Betika-style lite PWA): the MVP (done; kept as reference)
 
 **Build (`apps/web`, Next.js + next-intl + Tailwind):**
 
@@ -448,7 +500,7 @@ Add core property tests for any new pure helpers.
 accumulator, place it, let the fast simulator settle it, and see the balance and My Bets update. Add a
 build-size budget check.
 
-### Phase 6: Payments (deposits and withdrawals)
+### Phase 6: Payments (deposits and withdrawals): original scope
 
 **Build:**
 
@@ -476,6 +528,35 @@ build-size budget check.
 
 **Check:** webhook signature and idempotency tests; end to end: deposit through the simulator, request
 a withdrawal, approve it in admin, and see it marked paid.
+
+### Phase 6: remaining steps
+
+Do these in order. Use the model and effort from the table above.
+
+1. **Verify the combined tree** (no agent needed):
+   `pnpm db:migrate && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build`.
+   Then run the existing e2e suite: `bash e2e/scripts/stack.sh build && bash e2e/scripts/stack.sh
+start && pnpm e2e; bash e2e/scripts/stack.sh stop`. Fix whatever fails (Opus, high).
+2. **Payments e2e** (Sonnet, high): add `e2e/tests/payments-flow.spec.ts`. The flow:
+   1. register and verify
+   2. submit KYC (mock)
+   3. deposit on `/wallet/deposit`, then approve on `/dev/phone` with PIN 1234; the balance updates
+   4. place bets that meet the wagering requirement
+   5. request a withdrawal
+   6. approve it through `/dev/payments/withdrawals/:id/approve`
+   7. the tracker shows paid and the balance went down
+
+   If the worker needs new environment variables, update `e2e/scripts/stack.sh`.
+
+3. **Adversarial review** (Opus, high; one verifier per dimension). Dimensions:
+   - money and ledger: double credit on webhook replay, holds, wagering, daily caps, reversals
+   - security: webhook signatures and raw body, spoofing via `:provider`, dev routes unreachable in
+     production or licensed mode, IDOR, CSRF, payouts only to the player's own phone, secrets in
+     logs
+   - reliability: no double payout if the worker crashes between the provider call and the DB
+     update, retries and polling, intent expiry, SMS failure never blocking money
+4. **Fix** the confirmed findings (Opus, xhigh), re-run step 1 plus the whole e2e suite, commit, push,
+   and mark Phase 6 done.
 
 ### Phase 7: Live betting and cash-out
 
@@ -519,6 +600,8 @@ a withdrawal, approve it in admin, and see it marked paid.
   Add a way to void a single market or selection (today only a whole event can be voided, through
   `resultEvent`).
 - bets search, withdrawal approvals, jackpots, settings (limits, tax, ladder), audit log viewer
+- withdrawal approval replaces the demo-only stand-in `/dev/payments/withdrawals/:id/approve|reject`.
+  Keep the stand-in for the e2e suite, but only in demo mode.
 
 Every admin action writes to the audit log (`writeAudit`).
 
