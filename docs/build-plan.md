@@ -17,7 +17,7 @@ Last updated 12 Oct 2026.
 | 3     | Sports catalogue, odds feed, live simulator, trading services | Done                      | `0c02e89`, `e381576`, `f80ccf5`, `d14a18e` |
 | 4     | Betslip, bet placement, booking codes, settlement             | Done (reviewed, 21 fixes) | `a04beab` … `50c1e7e`                      |
 | 5     | Player web app (Betika-style lite PWA), the demo MVP          | Done (reviewed, 19 fixes) | `8503bac`                                  |
-| 6     | Payments: deposits and withdrawals                            | Done (reviewed, 15 fixes) | `e555ef6` … Phase 6 commit                 |
+| 6     | Payments: deposits and withdrawals                            | Done (reviewed, 15 fixes) | `e555ef6` … `3f1337d`                      |
 | 7     | Live betting and cash-out                                     | Not started               |                                            |
 | 8     | Jackpots and promotions                                       | Not started               |                                            |
 | 9     | Back office (`apps/admin`)                                    | Not started               |                                            |
