@@ -103,3 +103,37 @@ export function isPositiveAmount(wire: string | null | undefined): boolean {
 export function betTab(raw: string | undefined): 'open' | 'settled' {
   return raw === 'settled' ? 'settled' : 'open';
 }
+
+/** Whether a bet belongs on the Open tab (running or waiting for live acceptance) or the Settled tab. */
+export function belongsToTab(bet: Pick<BetView, 'status'>, tab: 'open' | 'settled'): boolean {
+  return (bet.status === 'open' || bet.status === 'pending_acceptance') === (tab === 'open');
+}
+
+/**
+ * Puts a freshly fetched bet into the loaded list of a tab: replaces it in
+ * place, drops it when it no longer belongs on the tab (a bet that settled or
+ * was cashed out leaves "Open"), or adds it at the top when it newly belongs
+ * (a bet re-opened by a result correction).
+ */
+export function reconcileBet<T extends Pick<BetView, 'id' | 'status'>>(
+  items: readonly T[],
+  bet: T,
+  tab: 'open' | 'settled',
+): T[] {
+  const index = items.findIndex((item) => item.id === bet.id);
+  const belongs = belongsToTab(bet, tab);
+  if (index === -1) return belongs ? [bet, ...items] : [...items];
+  if (!belongs) return items.filter((item) => item.id !== bet.id);
+  return items.map((item) => (item.id === bet.id ? bet : item));
+}
+
+const REJECT_REASON_KEY: Readonly<Record<string, MessageKey>> = {
+  selection_unavailable: 'account.myBets.rejectedReason.selection_unavailable',
+  odds_changed: 'account.myBets.rejectedReason.odds_changed',
+  slip_invalid: 'account.myBets.rejectedReason.slip_invalid',
+};
+
+/** The message for a live bet's `rejectReason`, or null for a code the app does not know. */
+export function rejectReasonKey(reason: string): MessageKey | null {
+  return REJECT_REASON_KEY[reason] ?? null;
+}

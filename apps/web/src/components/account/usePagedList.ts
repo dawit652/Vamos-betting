@@ -19,6 +19,8 @@ export interface PagedList<T> {
   loadMore: () => void;
   /** Reloads from the first page (e.g. after a top-up). */
   reload: () => void;
+  /** Replaces the loaded items (live patches such as a settled bet or a fresh cash-out offer). */
+  setItems: (update: (items: T[]) => T[]) => void;
 }
 
 /**
@@ -88,5 +90,14 @@ export function usePagedList<T extends { id: string }>(
 
   const reload = useCallback(() => setGeneration((g) => g + 1), []);
 
-  return { items, loading, loadingMore, error, hasMore: cursor !== null, loadMore, reload };
+  return {
+    items,
+    loading,
+    loadingMore,
+    error,
+    hasMore: cursor !== null,
+    loadMore,
+    reload,
+    setItems,
+  };
 }

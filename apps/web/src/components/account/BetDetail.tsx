@@ -1,12 +1,18 @@
 'use client';
 
 import type { BetView } from '@vamos/contracts';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useT } from '@/i18n/client';
 import { betsApi } from '@/lib/api/account';
 import { errorMessageKey, isApiClientError } from '@/lib/api/errors';
 import { formatSantim, formatTotalOdds } from '@/lib/format';
+import { cashOutApi } from '@/lib/api/cashout';
+import { mergeOffers, openBetEventIds } from '@/lib/cashout/offer';
+import { useLiveTick } from '@/lib/cashout/useLiveTick';
+import { describeUserMessage } from '@/lib/user-stream/messages';
+import { useUserStream } from '@/lib/user-stream/useUserStream';
 import { BetLegLine } from './BetCard';
+import { CashOutButton } from './CashOut';
 import {
   BET_STATUS_LABEL,
   betPayout,
@@ -14,6 +20,7 @@ import {
   bonusPercent,
   isPositiveAmount,
   isSettledStatus,
+  rejectReasonKey,
 } from './bets';
 import { formatDateTime } from './dates';
 import { Alert, Chip, Row, Skeleton } from './ui';
@@ -48,6 +55,38 @@ export function BetDetail({ id }: { id: string }) {
     );
     return () => abort.abort();
   }, [id, attempt]);
+
+  const readyBet = state.kind === 'ready' ? state.bet : null;
+
+  // Silent re-fetch after a push message (accepted, settled, cashed out…) or a reconnect.
+  const refetch = useCallback(async () => {
+    try {
+      const bet = await betsApi.get(id);
+      setState((current) => (current.kind === 'ready' ? { kind: 'ready', bet } : current));
+    } catch {
+      // The page keeps what it shows; the next message or reconnect tries again.
+    }
+  }, [id]);
+  useUserStream(
+    (message) => {
+      if (describeUserMessage(message).betId === id) void refetch();
+    },
+    () => void refetch(),
+  );
+
+  // Offers follow the live odds: re-fetch on a live delta of the bet's matches (throttled).
+  const liveEvents = useMemo(
+    () => (readyBet === null ? [] : openBetEventIds([readyBet])),
+    [readyBet],
+  );
+  useLiveTick(liveEvents, async () => {
+    const { items } = await cashOutApi.offers([id]);
+    setState((current) =>
+      current.kind === 'ready'
+        ? { kind: 'ready', bet: mergeOffers([current.bet], items)[0]! }
+        : current,
+    );
+  });
 
   if (state.kind === 'loading') return <Skeleton lines={6} />;
   if (state.kind === 'missing') {
@@ -94,7 +133,13 @@ export function BetDetail({ id }: { id: string }) {
           <Alert tone="demo">{t('account.myBets.pendingNote')}</Alert>
         ) : null}
         {bet.status === 'rejected' && bet.rejectReason ? (
-          <Alert tone="info">{t('account.myBets.rejected', { reason: bet.rejectReason })}</Alert>
+          <Alert tone="info">
+            {t('account.myBets.rejected', {
+              reason: rejectReasonKey(bet.rejectReason)
+                ? t(rejectReasonKey(bet.rejectReason)!)
+                : bet.rejectReason,
+            })}
+          </Alert>
         ) : null}
         <ul className="divide-y divide-line border-y border-line">
           {bet.legs.map((leg) => (
@@ -129,6 +174,10 @@ export function BetDetail({ id }: { id: string }) {
             </Row>
           </div>
         </dl>
+        <CashOutButton
+          bet={bet}
+          onCashedOut={(response) => setState({ kind: 'ready', bet: response.bet })}
+        />
       </section>
       <section className="card text-xs">
         <dl>

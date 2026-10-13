@@ -1,11 +1,18 @@
 'use client';
 
+import type { CashOutResponse } from '@vamos/contracts';
 import Link from 'next/link';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useT } from '@/i18n/client';
 import { betsApi, type BetListStatus } from '@/lib/api/account';
+import { cashOutApi } from '@/lib/api/cashout';
 import { errorMessageKey } from '@/lib/api/errors';
+import { mergeOffers, openBetEventIds, openBetIds } from '@/lib/cashout/offer';
+import { useLiveTick } from '@/lib/cashout/useLiveTick';
+import { describeUserMessage } from '@/lib/user-stream/messages';
+import { useUserStream } from '@/lib/user-stream/useUserStream';
 import { routes } from '@/lib/routes';
+import { reconcileBet } from './bets';
 import { BetCard } from './BetCard';
 import { Alert, Skeleton } from './ui';
 import { usePagedList } from './usePagedList';
@@ -17,6 +24,37 @@ export function MyBetsList({ tab }: { tab: BetListStatus }) {
     [tab],
   );
   const list = usePagedList(fetchPage);
+  const { setItems, reload } = list;
+
+  // A push message about a bet (accepted, settled, cashed out, re-opened): re-fetch that bet.
+  useUserStream((message) => {
+    const { betId } = describeUserMessage(message);
+    if (betId === null) return;
+    betsApi.get(betId).then(
+      (bet) => setItems((items) => reconcileBet(items, bet, tab)),
+      () => undefined,
+    );
+  }, reload);
+
+  // Cash-out offers follow the live odds: on a live delta of an open bet's match, re-fetch them.
+  const itemsRef = useRef(list.items);
+  useEffect(() => {
+    itemsRef.current = list.items;
+  }, [list.items]);
+  const liveEvents = useMemo(
+    () => (tab === 'open' ? openBetEventIds(list.items) : []),
+    [tab, list.items],
+  );
+  useLiveTick(liveEvents, async () => {
+    const ids = openBetIds(itemsRef.current);
+    if (ids.length === 0) return;
+    const { items } = await cashOutApi.offers(ids);
+    setItems((current) => mergeOffers(current, items));
+  });
+  const onCashedOut = useCallback(
+    (response: CashOutResponse) => setItems((items) => reconcileBet(items, response.bet, tab)),
+    [setItems, tab],
+  );
 
   if (list.loading) return <Skeleton lines={4} />;
 
@@ -45,7 +83,7 @@ export function MyBetsList({ tab }: { tab: BetListStatus }) {
         </div>
       ) : null}
       {list.items.map((bet) => (
-        <BetCard key={bet.id} bet={bet} />
+        <BetCard key={bet.id} bet={bet} onCashedOut={onCashedOut} />
       ))}
       {list.hasMore && !list.error ? (
         <button

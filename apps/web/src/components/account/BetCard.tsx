@@ -1,12 +1,13 @@
 'use client';
 
-import type { BetLegView, BetView } from '@vamos/contracts';
+import type { BetLegView, BetView, CashOutResponse } from '@vamos/contracts';
 import Link from 'next/link';
 import { useLocale, useT } from '@/i18n/client';
 import { formatOddsMilli, formatSantim, formatTotalOdds } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { BET_STATUS_LABEL, LEG_STATE_LABEL, betPayout, betStatusTone, legStateTone } from './bets';
 import { formatDateTime } from './dates';
+import { CashOutButton } from './CashOut';
 import { accountPaths } from './paths';
 import { Chip } from './ui';
 
@@ -44,7 +45,14 @@ export function BetLegLine({ leg, detailed = false }: { leg: BetLegView; detaile
 }
 
 /** One bet in the My Bets list. */
-export function BetCard({ bet }: { bet: BetView }) {
+export function BetCard({
+  bet,
+  onCashedOut,
+}: {
+  bet: BetView;
+  /** The bet was cashed out from this card. */
+  onCashedOut: (response: CashOutResponse) => void;
+}) {
   const t = useT();
   const locale = useLocale();
   const payout = betPayout(bet);
@@ -83,6 +91,12 @@ export function BetCard({ bet }: { bet: BetView }) {
           <dd className="font-bold text-brand tabular-nums">{formatSantim(payout.amount)}</dd>
         </div>
       </dl>
+      {bet.status === 'pending_acceptance' ? (
+        <p role="status" className="text-xs font-semibold text-demo-ink">
+          {t('account.myBets.waiting')}…
+        </p>
+      ) : null}
+      <CashOutButton bet={bet} onCashedOut={onCashedOut} />
       <Link
         href={accountPaths.betDetail(bet.id)}
         prefetch={false}

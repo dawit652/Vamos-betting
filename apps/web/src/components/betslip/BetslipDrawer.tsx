@@ -14,6 +14,7 @@ import { getPlacement, setPlacement, usePendingPlacement } from '@/lib/betslip/p
 import { formatOddsMilli, formatSantim, formatTotalOdds } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes } from '@/lib/routes';
+import { useUserStream } from '@/lib/user-stream/useUserStream';
 import { useBetslip } from '@/providers/BetslipProvider';
 import { useSession } from '@/providers/SessionProvider';
 import { BookingCodePanel } from './BookingCodePanel';
@@ -46,8 +47,9 @@ import { useSlipQuote } from './useSlipQuote';
 
 const POLICIES: readonly OddsChangePolicy[] = ['none', 'higher', 'any'];
 /** A live bet waits for its acceptance delay (6 s by default): follow it this long. */
-const ACCEPTANCE_POLL_MS = 2_000;
-const ACCEPTANCE_POLL_MAX = 15;
+// The player's push stream (bet.accepted / bet.rejected) answers at once; polling is the fallback.
+const ACCEPTANCE_POLL_MS = 4_000;
+const ACCEPTANCE_POLL_MAX = 10;
 
 /** The login page, coming back here afterwards (the login page checks `next`). */
 function loginHref(): string {
@@ -575,6 +577,21 @@ function PlacedBet({
       controller.abort();
     };
   }, [initial.id, initial.status, refreshWallet]);
+
+  // The worker pushes the outcome of a live bet as soon as it is decided.
+  useUserStream((message) => {
+    if (initial.status !== 'pending_acceptance') return;
+    if (message.type !== 'bet.accepted' && message.type !== 'bet.rejected') return;
+    if (message.data.betId !== initial.id) return;
+    bettingApi
+      .bet(initial.id)
+      .then((next) => {
+        if (next.status === 'pending_acceptance') return;
+        setBet(next);
+        if (next.status === 'rejected') void refreshWallet();
+      })
+      .catch(() => undefined);
+  });
 
   return (
     <div className="space-y-3 p-3 text-center">

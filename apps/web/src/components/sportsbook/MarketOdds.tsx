@@ -122,7 +122,7 @@ function OddsButton({
       <span aria-hidden="true" className="odds-label w-full truncate">
         {label}
       </span>
-      <span aria-hidden="true">{enabled ? formatOddsMilli(live.oddsMilli) : '–'}</span>
+      {enabled ? <span aria-hidden="true">{formatOddsMilli(live.oddsMilli)}</span> : <LockIcon />}
       {enabled && move !== null ? (
         <span
           key={live.oddsMilli}
@@ -135,6 +135,22 @@ function OddsButton({
         </span>
       ) : null}
     </button>
+  );
+}
+
+/** A padlock for a suspended or closed price (the market overlay says "Suspended"). */
+function LockIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="currentColor"
+      className="text-muted"
+    >
+      <path d="M8 1a3.5 3.5 0 0 0-3.5 3.5V6H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-.5V4.5A3.5 3.5 0 0 0 8 1Zm-2 3.5a2 2 0 1 1 4 0V6H6V4.5Z" />
+    </svg>
   );
 }
 

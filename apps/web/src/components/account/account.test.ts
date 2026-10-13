@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { ApiClientError } from '@/lib/api/errors';
 import {
   BET_STATUS_LABEL,
+  belongsToTab,
+  reconcileBet,
   LEG_STATE_LABEL,
   betPayout,
   betStatusTone,
@@ -265,6 +267,8 @@ function bet(overrides: Partial<BetView>): BetView {
     acceptAfter: null,
     acceptedAt: null,
     settledAt: null,
+    cashOutOffer: null,
+    cashedOut: null,
     legs: [],
     ...overrides,
   };
@@ -297,6 +301,26 @@ describe('bets', () => {
     expect(betTab('settled')).toBe('settled');
     expect(betTab('anything')).toBe('open');
     expect(betTab(undefined)).toBe('open');
+  });
+
+  it('reconciles a re-fetched bet into the loaded list of a tab', () => {
+    const a = bet({ id: 'a' });
+    const b = bet({ id: 'b' });
+    expect(belongsToTab(bet({ status: 'pending_acceptance' }), 'open')).toBe(true);
+    expect(belongsToTab(bet({ status: 'cashed_out' }), 'open')).toBe(false);
+    expect(belongsToTab(bet({ status: 'rejected' }), 'settled')).toBe(true);
+    // accepted in place
+    const accepted = bet({ id: 'a', status: 'open', stake: '2000' });
+    expect(reconcileBet([a, b], accepted, 'open')).toEqual([accepted, b]);
+    // settled or cashed out: leaves Open, appears on Settled
+    const cashed = bet({ id: 'a', status: 'cashed_out' });
+    expect(reconcileBet([a, b], cashed, 'open')).toEqual([b]);
+    expect(reconcileBet([b], cashed, 'settled')).toEqual([cashed, b]);
+    // re-opened by a correction: leaves Settled, returns to Open
+    expect(reconcileBet([cashed, b], bet({ id: 'a' }), 'settled')).toEqual([b]);
+    expect(reconcileBet([b], a, 'open')).toEqual([a, b]);
+    // not on this tab and not loaded: nothing changes
+    expect(reconcileBet([b], cashed, 'open')).toEqual([b]);
   });
 
   it('formats bonus percentages and amounts', () => {
