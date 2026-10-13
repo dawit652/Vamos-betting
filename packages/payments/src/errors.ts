@@ -69,6 +69,22 @@ export class ProviderRequestError extends PaymentProviderError {
   }
 }
 
+/**
+ * The provider answered a payout status query with "no payout under this
+ * reference" (Chapa: verify 404). It is an answer, not an outage: nothing was
+ * found, so sending the payout under the same reference cannot pay twice
+ * (the provider refuses a duplicate reference). attemptPayout relies on it.
+ */
+export class PayoutNotFoundError extends PaymentProviderError {
+  readonly providerRef: string;
+
+  constructor(provider: string, providerRef: string) {
+    super(provider, `${provider} has no payout with reference ${providerRef}`);
+    this.name = 'PayoutNotFoundError';
+    this.providerRef = providerRef;
+  }
+}
+
 /** A provider name that is not one of PAYMENT_PROVIDER_NAMES, or not enabled. */
 export class UnknownPaymentProviderError extends PaymentProviderError {
   constructor(provider: string, message = `payment provider "${provider}" is not enabled`) {

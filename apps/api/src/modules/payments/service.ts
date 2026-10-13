@@ -145,6 +145,7 @@ async function initiateDeposit(
       phone: intent.phone,
       callbackUrl: paymentWebhookUrl(deps.config.payments.callbackBaseUrl, provider.name),
       returnUrl: depositReturnUrl(deps.config, intent.id),
+      expiresAt: intent.expiresAt,
     });
     return await withTxRetry(deps.db, (tx) =>
       markDepositInitiated(tx, {

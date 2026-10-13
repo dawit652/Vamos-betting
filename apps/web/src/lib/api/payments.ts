@@ -38,12 +38,9 @@ export const paymentsApi = {
 };
 
 /** DEV ONLY (demo mode): the simulated phone. 404 when the API does not offer it. */
+/** The dev phone simulator: the signed-in player's own phone (the session decides whose). */
 export const devPhoneApi = {
-  pushes: (phone: string, signal?: AbortSignal) =>
-    api.get<DevPhonePushesResponse>('/dev/payments/phone', {
-      query: { phone },
-      ...(signal ? { signal } : {}),
-    }),
+  pushes: (signal?: AbortSignal) => get<DevPhonePushesResponse>('/dev/payments/phone', signal),
   decide: (body: DevPhoneDecisionRequest) =>
     api.post<DevPhoneDecisionResponse>('/dev/payments/phone', body),
 };

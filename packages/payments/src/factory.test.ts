@@ -15,6 +15,7 @@ import { CbeBirrProvider, MpesaEthiopiaProvider } from './providers/skeleton';
 import { TelebirrProvider } from './providers/telebirr';
 
 const deps = fakeDeps(fakeFetch([]).fetch);
+const WEBHOOK_SECRET = 'whsec_0123456789abcdef0123456789abcdef';
 
 const LICENSED = {
   NODE_ENV: 'production',
@@ -43,7 +44,7 @@ describe('createPaymentProviders', () => {
       ...LICENSED,
       PAYMENT_PROVIDERS: 'chapa',
       CHAPA_SECRET_KEY: 'k',
-      CHAPA_WEBHOOK_SECRET: 'w',
+      CHAPA_WEBHOOK_SECRET: WEBHOOK_SECRET,
     });
     expect(() => createPaymentProvider('mock', config, deps)).toThrow(ProviderNotConfiguredError);
   });
@@ -65,11 +66,38 @@ describe('createPaymentProviders', () => {
       ...LICENSED,
       PAYMENT_PROVIDERS: 'chapa',
       CHAPA_SECRET_KEY: 'CHASECK-live',
-      CHAPA_WEBHOOK_SECRET: 'whsec',
+      CHAPA_WEBHOOK_SECRET: WEBHOOK_SECRET,
     });
     const chapa = createPaymentProviders(ok, deps).require('chapa');
     expect(chapa).toBeInstanceOf(ChapaProvider);
     expect(chapa.capabilities).toEqual({ deposits: true, payouts: true });
+  });
+
+  it('refuses a Chapa webhook secret shorter than 32 characters', () => {
+    const weak = loadConfig({
+      ...LICENSED,
+      PAYMENT_PROVIDERS: 'chapa',
+      CHAPA_SECRET_KEY: 'CHASECK-live',
+      CHAPA_WEBHOOK_SECRET: 'whsec',
+    });
+    let error: unknown;
+    try {
+      createPaymentProviders(weak, deps);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(ProviderNotConfiguredError);
+    expect((error as ProviderNotConfiguredError).missing).toEqual(['CHAPA_WEBHOOK_SECRET']);
+    expect((error as Error).message).toMatch(/at least 32 characters/);
+    const justLongEnough = loadConfig({
+      ...LICENSED,
+      PAYMENT_PROVIDERS: 'chapa',
+      CHAPA_SECRET_KEY: 'CHASECK-live',
+      CHAPA_WEBHOOK_SECRET: 'w'.repeat(32),
+    });
+    expect(createPaymentProviders(justLongEnough, deps).require('chapa')).toBeInstanceOf(
+      ChapaProvider,
+    );
   });
 
   it('builds telebirr from PEM keys written with \\n escapes', () => {

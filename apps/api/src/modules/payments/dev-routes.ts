@@ -21,6 +21,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AppDeps } from '../../deps';
 import { clientAddressKey } from '../../lib/client-address';
 import { badRequest, notFound, parseInput, unprocessable } from '../../lib/errors';
+import { requireUser } from '../../plugins/session';
 import { parseId, receiveWebhook } from './service';
 import { depositView, withdrawalView } from './views';
 
@@ -50,23 +51,32 @@ function mockProvider(deps: Pick<AppDeps, 'payments'>): MockPaymentProvider {
   return provider;
 }
 
-function phoneOf(input: string): string {
-  const phone = normalizeEthiopianMsisdn(input);
+/**
+ * The signed-in player's phone. A `phone` the client names must be that
+ * number: the simulator never shows or decides pushes to anyone else's
+ * phone (404, like another player's deposit).
+ */
+function sessionPhone(request: FastifyRequest, named: string | undefined): string {
+  const own = requireUser(request).phone;
+  if (named === undefined) return own;
+  const phone = normalizeEthiopianMsisdn(named);
   if (phone === null) throw badRequest('invalid_phone', 'Not an Ethiopian mobile number.');
-  return phone;
+  if (phone !== own) throw notFound('Phone');
+  return own;
 }
 
 /**
  * DEV ONLY – not part of the product.
  *
- * The dev phone simulator for the mock provider:
- * - GET /dev/payments/phone?phone= lists the deposit pushes waiting on a phone;
+ * The dev phone simulator for the mock provider, for the signed-in
+ * player's own registered phone only (session required, CSRF for cookies):
+ * - GET /dev/payments/phone lists the deposit pushes waiting on it;
  * - POST /dev/payments/phone approves (PIN 1234) or declines one. It builds
  *   the signed mock webhook and feeds it through the same verification and
  *   apply path as POST /payments/webhooks/mock.
  *
  * A STAND-IN for the Phase 9 back office (no staff login yet), so e2e can
- * walk a withdrawal through review:
+ * walk a withdrawal through review (no session: it plays the staff side):
  * - GET /dev/payments/withdrawals lists withdrawals waiting for review;
  * - POST /dev/payments/withdrawals/:id/approve and …/reject.
  */
@@ -74,27 +84,32 @@ export default async function devPaymentRoutes(app: FastifyInstance): Promise<vo
   const { deps } = app;
   if (!devPaymentsEnabled(deps)) return;
 
-  app.get('/dev/payments/phone', async (request): Promise<DevPhonePushesResponse> => {
-    const query = parseInput(DevPhoneQuery, request.query);
-    const rows = await listOpenDepositIntentsForPhone(deps.db, {
-      provider: 'mock',
-      phone: phoneOf(query.phone),
-      now: deps.clock(),
-    });
-    return {
-      items: rows.map((row) => ({
-        depositId: row.id,
-        amount: row.amount.toString(),
-        instructions: row.instructions,
-        createdAt: row.createdAt.toISOString(),
-        expiresAt: row.expiresAt.toISOString(),
-      })),
-    };
-  });
+  app.get(
+    '/dev/payments/phone',
+    { preHandler: app.requireAuth },
+    async (request): Promise<DevPhonePushesResponse> => {
+      const query = parseInput(DevPhoneQuery, request.query);
+      const rows = await listOpenDepositIntentsForPhone(deps.db, {
+        provider: 'mock',
+        phone: sessionPhone(request, query.phone),
+        now: deps.clock(),
+      });
+      return {
+        items: rows.map((row) => ({
+          depositId: row.id,
+          amount: row.amount.toString(),
+          instructions: row.instructions,
+          createdAt: row.createdAt.toISOString(),
+          expiresAt: row.expiresAt.toISOString(),
+        })),
+      };
+    },
+  );
 
   app.post(
     '/dev/payments/phone',
     {
+      preHandler: app.requireAuth,
       config: {
         rateLimit: {
           max: 60,
@@ -106,11 +121,13 @@ export default async function devPaymentRoutes(app: FastifyInstance): Promise<vo
     },
     async (request): Promise<DevPhoneDecisionResponse> => {
       const input = parseInput(DevPhoneDecisionRequest, request.body);
-      const phone = phoneOf(input.phone);
+      const user = requireUser(request);
+      const phone = sessionPhone(request, input.phone);
       const intent = await getDepositIntent(deps.db, parseId(input.depositId, 'Payment request'));
       if (
         intent === null ||
         intent.provider !== 'mock' ||
+        intent.userId !== user.id ||
         intent.phone !== phone ||
         intent.providerRef === null
       ) {

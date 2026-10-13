@@ -291,6 +291,8 @@ export function paymentErrorMessage(error: unknown): Message {
       return { key: 'account.payments.errors.insufficientFunds' };
     case 'payout_not_cancellable':
       return { key: 'account.payments.errors.notCancellable' };
+    case 'deposit_under_review':
+      return { key: 'account.payments.errors.depositUnderReview' };
     case 'invalid_phone':
       return { key: 'account.payments.errors.invalidPhone' };
     case 'wrong_pin':

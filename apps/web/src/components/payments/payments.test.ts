@@ -211,6 +211,9 @@ describe('paymentErrorMessage', () => {
     expect(paymentErrorMessage(api('payout_not_cancellable', undefined, 409)).key).toBe(
       'account.payments.errors.notCancellable',
     );
+    expect(paymentErrorMessage(api('deposit_under_review', { depositId: 'x' }, 409)).key).toBe(
+      'account.payments.errors.depositUnderReview',
+    );
     expect(paymentErrorMessage(api('cooling_off')).key).toBe('account.errors.coolingOff');
     expect(paymentErrorMessage(api('brand_new')).key).toBe('common.errors.generic');
     expect(paymentErrorMessage(new Error('x')).key).toBe('common.errors.generic');

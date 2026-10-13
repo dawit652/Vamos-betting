@@ -1,7 +1,11 @@
 import { constants, createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { fakeDeps, fakeFetch, type RecordedCall } from '../../test/fakes';
-import { ProviderNotConfiguredError, WebhookVerificationError } from '../errors';
+import {
+  ProviderNotConfiguredError,
+  ProviderRequestError,
+  WebhookVerificationError,
+} from '../errors';
 import {
   TelebirrProvider,
   telebirrCanonicalString,
@@ -104,7 +108,9 @@ describe('telebirr signing', () => {
 });
 
 describe('telebirr notify_url', () => {
-  const provider = () => new TelebirrProvider(OPTIONS, fakeDeps(fakeFetch([]).fetch));
+  /** Signature and payload checks only (no queryOrder confirmation). */
+  const provider = () =>
+    new TelebirrProvider({ ...OPTIONS, confirmWebhooks: false }, fakeDeps(fakeFetch([]).fetch));
 
   it('accepts a notification signed by telebirr', async () => {
     const body = notification();
@@ -167,6 +173,7 @@ describe('telebirr notify_url', () => {
 
   it('accepts a notification whose empty fields were signed as "k=" (reference signer)', async () => {
     const fields: Record<string, unknown> = {
+      appid: 'merchant-app',
       merch_code: '123456',
       merch_order_id: ORDER,
       payment_order_id: '00801104C911443200001003',
@@ -200,6 +207,153 @@ describe('telebirr notify_url', () => {
       provider().verifyWebhook({ headers: {}, rawBody: JSON.stringify(body) }),
     );
     expect(error.reason).toBe('malformed_payload');
+  });
+
+  it('rejects a genuine notification whose signed fields were moved into biz_content', async () => {
+    // Someone else's genuine, telebirr-signed notification of a failed 1-birr order.
+    const { sign, sign_type, ...genuine } = notification({
+      merch_code: '999999',
+      appid: 'another-app',
+      merch_order_id: 'ffffffffffffffffffffffffffffffff',
+      payment_order_id: 'P-OTHER-1',
+      total_amount: '1.00',
+      trade_status: 'Failure',
+    });
+    // The signed fields move into biz_content (lifted last, so the signed string is
+    // unchanged) and forged values take their place at the top level.
+    const forged = {
+      ...genuine,
+      merch_code: '123456',
+      appid: 'merchant-app',
+      merch_order_id: ORDER,
+      payment_order_id: 'P-FORGED-2',
+      total_amount: '150.00',
+      trade_status: 'Completed',
+      biz_content: genuine,
+      sign,
+      sign_type,
+    };
+    expect(telebirrVerify(forged, telebirr.publicKey)).toBe(true);
+    for (const target of [provider(), confirming(fakeFetch([]).fetch)]) {
+      const error = await rejection(
+        target.verifyWebhook({ headers: {}, rawBody: JSON.stringify(forged) }),
+      );
+      expect(error.reason).toBe('malformed_payload');
+    }
+    // A nested object in any signed field is refused the same way.
+    const nested = notification({ trans_id: { a: '1' } });
+    expect(
+      (await rejection(provider().verifyWebhook({ headers: {}, rawBody: JSON.stringify(nested) })))
+        .reason,
+    ).toBe('malformed_payload');
+  });
+
+  it('requires our merchant code and app id in every notification', async () => {
+    const full: Record<string, unknown> = notification();
+    const { merch_code: _code, ...withoutCode } = full;
+    const unsignedCode = {
+      ...withoutCode,
+      sign: telebirrSign(
+        Object.fromEntries(
+          Object.entries(withoutCode).filter(([key]) => key !== 'sign' && key !== 'sign_type'),
+        ),
+        telebirr.privateKey,
+      ),
+    };
+    const { appid: _appid, ...noAppFields } = full;
+    const noApp = {
+      ...noAppFields,
+      sign: telebirrSign(
+        Object.fromEntries(
+          Object.entries(noAppFields).filter(([key]) => key !== 'sign' && key !== 'sign_type'),
+        ),
+        telebirr.privateKey,
+      ),
+    };
+    for (const body of [unsignedCode, noApp, notification({ appid: 'another-app' })]) {
+      const error = await rejection(
+        provider().verifyWebhook({ headers: {}, rawBody: JSON.stringify(body) }),
+      );
+      expect(error.reason).toBe('malformed_payload');
+    }
+  });
+});
+
+/** A provider that confirms successful notifications with queryOrder (the default). */
+function confirming(fetch: typeof globalThis.fetch) {
+  return new TelebirrProvider(OPTIONS, fakeDeps(fetch));
+}
+
+describe('telebirr notify_url confirmation (queryOrder)', () => {
+  const token = { status: 200, body: { token: 'Bearer tkn-1', expirationDate: '1791626400000' } };
+  const order = (status: string, amount = '150.00') => ({
+    status: 200,
+    body: {
+      result: 'SUCCESS',
+      biz_content: { order_status: status, total_amount: amount, trans_currency: 'ETB' },
+    },
+  });
+
+  it('confirms a successful payment with queryOrder and reports what telebirr confirms', async () => {
+    const { fetch, calls } = fakeFetch([token, order('PAY_SUCCESS', '150.00')]);
+    const body = notification();
+    const event = await confirming(fetch).verifyWebhook({
+      headers: {},
+      rawBody: JSON.stringify(body),
+    });
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://telebirr.test/apiaccess/payment/v1/token',
+      'https://telebirr.test/apiaccess/payment/v1/merchant/queryOrder',
+    ]);
+    expect((calls[1]?.body as { biz_content: unknown }).biz_content).toMatchObject({
+      merch_order_id: ORDER,
+      merch_code: '123456',
+    });
+    expect(event).toMatchObject({
+      providerEventId: '00801104C911443200001002:Completed',
+      kind: 'deposit',
+      providerRef: ORDER,
+      status: 'succeeded',
+      amount: 15_000n,
+      currency: 'ETB',
+    });
+    expect(event.raw).toMatchObject({ webhook: body });
+
+    const contradicted = fakeFetch([token, order('PAY_FAILED')]);
+    expect(
+      (
+        await confirming(contradicted.fetch).verifyWebhook({
+          headers: {},
+          rawBody: JSON.stringify(notification()),
+        })
+      ).status,
+    ).toBe('failed');
+  });
+
+  it('throws a retryable error while queryOrder does not confirm the payment yet', async () => {
+    for (const responses of [
+      [token, order('PAYING')],
+      [token, { status: 502, body: 'down' }],
+    ]) {
+      const error = await confirming(fakeFetch(responses).fetch)
+        .verifyWebhook({ headers: {}, rawBody: JSON.stringify(notification()) })
+        .then(
+          () => null,
+          (e: unknown) => e,
+        );
+      expect(error).toBeInstanceOf(ProviderRequestError);
+      expect((error as ProviderRequestError).retryable).toBe(true);
+    }
+  });
+
+  it('does not ask about a failed payment (nothing is given away)', async () => {
+    const { fetch, calls } = fakeFetch([]);
+    const event = await confirming(fetch).verifyWebhook({
+      headers: {},
+      rawBody: JSON.stringify(notification({ trade_status: 'Failure' })),
+    });
+    expect(event.status).toBe('failed');
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -301,6 +455,71 @@ describe('telebirr API calls', () => {
       amount: 15_000n,
       currency: 'ETB',
     });
+  });
+
+  it('asks telebirr to close the order when the intent expires (timeout_express)', async () => {
+    const { fetch, calls } = fakeFetch(respond);
+    const deps = fakeDeps(fetch);
+    await new TelebirrProvider(OPTIONS, deps).initiateDeposit({
+      intentId: INTENT,
+      amount: 15_000n,
+      phone: '+251911234567',
+      callbackUrl: 'https://api.example.et/payments/webhooks/telebirr',
+      returnUrl: 'https://vamos.example.et/wallet',
+      expiresAt: new Date(deps.now.value.getTime() + 15 * 60_000),
+    });
+    const request = calls.find((c) => c.url.endsWith('/preOrder'))?.body as {
+      biz_content: Record<string, unknown>;
+    };
+    expect(request.biz_content.timeout_express).toBe('15m');
+  });
+
+  it('gets a new token and tries once more when telebirr answers 401', async () => {
+    let tokens = 0;
+    let orders = 0;
+    const { fetch, calls } = fakeFetch((call) => {
+      if (call.url.endsWith('/payment/v1/token')) {
+        tokens += 1;
+        return { status: 200, body: { token: `Bearer tkn-${tokens}` } };
+      }
+      if (call.url.endsWith('/payment/v1/merchant/preOrder')) {
+        orders += 1;
+        return call.headers.authorization === 'Bearer tkn-1'
+          ? { status: 401, body: { message: 'token expired' } }
+          : respond(call);
+      }
+      return respond(call);
+    });
+    const deposit = {
+      intentId: INTENT,
+      amount: 15_000n,
+      phone: '+251911234567',
+      callbackUrl: 'https://api.example.et/payments/webhooks/telebirr',
+      returnUrl: 'https://vamos.example.et/wallet',
+    };
+    const result = await new TelebirrProvider(OPTIONS, fakeDeps(fetch)).initiateDeposit(deposit);
+    expect(result.providerRef).toBe(ORDER);
+    expect(tokens).toBe(2);
+    expect(orders).toBe(2);
+    expect(
+      calls.filter((c) => c.url.endsWith('/preOrder')).map((c) => c.headers.authorization),
+    ).toEqual(['Bearer tkn-1', 'Bearer tkn-2']);
+
+    // Refused again with a fresh token: an outage on telebirr's side, worth retrying later.
+    const always401 = fakeFetch((call) =>
+      call.url.endsWith('/payment/v1/token')
+        ? { status: 200, body: { token: 'Bearer tkn-x' } }
+        : { status: 401, body: {} },
+    );
+    const error = await new TelebirrProvider(OPTIONS, fakeDeps(always401.fetch))
+      .initiateDeposit(deposit)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(error).toBeInstanceOf(ProviderRequestError);
+    expect((error as ProviderRequestError).retryable).toBe(true);
+    expect(always401.calls.filter((c) => c.url.endsWith('/preOrder'))).toHaveLength(2);
   });
 
   it('does not offer payouts', async () => {

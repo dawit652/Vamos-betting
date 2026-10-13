@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatDateTime } from '@/components/account/dates';
 import type { Message } from '@/components/account/errors';
 import { Alert, Field } from '@/components/account/ui';
-import { PhoneInput } from '@/components/account/inputs';
 import { useLocale, useT } from '@/i18n/client';
 import { isApiClientError } from '@/lib/api/errors';
 import { devPhoneApi } from '@/lib/api/payments';
@@ -19,15 +18,7 @@ interface Result {
   message: Message;
 }
 
-function Push({
-  push,
-  phone,
-  onDone,
-}: {
-  push: DevPhonePush;
-  phone: string;
-  onDone: (result: Result) => void;
-}) {
+function Push({ push, onDone }: { push: DevPhonePush; onDone: (result: Result) => void }) {
   const t = useT();
   const locale = useLocale();
   const { refreshWallet } = useSession();
@@ -41,7 +32,6 @@ function Push({
     setError(null);
     try {
       const res = await devPhoneApi.decide({
-        phone,
         depositId: push.depositId,
         decision,
         ...(decision === 'approve' ? { pin } : {}),
@@ -112,19 +102,18 @@ function Push({
   );
 }
 
-function Phone({ initialPhone }: { initialPhone: string }) {
+/** The signed-in player's own phone: the API shows only pushes to their registered number. */
+function Phone({ phone }: { phone: string }) {
   const t = useT();
-  const [input, setInput] = useState(initialPhone);
-  const [phone, setPhone] = useState<string | null>(initialPhone === '' ? null : initialPhone);
   const [pushes, setPushes] = useState<DevPhonePush[] | null>(null);
   const [error, setError] = useState<Message | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const requestId = useRef(0);
 
-  const load = useCallback(async (number: string) => {
+  const load = useCallback(async () => {
     const mine = ++requestId.current;
     try {
-      const res = await devPhoneApi.pushes(number);
+      const res = await devPhoneApi.pushes();
       if (mine !== requestId.current) return;
       setPushes(res.items);
       setError(null);
@@ -140,59 +129,46 @@ function Phone({ initialPhone }: { initialPhone: string }) {
 
   // Look for requests now and every few seconds, like a phone waiting for a push.
   useEffect(() => {
-    if (phone === null) return;
-    void load(phone);
-    const timer = setInterval(() => void load(phone), DEV_PHONE_REFRESH_MS);
+    void load();
+    const timer = setInterval(() => void load(), DEV_PHONE_REFRESH_MS);
     return () => clearInterval(timer);
-  }, [phone, load]);
+  }, [load]);
 
   return (
     <div className="mx-auto max-w-sm space-y-3 rounded-2xl border-4 border-ink bg-page p-3">
       <p className="rounded bg-ink px-2 py-1 text-center text-xs font-bold uppercase tracking-wide text-page">
         {t('account.payments.dev.label')}
       </p>
-      <form
-        className="space-y-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const trimmed = input.trim();
-          if (trimmed === '') return;
+      <p className="text-center">
+        <span className="text-muted">{t('account.payments.dev.phone')}: </span>
+        <span className="font-bold tabular-nums">{phone}</span>
+      </p>
+      <button
+        type="button"
+        className="btn btn-outline w-full"
+        onClick={() => {
           setResult(null);
-          if (trimmed === phone) void load(trimmed);
-          else {
-            setPushes(null);
-            setPhone(trimmed);
-          }
+          void load();
         }}
       >
-        <Field id="dev-phone" label={t('account.payments.dev.phone')}>
-          <PhoneInput
-            id="dev-phone"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-          />
-        </Field>
-        <button type="submit" className="btn btn-outline w-full" disabled={input.trim() === ''}>
-          {t('account.payments.dev.showPushes')}
-        </button>
-      </form>
+        {t('account.payments.dev.refresh')}
+      </button>
       {result ? (
         <Alert tone={result.tone}>{t(result.message.key, result.message.vars)}</Alert>
       ) : null}
       {error ? <Alert>{t(error.key, error.vars)}</Alert> : null}
-      {phone !== null && pushes !== null && pushes.length === 0 && !error ? (
+      {pushes !== null && pushes.length === 0 && !error ? (
         <p className="text-center text-muted">{t('account.payments.dev.none')}</p>
       ) : null}
-      {phone !== null && pushes !== null && pushes.length > 0 ? (
+      {pushes !== null && pushes.length > 0 ? (
         <ul className="space-y-2">
           {pushes.map((push) => (
             <Push
               key={push.depositId}
               push={push}
-              phone={phone}
               onDone={(r) => {
                 setResult(r);
-                void load(phone);
+                void load();
               }}
             />
           ))}
@@ -224,7 +200,7 @@ export function DevPhonePanel() {
       {state.status === 'ready' && state.options.demo ? (
         <>
           <p className="text-muted">{t('account.payments.dev.intro')}</p>
-          <Phone initialPhone={me?.phone ?? ''} />
+          {me ? <Phone phone={me.phone} /> : null}
         </>
       ) : null}
     </div>

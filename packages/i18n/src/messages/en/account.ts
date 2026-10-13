@@ -368,7 +368,7 @@ export const account = {
       title: 'Simulated phone',
       label: 'Simulated phone',
       intro:
-        'Demo only. This stands in for the mobile-money app on your phone: see the payment requests sent to a number and approve them with the PIN or decline them.',
+        'Demo only. This stands in for the mobile-money app on your phone: see the payment requests sent to your registered number and approve them with the PIN or decline them.',
       phone: 'Phone number',
       showPushes: 'Show requests',
       none: 'No payment requests are waiting on this number.',
@@ -397,6 +397,8 @@ export const account = {
       dailyCap: 'This would go over the daily withdrawal limit.',
       insufficientFunds: 'Your balance is too low for this amount.',
       notCancellable: 'This withdrawal can no longer be cancelled.',
+      depositUnderReview:
+        'One of your deposits is being checked by our staff. You can withdraw once that is done.',
       invalidPhone: 'That phone number is not valid.',
     },
   },

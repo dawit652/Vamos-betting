@@ -1,5 +1,10 @@
 import { mobileOperator, type MobileOperator } from '@vamos/core';
-import { PaymentProviderError, ProviderRequestError, WebhookVerificationError } from '../errors';
+import {
+  PaymentProviderError,
+  PayoutNotFoundError,
+  ProviderRequestError,
+  WebhookVerificationError,
+} from '../errors';
 import type {
   DepositInitiation,
   InitiateDepositInput,
@@ -37,7 +42,9 @@ import {
  *   the providerRef. Status: GET /transaction/verify/{tx_ref}.
  * - payouts: POST /transfers to the player's mobile wallet with `reference`
  *   = our payout id (Chapa refuses a duplicate reference, so a retry never
- *   pays twice). Status: GET /transfers/verify/{reference}.
+ *   pays twice); `payoutReference` names it before it is sent. Status: GET
+ *   /transfers/verify/{reference}; a 404 there is PayoutNotFoundError (Chapa
+ *   has no such transfer), never "pending".
  * - webhooks: `x-chapa-signature` (or `chapa-signature`) is the hex
  *   HMAC-SHA256 of the raw request body under the webhook secret set in the
  *   Chapa dashboard. It is compared in constant time before the body is
@@ -156,17 +163,24 @@ export class ChapaProvider implements PaymentProvider {
   async verifyWebhook(input: WebhookInput): Promise<VerifiedWebhookEvent> {
     const event = this.parseSignedWebhook(input);
     if (this.options.confirmWebhooks === false || !movesMoney(event)) return event;
-    const confirmed =
-      event.kind === 'deposit'
-        ? await this.queryDeposit(event.providerRef)
-        : await this.queryPayout(event.providerRef);
-    if (confirmed.status === 'pending') {
-      throw new ProviderRequestError(
+    const notConfirmed = () =>
+      new ProviderRequestError(
         NAME,
         `chapa has not confirmed ${event.kind} ${event.providerRef} yet`,
         { status: null, retryable: true },
       );
+    let confirmed: ProviderStatusResult;
+    try {
+      confirmed =
+        event.kind === 'deposit'
+          ? await this.queryDeposit(event.providerRef)
+          : await this.queryPayout(event.providerRef);
+    } catch (error) {
+      // Not visible at verify yet: have Chapa deliver the webhook again later.
+      if (error instanceof PayoutNotFoundError) throw notConfirmed();
+      throw error;
     }
+    if (confirmed.status === 'pending') throw notConfirmed();
     return {
       ...event,
       status: confirmed.status,
@@ -225,14 +239,19 @@ export class ChapaProvider implements PaymentProvider {
     };
   }
 
-  private async verify(path: string, providerRef: string): Promise<ProviderStatusResult> {
+  private async verify(
+    path: string,
+    providerRef: string,
+    kind: PaymentEventKind,
+  ): Promise<ProviderStatusResult> {
     const response = await sendJson(NAME, this.deps, {
       method: 'GET',
       url: joinUrl(this.options.baseUrl, `${path}/${encodeURIComponent(providerRef)}`),
       headers: this.auth(),
     });
-    // Chapa answers 404 for a payment the payer has not completed yet.
     if (response.status === 404) {
+      // A charge the payer has not completed yet; a transfer Chapa never received.
+      if (kind === 'payout') throw new PayoutNotFoundError(NAME, providerRef);
       return { providerRef, status: 'pending', amount: null, currency: null, raw: response.body };
     }
     assertOk(NAME, 'verify', response);
@@ -253,7 +272,12 @@ export class ChapaProvider implements PaymentProvider {
   }
 
   async queryDeposit(providerRef: string): Promise<ProviderStatusResult> {
-    return this.verify('/transaction/verify', providerRef);
+    return this.verify('/transaction/verify', providerRef, 'deposit');
+  }
+
+  /** Transfers carry our payout id as their reference, fixed before they are sent. */
+  payoutReference(payoutId: string): string {
+    return payoutId;
   }
 
   async initiatePayout(input: InitiatePayoutInput): Promise<PayoutInitiation> {
@@ -275,7 +299,9 @@ export class ChapaProvider implements PaymentProvider {
     });
     assertOk(NAME, 'transfer', response);
     if (!isRecord(response.body) || response.body.status !== 'success') {
-      throw new ProviderRequestError(NAME, 'chapa did not accept the transfer', {
+      // A 2xx we cannot read as an acceptance: Chapa may well have queued the
+      // transfer. attemptPayout treats any 2xx error as unknown, never failed.
+      throw new ProviderRequestError(NAME, 'chapa answered the transfer with an unreadable 2xx', {
         status: response.status,
         body: response.body,
         retryable: false,
@@ -286,6 +312,6 @@ export class ChapaProvider implements PaymentProvider {
   }
 
   async queryPayout(providerRef: string): Promise<ProviderStatusResult> {
-    return this.verify('/transfers/verify', providerRef);
+    return this.verify('/transfers/verify', providerRef, 'payout');
   }
 }

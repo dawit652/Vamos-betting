@@ -53,7 +53,14 @@ import {
  * SHA-256 and a 32-byte salt, telebirr's "SHA256WithRSA"; `pkcs1` is
  * available for merchant accounts set up with PKCS#1 v1.5) and base64
  * encoded. A notification is accepted only when its signature verifies
- * under telebirr's public key (TELEBIRR_PUBLIC_KEY).
+ * under telebirr's public key (TELEBIRR_PUBLIC_KEY), it is flat (no
+ * biz_content, no nested signed field: lifting biz_content into the signed
+ * string would let a genuine signature cover forged top-level fields), and it
+ * names our merchant (merch_code = TELEBIRR_SHORT_CODE, appid =
+ * TELEBIRR_MERCHANT_APP_ID). A successful payment is then confirmed with
+ * queryOrder, whose status, amount and currency replace the notification's
+ * (like Chapa); while telebirr does not confirm it, verifyWebhook throws a
+ * retryable error so the notification is delivered again.
  *
  * The merchant order id is our intent id without dashes (telebirr allows
  * only letters, digits and underscores). B2C payouts need a separate
@@ -76,7 +83,12 @@ export interface TelebirrOptions {
   /** telebirr's RSA public key (PEM). */
   publicKey: string;
   signatureScheme?: TelebirrSignatureScheme;
+  /** Confirm successful notifications with queryOrder (default true). */
+  confirmWebhooks?: boolean;
 }
+
+/** timeout_express when the intent's expiry is not given (minutes). */
+const DEFAULT_ORDER_TIMEOUT_MINUTES = 30;
 
 /** Fields never included in the signed string. */
 const UNSIGNED_FIELDS = new Set([
@@ -263,8 +275,12 @@ export class TelebirrProvider implements PaymentProvider {
     return token;
   }
 
+  /**
+   * A signed Fabric call. A 401 means the cached token is no longer accepted:
+   * it is dropped and the call is made once more with a fresh one. A second
+   * 401 is an outage on telebirr's side (retryable), not a refusal of the order.
+   */
   private async signedCall(path: string, method: string, bizContent: Record<string, unknown>) {
-    const token = await this.fabricToken();
     const request: Record<string, unknown> = {
       timestamp: this.timestamp(),
       nonce_str: this.nonce(),
@@ -274,13 +290,26 @@ export class TelebirrProvider implements PaymentProvider {
     };
     request.sign = telebirrSign(request, this.privateKey, this.scheme);
     request.sign_type = 'SHA256WithRSA';
-    const response = await sendJson(NAME, this.deps, {
-      method: 'POST',
-      url: joinUrl(this.options.baseUrl, path),
-      headers: { 'X-APP-Key': this.options.fabricAppId, Authorization: token },
-      body: request,
-    });
-    if (response.status === 401) this.token = null;
+    const send = async () =>
+      sendJson(NAME, this.deps, {
+        method: 'POST',
+        url: joinUrl(this.options.baseUrl, path),
+        headers: { 'X-APP-Key': this.options.fabricAppId, Authorization: await this.fabricToken() },
+        body: request,
+      });
+    let response = await send();
+    if (response.status === 401) {
+      this.token = null;
+      response = await send();
+      if (response.status === 401) {
+        this.token = null;
+        throw new ProviderRequestError(NAME, `telebirr ${method} was refused twice (HTTP 401)`, {
+          status: 401,
+          body: response.body,
+          retryable: true,
+        });
+      }
+    }
     assertOk(NAME, method, response);
     const body = response.body;
     if (!isRecord(body) || (body.result !== undefined && body.result !== 'SUCCESS')) {
@@ -305,7 +334,7 @@ export class TelebirrProvider implements PaymentProvider {
       title: 'Vamos deposit',
       total_amount: toBirrAmount(input.amount),
       trans_currency: 'ETB',
-      timeout_express: '30m',
+      timeout_express: `${this.orderTimeoutMinutes(input.expiresAt)}m`,
       business_type: 'BuyGoods',
       payee_identifier: this.options.shortCode,
       payee_identifier_type: '04',
@@ -341,7 +370,36 @@ export class TelebirrProvider implements PaymentProvider {
     };
   }
 
+  /** Minutes until the intent expires (at least 1), for timeout_express. */
+  private orderTimeoutMinutes(expiresAt: Date | undefined): number {
+    if (expiresAt === undefined) return DEFAULT_ORDER_TIMEOUT_MINUTES;
+    const minutes = Math.floor((expiresAt.getTime() - this.deps.clock().getTime()) / 60_000);
+    return Math.max(1, minutes);
+  }
+
   async verifyWebhook(input: WebhookInput): Promise<VerifiedWebhookEvent> {
+    const event = this.parseSignedNotification(input);
+    if (this.options.confirmWebhooks === false || event.status !== 'succeeded') return event;
+    // Only a success gives value away: confirm it with telebirr's own record.
+    const confirmed = await this.queryDeposit(event.providerRef);
+    if (confirmed.status === 'pending') {
+      throw new ProviderRequestError(
+        NAME,
+        `telebirr has not confirmed order ${event.providerRef} yet`,
+        { status: null, retryable: true },
+      );
+    }
+    return {
+      ...event,
+      status: confirmed.status,
+      amount: confirmed.amount ?? event.amount,
+      currency: confirmed.currency ?? event.currency,
+      raw: { webhook: event.raw, query: confirmed.raw },
+    };
+  }
+
+  /** Checks the signature and the payload; no network calls. */
+  parseSignedNotification(input: WebhookInput): VerifiedWebhookEvent {
     const body = rawBytes(input.rawBody);
     const payload = parseJsonObject(NAME, body);
     if (typeof payload.sign !== 'string' || payload.sign.length === 0) {
@@ -349,6 +407,20 @@ export class TelebirrProvider implements PaymentProvider {
     }
     if (!telebirrVerify(payload, this.publicKey, this.scheme)) {
       throw new WebhookVerificationError(NAME, 'bad_signature', 'signature does not verify');
+    }
+    // Notifications are flat. biz_content is lifted into the signed string
+    // and would shadow the top-level fields read below; a nested signed field
+    // is signed as its JSON text. Refuse both, so every field read here is
+    // exactly the one the signature covers.
+    for (const [key, value] of Object.entries(payload)) {
+      const nested = typeof value === 'object' && value !== null;
+      if (key === 'biz_content' || (nested && !UNSIGNED_FIELDS.has(key))) {
+        throw new WebhookVerificationError(
+          NAME,
+          'malformed_payload',
+          `notification field ${key} is not a plain value`,
+        );
+      }
     }
     const orderId = stringField(payload, 'merch_order_id');
     const status = stringField(payload, 'trade_status');
@@ -360,13 +432,13 @@ export class TelebirrProvider implements PaymentProvider {
       );
     }
     if (
-      stringField(payload, 'merch_code') !== undefined &&
-      payload.merch_code !== this.options.shortCode
+      stringField(payload, 'merch_code') !== this.options.shortCode ||
+      stringField(payload, 'appid') !== this.options.merchantAppId
     ) {
       throw new WebhookVerificationError(
         NAME,
         'malformed_payload',
-        'notification is for another merchant',
+        'notification is not for this merchant',
       );
     }
     const paymentOrderId = stringField(payload, 'payment_order_id') ?? orderId;

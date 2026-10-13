@@ -1,5 +1,19 @@
 import { normalizeEthiopianMsisdn, toWire, type PaymentRules } from '@vamos/core';
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  or,
+  sql,
+} from 'drizzle-orm';
 import {
   DomainError,
   domainBadRequest,
@@ -30,6 +44,14 @@ const MAX_REASON_LENGTH = 500;
 
 /** Statuses of an intent that may still be paid. */
 const OPEN_STATUSES = ['created', 'pending'] as const;
+
+/**
+ * How long after its expiry an expired intent that reached the provider
+ * (has a provider reference) may still be paid: the deposit reconciliation
+ * keeps asking the provider about it, and deposit limits keep counting it.
+ * A verified success after that is still credited.
+ */
+export const DEPOSIT_LATE_PAYMENT_WINDOW_MS = 24 * 60 * MINUTE_MS;
 
 export interface CreateDepositIntentInput {
   userId: string;
@@ -82,8 +104,11 @@ async function lockIntent(tx: DbTransaction, intentId: string): Promise<PaymentI
  * 3. 422 `deposit_amount_out_of_range` outside [minDeposit, maxDeposit];
  * 4. 422 `deposit_phone_mismatch` when `phone` is not the registered phone;
  * 5. assertDepositAllowed (403 account disabled / exclusion, 422
- *    `deposit_limit_exceeded`), counting the player's other open intents as
- *    if they had been paid, so concurrent intents cannot slip past a limit;
+ *    `deposit_limit_exceeded`), counting the player's other intents that may
+ *    still be paid as if they had been (created or pending, expired with a
+ *    provider reference within DEPOSIT_LATE_PAYMENT_WINDOW_MS, flagged and
+ *    not credited: staff may credit it), so neither concurrent nor expired
+ *    intents can slip past a limit;
  * 6. insert, expiring `depositIntentTtlMinutes` after `now`, and audit.
  * Then (outside the transaction) call provider.initiateDeposit and record
  * the answer with markDepositInitiated, or markDepositInitiationFailed. On
@@ -147,8 +172,15 @@ export async function createDepositIntent(
     .where(
       and(
         eq(paymentIntents.userId, userId),
-        inArray(paymentIntents.status, [...OPEN_STATUSES]),
-        gt(paymentIntents.expiresAt, now),
+        or(
+          inArray(paymentIntents.status, [...OPEN_STATUSES]),
+          and(
+            eq(paymentIntents.status, 'expired'),
+            isNotNull(paymentIntents.providerRef),
+            gt(paymentIntents.expiresAt, new Date(now.getTime() - DEPOSIT_LATE_PAYMENT_WINDOW_MS)),
+          ),
+          and(isNotNull(paymentIntents.flaggedAt), ne(paymentIntents.status, 'succeeded')),
+        ),
       ),
     );
   const openTotal = BigInt(open?.total ?? '0');
@@ -757,27 +789,61 @@ export async function listFlaggedDepositIntents(
 }
 
 /**
- * Pending, unflagged intents with a provider reference created before
- * `createdBefore`, oldest first: what a status poller asks the provider
- * about (provider.queryDeposit + eventFromStatusQuery + applyDepositEvent),
- * e.g. before they expire. Read-only; applyDepositEvent locks.
+ * Unflagged intents with a provider reference that a status poller should
+ * ask the provider about now (provider.queryDeposit + eventFromStatusQuery +
+ * applyDepositEvent): pending ones, and expired ones within
+ * `lateWindowMs` (default DEPOSIT_LATE_PAYMENT_WINDOW_MS) after their expiry
+ * (a late payment is still credited), created before `createdBefore` and
+ * whose next poll (scheduleDepositPoll) is due, longest waiting first.
+ * Read-only; applyDepositEvent locks.
  */
 export async function listPendingDepositIntents(
   exec: DbExecutor,
-  options: { createdBefore: Date; provider?: string; limit?: number },
+  options: {
+    now: Date;
+    createdBefore: Date;
+    provider?: string;
+    limit?: number;
+    lateWindowMs?: number;
+  },
 ): Promise<PaymentIntent[]> {
+  const lateSince = new Date(
+    options.now.getTime() - (options.lateWindowMs ?? DEPOSIT_LATE_PAYMENT_WINDOW_MS),
+  );
   return exec
     .select()
     .from(paymentIntents)
     .where(
       and(
-        eq(paymentIntents.status, 'pending'),
+        or(
+          eq(paymentIntents.status, 'pending'),
+          and(eq(paymentIntents.status, 'expired'), gt(paymentIntents.expiresAt, lateSince)),
+        ),
         isNull(paymentIntents.flaggedAt),
         isNotNull(paymentIntents.providerRef),
         lt(paymentIntents.createdAt, options.createdBefore),
+        or(isNull(paymentIntents.nextPollAt), lte(paymentIntents.nextPollAt, options.now)),
         options.provider === undefined ? undefined : eq(paymentIntents.provider, options.provider),
       ),
     )
-    .orderBy(asc(paymentIntents.createdAt), asc(paymentIntents.id))
+    .orderBy(
+      asc(sql`COALESCE(${paymentIntents.nextPollAt}, ${paymentIntents.createdAt})`),
+      asc(paymentIntents.id),
+    )
     .limit(Math.min(Math.max(options.limit ?? 50, 1), 500));
+}
+
+/**
+ * Sets when the deposit reconciliation asks about an intent next (after an
+ * answer that settled nothing, or a failed query), so polls back off and
+ * every intent gets its turn.
+ */
+export async function scheduleDepositPoll(
+  exec: DbExecutor,
+  input: { intentId: string; at: Date },
+): Promise<void> {
+  await exec
+    .update(paymentIntents)
+    .set({ nextPollAt: input.at })
+    .where(eq(paymentIntents.id, input.intentId));
 }

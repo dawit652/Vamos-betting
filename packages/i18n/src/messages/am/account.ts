@@ -382,6 +382,7 @@ export const account: Messages['account'] = {
       dailyCap: 'ይህ ከየቀኑ የወጪ ገደብ ያልፋል።',
       insufficientFunds: 'ቀሪ ሂሳብዎ ለዚህ መጠን በቂ አይደለም።',
       notCancellable: 'ይህ ወጪ ከዚህ በኋላ ሊሰረዝ አይችልም።',
+      depositUnderReview: 'ከገቢዎችዎ አንዱ በሰራተኞቻችን እየተመረመረ ነው። ምርመራው ሲጠናቀቅ ወጪ ማድረግ ይችላሉ።',
       invalidPhone: 'ይህ ስልክ ቁጥር ልክ አይደለም።',
     },
   },

@@ -1,0 +1,4 @@
+ALTER TABLE "payment_intents" ADD COLUMN "next_poll_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "payouts" ADD COLUMN "unanswered_attempts" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+CREATE INDEX "payment_intents_poll_idx" ON "payment_intents" USING btree ("next_poll_at") WHERE "payment_intents"."status" IN ('pending', 'expired') AND "payment_intents"."flagged_at" IS NULL AND "payment_intents"."provider_ref" IS NOT NULL;--> statement-breakpoint
+ALTER TABLE "payouts" ADD CONSTRAINT "payouts_unanswered_attempts_non_negative" CHECK ("payouts"."unanswered_attempts" >= 0);

@@ -23,6 +23,7 @@
 export * from './types';
 export {
   PaymentProviderError,
+  PayoutNotFoundError,
   ProviderNotConfiguredError,
   ProviderRequestError,
   UnknownPaymentProviderError,
@@ -32,6 +33,7 @@ export {
 export {
   createPaymentProvider,
   createPaymentProviders,
+  MIN_WEBHOOK_SECRET_LENGTH,
   paymentWebhookPath,
   paymentWebhookUrl,
   type PaymentProviderRegistry,

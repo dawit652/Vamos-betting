@@ -116,6 +116,29 @@ export type DepositsResponse = z.infer<typeof DepositsResponse>;
 
 // ---------------------------------------------------------------- withdrawals
 
+/**
+ * Error codes of POST /payments/withdrawals besides the generic ones
+ * (unauthorized, csrf_invalid, validation_failed, idempotency_key_*):
+ * - 403 kyc_required, account_disabled;
+ * - 409 deposit_under_review: a deposit of the player was reported reversed
+ *   by its provider and waits for staff (details `{ depositId }`);
+ * - 422 payout_phone_mismatch, withdrawal_amount_out_of_range,
+ *   withdrawal_daily_cap_exceeded, wagering_requirement_not_met (details
+ *   `{ remaining }`), insufficient_funds, payment_provider_unavailable.
+ */
+export const WithdrawalErrorCodeSchema = z.enum([
+  'kyc_required',
+  'account_disabled',
+  'deposit_under_review',
+  'payout_phone_mismatch',
+  'withdrawal_amount_out_of_range',
+  'withdrawal_daily_cap_exceeded',
+  'wagering_requirement_not_met',
+  'insufficient_funds',
+  'payment_provider_unavailable',
+]);
+export type WithdrawalErrorCode = z.infer<typeof WithdrawalErrorCodeSchema>;
+
 export const CreateWithdrawalRequest = z.object({
   amount: PositiveSantim,
   /** Defaults to the first enabled provider that pays out. */
@@ -203,10 +226,11 @@ export type PaymentWebhookAck = z.infer<typeof PaymentWebhookAck>;
 
 /**
  * DEV ONLY (demo mode, mock provider, NODE_ENV not production): the dev
- * phone simulator. GET /dev/payments/phone?phone= lists the deposit pushes
- * waiting on that phone.
+ * phone simulator, for the signed-in player's own phone. GET
+ * /dev/payments/phone lists the deposit pushes waiting on it; `phone`, when
+ * given, must be the player's registered number (404 otherwise).
  */
-export const DevPhoneQuery = z.object({ phone: PhoneInput });
+export const DevPhoneQuery = z.object({ phone: PhoneInput.optional() });
 export type DevPhoneQuery = z.infer<typeof DevPhoneQuery>;
 
 export const DevPhonePush = z.object({
@@ -221,9 +245,13 @@ export type DevPhonePush = z.infer<typeof DevPhonePush>;
 export const DevPhonePushesResponse = z.object({ items: z.array(DevPhonePush) });
 export type DevPhonePushesResponse = z.infer<typeof DevPhonePushesResponse>;
 
-/** DEV ONLY: POST /dev/payments/phone – approve (PIN 1234) or decline a push. */
+/**
+ * DEV ONLY: POST /dev/payments/phone – the signed-in player approves (PIN
+ * 1234) or declines a push to their own phone. `phone`, when given, must be
+ * their registered number.
+ */
 export const DevPhoneDecisionRequest = z.object({
-  phone: PhoneInput,
+  phone: PhoneInput.optional(),
   depositId: z.string().min(1).max(64),
   decision: z.enum(['approve', 'decline']),
   pin: z.string().max(12).optional(),

@@ -30,7 +30,7 @@ import { enqueueOutbox } from '../platform/outbox';
 import { getActiveExclusion } from '../rg/exclusions';
 import { lockUser } from '../rg/limits';
 import { kycProfiles, users } from '../schema/accounts';
-import { paymentEvents, payouts } from '../schema/payments';
+import { paymentEvents, paymentIntents, payouts } from '../schema/payments';
 import {
   WITHDRAWAL_APPROVED,
   WITHDRAWAL_CANCELLED,
@@ -61,6 +61,12 @@ import { getRemainingWagering } from './wagering';
 const DAY_MS = 24 * 60 * 60_000;
 const MAX_TEXT_LENGTH = 500;
 
+/**
+ * A payout the provider has kept `pending` for this long since it was first
+ * processed is flagged `pending_too_long` (applyPayoutAttempt pendingLimitMs).
+ */
+export const PAYOUT_PENDING_LIMIT_MS = DAY_MS;
+
 /** `approved_by` of automatically approved payouts. */
 export const AUTO_APPROVER = 'system:auto';
 
@@ -68,14 +74,23 @@ export type ReviewReason = 'above_auto_approve_threshold' | 'active_exclusion';
 
 /**
  * Why a payout waits for staff (payouts.flag_reason):
- * - ambiguous_result: the provider's answer leaves open whether money left
- *   (e.g. it refused a resubmission that may be a duplicate);
- * - attempts_exhausted: rules.payoutMaxAttempts attempts got no answer;
+ * - ambiguous_result: whether money left still cannot be told after
+ *   rules.payoutMaxAttempts attempts (unreadable answers, refused
+ *   resubmissions…), or at once when the provider cannot be asked about it;
+ * - attempts_exhausted: rules.payoutMaxAttempts attempts in a row got no answer;
+ * - pending_too_long: the provider has kept it pending for
+ *   PAYOUT_PENDING_LIMIT_MS since it was first processed;
+ * - staff_review: staff took it over (flagPayoutForStaff) to settle it by hand;
  * - provider_conflict: the provider reports something that contradicts the
  *   payout (paid after the hold went back, failed after payment, another
  *   amount or reference). Later provider events are recorded but held.
  */
-export type PayoutFlagReason = 'ambiguous_result' | 'attempts_exhausted' | 'provider_conflict';
+export type PayoutFlagReason =
+  | 'ambiguous_result'
+  | 'attempts_exhausted'
+  | 'pending_too_long'
+  | 'staff_review'
+  | 'provider_conflict';
 
 /** Staff resolving a payout by hand (the audit and ledger actor). */
 export interface AdminActor {
@@ -160,6 +175,7 @@ async function flagPayout(
   detail: Record<string, unknown>,
   now: Date,
   extra: Partial<typeof payouts.$inferInsert> = {},
+  admin?: AdminActor,
 ): Promise<Payout> {
   const replace =
     payout.flaggedAt === null ||
@@ -185,11 +201,13 @@ async function flagPayout(
     payload,
   });
   await writeAudit(tx, {
-    actorType: 'system',
+    actorType: admin ? 'admin' : 'system',
+    actorId: admin?.adminId ?? null,
     action: WITHDRAWAL_FLAGGED,
     targetType: 'payout',
     targetId: payout.id,
     metadata: payload,
+    ip: admin?.ip ?? null,
   });
   return updated;
 }
@@ -204,6 +222,10 @@ async function flagPayout(
  * 4. 403 `kyc_required` unless kyc_profiles.status is `verified` (with a
  *    verified name: the payout goes out in the player's own name);
  * 5. 422 `payout_phone_mismatch` unless `phone` is the registered phone;
+ * 5a. 409 `deposit_under_review` (details `{ depositId }`) while a credited
+ *    deposit of the player is flagged `failure_after_success` (the provider
+ *    reports it reversed): the money may not be the player's until staff
+ *    resolve it (resolveFlaggedDeposit);
  * 6. 422 `withdrawal_amount_out_of_range` outside [minWithdrawal, maxWithdrawal];
  * 7. 422 `withdrawal_daily_cap_exceeded` when the open and paid withdrawals
  *    requested in the last 24 hours plus `amount` exceed dailyWithdrawalCap;
@@ -281,6 +303,24 @@ export async function requestWithdrawal(
     throw domainUnprocessable(
       'payout_phone_mismatch',
       'Withdrawals can only be paid to your registered phone number.',
+    );
+  }
+  const [underReview] = await tx
+    .select({ id: paymentIntents.id })
+    .from(paymentIntents)
+    .where(
+      and(
+        eq(paymentIntents.userId, userId),
+        eq(paymentIntents.flagReason, 'failure_after_success'),
+        isNotNull(paymentIntents.flaggedAt),
+      ),
+    )
+    .limit(1);
+  if (underReview) {
+    throw domainConflict(
+      'deposit_under_review',
+      'One of your deposits is being checked by our staff. You can withdraw once that is done.',
+      { depositId: underReview.id },
     );
   }
   if (amount < rules.minWithdrawal || amount > rules.maxWithdrawal) {
@@ -597,14 +637,18 @@ export async function claimDuePayouts(
 /**
  * The payout worker is about to send the payout (or ask about it):
  * `approved` → `processing`, attempts + 1, and no other worker looks at it
- * before `checkAt`. Returns the payout with the attempt counted (pass its
- * `attempts` and `providerRef` to attemptPayout). 409
+ * before `checkAt`. `providerRef` is the reference the provider will know
+ * the payout by when it is fixed in advance (PaymentProvider.payoutReference):
+ * it is stored now, before anything is sent, so the provider's webhooks and
+ * status queries find the payout even if the answer to the submission is
+ * lost. Returns the payout with the attempt counted (pass its `attempts` and
+ * `providerRef` to attemptPayout, and `attempts` to applyPayoutAttempt). 409
  * `payout_not_processable` unless approved or processing, 409
  * `payout_flagged` when it waits for staff.
  */
 export async function markPayoutProcessing(
   tx: DbTransaction,
-  input: { payoutId: string; now: Date; checkAt: Date },
+  input: { payoutId: string; now: Date; checkAt: Date; providerRef?: string | null },
 ): Promise<Payout> {
   const payout = await lockPayout(tx, input.payoutId);
   if (!isOpen(payout)) {
@@ -617,8 +661,10 @@ export async function markPayoutProcessing(
       flagReason: payout.flagReason,
     });
   }
+  const reference = input.providerRef ?? null;
   return updatePayout(tx, payout.id, {
     status: 'processing',
+    ...(payout.providerRef === null && reference !== null ? { providerRef: reference } : {}),
     // The row is locked FOR UPDATE above, so this cannot lose an increment.
     attempts: payout.attempts + 1,
     processingAt: payout.processingAt ?? input.now,
@@ -787,49 +833,78 @@ export type PayoutAttemptOutcome =
 /**
  * - paid / failed: the payout was settled (markPayoutPaid / markPayoutFailed);
  * - pending: the provider has it; looked at again at `retryAt`;
- * - retry_scheduled: nothing learned; tried again at `retryAt`;
+ * - retry_scheduled: nothing certain learned (no answer, or an answer that
+ *   leaves open whether money left); looked at again at `retryAt` and the
+ *   hold stays;
  * - flagged: it now waits for staff (see PayoutFlagReason);
+ * - stale: another claim of the payout took over since this attempt was
+ *   claimed; its result is ignored (the current claim decides);
  * - unchanged: the payout was settled or flagged meanwhile and the result
  *   agrees with that (or is moot).
  */
 export type AppliedPayoutAttempt =
-  'paid' | 'failed' | 'pending' | 'retry_scheduled' | 'flagged' | 'unchanged';
+  'paid' | 'failed' | 'pending' | 'retry_scheduled' | 'flagged' | 'stale' | 'unchanged';
 
 /**
  * Records what a payout attempt established, in its own transaction after
- * the provider call. A result that contradicts the payout's state (paid
- * after the hold went back, failed after payment, another provider
- * reference) flags it `provider_conflict`; `unknown` flags it
- * `ambiguous_result`; a `retry` at `maxAttempts` (rules.payoutMaxAttempts)
- * or more attempts flags it `attempts_exhausted`. A `pending` result never
- * runs out: the payout is looked at again at `retryAt` (use
- * payoutRetryDelayMs).
+ * the provider call. `attempt` is the payout's `attempts` as claimed for this
+ * attempt (markPayoutProcessing): when the payout has been claimed again
+ * since (this worker outlived its lease), the result is `stale` and ignored,
+ * so a late answer can never return a hold another attempt has sent.
+ *
+ * A result that contradicts the payout's state (paid after the hold went
+ * back, failed after payment, another provider reference) flags it
+ * `provider_conflict`. A `failed` result without a reference for a payout
+ * that has one is not trusted (it is handled as `unknown`). `retry` and
+ * `unknown` keep the hold and count one more attempt without an answer
+ * (payouts.unanswered_attempts): at `maxAttempts` (rules.payoutMaxAttempts)
+ * the payout is flagged `attempts_exhausted` / `ambiguous_result`, and an
+ * `unknown` with no reference to ask the provider about is flagged at once.
+ * A `pending` answer resets that count; the payout is looked at again at
+ * `retryAt` (use payoutRetryDelayMs) until the provider has kept it pending
+ * for `pendingLimitMs` since it was first processed (`pending_too_long`).
  */
 export async function applyPayoutAttempt(
   tx: DbTransaction,
   input: {
     payoutId: string;
+    /** payouts.attempts as claimed for this attempt. */
+    attempt: number;
     result: PayoutAttemptOutcome;
     now: Date;
     retryAt: Date;
     maxAttempts: number;
+    /** Default PAYOUT_PENDING_LIMIT_MS. */
+    pendingLimitMs?: number;
   },
 ): Promise<{ applied: AppliedPayoutAttempt; payout: Payout }> {
-  const { result, now } = input;
+  const { now } = input;
   if (!Number.isInteger(input.maxAttempts) || input.maxAttempts < 1) {
     throw new RangeError('applyPayoutAttempt: maxAttempts must be a positive integer');
   }
+  if (!Number.isInteger(input.attempt) || input.attempt < 1) {
+    throw new RangeError('applyPayoutAttempt: attempt must be the claimed attempts (>= 1)');
+  }
   const payout = await lockPayout(tx, input.payoutId);
-  const reported = { reportedOutcome: result.outcome, reportedProviderRef: result.providerRef };
+  let result = input.result;
+  const reported = {
+    reportedOutcome: result.outcome,
+    reportedProviderRef: result.providerRef,
+    attempt: input.attempt,
+  };
 
+  const stale = payout.attempts !== input.attempt;
   if (!isOpen(payout)) {
+    // Money that left after the hold went back is a conflict however late
+    // the news; a stale refusal may just be a duplicate of a later attempt.
     const contradicts =
       (result.outcome === 'paid' && payout.status !== 'paid') ||
-      (result.outcome === 'failed' && payout.status === 'paid');
-    if (!contradicts) return { applied: 'unchanged', payout };
+      (!stale && result.outcome === 'failed' && payout.status === 'paid');
+    if (!contradicts) return { applied: stale ? 'stale' : 'unchanged', payout };
     const flagged = await flagPayout(tx, payout, 'provider_conflict', reported, now);
     return { applied: 'flagged', payout: flagged };
   }
+  if (stale) return { applied: 'stale', payout };
   if (payout.flaggedAt !== null) return { applied: 'unchanged', payout };
 
   if (
@@ -839,6 +914,15 @@ export async function applyPayoutAttempt(
   ) {
     const flagged = await flagPayout(tx, payout, 'provider_conflict', reported, now);
     return { applied: 'flagged', payout: flagged };
+  }
+  if (result.outcome === 'failed' && result.providerRef === null && payout.providerRef !== null) {
+    // The provider may hold the payout under its reference: a failure that
+    // does not name it proves nothing about that payout.
+    result = {
+      outcome: 'unknown',
+      providerRef: payout.providerRef,
+      error: `failure without the payout's reference ${payout.providerRef}: ${result.reason}`,
+    };
   }
   const providerRef = payout.providerRef ?? result.providerRef;
 
@@ -863,48 +947,118 @@ export async function applyPayoutAttempt(
       return { applied: 'failed', payout: change.payout };
     }
     case 'pending': {
+      const answered = { providerRef, lastError: null, unansweredAttempts: 0 };
+      const since = payout.processingAt ?? now;
+      if (now.getTime() - since.getTime() >= (input.pendingLimitMs ?? PAYOUT_PENDING_LIMIT_MS)) {
+        const flagged = await flagPayout(
+          tx,
+          payout,
+          'pending_too_long',
+          { attempts: payout.attempts, processingAt: since },
+          now,
+          answered,
+        );
+        return { applied: 'flagged', payout: flagged };
+      }
       const updated = await updatePayout(tx, payout.id, {
-        providerRef,
-        lastError: null,
+        ...answered,
         nextAttemptAt: input.retryAt,
         updatedAt: now,
       });
       return { applied: 'pending', payout: updated };
     }
-    case 'retry': {
+    case 'retry':
+    case 'unknown': {
       const error = result.error.slice(0, MAX_TEXT_LENGTH);
-      if (payout.attempts >= input.maxAttempts) {
+      const unanswered = payout.unansweredAttempts + 1;
+      const values = { providerRef, lastError: error, unansweredAttempts: unanswered };
+      // An unknown outcome that cannot be looked up at the provider goes to staff at once.
+      const cannotAsk = result.outcome === 'unknown' && providerRef === null;
+      if (cannotAsk || unanswered >= input.maxAttempts) {
         const flagged = await flagPayout(
           tx,
           payout,
-          'attempts_exhausted',
-          { attempts: payout.attempts, error },
+          result.outcome === 'retry' ? 'attempts_exhausted' : 'ambiguous_result',
+          { attempts: payout.attempts, unansweredAttempts: unanswered, error },
           now,
-          { providerRef, lastError: error },
+          values,
         );
         return { applied: 'flagged', payout: flagged };
       }
       const updated = await updatePayout(tx, payout.id, {
-        providerRef,
-        lastError: error,
+        ...values,
         nextAttemptAt: input.retryAt,
         updatedAt: now,
       });
       return { applied: 'retry_scheduled', payout: updated };
     }
-    case 'unknown': {
-      const error = result.error.slice(0, MAX_TEXT_LENGTH);
-      const flagged = await flagPayout(
-        tx,
-        payout,
-        'ambiguous_result',
-        { attempts: payout.attempts, error },
-        now,
-        { providerRef, lastError: error },
-      );
-      return { applied: 'flagged', payout: flagged };
-    }
   }
+}
+
+/**
+ * The payout attempt claimed as `attempt` threw (an adapter bug) or its
+ * result could not be recorded. Counts one more attempt without an answer
+ * and records the error, in its own small transaction; at `maxAttempts`
+ * the payout is flagged `attempts_exhausted`, so a payout whose attempts
+ * keep failing never stays `processing` unseen. The hold stays, and the
+ * payout is looked at again when its lease (nextAttemptAt) ends. A stale,
+ * flagged or settled payout is left alone.
+ */
+export async function recordPayoutAttemptError(
+  tx: DbTransaction,
+  input: { payoutId: string; attempt: number; error: string; now: Date; maxAttempts: number },
+): Promise<{ applied: AppliedPayoutAttempt; payout: Payout }> {
+  if (!Number.isInteger(input.maxAttempts) || input.maxAttempts < 1) {
+    throw new RangeError('recordPayoutAttemptError: maxAttempts must be a positive integer');
+  }
+  const payout = await lockPayout(tx, input.payoutId);
+  if (!isOpen(payout) || payout.flaggedAt !== null) return { applied: 'unchanged', payout };
+  if (payout.attempts !== input.attempt) return { applied: 'stale', payout };
+  const error = input.error.slice(0, MAX_TEXT_LENGTH);
+  const unanswered = payout.unansweredAttempts + 1;
+  const values = { lastError: error, unansweredAttempts: unanswered };
+  if (unanswered >= input.maxAttempts) {
+    const flagged = await flagPayout(
+      tx,
+      payout,
+      'attempts_exhausted',
+      { attempts: payout.attempts, unansweredAttempts: unanswered, error },
+      input.now,
+      values,
+    );
+    return { applied: 'flagged', payout: flagged };
+  }
+  const updated = await updatePayout(tx, payout.id, { ...values, updatedAt: input.now });
+  return { applied: 'retry_scheduled', payout: updated };
+}
+
+/**
+ * Staff take an approved or processing payout over (`staff_review`), e.g.
+ * after the provider's support confirmed what happened to it: the payout
+ * worker leaves it alone from now on and staff settle it with markPayoutPaid
+ * / markPayoutFailed (`admin`), or hand it back with clearPayoutFlag. A
+ * provider answer still settles it. Flagging a flagged payout is a no-op;
+ * 409 `payout_not_approved` / `payout_already_closed` otherwise.
+ */
+export async function flagPayoutForStaff(
+  tx: DbTransaction,
+  input: { payoutId: string; adminId: string; note: string; now: Date; ip?: string | null },
+): Promise<PayoutChange> {
+  const note = input.note.trim();
+  if (note.length === 0) throw new RangeError('flagPayoutForStaff: a note is required');
+  const payout = await lockPayout(tx, input.payoutId);
+  if (payout.flaggedAt !== null) return { payout, changed: false };
+  if (!isOpen(payout)) throw notOpenError(payout);
+  const flagged = await flagPayout(
+    tx,
+    payout,
+    'staff_review',
+    { note: note.slice(0, MAX_TEXT_LENGTH), adminId: input.adminId },
+    input.now,
+    {},
+    { adminId: input.adminId, ip: input.ip ?? null },
+  );
+  return { payout: flagged, changed: true };
 }
 
 /**
@@ -1034,8 +1188,9 @@ export async function applyPayoutEvent(
 
 /**
  * Staff clear a payout's flag after looking into it. An open payout is
- * handed back to the payout worker at once (it is asked about, or sent
- * again under the same payout id, which the provider deduplicates); a
+ * handed back to the payout worker at once with a fresh budget of attempts
+ * (it is asked about first, and sent again under the same payout id only
+ * when the provider has nothing under its reference); a
  * closed one just leaves the queue. Use markPayoutPaid / markPayoutFailed
  * with `admin` instead when the provider confirmed the outcome. Clearing a
  * payout that is not flagged is a no-op.
@@ -1051,6 +1206,8 @@ export async function clearPayoutFlag(
   const updated = await updatePayout(tx, payout.id, {
     flagReason: null,
     flaggedAt: null,
+    // A fresh budget of attempts without an answer.
+    unansweredAttempts: 0,
     ...(isOpen(payout) ? { nextAttemptAt: null } : {}),
     updatedAt: input.now,
   });

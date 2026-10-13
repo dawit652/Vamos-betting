@@ -23,10 +23,12 @@ import {
 } from '@vamos/db/schema';
 import {
   createPaymentProviders,
+  mockDepositRef,
   MOCK_SIGNATURE_HEADER,
   MockPaymentProvider,
   PaymentProviderError,
   ProviderNotConfiguredError,
+  type InitiateDepositInput,
   type PaymentProvider,
   type PaymentProviderRegistry,
   type WebhookInput,
@@ -94,8 +96,22 @@ function postWithdrawal(
   });
 }
 
-function phoneDecision(payload: Record<string, unknown>) {
-  return ctx.app.inject({ method: 'POST', url: '/dev/payments/phone', payload });
+/** The dev phone simulator, used by the signed-in player (Bearer: no CSRF token needed). */
+function phoneDecision(user: LoggedInUser, payload: Record<string, unknown>) {
+  return ctx.app.inject({
+    method: 'POST',
+    url: '/dev/payments/phone',
+    payload,
+    headers: bearer(user),
+  });
+}
+
+function phonePushes(user: LoggedInUser | null, query = '') {
+  return ctx.app.inject({
+    method: 'GET',
+    url: `/dev/payments/phone${query}`,
+    ...(user === null ? {} : { headers: bearer(user) }),
+  });
 }
 
 function deliver(webhook: WebhookInput, app: FastifyInstance = ctx.app, provider = 'mock') {
@@ -123,8 +139,7 @@ async function depositAndApprove(user: LoggedInUser, amount: bigint): Promise<st
   const created = await postDeposit(user, { amount: amount.toString() });
   expect(created.statusCode).toBe(201);
   const deposit = DepositView.parse(created.json());
-  const decided = await phoneDecision({
-    phone: user.phone,
+  const decided = await phoneDecision(user, {
     depositId: deposit.id,
     decision: 'approve',
     pin: PIN,
@@ -148,11 +163,15 @@ async function outboxTypes(aggregateId: string): Promise<string[]> {
 }
 
 /** A registry around the mock provider whose initiateDeposit can be made to fail. */
-function flakyRegistry(failure: { mode: 'retryable' | 'refuse' | null }): PaymentProviderRegistry {
+function flakyRegistry(
+  failure: { mode: 'retryable' | 'refuse' | null },
+  seen: InitiateDepositInput[] = [],
+): PaymentProviderRegistry {
   const provider: PaymentProvider = {
     name: 'mock',
     capabilities: mock.capabilities,
     initiateDeposit: async (input) => {
+      seen.push(input);
       if (failure.mode !== null) {
         throw new PaymentProviderError('mock', 'simulated outage', {
           retryable: failure.mode === 'retryable',
@@ -384,6 +403,23 @@ describe('deposits', () => {
     }
   });
 
+  it('tells the provider when the deposit expires', async () => {
+    const seen: InitiateDepositInput[] = [];
+    const app = buildApp(
+      { ...ctx.deps, payments: flakyRegistry({ mode: null }, seen) },
+      { logger: false, rateLimitNameSpace: `expiry-${randomBytes(4).toString('hex')}:` },
+    );
+    try {
+      const created = DepositView.parse(
+        (await postDeposit(player, { amount: '4000' }, randomUUID(), app)).json(),
+      );
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.expiresAt?.toISOString()).toBe(created.expiresAt);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('sends redirect checkouts back to the web app’s deposit page', () => {
     expect(depositReturnUrl(ctx.deps.config, 'abc')).toBe(
       new URL('/wallet/deposit?id=abc', ctx.deps.config.web.publicUrl).toString(),
@@ -401,16 +437,13 @@ describe('dev phone simulator', () => {
   it('lists pushes for the phone, refuses a wrong PIN and credits once on approval', async () => {
     const deposit = DepositView.parse((await postDeposit(player, { amount: '50000' })).json());
 
-    const pushes = await ctx.app.inject({
-      method: 'GET',
-      url: `/dev/payments/phone?phone=${encodeURIComponent(player.phone)}`,
-    });
+    const pushes = await phonePushes(player, `?phone=${encodeURIComponent(player.phone)}`);
     expect(pushes.statusCode).toBe(200);
     expect(DevPhonePushesResponse.parse(pushes.json()).items).toEqual([
       expect.objectContaining({ depositId: deposit.id, amount: '50000' }),
     ]);
 
-    const wrongPin = await phoneDecision({
+    const wrongPin = await phoneDecision(player, {
       phone: player.phone,
       depositId: deposit.id,
       decision: 'approve',
@@ -420,7 +453,7 @@ describe('dev phone simulator', () => {
     expect(apiError(wrongPin).code).toBe('wrong_pin');
     expect(await cashOf(player)).toBe(0n);
 
-    const otherPhone = await phoneDecision({
+    const otherPhone = await phoneDecision(player, {
       phone: '+251911000001',
       depositId: deposit.id,
       decision: 'approve',
@@ -428,7 +461,7 @@ describe('dev phone simulator', () => {
     });
     expect(otherPhone.statusCode).toBe(404);
 
-    const approved = await phoneDecision({
+    const approved = await phoneDecision(player, {
       phone: player.phone,
       depositId: deposit.id,
       decision: 'approve',
@@ -441,8 +474,7 @@ describe('dev phone simulator', () => {
     expect(await cashOf(player)).toBe(50_000n);
 
     // Pressing approve again is a redelivery of the same signed event.
-    const again = await phoneDecision({
-      phone: player.phone,
+    const again = await phoneDecision(player, {
       depositId: deposit.id,
       decision: 'approve',
       pin: PIN,
@@ -457,20 +489,55 @@ describe('dev phone simulator', () => {
     expect(postings).toHaveLength(1);
     expect(await outboxTypes(deposit.id)).toEqual(['payment.deposit_succeeded']);
 
-    const after = DevPhonePushesResponse.parse(
-      (
-        await ctx.app.inject({
-          method: 'GET',
-          url: `/dev/payments/phone?phone=${encodeURIComponent(player.phone)}`,
-        })
-      ).json(),
-    );
+    const after = DevPhonePushesResponse.parse((await phonePushes(player)).json());
     expect(after.items).toEqual([]);
+  });
+
+  it('needs a player session and only shows and decides the player’s own pushes', async () => {
+    const deposit = DepositView.parse((await postDeposit(player, { amount: '3000' })).json());
+    const ofPlayer = `?phone=${encodeURIComponent(player.phone)}`;
+
+    // Without a session the simulator shows and decides nothing.
+    expect((await phonePushes(null, ofPlayer)).statusCode).toBe(401);
+    const anonymous = await ctx.app.inject({
+      method: 'POST',
+      url: '/dev/payments/phone',
+      payload: { phone: player.phone, depositId: deposit.id, decision: 'decline' },
+    });
+    expect(anonymous.statusCode).toBe(401);
+
+    // Another player cannot see or decide this player's pushes, whatever phone they name.
+    const intruder = await registerAndLogin(ctx);
+    expect((await phonePushes(intruder, ofPlayer)).statusCode).toBe(404);
+    expect(DevPhonePushesResponse.parse((await phonePushes(intruder)).json()).items).toEqual([]);
+    for (const payload of [
+      { phone: player.phone, depositId: deposit.id, decision: 'approve', pin: PIN },
+      { depositId: deposit.id, decision: 'approve', pin: PIN },
+      { depositId: deposit.id, decision: 'decline' },
+    ]) {
+      expect((await phoneDecision(intruder, payload)).statusCode).toBe(404);
+    }
+    expect(await cashOf(player)).toBe(50_000n);
+
+    // The player needs no phone number: the session says whose phone it is.
+    const mine = DevPhonePushesResponse.parse((await phonePushes(player)).json());
+    expect(mine.items.map((item) => item.depositId)).toContain(deposit.id);
+    const declined = await phoneDecision(player, { depositId: deposit.id, decision: 'decline' });
+    expect(DevPhoneDecisionResponse.parse(declined.json()).outcome).toBe('failed');
+
+    // Cookie sessions need the CSRF token, like every other state change.
+    const noCsrf = await ctx.app.inject({
+      method: 'POST',
+      url: '/dev/payments/phone',
+      payload: { depositId: deposit.id, decision: 'decline' },
+      headers: { cookie: player.cookie },
+    });
+    expect(noCsrf.statusCode).toBe(403);
   });
 
   it('declines without a PIN', async () => {
     const deposit = DepositView.parse((await postDeposit(player, { amount: '2000' })).json());
-    const declined = await phoneDecision({
+    const declined = await phoneDecision(player, {
       phone: player.phone,
       depositId: deposit.id,
       decision: 'decline',
@@ -483,10 +550,8 @@ describe('dev phone simulator', () => {
   });
 
   it('rejects malformed requests', async () => {
-    expect(
-      (await ctx.app.inject({ method: 'GET', url: '/dev/payments/phone?phone=12' })).statusCode,
-    ).toBe(400);
-    const badId = await phoneDecision({
+    expect((await phonePushes(player, '?phone=12')).statusCode).toBe(400);
+    const badId = await phoneDecision(player, {
       phone: player.phone,
       depositId: 'nope',
       decision: 'approve',
@@ -933,6 +998,29 @@ describe('withdrawals', () => {
     expect(theirs.items).toEqual([]);
   });
 
+  it('refuses a withdrawal while a deposit reversed at the provider is under review (409)', async () => {
+    const reversed = await registerAndLogin(ctx);
+    const depositId = await depositAndApprove(reversed, 300_000n);
+    await verifyKyc(reversed);
+    await setPaymentRules({ wageringMultiplierBps: 0 });
+    // The provider now reports the credited deposit failed (reversed or charged back).
+    const reversal = await deliver(
+      mock.simulateDepositDecision({
+        providerRef: mockDepositRef(depositId),
+        amount: 300_000n,
+        decision: 'decline',
+      }),
+    );
+    expect(PaymentWebhookAck.parse(reversal.json()).outcome).toBe('flagged');
+    const refused = await postWithdrawal(reversed, { amount: '10000' });
+    expect(refused.statusCode).toBe(409);
+    expect(apiError(refused)).toMatchObject({
+      code: 'deposit_under_review',
+      details: { depositId },
+    });
+    expect(await cashOf(reversed)).toBe(300_000n);
+  });
+
   it('settles a payout from a signed provider webhook, once', async () => {
     player = await registerAndLogin(ctx);
     await depositAndApprove(player, 500_000n);
@@ -944,9 +1032,10 @@ describe('withdrawals', () => {
     // What the payout worker does: sent, and the provider has not finished yet.
     await ctx.db.db.transaction(async (tx) => {
       const now = ctx.clock.now;
-      await markPayoutProcessing(tx, { payoutId: request.id, now, checkAt: now });
+      const claimed = await markPayoutProcessing(tx, { payoutId: request.id, now, checkAt: now });
       await applyPayoutAttempt(tx, {
         payoutId: request.id,
+        attempt: claimed.attempts,
         result: { outcome: 'pending', providerRef },
         now,
         retryAt: new Date(now.getTime() + MINUTE_MS),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fakeDeps, fakeFetch } from '../../test/fakes';
-import { ProviderRequestError, WebhookVerificationError } from '../errors';
+import { PayoutNotFoundError, ProviderRequestError, WebhookVerificationError } from '../errors';
 import { hmacSha256Hex } from '../util';
 import { ChapaProvider } from './chapa';
 
@@ -373,5 +373,39 @@ describe('Chapa API calls', () => {
       amount: 5_000n,
     });
     expect(calls[2]?.url).toBe('https://api.chapa.test/v1/transfers/verify/payout-1');
+  });
+
+  it('names a transfer by our payout id before sending it', () => {
+    expect(chapa().payoutReference('7f0e8a52-6a4c-4f0e-9d7a-2b1c3d4e5f60')).toBe(
+      '7f0e8a52-6a4c-4f0e-9d7a-2b1c3d4e5f60',
+    );
+  });
+
+  it('reports a transfer it has no record of (404) as not found, never as pending', async () => {
+    const { fetch } = fakeFetch([{ status: 404, body: { message: 'Transfer not found' } }]);
+    const error = await chapa(fetch)
+      .queryPayout('payout-404')
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(error).toBeInstanceOf(PayoutNotFoundError);
+    // A payout webhook that verify cannot find yet is still delivered again later.
+    const body = JSON.stringify({
+      event: 'payout.success',
+      type: 'Payout',
+      reference: 'payout-404',
+      status: 'success',
+      amount: '50.00',
+      currency: 'ETB',
+    });
+    const webhook = await chapa(fakeFetch([{ status: 404, body: {} }]).fetch)
+      .verifyWebhook(signed(body))
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(webhook).toBeInstanceOf(ProviderRequestError);
+    expect((webhook as ProviderRequestError).retryable).toBe(true);
   });
 });

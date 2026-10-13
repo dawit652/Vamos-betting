@@ -550,6 +550,78 @@ describe('payout worker', () => {
     expect(await getBalance(t.db.db, cash(player.userId))).toBe(100_000n);
   });
 
+  it('claims due payouts one at a time, so a slow provider never outlives the next lease', async () => {
+    const player = await createPlayer();
+    await deposit(player.userId, 300_000n);
+    const first = await withdraw(player, 50_000n);
+    const second = await withdraw(player, 60_000n);
+    await publishAll();
+    // Every submission takes longer than a payout's lease (one minute).
+    const slow = ctxWith(
+      registryWith({
+        initiatePayout: async (input) => {
+          t.clock.advance(2 * MINUTE_MS);
+          return t.mockPayments.initiatePayout(input);
+        },
+      }),
+    );
+    const sweep = await runPayoutSweep(slow, { limit: 50 });
+    expect(sweep.outcomes.stale ?? 0).toBe(0);
+    const [a, b] = [await payout(first.id), await payout(second.id)].sort(
+      (x, y) => x.processingAt!.getTime() - y.processingAt!.getTime(),
+    );
+    expect(a!.status).toBe('paid');
+    expect(b!.status).toBe('paid');
+    // The second was claimed only after the first was done, with a lease of its own.
+    expect(b!.processingAt!.getTime() - a!.processingAt!.getTime()).toBeGreaterThanOrEqual(
+      2 * MINUTE_MS,
+    );
+    expect([a!.attempts, b!.attempts]).toEqual([1, 1]);
+    await publishAll();
+  });
+
+  it(
+    'flags a payout whose adapter keeps throwing once the attempts run out',
+    async () => {
+      await setSetting(t.db.db, 'payments', { payoutMaxAttempts: 2 });
+      const broken = ctxWith(
+        registryWith({
+          initiatePayout: async () => {
+            throw new TypeError('adapter bug');
+          },
+        }),
+      );
+      try {
+        const player = await createPlayer();
+        await deposit(player.userId, 200_000n);
+        const request = await withdraw(player, 100_000n);
+        await publishAll();
+
+        expect(await processPayoutJob(broken, { payoutId: request.id })).toMatchObject({
+          outcome: 'error',
+        });
+        let row = await payout(request.id);
+        expect(row).toMatchObject({ status: 'processing', unansweredAttempts: 1, flaggedAt: null });
+        expect(row.lastError).toContain('adapter bug');
+
+        t.clock.advance(MINUTE_MS);
+        await processPayoutJob(broken, { payoutId: request.id });
+        row = await payout(request.id);
+        expect(row).toMatchObject({
+          status: 'processing',
+          attempts: 2,
+          flagReason: 'attempts_exhausted',
+        });
+        // The hold stays until staff decide.
+        expect(await getBalance(t.db.db, cash(player.userId))).toBe(100_000n);
+      } finally {
+        await setSetting(t.db.db, 'payments', {});
+        await publishAll();
+      }
+    },
+    TEST_TIMEOUT,
+  );
+
   it('skips payouts that are not approved, unknown or already being sent', async () => {
     const player = await createPlayer();
     await deposit(player.userId, 1_000_000n);
@@ -602,6 +674,13 @@ describe('deposit reconciliation', () => {
     expect((await status(stale)).status).toBe('expired');
     expect((await status(recent)).status).toBe('pending');
 
+    // Polls back off: the next one for `recent` is due a little later.
+    expect(
+      (await runDepositReconciliation(t.ctx)).queried,
+      'nothing is asked about again at once',
+    ).toBe(0);
+    t.clock.advance(90_000);
+
     const queried: string[] = [];
     const answering = ctxWith(
       registryWith({
@@ -647,6 +726,57 @@ describe('deposit reconciliation', () => {
     const summary = await runDepositReconciliation(wrong);
     expect(summary.applied.flagged).toBe(1);
     expect(await getBalance(t.db.db, cash(player.userId))).toBe(0n);
+    await publishAll();
+  });
+});
+
+describe('deposit reconciliation: late payments and backoff', () => {
+  it('asks about expired deposits during the late-payment window and credits a late payment', async () => {
+    const player = await createPlayer();
+    const intent = await pendingDeposit(
+      player.userId,
+      15_000n,
+      new Date(t.clock.now.getTime() - 40 * MINUTE_MS),
+    );
+    // Our own timeout passes first (the mock has no status endpoint).
+    await runDepositReconciliation(t.ctx);
+    const [expired] = await t.db.db
+      .select()
+      .from(schema.paymentIntents)
+      .where(eq(schema.paymentIntents.id, intent));
+    expect(expired?.status).toBe('expired');
+
+    t.clock.advance(60 * MINUTE_MS);
+    const paidLate = ctxWith(
+      registryWith({
+        queryDeposit: async (providerRef) =>
+          providerRef === mockDepositRef(intent)
+            ? { providerRef, status: 'succeeded', amount: 15_000n, currency: 'ETB', raw: {} }
+            : { providerRef, status: 'pending', amount: null, currency: null, raw: {} },
+      }),
+    );
+    const summary = await runDepositReconciliation(paidLate);
+    expect(summary.applied.credited).toBe(1);
+    expect(await getBalance(t.db.db, cash(player.userId))).toBe(15_000n);
+    await publishAll();
+  });
+
+  it('runs expiry first and stops asking at its deadline', async () => {
+    const player = await createPlayer();
+    await pendingDeposit(player.userId, 10_000n, new Date(t.clock.now.getTime() - 40 * MINUTE_MS));
+    const asked: string[] = [];
+    const counting = ctxWith(
+      registryWith({
+        queryDeposit: async (providerRef) => {
+          asked.push(providerRef);
+          return { providerRef, status: 'pending', amount: null, currency: null, raw: {} };
+        },
+      }),
+    );
+    const summary = await runDepositReconciliation(counting, { deadlineMs: 0 });
+    expect(summary.expired).toBeGreaterThanOrEqual(1);
+    expect(summary.queried).toBe(0);
+    expect(asked).toEqual([]);
     await publishAll();
   });
 });

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { fakeDeps, fakeFetch } from '../test/fakes';
-import { PaymentProviderError, ProviderNotConfiguredError, ProviderRequestError } from './errors';
+import {
+  PaymentProviderError,
+  PayoutNotFoundError,
+  ProviderNotConfiguredError,
+  ProviderRequestError,
+} from './errors';
 import {
   attemptPayout,
   eventFromStatusQuery,
@@ -33,11 +38,14 @@ const base: PayoutAttemptInput = {
 function scripted(script: {
   initiate?: () => Promise<PayoutInitiation>;
   query?: () => Promise<ProviderStatusResult>;
+  /** The provider names payouts by our payout id before they are sent (like Chapa). */
+  reference?: boolean;
 }) {
   const calls: string[] = [];
   const provider: PaymentProvider = {
     name: 'chapa',
     capabilities: { deposits: true, payouts: true },
+    ...(script.reference === true ? { payoutReference: (payoutId: string) => payoutId } : {}),
     initiateDeposit: () => Promise.reject(new Error('not used')),
     verifyWebhook: () => Promise.reject(new Error('not used')),
     queryDeposit: () => Promise.reject(new Error('not used')),
@@ -155,9 +163,59 @@ describe('attemptPayout: first submission', () => {
     expect(await attemptPayout(undefined, { ...base, attempts: 2 })).toMatchObject({
       outcome: 'unknown',
     });
-    expect(await attemptPayout(undefined, { ...base, providerRef: 'ref-1' })).toMatchObject({
+    expect(
+      await attemptPayout(undefined, { ...base, providerRef: 'ref-1', attempts: 2 }),
+    ).toMatchObject({
       outcome: 'unknown',
       providerRef: 'ref-1',
+    });
+  });
+
+  it('never fails a payout whose 2xx answer cannot be read: the transfer may be out', async () => {
+    for (const reply of [
+      { status: 200, body: '<html>gateway</html>' },
+      { status: 200, body: '' },
+      { status: 202, body: { status: 'failed', message: 'queued?' } },
+    ]) {
+      const chapa = new ChapaProvider(
+        { baseUrl: 'https://api.chapa.test/v1', secretKey: 'k', webhookSecret: 'w' },
+        fakeDeps(fakeFetch([reply]).fetch),
+      );
+      expect(await attemptPayout(chapa, { ...base, providerRef: base.payoutId })).toMatchObject({
+        outcome: 'unknown',
+        providerRef: base.payoutId,
+      });
+    }
+  });
+
+  it('treats a timeout or 5xx of a provider it can ask later as unknown, with the reference', async () => {
+    for (const error of [
+      timeout(),
+      new ProviderRequestError('chapa', 'bad gateway', { status: 502, retryable: true }),
+    ]) {
+      const { provider } = scripted({ initiate: () => Promise.reject(error), reference: true });
+      expect(await attemptPayout(provider, base)).toMatchObject({
+        outcome: 'unknown',
+        providerRef: base.payoutId,
+      });
+    }
+    // 429: the provider turned the request away unprocessed; send it again later.
+    const busy = scripted({
+      initiate: () =>
+        Promise.reject(
+          new ProviderRequestError('chapa', 'slow down', { status: 429, retryable: true }),
+        ),
+      reference: true,
+    });
+    expect(await attemptPayout(busy.provider, base)).toMatchObject({ outcome: 'retry' });
+  });
+
+  it('fails a refused first submission under the reference it was sent with', async () => {
+    const { provider } = scripted({ initiate: () => Promise.reject(refused()), reference: true });
+    expect(await attemptPayout(provider, { ...base, providerRef: base.payoutId })).toMatchObject({
+      outcome: 'failed',
+      providerRef: base.payoutId,
+      reason: 'refused_by_provider',
     });
   });
 
@@ -206,6 +264,51 @@ describe('attemptPayout: a payout the provider already has', () => {
       query: () => Promise.reject(new PaymentProviderError('chapa', 'unknown reference')),
     });
     expect(await attemptPayout(refusing.provider, known)).toMatchObject({ outcome: 'unknown' });
+  });
+
+  it('asks before sending again when an earlier attempt may have reached the provider', async () => {
+    const again = { ...base, attempts: 2 };
+    // The provider has it: record what it says, never send it a second time.
+    const pending = scripted({ query: () => status('pending'), reference: true });
+    expect(await attemptPayout(pending.provider, again)).toMatchObject({
+      outcome: 'pending',
+      providerRef: base.payoutId,
+    });
+    expect(pending.calls).toEqual([`query:${base.payoutId}`]);
+    const paid = scripted({ query: () => status('succeeded'), reference: true });
+    expect(await attemptPayout(paid.provider, again)).toMatchObject({ outcome: 'paid' });
+    expect(paid.calls).toEqual([`query:${base.payoutId}`]);
+
+    // The provider clearly has nothing under the reference: sending is safe.
+    const missing = scripted({
+      query: () => Promise.reject(new PayoutNotFoundError('chapa', base.payoutId)),
+      initiate: () => Promise.resolve({ providerRef: base.payoutId, status: 'pending' as const }),
+      reference: true,
+    });
+    expect(await attemptPayout(missing.provider, again)).toMatchObject({
+      outcome: 'pending',
+      providerRef: base.payoutId,
+    });
+    expect(missing.calls).toEqual([`query:${base.payoutId}`, `initiate:${base.payoutId}`]);
+
+    // No answer to the question: nothing is sent.
+    const down = scripted({ query: () => Promise.reject(timeout()), reference: true });
+    expect(await attemptPayout(down.provider, again)).toMatchObject({
+      outcome: 'retry',
+      providerRef: base.payoutId,
+    });
+    expect(down.calls).toEqual([`query:${base.payoutId}`]);
+
+    // Sent again after "not found" and refused: maybe a duplicate of a late original.
+    const raced = scripted({
+      query: () => Promise.reject(new PayoutNotFoundError('chapa', base.payoutId)),
+      initiate: () => Promise.reject(refused()),
+      reference: true,
+    });
+    expect(await attemptPayout(raced.provider, again)).toMatchObject({
+      outcome: 'unknown',
+      providerRef: base.payoutId,
+    });
   });
 
   it('asks the mock provider about a pending payout', async () => {

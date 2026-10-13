@@ -20,6 +20,7 @@ import {
   markDepositInitiated,
   markDepositInitiationFailed,
   resolveFlaggedDeposit,
+  scheduleDepositPoll,
   type PaymentIntent,
 } from '../src/index';
 import {
@@ -210,6 +211,51 @@ describe('createDepositIntent', () => {
     expect((await domainError(intentFor(disabled.userId, birr(100)))).code).toBe(
       'account_disabled',
     );
+  });
+
+  it('counts intents that may still be paid against deposit limits (expired with a reference, flagged)', async () => {
+    const limited = async () => {
+      const player = await createPlayer(handle.db);
+      await handle.db.insert(rgLimits).values({
+        userId: player.userId,
+        kind: 'deposit',
+        period: 'day',
+        amount: birr(500),
+        effectiveFrom: new Date(NOW.getTime() - MINUTE),
+        createdAt: new Date(NOW.getTime() - MINUTE),
+      });
+      return player;
+    };
+    const afterExpiry = new Date(NOW.getTime() + (rules().depositIntentTtlMinutes + 1) * MINUTE);
+    const expire = () =>
+      handle.db.transaction((tx) => expireStaleDepositIntents(tx, { now: afterExpiry }));
+
+    // Expired at our end, but the provider has it: a late payment is still credited.
+    const late = await limited();
+    const expired = await pendingIntent(late.userId, birr(300));
+    // Flagged while pending: it never expires and staff may still credit it.
+    const held = await limited();
+    const flagged = await pendingIntent(held.userId, birr(300));
+    expect((await apply(event(flagged, { amount: birr(1) }))).outcome).toBe('flagged');
+    // Never reached the provider (no reference): nobody can pay it once expired.
+    const unsent = await limited();
+    await intentFor(unsent.userId, birr(300));
+    await expire();
+    expect((await getDepositIntent(handle.db, expired.id))?.status).toBe('expired');
+
+    for (const player of [late, held]) {
+      expect(
+        await domainError(intentFor(player.userId, birr(300), { now: afterExpiry })),
+      ).toMatchObject({
+        status: 422,
+        code: 'deposit_limit_exceeded',
+        details: { pending: '30000' },
+      });
+    }
+    expect((await intentFor(unsent.userId, birr(300), { now: afterExpiry })).replayed).toBe(false);
+    // Once the late-payment window after expiry is over, the expired intent stops counting.
+    const windowOver = new Date(afterExpiry.getTime() + 24 * 60 * MINUTE + MINUTE);
+    expect((await intentFor(late.userId, birr(300), { now: windowOver })).replayed).toBe(false);
   });
 
   it('serialises concurrent intents of one player against the deposit limit', async () => {
@@ -671,6 +717,7 @@ describe('deposit queries', () => {
     ).rejects.toMatchObject({ code: 'invalid_phone' });
 
     const due = await listPendingDepositIntents(handle.db, {
+      now: new Date(t0.getTime() + 30_000),
       createdBefore: new Date(t0.getTime() + 30_000),
       provider: 'mock',
       limit: 500,
@@ -685,6 +732,38 @@ describe('deposit queries', () => {
     expect(mine.every((i) => i.userId === player.userId)).toBe(true);
     expect(await getUserDepositIntent(handle.db, other.userId, first.id)).toBeNull();
     expect((await getUserDepositIntent(handle.db, player.userId, first.id))?.id).toBe(first.id);
+  });
+
+  it('polls expired intents with a reference during the late-payment window, with backoff', async () => {
+    const player = await createPlayer(handle.db);
+    const t0 = new Date('2026-10-13T08:00:00Z');
+    const intent = await pendingIntent(player.userId, birr(40), t0);
+    const unsent = (await intentFor(player.userId, birr(50), { now: t0 })).intent;
+    const expiry = new Date(t0.getTime() + rules().depositIntentTtlMinutes * MINUTE);
+    await handle.db.transaction((tx) => expireStaleDepositIntents(tx, { now: expiry }));
+    expect((await getDepositIntent(handle.db, intent.id))?.status).toBe('expired');
+    const due = async (now: Date) =>
+      (
+        await listPendingDepositIntents(handle.db, {
+          now,
+          createdBefore: now,
+          provider: 'mock',
+          limit: 500,
+        })
+      ).map((row) => row.id);
+
+    const hourLater = new Date(expiry.getTime() + 60 * MINUTE);
+    expect(await due(hourLater)).toContain(intent.id);
+    expect(await due(hourLater)).not.toContain(unsent.id);
+    // Backed off: not due again before its next poll.
+    const next = new Date(hourLater.getTime() + 30 * MINUTE);
+    await scheduleDepositPoll(handle.db, { intentId: intent.id, at: next });
+    expect(await due(hourLater)).not.toContain(intent.id);
+    expect(await due(next)).toContain(intent.id);
+    // After the late-payment window it is left alone.
+    expect(await due(new Date(expiry.getTime() + 24 * 60 * MINUTE + MINUTE))).not.toContain(
+      intent.id,
+    );
   });
 
   it('keeps the books balanced', async () => {

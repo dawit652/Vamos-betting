@@ -36,6 +36,13 @@ export interface InitiateDepositInput {
   callbackUrl: string;
   /** Where a redirect checkout sends the player back to. */
   returnUrl: string;
+  /**
+   * When our intent expires (payment_intents.expires_at). Providers that can
+   * close an unpaid order themselves are asked to do so by then (telebirr
+   * timeout_express), so a player cannot pay long after the deposit limit
+   * stopped counting the intent.
+   */
+  expiresAt?: Date;
 }
 
 export interface DepositInitiation {
@@ -128,7 +135,7 @@ export interface PaymentProvider {
    * Checks the webhook's signature (constant-time) and parses it. Throws
    * WebhookVerificationError for a missing or bad signature, a stale
    * timestamp or a malformed payload; never returns an unverified event.
-   * Providers whose documentation asks for it (Chapa) also confirm the
+   * Providers whose documentation asks for it (Chapa, telebirr) also confirm the
    * outcome with their status endpoint first, and then throw a retryable
    * ProviderRequestError when it cannot be reached: answer 503 so the
    * provider delivers the webhook again.
@@ -137,12 +144,27 @@ export interface PaymentProvider {
   /** Asks the provider for the status of a deposit. */
   queryDeposit(providerRef: string): Promise<ProviderStatusResult>;
   /**
+   * The reference the provider will know a payout by, when it is fixed
+   * before the payout is sent (Chapa: our payout id). The payout worker
+   * stores it before sending, so webhooks and status queries find the payout
+   * even when the answer to the submission is lost. Providers that only
+   * name a payout in their answer leave it out.
+   */
+  payoutReference?(payoutId: string): string;
+  /**
    * Sends money to the player's own wallet. The payout id is the provider's
    * idempotency reference: submitting the same payout again never pays twice.
    * Prefer `attemptPayout`, which decides what an error means for the money.
+   * Anything that happened on the wire is a ProviderRequestError (with the
+   * HTTP status, or null when no answer arrived); a plain
+   * PaymentProviderError or ProviderNotConfiguredError means the adapter
+   * refused before sending anything.
    */
   initiatePayout(input: InitiatePayoutInput): Promise<PayoutInitiation>;
-  /** Asks the provider for the status of a payout. */
+  /**
+   * Asks the provider for the status of a payout. Throws PayoutNotFoundError
+   * when the provider positively reports it has no payout under `providerRef`.
+   */
   queryPayout(providerRef: string): Promise<ProviderStatusResult>;
 }
 

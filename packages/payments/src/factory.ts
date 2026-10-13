@@ -42,8 +42,25 @@ function requireValues<K extends string>(
 }
 
 /**
+ * Shortest webhook HMAC secret accepted. A short secret could be guessed and
+ * then used to sign webhooks that credit deposits.
+ */
+export const MIN_WEBHOOK_SECRET_LENGTH = 32;
+
+function requireStrongSecret(provider: string, name: string, value: string): void {
+  if (value.length < MIN_WEBHOOK_SECRET_LENGTH) {
+    throw new ProviderNotConfiguredError(
+      provider,
+      `${name} must have at least ${MIN_WEBHOOK_SECRET_LENGTH} characters`,
+      [name],
+    );
+  }
+}
+
+/**
  * Builds one provider. Throws ProviderNotConfiguredError when its credentials
- * are missing or it is a skeleton (cbebirr, mpesa-et), and refuses the mock
+ * are missing (or a webhook secret is shorter than MIN_WEBHOOK_SECRET_LENGTH)
+ * or it is a skeleton (cbebirr, mpesa-et), and refuses the mock
  * provider outside demo mode (on top of the @vamos/config guard).
  */
 export function createPaymentProvider(
@@ -69,6 +86,7 @@ export function createPaymentProvider(
         CHAPA_SECRET_KEY: p.chapa.secretKey,
         CHAPA_WEBHOOK_SECRET: p.chapa.webhookSecret,
       });
+      requireStrongSecret(name, 'CHAPA_WEBHOOK_SECRET', v.CHAPA_WEBHOOK_SECRET);
       return new ChapaProvider(
         {
           baseUrl: p.chapa.baseUrl,

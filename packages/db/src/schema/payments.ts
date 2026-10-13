@@ -100,6 +100,11 @@ export const paymentIntents = pgTable(
     /** The `deposit` ledger transaction, once credited. */
     ledgerTransactionId: uuid('ledger_transaction_id'),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /**
+     * The deposit reconciliation's next status query (null = as soon as it
+     * is old enough); pushed back after each answer that settles nothing.
+     */
+    nextPollAt: timestamp('next_poll_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
@@ -114,6 +119,11 @@ export const paymentIntents = pgTable(
     index('payment_intents_flagged_idx')
       .on(t.flaggedAt)
       .where(sql`${t.flaggedAt} IS NOT NULL`),
+    index('payment_intents_poll_idx')
+      .on(t.nextPollAt)
+      .where(
+        sql`${t.status} IN ('pending', 'expired') AND ${t.flaggedAt} IS NULL AND ${t.providerRef} IS NOT NULL`,
+      ),
     check('payment_intents_amount_positive', sql`${t.amount} > 0`),
     check('payment_intents_provider_name', sql`${t.provider} ~ '^[a-z0-9_-]{2,32}$'`),
     check(
@@ -146,10 +156,24 @@ export const payouts = pgTable(
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     /** Admin user id (rejected) or the player's id (cancelled). */
     closedBy: text('closed_by'),
-    /** The provider's reference (PayoutInitiation.providerRef); unique per provider. */
+    /**
+     * The provider's reference; unique per provider. Stored before the first
+     * submission when the provider fixes it in advance (Chapa: the payout id),
+     * else from its answer (PayoutInitiation.providerRef).
+     */
     providerRef: text('provider_ref'),
-    /** Submissions to the provider so far. */
+    /**
+     * Times the payout worker took the payout (to send it or ask about it).
+     * Each claim counts one; a result is applied only by the claim that is
+     * still current (applyPayoutAttempt `attempt`).
+     */
     attempts: integer('attempts').notNull().default(0),
+    /**
+     * Consecutive attempts that got no answer (timeouts, unreadable answers,
+     * errors); reset by any real answer and when staff clear a flag. The
+     * payout is flagged once it reaches settings.payments.payoutMaxAttempts.
+     */
+    unansweredAttempts: integer('unanswered_attempts').notNull().default(0),
     /** approved / processing: the payout worker's next look at it (null = now). */
     nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
     lastError: text('last_error'),
@@ -157,8 +181,10 @@ export const payouts = pgTable(
     /**
      * Set when staff must look before anything else happens:
      * `ambiguous_result` (the provider's answer leaves open whether money
-     * left), `attempts_exhausted` (retries ran out without an answer) or
-     * `provider_conflict` (a provider event contradicts the payout). The
+     * left), `attempts_exhausted` (retries ran out without an answer),
+     * `pending_too_long` (the provider has kept it pending for too long),
+     * `staff_review` (staff took it over) or `provider_conflict` (a provider
+     * event contradicts the payout). The
      * payout worker skips flagged payouts; a provider event that settles the
      * payout, or the back office (markPayoutPaid / markPayoutFailed /
      * clearPayoutFlag), clears it.
@@ -192,6 +218,7 @@ export const payouts = pgTable(
       .where(sql`${t.flaggedAt} IS NOT NULL`),
     check('payouts_amount_positive', sql`${t.amount} > 0`),
     check('payouts_attempts_non_negative', sql`${t.attempts} >= 0`),
+    check('payouts_unanswered_attempts_non_negative', sql`${t.unansweredAttempts} >= 0`),
     check('payouts_provider_name', sql`${t.provider} ~ '^[a-z0-9_-]{2,32}$'`),
     check(
       'payouts_paid_ledger',

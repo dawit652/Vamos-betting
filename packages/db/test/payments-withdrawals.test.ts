@@ -10,6 +10,7 @@ import {
 import { and, count, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  applyDepositEvent,
   applyPayoutAttempt,
   applyPayoutEvent,
   approveWithdrawal,
@@ -17,6 +18,7 @@ import {
   cancelWithdrawal,
   claimDuePayouts,
   clearPayoutFlag,
+  flagPayoutForStaff,
   getBalance,
   getPayout,
   getRemainingWagering,
@@ -28,6 +30,7 @@ import {
   markPayoutPaid,
   markPayoutProcessing,
   rejectWithdrawal,
+  resolveFlaggedDeposit,
   settleEventBets,
   WITHDRAWAL_APPROVED,
   WITHDRAWAL_CANCELLED,
@@ -42,6 +45,7 @@ import {
   type CatalogIds,
   type GameSettings,
   type Payout,
+  type PayoutAttemptOutcome,
 } from '../src/index';
 import { kycProfiles, ledgerTransactions, payouts, rgExclusions, users } from '../src/schema/index';
 import {
@@ -83,6 +87,7 @@ afterAll(async () => {
 });
 
 const ADMIN = '9a3e1d4c-5b6f-4a7e-8d9c-0b1a2c3d4e5f';
+const MINUTE = 60_000;
 const HOUR = 3_600_000;
 
 type Player = { userId: string; phone: string };
@@ -111,7 +116,7 @@ async function runWorker(
   only: readonly string[],
   options: { now: Date; provider?: PaymentProvider; maxAttempts?: number },
 ) {
-  const provider = options.provider ?? mockProvider();
+  const provider: PaymentProvider = options.provider ?? mockProvider();
   const wanted = new Set(only);
   const claimed = await handle.db.transaction(async (tx) => {
     const due = await claimDuePayouts(tx, { now: options.now, limit: 500 });
@@ -122,6 +127,7 @@ async function runWorker(
           payoutId: payout.id,
           now: options.now,
           checkAt: new Date(options.now.getTime() + payoutRetryDelayMs(payout.attempts + 1)),
+          providerRef: provider.payoutReference?.(payout.id) ?? null,
         }),
       );
     }
@@ -141,6 +147,7 @@ async function runWorker(
       await handle.db.transaction((tx) =>
         applyPayoutAttempt(tx, {
           payoutId: payout.id,
+          attempt: payout.attempts,
           result,
           now: options.now,
           retryAt: new Date(options.now.getTime() + payoutRetryDelayMs(payout.attempts)),
@@ -152,16 +159,22 @@ async function runWorker(
   return applied;
 }
 
-/** A provider whose payout calls follow a script (the mock cannot time out). */
+/**
+ * A provider whose payout calls follow a script (the mock cannot time out).
+ * With `reference`, it names payouts by our payout id before they are sent
+ * (like Chapa), so the worker stores that reference first.
+ */
 function scriptedProvider(script: {
   initiate: Array<() => Promise<PayoutInitiation>>;
   query?: () => Promise<ProviderStatusResult>;
+  reference?: boolean;
 }): PaymentProvider & { calls: string[] } {
   const calls: string[] = [];
   let step = 0;
   return {
     name: 'mock',
     capabilities: { deposits: true, payouts: true },
+    ...(script.reference === true ? { payoutReference: (payoutId: string) => payoutId } : {}),
     calls,
     initiateDeposit: () => Promise.reject(new Error('not used')),
     verifyWebhook: () => Promise.reject(new Error('not used')),
@@ -920,6 +933,7 @@ describe('payout webhooks and conflicts', () => {
     const late = await handle.db.transaction((tx) =>
       applyPayoutAttempt(tx, {
         payoutId: payout.id,
+        attempt: payout.attempts,
         result: { outcome: 'paid', providerRef: payout.providerRef! },
         now: T,
         retryAt: T,
@@ -1002,6 +1016,7 @@ describe('payout webhooks and conflicts', () => {
     const exhausted = await handle.db.transaction((tx) =>
       applyPayoutAttempt(tx, {
         payoutId: payout.id,
+        attempt: payout.attempts,
         result: { outcome: 'retry', providerRef: payout.providerRef, error: 'timeout' },
         now: T,
         retryAt: T,
@@ -1014,6 +1029,7 @@ describe('payout webhooks and conflicts', () => {
     await handle.db.transaction((tx) =>
       applyPayoutAttempt(tx, {
         payoutId: answered.id,
+        attempt: answered.attempts,
         result: { outcome: 'retry', providerRef: answered.providerRef, error: 'timeout' },
         now: T,
         retryAt: T,
@@ -1046,6 +1062,7 @@ describe('payout webhooks and conflicts', () => {
     const contradiction = await handle.db.transaction((tx) =>
       applyPayoutAttempt(tx, {
         payoutId: payout.id,
+        attempt: payout.attempts,
         result: { outcome: 'paid', providerRef: payout.providerRef! },
         now: T,
         retryAt: T,
@@ -1060,6 +1077,7 @@ describe('payout webhooks and conflicts', () => {
     const otherRef = await handle.db.transaction((tx) =>
       applyPayoutAttempt(tx, {
         payoutId: open.id,
+        attempt: open.attempts,
         result: { outcome: 'pending', providerRef: 'a-different-reference' },
         now: T,
         retryAt: T,
@@ -1091,6 +1109,269 @@ describe('payout webhooks and conflicts', () => {
         applyPayoutEvent(tx, { provider: 'mock', event: { ...event, kind: 'deposit' }, now: T }),
       ),
     ).rejects.toThrow(RangeError);
+  });
+});
+
+describe('payout safety: ambiguous answers, stale attempts, budgets', () => {
+  const T = new Date('2026-10-17T10:00:00Z');
+
+  const statusOf = (status: ProviderStatusResult['status']) => () =>
+    Promise.resolve<ProviderStatusResult>({
+      providerRef: 'as-asked',
+      status,
+      amount: null,
+      currency: 'ETB',
+      raw: { status },
+    });
+  const queryTimeout = () =>
+    Promise.reject<ProviderStatusResult>(
+      new ProviderRequestError('mock', 'no response', { status: null, retryable: true }),
+    );
+
+  it('keeps the hold when a transfer is answered with an unreadable 2xx; the late webhook pays it', async () => {
+    const player = await fundedPlayer(birr(1_000));
+    const { payout } = await withdraw(handle.db, player, birr(100));
+    const unreadable = () =>
+      Promise.reject<PayoutInitiation>(
+        new ProviderRequestError('mock', 'unreadable 2xx', {
+          status: 200,
+          body: '<html>',
+          retryable: false,
+        }),
+      );
+    const provider = scriptedProvider({ initiate: [unreadable], reference: true });
+    const [first] = await runWorker([payout.id], { now: T, provider });
+    expect(first).toMatchObject({
+      applied: 'retry_scheduled',
+      payout: { status: 'processing', providerRef: payout.id, flaggedAt: null },
+    });
+    expect(await cashOf(handle.db, player.userId)).toBe(birr(900));
+    expect(await postingsWithKey(withdrawalReversalLedgerKey(payout.id))).toBe(0);
+    // The provider's late success webhook finds the payout by the reference stored before sending.
+    const paid = await payoutWebhook({ ...first!.payout, providerRef: payout.id }, 'succeeded');
+    expect(paid).toMatchObject({ outcome: 'paid', payout: { status: 'paid' } });
+    await expectBooksBalanced(handle.db);
+  });
+
+  it('flags (never 404s) a success reported for a payout failed on its refused first submission', async () => {
+    const player = await fundedPlayer(birr(1_000));
+    const { payout } = await withdraw(handle.db, player, birr(100));
+    const provider = scriptedProvider({ initiate: [refused], reference: true });
+    const [applied] = await runWorker([payout.id], { now: T, provider });
+    expect(applied).toMatchObject({
+      applied: 'failed',
+      payout: { status: 'failed', failureReason: 'refused_by_provider' },
+    });
+    expect(await cashOf(handle.db, player.userId)).toBe(birr(1_000));
+    const late = await payoutWebhook({ ...applied!.payout, providerRef: payout.id }, 'succeeded');
+    expect(late).toMatchObject({
+      outcome: 'conflict',
+      payout: { status: 'failed', flagReason: 'provider_conflict' },
+    });
+    expect((await listFlaggedPayouts(handle.db, { limit: 500 })).map((p) => p.id)).toContain(
+      payout.id,
+    );
+  });
+
+  it('ignores a stale attempt that another worker overtook; the hold stays', async () => {
+    const player = await fundedPlayer(birr(1_000));
+    const { payout } = await withdraw(handle.db, player, birr(100));
+    const claim = (now: Date) =>
+      handle.db.transaction((tx) =>
+        markPayoutProcessing(tx, {
+          payoutId: payout.id,
+          now,
+          checkAt: new Date(now.getTime() + MINUTE),
+          providerRef: payout.id,
+        }),
+      );
+    const a = await claim(T); // worker A: slow
+    const later = new Date(T.getTime() + MINUTE);
+    const b = await claim(later); // A's lease ran out: worker B
+    expect([a.attempts, b.attempts]).toEqual([1, 2]);
+    const apply = (attempt: number, result: PayoutAttemptOutcome) =>
+      handle.db.transaction((tx) =>
+        applyPayoutAttempt(tx, {
+          payoutId: payout.id,
+          attempt,
+          result,
+          now: later,
+          retryAt: new Date(later.getTime() + MINUTE),
+          maxAttempts: 5,
+        }),
+      );
+    // B found the payout at the provider.
+    expect((await apply(2, { outcome: 'pending', providerRef: payout.id })).applied).toBe(
+      'pending',
+    );
+    // A's late answer: its own submission refused as a duplicate of B's.
+    for (const providerRef of [null, payout.id]) {
+      const stale = await apply(1, {
+        outcome: 'failed',
+        providerRef,
+        reason: 'refused_by_provider',
+      });
+      expect(stale).toMatchObject({
+        applied: 'stale',
+        payout: { status: 'processing', flaggedAt: null },
+      });
+    }
+    // A current failure without the reference the payout already has is not trusted either.
+    const noRef = await apply(2, {
+      outcome: 'failed',
+      providerRef: null,
+      reason: 'refused_by_provider',
+    });
+    expect(noRef.applied).not.toBe('failed');
+    expect(noRef.payout.status).toBe('processing');
+    expect(await cashOf(handle.db, player.userId)).toBe(birr(900));
+    expect(await postingsWithKey(withdrawalReversalLedgerKey(payout.id))).toBe(0);
+
+    // Paid by the current attempt: a stale duplicate refusal changes nothing, flags nothing.
+    await handle.db.transaction((tx) =>
+      clearPayoutFlag(tx, { payoutId: payout.id, adminId: ADMIN, note: 'carry on', now: later }),
+    );
+    const c = await claim(new Date(later.getTime() + MINUTE));
+    expect(
+      (await apply(c.attempts, { outcome: 'paid', providerRef: payout.id })).payout.status,
+    ).toBe('paid');
+    const late = await apply(1, {
+      outcome: 'failed',
+      providerRef: payout.id,
+      reason: 'refused_by_provider',
+    });
+    expect(late).toMatchObject({ applied: 'stale', payout: { status: 'paid', flaggedAt: null } });
+  });
+
+  it('counts only attempts that got no answer against the budget; clearing a flag starts it again', async () => {
+    const player = await fundedPlayer(birr(1_000));
+    const { payout } = await withdraw(handle.db, player, birr(100));
+    let answering = true;
+    const provider = scriptedProvider({
+      initiate: [() => Promise.resolve({ providerRef: `ref-${payout.id}`, status: 'pending' })],
+      query: () => (answering ? statusOf('pending')() : queryTimeout()),
+    });
+    let now = T;
+    const run = async () => {
+      const [result] = await runWorker([payout.id], { now, provider, maxAttempts: 3 });
+      if (result?.payout.nextAttemptAt) now = result.payout.nextAttemptAt;
+      return result;
+    };
+    for (let i = 0; i < 4; i += 1) expect((await run())?.applied).toBe('pending');
+    answering = false;
+    // Four status polls already happened: one attempt without an answer is not the end.
+    expect(await run()).toMatchObject({
+      applied: 'retry_scheduled',
+      payout: { attempts: 5, unansweredAttempts: 1, flaggedAt: null },
+    });
+    expect((await run())?.applied).toBe('retry_scheduled');
+    expect(await run()).toMatchObject({
+      applied: 'flagged',
+      payout: { flagReason: 'attempts_exhausted', unansweredAttempts: 3 },
+    });
+    const cleared = await handle.db.transaction((tx) =>
+      clearPayoutFlag(tx, { payoutId: payout.id, adminId: ADMIN, note: 'Look again', now }),
+    );
+    expect(cleared.payout).toMatchObject({ unansweredAttempts: 0, nextAttemptAt: null });
+    expect((await run())?.applied).toBe('retry_scheduled');
+    expect(await cashOf(handle.db, player.userId)).toBe(birr(900));
+  });
+
+  it('flags a payout the provider keeps pending for a day; staff may then settle it', async () => {
+    const player = await fundedPlayer(birr(1_000));
+    const { payout } = await withdraw(handle.db, player, birr(100));
+    const provider = scriptedProvider({
+      initiate: [() => Promise.resolve({ providerRef: `ref-${payout.id}`, status: 'pending' })],
+      query: statusOf('pending'),
+    });
+    expect((await runWorker([payout.id], { now: T, provider }))[0]?.applied).toBe('pending');
+    const [late] = await runWorker([payout.id], {
+      now: new Date(T.getTime() + 24 * HOUR),
+      provider,
+    });
+    expect(late).toMatchObject({
+      applied: 'flagged',
+      payout: { status: 'processing', flagReason: 'pending_too_long' },
+    });
+    expect(await cashOf(handle.db, player.userId)).toBe(birr(900));
+    const failed = await handle.db.transaction((tx) =>
+      markPayoutFailed(tx, {
+        payoutId: payout.id,
+        reason: 'provider confirmed it was never paid',
+        now: T,
+        admin: { adminId: ADMIN },
+      }),
+    );
+    expect(failed.payout.status).toBe('failed');
+    expect(await cashOf(handle.db, player.userId)).toBe(birr(1_000));
+  });
+
+  it('lets staff flag a payout that is being processed, so they can settle it', async () => {
+    const player = await fundedPlayer(birr(1_000), '9999');
+    const { payout } = await withdraw(handle.db, player, birr(100));
+    const [pending] = await runWorker([payout.id], { now: T });
+    expect(pending?.applied).toBe('pending');
+    const settle = () =>
+      handle.db.transaction((tx) =>
+        markPayoutPaid(tx, { payoutId: payout.id, now: T, admin: { adminId: ADMIN } }),
+      );
+    expect((await domainError(settle())).code).toBe('payout_in_progress');
+    const flag = () =>
+      handle.db.transaction((tx) =>
+        flagPayoutForStaff(tx, {
+          payoutId: payout.id,
+          adminId: ADMIN,
+          note: 'Provider support says it was paid',
+          now: T,
+        }),
+      );
+    expect(await flag()).toMatchObject({
+      changed: true,
+      payout: { status: 'processing', flagReason: 'staff_review', flaggedAt: T },
+    });
+    expect((await outboxOf(handle.db, payout.id)).at(-1)).toEqual([
+      WITHDRAWAL_FLAGGED,
+      expect.objectContaining({ reason: 'staff_review' }),
+    ]);
+    expect(await auditCount(handle.db, payout.id, WITHDRAWAL_FLAGGED)).toBe(1);
+    expect((await flag()).changed).toBe(false);
+    expect((await settle()).payout.status).toBe('paid');
+    expect((await domainError(flag())).code).toBe('payout_already_closed');
+  });
+});
+
+describe('deposits under review', () => {
+  it('refuses a withdrawal while a deposit reversed at the provider waits for staff', async () => {
+    const player = await createPlayer(handle.db);
+    const intent = await depositViaMock(handle.db, player.userId, birr(1_000));
+    // The provider reports the credited deposit failed (reversed or charged back).
+    const provider = mockProvider();
+    const reversal = await provider.verifyWebhook(
+      provider.simulateDepositDecision({
+        providerRef: intent.providerRef!,
+        amount: intent.amount,
+        decision: 'decline',
+      }),
+    );
+    const flagged = await handle.db.transaction((tx) =>
+      applyDepositEvent(tx, { provider: 'mock', event: reversal, now: NOW }),
+    );
+    expect(flagged).toMatchObject({ outcome: 'flagged', flagReason: 'failure_after_success' });
+    const refused = await domainError(withdraw(handle.db, player, birr(100)));
+    expect(refused).toMatchObject({ status: 409, code: 'deposit_under_review' });
+    expect(await cashOf(handle.db, player.userId)).toBe(birr(1_000));
+
+    // Staff confirm the deposit stands: withdrawals work again.
+    await handle.db.transaction((tx) =>
+      resolveFlaggedDeposit(tx, {
+        intentId: intent.id,
+        adminId: ADMIN,
+        resolution: 'close',
+        note: 'The reversal notice was a provider error',
+        now: NOW,
+      }),
+    );
+    expect((await withdraw(handle.db, player, birr(100))).payout.status).toBe('approved');
   });
 });
 
