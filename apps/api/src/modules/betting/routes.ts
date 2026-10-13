@@ -1,10 +1,15 @@
 import {
+  CashOutOffersQuery,
+  CashOutRequest,
   CreateBookingCodeRequest,
   MyBetsQuery,
   PlaceBetRequest,
   QuoteRequest,
   type BetView,
   type BookingCodeResponse,
+  type CashOutOffersResponse,
+  type CashOutOfferView,
+  type CashOutResponse,
   type MyBetsResponse,
   type QuoteResponse,
 } from '@vamos/contracts';
@@ -14,9 +19,12 @@ import { parseInput } from '../../lib/errors';
 import { IDEMPOTENT_REPLAYED_HEADER, readIdempotencyKey } from '../../lib/idempotency';
 import { requireUser } from '../../plugins/session';
 import {
+  cashOutPlayerBet,
   createSlipBookingCode,
   getBookingCode,
   getMyBet,
+  getMyCashOutOffer,
+  getMyCashOutOffers,
   listMyBets,
   placePlayerBet,
   quoteBetslip,
@@ -34,6 +42,13 @@ export const BETTING_RATE_LIMITS = {
   createBookingCode: 30,
   /** Per client address (codes are short, so lookups are capped against guessing). */
   loadBookingCode: 60,
+  /** Per player: executing a cash-out. */
+  cashOut: 30,
+  /**
+   * Per player: one bet's offer and the batch of offers (clients re-fetch at
+   * most every 2 s per open tab when live deltas arrive).
+   */
+  cashOutOffers: 120,
 } as const;
 
 function perClient(name: string, max: number) {
@@ -117,7 +132,7 @@ export default async function bettingRoutes(app: FastifyInstance): Promise<void>
     async (request, reply): Promise<MyBetsResponse> => {
       const user = requireUser(request);
       const query = parseInput(MyBetsQuery, request.query);
-      const body = await listMyBets(deps.db, user.id, query);
+      const body = await listMyBets(deps, user.id, query);
       noStore(reply);
       return body;
     },
@@ -128,7 +143,61 @@ export default async function bettingRoutes(app: FastifyInstance): Promise<void>
     { preHandler: app.requireAuth },
     async (request, reply): Promise<BetView> => {
       const user = requireUser(request);
-      const body = await getMyBet(deps.db, user.id, request.params.id);
+      const body = await getMyBet(deps, user.id, request.params.id);
+      noStore(reply);
+      return body;
+    },
+  );
+
+  // Cash-out (Phase 7; see CashOut* in @vamos/contracts). Only the player's own
+  // bets: someone else's bet is a 404, like an unknown id.
+  app.get<{ Params: { id: string } }>(
+    '/me/bets/:id/cash-out',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('cash-out-offer', BETTING_RATE_LIMITS.cashOutOffers),
+    },
+    async (request, reply): Promise<CashOutOfferView> => {
+      const user = requireUser(request);
+      const body = await getMyCashOutOffer(deps, user.id, request.params.id);
+      noStore(reply);
+      return body;
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/me/bets/:id/cash-out',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('cash-out', BETTING_RATE_LIMITS.cashOut),
+    },
+    async (request, reply): Promise<CashOutResponse> => {
+      const user = requireUser(request);
+      const idempotencyKey = readIdempotencyKey(request);
+      const input = parseInput(CashOutRequest, request.body);
+      const result = await cashOutPlayerBet(deps, {
+        userId: user.id,
+        betId: request.params.id,
+        quotedGross: BigInt(input.gross),
+        idempotencyKey,
+        ip: request.ip,
+      });
+      if (result.replayed) void reply.header(IDEMPOTENT_REPLAYED_HEADER, 'true');
+      noStore(reply);
+      return result.body;
+    },
+  );
+
+  app.get(
+    '/me/cash-out-offers',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('cash-out-offers', BETTING_RATE_LIMITS.cashOutOffers),
+    },
+    async (request, reply): Promise<CashOutOffersResponse> => {
+      const user = requireUser(request);
+      const query = parseInput(CashOutOffersQuery, request.query);
+      const body = await getMyCashOutOffers(deps, user.id, query.betIds);
       noStore(reply);
       return body;
     },

@@ -1,5 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { marketKey } from '@vamos/core';
+import {
+  certainMarketResult,
+  marketKey,
+  MARKET_TYPES,
+  type InPlayScore,
+  type MarketTypeCode,
+} from '@vamos/core';
 import {
   applyLiveState,
   ensureSimulationSeed,
@@ -9,6 +15,7 @@ import {
   marketsWithSelections,
   oddsMessage,
   resultEvent,
+  resultMarket,
   resumeEvent,
   setMarketStatus,
   setSelectionOdds,
@@ -45,7 +52,11 @@ import type { TaskContext } from './context';
  * - kicks off scheduled mock events whose start time has come (status live);
  * - advances each live match to SIM_SPEED × (real seconds since its start
  *   time) simulated minutes and writes the score, clock and period;
- * - closes markets the model no longer offers (their outcome is certain);
+ * - results the markets the model no longer offers whose outcome the score
+ *   already decides (core certainMarketResult: 'over' once the line is
+ *   passed, 'yes' once both teams scored…) with resultMarket, so their bets
+ *   settle before full time (market.resulted), and closes the others the
+ *   model dropped (their outcome is practically, not certainly, decided);
  * - suspends every open market while the simulator says so (after a goal or
  *   a set) and afterwards re-opens the markets it suspended itself (never a
  *   trader's suspension: see TradingActor in @vamos/db);
@@ -134,6 +145,8 @@ export interface LiveSimTickSummary {
   busy: string[];
   failed: string[];
   published: number;
+  /** Markets resulted early (before full time) this tick. */
+  marketsResulted: number;
 }
 
 export function simStateKey(eventId: string, prefix = DEFAULT_KEY_PREFIX): string {
@@ -218,6 +231,7 @@ export async function runLiveSimTick(
     busy: [],
     failed: [],
     published: 0,
+    marketsResulted: 0,
   };
   await forEachLimited(candidates, options.concurrency ?? 4, async (candidate) => {
     try {
@@ -229,6 +243,7 @@ export async function runLiveSimTick(
       if (result === null) return;
       summary.processed.push(candidate.id);
       summary.published += result.published;
+      summary.marketsResulted += result.marketsResulted;
       if (result.kickedOff) {
         summary.kickedOff.push(candidate.id);
         ctx.logger.info({ eventId: candidate.id }, 'simulated match kicked off');
@@ -250,6 +265,7 @@ interface EventOutcome {
   messages: LiveMessage[];
   kickedOff: boolean;
   finished: boolean;
+  marketsResulted: number;
 }
 
 /**
@@ -261,7 +277,11 @@ async function simulateEvent(
   options: LiveSimOptions,
   candidate: SimulationCandidate,
   now: Date,
-): Promise<'busy' | null | { kickedOff: boolean; finished: boolean; published: number }> {
+): Promise<
+  | 'busy'
+  | null
+  | { kickedOff: boolean; finished: boolean; published: number; marketsResulted: number }
+> {
   const prefix = options.keyPrefix ?? DEFAULT_KEY_PREFIX;
   const lock = await tryLock(
     ctx.redis,
@@ -307,14 +327,28 @@ async function simulateEvent(
       if (state.phase === 'finished') {
         const resulted = await resultEvent(tx, event.id, finalResult(state));
         messages.push(...resulted.messages);
-        return { record: { ...record, suspended: false }, messages, kickedOff, finished: true };
+        return {
+          record: { ...record, suspended: false },
+          messages,
+          kickedOff,
+          finished: true,
+          marketsResulted: 0,
+        };
       }
 
       const priced = new Map(
         priceState(state, strengths).map((market) => [marketKey(market.type, market.line), market]),
       );
       const current = await marketsWithSelections(tx, event.id);
-      messages.push(...(await closeUnpriced(tx, current, priced)));
+      // The score just written by applyLiveState: resultMarket checks it is the stored one.
+      const score: InPlayScore = {
+        home: state.home,
+        away: state.away,
+        htHome: state.htHome,
+        htAway: state.htAway,
+      };
+      const unpriced = await settleOrCloseUnpriced(tx, current, priced, score);
+      messages.push(...unpriced.messages);
 
       // Statuses before prices, so the odds deltas carry the committed bettability.
       let suspended = record.suspended;
@@ -331,7 +365,13 @@ async function simulateEvent(
       const repriced = await reprice(tx, current, priced, options, now);
       messages.push(...repriced.messages);
       messages.push(...restatedOdds(event, current, moved, repriced.written, now));
-      return { record: { ...record, suspended }, messages, kickedOff, finished: false };
+      return {
+        record: { ...record, suspended },
+        messages,
+        kickedOff,
+        finished: false,
+        marketsResulted: unpriced.resulted,
+      };
     });
     if (outcome === null) return null;
 
@@ -347,7 +387,12 @@ async function simulateEvent(
       ctx.channel,
       ctx.logger,
     );
-    return { kickedOff: outcome.kickedOff, finished: outcome.finished, published };
+    return {
+      kickedOff: outcome.kickedOff,
+      finished: outcome.finished,
+      published,
+      marketsResulted: outcome.marketsResulted,
+    };
   } finally {
     await lock.release().catch((error: unknown) => {
       ctx.logger.warn({ err: error, eventId: candidate.id }, 'releasing the simulator lock failed');
@@ -365,20 +410,55 @@ export function shouldWriteOdds(current: number, next: number, threshold: number
   return next < current && next < ALWAYS_WRITE_BELOW_MILLI;
 }
 
-/** Closes the open or suspended markets the model no longer offers (their outcome is certain). */
-async function closeUnpriced(
+/**
+ * The certain result of a market at the in-play score (core
+ * certainMarketResult), or null while it can still change, for an unknown
+ * market type or a malformed line.
+ */
+export function certainResultOf(
+  market: Pick<MarketWithSelections, 'type' | 'line'>,
+  score: InPlayScore,
+): ReturnType<typeof certainMarketResult> {
+  if (!Object.hasOwn(MARKET_TYPES, market.type)) return null;
+  try {
+    return certainMarketResult({ type: market.type as MarketTypeCode, line: market.line }, score);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The markets the model no longer offers: those whose outcome the score
+ * already decides are resulted (resultMarket writes `market.resulted`, so
+ * their bets settle now), including ones closed earlier before they were
+ * decided; the other open or suspended ones are closed (the model drops a
+ * market once its outcome is practically decided, which is not certain).
+ */
+async function settleOrCloseUnpriced(
   tx: DbTransaction,
   current: MarketWithSelections[],
   priced: ReadonlyMap<string, FeedMarket>,
-): Promise<LiveMessage[]> {
+  score: InPlayScore,
+): Promise<{ messages: LiveMessage[]; resulted: number }> {
   const messages: LiveMessage[] = [];
+  let resulted = 0;
   for (const market of current) {
-    if (market.status !== 'open' && market.status !== 'suspended') continue;
+    if (market.status !== 'open' && market.status !== 'suspended' && market.status !== 'closed') {
+      continue;
+    }
     if (priced.has(market.key)) continue;
+    if (certainResultOf(market, score) !== null) {
+      const outcome = await resultMarket(tx, market.id, { score });
+      messages.push(...outcome.messages);
+      market.status = outcome.status;
+      if (outcome.outcome === 'resulted') resulted += 1;
+      continue;
+    }
+    if (market.status === 'closed') continue;
     messages.push(...(await setMarketStatus(tx, market.id, 'closed')).messages);
     market.status = 'closed';
   }
-  return messages;
+  return { messages, resulted };
 }
 
 /** Writes the model's prices that moved enough (see shouldWriteOdds). */

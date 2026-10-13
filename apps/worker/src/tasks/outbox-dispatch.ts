@@ -1,15 +1,25 @@
+import type { UserMessage } from '@vamos/contracts';
 import {
+  BET_ACCEPTED,
+  BET_CASHED_OUT,
   BET_PLACED,
+  BET_REJECTED,
+  BET_REOPENED,
+  BET_SETTLED,
   claimOutboxBatch,
   countDeadLetteredOutbox,
   DEPOSIT_SUCCEEDED,
   EVENT_RESULT_CORRECTED,
   EVENT_RESULTED,
+  MARKET_RESULTED,
   markOutboxFailed,
   markOutboxPublished,
   WITHDRAWAL_APPROVED,
+  WITHDRAWAL_CANCELLED,
   WITHDRAWAL_FAILED,
   WITHDRAWAL_PAID,
+  WITHDRAWAL_REJECTED,
+  WITHDRAWAL_REQUESTED,
   type OutboxEvent,
 } from '@vamos/db';
 import type { JobsOptions } from 'bullmq';
@@ -85,6 +95,8 @@ export interface SettlementJobData {
   outboxId: string;
   type: string;
   eventId: string;
+  /** market.resulted only: settle the bets with a leg on this market (resulted early). */
+  marketId?: string;
 }
 
 /** Data of a `bet-acceptance` job (a delayed job due at acceptAfter). */
@@ -111,6 +123,19 @@ export interface SmsJobData {
   amount: string;
 }
 
+/**
+ * Data of a `user-notify` job: push messages for one player, built from the
+ * outbox payload when the row is dispatched. `wallet` adds a wallet.changed
+ * message with the player's balances as they are when the job runs.
+ */
+export interface UserNotifyJobData {
+  outboxId: string;
+  type: string;
+  userId: string;
+  messages: UserMessage[];
+  wallet: boolean;
+}
+
 export interface RoutedJob {
   queue: QueueName;
   name: string;
@@ -126,6 +151,20 @@ const nonEmpty = z.string().min(1);
 const settlementRoute: OutboxRoute = (row) => {
   const eventId = nonEmpty.parse(row.aggregateId);
   const data: SettlementJobData = { outboxId: row.id.toString(), type: row.type, eventId };
+  return { queue: QUEUE_NAMES.settlement, name: row.type, data };
+};
+
+const marketResultedPayload = z.object({ eventId: z.uuid(), marketId: z.uuid() });
+
+/** A market resulted early in play: settle the bets with a leg on it. */
+const marketSettlementRoute: OutboxRoute = (row) => {
+  const payload = marketResultedPayload.parse(row.payload);
+  const data: SettlementJobData = {
+    outboxId: row.id.toString(),
+    type: row.type,
+    eventId: payload.eventId,
+    marketId: payload.marketId,
+  };
   return { queue: QUEUE_NAMES.settlement, name: row.type, data };
 };
 
@@ -182,15 +221,177 @@ const smsRoute: OutboxRoute = (row) => {
   return { queue: QUEUE_NAMES.sms, name: row.type, data };
 };
 
+/** Santim as stored in outbox payloads (enqueueOutbox writes bigint as a string). */
+const wireSantim = z
+  .union([z.string().regex(/^-?\d+$/), z.number().int()])
+  .transform((value) => String(value));
+const betRef = { betId: nonEmpty, userId: z.uuid(), shortId: nonEmpty };
+
+/**
+ * The push messages of each player-facing outbox type (null: the payload
+ * does not carry them). `wallet`: the type changed the player's balances.
+ */
+const USER_NOTIFICATIONS: Readonly<
+  Record<
+    string,
+    {
+      wallet: boolean;
+      messages: (payload: unknown) => { userId: string; messages: UserMessage[] } | null;
+    }
+  >
+> = {
+  // The stake left the balance (the placing tab knows; the others hear it).
+  [BET_PLACED]: { wallet: true, messages: walletOnly },
+  [BET_ACCEPTED]: {
+    wallet: false,
+    messages: (payload) => {
+      const parsed = z
+        .object({ ...betRef, oddsChanged: z.array(z.unknown()).default([]) })
+        .safeParse(payload);
+      if (!parsed.success) return null;
+      const { betId, userId, shortId, oddsChanged } = parsed.data;
+      return {
+        userId,
+        messages: [
+          { type: 'bet.accepted', data: { betId, shortId, oddsChanged: oddsChanged.length > 0 } },
+        ],
+      };
+    },
+  },
+  [BET_REJECTED]: {
+    wallet: true,
+    messages: (payload) => {
+      const parsed = z
+        .object({ ...betRef, reason: nonEmpty, refund: wireSantim })
+        .safeParse(payload);
+      if (!parsed.success) return null;
+      const { betId, userId, shortId, reason, refund } = parsed.data;
+      return {
+        userId,
+        messages: [{ type: 'bet.rejected', data: { betId, shortId, reason, refund } }],
+      };
+    },
+  },
+  [BET_SETTLED]: {
+    wallet: true,
+    messages: (payload) => {
+      const parsed = z
+        .object({
+          ...betRef,
+          status: z.enum(['won', 'lost', 'void']),
+          grossPayout: wireSantim,
+          taxAmount: wireSantim,
+          netPayout: wireSantim,
+          corrected: z.boolean(),
+        })
+        .safeParse(payload);
+      if (!parsed.success) return null;
+      const { betId, userId, shortId, status, grossPayout, taxAmount, netPayout, corrected } =
+        parsed.data;
+      return {
+        userId,
+        messages: [
+          {
+            type: 'bet.settled',
+            data: {
+              betId,
+              shortId,
+              status,
+              gross: grossPayout,
+              tax: taxAmount,
+              net: netPayout,
+              corrected,
+            },
+          },
+        ],
+      };
+    },
+  },
+  [BET_CASHED_OUT]: {
+    wallet: true,
+    messages: (payload) => {
+      const parsed = z
+        .object({ ...betRef, gross: wireSantim, tax: wireSantim, net: wireSantim })
+        .safeParse(payload);
+      if (!parsed.success) return null;
+      const { betId, userId, shortId, gross, tax, net } = parsed.data;
+      return {
+        userId,
+        messages: [{ type: 'bet.cashed_out', data: { betId, shortId, gross, tax, net } }],
+      };
+    },
+  },
+  [BET_REOPENED]: {
+    wallet: true,
+    messages: (payload) => {
+      const parsed = z.object(betRef).safeParse(payload);
+      if (!parsed.success) return null;
+      const { betId, userId, shortId } = parsed.data;
+      return { userId, messages: [{ type: 'bet.reopened', data: { betId, shortId } }] };
+    },
+  },
+  // Payments: a deposit credited, a withdrawal's hold taken or given back, a payout sent.
+  [DEPOSIT_SUCCEEDED]: { wallet: true, messages: walletOnly },
+  [WITHDRAWAL_REQUESTED]: { wallet: true, messages: walletOnly },
+  [WITHDRAWAL_REJECTED]: { wallet: true, messages: walletOnly },
+  [WITHDRAWAL_CANCELLED]: { wallet: true, messages: walletOnly },
+  [WITHDRAWAL_PAID]: { wallet: true, messages: walletOnly },
+  [WITHDRAWAL_FAILED]: { wallet: true, messages: walletOnly },
+};
+
+function walletOnly(payload: unknown): { userId: string; messages: UserMessage[] } | null {
+  const parsed = z.object({ userId: z.uuid() }).safeParse(payload);
+  return parsed.success ? { userId: parsed.data.userId, messages: [] } : null;
+}
+
+/** The outbox types that push a message to the player (GET /me/stream). */
+export const USER_NOTIFY_TYPES: readonly string[] = Object.keys(USER_NOTIFICATIONS);
+
+/**
+ * Player push messages (the `user-notify` queue). A payload without what the
+ * message needs routes no job (a missing notification must never hold back
+ * the row's other jobs, such as a live bet's acceptance); notifications are
+ * hints, re-fetched by the client anyway. Few attempts: a late hint is worth
+ * little.
+ */
+const userNotifyRoute: OutboxRoute = (row) => {
+  const spec = USER_NOTIFICATIONS[row.type];
+  if (spec === undefined) return null;
+  const built = spec.messages(row.payload);
+  if (built === null) return null;
+  const data: UserNotifyJobData = {
+    outboxId: row.id.toString(),
+    type: row.type,
+    userId: built.userId,
+    messages: built.messages,
+    wallet: spec.wallet,
+  };
+  return {
+    queue: QUEUE_NAMES.userNotify,
+    name: row.type,
+    data,
+    opts: { attempts: 3, backoff: { type: 'exponential', delay: 500 } },
+  };
+};
+
 /** Outbox type -> the jobs it fans out to. */
 export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = {
   [EVENT_RESULTED]: [settlementRoute],
   [EVENT_RESULT_CORRECTED]: [settlementRoute],
-  [BET_PLACED]: [betAcceptanceRoute],
+  [MARKET_RESULTED]: [marketSettlementRoute],
+  [BET_PLACED]: [betAcceptanceRoute, userNotifyRoute],
+  [BET_ACCEPTED]: [userNotifyRoute],
+  [BET_REJECTED]: [userNotifyRoute],
+  [BET_SETTLED]: [userNotifyRoute],
+  [BET_CASHED_OUT]: [userNotifyRoute],
+  [BET_REOPENED]: [userNotifyRoute],
   [WITHDRAWAL_APPROVED]: [payoutRoute],
-  [DEPOSIT_SUCCEEDED]: [smsRoute],
-  [WITHDRAWAL_PAID]: [smsRoute],
-  [WITHDRAWAL_FAILED]: [smsRoute],
+  [DEPOSIT_SUCCEEDED]: [smsRoute, userNotifyRoute],
+  [WITHDRAWAL_REQUESTED]: [userNotifyRoute],
+  [WITHDRAWAL_REJECTED]: [userNotifyRoute],
+  [WITHDRAWAL_CANCELLED]: [userNotifyRoute],
+  [WITHDRAWAL_PAID]: [smsRoute, userNotifyRoute],
+  [WITHDRAWAL_FAILED]: [smsRoute, userNotifyRoute],
 };
 
 /** The job id of an outbox row (the same in every queue it fans out to). */

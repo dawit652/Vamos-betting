@@ -38,6 +38,7 @@ import {
   type OutboxDispatcher,
   type PayoutJobData,
   type SmsJobData,
+  type UserNotifyJobData,
 } from '../src/tasks/outbox-dispatch';
 import { processPayoutJob, payoutTask, runPayoutSweep } from '../src/tasks/payouts';
 import { processSmsJob, smsNotifyTask } from '../src/tasks/sms-notify';
@@ -279,11 +280,12 @@ describe('payouts end to end (outbox → payouts queue → provider → SMS)', (
 
 describe('outbox routes', () => {
   it(
-    'queues approved withdrawals on payouts and payment outcomes on sms',
+    'queues approved withdrawals on payouts and payment outcomes on sms and user-notify',
     async () => {
       const opts = { connection: { url: REDIS_URL }, prefix: t.queuePrefix };
       const payoutsQueue = new Queue(QUEUE_NAMES.payouts, opts);
       const smsQueue = new Queue(QUEUE_NAMES.sms, opts);
+      const notifyQueue = new Queue(QUEUE_NAMES.userNotify, opts);
       // A dispatcher with nothing consuming its jobs: stop the consumers first.
       for (const task of [...consumers].reverse()) await task.stop();
       await publishAll();
@@ -315,7 +317,8 @@ describe('outbox routes', () => {
         });
 
         const summary = await dispatcher.run();
-        expect(summary).toMatchObject({ claimed: 5, published: 4, jobs: 4, failed: 1 });
+        // The approved payout; each outcome on sms and user-notify (a wallet.changed push).
+        expect(summary).toMatchObject({ claimed: 5, published: 4, jobs: 7, failed: 1 });
 
         const row = async (id: bigint) => {
           const [r] = await t.db.db
@@ -337,15 +340,26 @@ describe('outbox routes', () => {
             userId,
             amount: '5000',
           });
+          const push = await notifyQueue.getJob(outboxJobId(await row(id)));
+          expect(push?.data as UserNotifyJobData).toEqual({
+            outboxId: id.toString(),
+            type: [DEPOSIT_SUCCEEDED, WITHDRAWAL_PAID, WITHDRAWAL_FAILED][index],
+            userId,
+            messages: [],
+            wallet: true,
+          });
         }
+        expect(await notifyQueue.getJob(outboxJobId(await row(approved)))).toBeUndefined();
         expect((await row(broken)).publishedAt).toBeNull();
         expect((await row(broken)).attempts).toBe(1);
       } finally {
         await publishAll();
         await payoutsQueue.obliterate({ force: true });
         await smsQueue.obliterate({ force: true });
+        await notifyQueue.obliterate({ force: true });
         await payoutsQueue.close();
         await smsQueue.close();
+        await notifyQueue.close();
         for (const task of consumers) await task.start();
       }
     },

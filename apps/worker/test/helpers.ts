@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { loadConfig } from '@vamos/config';
+import { userChannelPattern, userIdOfChannel, type UserMessage } from '@vamos/contracts';
 import type { SportCode } from '@vamos/core';
 import {
   loadCatalogIds,
@@ -40,6 +41,10 @@ export interface WorkerTestContext {
   queuePrefix: string;
   /** Every LiveMessage received on `channel`, in order. */
   received: LiveMessage[];
+  /** Unique prefix of the per-player channels of this test file (ctx.userChannelPrefix). */
+  userChannelPrefix: string;
+  /** Every UserMessage received on a player channel under `userChannelPrefix`, in order. */
+  userMessages: Array<{ userId: string; message: UserMessage }>;
   ctx: TaskContext;
   /** The mock payment provider in ctx.payments (on the test clock). */
   mockPayments: MockPaymentProvider;
@@ -69,6 +74,13 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
     if (from === channel) received.push(JSON.parse(payload) as LiveMessage);
   });
   await subscriber.subscribe(channel);
+  const userChannelPrefix = `vamos-test:${id}:user:`;
+  const userMessages: WorkerTestContext['userMessages'] = [];
+  subscriber.on('pmessage', (_pattern: string, from: string, payload: string) => {
+    const userId = userIdOfChannel(from, userChannelPrefix);
+    if (userId !== null) userMessages.push({ userId, message: JSON.parse(payload) as UserMessage });
+  });
+  await subscriber.psubscribe(userChannelPattern(userChannelPrefix));
 
   const clock: TestClock = {
     now: new Date(),
@@ -89,6 +101,7 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
     logger: pino({ level: 'silent' }),
     clock: now,
     channel,
+    userChannelPrefix,
     queues: { redisUrl: REDIS_URL, prefix: queuePrefix },
     payments,
     sms: new MockSmsSender(db.db),
@@ -102,6 +115,8 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
     channel,
     queuePrefix,
     received,
+    userChannelPrefix,
+    userMessages,
     ctx,
     mockPayments,
     async waitForMessages(predicate, ms = 5000) {

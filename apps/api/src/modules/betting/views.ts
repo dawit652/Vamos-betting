@@ -6,15 +6,24 @@ import type {
   QuoteLeg,
   QuoteResponse,
 } from '@vamos/contracts';
-import { formatGameId, MARKET_TYPES, selectionLabel, toWire } from '@vamos/core';
-import type {
-  BookingCode,
-  BookingLeg,
-  QuotedLeg,
-  SelectionSnapshot,
-  SlipQuote,
-  UserBet,
-  UserBetLeg,
+import {
+  formatGameId,
+  MARKET_TYPES,
+  selectionLabel,
+  toWire,
+  type CashOutConfig,
+} from '@vamos/core';
+import {
+  cashedOutView,
+  cashOutOfferView,
+  priceCashOut,
+  type BookingCode,
+  type BookingLeg,
+  type QuotedLeg,
+  type SelectionSnapshot,
+  type SlipQuote,
+  type UserBet,
+  type UserBetLeg,
 } from '@vamos/db';
 import { isMarketTypeCode, isSportCode } from '../catalog/views';
 
@@ -161,8 +170,19 @@ export function betLegView(leg: UserBetLeg): BetLegView {
   };
 }
 
-/** A bet as its owner sees it (placement, My Bets). */
-export function betView(bet: UserBet): BetView {
+/** What betView needs to price an open bet's cash-out offer. */
+export interface CashOutPricing {
+  /** The cash-out settings in force (GameSettings.cashOut). */
+  config: CashOutConfig;
+  now: Date;
+}
+
+/**
+ * A bet as its owner sees it (placement, My Bets). An `open` bet carries its
+ * cash-out offer as of `pricing.now` (priceCashOut, pure: the legs' selection
+ * snapshots are already loaded); a cashed-out bet what the cash-out paid.
+ */
+export function betView(bet: UserBet, pricing: CashOutPricing): BetView {
   return {
     id: bet.id,
     shortId: bet.shortId,
@@ -185,6 +205,11 @@ export function betView(bet: UserBet): BetView {
     acceptAfter: iso(bet.acceptAfter),
     acceptedAt: iso(bet.acceptedAt),
     settledAt: iso(bet.settledAt),
+    cashOutOffer:
+      bet.status === 'open'
+        ? cashOutOfferView(priceCashOut(bet, pricing.config, pricing.now))
+        : null,
+    cashedOut: bet.cashedOut === null ? null : cashedOutView(bet.cashedOut),
     legs: bet.legs.map(betLegView),
   };
 }

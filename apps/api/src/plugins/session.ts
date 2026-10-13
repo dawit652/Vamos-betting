@@ -151,6 +151,33 @@ export function sessionResponseBody(
   };
 }
 
+/**
+ * Whether a session still authenticates: not revoked, not expired and its
+ * user still active (the checks of `authenticate`). Long-lived streams call
+ * it to end when the player logs out.
+ */
+export async function isSessionActive(
+  deps: Pick<AppDeps, 'db' | 'clock'>,
+  sessionId: string,
+): Promise<boolean> {
+  const [row] = await deps.db
+    .select({
+      expiresAt: sessions.expiresAt,
+      revokedAt: sessions.revokedAt,
+      status: users.status,
+    })
+    .from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  return (
+    row !== undefined &&
+    row.revokedAt === null &&
+    row.expiresAt.getTime() > deps.clock().getTime() &&
+    row.status === 'active'
+  );
+}
+
 /** The authenticated player, or a 401 `unauthorized`. */
 export function requireUser(request: FastifyRequest): SessionUser {
   if (request.user === null) {

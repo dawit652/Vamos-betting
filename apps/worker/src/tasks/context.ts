@@ -14,6 +14,12 @@ export interface TaskContext {
   clock: () => Date;
   /** Redis channel for live deltas (LIVE_CHANNEL; tests use a unique one). */
   channel: string;
+  /**
+   * Prefix of the per-player push channels (default `vamos:user:`, see
+   * userChannel in @vamos/contracts; tests use a unique one). The API's
+   * GET /me/stream must relay the same prefix.
+   */
+  userChannelPrefix?: string;
   /** BullMQ queues (settlement, live bet acceptance); tests use a unique prefix. */
   queues: QueueConfig;
   /**

@@ -19,6 +19,7 @@ import {
 } from './payouts';
 import { prematchDriftTask, type PrematchDriftOptions } from './prematch-drift';
 import { smsNotifyTask, type SmsNotifyOptions } from './sms-notify';
+import { userNotifyTask, type UserNotifyOptions } from './user-notify';
 import {
   settlementSweepTask,
   settlementTask,
@@ -40,6 +41,7 @@ export interface TaskOptions {
   payoutSweep?: PayoutSweepOptions;
   depositReconcile?: DepositReconcileOptions;
   smsNotify?: SmsNotifyOptions;
+  userNotify?: UserNotifyOptions;
   outboxDispatch?: OutboxDispatchOptions;
 }
 
@@ -50,8 +52,8 @@ export interface TaskOptions {
  * again so simulated odds can never reach a licensed (real-money) database.
  *
  * Settlement (and its sweep), live bet acceptance, the payout worker (and
- * its sweep), deposit reconciliation, SMS notifications and the outbox
- * dispatcher run in every mode and with every feed; the payment providers in
+ * its sweep), deposit reconciliation, SMS notifications, player push
+ * messages and the outbox dispatcher run in every mode and with every feed; the payment providers in
  * ctx.payments are whatever PAYMENT_PROVIDERS enables (only the mock one in
  * demo mode). The consumers come before the dispatcher, so they are started
  * first and stopped last.
@@ -81,6 +83,7 @@ export function createTasks(
     payoutSweepTask(ctx, options.payoutSweep),
     depositReconcileTask(ctx, options.depositReconcile),
     smsNotifyTask(ctx, options.smsNotify),
+    userNotifyTask(ctx, options.userNotify),
     outboxDispatchTask(ctx, options.outboxDispatch),
   );
   return tasks;

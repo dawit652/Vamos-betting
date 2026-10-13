@@ -4,7 +4,10 @@ import type { Logger } from 'pino';
 
 /** The BullMQ queues the outbox dispatcher feeds. */
 export const QUEUE_NAMES = {
-  /** event.resulted / event.result_corrected: settle the event's bets. */
+  /**
+   * event.resulted / event.result_corrected: settle the event's bets;
+   * market.resulted (a market resulted early in play): settle that market's bets.
+   */
   settlement: 'settlement',
   /** bet.placed of a live bet: accept or reject it once its delay is over (delayed job). */
   betAcceptance: 'bet-acceptance',
@@ -12,6 +15,8 @@ export const QUEUE_NAMES = {
   payouts: 'payouts',
   /** Player notifications by SMS (deposit credited, withdrawal paid / failed). */
   sms: 'sms',
+  /** Player push messages (bet and wallet changes) on the player's Redis channel. */
+  userNotify: 'user-notify',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

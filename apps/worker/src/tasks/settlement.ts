@@ -1,6 +1,8 @@
 import {
   listBetIdsForEvent,
+  listBetIdsForMarket,
   listBetsToSettle,
+  MARKET_RESULTED,
   settlePlacedBet,
   type SettleBetResult,
   type SettleOutcome,
@@ -15,8 +17,11 @@ import type { SettlementJobData } from './outbox-dispatch';
 
 /**
  * Settlement consumer: a BullMQ worker on the `settlement` queue, fed by the
- * outbox dispatcher with event.resulted / event.result_corrected. Each bet
- * with a leg on the event is settled by settlePlacedBet (@vamos/db) in its
+ * outbox dispatcher with event.resulted / event.result_corrected, and with
+ * market.resulted for a market resulted early in play (resultMarket: its
+ * outcome was already certain). Each bet with a leg on the event (or, for
+ * market.resulted, on that market only) is settled by settlePlacedBet
+ * (@vamos/db) in its
  * own short transaction, retried on deadlock / serialization failure, so
  * events settled in parallel that share an accumulator do not hold the house
  * accounts for long. settlePlacedBet reads the results resultEvent stored,
@@ -53,6 +58,8 @@ export interface SettlementSweepOptions {
 
 export interface SettleEventRun {
   eventId: string;
+  /** Set when only the bets on this market were looked at (market.resulted). */
+  marketId?: string;
   bets: number;
   outcomes: Record<SettleOutcome, number>;
   /** Bets that could not be settled (errors logged). */
@@ -81,12 +88,33 @@ function settleOne(ctx: TaskContext, betId: string): Promise<SettleBetResult> {
 /** Settles every bet with a leg on the event, one transaction per bet. */
 export async function settleEvent(ctx: TaskContext, eventId: string): Promise<SettleEventRun> {
   const ids = await listBetIdsForEvent(ctx.db, eventId);
-  const run: SettleEventRun = {
-    eventId,
-    bets: ids.length,
-    outcomes: emptyOutcomes(),
-    failed: [],
-  };
+  return settleBets(ctx, { eventId, bets: ids.length, outcomes: emptyOutcomes(), failed: [] }, ids);
+}
+
+/**
+ * Settles every bet with a leg on a market resulted early (market.resulted),
+ * one transaction per bet. A bet whose other legs are still open stays open
+ * (settlePlacedBet records the leg and waits for canSettle).
+ */
+export async function settleMarket(
+  ctx: TaskContext,
+  eventId: string,
+  marketId: string,
+): Promise<SettleEventRun> {
+  const ids = await listBetIdsForMarket(ctx.db, marketId);
+  return settleBets(
+    ctx,
+    { eventId, marketId, bets: ids.length, outcomes: emptyOutcomes(), failed: [] },
+    ids,
+  );
+}
+
+async function settleBets(
+  ctx: TaskContext,
+  run: SettleEventRun,
+  ids: readonly string[],
+): Promise<SettleEventRun> {
+  const { eventId } = run;
   for (const betId of ids) {
     let result: SettleBetResult;
     try {
@@ -112,17 +140,24 @@ export async function processSettlementJob(
   ctx: TaskContext,
   data: SettlementJobData,
 ): Promise<SettleEventRun> {
-  const run = await settleEvent(ctx, data.eventId);
+  const run =
+    data.type === MARKET_RESULTED && data.marketId !== undefined
+      ? await settleMarket(ctx, data.eventId, data.marketId)
+      : await settleEvent(ctx, data.eventId);
   const changed =
     run.outcomes.settled +
     run.outcomes.resettled +
     run.outcomes.reopened +
     run.outcomes.correction_blocked;
   if (changed > 0 || run.failed.length > 0) {
-    ctx.logger.info({ ...run, type: data.type, outboxId: data.outboxId }, 'event settled');
+    ctx.logger.info(
+      { ...run, type: data.type, outboxId: data.outboxId },
+      run.marketId === undefined ? 'event settled' : 'market resulted early settled',
+    );
   }
   if (run.failed.length > 0) {
-    throw new Error(`settlement of event ${data.eventId}: ${run.failed.length} bet(s) failed`);
+    const what = run.marketId === undefined ? `event ${data.eventId}` : `market ${run.marketId}`;
+    throw new Error(`settlement of ${what}: ${run.failed.length} bet(s) failed`);
   }
   return run;
 }

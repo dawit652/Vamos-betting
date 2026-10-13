@@ -159,6 +159,7 @@ describe('createTasks', () => {
     'payout-sweep',
     'deposit-reconcile',
     'sms-notify',
+    'user-notify',
     'outbox-dispatch',
   ];
 
@@ -171,7 +172,7 @@ describe('createTasks', () => {
     ]);
   });
 
-  it('runs settlement, live bet acceptance, payments, SMS and the outbox dispatcher with every feed', () => {
+  it('runs settlement, live bet acceptance, payments, SMS, player pushes and the outbox dispatcher with every feed', () => {
     expect(createTasks(loadConfig({ FEED_PROVIDER: 'manual' }), ctx).map((t) => t.name)).toEqual(
       PHASE_4,
     );

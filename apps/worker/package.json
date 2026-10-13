@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@vamos/config": "workspace:*",
+    "@vamos/contracts": "workspace:*",
     "@vamos/core": "workspace:*",
     "@vamos/db": "workspace:*",
     "@vamos/feed": "workspace:*",

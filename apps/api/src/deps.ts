@@ -28,6 +28,12 @@ export interface AppDeps {
   randomBytes: (size: number) => Buffer;
   /** Redis channel of live deltas relayed by GET /live/stream (default LIVE_CHANNEL; tests use their own). */
   liveChannel?: string;
+  /**
+   * Prefix of the per-player Redis channels relayed by GET /me/stream
+   * (default `vamos:user:`, see userChannel in @vamos/contracts; tests use
+   * their own). The worker must publish under the same prefix.
+   */
+  userChannelPrefix?: string;
 }
 
 export interface DefaultDeps extends AppDeps {

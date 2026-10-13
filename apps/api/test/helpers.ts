@@ -72,6 +72,8 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
     randomBytes: (size) => randomBytes(size),
     // Never the shared production channel: a dev stack on the same Redis would see test deltas.
     liveChannel: `vamos-test:${id}:live`,
+    // Likewise for the per-player channels of GET /me/stream.
+    userChannelPrefix: `vamos-test:${id}:user:`,
   };
   const app = buildApp(deps, { logger: false, rateLimitNameSpace: `vamos-rl-${id}:` });
   await app.ready();

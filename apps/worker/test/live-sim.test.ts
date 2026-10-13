@@ -275,7 +275,7 @@ describe('live simulator', () => {
   );
 
   it(
-    'suspends the markets after a goal, closes decided ones and re-opens the rest',
+    'suspends the markets after a goal, results decided ones early and re-opens the rest',
     async () => {
       const feedProvider = uniqueProvider();
       const opts = options(feedProvider, { simSpeed: 1 });
@@ -286,18 +286,26 @@ describe('live simulator', () => {
       t.clock.set(new Date(start.getTime() + goalAt * 1000));
       const during = await runLiveSimTick(t.ctx, opts);
       expect(during.processed).toEqual([eventId]);
+      expect(during.marketsResulted).toBeGreaterThanOrEqual(1);
       const suspended = await marketStatuses(eventId);
-      expect(suspended.get('ou:0.5')).toBe('closed');
+      // Over 0.5 has won with the first goal: resulted at once, not merely closed.
+      expect(suspended.get('ou:0.5')).toBe('settled');
       expect(suspended.get('1x2')).toBe('suspended');
-      expect([...suspended.values()].every((s) => s === 'suspended' || s === 'closed')).toBe(true);
+      expect(
+        [...suspended.values()].every(
+          (s) => s === 'suspended' || s === 'closed' || s === 'settled',
+        ),
+      ).toBe(true);
 
       t.clock.set(new Date(start.getTime() + calmAt * 1000));
       await runLiveSimTick(t.ctx, opts);
       const after = await marketStatuses(eventId);
       expect(after.get('1x2')).toBe('open');
-      expect(after.get('ou:0.5')).toBe('closed');
-      expect([...after.values()].every((s) => s === 'open' || s === 'closed')).toBe(true);
-      for (const status of ['suspended', 'closed', 'open'] as const) {
+      expect(after.get('ou:0.5')).toBe('settled');
+      expect(
+        [...after.values()].every((s) => s === 'open' || s === 'closed' || s === 'settled'),
+      ).toBe(true);
+      for (const status of ['suspended', 'settled', 'open'] as const) {
         await t.waitForMessages((messages) =>
           messages.some(
             (m) => m.eventId === eventId && m.type === 'market' && m.data.st === status,
