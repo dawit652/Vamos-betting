@@ -9,11 +9,13 @@ import {
   getBetById,
   getCashOutOffer,
   listBetIdsForMarket,
+  listBetsToSettle,
   MARKET_RESULTED,
   resultEvent,
   resultMarket,
   settleEventBets,
   settleMarketBets,
+  settlePlacedBet,
   upsertFixture,
   type CatalogIds,
   type GameSettings,
@@ -408,5 +410,71 @@ describe('settling market.resulted', () => {
       .from(outboxEvents)
       .where(and(eq(outboxEvents.aggregateId, over!), eq(outboxEvents.type, 'bet.settled')));
     expect(settledTwice?.n).toBe(1);
+  });
+});
+
+describe('early results: the sweep and abandoned matches', () => {
+  const leg = (selectionId: string, oddsMilli: number) => ({ selectionId, oddsMilli });
+
+  it('the settlement sweep settles bets on a market resulted early whose job was lost', async () => {
+    const userId = await player();
+    const event = await createEvent(handle.db, ids);
+    const [over, home] = await Promise.all(
+      [[leg(event.over, 1900)], [leg(event.home, 2000)]].map((legs) =>
+        place(handle.db, userId, { stake: birr(100), legs, settings }).then((r) => r.bet.id),
+      ),
+    );
+    await goLive(handle.db, event.eventId);
+    await setScore(event.eventId, 2, 1);
+    await resultOne(event.marketIds.ou, { score: { home: 2, away: 1 } });
+
+    // The market.resulted job never ran; the event is still live (not resulted).
+    const sweep = { graceMs: 0, lookbackMs: 3600_000, limit: 1000 };
+    const later = new Date(Date.now() + 60_000);
+    const due = await listBetsToSettle(handle.db, later, sweep);
+    expect(due).toContain(over);
+    expect(due).not.toContain(home);
+    // Not while the grace period lets the job go first.
+    expect(
+      await listBetsToSettle(handle.db, new Date(), { ...sweep, graceMs: 10 * 60_000 }),
+    ).not.toContain(over);
+
+    expect(
+      await handle.db.transaction((tx) => settlePlacedBet(tx, over!, new Date())),
+    ).toMatchObject({ outcome: 'settled', status: 'won' });
+    expect(await listBetsToSettle(handle.db, later, sweep)).not.toContain(over);
+    expect((await bet(home!)).status).toBe('open');
+  });
+
+  it('an abandoned match keeps the markets already decided; the rest is void', async () => {
+    const userId = await player();
+    const event = await createEvent(handle.db, ids);
+    const [over, home] = await Promise.all(
+      [[leg(event.over, 1900)], [leg(event.home, 2000)]].map((legs) =>
+        place(handle.db, userId, { stake: birr(100), legs, settings }).then((r) => r.bet.id),
+      ),
+    );
+    await goLive(handle.db, event.eventId);
+    await setScore(event.eventId, 3, 0);
+    await resultOne(event.marketIds.ou, { score: { home: 3, away: 0 } });
+
+    const abandoned = await handle.db.transaction((tx) =>
+      resultEvent(tx, event.eventId, { status: 'abandoned' }),
+    );
+    expect(abandoned).toMatchObject({ outcome: 'resulted', marketsSettled: 0, marketsVoided: 2 });
+    // Bets on a market already decided stand (the usual sportsbook rule).
+    expect(await selectionRows(event.marketIds.ou)).toEqual([
+      { code: 'over', status: 'settled', result: 'won' },
+      { code: 'under', status: 'settled', result: 'lost' },
+    ]);
+    expect((await marketRow(event.marketIds['1x2'])).status).toBe('void');
+    expect((await marketRow(event.marketIds.dnb)).status).toBe('void');
+
+    const before = await balances(handle.db, userId);
+    await handle.db.transaction((tx) => settleEventBets(tx, event.eventId, new Date()));
+    // over 2.5 won at 1.90: 190 ETB (90 ETB of winnings, under the tax exemption).
+    expect(await bet(over!)).toMatchObject({ status: 'won', settledNetPayout: birr(190) });
+    expect(await bet(home!)).toMatchObject({ status: 'void', settledNetPayout: birr(100) });
+    expect((await balances(handle.db, userId)).cash - before.cash).toBe(birr(290));
   });
 });

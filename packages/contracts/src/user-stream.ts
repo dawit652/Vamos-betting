@@ -26,22 +26,49 @@ export const USER_CHANNEL_PATTERN = `${USER_CHANNEL_PREFIX}*`;
 const USER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
+ * A channel prefix: up to 64 letters, digits and `_ . : -`, ending in ':'.
+ * No glob characters, so the PSUBSCRIBE pattern built from it matches
+ * nothing but its own player channels.
+ */
+const PREFIX_PATTERN = /^[A-Za-z0-9_.:-]{0,63}:$/;
+
+function checkedPrefix(prefix: string): string {
+  if (typeof prefix !== 'string' || !PREFIX_PATTERN.test(prefix)) {
+    throw new RangeError(`not a user channel prefix: ${String(prefix)}`);
+  }
+  return prefix;
+}
+
+/**
  * The Redis channel of one player: `vamos:user:<userId>` with the user id
  * (a UUID) in lower case. Throws a RangeError for anything that is not a
  * UUID, so a malformed id can never name another channel or a pattern.
+ *
+ * `prefix` replaces `vamos:user:` where a process must not share the
+ * production channels (tests use their own, as they do for the live
+ * channel); the publisher and the SSE relay must use the same one.
  */
-export function userChannel(userId: string): string {
+export function userChannel(userId: string, prefix: string = USER_CHANNEL_PREFIX): string {
   const id = typeof userId === 'string' ? userId.toLowerCase() : '';
   if (!USER_ID_PATTERN.test(id)) {
     throw new RangeError(`userChannel: not a user id: ${String(userId)}`);
   }
-  return `${USER_CHANNEL_PREFIX}${id}`;
+  return `${checkedPrefix(prefix)}${id}`;
+}
+
+/** The PSUBSCRIBE pattern of every player channel under `prefix` (USER_CHANNEL_PATTERN by default). */
+export function userChannelPattern(prefix: string = USER_CHANNEL_PREFIX): string {
+  return `${checkedPrefix(prefix)}*`;
 }
 
 /** The user id of a player channel (as built by userChannel), or null for any other channel. */
-export function userIdOfChannel(channel: string): string | null {
-  if (typeof channel !== 'string' || !channel.startsWith(USER_CHANNEL_PREFIX)) return null;
-  const id = channel.slice(USER_CHANNEL_PREFIX.length);
+export function userIdOfChannel(
+  channel: string,
+  prefix: string = USER_CHANNEL_PREFIX,
+): string | null {
+  const start = checkedPrefix(prefix);
+  if (typeof channel !== 'string' || !channel.startsWith(start)) return null;
+  const id = channel.slice(start.length);
   return USER_ID_PATTERN.test(id) ? id : null;
 }
 

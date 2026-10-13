@@ -4,10 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // @vamos/db does not depend on @vamos/contracts; the source is imported only to
 // check that the wire view built here matches the contract.
 import {
+  CashedOutView as CashedOutViewContract,
   CashOutOfferView as CashOutOfferViewContract,
   type CashOutUnavailableReason as ContractReason,
 } from '../../contracts/src/cashout';
 import {
+  applyLiveState,
+  cashedOutView,
   cashOutBet,
   cashOutOfferView,
   type CashOutUnavailable,
@@ -19,9 +22,11 @@ import {
   listBetsToSettle,
   loadWageringEvents,
   MAX_CASH_OUT_BATCH,
+  resultMarket,
   setEventBettingOpen,
   setMarketStatus,
   settleEventBets,
+  settleMarketBets,
   settlePlacedBet,
   type CashOutBetResult,
   type CashOutQuote,
@@ -257,7 +262,10 @@ function heldTransaction<T>(work: (tx: DbTransaction) => Promise<T>) {
 }
 
 /** Whether another session can take this row lock right now (NOWAIT probe). */
-async function lockFree(table: 'events' | 'selections' | 'bets', id: string): Promise<boolean> {
+async function lockFree(
+  table: 'events' | 'markets' | 'selections' | 'bets',
+  id: string,
+): Promise<boolean> {
   const client = await handle.pool.connect();
   try {
     await client.query('BEGIN');
@@ -811,6 +819,21 @@ describe('cash-out execution', () => {
     await expectBooksBalanced();
   });
 
+  it('refuses a quoted amount that is not positive, writing nothing', async () => {
+    const userId = await player();
+    const { bet: placed } = await single(userId, birr(100));
+    const before = await balances(handle.db, userId);
+    for (const quotedGross of [0n, -1n]) {
+      expect(await domainError(cashOut(userId, placed.id, quotedGross))).toMatchObject({
+        status: 422,
+        code: 'invalid_amount',
+      });
+    }
+    expect((await bet(placed.id)).status).toBe('open');
+    expect(await balances(handle.db, userId)).toEqual(before);
+    expect(await postingsOf(placed.id)).toEqual([['bet_stake', 'bet:…']]);
+  });
+
   it('self-excluded players may still cash out (it is not a stake)', async () => {
     const userId = await player();
     const { event, bet: placed } = await single(userId, birr(100));
@@ -827,6 +850,159 @@ describe('cash-out execution', () => {
     const offer = await offerOf(userId, placed.id);
     const result = await cashOut(userId, placed.id, offer.gross);
     expect(result.bet.status).toBe('cashed_out');
+  });
+});
+
+/** Writes the live score of a live event, as the simulator does each tick. */
+async function setLiveScore(eventId: string, home: number, away: number): Promise<void> {
+  await handle.db.transaction((tx) =>
+    applyLiveState(tx, eventId, { status: 'live', minute: 30, period: '1H', home, away }),
+  );
+}
+
+describe('cash-out in play', () => {
+  it('prices a live leg at its in-play odds and pays it', async () => {
+    const userId = await player();
+    const event = await createEvent(handle.db, ids);
+    const { bet: placed } = await place(handle.db, userId, {
+      stake: birr(100),
+      legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+      settings,
+    });
+    await goLive(handle.db, event.eventId);
+    await setLiveScore(event.eventId, 1, 0);
+    await reprice(handle.db, event.home, 1250);
+    // 100 × 2.00 / 1.25 × 0.95 = 152 ETB: 52 ETB of winnings, under the tax exemption.
+    const gross = fairOffer(birr(100), [], [[2000, 1250]]);
+    expect(gross).toBe(birr(152));
+    expect(await offerOf(userId, placed.id)).toMatchObject({
+      available: true,
+      gross,
+      tax: 0n,
+      net: gross,
+    });
+    const before = await balances(handle.db, userId);
+    const result = await cashOut(userId, placed.id, gross);
+    expect(result.cashOut).toMatchObject({ gross, tax: 0n, net: gross });
+    expect(delta(before, await balances(handle.db, userId))).toEqual({
+      cash: gross,
+      stakes: -birr(100),
+      revenue: birr(100) - gross,
+      tax: 0n,
+    });
+    await expectBooksBalanced();
+  });
+
+  it('counts a leg on a market resulted early as decided at once', async () => {
+    const userId = await player();
+    const [a, b] = await Promise.all([1, 2].map(() => createEvent(handle.db, ids)));
+    const { bet: acca } = await place(handle.db, userId, {
+      stake: birr(50),
+      legs: [
+        { selectionId: a!.over, oddsMilli: 1900 },
+        { selectionId: b!.home, oddsMilli: 2000 },
+      ],
+      settings,
+    });
+    const { bet: under } = await place(handle.db, userId, {
+      stake: birr(50),
+      legs: [{ selectionId: a!.under, oddsMilli: 1850 }],
+      settings,
+    });
+    await goLive(handle.db, a!.eventId);
+    await setLiveScore(a!.eventId, 2, 1);
+    await handle.db.transaction((tx) =>
+      resultMarket(tx, a!.marketIds.ou, { score: { home: 2, away: 1 } }),
+    );
+    // No settlement has run: over 2.5 counts as won at its 1.90, under 2.5 as lost.
+    // 5000 × 1.900 × 2000 / 2000 × 0.95 = 9 025 santim.
+    const gross = fairOffer(birr(50), [1900], [[2000, 2000]]);
+    expect(gross).toBe(birr(90.25));
+    const offer = await offerOf(userId, acca.id);
+    expect(offer).toMatchObject({ available: true, gross, potentialReturn: birr(190) });
+    expect(offer.legs.map((leg) => leg.state)).toEqual(['won', 'open']);
+    expect(await offerOf(userId, under.id)).toMatchObject({
+      available: false,
+      reason: 'leg_lost',
+    });
+  });
+
+  it('an early market result waits for a cash-out in progress; the bet then stays cashed out', async () => {
+    const userId = await player();
+    const event = await createEvent(handle.db, ids);
+    const { bet: placed } = await place(handle.db, userId, {
+      stake: birr(100),
+      legs: [{ selectionId: event.over, oddsMilli: 1900 }],
+      settings,
+    });
+    const { bet: other } = await place(handle.db, userId, {
+      stake: birr(100),
+      legs: [{ selectionId: event.under, oddsMilli: 1850 }],
+      settings,
+    });
+    await goLive(handle.db, event.eventId);
+    await setLiveScore(event.eventId, 2, 1);
+    const offer = await offerOf(userId, placed.id);
+    expect(offer.available).toBe(true);
+    const held = heldTransaction((tx) =>
+      cashOutBet(tx, {
+        userId,
+        betId: placed.id,
+        quotedGross: offer.gross,
+        idempotencyKey: cashOutKey(),
+        now: new Date(),
+        config,
+      }),
+    );
+    await held.inside;
+    expect(await lockFree('markets', event.marketIds.ou)).toBe(false);
+    const resulting = handle.db
+      .transaction((tx) => resultMarket(tx, event.marketIds.ou, { score: { home: 2, away: 1 } }))
+      .then(
+        (result) => result.outcome,
+        (error: unknown) => error,
+      );
+    await waitForLockWait();
+    held.release();
+    await held.done;
+    expect(await resulting).toBe('resulted');
+    // The market.resulted job settles the other bet and leaves the cashed-out one alone.
+    expect(
+      await handle.db.transaction((tx) => settleMarketBets(tx, event.marketIds.ou, new Date())),
+    ).toMatchObject({ bets: 1, outcomes: { settled: 1 } });
+    expect((await bet(placed.id)).status).toBe('cashed_out');
+    expect((await bet(other.id)).status).toBe('lost');
+    expect(await postingsOf(placed.id)).toEqual([
+      ['bet_stake', 'bet:…'],
+      ['bet_cashout', 'cashout:ID'],
+    ]);
+    await expectBooksBalanced();
+  });
+
+  it('a market status change waits for a cash-out in progress', async () => {
+    const userId = await player();
+    const { event, bet: placed } = await single(userId, birr(100));
+    const offer = await offerOf(userId, placed.id);
+    const held = heldTransaction((tx) =>
+      cashOutBet(tx, {
+        userId,
+        betId: placed.id,
+        quotedGross: offer.gross,
+        idempotencyKey: cashOutKey(),
+        now: new Date(),
+        config,
+      }),
+    );
+    await held.inside;
+    const suspending = suspendMarket(event.marketIds['1x2'], 'suspended').then(
+      (change) => change.changed,
+      (error: unknown) => error,
+    );
+    await waitForLockWait();
+    held.release();
+    await held.done;
+    expect(await suspending).toBe(true);
+    expect((await bet(placed.id)).status).toBe('cashed_out');
   });
 });
 
@@ -852,6 +1028,7 @@ describe('cash-out and settlement', () => {
     // (resulting's locks) until it commits.
     expect(await lockFree('bets', placed.id)).toBe(false);
     expect(await lockFree('events', event.eventId)).toBe(false);
+    expect(await lockFree('markets', event.marketIds['1x2'])).toBe(false);
     expect(await lockFree('selections', event.home)).toBe(false);
     const settling = handle.db
       .transaction((tx) => settlePlacedBet(tx, placed.id, new Date()))
@@ -1064,6 +1241,25 @@ describe('wagering', () => {
 describe('wire view', () => {
   type Equals<A, B> =
     (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
+  it('matches the @vamos/contracts CashedOutView contract', async () => {
+    const sameView: Equals<ReturnType<typeof cashedOutView>, CashedOutViewContract> = true;
+    expect(sameView).toBe(true);
+    const userId = await player();
+    const { event, bet: placed } = await single(userId, birr(1_000), { odds: 3000 });
+    await reprice(handle.db, event.home, 1200);
+    const offer = await offerOf(userId, placed.id);
+    const { bet: cashed, cashOut: paid } = await cashOut(userId, placed.id, offer.gross);
+    const view = cashedOutView(paid);
+    expect(CashedOutViewContract.parse(view)).toEqual(view);
+    expect(view).toEqual({
+      gross: '237500',
+      tax: '27500',
+      net: '210000',
+      cashedOutAt: paid.cashedOutAt.toISOString(),
+    });
+    expect(cashed.cashedOut).toEqual(paid);
+  });
 
   it('matches the @vamos/contracts CashOutOfferView contract', async () => {
     const sameView: Equals<ReturnType<typeof cashOutOfferView>, CashOutOfferViewContract> = true;

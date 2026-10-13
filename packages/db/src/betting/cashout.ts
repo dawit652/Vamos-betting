@@ -14,7 +14,7 @@ import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
 import { lockUser } from '../rg/limits';
 import { betCashouts, betLegs, bets, type CashOutLegJson } from '../schema/betting';
-import { events, selections } from '../schema/catalog';
+import { events, markets, selections } from '../schema/catalog';
 import { BET_CASHED_OUT } from './events';
 import { cashOutEntries, cashOutLedgerKey } from './postings';
 import { getUserBet, toUserBets } from './queries';
@@ -165,6 +165,25 @@ export function cashOutOfferView(quote: CashOutQuote): {
   };
 }
 
+/**
+ * The wire view of what a cash-out paid (CashedOutView in @vamos/contracts:
+ * BetView.cashedOut and CashOutResponse.cashOut): santim as decimal
+ * strings, time as ISO.
+ */
+export function cashedOutView(record: CashOutRecord): {
+  gross: string;
+  tax: string;
+  net: string;
+  cashedOutAt: string;
+} {
+  return {
+    gross: toWire(record.gross),
+    tax: toWire(record.tax),
+    net: toWire(record.net),
+    cashedOutAt: record.cashedOutAt.toISOString(),
+  };
+}
+
 /** 409 `cashout_unavailable`, details `{ reason }`. */
 export function cashOutUnavailableError(reason: CashOutUnavailable): DomainError {
   return domainConflict(
@@ -254,12 +273,15 @@ export interface CashOutBetResult {
  * 4. only an `open` bet can cash out → else 409 `cashout_unavailable`
  *    (reason `bet_not_open`), which is also the answer to a second cash-out
  *    of a bet under a different key;
- * 5. the events of its legs are locked FOR SHARE, then its selections FOR
- *    SHARE (the catalogue's event → market → selection lock order): the live
- *    simulator, trading and resulting take the event FOR UPDATE before they
- *    change prices, statuses or results, so the offer is never priced from a
- *    state they are about to replace, and the results and odds read stay as
- *    they are until COMMIT; the snapshots are then read afresh;
+ * 5. the events of its legs are locked FOR SHARE, then their markets, then
+ *    their selections (the catalogue's event → market → selection lock
+ *    order): the live simulator, the feed and resulting take the event FOR
+ *    UPDATE before they change prices, statuses or results, a trader's
+ *    market status change locks the market and repricing the selection, so
+ *    the offer is never priced from a state they are about to replace, and
+ *    the results, statuses and odds read stay as they are until COMMIT; the
+ *    snapshots are then read afresh. (Whatever changes a result or voids a
+ *    market in future must lock the same way, event first.)
  * 6. the offer is priced again (priceCashOut): unavailable → 409
  *    `cashout_unavailable` with the reason; a fresh gross below the quoted
  *    one, or a fresh net below the net of the quoted gross (the tax
@@ -327,6 +349,7 @@ export async function cashOutBet(
     .where(eq(betLegs.betId, bet.id))
     .orderBy(asc(betLegs.position));
   const eventIds = [...new Set(legRows.map((leg) => leg.eventId))].sort();
+  const marketIds = [...new Set(legRows.map((leg) => leg.marketId))].sort();
   const selectionIds = [...new Set(legRows.map((leg) => leg.selectionId))].sort();
   if (eventIds.length > 0) {
     await tx
@@ -334,6 +357,14 @@ export async function cashOutBet(
       .from(events)
       .where(inArray(events.id, eventIds))
       .orderBy(asc(events.id))
+      .for('share');
+  }
+  if (marketIds.length > 0) {
+    await tx
+      .select({ id: markets.id })
+      .from(markets)
+      .where(inArray(markets.id, marketIds))
+      .orderBy(asc(markets.id))
       .for('share');
   }
   if (selectionIds.length > 0) {

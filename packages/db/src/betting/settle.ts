@@ -395,7 +395,10 @@ export async function listBetIdsForMarket(exec: DbExecutor, marketId: string): P
 }
 
 export interface ListBetsToSettleOptions {
-  /** Only events resulted at least this long before `now`, so the settlement job goes first. */
+  /**
+   * Only events (and markets resulted early) resulted at least this long
+   * before `now`, so the settlement job goes first.
+   */
   graceMs: number;
   /** Only events resulted within this long before `now`. */
   lookbackMs: number;
@@ -411,7 +414,12 @@ export interface ListBetsToSettleOptions {
  *   result, null → open). settlePlacedBet writes leg states and the
  *   settlement in one transaction, so such a leg means the bet was never
  *   settled for that result: its settlement job failed for good or was
- *   lost, or the bet was accepted while a prematch leg was being resulted.
+ *   lost, or the bet was accepted while a prematch leg was being resulted;
+ * - the same for a leg on a market resulted early (resultMarket, settled
+ *   at least `graceMs` before `now`) of an event still live: the
+ *   `market.resulted` job is the one that failed or was lost. The live
+ *   events are few, so this needs no lookback; once the event is resulted
+ *   the previous rule covers its legs.
  */
 export async function listBetsToSettle(
   exec: DbExecutor,
@@ -438,6 +446,18 @@ export async function listBetsToSettle(
       JOIN selections s ON s.id = l.selection_id
       WHERE e.resulted_at >= ${from.toISOString()}::timestamptz
         AND e.resulted_at <= ${to.toISOString()}::timestamptz
+        AND b.status IN (${statuses})
+        AND l.state::text <> CASE WHEN m.status = 'void' THEN 'void'
+                                  ELSE COALESCE(s.result::text, 'open') END
+      UNION
+      SELECT l.bet_id FROM events e
+      JOIN markets m ON m.event_id = e.id
+      JOIN bet_legs l ON l.market_id = m.id
+      JOIN bets b ON b.id = l.bet_id
+      JOIN selections s ON s.id = l.selection_id
+      WHERE e.status = 'live'
+        AND m.status IN ('settled', 'void')
+        AND m.settled_at <= ${to.toISOString()}::timestamptz
         AND b.status IN (${statuses})
         AND l.state::text <> CASE WHEN m.status = 'void' THEN 'void'
                                   ELSE COALESCE(s.result::text, 'open') END

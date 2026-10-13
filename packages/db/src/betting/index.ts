@@ -52,6 +52,7 @@ export {
   type SettleOutcome,
 } from './settle';
 export {
+  cashedOutView,
   cashOutBet,
   cashOutOfferChangedError,
   cashOutOfferView,

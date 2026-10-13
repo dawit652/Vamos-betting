@@ -5,6 +5,7 @@ import {
   USER_MESSAGE_TYPES,
   UserMessage,
   userChannel,
+  userChannelPattern,
   userIdOfChannel,
 } from './user-stream';
 
@@ -29,6 +30,31 @@ describe('per-player channel', () => {
     expect(userIdOfChannel(userChannel(USER))).toBe(USER);
     for (const other of ['vamos:live', 'vamos:user:', 'vamos:user:*', `vamos:user:${USER}:x`]) {
       expect(userIdOfChannel(other)).toBeNull();
+    }
+  });
+
+  it('takes another prefix (tests), never one with glob characters', () => {
+    const prefix = 'vamos-test:abc123:user:';
+    expect(userChannel(USER, prefix)).toBe(`${prefix}${USER}`);
+    expect(userChannelPattern(prefix)).toBe(`${prefix}*`);
+    expect(userChannelPattern()).toBe(USER_CHANNEL_PATTERN);
+    expect(userIdOfChannel(userChannel(USER, prefix), prefix)).toBe(USER);
+    // A channel under one prefix is not a player channel under another.
+    expect(userIdOfChannel(userChannel(USER, prefix))).toBeNull();
+    expect(userIdOfChannel(userChannel(USER), prefix)).toBeNull();
+    const bad = [
+      '',
+      'vamos:user',
+      'vamos:*:',
+      'vamos:[a]:',
+      'vamos:?:',
+      'a b:',
+      `${'x'.repeat(64)}:`,
+    ];
+    for (const prefixed of bad) {
+      expect(() => userChannel(USER, prefixed)).toThrow(RangeError);
+      expect(() => userChannelPattern(prefixed)).toThrow(RangeError);
+      expect(() => userIdOfChannel(`${prefixed}${USER}`, prefixed)).toThrow(RangeError);
     }
   });
 });

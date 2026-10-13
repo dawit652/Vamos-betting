@@ -67,7 +67,10 @@ const RESULT_STATUSES: ReadonlySet<string> = new Set([
  *
  * - Markets already settled or void before the first resulting are left as
  *   they are. That includes markets resulted early in play by resultMarket:
- *   their outcome was already certain, so the final score cannot change it.
+ *   their outcome was already certain, so the final score cannot change it,
+ *   and a match cancelled or abandoned after that keeps them too (bets on a
+ *   market already decided stand, the usual sportsbook rule; the rest are
+ *   void).
  * - Calling it again with the same result is a no-op ('unchanged').
  * - Calling it with a different result (a correction) re-resolves every
  *   market of the event and writes 'event.result_corrected' with the
