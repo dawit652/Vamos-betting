@@ -17,7 +17,7 @@ Last updated 12 Oct 2026.
 | 3     | Sports catalogue, odds feed, live simulator, trading services | Done                      | `0c02e89`, `e381576`, `f80ccf5`, `d14a18e` |
 | 4     | Betslip, bet placement, booking codes, settlement             | Done (reviewed, 21 fixes) | `a04beab` … `50c1e7e`                      |
 | 5     | Player web app (Betika-style lite PWA), the demo MVP          | Done (reviewed, 19 fixes) | `8503bac`                                  |
-| 6     | Payments: deposits and withdrawals                            | **Built, not verified**   | WIP `7183ee9`, `a730b28`, `e555ef6`        |
+| 6     | Payments: deposits and withdrawals                            | Done (reviewed, 15 fixes) | `e555ef6` … Phase 6 commit                 |
 | 7     | Live betting and cash-out                                     | Not started               |                                            |
 | 8     | Jackpots and promotions                                       | Not started               |                                            |
 | 9     | Back office (`apps/admin`)                                    | Not started               |                                            |
@@ -25,41 +25,26 @@ Last updated 12 Oct 2026.
 | 11    | SMS/USSD channel (feature-flagged)                            | Not started               |                                            |
 | 12    | Hardening and deployment                                      | Not started               |                                            |
 
-**Phases 0–5 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
-passed at `8503bac`. The e2e suite covers this flow: register, OTP, demo top-up, a 3-leg bet,
-settlement, My Bets (`bash e2e/scripts/stack.sh start && pnpm e2e`).
+**Phases 0–6 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
+pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
+and the payments flow (KYC, deposit approved on the simulated phone, wagering, withdrawal approved by
+the dev stand-in, paid). Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
 
-**Phase 6 is built but not verified.** The usage limit stopped the run after the core, API/worker and
-web agents had finished. The e2e agent had not run, and neither had the review and fix. Each agent
-reported its own checks green. Nobody has yet run the whole suite on the combined tree. What exists:
+**Phase 6 review (13 Oct 2026).** Three adversarial reviews (money, security, reliability) confirmed 15
+findings; all are fixed with regression tests. Highlights:
 
-- **`packages/payments`:** the `PaymentProvider` interface and the providers `mock`, `chapa`,
-  `telebirr`, `cbebirr` and `mpesa-et`. `cbebirr` and `mpesa-et` are skeletons that throw
-  `ProviderNotConfiguredError`. Also signature verification and `attemptPayout`.
-- **`packages/db`:** the schema (`payment_intents`, `payouts`, `payment_events`), migrations
-  0008–0010, and the deposit, webhook, withdrawal and payout services. The payment settings are part
-  of the typed settings loader.
-- **API:** `/payments/options`; deposits; withdrawals with a status tracker and cancel;
-  `/payments/webhooks/:provider`, which keeps the raw body, checks the signature and is idempotent by
-  provider event id. Two demo-only dev routes: `/dev/payments/phone` (simulator) and
-  `/dev/payments/withdrawals/:id/approve|reject` (a stand-in until the Phase 9 back office).
-- **Worker:** the payout task with retries, deposit reconciliation and expiry, and SMS notifications
-  sent through outbox routes.
-- **Web:** `/wallet/deposit`, `/wallet/withdraw` with the tracker, and the `/dev/phone` simulator.
-
-Test counts the agents reported:
-
-| Package  | Tests |
-| -------- | ----- |
-| payments | 79    |
-| db       | 272   |
-| config   | 15    |
-| core     | 515   |
-| api      | 253   |
-| worker   | 70    |
-| web      | 116   |
-| i18n     | 9     |
-| feed     | 143   |
+- telebirr notifications must be flat, carry our `merch_code` and `appid`, and successes are confirmed
+  with `queryOrder`; `CHAPA_WEBHOOK_SECRET` needs at least 32 characters.
+- **Payout invariant:** a hold goes back to the player only when the provider has definitely not paid.
+  Ambiguous outcomes (unreadable 2xx, timeouts, 5xx, stale attempts) keep the hold and poll; the
+  reference is stored before sending; retries query before re-sending; only unanswered attempts count
+  (`payouts.unanswered_attempts`); payouts pending over 24 h are flagged; staff can flag and settle.
+- Deposit limits count intents that may still be paid; expired intents with a reference are polled for
+  24 h (`payment_intents.next_poll_at`, backoff, per-run deadline); withdrawals are refused while a
+  deposit reversed at the provider awaits staff (`deposit_under_review`).
+- `/dev/payments/phone` now needs a player session and shows only that player's pushes.
+- Known limit: providers without a deterministic payout reference (telebirr, mock) re-send on a retry
+  after a lost answer; the mock is idempotent, telebirr payouts are not implemented yet.
 
 ## Legal context (do not change)
 
