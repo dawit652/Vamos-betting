@@ -51,10 +51,21 @@ export interface SettleBetResult {
 /** How long a blocked correction waits before the settlement sweep tries it again. */
 export const CORRECTION_RETRY_DELAY_MS = 5 * 60_000;
 
+/**
+ * Statuses settlement works on. A cashed-out bet is final (its cash-out paid
+ * it in full): settlement, corrections and the sweep never touch it again,
+ * and neither do pending (decided by acceptPendingBet) or rejected bets.
+ */
 const MONEY_STATUSES: ReadonlySet<BetStatus> = new Set(['open', 'won', 'lost', 'void']);
 const SETTLED: ReadonlySet<BetStatus> = new Set(['won', 'lost', 'void']);
 
-function legStateOf(marketStatus: string, result: LegState | null): LegState {
+/**
+ * The state of a bet leg as its selection decides it now: void when its
+ * market is void, else the selection's result (null = still open). Shared
+ * by settlement and cash-out pricing, so a leg already resulted counts the
+ * same in both even before its settlement job has run.
+ */
+export function legStateOf(marketStatus: string, result: LegState | null): LegState {
   if (marketStatus === 'void') return 'void';
   return result ?? 'open';
 }
@@ -306,7 +317,7 @@ export async function settlePlacedBet(
       type: BET_REOPENED,
       aggregateType: 'bet',
       aggregateId: betId,
-      payload: { betId, userId: bet.userId, version, previous: current },
+      payload: { betId, userId: bet.userId, shortId: bet.shortId, version, previous: current },
     });
     return result('reopened', legsChanged, row);
   }
@@ -364,6 +375,21 @@ export async function listBetIdsForEvent(exec: DbExecutor, eventId: string): Pro
     .from(betLegs)
     .innerJoin(bets, eq(bets.id, betLegs.betId))
     .where(and(eq(betLegs.eventId, eventId), inArray(bets.status, [...MONEY_STATUSES])))
+    .orderBy(asc(bets.id));
+  return rows.map((row) => row.id);
+}
+
+/**
+ * Ids of the bets with a leg on the market that settlement may need to look
+ * at after `market.resulted` (a market resulted early, see resultMarket), in
+ * id order. Bets without a leg on the market are left alone.
+ */
+export async function listBetIdsForMarket(exec: DbExecutor, marketId: string): Promise<string[]> {
+  const rows = await exec
+    .selectDistinct({ id: bets.id })
+    .from(betLegs)
+    .innerJoin(bets, eq(bets.id, betLegs.betId))
+    .where(and(eq(betLegs.marketId, marketId), inArray(bets.status, [...MONEY_STATUSES])))
     .orderBy(asc(bets.id));
   return rows.map((row) => row.id);
 }
@@ -430,6 +456,17 @@ export interface SettleEventSummary {
   pendingAcceptance: number;
 }
 
+function emptyOutcomes(): Record<SettleOutcome, number> {
+  return {
+    settled: 0,
+    resettled: 0,
+    reopened: 0,
+    unchanged: 0,
+    skipped: 0,
+    correction_blocked: 0,
+  };
+}
+
 /**
  * Runs settlePlacedBet for every bet with a leg on the event (after
  * `event.resulted` / `event.result_corrected`), in bet id order, in the
@@ -445,14 +482,7 @@ export async function settleEventBets(
   now: Date,
 ): Promise<SettleEventSummary> {
   const ids = await listBetIdsForEvent(tx, eventId);
-  const outcomes: Record<SettleOutcome, number> = {
-    settled: 0,
-    resettled: 0,
-    reopened: 0,
-    unchanged: 0,
-    skipped: 0,
-    correction_blocked: 0,
-  };
+  const outcomes = emptyOutcomes();
   for (const id of ids) {
     const { outcome } = await settlePlacedBet(tx, id, now);
     outcomes[outcome] += 1;
@@ -463,4 +493,33 @@ export async function settleEventBets(
     .innerJoin(bets, eq(bets.id, betLegs.betId))
     .where(and(eq(betLegs.eventId, eventId), eq(bets.status, 'pending_acceptance')));
   return { eventId, bets: ids.length, outcomes, pendingAcceptance: pending?.n ?? 0 };
+}
+
+export interface SettleMarketSummary {
+  marketId: string;
+  bets: number;
+  outcomes: Record<SettleOutcome, number>;
+}
+
+/**
+ * Runs settlePlacedBet for every bet with a leg on the market (after
+ * `market.resulted`), in bet id order, in the caller's transaction: the
+ * market.resulted counterpart of settleEventBets (the same caveat on
+ * concurrency applies; a worker should settle each bet of
+ * listBetIdsForMarket in its own transaction). A bet settles once core
+ * canSettle allows it (a leg lost, or no leg open); otherwise only its leg
+ * states are brought up to date.
+ */
+export async function settleMarketBets(
+  tx: DbTransaction,
+  marketId: string,
+  now: Date,
+): Promise<SettleMarketSummary> {
+  const ids = await listBetIdsForMarket(tx, marketId);
+  const outcomes = emptyOutcomes();
+  for (const id of ids) {
+    const { outcome } = await settlePlacedBet(tx, id, now);
+    outcomes[outcome] += 1;
+  }
+  return { marketId, bets: ids.length, outcomes };
 }

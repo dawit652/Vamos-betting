@@ -1,9 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_MULTI_BONUS, settleBet, type LegState, type TaxConfig } from '@vamos/core';
+import {
+  cashOutPayout,
+  DEFAULT_MULTI_BONUS,
+  settleBet,
+  type LegState,
+  type TaxConfig,
+} from '@vamos/core';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   accountKey,
+  cashOutEntries,
+  cashOutLedgerKey,
   negateEntries,
   refundEntries,
   settlementPosting,
@@ -153,6 +161,83 @@ describe('betting postings', () => {
           }
           expect([...total.values()].every((v) => v === 0n)).toBe(true);
         }),
+      );
+    });
+  });
+
+  describe('cash-out (bet_cashout)', () => {
+    it('above the stake: net to the player, tax to tax payable, the profit out of revenue', () => {
+      // 100 ETB stake cashed out for 250 ETB, 30 ETB of tax.
+      expect(
+        byKey(cashOutEntries(userId, 10_000n, { gross: 25_000n, tax: 3_000n, net: 22_000n })),
+      ).toEqual({
+        'house:stakes': -10_000n,
+        [`user:${userId}:cash`]: 22_000n,
+        'house:tax_payable': 3_000n,
+        'house:revenue': -15_000n,
+      });
+      expect(cashOutLedgerKey('b-1')).toBe('cashout:b-1');
+    });
+
+    it('below the stake: the house keeps the difference; no zero entries', () => {
+      expect(
+        byKey(cashOutEntries(userId, 10_000n, { gross: 4_750n, tax: 0n, net: 4_750n })),
+      ).toEqual({
+        'house:stakes': -10_000n,
+        [`user:${userId}:cash`]: 4_750n,
+        'house:revenue': 5_250n,
+      });
+      // Exactly the stake back: only the stake moves.
+      expect(
+        byKey(cashOutEntries(userId, 10_000n, { gross: 10_000n, tax: 0n, net: 10_000n })),
+      ).toEqual({ 'house:stakes': -10_000n, [`user:${userId}:cash`]: 10_000n });
+    });
+
+    it('refuses amounts that do not add up, and tax on the stake', () => {
+      const ok = { gross: 25_000n, tax: 3_000n, net: 22_000n };
+      expect(() => cashOutEntries(userId, 0n, ok)).toThrow(RangeError);
+      expect(() => cashOutEntries(userId, 10_000n, { ...ok, gross: 0n, net: -3_000n })).toThrow(
+        RangeError,
+      );
+      expect(() => cashOutEntries(userId, 10_000n, { gross: 0n, tax: 0n, net: 0n })).toThrow(
+        RangeError,
+      );
+      expect(() => cashOutEntries(userId, 10_000n, { ...ok, net: 21_999n })).toThrow(RangeError);
+      expect(() => cashOutEntries(userId, 10_000n, { ...ok, tax: -1n, net: 25_001n })).toThrow(
+        RangeError,
+      );
+      // 5 ETB of tax on a cash-out of 101 ETB for a 100 ETB stake: more than the winnings.
+      expect(() =>
+        cashOutEntries(userId, 10_000n, { gross: 10_100n, tax: 500n, net: 9_600n }),
+      ).toThrow(RangeError);
+    });
+
+    it('balances and closes the stake for any cash-out taxed by core cashOutPayout', () => {
+      const tax: fc.Arbitrary<TaxConfig> = fc.record({
+        rateBps: fc.integer({ min: 0, max: 10_000 }),
+        base: fc.constantFrom('net_winnings' as const, 'gross_payout' as const),
+        exemptBelow: fc.bigInt({ min: 0n, max: 100_000n }),
+      });
+      fc.assert(
+        fc.property(
+          fc.bigInt({ min: 1n, max: 10_000_000n }),
+          fc.bigInt({ min: 1n, max: 100_000_000n }),
+          tax,
+          (stake, gross, taxConfig) => {
+            const amounts = cashOutPayout({ stake, gross, tax: taxConfig });
+            const entries = cashOutEntries(userId, stake, amounts);
+            expect(() =>
+              normalizePosting({ type: 'bet_cashout', idempotencyKey: 'k', entries }),
+            ).not.toThrow();
+            expect(entries.every((e) => e.amount !== 0n)).toBe(true);
+            expect(entries.reduce((sum, e) => sum + e.amount, 0n)).toBe(0n);
+            const by = byKey(entries);
+            expect(by['house:stakes']).toBe(-stake);
+            expect(by[`user:${userId}:cash`]).toBe(amounts.net);
+            expect(by['house:tax_payable'] ?? 0n).toBe(amounts.tax);
+            expect(by['house:revenue'] ?? 0n).toBe(stake - gross);
+          },
+        ),
       );
     });
   });

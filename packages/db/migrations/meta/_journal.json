@@ -85,6 +85,20 @@
       "when": 1791861400590,
       "tag": "0011_phase6_review_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791863912456,
+      "tag": "0012_phase7_cashout",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791863917487,
+      "tag": "0013_phase7_cashout_guards",
+      "breakpoints": true
     }
   ]
 }

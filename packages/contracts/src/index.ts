@@ -4,5 +4,7 @@ export * from './auth';
 export * from './account';
 export * from './wallet';
 export * from './catalog';
+export * from './cashout';
 export * from './betting';
+export * from './user-stream';
 export * from './payments';

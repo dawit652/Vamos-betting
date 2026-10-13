@@ -8,8 +8,8 @@ import { BPS_DENOMINATOR, type Santim } from './money';
  * - a funding credit F (a deposit, or play money in demo mode) adds
  *   ceil(F × multiplierBps / 10_000) to R;
  * - a counted stake S (a bet stake that was not refunded, i.e. its bet is not
- *   void, rejected or still waiting for live acceptance) sets R to
- *   max(0, R − S).
+ *   void, rejected or still waiting for live acceptance, and not cashed out)
+ *   sets R to max(0, R − S).
  * The player may withdraw only when R is 0 at the end of the walk.
  *
  * R never goes below zero, so turnover from before a deposit (or in excess of

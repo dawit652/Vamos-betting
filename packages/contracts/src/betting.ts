@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CashedOutView, CashOutOfferView } from './cashout';
 import { LocalizedNameSchema, SportCodeSchema } from './catalog';
 import { Id, OddsMilli, PageQuery, Santim } from './common';
 
@@ -168,7 +169,10 @@ export const BetView = z.object({
   potentialBonus: Santim,
   potentialTax: Santim,
   potentialNet: Santim,
-  /** Set once the bet is settled (won, lost, void or cashed out). */
+  /**
+   * Set once the bet is settled (won, lost, void or cashed out). For a
+   * cashed-out bet: the cash-out's gross, tax and the net paid.
+   */
   settledGross: Santim.nullable(),
   settledTax: Santim.nullable(),
   settledNet: Santim.nullable(),
@@ -177,10 +181,26 @@ export const BetView = z.object({
   /** While `pending_acceptance`: when the live delay ends. */
   acceptAfter: z.string().nullable(),
   acceptedAt: z.string().nullable(),
+  /** When the bet was settled or cashed out. */
   settledAt: z.string().nullable(),
+  /**
+   * While the bet is `open`: its current cash-out offer (available or not,
+   * see `reason`); null for every other status. Refresh it with
+   * GET /me/cash-out-offers.
+   */
+  cashOutOffer: CashOutOfferView.nullable(),
+  /** When the bet is `cashed_out`: what the cash-out paid; null otherwise. */
+  cashedOut: CashedOutView.nullable(),
   legs: z.array(BetLegView),
 });
 export type BetView = z.infer<typeof BetView>;
+
+/** POST /me/bets/:id/cash-out: the cashed-out bet and what was paid. */
+export const CashOutResponse = z.object({
+  bet: BetView,
+  cashOut: CashedOutView,
+});
+export type CashOutResponse = z.infer<typeof CashOutResponse>;
 
 export const MyBetsQuery = PageQuery.extend({
   status: z.enum(['open', 'settled']).default('open'),

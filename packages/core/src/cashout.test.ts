@@ -1,9 +1,17 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { type CashOutLeg, cashOutOffer } from './cashout';
+import { computePayout } from './betslip';
+import { type CashOutLeg, cashOutOffer, cashOutPayout } from './cashout';
 import { birr } from './money';
 import { grossReturn } from './odds';
-import { type CashOutConfig, DEFAULT_BET_RULES, DEFAULT_CASH_OUT } from './rules';
+import {
+  type CashOutConfig,
+  DEFAULT_BET_RULES,
+  DEFAULT_CASH_OUT,
+  DEFAULT_MULTI_BONUS,
+  DEFAULT_TAX,
+  type TaxConfig,
+} from './rules';
 
 const NO_MARGIN: CashOutConfig = { enabled: true, marginBps: 0, minOffer: 0n };
 const MAX = DEFAULT_BET_RULES.maxPayout;
@@ -612,6 +620,143 @@ describe('cashOutOffer – properties', () => {
           expect(offer.amount * den < num).toBe(true);
           expect(offer.amount < maxPayout).toBe(true);
           expect(offer.amount <= offer.potentialReturn).toBe(true);
+        },
+      ),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cashOutPayout: the tax on a cash-out
+// ---------------------------------------------------------------------------
+
+describe('cashOutPayout', () => {
+  it('taxes the part of a cash-out above the stake like settlement winnings', () => {
+    // 100 ETB stake cashed out for 250 ETB: 150 ETB winnings at 20% = 30 ETB.
+    expect(cashOutPayout({ stake: birr(100), gross: birr(250), tax: DEFAULT_TAX })).toEqual({
+      gross: birr(250),
+      tax: birr(30),
+      net: birr(220),
+    });
+  });
+
+  it('takes no tax at or below the stake', () => {
+    for (const gross of [0n, 1n, birr(60), birr(100)]) {
+      expect(cashOutPayout({ stake: birr(100), gross, tax: DEFAULT_TAX })).toEqual({
+        gross,
+        tax: 0n,
+        net: gross,
+      });
+    }
+  });
+
+  it('applies the exemption of the bet terms (winnings below 100 ETB are not taxed)', () => {
+    expect(
+      cashOutPayout({ stake: birr(100), gross: birr(199.99), tax: DEFAULT_TAX }),
+    ).toMatchObject({ tax: 0n, net: birr(199.99) });
+    expect(cashOutPayout({ stake: birr(100), gross: birr(200), tax: DEFAULT_TAX })).toMatchObject({
+      tax: birr(20),
+      net: birr(180),
+    });
+  });
+
+  it('uses the configured base, and the tax never exceeds the winnings', () => {
+    const grossBase: TaxConfig = { rateBps: 2_000, base: 'gross_payout', exemptBelow: 0n };
+    // 20% of the gross 150 ETB = 30 ETB, but only 50 ETB are winnings: 30 ETB.
+    expect(cashOutPayout({ stake: birr(100), gross: birr(150), tax: grossBase })).toMatchObject({
+      tax: birr(30),
+      net: birr(120),
+    });
+    // 20% of 110 = 22 ETB > 10 ETB of winnings: capped at the winnings.
+    expect(cashOutPayout({ stake: birr(100), gross: birr(110), tax: grossBase })).toMatchObject({
+      tax: birr(10),
+      net: birr(100),
+    });
+  });
+
+  it('rounds the tax down', () => {
+    const tax: TaxConfig = { rateBps: 2_000, base: 'net_winnings', exemptBelow: 0n };
+    // 20% of 0.07 ETB = 0.014 ETB → 0.01 ETB.
+    expect(cashOutPayout({ stake: 100n, gross: 107n, tax })).toEqual({
+      gross: 107n,
+      tax: 1n,
+      net: 106n,
+    });
+  });
+
+  it('rejects negative amounts and invalid tax rates', () => {
+    expect(() => cashOutPayout({ stake: -1n, gross: 1n, tax: DEFAULT_TAX })).toThrow(RangeError);
+    expect(() => cashOutPayout({ stake: 1n, gross: -1n, tax: DEFAULT_TAX })).toThrow(RangeError);
+    expect(() =>
+      cashOutPayout({ stake: 1n, gross: 5n, tax: { ...DEFAULT_TAX, rateBps: 10_001 } }),
+    ).toThrow(RangeError);
+  });
+});
+
+const taxArb: fc.Arbitrary<TaxConfig> = fc.record({
+  rateBps: fc.integer({ min: 0, max: 10_000 }),
+  base: fc.constantFrom('net_winnings' as const, 'gross_payout' as const),
+  exemptBelow: fc.bigInt({ min: 0n, max: birr(1_000) }),
+});
+
+describe('cashOutPayout – properties', () => {
+  it('gross = tax + net, the tax is at most the winnings and never touches the stake', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 1n, max: birr(100_000) }),
+        fc.bigInt({ min: 0n, max: birr(1_000_000) }),
+        taxArb,
+        (stake, gross, tax) => {
+          const payout = cashOutPayout({ stake, gross, tax });
+          const winnings = gross > stake ? gross - stake : 0n;
+          expect(payout.gross).toBe(gross);
+          expect(payout.tax + payout.net).toBe(gross);
+          expect(payout.tax >= 0n && payout.tax <= winnings).toBe(true);
+          expect(payout.net >= (gross < stake ? gross : stake)).toBe(true);
+          if (gross <= stake) expect(payout.tax).toBe(0n);
+        },
+      ),
+    );
+  });
+
+  it('a cash-out of exactly the settlement payout is taxed as settlement would tax it', () => {
+    // The same core tax function as settlement: a won bet's gross payout, cashed
+    // out for the same amount, carries the same tax.
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 1n, max: birr(10_000) }),
+        fc.array(fc.integer({ min: 1001, max: 20_000 }), { minLength: 1, maxLength: 5 }),
+        taxArb,
+        (stake, legOdds, tax) => {
+          const settled = computePayout({
+            stake,
+            legOdds,
+            maxPayout: DEFAULT_BET_RULES.maxPayout,
+            multiBonus: { ...DEFAULT_MULTI_BONUS, enabled: false },
+            tax,
+          });
+          const payout = cashOutPayout({ stake, gross: settled.grossPayout, tax });
+          expect(payout.tax).toBe(settled.taxAmount);
+          expect(payout.net).toBe(settled.netPayout);
+        },
+      ),
+    );
+  });
+
+  it('every available offer splits into a non-negative net no larger than the offer', () => {
+    fc.assert(
+      fc.property(
+        stakeArb.filter((stake) => stake > 0n),
+        offerableLegsArb,
+        configArb,
+        maxPayoutArb,
+        taxArb,
+        (stake, legs, config, maxPayout, tax) => {
+          const offer = cashOutOffer({ stake, legs, config, maxPayout });
+          fc.pre(offer.available);
+          const payout = cashOutPayout({ stake, gross: offer.amount, tax });
+          expect(payout.net >= 0n && payout.net <= offer.amount).toBe(true);
+          expect(payout.net <= offer.potentialReturn).toBe(true);
         },
       ),
     );

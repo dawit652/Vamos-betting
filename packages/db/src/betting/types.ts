@@ -48,6 +48,14 @@ export function parseTerms(json: BetTermsJson): BetTerms {
   };
 }
 
+/** What a cash-out paid (bet_cashouts; on the bet: settled_* and settled_at). */
+export interface CashOutRecord {
+  gross: bigint;
+  tax: bigint;
+  net: bigint;
+  cashedOutAt: Date;
+}
+
 /** One leg of a bet, with its selection as it is now. */
 export interface UserBetLeg {
   id: string;
@@ -73,6 +81,8 @@ export interface UserBet {
   betType: BetType;
   status: BetStatus;
   stake: bigint;
+  /** The terms the bet was placed under (settlement and cash-out price it with these). */
+  terms: BetTerms;
   totalOddsMilli: bigint;
   potentialGrossPayout: bigint;
   potentialBonus: bigint;
@@ -82,7 +92,7 @@ export interface UserBet {
   oddsChangePolicy: OddsChangePolicy;
   channel: BetChannel;
   settlementVersion: number;
-  /** Set while the bet is settled (won / lost / void). */
+  /** Set while the bet is settled (won / lost / void), and for a cash-out (its gross, tax, net). */
   settledGrossPayout: bigint | null;
   settledTax: bigint | null;
   settledNetPayout: bigint | null;
@@ -91,5 +101,7 @@ export interface UserBet {
   acceptedAt: Date | null;
   settledAt: Date | null;
   rejectReason: string | null;
+  /** Set when the bet is cashed out: what the cash-out paid (as in settled_*) and when. */
+  cashedOut: CashOutRecord | null;
   legs: UserBetLeg[];
 }

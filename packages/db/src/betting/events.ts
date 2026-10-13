@@ -10,3 +10,8 @@ export const BET_SETTLED = 'bet.settled';
 export const BET_REOPENED = 'bet.reopened';
 /** A correction could not be reversed (player balance too low); needs the back office. */
 export const BET_CORRECTION_BLOCKED = 'bet.correction_blocked';
+/**
+ * A bet was cashed out. Payload { betId, userId, shortId, stake, quotedGross,
+ * gross, tax, net, cashedOutAt } (santim as strings).
+ */
+export const BET_CASHED_OUT = 'bet.cashed_out';

@@ -70,8 +70,12 @@ export {
 export {
   EVENT_RESULT_CORRECTED,
   EVENT_RESULTED,
+  MARKET_RESULTED,
   resultEvent,
+  resultMarket,
   type ResultEventOutcome,
+  type ResultMarketInput,
+  type ResultMarketOutcome,
   type ResultScore,
   type ResultStatus,
 } from './results';

@@ -1,6 +1,7 @@
-import { BPS_DENOMINATOR, type Santim, floorDiv, minSantim } from './money';
+import { BPS_DENOMINATOR, type Santim, assertNonNegative, floorDiv, minSantim } from './money';
 import { ODDS_SCALE, type OddsMilli, VOID_ODDS_MILLI, grossReturn, isValidOddsMilli } from './odds';
-import type { CashOutConfig } from './rules';
+import type { CashOutConfig, TaxConfig } from './rules';
+import { computeWinningsTax } from './tax';
 
 /**
  * Betika-style cash-out: the house offers to settle a still-running bet early
@@ -129,4 +130,34 @@ function effectivePlacedOdds(leg: CashOutLeg): OddsMilli {
 
 function hasLiveOdds(leg: CashOutLeg): boolean {
   return leg.currentOddsMilli !== null && isValidOddsMilli(leg.currentOddsMilli);
+}
+
+/** What a cash-out pays, split into the winnings tax and the player's share. */
+export interface CashOutPayout {
+  /** The cash-out amount (the offer): what the house buys the bet back for, before tax. */
+  gross: Santim;
+  /** Winnings tax withheld from it (0n when it does not exceed the stake). */
+  tax: Santim;
+  /** gross − tax: what the player is paid. */
+  net: Santim;
+}
+
+/**
+ * Splits a cash-out amount into tax and the player's net payment. A cash-out
+ * above the stake is winnings, so it is taxed exactly like a settled bet's
+ * payout: core `computeWinningsTax` with the cash-out amount as the gross
+ * payout and the tax terms the bet was placed under (rate, base and
+ * exemption). A cash-out at or below the stake has no winnings and no tax.
+ * As at settlement the tax never exceeds the winnings, so the player always
+ * gets at least min(gross, stake).
+ */
+export function cashOutPayout(input: {
+  stake: Santim;
+  gross: Santim;
+  tax: TaxConfig;
+}): CashOutPayout {
+  const stake = assertNonNegative(input.stake, 'stake');
+  const gross = assertNonNegative(input.gross, 'gross');
+  const { amount: tax } = computeWinningsTax({ stake, grossPayout: gross, config: input.tax });
+  return { gross, tax, net: gross - tax };
 }

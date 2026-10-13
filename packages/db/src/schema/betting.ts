@@ -23,7 +23,8 @@ export const betType = pgEnum('bet_type', ['single', 'multi']);
  *   accepted (→ open) or rejected (→ rejected, stake refunded).
  * - open: accepted, not settled yet.
  * - won / lost / void: settled (void = every leg void, stake refunded).
- * - cashed_out: closed early by a cash-out (Phase 7).
+ * - cashed_out: closed early by a cash-out (Phase 7): final; carries the
+ *   cash-out's gross, tax and net in settled_* (see bet_cashouts).
  * - rejected: refused after the live delay, stake refunded.
  */
 export const betStatus = pgEnum('bet_status', [
@@ -83,7 +84,10 @@ export const bets = pgTable(
     terms: jsonb('terms').$type<BetTermsJson>().notNull(),
     /** Number of settlement reversals so far; keys the next settle:/reverse: posting. */
     settlementVersion: integer('settlement_version').notNull().default(0),
-    /** Set while settled (won / lost / void); null when open again after a correction. */
+    /**
+     * Set while settled (won / lost / void; null when open again after a
+     * correction) and for a cash-out (its gross, tax and net).
+     */
     settledGrossPayout: bigint('settled_gross_payout', { mode: 'bigint' }),
     settledTax: bigint('settled_tax', { mode: 'bigint' }),
     settledNetPayout: bigint('settled_net_payout', { mode: 'bigint' }),
@@ -120,11 +124,15 @@ export const bets = pgTable(
     check('bets_settlement_version_non_negative', sql`${t.settlementVersion} >= 0`),
     check(
       'bets_settled_amounts',
-      sql`(${t.status} NOT IN ('won', 'lost', 'void') OR (${t.settledGrossPayout} IS NOT NULL AND ${t.settledTax} IS NOT NULL AND ${t.settledNetPayout} IS NOT NULL AND ${t.settledAt} IS NOT NULL)) AND (${t.status} NOT IN ('pending_acceptance', 'open', 'rejected') OR (${t.settledGrossPayout} IS NULL AND ${t.settledTax} IS NULL AND ${t.settledNetPayout} IS NULL))`,
+      sql`(${t.status} NOT IN ('won', 'lost', 'void', 'cashed_out') OR (${t.settledGrossPayout} IS NOT NULL AND ${t.settledTax} IS NOT NULL AND ${t.settledNetPayout} IS NOT NULL AND ${t.settledAt} IS NOT NULL)) AND (${t.status} NOT IN ('pending_acceptance', 'open', 'rejected') OR (${t.settledGrossPayout} IS NULL AND ${t.settledTax} IS NULL AND ${t.settledNetPayout} IS NULL))`,
     ),
     check(
       'bets_settled_non_negative',
       sql`${t.settledNetPayout} >= 0 AND ${t.settledTax} >= 0 AND ${t.settledGrossPayout} >= 0`,
+    ),
+    check(
+      'bets_cashed_out_amounts',
+      sql`${t.status} <> 'cashed_out' OR (${t.settledGrossPayout} > 0 AND ${t.settledGrossPayout} = ${t.settledNetPayout} + ${t.settledTax})`,
     ),
     check(
       'bets_pending_accept_after',
@@ -169,9 +177,68 @@ export const betLegs = pgTable(
     uniqueIndex('bet_legs_bet_position_uq').on(t.betId, t.position),
     index('bet_legs_selection_idx').on(t.selectionId),
     index('bet_legs_event_idx').on(t.eventId),
+    index('bet_legs_market_idx').on(t.marketId),
     check('bet_legs_odds_valid', sql`${t.oddsMilli} BETWEEN 1001 AND 1000000`),
     check('bet_legs_requested_odds_valid', sql`${t.requestedOddsMilli} BETWEEN 1001 AND 1000000`),
     check('bet_legs_position_non_negative', sql`${t.position} >= 0`),
+  ],
+);
+
+/** One leg as a cash-out priced it (bet_cashouts.legs). */
+export interface CashOutLegJson {
+  legId: string;
+  selectionId: string;
+  /** The leg's state for pricing: its selection's result, else open. */
+  state: 'open' | 'won' | 'lost' | 'void';
+  placedOddsMilli: number;
+  /** The live odds of an open leg (null when not bettable); null for decided legs. */
+  currentOddsMilli: number | null;
+}
+
+/**
+ * The record of a cash-out (Phase 7): one row per cashed-out bet, written in
+ * the transaction that posts its `bet_cashout` ledger transaction (key
+ * `cashout:<betId>`) and moves the bet to `cashed_out`. It keeps what the
+ * player accepted (`quoted_gross`), what was paid, and the inputs the offer
+ * was priced from, for support and disputes. Append-only; a bet only becomes
+ * cashed out with this row and its posting in place, and stays final
+ * (triggers in migration 0013_phase7_cashout_guards).
+ */
+export const betCashouts = pgTable(
+  'bet_cashouts',
+  {
+    betId: uuid('bet_id')
+      .primaryKey()
+      .references(() => bets.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    /** The client's Idempotency-Key, unique per player. */
+    idempotencyKey: text('idempotency_key').notNull(),
+    /** The gross offer the player accepted (sent by the client). */
+    quotedGross: bigint('quoted_gross', { mode: 'bigint' }).notNull(),
+    /** The fresh offer paid: gross = net + tax. */
+    gross: bigint('gross', { mode: 'bigint' }).notNull(),
+    tax: bigint('tax', { mode: 'bigint' }).notNull(),
+    net: bigint('net', { mode: 'bigint' }).notNull(),
+    /** The cash-out margin in force (settings `cash_out`). */
+    marginBps: integer('margin_bps').notNull(),
+    /** CashOutLegJson[], in leg order. */
+    legs: jsonb('legs').$type<CashOutLegJson[]>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('bet_cashouts_user_idempotency_uq').on(t.userId, t.idempotencyKey),
+    check(
+      'bet_cashouts_amounts',
+      sql`${t.gross} > 0 AND ${t.tax} >= 0 AND ${t.net} >= 0 AND ${t.gross} = ${t.net} + ${t.tax}`,
+    ),
+    // Never pays less than the player accepted.
+    check(
+      'bet_cashouts_quote_honoured',
+      sql`${t.quotedGross} > 0 AND ${t.gross} >= ${t.quotedGross}`,
+    ),
+    check('bet_cashouts_margin_valid', sql`${t.marginBps} BETWEEN 0 AND 10000`),
   ],
 );
 

@@ -16,6 +16,8 @@ export const settlementLedgerKey = (betId: string, version: number) => `settle:$
 export const reversalLedgerKey = (betId: string, version: number) => `reverse:${betId}:${version}`;
 /** Ledger idempotency key of the refund of a bet rejected after the live delay. */
 export const rejectionLedgerKey = (betId: string) => `reject:${betId}`;
+/** Ledger idempotency key of a bet's cash-out: one per bet, ever. */
+export const cashOutLedgerKey = (betId: string) => `cashout:${betId}`;
 
 const cash = (userId: string): AccountRef => ({ kind: 'player_cash', userId });
 
@@ -145,4 +147,50 @@ export async function loadPostingEntries(
 /** The exact negation of a posting's entries. */
 export function negateEntries(entries: readonly PostingEntry[]): PostingEntry[] {
   return entries.map((entry) => ({ account: entry.account, amount: -entry.amount }));
+}
+
+export interface CashOutAmounts {
+  /** The cash-out value (the offer). */
+  gross: bigint;
+  /** Winnings tax on the part of `gross` above the stake. */
+  tax: bigint;
+  /** gross − tax, paid to the player. */
+  net: bigint;
+}
+
+/**
+ * The `bet_cashout` posting of a cash-out (pure), one ledger transaction
+ * like a settlement's `bet_payout`:
+ * - house_stakes −stake (the bet's open stake is closed);
+ * - player_cash +net;
+ * - house_tax_payable +tax: a cash-out above the stake is winnings and
+ *   carries the winnings tax of the bet's terms. It is posted inside this
+ *   transaction (not as a separate `tax_withholding`), so the player's
+ *   betting flows (BETTING_FLOW_TYPES, which leave tax_withholding out)
+ *   count exactly the net received, as for a settled win;
+ * - house_revenue +(stake − gross): the house keeps the difference when the
+ *   cash-out is below the stake and pays it out of revenue above.
+ * The entries sum to zero (gross = net + tax); zero entries are left out
+ * (postTransaction rejects them). Throws RangeError on amounts that do not
+ * add up, and when the tax would exceed the winnings (gross − stake).
+ */
+export function cashOutEntries(
+  userId: string,
+  stake: bigint,
+  amounts: CashOutAmounts,
+): PostingEntry[] {
+  const { gross, tax, net } = amounts;
+  if (stake <= 0n) throw new RangeError('stake must be positive');
+  if (gross <= 0n) throw new RangeError('a cash-out pays a positive amount');
+  if (tax < 0n || net < 0n) throw new RangeError('cash-out amounts must not be negative');
+  if (gross !== net + tax) throw new RangeError('cash-out gross must equal net plus tax');
+  const winnings = gross > stake ? gross - stake : 0n;
+  if (tax > winnings) throw new RangeError('cash-out tax cannot exceed the winnings');
+  const entries: PostingEntry[] = [
+    { account: { kind: 'house_stakes' }, amount: -stake },
+    { account: cash(userId), amount: net },
+    { account: { kind: 'house_tax_payable' }, amount: tax },
+    { account: { kind: 'house_revenue' }, amount: stake - gross },
+  ];
+  return entries.filter((entry) => entry.amount !== 0n);
 }

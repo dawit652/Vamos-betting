@@ -329,6 +329,111 @@ export function resolveSelection(
   }
 }
 
+/**
+ * The score of a match in play. The half-time score is set (both values)
+ * once the first half is over, in football; until then both are null or
+ * absent.
+ */
+export interface InPlayScore {
+  home: number;
+  away: number;
+  htHome?: number | null;
+  htAway?: number | null;
+}
+
+/** The result of every selection of a market, keyed by selection code. */
+export type MarketResult = Readonly<Record<string, SelectionResult>>;
+
+/**
+ * The result of a market whose outcome is already CERTAIN in play, or null
+ * while it can still change. Used to settle markets early (before full
+ * time), so it never decides a market that a later goal or point could
+ * still turn:
+ *
+ * - 'ou' / 'total': 'over' has won (and 'under' lost) once the score is
+ *   above the line; 'under' can only win at full time.
+ * - 'btts': 'yes' has won once both teams have scored; 'no' only at full time.
+ * - 'cs': 'other' has won once either team has more than 4 goals (every
+ *   score in the grid has lost).
+ * - 'ht_1x2': decided by the half-time score once the first half is over.
+ * - '1x2', 'dc', 'dnb', 'ml', 'winner': only at full time (always null).
+ *
+ * When it returns a result, it is exactly what resolveSelection gives every
+ * selection for ANY final score the match can still reach (each side's
+ * score at least the current one, and the half-time score as given), so
+ * full-time resulting agrees with it. That rests on the score being the
+ * confirmed one: goals and points are never taken back. A feed whose scores
+ * can be revised (a goal disallowed after review) must only pass scores it
+ * has confirmed.
+ *
+ * Throws a RangeError (like resolveSelection) for an unknown market type, a
+ * missing or malformed line, a negative or non-integer score, a half-time
+ * score with only one side set, or a half-time score above the score.
+ */
+export function certainMarketResult(
+  market: { type: MarketTypeCode; line?: string | null },
+  score: InPlayScore,
+): MarketResult | null {
+  const { type } = market;
+  const line = checkedLine(type, market.line);
+  const current = checkedInPlayScore(score);
+  const { home, away } = current;
+  let decided: boolean;
+  switch (type) {
+    case 'ou':
+    case 'total':
+      decided = home + away > Number(line);
+      break;
+    case 'btts':
+      decided = home > 0 && away > 0;
+      break;
+    case 'cs':
+      decided = home > CORRECT_SCORE_MAX_GOALS || away > CORRECT_SCORE_MAX_GOALS;
+      break;
+    case 'ht_1x2':
+      decided = current.htHome !== null && current.htAway !== null;
+      break;
+    case '1x2':
+    case 'dc':
+    case 'dnb':
+    case 'ml':
+    case 'winner':
+      decided = false;
+      break;
+    default: {
+      const unreachable: never = type;
+      throw new RangeError(`unknown market type: "${String(unreachable)}"`);
+    }
+  }
+  if (!decided) return null;
+  // The outcome no longer depends on what is still to come, so resolving
+  // against the current score as if it were final gives the certain result.
+  const asFinal: ResolutionInput = { status: 'finished', score: current };
+  const result: Record<string, SelectionResult> = {};
+  for (const selection of selectionsFor(type)) {
+    result[selection] = resolveSelection(market, selection, asFinal);
+  }
+  return Object.freeze(result);
+}
+
+function checkedInPlayScore(score: InPlayScore): {
+  home: number;
+  away: number;
+  htHome: number | null;
+  htAway: number | null;
+} {
+  if (typeof score !== 'object' || score === null) {
+    throw new RangeError('an in-play score is required');
+  }
+  const checked = checkedScore(score);
+  const htHome = checked.htHome ?? null;
+  const htAway = checked.htAway ?? null;
+  if ((htHome === null) !== (htAway === null)) {
+    throw new RangeError('half-time scores must both be set or both be absent');
+  }
+  return { home: checked.home, away: checked.away, htHome, htAway };
+}
+
 function definitionOf(type: MarketTypeCode): MarketTypeDefinition {
   const definition = Object.hasOwn(MARKET_TYPES, type) ? MARKET_TYPES[type] : undefined;
   if (definition === undefined) throw new RangeError(`unknown market type: "${String(type)}"`);

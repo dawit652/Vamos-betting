@@ -3,7 +3,13 @@ import { domainBadRequest } from '../errors';
 import type { DbExecutor } from '../ledger/types';
 import { betLegs, bets } from '../schema/betting';
 import { isUuid, loadSelectionSnapshots } from './selections';
-import { CLOSED_BET_STATUSES, OPEN_BET_STATUSES, type UserBet, type UserBetLeg } from './types';
+import {
+  CLOSED_BET_STATUSES,
+  OPEN_BET_STATUSES,
+  parseTerms,
+  type UserBet,
+  type UserBetLeg,
+} from './types';
 
 export type BetRow = typeof bets.$inferSelect;
 export type BetLegRow = typeof betLegs.$inferSelect;
@@ -56,6 +62,7 @@ export async function toUserBets(exec: DbExecutor, rows: readonly BetRow[]): Pro
     betType: row.betType,
     status: row.status,
     stake: row.stake,
+    terms: parseTerms(row.terms),
     totalOddsMilli: row.totalOddsMilli,
     potentialGrossPayout: row.potentialGrossPayout,
     potentialBonus: row.potentialBonus,
@@ -73,8 +80,29 @@ export async function toUserBets(exec: DbExecutor, rows: readonly BetRow[]): Pro
     acceptedAt: row.acceptedAt,
     settledAt: row.settledAt,
     rejectReason: row.rejectReason,
+    cashedOut: cashedOutOf(row),
     legs: legsByBet.get(row.id) ?? [],
   }));
+}
+
+/** What a cashed-out bet's cash-out paid (from its settled_* columns), else null. */
+function cashedOutOf(row: BetRow): UserBet['cashedOut'] {
+  if (row.status !== 'cashed_out') return null;
+  const { settledGrossPayout, settledTax, settledNetPayout, settledAt } = row;
+  if (
+    settledGrossPayout === null ||
+    settledTax === null ||
+    settledNetPayout === null ||
+    settledAt === null
+  ) {
+    throw new Error(`cashed-out bet ${row.id} has no settled amounts`);
+  }
+  return {
+    gross: settledGrossPayout,
+    tax: settledTax,
+    net: settledNetPayout,
+    cashedOutAt: settledAt,
+  };
 }
 
 /** One bet of the player with its legs, or null when it does not exist or is someone else's. */

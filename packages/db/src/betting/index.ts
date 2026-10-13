@@ -1,11 +1,12 @@
 /**
- * Bets: placement, live acceptance, settlement (with corrections), booking
- * codes and the My Bets queries. Pure DB + @vamos/core; money is bigint
+ * Bets: placement, live acceptance, settlement (with corrections), cash-out,
+ * booking codes and the My Bets queries. Pure DB + @vamos/core; money is bigint
  * santim, time comes from the caller's `now`. Errors meant for players are
  * DomainError (see each function); anything else is a bug or an outage.
  */
 export {
   BET_ACCEPTED,
+  BET_CASHED_OUT,
   BET_CORRECTION_BLOCKED,
   BET_PLACED,
   BET_REJECTED,
@@ -37,15 +38,35 @@ export {
 } from './accept';
 export {
   CORRECTION_RETRY_DELAY_MS,
+  legStateOf,
   listBetIdsForEvent,
+  listBetIdsForMarket,
   listBetsToSettle,
   settleEventBets,
+  settleMarketBets,
   settlePlacedBet,
   type ListBetsToSettleOptions,
   type SettleBetResult,
   type SettleEventSummary,
+  type SettleMarketSummary,
   type SettleOutcome,
 } from './settle';
+export {
+  cashOutBet,
+  cashOutOfferChangedError,
+  cashOutOfferView,
+  cashOutUnavailableError,
+  getCashOutOffer,
+  getCashOutOffers,
+  MAX_CASH_OUT_BATCH,
+  priceCashOut,
+  type CashOutBetInput,
+  type CashOutBetResult,
+  type CashOutPricingInput,
+  type CashOutQuote,
+  type CashOutQuoteLeg,
+  type CashOutUnavailable,
+} from './cashout';
 export {
   BOOKING_CODE_TTL_MS,
   createBookingCode,
@@ -65,6 +86,8 @@ export {
   type UserBetPage,
 } from './queries';
 export {
+  cashOutEntries,
+  cashOutLedgerKey,
   loadPostingEntries,
   negateEntries,
   refundEntries,
@@ -74,6 +97,7 @@ export {
   settlementPosting,
   stakeEntries,
   stakeLedgerKey,
+  type CashOutAmounts,
   type SettlementAmounts,
   type SettlementPosting,
 } from './postings';
@@ -94,6 +118,7 @@ export {
   type BetStatus,
   type BetTerms,
   type BetType,
+  type CashOutRecord,
   type OddsChangePolicy,
   type UserBet,
   type UserBetLeg,

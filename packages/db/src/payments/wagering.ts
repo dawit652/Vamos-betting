@@ -18,12 +18,17 @@ export const WAGERING_STAKE_TYPES = [
 ] as const satisfies readonly LedgerTransactionType[];
 
 /**
- * A bet stake counts as wagered while its bet is open or settled won, lost
- * or cashed out. Void and rejected bets were refunded and a bet waiting for
- * live acceptance may still be, so their stakes do not count (if a
- * correction later turns a void bet into a settled one, it counts again).
+ * A bet stake counts as wagered while its bet is open or settled won or
+ * lost. Void and rejected bets were refunded and a bet waiting for live
+ * acceptance may still be, so their stakes do not count (if a correction
+ * later turns a void bet into a settled one, it counts again).
+ *
+ * Cashed-out bets do not count either (the usual sportsbook rule): a
+ * cash-out hands most of the stake straight back, so counting it would let
+ * a player meet the requirement by depositing, betting, cashing out at once
+ * and withdrawing, without ever having played the deposit through.
  */
-export const COUNTED_BET_STATUSES = ['open', 'won', 'lost', 'cashed_out'] as const;
+export const COUNTED_BET_STATUSES = ['open', 'won', 'lost'] as const;
 
 const COUNTED = new Set<string>(COUNTED_BET_STATUSES);
 

@@ -1,6 +1,9 @@
 import {
+  certainMarketResult,
   MARKET_TYPES,
   resolveSelection,
+  type InPlayScore,
+  type MarketResult,
   type MarketTypeCode,
   type ResolutionInput,
   type SelectionResult,
@@ -9,12 +12,17 @@ import { asc, eq, inArray, sql } from 'drizzle-orm';
 import type { DbTransaction } from '../ledger/types';
 import { enqueueOutbox } from '../platform/outbox';
 import { events, markets, selections } from '../schema/catalog';
-import { CatalogNotFoundError } from './errors';
+import { CatalogNotFoundError, CatalogStateError } from './errors';
 import { marketMessage, matchMessage, type LiveMessage, type MarketStatus } from './live';
 
 /** Outbox event types written by resultEvent (aggregate type 'event'). */
 export const EVENT_RESULTED = 'event.resulted';
 export const EVENT_RESULT_CORRECTED = 'event.result_corrected';
+/**
+ * Outbox event type written by resultMarket (aggregate type 'market'):
+ * payload { eventId, marketId, status, score }.
+ */
+export const MARKET_RESULTED = 'market.resulted';
 
 export type ResultStatus = ResolutionInput['status'];
 
@@ -58,7 +66,8 @@ const RESULT_STATUSES: ReadonlySet<string> = new Set([
  * transaction.
  *
  * - Markets already settled or void before the first resulting are left as
- *   they are.
+ *   they are. That includes markets resulted early in play by resultMarket:
+ *   their outcome was already certain, so the final score cannot change it.
  * - Calling it again with the same result is a no-op ('unchanged').
  * - Calling it with a different result (a correction) re-resolves every
  *   market of the event and writes 'event.result_corrected' with the
@@ -267,4 +276,203 @@ function count(value: unknown, what: string): number {
 function sameScore(a: ResultScore | null, b: ResultScore | null): boolean {
   if (a === null || b === null) return a === b;
   return a.home === b.home && a.away === b.away && a.htHome === b.htHome && a.htAway === b.htAway;
+}
+
+export interface ResultMarketInput {
+  /**
+   * The in-play score the market is decided on: it must be the event's live
+   * score as stored (applyLiveState), so a market is only ever resulted on
+   * the score players see.
+   */
+  score: InPlayScore;
+}
+
+export interface ResultMarketOutcome {
+  /**
+   * 'resulted' when this call settled the market; 'unchanged' when it was
+   * already resulted with the same results (nothing written).
+   */
+  outcome: 'resulted' | 'unchanged';
+  eventId: string;
+  marketId: string;
+  status: 'settled' | 'void';
+  /** The market delta; publish after COMMIT (empty when unchanged). */
+  messages: LiveMessage[];
+}
+
+/**
+ * Results ONE market of a live event before full time, when its outcome is
+ * already certain from the in-play score (core certainMarketResult: 'over'
+ * once the line is passed, 'yes' once both teams scored, correct score
+ * 'other' past 4 goals, the half-time result after half time). Sets the
+ * selections' results (status 'settled') and the market 'settled' (or
+ * 'void' when every selection is void, as resultEvent does), and writes a
+ * `market.resulted` outbox event in the same transaction, so settlement
+ * settles the bets with a leg on this market (settlePlacedBet settles each
+ * once core canSettle allows it).
+ *
+ * Locks like resultEvent: the event FOR UPDATE, then the market, then its
+ * selections, so it serialises with resulting, the live simulator and
+ * cash-outs (which take the event FOR SHARE).
+ *
+ * - Refused (CatalogStateError, nothing written) when the event is not live,
+ *   when `score` is not the event's stored live score, and when the outcome
+ *   is not certain yet.
+ * - Idempotent: a market already resulted with the same results returns
+ *   'unchanged' and writes nothing; a market already final with other
+ *   results is refused (corrections go through resultEvent, which
+ *   re-resolves every market of the event).
+ * - resultEvent at full time leaves markets resulted here as they are and
+ *   results the rest.
+ *
+ * Invalid input (a bad score, an unknown market type, a selection code the
+ * market type does not have) throws RangeError before anything is written.
+ */
+export async function resultMarket(
+  tx: DbTransaction,
+  marketId: string,
+  input: ResultMarketInput,
+): Promise<ResultMarketOutcome> {
+  const score = input?.score;
+  const [ref] = await tx
+    .select({ eventId: markets.eventId })
+    .from(markets)
+    .where(eq(markets.id, marketId));
+  if (ref === undefined) throw new CatalogNotFoundError('market', marketId);
+
+  const [event] = await tx.select().from(events).where(eq(events.id, ref.eventId)).for('update');
+  if (event === undefined) throw new CatalogNotFoundError('event', ref.eventId);
+  const [market] = await tx
+    .select({
+      id: markets.id,
+      eventId: markets.eventId,
+      type: markets.type,
+      line: markets.line,
+      key: markets.key,
+      status: markets.status,
+    })
+    .from(markets)
+    .where(eq(markets.id, marketId))
+    .for('update');
+  if (market === undefined || market.eventId !== event.id) {
+    throw new CatalogNotFoundError('market', marketId);
+  }
+  if (!Object.hasOwn(MARKET_TYPES, market.type)) {
+    throw new RangeError(`market ${market.id} has an unknown type "${market.type}"`);
+  }
+  const type = market.type as MarketTypeCode;
+  const selectionRows = await tx
+    .select({ id: selections.id, code: selections.code, result: selections.result })
+    .from(selections)
+    .where(eq(selections.marketId, marketId))
+    .orderBy(asc(selections.id))
+    .for('update');
+
+  let decided: MarketResult | null;
+  try {
+    decided = certainMarketResult({ type, line: market.line }, score);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new RangeError(`cannot result market ${market.id} (${market.key}): ${reason}`, {
+      cause: error,
+    });
+  }
+  // The result of each selection row (RangeError for a code the market type does not have).
+  const results =
+    decided === null
+      ? null
+      : selectionRows.map((row) => {
+          const result = decided[row.code];
+          if (result === undefined) {
+            throw new RangeError(
+              `market ${market.id} (${market.key}) has an unknown selection "${row.code}"`,
+            );
+          }
+          return { id: row.id, stored: row.result, result };
+        });
+  const status = results?.every((row) => row.result === 'void') ? 'void' : 'settled';
+
+  if (market.status === 'settled' || market.status === 'void') {
+    const same =
+      results !== null &&
+      market.status === status &&
+      results.every((row) => row.stored === row.result);
+    if (!same) {
+      throw new CatalogStateError(
+        `market ${market.id} is already ${market.status} with other results; correct it with resultEvent`,
+      );
+    }
+    return { outcome: 'unchanged', eventId: event.id, marketId, status, messages: [] };
+  }
+  if (event.status !== 'live') {
+    throw new CatalogStateError(
+      `cannot result market ${market.id} in play: event ${event.id} is ${event.status}`,
+    );
+  }
+  if (!isLiveScore(event, score)) {
+    throw new CatalogStateError(
+      `cannot result market ${market.id}: the score is not event ${event.id}'s live score`,
+    );
+  }
+  if (results === null) {
+    throw new CatalogStateError(
+      `cannot result market ${market.id} (${market.key}): its outcome is not certain yet`,
+    );
+  }
+
+  const byResult: Record<SelectionResult, string[]> = { won: [], lost: [], void: [] };
+  for (const row of results) byResult[row.result].push(row.id);
+  for (const result of ['won', 'lost', 'void'] as const) {
+    const ids = byResult[result];
+    if (ids.length === 0) continue;
+    await tx
+      .update(selections)
+      .set({ result, status: 'settled', updatedAt: sql`now()` })
+      .where(inArray(selections.id, ids));
+  }
+  await tx
+    .update(markets)
+    .set({ status, suspendedBy: null, settledAt: sql`now()`, updatedAt: sql`now()` })
+    .where(eq(markets.id, marketId));
+  await enqueueOutbox(tx, {
+    type: MARKET_RESULTED,
+    aggregateType: 'market',
+    aggregateId: marketId,
+    payload: {
+      eventId: event.id,
+      marketId,
+      status,
+      score: {
+        home: score.home,
+        away: score.away,
+        htHome: score.htHome ?? null,
+        htAway: score.htAway ?? null,
+      },
+    },
+  });
+  return {
+    outcome: 'resulted',
+    eventId: event.id,
+    marketId,
+    status,
+    messages: [marketMessage(event.id, marketId, status)],
+  };
+}
+
+/** Whether `score` is the event's stored live score (half-time score included). */
+function isLiveScore(
+  event: {
+    scoreHome: number | null;
+    scoreAway: number | null;
+    htScoreHome: number | null;
+    htScoreAway: number | null;
+  },
+  score: InPlayScore,
+): boolean {
+  return (
+    event.scoreHome === score.home &&
+    event.scoreAway === score.away &&
+    event.htScoreHome === (score.htHome ?? null) &&
+    event.htScoreAway === (score.htAway ?? null)
+  );
 }
