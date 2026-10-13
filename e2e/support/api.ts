@@ -92,3 +92,30 @@ export async function soonestEvents(
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 }
+
+/** Everything a signed-in player's POST needs besides the body: the CSRF echo (cookie sessions). */
+async function csrfHeaders(request: APIRequestContext): Promise<Record<string, string>> {
+  const state = await request.storageState();
+  const csrf = state.cookies.find((cookie) => cookie.name === 'vamos_csrf')?.value;
+  return csrf === undefined ? {} : { 'x-csrf-token': csrf };
+}
+
+/**
+ * Places a bet through the API as the signed-in player (`page.request`) and
+ * returns it. For setup that is not what the spec is about: the UI betslip is
+ * covered by bet-flow.spec.ts.
+ */
+export async function placeBetApi(
+  request: APIRequestContext,
+  legs: { selectionId: string; oddsMilli: number }[],
+  stake: string,
+): Promise<BetView> {
+  const response = await request.post(`${API_URL}/bets`, {
+    headers: { ...(await csrfHeaders(request)), 'idempotency-key': crypto.randomUUID() },
+    data: { legs, stake, oddsChangePolicy: 'any' },
+  });
+  if (!response.ok()) {
+    throw new Error(`POST /bets failed: ${response.status()} ${await response.text()}`);
+  }
+  return (await response.json()) as BetView;
+}
