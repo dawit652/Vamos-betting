@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   CashedOutView as CashedOutViewContract,
   CashOutOfferView as CashOutOfferViewContract,
+  MAX_CASH_OUT_OFFERS,
   type CashOutUnavailableReason as ContractReason,
 } from '../../contracts/src/cashout';
 import {
@@ -1265,6 +1266,7 @@ describe('wire view', () => {
     const sameView: Equals<ReturnType<typeof cashOutOfferView>, CashOutOfferViewContract> = true;
     const sameReasons: Equals<CashOutUnavailable, ContractReason> = true;
     expect(sameView && sameReasons).toBe(true);
+    expect(MAX_CASH_OUT_BATCH).toBe(MAX_CASH_OUT_OFFERS);
     const userId = await player();
     const { event, bet: placed } = await single(userId, birr(1_000), { odds: 3000 });
     await reprice(handle.db, event.home, 1200);
