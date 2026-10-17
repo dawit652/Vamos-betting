@@ -7,9 +7,10 @@ import {
 } from '@vamos/contracts';
 import type { FastifyBaseLogger, FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { Redis } from 'ioredis';
-import { serviceUnavailable, tooManyRequests } from '../../lib/errors';
+import { serviceUnavailable } from '../../lib/errors';
 import { isSessionActive, requireUser } from '../../plugins/session';
-import { HEARTBEAT_MS, MAX_BUFFERED_BYTES, RETRY_MS } from '../catalog/live';
+import { HEARTBEAT_MS, MAX_BUFFERED_BYTES, PING_FRAME, RETRY_MS } from '../catalog/live';
+import { sessionRevokedOf } from './control';
 
 /**
  * GET /me/stream: the player's own push channel (Phase 7) as Server-Sent
@@ -21,26 +22,37 @@ import { HEARTBEAT_MS, MAX_BUFFERED_BYTES, RETRY_MS } from '../catalog/live';
  * /live/stream).
  *
  * - Authentication: the session cookie or a bearer token (requireAuth). A
- *   GET needs no CSRF token. The session is checked again every
- *   SESSION_RECHECK_MS while the stream is open: once it is revoked (log
- *   out), expired or the account is no longer active, the stream ends and
- *   the client's reconnect gets a 401.
+ *   GET needs no CSRF token. When a session is revoked (log out; every
+ *   session on a password reset, self-exclusion or suspension) the API
+ *   announces it on the player's channel (announceSessionRevoked, after
+ *   COMMIT) and every instance ends the matching streams at once; the
+ *   client's reconnect gets a 401. As a backstop (a lost announcement, an
+ *   expired session, an account closed elsewhere) the session is also
+ *   checked every SESSION_RECHECK_MS.
  * - One shared PSUBSCRIBE on `vamos:user:*` per app instance (a duplicate of
  *   the app's Redis client, opened with the first stream) fans messages out
  *   by the user id in the channel name. Messages that do not parse as a
- *   UserMessage are dropped.
- * - Heartbeats and back-pressure as /live/stream: a comment every
- *   HEARTBEAT_MS; a client more than MAX_BUFFERED_BYTES behind is
- *   disconnected. At most MAX_STREAMS_PER_USER streams per player per
- *   instance (429 `too_many_streams`).
- * - Delivery is best effort: clients re-fetch what they show after a
- *   reconnect.
+ *   UserMessage (or the API's session.revoked control) are dropped.
+ * - Pub/sub has no replay: when that connection was lost, whatever was
+ *   published meanwhile is gone. Once it is subscribed again every open
+ *   stream gets `event: resync` (RESYNC_FRAME), and clients re-fetch what
+ *   they show, as after a reconnect of their own.
+ * - Heartbeats and back-pressure as /live/stream: a `ping` event every
+ *   HEARTBEAT_MS (clients reconnect when nothing arrives for a few); a
+ *   client more than MAX_BUFFERED_BYTES behind is disconnected.
+ * - At most MAX_STREAMS_PER_USER streams per player per instance: a new
+ *   stream ends the player's oldest. (A client that vanished without
+ *   closing its connection, as on a dropped mobile link, leaves a stream the
+ *   server cannot tell from a quiet one for many minutes; it must not lock
+ *   the player's reconnect out.)
  */
 
-/** How often an open stream re-checks its session. */
-export const SESSION_RECHECK_MS = 60_000;
+/** How often an open stream re-checks its session (the backstop of announceSessionRevoked). */
+export const SESSION_RECHECK_MS = 30_000;
 /** Open streams one player may hold on one API instance (tabs, devices). */
 export const MAX_STREAMS_PER_USER = 5;
+/** Sent to every open stream after the Redis subscriber reconnected: re-fetch, pushes were lost. */
+export const RESYNC_FRAME = 'event: resync\ndata: {}\n\n';
 
 /** The SSE frame of a player message: `event: <type>\ndata: <data json>\n\n`. */
 export function userFrame(message: UserMessage): string {
@@ -48,7 +60,13 @@ export function userFrame(message: UserMessage): string {
 }
 
 export interface UserListener {
+  /** The session the stream was opened with. */
+  sessionId: string;
   send(frame: string): void;
+  /** Ends the stream cleanly (its session was revoked). */
+  end(): void;
+  /** Cuts the stream off at once (it made room for a newer one). */
+  drop(): void;
 }
 
 /**
@@ -60,7 +78,11 @@ export class UserHub {
   private subscriber: Redis | null = null;
   private ready: Promise<void> | null = null;
   private closed = false;
+  /** The subscriber connection was lost since it last subscribed. */
+  private lost = false;
   private readonly listeners = new Map<string, Set<UserListener>>();
+  /** CLIENT SETNAME of the subscriber connection (diagnostics; tests find it by this name). */
+  readonly connectionName: string;
 
   constructor(
     private readonly redis: Redis,
@@ -69,6 +91,7 @@ export class UserHub {
   ) {
     // Throws for a prefix that is not a plain channel prefix (no glob characters).
     userChannelPattern(prefix);
+    this.connectionName = `user-hub:${prefix}`;
   }
 
   /** Listeners of every user. */
@@ -88,8 +111,16 @@ export class UserHub {
     return this.subscriber !== null;
   }
 
-  /** Adds a listener for `userId` once the pattern is subscribed; returns its removal function. */
-  async add(userId: string, listener: UserListener): Promise<() => void> {
+  /**
+   * Adds a listener for `userId` once the pattern is subscribed, first
+   * dropping the user's oldest listeners so at most `max` remain; returns its
+   * removal function.
+   */
+  async add(
+    userId: string,
+    listener: UserListener,
+    max: number = Number.POSITIVE_INFINITY,
+  ): Promise<() => void> {
     await this.connect();
     if (this.closed) throw new Error('the user hub is closed');
     const key = userId.toLowerCase();
@@ -97,6 +128,12 @@ export class UserHub {
     if (set === undefined) {
       set = new Set();
       this.listeners.set(key, set);
+    }
+    // A Set iterates in insertion order: the oldest first.
+    for (const oldest of set) {
+      if (set.size < max) break;
+      set.delete(oldest);
+      oldest.drop();
     }
     set.add(listener);
     return () => {
@@ -117,7 +154,8 @@ export class UserHub {
   }
 
   private async open(): Promise<void> {
-    const subscriber = this.redis.duplicate();
+    const pattern = userChannelPattern(this.prefix);
+    const subscriber = this.redis.duplicate({ connectionName: this.connectionName });
     this.subscriber = subscriber;
     subscriber.on('error', (error: unknown) => {
       this.log.warn({ err: error }, 'user stream subscriber connection error');
@@ -125,8 +163,23 @@ export class UserHub {
     subscriber.on('pmessage', (_pattern: string, channel: string, payload: string) => {
       this.dispatch(channel, payload);
     });
+    subscriber.on('close', () => {
+      this.lost = true;
+    });
+    subscriber.on('ready', () => {
+      if (!this.lost || this.closed) return;
+      this.lost = false;
+      // ioredis subscribes again by itself; this PSUBSCRIBE (a no-op then) is
+      // answered after it, so the pattern is live when the clients re-fetch.
+      subscriber.psubscribe(pattern).then(
+        () => this.resync(),
+        (error: unknown) => {
+          this.log.warn({ err: error }, 'user stream subscriber could not subscribe again');
+        },
+      );
+    });
     try {
-      await subscriber.psubscribe(userChannelPattern(this.prefix));
+      await subscriber.psubscribe(pattern);
     } catch (error) {
       if (this.subscriber === subscriber) this.subscriber = null;
       subscriber.disconnect();
@@ -146,6 +199,11 @@ export class UserHub {
       this.log.warn('dropping a user message that is not JSON');
       return;
     }
+    const revoked = sessionRevokedOf(json);
+    if (revoked !== null) {
+      this.revoke(userId, revoked.data.sessionId);
+      return;
+    }
     const parsed = UserMessage.safeParse(json);
     if (!parsed.success) {
       this.log.warn('dropping a malformed user message');
@@ -153,6 +211,25 @@ export class UserHub {
     }
     const frame = userFrame(parsed.data);
     for (const listener of listeners) listener.send(frame);
+  }
+
+  /** Ends the streams of `sessionId` of the user (every stream of the user when null). */
+  private revoke(userId: string, sessionId: string | null): void {
+    const listeners = this.listeners.get(userId);
+    if (listeners === undefined) return;
+    for (const listener of [...listeners]) {
+      if (sessionId !== null && listener.sessionId !== sessionId) continue;
+      listeners.delete(listener);
+      listener.end();
+    }
+    if (listeners.size === 0) this.listeners.delete(userId);
+  }
+
+  /** Tells every open stream that pushes may have been lost. */
+  private resync(): void {
+    for (const set of this.listeners.values()) {
+      for (const listener of set) listener.send(RESYNC_FRAME);
+    }
   }
 
   /** Drops every listener and closes the subscriber connection. */
@@ -211,15 +288,15 @@ const userStreamRoutes: FastifyPluginAsync<UserStreamOptions> = async (app, opti
 
   app.get('/me/stream', { preHandler: app.requireAuth }, async (request, reply) => {
     const user = requireUser(request);
-    if (hub.listenersOf(user.id) >= MAX_STREAMS_PER_USER) {
-      throw tooManyRequests(
-        'too_many_streams',
-        'Too many open update streams. Close another tab and try again.',
-        { max: MAX_STREAMS_PER_USER },
-      );
-    }
     const stream = new PassThrough();
     const listener: UserListener = {
+      sessionId: user.sessionId,
+      end() {
+        if (!stream.destroyed && !stream.writableEnded) stream.end();
+      },
+      drop() {
+        if (!stream.destroyed) stream.destroy();
+      },
       send(frame) {
         if (stream.destroyed || stream.writableEnded) return;
         if (stream.writableLength > MAX_BUFFERED_BYTES) {
@@ -234,7 +311,7 @@ const userStreamRoutes: FastifyPluginAsync<UserStreamOptions> = async (app, opti
     let removeListener: (() => void) | undefined;
     let finished = false;
     let checking = false;
-    const heartbeat = setInterval(() => listener.send(': ping\n\n'), heartbeatMs);
+    const heartbeat = setInterval(() => listener.send(PING_FRAME), heartbeatMs);
     heartbeat.unref();
     const recheck = setInterval(() => {
       if (checking || finished) return;
@@ -266,7 +343,7 @@ const userStreamRoutes: FastifyPluginAsync<UserStreamOptions> = async (app, opti
     stream.once('close', cleanup);
 
     try {
-      removeListener = await hub.add(user.id, listener);
+      removeListener = await hub.add(user.id, listener, MAX_STREAMS_PER_USER);
     } catch (error) {
       cleanup();
       request.log.error({ err: error }, 'user stream subscription failed');

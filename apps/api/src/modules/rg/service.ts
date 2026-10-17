@@ -27,6 +27,7 @@ import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
 import type { AppDeps } from '../../deps';
 import { badRequest, conflict } from '../../lib/errors';
 import { revokeAllUserSessions } from '../../plugins/session';
+import { announceSessionRevoked } from '../stream/control';
 import type { RequestMeta } from '../auth/service';
 import type { ActiveExclusion, ExclusionKind } from './guard';
 
@@ -313,7 +314,7 @@ export interface CreatedExclusion {
  * session of the player. Audited and published as `rg.exclusion_started`.
  */
 export async function createExclusion(
-  deps: Pick<AppDeps, 'db' | 'clock'>,
+  deps: Pick<AppDeps, 'db' | 'clock' | 'redis' | 'userChannelPrefix'>,
   userId: string,
   input: CreateExclusionRequest,
   meta: Pick<RequestMeta, 'ip'>,
@@ -321,7 +322,7 @@ export async function createExclusion(
   const now = deps.clock();
   const endsAt = exclusionEndsAt(input, now);
 
-  return deps.db.transaction(async (tx) => {
+  const created = await deps.db.transaction(async (tx) => {
     await lockUser(tx, userId);
     const current = await longestActiveExclusion(tx, userId, now);
     if (current !== null && !extendsProtection(current, { kind: input.kind, endsAt })) {
@@ -383,4 +384,7 @@ export async function createExclusion(
       revokedSessions,
     };
   });
+  // Committed: end the player's open push streams now.
+  if (input.kind === 'self_exclusion') await announceSessionRevoked(deps, userId, null);
+  return created;
 }

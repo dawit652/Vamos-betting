@@ -45,6 +45,7 @@ import {
   type SessionUser,
 } from '../../plugins/session';
 import { exclusionError, getActiveExclusion } from '../rg/guard';
+import { announceSessionRevoked } from '../stream/control';
 
 /** Who is calling; recorded on sessions and in the audit log. */
 export interface RequestMeta {
@@ -366,6 +367,8 @@ export async function logout(deps: AppDeps, user: SessionUser, meta: RequestMeta
       ip: meta.ip,
     });
   });
+  // Committed: end the session's open push streams now.
+  await announceSessionRevoked(deps, user.id, user.sessionId);
 }
 
 /**
@@ -430,6 +433,7 @@ export async function resetPassword(
   assertPasswordAcceptable(input.newPassword, phone);
   const passwordHash = await hashPassword(input.newPassword);
   const now = deps.clock();
+  let resetUserId: string | null = null;
   await consumeOtp(
     deps.db,
     { secret: deps.config.sessionSecret, phone, purpose: 'password_reset', code: input.code, now },
@@ -443,6 +447,7 @@ export async function resetPassword(
       if (!user || user.status !== 'active') throw otpExpired();
       await tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, user.id));
       const revokedSessions = await revokeAllUserSessions(tx, user.id, now);
+      resetUserId = user.id;
       await writeAudit(tx, {
         actorType: 'user',
         actorId: user.id,
@@ -454,6 +459,8 @@ export async function resetPassword(
       });
     },
   );
+  // Committed: end every open push stream of the account now.
+  if (resetUserId !== null) await announceSessionRevoked(deps, resetUserId, null);
 }
 
 /**

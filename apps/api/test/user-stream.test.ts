@@ -1,14 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import fastifyCookie from '@fastify/cookie';
-import { userChannel, USER_CHANNEL_PREFIX, type UserMessage } from '@vamos/contracts';
+import {
+  SessionResponse,
+  userChannel,
+  USER_CHANNEL_PREFIX,
+  type UserMessage,
+} from '@vamos/contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import userStreamRoutes, { MAX_STREAMS_PER_USER, userHubOf } from '../src/modules/stream/routes';
+import userStreamRoutes, {
+  MAX_STREAMS_PER_USER,
+  SESSION_RECHECK_MS,
+  userHubOf,
+} from '../src/modules/stream/routes';
 import { sessionPlugin } from '../src/plugins/session';
 import {
   createTestContext,
+  post,
   registerAndLogin,
   type LoggedInUser,
   type TestContext,
@@ -36,8 +46,26 @@ const wallet = (cash: string): UserMessage => ({
   data: { cash, bonus: '0' },
 });
 
-/** Frames carrying a message (not comments). */
-const messages = (frames: Frame[]) => frames.filter((frame) => frame.data !== undefined);
+/** Frames carrying a player message (not comments, heartbeats or resyncs). */
+const messages = (frames: Frame[]) =>
+  frames.filter(
+    (frame) => frame.data !== undefined && frame.event !== 'ping' && frame.event !== 'resync',
+  );
+
+/** Resolves with `promise`, or fails after `ms`. */
+async function within<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 describe('GET /me/stream', () => {
   let ctx: TestContext;
@@ -151,7 +179,9 @@ describe('GET /me/stream', () => {
     await until(() => hub.listenerCount === 0, 3_000, 'listeners to be removed');
   });
 
-  it('caps the streams of one player (429 too_many_streams)', async () => {
+  it('keeps at most MAX_STREAMS_PER_USER streams per player: a new one ends the oldest', async () => {
+    // A stream whose client vanished without a FIN (a dead mobile link) stays open on the
+    // server for many minutes; it must not lock the player's reconnect out (no 429).
     const user = await registerAndLogin(ctx);
     const open: SseClient[] = [];
     for (let i = 0; i < MAX_STREAMS_PER_USER; i++) open.push(await connect(bearer(user)));
@@ -159,18 +189,90 @@ describe('GET /me/stream', () => {
     const hub = userHubOf(ctx.app)!;
     await until(() => hub.listenersOf(user.userId) === MAX_STREAMS_PER_USER);
 
-    const refused = await ctx.app.inject({
-      method: 'GET',
-      url: '/me/stream',
-      headers: bearer(user),
-    });
-    expect(refused.statusCode).toBe(429);
-    expect(refused.json()).toMatchObject({ error: { code: 'too_many_streams' } });
+    const newest = await connect(bearer(user));
+    expect(newest.status).toBe(200);
+    await within(open[0]!.ended, 3_000, 'the oldest stream to end');
+    await until(() => hub.listenersOf(user.userId) === MAX_STREAMS_PER_USER);
+    await publishTo(user.userId, wallet('5'));
+    for (const stream of [...open.slice(1), newest]) {
+      await stream.waitFor((frames) => messages(frames).length === 1);
+    }
+    expect(messages(open[0]!.frames)).toEqual([]);
+    for (const client of clients.splice(0)) client.close();
+    await until(() => hub.listenerCount === 0, 3_000, 'listeners to be removed');
+  });
 
-    open[0]!.close();
-    await until(() => hub.listenersOf(user.userId) === MAX_STREAMS_PER_USER - 1);
-    const again = await connect(bearer(user));
-    expect(again.status).toBe(200);
+  it('ends a stream as soon as its session is revoked, not at the next periodic check', async () => {
+    const alice = await registerAndLogin(ctx);
+    const login = await post(ctx, '/auth/login', { phone: alice.phone, password: alice.password });
+    expect(login.statusCode).toBe(200);
+    const second = SessionResponse.parse(login.json());
+    const bob = await registerAndLogin(ctx);
+    const first = await connect(bearer(alice));
+    const other = await connect({ authorization: `Bearer ${second.sessionToken}` });
+    const bobs = await connect(bearer(bob));
+    for (const stream of [first, other, bobs]) await stream.waitFor((f) => f.length > 0);
+    const hub = userHubOf(ctx.app)!;
+    await until(() => hub.listenersOf(alice.userId) === 2 && hub.listenersOf(bob.userId) === 1);
+    const started = Date.now();
+
+    // Logging out ends that session's stream only.
+    const logout = await ctx.app.inject({
+      method: 'POST',
+      url: '/auth/logout',
+      headers: bearer(alice),
+    });
+    expect(logout.statusCode).toBe(200);
+    await within(first.ended, 2_000, 'the logged-out stream to end');
+    await until(() => hub.listenersOf(alice.userId) === 1, 2_000, 'one stream of alice');
+
+    // Self-exclusion revokes every session of the player: the other stream ends too.
+    const excluded = await ctx.app.inject({
+      method: 'POST',
+      url: '/me/exclusions',
+      payload: { kind: 'self_exclusion', duration: '6m' },
+      headers: { authorization: `Bearer ${second.sessionToken}` },
+    });
+    expect(excluded.statusCode).toBe(201);
+    await within(other.ended, 2_000, 'the excluded player’s stream to end');
+    await until(() => hub.listenersOf(alice.userId) === 0, 2_000, 'no stream of alice');
+    expect(Date.now() - started).toBeLessThan(SESSION_RECHECK_MS);
+
+    // Another player's stream is not touched.
+    expect(hub.listenersOf(bob.userId)).toBe(1);
+    await publishTo(bob.userId, wallet('8'));
+    await bobs.waitFor((frames) => messages(frames).length === 1);
+    for (const client of clients.splice(0)) client.close();
+    await until(() => hub.listenerCount === 0, 3_000, 'listeners to be removed');
+  });
+
+  it('tells open streams to resync once the Redis subscriber has reconnected', async () => {
+    const user = await registerAndLogin(ctx);
+    const stream = await connect(bearer(user));
+    await stream.waitFor((frames) => frames.length > 0);
+    const hub = userHubOf(ctx.app)!;
+
+    // Kill this app's subscriber connection only (other test files share the Redis server).
+    const admin = new Redis(REDIS_URL);
+    try {
+      const list = (await admin.call('CLIENT', 'LIST', 'TYPE', 'pubsub')) as string;
+      const ids = list
+        .split('\n')
+        .filter((line) => line.includes(` name=${hub.connectionName} `))
+        .map((line) => /\bid=(\d+)/.exec(line)?.[1]);
+      expect(ids).toHaveLength(1);
+      await admin.call('CLIENT', 'KILL', 'ID', ids[0]!);
+    } finally {
+      await admin.quit();
+    }
+
+    // Pushes published while it was away are lost: the client is told to re-fetch.
+    await stream.waitFor((frames) => frames.some((f) => f.event === 'resync'), 10_000);
+    expect(stream.frames.find((f) => f.event === 'resync')?.data).toBe('{}');
+    // Subscribed again: pushes reach the stream.
+    await publishTo(user.userId, wallet('77'));
+    await stream.waitFor((frames) => messages(frames).length === 1);
+    expect(messages(stream.frames)[0]).toMatchObject({ event: 'wallet.changed' });
     for (const client of clients.splice(0)) client.close();
     await until(() => hub.listenerCount === 0, 3_000, 'listeners to be removed');
   });
@@ -210,7 +312,10 @@ describe('user stream lifecycle', () => {
     const staying = await registerAndLogin(ctx);
     const ends = await openStream(url, '/me/stream', bearer(leaving));
     const stays = await openStream(url, '/me/stream', bearer(staying));
-    await ends.waitFor((frames) => frames.filter((f) => f.comments.includes('ping')).length >= 2);
+    // A named event (not a comment), so a client can tell a stalled stream from a quiet one.
+    await ends.waitFor(
+      (frames) => frames.filter((f) => f.event === 'ping' && f.data === '{}').length >= 2,
+    );
 
     const publisher = new Redis(REDIS_URL);
     try {

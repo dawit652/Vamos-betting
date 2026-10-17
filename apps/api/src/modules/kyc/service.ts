@@ -7,6 +7,7 @@ import type { AppDeps } from '../../deps';
 import { hmacSha256Hex } from '../../lib/crypto';
 import { badRequest, conflict, serviceUnavailable, unprocessable } from '../../lib/errors';
 import { revokeAllUserSessions } from '../../plugins/session';
+import { announceSessionRevoked } from '../stream/control';
 import type { KycVerificationResult } from '../../providers/kyc';
 import type { RequestMeta } from '../auth/service';
 
@@ -170,7 +171,7 @@ function isUniqueViolation(error: unknown, constraint: string): boolean {
  * On success the profile's name and date of birth are replaced by the verified ones.
  */
 export async function submitKyc(
-  deps: Pick<AppDeps, 'db' | 'clock' | 'kyc' | 'config'>,
+  deps: Pick<AppDeps, 'db' | 'clock' | 'kyc' | 'config' | 'redis' | 'userChannelPrefix'>,
   userId: string,
   input: SubmitKycRequest,
   meta: Pick<RequestMeta, 'ip' | 'log'>,
@@ -198,6 +199,7 @@ export async function submitKyc(
     throw providerUnavailable();
   }
 
+  let suspended = false;
   try {
     await deps.db.transaction(async (tx) => {
       const [user] = await tx
@@ -294,6 +296,7 @@ export async function submitKyc(
           .set({ status: 'suspended', updatedAt: now })
           .where(eq(users.id, userId));
         const revokedSessions = await revokeAllUserSessions(tx, userId, now);
+        suspended = true;
         const suspension = {
           reason: 'kyc_underage',
           previousStatus: user.status,
@@ -321,6 +324,8 @@ export async function submitKyc(
     if (isUniqueViolation(error, ID_HASH_UNIQUE_INDEX)) throw idAlreadyUsed();
     throw error;
   }
+  // Committed: end the player's open push streams now.
+  if (suspended) await announceSessionRevoked(deps, userId, null);
 
   if (decision.rejectionReason === 'underage') {
     const { minAge } = DEFAULT_RESPONSIBLE_GAMBLING;

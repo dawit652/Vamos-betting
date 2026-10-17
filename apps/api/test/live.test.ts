@@ -206,7 +206,10 @@ describe('live stream lifecycle', () => {
     expect(hub.channel).toBe(channel);
 
     const stream = await openStream(`http://127.0.0.1:${port}`);
-    await stream.waitFor((frames) => frames.filter((f) => f.comments.includes('ping')).length >= 2);
+    // A named event (not a comment), so a client can tell a stalled stream from a quiet one.
+    await stream.waitFor(
+      (frames) => frames.filter((f) => f.event === 'ping' && f.data === '{}').length >= 2,
+    );
 
     // A message on this app's own channel reaches the client.
     const publisher = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379');

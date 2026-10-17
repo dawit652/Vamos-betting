@@ -12,8 +12,17 @@ import { parseInput, serviceUnavailable } from '../../lib/errors';
  * One Redis subscriber connection per app instance serves every client.
  */
 
-/** Comment line sent this often so proxies and mobile networks keep the connection open. */
+/**
+ * A heartbeat (PING_FRAME) is sent this often, so proxies and mobile networks
+ * keep the connection open and a client can tell a stalled stream (nothing
+ * for a few heartbeats) from a quiet one.
+ */
 export const HEARTBEAT_MS = 15_000;
+/**
+ * The heartbeat: a named event, not an SSE comment, since comments never reach
+ * the page's script (clients that do not listen for `ping` ignore it).
+ */
+export const PING_FRAME = 'event: ping\ndata: {}\n\n';
 /** Most event ids one stream may filter on (`?events=a,b,c`). */
 export const MAX_FILTER_EVENTS = 50;
 /** A client this far behind (unsent bytes) is disconnected; EventSource reconnects. */
@@ -195,7 +204,7 @@ const liveRoutes: FastifyPluginAsync<LiveRoutesOptions> = async (app, options) =
 
     let removeListener: (() => void) | undefined;
     let finished = false;
-    const heartbeat = setInterval(() => listener.send(': ping\n\n'), heartbeatMs);
+    const heartbeat = setInterval(() => listener.send(PING_FRAME), heartbeatMs);
     heartbeat.unref();
     const cleanup = () => {
       if (finished) return;
