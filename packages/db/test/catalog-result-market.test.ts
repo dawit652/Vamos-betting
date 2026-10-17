@@ -477,4 +477,74 @@ describe('early results: the sweep and abandoned matches', () => {
     expect(await bet(home!)).toMatchObject({ status: 'void', settledNetPayout: birr(100) });
     expect((await balances(handle.db, userId)).cash - before.cash).toBe(birr(290));
   });
+
+  it('a correction from finished to abandoned keeps the markets decided in play; their bets stay won', async () => {
+    const userId = await player();
+    const event = await createEvent(handle.db, ids);
+    const [over, home] = await Promise.all(
+      [[leg(event.over, 1900)], [leg(event.home, 2000)]].map((legs) =>
+        place(handle.db, userId, { stake: birr(100), legs, settings }).then((r) => r.bet.id),
+      ),
+    );
+    await goLive(handle.db, event.eventId);
+    await setScore(event.eventId, 3, 0);
+    await resultOne(event.marketIds.ou, { score: { home: 3, away: 0 } });
+    await handle.db.transaction((tx) => settleMarketBets(tx, event.marketIds.ou, new Date()));
+    expect(await bet(over!)).toMatchObject({ status: 'won', settledNetPayout: birr(190) });
+
+    await finish(handle.db, event.eventId, 3, 0);
+    await handle.db.transaction((tx) => settleEventBets(tx, event.eventId, new Date()));
+    expect((await bet(home!)).status).toBe('won');
+    const early = await marketRow(event.marketIds.ou);
+    const before = await balances(handle.db, userId);
+
+    // The match is then reported abandoned: the same facts as resulting it abandoned first.
+    const corrected = await handle.db.transaction((tx) =>
+      resultEvent(tx, event.eventId, { status: 'abandoned' }),
+    );
+    expect(corrected).toMatchObject({ outcome: 'corrected', marketsSettled: 0, marketsVoided: 2 });
+    expect(corrected.messages.filter((m) => m.type === 'market').map((m) => m.data)).toEqual(
+      expect.not.arrayContaining([expect.objectContaining({ k: event.marketIds.ou })]),
+    );
+    expect(await marketRow(event.marketIds.ou)).toEqual(early);
+    expect(await selectionRows(event.marketIds.ou)).toEqual([
+      { code: 'over', status: 'settled', result: 'won' },
+      { code: 'under', status: 'settled', result: 'lost' },
+    ]);
+    expect((await marketRow(event.marketIds['1x2'])).status).toBe('void');
+
+    await handle.db.transaction((tx) => settleEventBets(tx, event.eventId, new Date()));
+    // over 2.5 was decided at 3-0 in play: the bet stands (won, 190 ETB, never re-settled).
+    expect(await bet(over!)).toMatchObject({
+      status: 'won',
+      settledNetPayout: birr(190),
+      settlementVersion: 0,
+    });
+    // The 1x2 bet is void now: its 180 ETB payout is reversed and the 100 ETB stake returned.
+    expect(await bet(home!)).toMatchObject({ status: 'void', settledNetPayout: birr(100) });
+    expect((await balances(handle.db, userId)).cash - before.cash).toBe(birr(100) - birr(180));
+
+    // A correction back to a final score re-resolves the early market from that score.
+    await finish(handle.db, event.eventId, 1, 1);
+    expect(await selectionRows(event.marketIds.ou)).toEqual([
+      { code: 'over', status: 'settled', result: 'lost' },
+      { code: 'under', status: 'settled', result: 'won' },
+    ]);
+  });
+
+  it('a market decided in play that a final-score correction overturned is void when the match is then abandoned', async () => {
+    const event = await createEvent(handle.db, ids);
+    await goLive(handle.db, event.eventId);
+    await setScore(event.eventId, 3, 0);
+    await resultOne(event.marketIds.ou, { score: { home: 3, away: 0 } });
+    await finish(handle.db, event.eventId, 3, 0);
+    // The goals are corrected away: the early result was wrong, so it is no longer an in-play decision.
+    await finish(handle.db, event.eventId, 1, 0);
+    expect(await selectionRows(event.marketIds.ou)).toEqual([
+      { code: 'over', status: 'settled', result: 'lost' },
+      { code: 'under', status: 'settled', result: 'won' },
+    ]);
+    await handle.db.transaction((tx) => resultEvent(tx, event.eventId, { status: 'abandoned' }));
+    expect((await marketRow(event.marketIds.ou)).status).toBe('void');
+  });
 });

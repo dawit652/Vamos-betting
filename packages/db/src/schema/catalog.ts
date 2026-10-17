@@ -181,6 +181,13 @@ export const markets = pgTable(
     suspendedBy: text('suspended_by').$type<MarketSuspendedBy>(),
     sortOrder: integer('sort_order').notNull().default(0),
     settledAt: timestamp('settled_at', { withTimezone: true }),
+    /**
+     * Resulted early, in play, by resultMarket (its outcome was already certain).
+     * Resulting the event as cancelled, abandoned or postponed leaves such a
+     * market as it is, even as a correction (bets on a decided market stand);
+     * a final-score correction that overturns its result clears the flag.
+     */
+    resultedInPlay: boolean('resulted_in_play').notNull().default(false),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

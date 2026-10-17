@@ -72,9 +72,15 @@ const RESULT_STATUSES: ReadonlySet<string> = new Set([
  *   market already decided stand, the usual sportsbook rule; the rest are
  *   void).
  * - Calling it again with the same result is a no-op ('unchanged').
- * - Calling it with a different result (a correction) re-resolves every
- *   market of the event and writes 'event.result_corrected' with the
- *   previous result, so settlement can re-settle affected bets.
+ * - Calling it with a different result (a correction) re-resolves the
+ *   markets of the event and writes 'event.result_corrected' with the
+ *   previous result, so settlement can re-settle affected bets. A correction
+ *   to a final score re-resolves every market, those resulted in play too
+ *   (one whose result the final score overturns is then no longer counted as
+ *   decided in play); a correction to cancelled, abandoned or postponed
+ *   leaves the markets resulted in play as they are, exactly as resulting
+ *   the event that way first does, so the order of the results never
+ *   changes what a decided market pays.
  *
  * Invalid input throws RangeError before anything is written: a negative
  * score, a half-time score above the full-time score, a tie for a market
@@ -114,20 +120,34 @@ export async function resultEvent(
   }
 
   const marketRows = await tx
-    .select({ id: markets.id, type: markets.type, line: markets.line, status: markets.status })
+    .select({
+      id: markets.id,
+      type: markets.type,
+      line: markets.line,
+      status: markets.status,
+      resultedInPlay: markets.resultedInPlay,
+    })
     .from(markets)
     .where(eq(markets.eventId, eventId))
     .orderBy(asc(markets.id))
     .for('update');
-  // A correction re-resolves everything; the first resulting keeps markets already final.
-  const toResolve = resulted
-    ? marketRows
-    : marketRows.filter((market) => market.status !== 'settled' && market.status !== 'void');
+  // The first resulting keeps the markets already final. A correction re-resolves
+  // them, except that only a final score re-resolves the markets decided in play.
+  const toResolve = marketRows.filter((market) =>
+    resulted
+      ? resolution.status === 'finished' || !market.resultedInPlay
+      : market.status !== 'settled' && market.status !== 'void',
+  );
   const selectionRows =
     toResolve.length === 0
       ? []
       : await tx
-          .select({ id: selections.id, marketId: selections.marketId, code: selections.code })
+          .select({
+            id: selections.id,
+            marketId: selections.marketId,
+            code: selections.code,
+            result: selections.result,
+          })
           .from(selections)
           .where(
             inArray(
@@ -140,13 +160,18 @@ export async function resultEvent(
 
   // Resolve everything in memory first, so a RangeError leaves no partial writes.
   const byResult: Record<SelectionResult, string[]> = { won: [], lost: [], void: [] };
-  const selectionsByMarket = new Map<string, Array<{ id: string; code: string }>>();
+  const selectionsByMarket = new Map<
+    string,
+    Array<{ id: string; code: string; result: SelectionResult | null }>
+  >();
   for (const selection of selectionRows) {
     const list = selectionsByMarket.get(selection.marketId) ?? [];
     list.push(selection);
     selectionsByMarket.set(selection.marketId, list);
   }
   const marketStatus = new Map<string, MarketStatus>();
+  // Markets decided in play whose result this (final-score) correction overturns.
+  const overturned: string[] = [];
   for (const market of toResolve) {
     if (!Object.hasOwn(MARKET_TYPES, market.type)) {
       throw new RangeError(`market ${market.id} has an unknown type "${market.type}"`);
@@ -165,6 +190,9 @@ export async function resultEvent(
       }
       byResult[result].push(selection.id);
       if (result !== 'void') allVoid = false;
+      if (market.resultedInPlay && result !== selection.result && !overturned.includes(market.id)) {
+        overturned.push(market.id);
+      }
     }
     marketStatus.set(market.id, allVoid ? 'void' : 'settled');
   }
@@ -188,6 +216,9 @@ export async function resultEvent(
       .update(markets)
       .set({ status, suspendedBy: null, settledAt: sql`now()`, updatedAt: sql`now()` })
       .where(inArray(markets.id, ids));
+  }
+  if (overturned.length > 0) {
+    await tx.update(markets).set({ resultedInPlay: false }).where(inArray(markets.id, overturned));
   }
 
   const [updated] = await tx
@@ -324,9 +355,10 @@ export interface ResultMarketOutcome {
  * - Idempotent: a market already resulted with the same results returns
  *   'unchanged' and writes nothing; a market already final with other
  *   results is refused (corrections go through resultEvent, which
- *   re-resolves every market of the event).
- * - resultEvent at full time leaves markets resulted here as they are and
- *   results the rest.
+ *   re-resolves every market of the event on a final-score correction).
+ * - The market is marked resulted_in_play: resultEvent at full time, and
+ *   resulting or correcting the event as cancelled, abandoned or postponed,
+ *   leave it as it is and result the rest.
  *
  * Invalid input (a bad score, an unknown market type, a selection code the
  * market type does not have) throws RangeError before anything is written.
@@ -435,7 +467,13 @@ export async function resultMarket(
   }
   await tx
     .update(markets)
-    .set({ status, suspendedBy: null, settledAt: sql`now()`, updatedAt: sql`now()` })
+    .set({
+      status,
+      suspendedBy: null,
+      resultedInPlay: true,
+      settledAt: sql`now()`,
+      updatedAt: sql`now()`,
+    })
     .where(eq(markets.id, marketId));
   await enqueueOutbox(tx, {
     type: MARKET_RESULTED,

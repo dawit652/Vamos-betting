@@ -1,0 +1,1 @@
+ALTER TABLE "markets" ADD COLUMN "resulted_in_play" boolean DEFAULT false NOT NULL;
