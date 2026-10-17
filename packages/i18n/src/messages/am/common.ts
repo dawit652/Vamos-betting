@@ -16,6 +16,7 @@ export const common: Messages['common'] = {
   nav: {
     home: 'መነሻ',
     live: 'ቀጥታ',
+    jackpot: 'ጃክፖት',
     myBets: 'የእኔ ውርርዶች',
     account: 'መለያ',
     wallet: 'ቦርሳ',

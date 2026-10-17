@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AuthGate } from '@/components/account/AuthGate';
 import { betTab } from '@/components/account/bets';
+import { JackpotEntriesList } from '@/components/jackpot/JackpotEntriesList';
 import { MyBetsList } from '@/components/account/MyBetsList';
 import { accountPaths, firstParam } from '@/components/account/paths';
 import { PageTitle } from '@/components/account/ui';
@@ -20,6 +21,7 @@ export default async function MyBetsPage(props: PageProps<'/my-bets'>) {
   const tabs = [
     { id: 'open', href: routes.myBets, label: t('account.myBets.tabs.open') },
     { id: 'settled', href: accountPaths.settledBets, label: t('account.myBets.tabs.settled') },
+    { id: 'jackpot', href: accountPaths.jackpotBets, label: t('account.myBets.tabs.jackpot') },
   ] as const;
   return (
     <>
@@ -40,7 +42,7 @@ export default async function MyBetsPage(props: PageProps<'/my-bets'>) {
         ))}
       </nav>
       <AuthGate>
-        <MyBetsList key={tab} tab={tab} />
+        {tab === 'jackpot' ? <JackpotEntriesList /> : <MyBetsList key={tab} tab={tab} />}
       </AuthGate>
     </>
   );

@@ -15,6 +15,7 @@ export const USER_MESSAGE_TYPES = [
   'bet.settled',
   'bet.cashed_out',
   'bet.reopened',
+  'jackpot.settled',
   'wallet.changed',
 ] as const;
 
@@ -42,6 +43,33 @@ export function parseUserFrame(type: string, data: string): UserMessage | null {
   if (type === 'wallet.changed') {
     if (!isAmount(body.cash) || !isAmount(body.bonus)) return null;
     return { type, data: { cash: body.cash, bonus: body.bonus } };
+  }
+  if (type === 'jackpot.settled') {
+    const status = body.status;
+    if (status !== 'won' && status !== 'lost' && status !== 'void') return null;
+    const code = body.templateCode;
+    if (code !== 'daily9' && code !== 'weekly13') return null;
+    if (!isStr(body.entryId) || !isStr(body.roundId)) return null;
+    if (!isAmount(body.gross) || !isAmount(body.tax) || !isAmount(body.net)) return null;
+    if (!isAmount(body.refund)) return null;
+    const best = body.bestCorrect;
+    if (best !== null && !(typeof best === 'number' && Number.isInteger(best) && best >= 0)) {
+      return null;
+    }
+    return {
+      type,
+      data: {
+        entryId: body.entryId,
+        roundId: body.roundId,
+        templateCode: code,
+        status,
+        gross: body.gross,
+        tax: body.tax,
+        net: body.net,
+        refund: body.refund,
+        bestCorrect: best,
+      },
+    };
   }
   if (!isStr(body.betId) || !isStr(body.shortId)) return null;
   const ref = { betId: body.betId, shortId: body.shortId };
@@ -105,6 +133,12 @@ const CORRECTED_KEY = {
   void: 'account.notify.correctedVoid',
 } as const satisfies Record<'won' | 'lost' | 'void', MessageKey>;
 
+const JACKPOT_KEY = {
+  won: 'account.notify.jackpotWon',
+  lost: 'account.notify.jackpotLost',
+  void: 'account.notify.jackpotVoid',
+} as const satisfies Record<'won' | 'lost' | 'void', MessageKey>;
+
 /** What a message does to the screen: which bet to re-fetch, a toast, a balance refresh. */
 export function describeUserMessage(message: UserMessage): UserEffect {
   switch (message.type) {
@@ -160,6 +194,16 @@ export function describeUserMessage(message: UserMessage): UserEffect {
           key: 'account.notify.reopened',
           params: { id: message.data.shortId },
           tone: 'info',
+        },
+      };
+    case 'jackpot.settled':
+      return {
+        betId: null,
+        refreshWallet: true,
+        toast: {
+          key: JACKPOT_KEY[message.data.status],
+          params: { net: formatMoney(message.data.net), refund: formatMoney(message.data.refund) },
+          tone: message.data.status === 'won' ? 'success' : 'info',
         },
       };
   }

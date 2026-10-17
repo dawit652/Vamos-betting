@@ -19,6 +19,7 @@ export const common = {
     home: 'Home',
     live: 'Live',
     myBets: 'My Bets',
+    jackpot: 'Jackpot',
     account: 'Account',
     wallet: 'Wallet',
     help: 'Help',

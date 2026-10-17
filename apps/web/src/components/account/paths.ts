@@ -9,6 +9,7 @@ export const accountPaths = {
   resetPassword: '/reset-password',
   betDetail: (id: string): string => `${routes.myBets}/${encodeURIComponent(id)}`,
   settledBets: `${routes.myBets}?tab=settled`,
+  jackpotBets: `${routes.myBets}?tab=jackpot`,
   profile: routes.account,
   kyc: `${routes.account}/kyc`,
   limits: `${routes.account}/limits`,

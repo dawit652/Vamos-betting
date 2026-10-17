@@ -52,6 +52,12 @@ const ITEMS: readonly Item[] = [
     active: (p) => p.startsWith(routes.myBets),
   },
   {
+    href: routes.jackpot,
+    label: 'common.nav.jackpot',
+    icon: icon('M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8 6.6 19.7l1.1-6.1L3.2 9.4l6.1-.8z'),
+    active: (p) => p === routes.jackpot,
+  },
+  {
     href: routes.account,
     label: 'common.nav.account',
     icon: icon('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0'),
@@ -62,7 +68,7 @@ const ITEMS: readonly Item[] = [
   },
 ];
 
-/** Fixed bottom navigation: Home, Live, My Bets, Account. */
+/** Fixed bottom navigation: Home, Live, My Bets, Jackpot, Account. */
 export function BottomNav() {
   const t = useT();
   const pathname = usePathname();
@@ -71,7 +77,7 @@ export function BottomNav() {
       aria-label={t('common.nav.main')}
       className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]"
     >
-      <ul className="mx-auto grid h-bottom-nav max-w-2xl grid-cols-4">
+      <ul className="mx-auto grid h-bottom-nav max-w-2xl grid-cols-5">
         {ITEMS.map((item) => {
           const active = item.active(pathname);
           return (

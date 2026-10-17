@@ -26,6 +26,7 @@ export const routes = {
     `/sport/${sport}/${encodeURIComponent(slug)}`,
   event: (eventId: string): string => `/event/${encodeURIComponent(eventId)}`,
   myBets: '/my-bets',
+  jackpot: '/jackpot',
   account: '/account',
   wallet: '/wallet',
   deposit: '/wallet/deposit',

@@ -99,9 +99,9 @@ export function isPositiveAmount(wire: string | null | undefined): boolean {
   return typeof wire === 'string' && /^\d+$/.test(wire) && /[1-9]/.test(wire);
 }
 
-/** `?tab=` of My Bets: "settled" or the default "open". */
-export function betTab(raw: string | undefined): 'open' | 'settled' {
-  return raw === 'settled' ? 'settled' : 'open';
+/** `?tab=` of My Bets: "settled", "jackpot" or the default "open". */
+export function betTab(raw: string | undefined): 'open' | 'settled' | 'jackpot' {
+  return raw === 'settled' || raw === 'jackpot' ? raw : 'open';
 }
 
 /** Whether a bet belongs on the Open tab (running or waiting for live acceptance) or the Settled tab. */

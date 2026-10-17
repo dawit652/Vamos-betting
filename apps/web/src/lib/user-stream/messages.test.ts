@@ -35,7 +35,7 @@ describe('parseUserFrame', () => {
     expect(parseUserFrame('wallet.changed', JSON.stringify({ cash: '1', bonus: '0' }))?.type).toBe(
       'wallet.changed',
     );
-    expect(USER_MESSAGE_TYPES).toHaveLength(6);
+    expect(USER_MESSAGE_TYPES).toHaveLength(7);
   });
 
   it('accepts the { type, data } envelope too, but only when the type matches', () => {
@@ -106,6 +106,33 @@ describe('describeUserMessage', () => {
         data: { ...ref, gross: '1', tax: '0', net: '1' },
       }).toast?.key,
     ).toBe('account.notify.cashedOut');
+  });
+
+  it('parses and describes jackpot.settled', () => {
+    const data = {
+      entryId: 'e1',
+      roundId: 'r1',
+      templateCode: 'daily9',
+      status: 'won',
+      gross: '5000',
+      tax: '500',
+      net: '4500',
+      refund: '0',
+      bestCorrect: 9,
+    };
+    const parsed = parseUserFrame('jackpot.settled', JSON.stringify(data));
+    expect(parsed).toEqual({ type: 'jackpot.settled', data });
+    expect(parseUserFrame('jackpot.settled', JSON.stringify({ ...data, status: 'x' }))).toBeNull();
+    expect(
+      parseUserFrame('jackpot.settled', JSON.stringify({ ...data, bestCorrect: null }))?.type,
+    ).toBe('jackpot.settled');
+    const effect = describeUserMessage(parsed as UserMessage);
+    expect(effect).toMatchObject({ betId: null, refreshWallet: true });
+    expect(effect.toast).toEqual({
+      key: 'account.notify.jackpotWon',
+      params: { net: 'ETB 45.00', refund: 'ETB 0.00' },
+      tone: 'success',
+    });
   });
 
   it('wallet messages only refresh the balance', () => {
