@@ -18,17 +18,17 @@ Last updated 12 Oct 2026.
 | 4     | Betslip, bet placement, booking codes, settlement             | Done (reviewed, 21 fixes) | `a04beab` … `50c1e7e`                      |
 | 5     | Player web app (Betika-style lite PWA), the demo MVP          | Done (reviewed, 19 fixes) | `8503bac`                                  |
 | 6     | Payments: deposits and withdrawals                            | Done (reviewed, 15 fixes) | `e555ef6` … `3f1337d`                      |
-| 7     | Live betting and cash-out                                     | Not started               |                                            |
+| 7     | Live betting and cash-out                                     | Done (reviewed, 8 fixes)  | `25360ec` … Phase 7 commit                 |
 | 8     | Jackpots and promotions                                       | Not started               |                                            |
 | 9     | Back office (`apps/admin`)                                    | Not started               |                                            |
 | 10    | Compliance and regulator reporting                            | Not started               |                                            |
 | 11    | SMS/USSD channel (feature-flagged)                            | Not started               |                                            |
 | 12    | Hardening and deployment                                      | Not started               |                                            |
 
-**Phases 0–6 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
+**Phases 0–7 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
 pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
 and the payments flow (KYC, deposit approved on the simulated phone, wagering, withdrawal approved by
-the dev stand-in, paid). Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
+the dev stand-in, paid) and a cash-out of a running accumulator through the confirm sheet. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
 
 **Phase 6 review (13 Oct 2026).** Three adversarial reviews (money, security, reliability) confirmed 15
 findings; all are fixed with regression tests. Highlights:
@@ -45,6 +45,19 @@ findings; all are fixed with regression tests. Highlights:
 - `/dev/payments/phone` now needs a player session and shows only that player's pushes.
 - Known limit: providers without a deterministic payout reference (telebirr, mock) re-send on a retry
   after a lost answer; the mock is idempotent, telebirr payouts are not implemented yet.
+
+**Phase 7 (17 Oct 2026).** Cash-out (`packages/db/src/betting/cashout.ts`): offers from core
+`cashOutOffer` with the bet's own terms; profit above the stake is taxed like a win and posted in the one
+`bet_cashout` transaction; execute re-prices under the bet lock and refuses a lower gross or net than the
+player confirmed (409 `cashout_offer_changed`). In play the request waits the live bet delay outside any
+transaction and pays only if the live legs did not change meanwhile. Cashed-out bets do not count toward
+deposit wagering. Early settlement: live-sim results markets whose outcome is already certain
+(`certainMarketResult`, `resultMarket`, outbox `market.resulted`); those results stand when a match is
+later abandoned, cancelled or corrected to void. Per-user pushes: `vamos:user:<id>` → authenticated SSE
+`GET /me/stream` (ends at once on logout or session revocation, sends a resync after a Redis reconnect,
+named heartbeats). Web: cash-out sheet in My Bets and bet detail, live score/minute tracker, suspended
+markets, live acceptance state, toasts. Review: 8 findings fixed with regression tests.
+The home page first load is at its 150 KB target (budget 160 KB): trim before adding to the shell.
 
 ## Legal context (do not change)
 
