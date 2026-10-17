@@ -4,6 +4,8 @@ import authRoutes from './auth/routes';
 import bettingRoutes from './betting/routes';
 import catalogRoutes from './catalog/routes';
 import devRoutes, { devInboxEnabled } from './dev/routes';
+import devJackpotRoutes, { devJackpotsEnabled } from './jackpots/dev-routes';
+import jackpotRoutes from './jackpots/routes';
 import kycRoutes from './kyc/routes';
 import meRoutes from './me/routes';
 import devPaymentRoutes, { devPaymentsEnabled } from './payments/dev-routes';
@@ -26,11 +28,16 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   await app.register(bettingRoutes);
   await app.register(userStreamRoutes);
   await app.register(paymentRoutes);
+  await app.register(jackpotRoutes);
   if (devInboxEnabled(deps)) {
     await app.register(devRoutes);
   }
   // DEV ONLY: the phone simulator and the stand-in back office (demo + mock provider, not production).
   if (devPaymentsEnabled(deps)) {
     await app.register(devPaymentRoutes);
+  }
+  // DEV ONLY: quick jackpot rounds for e2e and demos (demo mode, not production).
+  if (devJackpotsEnabled(deps)) {
+    await app.register(devJackpotRoutes);
   }
 }
