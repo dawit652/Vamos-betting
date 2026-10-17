@@ -9,6 +9,8 @@ export * from './settings/index';
 export * from './rg/index';
 export * from './betting/index';
 export * from './payments/index';
+export * from './jackpots/index';
+export * from './promotions/index';
 export {
   isRetryableTxError,
   pgCode,

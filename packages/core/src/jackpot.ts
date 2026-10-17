@@ -376,17 +376,15 @@ export function settleJackpotDraw(input: {
       void: true,
       cancelledGames,
       payouts: [],
-      entries: entries.map(
-        (entry): JackpotEntrySettlement => ({
-          status: 'void',
-          distribution: null,
-          bestCorrect: null,
-          gross: 0n,
-          tax: 0n,
-          net: 0n,
-          refund: entry.cost,
-        }),
-      ),
+      entries: entries.map((entry): JackpotEntrySettlement => ({
+        status: 'void',
+        distribution: null,
+        bestCorrect: null,
+        gross: 0n,
+        tax: 0n,
+        net: 0n,
+        refund: entry.cost,
+      })),
       totals: {
         stakes,
         gross: 0n,

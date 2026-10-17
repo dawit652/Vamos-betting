@@ -84,6 +84,7 @@ export {
 } from './postings';
 export {
   COUNTED_BET_STATUSES,
+  COUNTED_JACKPOT_ENTRY_STATUSES,
   getRemainingWagering,
   loadWageringEvents,
   WAGERING_FUNDING_TYPES,

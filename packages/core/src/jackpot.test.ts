@@ -588,12 +588,12 @@ describe('settleJackpotDraw', () => {
     expect(draw.void).toBe(false);
     expect(draw.cancelledGames).toBe(0);
     // 2 winning combinations at 9 correct share 100,000 ETB; 2 at 8 get 200 ETB each.
-    expect(draw.payouts.map((p) => [p.correct, p.winningCombinations, p.prizePerCombination])).toEqual(
-      [
-        [9, 2n, birr(50_000)],
-        [8, 2n, birr(200)],
-      ],
-    );
+    expect(
+      draw.payouts.map((p) => [p.correct, p.winningCombinations, p.prizePerCombination]),
+    ).toEqual([
+      [9, 2n, birr(50_000)],
+      [8, 2n, birr(200)],
+    ]);
     expect(draw.entries.map((e) => [e.status, e.bestCorrect, e.gross, e.tax, e.net])).toEqual([
       // 20% of (50,000 − 10) = 9,998.
       ['won', 9, birr(50_000), birr(9_998), birr(40_002)],
@@ -737,9 +737,9 @@ describe('settleJackpotDraw', () => {
       prizeTiers: DAILY.prizeTiers,
       tax: DEFAULT_TAX,
     };
-    expect(() => settleJackpotDraw({ ...base, entries: [{ picks: singles(9), cost: 0n }] })).toThrow(
-      RangeError,
-    );
+    expect(() =>
+      settleJackpotDraw({ ...base, entries: [{ picks: singles(9), cost: 0n }] }),
+    ).toThrow(RangeError);
     expect(() =>
       settleJackpotDraw({ ...base, entries: [{ picks: singles(8), cost: birr(10) }] }),
     ).toThrow(RangeError);
@@ -782,7 +782,13 @@ describe('settleJackpotDraw', () => {
   it('pays every entry what the prize formula gives, taxed like a bet (property)', () => {
     fc.assert(
       fc.property(drawArb, ({ results, entries, prizeTiers, tax }) => {
-        const draw = settleJackpotDraw({ entries, results, cancelledRule: ALL_WIN, prizeTiers, tax });
+        const draw = settleJackpotDraw({
+          entries,
+          results,
+          cancelledRule: ALL_WIN,
+          prizeTiers,
+          tax,
+        });
         const cancelled = results.filter((r) => r === 'cancelled').length;
         expect(draw.cancelledGames).toBe(cancelled);
         expect(draw.entries).toHaveLength(entries.length);
@@ -800,8 +806,7 @@ describe('settleJackpotDraw', () => {
         expect(draw.void).toBe(false);
         // Independent of correctDistribution / computeTierPayouts / entryPrize.
         const dists = entries.map((e) => bruteForceDistribution(e.picks, results));
-        const winners = (correct: number) =>
-          dists.reduce((sum, d) => sum + (d[correct] ?? 0n), 0n);
+        const winners = (correct: number) => dists.reduce((sum, d) => sum + (d[correct] ?? 0n), 0n);
         const perCombination = prizeTiers.map((tier) => {
           if (tier.kind === 'fixed') return tier.amount;
           const w = winners(tier.correct);
@@ -855,7 +860,13 @@ describe('settleJackpotDraw', () => {
             (combos, game) => combos.flatMap((combo) => game.map((pick) => [...combo, [pick]])),
             [[]],
           );
-        const draw = settleJackpotDraw({ entries, results, cancelledRule: ALL_WIN, prizeTiers, tax });
+        const draw = settleJackpotDraw({
+          entries,
+          results,
+          cancelledRule: ALL_WIN,
+          prizeTiers,
+          tax,
+        });
         const singlesDraw = settleJackpotDraw({
           entries: entries.flatMap((e) => expand(e.picks).map((picks) => ({ picks, cost: 1n }))),
           results,

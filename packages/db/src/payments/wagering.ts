@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { accountKey } from '../ledger/accounts';
 import type { DbExecutor, LedgerTransactionType } from '../ledger/types';
 import { bets } from '../schema/betting';
+import { jackpotEntries } from '../schema/jackpots';
 import { ledgerAccounts, ledgerEntries, ledgerTransactions } from '../schema/ledger';
 
 /** Credits that create a wagering requirement (play money counts in demo mode). */
@@ -11,7 +12,10 @@ export const WAGERING_FUNDING_TYPES = [
   'demo_topup',
 ] as const satisfies readonly LedgerTransactionType[];
 
-/** Debits that count as turnover (subject to COUNTED_BET_STATUSES for bets). */
+/**
+ * Debits that count as turnover (subject to COUNTED_BET_STATUSES for bets
+ * and COUNTED_JACKPOT_ENTRY_STATUSES for jackpot entries).
+ */
 export const WAGERING_STAKE_TYPES = [
   'bet_stake',
   'jackpot_entry',
@@ -30,12 +34,22 @@ export const WAGERING_STAKE_TYPES = [
  */
 export const COUNTED_BET_STATUSES = ['open', 'won', 'lost'] as const;
 
+/**
+ * A jackpot entry's cost counts as wagered (it is a real stake) while the
+ * entry is open or settled won or lost. A void entry (its round was void)
+ * was refunded, so its cost does not count, as for a void bet; the refund
+ * itself (a positive `jackpot_entry` amount) is never turnover.
+ */
+export const COUNTED_JACKPOT_ENTRY_STATUSES = ['open', 'won', 'lost'] as const;
+
 const COUNTED = new Set<string>(COUNTED_BET_STATUSES);
+const COUNTED_JACKPOT = new Set<string>(COUNTED_JACKPOT_ENTRY_STATUSES);
 
 /**
  * The player's funding credits and counted stakes, in ledger order (by
- * ledger entry id), as input for core `remainingWagering`. Jackpot entries
- * count in full (refunds of cancelled jackpots arrive in Phase 8).
+ * ledger entry id), as input for core `remainingWagering`: bet stakes per
+ * COUNTED_BET_STATUSES, jackpot entry costs per
+ * COUNTED_JACKPOT_ENTRY_STATUSES.
  */
 export async function loadWageringEvents(
   exec: DbExecutor,
@@ -47,6 +61,7 @@ export async function loadWageringEvents(
       amount: ledgerEntries.amount,
       type: ledgerTransactions.type,
       betStatus: bets.status,
+      entryStatus: jackpotEntries.status,
     })
     .from(ledgerEntries)
     .innerJoin(ledgerAccounts, eq(ledgerAccounts.id, ledgerEntries.accountId))
@@ -57,6 +72,14 @@ export async function loadWageringEvents(
         eq(ledgerTransactions.type, 'bet_stake'),
         eq(bets.userId, userId),
         sql`${bets.id}::text = ${ledgerTransactions.refId}`,
+      ),
+    )
+    .leftJoin(
+      jackpotEntries,
+      and(
+        eq(ledgerTransactions.type, 'jackpot_entry'),
+        eq(jackpotEntries.userId, userId),
+        sql`${jackpotEntries.id}::text = ${ledgerTransactions.refId}`,
       ),
     )
     .where(
@@ -73,6 +96,7 @@ export async function loadWageringEvents(
       if (row.amount > 0n) events.push({ kind: 'funding', amount: row.amount });
     } else if (row.amount < 0n) {
       if (row.type === 'bet_stake' && !COUNTED.has(row.betStatus ?? '')) continue;
+      if (row.type === 'jackpot_entry' && !COUNTED_JACKPOT.has(row.entryStatus ?? '')) continue;
       events.push({ kind: 'stake', amount: -row.amount });
     }
   }
