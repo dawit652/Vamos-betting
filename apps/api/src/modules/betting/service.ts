@@ -23,6 +23,7 @@ import {
   loadBookingCode,
   loadGameSettings,
   placeBet,
+  prepareCashOut,
   quoteSlip,
   withTxRetry,
   type GameSettings,
@@ -214,18 +215,41 @@ export interface CashedOutBet {
   replayed: boolean;
 }
 
+const timerSleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 /**
- * Cashes out one of the player's bets: cashOutBet (@vamos/db) in one
- * transaction with the cash-out settings loaded in it, retried on deadlock /
- * serialization failure (nothing of a failed try is committed and the
- * cash-out is keyed by its idempotency key). Its DomainErrors (404, 409
- * cashout_unavailable / cashout_offer_changed, 422 idempotency_key_reused /
- * invalid_amount) are rendered by the app's error handler.
+ * Cashes out one of the player's bets. In play (an open leg on a live event)
+ * the request first waits the live bet delay, as live bet placement does:
+ * prepareCashOut (@vamos/db) records it on arrival (and refuses at once what
+ * would be refused anyway), the wait runs outside any transaction, and
+ * cashOutBet then pays only if the live legs are as they were on arrival
+ * (409 cashout_offer_changed with the fresh offer otherwise). Prematch bets
+ * cash out at once. cashOutBet runs in one transaction with the cash-out
+ * settings loaded in it, retried on deadlock / serialization failure
+ * (nothing of a failed try is committed and the cash-out is keyed by its
+ * idempotency key). Its DomainErrors (404, 409 cashout_unavailable /
+ * cashout_offer_changed, 422 idempotency_key_reused / invalid_amount) are
+ * rendered by the app's error handler.
  */
 export async function cashOutPlayerBet(
-  deps: Pick<AppDeps, 'db' | 'clock'>,
+  deps: Pick<AppDeps, 'db' | 'clock' | 'sleep'>,
   command: CashOutCommand,
 ): Promise<CashedOutBet> {
+  // Not the read cache: the delay and the settings in force now.
+  const current = await loadGameSettings(deps.db);
+  const arrival = await prepareCashOut(deps.db, {
+    userId: command.userId,
+    betId: command.betId,
+    quotedGross: command.quotedGross,
+    idempotencyKey: command.idempotencyKey,
+    config: current.cashOut,
+    liveDelayMs: current.liveBetDelayMs,
+    now: deps.clock(),
+  });
+  if (arrival.delayMs > 0) await (deps.sleep ?? timerSleep)(arrival.delayMs);
   const now = deps.clock();
   const { result, config } = await withTxRetry(deps.db, async (tx) => {
     const settings = await loadGameSettings(tx);
@@ -236,6 +260,7 @@ export async function cashOutPlayerBet(
       idempotencyKey: command.idempotencyKey,
       now,
       config: settings.cashOut,
+      arrival,
       ip: command.ip ?? null,
     });
     return { result: cashedOut, config: settings.cashOut };

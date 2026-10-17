@@ -60,13 +60,17 @@ export {
   getCashOutOffer,
   getCashOutOffers,
   MAX_CASH_OUT_BATCH,
+  prepareCashOut,
   priceCashOut,
+  type CashOutArrival,
   type CashOutBetInput,
   type CashOutBetResult,
   type CashOutPricingInput,
   type CashOutQuote,
   type CashOutQuoteLeg,
   type CashOutUnavailable,
+  type LiveLegStamp,
+  type PrepareCashOutInput,
 } from './cashout';
 export {
   BOOKING_CODE_TTL_MS,

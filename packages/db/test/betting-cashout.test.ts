@@ -23,12 +23,14 @@ import {
   listBetsToSettle,
   loadWageringEvents,
   MAX_CASH_OUT_BATCH,
+  prepareCashOut,
   resultMarket,
   setEventBettingOpen,
   setMarketStatus,
   settleEventBets,
   settleMarketBets,
   settlePlacedBet,
+  type CashOutArrival,
   type CashOutBetResult,
   type CashOutQuote,
   type CatalogIds,
@@ -113,7 +115,7 @@ function cashOut(
   userId: string,
   betId: string,
   quotedGross: bigint,
-  options: { key?: string; config?: CashOutConfig; now?: Date } = {},
+  options: { key?: string; config?: CashOutConfig; now?: Date; arrival?: CashOutArrival } = {},
 ): Promise<CashOutBetResult> {
   return handle.db.transaction((tx) =>
     cashOutBet(tx, {
@@ -123,9 +125,36 @@ function cashOut(
       idempotencyKey: options.key ?? cashOutKey(),
       now: options.now ?? new Date(),
       config: options.config ?? config,
+      ...(options.arrival === undefined ? {} : { arrival: options.arrival }),
       ip: '203.0.113.7',
     }),
   );
+}
+
+/**
+ * A cash-out request arriving at `at` (prepareCashOut, as the API runs it
+ * before waiting the live delay): the arrival record, the key and the time
+ * the delay is over.
+ */
+async function arrive(userId: string, betId: string, quotedGross: bigint, at = new Date()) {
+  const key = cashOutKey();
+  const arrival = await prepareCashOut(handle.db, {
+    userId,
+    betId,
+    quotedGross,
+    idempotencyKey: key,
+    config,
+    liveDelayMs: settings.liveBetDelayMs,
+    now: at,
+  });
+  return { arrival, key, after: new Date(at.getTime() + arrival.delayMs) };
+}
+
+/** An in-play cash-out the way the API makes it: arrive, wait the live delay, execute. */
+async function cashOutInPlay(userId: string, betId: string, quotedGross: bigint) {
+  const { arrival, key, after } = await arrive(userId, betId, quotedGross);
+  expect(arrival.delayMs).toBe(settings.liveBetDelayMs);
+  return cashOut(userId, betId, quotedGross, { key, now: after, arrival });
 }
 
 /** The DomainError a promise rejects with. */
@@ -883,7 +912,7 @@ describe('cash-out in play', () => {
       net: gross,
     });
     const before = await balances(handle.db, userId);
-    const result = await cashOut(userId, placed.id, gross);
+    const result = await cashOutInPlay(userId, placed.id, gross);
     expect(result.cashOut).toMatchObject({ gross, tax: 0n, net: gross });
     expect(delta(before, await balances(handle.db, userId))).toEqual({
       cash: gross,
@@ -945,14 +974,16 @@ describe('cash-out in play', () => {
     await setLiveScore(event.eventId, 2, 1);
     const offer = await offerOf(userId, placed.id);
     expect(offer.available).toBe(true);
+    const { arrival, key, after } = await arrive(userId, placed.id, offer.gross);
     const held = heldTransaction((tx) =>
       cashOutBet(tx, {
         userId,
         betId: placed.id,
         quotedGross: offer.gross,
-        idempotencyKey: cashOutKey(),
-        now: new Date(),
+        idempotencyKey: key,
+        now: after,
         config,
+        arrival,
       }),
     );
     await held.inside;
@@ -1004,6 +1035,205 @@ describe('cash-out in play', () => {
     await held.done;
     expect(await suspending).toBe(true);
     expect((await bet(placed.id)).status).toBe('cashed_out');
+  });
+});
+
+describe('cash-out in play: the live delay', () => {
+  /** A single at 2.00 on the home win of a live match at 0-0, repriced to 1.25. */
+  async function liveSingle(userId: string) {
+    const event = await createEvent(handle.db, ids);
+    const { bet: placed } = await place(handle.db, userId, {
+      stake: birr(100),
+      legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+      settings,
+    });
+    await goLive(handle.db, event.eventId);
+    await reprice(handle.db, event.home, 1250);
+    const offer = await offerOf(userId, placed.id);
+    expect(offer).toMatchObject({
+      available: true,
+      gross: fairOffer(birr(100), [], [[2000, 1250]]),
+    });
+    return { event, bet: placed, offer };
+  }
+
+  async function cashOutCount(betId: string): Promise<number> {
+    const [row] = await handle.db
+      .select({ n: count() })
+      .from(betCashouts)
+      .where(eq(betCashouts.betId, betId));
+    return row?.n ?? 0;
+  }
+
+  it('pays a live leg only after the live bet delay, when nothing changed meanwhile', async () => {
+    const userId = await player();
+    const { event, bet: placed, offer } = await liveSingle(userId);
+
+    // Straight to execution (no delay waited): refused with the offer, nothing written.
+    const direct = await domainError(cashOut(userId, placed.id, offer.gross));
+    expect(direct).toMatchObject({
+      status: 409,
+      code: 'cashout_offer_changed',
+      details: { offer: { available: true, gross: offer.gross.toString() } },
+    });
+    expect(await postingsOf(placed.id)).toEqual([['bet_stake', 'bet:…']]);
+
+    const at = new Date();
+    const { arrival, key, after } = await arrive(userId, placed.id, offer.gross, at);
+    expect(arrival).toMatchObject({ receivedAt: at, delayMs: settings.liveBetDelayMs });
+    expect(arrival.liveLegs.map((leg) => leg.selectionId)).toEqual([event.home]);
+    // Before the delay is over: refused.
+    const early = new Date(after.getTime() - 1);
+    expect(
+      await domainError(cashOut(userId, placed.id, offer.gross, { key, now: early, arrival })),
+    ).toMatchObject({ status: 409, code: 'cashout_offer_changed' });
+    // The match clock moving on (no goal) changes nothing that matters.
+    await handle.db.transaction((tx) =>
+      applyLiveState(tx, event.eventId, {
+        status: 'live',
+        minute: 7,
+        period: '1H',
+        home: 0,
+        away: 0,
+      }),
+    );
+    const result = await cashOut(userId, placed.id, offer.gross, { key, now: after, arrival });
+    expect(result.cashOut).toMatchObject({ gross: offer.gross, cashedOutAt: after });
+    expect((await bet(placed.id)).status).toBe('cashed_out');
+    await expectBooksBalanced();
+  });
+
+  it.each([
+    ['its odds move, even for the better', 'cashout_offer_changed'],
+    ['its market is suspended and re-opened at the same odds', 'cashout_offer_changed'],
+    ['a goal is scored', 'cashout_offer_changed'],
+    ['betting on the match is paused and resumed', 'cashout_offer_changed'],
+    ['its market is suspended', 'cashout_unavailable'],
+  ] as const)(
+    'refuses when, during the delay, %s (409 %s, nothing written)',
+    async (change, code) => {
+      const userId = await player();
+      const { event, bet: placed, offer } = await liveSingle(userId);
+      const { arrival, key, after } = await arrive(userId, placed.id, offer.gross);
+      const marketId = event.marketIds['1x2'];
+      switch (change) {
+        case 'its odds move, even for the better':
+          await reprice(handle.db, event.home, 1200);
+          break;
+        case 'its market is suspended and re-opened at the same odds':
+          await suspendMarket(marketId, 'suspended');
+          await suspendMarket(marketId, 'open');
+          break;
+        case 'a goal is scored':
+          await setLiveScore(event.eventId, 1, 0);
+          break;
+        case 'betting on the match is paused and resumed':
+          await handle.db.transaction((tx) => setEventBettingOpen(tx, event.eventId, false));
+          await handle.db.transaction((tx) => setEventBettingOpen(tx, event.eventId, true));
+          break;
+        case 'its market is suspended':
+          await suspendMarket(marketId, 'suspended');
+          break;
+      }
+      const error = await domainError(
+        cashOut(userId, placed.id, offer.gross, { key, now: after, arrival }),
+      );
+      expect(error).toMatchObject({ status: 409, code });
+      if (code === 'cashout_offer_changed') {
+        // The fresh offer comes with it, to confirm again.
+        const fresh = await offerOf(userId, placed.id, { now: after });
+        expect(error.details).toEqual({ offer: cashOutOfferView(fresh) });
+      }
+      expect((await bet(placed.id)).status).toBe('open');
+      expect(await postingsOf(placed.id)).toEqual([['bet_stake', 'bet:…']]);
+      expect(await cashOutCount(placed.id)).toBe(0);
+    },
+  );
+
+  it('refuses a leg whose match kicked off after the request arrived (no delay was waited)', async () => {
+    const userId = await player();
+    const { event, bet: placed } = await single(userId, birr(100));
+    const offer = await offerOf(userId, placed.id);
+    const { arrival, key, after } = await arrive(userId, placed.id, offer.gross);
+    // Prematch only: no delay.
+    expect(arrival).toMatchObject({ delayMs: 0, liveLegs: [] });
+    await goLive(handle.db, event.eventId);
+    expect(
+      await domainError(cashOut(userId, placed.id, offer.gross, { key, now: after, arrival })),
+    ).toMatchObject({ status: 409, code: 'cashout_offer_changed' });
+    expect((await bet(placed.id)).status).toBe('open');
+    expect(await cashOutCount(placed.id)).toBe(0);
+  });
+
+  it('a leg decided in play and a prematch leg need no delay; an open live leg does', async () => {
+    const userId = await player();
+    const [a, b] = await Promise.all([1, 2].map(() => createEvent(handle.db, ids)));
+    const { bet: acca } = await place(handle.db, userId, {
+      stake: birr(50),
+      legs: [
+        { selectionId: a!.over, oddsMilli: 1900 },
+        { selectionId: b!.home, oddsMilli: 2000 },
+      ],
+      settings,
+    });
+    await goLive(handle.db, a!.eventId);
+    await setLiveScore(a!.eventId, 2, 1);
+    const offer = await offerOf(userId, acca.id);
+    expect((await arrive(userId, acca.id, offer.gross)).arrival.delayMs).toBe(
+      settings.liveBetDelayMs,
+    );
+    // over 2.5 is decided in play: the bet's only open leg is prematch, so it cashes out at once.
+    await handle.db.transaction((tx) =>
+      resultMarket(tx, a!.marketIds.ou, { score: { home: 2, away: 1 } }),
+    );
+    const decided = await offerOf(userId, acca.id);
+    const { arrival, key } = await arrive(userId, acca.id, decided.gross);
+    expect(arrival).toMatchObject({ delayMs: 0, liveLegs: [] });
+    const result = await cashOut(userId, acca.id, decided.gross, { key, arrival });
+    expect(result.bet.status).toBe('cashed_out');
+  });
+
+  it('prepareCashOut refuses at once what would be refused anyway, and never delays a replay', async () => {
+    const userId = await player();
+    const { bet: placed, offer } = await liveSingle(userId);
+    // A quoted gross above the offer: the fresh offer, at once.
+    expect(await domainError(arrive(userId, placed.id, offer.gross + 1n))).toMatchObject({
+      status: 409,
+      code: 'cashout_offer_changed',
+      details: { offer: { gross: offer.gross.toString() } },
+    });
+    // Someone else's bet: 404; a non-positive amount: 422.
+    expect(await domainError(arrive(await player(), placed.id, offer.gross))).toMatchObject({
+      status: 404,
+    });
+    expect(await domainError(arrive(userId, placed.id, 0n))).toMatchObject({
+      status: 422,
+      code: 'invalid_amount',
+    });
+    // Paid once after the delay; the same request again is a replay that waits for nothing.
+    const { arrival, key, after } = await arrive(userId, placed.id, offer.gross);
+    await cashOut(userId, placed.id, offer.gross, { key, now: after, arrival });
+    const replay = await prepareCashOut(handle.db, {
+      userId,
+      betId: placed.id,
+      quotedGross: offer.gross,
+      idempotencyKey: key,
+      config,
+      liveDelayMs: settings.liveBetDelayMs,
+      now: new Date(),
+    });
+    expect(replay).toMatchObject({ delayMs: 0, liveLegs: [] });
+    expect(await cashOut(userId, placed.id, offer.gross, { key, arrival: replay })).toMatchObject({
+      replayed: true,
+    });
+    // A suspended market: unavailable at once.
+    const other = await liveSingle(userId);
+    await suspendMarket(other.event.marketIds['1x2'], 'suspended');
+    expect(await domainError(arrive(userId, other.bet.id, other.offer.gross))).toMatchObject({
+      status: 409,
+      code: 'cashout_unavailable',
+      details: { reason: 'leg_suspended' },
+    });
   });
 });
 

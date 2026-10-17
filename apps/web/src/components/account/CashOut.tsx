@@ -14,6 +14,7 @@ import {
   offerHasTax,
   sameOffer,
   UNAVAILABLE_REASON_KEY,
+  waitsLiveDelay,
 } from '@/lib/cashout/offer';
 import { formatMoney } from '@/lib/format';
 import { markAnnounced, pushToast } from '@/lib/user-stream/toast-bus';
@@ -26,7 +27,9 @@ import { Alert, Row } from './ui';
  * sheet with gross, winnings tax and net. The sheet sends the gross the player
  * saw; the server pays the fresh offer when it is not lower, otherwise it
  * answers `cashout_offer_changed` with the new offer, which the sheet shows
- * before asking again. Loaded only by My Bets and the bet detail.
+ * before asking again. In play the server holds the cash-out for the live
+ * bet delay (a few seconds) before it pays: the sheet says it is confirming.
+ * Loaded only by My Bets and the bet detail.
  */
 
 export function CashOutButton({
@@ -75,7 +78,8 @@ export function CashOutButton({
 
 type Phase =
   | { kind: 'idle' }
-  | { kind: 'working' }
+  /** `confirming`: in play, the server waits the live bet delay first. */
+  | { kind: 'working'; confirming: boolean }
   | { kind: 'changed'; lower: boolean }
   | { kind: 'blocked'; key: MessageKey }
   | { kind: 'error'; key: MessageKey };
@@ -132,7 +136,7 @@ function CashOutSheet({
 
   async function confirm() {
     if (working) return;
-    setPhase({ kind: 'working' });
+    setPhase({ kind: 'working', confirming: waitsLiveDelay(bet, Date.now()) });
     // One key per confirmation of one amount: a retry after a timeout reuses it.
     const key = keys.current.get(`${bet.id}:${shown.gross}`);
     try {
@@ -203,6 +207,9 @@ function CashOutSheet({
           <Alert tone="info">{t(UNAVAILABLE_REASON_KEY[liveOffer.reason])}</Alert>
         ) : null}
         {phase.kind === 'error' ? <Alert>{t(phase.key)}</Alert> : null}
+        {phase.kind === 'working' && phase.confirming ? (
+          <Alert tone="info">{t('account.myBets.cashOut.confirmingNote')}</Alert>
+        ) : null}
         <div className="flex gap-2 pb-[env(safe-area-inset-bottom)]">
           <button
             type="button"
@@ -218,8 +225,12 @@ function CashOutSheet({
             disabled={working || blocked}
             onClick={() => void confirm()}
           >
-            {working
-              ? t('account.myBets.cashOut.working')
+            {phase.kind === 'working'
+              ? t(
+                  phase.confirming
+                    ? 'account.myBets.cashOut.confirming'
+                    : 'account.myBets.cashOut.working',
+                )
               : t(
                   changed ? 'account.myBets.cashOut.confirmNew' : 'account.myBets.cashOut.confirm',
                   {

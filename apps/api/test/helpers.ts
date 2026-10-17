@@ -20,12 +20,24 @@ export interface TestClock {
   advance(ms: number): void;
 }
 
+/**
+ * The app's `sleep` in tests: it returns at once after moving the clock on by
+ * the time asked, and runs `during` (when set) first, as if that happened
+ * while the request waited.
+ */
+export interface TestSleep {
+  /** Every wait asked for, in ms, oldest first. */
+  calls: number[];
+  during: ((ms: number) => Promise<void>) | null;
+}
+
 export interface TestContext {
   app: FastifyInstance;
   deps: AppDeps;
   db: TestDatabase;
   redis: Redis;
   clock: TestClock;
+  sleep: TestSleep;
   close(): Promise<void>;
 }
 
@@ -56,6 +68,7 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
     },
   };
   const now = () => new Date(clock.now.getTime());
+  const sleep: TestSleep = { calls: [], during: null };
   const deps: AppDeps = {
     config,
     db: db.db,
@@ -70,6 +83,11 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
       randomBytes: (size) => randomBytes(size),
     }),
     randomBytes: (size) => randomBytes(size),
+    sleep: async (ms) => {
+      sleep.calls.push(ms);
+      clock.advance(ms);
+      await sleep.during?.(ms);
+    },
     // Never the shared production channel: a dev stack on the same Redis would see test deltas.
     liveChannel: `vamos-test:${id}:live`,
     // Likewise for the per-player channels of GET /me/stream.
@@ -84,6 +102,7 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
     db,
     redis,
     clock,
+    sleep,
     close: async () => {
       await app.close();
       await redis.quit();

@@ -6,7 +6,7 @@ import {
   type CashOutUnavailableReason,
   type LegState,
 } from '@vamos/core';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { domainConflict, domainNotFound, domainUnprocessable, type DomainError } from '../errors';
 import { postTransaction } from '../ledger/post';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
@@ -45,7 +45,41 @@ import {
  * tax of the bet's terms off the part above the stake, exactly as settlement
  * taxes a payout, leaving the net paid to the player. An offer of zero is
  * never made (`below_minimum`).
+ *
+ * In play (the live delay): when an open leg of the bet is on a live event,
+ * the cash-out waits the live bet delay (settings `live_bet_delay_ms`), as
+ * live bet placement does, so a player with a faster source than the feed
+ * cannot trade on a price the house is about to change. The caller records
+ * the request on arrival (prepareCashOut: no locks, no writes), waits
+ * `arrival.delayMs` outside any transaction, then runs cashOutBet with that
+ * arrival record, which pays only when the delay is over and every open live
+ * leg is exactly as it was on arrival (see LiveLegStamp). Prematch-only bets
+ * (a leg decided in play counts as decided, not live) cash out at once.
  */
+
+/**
+ * An open leg on a live event as a delayed cash-out compares it, on arrival
+ * and again under the locks after the delay. `version` changes with any write
+ * to the leg's selection (odds, status, result: its updated_at) or market
+ * (status: its updated_at), and with any change of the event's status,
+ * betting switch or score (events.state_changed_at; not with the match clock,
+ * which moves every tick), even one undone before the delay is over.
+ */
+export interface LiveLegStamp {
+  legId: string;
+  selectionId: string;
+  version: string;
+}
+
+/** A cash-out request as it arrived (prepareCashOut), before the live delay. */
+export interface CashOutArrival {
+  /** When the request arrived. */
+  receivedAt: Date;
+  /** How long to wait before cashOutBet (ms): the live bet delay, 0 when no open leg is live. */
+  delayMs: number;
+  /** The open legs on live events when the request arrived. */
+  liveLegs: LiveLegStamp[];
+}
 
 /** Why no cash-out can be offered now: core's reasons, or the bet is not `open`. */
 export type CashOutUnavailable = CashOutUnavailableReason | 'bet_not_open';
@@ -248,8 +282,124 @@ export interface CashOutBetInput {
   now: Date;
   /** The cash-out settings in force, loaded in this transaction (loadGameSettings(tx).cashOut). */
   config: CashOutConfig;
+  /**
+   * The request as prepareCashOut recorded it on arrival, `delayMs` before
+   * `now`. Without it no delay was waited, so a bet with an open leg on a
+   * live event is refused (409 `cashout_offer_changed`).
+   */
+  arrival?: CashOutArrival;
   /** Client address for the audit log. */
   ip?: string | null;
+}
+
+export interface PrepareCashOutInput {
+  userId: string;
+  betId: string;
+  /** The gross offer the player accepted (santim, positive). */
+  quotedGross: bigint;
+  idempotencyKey: string;
+  /** The cash-out settings in force (loadGameSettings().cashOut). */
+  config: CashOutConfig;
+  /** The live bet delay in force (loadGameSettings().liveBetDelayMs). */
+  liveDelayMs: number;
+  /** When the request arrived. */
+  now: Date;
+}
+
+/**
+ * Records a cash-out request on arrival, before the live delay (reads only,
+ * locks nothing; see the module notes). Returns the arrival record for
+ * cashOutBet: `delayMs` is the live bet delay when an open leg of the bet is
+ * on a live event, else 0 (and 0 for a request cashOutBet will answer
+ * without paying: an idempotent replay, a bet that is not open).
+ *
+ * What cashOutBet would refuse anyway is refused at once, so the player does
+ * not wait for it: 404 `not_found`, 422 `invalid_amount`, and for a delayed
+ * cash-out 409 `cashout_unavailable` and `cashout_offer_changed` (the offer
+ * is below the quoted gross or pays a lower net).
+ */
+export async function prepareCashOut(
+  exec: DbExecutor,
+  input: PrepareCashOutInput,
+): Promise<CashOutArrival> {
+  const { userId, betId, quotedGross, now, config } = input;
+  if (typeof quotedGross !== 'bigint' || quotedGross <= 0n) {
+    throw domainUnprocessable('invalid_amount', 'The cash-out amount must be positive.');
+  }
+  if (!isUuid(betId) || !isUuid(userId)) throw domainNotFound('Bet');
+  const instant: CashOutArrival = { receivedAt: now, delayMs: 0, liveLegs: [] };
+  const bet = await getUserBet(exec, userId, betId);
+  if (bet === null) throw domainNotFound('Bet');
+  const [previous] = await exec
+    .select({ id: betCashouts.betId })
+    .from(betCashouts)
+    .where(
+      and(eq(betCashouts.userId, userId), eq(betCashouts.idempotencyKey, input.idempotencyKey)),
+    )
+    .limit(1);
+  if (previous !== undefined || bet.status !== 'open') return instant;
+
+  const liveLegs = await loadLiveLegStamps(exec, bet.legs);
+  if (liveLegs.length === 0) return instant;
+  const quote = priceCashOut(bet, config, now);
+  if (!quote.available) throw cashOutUnavailableError(quote.reason ?? 'disabled');
+  const accepted = cashOutPayout({ stake: bet.stake, gross: quotedGross, tax: bet.terms.tax });
+  if (quote.gross < accepted.gross || quote.net < accepted.net) {
+    throw cashOutOfferChangedError(quote);
+  }
+  return { receivedAt: now, delayMs: Math.max(0, input.liveDelayMs), liveLegs };
+}
+
+/**
+ * The stamps of those of `legs` that are open (not decided by their
+ * selection's result or a void market) on a live event, in leg order.
+ */
+async function loadLiveLegStamps(
+  exec: DbExecutor,
+  legs: ReadonlyArray<{ id: string; selectionId: string }>,
+): Promise<LiveLegStamp[]> {
+  const ids = [...new Set(legs.map((leg) => leg.selectionId))];
+  if (ids.length === 0) return [];
+  const rows = await exec
+    .select({
+      selectionId: selections.id,
+      result: selections.result,
+      marketStatus: markets.status,
+      eventStatus: events.status,
+      // Exact (microseconds) and independent of the session time zone.
+      version: sql<string>`concat_ws('|', ${selections.oddsMilli}, ${selections.status}, ${selections.result}, extract(epoch from ${selections.updatedAt}), ${markets.status}, extract(epoch from ${markets.updatedAt}), ${events.status}, ${events.bettingOpen}, ${events.scoreHome}, ${events.scoreAway}, ${events.htScoreHome}, ${events.htScoreAway}, extract(epoch from ${events.stateChangedAt}))`,
+    })
+    .from(selections)
+    .innerJoin(markets, eq(markets.id, selections.marketId))
+    .innerJoin(events, eq(events.id, markets.eventId))
+    .where(inArray(selections.id, ids));
+  const bySelection = new Map(rows.map((row) => [row.selectionId, row]));
+  return legs.flatMap((leg) => {
+    const row = bySelection.get(leg.selectionId);
+    if (row === undefined || row.eventStatus !== 'live') return [];
+    if (legStateOf(row.marketStatus, row.result) !== 'open') return [];
+    return [{ legId: leg.id, selectionId: leg.selectionId, version: row.version }];
+  });
+}
+
+/**
+ * Whether a cash-out may be paid at `now` as far as the live delay goes: no
+ * open leg is live now, or the request waited the delay and its live legs
+ * (on arrival and now) are the same legs, unchanged.
+ */
+function liveDelayKept(
+  arrival: CashOutArrival | undefined,
+  current: readonly LiveLegStamp[],
+  now: Date,
+): boolean {
+  const before = arrival?.liveLegs ?? [];
+  if (before.length === 0 && current.length === 0) return true;
+  if (arrival === undefined || now.getTime() < arrival.receivedAt.getTime() + arrival.delayMs) {
+    return false;
+  }
+  if (before.length !== current.length) return false;
+  const versions = new Map(before.map((stamp) => [stamp.legId, stamp.version]));
+  return current.every((stamp) => versions.get(stamp.legId) === stamp.version);
 }
 
 export interface CashOutBetResult {
@@ -283,11 +433,13 @@ export interface CashOutBetResult {
  *    snapshots are then read afresh. (Whatever changes a result or voids a
  *    market in future must lock the same way, event first.)
  * 6. the offer is priced again (priceCashOut): unavailable → 409
- *    `cashout_unavailable` with the reason; a fresh gross below the quoted
- *    one, or a fresh net below the net of the quoted gross (the tax
- *    exemption can make a higher gross pay less), → 409
- *    `cashout_offer_changed` with the fresh offer; otherwise the FRESH offer
- *    is paid (at least what the player accepted);
+ *    `cashout_unavailable` with the reason; an open leg on a live event
+ *    without the live delay kept (no `arrival`, the delay not over yet, or a
+ *    live leg changed or went live since the request arrived; see the module
+ *    notes), a fresh gross below the quoted one, or a fresh net below the
+ *    net of the quoted gross (the tax exemption can make a higher gross pay
+ *    less), → 409 `cashout_offer_changed` with the fresh offer; otherwise
+ *    the FRESH offer is paid (at least what the player accepted);
  * 7. postTransaction(bet_cashout) under `cashout:<betId>` (cashOutEntries:
  *    stakes, player cash, tax payable, revenue), the bet_cashouts record,
  *    the leg states as priced, and the bet → `cashed_out` with the gross,
@@ -397,6 +549,10 @@ export async function cashOutBet(
     now,
   );
   if (!quote.available) throw cashOutUnavailableError(quote.reason ?? 'disabled');
+  // In play: paid only after the live delay, at the state the request arrived at.
+  if (!liveDelayKept(input.arrival, await loadLiveLegStamps(tx, legRows), now)) {
+    throw cashOutOfferChangedError(quote);
+  }
   const accepted = cashOutPayout({ stake: bet.stake, gross: quotedGross, tax: terms.tax });
   if (quote.gross < accepted.gross || quote.net < accepted.net) {
     throw cashOutOfferChangedError(quote);

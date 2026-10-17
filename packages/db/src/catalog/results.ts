@@ -234,6 +234,7 @@ export async function resultEvent(
             htScoreAway: score.htAway,
           }),
       resultedAt: sql`now()`,
+      stateChangedAt: sql`now()`,
       updatedAt: sql`now()`,
     })
     .where(eq(events.id, eventId))

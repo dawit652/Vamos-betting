@@ -13,6 +13,7 @@ import {
   openBetIds,
   sameOffer,
   UNAVAILABLE_REASON_KEY,
+  waitsLiveDelay,
 } from './offer';
 
 function offer(over: Partial<CashOutOfferView> = {}): CashOutOfferView {
@@ -137,11 +138,43 @@ describe('lists', () => {
   });
 });
 
+describe('waitsLiveDelay', () => {
+  const at = Date.parse('2026-10-13T10:00:00.000Z');
+  const leg = (startTime: string, state: 'open' | 'won' | 'void') =>
+    ({ startTime, state }) as BetView['legs'][number];
+
+  it('is true while an undecided leg’s match has kicked off (it is live)', () => {
+    expect(waitsLiveDelay({ legs: [leg('2026-10-13T09:30:00.000Z', 'open')] }, at)).toBe(true);
+    expect(waitsLiveDelay({ legs: [leg('2026-10-13T10:00:00.000Z', 'open')] }, at)).toBe(true);
+  });
+
+  it('is false for prematch legs and for legs already decided', () => {
+    expect(waitsLiveDelay({ legs: [leg('2026-10-13T10:00:01.000Z', 'open')] }, at)).toBe(false);
+    expect(
+      waitsLiveDelay(
+        {
+          legs: [
+            leg('2026-10-13T09:00:00.000Z', 'won'),
+            leg('2026-10-13T09:00:00.000Z', 'void'),
+            leg('2026-10-13T12:00:00.000Z', 'open'),
+          ],
+        },
+        at,
+      ),
+    ).toBe(false);
+    expect(waitsLiveDelay({ legs: [leg('not a date', 'open')] }, at)).toBe(false);
+  });
+});
+
 describe('messages', () => {
   it('has a text in English and Amharic for every unavailable reason', () => {
     for (const key of Object.values(UNAVAILABLE_REASON_KEY)) {
       expect(lookup(MESSAGES.en, key), key).toBeTypeOf('string');
       expect(lookup(MESSAGES.am, key), key).toBeTypeOf('string');
+    }
+    for (const key of ['confirming', 'confirmingNote']) {
+      expect(lookup(MESSAGES.en, `account.myBets.cashOut.${key}`), key).toBeTypeOf('string');
+      expect(lookup(MESSAGES.am, `account.myBets.cashOut.${key}`), key).toBeTypeOf('string');
     }
   });
 });

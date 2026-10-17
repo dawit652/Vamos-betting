@@ -456,6 +456,8 @@ export const account: Messages['account'] = {
       confirm: 'ካሽ አውት {amount}',
       confirmNew: 'ተቀበል {amount}',
       working: 'ካሽ አውት በመደረግ ላይ…',
+      confirming: 'በማረጋገጥ ላይ…',
+      confirmingNote: 'በጨዋታ ላይ ያለ ካሽ አውት ከጥቂት ሰከንዶች በኋላ ይረጋገጣል።',
       cancel: 'አሁን አይደለም',
       close: 'ዝጋ',
       changed: 'ቅናሹ ተቀይሯል። አዲሱን መጠን ይመልከቱና እንደገና ያረጋግጡ።',

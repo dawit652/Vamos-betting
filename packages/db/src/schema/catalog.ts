@@ -140,6 +140,12 @@ export const events = pgTable(
      */
     simSeed: text('sim_seed'),
     resultedAt: timestamp('resulted_at', { withTimezone: true }),
+    /**
+     * When the status, the betting switch or the score last changed (not the
+     * match clock, which moves every tick): an in-play cash-out refuses when
+     * it moved during the live delay (see prepareCashOut).
+     */
+    stateChangedAt: timestamp('state_changed_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

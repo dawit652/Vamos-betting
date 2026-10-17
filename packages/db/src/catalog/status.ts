@@ -158,7 +158,7 @@ export async function setEventBettingOpen(
   assertOpenEvent(event, `${open ? 'open' : 'close'} betting`);
   const [row] = await tx
     .update(events)
-    .set({ bettingOpen: open, updatedAt: sql`now()` })
+    .set({ bettingOpen: open, stateChangedAt: sql`now()`, updatedAt: sql`now()` })
     .where(eq(events.id, eventId))
     .returning(matchFields);
   if (row === undefined) throw new CatalogNotFoundError('event', eventId);
@@ -214,9 +214,17 @@ export async function applyLiveState(
   ) {
     return { changed: false, messages: [] };
   }
+  // The clock and period move every tick; the status and the score are what an in-play cash-out compares.
+  const stateChanged =
+    event.status !== next.status ||
+    event.scoreHome !== next.home ||
+    event.scoreAway !== next.away ||
+    event.htScoreHome !== next.htHome ||
+    event.htScoreAway !== next.htAway;
   const [row] = await tx
     .update(events)
     .set({
+      ...(stateChanged ? { stateChangedAt: sql`now()` } : {}),
       status: next.status,
       liveMinute: next.minute,
       period: next.period,

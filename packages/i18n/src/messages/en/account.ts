@@ -472,6 +472,8 @@ export const account = {
       confirm: 'Cash out {amount}',
       confirmNew: 'Accept {amount}',
       working: 'Cashing out…',
+      confirming: 'Confirming…',
+      confirmingNote: 'In-play cash-outs are confirmed after a few seconds.',
       cancel: 'Not now',
       close: 'Close',
       changed: 'The offer changed. Check the new amount and confirm again.',

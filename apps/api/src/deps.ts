@@ -26,6 +26,11 @@ export interface AppDeps {
   payments: PaymentProviderRegistry;
   /** Cryptographically secure random bytes (session and CSRF tokens). */
   randomBytes: (size: number) => Buffer;
+  /**
+   * Waits `ms` (default: a timer). Requests that must wait use it, such as an
+   * in-play cash-out waiting the live bet delay; tests move their clock instead.
+   */
+  sleep?: (ms: number) => Promise<void>;
   /** Redis channel of live deltas relayed by GET /live/stream (default LIVE_CHANNEL; tests use their own). */
   liveChannel?: string;
   /**

@@ -17,10 +17,12 @@ import {
   cashOutPayout,
   DEFAULT_BET_RULES,
   DEFAULT_CASH_OUT,
+  DEFAULT_LIVE_BET_DELAY_MS,
   DEFAULT_TAX,
   toWire,
 } from '@vamos/core';
 import {
+  applyLiveState,
   getSetting,
   setMarketStatus,
   setSelectionOdds,
@@ -507,5 +509,112 @@ describe('POST /me/bets/:id/cash-out', () => {
       await setSetting(db, 'cash_out', previous ?? DEFAULT_CASH_OUT);
       clearGameSettingsCache(db);
     }
+  });
+});
+
+describe('POST /me/bets/:id/cash-out in play (the live bet delay)', () => {
+  /** An open single at 1.85 whose match is now live, its price shortened to 1.50. */
+  async function liveBet(user: LoggedInUser) {
+    const event = await freshEvent();
+    const bet = await placeSingle(user, event.home, birr(500));
+    expect(bet.status).toBe('open');
+    await db.transaction((tx) =>
+      applyLiveState(tx, event.eventId, {
+        status: 'live',
+        minute: 10,
+        period: '1H',
+        home: 0,
+        away: 0,
+      }),
+    );
+    await setOdds(event.home, 1500);
+    const offer = CashOutOfferView.parse((await getOffer(user, bet.id)).json());
+    expect(offer).toMatchObject({
+      available: true,
+      gross: toWire(expectedOffer(birr(500), 1850, 1500).gross),
+    });
+    ctx.sleep.calls = [];
+    ctx.sleep.during = null;
+    return { event, bet, offer };
+  }
+
+  afterAll(() => {
+    ctx.sleep.during = null;
+  });
+
+  it('waits the live bet delay, then pays the offer at the time the delay ends', async () => {
+    const user = await player();
+    const { bet, offer } = await liveBet(user);
+    const before = await cash(user);
+    const arrived = ctx.clock.now.getTime();
+    const response = await cashOut(user, bet.id, offer.gross);
+    expect(response.statusCode).toBe(200);
+    expect(ctx.sleep.calls).toEqual([DEFAULT_LIVE_BET_DELAY_MS]);
+    const body = CashOutResponse.parse(response.json());
+    expect(body.cashOut).toMatchObject({
+      gross: offer.gross,
+      net: offer.net,
+      cashedOutAt: new Date(arrived + DEFAULT_LIVE_BET_DELAY_MS).toISOString(),
+    });
+    expect(await cash(user)).toBe(before + BigInt(offer.net));
+  });
+
+  it('refuses when the odds move during the delay (409 with the fresh offer), then pays the re-confirmed one', async () => {
+    const user = await player();
+    const { event, bet, offer } = await liveBet(user);
+    const before = await cash(user);
+    // The price shortens while the request waits: a better offer, but not the one confirmed.
+    ctx.sleep.during = () => setOdds(event.home, 1400);
+    const refused = await cashOut(user, bet.id, offer.gross);
+    expect(refused.statusCode).toBe(409);
+    const error = apiError(refused);
+    expect(error.code).toBe('cashout_offer_changed');
+    const fresh = CashOutOfferChangedDetails.parse(error.details).offer;
+    expect(fresh.gross).toBe(toWire(expectedOffer(birr(500), 1850, 1400).gross));
+    expect(await cash(user)).toBe(before);
+    expect((await db.select().from(bets).where(eq(bets.id, bet.id)))[0]!.status).toBe('open');
+
+    ctx.sleep.during = null;
+    const paid = await cashOut(user, bet.id, fresh.gross);
+    expect(paid.statusCode).toBe(200);
+    expect(CashOutResponse.parse(paid.json()).cashOut.gross).toBe(fresh.gross);
+    expect(ctx.sleep.calls).toEqual([DEFAULT_LIVE_BET_DELAY_MS, DEFAULT_LIVE_BET_DELAY_MS]);
+  });
+
+  it('refuses when the market is suspended during the delay (409 cashout_unavailable)', async () => {
+    const user = await player();
+    const { event, bet, offer } = await liveBet(user);
+    ctx.sleep.during = () =>
+      db.transaction((tx) => setMarketStatus(tx, event.marketId, 'suspended')).then(() => {});
+    const refused = await cashOut(user, bet.id, offer.gross);
+    expect(refused.statusCode).toBe(409);
+    expect(apiError(refused)).toMatchObject({
+      code: 'cashout_unavailable',
+      details: { reason: 'leg_suspended' },
+    });
+    expect((await db.select().from(bets).where(eq(bets.id, bet.id)))[0]!.status).toBe('open');
+  });
+
+  it('answers at once, without waiting, what it would refuse anyway, and a replay', async () => {
+    const user = await player();
+    const { bet, offer } = await liveBet(user);
+    // Above the offer: the fresh offer at once.
+    const above = await cashOut(user, bet.id, (BigInt(offer.gross) + 1n).toString());
+    expect(above.statusCode).toBe(409);
+    expect(apiError(above).code).toBe('cashout_offer_changed');
+    expect(ctx.sleep.calls).toEqual([]);
+
+    const key = newKey();
+    expect((await cashOut(user, bet.id, offer.gross, key)).statusCode).toBe(200);
+    expect(ctx.sleep.calls).toEqual([DEFAULT_LIVE_BET_DELAY_MS]);
+    const replay = await cashOut(user, bet.id, offer.gross, key);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.headers[IDEMPOTENT_REPLAYED_HEADER]).toBe('true');
+    expect(ctx.sleep.calls).toEqual([DEFAULT_LIVE_BET_DELAY_MS]);
+
+    // A prematch bet cashes out at once.
+    const prematch = await placeSingle(user, (await freshEvent()).home, birr(50));
+    expect((await cashOut(user, prematch.id, prematch.cashOutOffer!.gross)).statusCode).toBe(200);
+    expect(ctx.sleep.calls).toEqual([DEFAULT_LIVE_BET_DELAY_MS]);
   });
 });

@@ -117,6 +117,16 @@ export function classifyCashOutError(error: unknown): CashOutFailure {
   return { kind: 'error', error };
 }
 
+/**
+ * Whether the server holds a cash-out of this bet for the live bet delay: an
+ * undecided leg's match has kicked off (past its start time a match is
+ * offered only while it is live). The confirm sheet then says it is
+ * confirming.
+ */
+export function waitsLiveDelay(bet: Pick<BetView, 'legs'>, now: number): boolean {
+  return bet.legs.some((leg) => leg.state === 'open' && Date.parse(leg.startTime) <= now);
+}
+
 /** Ids of the open bets that can have an offer (at most the endpoint's limit). */
 export function openBetIds(bets: readonly Pick<BetView, 'id' | 'status'>[]): string[] {
   return bets
