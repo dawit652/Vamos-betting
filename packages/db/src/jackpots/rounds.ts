@@ -403,6 +403,32 @@ export async function ensureJackpotRound(
   return { outcome: 'created', round };
 }
 
+/**
+ * A smaller copy of a template for quick demo and e2e rounds (pure): the
+ * same price and prizes on `gameCount` games. Each prize tier keeps its
+ * distance from "every game correct" (9 of 9 → 3 of 3, 8 of 9 → 2 of 3);
+ * tiers that would need no correct prediction are dropped, and the maximum
+ * combinations is capped at 3^gameCount. Throws RangeError unless
+ * 1 ≤ gameCount ≤ template.gameCount.
+ */
+export function shrinkJackpotTemplate(
+  template: JackpotTemplate,
+  gameCount: number,
+): JackpotTemplate {
+  if (!Number.isInteger(gameCount) || gameCount < 1 || gameCount > template.gameCount) {
+    throw new RangeError(`gameCount must be an integer between 1 and ${template.gameCount}`);
+  }
+  const drop = template.gameCount - gameCount;
+  return {
+    ...template,
+    gameCount,
+    maxCombinations: Math.min(template.maxCombinations, 3 ** gameCount),
+    prizeTiers: template.prizeTiers
+      .map((tier) => ({ ...tier, correct: tier.correct - drop }))
+      .filter((tier) => tier.correct >= 1),
+  };
+}
+
 /** 409 `jackpot_closed`, details `{ reason, status }`. */
 export function jackpotClosedError(reason: 'not_open' | 'closed' | 'game_started', status: string) {
   return domainConflict(

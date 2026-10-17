@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Santim } from './common';
+import { JackpotTemplateCodeSchema } from './jackpots';
 
 /**
  * The per-player push channel (Phase 7).
@@ -131,6 +132,30 @@ export const BetReopenedMessage = z.object({
   data: z.object({ ...BetRef }),
 });
 
+/**
+ * One of the player's jackpot entries was settled (won or lost) or refunded
+ * (void round): re-fetch it (GET /me/jackpot-entries/:id). The balance went
+ * up by net + refund.
+ */
+export const JackpotSettledMessage = z.object({
+  type: z.literal('jackpot.settled'),
+  data: z.object({
+    entryId: z.string(),
+    roundId: z.string(),
+    templateCode: JackpotTemplateCodeSchema,
+    status: z.enum(['won', 'lost', 'void']),
+    /** The prize before tax ("0" when lost or void). */
+    gross: Santim,
+    tax: Santim,
+    /** The prize paid to the balance ("0" when lost or void). */
+    net: Santim,
+    /** The cost refunded when the round was void, else "0". */
+    refund: Santim,
+    /** The most correct predictions of the entry's combinations (null when void). */
+    bestCorrect: z.number().int().nullable(),
+  }),
+});
+
 /** The player's balances changed (deposit, withdrawal, bet, settlement, cash-out…). */
 export const WalletChangedMessage = z.object({
   type: z.literal('wallet.changed'),
@@ -149,6 +174,7 @@ export const UserMessage = z.discriminatedUnion('type', [
   BetSettledMessage,
   BetCashedOutMessage,
   BetReopenedMessage,
+  JackpotSettledMessage,
   WalletChangedMessage,
 ]);
 export type UserMessage = z.infer<typeof UserMessage>;
@@ -161,5 +187,6 @@ export const USER_MESSAGE_TYPES = [
   'bet.settled',
   'bet.cashed_out',
   'bet.reopened',
+  'jackpot.settled',
   'wallet.changed',
 ] as const satisfies readonly UserMessageType[];

@@ -78,6 +78,20 @@ describe('UserMessage', () => {
       },
       { type: 'bet.cashed_out', data: { ...ref, gross: '15000', tax: '1000', net: '14000' } },
       { type: 'bet.reopened', data: { ...ref } },
+      {
+        type: 'jackpot.settled',
+        data: {
+          entryId: 'e1',
+          roundId: 'r1',
+          templateCode: 'daily9',
+          status: 'won',
+          gross: '100000',
+          tax: '19800',
+          net: '80200',
+          refund: '0',
+          bestCorrect: 9,
+        },
+      },
       { type: 'wallet.changed', data: { cash: '123456', bonus: '0' } },
     ];
     for (const message of messages) expect(UserMessage.parse(message)).toEqual(message);

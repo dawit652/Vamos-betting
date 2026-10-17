@@ -12,6 +12,7 @@ import {
   listRecentJackpotRounds,
   openJackpotRound,
   setMarketStatus,
+  shrinkJackpotTemplate,
   type CatalogIds,
 } from '../src/index';
 import { auditLog, jackpotGames, jackpotRounds, outboxEvents } from '../src/schema/index';
@@ -168,6 +169,38 @@ describe('createJackpotRound', () => {
       const error = await domainError(openRound(handle.db, events, { template }));
       expect(error).toMatchObject({ status: 422, code: 'jackpot_template_invalid' });
     }
+  });
+});
+
+describe('shrinkJackpotTemplate', () => {
+  it('keeps the price and prizes on fewer games, each tier as far from all correct', () => {
+    const daily = DEFAULT_JACKPOTS.daily9;
+    expect(shrinkJackpotTemplate(daily, 3)).toEqual({
+      ...daily,
+      gameCount: 3,
+      maxCombinations: 27,
+      prizeTiers: [
+        { correct: 3, kind: 'shared', amount: birr(100_000) },
+        { correct: 2, kind: 'fixed', amount: birr(200) },
+      ],
+    });
+    // 13 → 2 games: only the tiers for 13 and 12 correct still need a correct prediction.
+    expect(shrinkJackpotTemplate(DEFAULT_JACKPOTS.weekly13, 2).prizeTiers).toEqual([
+      { correct: 2, kind: 'shared', amount: birr(1_000_000) },
+      { correct: 1, kind: 'shared', amount: birr(100_000) },
+    ]);
+    expect(shrinkJackpotTemplate(daily, 9)).toEqual(daily);
+    for (const bad of [0, 10, 2.5]) {
+      expect(() => shrinkJackpotTemplate(daily, bad)).toThrow(RangeError);
+    }
+  });
+
+  it('opens a quick round from the next events', async () => {
+    const games = await createGames(handle.db, ids, 3, new Date(Date.now() + HOUR));
+    const round = await openRound(handle.db, games, {
+      template: shrinkJackpotTemplate(DEFAULT_JACKPOTS.daily9, 3),
+    });
+    expect(round).toMatchObject({ gameCount: 3, maxCombinations: 27, pool: birr(100_000) });
   });
 });
 

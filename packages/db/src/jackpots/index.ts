@@ -54,6 +54,7 @@ export {
   jackpotClosedError,
   listJackpotCandidateEvents,
   openJackpotRound,
+  shrinkJackpotTemplate,
   type CloseDueRoundsResult,
   type CreateJackpotRoundInput,
   type EnsureJackpotRoundInput,
