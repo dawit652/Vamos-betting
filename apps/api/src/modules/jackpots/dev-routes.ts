@@ -23,7 +23,12 @@ import { jackpotRoundView } from './views';
 export const DevJackpotRoundRequest = z.object({
   template: JackpotTemplateCodeSchema.default('daily9'),
   games: z.number().int().min(1).max(13).default(3),
-  leadSeconds: z.number().int().min(0).max(24 * 3600).default(30),
+  leadSeconds: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 3600)
+    .default(30),
 });
 export type DevJackpotRoundRequest = z.infer<typeof DevJackpotRoundRequest>;
 

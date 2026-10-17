@@ -30,7 +30,10 @@ export async function listJackpots(
   const now = deps.clock();
   const templateCode = query.template;
   const [open, recent] = await Promise.all([
-    listOpenJackpotRounds(deps.db, { now, ...(templateCode === undefined ? {} : { templateCode }) }),
+    listOpenJackpotRounds(deps.db, {
+      now,
+      ...(templateCode === undefined ? {} : { templateCode }),
+    }),
     listRecentJackpotRounds(deps.db, {
       limit: query.limit,
       ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
