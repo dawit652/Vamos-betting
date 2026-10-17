@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import type { BetView, EventSummary } from '@vamos/contracts';
 import { getBet, getWallet, myBets, placeBetApi, upcomingEvents } from '../support/api';
 import { API_URL, WEB_URL } from '../support/env';
-import { birr } from '../support/money';
+import { birr, santimIn } from '../support/money';
 import { ADULT_DATE_OF_BIRTH, randomPhone } from '../support/phone';
 import { balanceChip, registerAndVerify } from '../support/ui';
 
@@ -20,12 +20,20 @@ import { balanceChip, registerAndVerify } from '../support/ui';
  *   pick on B. Exactly one outcome of A happens, so the simulator and the
  *   worker settle the others as lost and leave one bet open with a won leg;
  * - that bet's offer (the won leg counts at once, B is priced at its current
- *   odds) is shown in My Bets; the player cashes out through the sheet, and
- *   the card, the balance chip and the API all agree on the paid amount.
+ *   odds) is shown in My Bets; the player opens the confirm sheet, which
+ *   survives the tab going out of view and back (the stream's resync
+ *   re-fetches the list silently), and cashes out. B is still prematch, so
+ *   the cash-out is instant (no live delay);
+ * - the paid net is at least what the sheet's button confirmed, and the
+ *   card, the balance chip and the API agree on it;
+ * - a second tab of the same player on My Bets, which sent no request,
+ *   learns of the cash-out only through the /me/stream push (worker →
+ *   Redis → API → browser): the bet leaves its Open list, a toast says it
+ *   was cashed out and its balance chip moves. The tab that cashed out
+ *   announces it once, not again when the push arrives.
  *
  * Nothing is faked: results come from the simulator, settlement from the
- * worker, the cash-out from the real endpoint. A live-delta refresh of the
- * offers and the /me/stream push are exercised by the page while it waits.
+ * worker, the cash-out from the real endpoint.
  */
 
 const TOP_UP = '100000'; // ETB 1,000
@@ -47,6 +55,18 @@ test.describe.configure({ mode: 'serial' });
 test.beforeEach(async ({ context }) => {
   await context.addCookies([{ name: 'vamos_locale', value: 'en', url: WEB_URL }]);
 });
+
+/** Makes the page believe its tab went out of view (or back), as a phone does on an app switch. */
+async function setVisibility(page: Page, state: 'hidden' | 'visible'): Promise<void> {
+  await page.evaluate((next) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => next });
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => next === 'hidden',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, state);
+}
 
 function mainSelections(event: EventSummary) {
   return event.mainMarket!.selections;
@@ -165,24 +185,62 @@ test('cash out a running accumulator through the confirm sheet', async ({ page }
 
   const cash = await getWallet(page.request).then((wallet) => BigInt(wallet.cash));
 
-  await test.step('cash out through the confirm sheet', async () => {
+  const other = await page.context().newPage();
+  await test.step('a second tab of the player shows the bet on My Bets', async () => {
+    await other.goto('/my-bets');
+    await expect(
+      other.locator('article').filter({ hasText: `Bet ${survivor.shortId}` }),
+    ).toBeVisible();
+    // Its stream is open only while it is in view.
+    expect(await other.evaluate(() => document.visibilityState)).toBe('visible');
+    await expect(balanceChip(other)).toHaveAttribute(
+      'aria-label',
+      `Balance: ETB ${birr(cash.toString())}`,
+    );
+  });
+
+  const sheet = page.getByRole('dialog', { name: 'Cash out this bet' });
+  await test.step('the confirm sheet survives the tab going out of view and back', async () => {
     const card = page.locator('article').filter({ hasText: `Bet ${survivor.shortId}` });
     await card.getByRole('button', { name: /^Cash out ETB / }).click();
-
-    const sheet = page.getByRole('dialog', { name: 'Cash out this bet' });
     await expect(sheet).toBeVisible();
     await expect(sheet.getByText('Your stake')).toBeVisible();
     await expect(sheet.getByText('Cash-out value')).toBeVisible();
     await expect(sheet.getByText('You receive')).toBeVisible();
 
+    // Back in view, the stream reconnects and resyncs: My Bets is fetched again, silently.
+    await setVisibility(page, 'hidden');
+    const refetched = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'GET' &&
+        /\/me\/bets\?/.test(response.url()) &&
+        response.url().includes('status=open'),
+    );
+    await setVisibility(page, 'visible');
+    expect((await refetched).ok()).toBe(true);
+    await page.waitForTimeout(500); // let React apply it
+    await expect(sheet).toBeVisible();
+    await expect(page.locator('article')).toHaveCount(1);
+  });
+
+  let confirmedNet = 0n;
+  await test.step('cash out through the confirm sheet', async () => {
     // The offer follows the odds: whatever the sheet ends up confirming is paid.
     // A "changed" note asks for one more confirmation (the sheet shows the new amounts).
     const confirm = sheet.getByRole('button', { name: /^(Cash out|Accept) ETB / });
     await expect(async () => {
-      if (await sheet.isVisible()) await confirm.click();
+      if (await sheet.isVisible()) {
+        confirmedNet = santimIn((await confirm.textContent()) ?? '');
+        await confirm.click();
+      }
       await expect(sheet).toBeHidden({ timeout: 5000 });
     }).toPass({ timeout: 30_000 });
     expect(offerNet).not.toBe('0');
+    expect(confirmedNet).toBeGreaterThan(0n);
+    // The sheet's own answer (from the HTTP response).
+    await expect(
+      page.getByText(/^Cashed out\. ETB [\d,]+\.\d{2} was added to your balance\.$/),
+    ).toBeVisible();
   });
 
   await test.step('the API, the balance and My Bets agree on what was paid', async () => {
@@ -191,7 +249,8 @@ test('cash out a running accumulator through the confirm sheet', async ({ page }
     expect(paid.cashedOut).not.toBeNull();
     const { gross, tax, net } = paid.cashedOut!;
     expect(BigInt(gross) - BigInt(tax)).toBe(BigInt(net));
-    expect(BigInt(net)).toBeGreaterThan(0n);
+    // Never less than the amount the player confirmed (the server pays the fresh offer when higher).
+    expect(BigInt(net)).toBeGreaterThanOrEqual(confirmedNet);
     expect(paid.cashOutOffer).toBeNull();
 
     const expected = cash + BigInt(net);
@@ -201,7 +260,19 @@ test('cash out a running accumulator through the confirm sheet', async ({ page }
       `Balance: ETB ${birr(expected.toString())}`,
     );
 
-    // Gone from Open (the list reacts to the response and the /me/stream push)...
+    // The other tab sent no request: the push alone tells it.
+    const pushed = `Bet ${survivor.shortId} cashed out. ETB ${birr(net)} was added to your balance.`;
+    await expect(other.getByText(pushed)).toBeVisible();
+    await expect(other.getByText('You have no open bets.')).toBeVisible();
+    await expect(balanceChip(other)).toHaveAttribute(
+      'aria-label',
+      `Balance: ETB ${birr(expected.toString())}`,
+    );
+    // The tab that cashed out said so itself, and does not repeat it for the push.
+    await expect(page.getByText(pushed)).toHaveCount(0);
+    await other.close();
+
+    // Gone from Open...
     await expect(page.getByText('You have no open bets.')).toBeVisible();
     // ...and shown as cashed out under Settled.
     await page.goto('/my-bets?tab=settled');
