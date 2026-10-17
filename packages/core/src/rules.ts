@@ -61,6 +61,12 @@ export interface CashOutConfig {
   minOffer: Santim;
 }
 
+/**
+ * How a cancelled (or abandoned, postponed) game of a jackpot counts:
+ * `all_win` counts every pick of the game as correct. Under every rule a
+ * draw with more than half of its games cancelled is void and every entry
+ * is refunded (isJackpotDrawVoid in jackpot.ts).
+ */
 export type JackpotCancelledRule = 'all_win';
 
 export interface JackpotPrizeTier {
@@ -76,11 +82,19 @@ export interface JackpotPrizeTier {
 
 export interface JackpotTemplate {
   code: 'daily9' | 'weekly13';
+  /**
+   * Whether new rounds of this template are opened. Rounds already open run
+   * to the end on the terms they were opened with.
+   */
+  enabled: boolean;
   gameCount: number;
   costPerCombination: Santim;
   maxCombinations: number;
   cancelledRule: JackpotCancelledRule;
-  /** Sorted by descending `correct`. */
+  /**
+   * Sorted by descending `correct`. The first tier (every game correct) is
+   * the advertised jackpot ("pool").
+   */
   prizeTiers: JackpotPrizeTier[];
 }
 
@@ -175,6 +189,7 @@ export const DEFAULT_RESPONSIBLE_GAMBLING: ResponsibleGamblingRules = {
 export const DEFAULT_JACKPOTS: Record<JackpotTemplate['code'], JackpotTemplate> = {
   daily9: {
     code: 'daily9',
+    enabled: true,
     gameCount: 9,
     costPerCombination: birr(10),
     maxCombinations: 1_024,
@@ -186,6 +201,7 @@ export const DEFAULT_JACKPOTS: Record<JackpotTemplate['code'], JackpotTemplate> 
   },
   weekly13: {
     code: 'weekly13',
+    enabled: true,
     gameCount: 13,
     costPerCombination: birr(10),
     maxCombinations: 4_096,

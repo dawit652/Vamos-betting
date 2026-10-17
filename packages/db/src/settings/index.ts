@@ -146,9 +146,10 @@ export const ResponsibleGamblingSchema = z.object({
   minAge: z.number().int().min(18).max(100),
 });
 
-const JackpotTemplateSchema = z
+export const JackpotTemplateSchema = z
   .object({
     code: z.enum(['daily9', 'weekly13']),
+    enabled: z.boolean(),
     gameCount: z.number().int().min(1).max(30),
     costPerCombination: positiveSantim,
     maxCombinations: z.number().int().min(1),
@@ -169,7 +170,7 @@ const JackpotTemplateSchema = z
     message: 'a prize tier cannot need more correct picks than there are games',
   });
 
-const JackpotsSchema = z
+export const JackpotsSchema = z
   .object({ daily9: JackpotTemplateSchema, weekly13: JackpotTemplateSchema })
   .refine(
     (jackpots) => jackpots.daily9.code === 'daily9' && jackpots.weekly13.code === 'weekly13',

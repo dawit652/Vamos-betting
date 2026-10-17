@@ -1,5 +1,6 @@
 import type { Santim } from './money';
-import type { JackpotCancelledRule, JackpotPrizeTier, JackpotTemplate } from './rules';
+import type { JackpotCancelledRule, JackpotPrizeTier, JackpotTemplate, TaxConfig } from './rules';
+import { computeWinningsTax } from './tax';
 
 /**
  * Betika-style 1X2 jackpots (daily 9-game, weekly 13-game). A player may pick
@@ -62,7 +63,7 @@ export function combinationCount(picks: JackpotPicks): number {
  */
 export function validateJackpotEntry(
   picks: JackpotPicks,
-  template: JackpotTemplate,
+  template: Pick<JackpotTemplate, 'gameCount' | 'maxCombinations' | 'costPerCombination'>,
 ): JackpotEntryCheck {
   const errors: string[] = [];
   const countOk = picks.length === template.gameCount;
@@ -232,6 +233,207 @@ export function entryPrize(
     prize += (distribution[payout.correct] ?? 0n) * payout.prizePerCombination;
   }
   return prize;
+}
+
+/**
+ * Whether a draw is void, so that every entry is refunded instead of
+ * settled: more than half of its games are cancelled (2 × cancelled >
+ * games). This holds under every cancelled rule: with `all_win` a cancelled
+ * game counts every pick as correct, so a draw that is mostly cancelled
+ * would no longer test any prediction. Throws on an unknown rule.
+ */
+export function isJackpotDrawVoid(
+  results: readonly JackpotGameResult[],
+  rule: JackpotCancelledRule,
+): boolean {
+  switch (rule) {
+    case 'all_win': {
+      const cancelled = results.filter((result) => result === 'cancelled').length;
+      return 2 * cancelled > results.length;
+    }
+    default: {
+      const unknown: never = rule;
+      throw new RangeError(`unknown jackpot cancelled rule: ${String(unknown)}`);
+    }
+  }
+}
+
+/**
+ * Whether one game's picks hit its result: null while the game has no
+ * result; under `all_win` a cancelled game is a hit for any pick.
+ */
+export function jackpotPickHit(
+  gamePicks: readonly Outcome1X2[],
+  result: JackpotGameResult | null,
+  rule: JackpotCancelledRule,
+): boolean | null {
+  if (result === null) return null;
+  if (result === 'cancelled') return cancelledMatches(gamePicks, rule) > 0;
+  return gamePicks.includes(result);
+}
+
+/** The most correct predictions any combination of the entry has (the highest non-empty bucket). */
+export function bestCorrect(distribution: readonly bigint[]): number {
+  for (let k = distribution.length - 1; k > 0; k -= 1) {
+    if ((distribution[k] ?? 0n) > 0n) return k;
+  }
+  return 0;
+}
+
+/** One entry of a draw, as settleJackpotDraw takes it. */
+export interface JackpotDrawEntry {
+  picks: JackpotPicks;
+  /** What the entry cost (its stake): positive. Tax applies to the prize above it. */
+  cost: Santim;
+}
+
+/** How one entry of a draw ends (settleJackpotDraw). */
+export interface JackpotEntrySettlement {
+  /** won: a prize above zero; lost: none; void: the draw is void and the cost is refunded. */
+  status: 'won' | 'lost' | 'void';
+  /** Combinations by exact number of correct predictions (null when the draw is void). */
+  distribution: bigint[] | null;
+  /** The most correct predictions of any combination (null when void). */
+  bestCorrect: number | null;
+  /** The prize before tax: Σ over tiers of its combinations at that tier × the prize per combination. */
+  gross: Santim;
+  /** Winnings tax on the prize (computeWinningsTax with the entry's cost as the stake). */
+  tax: Santim;
+  /** gross − tax: what the player is paid. */
+  net: Santim;
+  /** The cost given back when the draw is void, else 0. */
+  refund: Santim;
+}
+
+export interface JackpotDrawTotals {
+  /** Σ cost of the entries. */
+  stakes: Santim;
+  gross: Santim;
+  tax: Santim;
+  net: Santim;
+  refunds: Santim;
+  /** Entries with a prize above zero. */
+  winners: number;
+  /** Shared-pool money nobody won (or lost to rounding): it stays with the house. */
+  undistributed: Santim;
+}
+
+export interface JackpotDrawSettlement {
+  void: boolean;
+  /** Games whose result is `cancelled`. */
+  cancelledGames: number;
+  /** The prize of every tier, in tier order (computeTierPayouts); empty when the draw is void. */
+  payouts: TierPayout[];
+  /** One per entry, in the order given. */
+  entries: JackpotEntrySettlement[];
+  totals: JackpotDrawTotals;
+}
+
+/**
+ * Settles every entry of a draw once all of its games have a result.
+ *
+ * - Void draw (isJackpotDrawVoid): every entry is refunded its cost; no
+ *   prize is paid and nothing is taxed.
+ * - Otherwise each entry's correct distribution (correctDistribution with
+ *   the draw's cancelled rule) is added up over all entries into the
+ *   winning combinations per tier (jackpotTierWinners); computeTierPayouts
+ *   gives the prize per winning combination (shared pools split equally
+ *   and rounded down, fixed prizes per combination) and entryPrize the
+ *   entry's gross prize. The winnings tax is that of a bet: computeWinningsTax
+ *   with the entry's cost as the stake, so only the prize above the cost is
+ *   winnings (with the configured base and exemption) and a prize never
+ *   pays back less than min(prize, cost).
+ *
+ * Throws RangeError when an entry's picks do not cover every game, a cost is
+ * not positive, or the tiers or results are invalid.
+ */
+export function settleJackpotDraw(input: {
+  entries: readonly JackpotDrawEntry[];
+  results: readonly JackpotGameResult[];
+  cancelledRule: JackpotCancelledRule;
+  prizeTiers: readonly JackpotPrizeTier[];
+  tax: TaxConfig;
+}): JackpotDrawSettlement {
+  const { entries, results, cancelledRule, prizeTiers, tax } = input;
+  for (const entry of entries) {
+    if (typeof entry.cost !== 'bigint' || entry.cost <= 0n) {
+      throw new RangeError(`a jackpot entry cost must be positive (got ${String(entry.cost)})`);
+    }
+  }
+  const cancelledGames = results.filter((result) => result === 'cancelled').length;
+  const stakes = entries.reduce((sum, entry) => sum + entry.cost, 0n);
+
+  if (isJackpotDrawVoid(results, cancelledRule)) {
+    // Still check that every entry matches the games (a bug otherwise).
+    for (const entry of entries) {
+      if (entry.picks.length !== results.length) {
+        throw new RangeError(
+          `expected ${results.length} jackpot picks but got ${entry.picks.length}`,
+        );
+      }
+    }
+    return {
+      void: true,
+      cancelledGames,
+      payouts: [],
+      entries: entries.map(
+        (entry): JackpotEntrySettlement => ({
+          status: 'void',
+          distribution: null,
+          bestCorrect: null,
+          gross: 0n,
+          tax: 0n,
+          net: 0n,
+          refund: entry.cost,
+        }),
+      ),
+      totals: {
+        stakes,
+        gross: 0n,
+        tax: 0n,
+        net: 0n,
+        refunds: stakes,
+        winners: 0,
+        undistributed: 0n,
+      },
+    };
+  }
+
+  const distributions = entries.map((entry) =>
+    correctDistribution(entry.picks, results, cancelledRule),
+  );
+  const payouts = computeTierPayouts(prizeTiers, jackpotTierWinners(distributions));
+  const settled = entries.map((entry, i): JackpotEntrySettlement => {
+    const distribution = distributions[i] ?? [];
+    const gross = entryPrize(distribution, payouts);
+    const { amount } = computeWinningsTax({ stake: entry.cost, grossPayout: gross, config: tax });
+    return {
+      status: gross > 0n ? 'won' : 'lost',
+      distribution,
+      bestCorrect: bestCorrect(distribution),
+      gross,
+      tax: amount,
+      net: gross - amount,
+      refund: 0n,
+    };
+  });
+  const sum = (pick: (entry: JackpotEntrySettlement) => Santim) =>
+    settled.reduce((total, entry) => total + pick(entry), 0n);
+  return {
+    void: false,
+    cancelledGames,
+    payouts,
+    entries: settled,
+    totals: {
+      stakes,
+      gross: sum((entry) => entry.gross),
+      tax: sum((entry) => entry.tax),
+      net: sum((entry) => entry.net),
+      refunds: 0n,
+      winners: settled.filter((entry) => entry.status === 'won').length,
+      undistributed: payouts.reduce((total, payout) => total + payout.undistributed, 0n),
+    },
+  };
 }
 
 function countCombinations(picks: JackpotPicks): bigint {

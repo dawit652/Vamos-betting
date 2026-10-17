@@ -93,6 +93,7 @@ describe('DEFAULT_JACKPOTS', () => {
     expect(DEFAULT_JACKPOTS.daily9.maxCombinations).toBe(1_024);
     expect(DEFAULT_JACKPOTS.daily9).toEqual({
       code: 'daily9',
+      enabled: true,
       gameCount: 9,
       costPerCombination: birr(10),
       maxCombinations: 1_024,
@@ -107,6 +108,7 @@ describe('DEFAULT_JACKPOTS', () => {
   it('pins the weekly 13 template', () => {
     expect(DEFAULT_JACKPOTS.weekly13).toEqual({
       code: 'weekly13',
+      enabled: true,
       gameCount: 13,
       costPerCombination: birr(10),
       maxCombinations: 4_096,
