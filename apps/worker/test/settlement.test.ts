@@ -185,7 +185,8 @@ describe('settlement consumer', () => {
         .update(schema.outboxEvents)
         .set({ publishedAt: null })
         .where(eq(schema.outboxEvents.id, resultedRow!.id));
-      expect(await dispatcher.run()).toMatchObject({ claimed: 1, published: 1, jobs: 1 });
+      // Bet settlement and jackpot settlement jobs.
+      expect(await dispatcher.run()).toMatchObject({ claimed: 1, published: 1, jobs: 2 });
       await new Promise((resolve) => setTimeout(resolve, 300));
       expect(await settlementQueue.getJobCounts()).toEqual(countsBefore);
       const again = await settlementQueue.getJob(jobId);
