@@ -128,7 +128,10 @@ export async function runJackpotRounds(
 }
 
 /** The round task as an interval task (every 15 s by default). */
-export function jackpotRoundsTask(ctx: TaskContext, options: JackpotRoundsOptions = {}): IntervalTask {
+export function jackpotRoundsTask(
+  ctx: TaskContext,
+  options: JackpotRoundsOptions = {},
+): IntervalTask {
   return intervalTask({
     name: 'jackpot-rounds',
     intervalMs: options.intervalMs ?? JACKPOT_ROUNDS_INTERVAL_MS,
