@@ -153,6 +153,9 @@ describe('createTasks', () => {
   const PHASE_4 = [
     'settlement',
     'settlement-sweep',
+    'jackpot-rounds',
+    'jackpot-settlement',
+    'jackpot-settlement-sweep',
     'bet-acceptance',
     'bet-acceptance-sweep',
     'payouts',

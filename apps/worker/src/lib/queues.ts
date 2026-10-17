@@ -9,6 +9,11 @@ export const QUEUE_NAMES = {
    * market.resulted (a market resulted early in play): settle that market's bets.
    */
   settlement: 'settlement',
+  /**
+   * event.resulted / event.result_corrected / market.resulted: settle the
+   * jackpot rounds with a game on that event (or 1X2 market) once complete.
+   */
+  jackpotSettlement: 'jackpot-settlement',
   /** bet.placed of a live bet: accept or reject it once its delay is over (delayed job). */
   betAcceptance: 'bet-acceptance',
   /** payment.withdrawal_approved: send the payout to the provider. */

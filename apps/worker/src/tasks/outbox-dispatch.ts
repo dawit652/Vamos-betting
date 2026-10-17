@@ -1,4 +1,4 @@
-import type { UserMessage } from '@vamos/contracts';
+import { JackpotTemplateCodeSchema, type UserMessage } from '@vamos/contracts';
 import {
   BET_ACCEPTED,
   BET_CASHED_OUT,
@@ -11,6 +11,8 @@ import {
   DEPOSIT_SUCCEEDED,
   EVENT_RESULT_CORRECTED,
   EVENT_RESULTED,
+  JACKPOT_ENTERED,
+  JACKPOT_SETTLED,
   MARKET_RESULTED,
   markOutboxFailed,
   markOutboxPublished,
@@ -166,6 +168,16 @@ const marketSettlementRoute: OutboxRoute = (row) => {
     marketId: payload.marketId,
   };
   return { queue: QUEUE_NAMES.settlement, name: row.type, data };
+};
+
+/**
+ * A resulted event (or a 1X2 market resulted early) may complete a jackpot
+ * round: the `jackpot-settlement` consumer settles the rounds with a game
+ * on it. Same job data as the bet settlement.
+ */
+const jackpotSettlementRoute: OutboxRoute = (row, now) => {
+  const job = row.type === MARKET_RESULTED ? marketSettlementRoute(row, now) : settlementRoute(row, now);
+  return job === null ? null : { ...job, queue: QUEUE_NAMES.jackpotSettlement };
 };
 
 const betPlacedPayload = z.object({
@@ -330,6 +342,30 @@ const USER_NOTIFICATIONS: Readonly<
       return { userId, messages: [{ type: 'bet.reopened', data: { betId, shortId } }] };
     },
   },
+  // Jackpots: the entry's cost left the balance; an entry settled or refunded.
+  [JACKPOT_ENTERED]: { wallet: true, messages: walletOnly },
+  [JACKPOT_SETTLED]: {
+    wallet: true,
+    messages: (payload) => {
+      const parsed = z
+        .object({
+          entryId: z.uuid(),
+          roundId: z.uuid(),
+          userId: z.uuid(),
+          templateCode: JackpotTemplateCodeSchema,
+          status: z.enum(['won', 'lost', 'void']),
+          gross: wireSantim,
+          tax: wireSantim,
+          net: wireSantim,
+          refund: wireSantim,
+          bestCorrect: z.number().int().nullable(),
+        })
+        .safeParse(payload);
+      if (!parsed.success) return null;
+      const { userId, ...data } = parsed.data;
+      return { userId, messages: [{ type: 'jackpot.settled', data }] };
+    },
+  },
   // Payments: a deposit credited, a withdrawal's hold taken or given back, a payout sent.
   [DEPOSIT_SUCCEEDED]: { wallet: true, messages: walletOnly },
   [WITHDRAWAL_REQUESTED]: { wallet: true, messages: walletOnly },
@@ -376,15 +412,17 @@ const userNotifyRoute: OutboxRoute = (row) => {
 
 /** Outbox type -> the jobs it fans out to. */
 export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = {
-  [EVENT_RESULTED]: [settlementRoute],
-  [EVENT_RESULT_CORRECTED]: [settlementRoute],
-  [MARKET_RESULTED]: [marketSettlementRoute],
+  [EVENT_RESULTED]: [settlementRoute, jackpotSettlementRoute],
+  [EVENT_RESULT_CORRECTED]: [settlementRoute, jackpotSettlementRoute],
+  [MARKET_RESULTED]: [marketSettlementRoute, jackpotSettlementRoute],
   [BET_PLACED]: [betAcceptanceRoute, userNotifyRoute],
   [BET_ACCEPTED]: [userNotifyRoute],
   [BET_REJECTED]: [userNotifyRoute],
   [BET_SETTLED]: [userNotifyRoute],
   [BET_CASHED_OUT]: [userNotifyRoute],
   [BET_REOPENED]: [userNotifyRoute],
+  [JACKPOT_ENTERED]: [userNotifyRoute],
+  [JACKPOT_SETTLED]: [userNotifyRoute],
   [WITHDRAWAL_APPROVED]: [payoutRoute],
   [DEPOSIT_SUCCEEDED]: [smsRoute, userNotifyRoute],
   [WITHDRAWAL_REQUESTED]: [userNotifyRoute],

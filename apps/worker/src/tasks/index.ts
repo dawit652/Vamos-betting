@@ -9,6 +9,14 @@ import {
 import type { TaskContext } from './context';
 import { depositReconcileTask, type DepositReconcileOptions } from './deposit-reconcile';
 import { feedIngestTask, type FeedIngestOptions } from './feed-ingest';
+import {
+  jackpotRoundsTask,
+  jackpotSettlementSweepTask,
+  jackpotSettlementTask,
+  type JackpotRoundsOptions,
+  type JackpotSettlementOptions,
+  type JackpotSettlementSweepOptions,
+} from './jackpots';
 import { liveSimTask, type LiveSimOptions } from './live-sim';
 import { outboxDispatchTask, type OutboxDispatchOptions } from './outbox-dispatch';
 import {
@@ -35,6 +43,9 @@ export interface TaskOptions {
   prematchDrift?: PrematchDriftOptions;
   settlement?: SettlementOptions;
   settlementSweep?: SettlementSweepOptions;
+  jackpotRounds?: JackpotRoundsOptions;
+  jackpotSettlement?: JackpotSettlementOptions;
+  jackpotSettlementSweep?: JackpotSettlementSweepOptions;
   betAcceptance?: BetAcceptanceOptions;
   betAcceptanceSweep?: BetAcceptanceSweepOptions;
   payouts?: PayoutTaskOptions;
@@ -51,7 +62,8 @@ export interface TaskOptions {
  * loadConfig() already refuses outside demo mode; the mode is checked here
  * again so simulated odds can never reach a licensed (real-money) database.
  *
- * Settlement (and its sweep), live bet acceptance, the payout worker (and
+ * Settlement (and its sweep), the jackpot rounds, their settlement (and its
+ * sweep), live bet acceptance, the payout worker (and
  * its sweep), deposit reconciliation, SMS notifications, player push
  * messages and the outbox dispatcher run in every mode and with every feed; the payment providers in
  * ctx.payments are whatever PAYMENT_PROVIDERS enables (only the mock one in
@@ -77,6 +89,9 @@ export function createTasks(
   tasks.push(
     settlementTask(ctx, options.settlement),
     settlementSweepTask(ctx, options.settlementSweep),
+    jackpotRoundsTask(ctx, options.jackpotRounds),
+    jackpotSettlementTask(ctx, options.jackpotSettlement),
+    jackpotSettlementSweepTask(ctx, options.jackpotSettlementSweep),
     betAcceptanceTask(ctx, options.betAcceptance),
     betAcceptanceSweepTask(ctx, options.betAcceptanceSweep),
     payoutTask(ctx, options.payouts),

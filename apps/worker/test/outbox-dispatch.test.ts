@@ -31,12 +31,14 @@ import {
 let t: WorkerTestContext;
 let settlementQueue: Queue;
 let acceptanceQueue: Queue;
+let jackpotQueue: Queue;
 
 beforeAll(async () => {
   t = await createWorkerTestContext();
   const opts = { connection: { url: REDIS_URL }, prefix: t.queuePrefix };
   settlementQueue = new Queue(QUEUE_NAMES.settlement, opts);
   acceptanceQueue = new Queue(QUEUE_NAMES.betAcceptance, opts);
+  jackpotQueue = new Queue(QUEUE_NAMES.jackpotSettlement, opts);
   // Rows written while seeding are not part of these tests.
   await t.db.db.update(schema.outboxEvents).set({ publishedAt: new Date() });
 }, SETUP_TIMEOUT);
@@ -44,6 +46,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await settlementQueue?.close();
   await acceptanceQueue?.close();
+  await jackpotQueue?.close();
   await t?.close();
 }, SETUP_TIMEOUT);
 
@@ -105,7 +108,8 @@ describe('outbox dispatcher', () => {
         expect(first).toMatchObject({
           claimed: 4,
           published: 4,
-          jobs: 2,
+          // event.resulted: bet settlement and jackpot settlement; the pending bet: acceptance.
+          jobs: 3,
           failed: 0,
           redisDown: false,
         });
@@ -116,6 +120,12 @@ describe('outbox dispatcher', () => {
         const settle = await settlementQueue.getJob(outboxJobId(await outboxRow(resulted)));
         expect(settle?.name).toBe(EVENT_RESULTED);
         expect(settle?.data as SettlementJobData).toEqual({
+          outboxId: resulted.toString(),
+          type: EVENT_RESULTED,
+          eventId,
+        });
+        const jackpot = await jackpotQueue.getJob(outboxJobId(await outboxRow(resulted)));
+        expect(jackpot?.data as SettlementJobData).toEqual({
           outboxId: resulted.toString(),
           type: EVENT_RESULTED,
           eventId,
@@ -142,15 +152,17 @@ describe('outbox dispatcher', () => {
         const counts = async () => ({
           settlement: await settlementQueue.count(),
           acceptance: await acceptanceQueue.count(),
+          jackpot: await jackpotQueue.count(),
         });
         const before = await counts();
-        expect(await dispatcher.run()).toMatchObject({ claimed: 2, published: 2, jobs: 2 });
+        expect(await dispatcher.run()).toMatchObject({ claimed: 2, published: 2, jobs: 3 });
         expect(await counts()).toEqual(before);
-        expect(before).toEqual({ settlement: 1, acceptance: 1 });
+        expect(before).toEqual({ settlement: 1, acceptance: 1, jackpot: 1 });
       } finally {
         await dispatcher.close();
         await settlementQueue.obliterate({ force: true });
         await acceptanceQueue.obliterate({ force: true });
+        await jackpotQueue.obliterate({ force: true });
       }
     },
     TEST_TIMEOUT,
@@ -324,7 +336,8 @@ describe('outbox dispatcher', () => {
       } finally {
         await dispatcher.close();
       }
-      expect(added).toBe(10);
+      // Two jobs per run (bet and jackpot settlement).
+      expect(added).toBe(20);
       const row = await outboxRow(id);
       expect(row).toMatchObject({ attempts: 0, publishedAt: null });
       expect(row.lastError).toContain('OOM');
@@ -333,10 +346,11 @@ describe('outbox dispatcher', () => {
       // Redis takes writes again: the row goes out.
       const healthy = createOutboxDispatcher(t.ctx, { maxAttempts: 3 });
       try {
-        expect(await healthy.run()).toMatchObject({ claimed: 1, published: 1, jobs: 1 });
+        expect(await healthy.run()).toMatchObject({ claimed: 1, published: 1, jobs: 2 });
       } finally {
         await healthy.close();
         await settlementQueue.obliterate({ force: true });
+        await jackpotQueue.obliterate({ force: true });
       }
     },
     TEST_TIMEOUT,
