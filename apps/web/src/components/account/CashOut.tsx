@@ -17,7 +17,7 @@ import {
   waitsLiveDelay,
 } from '@/lib/cashout/offer';
 import { formatMoney } from '@/lib/format';
-import { markAnnounced, pushToast } from '@/lib/user-stream/toast-bus';
+import { announcing, pushToast } from '@/lib/user-stream/toast-bus';
 import { useSession } from '@/providers/SessionProvider';
 import { createIntentKeys, isDefiniteRefusal } from '../payments/payments';
 import { Alert, Row } from './ui';
@@ -140,9 +140,9 @@ function CashOutSheet({
     // One key per confirmation of one amount: a retry after a timeout reuses it.
     const key = keys.current.get(`${bet.id}:${shown.gross}`);
     try {
-      const response = await cashOutApi.execute(bet.id, shown.gross, key);
+      // Marked as announced before the request: the push can beat the response.
+      const response = await announcing(bet.id, () => cashOutApi.execute(bet.id, shown.gross, key));
       keys.current.clear();
-      markAnnounced(bet.id);
       pushToast('account.myBets.cashOut.done', { amount: formatMoney(response.cashOut.net) });
       void refreshWallet();
       onCashedOut(response);

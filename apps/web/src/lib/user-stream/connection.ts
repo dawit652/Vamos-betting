@@ -1,5 +1,10 @@
 import type { UserMessage } from '@vamos/contracts';
 import { PUBLIC_API_URL } from '@/lib/api/config';
+import {
+  browserSseEnvironment,
+  openResilientSource,
+  type SseEnvironment,
+} from '@/lib/sse/resilient';
 import { parseUserFrame, USER_MESSAGE_TYPES } from './messages';
 
 /**
@@ -7,13 +12,12 @@ import { parseUserFrame, USER_MESSAGE_TYPES } from './messages';
  * components listen (the toast host, My Bets, the betslip's placed-bet view).
  * It opens with the first listener and closes with the last. Pub/sub has no
  * replay, so listeners also get a "resync" call whenever frames may have been
- * missed (reconnect, tab back in view): re-fetch what you show then.
+ * missed (reconnect, stall, tab back in view, the server's resync): re-fetch
+ * what you show then. Reconnects, backoff and stall detection are
+ * openResilientSource's (lib/sse/resilient.ts).
  *
  * Browser-only; the hook that mounts it is in useUserStream.ts.
  */
-
-const RECONNECT_MIN_MS = 3_000;
-const RECONNECT_MAX_MS = 60_000;
 
 export interface UserStreamListener {
   onMessage: (message: UserMessage) => void;
@@ -21,81 +25,55 @@ export interface UserStreamListener {
   onResync?: () => void;
 }
 
-const listeners = new Set<UserStreamListener>();
-let source: EventSource | null = null;
-let retryTimer: ReturnType<typeof setTimeout> | undefined;
-let failures = 0;
-let missed = false;
-let visibilityBound = false;
-
-function emitResync(): void {
-  for (const listener of [...listeners]) listener.onResync?.();
+export interface UserStreamConnection {
+  /** Starts listening; returns the function that stops. */
+  subscribe(listener: UserStreamListener): () => void;
 }
 
-function onFrame(event: MessageEvent<string>): void {
-  const message = parseUserFrame(event.type, event.data);
-  if (message === null) return;
-  for (const listener of [...listeners]) listener.onMessage(message);
-}
+/** A shared connection to `url` (tests pass their own environment). */
+export function createUserStreamConnection(
+  environment: () => SseEnvironment | null,
+  url: string,
+): UserStreamConnection {
+  const listeners = new Set<UserStreamListener>();
+  let stop: (() => void) | null = null;
 
-function close(): void {
-  clearTimeout(retryTimer);
-  if (source === null) return;
-  source.close();
-  source = null;
-}
-
-function connect(): void {
-  clearTimeout(retryTimer);
-  if (source !== null || listeners.size === 0 || typeof EventSource === 'undefined') return;
-  if (document.visibilityState === 'hidden') {
-    missed = true;
-    return;
-  }
-  const next = new EventSource(`${PUBLIC_API_URL}/me/stream`, { withCredentials: true });
-  source = next;
-  for (const type of USER_MESSAGE_TYPES) next.addEventListener(type, onFrame as EventListener);
-  next.onopen = () => {
-    failures = 0;
-    if (missed) emitResync();
-    missed = false;
+  const open = () => {
+    const env = environment();
+    if (env === null) return null;
+    return openResilientSource({
+      env,
+      url,
+      withCredentials: true,
+      events: USER_MESSAGE_TYPES,
+      onEvent: (type, data) => {
+        const message = parseUserFrame(type, data);
+        if (message === null) return;
+        for (const listener of [...listeners]) listener.onMessage(message);
+      },
+      onResync: () => {
+        for (const listener of [...listeners]) listener.onResync?.();
+      },
+    });
   };
-  next.onerror = () => {
-    missed = true;
-    // A network error: the browser reconnects by itself. A refusal (401, 503,
-    // a proxy's 502) closes the stream for good: reopen it with backoff.
-    if (next.readyState !== EventSource.CLOSED) return;
-    close();
-    const delay = Math.min(RECONNECT_MIN_MS * 2 ** failures, RECONNECT_MAX_MS);
-    failures += 1;
-    retryTimer = setTimeout(connect, delay);
+
+  return {
+    subscribe(listener) {
+      listeners.add(listener);
+      stop ??= open();
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size > 0) return;
+        stop?.();
+        stop = null;
+      };
+    },
   };
 }
 
-function onVisibility(): void {
-  if (document.visibilityState === 'hidden') {
-    if (source !== null) missed = true;
-    close();
-  } else {
-    connect();
-  }
-}
+const shared = createUserStreamConnection(browserSseEnvironment, `${PUBLIC_API_URL}/me/stream`);
 
-/** Starts listening; returns the function that stops. */
+/** Starts listening to the player's stream; returns the function that stops. */
 export function subscribeUserStream(listener: UserStreamListener): () => void {
-  listeners.add(listener);
-  if (!visibilityBound) {
-    document.addEventListener('visibilitychange', onVisibility);
-    visibilityBound = true;
-  }
-  connect();
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size > 0) return;
-    close();
-    missed = false;
-    failures = 0;
-    document.removeEventListener('visibilitychange', onVisibility);
-    visibilityBound = false;
-  };
+  return shared.subscribe(listener);
 }

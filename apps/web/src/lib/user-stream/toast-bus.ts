@@ -39,3 +39,26 @@ export function wasAnnounced(betId: string, now: number = Date.now()): boolean {
   const at = handled.get(betId);
   return at !== undefined && now - at <= HANDLED_MS;
 }
+
+/** Forget that `betId` was announced (the request that would have announced it failed). */
+export function unmarkAnnounced(betId: string): void {
+  handled.delete(betId);
+}
+
+/**
+ * Runs `request`, whose answer the page announces itself, with `betId`
+ * marked as announced from the start: the push about the same outcome can
+ * arrive before the HTTP response (it trails the commit by as little as a few
+ * milliseconds) and must not be toasted as well. When the request fails the
+ * mark is cleared, so a push about the bet is shown after all (a timed-out
+ * cash-out may still have gone through).
+ */
+export async function announcing<T>(betId: string, request: () => Promise<T>): Promise<T> {
+  markAnnounced(betId);
+  try {
+    return await request();
+  } catch (error) {
+    unmarkAnnounced(betId);
+    throw error;
+  }
+}

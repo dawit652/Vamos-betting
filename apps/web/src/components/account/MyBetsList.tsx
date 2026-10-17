@@ -24,9 +24,11 @@ export function MyBetsList({ tab }: { tab: BetListStatus }) {
     [tab],
   );
   const list = usePagedList(fetchPage);
-  const { setItems, reload } = list;
+  const { setItems, refresh } = list;
 
   // A push message about a bet (accepted, settled, cashed out, re-opened): re-fetch that bet.
+  // After a resync (reconnect, tab back in view) the loaded pages are re-fetched silently:
+  // no skeleton, so an open cash-out sheet, the scroll position and later pages stay.
   useUserStream((message) => {
     const { betId } = describeUserMessage(message);
     if (betId === null) return;
@@ -34,7 +36,7 @@ export function MyBetsList({ tab }: { tab: BetListStatus }) {
       (bet) => setItems((items) => reconcileBet(items, bet, tab)),
       () => undefined,
     );
-  }, reload);
+  }, refresh);
 
   // Cash-out offers follow the live odds: on a live delta of an open bet's match, re-fetch them.
   const itemsRef = useRef(list.items);

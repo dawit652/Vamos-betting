@@ -25,6 +25,7 @@ import {
   previewEnd,
 } from './exclusion';
 import { KYC_LABEL } from './kyc';
+import { refetchPages } from './paging';
 import {
   buildLimitsRequest,
   limitFormFrom,
@@ -365,6 +366,43 @@ describe('wallet', () => {
       { id: 'b' },
       { id: 'c' },
     ]);
+  });
+});
+
+describe('paging: a silent refresh after a resync', () => {
+  // Bets c (settled meanwhile) left the list; x is new.
+  const server = ['x', 'a', 'b', 'd', 'e', 'f', 'g'].map((id) => ({ id }));
+  const calls: Array<string | null> = [];
+  const fetchPage = async (cursor: string | null) => {
+    calls.push(cursor);
+    const start = cursor === null ? 0 : Number(cursor);
+    const items = server.slice(start, start + 2);
+    const next = start + 2 < server.length ? String(start + 2) : null;
+    return { items, nextCursor: next };
+  };
+
+  it('fetches as many pages as were loaded, from the first, as one list with the new cursor', async () => {
+    calls.length = 0;
+    const signal = new AbortController().signal;
+    expect(await refetchPages(fetchPage, 2, signal)).toEqual({
+      items: [{ id: 'x' }, { id: 'a' }, { id: 'b' }, { id: 'd' }],
+      nextCursor: '4',
+      pages: 2,
+    });
+    expect(calls).toEqual([null, '2']);
+  });
+
+  it('stops at the end of the list, and fetches at least the first page', async () => {
+    calls.length = 0;
+    const signal = new AbortController().signal;
+    expect(await refetchPages(fetchPage, 9, signal)).toMatchObject({ nextCursor: null, pages: 4 });
+    expect((await refetchPages(fetchPage, 0, signal)).pages).toBe(1);
+  });
+
+  it('gives up when aborted (the list was reloaded or left)', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    await expect(refetchPages(fetchPage, 2, abort.signal)).rejects.toThrow();
   });
 });
 
