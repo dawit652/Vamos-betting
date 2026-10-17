@@ -252,9 +252,7 @@ describe('GET /jackpots and /jackpots/:id', () => {
     expect(settled.games.every((game) => game.result === '1')).toBe(true);
     expect(settled.settlement).toMatchObject({ void: false, winners: 0, cancelledGames: 0 });
 
-    const weeklyOnly = JackpotListResponse.parse(
-      (await get('/jackpots?template=weekly13')).json(),
-    );
+    const weeklyOnly = JackpotListResponse.parse((await get('/jackpots?template=weekly13')).json());
     expect(weeklyOnly.open.map((round) => round.id)).toEqual([weekly.roundId]);
     expect(weeklyOnly.recent).toEqual([]);
 
@@ -353,7 +351,11 @@ describe('POST /jackpots/:id/entries', () => {
       maxCombinations: 8,
     });
 
-    for (const picks of [[['1', '1'], ['X'], ['2']], [[], ['X'], ['2']], [['3'], ['X'], ['2']]]) {
+    for (const picks of [
+      [['1', '1'], ['X'], ['2']],
+      [[], ['X'], ['2']],
+      [['3'], ['X'], ['2']],
+    ]) {
       const malformed = await enter(user, roundId, picks);
       expect(malformed.statusCode).toBe(400);
       expect(apiError(malformed).code).toBe('validation_error');
@@ -476,7 +478,9 @@ describe('GET /me/jackpot-entries', () => {
     const second = await openRound();
     const owner = await player();
     const other = await player();
-    const a = JackpotEntryView.parse((await enter(owner, first.roundId, [['1'], ['X'], ['2']])).json());
+    const a = JackpotEntryView.parse(
+      (await enter(owner, first.roundId, [['1'], ['X'], ['2']])).json(),
+    );
     ctx.clock.advance(1_000);
     const b = JackpotEntryView.parse(
       (await enter(owner, second.roundId, [['1'], ['1'], ['1']])).json(),
@@ -502,7 +506,10 @@ describe('GET /me/jackpot-entries', () => {
     expect(one.items.map((entry) => entry.id)).toEqual([c.id, b.id]);
     const rest = MyJackpotEntriesResponse.parse(
       (
-        await get(`/me/jackpot-entries?limit=2&cursor=${encodeURIComponent(one.nextCursor!)}`, owner)
+        await get(
+          `/me/jackpot-entries?limit=2&cursor=${encodeURIComponent(one.nextCursor!)}`,
+          owner,
+        )
       ).json(),
     );
     expect(rest.items.map((entry) => entry.id)).toEqual([a.id]);
@@ -513,9 +520,7 @@ describe('GET /me/jackpot-entries', () => {
       await resultGame(first.eventIds[i]!, result);
     }
     const before = await cash(owner);
-    const settledRun = await db.transaction((tx) =>
-      settleJackpotRound(tx, first.roundId, at(400)),
-    );
+    const settledRun = await db.transaction((tx) => settleJackpotRound(tx, first.roundId, at(400)));
     expect(settledRun.outcome).toBe('settled');
 
     const open = MyJackpotEntriesResponse.parse(

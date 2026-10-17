@@ -176,7 +176,8 @@ const marketSettlementRoute: OutboxRoute = (row) => {
  * on it. Same job data as the bet settlement.
  */
 const jackpotSettlementRoute: OutboxRoute = (row, now) => {
-  const job = row.type === MARKET_RESULTED ? marketSettlementRoute(row, now) : settlementRoute(row, now);
+  const job =
+    row.type === MARKET_RESULTED ? marketSettlementRoute(row, now) : settlementRoute(row, now);
   return job === null ? null : { ...job, queue: QUEUE_NAMES.jackpotSettlement };
 };
 
