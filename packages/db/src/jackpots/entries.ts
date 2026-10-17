@@ -177,7 +177,10 @@ export async function placeJackpotEntry(
   tx: DbTransaction,
   input: PlaceJackpotEntryInput,
 ): Promise<PlaceJackpotEntryResult> {
-  const { userId, now } = input;
+  const { now } = input;
+  if (!isUuid(input.userId)) throw domainNotFound('User');
+  // Lower case, as the database prints it: the ledger key and the guards use it.
+  const userId = input.userId.toLowerCase();
   const channel = input.channel ?? 'web';
   const picks = canonicalPicks(input.picks);
   if (picks === null) {
