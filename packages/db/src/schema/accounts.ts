@@ -1,11 +1,13 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   check,
   date,
   index,
   integer,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -27,25 +29,30 @@ const timestamps = {
 };
 
 /** Players. Identified by their Ethiopian mobile number in E.164 (+2519…/+2517…). */
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  phone: text('phone').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  fullName: text('full_name'),
-  /** Gregorian ISO date (YYYY-MM-DD). */
-  dateOfBirth: date('date_of_birth', { mode: 'string' }).notNull(),
-  locale: text('locale').notNull().default('am'),
-  status: userStatus('status').notNull().default('pending_verification'),
-  phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),
-  /**
-   * SHA-256 of the token handed to whoever last submitted the registration of
-   * a pending account. Verifying the phone requires it, so only the person who
-   * chose the password can activate the account. Cleared on verification.
-   */
-  registrationTokenHash: text('registration_token_hash'),
-  termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }).notNull(),
-  ...timestamps,
-});
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    phone: text('phone').notNull().unique(),
+    passwordHash: text('password_hash').notNull(),
+    fullName: text('full_name'),
+    /** Gregorian ISO date (YYYY-MM-DD). */
+    dateOfBirth: date('date_of_birth', { mode: 'string' }).notNull(),
+    locale: text('locale').notNull().default('am'),
+    status: userStatus('status').notNull().default('pending_verification'),
+    phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),
+    /**
+     * SHA-256 of the token handed to whoever last submitted the registration of
+     * a pending account. Verifying the phone requires it, so only the person who
+     * chose the password can activate the account. Cleared on verification.
+     */
+    registrationTokenHash: text('registration_token_hash'),
+    termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  // Back-office player list (newest first) and the dashboard's registrations.
+  (t) => [index('users_created_idx').on(t.createdAt, t.id)],
+);
 
 /** Player sessions. Only a SHA-256 of the bearer token is stored. */
 export const sessions = pgTable(
@@ -182,10 +189,27 @@ export const adminUsers = pgTable(
      * is only accepted for a later step, so a code cannot be used twice.
      */
     totpLastStep: bigint('totp_last_step', { mode: 'number' }),
-    /** Failed sign-ins since the last success or lockout. */
+    /** Counted failed sign-ins (from any address) since the last success or unlock. */
     failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
-    /** Sign-in refused until then (too many failed attempts). */
+    /**
+     * Sign-in refused from every address until then: the exponential backoff
+     * once failedLoginAttempts reaches STAFF_ACCOUNT_BACKOFF_THRESHOLD (the
+     * short lockout per address is in admin_login_throttles).
+     */
     lockedUntil: timestamp('locked_until', { withTimezone: true }),
+    /**
+     * Set when someone else chose the password (account creation, reset by
+     * staff): only the session and /admin/me routes work until the staff
+     * member sets a password of their own.
+     */
+    passwordChangeRequired: boolean('password_change_required').notNull().default(false),
+    /**
+     * A TOTP secret being enrolled by the staff member themselves (encrypted
+     * like totp_secret_enc): it replaces the current one once confirmed with
+     * a code from it, within STAFF_TOTP_PENDING_MS of totp_pending_at.
+     */
+    totpPendingSecretEnc: text('totp_pending_secret_enc'),
+    totpPendingAt: timestamp('totp_pending_at', { withTimezone: true }),
     disabledAt: timestamp('disabled_at', { withTimezone: true }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     ...timestamps,
@@ -193,6 +217,29 @@ export const adminUsers = pgTable(
   (t) => [
     check('admin_users_email_lower', sql`${t.email} = lower(${t.email})`),
     check('admin_users_failed_attempts', sql`${t.failedLoginAttempts} >= 0`),
+  ],
+);
+
+/**
+ * Failed staff sign-ins per (account, client address): STAFF_LOCKOUT_THRESHOLD
+ * in a row lock that address out of that account for STAFF_LOCKOUT_MS, so a
+ * stranger guessing passwords cannot lock the staff member out everywhere.
+ */
+export const adminLoginThrottles = pgTable(
+  'admin_login_throttles',
+  {
+    adminUserId: uuid('admin_user_id')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'cascade' }),
+    /** The client address (an IPv4 address or an IPv6 /64), '' when unknown. */
+    clientKey: text('client_key').notNull(),
+    failedAttempts: integer('failed_attempts').notNull().default(0),
+    lockedUntil: timestamp('locked_until', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.adminUserId, t.clientKey] }),
+    check('admin_login_throttles_failed_attempts', sql`${t.failedAttempts} >= 0`),
   ],
 );
 

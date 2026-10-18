@@ -113,6 +113,10 @@ export const paymentIntents = pgTable(
     uniqueIndex('payment_intents_user_idempotency_uq').on(t.userId, t.idempotencyKey),
     uniqueIndex('payment_intents_provider_ref_uq').on(t.provider, t.providerRef),
     index('payment_intents_user_created_idx').on(t.userId, t.createdAt),
+    // Dashboard: deposits that succeeded in a window.
+    index('payment_intents_succeeded_idx')
+      .on(t.completedAt)
+      .where(sql`${t.status} = 'succeeded'`),
     index('payment_intents_open_expiry_idx')
       .on(t.expiresAt)
       .where(sql`${t.status} IN ('created', 'pending') AND ${t.flaggedAt} IS NULL`),
@@ -207,6 +211,12 @@ export const payouts = pgTable(
     uniqueIndex('payouts_user_idempotency_uq').on(t.userId, t.idempotencyKey),
     uniqueIndex('payouts_provider_ref_uq').on(t.provider, t.providerRef),
     index('payouts_user_requested_idx').on(t.userId, t.requestedAt),
+    // Back office: every withdrawal, newest first.
+    index('payouts_requested_idx').on(t.requestedAt, t.id),
+    // Dashboard: withdrawals paid in a window.
+    index('payouts_paid_idx')
+      .on(t.completedAt)
+      .where(sql`${t.status} = 'paid'`),
     index('payouts_review_idx')
       .on(t.requestedAt)
       .where(sql`${t.status} = 'requested'`),

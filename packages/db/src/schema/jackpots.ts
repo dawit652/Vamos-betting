@@ -237,6 +237,11 @@ export const jackpotEntries = pgTable(
     uniqueIndex('jackpot_entries_user_idempotency_uq').on(t.userId, t.idempotencyKey),
     index('jackpot_entries_user_placed_idx').on(t.userId, t.placedAt, t.id),
     index('jackpot_entries_round_status_idx').on(t.roundId, t.status),
+    // Dashboard windows (entries placed, entries settled).
+    index('jackpot_entries_placed_idx').on(t.placedAt),
+    index('jackpot_entries_settled_idx')
+      .on(t.settledAt)
+      .where(sql`${t.settledAt} IS NOT NULL`),
     check('jackpot_entries_cost_positive', sql`${t.cost} > 0`),
     check('jackpot_entries_combinations', sql`${t.combinations} >= 1`),
     check('jackpot_entries_settled_at', sql`(${t.status} = 'open') = (${t.settledAt} IS NULL)`),

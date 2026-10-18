@@ -62,7 +62,11 @@ export const ledgerTransactions = pgTable(
     actorId: text('actor_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('ledger_transactions_ref_idx').on(t.refType, t.refId)],
+  (t) => [
+    index('ledger_transactions_ref_idx').on(t.refType, t.refId),
+    // Postings of one kind of reference by time (the dashboard's bet settlements in a window).
+    index('ledger_transactions_ref_created_idx').on(t.refType, t.createdAt),
+  ],
 );
 
 /** Append-only entries (UPDATE/DELETE are rejected by a trigger). Positive = credit. */
