@@ -23,7 +23,7 @@ import { ADMIN_URL, WEB_URL } from '../support/env';
 import { birr, typedBirr } from '../support/money';
 import { myWithdrawals } from '../support/payments';
 import { ADULT_DATE_OF_BIRTH, randomPhone } from '../support/phone';
-import { loginApi, loginInBrowser, staffApiOf, type StaffRole } from '../support/staff';
+import { loginApi, loginInBrowser, staffApiOf } from '../support/staff';
 import { balanceChip, registerAndVerify } from '../support/ui';
 
 /**
