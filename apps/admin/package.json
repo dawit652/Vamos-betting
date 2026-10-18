@@ -2,13 +2,15 @@
   "name": "@vamos/admin",
   "version": "0.1.0",
   "private": true,
-  "description": "Vamos back office – trading, risk, KYC, finance, compliance",
+  "description": "Vamos back office \u2013 trading, risk, KYC, finance, compliance",
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3001",
     "build": "next build",
     "start": "next start --port 3001",
-    "typecheck": "next typegen && tsc -p tsconfig.json"
+    "typecheck": "next typegen && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@vamos/contracts": "workspace:*",
