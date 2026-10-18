@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import type { Query } from '@/lib/config';
 import { describeError } from '@/lib/errors';
+import { INITIAL_PAGED_STATE, PagedLoader, type PageOf, type PagedState } from '@/lib/paging';
 
 export interface Loaded<T> {
   data: T | null;
@@ -42,11 +43,6 @@ export function useFetch<T>(path: string | null, query?: Query): Loaded<T> {
   return { data, error, loading, reload };
 }
 
-interface PageOf<T> {
-  items: T[];
-  nextCursor: string | null;
-}
-
 export interface Paged<T> {
   items: T[];
   error: string | null;
@@ -56,49 +52,36 @@ export interface Paged<T> {
   reload: () => void;
 }
 
-/** A cursor-paged list: the first page loads on mount and on query change, `loadMore` appends. */
+/**
+ * A cursor-paged list: the first page loads on mount and on query change, `loadMore` appends.
+ * One PagedLoader per query: a change aborts the old query's requests (a Load more included).
+ */
 export function usePaged<T>(path: string, query?: Query): Paged<T> {
-  const [items, setItems] = useState<T[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<PagedState<T>>(INITIAL_PAGED_STATE);
   const [tick, setTick] = useState(0);
   const queryKey = JSON.stringify(query ?? {});
-  const pending = useRef<string | null>(null);
-
-  const fetchPage = useCallback(
-    (after: string | null, signal: AbortSignal) => {
-      setLoading(true);
-      const q = { ...(JSON.parse(queryKey) as Query), cursor: after };
-      api<PageOf<T>>(path, { query: q, signal })
-        .then((page) => {
-          setItems((old) => (after === null ? page.items : [...old, ...page.items]));
-          setCursor(page.nextCursor);
-          setError(null);
-        })
-        .catch((e: unknown) => {
-          if (!signal.aborted) setError(describeError(e));
-        })
-        .finally(() => {
-          if (!signal.aborted) setLoading(false);
-        });
-    },
-    [path, queryKey],
-  );
+  const loader = useRef<PagedLoader<T> | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    pending.current = null;
-    fetchPage(null, controller.signal);
-    return () => controller.abort();
-  }, [fetchPage, tick]);
+    const base = JSON.parse(queryKey) as Query;
+    const current = new PagedLoader<T>(
+      (cursor, signal) => api<PageOf<T>>(path, { query: { ...base, cursor }, signal }),
+      setState,
+      describeError,
+    );
+    loader.current = current;
+    current.start();
+    return () => current.dispose();
+  }, [path, queryKey, tick]);
 
-  const loadMore = useCallback(() => {
-    if (cursor === null || pending.current === cursor) return;
-    pending.current = cursor;
-    fetchPage(cursor, new AbortController().signal);
-  }, [cursor, fetchPage]);
-
+  const loadMore = useCallback(() => loader.current?.loadMore(), []);
   const reload = useCallback(() => setTick((n) => n + 1), []);
-  return { items, error, loading, hasMore: cursor !== null, loadMore, reload };
+  return {
+    items: state.items,
+    error: state.error,
+    loading: state.loading,
+    hasMore: state.cursor !== null,
+    loadMore,
+    reload,
+  };
 }

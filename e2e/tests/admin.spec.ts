@@ -19,7 +19,7 @@ import {
   tryPlaceBet,
   upcomingEvents,
 } from '../support/api';
-import { ADMIN_URL, WEB_URL } from '../support/env';
+import { ADMIN_URL, API_URL, WEB_URL } from '../support/env';
 import { birr, typedBirr } from '../support/money';
 import { myWithdrawals } from '../support/payments';
 import { ADULT_DATE_OF_BIRTH, randomPhone } from '../support/phone';
@@ -73,7 +73,7 @@ test('staff cannot reach anything without signing in, and a failed sign-in gives
   request,
 }) => {
   // No staff session: 401 on the API, and the admin app sends the visitor to the login form.
-  const dashboard = await request.get('http://localhost:4000/admin/dashboard');
+  const dashboard = await request.get(`${API_URL}/admin/dashboard`);
   expect(dashboard.status()).toBe(401);
   await page.goto(`${ADMIN_URL}/`);
   await page.waitForURL('**/login');
@@ -206,26 +206,25 @@ test('finance approves a player withdrawal in the back office and it gets paid',
     });
 
     await test.step('the approval is in the audit log (read as compliance, over the API)', async () => {
-      const compliance = await loginApi(await staffRequest(browser), 'compliance');
-      const response = await compliance.get('/admin/audit?limit=50');
-      expect(response.ok()).toBe(true);
-      const body = (await response.json()) as {
-        items: { action: string; entityId?: string | null; actor?: unknown }[];
-      };
-      const mine = body.items.filter((entry) => JSON.stringify(entry).includes(withdrawalId));
-      expect(mine.length).toBeGreaterThan(0);
-      expect(JSON.stringify(mine)).toContain('finance@demo.vamos.test');
+      const context = await browser.newContext();
+      try {
+        const compliance = await loginApi(context.request, 'compliance');
+        const response = await compliance.get('/admin/audit?limit=50');
+        expect(response.ok()).toBe(true);
+        const body = (await response.json()) as {
+          items: { action: string; entityId?: string | null; actor?: unknown }[];
+        };
+        const mine = body.items.filter((entry) => JSON.stringify(entry).includes(withdrawalId));
+        expect(mine.length).toBeGreaterThan(0);
+        expect(JSON.stringify(mine)).toContain('finance@demo.vamos.test');
+      } finally {
+        await context.close();
+      }
     });
   } finally {
     await staff.close();
   }
 });
-
-/** A cookie-keeping API request context of its own, for staff calls made outside a page. */
-async function staffRequest(browser: Browser): Promise<APIRequestContext> {
-  const context = await browser.newContext();
-  return context.request;
-}
 
 /** Events kicking off in more than `minLeadMs`, with an open main market: the simulator leaves them alone. */
 async function farEvents(
