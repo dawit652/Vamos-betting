@@ -9,7 +9,7 @@
 export const BUSINESS_TIME_ZONE = 'Africa/Addis_Ababa';
 /** UTC offset of the business time zone (fixed: no DST). */
 export const BUSINESS_UTC_OFFSET_MS = 3 * 3_600_000;
-export const DAY_MS = 24 * 3_600_000;
+export const BUSINESS_DAY_MS = 24 * 3_600_000;
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -29,11 +29,11 @@ function epochDay(text: string): number | null {
   ) {
     return null;
   }
-  return ms / DAY_MS;
+  return ms / BUSINESS_DAY_MS;
 }
 
 function dateOfEpochDay(day: number): string {
-  return new Date(day * DAY_MS).toISOString().slice(0, 10);
+  return new Date(day * BUSINESS_DAY_MS).toISOString().slice(0, 10);
 }
 
 function assertInstant(instant: Date): number {
@@ -58,14 +58,14 @@ function assertBusinessDate(text: string): number {
 /** The business day (Addis Ababa calendar date) an instant falls on. */
 export function businessDateOf(instant: Date): string {
   const ms = assertInstant(instant);
-  return dateOfEpochDay(Math.floor((ms + BUSINESS_UTC_OFFSET_MS) / DAY_MS));
+  return dateOfEpochDay(Math.floor((ms + BUSINESS_UTC_OFFSET_MS) / BUSINESS_DAY_MS));
 }
 
 /** The instants of a business day: [start, end), 24 hours. */
 export function businessDayWindow(date: string): { start: Date; end: Date } {
   const day = assertBusinessDate(date);
-  const start = day * DAY_MS - BUSINESS_UTC_OFFSET_MS;
-  return { start: new Date(start), end: new Date(start + DAY_MS) };
+  const start = day * BUSINESS_DAY_MS - BUSINESS_UTC_OFFSET_MS;
+  return { start: new Date(start), end: new Date(start + BUSINESS_DAY_MS) };
 }
 
 /** `date` moved by a whole number of days (negative goes back). */

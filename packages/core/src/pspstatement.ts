@@ -49,6 +49,8 @@ export function parseCsvRows(text: string): string[][] {
   let row: string[] = [];
   let field = '';
   let quoted = false;
+  /** The current field opened with a quote (so `""` at the very end is still a field). */
+  let wasQuoted = false;
   let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
   while (i < text.length) {
     const ch = text[i]!;
@@ -66,16 +68,19 @@ export function parseCsvRows(text: string): string[][] {
       i += 1;
       continue;
     }
-    if (ch === '"' && field.length === 0) {
+    if (ch === '"' && field.length === 0 && !wasQuoted) {
       quoted = true;
+      wasQuoted = true;
     } else if (ch === ',') {
       row.push(field);
       field = '';
+      wasQuoted = false;
     } else if (ch === '\n' || ch === '\r') {
       row.push(field);
       rows.push(row);
       row = [];
       field = '';
+      wasQuoted = false;
       if (ch === '\r' && text[i + 1] === '\n') i += 1;
     } else {
       field += ch;
@@ -83,7 +88,7 @@ export function parseCsvRows(text: string): string[][] {
     i += 1;
   }
   if (quoted) throw new SyntaxError('unterminated quoted field');
-  if (field.length > 0 || row.length > 0) {
+  if (wasQuoted || field.length > 0 || row.length > 0) {
     row.push(field);
     rows.push(row);
   }
@@ -201,12 +206,7 @@ export interface PspRecord {
  * - duplicate: an earlier line already has this reference.
  */
 export type PspLineStatus =
-  | 'matched'
-  | 'amount_mismatch'
-  | 'status_mismatch'
-  | 'unmatched'
-  | 'ambiguous'
-  | 'duplicate';
+  'matched' | 'amount_mismatch' | 'status_mismatch' | 'unmatched' | 'ambiguous' | 'duplicate';
 
 export interface PspLineMatch {
   lineNo: number;

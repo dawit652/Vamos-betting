@@ -10,10 +10,12 @@ import { birr, BPS_DENOMINATOR, type Santim } from './money';
  * Financial Intelligence Service's reporting rules.
  *
  * Rolling windows: a window of length W ending at instant t holds the
- * events in (t - W, t]. A time-window rule fires at the earliest event
- * time t whose window breaks the threshold; its windowKey is the business
- * date of t, so evaluating again later (another deposit in the same burst,
- * the daily sweep) finds the same t and the same key.
+ * events in (t - W, t]. A time-window rule fires once per business day
+ * (Africa/Addis_Ababa): at the earliest event time t of that day whose
+ * window breaks the threshold, with the business date of t as its
+ * windowKey. Evaluating again later (another deposit in the same burst,
+ * the daily sweep) finds the same t and key, so the flag is not repeated,
+ * while a new burst on a later day gets a flag of its own.
  */
 
 export const AML_RULE_CODES = [
@@ -114,7 +116,7 @@ export const DEFAULT_AML_RULES: AmlRules = {
   },
 };
 
-export const HOUR_MS = 3_600_000;
+const HOUR_MS = 3_600_000;
 
 /** A rule that fired. */
 export interface AmlHit {
@@ -122,96 +124,130 @@ export interface AmlHit {
   severity: AmlSeverity;
   /** The dedupe key of the window (a business date, or `deposit:<id>`). */
   windowKey: string;
-  /** When it fired (epoch ms): the last event of the first window that broke the threshold. */
+  /** When it fired (epoch ms): the last event of the first window of its key that broke the threshold. */
   atMs: number;
   /** What was seen (JSON-safe: santim as strings). */
   details: Record<string, string | number | boolean | null>;
 }
 
-function sortedTimes(times: readonly number[]): number[] {
+function assertTimes(times: readonly number[], what: string): void {
   for (const t of times) {
-    if (!Number.isFinite(t)) throw new RangeError('event times must be finite epoch milliseconds');
+    if (!Number.isFinite(t)) throw new RangeError(`${what} must be finite epoch milliseconds`);
   }
-  return [...times].sort((a, b) => a - b);
+}
+
+function assertWholeCount(value: number, what: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${what} must be a whole number`);
+  }
+}
+
+function windowMsOf(hours: number, what: string): number {
+  if (!Number.isFinite(hours) || hours <= 0) throw new RangeError(`${what} must be positive`);
+  return hours * HOUR_MS;
 }
 
 /**
- * The earliest event time t at which the rolling window (t - windowMs, t]
- * holds more than `max` events, with that window's count; null when it
- * never does.
+ * Every event time t (each distinct instant once, oldest first) at which the
+ * rolling window (t - windowMs, t] holds more than `max` events, with that
+ * window's count.
  */
-export function firstCountBreach(
+export function countBreaches(
   timesMs: readonly number[],
   windowMs: number,
   max: number,
-): { atMs: number; count: number } | null {
+): Array<{ atMs: number; count: number }> {
   if (!(windowMs > 0)) throw new RangeError('windowMs must be positive');
-  if (!Number.isSafeInteger(max) || max < 0) throw new RangeError('max must be a whole number');
-  const times = sortedTimes(timesMs);
+  assertWholeCount(max, 'max');
+  assertTimes(timesMs, 'event times');
+  const times = [...timesMs].sort((a, b) => a - b);
+  const breaches: Array<{ atMs: number; count: number }> = [];
   let left = 0;
   for (let i = 0; i < times.length; i += 1) {
     const t = times[i]!;
-    // Include every event at the same instant before judging the window ending at t.
+    // Count every event at the same instant before judging the window ending at t.
     if (i + 1 < times.length && times[i + 1] === t) continue;
     while (times[left]! <= t - windowMs) left += 1;
     const count = i - left + 1;
-    if (count > max) return { atMs: t, count };
+    if (count > max) breaches.push({ atMs: t, count });
   }
-  return null;
+  return breaches;
 }
 
-function keyOf(atMs: number): string {
+/** The dedupe key of a time-window hit: the business date (Addis Ababa) it fired on. */
+export function amlWindowKey(atMs: number): string {
   return businessDateOf(new Date(atMs));
 }
 
-/** Deposit or withdrawal velocity: more than maxPerHour in an hour, or maxPerDay in 24 hours. */
+/** The earliest item of each window key (items sorted by atMs, ties keep the first). */
+function firstPerKey<T extends { atMs: number }>(items: readonly T[]): T[] {
+  const byKey = new Map<string, T>();
+  const sorted = [...items].sort((a, b) => a.atMs - b.atMs);
+  for (const item of sorted) {
+    const key = amlWindowKey(item.atMs);
+    if (!byKey.has(key)) byKey.set(key, item);
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Deposit or withdrawal velocity: more than maxPerHour in a rolling hour, or
+ * more than maxPerDay in a rolling 24 hours. One hit per business day on
+ * which a window first broke a limit.
+ */
 export function evaluateVelocity(
   rule: 'deposit_velocity' | 'withdrawal_velocity',
   config: AmlVelocityRule,
   timesMs: readonly number[],
-): AmlHit | null {
-  if (!config.enabled) return null;
-  const hour = firstCountBreach(timesMs, HOUR_MS, config.maxPerHour);
-  const day = firstCountBreach(timesMs, 24 * HOUR_MS, config.maxPerDay);
-  const first =
-    hour !== null && (day === null || hour.atMs <= day.atMs)
-      ? { ...hour, window: 'hour', max: config.maxPerHour }
-      : day !== null
-        ? { ...day, window: 'day', max: config.maxPerDay }
-        : null;
-  if (first === null) return null;
-  return {
+): AmlHit[] {
+  if (!config.enabled) return [];
+  const breaches = [
+    ...countBreaches(timesMs, HOUR_MS, config.maxPerHour).map((breach) => ({
+      ...breach,
+      window: 'hour',
+      max: config.maxPerHour,
+    })),
+    ...countBreaches(timesMs, 24 * HOUR_MS, config.maxPerDay).map((breach) => ({
+      ...breach,
+      window: 'day',
+      max: config.maxPerDay,
+    })),
+  ];
+  return firstPerKey(breaches).map((breach) => ({
     rule,
     severity: config.severity,
-    windowKey: keyOf(first.atMs),
-    atMs: first.atMs,
-    details: { window: first.window, count: first.count, max: first.max },
-  };
+    windowKey: amlWindowKey(breach.atMs),
+    atMs: breach.atMs,
+    details: { window: breach.window, count: breach.count, max: breach.max },
+  }));
 }
 
 /**
- * Structuring: within one rolling window of deposits below the reporting
- * threshold, either `minNearCount` of them are just below it, or two or
- * more of them sum to at least it. Deposits at or above the threshold are
- * reported as such and do not count.
+ * Structuring: within one rolling window (windowHours) of deposits below the
+ * reporting threshold, either `minNearCount` of them are just below it (at
+ * least nearThresholdBps of it), or two or more of them sum to at least it.
+ * Deposits at or above the threshold are reported as such and do not count.
+ * One hit per business day on which a window first matched.
  */
 export function evaluateStructuring(
   config: AmlStructuringRule,
   deposits: ReadonlyArray<{ atMs: number; amount: Santim }>,
-): AmlHit | null {
-  if (!config.enabled) return null;
+): AmlHit[] {
+  if (!config.enabled) return [];
   const threshold = config.reportingThreshold;
-  if (threshold <= 0n) return null;
+  if (threshold <= 0n) return [];
+  const windowMs = windowMsOf(config.windowHours, 'windowHours');
   const nearFloor = (threshold * BigInt(config.nearThresholdBps)) / BPS_DENOMINATOR;
-  const windowMs = config.windowHours * HOUR_MS;
-  if (!(windowMs > 0)) throw new RangeError('windowHours must be positive');
+  assertTimes(
+    deposits.map((deposit) => deposit.atMs),
+    'deposit times',
+  );
   const below = deposits
     .filter((deposit) => deposit.amount > 0n && deposit.amount < threshold)
-    .map((deposit) => ({ atMs: deposit.atMs, amount: deposit.amount }));
-  for (const deposit of below) {
-    if (!Number.isFinite(deposit.atMs)) throw new RangeError('deposit times must be finite');
-  }
-  below.sort((a, b) => a.atMs - b.atMs);
+    .map((deposit) => ({ atMs: deposit.atMs, amount: deposit.amount }))
+    .sort((a, b) => a.atMs - b.atMs);
+  const matches: Array<{ atMs: number; count: number; sum: Santim; near: number; reason: string }> =
+    [];
   let left = 0;
   let sum = 0n;
   let near = 0;
@@ -226,31 +262,37 @@ export function evaluateStructuring(
       left += 1;
     }
     const count = i - left + 1;
-    const nearHit = near >= config.minNearCount && config.minNearCount > 0;
+    const nearHit = config.minNearCount > 0 && near >= config.minNearCount;
     const sumHit = count >= 2 && sum >= threshold;
     if (nearHit || sumHit) {
-      return {
-        rule: 'structuring',
-        severity: config.severity,
-        windowKey: keyOf(deposit.atMs),
+      matches.push({
         atMs: deposit.atMs,
-        details: {
-          count,
-          total: sum.toString(),
-          nearCount: near,
-          threshold: threshold.toString(),
-          reason: nearHit ? 'near_threshold' : 'sum_above_threshold',
-        },
-      };
+        count,
+        sum,
+        near,
+        reason: nearHit ? 'near_threshold' : 'sum_above_threshold',
+      });
     }
   }
-  return null;
+  return firstPerKey(matches).map((match) => ({
+    rule: 'structuring',
+    severity: config.severity,
+    windowKey: amlWindowKey(match.atMs),
+    atMs: match.atMs,
+    details: {
+      count: match.count,
+      total: match.sum.toString(),
+      nearCount: match.near,
+      threshold: threshold.toString(),
+      reason: match.reason,
+    },
+  }));
 }
 
 /**
  * Deposit then withdraw with little betting: a withdrawal is requested while
  * the stakes placed since the last deposit are below minStakeShareBps of
- * it. One hit per deposit (windowKey `deposit:<depositRef>`).
+ * that deposit. One hit per deposit (windowKey `deposit:<depositRef>`).
  */
 export function evaluateDepositThenWithdraw(
   config: AmlDepositThenWithdrawRule,
@@ -276,29 +318,32 @@ export function evaluateDepositThenWithdraw(
   };
 }
 
-/** Rapid cash-out churn: minCount quick cash-outs (soon after placement) within one window. */
+/**
+ * Rapid cash-out churn: at least minCount quick cash-outs (made at most
+ * maxMinutesAfterPlacement after the bet was placed) within one rolling
+ * window. One hit per business day on which a window first reached it.
+ */
 export function evaluateCashOutChurn(
   config: AmlCashOutChurnRule,
   cashOuts: ReadonlyArray<{ atMs: number; placedAtMs: number }>,
-): AmlHit | null {
-  if (!config.enabled || config.minCount < 1) return null;
+): AmlHit[] {
+  if (!config.enabled || config.minCount < 1) return [];
+  const windowMs = windowMsOf(config.windowHours, 'windowHours');
   const quickMs = config.maxMinutesAfterPlacement * 60_000;
   const quick = cashOuts
     .filter((cashOut) => cashOut.atMs - cashOut.placedAtMs <= quickMs)
     .map((cashOut) => cashOut.atMs);
-  const breach = firstCountBreach(quick, config.windowHours * HOUR_MS, config.minCount - 1);
-  if (breach === null) return null;
-  return {
+  return firstPerKey(countBreaches(quick, windowMs, config.minCount - 1)).map((breach) => ({
     rule: 'cashout_churn',
     severity: config.severity,
-    windowKey: keyOf(breach.atMs),
+    windowKey: amlWindowKey(breach.atMs),
     atMs: breach.atMs,
     details: {
       count: breach.count,
       minCount: config.minCount,
       maxMinutesAfterPlacement: config.maxMinutesAfterPlacement,
     },
-  };
+  }));
 }
 
 /** One player's recent activity for the time-window rules (epoch ms, santim). */
@@ -308,27 +353,30 @@ export interface AmlActivity {
   cashOuts: ReadonlyArray<{ atMs: number; placedAtMs: number }>;
 }
 
-/** Every time-window rule that fires on the activity (deposit_then_withdraw is per withdrawal). */
+/** Every hit of the time-window rules (deposit_then_withdraw is judged per withdrawal). */
 export function evaluateAmlActivity(rules: AmlRules, activity: AmlActivity): AmlHit[] {
   if (!rules.enabled) return [];
-  const hits = [
-    evaluateVelocity(
+  return [
+    ...evaluateVelocity(
       'deposit_velocity',
       rules.depositVelocity,
       activity.deposits.map((deposit) => deposit.atMs),
     ),
-    evaluateVelocity(
+    ...evaluateVelocity(
       'withdrawal_velocity',
       rules.withdrawalVelocity,
       activity.withdrawals.map((withdrawal) => withdrawal.atMs),
     ),
-    evaluateStructuring(rules.structuring, activity.deposits),
-    evaluateCashOutChurn(rules.cashOutChurn, activity.cashOuts),
+    ...evaluateStructuring(rules.structuring, activity.deposits),
+    ...evaluateCashOutChurn(rules.cashOutChurn, activity.cashOuts),
   ];
-  return hits.filter((hit): hit is AmlHit => hit !== null);
 }
 
-/** How far back the time-window rules look (the longest window, doubled so a burst is seen whole). */
+/**
+ * How far back the evaluation looks: twice the longest window, so every
+ * window ending in the latest half is seen whole (an evaluation can miss a
+ * window cut by the start of the look-back, never invent one).
+ */
 export function amlLookbackMs(rules: AmlRules): number {
   const hours = Math.max(24, rules.structuring.windowHours, rules.cashOutChurn.windowHours);
   return 2 * hours * HOUR_MS;
