@@ -136,6 +136,8 @@ export const AdminErrorCodeSchema = z.enum([
   'kyc_not_pending',
   'kyc_underage',
   'payout_not_reviewable',
+  'payout_not_approved',
+  'payout_already_closed',
   'payout_in_progress',
   'payout_already_paid',
   'provider_ref_conflict',
