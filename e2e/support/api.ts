@@ -3,7 +3,10 @@ import type {
   BetView,
   EventListResponse,
   EventSummary,
+  JackpotEntryView,
+  JackpotRoundView,
   MyBetsResponse,
+  MyJackpotEntriesResponse,
   WalletResponse,
 } from '@vamos/contracts';
 import { API_URL } from './env';
@@ -118,4 +121,45 @@ export async function placeBetApi(
     throw new Error(`POST /bets failed: ${response.status()} ${await response.text()}`);
   }
   return (await response.json()) as BetView;
+}
+
+/**
+ * Demo-only dev route: opens a small jackpot round on the next scheduled
+ * football events (no session or CSRF needed; pass the cookie-less `request`
+ * fixture). Waits up to `timeoutMs` while the feed has too few upcoming
+ * events (409 `not_enough_events`: the rolling fixtures arrive every minute).
+ */
+export async function createDevJackpotRound(
+  request: APIRequestContext,
+  options: { games: number; leadSeconds: number; timeoutMs?: number },
+): Promise<JackpotRoundView> {
+  const deadline = Date.now() + (options.timeoutMs ?? 120_000);
+  for (;;) {
+    const response = await request.post(`${API_URL}/dev/jackpots/rounds`, {
+      data: { template: 'daily9', games: options.games, leadSeconds: options.leadSeconds },
+    });
+    if (response.status() === 201) return (await response.json()) as JackpotRoundView;
+    if (response.status() !== 409 || Date.now() > deadline) {
+      throw new Error(
+        `POST /dev/jackpots/rounds failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+}
+
+export function getJackpotRound(request: APIRequestContext, id: string): Promise<JackpotRoundView> {
+  return getJson(request, `/jackpots/${encodeURIComponent(id)}`);
+}
+
+export async function myJackpotEntries(
+  request: APIRequestContext,
+  status?: 'open' | 'settled',
+): Promise<JackpotEntryView[]> {
+  const query = status === undefined ? '' : `?status=${status}`;
+  return (await getJson<MyJackpotEntriesResponse>(request, `/me/jackpot-entries${query}`)).items;
+}
+
+export function getJackpotEntry(request: APIRequestContext, id: string): Promise<JackpotEntryView> {
+  return getJson(request, `/me/jackpot-entries/${encodeURIComponent(id)}`);
 }
