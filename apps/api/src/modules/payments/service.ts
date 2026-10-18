@@ -21,6 +21,7 @@ import {
   loadGameSettings,
   markDepositInitiated,
   markDepositInitiationFailed,
+  loadComplianceSettings,
   requestWithdrawal,
   withTxRetry,
   type PaymentIntent,
@@ -261,6 +262,9 @@ export async function requestPlayerWithdrawal(
   const now = deps.clock();
   const result = await withTxRetry(deps.db, async (tx) => {
     const settings = await loadGameSettings(tx);
+    // The withdrawal-time AML rules run in this transaction: a request that raises a
+    // high-severity flag waits for staff before the payout worker can see it.
+    const { amlRules } = await loadComplianceSettings(tx);
     return requestWithdrawal(tx, {
       userId: command.userId,
       amount: BigInt(request.amount),
@@ -269,6 +273,7 @@ export async function requestPlayerWithdrawal(
       idempotencyKey: command.idempotencyKey,
       now,
       rules: settings.payments,
+      amlRules,
       ip: command.ip ?? null,
     });
   });
