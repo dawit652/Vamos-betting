@@ -78,6 +78,7 @@ export {
   type ImportPspStatementResult,
   type PspStatement,
   type PspStatementLineRow,
+  type PspStatementWithRun,
 } from './psp-statements';
 export {
   getReconciliationRun,

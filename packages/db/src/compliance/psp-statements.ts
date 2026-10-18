@@ -39,6 +39,13 @@ import {
 export type PspStatement = typeof pspStatements.$inferSelect;
 export type PspStatementLineRow = typeof pspStatementLines.$inferSelect;
 
+/** A statement with its matching run's id, status and number of differences. */
+export type PspStatementWithRun = PspStatement & {
+  runId: string | null;
+  status: 'clean' | 'mismatches' | 'failed' | null;
+  mismatchCount: number | null;
+};
+
 /** Longest period a statement may cover. */
 export const PSP_STATEMENT_MAX_DAYS = 92;
 /** Size limit of an uploaded statement (characters). */
@@ -349,12 +356,7 @@ export async function importPspStatement(
 export async function listPspStatements(
   exec: DbExecutor,
   query: { provider?: string; limit?: number; cursor?: string } = {},
-): Promise<{
-  items: Array<
-    PspStatement & { runId: string | null; status: string | null; mismatchCount: number | null }
-  >;
-  nextCursor: string | null;
-}> {
+): Promise<{ items: PspStatementWithRun[]; nextCursor: string | null }> {
   const limit = Math.min(Math.max(Math.trunc(query.limit ?? 50), 1), 200);
   const conditions: SQL[] = [];
   if (query.provider !== undefined) {
@@ -394,23 +396,38 @@ export async function listPspStatements(
   return { items, nextCursor: rows.length > limit ? (items[items.length - 1]?.id ?? null) : null };
 }
 
-/** One statement with its lines and its matching run. */
+/** One statement (with its run's outcome) and its lines; `runId` is repeated for convenience. */
 export async function getPspStatement(
   exec: DbExecutor,
   statementId: string,
-): Promise<{ statement: PspStatement; lines: PspStatementLineRow[]; runId: string | null }> {
-  const [statement] = UUID_RE.test(statementId)
-    ? await exec.select().from(pspStatements).where(eq(pspStatements.id, statementId))
+): Promise<{
+  statement: PspStatementWithRun;
+  lines: PspStatementLineRow[];
+  runId: string | null;
+}> {
+  const [row] = UUID_RE.test(statementId)
+    ? await exec
+        .select({
+          statement: pspStatements,
+          runId: reconciliationRuns.id,
+          status: reconciliationRuns.status,
+          mismatchCount: reconciliationRuns.mismatchCount,
+        })
+        .from(pspStatements)
+        .leftJoin(reconciliationRuns, eq(reconciliationRuns.statementId, pspStatements.id))
+        .where(eq(pspStatements.id, statementId))
     : [];
-  if (statement === undefined) throw domainNotFound('PSP statement');
+  if (row === undefined) throw domainNotFound('PSP statement');
   const lines = await exec
     .select()
     .from(pspStatementLines)
-    .where(eq(pspStatementLines.statementId, statement.id))
+    .where(eq(pspStatementLines.statementId, row.statement.id))
     .orderBy(asc(pspStatementLines.lineNo));
-  const [run] = await exec
-    .select({ id: reconciliationRuns.id })
-    .from(reconciliationRuns)
-    .where(eq(reconciliationRuns.statementId, statement.id));
-  return { statement, lines, runId: run?.id ?? null };
+  const statement: PspStatementWithRun = {
+    ...row.statement,
+    runId: row.runId,
+    status: row.status,
+    mismatchCount: row.mismatchCount,
+  };
+  return { statement, lines, runId: row.runId };
 }
