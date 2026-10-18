@@ -3,6 +3,7 @@ import { ConfigError, loadConfig, loadDotEnv, type AppConfig } from '@vamos/conf
 import {
   claimOperatingMode,
   createDb,
+  createElsReporter,
   getDatabaseInstallationId,
   LIVE_CHANNEL,
   OperatingModeMismatchError,
@@ -110,6 +111,8 @@ async function main(): Promise<void> {
       queues: { redisUrl: config.redisUrl, prefix: config.queuePrefix },
       payments,
       sms,
+      // ELS_REPORTING_MODE (file in demo: JSONL + CSV under ELS_REPORT_DIR).
+      els: createElsReporter(config.els),
     },
     {
       // FEED_ROLLING_* (e2e runs with a fixture every minute); the competitions

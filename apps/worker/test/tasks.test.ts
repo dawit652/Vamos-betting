@@ -163,6 +163,12 @@ describe('createTasks', () => {
     'deposit-reconcile',
     'sms-notify',
     'user-notify',
+    'els-report',
+    'els-sweep',
+    'daily-summaries',
+    'reconciliation',
+    'aml-evaluate',
+    'aml-sweep',
     'outbox-dispatch',
   ];
 

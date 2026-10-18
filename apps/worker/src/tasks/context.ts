@@ -1,4 +1,4 @@
-import type { Database } from '@vamos/db';
+import type { Database, ElsReporter } from '@vamos/db';
 import type { PaymentProviderRegistry } from '@vamos/payments';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
@@ -29,4 +29,9 @@ export interface TaskContext {
   payments: PaymentProviderRegistry;
   /** The SMS gateway for player notifications (SMS_PROVIDER). */
   sms: SmsSender;
+  /**
+   * Where the ELS stream and daily summary files go (createElsReporter of
+   * config.els). Absent: createTasks builds it from the configuration.
+   */
+  els?: ElsReporter;
 }

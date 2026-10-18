@@ -1,4 +1,5 @@
 import type { AppConfig } from '@vamos/config';
+import { createElsReporter } from '@vamos/db';
 import type { WorkerTask } from '../worker';
 import {
   betAcceptanceSweepTask,
@@ -6,6 +7,20 @@ import {
   type BetAcceptanceOptions,
   type BetAcceptanceSweepOptions,
 } from './bet-acceptance';
+import {
+  amlEvaluateTask,
+  amlSweepTask,
+  dailySummaryTask,
+  elsReportTask,
+  elsSweepTask,
+  reconciliationTask,
+  type AmlEvaluateOptions,
+  type AmlSweepOptions,
+  type DailySummaryOptions,
+  type ElsReportOptions,
+  type ElsSweepOptions,
+  type ReconciliationTaskOptions,
+} from './compliance';
 import type { TaskContext } from './context';
 import { depositReconcileTask, type DepositReconcileOptions } from './deposit-reconcile';
 import { feedIngestTask, type FeedIngestOptions } from './feed-ingest';
@@ -53,6 +68,12 @@ export interface TaskOptions {
   depositReconcile?: DepositReconcileOptions;
   smsNotify?: SmsNotifyOptions;
   userNotify?: UserNotifyOptions;
+  elsReport?: ElsReportOptions;
+  elsSweep?: ElsSweepOptions;
+  dailySummaries?: DailySummaryOptions;
+  reconciliation?: ReconciliationTaskOptions;
+  amlEvaluate?: AmlEvaluateOptions;
+  amlSweep?: AmlSweepOptions;
   outboxDispatch?: OutboxDispatchOptions;
 }
 
@@ -65,7 +86,9 @@ export interface TaskOptions {
  * Settlement (and its sweep), the jackpot rounds, their settlement (and its
  * sweep), live bet acceptance, the payout worker (and
  * its sweep), deposit reconciliation, SMS notifications, player push
- * messages and the outbox dispatcher run in every mode and with every feed; the payment providers in
+ * messages, the compliance tasks (ELS stream and its sweep, daily summaries,
+ * reconciliation, AML evaluation and sweep; see ./compliance.ts) and the
+ * outbox dispatcher run in every mode and with every feed; the payment providers in
  * ctx.payments are whatever PAYMENT_PROVIDERS enables (only the mock one in
  * demo mode). The consumers come before the dispatcher, so they are started
  * first and stopped last.
@@ -76,6 +99,8 @@ export function createTasks(
   options: TaskOptions = {},
 ): WorkerTask[] {
   const tasks: WorkerTask[] = [];
+  // ELS_REPORTING_MODE / ELS_REPORT_DIR, unless the caller brought its own reporter.
+  const compliance: TaskContext = { ...ctx, els: ctx.els ?? createElsReporter(config.els) };
   if (config.feed.provider === 'mock' && config.mode === 'demo') {
     tasks.push(
       feedIngestTask(ctx, options.feedIngest),
@@ -99,6 +124,12 @@ export function createTasks(
     depositReconcileTask(ctx, options.depositReconcile),
     smsNotifyTask(ctx, options.smsNotify),
     userNotifyTask(ctx, options.userNotify),
+    elsReportTask(compliance, options.elsReport),
+    elsSweepTask(compliance, options.elsSweep),
+    dailySummaryTask(compliance, options.dailySummaries),
+    reconciliationTask(compliance, options.reconciliation),
+    amlEvaluateTask(compliance, options.amlEvaluate),
+    amlSweepTask(compliance, options.amlSweep),
     outboxDispatchTask(ctx, options.outboxDispatch),
   );
   return tasks;

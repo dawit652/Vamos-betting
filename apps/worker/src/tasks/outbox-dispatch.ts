@@ -1,5 +1,7 @@
 import { JackpotTemplateCodeSchema, type UserMessage } from '@vamos/contracts';
+import { ELS_REPORTABLE_TYPES } from '@vamos/core';
 import {
+  AML_TRIGGER_TYPES,
   BET_ACCEPTED,
   BET_CASHED_OUT,
   BET_PLACED,
@@ -136,6 +138,19 @@ export interface UserNotifyJobData {
   userId: string;
   messages: UserMessage[];
   wallet: boolean;
+}
+
+/** Data of an `els` job: write the ELS record of this outbox row (emitElsEvent). */
+export interface ElsJobData {
+  outboxId: string;
+  type: string;
+}
+
+/** Data of an `aml` job: evaluate this player's AML rules after the event (evaluateAmlForEvent). */
+export interface AmlJobData {
+  outboxId: string;
+  type: string;
+  userId: string;
 }
 
 export interface RoutedJob {
@@ -411,27 +426,73 @@ const userNotifyRoute: OutboxRoute = (row) => {
   };
 };
 
-/** Outbox type -> the jobs it fans out to. */
-export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = {
-  [EVENT_RESULTED]: [settlementRoute, jackpotSettlementRoute],
-  [EVENT_RESULT_CORRECTED]: [settlementRoute, jackpotSettlementRoute],
-  [MARKET_RESULTED]: [marketSettlementRoute, jackpotSettlementRoute],
-  [BET_PLACED]: [betAcceptanceRoute, userNotifyRoute],
-  [BET_ACCEPTED]: [userNotifyRoute],
-  [BET_REJECTED]: [userNotifyRoute],
-  [BET_SETTLED]: [userNotifyRoute],
-  [BET_CASHED_OUT]: [userNotifyRoute],
-  [BET_REOPENED]: [userNotifyRoute],
-  [JACKPOT_ENTERED]: [userNotifyRoute],
-  [JACKPOT_SETTLED]: [userNotifyRoute],
-  [WITHDRAWAL_APPROVED]: [payoutRoute],
-  [DEPOSIT_SUCCEEDED]: [smsRoute, userNotifyRoute],
-  [WITHDRAWAL_REQUESTED]: [userNotifyRoute],
-  [WITHDRAWAL_REJECTED]: [userNotifyRoute],
-  [WITHDRAWAL_CANCELLED]: [userNotifyRoute],
-  [WITHDRAWAL_PAID]: [smsRoute, userNotifyRoute],
-  [WITHDRAWAL_FAILED]: [smsRoute, userNotifyRoute],
+/**
+ * ELS reporting (Phase 10): every reportable type (@vamos/core
+ * ELS_REPORTABLE_TYPES) gets an `els` job carrying only the outbox id; the
+ * consumer builds the record from the stored row, so nothing here can drop
+ * or alter a field. Many attempts: a record must not be lost (the sweep is
+ * the safety net after that).
+ */
+const elsRoute: OutboxRoute = (row) => {
+  const data: ElsJobData = { outboxId: row.id.toString(), type: row.type };
+  return {
+    queue: QUEUE_NAMES.els,
+    name: row.type,
+    data,
+    opts: { attempts: 12, backoff: { type: 'exponential', delay: 2000 } },
+  };
 };
+
+/**
+ * AML (Phase 10): the events after which a player's rules are evaluated
+ * (@vamos/db AML_TRIGGER_TYPES). A payload without a player routes no job
+ * (the daily sweep still sees the activity).
+ */
+const amlRoute: OutboxRoute = (row) => {
+  const parsed = z.object({ userId: z.uuid() }).safeParse(row.payload);
+  if (!parsed.success) return null;
+  const data: AmlJobData = {
+    outboxId: row.id.toString(),
+    type: row.type,
+    userId: parsed.data.userId,
+  };
+  return { queue: QUEUE_NAMES.aml, name: row.type, data };
+};
+
+/** The routes of each type, plus the compliance routes (ELS stream, AML) of the types they cover. */
+function withComplianceRoutes(
+  routes: Record<string, readonly OutboxRoute[]>,
+): Readonly<Record<string, readonly OutboxRoute[]>> {
+  const all: Record<string, OutboxRoute[]> = {};
+  for (const [type, list] of Object.entries(routes)) all[type] = [...list];
+  for (const type of ELS_REPORTABLE_TYPES) (all[type] ??= []).push(elsRoute);
+  for (const type of AML_TRIGGER_TYPES) (all[type] ??= []).push(amlRoute);
+  return all;
+}
+
+/** Outbox type -> the jobs it fans out to. */
+export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = withComplianceRoutes(
+  {
+    [EVENT_RESULTED]: [settlementRoute, jackpotSettlementRoute],
+    [EVENT_RESULT_CORRECTED]: [settlementRoute, jackpotSettlementRoute],
+    [MARKET_RESULTED]: [marketSettlementRoute, jackpotSettlementRoute],
+    [BET_PLACED]: [betAcceptanceRoute, userNotifyRoute],
+    [BET_ACCEPTED]: [userNotifyRoute],
+    [BET_REJECTED]: [userNotifyRoute],
+    [BET_SETTLED]: [userNotifyRoute],
+    [BET_CASHED_OUT]: [userNotifyRoute],
+    [BET_REOPENED]: [userNotifyRoute],
+    [JACKPOT_ENTERED]: [userNotifyRoute],
+    [JACKPOT_SETTLED]: [userNotifyRoute],
+    [WITHDRAWAL_APPROVED]: [payoutRoute],
+    [DEPOSIT_SUCCEEDED]: [smsRoute, userNotifyRoute],
+    [WITHDRAWAL_REQUESTED]: [userNotifyRoute],
+    [WITHDRAWAL_REJECTED]: [userNotifyRoute],
+    [WITHDRAWAL_CANCELLED]: [userNotifyRoute],
+    [WITHDRAWAL_PAID]: [smsRoute, userNotifyRoute],
+    [WITHDRAWAL_FAILED]: [smsRoute, userNotifyRoute],
+  },
+);
 
 /** The job id of an outbox row (the same in every queue it fans out to). */
 export const outboxJobId = (row: Pick<OutboxEvent, 'id' | 'jobKey'>): string =>
