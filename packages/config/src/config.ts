@@ -130,8 +130,11 @@ const envSchema = z.object({
   SMS_PROVIDER: z.enum(['mock', 'http']).default('mock'),
 
   ELS_LICENSE_NUMBER: z.string().trim().min(1).optional(),
-  ELS_REPORTING: z.enum(['disabled', 'file', 'http']).default('file'),
-  ELS_REPORT_DIR: z.string().default('./var/els-reports'),
+  /** How regulator (ELS) reports are produced: file (JSONL + CSV), http (placeholder) or off. */
+  ELS_REPORTING_MODE: z.enum(['file', 'http', 'off']).optional(),
+  /** Legacy spelling of ELS_REPORTING_MODE ('disabled' = 'off'). */
+  ELS_REPORTING: z.enum(['disabled', 'file', 'http']).optional(),
+  ELS_REPORT_DIR: z.string().trim().min(1).optional(),
   ELS_REPORT_URL: z.url().optional(),
   TAX_CONFIG_CONFIRMED: bool.default(false),
 
@@ -142,6 +145,16 @@ const envSchema = z.object({
 });
 
 export type OperatingMode = 'demo' | 'licensed';
+
+export type ElsReportingMode = 'file' | 'http' | 'off';
+
+/** Default ELS_REPORT_DIR (relative to the working directory; licensed mode needs an absolute path). */
+export const DEFAULT_ELS_REPORT_DIR = './var/els';
+
+/** True for an absolute POSIX or Windows path. */
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
+}
 
 export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
@@ -173,7 +186,16 @@ export interface AppConfig {
   payments: PaymentProvidersConfig;
   els: {
     licenseNumber: string | undefined;
+    /**
+     * ELS_REPORTING_MODE: `file` writes the transaction stream (JSONL) and the
+     * daily summaries (CSV) under reportDir; `http` is a placeholder that
+     * refuses to send until ELS publishes its interface; `off` reports nothing
+     * (demo only: licensed mode refuses it).
+     */
+    reportingMode: ElsReportingMode;
+    /** The same setting in its legacy spelling (ELS_REPORTING): 'disabled' = 'off'. */
     reporting: 'disabled' | 'file' | 'http';
+    /** Where the file reporter writes (ELS_REPORT_DIR, default ./var/els). */
     reportDir: string;
     reportUrl: string | undefined;
   };
@@ -231,11 +253,25 @@ export function licensedModeViolations(config: AppConfig): string[] {
       'ELS_LICENSE_NUMBER is required: real-money betting needs an Ethiopian Lottery Service licence',
     );
   }
-  if (config.els.reporting === 'disabled') {
-    problems.push('ELS_REPORTING must be "file" or "http" in licensed mode');
+  if (config.els.reportingMode === 'off' || config.els.reporting === 'disabled') {
+    problems.push(
+      'ELS_REPORTING_MODE must not be "off" in licensed mode (ELS reporting must be enabled)',
+    );
   }
-  if (config.els.reporting === 'http' && !config.els.reportUrl) {
-    problems.push('ELS_REPORT_URL is required when ELS_REPORTING=http');
+  if (config.els.reportingMode === 'http' || config.els.reporting === 'http') {
+    if (!config.els.reportUrl) {
+      problems.push('ELS_REPORT_URL is required when ELS_REPORTING_MODE=http');
+    }
+    // The HTTP reporter refuses to send until ELS publishes its interface, so
+    // http would report nothing: licensed mode reports to files until then.
+    problems.push(
+      'ELS_REPORTING_MODE=http is a placeholder until ELS publishes its reporting interface; use "file" in licensed mode',
+    );
+  }
+  if (config.els.reportingMode === 'file' && !isAbsolutePath(config.els.reportDir)) {
+    problems.push(
+      'ELS_REPORT_DIR must be an absolute path in licensed mode (a durable, backed-up volume: reports are kept 7 years)',
+    );
   }
   const realPaymentProviders = config.providers.payments.filter((p) => p !== 'mock');
   if (config.providers.payments.includes('mock')) {
@@ -283,6 +319,18 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     );
   }
   const e = parsed.data;
+  const legacyElsMode: ElsReportingMode | undefined =
+    e.ELS_REPORTING === 'disabled' ? 'off' : e.ELS_REPORTING;
+  if (
+    e.ELS_REPORTING_MODE !== undefined &&
+    legacyElsMode !== undefined &&
+    e.ELS_REPORTING_MODE !== legacyElsMode
+  ) {
+    throw new ConfigError([
+      `ELS_REPORTING_MODE=${e.ELS_REPORTING_MODE} contradicts the legacy ELS_REPORTING=${e.ELS_REPORTING ?? ''}; set only ELS_REPORTING_MODE`,
+    ]);
+  }
+  const elsMode: ElsReportingMode = e.ELS_REPORTING_MODE ?? legacyElsMode ?? 'file';
 
   const config: AppConfig = {
     nodeEnv: e.NODE_ENV,
@@ -325,8 +373,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     els: {
       licenseNumber: e.ELS_LICENSE_NUMBER,
-      reporting: e.ELS_REPORTING,
-      reportDir: e.ELS_REPORT_DIR,
+      reportingMode: elsMode,
+      reporting: elsMode === 'off' ? 'disabled' : elsMode,
+      reportDir: e.ELS_REPORT_DIR ?? DEFAULT_ELS_REPORT_DIR,
       reportUrl: e.ELS_REPORT_URL,
     },
     taxConfigConfirmed: e.TAX_CONFIG_CONFIRMED,

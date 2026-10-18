@@ -1,5 +1,6 @@
 export {
   ConfigError,
+  DEFAULT_ELS_REPORT_DIR,
   DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
   DEV_SESSION_SECRET,
@@ -9,6 +10,7 @@ export {
   loadConfig,
   parseAdminTotpKey,
   type AppConfig,
+  type ElsReportingMode,
   type OperatingMode,
   type PaymentProvidersConfig,
 } from './config';
