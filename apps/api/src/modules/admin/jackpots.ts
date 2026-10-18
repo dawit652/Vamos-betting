@@ -14,11 +14,25 @@ import {
   withTxRetry,
 } from '@vamos/db';
 import type { FastifyInstance } from 'fastify';
+import { toWire } from '@vamos/core';
+import type { StaffJackpotRound } from '@vamos/db';
+import { jackpotRoundView, jackpotSettlementView } from '../jackpots/views';
 import { parseInput } from '../../lib/errors';
 import { staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, wire } from './common';
 
 type IdParams = { Params: { id: string } };
+
+/** A round as players see it, with the entry totals and the stored decision. */
+function staffRoundView(round: StaffJackpotRound) {
+  return {
+    ...jackpotRoundView(round),
+    entries: round.entries,
+    stakes: toWire(round.stakes),
+    openEntries: round.openEntries,
+    decision: jackpotSettlementView({ ...round, settlement: round.decision }),
+  };
+}
 
 /** Jackpot rounds and entries (jackpots.view), cancelling a round (jackpots.manage). */
 export default async function adminJackpotRoutes(app: FastifyInstance): Promise<void> {
@@ -34,7 +48,10 @@ export default async function adminJackpotRoutes(app: FastifyInstance): Promise<
       limit: query.limit,
       ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
     });
-    return wire(StaffJackpotRoundListResponse, page);
+    return wire(StaffJackpotRoundListResponse, {
+      items: page.items.map(staffRoundView),
+      nextCursor: page.nextCursor,
+    });
   });
 
   app.get<IdParams>(

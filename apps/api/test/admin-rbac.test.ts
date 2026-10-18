@@ -86,12 +86,20 @@ describe('admin RBAC', () => {
     }
   });
 
+  it('guards the automatic HEAD routes too', async () => {
+    for (const route of guarded().filter((r) => r.method === 'GET')) {
+      const response = await ctx.app.inject({ method: 'HEAD', url: concreteUrl(route) });
+      expect(response.statusCode, `HEAD ${route.url}`).toBe(401);
+    }
+  });
+
   it('answers 401 on every guarded route to a player session (cookie or bearer)', async () => {
     for (const route of guarded()) {
-      for (const headers of [
+      const credentials: Record<string, string>[] = [
         { cookie: player.cookie, 'x-csrf-token': player.csrfToken },
         { authorization: `Bearer ${player.sessionToken}` },
-      ]) {
+      ];
+      for (const headers of credentials) {
         const response = await call(route, headers);
         expect(response.statusCode, `${route.method} ${route.url}`).toBe(401);
       }
