@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { normalizeEthiopianMsisdn, toWire, type PaymentRules } from '@vamos/core';
+import { normalizeEthiopianMsisdn, toWire, type AmlRules, type PaymentRules } from '@vamos/core';
 import {
   and,
   asc,
@@ -14,6 +14,8 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
+import { evaluateAmlForUser, hasUnresolvedHighAmlFlag } from '../compliance/aml';
+import { loadComplianceSettings } from '../compliance/settings';
 import {
   DomainError,
   domainConflict,
@@ -70,7 +72,13 @@ export const PAYOUT_PENDING_LIMIT_MS = DAY_MS;
 /** `approved_by` of automatically approved payouts. */
 export const AUTO_APPROVER = 'system:auto';
 
-export type ReviewReason = 'above_auto_approve_threshold' | 'active_exclusion';
+/**
+ * Why a withdrawal waits for staff (payouts.review_reason): at or above the
+ * auto-approval threshold, the player is under an exclusion, or the player
+ * has an open or escalated high-severity AML flag (`aml_review`; also set
+ * when such a flag sends an approved withdrawal back to review).
+ */
+export type ReviewReason = 'above_auto_approve_threshold' | 'active_exclusion' | 'aml_review';
 
 /**
  * Why a payout waits for staff (payouts.flag_reason):
@@ -111,6 +119,14 @@ export interface RequestWithdrawalInput {
   now: Date;
   /** loadGameSettings().payments */
   rules: PaymentRules;
+  /**
+   * The AML rules (loadComplianceSettings().amlRules). When given, the
+   * withdrawal-time rules (withdrawal velocity counting this request,
+   * deposit then withdraw) are evaluated in this transaction first, so a
+   * request that raises a high-severity flag is held for staff before any
+   * payout job sees it. Without them only existing flags are honoured.
+   */
+  amlRules?: AmlRules;
   ip?: string | null;
 }
 
@@ -234,9 +250,12 @@ async function flagPayout(
  *    exclusion is active (see below);
  * 9. the hold: player_cash -amount, house_withdrawals_pending +amount
  *    (422 `insufficient_funds`), so the money cannot be bet or withdrawn twice;
- * 10. the payout row: `approved` (by `system:auto`) when amount <
- *    autoApproveBelow and no exclusion is active, else `requested` for
- *    manual review; outbox `payment.withdrawal_requested` (and
+ * 10. AML (Phase 10): with `amlRules`, the withdrawal-time rules are
+ *    evaluated (flags raised in this transaction); a player with an open or
+ *    escalated high-severity flag is held for review (`aml_review`);
+ * 11. the payout row: `approved` (by `system:auto`) when amount <
+ *    autoApproveBelow, no exclusion is active and no AML hold applies,
+ *    else `requested` for manual review; outbox `payment.withdrawal_requested` (and
  *    `payment.withdrawal_approved` when auto-approved) and the audit record.
  *
  * Exclusions do not block withdrawals: a player on a cool-off or
@@ -376,12 +395,33 @@ export async function requestWithdrawal(
     throw error;
   }
 
+  // AML: a player with an open or escalated high-severity flag waits for staff.
+  let amlHold: boolean;
+  if (input.amlRules !== undefined) {
+    const aml = await evaluateAmlForUser(tx, {
+      userId,
+      now,
+      source: 'withdrawal',
+      rules: input.amlRules,
+      pendingWithdrawal: { payoutId, requestedAt: now },
+    });
+    amlHold = aml.holdWithdrawals;
+  } else {
+    const { amlRules } = await loadComplianceSettings(tx);
+    amlHold =
+      amlRules.enabled &&
+      amlRules.holdWithdrawalsOnHighSeverity &&
+      (await hasUnresolvedHighAmlFlag(tx, userId));
+  }
+
   const reviewReason: ReviewReason | null =
     exclusion !== null
       ? 'active_exclusion'
-      : amount >= rules.autoApproveBelow
-        ? 'above_auto_approve_threshold'
-        : null;
+      : amlHold
+        ? 'aml_review'
+        : amount >= rules.autoApproveBelow
+          ? 'above_auto_approve_threshold'
+          : null;
   const autoApproved = reviewReason === null;
   const [payout] = await tx
     .insert(payouts)

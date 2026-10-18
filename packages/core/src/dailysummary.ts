@@ -32,6 +32,12 @@ import { BPS_DENOMINATOR, type Santim } from './money';
  * period in which every bet placed was also settled.
  */
 
+/**
+ * Default ELS commission rate (setting `els_commission`): 15% of a day's
+ * positive GGR. A placeholder to confirm with counsel and the ELS.
+ */
+export const DEFAULT_ELS_COMMISSION_RATE_BPS = 1_500;
+
 /** Idempotency-key prefix of the refund of a live bet rejected after its delay (not a settlement). */
 export const REJECTION_KEY_PREFIX = 'reject:';
 /** Idempotency-key prefix of the refund of a jackpot entry of a void round. */

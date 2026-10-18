@@ -45,3 +45,11 @@ export const WITHDRAWAL_FAILED = 'payment.withdrawal_failed';
  * reported details }.
  */
 export const WITHDRAWAL_FLAGGED = 'payment.withdrawal_flagged';
+
+/**
+ * An approved withdrawal not yet sent went back to staff review because an
+ * AML rule raised a high-severity flag on the player (status requested,
+ * review_reason aml_review). Payload { payoutId, userId, provider, amount,
+ * flagId, rule }.
+ */
+export const WITHDRAWAL_HELD = 'payment.withdrawal_held';

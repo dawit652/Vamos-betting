@@ -12,6 +12,7 @@ export * from './payments/index';
 export * from './jackpots/index';
 export * from './promotions/index';
 export * from './backoffice/index';
+export * from './compliance/index';
 export {
   isRetryableTxError,
   pgCode,
