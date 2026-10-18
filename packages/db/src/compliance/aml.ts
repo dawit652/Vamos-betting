@@ -1,11 +1,26 @@
 import {
   amlLookbackMs,
+  DEPOSIT_THEN_WITHDRAW_LOOKBACK_DAYS,
   evaluateAmlActivity,
-  evaluateDepositThenWithdraw,
+  evaluateDepositsThenWithdraw,
   type AmlHit,
   type AmlRules,
 } from '@vamos/core';
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, ne, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import type { Database } from '../client';
 import { domainBadRequest, domainConflict, domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
@@ -61,6 +76,7 @@ export const AML_TRIGGER_TYPES: readonly string[] = [
 export const AML_REVIEW_REASON = 'aml_review';
 
 const UNRESOLVED: AmlFlagStatus[] = ['open', 'escalated'];
+const DAY_MS = 86_400_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Whether the player has an open or escalated high-severity flag. */
@@ -77,6 +93,19 @@ export async function hasUnresolvedHighAmlFlag(exec: DbExecutor, userId: string)
     )
     .limit(1);
   return row !== undefined;
+}
+
+/**
+ * Whether the player's withdrawals are held for AML (the rules and the hold
+ * are on, and the player has an open or escalated high-severity flag).
+ */
+export async function amlHoldsWithdrawals(exec: DbExecutor, userId: string): Promise<boolean> {
+  const { amlRules } = await loadComplianceSettings(exec);
+  return (
+    amlRules.enabled &&
+    amlRules.holdWithdrawalsOnHighSeverity &&
+    (await hasUnresolvedHighAmlFlag(exec, userId))
+  );
 }
 
 /** The player's movements within the look-back window (business clock: the rows' own times). */
@@ -116,56 +145,71 @@ async function loadActivity(tx: DbTransaction, userId: string, from: Date, to: D
   return { deposits, withdrawals, cashOuts };
 }
 
-/** The deposit-then-withdraw hit of one withdrawal request, if any. */
+/**
+ * The deposit-then-withdraw hit of one withdrawal request, if any: judged
+ * against every deposit since the player's previous withdrawal request (at
+ * most DEPOSIT_THEN_WITHDRAW_LOOKBACK_DAYS back), each with the stakes
+ * placed from it up to the request, so a small top-up cannot hide an
+ * unplayed deposit (core evaluateDepositsThenWithdraw).
+ */
 async function depositThenWithdrawHit(
   tx: DbTransaction,
   rules: AmlRules,
   userId: string,
-  requestedAt: Date,
+  withdrawal: { id: string; at: Date },
 ): Promise<AmlHit | null> {
   if (!rules.depositThenWithdraw.enabled) return null;
-  const [deposit] = await tx
+  const requestedAt = withdrawal.at;
+  const [previous] = await tx
+    .select({ at: payouts.requestedAt })
+    .from(payouts)
+    .where(
+      and(
+        eq(payouts.userId, userId),
+        ne(payouts.id, withdrawal.id),
+        lt(payouts.requestedAt, requestedAt),
+      ),
+    )
+    .orderBy(desc(payouts.requestedAt))
+    .limit(1);
+  const floor = new Date(requestedAt.getTime() - DEPOSIT_THEN_WITHDRAW_LOOKBACK_DAYS * DAY_MS);
+  const since = previous !== undefined && previous.at > floor ? previous.at : floor;
+  const to = requestedAt.toISOString();
+  const deposits = await tx
     .select({
       id: paymentIntents.id,
       at: paymentIntents.completedAt,
       amount: paymentIntents.amount,
+      stakesSince: sql<string>`(
+        COALESCE((SELECT sum(${bets.stake}) FROM ${bets}
+          WHERE ${bets.userId} = ${userId} AND ${bets.status} <> 'rejected'
+            AND ${bets.placedAt} >= ${paymentIntents.completedAt}
+            AND ${bets.placedAt} <= ${to}::timestamptz), 0)
+        + COALESCE((SELECT sum(${jackpotEntries.cost}) FROM ${jackpotEntries}
+          WHERE ${jackpotEntries.userId} = ${userId}
+            AND ${jackpotEntries.placedAt} >= ${paymentIntents.completedAt}
+            AND ${jackpotEntries.placedAt} <= ${to}::timestamptz), 0)
+      )::text`,
     })
     .from(paymentIntents)
     .where(
       and(
         eq(paymentIntents.userId, userId),
         eq(paymentIntents.status, 'succeeded'),
+        gt(paymentIntents.completedAt, since),
         lte(paymentIntents.completedAt, requestedAt),
       ),
     )
-    .orderBy(desc(paymentIntents.completedAt), desc(paymentIntents.id))
-    .limit(1);
-  if (deposit === undefined || deposit.at === null) return null;
-  const [betStakes] = await tx
-    .select({ total: sql<string>`COALESCE(sum(${bets.stake}), 0)::text` })
-    .from(bets)
-    .where(
-      and(
-        eq(bets.userId, userId),
-        ne(bets.status, 'rejected'),
-        gte(bets.placedAt, deposit.at),
-        lte(bets.placedAt, requestedAt),
-      ),
-    );
-  const [entries] = await tx
-    .select({ total: sql<string>`COALESCE(sum(${jackpotEntries.cost}), 0)::text` })
-    .from(jackpotEntries)
-    .where(
-      and(
-        eq(jackpotEntries.userId, userId),
-        gte(jackpotEntries.placedAt, deposit.at),
-        lte(jackpotEntries.placedAt, requestedAt),
-      ),
-    );
-  return evaluateDepositThenWithdraw(rules.depositThenWithdraw, {
-    deposit: deposit.amount,
-    stakesSince: BigInt(betStakes?.total ?? '0') + BigInt(entries?.total ?? '0'),
-    depositRef: deposit.id,
+    .orderBy(asc(paymentIntents.completedAt), asc(paymentIntents.id));
+  return evaluateDepositsThenWithdraw(rules.depositThenWithdraw, {
+    deposits: deposits
+      .filter((row) => row.at !== null)
+      .map((row) => ({
+        ref: row.id,
+        atMs: row.at!.getTime(),
+        amount: row.amount,
+        stakesSince: BigInt(row.stakesSince),
+      })),
     atMs: requestedAt.getTime(),
   });
 }
@@ -173,7 +217,9 @@ async function depositThenWithdrawHit(
 /**
  * Moves the player's approved withdrawals that no worker has taken yet back
  * to staff review (FOR UPDATE, so a payout worker claiming it concurrently
- * either got it first or never sees it approved). Returns their ids.
+ * either got it first or never sees it approved), and re-tags withdrawals
+ * already waiting for review for another reason as `aml_review`, so staff
+ * see the flag. Returns their ids.
  */
 async function holdApprovedWithdrawals(
   tx: DbTransaction,
@@ -187,11 +233,16 @@ async function holdApprovedWithdrawals(
     .where(
       and(
         eq(payouts.userId, userId),
-        eq(payouts.status, 'approved'),
-        eq(payouts.attempts, 0),
-        isNull(payouts.flaggedAt),
+        or(
+          and(eq(payouts.status, 'approved'), eq(payouts.attempts, 0), isNull(payouts.flaggedAt)),
+          and(
+            eq(payouts.status, 'requested'),
+            sql`${payouts.reviewReason} IS DISTINCT FROM ${AML_REVIEW_REASON}`,
+          ),
+        ),
       ),
     )
+    .orderBy(asc(payouts.requestedAt))
     .for('update');
   const held: string[] = [];
   for (const payout of approved) {
@@ -284,7 +335,7 @@ export async function evaluateAmlForUser(
     })),
   });
   for (const withdrawal of withdrawals) {
-    const hit = await depositThenWithdrawHit(tx, rules, userId, withdrawal.at);
+    const hit = await depositThenWithdrawHit(tx, rules, userId, withdrawal);
     if (hit !== null) hits.push({ ...hit, details: { ...hit.details, payoutId: withdrawal.id } });
   }
 

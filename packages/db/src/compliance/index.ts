@@ -12,6 +12,7 @@ export {
   evaluateAmlForEvent,
   evaluateAmlForUser,
   getAmlFlag,
+  amlHoldsWithdrawals,
   hasUnresolvedHighAmlFlag,
   listAmlFlags,
   reviewAmlFlag,

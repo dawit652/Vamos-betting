@@ -1,4 +1,5 @@
 import {
+  hasPermission,
   PayoutNoteRequest,
   RejectWithdrawalRequest,
   ResolveDepositRequest,
@@ -24,7 +25,7 @@ import {
 } from '@vamos/db';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { notFound, parseInput } from '../../lib/errors';
-import { staffActor } from '../../plugins/staff-session';
+import { requireStaff, staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, wire } from './common';
 
 type IdParams = { Params: { id: string } };
@@ -93,7 +94,13 @@ export default async function adminPaymentRoutes(app: FastifyInstance): Promise<
   app.post<IdParams>(
     '/admin/withdrawals/:id/approve',
     { config: { staff: 'withdrawals.approve' } },
-    (request) => changePayout(request, (tx, context) => staffApproveWithdrawal(tx, context)),
+    (request) => {
+      // Only aml.review (compliance, admin) releases a withdrawal held for an unresolved AML flag.
+      const amlReviewer = hasPermission(requireStaff(request).role, 'aml.review');
+      return changePayout(request, (tx, context) =>
+        staffApproveWithdrawal(tx, { ...context, amlReviewer }),
+      );
+    },
   );
 
   app.post<IdParams>(

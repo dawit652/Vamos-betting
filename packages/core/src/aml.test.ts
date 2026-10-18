@@ -7,6 +7,7 @@ import {
   DEFAULT_AML_RULES,
   evaluateAmlActivity,
   evaluateCashOutChurn,
+  evaluateDepositsThenWithdraw,
   evaluateDepositThenWithdraw,
   evaluateStructuring,
   evaluateVelocity,
@@ -212,6 +213,101 @@ describe('deposit then withdraw', () => {
           expect(hit !== null).toBe(stakesSince * 10_000n < deposit * BigInt(share));
         },
       ),
+    );
+  });
+});
+
+describe('deposits then withdraw (every deposit since the last withdrawal)', () => {
+  const rule = DEFAULT_AML_RULES.depositThenWithdraw;
+  const dep = (ref: string, atMs: number, amount: bigint, stakesSince = 0n) => ({
+    ref,
+    atMs,
+    amount,
+    stakesSince,
+  });
+
+  it('a small top-up after an unplayed deposit does not hide it', () => {
+    const big = dep('d1', T0, birr(2_000));
+    const topUp = dep('d2', T0 + MIN, birr(10));
+    expect(evaluateDepositsThenWithdraw(rule, { deposits: [big], atMs: T0 + HOUR })).toMatchObject({
+      windowKey: 'deposit:d1',
+    });
+    expect(
+      evaluateDepositsThenWithdraw(rule, { deposits: [topUp, big], atMs: T0 + HOUR }),
+    ).toMatchObject({
+      rule: 'deposit_then_withdraw',
+      windowKey: 'deposit:d1',
+      details: { deposit: birr(2_010).toString(), stakesSince: '0', deposits: 2 },
+    });
+    // 2,000 then 1,000 with 500 staked after the second: 500 of 3,000 is under half.
+    expect(
+      evaluateDepositsThenWithdraw(rule, {
+        deposits: [
+          dep('a', T0, birr(2_000), birr(500)),
+          dep('b', T0 + MIN, birr(1_000), birr(500)),
+        ],
+        atMs: T0 + HOUR,
+      }),
+    ).toMatchObject({ windowKey: 'deposit:a' });
+    // Played through: 1,200 of 2,010 staked.
+    expect(
+      evaluateDepositsThenWithdraw(rule, {
+        deposits: [dep('a', T0, birr(2_000), birr(1_200)), dep('b', T0 + MIN, birr(10))],
+        atMs: T0 + HOUR,
+      }),
+    ).toBeNull();
+    expect(evaluateDepositsThenWithdraw(rule, { deposits: [], atMs: T0 })).toBeNull();
+  });
+
+  const depositsArb = fc
+    .array(
+      fc.record({
+        amount: fc.bigInt({ min: 0n, max: birr(5_000) }),
+        stake: fc.bigInt({ min: 0n, max: birr(5_000) }),
+      }),
+      { maxLength: 6 },
+    )
+    .map((rows) => {
+      // Stakes since a deposit include the stakes since every later one.
+      let stakes = 0n;
+      const out = rows.map((row, i) => ({ ref: `d${i}`, atMs: T0 + i * MIN, amount: row.amount }));
+      const since = new Array<bigint>(rows.length);
+      for (let i = rows.length - 1; i >= 0; i -= 1) {
+        stakes += rows[i]!.stake;
+        since[i] = stakes;
+      }
+      return out.map((row, i) => ({ ...row, stakesSince: since[i]! }));
+    });
+
+  it('fires exactly when some deposit and those after it are under-played (property)', () => {
+    fc.assert(
+      fc.property(depositsArb, (deposits) => {
+        const hit = evaluateDepositsThenWithdraw(rule, { deposits, atMs: T0 + HOUR });
+        const expected = deposits.findIndex((d, i) => {
+          const sum = deposits.slice(i).reduce((acc, x) => acc + x.amount, 0n);
+          return sum >= rule.minDeposit && d.stakesSince * 10_000n < sum * 5_000n;
+        });
+        expect(hit?.windowKey ?? null).toBe(
+          expected < 0 ? null : `deposit:${deposits[expected]!.ref}`,
+        );
+      }),
+    );
+  });
+
+  it('a later deposit never clears a hit (property)', () => {
+    fc.assert(
+      fc.property(depositsArb, fc.bigInt({ min: 0n, max: birr(5_000) }), (deposits, topUp) => {
+        const before = evaluateDepositsThenWithdraw(rule, { deposits, atMs: T0 + HOUR });
+        fc.pre(before !== null);
+        const after = evaluateDepositsThenWithdraw(rule, {
+          deposits: [
+            ...deposits,
+            { ref: 'zz', atMs: T0 + 30 * MIN, amount: topUp, stakesSince: 0n },
+          ],
+          atMs: T0 + HOUR,
+        });
+        expect(after).not.toBeNull();
+      }),
     );
   });
 });

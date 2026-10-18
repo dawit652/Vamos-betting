@@ -131,7 +131,7 @@ test('a deposit followed at once by a withdrawal is flagged; compliance reconcil
       await phoneTab.close();
     });
 
-    await test.step('the player asks to withdraw part of it without betting: it waits for staff (aml_review)', async () => {
+    await test.step('the player asks to withdraw part of it without betting: it waits for staff (manual_review to the player)', async () => {
       const { minWithdrawal } = (await paymentOptions(page.request)).limits;
       const amount = BigInt(minWithdrawal) > 10_000n ? minWithdrawal : '10000';
       const response = await page.request.post(`${API_URL}/payments/withdrawals`, {
@@ -141,7 +141,9 @@ test('a deposit followed at once by a withdrawal is flagged; compliance reconcil
       expect(response.status(), await response.text()).toBe(201);
       const withdrawal = (await response.json()) as WithdrawalView;
       withdrawalId = withdrawal.id;
-      expect(withdrawal).toMatchObject({ status: 'requested', reviewReason: 'aml_review' });
+      // The player never learns it is an AML review (tipping-off): a generic reason only.
+      expect(withdrawal).toMatchObject({ status: 'requested', reviewReason: 'manual_review' });
+      expect(JSON.stringify(withdrawal)).not.toContain('aml');
       expect(BigInt((await getWallet(page.request)).cash)).toBe(DEPOSIT - BigInt(amount));
     });
   } finally {

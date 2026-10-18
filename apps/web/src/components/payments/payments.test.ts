@@ -154,6 +154,9 @@ describe('withdrawals', () => {
     expect(reviewReasonKey(withdrawal({ reviewReason: 'above_auto_approve_threshold' }))).toBe(
       'account.payments.withdraw.review.aboveThreshold',
     );
+    expect(reviewReasonKey(withdrawal({ reviewReason: 'manual_review' }))).toBe(
+      'account.payments.withdraw.review.generic',
+    );
     expect(reviewReasonKey(withdrawal({ reviewReason: 'other' }))).toBe(
       'account.payments.withdraw.review.generic',
     );

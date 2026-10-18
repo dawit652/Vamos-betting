@@ -14,8 +14,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
-import { evaluateAmlForUser, hasUnresolvedHighAmlFlag } from '../compliance/aml';
-import { loadComplianceSettings } from '../compliance/settings';
+import { amlHoldsWithdrawals, evaluateAmlForUser } from '../compliance/aml';
 import {
   DomainError,
   domainConflict,
@@ -407,11 +406,7 @@ export async function requestWithdrawal(
     });
     amlHold = aml.holdWithdrawals;
   } else {
-    const { amlRules } = await loadComplianceSettings(tx);
-    amlHold =
-      amlRules.enabled &&
-      amlRules.holdWithdrawalsOnHighSeverity &&
-      (await hasUnresolvedHighAmlFlag(tx, userId));
+    amlHold = await amlHoldsWithdrawals(tx, userId);
   }
 
   const reviewReason: ReviewReason | null =
@@ -482,11 +477,20 @@ export async function requestWithdrawal(
  * Staff approve a payout waiting for review (`requested` → `approved`). A
  * payout that is already approved, being processed or paid returns
  * `changed: false`; 409 `payout_not_reviewable` once it was rejected,
- * cancelled or failed.
+ * cancelled or failed. While the player's withdrawals are held for AML (an
+ * open or escalated high-severity flag), only a reviewer with aml.review
+ * (`amlReviewer`) may approve: 409 `aml_review_pending` otherwise.
  */
 export async function approveWithdrawal(
   tx: DbTransaction,
-  input: { payoutId: string; adminId: string; now: Date; ip?: string | null },
+  input: {
+    payoutId: string;
+    adminId: string;
+    now: Date;
+    ip?: string | null;
+    /** The approver holds aml.review (compliance, admin). */
+    amlReviewer?: boolean;
+  },
 ): Promise<PayoutChange> {
   const payout = await lockPayout(tx, input.payoutId);
   if (payout.status === 'approved' || payout.status === 'processing' || payout.status === 'paid') {
@@ -496,6 +500,12 @@ export async function approveWithdrawal(
     throw domainConflict('payout_not_reviewable', 'This withdrawal is not waiting for review.', {
       status: payout.status,
     });
+  }
+  if (input.amlReviewer !== true && (await amlHoldsWithdrawals(tx, payout.userId))) {
+    throw domainConflict(
+      'aml_review_pending',
+      'Compliance must review this player before the withdrawal can be approved.',
+    );
   }
   const updated = await updatePayout(tx, payout.id, {
     status: 'approved',

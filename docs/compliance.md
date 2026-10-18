@@ -93,17 +93,25 @@ Evaluated by the worker on relevant outbox events and in a daily sweep. Threshol
 setting (editable by staff with `settings.edit`). Each hit creates one `aml_flags` row per player, rule and
 window (a business day, or one deposit for deposit-then-withdraw).
 
-| Rule                  | Default                                                                                             | Severity |
-| --------------------- | --------------------------------------------------------------------------------------------------- | -------- |
-| Deposit velocity      | more than 5 deposits in a rolling hour or 10 in a day                                               | medium   |
-| Withdrawal velocity   | more than 3 withdrawals in a rolling hour or 5 in a day                                             | medium   |
-| Structuring           | at least 2 deposits of 90% or more of the 100,000 ETB threshold within 24 h, or a sum above it      | high     |
-| Deposit then withdraw | withdrawal requested when stakes since the deposit are under 50% of a deposit of at least 1,000 ETB | high     |
-| Cash-out churn        | at least 5 cash-outs within 24 h, each within 10 minutes of placement                               | medium   |
+| Rule                  | Default                                                                                                           | Severity |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- | -------- |
+| Deposit velocity      | more than 5 deposits in a rolling hour or 10 in a day                                                             | medium   |
+| Withdrawal velocity   | more than 3 withdrawals in a rolling hour or 5 in a day                                                           | medium   |
+| Structuring           | at least 2 deposits of 90% or more of the 100,000 ETB threshold within 24 h, or a sum above it                    | high     |
+| Deposit then withdraw | withdrawal requested when stakes are under 50% of the deposits since the last withdrawal, if they reach 1,000 ETB | high     |
+| Cash-out churn        | at least 5 cash-outs within 24 h, each within 10 minutes of placement                                             | medium   |
 
+- **Deposit then withdraw** judges every deposit since the player's previous withdrawal request, so a small
+  top-up after a large deposit does not hide it. The flag is keyed on the earliest deposit that breaks the rule.
 - **Hold:** with `holdWithdrawalsOnHighSeverity` (default on), a player with an open or escalated high
   severity flag has new withdrawals sent to staff (review reason `aml_review`). When such a flag is raised,
-  approved payouts not yet sent go back to review.
+  approved payouts not yet sent go back to review, and payouts already waiting for review are re-tagged
+  `aml_review`.
+- **Release:** while the flag is open or escalated, only staff with `aml.review` (compliance, admin) can approve
+  a held withdrawal (`withdrawals.approve` alone gets 409 `aml_review_pending`). Once the flag is reviewed or
+  dismissed, finance can approve it as usual.
+- **No tipping-off:** the player never sees an AML reason. Player views and the web app show the generic
+  review reason `manual_review`; only staff views show `aml_review`.
 - **Review:** staff with `aml.review` (compliance, admin) set a flag to reviewed, dismissed or escalated with a
   required note. Every review is audited. Reviewed and dismissed flags are closed.
 - Many accounts on one device or IP is out of scope (no device data is collected).
@@ -144,7 +152,7 @@ Placeholders to confirm with counsel:
 | ELS commission              | 15% of positive daily GGR (`els_commission`, 1500 bps)                                    |
 | AML reporting threshold     | 100,000 ETB (structuring rule)                                                            |
 | AML velocity                | deposits 5/h and 10/day; withdrawals 3/h and 5/day                                        |
-| AML deposit-then-withdraw   | stakes under 50% of a deposit of at least 1,000 ETB                                       |
+| AML deposit-then-withdraw   | stakes under 50% of the deposits since the last withdrawal (sum at least 1,000 ETB)       |
 | AML cash-out churn          | 5 cash-outs in 24 h, each within 10 minutes of placement                                  |
 | Retention                   | 7 years (ledger, audit, ELS reports)                                                      |
 | Summary finalisation grace  | 2 hours after the business day ends                                                       |

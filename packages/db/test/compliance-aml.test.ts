@@ -3,7 +3,9 @@ import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   AML_FLAG_RAISED,
+  approveWithdrawal,
   DEPOSIT_SUCCEEDED,
+  hasUnresolvedHighAmlFlag,
   evaluateAmlForEvent,
   evaluateAmlForUser,
   getAmlFlag,
@@ -178,6 +180,102 @@ describe('deposit then withdraw', () => {
     const third = await request(player, birr(100), after(2 * HOUR + MIN), DEFAULT_AML_RULES);
     expect(third.payout).toMatchObject({ status: 'approved', reviewReason: null });
     expect(await flagsOf(player)).toHaveLength(1);
+  });
+
+  it('a small top-up after the deposit does not reset the rule (all deposits since the last withdrawal count)', async () => {
+    const player = await createPlayer(handle.db);
+    const deposit = await depositViaMock(handle.db, player.userId, birr(2_000), { now: T0 });
+    await depositViaMock(handle.db, player.userId, birr(10), { now: after(MIN) });
+    const held = await request(player, birr(1_500), after(HOUR), DEFAULT_AML_RULES);
+    expect(held.payout).toMatchObject({ status: 'requested', reviewReason: 'aml_review' });
+    expect(await flagsOf(player)).toMatchObject([
+      {
+        rule: 'deposit_then_withdraw',
+        windowKey: `deposit:${deposit.id}`,
+        details: { deposit: toWire(birr(2_010)), stakesSince: '0', deposits: 2 },
+      },
+    ]);
+  });
+
+  it('a 1,000 ETB second deposit with a 500 ETB bet does not reset it either', async () => {
+    const player = await createPlayer(handle.db);
+    await depositViaMock(handle.db, player.userId, birr(2_000), { now: T0 });
+    await depositViaMock(handle.db, player.userId, birr(1_000), { now: after(MIN) });
+    const event = await createEvent(handle.db, catalog);
+    await place(handle.db, player.userId, {
+      stake: birr(500),
+      legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+      settings,
+      now: after(2 * MIN),
+    });
+    const held = await request(player, birr(1_500), after(HOUR), DEFAULT_AML_RULES);
+    expect(held.payout).toMatchObject({ status: 'requested', reviewReason: 'aml_review' });
+    expect(await flagsOf(player)).toHaveLength(1);
+  });
+
+  it('withdrawals.approve alone cannot release an AML hold while the high flag is unresolved', async () => {
+    const player = await createPlayer(handle.db);
+    await depositViaMock(handle.db, player.userId, birr(2_000), { now: T0 });
+    const held = await request(player, birr(1_500), after(HOUR), DEFAULT_AML_RULES);
+    expect(held.payout.reviewReason).toBe('aml_review');
+    const approve = (amlReviewer: boolean, now: Date) =>
+      handle.db.transaction((tx) =>
+        approveWithdrawal(tx, {
+          payoutId: held.payout.id,
+          adminId: STAFF.adminId,
+          now,
+          ...(amlReviewer ? { amlReviewer } : {}),
+        }),
+      );
+    const refused = await domainError(approve(false, after(HOUR + MIN)));
+    expect(refused).toMatchObject({ status: 409, code: 'aml_review_pending' });
+    const [still] = await handle.db.select().from(payouts).where(eq(payouts.id, held.payout.id));
+    expect(still?.status).toBe('requested');
+    expect(await hasUnresolvedHighAmlFlag(handle.db, player.userId)).toBe(true);
+    // Staff with aml.review may release it.
+    expect((await approve(true, after(HOUR + 2 * MIN))).payout.status).toBe('approved');
+  });
+
+  it('once compliance closes the flag, withdrawals.approve releases the hold', async () => {
+    const player = await createPlayer(handle.db);
+    await depositViaMock(handle.db, player.userId, birr(2_000), { now: T0 });
+    const held = await request(player, birr(1_500), after(HOUR), DEFAULT_AML_RULES);
+    const [flag] = await flagsOf(player);
+    await handle.db.transaction((tx) =>
+      reviewAmlFlag(tx, {
+        flagId: flag!.id,
+        decision: 'reviewed',
+        note: 'Source of funds checked.',
+        actor: STAFF,
+        now: after(2 * HOUR),
+      }),
+    );
+    const approved = await handle.db.transaction((tx) =>
+      approveWithdrawal(tx, {
+        payoutId: held.payout.id,
+        adminId: STAFF.adminId,
+        now: after(2 * HOUR + MIN),
+      }),
+    );
+    expect(approved.payout.status).toBe('approved');
+  });
+
+  it('a new high flag re-tags a withdrawal already waiting for review for another reason', async () => {
+    const player = await createPlayer(handle.db);
+    await depositViaMock(handle.db, player.userId, birr(500), { now: T0 });
+    const waiting = await request(player, birr(200), after(MIN));
+    expect(waiting.payout.status).toBe('approved');
+    await handle.db
+      .update(payouts)
+      .set({ status: 'requested', reviewReason: 'above_auto_approve_threshold' })
+      .where(eq(payouts.id, waiting.payout.id));
+    await depositViaMock(handle.db, player.userId, birr(95_000), { now: after(HOUR) });
+    await depositViaMock(handle.db, player.userId, birr(95_000), { now: after(2 * HOUR) });
+    const outcome = await evaluate(player, after(2 * HOUR));
+    expect(outcome.created.map((f) => f.rule)).toEqual(['structuring']);
+    expect(outcome.held).toEqual([waiting.payout.id]);
+    const [row] = await handle.db.select().from(payouts).where(eq(payouts.id, waiting.payout.id));
+    expect(row).toMatchObject({ status: 'requested', reviewReason: 'aml_review' });
   });
 
   it('does not fire when enough of the deposit was staked', async () => {

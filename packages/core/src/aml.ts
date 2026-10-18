@@ -318,6 +318,61 @@ export function evaluateDepositThenWithdraw(
   };
 }
 
+/** How far back the deposit-then-withdraw rule looks for deposits at most (days). */
+export const DEPOSIT_THEN_WITHDRAW_LOOKBACK_DAYS = 30;
+
+/** A deposit a withdrawal is judged against, with the stakes placed from it up to the request. */
+export interface DepositBeforeWithdrawal {
+  ref: string;
+  atMs: number;
+  amount: Santim;
+  /** Bet stakes and jackpot entry costs placed from this deposit up to the withdrawal request. */
+  stakesSince: Santim;
+}
+
+/**
+ * Deposit then withdraw over every deposit since the player's previous
+ * withdrawal (at most DEPOSIT_THEN_WITHDRAW_LOOKBACK_DAYS back), so a small
+ * top-up cannot hide an unplayed deposit before it: for each deposit d (in
+ * time order), the deposits from d on are summed and the stakes placed
+ * since d are compared with that sum (evaluateDepositThenWithdraw). The
+ * hit is keyed on the earliest deposit that breaks the rule (stable for a
+ * withdrawal, and disjoint between withdrawals). Adding a deposit never
+ * clears a hit: it raises every sum and leaves the stakes as they are.
+ */
+export function evaluateDepositsThenWithdraw(
+  config: AmlDepositThenWithdrawRule,
+  input: { deposits: readonly DepositBeforeWithdrawal[]; atMs: number },
+): AmlHit | null {
+  if (!config.enabled) return null;
+  const deposits = [...input.deposits].sort(
+    (a, b) => a.atMs - b.atMs || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0),
+  );
+  assertTimes(
+    deposits.map((d) => d.atMs),
+    'deposit times',
+  );
+  const suffix: Santim[] = new Array<Santim>(deposits.length);
+  let sum = 0n;
+  for (let i = deposits.length - 1; i >= 0; i -= 1) {
+    const amount = deposits[i]!.amount;
+    if (amount < 0n) throw new RangeError('a deposit amount must not be negative');
+    sum += amount;
+    suffix[i] = sum;
+  }
+  for (let i = 0; i < deposits.length; i += 1) {
+    const deposit = deposits[i]!;
+    const hit = evaluateDepositThenWithdraw(config, {
+      deposit: suffix[i]!,
+      stakesSince: deposit.stakesSince,
+      depositRef: deposit.ref,
+      atMs: input.atMs,
+    });
+    if (hit !== null) return { ...hit, details: { ...hit.details, deposits: deposits.length - i } };
+  }
+  return null;
+}
+
 /**
  * Rapid cash-out churn: at least minCount quick cash-outs (made at most
  * maxMinutesAfterPlacement after the bet was placed) within one rolling

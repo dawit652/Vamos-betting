@@ -188,7 +188,10 @@ export const WithdrawalView = z.object({
   /** The player's registered phone, where the money goes. */
   phone: z.string(),
   status: WithdrawalStatusSchema,
-  /** status = requested: why it is reviewed (above_auto_approve_threshold, active_exclusion). */
+  /**
+   * status = requested: why it is reviewed (above_auto_approve_threshold, active_exclusion, or
+   * the generic manual_review). Never an AML reason: that would tip the player off.
+   */
   reviewReason: z.string().nullable(),
   /** status = rejected: staff's reason. */
   rejectionReason: z.string().nullable(),

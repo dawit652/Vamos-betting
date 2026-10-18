@@ -68,7 +68,23 @@ export function withdrawalSteps(payout: Payout): WithdrawalStep[] {
   });
 }
 
-/** A payout as the player sees it (flags and staff notes stay internal). */
+/**
+ * The review reasons a player may see. Anything else (an AML review in
+ * particular: telling the player would be tipping-off) reads as the generic
+ * `manual_review`; staff views keep the real reason.
+ */
+const PLAYER_REVIEW_REASONS: ReadonlySet<string> = new Set([
+  'above_auto_approve_threshold',
+  'active_exclusion',
+]);
+
+/** The review reason as the player sees it. */
+export function playerReviewReason(reason: string | null): string | null {
+  if (reason === null) return null;
+  return PLAYER_REVIEW_REASONS.has(reason) ? reason : 'manual_review';
+}
+
+/** A payout as the player sees it (flags, AML reviews and staff notes stay internal). */
 export function withdrawalView(payout: Payout): WithdrawalView {
   return {
     id: payout.id,
@@ -77,7 +93,7 @@ export function withdrawalView(payout: Payout): WithdrawalView {
     currency: 'ETB',
     phone: payout.phone,
     status: payout.status,
-    reviewReason: payout.status === 'requested' ? payout.reviewReason : null,
+    reviewReason: payout.status === 'requested' ? playerReviewReason(payout.reviewReason) : null,
     rejectionReason: payout.status === 'rejected' ? payout.reviewReason : null,
     failureReason: payout.status === 'failed' ? payout.failureReason : null,
     cancellable: payout.status === 'requested',

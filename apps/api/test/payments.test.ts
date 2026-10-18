@@ -43,6 +43,7 @@ import { DEV_BACK_OFFICE_ACTOR, devPaymentsEnabled } from '../src/modules/paymen
 import { WEBHOOK_BODY_LIMIT } from '../src/modules/payments/routes';
 import { depositReturnUrl } from '../src/modules/payments/service';
 import { withdrawalSteps } from '../src/modules/payments/views';
+import { asStaff, seedStaff, staffLogin } from './admin-helpers';
 import {
   createTestContext,
   registerAndLogin,
@@ -1075,7 +1076,7 @@ describe('withdrawals', () => {
 });
 
 describe('AML on withdrawal requests', () => {
-  it('holds a withdrawal of an unplayed deposit for staff (high-severity flag, aml_review)', async () => {
+  it('holds a withdrawal of an unplayed deposit for staff, and never tells the player it is an AML review', async () => {
     await setPaymentRules({ wageringMultiplierBps: 0 });
     await setSetting(ctx.db.db, 'aml_rules', {});
     const player = await registerAndLogin(ctx);
@@ -1084,20 +1085,48 @@ describe('AML on withdrawal requests', () => {
     // Small enough to be approved automatically, but nothing of the 20,000 ETB was staked.
     const response = await postWithdrawal(player, { amount: '20000' });
     expect(response.statusCode, response.body).toBe(201);
-    expect(WithdrawalView.parse(response.json())).toMatchObject({
-      status: 'requested',
-      reviewReason: 'aml_review',
-    });
+    const held = WithdrawalView.parse(response.json());
+    // Tipping-off: the player sees a generic review reason, staff see aml_review.
+    expect(held).toMatchObject({ status: 'requested', reviewReason: 'manual_review' });
+    const [row] = await ctx.db.db.select().from(payouts).where(eq(payouts.id, held.id));
+    expect(row?.reviewReason).toBe('aml_review');
     const flags = await ctx.db.db.select().from(amlFlags).where(eq(amlFlags.userId, player.userId));
     expect(flags).toMatchObject([
       { rule: 'deposit_then_withdraw', severity: 'high', status: 'open', source: 'withdrawal' },
     ]);
     // A second request waits for staff too, and raises no second flag for the same deposit.
     const second = await postWithdrawal(player, { amount: '10000' });
-    expect(WithdrawalView.parse(second.json()).reviewReason).toBe('aml_review');
+    expect(WithdrawalView.parse(second.json()).reviewReason).toBe('manual_review');
     expect(
       await ctx.db.db.select().from(amlFlags).where(eq(amlFlags.userId, player.userId)),
     ).toHaveLength(1);
+    // No player route returns aml_review.
+    for (const url of ['/payments/withdrawals', `/payments/withdrawals/${held.id}`]) {
+      const read = await ctx.app.inject({ method: 'GET', url, headers: bearer(player) });
+      expect(read.statusCode, read.body).toBe(200);
+      expect(read.body).not.toContain('aml');
+      expect(read.body).toContain('manual_review');
+    }
+    expect(second.body).not.toContain('aml');
+  });
+
+  it('finance cannot approve a withdrawal held for an unresolved AML flag; aml.review can', async () => {
+    await setPaymentRules({ wageringMultiplierBps: 0 });
+    await setSetting(ctx.db.db, 'aml_rules', {});
+    await seedStaff(ctx);
+    const finance = await staffLogin(ctx, 'finance');
+    const admin = await staffLogin(ctx, 'admin');
+    const player = await registerAndLogin(ctx);
+    await depositAndApprove(player, 2_000_000n);
+    await verifyKyc(player);
+    const held = WithdrawalView.parse((await postWithdrawal(player, { amount: '20000' })).json());
+    const url = `/admin/withdrawals/${held.id}/approve`;
+    const refused = await asStaff(ctx, finance, 'POST', url, {});
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(ApiErrorSchema.parse(refused.json()).error.code).toBe('aml_review_pending');
+    const approved = await asStaff(ctx, admin, 'POST', url, {});
+    expect(approved.statusCode, approved.body).toBe(200);
+    expect(approved.json()).toMatchObject({ changed: true, withdrawal: { status: 'approved' } });
   });
 });
 

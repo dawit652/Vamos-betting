@@ -200,6 +200,7 @@ export function withdrawalTone(status: WithdrawalStatus): Tone {
   }
 }
 
+/** Anything else (manual_review included) shows the generic message. */
 const REVIEW_REASON: Readonly<Record<string, MessageKey>> = {
   above_auto_approve_threshold: 'account.payments.withdraw.review.aboveThreshold',
   active_exclusion: 'account.payments.withdraw.review.exclusion',

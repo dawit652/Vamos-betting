@@ -201,11 +201,13 @@ function requiredNote(text: string | undefined, code: string, message: string): 
  * Finance approves a withdrawal waiting for review (`requested` →
  * `approved`; the payout worker then sends it). Already approved, being
  * processed or paid: `changed: false`; 409 `payout_not_reviewable` once
- * rejected, cancelled or failed. Audited as `payment.withdrawal_approved`.
+ * rejected, cancelled or failed; 409 `aml_review_pending` while the player's
+ * withdrawals are held for AML, unless the approver holds aml.review
+ * (`amlReviewer`). Audited as `payment.withdrawal_approved`.
  */
 export async function staffApproveWithdrawal(
   tx: DbTransaction,
-  input: { payoutId: string; actor: StaffActor; now: Date },
+  input: { payoutId: string; actor: StaffActor; now: Date; amlReviewer?: boolean },
 ): Promise<PayoutChange> {
   const actor = checkedActor(input.actor);
   return approveWithdrawal(tx, {
@@ -213,6 +215,7 @@ export async function staffApproveWithdrawal(
     adminId: actor.adminId,
     now: input.now,
     ip: actor.ip ?? null,
+    amlReviewer: input.amlReviewer === true,
   });
 }
 
