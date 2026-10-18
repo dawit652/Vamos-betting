@@ -64,7 +64,9 @@ function staffCancelledSettlement(entries: number, stakes: bigint): JackpotRound
  *
  * The decision is stored like settlement's own (a void settlement with
  * voidReason `cancelled_by_staff`, no results):
- * - without entries the round is `cancelled` at once (`jackpot.round_settled`);
+ * - without entries the round is `cancelled` at once (`jackpot.round_settled`;
+ *   an open round is closed first, `jackpot.round_closed`, as the round
+ *   guard trigger only lets a closed or scheduled round be cancelled);
  * - with entries the round is closed (`jackpot.round_closed`) with that
  *   decision, and the existing settlement path refunds every entry in full
  *   (settleJackpotRound / runJackpotSettlement: `jackpot_refund:<entryId>`
@@ -139,6 +141,8 @@ export async function cancelJackpotRound(
   let status: 'closed' | 'cancelled';
   if (entries === 0) {
     status = 'cancelled';
+    // The round guard allows scheduled → cancelled, but an open round closes first.
+    if (round.status === 'open') await closeLockedRound(tx, round, now);
     await tx
       .update(jackpotRounds)
       .set({
