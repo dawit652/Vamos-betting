@@ -1,7 +1,7 @@
 {
   "name": "vamos-betting",
   "private": true,
-  "description": "Vamos Betting \u2013 mobile-first sportsbook for the Ethiopian market (demo mode until licensed)",
+  "description": "Vamos Betting – mobile-first sportsbook for the Ethiopian market (demo mode until licensed)",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22.13.0"
