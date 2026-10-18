@@ -64,3 +64,28 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   }
   return body as T;
 }
+
+/** GET `path` as text (CSV downloads); the session cookie goes along. */
+export async function apiText(path: string, query?: Query): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(API_URL, path, query), {
+      headers: { accept: 'text/csv' },
+      credentials: 'include',
+      cache: 'no-store',
+    });
+  } catch {
+    throw new ApiClientError(0, 'network_error', 'The API could not be reached');
+  }
+  const text = await response.text();
+  if (!response.ok) {
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
+    throw errorFromBody(response.status, body);
+  }
+  return text;
+}

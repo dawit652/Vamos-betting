@@ -29,6 +29,20 @@ describe('navigation by role', () => {
     expect(labels('compliance')).toContain('Audit log');
   });
 
+  it('compliance pages follow reports.view and aml.review', () => {
+    expect(labels('compliance')).toEqual(
+      expect.arrayContaining(['Daily summaries', 'Reconciliation', 'AML flags']),
+    );
+    expect(labels('finance')).toEqual(
+      expect.arrayContaining(['Daily summaries', 'Reconciliation']),
+    );
+    expect(labels('finance')).not.toContain('AML flags');
+    expect(labels('support')).not.toContain('Daily summaries');
+    expect(permissionForPath('/compliance/aml/abc')).toBe('aml.review');
+    expect(permissionForPath('/compliance/reconciliation/abc')).toBe('reports.view');
+    expect(permissionForPath('/compliance/summaries/2026-10-01')).toBe('reports.view');
+  });
+
   it('every role sees the dashboard, and an unknown role sees nothing', () => {
     for (const role of STAFF_ROLES) expect(labels(role)).toContain('Dashboard');
     expect(navFor([])).toEqual([]);

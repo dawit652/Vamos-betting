@@ -18,6 +18,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/bets', label: 'Bets', permission: 'bets.view' },
   { href: '/withdrawals', label: 'Withdrawals', permission: 'withdrawals.view' },
   { href: '/jackpots', label: 'Jackpots', permission: 'jackpots.view' },
+  { href: '/compliance', label: 'Daily summaries', permission: 'reports.view' },
+  { href: '/compliance/reconciliation', label: 'Reconciliation', permission: 'reports.view' },
+  { href: '/compliance/aml', label: 'AML flags', permission: 'aml.review' },
   { href: '/settings', label: 'Settings', permission: 'settings.view' },
   { href: '/audit', label: 'Audit log', permission: 'audit.view' },
 ];
