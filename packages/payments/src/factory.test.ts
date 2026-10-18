@@ -21,6 +21,7 @@ const LICENSED = {
   NODE_ENV: 'production',
   OPERATING_MODE: 'licensed',
   ELS_LICENSE_NUMBER: 'ELS/SB/0001',
+  ELS_REPORT_DIR: '/var/lib/vamos/els',
   KYC_PROVIDER: 'fayda',
   SMS_PROVIDER: 'http',
   FEED_PROVIDER: 'manual',
