@@ -43,9 +43,46 @@ const MAX_REFERENCE = 200;
 const REQUIRED_COLUMNS = ['provider', 'reference', 'amount', 'date'] as const;
 const OFFSET_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
-/** Splits CSV text into rows of fields (RFC 4180: quotes, doubled quotes, CRLF or LF). */
-export function parseCsvRows(text: string): string[][] {
+/** At most this many fields per statement row. */
+export const PSP_STATEMENT_MAX_FIELDS = 32;
+
+/** A CSV over a row or field limit (`lineNo`: the first line over it). */
+export class CsvLimitError extends RangeError {
+  constructor(
+    message: string,
+    readonly lineNo: number,
+    readonly limit: 'rows' | 'fields',
+  ) {
+    super(message);
+    this.name = 'CsvLimitError';
+  }
+}
+
+/**
+ * Splits CSV text into rows of fields (RFC 4180: quotes, doubled quotes, CRLF
+ * or LF). Every physical row counts toward `maxRows`, blank ones included,
+ * and parsing stops at the first row over it or over `maxFields` fields
+ * (CsvLimitError), so the work and memory stay bounded by the limits.
+ */
+export function parseCsvRows(
+  text: string,
+  options: { maxRows?: number; maxFields?: number } = {},
+): string[][] {
+  const maxRows = options.maxRows ?? Number.POSITIVE_INFINITY;
+  const maxFields = options.maxFields ?? Number.POSITIVE_INFINITY;
   const rows: string[][] = [];
+  const pushField = (value: string) => {
+    if (row.length >= maxFields) {
+      throw new CsvLimitError(`more than ${maxFields} fields on a line`, rows.length + 1, 'fields');
+    }
+    row.push(value);
+  };
+  const pushRow = () => {
+    if (rows.length >= maxRows) {
+      throw new CsvLimitError(`more than ${maxRows} lines`, rows.length + 1, 'rows');
+    }
+    rows.push(row);
+  };
   let row: string[] = [];
   let field = '';
   let quoted = false;
@@ -72,12 +109,12 @@ export function parseCsvRows(text: string): string[][] {
       quoted = true;
       wasQuoted = true;
     } else if (ch === ',') {
-      row.push(field);
+      pushField(field);
       field = '';
       wasQuoted = false;
     } else if (ch === '\n' || ch === '\r') {
-      row.push(field);
-      rows.push(row);
+      pushField(field);
+      pushRow();
       row = [];
       field = '';
       wasQuoted = false;
@@ -89,8 +126,8 @@ export function parseCsvRows(text: string): string[][] {
   }
   if (quoted) throw new SyntaxError('unterminated quoted field');
   if (wasQuoted || field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
+    pushField(field);
+    pushRow();
   }
   return rows;
 }
@@ -115,8 +152,13 @@ export function parsePspStatementCsv(
   const maxLines = options.maxLines ?? PSP_STATEMENT_MAX_LINES;
   let rows: string[][];
   try {
-    rows = parseCsvRows(text);
+    // The header, maxLines lines (blank ones count) and nothing more.
+    rows = parseCsvRows(text, { maxRows: maxLines + 1, maxFields: PSP_STATEMENT_MAX_FIELDS });
   } catch (error) {
+    if (error instanceof CsvLimitError) {
+      const message = error.limit === 'rows' ? `more than ${maxLines} lines` : error.message;
+      return { lines: [], errors: [{ lineNo: error.lineNo, message }] };
+    }
     return { lines: [], errors: [{ lineNo: 0, message: (error as Error).message }] };
   }
   const header = rows[0];
@@ -196,17 +238,27 @@ export interface PspRecord {
 }
 
 /**
- * - matched: one settled record with this reference and the same amount;
+ * - matched: one settled record with this reference, the same amount and
+ *   direction (a deposit is money in, a payout money out);
+ * - direction_mismatch: one record, but the line moves money the other way
+ *   (a payout returned to the operator, money out on a deposit);
  * - amount_mismatch: one settled record, another amount;
  * - status_mismatch: one record that is not settled (the provider moved
  *   money we do not count as moved: a failed or expired deposit, a payout
  *   whose hold went back);
  * - unmatched: no record with this reference;
  * - ambiguous: several records could be meant;
- * - duplicate: an earlier line already has this reference.
+ * - duplicate: an earlier line already has this reference, or already
+ *   matched the same record.
  */
 export type PspLineStatus =
-  'matched' | 'amount_mismatch' | 'status_mismatch' | 'unmatched' | 'ambiguous' | 'duplicate';
+  | 'matched'
+  | 'amount_mismatch'
+  | 'direction_mismatch'
+  | 'status_mismatch'
+  | 'unmatched'
+  | 'ambiguous'
+  | 'duplicate';
 
 export interface PspLineMatch {
   lineNo: number;
@@ -267,12 +319,20 @@ export function matchPspStatement(input: {
       continue;
     }
     const record = candidates[0]!;
-    seenRecords.add(`${record.kind}:${record.id}`);
-    const status: PspLineStatus = !record.settled
-      ? 'status_mismatch'
-      : abs(line.amount) === record.amount
-        ? 'matched'
-        : 'amount_mismatch';
+    const recordKey = `${record.kind}:${record.id}`;
+    if (seenRecords.has(recordKey)) {
+      results.push({ lineNo: line.lineNo, status: 'duplicate', ...none });
+      continue;
+    }
+    seenRecords.add(recordKey);
+    const rightWay = record.kind === 'deposit' ? line.amount > 0n : line.amount < 0n;
+    const status: PspLineStatus = !rightWay
+      ? 'direction_mismatch'
+      : !record.settled
+        ? 'status_mismatch'
+        : abs(line.amount) === record.amount
+          ? 'matched'
+          : 'amount_mismatch';
     results.push({
       lineNo: line.lineNo,
       status,

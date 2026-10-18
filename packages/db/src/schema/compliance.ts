@@ -215,7 +215,7 @@ export const pspStatementLines = pgTable(
     businessDate: date('business_date', { mode: 'string' }).notNull(),
     /** deposit | payout as the statement says, or null. */
     kind: text('kind'),
-    /** PspLineStatus (matched, amount_mismatch, status_mismatch, unmatched, ambiguous, duplicate). */
+    /** PspLineStatus (matched, amount_mismatch, direction_mismatch, status_mismatch, unmatched, ambiguous, duplicate). */
     matchStatus: text('match_status').notNull(),
     recordKind: text('record_kind'),
     recordId: uuid('record_id'),

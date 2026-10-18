@@ -315,6 +315,7 @@ export type ImportPspStatementRequest = z.infer<typeof ImportPspStatementRequest
 export const PspLineStatusSchema = z.enum([
   'matched',
   'amount_mismatch',
+  'direction_mismatch',
   'status_mismatch',
   'unmatched',
   'ambiguous',

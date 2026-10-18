@@ -33,6 +33,8 @@ an `ElsReporter` (`ELS_REPORTING_MODE=file|http|off`, default `file`; `ELS_REPOR
 | `compliance.daily_summary_finalized`                                                          | A business day became final          |
 
 - **Files:** `<dir>/stream/<date>.jsonl` (one line per event) and `<dir>/daily/<date>.csv` (daily summaries).
+  Folders are created `0700` and files `0600` (personal data); the status warns when the folder is readable by
+  other users.
 - **Exactly once:** the durable `els_reports` table records each outbox id with a hash of the line. Replays
   and restarts do not duplicate lines; a sweep re-emits rows that were not written.
 - **Data minimisation (PDPP):** only whitelisted fields are written. A record carries the pseudonymous
@@ -81,7 +83,10 @@ snapshot and stores the result in `reconciliation_runs` with each difference in 
    prizes and refunds; `house_withdrawals_pending` equals open payouts.
 4. **PSP:** per provider and day, succeeded payment intents and paid payouts equal the `house_psp_clearing`
    movements. A PSP statement uploaded in admin (CSV: provider, reference, amount in birr, date, optional
-   type) is matched line by line: each line must match exactly one intent or payout and vice versa.
+   type) is matched line by line: each line must match exactly one intent or payout and vice versa, with the
+   same amount and direction (a deposit is money in, a payout money out; otherwise `direction_mismatch`). A
+   second line for a record already matched is a `duplicate`, so a payout returned by the provider is not
+   clean. A statement has at most 20,000 lines (blank lines count) and 32 fields per line.
 5. **Daily summaries:** final days of the last 7 still match the ledger.
 
 A mismatch creates an alert (outbox event) and an audit record and shows in admin. Statement uploads are

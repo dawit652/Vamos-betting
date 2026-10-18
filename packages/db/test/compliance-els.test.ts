@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { birr, DAILY_SUMMARY_FINALIZED } from '@vamos/core';
@@ -8,6 +8,7 @@ import {
   createFileElsReporter,
   createHttpElsReporter,
   createOffElsReporter,
+  dailySummaryRowOf,
   elsLineHash,
   emitElsEvent,
   enqueueOutbox,
@@ -18,7 +19,7 @@ import {
   sweepElsReports,
   type ElsReporter,
 } from '../src/index';
-import { elsReports } from '../src/schema/index';
+import { dailySummaries, elsReports } from '../src/schema/index';
 import { createTestDatabase } from '../src/testing';
 import { createUser, dropTestDatabase, errorText, pgCode } from './helpers';
 
@@ -38,6 +39,14 @@ afterAll(async () => {
   await dropTestDatabase(handle);
   await rm(dir, { recursive: true, force: true });
 });
+
+async function dailyRowOf(date: string) {
+  const [summary] = await handle.db
+    .select()
+    .from(dailySummaries)
+    .where(eq(dailySummaries.businessDate, date));
+  return dailySummaryRowOf(summary!);
+}
 
 async function deposit(intentId: string, amount = 150_000n): Promise<bigint> {
   return enqueueOutbox(handle.db, {
@@ -213,6 +222,27 @@ describe('ELS emission', () => {
     const [header, line] = csv.split('\r\n');
     expect(header).toMatch(/^business_date,status,version,/);
     expect(line).toMatch(/^2026-10-10,final,1,/);
+    // Personal data: only the worker's user may read the folders and files (umask notwithstanding).
+    const previous = process.umask(0o022);
+    try {
+      const fresh = createFileElsReporter({ dir: join(dir, 'fresh', 'els') });
+      await fresh.writeRecord(
+        { outboxId: '1', businessDate: date, line: '{"x":1}' },
+        { recheck: false },
+      );
+      await fresh.writeDailySummary(await dailyRowOf(date));
+      const modeOf = async (path: string) => (await stat(join(dir, 'fresh', path))).mode & 0o777;
+      expect(await modeOf('els')).toBe(0o700);
+      expect(await modeOf('els/stream')).toBe(0o700);
+      expect(await modeOf('els/daily')).toBe(0o700);
+      expect(await modeOf(`els/stream/${date}.jsonl`)).toBe(0o600);
+      expect(await modeOf(`els/daily/${date}.csv`)).toBe(0o600);
+      expect((await fresh.status()).detail).not.toMatch(/readable/);
+      await chmod(join(dir, 'fresh', 'els'), 0o755);
+      expect((await fresh.status()).detail).toMatch(/readable by other users/);
+    } finally {
+      process.umask(previous);
+    }
   });
 
   it('keeps a written record as it is in the database', async () => {

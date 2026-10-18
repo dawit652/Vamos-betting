@@ -99,6 +99,21 @@ describe('parsePspStatementCsv', () => {
       parsePspStatementCsv('provider,reference,amount,date,type\nchapa,R,-5,2026-10-17,deposit')
         .errors[0]?.message,
     ).toMatch(/deposit amount must be positive/);
+    // Blank lines count toward the cap, and the parser stops at it (no row array for the rest).
+    const blanks = 'provider,reference,amount,date\n' + '\n'.repeat(1_000_000);
+    const startedAt = Date.now();
+    expect(parsePspStatementCsv(blanks, { maxLines: 100 }).errors).toEqual([
+      { lineNo: 102, message: 'more than 100 lines' },
+    ]);
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(() => parseCsvRows('a,b\nc,d\ne,f', { maxRows: 2 })).toThrow(/more than 2 lines/);
+    expect(() => parseCsvRows(`${','.repeat(40)}\n`, { maxFields: 32 })).toThrow(
+      /more than 32 fields/,
+    );
+    expect(
+      parsePspStatementCsv(`provider,reference,amount,date\nchapa,A,1,2026-10-17${','.repeat(40)}`)
+        .errors[0]?.message,
+    ).toMatch(/more than 32 fields/);
     const many = ['provider,reference,amount,date', 'chapa,A,1,2026-10-17', 'chapa,B,1,2026-10-17'];
     expect(parsePspStatementCsv(many.join('\n'), { maxLines: 1 }).errors[0]?.message).toMatch(
       /more than 1 lines/,
@@ -177,6 +192,56 @@ describe('matchPspStatement', () => {
     const result = matchPspStatement({ lines, records, period: PERIOD });
     expect(result.lines.map((match) => match.status)).toEqual(['matched', 'matched', 'ambiguous']);
     expect(result.missing).toEqual([]);
+  });
+
+  it('a provider-side reversal of a payout is not clean (direction and repeated record)', () => {
+    const records = [
+      record({ id: 'p', kind: 'payout', reference: 'R1', status: 'paid', amount: 500_00n }),
+      record({ id: 'd', reference: 'R2', amount: 700_00n }),
+    ];
+    const reversal = matchPspStatement({
+      lines: [
+        line(2, { reference: 'R1', amount: -500_00n }),
+        line(3, { reference: 'R1', amount: 500_00n }),
+        line(4, { reference: 'R2', amount: 700_00n }),
+      ],
+      records,
+      period: PERIOD,
+    });
+    expect(reversal.lines.map((match) => match.status)).toEqual([
+      'matched',
+      'duplicate',
+      'matched',
+    ]);
+    // Money in on a payout, or money out on a deposit: the direction does not match.
+    const wrongWay = matchPspStatement({
+      lines: [
+        line(2, { reference: 'R1', amount: 500_00n, kind: 'payout' }),
+        line(3, { reference: 'R2', amount: -700_00n, kind: null }),
+      ],
+      records: [records[0]!, { ...records[1]!, reference: 'R2' }],
+      period: PERIOD,
+    });
+    expect(wrongWay.lines.map((match) => [match.status, match.recordId])).toEqual([
+      ['direction_mismatch', 'p'],
+      ['unmatched', null],
+    ]);
+    const untypedPositivePayout = matchPspStatement({
+      lines: [line(2, { reference: 'R1', amount: 500_00n })],
+      records,
+      period: PERIOD,
+    });
+    expect(untypedPositivePayout.lines[0]?.status).toBe('direction_mismatch');
+    // A deposit listed twice (typed once, untyped once) is a duplicate, not two matches.
+    const twice = matchPspStatement({
+      lines: [
+        line(2, { reference: 'R2', amount: 700_00n, kind: 'deposit' }),
+        line(3, { reference: 'R2', amount: 700_00n }),
+      ],
+      records,
+      period: PERIOD,
+    });
+    expect(twice.lines.map((match) => match.status)).toEqual(['matched', 'duplicate']);
   });
 
   it('is clean exactly when lines and settled records pair up one to one (property)', () => {

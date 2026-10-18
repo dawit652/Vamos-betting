@@ -79,6 +79,9 @@ export interface ElsReporter {
 
 const STREAM_DIR = 'stream';
 const DAILY_DIR = 'daily';
+/** Personal data (PDPP): folders and files only the worker's user can read. */
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
 
 function assertDateName(date: string): void {
   // The date names a file: only a real YYYY-MM-DD may.
@@ -103,7 +106,7 @@ export function createFileElsReporter(options: { dir: string }): ElsReporter {
       if (record.line.includes('\n')) throw new RangeError('an ELS record line has no line break');
       const path = streamPath(record.businessDate);
       const location = join(STREAM_DIR, `${record.businessDate}.jsonl`);
-      await mkdir(join(dir, STREAM_DIR), { recursive: true });
+      await mkdir(join(dir, STREAM_DIR), { recursive: true, mode: DIR_MODE });
       let size = 0;
       try {
         size = (await stat(path)).size;
@@ -130,7 +133,7 @@ export function createFileElsReporter(options: { dir: string }): ElsReporter {
         const lines = (await readFile(path, 'utf8')).split('\n');
         if (lines.includes(record.line)) return { location, alreadyPresent: true };
       }
-      const handle = await open(path, 'a');
+      const handle = await open(path, 'a', FILE_MODE);
       try {
         await handle.write(`${record.line}\n`);
         await handle.sync();
@@ -141,18 +144,26 @@ export function createFileElsReporter(options: { dir: string }): ElsReporter {
     },
     async writeDailySummary(row) {
       assertDateName(row.businessDate);
-      await mkdir(join(dir, DAILY_DIR), { recursive: true });
+      await mkdir(join(dir, DAILY_DIR), { recursive: true, mode: DIR_MODE });
       const name = `${row.businessDate}.csv`;
       const path = join(dir, DAILY_DIR, name);
       const temporary = `${path}.${process.pid}.tmp`;
-      await writeFile(temporary, dailySummaryCsv([row]), { encoding: 'utf8', flush: true });
+      await writeFile(temporary, dailySummaryCsv([row]), {
+        encoding: 'utf8',
+        flush: true,
+        mode: FILE_MODE,
+      });
       await rename(temporary, path);
       return { location: join(DAILY_DIR, name) };
     },
     async status() {
       try {
-        await mkdir(dir, { recursive: true });
-        return { mode: 'file', ready: true, detail: 'writing JSONL and CSV files', target: dir };
+        await mkdir(dir, { recursive: true, mode: DIR_MODE });
+        const exposed = ((await stat(dir)).mode & 0o077) !== 0;
+        const detail = exposed
+          ? `writing JSONL and CSV files (warning: ${dir} is readable by other users; chmod 700 it)`
+          : 'writing JSONL and CSV files';
+        return { mode: 'file', ready: true, detail, target: dir };
       } catch (error) {
         return {
           mode: 'file',
