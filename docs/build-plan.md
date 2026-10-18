@@ -19,16 +19,16 @@ Last updated 12 Oct 2026.
 | 5     | Player web app (Betika-style lite PWA), the demo MVP          | Done (reviewed, 19 fixes) | `8503bac`                                  |
 | 6     | Payments: deposits and withdrawals                            | Done (reviewed, 15 fixes) | `e555ef6` … `3f1337d`                      |
 | 7     | Live betting and cash-out                                     | Done (reviewed, 8 fixes)  | `25360ec` … `bd8b033`                      |
-| 8     | Jackpots and promotions                                       | Not started               |                                            |
+| 8     | Jackpots and promotions                                       | Done (reviewed, 8 fixes)  | `d35ae42` … Phase 8 commit                 |
 | 9     | Back office (`apps/admin`)                                    | Not started               |                                            |
 | 10    | Compliance and regulator reporting                            | Not started               |                                            |
 | 11    | SMS/USSD channel (feature-flagged)                            | Not started               |                                            |
 | 12    | Hardening and deployment                                      | Not started               |                                            |
 
-**Phases 0–7 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
+**Phases 0–8 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
 pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
 and the payments flow (KYC, deposit approved on the simulated phone, wagering, withdrawal approved by
-the dev stand-in, paid) and a cash-out of a running accumulator through the confirm sheet. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
+the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, and a jackpot entry settled with its prize. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
 
 **Phase 6 review (13 Oct 2026).** Three adversarial reviews (money, security, reliability) confirmed 15
 findings; all are fixed with regression tests. Highlights:
@@ -58,6 +58,18 @@ later abandoned, cancelled or corrected to void. Per-user pushes: `vamos:user:<i
 named heartbeats). Web: cash-out sheet in My Bets and bet detail, live score/minute tracker, suspended
 markets, live acceptance state, toasts. Review: 8 findings fixed with regression tests.
 The home page first load is at its 150 KB target (budget 160 KB): trim before adding to the shell.
+
+**Phase 8 (18 Oct 2026).** Jackpots (`packages/db/src/jackpots/`, core `settleJackpotDraw` /
+`settleJackpotEntry`): rounds freeze their template and tax terms; the worker keeps one round open per
+enabled template, choosing events toward the template horizon (daily9 24 h, weekly13 7 days) under a
+per-template advisory lock; rounds close at the first kick-off; entries lock the user, round, events and
+1X2 markets and refuse suspended games; settlement records one round-level decision, then pays entries in
+batches (`jackpot_prize:` / `jackpot_refund:` keys), voids a round when more than half its games are
+cancelled, and flags (never re-pays) results corrected after settlement. Promotions: `GET /promotions`
+and db services to update the multi-bonus ladder and jackpot templates (staff routes come in Phase 9).
+Demo dev route `POST /dev/jackpots/rounds` (signed-in player) makes a small round for e2e. Reviews now
+run three reviewers that verify their own findings (no separate verifier agents) to save usage.
+The home page first load is 150.4 KB (target 150, budget 160).
 
 ## Legal context (do not change)
 
