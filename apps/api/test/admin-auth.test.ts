@@ -6,6 +6,7 @@ import {
   StaffUserView,
   STAFF_CSRF_HEADER,
   STAFF_SESSION_COOKIE,
+  TotpEnrolmentView,
 } from '@vamos/contracts';
 import { base32Decode, totpCode } from '@vamos/db/totp';
 import { DEMO_STAFF_PASSWORD } from '@vamos/db/demo-staff';
@@ -116,7 +117,7 @@ describe('staff sign-in', () => {
     );
   });
 
-  it('locks the account for 15 minutes after 5 failures', async () => {
+  it('locks the failing address out for 15 minutes after 5 failures, not the account', async () => {
     ctx.clock.advance(30_000);
     const email = staffEmail('support');
     for (let i = 0; i < 5; i += 1) {
@@ -135,6 +136,20 @@ describe('staff sign-in', () => {
     });
     expect(locked.statusCode).toBe(401);
     expect(apiError(locked).code).toBe('invalid_credentials');
+    // The same message whatever the reason: it does not tell a lock apart.
+    expect(apiError(locked).message).toBe(
+      apiError(await staffLoginRequest(ctx, { email, password: 'nope-nope-nope', code: '000000' }))
+        .message,
+    );
+    // The staff member still signs in from another address.
+    ctx.clock.advance(30_000);
+    const elsewhere = await ctx.app.inject({
+      method: 'POST',
+      url: '/admin/auth/login',
+      remoteAddress: '10.20.30.40',
+      payload: { email, password: DEMO_STAFF_PASSWORD, code: demoCode(ctx) },
+    });
+    expect(elsewhere.statusCode).toBe(200);
 
     ctx.clock.advance(14 * 60_000);
     expect(
@@ -358,5 +373,132 @@ describe('staff accounts (staff.manage)', () => {
     );
 
     expect((await asStaff(ctx, admin, 'GET', '/admin/staff/not-a-uuid')).statusCode).toBe(404);
+  });
+});
+
+describe('staff self-service (/admin/me)', () => {
+  it('forces a password change on an account an admin created, then lets it work', async () => {
+    const admin = await staffLogin(ctx, 'admin');
+    const created = CreateStaffResponse.parse(
+      (
+        await asStaff(ctx, admin, 'POST', '/admin/staff', {
+          email: 'forced.finance@vamos.test',
+          displayName: 'Forced Finance',
+          role: 'finance',
+        })
+      ).json(),
+    );
+    const secret = base32Decode(created.totp.secret);
+    const code = () => totpCode(secret, ctx.clock.now.getTime());
+    ctx.clock.advance(30_000);
+    const signedIn = await staffLoginRequest(ctx, {
+      email: 'forced.finance@vamos.test',
+      password: created.generatedPassword,
+      code: code(),
+    });
+    expect(signedIn.statusCode).toBe(200);
+    const body = StaffSessionResponse.parse(signedIn.json());
+    expect(body.staff.passwordChangeRequired).toBe(true);
+    const cookie = signedIn.cookies.find((c) => c.name === STAFF_SESSION_COOKIE)!;
+    const finance = {
+      role: 'finance' as const,
+      id: body.staff.id,
+      token: cookie.value,
+      cookie: `${STAFF_SESSION_COOKIE}=${cookie.value}`,
+      csrfToken: body.csrfToken,
+    };
+    // Nothing but the session routes until the password is changed.
+    const blocked = await asStaff(ctx, finance, 'GET', '/admin/withdrawals');
+    expect(blocked.statusCode).toBe(403);
+    expect(apiError(blocked).code).toBe('password_change_required');
+    expect((await asStaff(ctx, finance, 'GET', '/admin/session')).statusCode).toBe(200);
+
+    // CSRF still applies; a wrong current password is refused.
+    const noCsrf = await ctx.app.inject({
+      method: 'POST',
+      url: '/admin/me/password',
+      headers: { cookie: finance.cookie },
+      payload: {
+        currentPassword: created.generatedPassword,
+        code: code(),
+        newPassword: 'x'.repeat(12),
+      },
+    });
+    expect(apiError(noCsrf).code).toBe('csrf_invalid');
+    ctx.clock.advance(30_000);
+    const wrong = await asStaff(ctx, finance, 'POST', '/admin/me/password', {
+      currentPassword: 'not my password',
+      code: code(),
+      newPassword: 'my own long passphrase',
+    });
+    expect(wrong.statusCode).toBe(403);
+    expect(apiError(wrong).code).toBe('reauth_failed');
+    ctx.clock.advance(30_000);
+    const changed = await asStaff(ctx, finance, 'POST', '/admin/me/password', {
+      currentPassword: created.generatedPassword,
+      code: code(),
+      newPassword: 'my own long passphrase',
+    });
+    expect(changed.statusCode).toBe(200);
+    const session = StaffSessionResponse.parse(
+      (await asStaff(ctx, finance, 'GET', '/admin/session')).json(),
+    );
+    expect(session.staff.passwordChangeRequired).toBe(false);
+    expect((await asStaff(ctx, finance, 'GET', '/admin/withdrawals')).statusCode).toBe(200);
+    expect(await auditActions(finance.id)).toEqual(
+      expect.arrayContaining(['staff.login_failed', 'staff.password_changed']),
+    );
+    ctx.clock.advance(30_000);
+    expect(
+      (
+        await staffLoginRequest(ctx, {
+          email: 'forced.finance@vamos.test',
+          password: created.generatedPassword,
+          code: code(),
+        })
+      ).statusCode,
+    ).toBe(401);
+  });
+
+  it('re-enrols the own authenticator, confirmed by a code from the new secret', async () => {
+    const support = await staffLogin(ctx, 'support');
+    const other = await staffLogin(ctx, 'support');
+    ctx.clock.advance(30_000);
+    const started = await asStaff(ctx, support, 'POST', '/admin/me/totp', {
+      password: DEMO_STAFF_PASSWORD,
+      code: demoCode(ctx),
+    });
+    expect(started.statusCode).toBe(200);
+    const enrolment = TotpEnrolmentView.parse(started.json());
+    const fresh = base32Decode(enrolment.secret);
+    const badCode = totpCode(fresh, ctx.clock.now.getTime()) === '000000' ? '111111' : '000000';
+    const bad = await asStaff(ctx, support, 'POST', '/admin/me/totp/confirm', { code: badCode });
+    expect(apiError(bad).code).toBe('invalid_code');
+    ctx.clock.advance(30_000);
+    const confirmed = await asStaff(ctx, support, 'POST', '/admin/me/totp/confirm', {
+      code: totpCode(fresh, ctx.clock.now.getTime()),
+    });
+    expect(confirmed.statusCode).toBe(200);
+    expect((await asStaff(ctx, support, 'GET', '/admin/session')).statusCode).toBe(200);
+    expect((await asStaff(ctx, other, 'GET', '/admin/session')).statusCode).toBe(401);
+    // The published demo secret no longer signs in; the new one does.
+    ctx.clock.advance(30_000);
+    const email = staffEmail('support');
+    expect(
+      (await staffLoginRequest(ctx, { email, password: DEMO_STAFF_PASSWORD, code: demoCode(ctx) }))
+        .statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await staffLoginRequest(ctx, {
+          email,
+          password: DEMO_STAFF_PASSWORD,
+          code: totpCode(fresh, ctx.clock.now.getTime()),
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(await auditActions(support.id)).toEqual(
+      expect.arrayContaining(['staff.totp_enrolment_started', 'staff.totp_changed']),
+    );
   });
 });

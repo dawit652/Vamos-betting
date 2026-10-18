@@ -98,6 +98,7 @@ export function staffSessionBody(staff: StaffPrincipal): StaffSessionResponse {
       displayName: staff.displayName,
       role: staff.role,
       permissions: permissionsOf(staff.role),
+      passwordChangeRequired: staff.passwordChangeRequired,
     },
     csrfToken: staff.csrfToken,
     expiresAt: staff.expiresAt.toISOString(),
@@ -127,10 +128,20 @@ export async function requireStaffSession(request: FastifyRequest): Promise<void
   requireStaff(request);
 }
 
-/** preHandler factory: a live staff session whose role holds `permission` (403 `forbidden`). */
+/**
+ * preHandler factory: a live staff session whose role holds `permission` (403 `forbidden`),
+ * and whose password is the staff member's own (403 `password_change_required` until they
+ * change one someone else chose; the session and /admin/me routes stay open).
+ */
 export function requirePermission(permission: StaffPermission) {
   return async (request: FastifyRequest): Promise<void> => {
     const staff = requireStaff(request);
+    if (staff.passwordChangeRequired) {
+      throw forbidden(
+        'password_change_required',
+        'Change the password you were given before using the back office.',
+      );
+    }
     if (!hasPermission(staff.role, permission)) {
       throw forbidden('forbidden', 'Your role does not allow this.', { permission });
     }

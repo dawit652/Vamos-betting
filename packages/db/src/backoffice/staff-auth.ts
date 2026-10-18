@@ -4,7 +4,7 @@ import type { Database } from '../client';
 import { DomainError, domainConflict, domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
-import { adminSessions, adminUsers } from '../schema/accounts';
+import { adminLoginThrottles, adminSessions, adminUsers } from '../schema/accounts';
 import { adminRole } from '../schema/enums';
 import { decryptTotpSecret, encryptTotpSecret, TotpSecretError } from './secret-box';
 import { base32Encode, TOTP_SECRET_BYTES, totpUri, verifyTotp } from './totp';
@@ -21,8 +21,21 @@ import { base32Encode, TOTP_SECRET_BYTES, totpUri, verifyTotp } from './totp';
  *   so a code cannot be replayed;
  * - every failure (unknown email, wrong password, wrong or replayed code,
  *   disabled or locked account) gets the same 401 `invalid_credentials`;
- *   STAFF_LOCKOUT_THRESHOLD failures in a row lock the account for
- *   STAFF_LOCKOUT_MS; every attempt is audited;
+ *   STAFF_LOCKOUT_THRESHOLD failures in a row from one client address lock
+ *   that address out of the account for STAFF_LOCKOUT_MS (a stranger cannot
+ *   lock the staff member out everywhere); from STAFF_ACCOUNT_BACKOFF_THRESHOLD
+ *   failures from any address, each further failure delays every sign-in to
+ *   the account (staffAccountBackoffMs: doubling, capped), never a hard lock;
+ *   every attempt is audited, and the CLI (`pnpm admin:unlock`) or
+ *   staff.manage lift both;
+ * - the password and the code are verified outside any database
+ *   transaction (argon2 takes a while); a short transaction then locks the
+ *   account row, re-checks what may have changed meanwhile, and records the
+ *   result (commitAttempt);
+ * - staff change their own password and authenticator (current password and
+ *   code required; a new secret is confirmed by a code from it). An account
+ *   whose password someone else chose (creation by staff, reset by staff)
+ *   must change it before anything but the session routes;
  * - a session is a random cookie token (only its SHA-256 is stored), valid
  *   for STAFF_SESSION_ABSOLUTE_MS after sign-in and STAFF_SESSION_IDLE_MS
  *   after the last request. Its CSRF token is an HMAC of the session token,
@@ -34,10 +47,24 @@ import { base32Encode, TOTP_SECRET_BYTES, totpUri, verifyTotp } from './totp';
 export type StaffRole = (typeof adminRole.enumValues)[number];
 export const STAFF_ROLES: readonly StaffRole[] = adminRole.enumValues;
 
-/** Failed sign-ins in a row that lock an account. */
+/** Failed sign-ins in a row from one client address that lock that address out of the account. */
 export const STAFF_LOCKOUT_THRESHOLD = 5;
-/** How long a locked account refuses sign-in. */
+/** How long a locked-out address is refused. */
 export const STAFF_LOCKOUT_MS = 15 * 60_000;
+/** Counted failures (from any address, since the last success) from which sign-in is delayed. */
+export const STAFF_ACCOUNT_BACKOFF_THRESHOLD = 20;
+/** The first account-wide delay; each further failure doubles it, up to the maximum. */
+export const STAFF_ACCOUNT_BACKOFF_BASE_MS = 60_000;
+export const STAFF_ACCOUNT_BACKOFF_MAX_MS = 15 * 60_000;
+/** How long a self-service authenticator enrolment waits for its confirming code. */
+export const STAFF_TOTP_PENDING_MS = 10 * 60_000;
+
+/** The account-wide delay after `attempts` counted failures in a row (0 below the threshold). */
+export function staffAccountBackoffMs(attempts: number): number {
+  if (!(attempts >= STAFF_ACCOUNT_BACKOFF_THRESHOLD)) return 0;
+  const doublings = Math.min(attempts - STAFF_ACCOUNT_BACKOFF_THRESHOLD, 30);
+  return Math.min(STAFF_ACCOUNT_BACKOFF_BASE_MS * 2 ** doublings, STAFF_ACCOUNT_BACKOFF_MAX_MS);
+}
 /** A session ends after this long without a request. */
 export const STAFF_SESSION_IDLE_MS = 30 * 60_000;
 /** A session ends this long after sign-in, whatever the activity. */
@@ -82,6 +109,8 @@ export interface StaffUserView {
   lockedUntil: Date | null;
   failedLoginAttempts: number;
   totpEnrolledAt: Date | null;
+  /** Someone else chose the password: the staff member must change it before working. */
+  passwordChangeRequired: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -92,6 +121,8 @@ export interface StaffPrincipal {
   email: string;
   displayName: string;
   role: StaffRole;
+  /** Only the session and self-service routes work until the staff member changes the password. */
+  passwordChangeRequired: boolean;
   sessionId: string;
   /** The session's CSRF token (send it back in the staff CSRF header on unsafe methods). */
   csrfToken: string;
@@ -124,6 +155,8 @@ export interface StaffLoginInput {
   /** The 6-digit TOTP code. */
   code: string;
   ip?: string | null;
+  /** The client address the per-address lockout counts by (default: `ip`). */
+  clientKey?: string | null;
   userAgent?: string | null;
 }
 
@@ -138,8 +171,17 @@ export function staffInvalidCredentialsError(): DomainError {
     401,
     'invalid_credentials',
     'Sign-in failed. Check your email, password and authenticator code. ' +
-      `After ${STAFF_LOCKOUT_THRESHOLD} failed attempts the account is locked for ` +
-      `${STAFF_LOCKOUT_MS / 60_000} minutes.`,
+      'Repeated failures block sign-in for a while.',
+  );
+}
+
+/** 403 `reauth_failed`: a self-service change with a wrong current password or code. */
+export function staffReauthFailedError(): DomainError {
+  return new DomainError(
+    403,
+    'reauth_failed',
+    'The current password or authenticator code is wrong. ' +
+      'Repeated failures block sign-in for a while.',
   );
 }
 
@@ -239,6 +281,7 @@ function staffView(row: typeof adminUsers.$inferSelect): StaffUserView {
     lockedUntil: row.lockedUntil,
     failedLoginAttempts: row.failedLoginAttempts,
     totpEnrolledAt: row.totpEnrolledAt,
+    passwordChangeRequired: row.passwordChangeRequired,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -304,6 +347,12 @@ export interface CreateStaffUserInput {
   role: StaffRole;
   /** Omitted: a random password is generated and returned. */
   password?: string;
+  /**
+   * Whether the new staff member must change the password at first sign-in.
+   * Always so when an admin creates the account (they know the password);
+   * for the system (CLI, seed) as given, default false.
+   */
+  requirePasswordChange?: boolean;
   actor: StaffAccountActor;
 }
 
@@ -354,6 +403,8 @@ export async function createStaffUser(
         role,
         totpSecretEnc: stored,
         totpEnrolledAt: now,
+        passwordChangeRequired:
+          input.actor.type === 'admin' || (input.requirePasswordChange ?? false),
         createdAt: now,
         updatedAt: now,
       })
@@ -438,6 +489,36 @@ export async function revokeAllStaffSessions(
     .set({ revokedAt: now })
     .where(and(eq(adminSessions.adminUserId, adminUserId), isNull(adminSessions.revokedAt)))
     .returning({ id: adminSessions.id });
+  return rows.length;
+}
+
+/** Revokes every live session of the staff account but `keepSessionId`; returns how many. */
+async function revokeOtherStaffSessions(
+  tx: DbTransaction,
+  adminUserId: string,
+  keepSessionId: string,
+  now: Date,
+): Promise<number> {
+  const rows = await tx
+    .update(adminSessions)
+    .set({ revokedAt: now })
+    .where(
+      and(
+        eq(adminSessions.adminUserId, adminUserId),
+        isNull(adminSessions.revokedAt),
+        ne(adminSessions.id, keepSessionId),
+      ),
+    )
+    .returning({ id: adminSessions.id });
+  return rows.length;
+}
+
+/** Clears the per-address lockouts of the account; returns how many addresses it had. */
+async function clearLoginThrottles(tx: DbTransaction, adminUserId: string): Promise<number> {
+  const rows = await tx
+    .delete(adminLoginThrottles)
+    .where(eq(adminLoginThrottles.adminUserId, adminUserId))
+    .returning({ clientKey: adminLoginThrottles.clientKey });
   return rows.length;
 }
 
@@ -540,11 +621,14 @@ export async function resetStaffTotp(
       totpSecretEnc: stored,
       totpEnrolledAt: input.now,
       totpLastStep: null,
+      totpPendingSecretEnc: null,
+      totpPendingAt: null,
       failedLoginAttempts: 0,
       lockedUntil: null,
       updatedAt: input.now,
     })
     .where(eq(adminUsers.id, user.id));
+  await clearLoginThrottles(tx, user.id);
   const revoked = await revokeAllStaffSessions(tx, user.id, input.now);
   await writeAudit(tx, {
     ...actor,
@@ -557,8 +641,9 @@ export async function resetStaffTotp(
 }
 
 /**
- * Sets a new password (staff.manage), clears the lockout and revokes every
- * session. 422 `weak_password`. Audited as `staff.password_reset`.
+ * Sets a new password (staff.manage), clears the lockouts and revokes every
+ * session. Reset by an admin (who knows it), the staff member must change it
+ * at the next sign-in. 422 `weak_password`. Audited as `staff.password_reset`.
  */
 export async function resetStaffPassword(
   deps: StaffAuthDeps,
@@ -574,10 +659,17 @@ export async function resetStaffPassword(
     const user = await lockStaffUser(tx, input.adminUserId);
     const [row] = await tx
       .update(adminUsers)
-      .set({ passwordHash, failedLoginAttempts: 0, lockedUntil: null, updatedAt: now })
+      .set({
+        passwordHash,
+        passwordChangeRequired: input.actor.type === 'admin',
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        updatedAt: now,
+      })
       .where(eq(adminUsers.id, user.id))
       .returning();
     if (row === undefined) throw domainNotFound('Staff account');
+    await clearLoginThrottles(tx, user.id);
     const revoked = await revokeAllStaffSessions(tx, user.id, now);
     await writeAudit(tx, {
       ...actor,
@@ -590,14 +682,21 @@ export async function resetStaffPassword(
   });
 }
 
-/** Lifts a lockout before it ends (staff.manage). Audited as `staff.unlocked` when it changed anything. */
+/**
+ * Lifts the lockouts (the account-wide delay and every address's lockout)
+ * before they end (staff.manage, or the CLI). Audited as `staff.unlocked`
+ * when it changed anything.
+ */
 export async function unlockStaffUser(
   tx: DbTransaction,
   input: { adminUserId: string; actor: StaffAccountActor; now: Date },
 ): Promise<StaffUserView> {
   const actor = auditActor(input.actor);
   const user = await lockStaffUser(tx, input.adminUserId);
-  if (user.lockedUntil === null && user.failedLoginAttempts === 0) return staffView(user);
+  const clearedAddresses = await clearLoginThrottles(tx, user.id);
+  if (user.lockedUntil === null && user.failedLoginAttempts === 0 && clearedAddresses === 0) {
+    return staffView(user);
+  }
   const [row] = await tx
     .update(adminUsers)
     .set({ failedLoginAttempts: 0, lockedUntil: null, updatedAt: input.now })
@@ -609,15 +708,43 @@ export async function unlockStaffUser(
     action: 'staff.unlocked',
     targetType: 'admin_user',
     targetId: user.id,
-    metadata: { email: user.email, lockedUntil: user.lockedUntil },
+    metadata: {
+      email: user.email,
+      lockedUntil: user.lockedUntil,
+      failedLoginAttempts: user.failedLoginAttempts,
+      clearedAddresses,
+      ...(input.actor.type === 'system' ? { via: input.actor.via } : {}),
+    },
   });
   return staffView(row);
+}
+
+/** unlockStaffUser by email (the CLI's out-of-band recovery); null when there is no such account. */
+export async function unlockStaffUserByEmail(
+  db: Database,
+  input: { email: string; actor: StaffAccountActor; now: Date },
+): Promise<StaffUserView | null> {
+  const email = normalizeStaffEmail(input.email);
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ id: adminUsers.id })
+      .from(adminUsers)
+      .where(eq(adminUsers.email, email))
+      .limit(1);
+    if (row === undefined) return null;
+    return unlockStaffUser(tx, { adminUserId: row.id, actor: input.actor, now: input.now });
+  });
 }
 
 type LoginFailureReason =
   | 'unknown_email'
   | 'disabled'
+  /** The client address is locked out of the account. */
   | 'locked'
+  /** The account-wide delay after many failures is running. */
+  | 'account_backoff'
+  /** The password or TOTP secret changed while this attempt was being verified. */
+  | 'credentials_changed'
   | 'password'
   | 'totp_not_enrolled'
   | 'totp_unreadable'
@@ -631,12 +758,169 @@ const COUNTED_FAILURES: ReadonlySet<LoginFailureReason> = new Set([
   'totp_replay',
 ]);
 
+type AdminUserRow = typeof adminUsers.$inferSelect;
+type ThrottleRow = typeof adminLoginThrottles.$inferSelect;
+
+type FactorCheck = { ok: true; step: number } | { ok: false; reason: LoginFailureReason };
+
+const isFuture = (date: Date | null | undefined, now: Date): boolean =>
+  date !== null && date !== undefined && date.getTime() > now.getTime();
+
+/** The key the per-address lockout counts by. */
+function clientKeyOf(input: { clientKey?: string | null; ip?: string | null }): string {
+  return (input.clientKey ?? input.ip ?? '').slice(0, 128);
+}
+
+async function readThrottle(
+  exec: DbExecutor,
+  adminUserId: string,
+  clientKey: string,
+): Promise<ThrottleRow | undefined> {
+  const [row] = await exec
+    .select()
+    .from(adminLoginThrottles)
+    .where(
+      and(
+        eq(adminLoginThrottles.adminUserId, adminUserId),
+        eq(adminLoginThrottles.clientKey, clientKey),
+      ),
+    )
+    .limit(1);
+  return row;
+}
+
+async function readStaffRow(exec: DbExecutor, id: string): Promise<AdminUserRow> {
+  if (!UUID_RE.test(id)) throw domainNotFound('Staff account');
+  const [row] = await exec.select().from(adminUsers).where(eq(adminUsers.id, id)).limit(1);
+  if (row === undefined) throw domainNotFound('Staff account');
+  return row;
+}
+
+/**
+ * Checks the password and the TOTP code of `user` (as read, outside any
+ * transaction): refused at once (after a throwaway hash, so it costs the
+ * same) while the address or the account is locked.
+ */
+async function verifyAttempt(
+  deps: StaffAuthDeps,
+  user: AdminUserRow,
+  clientKey: string,
+  password: string,
+  code: string,
+  now: Date,
+): Promise<FactorCheck> {
+  const throttle = await readThrottle(deps.db, user.id, clientKey);
+  if (isFuture(throttle?.lockedUntil, now) || isFuture(user.lockedUntil, now)) {
+    await dummyVerify(deps.passwords, password);
+    return {
+      ok: false,
+      reason: isFuture(throttle?.lockedUntil, now) ? 'locked' : 'account_backoff',
+    };
+  }
+  const passwordOk = await deps.passwords.verify(user.passwordHash, password);
+  if (user.disabledAt !== null) return { ok: false, reason: 'disabled' };
+  if (!passwordOk) return { ok: false, reason: 'password' };
+  if (user.totpSecretEnc === null) return { ok: false, reason: 'totp_not_enrolled' };
+  let secret: Buffer;
+  try {
+    secret = decryptTotpSecret(deps.totpKey, user.totpSecretEnc, user.id);
+  } catch (error) {
+    if (error instanceof TotpSecretError) return { ok: false, reason: 'totp_unreadable' };
+    throw error;
+  }
+  const step = verifyTotp(secret, code, now.getTime(), { afterStep: user.totpLastStep });
+  if (step === null) {
+    const replay = verifyTotp(secret, code, now.getTime()) !== null;
+    return { ok: false, reason: replay ? 'totp_replay' : 'totp_invalid' };
+  }
+  return { ok: true, step };
+}
+
+/**
+ * The outcome of a checked attempt against the account row locked now:
+ * what changed since verifyAttempt read it (another attempt locked it, a
+ * reset, the same code accepted meanwhile) wins over its verdict.
+ */
+function recheckAttempt(
+  check: FactorCheck,
+  before: AdminUserRow,
+  row: AdminUserRow,
+  throttle: ThrottleRow | undefined,
+  now: Date,
+): LoginFailureReason | null {
+  if (!check.ok && !COUNTED_FAILURES.has(check.reason)) return check.reason;
+  if (row.passwordHash !== before.passwordHash || row.totpSecretEnc !== before.totpSecretEnc) {
+    return 'credentials_changed';
+  }
+  if (row.disabledAt !== null) return 'disabled';
+  if (isFuture(throttle?.lockedUntil, now)) return 'locked';
+  if (isFuture(row.lockedUntil, now)) return 'account_backoff';
+  if (!check.ok) return check.reason;
+  if (row.totpLastStep !== null && check.step <= row.totpLastStep) return 'totp_replay';
+  return null;
+}
+
+/**
+ * The short transaction after verifyAttempt: locks the account row,
+ * re-checks the attempt (recheckAttempt) and either records the failure
+ * (committed: counters, lockouts, audit) or runs `onSuccess` with the
+ * accepted TOTP step, which also clears this address's failures.
+ */
+async function commitAttempt<T>(
+  deps: StaffAuthDeps,
+  attempt: {
+    before: AdminUserRow;
+    check: FactorCheck;
+    clientKey: string;
+    now: Date;
+    ip: string | null;
+    /** Where the attempt came from, when not the sign-in form (audit metadata). */
+    context?: string;
+  },
+  onSuccess: (tx: DbTransaction, row: AdminUserRow, step: number) => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false }> {
+  const { before, check, clientKey, now, ip } = attempt;
+  return deps.db.transaction(async (tx): Promise<{ ok: true; value: T } | { ok: false }> => {
+    const [row] = await tx
+      .select()
+      .from(adminUsers)
+      .where(eq(adminUsers.id, before.id))
+      .for('update');
+    const throttle = row === undefined ? undefined : await readThrottle(tx, row.id, clientKey);
+    const reason =
+      row === undefined ? 'unknown_email' : recheckAttempt(check, before, row, throttle, now);
+    if (reason !== null || !check.ok || row === undefined) {
+      await recordLoginFailure(tx, {
+        user: row,
+        throttle,
+        clientKey,
+        email: before.email,
+        reason: reason ?? 'credentials_changed',
+        now,
+        ip,
+        ...(attempt.context === undefined ? {} : { context: attempt.context }),
+      });
+      return { ok: false };
+    }
+    await tx
+      .delete(adminLoginThrottles)
+      .where(
+        and(
+          eq(adminLoginThrottles.adminUserId, row.id),
+          eq(adminLoginThrottles.clientKey, clientKey),
+        ),
+      );
+    return { ok: true, value: await onSuccess(tx, row, check.step) };
+  });
+}
+
 /**
  * Signs a staff member in with email, password and TOTP code, and opens a
- * session. Every failure is recorded (counters, lockout, audit) in its own
- * committed transaction and then thrown as 401 `invalid_credentials`; see
- * the module comment for the rules. Audited as `staff.login` /
- * `staff.login_failed` (with the reason) / `staff.locked`.
+ * session. The password and code are checked outside any transaction; every
+ * failure is then recorded (counters, lockouts, audit) in a short committed
+ * transaction and thrown as 401 `invalid_credentials`; see the module
+ * comment for the rules. Audited as `staff.login` / `staff.login_failed`
+ * (with the reason) / `staff.locked`.
  */
 export async function loginStaff(
   deps: StaffAuthDeps,
@@ -646,45 +930,33 @@ export async function loginStaff(
   const password = typeof input.password === 'string' ? input.password : '';
   const code = typeof input.code === 'string' ? input.code.trim() : '';
   const ip = input.ip ?? null;
+  const clientKey = clientKeyOf(input);
   const now = deps.clock();
 
-  const outcome = await deps.db.transaction(
-    async (tx): Promise<{ ok: true; result: StaffLoginResult } | { ok: false }> => {
-      const [user] =
-        email.length === 0 || email.length > STAFF_EMAIL_MAX_LENGTH
-          ? []
-          : await tx.select().from(adminUsers).where(eq(adminUsers.email, email)).for('update');
-      const fail = async (reason: LoginFailureReason): Promise<{ ok: false }> => {
-        await recordLoginFailure(tx, { user, email, reason, now, ip });
-        return { ok: false };
-      };
-
-      if (user === undefined) {
-        await dummyVerify(deps.passwords, password);
-        return fail('unknown_email');
-      }
-      if (user.lockedUntil !== null && user.lockedUntil.getTime() > now.getTime()) {
-        await dummyVerify(deps.passwords, password);
-        return fail('locked');
-      }
-      const passwordOk = await deps.passwords.verify(user.passwordHash, password);
-      if (user.disabledAt !== null) return fail('disabled');
-      if (!passwordOk) return fail('password');
-      if (user.totpSecretEnc === null) return fail('totp_not_enrolled');
-
-      let secret: Buffer;
-      try {
-        secret = decryptTotpSecret(deps.totpKey, user.totpSecretEnc, user.id);
-      } catch (error) {
-        if (error instanceof TotpSecretError) return fail('totp_unreadable');
-        throw error;
-      }
-      const step = verifyTotp(secret, code, now.getTime(), { afterStep: user.totpLastStep });
-      if (step === null) {
-        const replay = verifyTotp(secret, code, now.getTime()) !== null;
-        return fail(replay ? 'totp_replay' : 'totp_invalid');
-      }
-
+  const [user] =
+    email.length === 0 || email.length > STAFF_EMAIL_MAX_LENGTH
+      ? []
+      : await deps.db.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
+  if (user === undefined) {
+    await dummyVerify(deps.passwords, password);
+    await deps.db.transaction((tx) =>
+      recordLoginFailure(tx, {
+        user: undefined,
+        throttle: undefined,
+        clientKey,
+        email,
+        reason: 'unknown_email',
+        now,
+        ip,
+      }),
+    );
+    throw staffInvalidCredentialsError();
+  }
+  const check = await verifyAttempt(deps, user, clientKey, password, code, now);
+  const outcome = await commitAttempt(
+    deps,
+    { before: user, check, clientKey, now, ip },
+    async (tx, row, step): Promise<StaffLoginResult> => {
       await tx
         .update(adminUsers)
         .set({
@@ -694,79 +966,99 @@ export async function loginStaff(
           lastLoginAt: now,
           updatedAt: now,
         })
-        .where(eq(adminUsers.id, user.id));
+        .where(eq(adminUsers.id, row.id));
       const session = await createStaffSession(tx, deps, {
-        adminUserId: user.id,
+        adminUserId: row.id,
         now,
         ip,
         userAgent: input.userAgent ?? null,
       });
       await writeAudit(tx, {
         actorType: 'admin',
-        actorId: user.id,
+        actorId: row.id,
         action: 'staff.login',
         targetType: 'admin_user',
-        targetId: user.id,
+        targetId: row.id,
         metadata: { sessionId: session.id },
         ip,
       });
       return {
-        ok: true,
-        result: {
-          session,
-          staff: {
-            id: user.id,
-            email: user.email,
-            displayName: user.displayName,
-            role: user.role,
-            sessionId: session.id,
-            csrfToken: session.csrfToken,
-            expiresAt: session.expiresAt,
-            idleExpiresAt: session.idleExpiresAt,
-          },
+        session,
+        staff: {
+          id: row.id,
+          email: row.email,
+          displayName: row.displayName,
+          role: row.role,
+          passwordChangeRequired: row.passwordChangeRequired,
+          sessionId: session.id,
+          csrfToken: session.csrfToken,
+          expiresAt: session.expiresAt,
+          idleExpiresAt: session.idleExpiresAt,
         },
       };
     },
   );
   if (!outcome.ok) throw staffInvalidCredentialsError();
-  return outcome.result;
+  return outcome.value;
 }
 
 async function recordLoginFailure(
   tx: DbTransaction,
   input: {
-    user: typeof adminUsers.$inferSelect | undefined;
+    /** The account row, locked by the caller (undefined: no such account). */
+    user: AdminUserRow | undefined;
+    throttle: ThrottleRow | undefined;
+    clientKey: string;
     email: string;
     reason: LoginFailureReason;
     now: Date;
     ip: string | null;
+    context?: string;
   },
 ): Promise<void> {
   const { user, reason, now, ip } = input;
+  const context = input.context === undefined ? {} : { context: input.context };
   if (user === undefined) {
     await writeAudit(tx, {
       actorType: 'system',
       action: 'staff.login_failed',
       targetType: 'admin_user',
-      metadata: { reason, email: input.email.slice(0, STAFF_EMAIL_MAX_LENGTH) },
+      metadata: { reason, email: input.email.slice(0, STAFF_EMAIL_MAX_LENGTH), ...context },
       ip,
     });
     return;
   }
   let attempts = user.failedLoginAttempts;
-  let lockedUntil: Date | null = null;
+  let clientAttempts = input.throttle?.failedAttempts ?? 0;
+  let clientLockedUntil: Date | null = null;
+  let accountLockedUntil: Date | null = null;
   if (COUNTED_FAILURES.has(reason)) {
-    attempts += 1;
-    if (attempts >= STAFF_LOCKOUT_THRESHOLD) {
-      lockedUntil = new Date(now.getTime() + STAFF_LOCKOUT_MS);
+    clientAttempts += 1;
+    if (clientAttempts >= STAFF_LOCKOUT_THRESHOLD) {
+      clientLockedUntil = new Date(now.getTime() + STAFF_LOCKOUT_MS);
     }
+    const throttle = {
+      failedAttempts: clientLockedUntil === null ? clientAttempts : 0,
+      lockedUntil: clientLockedUntil,
+      updatedAt: now,
+    };
+    await tx
+      .insert(adminLoginThrottles)
+      .values({ adminUserId: user.id, clientKey: input.clientKey, ...throttle })
+      .onConflictDoUpdate({
+        target: [adminLoginThrottles.adminUserId, adminLoginThrottles.clientKey],
+        set: throttle,
+      });
+    attempts += 1;
+    const backoff = staffAccountBackoffMs(attempts);
+    if (backoff > 0) accountLockedUntil = new Date(now.getTime() + backoff);
     await tx
       .update(adminUsers)
-      .set(
-        lockedUntil === null
-          ? { failedLoginAttempts: attempts, updatedAt: now }
-          : { failedLoginAttempts: 0, lockedUntil, updatedAt: now },
-      )
+      .set({
+        failedLoginAttempts: attempts,
+        ...(accountLockedUntil === null ? {} : { lockedUntil: accountLockedUntil }),
+        updatedAt: now,
+      })
       .where(eq(adminUsers.id, user.id));
   }
   await writeAudit(tx, {
@@ -774,19 +1066,226 @@ async function recordLoginFailure(
     action: 'staff.login_failed',
     targetType: 'admin_user',
     targetId: user.id,
-    metadata: { reason, attempts },
+    metadata: { reason, attempts, clientAttempts, ...context },
     ip,
   });
-  if (lockedUntil !== null) {
+  for (const [scope, lockedUntil] of [
+    ['client', clientLockedUntil],
+    ['account', accountLockedUntil],
+  ] as const) {
+    if (lockedUntil === null) continue;
     await writeAudit(tx, {
       actorType: 'system',
       action: 'staff.locked',
       targetType: 'admin_user',
       targetId: user.id,
-      metadata: { lockedUntil, attempts },
+      metadata: { scope, lockedUntil, attempts: scope === 'client' ? clientAttempts : attempts },
       ip,
     });
   }
+}
+
+/**
+ * Staff self-service (the signed-in staff member, their own account). The
+ * current password and a TOTP code are checked like a sign-in (outside a
+ * transaction; failures count towards the same lockouts and answer 403
+ * `reauth_failed`), and the code is used up.
+ */
+interface ReauthInput {
+  adminUserId: string;
+  /** The current password. */
+  password: string;
+  code: string;
+  ip?: string | null;
+  clientKey?: string | null;
+}
+
+/**
+ * Changes the signed-in staff member's own password (current password and
+ * code required) and clears the forced change. Revokes every other session
+ * of the account. 422 `weak_password` / `password_unchanged`, 403
+ * `reauth_failed`. Audited as `staff.password_changed`.
+ */
+export async function changeOwnStaffPassword(
+  deps: StaffAuthDeps,
+  input: {
+    adminUserId: string;
+    sessionId: string;
+    currentPassword: string;
+    code: string;
+    newPassword: string;
+    ip?: string | null;
+    clientKey?: string | null;
+  },
+): Promise<StaffUserView> {
+  const user = await readStaffRow(deps.db, input.adminUserId);
+  assertStaffPassword(input.newPassword, user.email);
+  if (input.newPassword === input.currentPassword) {
+    throw domainUnprocessable('password_unchanged', 'Choose a password you have not used here.');
+  }
+  const now = deps.clock();
+  const clientKey = clientKeyOf(input);
+  const ip = input.ip ?? null;
+  const check = await verifyAttempt(
+    deps,
+    user,
+    clientKey,
+    input.currentPassword,
+    input.code.trim(),
+    now,
+  );
+  const passwordHash = check.ok ? await deps.passwords.hash(input.newPassword) : null;
+  const outcome = await commitAttempt(
+    deps,
+    { before: user, check, clientKey, now, ip, context: 'password_change' },
+    async (tx, row, step) => {
+      const [updated] = await tx
+        .update(adminUsers)
+        .set({
+          passwordHash: passwordHash ?? row.passwordHash,
+          passwordChangeRequired: false,
+          totpLastStep: step,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          updatedAt: now,
+        })
+        .where(eq(adminUsers.id, row.id))
+        .returning();
+      if (updated === undefined) throw domainNotFound('Staff account');
+      const revoked = await revokeOtherStaffSessions(tx, row.id, input.sessionId, now);
+      await writeAudit(tx, {
+        actorType: 'admin',
+        actorId: row.id,
+        action: 'staff.password_changed',
+        targetType: 'admin_user',
+        targetId: row.id,
+        metadata: { revokedSessions: revoked, wasRequired: row.passwordChangeRequired },
+        ip,
+      });
+      return staffView(updated);
+    },
+  );
+  if (!outcome.ok) throw staffReauthFailedError();
+  return outcome.value;
+}
+
+/**
+ * Starts replacing the signed-in staff member's authenticator (current
+ * password and code required): returns a new secret, which only takes over
+ * once confirmOwnStaffTotpEnrolment gets a code from it (within
+ * STAFF_TOTP_PENDING_MS). 403 `reauth_failed`. Audited as
+ * `staff.totp_enrolment_started`.
+ */
+export async function startOwnStaffTotpEnrolment(
+  deps: StaffAuthDeps,
+  input: ReauthInput,
+): Promise<TotpEnrolment> {
+  const user = await readStaffRow(deps.db, input.adminUserId);
+  const now = deps.clock();
+  const clientKey = clientKeyOf(input);
+  const ip = input.ip ?? null;
+  const check = await verifyAttempt(deps, user, clientKey, input.password, input.code.trim(), now);
+  const { stored, enrolment } = newEnrolment(deps, user.id, user.email);
+  const outcome = await commitAttempt(
+    deps,
+    { before: user, check, clientKey, now, ip, context: 'totp_enrolment' },
+    async (tx, row, step) => {
+      await tx
+        .update(adminUsers)
+        .set({
+          totpPendingSecretEnc: stored,
+          totpPendingAt: now,
+          totpLastStep: step,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          updatedAt: now,
+        })
+        .where(eq(adminUsers.id, row.id));
+      await writeAudit(tx, {
+        actorType: 'admin',
+        actorId: row.id,
+        action: 'staff.totp_enrolment_started',
+        targetType: 'admin_user',
+        targetId: row.id,
+        metadata: {},
+        ip,
+      });
+      return enrolment;
+    },
+  );
+  if (!outcome.ok) throw staffReauthFailedError();
+  return outcome.value;
+}
+
+function noTotpEnrolmentError(): DomainError {
+  return domainConflict(
+    'no_totp_enrolment',
+    'No new authenticator secret is waiting (or it expired). Start the change again.',
+  );
+}
+
+/**
+ * Confirms a started authenticator change with a code from the new secret:
+ * the new secret replaces the old one, and every other session of the
+ * account is revoked. 409 `no_totp_enrolment` (none started, or expired),
+ * 422 `invalid_code`. Audited as `staff.totp_changed`.
+ */
+export async function confirmOwnStaffTotpEnrolment(
+  deps: StaffAuthDeps,
+  input: { adminUserId: string; sessionId: string; code: string; ip?: string | null },
+): Promise<StaffUserView> {
+  const user = await readStaffRow(deps.db, input.adminUserId);
+  const now = deps.clock();
+  const pending = user.totpPendingSecretEnc;
+  if (
+    pending === null ||
+    user.totpPendingAt === null ||
+    now.getTime() - user.totpPendingAt.getTime() > STAFF_TOTP_PENDING_MS
+  ) {
+    throw noTotpEnrolmentError();
+  }
+  let secret: Buffer;
+  try {
+    secret = decryptTotpSecret(deps.totpKey, pending, user.id);
+  } catch (error) {
+    if (error instanceof TotpSecretError) throw noTotpEnrolmentError();
+    throw error;
+  }
+  const step = verifyTotp(secret, input.code.trim(), now.getTime());
+  if (step === null) {
+    throw domainUnprocessable(
+      'invalid_code',
+      'That code does not match the new secret. Check the authenticator app and try again.',
+    );
+  }
+  return deps.db.transaction(async (tx) => {
+    const row = await lockStaffUser(tx, user.id);
+    if (row.totpPendingSecretEnc !== pending) throw noTotpEnrolmentError();
+    const [updated] = await tx
+      .update(adminUsers)
+      .set({
+        totpSecretEnc: pending,
+        totpEnrolledAt: now,
+        totpLastStep: Math.max(step, row.totpLastStep ?? step),
+        totpPendingSecretEnc: null,
+        totpPendingAt: null,
+        updatedAt: now,
+      })
+      .where(eq(adminUsers.id, row.id))
+      .returning();
+    if (updated === undefined) throw domainNotFound('Staff account');
+    const revoked = await revokeOtherStaffSessions(tx, row.id, input.sessionId, now);
+    await writeAudit(tx, {
+      actorType: 'admin',
+      actorId: row.id,
+      action: 'staff.totp_changed',
+      targetType: 'admin_user',
+      targetId: row.id,
+      metadata: { revokedSessions: revoked },
+      ip: input.ip ?? null,
+    });
+    return staffView(updated);
+  });
 }
 
 /**
@@ -859,6 +1358,7 @@ export async function authenticateStaffSession(
       email: adminUsers.email,
       displayName: adminUsers.displayName,
       role: adminUsers.role,
+      passwordChangeRequired: adminUsers.passwordChangeRequired,
       disabledAt: adminUsers.disabledAt,
     })
     .from(adminSessions)
@@ -889,6 +1389,7 @@ export async function authenticateStaffSession(
       email: row.email,
       displayName: row.displayName,
       role: row.role,
+      passwordChangeRequired: row.passwordChangeRequired,
       sessionId: row.sessionId,
       csrfToken: staffCsrfTokenFor(token),
       expiresAt: row.expiresAt,

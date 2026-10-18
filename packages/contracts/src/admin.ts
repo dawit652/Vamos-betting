@@ -217,6 +217,12 @@ export const StaffMeView = z.object({
   displayName: z.string(),
   role: StaffRoleSchema,
   permissions: z.array(StaffPermissionSchema),
+  /**
+   * Someone else chose the password: until the staff member changes it (POST
+   * /admin/me/password), every route but the session ones answers 403
+   * `password_change_required`.
+   */
+  passwordChangeRequired: z.boolean(),
 });
 export type StaffMeView = z.infer<typeof StaffMeView>;
 
@@ -225,6 +231,43 @@ export type StaffMeView = z.infer<typeof StaffMeView>;
  * /admin/session: the staff member, the CSRF token to send on unsafe
  * methods, and when the session ends (absolute, and without activity).
  */
+const StaffCode = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, 'enter the 6-digit code from your authenticator app');
+
+/**
+ * POST /admin/me/password: the signed-in staff member's own password. Needs
+ * the current password and a code (403 `reauth_failed`, counted like a
+ * failed sign-in); 422 `weak_password` / `password_unchanged`. Every other
+ * session of the account ends.
+ */
+export const ChangeOwnPasswordRequest = z.object({
+  currentPassword: z.string().min(1).max(128),
+  code: StaffCode,
+  newPassword: z.string().min(12).max(128),
+});
+export type ChangeOwnPasswordRequest = z.infer<typeof ChangeOwnPasswordRequest>;
+
+/**
+ * POST /admin/me/totp: starts replacing the own authenticator (current
+ * password and code; 403 `reauth_failed`). Answers TotpEnrolmentView: the
+ * new secret, which takes over once confirmed.
+ */
+export const StartTotpEnrolmentRequest = z.object({
+  password: z.string().min(1).max(128),
+  code: StaffCode,
+});
+export type StartTotpEnrolmentRequest = z.infer<typeof StartTotpEnrolmentRequest>;
+
+/**
+ * POST /admin/me/totp/confirm: a code from the new secret (422
+ * `invalid_code`; 409 `no_totp_enrolment` when none was started or it
+ * expired after 10 minutes). Every other session of the account ends.
+ */
+export const ConfirmTotpEnrolmentRequest = z.object({ code: StaffCode });
+export type ConfirmTotpEnrolmentRequest = z.infer<typeof ConfirmTotpEnrolmentRequest>;
+
 export const StaffSessionResponse = z.object({
   staff: StaffMeView,
   csrfToken: z.string(),

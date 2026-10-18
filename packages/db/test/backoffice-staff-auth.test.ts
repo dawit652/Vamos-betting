@@ -1,11 +1,14 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { argon2PasswordHasher } from '../src/backoffice/argon2';
 import { DomainError } from '../src/errors';
+import { createDb } from '../src/client';
 import {
   authenticateStaffSession,
   base32Decode,
+  changeOwnStaffPassword,
+  confirmOwnStaffTotpEnrolment,
   createStaffUser,
   DEMO_STAFF_ACCOUNTS,
   DEMO_STAFF_PASSWORD,
@@ -18,17 +21,31 @@ import {
   resetStaffTotp,
   seedDemoStaff,
   setStaffDisabled,
+  STAFF_ACCOUNT_BACKOFF_BASE_MS,
+  STAFF_ACCOUNT_BACKOFF_MAX_MS,
+  STAFF_ACCOUNT_BACKOFF_THRESHOLD,
   STAFF_LOCKOUT_MS,
   STAFF_SESSION_ABSOLUTE_MS,
   STAFF_SESSION_IDLE_MS,
+  STAFF_TOTP_PENDING_MS,
+  staffAccountBackoffMs,
+  startOwnStaffTotpEnrolment,
   totpCode,
   unlockStaffUser,
+  unlockStaffUserByEmail,
   updateStaffUser,
+  type PasswordHasher,
   type StaffAuthDeps,
   type StaffLoginResult,
   type StaffRole,
 } from '../src/index';
-import { adminSessions, adminUsers, auditLog, sessions } from '../src/schema/index';
+import {
+  adminLoginThrottles,
+  adminSessions,
+  adminUsers,
+  auditLog,
+  sessions,
+} from '../src/schema/index';
 import { createTestDatabase } from '../src/testing';
 import { createUser, dropTestDatabase } from './helpers';
 
@@ -129,6 +146,30 @@ async function userRow(id: string) {
   const [row] = await handle.db.select().from(adminUsers).where(eq(adminUsers.id, id));
   if (row === undefined) throw new Error(`no staff ${id}`);
   return row;
+}
+
+const NEW_PASSWORD = 'a brand new staff passphrase';
+
+async function throttleOf(adminUserId: string, clientKey: string) {
+  const [row] = await handle.db
+    .select()
+    .from(adminLoginThrottles)
+    .where(
+      and(
+        eq(adminLoginThrottles.adminUserId, adminUserId),
+        eq(adminLoginThrottles.clientKey, clientKey),
+      ),
+    );
+  return row;
+}
+
+async function auditActionsOf(adminUserId: string): Promise<string[]> {
+  const rows = await handle.db
+    .select({ action: auditLog.action })
+    .from(auditLog)
+    .where(eq(auditLog.targetId, adminUserId))
+    .orderBy(auditLog.id);
+  return rows.map((row) => row.action);
 }
 
 const check = (token: string, csrfToken?: string | null, checkCsrf = false) =>
@@ -333,53 +374,112 @@ describe('staff sign-in', () => {
     expect(ok.staff.id).toBe(staff.id);
   });
 
-  it('locks the account for 15 minutes after 5 failures in a row', async () => {
+  it('locks one address out for 15 minutes after 5 failures in a row from it, not the account', async () => {
     const staff = await newStaff();
-    // A success resets the count: 4 failures, a success, 4 failures do not lock.
-    for (let i = 0; i < 4; i += 1) {
-      await expectInvalidCredentials(
+    const fail = (ip: string) =>
+      expectInvalidCredentials(
         loginStaff(deps(), {
           email: staff.email,
           password: 'wrong password!',
           code: nextCode(staff),
+          ip,
         }),
       );
-    }
+    // A success from the address resets its count: 4 failures, a success, 4 failures do not lock.
+    for (let i = 0; i < 4; i += 1) await fail('10.0.0.1');
     await login(staff);
-    for (let i = 0; i < 4; i += 1) {
-      await expectInvalidCredentials(
-        loginStaff(deps(), {
-          email: staff.email,
-          password: 'wrong password!',
-          code: nextCode(staff),
-        }),
-      );
-    }
-    expect((await userRow(staff.id)).lockedUntil).toBeNull();
-    // The fifth failure in a row locks it.
+    for (let i = 0; i < 4; i += 1) await fail('10.0.0.1');
+    expect(await throttleOf(staff.id, '10.0.0.1')).toMatchObject({
+      failedAttempts: 4,
+      lockedUntil: null,
+    });
+    // The fifth failure in a row locks that address out of the account.
     await expectInvalidCredentials(login(staff, wrongCode(staff)));
     const lockedAt = now.getTime();
-    const locked = await userRow(staff.id);
-    expect(locked.lockedUntil?.getTime()).toBe(lockedAt + STAFF_LOCKOUT_MS);
-    // While locked even the right credentials fail, and those attempts do not extend the lock.
+    expect((await throttleOf(staff.id, '10.0.0.1'))?.lockedUntil?.getTime()).toBe(
+      lockedAt + STAFF_LOCKOUT_MS,
+    );
+    expect((await userRow(staff.id)).lockedUntil).toBeNull();
+    // While locked even the right credentials fail from there, without extending the lock...
     await expectInvalidCredentials(login(staff));
+    // ...but the staff member signs in from anywhere else.
+    expect(
+      (
+        await loginStaff(deps(), {
+          email: staff.email,
+          password: PASSWORD,
+          code: nextCode(staff),
+          ip: '10.9.9.9',
+        })
+      ).staff.id,
+    ).toBe(staff.id);
     advance(STAFF_LOCKOUT_MS - 31_000 - (now.getTime() - lockedAt));
     await expectInvalidCredentials(login(staff));
-    expect((await userRow(staff.id)).lockedUntil?.getTime()).toBe(lockedAt + STAFF_LOCKOUT_MS);
-    // Once the lock has passed, the right credentials work.
+    expect((await throttleOf(staff.id, '10.0.0.1'))?.lockedUntil?.getTime()).toBe(
+      lockedAt + STAFF_LOCKOUT_MS,
+    );
+    // Once the lock has passed, the right credentials work from the address again.
     advance(1_000);
-    const result = await login(staff);
-    expect(result.staff.id).toBe(staff.id);
+    expect((await login(staff)).staff.id).toBe(staff.id);
+    expect(await throttleOf(staff.id, '10.0.0.1')).toBeUndefined();
     const failures = await loginFailures(staff.id);
     expect(failures.filter((reason) => reason === 'locked')).toHaveLength(2);
     const lockAudits = await handle.db
-      .select()
+      .select({ metadata: auditLog.metadata, ip: auditLog.ip })
       .from(auditLog)
       .where(and(eq(auditLog.action, 'staff.locked'), eq(auditLog.targetId, staff.id)));
-    expect(lockAudits).toHaveLength(1);
+    expect(lockAudits).toEqual([
+      { metadata: expect.objectContaining({ scope: 'client' }), ip: '10.0.0.1' },
+    ]);
   });
 
-  it('lets staff.manage lift a lockout early', async () => {
+  it('slows every address down with growing delays after many failures, never a hard lock', async () => {
+    const staff = await newStaff();
+    // Failures spread over addresses (4 each, under the per-address lock).
+    let failures = 0;
+    for (let ip = 1; failures < STAFF_ACCOUNT_BACKOFF_THRESHOLD; ip += 1) {
+      for (let i = 0; i < 4 && failures < STAFF_ACCOUNT_BACKOFF_THRESHOLD; i += 1) {
+        await expectInvalidCredentials(
+          loginStaff(deps(), {
+            email: staff.email,
+            password: 'wrong password!',
+            code: nextCode(staff),
+            ip: `10.1.0.${ip}`,
+          }),
+        );
+        failures += 1;
+      }
+    }
+    // The threshold-th failure delays sign-in from every address by the base delay.
+    const first = await userRow(staff.id);
+    expect(first.failedLoginAttempts).toBe(STAFF_ACCOUNT_BACKOFF_THRESHOLD);
+    expect(first.lockedUntil?.getTime()).toBe(now.getTime() + STAFF_ACCOUNT_BACKOFF_BASE_MS);
+    expect(staffAccountBackoffMs(STAFF_ACCOUNT_BACKOFF_THRESHOLD - 1)).toBe(0);
+    expect(staffAccountBackoffMs(STAFF_ACCOUNT_BACKOFF_THRESHOLD + 1)).toBe(
+      2 * STAFF_ACCOUNT_BACKOFF_BASE_MS,
+    );
+    expect(staffAccountBackoffMs(STAFF_ACCOUNT_BACKOFF_THRESHOLD + 50)).toBe(
+      STAFF_ACCOUNT_BACKOFF_MAX_MS,
+    );
+    const fresh = (ip: string, password = PASSWORD) =>
+      loginStaff(deps(), { email: staff.email, password, code: nextCode(staff), ip });
+    // During the delay even the right credentials from a new address fail (not counted).
+    await expectInvalidCredentials(fresh('10.2.0.1'));
+    expect((await userRow(staff.id)).failedLoginAttempts).toBe(STAFF_ACCOUNT_BACKOFF_THRESHOLD);
+    // After it, the next failure doubles the delay.
+    advance(STAFF_ACCOUNT_BACKOFF_BASE_MS);
+    await expectInvalidCredentials(fresh('10.2.0.2', 'wrong password!'));
+    expect((await userRow(staff.id)).lockedUntil?.getTime()).toBe(
+      now.getTime() + 2 * STAFF_ACCOUNT_BACKOFF_BASE_MS,
+    );
+    advance(2 * STAFF_ACCOUNT_BACKOFF_BASE_MS);
+    // A success clears the account count.
+    expect((await fresh('10.2.0.3')).staff.id).toBe(staff.id);
+    expect(await userRow(staff.id)).toMatchObject({ failedLoginAttempts: 0, lockedUntil: null });
+    expect(await loginFailures(staff.id)).toContain('account_backoff');
+  });
+
+  it('lets staff.manage (or the CLI) lift the lockouts early', async () => {
     const staff = await newStaff();
     for (let i = 0; i < 5; i += 1) {
       await expectInvalidCredentials(
@@ -387,19 +487,226 @@ describe('staff sign-in', () => {
           email: staff.email,
           password: 'wrong password!',
           code: nextCode(staff),
+          ip: '10.0.0.1',
         }),
       );
     }
     await expectInvalidCredentials(login(staff));
     const admin = await newStaff('admin');
-    await handle.db.transaction((tx) =>
+    const unlocked = await handle.db.transaction((tx) =>
       unlockStaffUser(tx, {
         adminUserId: staff.id,
         actor: { type: 'admin', adminId: admin.id },
         now,
       }),
     );
+    expect(unlocked).toMatchObject({ failedLoginAttempts: 0, lockedUntil: null });
+    expect(await throttleOf(staff.id, '10.0.0.1')).toBeUndefined();
     expect((await login(staff)).staff.id).toBe(staff.id);
+    // By email, as `pnpm admin:unlock` does.
+    for (let i = 0; i < 5; i += 1) await expectInvalidCredentials(login(staff, wrongCode(staff)));
+    await expectInvalidCredentials(login(staff));
+    const byEmail = await unlockStaffUserByEmail(handle.db, {
+      email: staff.email.toUpperCase(),
+      actor: { type: 'system', via: 'cli' },
+      now,
+    });
+    expect(byEmail?.id).toBe(staff.id);
+    expect((await login(staff)).staff.id).toBe(staff.id);
+    expect(
+      await unlockStaffUserByEmail(handle.db, {
+        email: 'nobody@vamos.test',
+        actor: { type: 'system', via: 'cli' },
+        now,
+      }),
+    ).toBeNull();
+  });
+
+  it('verifies the password and code outside any database transaction', async () => {
+    // One connection only: a sign-in holding it in a transaction while argon2 runs would
+    // block every other query until the hash is done.
+    const single = createDb(handle.url, { max: 1 });
+    try {
+      const staff = await newStaff();
+      const probed: string[] = [];
+      const probing: PasswordHasher = {
+        hash: argon2PasswordHasher.hash,
+        verify: async (hash, password) => {
+          const probe = single.db.execute(sql`SELECT 1`).then(() => 'free');
+          const timeout = new Promise<string>((resolve) =>
+            setTimeout(() => resolve('blocked'), 2_000),
+          );
+          probed.push(await Promise.race([probe, timeout]));
+          return argon2PasswordHasher.verify(hash, password);
+        },
+      };
+      const singleDeps = { ...deps(), db: single.db, passwords: probing };
+      await loginStaff(singleDeps, {
+        email: staff.email,
+        password: PASSWORD,
+        code: nextCode(staff),
+      });
+      await expectInvalidCredentials(
+        loginStaff(singleDeps, {
+          email: staff.email,
+          password: 'wrong password!',
+          code: nextCode(staff),
+        }),
+      );
+      await expectInvalidCredentials(
+        loginStaff(singleDeps, { email: 'nobody@vamos.test', password: PASSWORD, code: '123456' }),
+      );
+      expect(probed).toEqual(['free', 'free', 'free']);
+    } finally {
+      await single.close();
+    }
+  });
+});
+
+describe('staff self-service (own password and authenticator)', () => {
+  it('changes the password with the current password and code, keeping only this session', async () => {
+    const staff = await newStaff();
+    const current = await login(staff);
+    const other = await login(staff);
+    const change = (input: { currentPassword?: string; code?: string; newPassword?: string }) =>
+      changeOwnStaffPassword(deps(), {
+        adminUserId: staff.id,
+        sessionId: current.session.id,
+        currentPassword: input.currentPassword ?? PASSWORD,
+        code: input.code ?? nextCode(staff),
+        newPassword: input.newPassword ?? NEW_PASSWORD,
+        ip: '10.0.0.7',
+      });
+    // Wrong current password or code: one generic 403, counted like a failed sign-in.
+    for (const input of [{ currentPassword: 'wrong password!' }, { code: wrongCode(staff) }]) {
+      await expect(change(input)).rejects.toMatchObject({ status: 403, code: 'reauth_failed' });
+    }
+    expect((await throttleOf(staff.id, '10.0.0.7'))?.failedAttempts).toBe(2);
+    await expect(change({ newPassword: 'short' })).rejects.toMatchObject({ code: 'weak_password' });
+    await expect(change({ newPassword: PASSWORD })).rejects.toMatchObject({
+      code: 'password_unchanged',
+    });
+
+    const code = nextCode(staff);
+    await change({ code });
+    // The code is used up, the old password no longer works, the new one does.
+    await expectInvalidCredentials(login(staff, code));
+    await expectInvalidCredentials(login(staff));
+    expect(
+      (
+        await loginStaff(deps(), {
+          email: staff.email,
+          password: NEW_PASSWORD,
+          code: nextCode(staff),
+        })
+      ).staff.id,
+    ).toBe(staff.id);
+    expect((await check(current.session.token)).status).toBe('ok');
+    expect(await check(other.session.token)).toEqual({ status: 'none' });
+    expect(await auditActionsOf(staff.id)).toContain('staff.password_changed');
+  });
+
+  it('requires a password change after someone else chose the password', async () => {
+    const admin = await newStaff('admin');
+    const created = await createStaffUser(deps(), {
+      email: `forced${emailCounter}@vamos.test`,
+      displayName: 'Forced',
+      role: 'finance',
+      actor: { type: 'admin', adminId: admin.id },
+    });
+    const staff = {
+      id: created.user.id,
+      email: created.user.email,
+      secret: base32Decode(created.totp.secret),
+    };
+    const signedIn = await loginStaff(deps(), {
+      email: staff.email,
+      password: created.generatedPassword!,
+      code: nextCode(staff),
+    });
+    expect(signedIn.staff.passwordChangeRequired).toBe(true);
+    const session = await check(signedIn.session.token);
+    expect(session.status === 'ok' && session.staff.passwordChangeRequired).toBe(true);
+    await changeOwnStaffPassword(deps(), {
+      adminUserId: staff.id,
+      sessionId: signedIn.session.id,
+      currentPassword: created.generatedPassword!,
+      code: nextCode(staff),
+      newPassword: NEW_PASSWORD,
+    });
+    const after = await check(signedIn.session.token);
+    expect(after.status === 'ok' && after.staff.passwordChangeRequired).toBe(false);
+    // A reset by staff requires it again; the CLI and the demo seed do not.
+    await resetStaffPassword(deps(), {
+      adminUserId: staff.id,
+      password: 'another long password',
+      actor: { type: 'admin', adminId: admin.id },
+    });
+    expect((await userRow(staff.id)).passwordChangeRequired).toBe(true);
+    expect((await userRow((await newStaff()).id)).passwordChangeRequired).toBe(false);
+  });
+
+  it('re-enrols the authenticator once a code from the new secret confirms it', async () => {
+    const staff = await newStaff();
+    const current = await login(staff);
+    const other = await login(staff);
+    await expect(
+      startOwnStaffTotpEnrolment(deps(), {
+        adminUserId: staff.id,
+        password: 'wrong password!',
+        code: nextCode(staff),
+      }),
+    ).rejects.toMatchObject({ status: 403, code: 'reauth_failed' });
+    const confirm = (code: string) =>
+      confirmOwnStaffTotpEnrolment(deps(), {
+        adminUserId: staff.id,
+        sessionId: current.session.id,
+        code,
+      });
+    await expect(confirm('123456')).rejects.toMatchObject({
+      status: 409,
+      code: 'no_totp_enrolment',
+    });
+
+    const enrolment = await startOwnStaffTotpEnrolment(deps(), {
+      adminUserId: staff.id,
+      password: PASSWORD,
+      code: nextCode(staff),
+    });
+    const fresh = base32Decode(enrolment.secret);
+    expect(enrolment.uri).toContain('otpauth://totp/');
+    // Until it is confirmed, the old secret still signs in.
+    expect((await login(staff)).staff.id).toBe(staff.id);
+    advance(30_000);
+    const wrong =
+      totpCode(staff.secret, now.getTime()) === totpCode(fresh, now.getTime())
+        ? '000000'
+        : totpCode(staff.secret, now.getTime());
+    await expect(confirm(wrong)).rejects.toMatchObject({ status: 422, code: 'invalid_code' });
+    await confirm(totpCode(fresh, now.getTime()));
+    // The old secret no longer works; the new one does (on a later step).
+    await expectInvalidCredentials(login(staff));
+    staff.secret = fresh;
+    expect((await login(staff)).staff.id).toBe(staff.id);
+    expect((await check(current.session.token)).status).toBe('ok');
+    expect(await check(other.session.token)).toEqual({ status: 'none' });
+    expect(await auditActionsOf(staff.id)).toEqual(
+      expect.arrayContaining(['staff.totp_enrolment_started', 'staff.totp_changed']),
+    );
+    const row = await userRow(staff.id);
+    expect(row).toMatchObject({ totpPendingSecretEnc: null, totpPendingAt: null });
+    expect(decryptTotpSecret(KEY, row.totpSecretEnc!, staff.id).equals(fresh)).toBe(true);
+
+    // A started enrolment expires.
+    await startOwnStaffTotpEnrolment(deps(), {
+      adminUserId: staff.id,
+      password: PASSWORD,
+      code: nextCode(staff),
+    });
+    advance(STAFF_TOTP_PENDING_MS + 1);
+    await expect(confirm(totpCode(fresh, now.getTime()))).rejects.toMatchObject({
+      code: 'no_totp_enrolment',
+    });
   });
 });
 

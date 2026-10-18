@@ -14,10 +14,17 @@ export function Shell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const onLogin = pathname === '/login';
 
+  const mustChangePassword = staff?.passwordChangeRequired === true;
+  const onAccount = pathname === '/account';
+
   useEffect(() => {
     if (state.status === 'anonymous' && !onLogin) router.replace('/login');
-    if (state.status === 'ready' && onLogin) router.replace('/');
-  }, [state.status, onLogin, router]);
+    if (state.status === 'ready' && onLogin) router.replace(mustChangePassword ? '/account' : '/');
+    // Until the staff member sets a password of their own, the API refuses everything else.
+    if (state.status === 'ready' && mustChangePassword && !onLogin && !onAccount) {
+      router.replace('/account');
+    }
+  }, [state.status, onLogin, onAccount, mustChangePassword, router]);
 
   if (onLogin) return <>{children}</>;
   if (state.status !== 'ready' || staff === null) return <p className="muted pad">Loading…</p>;
@@ -43,13 +50,18 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="muted small" data-testid="staff-role">
             {staff.role}
           </div>
+          <Link href="/account" aria-current={onAccount ? 'page' : undefined}>
+            My account
+          </Link>
           <button type="button" onClick={() => void logout().then(() => router.replace('/login'))}>
             Sign out
           </button>
         </div>
       </aside>
       <main className="content">
-        {canView(permissions, pathname) ? (
+        {mustChangePassword && !onAccount ? (
+          <p className="muted">Loading…</p>
+        ) : canView(permissions, pathname) ? (
           children
         ) : (
           <p className="notice error" role="alert">

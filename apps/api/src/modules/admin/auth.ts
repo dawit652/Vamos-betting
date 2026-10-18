@@ -1,16 +1,21 @@
 import {
+  ChangeOwnPasswordRequest,
+  ConfirmTotpEnrolmentRequest,
   CreateStaffRequest,
   CreateStaffResponse,
   ResetStaffPasswordRequest,
   StaffListResponse,
   StaffLoginRequest,
   StaffUserView,
+  StartTotpEnrolmentRequest,
   TotpEnrolmentView,
   UpdateStaffRequest,
   type OkResponse,
   type StaffSessionResponse,
 } from '@vamos/contracts';
 import {
+  changeOwnStaffPassword,
+  confirmOwnStaffTotpEnrolment,
   createStaffUser,
   getStaffUser,
   listStaffUsers,
@@ -20,6 +25,7 @@ import {
   resetStaffPassword,
   resetStaffTotp,
   setStaffDisabled,
+  startOwnStaffTotpEnrolment,
   unlockStaffUser,
   updateStaffUser,
   warmUpStaffPasswordHashing,
@@ -68,6 +74,15 @@ export default async function adminAuthRoutes(app: FastifyInstance): Promise<voi
     await enforceLimit(perClient, request, reply);
     if (bodyEmail(request) !== '') await enforceLimit(perEmail, request, reply);
   };
+  // Self-service changes check the password (argon2) and a code: limited like sign-in.
+  const perStaff = app.createRateLimit({
+    ...authLimits.staffLoginPerEmail,
+    keyGenerator: (request) => `staff-self|${requireStaff(request).id}`,
+  });
+  const selfServiceLimits = async (request: FastifyRequest, reply: FastifyReply) => {
+    await enforceLimit(perClient, request, reply);
+    await enforceLimit(perStaff, request, reply);
+  };
 
   app.post(
     '/admin/auth/login',
@@ -79,6 +94,7 @@ export default async function adminAuthRoutes(app: FastifyInstance): Promise<voi
         password: input.password,
         code: input.code,
         ip: request.ip,
+        clientKey: clientAddressKey(request.ip),
         userAgent: request.headers['user-agent'] ?? null,
       });
       setStaffCookie(reply, deps.config, session);
@@ -103,6 +119,61 @@ export default async function adminAuthRoutes(app: FastifyInstance): Promise<voi
         ip: request.ip,
       });
       clearStaffCookie(reply, deps.config);
+      return { ok: true };
+    },
+  );
+
+  // The signed-in staff member's own password and authenticator (any role, also while a
+  // password change is required).
+
+  app.post(
+    '/admin/me/password',
+    { config: { staff: 'session' }, preHandler: selfServiceLimits },
+    async (request): Promise<OkResponse> => {
+      const staff = requireStaff(request);
+      const input = parseInput(ChangeOwnPasswordRequest, request.body);
+      await changeOwnStaffPassword(authDeps, {
+        adminUserId: staff.id,
+        sessionId: staff.sessionId,
+        currentPassword: input.currentPassword,
+        code: input.code,
+        newPassword: input.newPassword,
+        ip: request.ip,
+        clientKey: clientAddressKey(request.ip),
+      });
+      return { ok: true };
+    },
+  );
+
+  app.post(
+    '/admin/me/totp',
+    { config: { staff: 'session' }, preHandler: selfServiceLimits },
+    async (request) => {
+      const staff = requireStaff(request);
+      const input = parseInput(StartTotpEnrolmentRequest, request.body);
+      const enrolment = await startOwnStaffTotpEnrolment(authDeps, {
+        adminUserId: staff.id,
+        password: input.password,
+        code: input.code,
+        ip: request.ip,
+        clientKey: clientAddressKey(request.ip),
+      });
+      return wire(TotpEnrolmentView, enrolment);
+    },
+  );
+
+  app.post(
+    '/admin/me/totp/confirm',
+    { config: { staff: 'session' }, preHandler: selfServiceLimits },
+    async (request): Promise<OkResponse> => {
+      const staff = requireStaff(request);
+      const input = parseInput(ConfirmTotpEnrolmentRequest, request.body);
+      await confirmOwnStaffTotpEnrolment(authDeps, {
+        adminUserId: staff.id,
+        sessionId: staff.sessionId,
+        code: input.code,
+        ip: request.ip,
+      });
       return { ok: true };
     },
   );

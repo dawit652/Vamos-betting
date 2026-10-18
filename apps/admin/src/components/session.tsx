@@ -24,6 +24,8 @@ interface SessionValue {
   permissions: readonly string[];
   login: (input: { email: string; password: string; code: string }) => Promise<void>;
   logout: () => Promise<void>;
+  /** Reads the session again (after a change of the own password or authenticator). */
+  refresh: () => Promise<void>;
   can: (permission: string) => boolean;
 }
 
@@ -67,6 +69,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         adopt(
           await api<StaffSessionResponse>('/admin/auth/login', { method: 'POST', body: input }),
         );
+      },
+      refresh: async () => {
+        adopt(await api<StaffSessionResponse>('/admin/session'));
       },
       logout: async () => {
         try {

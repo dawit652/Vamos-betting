@@ -5,7 +5,8 @@
  *
  * Roles: admin, trader, finance, kyc, support, compliance. The password comes
  * from the ADMIN_PASSWORD environment variable (at least 12 characters);
- * without it a random one is generated and printed once. Scan the printed
+ * without it a random one is generated and printed once, and must be
+ * changed at the first sign-in (Account page). Scan the printed
  * otpauth:// URI (or type the secret) into an authenticator app: sign-in
  * needs its 6-digit code. Uses DATABASE_URL and ADMIN_TOTP_KEY from the
  * environment / .env, like the API.
@@ -61,6 +62,7 @@ try {
       displayName: values.name,
       role: values.role as StaffRole,
       ...(password === undefined ? {} : { password }),
+      requirePasswordChange: password === undefined,
       actor: { type: 'system', via: 'cli' },
     },
   );
@@ -68,7 +70,9 @@ try {
     `staff account created: ${result.user.email} (${result.user.role}, id ${result.user.id})`,
     ...(result.generatedPassword === null
       ? []
-      : [`password (shown once, change it after signing in): ${result.generatedPassword}`]),
+      : [
+          `password (shown once; you must change it at the first sign-in): ${result.generatedPassword}`,
+        ]),
     `TOTP secret (shown once): ${result.totp.secret}`,
     `otpauth URI (scan as a QR code): ${result.totp.uri}`,
   ];

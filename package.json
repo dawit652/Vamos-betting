@@ -23,6 +23,7 @@
     "db:migrate": "pnpm --filter @vamos/db migrate",
     "db:seed": "pnpm --filter @vamos/db seed",
     "admin:create": "pnpm --filter @vamos/db admin:create",
+    "admin:unlock": "pnpm --filter @vamos/db admin:unlock",
     "services:start": "bash infra/scripts/dev-services.sh start",
     "services:stop": "bash infra/scripts/dev-services.sh stop",
     "services:status": "bash infra/scripts/dev-services.sh status"

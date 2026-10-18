@@ -14,6 +14,31 @@ export function validateLogin(input: {
   return null;
 }
 
+const CODE_RE = /^\d{6}$/;
+
+/** The own password change: current password, code, and the new password typed twice. */
+export function validatePasswordChange(input: {
+  currentPassword: string;
+  code: string;
+  newPassword: string;
+  confirmPassword: string;
+}): string | null {
+  if (input.currentPassword.length === 0) return 'Enter your current password.';
+  if (!CODE_RE.test(input.code.trim()))
+    return 'Enter the 6-digit code from your authenticator app.';
+  if (input.newPassword.length < 12) return 'The new password needs at least 12 characters.';
+  if (input.newPassword.length > 128) return 'The new password is at most 128 characters.';
+  if (input.newPassword === input.currentPassword)
+    return 'Choose a password you have not used here.';
+  if (input.newPassword !== input.confirmPassword) return 'The two new passwords differ.';
+  return null;
+}
+
+/** A 6-digit authenticator code (confirming a new authenticator). */
+export function validateCode(code: string): string | null {
+  return CODE_RE.test(code.trim()) ? null : 'Enter the 6-digit code from your authenticator app.';
+}
+
 /** A required free-text reason (void, reject, cancel, correction). */
 export function validateReason(text: string): string | null {
   const trimmed = text.trim();

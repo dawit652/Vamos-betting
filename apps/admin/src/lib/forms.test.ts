@@ -5,7 +5,9 @@ import {
   buildSettingValue,
   formFromSetting,
   parseJsonValue,
+  validateCode,
   validateLogin,
+  validatePasswordChange,
   validateReason,
 } from './forms';
 
@@ -16,6 +18,33 @@ describe('login validation', () => {
     expect(validateLogin({ email: 'a@b.test', password: '', code: '123456' })).not.toBeNull();
     expect(validateLogin({ email: 'a@b.test', password: 'x', code: '12345' })).not.toBeNull();
     expect(validateLogin({ email: 'a@b.test', password: 'x', code: 'abcdef' })).not.toBeNull();
+  });
+});
+
+describe('own password change and authenticator code', () => {
+  const ok = {
+    currentPassword: 'old password',
+    code: '123456',
+    newPassword: 'a new long passphrase',
+    confirmPassword: 'a new long passphrase',
+  };
+  it('accepts a complete form and rejects each problem', () => {
+    expect(validatePasswordChange(ok)).toBeNull();
+    expect(validatePasswordChange({ ...ok, currentPassword: '' })).not.toBeNull();
+    expect(validatePasswordChange({ ...ok, code: '12345' })).not.toBeNull();
+    expect(
+      validatePasswordChange({ ...ok, newPassword: 'short', confirmPassword: 'short' }),
+    ).not.toBeNull();
+    expect(
+      validatePasswordChange({
+        ...ok,
+        newPassword: 'old password',
+        confirmPassword: 'old password',
+      }),
+    ).not.toBeNull();
+    expect(validatePasswordChange({ ...ok, confirmPassword: 'something else' })).toMatch(/differ/);
+    expect(validateCode(' 654321 ')).toBeNull();
+    expect(validateCode('65432a')).not.toBeNull();
   });
 });
 
