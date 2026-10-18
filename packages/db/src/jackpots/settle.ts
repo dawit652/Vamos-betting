@@ -92,9 +92,13 @@ async function recordResults(
   }
 }
 
+/** results_flagged marker of a game whose catalogue result no longer resolves (null). */
+export const UNRESOLVED_GAME = 'unresolved';
+
 /**
  * A settled (or voided) round whose games' results now differ from the
- * settled ones: writes `jackpot.result_mismatch` and an audit record
+ * settled ones (another result, or none any more: UNRESOLVED_GAME):
+ * writes `jackpot.result_mismatch` and an audit record
  * whenever the discrepancy (by game, the catalogue result where it differs)
  * is not the one flagged last, so a further correction or a revert is
  * reported too. results_flagged_at keeps the first flag's time. Nothing is
@@ -116,11 +120,13 @@ async function flagChangedResults(
     return false;
   }
   const games = await loadRoundGames(tx, round.id);
-  const discrepancy = games.map((game) =>
-    game.current !== null && game.current !== settlement.results[game.position]
-      ? game.current
-      : null,
-  );
+  const discrepancy = games.map((game): string | null => {
+    const settled = settlement.results[game.position] ?? null;
+    if (game.current === settled) return null;
+    // The catalogue no longer resolves a game the round was settled on (e.g. a trader voided
+    // one of its outcomes, or it was un-resulted): staff must look at it as well.
+    return game.current ?? UNRESOLVED_GAME;
+  });
   const previous = round.resultsFlagged ?? [];
   const length = Math.max(discrepancy.length, previous.length);
   const same = Array.from({ length }, (_, i) => i).every(

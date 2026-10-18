@@ -114,6 +114,19 @@ describe('loadConfig', () => {
     );
   });
 
+  it('refuses a back office URL on the same origin as the player web app', () => {
+    // CORS lets each origin reach only its own routes (/admin or the rest).
+    expect(
+      problemsOf({
+        PUBLIC_WEB_URL: 'https://vamos.et',
+        ADMIN_WEB_URL: 'https://vamos.et/backoffice',
+      }).join('\n'),
+    ).toMatch(/ADMIN_WEB_URL/);
+    expect(
+      problemsOf({ PUBLIC_WEB_URL: 'https://vamos.et', ADMIN_WEB_URL: 'https://admin.vamos.et' }),
+    ).toEqual([]);
+  });
+
   it('refuses the development session secret in production', () => {
     expect(
       problemsOf({ NODE_ENV: 'production', SESSION_SECRET: DEV_SESSION_SECRET }).join('\n'),

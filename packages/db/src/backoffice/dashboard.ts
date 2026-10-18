@@ -3,9 +3,16 @@ import { domainUnprocessable } from '../errors';
 import type { DbExecutor } from '../ledger/types';
 import { OPEN_PAYOUT_STATUSES } from '../payments/types';
 import { users } from '../schema/accounts';
+import { rejectionLedgerKey } from '../betting/postings';
 import { bets } from '../schema/betting';
 import { jackpotEntries } from '../schema/jackpots';
+import { ledgerAccounts, ledgerEntries, ledgerTransactions } from '../schema/ledger';
 import { paymentIntents, payouts } from '../schema/payments';
+
+/** Ledger transaction types that settle a bet or reverse a settlement. */
+const BET_SETTLEMENT_TYPES = ['bet_payout', 'bet_refund', 'bet_cashout', 'settlement_reversal'];
+/** Idempotency-key prefix of the refund of a bet rejected after the live delay (not a settlement). */
+const REJECTION_KEY_PREFIX = rejectionLedgerKey('');
 
 /**
  * The back-office dashboard (dashboard.view): betting and jackpot activity,
@@ -15,11 +22,15 @@ import { paymentIntents, payouts } from '../schema/payments';
  *
  * - turnover: Σ stake of the bets placed in the window, except rejected
  *   ones (their stake went back);
- * - settled bets: the bets whose settlement (won, lost, void, cashed out)
- *   falls in the window: GGR = Σ their stakes − Σ their gross payouts
- *   (winnings and refunds before tax, cash-outs), which is what the
- *   house_revenue account gained from them; the winnings tax withheld is
- *   shown apart (it belongs to the tax authority);
+ * - settled bets: the bet settlement postings (won, lost, void, cashed
+ *   out) made in the window, by ledger time, net of the reversals made in
+ *   it (a result correction reverses the old settlement and posts the new
+ *   one when it happens, so earlier windows keep what was paid then):
+ *   settled = Σ stakes released from house_stakes; GGR = what the
+ *   house_revenue account gained; payouts = settled − GGR (winnings and
+ *   refunds before tax, cash-outs); the winnings tax withheld is shown
+ *   apart (it belongs to the tax authority). A window holding a
+ *   correction can show negative payouts, tax or count;
  * - jackpots: entries placed in the window; entries settled in the
  *   window: GGR = Σ cost − Σ gross prizes − Σ refunds;
  * - open liabilities (now, not windowed): the open and pending bets, their
@@ -44,13 +55,16 @@ export interface Dashboard {
     placed: DashboardAmount;
     /** Σ their stakes (= placed.amount). */
     turnover: bigint;
-    /** Bets settled in the window (won, lost, void, cashed out) and their stakes. */
+    /**
+     * Bet settlements posted in the window (won, lost, void, cashed out) and
+     * their stakes, net of the settlements reversed in it by corrections.
+     */
     settled: DashboardAmount;
-    /** Σ gross payouts of those bets (winnings and refunds before tax, cash-outs). */
+    /** Gross payouts posted in the window (winnings and refunds before tax, cash-outs), net of reversals. */
     payouts: bigint;
-    /** Winnings tax withheld from those bets. */
+    /** Winnings tax withheld in the window, net of reversals. */
     taxWithheld: bigint;
-    /** Gross gaming revenue: settled.amount − payouts. */
+    /** Gross gaming revenue: what house_revenue gained from bets in the window (settled.amount − payouts). */
     ggr: bigint;
   };
   jackpots: {
@@ -126,21 +140,39 @@ export async function getDashboard(
     })
     .from(bets)
     .where(and(within(bets.placedAt), ne(bets.status, 'rejected')));
-  const [settled] = await exec
-    .select({
-      count: sql<number>`count(*)::int`,
-      amount: sql<string>`COALESCE(sum(${bets.stake}), 0)::text`,
-      payouts: sql<string>`COALESCE(sum(${bets.settledGrossPayout}), 0)::text`,
-      tax: sql<string>`COALESCE(sum(${bets.settledTax}), 0)::text`,
-    })
-    .from(bets)
-    .where(
-      and(
-        inArray(bets.status, ['won', 'lost', 'void', 'cashed_out']),
-        isNotNull(bets.settledAt),
-        within(bets.settledAt),
-      ),
-    );
+  // Bet settlements by the time they were posted to the ledger (refType 'bet'): a payout
+  // stays in the window it was paid in, and a later correction (its reversal and the new
+  // settlement) lands in the window of the correction. Rejected bets' refunds are no
+  // settlement (their stake is not turnover either).
+  const settlementTypes = sql.join(
+    BET_SETTLEMENT_TYPES.map((type) => sql`${type}`),
+    sql`, `,
+  );
+  const settledResult = await exec.execute<{
+    count: number;
+    stakes: string;
+    revenue: string;
+    tax: string;
+  }>(sql`
+    WITH postings AS (
+      SELECT t.id, t.type FROM ${ledgerTransactions} t
+      WHERE t.ref_type = 'bet'
+        AND t.type::text IN (${settlementTypes})
+        AND t.idempotency_key NOT LIKE ${`${REJECTION_KEY_PREFIX}%`}
+        AND t.created_at >= ${from.toISOString()}::timestamptz
+        AND t.created_at < ${to.toISOString()}::timestamptz
+    )
+    SELECT
+      ((SELECT count(*) FROM postings WHERE type <> 'settlement_reversal')
+        - (SELECT count(*) FROM postings WHERE type = 'settlement_reversal'))::int AS count,
+      COALESCE(sum(-e.amount) FILTER (WHERE a.kind = 'house_stakes'), 0)::text AS stakes,
+      COALESCE(sum(e.amount) FILTER (WHERE a.kind = 'house_revenue'), 0)::text AS revenue,
+      COALESCE(sum(e.amount) FILTER (WHERE a.kind = 'house_tax_payable'), 0)::text AS tax
+    FROM postings p
+    JOIN ${ledgerEntries} e ON e.transaction_id = p.id
+    JOIN ${ledgerAccounts} a ON a.id = e.account_id
+  `);
+  const settled = settledResult.rows[0];
   const [entries] = await exec
     .select({
       count: sql<number>`count(*)::int`,
@@ -226,8 +258,8 @@ export async function getDashboard(
            WHERE ${within(jackpotEntries.placedAt)}) AS players`,
   );
 
-  const settledStakes = BigInt(settled?.amount ?? '0');
-  const payoutsGross = BigInt(settled?.payouts ?? '0');
+  const settledStakes = BigInt(settled?.stakes ?? '0');
+  const ggr = BigInt(settled?.revenue ?? '0');
   const jackpotSettled = amountOf(entriesSettled);
   const prizes = BigInt(entriesSettled?.prizes ?? '0');
   const refunds = BigInt(entriesSettled?.refunds ?? '0');
@@ -238,10 +270,11 @@ export async function getDashboard(
     betting: {
       placed: placedAmount,
       turnover: placedAmount.amount,
-      settled: { count: settled?.count ?? 0, amount: settledStakes },
-      payouts: payoutsGross,
+      settled: { count: Number(settled?.count ?? 0), amount: settledStakes },
+      // stake − revenue: the gross payout of a won bet, the refund of a void one, a cash-out.
+      payouts: settledStakes - ggr,
       taxWithheld: BigInt(settled?.tax ?? '0'),
-      ggr: settledStakes - payoutsGross,
+      ggr,
     },
     jackpots: {
       entries: amountOf(entries),

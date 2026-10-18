@@ -777,3 +777,75 @@ describe('settings', () => {
     expect(outbox.filter((row) => row.type.startsWith('settings'))).toEqual([]);
   });
 });
+
+describe('dashboard window figures by posting time', () => {
+  let handle: TestDb;
+  let ids: CatalogIds;
+  let settings: GameSettings;
+
+  beforeAll(async () => {
+    ({ handle, ids, settings } = await createBettingDatabase());
+  });
+
+  afterAll(async () => {
+    await dropTestDatabase(handle);
+  });
+
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  it('keeps a payout in the window it was paid in and the correction in its own window', async () => {
+    const from = new Date(Date.now() - 3_600_000);
+    const player = await createPlayer(handle.db);
+    await depositViaMock(handle.db, player.userId, birr(1_000), { now: new Date() });
+    const event = await createEvent(handle.db, ids);
+    const stake = birr(100);
+    const oddsMilli = 2000;
+    await place(handle.db, player.userId, {
+      stake,
+      legs: [{ selectionId: event.home, oddsMilli }],
+      settings,
+    });
+    // Window 1: the bet wins and is paid.
+    await finish(handle.db, event.eventId, 2, 0);
+    await handle.db.transaction((tx) => settleEventBets(tx, event.eventId, new Date()));
+    await pause();
+    const mid = new Date();
+    await pause();
+    // Window 2: the result is corrected and the bet re-settled as lost.
+    await finish(handle.db, event.eventId, 0, 2);
+    await handle.db.transaction((tx) => settleEventBets(tx, event.eventId, new Date()));
+    const to = new Date(Date.now() + 3_600_000);
+
+    // The formulas: gross = stake × odds, tax = rate on the winnings above the stake.
+    const gross = (stake * BigInt(oddsMilli)) / 1000n;
+    expect(settings.tax.base).toBe('net_winnings');
+    const winnings = gross - stake;
+    const tax =
+      winnings < settings.tax.exemptBelow
+        ? 0n
+        : (winnings * BigInt(settings.tax.rateBps)) / 10_000n;
+    expect(tax).toBeGreaterThan(0n);
+
+    const w1 = await getDashboard(handle.db, { from, to: mid });
+    expect(w1.betting.settled).toEqual({ count: 1, amount: stake });
+    expect(w1.betting.payouts).toBe(gross);
+    expect(w1.betting.taxWithheld).toBe(tax);
+    expect(w1.betting.ggr).toBe(stake - gross);
+
+    // The won settlement is reversed (−stake, −gross, −tax) and the lost one posted (+stake).
+    const w2 = await getDashboard(handle.db, { from: mid, to });
+    expect(w2.betting.settled).toEqual({ count: 0, amount: 0n });
+    expect(w2.betting.payouts).toBe(-gross);
+    expect(w2.betting.taxWithheld).toBe(-tax);
+    expect(w2.betting.ggr).toBe(gross - stake + stake);
+
+    // Over both windows: the bet lost, and the GGR is what house_revenue gained.
+    const all = await getDashboard(handle.db, { from, to });
+    expect(all.betting.settled).toEqual({ count: 1, amount: stake });
+    expect(all.betting.payouts).toBe(0n);
+    expect(all.betting.taxWithheld).toBe(0n);
+    expect(all.betting.ggr).toBe(stake);
+    expect(w1.betting.ggr + w2.betting.ggr).toBe(all.betting.ggr);
+    expect(await getBalance(handle.db, { kind: 'house_revenue' })).toBe(all.betting.ggr);
+  });
+});

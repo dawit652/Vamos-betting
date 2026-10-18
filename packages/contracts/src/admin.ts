@@ -250,9 +250,13 @@ export const DashboardResponse = z.object({
     /** Bets placed in the window (rejected ones excepted) and their stakes. */
     placed: AmountCountView,
     turnover: Santim,
-    /** Bets settled in the window (won, lost, void, cashed out) and their stakes. */
+    /**
+     * Bet settlements posted in the window (won, lost, void, cashed out) and their stakes, by
+     * ledger time and net of the settlements reversed in it by result corrections (so a window
+     * holding a correction can show a negative count, payouts or tax).
+     */
     settled: AmountCountView,
-    /** Their gross payouts (winnings and refunds before tax, cash-outs). */
+    /** Gross payouts posted in the window (winnings and refunds before tax, cash-outs). */
     payouts: Santim,
     taxWithheld: Santim,
     /** settled.amount − payouts. */

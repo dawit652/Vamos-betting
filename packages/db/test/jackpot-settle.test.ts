@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { birr, type TaxConfig } from '@vamos/core';
 import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -11,6 +12,8 @@ import {
   listRecentJackpotRounds,
   netLossSince,
   settleJackpotRound,
+  staffVoidMarket,
+  staffVoidSelection,
   type CatalogIds,
 } from '../src/index';
 import {
@@ -672,6 +675,56 @@ describe('settleJackpotRound', () => {
     expect(await settle(handle.db, roundId)).toMatchObject({ outcome: 'flagged' });
     // Only recent rounds are looked at again.
     expect(await listed(new Date(Date.now() + 8 * 24 * HOUR))).not.toContain(roundId);
+  });
+
+  it('flags a settled round when staff void an outcome or the market of one of its games', async () => {
+    const actor = { adminId: randomUUID() };
+    const reason = 'pricing error';
+    const listed = () => listJackpotRoundsToSettle(handle.db, new Date(), { limit: 100 });
+
+    // Voiding the winning outcome leaves game 1 without a clean result (1 void, X and 2 lost).
+    const one = await round3();
+    await enter(handle.db, await player(), one.roundId, [['1'], ['1'], ['1']]);
+    for (const game of one.games) await resultGame(handle.db, game, '1');
+    expect(await settle(handle.db, one.roundId)).toMatchObject({ outcome: 'settled' });
+    await handle.db.transaction((tx) =>
+      staffVoidSelection(tx, { selectionId: one.games[0]!.home, reason, actor }),
+    );
+    // The sweep sees the change even if the market.resulted job is lost.
+    expect(await listed()).toContain(one.roundId);
+    expect(await settle(handle.db, one.roundId)).toMatchObject({
+      outcome: 'flagged',
+      status: 'settled',
+    });
+    expect(await settle(handle.db, one.roundId)).toMatchObject({ outcome: 'unchanged' });
+    const [flaggedOne] = await handle.db
+      .select({ flagged: jackpotRounds.resultsFlagged })
+      .from(jackpotRounds)
+      .where(eq(jackpotRounds.id, one.roundId));
+    expect(flaggedOne?.flagged).toEqual(['unresolved', null, null]);
+    const mismatch = (await outboxOf(one.roundId)).filter(
+      (row) => row.type === 'jackpot.result_mismatch',
+    );
+    expect(mismatch).toHaveLength(1);
+    expect(mismatch[0]?.payload).toMatchObject({
+      games: [{ position: 0, settled: '1', current: null }],
+    });
+
+    // Voiding the whole market of a game cancels it: flagged the same way.
+    const two = await round3();
+    await enter(handle.db, await player(), two.roundId, [['1'], ['1'], ['1']]);
+    for (const game of two.games) await resultGame(handle.db, game, '1');
+    expect(await settle(handle.db, two.roundId)).toMatchObject({ outcome: 'settled' });
+    await handle.db.transaction((tx) =>
+      staffVoidMarket(tx, { marketId: two.games[1]!.marketIds['1x2'], reason, actor }),
+    );
+    expect(await listed()).toContain(two.roundId);
+    expect(await settle(handle.db, two.roundId)).toMatchObject({ outcome: 'flagged' });
+    const [flaggedTwo] = await handle.db
+      .select({ flagged: jackpotRounds.resultsFlagged })
+      .from(jackpotRounds)
+      .where(eq(jackpotRounds.id, two.roundId));
+    expect(flaggedTwo?.flagged).toEqual([null, 'cancelled', null]);
   });
 
   it('reconciles house_jackpot, house_tax_payable and every player’s cash with the entries', async () => {

@@ -42,11 +42,23 @@ export interface BuildAppOptions {
   authLimits?: Partial<AuthLimits>;
 }
 
-/** Browser origins allowed to call the API with credentials (player web app and back office). */
-function allowedOrigins(config: AppConfig): string[] {
-  return [
-    ...new Set([config.web.publicUrl, config.web.adminUrl].map((url) => new URL(url).origin)),
-  ];
+/**
+ * Whether a request URL is a back office route (`/admin` or `/admin/...`).
+ * Exported for tests.
+ */
+export function isAdminPath(url: string): boolean {
+  const path = url.split(/[?#]/, 1)[0] ?? '';
+  return path === '/admin' || path.startsWith('/admin/');
+}
+
+/**
+ * Browser origins allowed to call the API with credentials. The back office
+ * origin may call `/admin/*` only, and the player web origin everything else:
+ * a script on the much larger player site (XSS, third-party script) must not
+ * read the staff CSRF token from `/admin/session` and drive the staff API.
+ */
+export function corsOriginsFor(config: AppConfig, url: string): string[] {
+  return [new URL(isAdminPath(url) ? config.web.adminUrl : config.web.publicUrl).origin];
 }
 
 export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyInstance {
@@ -77,8 +89,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     // The web app (another port or subdomain) is same-site with the API.
     crossOriginResourcePolicy: { policy: 'same-site' },
   });
-  void app.register(fastifyCors, {
-    origin: allowedOrigins(config),
+  const corsOptions = {
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: [
@@ -91,6 +102,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     ],
     exposedHeaders: ['x-request-id', 'retry-after', IDEMPOTENT_REPLAYED_HEADER],
     maxAge: 600,
+  };
+  void app.register(fastifyCors, {
+    delegator: (request, callback) => {
+      callback(null, { ...corsOptions, origin: corsOriginsFor(config, request.url ?? '/') });
+    },
   });
   void app.register(fastifyRateLimit, {
     // Limits are opt-in per route via `config.rateLimit`.

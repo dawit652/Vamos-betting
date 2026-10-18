@@ -339,6 +339,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
 
   const problems: string[] = [];
+  if (new URL(config.web.adminUrl).origin === new URL(config.web.publicUrl).origin) {
+    // CORS gives the back office origin /admin/* and the player origin the rest, so a script on
+    // the player site cannot drive the staff API. One shared origin would undo that.
+    problems.push('ADMIN_WEB_URL must be on a different origin from PUBLIC_WEB_URL');
+  }
   if (config.nodeEnv === 'production' && config.sessionSecret === DEV_SESSION_SECRET) {
     problems.push('SESSION_SECRET must be set to a unique secret in production');
   }

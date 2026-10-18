@@ -246,8 +246,10 @@ export async function voidMarket(
  * Refused (CatalogStateError) for a selection of the 1X2 market of a game
  * in a jackpot round that is not settled yet (scheduled, open or closed):
  * the jackpot game's result would not add up; void the whole market
- * instead (the game then counts as cancelled). Audited as
- * `catalog.selection.voided`.
+ * instead (the game then counts as cancelled). On a settled market it
+ * moves markets.settled_at to now, so a jackpot round settled on the old
+ * result is rechecked and flagged (its game no longer resolves). Audited
+ * as `catalog.selection.voided`.
  */
 export async function voidSelection(
   tx: DbTransaction,
@@ -308,6 +310,13 @@ export async function voidSelection(
         settledAt: sql`now()`,
         updatedAt: sql`now()`,
       })
+      .where(eq(markets.id, market.id));
+  } else if (market.status === 'settled') {
+    // A correction of a settled market: its results changed now, so sweeps that look for
+    // markets resulted since a time (e.g. the jackpot recheck of settled rounds) see it.
+    await tx
+      .update(markets)
+      .set({ settledAt: sql`now()`, updatedAt: sql`now()` })
       .where(eq(markets.id, market.id));
   }
   await announce(tx, locked, {

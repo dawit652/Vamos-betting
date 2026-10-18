@@ -39,7 +39,7 @@ export default function DashboardPage() {
             <Stat
               label="GGR"
               value={formatEtb(data.betting.ggr)}
-              hint={`${data.betting.settled.count} bets settled`}
+              hint={`${data.betting.settled.count} net settlements`}
             />
             <Stat label="Payouts" value={formatEtb(data.betting.payouts)} />
             <Stat label="Tax withheld" value={formatEtb(data.betting.taxWithheld)} />
