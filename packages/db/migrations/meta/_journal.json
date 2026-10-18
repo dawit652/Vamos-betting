@@ -155,6 +155,20 @@
       "when": 1792325275615,
       "tag": "0021_phase9_review_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792343308687,
+      "tag": "0022_phase10_compliance",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792343314947,
+      "tag": "0023_phase10_compliance_guards",
+      "breakpoints": true
     }
   ]
 }

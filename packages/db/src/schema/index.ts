@@ -5,6 +5,7 @@
  * - Phase 4: bets, bet legs, booking codes
  * - Phase 6: payments
  * - Phase 8: jackpot rounds, games and entries
+ * - Phase 10: compliance (ELS reports, daily summaries, reconciliation, PSP statements, AML flags)
  */
 export * from './enums';
 export * from './accounts';
@@ -14,3 +15,4 @@ export * from './catalog';
 export * from './betting';
 export * from './payments';
 export * from './jackpots';
+export * from './compliance';
