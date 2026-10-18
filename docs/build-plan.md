@@ -20,15 +20,15 @@ Last updated 12 Oct 2026.
 | 6     | Payments: deposits and withdrawals                            | Done (reviewed, 15 fixes) | `e555ef6` … `3f1337d`                      |
 | 7     | Live betting and cash-out                                     | Done (reviewed, 8 fixes)  | `25360ec` … `bd8b033`                      |
 | 8     | Jackpots and promotions                                       | Done (reviewed, 8 fixes)  | `d35ae42` … `82bd130`                      |
-| 9     | Back office (`apps/admin`)                                    | Not started               |                                            |
+| 9     | Back office (`apps/admin`)                                    | Done (reviewed, 11 fixes) | `176a4cc` … Phase 9 commit                 |
 | 10    | Compliance and regulator reporting                            | Not started               |                                            |
 | 11    | SMS/USSD channel (feature-flagged)                            | Not started               |                                            |
 | 12    | Hardening and deployment                                      | Not started               |                                            |
 
-**Phases 0–8 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
+**Phases 0–9 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
 pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
 and the payments flow (KYC, deposit approved on the simulated phone, wagering, withdrawal approved by
-the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, and a jackpot entry settled with its prize. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
+the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, and back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s). Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
 
 **Phase 6 review (13 Oct 2026).** Three adversarial reviews (money, security, reliability) confirmed 15
 findings; all are fixed with regression tests. Highlights:
@@ -70,6 +70,18 @@ and db services to update the multi-bonus ladder and jackpot templates (staff ro
 Demo dev route `POST /dev/jackpots/rounds` (signed-in player) makes a small round for e2e. Reviews now
 run three reviewers that verify their own findings (no separate verifier agents) to save usage.
 The home page first load is 150.4 KB (target 150, budget 160).
+
+**Phase 9 (18 Oct 2026).** Back office: staff auth in `packages/db/src/backoffice/` (argon2 outside
+transactions, RFC 6238 TOTP via node:crypto with replay guard, AES-GCM secret box keyed by
+`ADMIN_TOTP_KEY` which licensed/production mode refuses to default, per-(account, IP) lockout plus
+per-account backoff, `pnpm admin:create` / `admin:unlock`, self-service password and TOTP change,
+forced change for generated passwords). Staff sessions: `vamos_staff` cookie, `x-staff-csrf-token`,
+30 min idle / 12 h absolute; `/admin/*` CORS allows only `ADMIN_WEB_URL`. RBAC matrix in
+`packages/contracts/src/admin.ts` (`PERMISSION_ROLES`, `hasPermission`). Services: dashboard (window
+figures from ledger postings), players, KYC queue, trading incl. void market / void selection, risk,
+bets, withdrawals and flagged payouts, jackpot cancel, settings, audit viewer. Demo staff
+(`<role>@demo.vamos.test`, password `vamos-demo-staff`, TOTP secret in `seedDemoStaff`) exist only in
+demo mode. Admin UI in `apps/admin` (:3001); `e2e/scripts/stack.sh` starts it.
 
 ## Legal context (do not change)
 
