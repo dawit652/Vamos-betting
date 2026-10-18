@@ -98,7 +98,7 @@ export async function soonestEvents(
 }
 
 /** Everything a signed-in player's POST needs besides the body: the CSRF echo (cookie sessions). */
-async function csrfHeaders(request: APIRequestContext): Promise<Record<string, string>> {
+export async function csrfHeaders(request: APIRequestContext): Promise<Record<string, string>> {
   const state = await request.storageState();
   const csrf = state.cookies.find((cookie) => cookie.name === 'vamos_csrf')?.value;
   return csrf === undefined ? {} : { 'x-csrf-token': csrf };
