@@ -49,6 +49,10 @@ describe('the staff permission matrix', () => {
     expect(holders('audit.view')).toEqual(['admin', 'compliance']);
     expect(holders('staff.manage')).toEqual(['admin']);
     expect(holders('users.view')).toContain('support');
+    // Phase 10: compliance and admin; finance may view reports and run reconciliation.
+    expect(holders('reports.view')).toEqual(['admin', 'compliance', 'finance']);
+    expect(holders('reconciliation.run')).toEqual(['admin', 'compliance', 'finance']);
+    expect(holders('aml.review')).toEqual(['admin', 'compliance']);
   });
 
   it('keeps support away from trading, money and settings changes', () => {

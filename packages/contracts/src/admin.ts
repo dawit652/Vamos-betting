@@ -57,6 +57,12 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  * - settings.edit: change them [PUT /admin/settings/:key]
  * - audit.view: the audit log [GET /admin/audit]
  * - staff.manage: staff accounts [/admin/staff*]
+ * - reports.view: daily summaries and their CSV, ELS stream status, reconciliation runs,
+ *   PSP statements, compliance settings [GET /admin/compliance/*, except aml-flags]
+ * - reconciliation.run: run a reconciliation now, upload a PSP statement, recompute a
+ *   provisional daily summary [POST /admin/compliance/reconciliation-runs, /psp-statements, …/recompute]
+ * - aml.review: AML flags and their review [/admin/compliance/aml-flags*]
+ * (COMPLIANCE_ROUTE_PERMISSIONS in compliance.ts lists every compliance route.)
  */
 export const STAFF_PERMISSIONS = [
   'dashboard.view',
@@ -77,6 +83,9 @@ export const STAFF_PERMISSIONS = [
   'settings.edit',
   'audit.view',
   'staff.manage',
+  'reports.view',
+  'reconciliation.run',
+  'aml.review',
 ] as const;
 export const StaffPermissionSchema = z.enum(STAFF_PERMISSIONS);
 export type StaffPermission = z.infer<typeof StaffPermissionSchema>;
@@ -101,6 +110,9 @@ export const PERMISSION_ROLES: Readonly<Record<StaffPermission, readonly StaffRo
   'settings.edit': ['admin'],
   'audit.view': ['admin', 'compliance'],
   'staff.manage': ['admin'],
+  'reports.view': ['admin', 'compliance', 'finance'],
+  'reconciliation.run': ['admin', 'compliance', 'finance'],
+  'aml.review': ['admin', 'compliance'],
 };
 
 /** Whether `role` holds `permission` (false for anything unknown). */
@@ -151,6 +163,13 @@ export const AdminErrorCodeSchema = z.enum([
   'invalid_staff_role',
   'weak_password',
   'last_admin',
+  'invalid_business_date',
+  'summary_not_started',
+  'summary_not_due',
+  'invalid_statement',
+  'statement_already_imported',
+  'aml_flag_closed',
+  'invalid_decision',
 ]);
 export type AdminErrorCode = z.infer<typeof AdminErrorCodeSchema>;
 
