@@ -1,6 +1,7 @@
 import type { APIRequestContext } from '@playwright/test';
 import type {
   BetView,
+  EventDetail,
   EventListResponse,
   EventSummary,
   JackpotEntryView,
@@ -163,4 +164,35 @@ export async function myJackpotEntries(
 
 export function getJackpotEntry(request: APIRequestContext, id: string): Promise<JackpotEntryView> {
   return getJson(request, `/me/jackpot-entries/${encodeURIComponent(id)}`);
+}
+
+/** The public event page: every market with its selections. */
+export function getEventDetail(request: APIRequestContext, id: string): Promise<EventDetail> {
+  return getJson(request, `/events/${encodeURIComponent(id)}`);
+}
+
+/** Demo-only: credits play money to the signed-in player (`page.request`, with the CSRF echo). */
+export async function demoTopUp(request: APIRequestContext, amount: string): Promise<void> {
+  const response = await request.post(`${API_URL}/wallet/demo-topup`, {
+    headers: { ...(await csrfHeaders(request)), 'idempotency-key': crypto.randomUUID() },
+    data: { amount },
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `POST /wallet/demo-topup failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+}
+
+/** Like placeBetApi, but returns the raw response so a refusal can be asserted. */
+export async function tryPlaceBet(
+  request: APIRequestContext,
+  legs: { selectionId: string; oddsMilli: number }[],
+  stake: string,
+): Promise<{ status: number; body: string }> {
+  const response = await request.post(`${API_URL}/bets`, {
+    headers: { ...(await csrfHeaders(request)), 'idempotency-key': crypto.randomUUID() },
+    data: { legs, stake, oddsChangePolicy: 'any' },
+  });
+  return { status: response.status(), body: await response.text() };
 }

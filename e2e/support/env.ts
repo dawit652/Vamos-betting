@@ -3,6 +3,7 @@
  * on this machine; CI sets nothing and uses the same ports.
  */
 export const WEB_URL = trimSlash(process.env.E2E_WEB_URL ?? 'http://localhost:3000');
+export const ADMIN_URL = trimSlash(process.env.E2E_ADMIN_URL ?? 'http://localhost:3001');
 export const API_URL = trimSlash(process.env.E2E_API_URL ?? 'http://localhost:4000');
 
 function trimSlash(url: string): string {
