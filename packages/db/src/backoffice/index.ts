@@ -99,6 +99,75 @@ export {
   type TradingSelection,
 } from './trading';
 export {
+  getPlayerDetail,
+  KYC_APPROVED_BY_STAFF,
+  KYC_REJECTED_BY_STAFF,
+  KYC_STATUS_CHANGED,
+  listKycQueue,
+  reviewKyc,
+  searchPlayers,
+  type KycQueueItem,
+  type KycStatus,
+  type PlayerBetSummary,
+  type PlayerDetail,
+  type PlayerExclusionView,
+  type PlayerFilter,
+  type PlayerPaymentSummary,
+  type PlayerStatus,
+  type PlayerSummary,
+  type ReviewKycInput,
+  type ReviewKycResult,
+  type StaffKycView,
+} from './players';
+export {
+  BIG_BET_MIN_POTENTIAL_PAYOUT,
+  BIG_BET_MIN_STAKE,
+  getStaffBet,
+  listBigBets,
+  listSelectionLiabilities,
+  searchBets,
+  type SelectionLiability,
+  type StaffBetFilter,
+  type StaffBetSummary,
+} from './bets';
+export {
+  DASHBOARD_MAX_WINDOW_MS,
+  getDashboard,
+  type Dashboard,
+  type DashboardAmount,
+} from './dashboard';
+export {
+  getStaffWithdrawal,
+  listFlaggedDeposits,
+  listStaffWithdrawals,
+  staffApproveWithdrawal,
+  staffClearPayoutFlag,
+  staffFlagPayout,
+  staffRejectWithdrawal,
+  staffResolveDeposit,
+  staffSettlePayout,
+  type PaymentPlayer,
+  type StaffDeposit,
+  type StaffPayout,
+  type StaffPayoutFilter,
+} from './payments';
+export {
+  listStaffJackpotEntries,
+  listStaffJackpotRounds,
+  staffCancelJackpotRound,
+  type StaffJackpotEntry,
+  type StaffJackpotRound,
+} from './jackpots';
+export {
+  getStaffSettings,
+  STAFF_SETTING_KEYS,
+  updateStaffSetting,
+  type SettingChangeInfo,
+  type StaffSettingKey,
+  type StaffSettingsView,
+} from './settings';
+export { listAuditLog, type AuditLogEntry, type AuditLogFilter } from './audit';
+export {
   DEMO_STAFF_ACCOUNTS,
   DEMO_STAFF_PASSWORD,
   DEMO_STAFF_TOTP_SECRET,
