@@ -268,6 +268,26 @@ describe('ELS emission', () => {
     }
   });
 
+  it('reports status from the recent dates only (bounded scans), with the global pending count', async () => {
+    // An event of three days ago, written: a second business date.
+    const old = await deposit('i-10');
+    await handle.db
+      .update(outboxEvents)
+      .set({ createdAt: sql`now() - interval '3 days'` })
+      .where(eq(outboxEvents.id, old));
+    expect((await emitElsEvent(handle.db, reporter, { outboxId: old })).outcome).toBe('written');
+    const wide = await getElsReportStatus(handle.db, { days: 14 });
+    expect(wide.byDate.length).toBeGreaterThanOrEqual(2);
+    const sum = (status: typeof wide) => status.byDate.reduce((n, day) => n + day.written, 0);
+    expect(wide.written).toBe(sum(wide));
+    const narrow = await getElsReportStatus(handle.db, { days: 1 });
+    expect(narrow.byDate).toEqual([wide.byDate[0]]);
+    expect(narrow.written).toBe(narrow.byDate[0]!.written);
+    expect(narrow.written).toBeLessThan(wide.written);
+    expect(narrow.pending).toBe(wide.pending);
+    expect(narrow.lastWrittenAt).not.toBeNull();
+  });
+
   it('keeps a written record as it is in the database', async () => {
     const [row] = await handle.db.select().from(elsReports).limit(1);
     for (const statement of [

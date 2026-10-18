@@ -76,7 +76,7 @@ function ElsPanel() {
                 : `${d.reporter.mode} – ${d.reporter.ready ? 'ready' : 'not ready'} (${d.reporter.detail})`,
             ],
             ['Target', d.reporter?.target ?? '–'],
-            ['Events written', String(d.written)],
+            [`Events written (last ${d.byDate.length} days)`, String(d.written)],
             [
               'Events pending',
               d.pending > 0 ? <Badge key="p" value={`${d.pending} pending`} tone="warn" /> : '0',

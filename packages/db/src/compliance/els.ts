@@ -10,7 +10,7 @@ import {
   isBusinessDate,
   type DailySummaryRow,
 } from '@vamos/core';
-import { and, asc, count, eq, gt, inArray, lt, max, min, sql } from 'drizzle-orm';
+import { and, asc, count, eq, gt, gte, inArray, lt, lte, max, min, sql } from 'drizzle-orm';
 import type { Database } from '../client';
 import type { DbExecutor } from '../ledger/types';
 import { complianceCursors, dailySummaries, elsReports } from '../schema/compliance';
@@ -504,8 +504,11 @@ export async function sweepElsReports(
 
 export interface ElsReportStatus {
   reporter: ElsReporterStatus | null;
+  /** Records written on the business dates in `byDate`. */
   written: number;
+  /** Every pending record. */
   pending: number;
+  /** The latest write on the business dates in `byDate`. */
   lastWrittenAt: Date | null;
   oldestPendingAt: Date | null;
   /** The last error of a pending record, if any. */
@@ -514,35 +517,44 @@ export interface ElsReportStatus {
   byDate: Array<{ businessDate: string; written: number; pending: number }>;
 }
 
-/** The back office's view of the ELS stream (reports.view). */
+/**
+ * The back office's view of the ELS stream (reports.view). Every query is
+ * bounded however long the table gets: pending records through the pending
+ * partial index, the recent dates by an index skip scan of
+ * els_reports_date_idx (one probe per date), and the written counts over
+ * those dates only.
+ */
 export async function getElsReportStatus(
   exec: DbExecutor,
   options: { reporter?: ElsReporter; days?: number } = {},
 ): Promise<ElsReportStatus> {
   const days = Math.min(Math.max(Math.trunc(options.days ?? 14), 1), 92);
-  const [totals] = await exec
+  const [pendingTotals] = await exec
     .select({
-      written: sql<number>`count(*) FILTER (WHERE ${elsReports.status} = 'written')::int`,
-      pending: sql<number>`count(*) FILTER (WHERE ${elsReports.status} = 'pending')::int`,
-      lastWrittenAt: max(elsReports.writtenAt),
-      oldestPendingAt:
-        sql<Date | null>`min(${elsReports.createdAt}) FILTER (WHERE ${elsReports.status} = 'pending')`.mapWith(
-          (value: string | Date | null) => (value === null ? null : new Date(value)),
-        ),
+      pending: sql<number>`count(*)::int`,
+      oldestPendingAt: sql<Date | null>`min(${elsReports.createdAt})`.mapWith(
+        (value: string | Date | null) => (value === null ? null : new Date(value)),
+      ),
     })
-    .from(elsReports);
+    .from(elsReports)
+    .where(eq(elsReports.status, 'pending'));
   const [failing] = await exec
     .select({ lastError: elsReports.lastError })
     .from(elsReports)
     .where(and(eq(elsReports.status, 'pending'), sql`${elsReports.lastError} IS NOT NULL`))
     .orderBy(sql`${elsReports.outboxId} DESC`)
     .limit(1);
-  const recentDates = await exec
-    .selectDistinct({ businessDate: elsReports.businessDate })
-    .from(elsReports)
-    .orderBy(sql`${elsReports.businessDate} DESC`)
-    .limit(days);
-  const dates = recentDates.map((row) => row.businessDate);
+  const recentDates = await exec.execute<{ business_date: string }>(sql`
+    WITH RECURSIVE d AS (
+      (SELECT business_date FROM ${elsReports} ORDER BY business_date DESC LIMIT 1)
+      UNION ALL
+      SELECT (SELECT r.business_date FROM ${elsReports} r
+              WHERE r.business_date < d.business_date ORDER BY r.business_date DESC LIMIT 1)
+      FROM d WHERE d.business_date IS NOT NULL
+    )
+    SELECT business_date::text AS business_date FROM d WHERE business_date IS NOT NULL LIMIT ${days}
+  `);
+  const dates = recentDates.rows.map((row) => row.business_date);
   const perDate =
     dates.length === 0
       ? []
@@ -551,9 +563,15 @@ export async function getElsReportStatus(
             businessDate: elsReports.businessDate,
             status: elsReports.status,
             n: count(),
+            lastWrittenAt: max(elsReports.writtenAt),
           })
           .from(elsReports)
-          .where(inArray(elsReports.businessDate, dates))
+          .where(
+            and(
+              gte(elsReports.businessDate, dates[dates.length - 1]!),
+              lte(elsReports.businessDate, dates[0]!),
+            ),
+          )
           .groupBy(elsReports.businessDate, elsReports.status);
   const byDate = dates.map((businessDate) => ({
     businessDate,
@@ -562,12 +580,21 @@ export async function getElsReportStatus(
     pending:
       perDate.find((row) => row.businessDate === businessDate && row.status === 'pending')?.n ?? 0,
   }));
+  let lastWrittenAt: Date | null = null;
+  for (const row of perDate) {
+    if (
+      row.lastWrittenAt !== null &&
+      (lastWrittenAt === null || row.lastWrittenAt > lastWrittenAt)
+    ) {
+      lastWrittenAt = row.lastWrittenAt;
+    }
+  }
   return {
     reporter: options.reporter ? await options.reporter.status() : null,
-    written: totals?.written ?? 0,
-    pending: totals?.pending ?? 0,
-    lastWrittenAt: totals?.lastWrittenAt ?? null,
-    oldestPendingAt: totals?.oldestPendingAt ?? null,
+    written: byDate.reduce((sum, day) => sum + day.written, 0),
+    pending: pendingTotals?.pending ?? 0,
+    lastWrittenAt,
+    oldestPendingAt: pendingTotals?.oldestPendingAt ?? null,
     lastError: failing?.lastError ?? null,
     byDate,
   };

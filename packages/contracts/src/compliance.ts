@@ -197,8 +197,11 @@ export const ElsReportStatusResponse = z.object({
       target: z.string().nullable(),
     })
     .nullable(),
+  /** Records written on the business dates in byDate (the status reads only recent dates). */
   written: Count,
+  /** Every pending record. */
   pending: Count,
+  /** The latest write on the business dates in byDate. */
   lastWrittenAt: IsoDateTime.nullable(),
   oldestPendingAt: IsoDateTime.nullable(),
   lastError: z.string().nullable(),

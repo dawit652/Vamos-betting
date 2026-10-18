@@ -101,19 +101,17 @@ interface CheckResult {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Rows of `query` (at most `cap`) and how many there are in all. */
+/** Rows of `query` (at most `cap`) and how many there are in all, in one pass over the query. */
 async function capped<T extends Record<string, unknown>>(
   exec: DbExecutor,
   query: SQL,
   cap: number,
 ): Promise<{ rows: T[]; total: number }> {
-  const found = await exec.execute(sql`SELECT * FROM (${query}) AS found LIMIT ${cap}`);
-  const rows = found.rows as T[];
-  if (rows.length < cap) return { rows, total: rows.length };
-  const counted = await exec.execute<{ n: number }>(
-    sql`SELECT count(*)::int AS n FROM (${query}) AS found`,
+  const found = await exec.execute(
+    sql`SELECT *, count(*) OVER ()::int AS found_total FROM (${query}) AS found LIMIT ${Math.max(cap, 1)}`,
   );
-  return { rows, total: Number(counted.rows[0]?.n ?? rows.length) };
+  const rows = found.rows as Array<T & { found_total: number }>;
+  return { rows: rows.slice(0, Math.max(cap, 0)), total: Number(rows[0]?.found_total ?? 0) };
 }
 
 async function countOf(exec: DbExecutor, query: SQL): Promise<number> {
@@ -170,17 +168,25 @@ async function checkAccounts(
     last_after: string | null;
   }>(
     exec,
+    // The sums cover only this scope's accounts (the two scopes read each entry once), and the
+    // last balance_after comes from the (account_id, id) index, not an array of every entry.
     sql`SELECT a.key, a.kind::text AS kind, a.user_id::text AS user_id, a.balance::text AS balance,
-          COALESCE(s.total, 0)::text AS total, s.last_after::text AS last_after
+          COALESCE(s.total, 0)::text AS total, l.balance_after::text AS last_after
         FROM ${ledgerAccounts} a
         LEFT JOIN (
-          SELECT account_id, sum(amount) AS total,
-            (array_agg(balance_after ORDER BY id DESC))[1] AS last_after
-          FROM ${ledgerEntries} GROUP BY account_id
+          SELECT e.account_id, sum(e.amount) AS total
+          FROM ${ledgerEntries} e
+          JOIN ${ledgerAccounts} sa ON sa.id = e.account_id
+          WHERE sa.owner_type = ${players ? 'user' : 'house'}
+          GROUP BY e.account_id
         ) s ON s.account_id = a.id
+        LEFT JOIN LATERAL (
+          SELECT le.balance_after FROM ${ledgerEntries} le
+          WHERE le.account_id = a.id ORDER BY le.id DESC LIMIT 1
+        ) l ON true
         WHERE a.owner_type = ${players ? 'user' : 'house'}
           AND (a.balance <> COALESCE(s.total, 0)
-            OR a.balance <> COALESCE(s.last_after, 0)
+            OR a.balance <> COALESCE(l.balance_after, 0)
             ${players ? sql`OR a.balance < 0` : sql``})`,
     cap,
   );

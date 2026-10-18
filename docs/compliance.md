@@ -42,8 +42,9 @@ an `ElsReporter` (`ELS_REPORTING_MODE=file|http|off`, default `file`; `ELS_REPOR
 - **Data minimisation (PDPP):** only whitelisted fields are written. A record carries the pseudonymous
   `playerRef` (the account UUID), ids, odds in milli and amounts in **santim** (1 ETB = 100 santim). No names,
   phone numbers, recipient names or free text from players.
-- **Status:** `GET /admin/compliance/els` and the Daily summaries page show the reporter, written and pending
-  counts, the oldest pending event and the last error.
+- **Status:** `GET /admin/compliance/els` and the Daily summaries page show the reporter, the written count of
+  the last 14 business dates with records, every pending record, the oldest pending event and the last error.
+  Each query is bounded (index probes and the pending partial index), however long the table grows.
 
 ### 2.2 Daily summary
 
@@ -93,7 +94,10 @@ snapshot and stores the result in `reconciliation_runs` with each difference in 
    clean. A statement has at most 20,000 lines (blank lines count) and 32 fields per line.
 5. **Daily summaries:** final days of the last 7 still match the ledger.
 
-A mismatch creates an alert (outbox event) and an audit record and shows in admin. Statement uploads are
+A mismatch creates an alert (outbox event) and an audit record and shows in admin. Each check reads the ledger
+once (the account sums per scope, the last `balance_after` from the account index, and capped mismatch lists
+counted in the same pass). The manual run still runs in the request (one at a time); moving it to a worker job
+and checkpointing the `balance_after` scan are left for Phase 12. Statement uploads are
 deduplicated by file hash.
 
 ## 4. AML rules

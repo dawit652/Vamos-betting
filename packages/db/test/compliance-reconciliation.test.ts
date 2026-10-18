@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { addBusinessDays, birr, businessDateOf, businessDayWindow } from '@vamos/core';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   finalizeDailySummary,
@@ -18,6 +19,7 @@ import {
   settleEventBets,
   type GameSettings,
   type ReconciliationRunDetail,
+  runReconciliationChecks,
 } from '../src/index';
 import { auditLog, outboxEvents, paymentIntents, payouts } from '../src/schema/index';
 import { createBettingDatabase, createEvent, finish, place, type TestDb } from './betting-fixtures';
@@ -163,6 +165,34 @@ describe('reconciliation', () => {
       'reconciliation.mismatch_detected',
       'reconciliation.run',
     ]);
+
+    // Each check reads the ledger once: no second pass to count once the cap is reached, and no
+    // per-account array of every entry.
+    const statements: string[] = [];
+    const dialect = new PgDialect();
+    const counting = new Proxy(handle.db, {
+      get(target, prop, receiver) {
+        if (prop === 'execute') {
+          return (query: SQL) => {
+            statements.push(dialect.sqlToQuery(query).sql);
+            return target.execute(query);
+          };
+        }
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+    const businessDate = businessDateOf(new Date());
+    const wide = await runReconciliationChecks(counting, { businessDate });
+    const wideCount = statements.length;
+    statements.length = 0;
+    const narrow = await runReconciliationChecks(counting, {
+      businessDate,
+      maxMismatchesPerCheck: 1,
+    });
+    expect(narrow.checks).toEqual(wide.checks);
+    expect(narrow.checks.find((check) => check.check === 'wallet')?.mismatches).toBe(1);
+    expect(statements.length).toBe(wideCount);
+    expect(statements.some((text) => text.includes('array_agg'))).toBe(false);
 
     await corrupt(-1);
     expect((await run()).run.status).toBe('clean');
