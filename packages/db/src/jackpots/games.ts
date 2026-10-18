@@ -44,6 +44,8 @@ export interface LoadedJackpotGame extends JackpotGame {
   roundId: string;
   /** The result the catalogue gives now (catalogueGameResult); `result` is the recorded one. */
   current: JackpotGameResult | null;
+  /** events.betting_open: false while a trader or the feed halts betting on the event. */
+  bettingOpen: boolean;
 }
 
 const homeTeams = alias(teams, 'home_team');
@@ -80,6 +82,7 @@ export async function loadJackpotGames(
       awayTeam: awayTeams.name,
       startTime: events.startTime,
       eventStatus: events.status,
+      bettingOpen: events.bettingOpen,
       scoreHome: events.scoreHome,
       scoreAway: events.scoreAway,
       marketStatus: markets.status,
@@ -127,6 +130,7 @@ export async function loadJackpotGames(
       scoreAway: row.scoreAway,
       odds: oddsOpen ? { '1': row.homeOdds, X: row.drawOdds, '2': row.awayOdds } : null,
       result: row.result,
+      bettingOpen: row.bettingOpen,
       current: catalogueGameResult({
         marketStatus: row.marketStatus,
         results: { '1': row.homeResult, X: row.drawResult, '2': row.awayResult },
@@ -152,11 +156,16 @@ export async function loadRoundGames(
  * catalogue's lock order starts at the event): resulting, the live
  * simulator and the feed take the event FOR UPDATE before they change its
  * status, results or start, so what the caller reads next stays as it is
- * until COMMIT.
+ * until COMMIT. With `markets`, also locks the games' 1X2 markets FOR SHARE
+ * (id order), so a trader's suspension waits for the caller, or is seen.
  */
-export async function lockRoundEvents(tx: DbTransaction, roundId: string): Promise<void> {
+export async function lockRoundEvents(
+  tx: DbTransaction,
+  roundId: string,
+  options: { markets?: boolean } = {},
+): Promise<void> {
   const rows = await tx
-    .select({ eventId: jackpotGames.eventId })
+    .select({ eventId: jackpotGames.eventId, marketId: jackpotGames.marketId })
     .from(jackpotGames)
     .where(eq(jackpotGames.roundId, roundId));
   const eventIds = [...new Set(rows.map((row) => row.eventId))].sort();
@@ -166,5 +175,14 @@ export async function lockRoundEvents(tx: DbTransaction, roundId: string): Promi
     .from(events)
     .where(inArray(events.id, eventIds))
     .orderBy(asc(events.id))
+    .for('share');
+  if (options.markets !== true) return;
+  // setMarketStatus locks only the market row (event → market is the catalogue's order).
+  const marketIds = [...new Set(rows.map((row) => row.marketId))].sort();
+  await tx
+    .select({ id: markets.id })
+    .from(markets)
+    .where(inArray(markets.id, marketIds))
+    .orderBy(asc(markets.id))
     .for('share');
 }

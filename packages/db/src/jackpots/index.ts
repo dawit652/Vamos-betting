@@ -64,9 +64,12 @@ export {
   type ListJackpotCandidateEventsOptions,
 } from './rounds';
 export {
+  JACKPOT_RECHECK_WINDOW_MS,
+  JACKPOT_SETTLE_BATCH_SIZE,
   listJackpotRoundIdsForEvent,
   listJackpotRoundIdsForMarket,
   listJackpotRoundsToSettle,
+  runJackpotSettlement,
   settleJackpotRound,
   type SettleJackpotOutcome,
   type SettleJackpotRoundResult,

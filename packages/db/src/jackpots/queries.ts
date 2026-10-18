@@ -52,7 +52,11 @@ export async function toJackpotRounds(
       createdAt: row.createdAt,
       closedAt: row.closedAt,
       settledAt: row.settledAt,
-      settlement: row.settlement === null ? null : parseSettlement(row.settlement),
+      // A closed round holds its settlement while its entries are being paid: shown once final.
+      settlement:
+        row.settlement === null || (row.status !== 'settled' && row.status !== 'cancelled')
+          ? null
+          : parseSettlement(row.settlement),
       resultsFlaggedAt: row.resultsFlaggedAt,
       games: (games.get(row.id) ?? []).map((game): JackpotGame => ({
         position: game.position,

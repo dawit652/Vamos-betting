@@ -261,9 +261,15 @@ export type JackpotErrorCode = z.infer<typeof JackpotErrorCodeSchema>;
 /**
  * Why a round refuses entries: not_open (scheduled, opens later); closed
  * (closed, settled or cancelled, or its closing time has come); game_started
- * (a game kicked off or was cancelled before the closing time).
+ * (a game kicked off or was cancelled before the closing time); game_suspended
+ * (a game's 1X2 market is suspended or closed, or betting on its event is halted).
  */
-export const JackpotClosedReasonSchema = z.enum(['not_open', 'closed', 'game_started']);
+export const JackpotClosedReasonSchema = z.enum([
+  'not_open',
+  'closed',
+  'game_started',
+  'game_suspended',
+]);
 
 /** details of 409 `jackpot_closed`. */
 export const JackpotClosedDetails = z.object({

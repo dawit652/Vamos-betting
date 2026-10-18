@@ -7,6 +7,10 @@ import {
   getRemainingWagering,
   getUserJackpotEntry,
   listUserJackpotEntries,
+  resumeEvent,
+  setEventBettingOpen,
+  setMarketStatus,
+  suspendEvent,
   type CatalogIds,
   type JackpotRound,
 } from '../src/index';
@@ -14,6 +18,7 @@ import {
   auditLog,
   jackpotEntries,
   ledgerTransactions,
+  markets,
   outboxEvents,
   rgExclusions,
   rgLimits,
@@ -330,6 +335,41 @@ describe('placeJackpotEntry', () => {
       );
       expect(cancelled.details).toEqual({ reason: 'game_started', status: 'open' });
       expect(await cashOf(handle.db, userId)).toBe(birr(1_000));
+    });
+
+    it('refuses entries while a game is suspended or its betting is closed (409 game_suspended)', async () => {
+      const userId = await player();
+      const games = await createGames(handle.db, ids, 3, new Date(Date.now() + HOUR));
+      const round = await openRound(handle.db, games);
+      await handle.db.transaction((tx) => suspendEvent(tx, games[0]!.eventId));
+      const suspended = await domainError(
+        enter(handle.db, userId, round.id, [['1'], ['1'], ['1']]),
+      );
+      expect(suspended).toMatchObject({ status: 409, code: 'jackpot_closed' });
+      expect(suspended.details).toEqual({ reason: 'game_suspended', status: 'open' });
+      await handle.db.transaction((tx) => resumeEvent(tx, games[0]!.eventId));
+
+      const [market] = await handle.db
+        .select({ id: markets.id })
+        .from(markets)
+        .where(eq(markets.eventId, games[2]!.eventId));
+      await handle.db.transaction((tx) => setMarketStatus(tx, market!.id, 'closed'));
+      const closedMarket = await domainError(
+        enter(handle.db, userId, round.id, [['1'], ['1'], ['1']]),
+      );
+      expect(closedMarket.details).toEqual({ reason: 'game_suspended', status: 'open' });
+      await handle.db.transaction((tx) => setMarketStatus(tx, market!.id, 'open'));
+
+      await handle.db.transaction((tx) => setEventBettingOpen(tx, games[1]!.eventId, false));
+      const bettingClosed = await domainError(
+        enter(handle.db, userId, round.id, [['1'], ['1'], ['1']]),
+      );
+      expect(bettingClosed.details).toEqual({ reason: 'game_suspended', status: 'open' });
+      expect(await cashOf(handle.db, userId)).toBe(birr(1_000));
+
+      await handle.db.transaction((tx) => setEventBettingOpen(tx, games[1]!.eventId, true));
+      await enter(handle.db, userId, round.id, [['1'], ['1'], ['1']]);
+      expect(await entriesOf(userId)).toBe(1);
     });
 
     it('refuses entries into a scheduled round (409 not_open)', async () => {

@@ -6,7 +6,7 @@ import {
   listJackpotRoundsToSettle,
   loadGameSettings,
   MARKET_RESULTED,
-  settleJackpotRound,
+  runJackpotSettlement,
   type EnsureJackpotRoundResult,
   type JackpotTemplateCode,
   type SettleJackpotOutcome,
@@ -38,16 +38,17 @@ import type { SettlementJobData } from './outbox-dispatch';
  * - `jackpot-settlement` (BullMQ consumer): fed by the outbox dispatcher
  *   with event.resulted / event.result_corrected / market.resulted; every
  *   round with a game on that event (or 1X2 market) goes through
- *   settleJackpotRound, which settles it once all its games have a result
- *   (one transaction per round, retried on deadlock / serialization
+ *   runJackpotSettlement, which settles it once all its games have a
+ *   result: one short transaction records the decision, then each batch
+ *   of entries is paid in its own (retried on deadlock / serialization
  *   failure). settleJackpotRound locks the round, so jobs, the sweep and
- *   several workers can run it concurrently: the first one pays and the
- *   others find the round final. A result corrected after settlement only
- *   flags the round (`jackpot.result_mismatch`, logged here); nothing is
- *   paid again.
+ *   several workers can run it concurrently: each batch is paid once and
+ *   the others find the round final. A result corrected after settlement
+ *   only flags the round (`jackpot.result_mismatch`, logged here); nothing
+ *   is paid again.
  * - `jackpot-settlement-sweep` (every 30 s): the safety net for lost or
- *   failed jobs and for rounds whose closing is due
- *   (listJackpotRoundsToSettle).
+ *   failed jobs, for rounds whose closing is due and for corrections of
+ *   recently settled rounds (listJackpotRoundsToSettle).
  */
 
 export const JACKPOT_ROUNDS_INTERVAL_MS = 15_000;
@@ -148,18 +149,31 @@ export interface JackpotSettleRun {
 }
 
 function emptyOutcomes(): Record<SettleJackpotOutcome, number> {
-  return { settled: 0, voided: 0, open: 0, pending: 0, unchanged: 0, flagged: 0 };
+  return { settled: 0, voided: 0, settling: 0, open: 0, pending: 0, unchanged: 0, flagged: 0 };
 }
 
-/** settleJackpotRound in its own transaction (retried on deadlock / serialization failure). */
+/**
+ * Settles one round to the end (runJackpotSettlement): the decision, then
+ * the entries in short batches, each step in its own transaction (retried
+ * on deadlock / serialization failure), so house_jackpot is never held for
+ * longer than one batch.
+ */
 function settleOne(ctx: TaskContext, roundId: string): Promise<SettleJackpotRoundResult> {
-  return withTxRetry(ctx.db, (tx) => settleJackpotRound(tx, roundId, ctx.clock()), {
-    onRetry: (error, attempt) =>
-      ctx.logger.warn({ err: error, roundId, attempt }, 'jackpot settlement transaction retried'),
-  });
+  return runJackpotSettlement(
+    (fn) =>
+      withTxRetry(ctx.db, fn, {
+        onRetry: (error, attempt) =>
+          ctx.logger.warn(
+            { err: error, roundId, attempt },
+            'jackpot settlement transaction retried',
+          ),
+      }),
+    roundId,
+    ctx.clock,
+  );
 }
 
-/** Runs settleJackpotRound on each round, one transaction per round; a failing round does not stop the others. */
+/** Settles each round to the end (settleOne); a failing round does not stop the others. */
 export async function settleJackpotRounds(
   ctx: TaskContext,
   roundIds: readonly string[],

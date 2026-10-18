@@ -5,7 +5,7 @@ import {
   createJackpotRound,
   getBalance,
   placeJackpotEntry,
-  settleJackpotRound,
+  runJackpotSettlement,
   type CatalogIds,
   type JackpotRound,
   type PlaceJackpotEntryResult,
@@ -121,13 +121,17 @@ export async function resultGame(
   await finish(db, game.eventId, home, away);
 }
 
-/** settleJackpotRound in its own transaction. */
+/** runJackpotSettlement: settleJackpotRound steps, each in its own transaction, to the end. */
 export async function settle(
   db: Database,
   roundId: string,
   now = new Date(),
 ): Promise<SettleJackpotRoundResult> {
-  return db.transaction((tx) => settleJackpotRound(tx, roundId, now));
+  return runJackpotSettlement(
+    (fn) => db.transaction(fn),
+    roundId,
+    () => now,
+  );
 }
 
 /** The balances jackpots move: house_jackpot and house_tax_payable. */

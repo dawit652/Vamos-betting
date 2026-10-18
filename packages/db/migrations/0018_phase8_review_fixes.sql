@@ -1,0 +1,1 @@
+ALTER TABLE "jackpot_rounds" ADD COLUMN "results_flagged" jsonb;

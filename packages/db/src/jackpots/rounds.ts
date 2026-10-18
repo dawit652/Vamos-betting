@@ -430,7 +430,10 @@ export function shrinkJackpotTemplate(
 }
 
 /** 409 `jackpot_closed`, details `{ reason, status }`. */
-export function jackpotClosedError(reason: 'not_open' | 'closed' | 'game_started', status: string) {
+export function jackpotClosedError(
+  reason: 'not_open' | 'closed' | 'game_started' | 'game_suspended',
+  status: string,
+) {
   return domainConflict(
     'jackpot_closed',
     reason === 'not_open'

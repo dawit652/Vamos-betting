@@ -164,9 +164,11 @@ export interface PlaceJackpotEntryResult {
  *    422 `jackpot_entry_invalid` (details `{ errors, gameCount,
  *    combinations, maxCombinations }`); cost = combinations × the round's
  *    cost per combination;
- * 7. the games' events are locked FOR SHARE (id order) and each must still
- *    be scheduled and kick off after `now` → else 409 `jackpot_closed`
- *    (reason `game_started`);
+ * 7. the games' events, then their 1X2 markets, are locked FOR SHARE (id
+ *    order) and each must still be scheduled and kick off after `now` →
+ *    else 409 `jackpot_closed` (reason `game_started`); its 1X2 market and
+ *    selections open and events.betting_open → else 409 `jackpot_closed`
+ *    (reason `game_suspended`);
  * 8. assertStakeAllowed(cost) (422 stake / loss limit), as for a bet;
  * 9. postTransaction(jackpot_entry) under `jackpot_entry:<userId>:<key>`:
  *    player_cash −cost, house_jackpot +cost (422 `insufficient_funds`,
@@ -247,7 +249,7 @@ export async function placeJackpotEntry(
     throw new Error(`jackpot round ${round.id}: terms and columns disagree on the price`);
   }
 
-  await lockRoundEvents(tx, round.id);
+  await lockRoundEvents(tx, round.id, { markets: true });
   const games = await loadRoundGames(tx, round.id);
   if (games.length !== round.gameCount) {
     throw new Error(`jackpot round ${round.id} has ${games.length} of ${round.gameCount} games`);
@@ -256,6 +258,10 @@ export async function placeJackpotEntry(
     (game) => game.eventStatus !== 'scheduled' || game.startTime.getTime() <= now.getTime(),
   );
   if (started) throw jackpotClosedError('game_started', round.status);
+  // A trader's (or the feed's) halt on a game stops jackpot entries as it stops bets.
+  if (games.some((game) => game.odds === null || !game.bettingOpen)) {
+    throw jackpotClosedError('game_suspended', round.status);
+  }
 
   await assertStakeAllowed(tx, userId, cost, now);
 

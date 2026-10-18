@@ -401,20 +401,9 @@ export function settleJackpotDraw(input: {
     correctDistribution(entry.picks, results, cancelledRule),
   );
   const payouts = computeTierPayouts(prizeTiers, jackpotTierWinners(distributions));
-  const settled = entries.map((entry, i): JackpotEntrySettlement => {
-    const distribution = distributions[i] ?? [];
-    const gross = entryPrize(distribution, payouts);
-    const { amount } = computeWinningsTax({ stake: entry.cost, grossPayout: gross, config: tax });
-    return {
-      status: gross > 0n ? 'won' : 'lost',
-      distribution,
-      bestCorrect: bestCorrect(distribution),
-      gross,
-      tax: amount,
-      net: gross - amount,
-      refund: 0n,
-    };
-  });
+  const settled = entries.map((entry, i) =>
+    entryWithPrize(entry, distributions[i] ?? [], payouts, tax),
+  );
   const sum = (pick: (entry: JackpotEntrySettlement) => Santim) =>
     settled.reduce((total, entry) => total + pick(entry), 0n);
   return {
@@ -432,6 +421,68 @@ export function settleJackpotDraw(input: {
       undistributed: payouts.reduce((total, payout) => total + payout.undistributed, 0n),
     },
   };
+}
+
+/** A non-void entry's settlement from its distribution and the draw's payouts. */
+function entryWithPrize(
+  entry: JackpotDrawEntry,
+  distribution: bigint[],
+  payouts: readonly TierPayout[],
+  tax: TaxConfig,
+): JackpotEntrySettlement {
+  const gross = entryPrize(distribution, payouts);
+  const { amount } = computeWinningsTax({ stake: entry.cost, grossPayout: gross, config: tax });
+  return {
+    status: gross > 0n ? 'won' : 'lost',
+    distribution,
+    bestCorrect: bestCorrect(distribution),
+    gross,
+    tax: amount,
+    net: gross - amount,
+    refund: 0n,
+  };
+}
+
+/**
+ * Settles one entry of a draw against the draw's prize per combination,
+ * fixed once for the whole draw (`payouts` of settleJackpotDraw over all of
+ * its entries), so that a large draw can be paid entry by entry: the result
+ * equals that entry's settlement in settleJackpotDraw. A void draw refunds
+ * the entry's cost. Throws RangeError like settleJackpotDraw.
+ */
+export function settleJackpotEntry(input: {
+  entry: JackpotDrawEntry;
+  results: readonly JackpotGameResult[];
+  cancelledRule: JackpotCancelledRule;
+  payouts: readonly TierPayout[];
+  tax: TaxConfig;
+}): JackpotEntrySettlement {
+  const { entry, results, cancelledRule, payouts, tax } = input;
+  if (typeof entry.cost !== 'bigint' || entry.cost <= 0n) {
+    throw new RangeError(`a jackpot entry cost must be positive (got ${String(entry.cost)})`);
+  }
+  if (isJackpotDrawVoid(results, cancelledRule)) {
+    if (entry.picks.length !== results.length) {
+      throw new RangeError(
+        `expected ${results.length} jackpot picks but got ${entry.picks.length}`,
+      );
+    }
+    return {
+      status: 'void',
+      distribution: null,
+      bestCorrect: null,
+      gross: 0n,
+      tax: 0n,
+      net: 0n,
+      refund: entry.cost,
+    };
+  }
+  return entryWithPrize(
+    entry,
+    correctDistribution(entry.picks, results, cancelledRule),
+    payouts,
+    tax,
+  );
 }
 
 function countCombinations(picks: JackpotPicks): bigint {

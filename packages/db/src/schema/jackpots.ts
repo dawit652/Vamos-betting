@@ -116,6 +116,13 @@ export const jackpotRounds = pgTable(
      * the `jackpot.result_mismatch` event are for the back office.
      */
     resultsFlaggedAt: timestamp('results_flagged_at', { withTimezone: true }),
+    /**
+     * The discrepancy last flagged, by game: the catalogue result where it
+     * differed from the settled one, else null. A new `jackpot.result_mismatch`
+     * is written whenever the discrepancy differs from this (a further
+     * correction, or a revert); results_flagged_at keeps the first flag's time.
+     */
+    resultsFlagged: jsonb('results_flagged').$type<(string | null)[]>(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

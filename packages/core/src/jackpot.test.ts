@@ -14,6 +14,7 @@ import {
   jackpotPickHit,
   jackpotTierWinners,
   settleJackpotDraw,
+  settleJackpotEntry,
   validateJackpotEntry,
 } from './jackpot';
 import { birr } from './money';
@@ -884,5 +885,89 @@ describe('settleJackpotDraw', () => {
         });
       }),
     );
+  });
+
+  it('settles each entry exactly as the whole draw does (property)', () => {
+    fc.assert(
+      fc.property(drawArb, ({ results, entries, prizeTiers, tax }) => {
+        const draw = settleJackpotDraw({
+          entries,
+          results,
+          cancelledRule: ALL_WIN,
+          prizeTiers,
+          tax,
+        });
+        entries.forEach((entry, i) => {
+          expect(
+            settleJackpotEntry({
+              entry,
+              results,
+              cancelledRule: ALL_WIN,
+              payouts: draw.payouts,
+              tax,
+            }),
+          ).toEqual(draw.entries[i]);
+        });
+      }),
+    );
+  });
+});
+
+describe('settleJackpotEntry', () => {
+  it('pays one entry from fixed prizes per combination, tax withheld as for a bet', () => {
+    const payouts: TierPayout[] = [
+      {
+        correct: 3,
+        kind: 'fixed',
+        winningCombinations: 1n,
+        prizePerCombination: birr(100),
+        total: birr(100),
+        undistributed: 0n,
+      },
+      {
+        correct: 2,
+        kind: 'fixed',
+        winningCombinations: 1n,
+        prizePerCombination: birr(10),
+        total: birr(10),
+        undistributed: 0n,
+      },
+    ];
+    // ['1','X'] on a '1': one combination has 3 correct, one has 2.
+    const settled = settleJackpotEntry({
+      entry: { picks: [['1', 'X'], ['1'], ['1']], cost: birr(20) },
+      results: ['1', '1', '1'],
+      cancelledRule: ALL_WIN,
+      payouts,
+      tax: DEFAULT_TAX,
+    });
+    expect(settled.status).toBe('won');
+    expect(settled.distribution).toEqual([0n, 0n, 1n, 1n]);
+    expect(settled.bestCorrect).toBe(3);
+    expect(settled.gross).toBe(birr(110));
+    expect(settled.net + settled.tax).toBe(birr(110));
+    expect(settled.net).toBeGreaterThanOrEqual(birr(20));
+  });
+
+  it('refunds the cost in a void draw and rejects a non-positive cost', () => {
+    const entry = { picks: singles(3), cost: birr(5) };
+    expect(
+      settleJackpotEntry({
+        entry,
+        results: ['cancelled', 'cancelled', '1'],
+        cancelledRule: ALL_WIN,
+        payouts: [],
+        tax: DEFAULT_TAX,
+      }),
+    ).toMatchObject({ status: 'void', refund: birr(5), gross: 0n, net: 0n });
+    expect(() =>
+      settleJackpotEntry({
+        entry: { picks: singles(3), cost: 0n },
+        results: ['1', '1', '1'],
+        cancelledRule: ALL_WIN,
+        payouts: [],
+        tax: DEFAULT_TAX,
+      }),
+    ).toThrow(RangeError);
   });
 });

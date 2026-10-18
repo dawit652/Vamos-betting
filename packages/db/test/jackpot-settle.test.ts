@@ -10,6 +10,7 @@ import {
   listJackpotRoundsToSettle,
   listRecentJackpotRounds,
   netLossSince,
+  settleJackpotRound,
   type CatalogIds,
 } from '../src/index';
 import {
@@ -542,6 +543,135 @@ describe('settleJackpotRound', () => {
       reopened = caught;
     }
     expect(errorText(reopened)).toContain('its settlement is final');
+  });
+
+  it('flags every new discrepancy after settlement, not only the first one', async () => {
+    const { games, roundId } = await round3();
+    await enter(handle.db, await player(), roundId, [['1'], ['1'], ['1']]);
+    for (const game of games) await resultGame(handle.db, game, '1');
+    expect(await settle(handle.db, roundId)).toMatchObject({ outcome: 'settled' });
+    const mismatches = async () =>
+      (await outboxOf(roundId)).filter((row) => row.type === 'jackpot.result_mismatch');
+    const audits = async () =>
+      handle.db
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(and(eq(auditLog.targetId, roundId), eq(auditLog.action, 'jackpot.result_mismatch')));
+
+    // Game 1 corrected to an away win: flagged.
+    await finish(handle.db, games[0]!.eventId, 0, 1);
+    expect(await settle(handle.db, roundId)).toMatchObject({ outcome: 'flagged' });
+    const firstFlag = (await getJackpotRound(handle.db, roundId))?.resultsFlaggedAt;
+    expect(firstFlag).toBeInstanceOf(Date);
+    // Then game 3 corrected to a draw: a second, different discrepancy.
+    await finish(handle.db, games[2]!.eventId, 1, 1);
+    expect(await settle(handle.db, roundId)).toMatchObject({ outcome: 'flagged' });
+    expect(await settle(handle.db, roundId)).toMatchObject({ outcome: 'unchanged' });
+    // Then game 1 reverted to the home win the round was settled on.
+    await finish(handle.db, games[0]!.eventId, 2, 1);
+    expect(await settle(handle.db, roundId)).toMatchObject({ outcome: 'flagged' });
+    expect(await settle(handle.db, roundId)).toMatchObject({ outcome: 'unchanged' });
+
+    const rows = await mismatches();
+    expect(rows.map((row) => row.payload)).toMatchObject([
+      { games: [{ position: 0, settled: '1', current: '2' }] },
+      {
+        games: [
+          { position: 0, settled: '1', current: '2' },
+          { position: 2, settled: '1', current: 'X' },
+        ],
+      },
+      { games: [{ position: 2, settled: '1', current: 'X' }] },
+    ]);
+    expect(await audits()).toHaveLength(3);
+    // results_flagged_at keeps the first flag's time.
+    expect((await getJackpotRound(handle.db, roundId))?.resultsFlaggedAt).toEqual(firstFlag);
+  });
+
+  it('pays a large round in short batches after one decision, so entries elsewhere do not wait', async () => {
+    const { games, roundId } = await round3();
+    for (let i = 0; i < 25; i += 1) {
+      const picks = i % 2 === 0 ? [['1'], ['1'], ['1']] : [['1'], ['1'], ['X']];
+      await enter(handle.db, await player(), roundId, picks);
+    }
+    const other = await round3();
+    const late = await player();
+    for (const game of games) await resultGame(handle.db, game, '1');
+    const house = await houseBalances(handle.db);
+    const batch = () =>
+      handle.db.transaction((tx) => settleJackpotRound(tx, roundId, new Date(), { batchSize: 10 }));
+
+    // The decision and the first batch; an entry into another round waits for this batch only.
+    let entryPlaced: Promise<unknown> | undefined;
+    const first = await handle.db.transaction(async (tx) => {
+      const run = await settleJackpotRound(tx, roundId, new Date(), { batchSize: 10 });
+      entryPlaced = enter(handle.db, late, other.roundId, [['1'], ['1'], ['1']]);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return run;
+    });
+    expect(first).toMatchObject({ outcome: 'settling', status: 'closed', entries: 10 });
+    await entryPlaced;
+    const open = async () =>
+      (
+        await handle.db
+          .select({ n: count() })
+          .from(jackpotEntries)
+          .where(and(eq(jackpotEntries.roundId, roundId), eq(jackpotEntries.status, 'open')))
+      )[0]?.n;
+    expect(await open()).toBe(15);
+    expect((await getJackpotRound(handle.db, roundId))?.settlement).toBeNull();
+
+    // A correction while the round is being paid does not change the decided results.
+    await finish(handle.db, games[0]!.eventId, 0, 1);
+    expect(await batch()).toMatchObject({ outcome: 'settling', entries: 10 });
+    expect(await batch()).toMatchObject({ outcome: 'settled', status: 'settled', entries: 5 });
+    expect(await open()).toBe(0);
+    // Paying the last batch flagged the correction; nothing more to do.
+    const round = await getJackpotRound(handle.db, roundId);
+    expect(round?.resultsFlaggedAt).not.toBeNull();
+    expect(round?.settlement).toMatchObject({ results: ['1', '1', '1'], entries: 25, winners: 25 });
+    expect(await batch()).toMatchObject({ outcome: 'unchanged' });
+
+    // 13 share the pool (rounded down), 12 win the fixed prize: each paid exactly once.
+    const after = await houseBalances(handle.db);
+    // (The entry into the other round paid 10 ETB in.)
+    expect(house.jackpot - after.jackpot).toBe((POOL / 13n) * 13n + 12n * FIXED - birr(10));
+    const [prizes] = await handle.db
+      .select({ n: count() })
+      .from(ledgerTransactions)
+      .where(
+        and(
+          eq(ledgerTransactions.type, 'jackpot_prize'),
+          inArray(
+            ledgerTransactions.refId,
+            handle.db
+              .select({ id: sql<string>`${jackpotEntries.id}::text` })
+              .from(jackpotEntries)
+              .where(eq(jackpotEntries.roundId, roundId)),
+          ),
+        ),
+      );
+    expect(prizes?.n).toBe(25);
+    const roundEvents = (await outboxOf(roundId)).map((row) => row.type);
+    expect(roundEvents.filter((type) => type === 'jackpot.round_settled')).toHaveLength(1);
+    for (const game of other.games) await resultGame(handle.db, game, '1');
+    expect(await settle(handle.db, other.roundId)).toMatchObject({ outcome: 'settled' });
+  });
+
+  it('lists a settled round whose result was corrected later for the sweep (lost job)', async () => {
+    const { games, roundId } = await round3();
+    await enter(handle.db, await player(), roundId, [['1'], ['1'], ['1']]);
+    for (const game of games) await resultGame(handle.db, game, '1');
+    expect(await settle(handle.db, roundId)).toMatchObject({ outcome: 'settled' });
+    const listed = (now = new Date()) => listJackpotRoundsToSettle(handle.db, now, { limit: 100 });
+    expect(await listed()).not.toContain(roundId);
+
+    // The correction's event.result_corrected job is lost: the sweep finds the round.
+    await finish(handle.db, games[1]!.eventId, 0, 1);
+    expect(await listed()).toContain(roundId);
+    expect(await settle(handle.db, roundId)).toMatchObject({ outcome: 'flagged' });
+    // Only recent rounds are looked at again.
+    expect(await listed(new Date(Date.now() + 8 * 24 * HOUR))).not.toContain(roundId);
   });
 
   it('reconciles house_jackpot, house_tax_payable and every player’s cash with the entries', async () => {
