@@ -329,8 +329,14 @@ export async function createStaffUser(
   const displayName = checkedDisplayName(input.displayName);
   const role = checkedRole(input.role);
   const actor = auditActor(input.actor);
-  const generatedPassword =
-    input.password === undefined ? generateStaffPassword(deps.randomBytes) : null;
+  let generatedPassword: string | null = null;
+  if (input.password === undefined) {
+    // A random password could (very rarely) contain the email's local part: draw again.
+    for (let i = 0; i < 10 && generatedPassword === null; i += 1) {
+      const candidate = generateStaffPassword(deps.randomBytes);
+      if (staffPasswordWeakness(candidate, email) === null) generatedPassword = candidate;
+    }
+  }
   const password = input.password ?? generatedPassword ?? '';
   assertStaffPassword(password, email);
   const passwordHash = await deps.passwords.hash(password);

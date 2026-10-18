@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { DEMO_STAFF_PASSWORD, DEMO_STAFF_TOTP_SECRET } from '../src/backoffice/demo-staff-accounts';
 import {
-  DEMO_STAFF_PASSWORD,
-  DEMO_STAFF_TOTP_SECRET,
-} from '../src/backoffice/demo-staff-accounts';
-import { decryptTotpSecret, encryptTotpSecret, TotpSecretError } from '../src/backoffice/secret-box';
+  decryptTotpSecret,
+  encryptTotpSecret,
+  TotpSecretError,
+} from '../src/backoffice/secret-box';
 import {
   base32Decode,
   base32Encode,
@@ -34,10 +35,7 @@ const RFC4226_CODES = [
 const RFC6238_SECRETS: Record<OtpAlgorithm, Buffer> = {
   sha1: Buffer.from('12345678901234567890', 'ascii'),
   sha256: Buffer.from('12345678901234567890123456789012', 'ascii'),
-  sha512: Buffer.from(
-    '1234567890123456789012345678901234567890123456789012345678901234',
-    'ascii',
-  ),
+  sha512: Buffer.from('1234567890123456789012345678901234567890123456789012345678901234', 'ascii'),
 };
 
 /** RFC 6238 Appendix B: [unix seconds, T (hex), SHA-1, SHA-256, SHA-512], 8 digits, 30 s steps. */
@@ -198,9 +196,9 @@ describe('TOTP secret encryption (AES-256-GCM)', () => {
   it('refuses another key, another account, tampering and unknown formats', () => {
     const stored = encryptTotpSecret(key, secret, owner);
     expect(() => decryptTotpSecret(Buffer.alloc(32, 8), stored, owner)).toThrow(TotpSecretError);
-    expect(() =>
-      decryptTotpSecret(key, stored, '7c1d1e0e-2f5a-4c3b-8d6e-9f0a1b2c3d4e'),
-    ).toThrow(TotpSecretError);
+    expect(() => decryptTotpSecret(key, stored, '7c1d1e0e-2f5a-4c3b-8d6e-9f0a1b2c3d4e')).toThrow(
+      TotpSecretError,
+    );
     const parts = stored.split('.');
     const ciphertext = Buffer.from(parts[2]!, 'base64url');
     ciphertext[0] = ciphertext[0]! ^ 1;
