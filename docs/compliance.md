@@ -75,7 +75,9 @@ ledger postings by their own timestamp.
 
 ## 3. Reconciliation
 
-A worker job runs daily and on demand (admin: Reconciliation, "Run now"). It reads one repeatable-read
+A worker job runs daily and on demand (admin: Reconciliation, "Run now"). The daily run reconciles yesterday;
+days missed while the worker was down are caught up first, oldest first (at most 7 days back). It holds a
+database advisory lock for the whole run, so a day runs once. It reads one repeatable-read
 snapshot and stores the result in `reconciliation_runs` with each difference in `reconciliation_mismatches`.
 
 1. **Ledger integrity:** every transaction sums to zero; each account balance equals the sum of its entries;

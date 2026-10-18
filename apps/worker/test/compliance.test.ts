@@ -19,7 +19,7 @@ import {
   schema,
 } from '@vamos/db';
 import { mockDepositRef } from '@vamos/payments';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   amlEvaluateTask,
@@ -29,6 +29,7 @@ import {
   runDailyAmlSweep,
   runDailySummaryTask,
   runElsSweep,
+  RECONCILIATION_LOCK,
   runScheduledReconciliation,
 } from '../src/tasks/compliance';
 import {
@@ -323,6 +324,45 @@ describe('daily summaries and reconciliation', () => {
           .from(schema.reconciliationRuns)
           .where(eq(schema.reconciliationRuns.businessDate, today));
         expect(runs).toHaveLength(1);
+      } finally {
+        t.clock.set(real);
+      }
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'catches up the days missed while the worker was down (oldest first), one run per day',
+    async () => {
+      const real = t.clock.now;
+      const today = businessDateOf(real);
+      const day1 = addBusinessDays(today, 1);
+      const day2 = addBusinessDays(today, 2);
+      try {
+        // The worker was down from day1 until day3 04:00: day1 and day2 were never reconciled.
+        t.clock.set(
+          new Date(businessDayWindow(addBusinessDays(today, 3)).start.getTime() + 4 * HOUR),
+        );
+        // Another worker holds the run lock (a run longer than any TTL): nothing runs twice.
+        const blocked = await t.db.db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${RECONCILIATION_LOCK}))`);
+          return runScheduledReconciliation(t.ctx);
+        });
+        expect(blocked).toMatchObject({ ran: false, reason: 'locked' });
+        const first = await runScheduledReconciliation(t.ctx);
+        expect(first).toMatchObject({ ran: true, businessDate: day1 });
+        const second = await runScheduledReconciliation(t.ctx);
+        expect(second).toMatchObject({ ran: true, businessDate: day2 });
+        expect(await runScheduledReconciliation(t.ctx)).toMatchObject({
+          ran: false,
+          reason: 'done',
+        });
+        const runs = await t.db.db
+          .select({ date: schema.reconciliationRuns.businessDate })
+          .from(schema.reconciliationRuns)
+          .where(eq(schema.reconciliationRuns.kind, 'scheduled'));
+        expect(runs.filter((run) => run.date === day1)).toHaveLength(1);
+        expect(runs.filter((run) => run.date === day2)).toHaveLength(1);
       } finally {
         t.clock.set(real);
       }

@@ -1,4 +1,9 @@
-import { addBusinessDays, businessDateOf, businessDayWindow } from '@vamos/core';
+import {
+  addBusinessDays,
+  businessDateOf,
+  businessDatesBetween,
+  businessDayWindow,
+} from '@vamos/core';
 import {
   createOffElsReporter,
   emitElsEvent,
@@ -16,7 +21,7 @@ import {
   type RunDailySummariesResult,
 } from '@vamos/db';
 import type { Job } from 'bullmq';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, max, sql } from 'drizzle-orm';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import { tryLock } from '../lib/lock';
 import { createQueueWorker, QUEUE_NAMES, type QueueWorker } from '../lib/queues';
@@ -40,8 +45,11 @@ import type { AmlJobData, ElsJobData } from './outbox-dispatch';
  *   (runDailySummaries; a final day is never touched again).
  * - `reconciliation` (checked every 15 min): one scheduled run per business
  *   day, for yesterday, once today is `afterMs` (3 h) old, so the day's
- *   summary is final first. The run is skipped when a scheduled run of that
- *   day exists (a failed one is retried after `retryFailedMs`, 1 h).
+ *   summary is final first. Days missed while the worker was down are caught
+ *   up first, oldest first, one per check (at most 7 days back). A day with a
+ *   scheduled run is skipped (a failed one is retried after `retryFailedMs`,
+ *   1 h). The run holds a Postgres advisory lock (RECONCILIATION_LOCK) from
+ *   the check to the stored result, so a day never runs twice.
  * - `aml-evaluate`: the `aml` queue consumer (deposits, withdrawal requests,
  *   cash-outs): evaluateAmlForEvent; flags are deduplicated per player, rule
  *   and window, so a replay creates nothing new.
@@ -207,52 +215,111 @@ export function dailySummaryTask(
 // Reconciliation.
 
 export interface ReconciliationTaskOptions {
-  /** How often the task checks whether yesterday's run is due (default 15 min). */
+  /** How often the task checks whether a day's run is due (default 15 min). */
   intervalMs?: number;
   /** Time after the start of today (Addis Ababa) before yesterday is reconciled (default 3 h). */
   afterMs?: number;
-  /** A failed scheduled run of the day is tried again after this long (default 1 h). */
+  /** A failed scheduled run of a day is tried again after this long (default 1 h). */
   retryFailedMs?: number;
+  /** How many days back a missed day is still caught up (default RECONCILIATION_MAX_CATCH_UP_DAYS). */
+  maxCatchUpDays?: number;
 }
+
+/** Days back the scheduled reconciliation catches up after an outage. */
+export const RECONCILIATION_MAX_CATCH_UP_DAYS = 7;
+
+/**
+ * Postgres advisory lock (transaction level) held for the whole scheduled
+ * run: a run that outlives any TTL still cannot start twice, and the lock
+ * goes away with the connection if the worker dies.
+ */
+export const RECONCILIATION_LOCK = 'vamos:reconciliation:scheduled';
 
 export type ScheduledReconciliationResult =
   | { ran: true; businessDate: string; run: ReconciliationRun }
   | { ran: false; businessDate: string; reason: 'not_due' | 'done' | 'locked' };
 
-/** Runs the scheduled reconciliation of yesterday when it is due and not done yet. */
+/**
+ * The oldest business day up to `yesterday` that still needs its scheduled
+ * run: every day after the last clean or mismatches scheduled run (at most
+ * `maxDays` back; only yesterday before the first one) that has no run, or
+ * whose last run failed at least `retryFailedMs` ago. Null when none.
+ */
+async function nextScheduledReconciliationDay(
+  ctx: TaskContext,
+  input: { yesterday: string; now: Date; retryFailedMs: number; maxDays: number },
+): Promise<string | null> {
+  const runs = schema.reconciliationRuns;
+  const [done] = await ctx.db
+    .select({ date: max(runs.businessDate) })
+    .from(runs)
+    .where(and(eq(runs.kind, 'scheduled'), inArray(runs.status, ['clean', 'mismatches'])));
+  const floor = addBusinessDays(input.yesterday, -(Math.max(1, input.maxDays) - 1));
+  const after = done?.date ?? null;
+  const next = after === null ? input.yesterday : addBusinessDays(after, 1);
+  const start = next < floor ? floor : next;
+  if (start > input.yesterday) return null;
+  const rows = await ctx.db
+    .select({ date: runs.businessDate, status: runs.status, startedAt: runs.startedAt })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.kind, 'scheduled'),
+        gte(runs.businessDate, start),
+        lte(runs.businessDate, input.yesterday),
+      ),
+    )
+    .orderBy(desc(runs.startedAt));
+  const last = new Map<string, { status: string; startedAt: Date }>();
+  for (const row of rows) if (row.date !== null && !last.has(row.date)) last.set(row.date, row);
+  for (const day of businessDatesBetween(start, input.yesterday, input.maxDays + 1)) {
+    const run = last.get(day);
+    if (run === undefined) return day;
+    if (
+      run.status === 'failed' &&
+      input.now.getTime() - run.startedAt.getTime() >= input.retryFailedMs
+    ) {
+      return day;
+    }
+  }
+  return null;
+}
+
+/**
+ * Runs the scheduled reconciliation of the oldest day still due (yesterday,
+ * or a day missed while the worker was down; one day per call), under the
+ * RECONCILIATION_LOCK advisory lock so a day runs once.
+ */
 export async function runScheduledReconciliation(
   ctx: TaskContext,
   options: Omit<ReconciliationTaskOptions, 'intervalMs'> = {},
 ): Promise<ScheduledReconciliationResult> {
   const now = ctx.clock();
   const today = businessDateOf(now);
-  const businessDate = addBusinessDays(today, -1);
+  const yesterday = addBusinessDays(today, -1);
   const dueAt = businessDayWindow(today).start.getTime() + (options.afterMs ?? 3 * HOUR);
-  if (now.getTime() < dueAt) return { ran: false, businessDate, reason: 'not_due' };
-  const retryFailedMs = options.retryFailedMs ?? HOUR;
-  const outcome = await underLock(ctx, 'reconciliation', 30 * MINUTE, async () => {
-    const runs = schema.reconciliationRuns;
-    const [last] = await ctx.db
-      .select({ status: runs.status, startedAt: runs.startedAt })
-      .from(runs)
-      .where(and(eq(runs.kind, 'scheduled'), eq(runs.businessDate, businessDate)))
-      .orderBy(desc(runs.startedAt))
-      .limit(1);
-    if (
-      last !== undefined &&
-      (last.status !== 'failed' || now.getTime() - last.startedAt.getTime() < retryFailedMs)
-    ) {
-      return { ran: false, businessDate, reason: 'done' } as const;
+  if (now.getTime() < dueAt) return { ran: false, businessDate: yesterday, reason: 'not_due' };
+  return ctx.db.transaction(async (lockTx): Promise<ScheduledReconciliationResult> => {
+    const lock = await lockTx.execute<{ locked: boolean }>(
+      sql`SELECT pg_try_advisory_xact_lock(hashtext(${RECONCILIATION_LOCK})) AS locked`,
+    );
+    if (lock.rows[0]?.locked !== true) {
+      return { ran: false, businessDate: yesterday, reason: 'locked' };
     }
-    const detail = await runReconciliation(ctx.db, { now, kind: 'scheduled', businessDate });
-    const { run } = detail;
+    const businessDate = await nextScheduledReconciliationDay(ctx, {
+      yesterday,
+      now,
+      retryFailedMs: options.retryFailedMs ?? HOUR,
+      maxDays: options.maxCatchUpDays ?? RECONCILIATION_MAX_CATCH_UP_DAYS,
+    });
+    if (businessDate === null) return { ran: false, businessDate: yesterday, reason: 'done' };
+    const { run } = await runReconciliation(ctx.db, { now, kind: 'scheduled', businessDate });
     ctx.logger[run.status === 'clean' ? 'info' : 'error'](
       { runId: run.id, businessDate, status: run.status, mismatches: run.mismatchCount },
       'scheduled reconciliation',
     );
-    return { ran: true, businessDate, run } as const;
+    return { ran: true, businessDate, run };
   });
-  return outcome ?? { ran: false, businessDate, reason: 'locked' };
 }
 
 export function reconciliationTask(
