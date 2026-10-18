@@ -68,7 +68,10 @@ export default async function adminAuthRoutes(app: FastifyInstance): Promise<voi
   });
   const perEmail = app.createRateLimit({
     ...authLimits.staffLoginPerEmail,
-    keyGenerator: (request) => `staff-login-email|${bodyEmail(request)}`,
+    // Per (email, address): a stranger using up the limit must not keep the staff member out
+    // from their own address (the account-wide backoff bounds guessing spread over addresses).
+    keyGenerator: (request) =>
+      `staff-login-email|${bodyEmail(request)}|${clientAddressKey(request.ip)}`,
   });
   const loginLimits = async (request: FastifyRequest, reply: FastifyReply) => {
     await enforceLimit(perClient, request, reply);

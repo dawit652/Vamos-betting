@@ -169,7 +169,7 @@ describe('staff sign-in', () => {
     expect(actions).toContain('staff.locked');
   });
 
-  it('rate limits sign-in per email', async () => {
+  it('rate limits sign-in per email and address', async () => {
     const limited = buildApp(ctx.deps, {
       logger: false,
       rateLimitNameSpace: `vamos-rl-staff-${Date.now()}:`,
@@ -189,6 +189,14 @@ describe('staff sign-in', () => {
       expect(third.statusCode).toBe(429);
       expect(apiError(third).code).toBe('rate_limited');
       expect(third.headers['retry-after']).toBeDefined();
+      // Another address is not held up by what this one used.
+      const elsewhere = await limited.inject({
+        method: 'POST',
+        url: '/admin/auth/login',
+        remoteAddress: '10.20.30.41',
+        payload: { email: 'limited@demo.vamos.test', password: 'whatever-123', code: '000000' },
+      });
+      expect(elsewhere.statusCode).toBe(401);
     } finally {
       await limited.close();
     }

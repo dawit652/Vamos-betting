@@ -30,8 +30,10 @@ export interface AuthLimits {
   /** Staff sign-ins (POST /admin/auth/login) from one client address. */
   staffLoginPerClient: WindowLimit;
   /**
-   * Staff sign-ins for one email from any address (on top of the account
-   * lockout after 5 failures, so the argon2 work per account stays bounded).
+   * Staff sign-ins for one email from one client address (on top of the
+   * per-address lockout after 5 failures). Not per email alone: a stranger
+   * could then keep the staff member at 429 indefinitely; guessing spread
+   * over addresses meets the account-wide backoff (@vamos/db staff-auth).
    */
   staffLoginPerEmail: WindowLimit;
 }

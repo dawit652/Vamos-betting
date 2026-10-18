@@ -11,7 +11,7 @@ interface Call {
 /** A fake API whose responses the test resolves by hand, in any order. */
 function harness() {
   const calls: Call[] = [];
-  let state: PagedState<string> = INITIAL_PAGED_STATE as PagedState<string>;
+  let state: PagedState<string> = INITIAL_PAGED_STATE;
   const fetchPage = (cursor: string | null, signal: AbortSignal) =>
     new Promise<PageOf<string>>((resolve, reject) => {
       calls.push({ cursor, signal, resolve, reject });
