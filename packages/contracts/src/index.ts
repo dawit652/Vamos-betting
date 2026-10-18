@@ -9,3 +9,4 @@ export * from './betting';
 export * from './user-stream';
 export * from './payments';
 export * from './jackpots';
+export * from './admin';
