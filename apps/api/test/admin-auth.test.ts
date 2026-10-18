@@ -1,0 +1,362 @@
+import {
+  ApiErrorSchema,
+  CreateStaffResponse,
+  permissionsOf,
+  StaffSessionResponse,
+  StaffUserView,
+  STAFF_CSRF_HEADER,
+  STAFF_SESSION_COOKIE,
+} from '@vamos/contracts';
+import { base32Decode, totpCode } from '@vamos/db/totp';
+import { DEMO_STAFF_PASSWORD } from '@vamos/db/demo-staff';
+import { auditLog } from '@vamos/db/schema';
+import { and, eq } from 'drizzle-orm';
+import type { LightMyRequestResponse } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { buildApp } from '../src/app';
+import {
+  asStaff,
+  demoCode,
+  seedStaff,
+  staffEmail,
+  staffLogin,
+  staffLoginRequest,
+} from './admin-helpers';
+import { createTestContext, registerAndLogin, type TestContext } from './helpers';
+
+let ctx: TestContext;
+
+beforeAll(async () => {
+  ctx = await createTestContext();
+  await seedStaff(ctx);
+});
+
+afterAll(async () => {
+  await ctx?.close();
+});
+
+const apiError = (response: LightMyRequestResponse) => ApiErrorSchema.parse(response.json()).error;
+
+async function auditActions(targetId: string): Promise<string[]> {
+  const rows = await ctx.db.db
+    .select({ action: auditLog.action })
+    .from(auditLog)
+    .where(eq(auditLog.targetId, targetId))
+    .orderBy(auditLog.id);
+  return rows.map((row) => row.action);
+}
+
+describe('staff sign-in', () => {
+  it('signs in with email, password and TOTP code and sets a strict staff cookie', async () => {
+    ctx.clock.advance(30_000);
+    const response = await staffLoginRequest(ctx, {
+      email: '  Trader@Demo.Vamos.Test ',
+      password: DEMO_STAFF_PASSWORD,
+      code: demoCode(ctx),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = StaffSessionResponse.parse(response.json());
+    expect(body.staff).toMatchObject({ email: staffEmail('trader'), role: 'trader' });
+    expect(body.staff.permissions).toEqual(permissionsOf('trader'));
+    expect(new Date(body.expiresAt).getTime() - ctx.clock.now.getTime()).toBe(12 * 3_600_000);
+    expect(new Date(body.idleExpiresAt).getTime() - ctx.clock.now.getTime()).toBe(30 * 60_000);
+    // No token in the body: the cookie is the only credential.
+    expect(JSON.stringify(body)).not.toContain('sessionToken');
+    const cookie = response.cookies.find((c) => c.name === STAFF_SESSION_COOKIE);
+    expect(cookie).toMatchObject({ httpOnly: true, sameSite: 'Strict', path: '/admin' });
+    // The player cookies are never set by a staff sign-in.
+    expect(response.cookies.map((c) => c.name)).toEqual([STAFF_SESSION_COOKIE]);
+
+    const session = await ctx.app.inject({
+      method: 'GET',
+      url: '/admin/session',
+      headers: { cookie: `${STAFF_SESSION_COOKIE}=${cookie!.value}` },
+    });
+    expect(session.statusCode).toBe(200);
+    expect(StaffSessionResponse.parse(session.json()).csrfToken).toBe(body.csrfToken);
+    expect(await auditActions(body.staff.id)).toContain('staff.login');
+  });
+
+  it('answers every failure with the same 401 invalid_credentials', async () => {
+    ctx.clock.advance(30_000);
+    const attempts = [
+      { email: 'nobody@demo.vamos.test', password: DEMO_STAFF_PASSWORD, code: demoCode(ctx) },
+      { email: staffEmail('kyc'), password: 'wrong-password-1', code: demoCode(ctx) },
+      { email: staffEmail('kyc'), password: DEMO_STAFF_PASSWORD, code: demoCode(ctx, 120_000) },
+    ];
+    const messages = new Set<string>();
+    for (const attempt of attempts) {
+      const response = await staffLoginRequest(ctx, attempt);
+      expect(response.statusCode).toBe(401);
+      const error = apiError(response);
+      expect(error.code).toBe('invalid_credentials');
+      messages.add(error.message);
+      expect(response.cookies).toEqual([]);
+    }
+    expect(messages.size).toBe(1);
+    // A malformed body is a 400, not a sign-in attempt.
+    const malformed = await staffLoginRequest(ctx, { email: staffEmail('kyc'), password: 'x' });
+    expect(malformed.statusCode).toBe(400);
+  });
+
+  it('refuses a replayed code within its window', async () => {
+    ctx.clock.advance(30_000);
+    const payload = {
+      email: staffEmail('compliance'),
+      password: DEMO_STAFF_PASSWORD,
+      code: demoCode(ctx),
+    };
+    expect((await staffLoginRequest(ctx, payload)).statusCode).toBe(200);
+    const replay = await staffLoginRequest(ctx, payload);
+    expect(replay.statusCode).toBe(401);
+    expect(apiError(replay).code).toBe('invalid_credentials');
+    ctx.clock.advance(30_000);
+    expect((await staffLoginRequest(ctx, { ...payload, code: demoCode(ctx) })).statusCode).toBe(
+      200,
+    );
+  });
+
+  it('locks the account for 15 minutes after 5 failures', async () => {
+    ctx.clock.advance(30_000);
+    const email = staffEmail('support');
+    for (let i = 0; i < 5; i += 1) {
+      const response = await staffLoginRequest(ctx, {
+        email,
+        password: `wrong-password-${i}`,
+        code: demoCode(ctx),
+      });
+      expect(response.statusCode).toBe(401);
+    }
+    // Even the right password and code are refused while locked.
+    const locked = await staffLoginRequest(ctx, {
+      email,
+      password: DEMO_STAFF_PASSWORD,
+      code: demoCode(ctx),
+    });
+    expect(locked.statusCode).toBe(401);
+    expect(apiError(locked).code).toBe('invalid_credentials');
+
+    ctx.clock.advance(14 * 60_000);
+    expect(
+      (await staffLoginRequest(ctx, { email, password: DEMO_STAFF_PASSWORD, code: demoCode(ctx) }))
+        .statusCode,
+    ).toBe(401);
+    ctx.clock.advance(60_000 + 30_000);
+    const unlocked = await staffLoginRequest(ctx, {
+      email,
+      password: DEMO_STAFF_PASSWORD,
+      code: demoCode(ctx),
+    });
+    expect(unlocked.statusCode).toBe(200);
+    const staffId = StaffSessionResponse.parse(unlocked.json()).staff.id;
+    const actions = await auditActions(staffId);
+    expect(actions.filter((a) => a === 'staff.login_failed').length).toBeGreaterThanOrEqual(5);
+    expect(actions).toContain('staff.locked');
+  });
+
+  it('rate limits sign-in per email', async () => {
+    const limited = buildApp(ctx.deps, {
+      logger: false,
+      rateLimitNameSpace: `vamos-rl-staff-${Date.now()}:`,
+      authLimits: { staffLoginPerEmail: { max: 2, timeWindow: 60_000 } },
+    });
+    await limited.ready();
+    try {
+      const attempt = () =>
+        limited.inject({
+          method: 'POST',
+          url: '/admin/auth/login',
+          payload: { email: 'limited@demo.vamos.test', password: 'whatever-123', code: '000000' },
+        });
+      expect((await attempt()).statusCode).toBe(401);
+      expect((await attempt()).statusCode).toBe(401);
+      const third = await attempt();
+      expect(third.statusCode).toBe(429);
+      expect(apiError(third).code).toBe('rate_limited');
+      expect(third.headers['retry-after']).toBeDefined();
+    } finally {
+      await limited.close();
+    }
+  });
+});
+
+describe('staff sessions', () => {
+  it('needs the CSRF token on unsafe methods and signs out', async () => {
+    const staff = await staffLogin(ctx, 'kyc');
+    const noToken = await ctx.app.inject({
+      method: 'POST',
+      url: '/admin/auth/logout',
+      headers: { cookie: staff.cookie },
+    });
+    expect(noToken.statusCode).toBe(403);
+    expect(apiError(noToken).code).toBe('csrf_invalid');
+    const wrongToken = await asStaff(ctx, staff, 'POST', '/admin/auth/logout', undefined, {
+      [STAFF_CSRF_HEADER]: 'not-the-token',
+    });
+    expect(wrongToken.statusCode).toBe(403);
+    expect(apiError(wrongToken).code).toBe('csrf_invalid');
+    // A KYC mutation without the token is refused before anything else.
+    const kycNoToken = await ctx.app.inject({
+      method: 'POST',
+      url: `/admin/kyc/${staff.id}/review`,
+      headers: { cookie: staff.cookie },
+      payload: { decision: 'approve' },
+    });
+    expect(kycNoToken.statusCode).toBe(403);
+    expect(apiError(kycNoToken).code).toBe('csrf_invalid');
+    // Safe methods need no token.
+    expect(
+      (
+        await ctx.app.inject({
+          method: 'GET',
+          url: '/admin/session',
+          headers: { cookie: staff.cookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const logout = await asStaff(ctx, staff, 'POST', '/admin/auth/logout');
+    expect(logout.statusCode).toBe(200);
+    expect(logout.json()).toEqual({ ok: true });
+    const cleared = logout.cookies.find((c) => c.name === STAFF_SESSION_COOKIE);
+    expect(cleared?.value).toBe('');
+    expect((await asStaff(ctx, staff, 'GET', '/admin/session')).statusCode).toBe(401);
+    expect(await auditActions(staff.id)).toContain('staff.logout');
+  });
+
+  it('ends after 30 minutes idle', async () => {
+    const staff = await staffLogin(ctx, 'finance');
+    ctx.clock.advance(29 * 60_000);
+    expect((await asStaff(ctx, staff, 'GET', '/admin/session')).statusCode).toBe(200);
+    ctx.clock.advance(29 * 60_000);
+    expect((await asStaff(ctx, staff, 'GET', '/admin/session')).statusCode).toBe(200);
+    ctx.clock.advance(30 * 60_000 + 1);
+    const expired = await asStaff(ctx, staff, 'GET', '/admin/session');
+    expect(expired.statusCode).toBe(401);
+    expect(apiError(expired).code).toBe('unauthorized');
+  });
+
+  it('ends 12 hours after sign-in whatever the activity', async () => {
+    const staff = await staffLogin(ctx, 'admin');
+    for (let elapsed = 0; elapsed < 12 * 60; elapsed += 25) {
+      expect((await asStaff(ctx, staff, 'GET', '/admin/session')).statusCode).toBe(200);
+      ctx.clock.advance(25 * 60_000);
+    }
+    expect((await asStaff(ctx, staff, 'GET', '/admin/session')).statusCode).toBe(401);
+  });
+
+  it('never accepts a player session on /admin, nor a staff session on player routes', async () => {
+    const player = await registerAndLogin(ctx);
+    const staff = await staffLogin(ctx, 'admin');
+    // Player credentials on the staff API: cookie (with its CSRF token) and bearer.
+    for (const headers of [
+      { cookie: player.cookie, 'x-csrf-token': player.csrfToken },
+      { authorization: `Bearer ${player.sessionToken}` },
+      // The player token in the staff cookie.
+      { cookie: `${STAFF_SESSION_COOKIE}=${player.sessionToken}` },
+    ]) {
+      const session = await ctx.app.inject({ method: 'GET', url: '/admin/session', headers });
+      expect(session.statusCode).toBe(401);
+      const mutation = await ctx.app.inject({
+        method: 'POST',
+        url: '/admin/auth/logout',
+        headers,
+      });
+      expect(mutation.statusCode).toBe(401);
+    }
+    // Staff credentials on player routes: the staff cookie, the staff token as
+    // the player cookie, or as a bearer token.
+    for (const headers of [
+      { cookie: staff.cookie },
+      { cookie: `vamos_session=${staff.token}` },
+      { authorization: `Bearer ${staff.token}` },
+    ]) {
+      expect((await ctx.app.inject({ method: 'GET', url: '/me', headers })).statusCode).toBe(401);
+      expect((await ctx.app.inject({ method: 'GET', url: '/wallet', headers })).statusCode).toBe(
+        401,
+      );
+    }
+    // No bearer tokens for staff either.
+    expect(
+      (
+        await ctx.app.inject({
+          method: 'GET',
+          url: '/admin/session',
+          headers: { authorization: `Bearer ${staff.token}` },
+        })
+      ).statusCode,
+    ).toBe(401);
+    // Both sessions still work where they belong.
+    expect((await asStaff(ctx, staff, 'GET', '/admin/session')).statusCode).toBe(200);
+    expect(
+      (await ctx.app.inject({ method: 'GET', url: '/me', headers: { cookie: player.cookie } }))
+        .statusCode,
+    ).toBe(200);
+  });
+});
+
+describe('staff accounts (staff.manage)', () => {
+  it('creates, signs in, disables and re-enables a staff member, audited', async () => {
+    const admin = await staffLogin(ctx, 'admin');
+    const created = await asStaff(ctx, admin, 'POST', '/admin/staff', {
+      email: 'new.trader@vamos.test',
+      displayName: 'New Trader',
+      role: 'trader',
+    });
+    expect(created.statusCode).toBe(201);
+    const body = CreateStaffResponse.parse(created.json());
+    expect(body.user).toMatchObject({ email: 'new.trader@vamos.test', role: 'trader' });
+    expect(body.generatedPassword).not.toBeNull();
+    expect(body.totp.uri).toMatch(/^otpauth:\/\/totp\//);
+    expect(created.body).not.toContain('passwordHash');
+    expect(created.body).not.toContain('totpSecretEnc');
+
+    const duplicate = await asStaff(ctx, admin, 'POST', '/admin/staff', {
+      email: 'new.trader@vamos.test',
+      displayName: 'Again',
+      role: 'trader',
+    });
+    expect(duplicate.statusCode).toBe(409);
+    expect(apiError(duplicate).code).toBe('staff_email_taken');
+
+    const secret = base32Decode(body.totp.secret);
+    const login = (offset = 0) =>
+      staffLoginRequest(ctx, {
+        email: 'new.trader@vamos.test',
+        password: body.generatedPassword,
+        code: totpCode(secret, ctx.clock.now.getTime() + offset),
+      });
+    ctx.clock.advance(30_000);
+    expect((await login()).statusCode).toBe(200);
+
+    const list = await asStaff(ctx, admin, 'GET', '/admin/staff');
+    expect(list.statusCode).toBe(200);
+    expect((list.json() as { items: unknown[] }).items.length).toBe(7);
+
+    const disabled = await asStaff(ctx, admin, 'POST', `/admin/staff/${body.user.id}/disable`);
+    expect(disabled.statusCode).toBe(200);
+    expect(StaffUserView.parse(disabled.json()).disabledAt).not.toBeNull();
+    ctx.clock.advance(30_000);
+    expect((await login()).statusCode).toBe(401);
+
+    const enabled = await asStaff(ctx, admin, 'POST', `/admin/staff/${body.user.id}/enable`);
+    expect(StaffUserView.parse(enabled.json()).disabledAt).toBeNull();
+    const renamed = await asStaff(ctx, admin, 'PATCH', `/admin/staff/${body.user.id}`, {
+      role: 'support',
+    });
+    expect(StaffUserView.parse(renamed.json()).role).toBe('support');
+    ctx.clock.advance(30_000);
+    expect((await login()).statusCode).toBe(200);
+
+    const rows = await ctx.db.db
+      .select({ action: auditLog.action, actorId: auditLog.actorId })
+      .from(auditLog)
+      .where(and(eq(auditLog.targetId, body.user.id), eq(auditLog.actorType, 'admin')));
+    const actions = rows.filter((row) => row.actorId === admin.id).map((row) => row.action);
+    expect(actions).toEqual(
+      expect.arrayContaining(['staff.created', 'staff.disabled', 'staff.enabled']),
+    );
+
+    expect((await asStaff(ctx, admin, 'GET', '/admin/staff/not-a-uuid')).statusCode).toBe(404);
+  });
+});
