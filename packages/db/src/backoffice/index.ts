@@ -72,6 +72,33 @@ export {
   type TotpEnrolment,
 } from './staff-auth';
 export {
+  decodeCursor,
+  encodeCursor,
+  pageLimit,
+  type Page,
+  type StaffActor,
+  type TimeCursor,
+} from './common';
+export {
+  getTradingEvent,
+  searchTradingEvents,
+  STAFF_EVENT_RESULT_CORRECTED,
+  STAFF_EVENT_RESULTED,
+  staffResultEvent,
+  staffSetEventBettingOpen,
+  staffSetEventSuspended,
+  staffSetMarketStatus,
+  staffSetOdds,
+  staffVoidMarket,
+  staffVoidSelection,
+  type StaffOddsChange,
+  type TradingEventDetail,
+  type TradingEventFilter,
+  type TradingEventSummary,
+  type TradingMarket,
+  type TradingSelection,
+} from './trading';
+export {
   DEMO_STAFF_ACCOUNTS,
   DEMO_STAFF_PASSWORD,
   DEMO_STAFF_TOTP_SECRET,
