@@ -20,7 +20,7 @@ Last updated 12 Oct 2026.
 | 6     | Payments: deposits and withdrawals                            | Done (reviewed, 15 fixes) | `e555ef6` … `3f1337d`                      |
 | 7     | Live betting and cash-out                                     | Done (reviewed, 8 fixes)  | `25360ec` … `bd8b033`                      |
 | 8     | Jackpots and promotions                                       | Done (reviewed, 8 fixes)  | `d35ae42` … `82bd130`                      |
-| 9     | Back office (`apps/admin`)                                    | Done (reviewed, 11 fixes) | `176a4cc` … Phase 9 commit                 |
+| 9     | Back office (`apps/admin`)                                    | Done (reviewed, 11 fixes) | `176a4cc` … `7f9151c`                      |
 | 10    | Compliance and regulator reporting                            | Not started               |                                            |
 | 11    | SMS/USSD channel (feature-flagged)                            | Not started               |                                            |
 | 12    | Hardening and deployment                                      | Not started               |                                            |
