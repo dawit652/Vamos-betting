@@ -3,12 +3,14 @@ import {
   createJackpotRound,
   listJackpotCandidateEvents,
   loadGameSettings,
+  lockJackpotTemplate,
   shrinkJackpotTemplate,
   withTxRetry,
 } from '@vamos/db';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps';
+import { clientAddressKey } from '../../lib/client-address';
 import { conflict, parseInput } from '../../lib/errors';
 import { jackpotRoundView } from './views';
 
@@ -51,42 +53,65 @@ export function devJackpotsEnabled(deps: Pick<AppDeps, 'config'>): boolean {
  * tests and local demos get a round that closes and settles within
  * minutes on the fast simulator. The round copies the template's price and
  * prizes on fewer games and freezes the winnings tax in force, like a
- * worker round; entries, closing and settlement are the real ones. 201
- * with the JackpotRoundView; 409 `not_enough_events` when there are too
- * few upcoming events (details { available, needed }).
+ * worker round; entries, closing and settlement are the real ones. It
+ * takes the template's advisory lock like the worker (lockJackpotTemplate),
+ * and a smaller round does not count as the template's round, so the
+ * worker still opens its own. Needs a signed-in player (CSRF for cookie
+ * sessions) and is rate limited per address. 201 with the
+ * JackpotRoundView; 409 `jackpot_disabled` when the template is disabled;
+ * 409 `not_enough_events` when there are too few upcoming events (details
+ * { available, needed }).
  */
 export default async function devJackpotRoutes(app: FastifyInstance): Promise<void> {
   const { deps } = app;
   if (!devJackpotsEnabled(deps)) return;
 
-  app.post('/dev/jackpots/rounds', async (request, reply): Promise<JackpotRoundView> => {
-    const input = parseInput(DevJackpotRoundRequest, request.body ?? {});
-    const now = deps.clock();
-    const round = await withTxRetry(deps.db, async (tx) => {
-      const settings = await loadGameSettings(tx);
-      const base = settings.jackpots[input.template];
-      const games = Math.min(input.games, base.gameCount);
-      const template = { ...shrinkJackpotTemplate(base, games), enabled: true };
-      const candidates = await listJackpotCandidateEvents(tx, {
-        templateCode: template.code,
-        now,
-        leadMs: input.leadSeconds * 1000,
-        limit: games,
-      });
-      if (candidates.length < games) {
-        throw conflict('not_enough_events', 'Not enough upcoming football events for a round.', {
-          available: candidates.length,
-          needed: games,
+  app.post(
+    '/dev/jackpots/rounds',
+    {
+      preHandler: app.requireAuth,
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: 60_000,
+          keyGenerator: (request: FastifyRequest) =>
+            `dev-jackpots-rounds|${clientAddressKey(request.ip)}`,
+        },
+      },
+    },
+    async (request, reply): Promise<JackpotRoundView> => {
+      const input = parseInput(DevJackpotRoundRequest, request.body ?? {});
+      const now = deps.clock();
+      const round = await withTxRetry(deps.db, async (tx) => {
+        const settings = await loadGameSettings(tx);
+        const base = settings.jackpots[input.template];
+        if (!base.enabled) {
+          throw conflict('jackpot_disabled', 'This jackpot is disabled.');
+        }
+        const games = Math.min(input.games, base.gameCount);
+        const template = shrinkJackpotTemplate(base, games);
+        await lockJackpotTemplate(tx, template.code);
+        const candidates = await listJackpotCandidateEvents(tx, {
+          templateCode: template.code,
+          now,
+          leadMs: input.leadSeconds * 1000,
+          limit: games,
         });
-      }
-      return createJackpotRound(tx, {
-        template,
-        tax: settings.tax,
-        eventIds: candidates.map((candidate) => candidate.eventId),
-        now,
+        if (candidates.length < games) {
+          throw conflict('not_enough_events', 'Not enough upcoming football events for a round.', {
+            available: candidates.length,
+            needed: games,
+          });
+        }
+        return createJackpotRound(tx, {
+          template,
+          tax: settings.tax,
+          eventIds: candidates.map((candidate) => candidate.eventId),
+          now,
+        });
       });
-    });
-    void reply.status(201);
-    return jackpotRoundView(round);
-  });
+      void reply.status(201);
+      return jackpotRoundView(round);
+    },
+  );
 }

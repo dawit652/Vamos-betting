@@ -194,7 +194,8 @@ export const JackpotGamePicksSchema = z
  * `jackpot_entry_invalid`) and charges combinations × costPerCombination.
  */
 export const JackpotEntryRequest = z.object({
-  picks: z.array(JackpotGamePicksSchema).min(1).max(MAX_JACKPOT_GAMES),
+  // The list's length is checked before its games, so an oversized list is one issue.
+  picks: z.array(z.unknown()).min(1).max(MAX_JACKPOT_GAMES).pipe(z.array(JackpotGamePicksSchema)),
 });
 export type JackpotEntryRequest = z.infer<typeof JackpotEntryRequest>;
 

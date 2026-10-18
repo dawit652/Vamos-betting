@@ -71,6 +71,15 @@ describe('JackpotEntryRequest', () => {
       expect(JackpotEntryRequest.safeParse({ picks }).success, JSON.stringify(picks)).toBe(false);
     }
   });
+
+  it('rejects an oversized list with one issue, without checking each game', () => {
+    const result = JackpotEntryRequest.safeParse({
+      picks: Array.from({ length: 5_000 }, () => ['1', '1']),
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toHaveLength(1);
+    expect(result.error?.issues[0]).toMatchObject({ code: 'too_big', path: ['picks'] });
+  });
 });
 
 describe('round and entry views', () => {

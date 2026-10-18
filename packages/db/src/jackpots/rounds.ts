@@ -3,6 +3,7 @@ import {
   and,
   asc,
   count,
+  desc,
   eq,
   exists,
   gt,
@@ -55,11 +56,38 @@ export interface ListJackpotCandidateEventsOptions {
   /** Only events kicking off within this long after `now` (ms); omit for no limit. */
   horizonMs?: number;
   limit: number;
+  /** The latest kick-offs first instead of the soonest (default false). */
+  latestFirst?: boolean;
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/**
+ * How far ahead each template's round looks for its games: ensureJackpotRound
+ * takes the latest suitable events kicking off within this long after now,
+ * so a round takes entries for about that long (daily9 about a day,
+ * weekly13 about a week) instead of only until the soonest fixture.
+ */
+export const JACKPOT_ROUND_HORIZON_MS: Readonly<Record<JackpotTemplateCode, number>> = {
+  daily9: DAY_MS,
+  weekly13: 7 * DAY_MS,
+};
+
+/**
+ * Takes the transaction-level advisory lock of a template's round opening:
+ * whoever opens a round of the template (ensureJackpotRound, the dev route)
+ * holds it, so two openings never pick the same events.
+ */
+export async function lockJackpotTemplate(
+  tx: DbTransaction,
+  code: JackpotTemplateCode,
+): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`vamos:jackpot_round:${code}`}))`);
 }
 
 /**
  * Upcoming football events a round of the template could be made of,
- * soonest kick-off first: scheduled, betting open, sport and competition
+ * soonest kick-off first (or latest first): scheduled, betting open, sport and competition
  * active, kicking off after now + leadMs (and within the horizon), with an
  * open 1X2 market whose three selections are open, and not a game of
  * another scheduled, open or closed round of the same template.
@@ -107,7 +135,11 @@ export async function listJackpotCandidateEvents(
     .innerJoin(competitions, eq(competitions.id, events.competitionId))
     .innerJoin(markets, and(eq(markets.eventId, events.id), eq(markets.key, JACKPOT_MARKET_KEY)))
     .where(and(...conditions))
-    .orderBy(asc(events.startTime), asc(events.id))
+    .orderBy(
+      ...(options.latestFirst === true
+        ? [desc(events.startTime), desc(events.id)]
+        : [asc(events.startTime), asc(events.id)]),
+    )
     .limit(limit);
 }
 
@@ -340,8 +372,14 @@ export interface EnsureJackpotRoundInput {
   now: Date;
   /** Games must kick off more than this long after `now` (ms). */
   leadMs: number;
-  /** ...and within this long after `now` (ms); omit for no limit. */
+  /** ...and within this long after `now` (ms), a hard limit; omit for none. */
   horizonMs?: number;
+  /**
+   * The games are the latest suitable events kicking off within this long
+   * after `now` (ms; default JACKPOT_ROUND_HORIZON_MS of the template), so
+   * the round takes entries for about that long; 0 takes the soonest.
+   */
+  preferWithinMs?: number;
 }
 
 export type EnsureJackpotRoundResult =
@@ -353,11 +391,15 @@ export type EnsureJackpotRoundResult =
 /**
  * Keeps one round of the template taking entries (the worker's round
  * task), in the caller's transaction: nothing to do when the template is
- * disabled or a scheduled or open round of it closes after `now`;
- * otherwise a round is opened (createJackpotRound) on the template's
- * number of candidate events (listJackpotCandidateEvents), if there are
- * enough. Runs under a transaction-level advisory lock per template, so
- * concurrent workers never open two rounds of the same template.
+ * disabled or a scheduled or open round of it (of its game count) closes
+ * after `now`; otherwise a round is opened (createJackpotRound) on the
+ * template's number of candidate events (listJackpotCandidateEvents), if
+ * there are enough: the latest ones kicking off within `preferWithinMs`
+ * (default the template's JACKPOT_ROUND_HORIZON_MS; `horizonMs` when
+ * shorter), so the round closes as late as that allows; when too few kick
+ * off within it, the soonest ones (within `horizonMs` if given). Runs under the
+ * template's advisory lock (lockJackpotTemplate), so concurrent workers
+ * never open two rounds of the same template.
  */
 export async function ensureJackpotRound(
   tx: DbTransaction,
@@ -365,28 +407,43 @@ export async function ensureJackpotRound(
 ): Promise<EnsureJackpotRoundResult> {
   const { template, now } = input;
   if (!template.enabled) return { outcome: 'disabled' };
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${`vamos:jackpot_round:${template.code}`}))`,
-  );
+  await lockJackpotTemplate(tx, template.code);
   const [existing] = await tx
     .select({ id: jackpotRounds.id })
     .from(jackpotRounds)
     .where(
       and(
         eq(jackpotRounds.templateCode, template.code),
+        // A smaller round of the template (the dev route's) is not its round.
+        eq(jackpotRounds.gameCount, template.gameCount),
         inArray(jackpotRounds.status, ['scheduled', 'open']),
         gt(jackpotRounds.closesAt, now),
       ),
     )
     .limit(1);
   if (existing !== undefined) return { outcome: 'exists', roundId: existing.id };
-  const candidates = await listJackpotCandidateEvents(tx, {
+  const window = {
     templateCode: template.code,
     now,
     leadMs: input.leadMs,
-    ...(input.horizonMs === undefined ? {} : { horizonMs: input.horizonMs }),
     limit: template.gameCount,
-  });
+  };
+  const target = input.preferWithinMs ?? JACKPOT_ROUND_HORIZON_MS[template.code];
+  const latest =
+    target > input.leadMs
+      ? await listJackpotCandidateEvents(tx, {
+          ...window,
+          horizonMs: input.horizonMs === undefined ? target : Math.min(target, input.horizonMs),
+          latestFirst: true,
+        })
+      : [];
+  const candidates =
+    latest.length >= template.gameCount
+      ? latest.reverse()
+      : await listJackpotCandidateEvents(tx, {
+          ...window,
+          ...(input.horizonMs === undefined ? {} : { horizonMs: input.horizonMs }),
+        });
   if (candidates.length < template.gameCount) {
     return {
       outcome: 'not_enough_events',

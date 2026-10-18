@@ -216,7 +216,7 @@ describe('jackpot-rounds task', () => {
         .where(eq(schema.markets.eventId, suspended));
       const valid = await createGames(7, at(40));
 
-      const first = await runJackpotRounds(t.ctx, { leadMs: LEAD_MS });
+      const first = await runJackpotRounds(t.ctx, { leadMs: LEAD_MS, preferWithinMs: 0 });
       expect(first.templates).toEqual({ daily9: 'created', weekly13: 'created' });
       expect(first.created).toHaveLength(2);
       const rounds = await Promise.all(first.created.map(roundOf));
@@ -234,7 +234,7 @@ describe('jackpot-rounds task', () => {
       }
 
       // Nothing more while they take entries.
-      const again = await runJackpotRounds(t.ctx, { leadMs: LEAD_MS });
+      const again = await runJackpotRounds(t.ctx, { leadMs: LEAD_MS, preferWithinMs: 0 });
       expect(again).toMatchObject({
         closed: [],
         created: [],
@@ -244,7 +244,7 @@ describe('jackpot-rounds task', () => {
       // At the first kick-off both close, and new rounds open on events the
       // closed (still unsettled) rounds of the same template do not use.
       t.clock.set(at(40));
-      const next = await runJackpotRounds(t.ctx, { leadMs: 0 });
+      const next = await runJackpotRounds(t.ctx, { leadMs: 0, preferWithinMs: 0 });
       expect([...next.closed].sort()).toEqual([daily.id, weekly.id].sort());
       expect(next.templates).toEqual({ daily9: 'created', weekly13: 'created' });
       expect((await roundOf(daily.id)).status).toBe('closed');
@@ -279,10 +279,40 @@ describe('jackpot-rounds task', () => {
         }),
       );
       t.clock.set(at(70));
-      const last = await runJackpotRounds(t.ctx, { leadMs: 0 });
+      const last = await runJackpotRounds(t.ctx, { leadMs: 0, preferWithinMs: 0 });
       expect([...last.closed].sort()).toEqual([daily2.id, weekly2.id].sort());
       expect(last.templates).toEqual({ daily9: 'not_enough_events', weekly13: 'disabled' });
       expect(last.created).toEqual([]);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'opens rounds on games toward each template’s horizon, so they take entries for hours',
+    async () => {
+      await retireScheduledEvents();
+      await setTemplate(smallTemplate());
+      await setTemplate(
+        smallTemplate({
+          code: 'weekly13',
+          gameCount: 2,
+          maxCombinations: 9,
+          prizeTiers: [{ correct: 2, kind: 'shared', amount: birr(5_000) }],
+        }),
+      );
+      const hours = [2, 6, 12, 20, 23, 30];
+      const events = [];
+      for (const hour of hours) events.push(await createGame(at(hour * 60)));
+      const run = await runJackpotRounds(t.ctx);
+      expect(run.templates).toEqual({ daily9: 'created', weekly13: 'created' });
+      const rounds = await Promise.all(run.created.map(roundOf));
+      const daily = rounds.find((round) => round.templateCode === 'daily9')!;
+      const weekly = rounds.find((round) => round.templateCode === 'weekly13')!;
+      // daily9: the latest three within a day; weekly13: the latest two within a week.
+      expect(daily.games.map((game) => game.eventId)).toEqual(events.slice(2, 5));
+      expect(daily.closesAt).toEqual(at(12 * 60));
+      expect(weekly.games.map((game) => game.eventId)).toEqual(events.slice(4, 6));
+      expect(weekly.closesAt).toEqual(at(23 * 60));
     },
     TEST_TIMEOUT,
   );

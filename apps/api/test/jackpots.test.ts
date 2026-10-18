@@ -23,6 +23,7 @@ import {
   resultEvent,
   settleJackpotRound,
   shrinkJackpotTemplate,
+  updateJackpotTemplate,
   type Database,
 } from '@vamos/db';
 import { events, jackpotEntries, ledgerTransactions } from '@vamos/db/schema';
@@ -360,6 +361,15 @@ describe('POST /jackpots/:id/entries', () => {
       expect(malformed.statusCode).toBe(400);
       expect(apiError(malformed).code).toBe('validation_error');
     }
+    // Thousands of bad games (about 40 KB): one short error, not one issue per game.
+    const flood = await enter(
+      user,
+      roundId,
+      Array.from({ length: 5_000 }, () => ['1', '1']),
+    );
+    expect(flood.statusCode).toBe(400);
+    expect(apiError(flood).code).toBe('validation_error');
+    expect(flood.body.length).toBeLessThan(2_000);
 
     const noKey = await enter(user, roundId, [['1'], ['X'], ['2']], null);
     expect(noKey.statusCode).toBe(400);
@@ -612,10 +622,12 @@ describe('POST /dev/jackpots/rounds (demo only)', () => {
   it('opens a small round on the next scheduled events, shrunk from the template', async () => {
     // Sooner than every other test's games, so these are the next candidates.
     const eventIds = await createGames(3, at(2));
+    const user = await player();
     const response = await ctx.app.inject({
       method: 'POST',
       url: '/dev/jackpots/rounds',
       payload: { games: 3, leadSeconds: 60 },
+      headers: bearer(user),
     });
     expect(response.statusCode).toBe(201);
     const round = JackpotRoundView.parse(response.json());
@@ -632,7 +644,6 @@ describe('POST /dev/jackpots/rounds (demo only)', () => {
     expect(round.games.map((game) => game.eventId)).toEqual(eventIds);
 
     // A player can enter it right away.
-    const user = await player();
     const entry = await enter(user, round.id, [['1'], ['X'], ['2']]);
     expect(entry.statusCode).toBe(201);
 
@@ -641,9 +652,38 @@ describe('POST /dev/jackpots/rounds (demo only)', () => {
       url: '/dev/jackpots/rounds',
       // Nothing kicks off more than a day from now.
       payload: { template: 'weekly13', games: 13, leadSeconds: 24 * 3600 },
+      headers: bearer(user),
     });
     expect(tooMany.statusCode).toBe(409);
     expect(apiError(tooMany).code).toBe('not_enough_events');
+  });
+
+  it('needs a signed-in player and refuses a disabled template', async () => {
+    const anonymous = await ctx.app.inject({ method: 'POST', url: '/dev/jackpots/rounds' });
+    expect(anonymous.statusCode).toBe(401);
+
+    const user = await player(0n);
+    const setWeekly = (enabled: boolean) =>
+      db.transaction((tx) =>
+        updateJackpotTemplate(tx, {
+          code: 'weekly13',
+          value: { ...DEFAULT_JACKPOTS.weekly13, enabled },
+          actor: { type: 'system' },
+        }),
+      );
+    await setWeekly(false);
+    try {
+      const disabled = await ctx.app.inject({
+        method: 'POST',
+        url: '/dev/jackpots/rounds',
+        payload: { template: 'weekly13', games: 1 },
+        headers: bearer(user),
+      });
+      expect(disabled.statusCode).toBe(409);
+      expect(apiError(disabled).code).toBe('jackpot_disabled');
+    } finally {
+      await setWeekly(true);
+    }
   });
 
   it('is enabled only in demo mode outside production, and absent in licensed mode', async () => {

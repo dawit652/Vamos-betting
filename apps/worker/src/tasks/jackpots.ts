@@ -30,8 +30,10 @@ import type { SettlementJobData } from './outbox-dispatch';
  *   scheduled rounds that never opened (closeDueJackpotRounds); then, per
  *   enabled template, keeps one round taking entries (ensureJackpotRound:
  *   the template's number of upcoming scheduled football events with an
- *   open 1X2 market, kicking off more than `leadMs` from now, none of them
- *   a game of another unsettled round of that template; an advisory lock
+ *   open 1X2 market, kicking off more than `leadMs` from now, the latest
+ *   ones within the template's horizon (about a day for daily9, a week for
+ *   weekly13) so the round stays open about that long, none of them a game
+ *   of another unsettled round of that template; an advisory lock
  *   per template stops two workers opening two rounds). The template and
  *   the winnings tax are read from the settings in force and frozen on the
  *   round, so later edits only reach new rounds.
@@ -63,6 +65,13 @@ export interface JackpotRoundsOptions {
   leadMs?: number;
   /** ...and within this long after now (default: no limit). */
   horizonMs?: number;
+  /**
+   * A new round's games are the latest kicking off within this long after
+   * now (default per template, JACKPOT_ROUND_HORIZON_MS: about a day for
+   * daily9, a week for weekly13), so it takes entries for about that long;
+   * 0 takes the soonest events.
+   */
+  preferWithinMs?: number;
 }
 
 export interface JackpotRoundsSummary {
@@ -79,7 +88,7 @@ export interface JackpotRoundsSummary {
 /** One run of the round task: close what is due, then keep a round of every enabled template open. */
 export async function runJackpotRounds(
   ctx: TaskContext,
-  options: Pick<JackpotRoundsOptions, 'leadMs' | 'horizonMs'> = {},
+  options: Pick<JackpotRoundsOptions, 'leadMs' | 'horizonMs' | 'preferWithinMs'> = {},
 ): Promise<JackpotRoundsSummary> {
   const now = ctx.clock();
   const { closed, cancelled } = await withTxRetry(ctx.db, (tx) => closeDueJackpotRounds(tx, now));
@@ -100,6 +109,9 @@ export async function runJackpotRounds(
           now,
           leadMs: options.leadMs ?? JACKPOT_ROUND_LEAD_MS,
           ...(options.horizonMs === undefined ? {} : { horizonMs: options.horizonMs }),
+          ...(options.preferWithinMs === undefined
+            ? {}
+            : { preferWithinMs: options.preferWithinMs }),
         });
       });
       summary.templates[code] = result.outcome;

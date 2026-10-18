@@ -1,4 +1,4 @@
-import { birr, DEFAULT_JACKPOTS, DEFAULT_TAX } from '@vamos/core';
+import { birr, DEFAULT_JACKPOTS, DEFAULT_TAX, type JackpotTemplate } from '@vamos/core';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -14,6 +14,7 @@ import {
   setMarketStatus,
   shrinkJackpotTemplate,
   type CatalogIds,
+  type JackpotRound,
 } from '../src/index';
 import { auditLog, jackpotGames, jackpotRounds, outboxEvents } from '../src/schema/index';
 import {
@@ -272,8 +273,9 @@ describe('listJackpotCandidateEvents and ensureJackpotRound', () => {
     const created = results.filter((r) => r.outcome === 'created');
     expect(created).toHaveLength(1);
     const round = created[0]?.outcome === 'created' ? created[0].round : null;
-    expect(round?.games.map((g) => g.eventId)).toEqual(events.slice(0, 3).map((e) => e.eventId));
-    expect(round?.closesAt).toEqual(new Date(now.getTime() + HOUR));
+    // The latest three within the horizon: the round stays open as long as it can.
+    expect(round?.games.map((g) => g.eventId)).toEqual(events.slice(1, 4).map((e) => e.eventId));
+    expect(round?.closesAt).toEqual(new Date(now.getTime() + HOUR + 15 * MINUTE));
     for (const other of results.filter((r) => r.outcome !== 'created')) {
       expect(other).toEqual({ outcome: 'exists', roundId: round?.id });
     }
@@ -490,5 +492,66 @@ describe('database guards', () => {
         .where(eq(jackpotGames.roundId, round.id)),
     );
     expect(pgCode(moved)).toBe('23001');
+  });
+});
+
+describe('round scheduling', () => {
+  const ensure = (template: JackpotTemplate, now: Date, horizonMs?: number) =>
+    handle.db.transaction((tx) =>
+      ensureJackpotRound(tx, {
+        template,
+        tax: DEFAULT_TAX,
+        now,
+        leadMs: 30 * MINUTE,
+        ...(horizonMs === undefined ? {} : { horizonMs }),
+      }),
+    );
+  const created = (result: Awaited<ReturnType<typeof ensure>>) => {
+    if (result.outcome !== 'created') throw new Error(`expected a round, got ${result.outcome}`);
+    return result.round;
+  };
+  const lastKickOff = (round: JackpotRound) =>
+    Math.max(...round.games.map((game) => game.startTime.getTime()));
+
+  it('opens each template on games toward its horizon, so its round stays open long', async () => {
+    const now = new Date(Date.now() + 200 * DAY);
+    // A fixture every 2 hours for nine days.
+    await createGames(handle.db, ids, 9 * 12, new Date(now.getTime() + HOUR), 2 * HOUR);
+    const daily = created(await ensure(DEFAULT_JACKPOTS.daily9, now));
+    expect(daily.closesAt.getTime() - now.getTime()).toBeGreaterThanOrEqual(6 * HOUR);
+    expect(lastKickOff(daily) - now.getTime()).toBeLessThanOrEqual(DAY);
+    const weekly = created(await ensure(DEFAULT_JACKPOTS.weekly13, now));
+    expect(weekly.closesAt.getTime() - now.getTime()).toBeGreaterThanOrEqual(5 * DAY);
+    expect(lastKickOff(weekly) - now.getTime()).toBeLessThanOrEqual(7 * DAY);
+  });
+
+  it('falls back to the soonest events when too few kick off within the horizon', async () => {
+    const now = new Date(Date.now() + 230 * DAY);
+    const soon = await createGames(handle.db, ids, 2, new Date(now.getTime() + 2 * HOUR), HOUR);
+    await createGames(handle.db, ids, 8, new Date(now.getTime() + 2 * DAY), HOUR);
+    const round = created(await ensure(DEFAULT_JACKPOTS.daily9, now));
+    expect(round.games).toHaveLength(9);
+    expect(round.games.slice(0, 2).map((g) => g.eventId)).toEqual(soon.map((e) => e.eventId));
+    expect(round.closesAt).toEqual(new Date(now.getTime() + 2 * HOUR));
+    // An explicit horizon stays a hard limit.
+    const later = new Date(now.getTime() + 10 * DAY);
+    expect(await ensure(DEFAULT_JACKPOTS.daily9, later, 3 * HOUR)).toMatchObject({
+      outcome: 'not_enough_events',
+    });
+  });
+
+  it('does not count a smaller (dev) round of the template as its round', async () => {
+    const now = new Date(Date.now() + 260 * DAY);
+    const events = await createGames(handle.db, ids, 5, new Date(now.getTime() + HOUR));
+    await openRound(handle.db, events.slice(0, 2), {
+      template: shrinkJackpotTemplate(smallTemplate(), 2),
+      now,
+    });
+    const round = created(await ensure(smallTemplate(), now, 3 * HOUR));
+    expect(round.games.map((g) => g.eventId)).toEqual(events.slice(2).map((e) => e.eventId));
+    expect(await ensure(smallTemplate(), now, 3 * HOUR)).toEqual({
+      outcome: 'exists',
+      roundId: round.id,
+    });
   });
 });

@@ -125,8 +125,8 @@ export async function placeBetApi(
 
 /**
  * Demo-only dev route: opens a small jackpot round on the next scheduled
- * football events (no session or CSRF needed; pass the cookie-less `request`
- * fixture). Waits up to `timeoutMs` while the feed has too few upcoming
+ * football events, as the signed-in player (`page.request`, with the CSRF
+ * echo). Waits up to `timeoutMs` while the feed has too few upcoming
  * events (409 `not_enough_events`: the rolling fixtures arrive every minute).
  */
 export async function createDevJackpotRound(
@@ -136,6 +136,7 @@ export async function createDevJackpotRound(
   const deadline = Date.now() + (options.timeoutMs ?? 120_000);
   for (;;) {
     const response = await request.post(`${API_URL}/dev/jackpots/rounds`, {
+      headers: await csrfHeaders(request),
       data: { template: 'daily9', games: options.games, leadSeconds: options.leadSeconds },
     });
     if (response.status() === 201) return (await response.json()) as JackpotRoundView;

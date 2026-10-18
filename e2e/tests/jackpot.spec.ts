@@ -58,8 +58,8 @@ test('place a jackpot entry with a double pick and see it settled', async ({ pag
     expect((await getWallet(page.request)).cash).toBe(TOP_UP);
   });
 
-  // The dev route uses the cookie-less `request` fixture (no session needed).
-  const round = await createDevJackpotRound(request, {
+  // The dev route needs the signed-in player's session.
+  const round = await createDevJackpotRound(page.request, {
     games: 3,
     leadSeconds: LEAD_SECONDS,
     timeoutMs: FIND_EVENTS_MS,

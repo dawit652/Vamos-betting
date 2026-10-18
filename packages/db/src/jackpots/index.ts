@@ -48,6 +48,8 @@ export {
   closeDueJackpotRounds,
   createJackpotRound,
   ensureJackpotRound,
+  JACKPOT_ROUND_HORIZON_MS,
+  lockJackpotTemplate,
   isRoundDue,
   JACKPOT_MARKET_KEY,
   JACKPOT_SPORT,
