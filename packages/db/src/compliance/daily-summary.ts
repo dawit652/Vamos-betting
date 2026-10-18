@@ -26,6 +26,7 @@ import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
 import { dailySummaries, dailySummaryVersions } from '../schema/compliance';
 import { ledgerAccounts, ledgerEntries, ledgerTransactions } from '../schema/ledger';
+import { payouts } from '../schema/payments';
 import { loadComplianceSettings } from './settings';
 
 /**
@@ -122,7 +123,7 @@ export function dailySummaryRowOf(row: DailySummary): DailySummaryRow {
  * Sums the ledger postings of one business day into category totals
  * (classified like core classifyPosting: rejections and jackpot refunds by
  * key prefix, a settlement reversal by the type of the settlement it
- * negates), plus the players who staked that day.
+ * negates), plus the active players (a stake, deposit or withdrawal that day).
  */
 export async function loadDailyTotals(
   exec: DbExecutor,
@@ -170,15 +171,25 @@ export async function loadDailyTotals(
     amount: BigInt(row.amount),
     transactions: Number(row.transactions),
   }));
+  // Active: a bet stake, jackpot entry (not a refund), deposit or withdrawal request on the
+  // player's cash account that day, or a withdrawal paid that day (no player entry: by its payout).
   const active = await exec.execute<{ n: number }>(sql`
-    SELECT count(DISTINCT a.user_id)::int AS n
-    FROM ${ledgerTransactions} t
-    JOIN ${ledgerEntries} e ON e.transaction_id = t.id
-    JOIN ${ledgerAccounts} a ON a.id = e.account_id
-    WHERE t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz
-      AND a.kind = 'player_cash'
-      AND (t.type = 'bet_stake'
-        OR (t.type = 'jackpot_entry' AND NOT starts_with(t.idempotency_key, ${JACKPOT_REFUND_KEY_PREFIX})))
+    SELECT count(DISTINCT user_id)::int AS n FROM (
+      SELECT a.user_id
+      FROM ${ledgerTransactions} t
+      JOIN ${ledgerEntries} e ON e.transaction_id = t.id
+      JOIN ${ledgerAccounts} a ON a.id = e.account_id
+      WHERE t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz
+        AND a.kind = 'player_cash'
+        AND (t.type IN ('bet_stake', 'deposit', 'withdrawal')
+          OR (t.type = 'jackpot_entry' AND NOT starts_with(t.idempotency_key, ${JACKPOT_REFUND_KEY_PREFIX})))
+      UNION ALL
+      SELECT p.user_id
+      FROM ${ledgerTransactions} t
+      JOIN ${payouts} p ON p.id::text = t.ref_id
+      WHERE t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz
+        AND t.type = 'withdrawal' AND t.ref_type = 'payout'
+    ) active
   `);
   return { totals, activePlayers: Number(active.rows[0]?.n ?? 0) };
 }

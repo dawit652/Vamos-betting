@@ -204,7 +204,7 @@ export interface DailyFigures {
   /** Withdrawals paid out through a provider. */
   withdrawals: Santim;
   withdrawalCount: number;
-  /** Players with a stake (bet or jackpot entry) posted that day. */
+  /** Players with a bet, jackpot entry, deposit, withdrawal request or paid withdrawal that day. */
   activePlayers: number;
   /** The ELS commission rate used (basis points of GGR). */
   commissionRateBps: number;

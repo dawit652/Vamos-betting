@@ -406,20 +406,35 @@ export interface ElsSweepResult {
 }
 
 /**
+ * The sweep's cursor only moves past outbox ids at least this old. Ids come
+ * from a sequence at insert while created_at is the transaction's start, so
+ * a lower id can commit later (and look younger) than a higher one; a
+ * transaction is assumed to stay open less than this.
+ */
+export const ELS_SWEEP_CURSOR_LAG_MS = 10 * 60_000;
+
+/**
  * The ELS safety net (worker, every few minutes): records the reportable
  * outbox events older than `graceMs` that no job recorded (scanning outbox
  * ids after the cursor, `scanLimit` per run) and writes every pending
  * record older than `graceMs` (`limit` per run). Ages use the database
- * clock, like outbox_events.created_at.
+ * clock, like outbox_events.created_at. The cursor moves only over the run
+ * of scanned ids older than `cursorLagMs` (default ELS_SWEEP_CURSOR_LAG_MS,
+ * at least `graceMs`): a younger id, or one still in flight, is scanned
+ * again by the next sweep instead of being skipped for good.
  */
 export async function sweepElsReports(
   db: Database,
   reporter: ElsReporter,
-  options: { graceMs?: number; limit?: number; scanLimit?: number } = {},
+  options: { graceMs?: number; limit?: number; scanLimit?: number; cursorLagMs?: number } = {},
 ): Promise<ElsSweepResult> {
   const result: ElsSweepResult = { recorded: 0, written: 0, pending: 0, failed: 0 };
   if (reporter.mode === 'off') return result;
   const graceSeconds = Math.max(0, options.graceMs ?? 60_000) / 1000;
+  const lagSeconds = Math.max(
+    graceSeconds,
+    (options.cursorLagMs ?? ELS_SWEEP_CURSOR_LAG_MS) / 1000,
+  );
   const limit = options.limit ?? 500;
   const scanLimit = options.scanLimit ?? 5_000;
 
@@ -430,32 +445,34 @@ export async function sweepElsReports(
     .where(eq(complianceCursors.name, ELS_OUTBOX_CURSOR));
   const after = cursor?.position ?? 0n;
   const scanned = await db
-    .select({ id: outboxEvents.id, type: outboxEvents.type, reported: elsReports.outboxId })
+    .select({
+      id: outboxEvents.id,
+      reported: elsReports.outboxId,
+      due: sql<boolean>`${outboxEvents.createdAt} < now() - make_interval(secs => ${graceSeconds})`,
+      settled: sql<boolean>`${outboxEvents.createdAt} < now() - make_interval(secs => ${lagSeconds})`,
+    })
     .from(outboxEvents)
     .leftJoin(elsReports, eq(elsReports.outboxId, outboxEvents.id))
-    .where(
-      and(
-        gt(outboxEvents.id, after),
-        lt(outboxEvents.createdAt, sql`now() - make_interval(secs => ${graceSeconds})`),
-      ),
-    )
+    .where(and(gt(outboxEvents.id, after), inArray(outboxEvents.type, [...ELS_REPORTABLE_TYPES])))
     .orderBy(asc(outboxEvents.id))
     .limit(scanLimit);
-  const reportable = new Set(ELS_REPORTABLE_TYPES);
+  let advanceTo: bigint | null = null;
+  let settledRun = true;
   for (const row of scanned) {
-    if (!reportable.has(row.type) || row.reported !== null) continue;
+    if (settledRun && row.settled) advanceTo = row.id;
+    else settledRun = false;
+    if (!row.due || row.reported !== null) continue;
     const { report } = await recordElsEvent(db, row.id);
     if (report !== null) result.recorded += 1;
   }
-  const last = scanned[scanned.length - 1];
-  if (last !== undefined) {
+  if (advanceTo !== null) {
     await db
       .insert(complianceCursors)
-      .values({ name: ELS_OUTBOX_CURSOR, position: last.id })
+      .values({ name: ELS_OUTBOX_CURSOR, position: advanceTo })
       .onConflictDoUpdate({
         target: complianceCursors.name,
         set: {
-          position: sql`GREATEST(${complianceCursors.position}, ${last.id})`,
+          position: sql`GREATEST(${complianceCursors.position}, ${advanceTo})`,
           updatedAt: sql`now()`,
         },
       });

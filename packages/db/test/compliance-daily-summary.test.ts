@@ -36,7 +36,7 @@ import {
   type LedgerTransactionType,
   type PostingEntry,
 } from '../src/index';
-import { auditLog, outboxEvents } from '../src/schema/index';
+import { auditLog, outboxEvents, payouts } from '../src/schema/index';
 import { createTestDatabase } from '../src/testing';
 import { createUser, dropTestDatabase, errorText, pgCode } from './helpers';
 
@@ -337,6 +337,73 @@ describe('daily summary figures', () => {
     expect(ggr).toBe(house);
     expect(tax).toBe(await getBalance(handle.db, { kind: 'house_tax_payable' }));
     expect(day0.turnover).toBe(0n);
+  });
+});
+
+describe('active players', () => {
+  it('counts players who only deposit, request or are paid a withdrawal that day', async () => {
+    const own = await createTestDatabase();
+    try {
+      const day = '2026-10-20';
+      const depositor = await createUser(own.db);
+      const withdrawer = await createUser(own.db);
+      const ownPost = (input: Parameters<typeof postTransaction>[1]) =>
+        own.db.transaction((tx) => postTransaction(tx, input));
+      await ownPost({
+        type: 'deposit',
+        idempotencyKey: depositLedgerKey(b('6')),
+        entries: depositEntries('mock', depositor, birr(300)),
+        createdAt: at('2026-10-20T08:00:00Z'),
+      });
+      await ownPost({
+        type: 'deposit',
+        idempotencyKey: depositLedgerKey(b('7')),
+        entries: depositEntries('mock', withdrawer, birr(300)),
+        createdAt: at('2026-10-18T08:00:00Z'),
+      });
+      const payoutId = b('8');
+      const hold = await ownPost({
+        type: 'withdrawal',
+        idempotencyKey: withdrawalHoldLedgerKey(payoutId),
+        refType: 'payout',
+        refId: payoutId,
+        entries: withdrawalHoldEntries(withdrawer, birr(100)),
+        createdAt: at('2026-10-19T08:00:00Z'),
+      });
+      const paid = await ownPost({
+        type: 'withdrawal',
+        idempotencyKey: withdrawalPaidLedgerKey(payoutId),
+        refType: 'payout',
+        refId: payoutId,
+        entries: withdrawalPaidEntries('mock', birr(100)),
+        createdAt: at('2026-10-20T09:00:00Z'),
+      });
+      await own.db.insert(payouts).values({
+        id: payoutId,
+        userId: withdrawer,
+        provider: 'mock',
+        amount: birr(100),
+        phone: '251911000000',
+        recipientName: 'Test Player',
+        status: 'paid',
+        approvedBy: 'auto',
+        approvedAt: at('2026-10-19T08:00:00Z'),
+        idempotencyKey: 'wd-1',
+        holdLedgerTransactionId: hold.transactionId,
+        paidLedgerTransactionId: paid.transactionId,
+        requestedAt: at('2026-10-19T08:00:00Z'),
+        completedAt: at('2026-10-20T09:00:00Z'),
+        updatedAt: at('2026-10-20T09:00:00Z'),
+      });
+      const figures = await computeDailyFigures(own.db, day);
+      expect(figures).toMatchObject({ depositCount: 1, withdrawalCount: 1, betCount: 0 });
+      // The depositor, and the withdrawer whose payout was paid that day.
+      expect(figures.activePlayers).toBe(2);
+      // The day the withdrawal was requested, the withdrawer was active too.
+      expect((await computeDailyFigures(own.db, '2026-10-19')).activePlayers).toBe(1);
+    } finally {
+      await dropTestDatabase(own);
+    }
   });
 });
 

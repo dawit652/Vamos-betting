@@ -19,7 +19,7 @@ import {
   sweepElsReports,
   type ElsReporter,
 } from '../src/index';
-import { dailySummaries, elsReports } from '../src/schema/index';
+import { dailySummaries, elsReports, outboxEvents } from '../src/schema/index';
 import { createTestDatabase } from '../src/testing';
 import { createUser, dropTestDatabase, errorText, pgCode } from './helpers';
 
@@ -189,6 +189,29 @@ describe('ELS emission', () => {
       reporter: { mode: 'file', ready: true },
     });
     expect(status.written).toBeGreaterThanOrEqual(6);
+  });
+
+  it('never skips an outbox id whose transaction started later than a higher id', async () => {
+    // Ids come from a sequence at insert, created_at is the transaction start: a lower id can be
+    // younger than a higher one. The sweep must come back for the lower id.
+    const low = await deposit('i-9a');
+    const high = await deposit('i-9b');
+    const age = (id: bigint, seconds: number) =>
+      handle.db
+        .update(outboxEvents)
+        .set({ createdAt: sql`now() - make_interval(secs => ${seconds})` })
+        .where(eq(outboxEvents.id, id));
+    await age(low, 59);
+    await age(high, 61);
+    expect((await sweepElsReports(handle.db, reporter, { graceMs: 60_000 })).recorded).toBe(1);
+    expect(await report(high)).toBeDefined();
+    expect(await report(low)).toBeUndefined();
+    await age(low, 600);
+    expect((await sweepElsReports(handle.db, reporter, { graceMs: 60_000 })).recorded).toBe(1);
+    expect(await report(low)).toBeDefined();
+    await sweepElsReports(handle.db, reporter, { graceMs: 0 });
+    expect(await report(low)).toMatchObject({ status: 'written' });
+    expect(await report(high)).toMatchObject({ status: 'written' });
   });
 
   it('writes a finalised daily summary as a stream record and a CSV file', async () => {

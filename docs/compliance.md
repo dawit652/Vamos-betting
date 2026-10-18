@@ -36,7 +36,9 @@ an `ElsReporter` (`ELS_REPORTING_MODE=file|http|off`, default `file`; `ELS_REPOR
   Folders are created `0700` and files `0600` (personal data); the status warns when the folder is readable by
   other users.
 - **Exactly once:** the durable `els_reports` table records each outbox id with a hash of the line. Replays
-  and restarts do not duplicate lines; a sweep re-emits rows that were not written.
+  and restarts do not duplicate lines; a sweep re-emits rows that were not written. The sweep's outbox
+  cursor only moves past events older than 10 minutes, so an event whose transaction committed late is
+  still found.
 - **Data minimisation (PDPP):** only whitelisted fields are written. A record carries the pseudonymous
   `playerRef` (the account UUID), ids, odds in milli and amounts in **santim** (1 ETB = 100 santim). No names,
   phone numbers, recipient names or free text from players.
@@ -48,19 +50,19 @@ an `ElsReporter` (`ELS_REPORTING_MODE=file|http|off`, default `file`; `ELS_REPOR
 A business day is a calendar day in Africa/Addis_Ababa (UTC+3): `[D-1 21:00Z, D 21:00Z)`. Figures come from
 ledger postings by their own timestamp.
 
-| Figure          | Definition                                                                            |
-| --------------- | ------------------------------------------------------------------------------------- |
-| Turnover        | bet stakes (minus live bets rejected that day) + jackpot entries                      |
-| Payouts (gross) | winnings paid + cash-outs + refunds (void bets, void jackpot rounds) + jackpot prizes |
-| GGR             | turnover - payouts                                                                    |
-| Tax withheld    | postings to `house_tax_payable`                                                       |
-| Bonuses         | promotion cost postings                                                               |
-| Refunds/voids   | refund postings                                                                       |
-| Cash-outs       | cash-out payout postings                                                              |
-| Deposits        | money in through the payment providers (amount and count)                             |
-| Withdrawals     | money out through the payment providers (amount and count)                            |
-| Active players  | distinct players with a bet, jackpot entry, deposit or withdrawal that day            |
-| ELS commission  | `floor(GGR x rateBps / 10000)`, and 0 when GGR <= 0                                   |
+| Figure          | Definition                                                                                          |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| Turnover        | bet stakes (minus live bets rejected that day) + jackpot entries                                    |
+| Payouts (gross) | winnings paid + cash-outs + refunds (void bets, void jackpot rounds) + jackpot prizes               |
+| GGR             | turnover - payouts                                                                                  |
+| Tax withheld    | postings to `house_tax_payable`                                                                     |
+| Bonuses         | promotion cost postings                                                                             |
+| Refunds/voids   | refund postings                                                                                     |
+| Cash-outs       | cash-out payout postings                                                                            |
+| Deposits        | money in through the payment providers (amount and count)                                           |
+| Withdrawals     | money out through the payment providers (amount and count)                                          |
+| Active players  | distinct players with a bet, jackpot entry, deposit, withdrawal request or paid withdrawal that day |
+| ELS commission  | `floor(GGR x rateBps / 10000)`, and 0 when GGR <= 0                                                 |
 
 - A correction's reversal counts negative on the day it is posted. GGR is a stakes-in, payouts-out view of
   each day. The Phase 9 dashboard GGR (what `house_revenue` gained) differs by the change in open stakes and
