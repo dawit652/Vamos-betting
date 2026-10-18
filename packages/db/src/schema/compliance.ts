@@ -243,7 +243,10 @@ export const reconciliationRuns = pgTable(
     }),
     /** 'system' or the staff member's id. */
     triggeredBy: text('triggered_by').notNull(),
-    checks: jsonb('checks').notNull(),
+    /** CheckSummary[] (packages/db/src/compliance/reconciliation.ts). */
+    checks: jsonb('checks')
+      .$type<Array<{ check: string; ok: boolean; checked: number; mismatches: number }>>()
+      .notNull(),
     mismatchCount: integer('mismatch_count').notNull(),
     error: text('error'),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
