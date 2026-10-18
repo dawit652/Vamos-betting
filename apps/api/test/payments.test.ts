@@ -14,6 +14,7 @@ import {
 } from '@vamos/contracts';
 import { applyPayoutAttempt, markPayoutProcessing, setSetting } from '@vamos/db';
 import {
+  amlFlags,
   kycProfiles,
   ledgerTransactions,
   outboxEvents,
@@ -772,8 +773,10 @@ describe('withdrawals', () => {
     );
     expect(list.wageringRemaining).toBe('2000000');
 
-    // From here on the deposits count as wagered.
+    // From here on the deposits count as wagered (and the deposit-then-withdraw AML rule,
+    // tested in 'AML on withdrawal requests', is off).
     await setPaymentRules({ wageringMultiplierBps: 0 });
+    await setSetting(ctx.db.db, 'aml_rules', { depositThenWithdraw: { enabled: false } });
 
     const phone = await postWithdrawal(player, { amount: '10000', phone: other.phone });
     expect(phone.statusCode).toBe(422);
@@ -1068,6 +1071,33 @@ describe('withdrawals', () => {
       'payment.withdrawal_approved',
       'payment.withdrawal_paid',
     ]);
+  });
+});
+
+describe('AML on withdrawal requests', () => {
+  it('holds a withdrawal of an unplayed deposit for staff (high-severity flag, aml_review)', async () => {
+    await setPaymentRules({ wageringMultiplierBps: 0 });
+    await setSetting(ctx.db.db, 'aml_rules', {});
+    const player = await registerAndLogin(ctx);
+    await depositAndApprove(player, 2_000_000n);
+    await verifyKyc(player);
+    // Small enough to be approved automatically, but nothing of the 20,000 ETB was staked.
+    const response = await postWithdrawal(player, { amount: '20000' });
+    expect(response.statusCode, response.body).toBe(201);
+    expect(WithdrawalView.parse(response.json())).toMatchObject({
+      status: 'requested',
+      reviewReason: 'aml_review',
+    });
+    const flags = await ctx.db.db.select().from(amlFlags).where(eq(amlFlags.userId, player.userId));
+    expect(flags).toMatchObject([
+      { rule: 'deposit_then_withdraw', severity: 'high', status: 'open', source: 'withdrawal' },
+    ]);
+    // A second request waits for staff too, and raises no second flag for the same deposit.
+    const second = await postWithdrawal(player, { amount: '10000' });
+    expect(WithdrawalView.parse(second.json()).reviewReason).toBe('aml_review');
+    expect(
+      await ctx.db.db.select().from(amlFlags).where(eq(amlFlags.userId, player.userId)),
+    ).toHaveLength(1);
   });
 });
 
