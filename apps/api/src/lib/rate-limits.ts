@@ -27,11 +27,20 @@ export interface AuthLimits {
    * number is locked even the right password gets 429, until the window ends.
    */
   loginPerPhone: WindowLimit;
+  /** Staff sign-ins (POST /admin/auth/login) from one client address. */
+  staffLoginPerClient: WindowLimit;
+  /**
+   * Staff sign-ins for one email from any address (on top of the account
+   * lockout after 5 failures, so the argon2 work per account stays bounded).
+   */
+  staffLoginPerEmail: WindowLimit;
 }
 
 export const DEFAULT_AUTH_LIMITS: AuthLimits = {
   perClient: { max: 300, timeWindow: 15 * MINUTE_MS },
   loginPerPhone: { max: 20, timeWindow: 15 * MINUTE_MS },
+  staffLoginPerClient: { max: 60, timeWindow: 15 * MINUTE_MS },
+  staffLoginPerEmail: { max: 20, timeWindow: 15 * MINUTE_MS },
 };
 
 export type Limiter = ReturnType<FastifyInstance['createRateLimit']>;

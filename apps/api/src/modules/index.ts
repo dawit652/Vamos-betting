@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppDeps } from '../deps';
+import adminRoutes from './admin/routes';
 import authRoutes from './auth/routes';
 import bettingRoutes from './betting/routes';
 import catalogRoutes from './catalog/routes';
@@ -29,6 +30,8 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   await app.register(userStreamRoutes);
   await app.register(paymentRoutes);
   await app.register(jackpotRoutes);
+  // The back office: staff sessions and RBAC of their own (plugins/staff-session.ts).
+  await app.register(adminRoutes);
   if (devInboxEnabled(deps)) {
     await app.register(devRoutes);
   }

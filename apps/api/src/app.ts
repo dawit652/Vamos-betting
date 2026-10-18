@@ -3,7 +3,7 @@ import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyRateLimit from '@fastify/rate-limit';
 import type { AppConfig } from '@vamos/config';
-import type { HealthResponse } from '@vamos/contracts';
+import { STAFF_CSRF_HEADER, type HealthResponse } from '@vamos/contracts';
 import { DomainError } from '@vamos/db';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { AppDeps } from './deps';
@@ -85,6 +85,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       'content-type',
       'authorization',
       CSRF_HEADER,
+      STAFF_CSRF_HEADER,
       'x-request-id',
       IDEMPOTENCY_KEY_HEADER,
     ],

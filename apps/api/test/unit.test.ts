@@ -191,6 +191,7 @@ describe('startup checks', () => {
       SMS_PROVIDER: 'http',
       FEED_PROVIDER: 'manual',
       TAX_CONFIG_CONFIRMED: 'true',
+      ADMIN_TOTP_KEY: '7f'.repeat(32),
     } as const;
     // loadConfig itself now refuses these (packages/config licensedModeViolations); the API
     // check stays as defence in depth for configs built by other means.

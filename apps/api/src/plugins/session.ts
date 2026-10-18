@@ -8,6 +8,7 @@ import type { AppDeps } from '../deps';
 import { randomToken, safeEqualHex, sha256Hex } from '../lib/crypto';
 import { forbidden, unauthorized } from '../lib/errors';
 import { toLocale, type Locale } from '../lib/locale';
+import { isStaffPath } from '../lib/staff-path';
 
 export const SESSION_COOKIE = 'vamos_session';
 export const CSRF_COOKIE = 'vamos_csrf';
@@ -203,9 +204,13 @@ function readCredential(request: FastifyRequest): Credential | null {
  * users who are no longer active count as unauthenticated. Cookie-based
  * requests with an unsafe method must echo the CSRF token in `x-csrf-token`
  * (403 `csrf_invalid`); bearer requests cannot be forged cross-site and are exempt.
+ * /admin requests are never authenticated as a player.
  */
 async function authenticate(deps: AppDeps, request: FastifyRequest): Promise<SessionUser | null> {
   if (request.method === 'OPTIONS') return null;
+  // The staff API has its own sessions (plugins/staff-session.ts): a player
+  // credential never reaches it, not even to fail a CSRF check there.
+  if (isStaffPath(request.url)) return null;
   const credential = readCredential(request);
   if (credential === null) return null;
 
