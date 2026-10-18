@@ -82,6 +82,11 @@ const RESULT_STATUSES: ReadonlySet<string> = new Set([
  *   the event that way first does, so the order of the results never
  *   changes what a decided market pays.
  *
+ * - Markets and selections a trader voided (voidMarket / voidSelection:
+ *   voided_at set) stay void: resulting and every correction leave a voided
+ *   market out and give a voided selection the result void, so the trader's
+ *   decision always stands.
+ *
  * Invalid input throws RangeError before anything is written: a negative
  * score, a half-time score above the full-time score, a tie for a market
  * that cannot tie ('ml', 'winner'), or a missing half-time score when the
@@ -126,6 +131,7 @@ export async function resultEvent(
       line: markets.line,
       status: markets.status,
       resultedInPlay: markets.resultedInPlay,
+      voidedAt: markets.voidedAt,
     })
     .from(markets)
     .where(eq(markets.eventId, eventId))
@@ -133,10 +139,13 @@ export async function resultEvent(
     .for('update');
   // The first resulting keeps the markets already final. A correction re-resolves
   // them, except that only a final score re-resolves the markets decided in play.
-  const toResolve = marketRows.filter((market) =>
-    resulted
-      ? resolution.status === 'finished' || !market.resultedInPlay
-      : market.status !== 'settled' && market.status !== 'void',
+  // A market a trader voided is never resolved again.
+  const toResolve = marketRows.filter(
+    (market) =>
+      market.voidedAt === null &&
+      (resulted
+        ? resolution.status === 'finished' || !market.resultedInPlay
+        : market.status !== 'settled' && market.status !== 'void'),
   );
   const selectionRows =
     toResolve.length === 0
@@ -147,6 +156,7 @@ export async function resultEvent(
             marketId: selections.marketId,
             code: selections.code,
             result: selections.result,
+            voidedAt: selections.voidedAt,
           })
           .from(selections)
           .where(
@@ -162,7 +172,7 @@ export async function resultEvent(
   const byResult: Record<SelectionResult, string[]> = { won: [], lost: [], void: [] };
   const selectionsByMarket = new Map<
     string,
-    Array<{ id: string; code: string; result: SelectionResult | null }>
+    Array<{ id: string; code: string; result: SelectionResult | null; voidedAt: Date | null }>
   >();
   for (const selection of selectionRows) {
     const list = selectionsByMarket.get(selection.marketId) ?? [];
@@ -181,7 +191,11 @@ export async function resultEvent(
     for (const selection of selectionsByMarket.get(market.id) ?? []) {
       let result: SelectionResult;
       try {
-        result = resolveSelection({ type, line: market.line }, selection.code, resolution);
+        // A selection a trader voided stays void.
+        result =
+          selection.voidedAt !== null
+            ? 'void'
+            : resolveSelection({ type, line: market.line }, selection.code, resolution);
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         throw new RangeError(`cannot result market ${market.id} (${type}): ${reason}`, {
@@ -361,6 +375,9 @@ export interface ResultMarketOutcome {
  *   resulting or correcting the event as cancelled, abandoned or postponed,
  *   leave it as it is and result the rest.
  *
+ * - A market a trader voided (voidMarket) is left as it is ('unchanged'); a
+ *   selection a trader voided (voidSelection) keeps the result void.
+ *
  * Invalid input (a bad score, an unknown market type, a selection code the
  * market type does not have) throws RangeError before anything is written.
  */
@@ -386,6 +403,7 @@ export async function resultMarket(
       line: markets.line,
       key: markets.key,
       status: markets.status,
+      voidedAt: markets.voidedAt,
     })
     .from(markets)
     .where(eq(markets.id, marketId))
@@ -393,12 +411,20 @@ export async function resultMarket(
   if (market === undefined || market.eventId !== event.id) {
     throw new CatalogNotFoundError('market', marketId);
   }
+  if (market.voidedAt !== null) {
+    return { outcome: 'unchanged', eventId: event.id, marketId, status: 'void', messages: [] };
+  }
   if (!Object.hasOwn(MARKET_TYPES, market.type)) {
     throw new RangeError(`market ${market.id} has an unknown type "${market.type}"`);
   }
   const type = market.type as MarketTypeCode;
   const selectionRows = await tx
-    .select({ id: selections.id, code: selections.code, result: selections.result })
+    .select({
+      id: selections.id,
+      code: selections.code,
+      result: selections.result,
+      voidedAt: selections.voidedAt,
+    })
     .from(selections)
     .where(eq(selections.marketId, marketId))
     .orderBy(asc(selections.id))
@@ -418,12 +444,14 @@ export async function resultMarket(
     decided === null
       ? null
       : selectionRows.map((row) => {
-          const result = decided[row.code];
-          if (result === undefined) {
+          const decidedResult = decided[row.code];
+          if (decidedResult === undefined) {
             throw new RangeError(
               `market ${market.id} (${market.key}) has an unknown selection "${row.code}"`,
             );
           }
+          // A selection a trader voided stays void.
+          const result: SelectionResult = row.voidedAt !== null ? 'void' : decidedResult;
           return { id: row.id, stored: row.result, result };
         });
   const status = results?.every((row) => row.result === 'void') ? 'void' : 'settled';

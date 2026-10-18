@@ -18,6 +18,35 @@ export const DEV_SESSION_SECRET = 'dev-only-session-secret-change-me-0123456789'
  */
 export const DEV_MOCK_PAYMENT_WEBHOOK_SECRET = 'dev-only-mock-payment-webhook-secret-0123456789';
 
+/**
+ * AES-256-GCM key (32 bytes, hex) that encrypts the back-office staff TOTP
+ * secrets at rest (ADMIN_TOTP_KEY). Development and the demo only: production
+ * and licensed mode refuse it.
+ */
+export const DEV_ADMIN_TOTP_KEY =
+  'aed9c3710ea4fb29e5d03551229bacfb328e796012897a735bda51c7d3432e4e';
+
+const HEX_KEY_RE = /^[0-9a-fA-F]{64}$/;
+/** 32 bytes in base64 (standard or URL-safe alphabet, padding optional). */
+const BASE64_KEY_RE = /^[A-Za-z0-9+/_-]{43}=?$/;
+
+/**
+ * Decodes a 32-byte key written as 64 hex characters or as base64 (standard
+ * or URL-safe, with or without the padding). Returns null for anything else.
+ */
+export function parseAdminTotpKey(value: string): Buffer | null {
+  const text = value.trim();
+  if (HEX_KEY_RE.test(text)) return Buffer.from(text, 'hex');
+  if (!BASE64_KEY_RE.test(text)) return null;
+  const key = Buffer.from(text.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  return key.length === 32 ? key : null;
+}
+
+/** True when `key` is the published development key, however it was written. */
+export function isDevAdminTotpKey(key: Buffer): boolean {
+  return key.equals(Buffer.from(DEV_ADMIN_TOTP_KEY, 'hex'));
+}
+
 /** An optional secret: unset and blank both mean "not configured". */
 const secret = z
   .string()
@@ -56,6 +85,13 @@ const envSchema = z.object({
     .regex(/^[A-Za-z0-9_-]{1,64}$/, 'letters, digits, "_" or "-" (at most 64)')
     .default('vamos'),
   SESSION_SECRET: z.string().min(32).default(DEV_SESSION_SECRET),
+  /** Encrypts staff TOTP secrets at rest: 32 bytes as 64 hex characters or base64. */
+  ADMIN_TOTP_KEY: z
+    .string()
+    .refine((value) => parseAdminTotpKey(value) !== null, {
+      message: 'must be 32 bytes written as 64 hex characters or base64',
+    })
+    .default(DEV_ADMIN_TOTP_KEY),
 
   FEED_PROVIDER: z.enum(['mock', 'manual']).default('mock'),
   /** Simulated match minutes per real second for the mock live simulator. */
@@ -117,6 +153,11 @@ export interface AppConfig {
   redisUrl: string;
   queuePrefix: string;
   sessionSecret: string;
+  /** The back office (staff accounts). */
+  admin: {
+    /** AES-256-GCM key (32 bytes) of the staff TOTP secrets (ADMIN_TOTP_KEY). */
+    totpKey: Buffer;
+  };
   feed: {
     provider: 'mock' | 'manual';
     simSpeed: number;
@@ -180,6 +221,11 @@ export function licensedModeViolations(config: AppConfig): string[] {
       'SESSION_SECRET must be a unique secret in licensed mode (it keys OTP and ID hashes)',
     );
   }
+  if (isDevAdminTotpKey(config.admin.totpKey)) {
+    problems.push(
+      'ADMIN_TOTP_KEY must be a unique key in licensed mode (it encrypts the staff TOTP secrets)',
+    );
+  }
   if (!config.els.licenseNumber) {
     problems.push(
       'ELS_LICENSE_NUMBER is required: real-money betting needs an Ethiopian Lottery Service licence',
@@ -218,6 +264,17 @@ export function licensedModeViolations(config: AppConfig): string[] {
   return problems;
 }
 
+/** The decoded ADMIN_TOTP_KEY (the schema has already checked it). */
+function adminTotpKeyOf(value: string): Buffer {
+  const key = parseAdminTotpKey(value);
+  if (key === null) {
+    throw new ConfigError([
+      'ADMIN_TOTP_KEY: must be 32 bytes written as 64 hex characters or base64',
+    ]);
+  }
+  return key;
+}
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
@@ -237,6 +294,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     redisUrl: e.REDIS_URL,
     queuePrefix: e.QUEUE_PREFIX,
     sessionSecret: e.SESSION_SECRET,
+    admin: { totpKey: adminTotpKeyOf(e.ADMIN_TOTP_KEY) },
     feed: {
       provider: e.FEED_PROVIDER,
       simSpeed: e.SIM_SPEED,
@@ -283,6 +341,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const problems: string[] = [];
   if (config.nodeEnv === 'production' && config.sessionSecret === DEV_SESSION_SECRET) {
     problems.push('SESSION_SECRET must be set to a unique secret in production');
+  }
+  if (config.nodeEnv === 'production' && isDevAdminTotpKey(config.admin.totpKey)) {
+    // The development key is public: staff TOTP secrets would be readable from a database copy.
+    problems.push('ADMIN_TOTP_KEY must be set to a unique key in production');
   }
   if (
     config.nodeEnv === 'production' &&

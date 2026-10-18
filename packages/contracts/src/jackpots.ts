@@ -107,8 +107,12 @@ export type JackpotTierPayoutView = z.infer<typeof JackpotTierPayoutView>;
 /** The outcome of a settled or cancelled round. */
 export const JackpotSettlementView = z.object({
   void: z.boolean(),
-  /** cancelled_games: more than half of the games were cancelled; not_opened: never opened. */
-  voidReason: z.enum(['cancelled_games', 'not_opened']).nullable(),
+  /**
+   * cancelled_games: more than half of the games were cancelled; not_opened:
+   * never opened; cancelled_by_staff: the back office cancelled it before
+   * its first kick-off (every entry refunded).
+   */
+  voidReason: z.enum(['cancelled_games', 'not_opened', 'cancelled_by_staff']).nullable(),
   cancelledGames: Count,
   /** Entries that won a prize. */
   winners: Count,

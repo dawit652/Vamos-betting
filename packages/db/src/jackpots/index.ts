@@ -45,6 +45,12 @@ export {
   type LoadedJackpotGame,
 } from './games';
 export {
+  cancelJackpotRound,
+  JACKPOT_ROUND_CANCELLED,
+  type CancelJackpotRoundInput,
+  type CancelJackpotRoundResult,
+} from './cancel';
+export {
   closeDueJackpotRounds,
   createJackpotRound,
   ensureJackpotRound,

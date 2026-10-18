@@ -109,6 +109,12 @@ export const bets = pgTable(
   (t) => [
     uniqueIndex('bets_user_idempotency_uq').on(t.userId, t.idempotencyKey),
     index('bets_user_placed_idx').on(t.userId, t.placedAt, t.id),
+    // Back-office bet search and dashboard (all players, by placement time).
+    index('bets_placed_idx').on(t.placedAt, t.id),
+    // Open liabilities and the risk views.
+    index('bets_open_idx')
+      .on(t.placedAt)
+      .where(sql`${t.status} IN ('open', 'pending_acceptance')`),
     index('bets_pending_accept_idx')
       .on(t.acceptAfter)
       .where(sql`${t.status} = 'pending_acceptance'`),

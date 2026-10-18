@@ -1,7 +1,7 @@
 {
   "name": "vamos-betting",
   "private": true,
-  "description": "Vamos Betting – mobile-first sportsbook for the Ethiopian market (demo mode until licensed)",
+  "description": "Vamos Betting \u2013 mobile-first sportsbook for the Ethiopian market (demo mode until licensed)",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22.13.0"
@@ -22,6 +22,7 @@
     "db:generate": "pnpm --filter @vamos/db generate",
     "db:migrate": "pnpm --filter @vamos/db migrate",
     "db:seed": "pnpm --filter @vamos/db seed",
+    "admin:create": "pnpm --filter @vamos/db admin:create",
     "services:start": "bash infra/scripts/dev-services.sh start",
     "services:stop": "bash infra/scripts/dev-services.sh stop",
     "services:status": "bash infra/scripts/dev-services.sh status"

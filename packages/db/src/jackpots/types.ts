@@ -78,14 +78,17 @@ export function parseRoundTerms(json: JackpotRoundTermsJson): JackpotRoundTerms 
   };
 }
 
-/** Why a round is void. */
-export type JackpotVoidReason = 'cancelled_games' | 'not_opened';
+/**
+ * Why a round is void: more than half of its games cancelled; it never
+ * opened; or staff cancelled it before its first kick-off (cancelJackpotRound).
+ */
+export type JackpotVoidReason = 'cancelled_games' | 'not_opened' | 'cancelled_by_staff';
 
 /** The settlement summary of a settled or cancelled round. */
 export interface JackpotRoundSettlement {
   void: boolean;
   voidReason: JackpotVoidReason | null;
-  /** Each game's result, in game order ([] when the round never opened). */
+  /** Each game's result, in game order ([] when the round never opened or staff cancelled it). */
   results: JackpotGameResult[];
   cancelledGames: number;
   entries: number;
@@ -113,7 +116,7 @@ const count = z.number().int().min(0);
 
 const SettlementSchema = z.object({
   void: z.boolean(),
-  voidReason: z.enum(['cancelled_games', 'not_opened']).nullable(),
+  voidReason: z.enum(['cancelled_games', 'not_opened', 'cancelled_by_staff']).nullable(),
   results: z.array(z.enum(['1', 'X', '2', 'cancelled'])),
   cancelledGames: count,
   entries: count,

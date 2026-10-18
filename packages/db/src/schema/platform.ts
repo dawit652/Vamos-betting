@@ -63,6 +63,8 @@ export const auditLog = pgTable(
   (t) => [
     index('audit_target_idx').on(t.targetType, t.targetId),
     index('audit_actor_idx').on(t.actorType, t.actorId),
+    // The back office's audit log viewer filters by time.
+    index('audit_created_idx').on(t.createdAt),
   ],
 );
 

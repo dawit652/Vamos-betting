@@ -26,6 +26,7 @@ const LICENSED = {
   FEED_PROVIDER: 'manual',
   TAX_CONFIG_CONFIRMED: 'true',
   SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+  ADMIN_TOTP_KEY: '7f'.repeat(32),
 };
 
 describe('createPaymentProviders', () => {

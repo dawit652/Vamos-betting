@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  check,
   date,
   index,
   integer,
@@ -110,6 +111,10 @@ export const kycProfiles = pgTable(
     uniqueIndex('kyc_id_number_hash_uq')
       .on(t.idNumberHash)
       .where(sql`${t.idNumberHash} IS NOT NULL AND ${t.status} <> 'rejected'`),
+    // The back office's KYC review queue.
+    index('kyc_pending_idx')
+      .on(t.submittedAt)
+      .where(sql`${t.status} = 'pending'`),
   ],
 );
 
@@ -153,20 +158,50 @@ export const rgExclusions = pgTable(
   (t) => [index('rg_exclusions_user_idx').on(t.userId, t.startsAt)],
 );
 
-/** Back-office staff (Phase 9 adds the admin UI and TOTP enrolment). */
-export const adminUsers = pgTable('admin_users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  displayName: text('display_name').notNull(),
-  role: adminRole('role').notNull(),
-  /** TOTP secret, encrypted at rest by the API. */
-  totpSecretEnc: text('totp_secret_enc'),
-  disabledAt: timestamp('disabled_at', { withTimezone: true }),
-  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
-  ...timestamps,
-});
+/**
+ * Back-office staff. They sign in with email, password and a TOTP code
+ * (packages/db/src/backoffice/staff-auth.ts). Emails are stored lowercased.
+ */
+export const adminUsers = pgTable(
+  'admin_users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    email: text('email').notNull().unique(),
+    passwordHash: text('password_hash').notNull(),
+    displayName: text('display_name').notNull(),
+    role: adminRole('role').notNull(),
+    /**
+     * TOTP secret, AES-256-GCM encrypted with ADMIN_TOTP_KEY and bound to the
+     * row's id (encryptTotpSecret); null until enrolled.
+     */
+    totpSecretEnc: text('totp_secret_enc'),
+    /** When the current TOTP secret was issued. */
+    totpEnrolledAt: timestamp('totp_enrolled_at', { withTimezone: true }),
+    /**
+     * The TOTP time step (unix time / 30 s) of the last code accepted: a code
+     * is only accepted for a later step, so a code cannot be used twice.
+     */
+    totpLastStep: bigint('totp_last_step', { mode: 'number' }),
+    /** Failed sign-ins since the last success or lockout. */
+    failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
+    /** Sign-in refused until then (too many failed attempts). */
+    lockedUntil: timestamp('locked_until', { withTimezone: true }),
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    check('admin_users_email_lower', sql`${t.email} = lower(${t.email})`),
+    check('admin_users_failed_attempts', sql`${t.failedLoginAttempts} >= 0`),
+  ],
+);
 
+/**
+ * Staff sessions (cookie only, never a bearer token). Only SHA-256 hashes of
+ * the session and CSRF tokens are stored. A session ends at expires_at
+ * (absolute, 12 h after sign-in), after 30 min without a request
+ * (last_seen_at), on sign-out or when revoked.
+ */
 export const adminSessions = pgTable(
   'admin_sessions',
   {
@@ -180,6 +215,8 @@ export const adminSessions = pgTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Last authenticated request (written at most once a minute). */
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },

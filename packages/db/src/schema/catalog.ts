@@ -194,10 +194,16 @@ export const markets = pgTable(
      * a final-score correction that overturns its result clears the flag.
      */
     resultedInPlay: boolean('resulted_in_play').notNull().default(false),
+    /**
+     * Voided by a trader (voidMarket): every selection is void and stays void
+     * whatever result the event gets later, corrections included.
+     */
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('markets_event_key_uq').on(t.eventId, t.key),
+    check('markets_voided_is_void', sql`${t.voidedAt} IS NULL OR ${t.status} = 'void'`),
     check(
       'markets_suspended_by_valid',
       sql`${t.suspendedBy} IS NULL OR (${t.suspendedBy} IN ('feed', 'trader') AND ${t.status} = 'suspended')`,
@@ -218,10 +224,23 @@ export const selections = pgTable(
     status: selectionStatus('status').notNull().default('open'),
     result: selectionResult('result'),
     sortOrder: integer('sort_order').notNull().default(0),
+    /**
+     * Voided by a trader (voidSelection / voidMarket): the result is void and
+     * stays void whatever result the market or event gets later.
+     */
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('selections_market_code_uq').on(t.marketId, t.code),
+    check(
+      'selections_voided_is_void',
+      sql`${t.voidedAt} IS NULL OR (${t.status} = 'settled' AND ${t.result} = 'void')`,
+    ),
+    // The settlement sweep looks for bets on recently voided selections.
+    index('selections_voided_idx')
+      .on(t.voidedAt)
+      .where(sql`${t.voidedAt} IS NOT NULL`),
     // Odds are integer milli within 1.001..1000.000 (see @vamos/core odds.ts).
     check('selections_odds_range', sql`${t.oddsMilli} BETWEEN 1001 AND 1000000`),
   ],

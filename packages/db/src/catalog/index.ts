@@ -80,6 +80,15 @@ export {
   type ResultStatus,
 } from './results';
 export {
+  MARKET_VOIDED,
+  MAX_VOID_REASON_LENGTH,
+  SELECTION_VOIDED,
+  voidMarket,
+  voidSelection,
+  type VoidActor,
+  type VoidOutcome,
+} from './void';
+export {
   ensureSimulationSeed,
   listScheduledEventIds,
   listScheduledFeedEvents,

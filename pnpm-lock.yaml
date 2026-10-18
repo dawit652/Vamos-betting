@@ -225,6 +225,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@node-rs/argon2':
+        specifier: 2.2.2
+        version: 2.2.2
       '@vamos/config':
         specifier: workspace:*
         version: link:../config

@@ -63,6 +63,19 @@ export interface SettleJackpotRoundResult {
 
 const FINAL: ReadonlySet<JackpotRoundStatus> = new Set(FINAL_ROUND_STATUSES);
 
+/** An entry of a round staff cancelled: refunded in full (the shape of core settleJackpotEntry). */
+function refundedEntry(cost: bigint): ReturnType<typeof settleJackpotEntry> {
+  return {
+    status: 'void',
+    distribution: null,
+    bestCorrect: null,
+    gross: 0n,
+    tax: 0n,
+    net: 0n,
+    refund: cost,
+  };
+}
+
 /** Records the results known now on the games whose recorded result differs (unsettled rounds only). */
 async function recordResults(
   tx: DbTransaction,
@@ -98,7 +111,10 @@ async function flagChangedResults(
   settlement: JackpotRoundSettlement,
   now: Date,
 ): Promise<boolean> {
-  if (settlement.voidReason === 'not_opened') return false;
+  // Rounds that never opened or that staff cancelled refunded everyone: results do not matter.
+  if (settlement.voidReason === 'not_opened' || settlement.voidReason === 'cancelled_by_staff') {
+    return false;
+  }
   const games = await loadRoundGames(tx, round.id);
   const discrepancy = games.map((game) =>
     game.current !== null && game.current !== settlement.results[game.position]
@@ -246,13 +262,16 @@ export async function settleJackpotRound(
     .orderBy(asc(jackpotEntries.id))
     .limit(batchSize);
   const settled = entries.map((entry) =>
-    settleJackpotEntry({
-      entry: { picks: entry.picks, cost: entry.cost },
-      results: settlement.results,
-      cancelledRule: template.cancelledRule,
-      payouts: settlement.payouts,
-      tax,
-    }),
+    // A round staff cancelled refunds every entry, whatever the games' results.
+    settlement.voidReason === 'cancelled_by_staff'
+      ? refundedEntry(entry.cost)
+      : settleJackpotEntry({
+          entry: { picks: entry.picks, cost: entry.cost },
+          results: settlement.results,
+          cancelledRule: template.cancelledRule,
+          payouts: settlement.payouts,
+          tax,
+        }),
   );
   if (settled.some((entry) => (entry.status === 'void') !== settlement.void)) {
     throw new Error(`jackpot round ${roundId}: an entry disagrees with the round's decision`);
@@ -550,7 +569,7 @@ export async function listJackpotRoundsToSettle(
       and(
         or(eq(jackpotRounds.status, 'settled'), eq(jackpotRounds.status, 'cancelled')),
         gt(jackpotRounds.settledAt, new Date(now.getTime() - JACKPOT_RECHECK_WINDOW_MS)),
-        sql`${jackpotRounds.settlement}->>'voidReason' IS DISTINCT FROM 'not_opened'`,
+        sql`COALESCE(${jackpotRounds.settlement}->>'voidReason', '') NOT IN ('not_opened', 'cancelled_by_staff')`,
         exists(
           exec
             .select({ one: sql`1` })

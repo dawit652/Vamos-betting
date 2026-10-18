@@ -70,9 +70,9 @@ export interface JackpotTierPayoutJson {
 /** The settlement of a round (santim as decimal strings), written once when it settles or is voided. */
 export interface JackpotSettlementJson {
   void: boolean;
-  /** Why the round is void ('cancelled_games', 'not_opened'); null when settled. */
+  /** Why the round is void ('cancelled_games', 'not_opened', 'cancelled_by_staff'); null when settled. */
   voidReason: string | null;
-  /** Each game's result ('1' | 'X' | '2' | 'cancelled'), in game order; [] if never opened. */
+  /** Each game's result ('1' | 'X' | '2' | 'cancelled'), in game order; [] if never opened or cancelled by staff. */
   results: string[];
   cancelledGames: number;
   entries: number;

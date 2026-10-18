@@ -1,0 +1,81 @@
+/**
+ * Back office (Phase 9): staff accounts, TOTP sign-in and sessions, and the
+ * services behind the /admin API. Every mutation records the staff actor in
+ * the audit log in the same transaction. The services return domain values
+ * (bigint santim, Date): `toJsonSafe(result)` gives the wire view of the
+ * matching schema in @vamos/contracts (admin.ts).
+ *
+ * The argon2 password hasher is not exported here (see @vamos/db/passwords).
+ */
+export {
+  base32Decode,
+  base32Encode,
+  hotp,
+  TOTP_DIGITS,
+  TOTP_PERIOD_SECONDS,
+  TOTP_SECRET_BYTES,
+  TOTP_WINDOW_STEPS,
+  totpCode,
+  totpStep,
+  totpUri,
+  verifyTotp,
+  type OtpAlgorithm,
+  type OtpOptions,
+  type TotpOptions,
+  type VerifyTotpOptions,
+} from './totp';
+export { decryptTotpSecret, encryptTotpSecret, TotpSecretError } from './secret-box';
+export {
+  authenticateStaffSession,
+  createStaffSession,
+  createStaffUser,
+  generateStaffPassword,
+  getStaffUser,
+  isStaffSessionActive,
+  listStaffUsers,
+  loginStaff,
+  logoutStaff,
+  normalizeStaffEmail,
+  resetStaffPassword,
+  resetStaffTotp,
+  revokeAllStaffSessions,
+  setStaffDisabled,
+  STAFF_DISPLAY_NAME_MAX_LENGTH,
+  STAFF_EMAIL_MAX_LENGTH,
+  STAFF_LOCKOUT_MS,
+  STAFF_LOCKOUT_THRESHOLD,
+  STAFF_PASSWORD_MAX_LENGTH,
+  STAFF_PASSWORD_MIN_LENGTH,
+  STAFF_ROLES,
+  STAFF_SESSION_ABSOLUTE_MS,
+  STAFF_SESSION_IDLE_MS,
+  STAFF_SESSION_TOUCH_MS,
+  STAFF_TOTP_ISSUER,
+  staffCsrfTokenFor,
+  staffInvalidCredentialsError,
+  staffPasswordWeakness,
+  unlockStaffUser,
+  updateStaffUser,
+  warmUpStaffPasswordHashing,
+  type CreateStaffUserInput,
+  type CreateStaffUserResult,
+  type IssuedStaffSession,
+  type PasswordHasher,
+  type StaffAccountActor,
+  type StaffAuthDeps,
+  type StaffLoginInput,
+  type StaffLoginResult,
+  type StaffPrincipal,
+  type StaffRole,
+  type StaffSessionCheck,
+  type StaffUserView,
+  type TotpEnrolment,
+} from './staff-auth';
+export {
+  DEMO_STAFF_ACCOUNTS,
+  DEMO_STAFF_PASSWORD,
+  DEMO_STAFF_TOTP_SECRET,
+  seedDemoStaff,
+  type DemoStaffAccount,
+  type SeedDemoStaffResult,
+} from './demo-staff';

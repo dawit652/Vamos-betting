@@ -461,6 +461,14 @@ export async function listBetsToSettle(
         AND b.status IN (${statuses})
         AND l.state::text <> CASE WHEN m.status = 'void' THEN 'void'
                                   ELSE COALESCE(s.result::text, 'open') END
+      UNION
+      SELECT l.bet_id FROM selections s
+      JOIN bet_legs l ON l.selection_id = s.id
+      JOIN bets b ON b.id = l.bet_id
+      WHERE s.voided_at >= ${from.toISOString()}::timestamptz
+        AND s.voided_at <= ${to.toISOString()}::timestamptz
+        AND b.status IN (${statuses})
+        AND l.state <> 'void'
     ) due
     ORDER BY id
     LIMIT ${options.limit}

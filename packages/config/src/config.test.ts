@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   ConfigError,
+  DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
   DEV_SESSION_SECRET,
   isDemo,
+  isDevAdminTotpKey,
   licensedModeViolations,
   loadConfig,
+  parseAdminTotpKey,
 } from './config';
+
+/** A production-grade ADMIN_TOTP_KEY (any 32 bytes other than the development key). */
+const PRODUCTION_TOTP_KEY = '7f'.repeat(32);
 
 const LICENSED_ENV = {
   NODE_ENV: 'production',
@@ -19,6 +25,7 @@ const LICENSED_ENV = {
   FEED_PROVIDER: 'manual',
   TAX_CONFIG_CONFIRMED: 'true',
   SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+  ADMIN_TOTP_KEY: PRODUCTION_TOTP_KEY,
 };
 
 function problemsOf(env: Record<string, string>): string[] {
@@ -124,8 +131,79 @@ describe('loadConfig', () => {
         NODE_ENV: 'production',
         SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
         MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret-for-the-demo',
+        ADMIN_TOTP_KEY: PRODUCTION_TOTP_KEY,
       }),
     ).toEqual([]);
+  });
+
+  it('reads ADMIN_TOTP_KEY as 32 bytes of hex or base64, the development key by default', () => {
+    const fallback = loadConfig({}).admin.totpKey;
+    expect(fallback.equals(Buffer.from(DEV_ADMIN_TOTP_KEY, 'hex'))).toBe(true);
+    expect(isDevAdminTotpKey(fallback)).toBe(true);
+    const bytes = Buffer.from(PRODUCTION_TOTP_KEY, 'hex');
+    for (const written of [
+      PRODUCTION_TOTP_KEY,
+      PRODUCTION_TOTP_KEY.toUpperCase(),
+      bytes.toString('base64'),
+      bytes.toString('base64url'),
+      ` ${bytes.toString('base64').replace(/=$/, '')} `,
+    ]) {
+      const key = loadConfig({ ADMIN_TOTP_KEY: written }).admin.totpKey;
+      expect(key.equals(bytes), written).toBe(true);
+      expect(isDevAdminTotpKey(key)).toBe(false);
+    }
+    // The development key is recognised however it is written.
+    const devBase64 = Buffer.from(DEV_ADMIN_TOTP_KEY, 'hex').toString('base64');
+    expect(isDevAdminTotpKey(loadConfig({ ADMIN_TOTP_KEY: devBase64 }).admin.totpKey)).toBe(true);
+  });
+
+  it('refuses an ADMIN_TOTP_KEY that is not exactly 32 bytes', () => {
+    for (const bad of [
+      '',
+      'short',
+      '7f'.repeat(31),
+      '7f'.repeat(33),
+      `${'7f'.repeat(31)}zz`,
+      Buffer.alloc(31, 1).toString('base64'),
+      Buffer.alloc(33, 1).toString('base64'),
+      `${Buffer.alloc(32, 1).toString('base64').slice(0, 42)}!=`,
+    ]) {
+      expect(parseAdminTotpKey(bad), bad).toBeNull();
+      expect(problemsOf({ ADMIN_TOTP_KEY: bad }).join('\n'), bad).toMatch(/ADMIN_TOTP_KEY/);
+    }
+  });
+
+  it('refuses the development ADMIN_TOTP_KEY in production and in licensed mode', () => {
+    const production = {
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+      MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret-for-the-demo',
+    };
+    expect(problemsOf(production)).toEqual([
+      'ADMIN_TOTP_KEY must be set to a unique key in production',
+    ]);
+    expect(
+      problemsOf({
+        ...production,
+        ADMIN_TOTP_KEY: Buffer.from(DEV_ADMIN_TOTP_KEY, 'hex').toString('base64'),
+      }),
+    ).toEqual(['ADMIN_TOTP_KEY must be set to a unique key in production']);
+    // Demo mode in development keeps the default.
+    expect(problemsOf({})).toEqual([]);
+
+    const { ADMIN_TOTP_KEY: _omit, ...licensed } = LICENSED_ENV;
+    expect(problemsOf(licensed).join('\n')).toMatch(
+      /ADMIN_TOTP_KEY must be a unique key in licensed mode/,
+    );
+    const config = loadConfig(LICENSED_ENV);
+    expect(
+      licensedModeViolations({
+        ...config,
+        admin: { totpKey: Buffer.from(DEV_ADMIN_TOTP_KEY, 'hex') },
+      }),
+    ).toEqual([
+      'ADMIN_TOTP_KEY must be a unique key in licensed mode (it encrypts the staff TOTP secrets)',
+    ]);
   });
 
   it('reads the payment provider settings with demo-safe defaults', () => {

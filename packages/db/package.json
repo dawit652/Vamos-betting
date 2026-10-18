@@ -7,16 +7,21 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./passwords": "./src/backoffice/argon2.ts",
+    "./totp": "./src/backoffice/totp.ts",
+    "./demo-staff": "./src/backoffice/demo-staff-accounts.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/scripts/migrate.ts",
-    "seed": "tsx src/scripts/seed.ts"
+    "seed": "tsx src/scripts/seed.ts",
+    "admin:create": "tsx src/scripts/admin-create.ts"
   },
   "dependencies": {
+    "@node-rs/argon2": "2.2.2",
     "@vamos/config": "workspace:*",
     "@vamos/core": "workspace:*",
     "drizzle-orm": "0.45.3",
