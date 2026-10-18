@@ -1,5 +1,5 @@
 import type { ResolutionInput } from '@vamos/core';
-import { and, asc, eq, gt, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { CatalogNotFoundError, CatalogStateError } from '../catalog/errors';
 import type { EventStatus, LiveMessage, MarketStatus } from '../catalog/live';
@@ -20,7 +20,15 @@ import { writeAudit } from '../platform/audit';
 import { betLegs, bets } from '../schema/betting';
 import { competitions, events, markets, selections, teams } from '../schema/catalog';
 import type { LocalizedName } from '../schema/catalog';
-import { decodeCursor, encodeCursor, pageLimit, type Page, type StaffActor } from './common';
+import {
+  afterCursor,
+  cursorTime,
+  decodeCursor,
+  encodeCursor,
+  pageLimit,
+  type Page,
+  type StaffActor,
+} from './common';
 
 /**
  * Trading (back office, trading.* permissions): the staff wrappers over the
@@ -348,16 +356,11 @@ export async function searchTradingEvents(
   if (filter.from !== undefined) conditions.push(gte(events.startTime, filter.from));
   if (filter.to !== undefined) conditions.push(lt(events.startTime, filter.to));
   if (filter.cursor !== undefined) {
-    const cursor = decodeCursor(filter.cursor);
-    conditions.push(
-      or(
-        gt(events.startTime, cursor.at),
-        and(eq(events.startTime, cursor.at), gt(events.id, cursor.id)),
-      )!,
-    );
+    conditions.push(afterCursor(events.startTime, events.id, decodeCursor(filter.cursor), 'asc'));
   }
   const rows = await exec
     .select({
+      cursorAt: cursorTime(events.startTime),
       id: events.id,
       gameId: events.gameId,
       sportId: events.sportId,
@@ -419,7 +422,7 @@ export async function searchTradingEvents(
       .groupBy(sql`per_bet.event_id`);
     for (const row of open) stakes.set(row.eventId, { bets: row.bets, stake: BigInt(row.stake) });
   }
-  const items = page.map((row): TradingEventSummary => ({
+  const items = page.map(({ cursorAt: _cursorAt, ...row }): TradingEventSummary => ({
     ...row,
     markets: marketCounts.get(row.id) ?? { total: 0, open: 0, suspended: 0, voided: 0 },
     openBets: stakes.get(row.id)?.bets ?? 0,
@@ -430,7 +433,7 @@ export async function searchTradingEvents(
     items,
     nextCursor:
       rows.length > limit && last !== undefined
-        ? encodeCursor({ at: last.startTime, id: last.id })
+        ? encodeCursor({ at: last.cursorAt, id: last.id })
         : null,
   };
 }

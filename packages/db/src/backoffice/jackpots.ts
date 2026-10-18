@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { domainNotFound, domainUnprocessable } from '../errors';
 import { cancelJackpotRound, type CancelJackpotRoundResult } from '../jackpots/cancel';
 import { toJackpotRounds } from '../jackpots/queries';
@@ -12,7 +12,15 @@ import {
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { users } from '../schema/accounts';
 import { jackpotEntries, jackpotRounds } from '../schema/jackpots';
-import { decodeCursor, encodeCursor, pageLimit, type Page, type StaffActor } from './common';
+import {
+  afterCursor,
+  cursorTime,
+  decodeCursor,
+  encodeCursor,
+  pageLimit,
+  type Page,
+  type StaffActor,
+} from './common';
 
 /**
  * Jackpots in the back office (jackpots.manage): rounds with their entry
@@ -57,21 +65,18 @@ export async function listStaffJackpotRounds(
     conditions.push(eq(jackpotRounds.templateCode, options.templateCode));
   }
   if (options.cursor !== undefined) {
-    const cursor = decodeCursor(options.cursor);
     conditions.push(
-      or(
-        lt(jackpotRounds.closesAt, cursor.at),
-        and(eq(jackpotRounds.closesAt, cursor.at), lt(jackpotRounds.id, cursor.id)),
-      )!,
+      afterCursor(jackpotRounds.closesAt, jackpotRounds.id, decodeCursor(options.cursor), 'desc'),
     );
   }
   const rows = await exec
-    .select()
+    .select({ round: jackpotRounds, cursorAt: cursorTime(jackpotRounds.closesAt) })
     .from(jackpotRounds)
     .where(conditions.length === 0 ? undefined : and(...conditions))
     .orderBy(desc(jackpotRounds.closesAt), desc(jackpotRounds.id))
     .limit(limit + 1);
-  const page = rows.slice(0, limit);
+  const pageRows = rows.slice(0, limit);
+  const page = pageRows.map((row) => row.round);
   const rounds = await toJackpotRounds(exec, page);
   const totals = new Map<string, { entries: number; stakes: bigint; open: number }>();
   if (page.length > 0) {
@@ -97,7 +102,7 @@ export async function listStaffJackpotRounds(
   const decisions = new Map(
     page.map((row) => [row.id, row.settlement === null ? null : parseSettlement(row.settlement)]),
   );
-  const last = page.at(-1);
+  const last = pageRows.at(-1);
   return {
     items: rounds.map((round) => ({
       ...round,
@@ -108,7 +113,7 @@ export async function listStaffJackpotRounds(
     })),
     nextCursor:
       rows.length > limit && last !== undefined
-        ? encodeCursor({ at: last.closesAt, id: last.id })
+        ? encodeCursor({ at: last.cursorAt, id: last.round.id })
         : null,
   };
 }
@@ -147,16 +152,13 @@ export async function listStaffJackpotEntries(
   const limit = pageLimit(options.limit, 50, 200);
   const conditions: SQL[] = [eq(jackpotEntries.roundId, roundId)];
   if (options.cursor !== undefined) {
-    const cursor = decodeCursor(options.cursor);
     conditions.push(
-      or(
-        gt(jackpotEntries.placedAt, cursor.at),
-        and(eq(jackpotEntries.placedAt, cursor.at), gt(jackpotEntries.id, cursor.id)),
-      )!,
+      afterCursor(jackpotEntries.placedAt, jackpotEntries.id, decodeCursor(options.cursor), 'asc'),
     );
   }
   const rows = await exec
     .select({
+      cursorAt: cursorTime(jackpotEntries.placedAt),
       id: jackpotEntries.id,
       roundId: jackpotEntries.roundId,
       userId: jackpotEntries.userId,
@@ -181,10 +183,10 @@ export async function listStaffJackpotEntries(
   const page = rows.slice(0, limit);
   const last = page.at(-1);
   return {
-    items: page,
+    items: page.map(({ cursorAt: _cursorAt, ...row }) => row),
     nextCursor:
       rows.length > limit && last !== undefined
-        ? encodeCursor({ at: last.placedAt, id: last.id })
+        ? encodeCursor({ at: last.cursorAt, id: last.id })
         : null,
   };
 }

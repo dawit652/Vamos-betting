@@ -1,5 +1,5 @@
 import { DEFAULT_RESPONSIBLE_GAMBLING, isOfAge, normalizeEthiopianMsisdn } from '@vamos/core';
-import { and, asc, desc, eq, gt, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { domainConflict, domainNotFound, domainUnprocessable } from '../errors';
 import { accountKey } from '../ledger/accounts';
 import { listAccountEntries } from '../ledger/queries';
@@ -15,7 +15,15 @@ import { ledgerAccounts } from '../schema/ledger';
 import { paymentIntents, payouts } from '../schema/payments';
 import type { kycStatus, userStatus } from '../schema/enums';
 import { loadGameSettings } from '../settings/index';
-import { decodeCursor, encodeCursor, pageLimit, type Page, type StaffActor } from './common';
+import {
+  afterCursor,
+  cursorTime,
+  decodeCursor,
+  encodeCursor,
+  pageLimit,
+  type Page,
+  type StaffActor,
+} from './common';
 
 /**
  * Players and the KYC review queue in the back office (users.view,
@@ -113,16 +121,11 @@ export async function searchPlayers(
     );
   }
   if (filter.cursor !== undefined) {
-    const cursor = decodeCursor(filter.cursor);
-    conditions.push(
-      or(
-        lt(users.createdAt, cursor.at),
-        and(eq(users.createdAt, cursor.at), lt(users.id, cursor.id)),
-      )!,
-    );
+    conditions.push(afterCursor(users.createdAt, users.id, decodeCursor(filter.cursor), 'desc'));
   }
   const rows = await exec
     .select({
+      cursorAt: cursorTime(users.createdAt),
       id: users.id,
       phone: users.phone,
       fullName: users.fullName,
@@ -142,14 +145,14 @@ export async function searchPlayers(
   );
   const last = page.at(-1);
   return {
-    items: page.map((row) => ({
+    items: page.map(({ cursorAt: _cursorAt, ...row }) => ({
       ...row,
       cash: balances.get(row.id)?.cash ?? 0n,
       bonus: balances.get(row.id)?.bonus ?? 0n,
     })),
     nextCursor:
       rows.length > limit && last !== undefined
-        ? encodeCursor({ at: last.createdAt, id: last.id })
+        ? encodeCursor({ at: last.cursorAt, id: last.id })
         : null,
   };
 }
@@ -399,12 +402,8 @@ export async function listKycQueue(
   const submitted = sql<Date>`COALESCE(${kycProfiles.submittedAt}, ${kycProfiles.createdAt})`;
   const conditions: SQL[] = [eq(kycProfiles.status, status)];
   if (options.cursor !== undefined) {
-    const cursor = decodeCursor(options.cursor);
     conditions.push(
-      or(
-        gt(submitted, cursor.at),
-        and(eq(submitted, cursor.at), gt(kycProfiles.userId, cursor.id)),
-      )!,
+      afterCursor(submitted, kycProfiles.userId, decodeCursor(options.cursor), 'asc'),
     );
   }
   const rows = await exec
@@ -415,7 +414,7 @@ export async function listKycQueue(
       fullName: users.fullName,
       dateOfBirth: users.dateOfBirth,
       userStatus: users.status,
-      queuedAt: submitted,
+      queuedAt: cursorTime(submitted),
     })
     .from(kycProfiles)
     .innerJoin(users, eq(users.id, kycProfiles.userId))
@@ -428,7 +427,7 @@ export async function listKycQueue(
     items: page.map(({ queuedAt: _queuedAt, ...row }) => row),
     nextCursor:
       rows.length > limit && last !== undefined
-        ? encodeCursor({ at: new Date(last.queuedAt), id: last.userId })
+        ? encodeCursor({ at: last.queuedAt, id: last.userId })
         : null,
   };
 }

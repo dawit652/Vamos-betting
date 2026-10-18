@@ -98,7 +98,7 @@ describe('dashboard, risk and bet search (figures from the fixtures)', () => {
   let e2: TestEvent;
   let a: { userId: string; phone: string };
   let b: { userId: string; phone: string };
-  const betIds: Record<string, string> = {};
+  const betIds = {} as { aHome: string; aAway: string; bDraw: string; bDouble: string };
 
   beforeAll(async () => {
     ({ handle, ids, settings } = await createBettingDatabase());
@@ -296,6 +296,13 @@ describe('dashboard, risk and bet search (figures from the fixtures)', () => {
     ]);
     expect(detail?.recentTransactions.length).toBeGreaterThanOrEqual(5);
     expect(detail?.limits.deposit.day).toEqual({ active: null, pending: null });
+    // Paging over database timestamps (microseconds) neither repeats nor skips a row.
+    const first = await searchPlayers(handle.db, { limit: 1 });
+    const second = await searchPlayers(handle.db, { limit: 1, cursor: first.nextCursor! });
+    expect(second.nextCursor).toBeNull();
+    expect(new Set([...first.items, ...second.items].map((p) => p.id))).toEqual(
+      new Set([a.userId, b.userId]),
+    );
     expect(
       await getPlayerDetail(handle.db, '00000000-0000-4000-8000-000000000000', new Date()),
     ).toBeNull();
@@ -324,6 +331,13 @@ describe('KYC review, withdrawals, jackpots and the audit log', () => {
     const d = await createPlayer(handle.db, { kyc: 'pending' });
     const queue = await listKycQueue(handle.db);
     expect(queue.items.map((item) => item.userId)).toEqual([c.userId, d.userId]);
+    const onePage = await listKycQueue(handle.db, { limit: 1 });
+    const nextPage = await listKycQueue(handle.db, { limit: 1, cursor: onePage.nextCursor! });
+    expect([...onePage.items, ...nextPage.items].map((item) => item.userId)).toEqual([
+      c.userId,
+      d.userId,
+    ]);
+    expect(nextPage.nextCursor).toBeNull();
     expect(queue.items[0]).toMatchObject({ phone: c.phone, status: 'pending' });
 
     const approved = await handle.db.transaction((tx) =>
@@ -418,7 +432,10 @@ describe('KYC review, withdrawals, jackpots and the audit log', () => {
     await depositViaMock(handle.db, player.userId, birr(1_000), { now });
     const review = rules({ autoApproveBelow: 0n });
     const first = await withdraw(handle.db, player, birr(300), { now, rules: review });
-    const second = await withdraw(handle.db, player, birr(200), { now, rules: review });
+    const second = await withdraw(handle.db, player, birr(200), {
+      now: new Date(now.getTime() + 1_000),
+      rules: review,
+    });
     expect(await cashOf(handle.db, player.userId)).toBe(birr(500));
 
     const queue = await listStaffWithdrawals(handle.db, { statuses: ['requested'] });

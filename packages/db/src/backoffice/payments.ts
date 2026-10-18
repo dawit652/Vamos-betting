@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { resolveFlaggedDeposit, type DepositResolution } from '../payments/deposits';
@@ -14,7 +14,15 @@ import {
 } from '../payments/withdrawals';
 import { kycProfiles, users } from '../schema/accounts';
 import { paymentIntents, payouts } from '../schema/payments';
-import { decodeCursor, encodeCursor, pageLimit, type Page, type StaffActor } from './common';
+import {
+  afterCursor,
+  cursorTime,
+  decodeCursor,
+  encodeCursor,
+  pageLimit,
+  type Page,
+  type StaffActor,
+} from './common';
 import type { KycStatus, PlayerStatus } from './players';
 
 /**
@@ -105,21 +113,17 @@ export async function listStaffWithdrawals(
     conditions.push(eq(payouts.userId, filter.userId));
   }
   if (filter.cursor !== undefined) {
-    const cursor = decodeCursor(filter.cursor);
     conditions.push(
-      desc_
-        ? or(
-            lt(payouts.requestedAt, cursor.at),
-            and(eq(payouts.requestedAt, cursor.at), lt(payouts.id, cursor.id)),
-          )!
-        : or(
-            gt(payouts.requestedAt, cursor.at),
-            and(eq(payouts.requestedAt, cursor.at), gt(payouts.id, cursor.id)),
-          )!,
+      afterCursor(
+        payouts.requestedAt,
+        payouts.id,
+        decodeCursor(filter.cursor),
+        desc_ ? 'desc' : 'asc',
+      ),
     );
   }
   const rows = await exec
-    .select({ payout: payouts, ...playerFields })
+    .select({ payout: payouts, cursorAt: cursorTime(payouts.requestedAt), ...playerFields })
     .from(payouts)
     .innerJoin(users, eq(users.id, payouts.userId))
     .leftJoin(kycProfiles, eq(kycProfiles.userId, payouts.userId))
@@ -132,10 +136,12 @@ export async function listStaffWithdrawals(
   const page = rows.slice(0, limit);
   const last = page.at(-1);
   return {
-    items: page.map(({ payout, ...player }) => withPlayer({ ...payout, ...player })),
+    items: page.map(({ payout, cursorAt: _cursorAt, ...player }) =>
+      withPlayer({ ...payout, ...player }),
+    ),
     nextCursor:
       rows.length > limit && last !== undefined
-        ? encodeCursor({ at: last.payout.requestedAt, id: last.payout.id })
+        ? encodeCursor({ at: last.cursorAt, id: last.payout.id })
         : null,
   };
 }

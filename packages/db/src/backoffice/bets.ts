@@ -8,7 +8,14 @@ import { users } from '../schema/accounts';
 import { betLegs, bets } from '../schema/betting';
 import { competitions, events, markets, selections, teams } from '../schema/catalog';
 import type { LocalizedName } from '../schema/catalog';
-import { decodeCursor, encodeCursor, pageLimit, type Page } from './common';
+import {
+  afterCursor,
+  cursorTime,
+  decodeCursor,
+  encodeCursor,
+  pageLimit,
+  type Page,
+} from './common';
 
 /**
  * Bets and risk in the back office (bets.view, risk.view). Reads only.
@@ -124,13 +131,10 @@ export async function searchBets(
   }
   if (big.length > 0) conditions.push(or(...big)!);
   if (filter.cursor !== undefined) {
-    const cursor = decodeCursor(filter.cursor);
-    conditions.push(
-      or(lt(bets.placedAt, cursor.at), and(eq(bets.placedAt, cursor.at), lt(bets.id, cursor.id)))!,
-    );
+    conditions.push(afterCursor(bets.placedAt, bets.id, decodeCursor(filter.cursor), 'desc'));
   }
   const rows = await exec
-    .select(summaryFields)
+    .select({ ...summaryFields, cursorAt: cursorTime(bets.placedAt) })
     .from(bets)
     .innerJoin(users, eq(users.id, bets.userId))
     .where(conditions.length === 0 ? undefined : and(...conditions))
@@ -139,10 +143,10 @@ export async function searchBets(
   const page = rows.slice(0, limit);
   const last = page.at(-1);
   return {
-    items: page,
+    items: page.map(({ cursorAt: _cursorAt, ...row }) => row),
     nextCursor:
       rows.length > limit && last !== undefined
-        ? encodeCursor({ at: last.placedAt, id: last.id })
+        ? encodeCursor({ at: last.cursorAt, id: last.id })
         : null,
   };
 }
