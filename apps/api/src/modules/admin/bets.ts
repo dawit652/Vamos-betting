@@ -2,7 +2,7 @@ import {
   BigBetsQuery,
   LiabilityListResponse,
   LiabilityQuery,
-  StaffBetDetailView,
+  type StaffBetDetailView,
   StaffBetListResponse,
   StaffBetQuery,
 } from '@vamos/contracts';

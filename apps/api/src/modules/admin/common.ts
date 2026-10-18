@@ -6,7 +6,7 @@ import {
   type DbTransaction,
   type LiveMessage,
 } from '@vamos/db';
-import type { FastifyInstance, onRouteHookHandler, preHandlerHookHandler } from 'fastify';
+import type { FastifyInstance, onRouteHookHandler, preHandlerAsyncHookHandler } from 'fastify';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps';
 import { notFound } from '../../lib/errors';
@@ -59,7 +59,7 @@ export function guardAdminRoutes(app: FastifyInstance): void {
       if (method !== 'HEAD') registry.push({ method, url: route.url, access });
     }
     if (access === 'public') return;
-    const guard: preHandlerHookHandler =
+    const guard: preHandlerAsyncHookHandler =
       access === 'session' ? requireStaffSession : requirePermission(access);
     const existing = route.preHandler;
     route.preHandler =

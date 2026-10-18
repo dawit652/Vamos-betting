@@ -142,7 +142,7 @@ const bearer = (user: LoggedInUser) => ({ authorization: `Bearer ${user.sessionT
 
 function expectOk(response: LightMyRequestResponse, status = 200) {
   expect(response.statusCode, response.body).toBe(status);
-  return response.json() as unknown;
+  return response.json<unknown>();
 }
 
 async function topUp(user: LoggedInUser, amount: bigint) {

@@ -331,7 +331,7 @@ describe('staff accounts (staff.manage)', () => {
 
     const list = await asStaff(ctx, admin, 'GET', '/admin/staff');
     expect(list.statusCode).toBe(200);
-    expect((list.json() as { items: unknown[] }).items.length).toBe(7);
+    expect(list.json<{ items: unknown[] }>().items.length).toBe(7);
 
     const disabled = await asStaff(ctx, admin, 'POST', `/admin/staff/${body.user.id}/disable`);
     expect(disabled.statusCode).toBe(200);
