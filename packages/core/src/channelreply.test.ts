@@ -20,6 +20,7 @@ import {
   refusalBody,
   replyPrefix,
   smsText,
+  tooManyMessagesBody,
   type ChannelLocale,
   type ChannelRefusal,
   type JackpotSummary,
@@ -360,6 +361,11 @@ describe('information replies', () => {
       sentWhole(optOutBody(optedOut, 'am'));
       sentWhole(optOutBodyBilingual(optedOut));
     }
+  });
+
+  it('tells a flooding number to wait, in both languages', () => {
+    expect(tooManyMessagesBody()).toContain('Too many messages');
+    sentWhole(tooManyMessagesBody());
   });
 
   it('has one bilingual answer for every number that cannot bet', () => {

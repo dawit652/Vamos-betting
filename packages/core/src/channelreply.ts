@@ -552,6 +552,17 @@ export function optOutBodyBilingual(optedOut: boolean): string {
 }
 
 /**
+ * The reply to a number sending too many texts, in both languages (sent at
+ * most once per rate-limit window; the texts themselves are not read).
+ */
+export function tooManyMessagesBody(): string {
+  return (
+    'Too many messages. Please wait a few minutes and try again. ' +
+    'በጣም ብዙ መልዕክቶች። እባክዎ ጥቂት ደቂቃዎች ቆይተው ይሞክሩ።'
+  );
+}
+
+/**
  * The one reply for every number that is not an active, verified player
  * (unknown, unverified, suspended or closed alike), in both languages, so it
  * never tells whether the number is registered.

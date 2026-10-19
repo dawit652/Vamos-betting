@@ -20,6 +20,7 @@ import {
   ussdRateLimitedEnd,
   ussdRefusedEnd,
   ussdResponse,
+  ussdSessionEndedEnd,
   ussdStart,
   ussdUnavailableEnd,
   type UssdContext,
@@ -375,6 +376,8 @@ describe('end screens', () => {
       end(ussdRefusedEnd({ code: 'insufficient_funds', balance: 0n, stake: 5000n }, CTX)),
     ).toBe('Your balance (ETB 0.00) is too low for a stake of ETB 50.00. No bet placed.');
     expect(end(ussdExpiredEnd(CTX))).toBe('Session expired. Dial *123# again.');
+    expect(end(ussdSessionEndedEnd(CTX))).toBe('Session ended. Dial *123# again.');
+    expect(end(ussdSessionEndedEnd({ locale: 'am', serviceCode: '*123#' }))).toContain('*123#');
     expect(end(ussdRateLimitedEnd(CTX))).toBe('Too many requests. Please try again later.');
     expect(end(ussdUnavailableEnd(CTX))).toContain('not available');
     expect(end(ussdNotAvailableEnd())).toContain('Register and verify');

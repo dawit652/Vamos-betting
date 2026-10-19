@@ -366,7 +366,7 @@ function withGame(gameId: number, ctx: UssdContext, then: (game: UssdGame) => Us
 export function ussdNext(state: UssdState, rawInput: string, ctx: UssdContext): UssdStep {
   const input = typeof rawInput === 'string' ? rawInput.trim() : '';
   const readable = input.length <= MAX_INPUT_LENGTH;
-  if (state.screen === 'ended') return endStep(t(T.ended(ctx.serviceCode), ctx));
+  if (state.screen === 'ended') return ussdSessionEndedEnd(ctx);
   if (input === '00') return mainMenu(ctx);
 
   switch (state.screen) {
@@ -483,6 +483,11 @@ export function ussdOddsChanged(bet: UssdBetRequest, game: UssdGame, ctx: UssdCo
     ctx,
     T.oddsChanged(option.oddsMilli),
   );
+}
+
+/** END: the session is over (a callback after it ended). */
+export function ussdSessionEndedEnd(ctx: Pick<UssdContext, 'locale' | 'serviceCode'>): UssdStep {
+  return endStep(t(T.ended(ctx.serviceCode), ctx));
 }
 
 /** END: the session timed out (the aggregator's timeout passed, or it is too old). */
