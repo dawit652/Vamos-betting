@@ -22,13 +22,13 @@ Last updated 12 Oct 2026.
 | 8     | Jackpots and promotions                                       | Done (reviewed, 8 fixes)  | `d35ae42` … `82bd130`                      |
 | 9     | Back office (`apps/admin`)                                    | Done (reviewed, 11 fixes) | `176a4cc` … `7f9151c`                      |
 | 10    | Compliance and regulator reporting                            | Done (reviewed, 12 fixes) | `560ee16` … `fd23540`                      |
-| 11    | SMS/USSD channel (feature-flagged)                            | Not started               |                                            |
+| 11    | SMS/USSD channel (feature-flagged)                            | Done (reviewed, 9 fixes)  | `8efbe59` … Phase 11 commit                |
 | 12    | Hardening and deployment                                      | Not started               |                                            |
 
-**Phases 0–10 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
+**Phases 0–11 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
 pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
 and the payments flow (KYC, deposit approved on the simulated phone, wagering, withdrawal approved by
-the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s) and compliance (reconciliation, daily summary CSV, an AML flag and hold). Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
+the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s), compliance (reconciliation, daily summary CSV, an AML flag and hold) and SMS/USSD bets through the dev simulator. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
 
 **Phase 6 review (13 Oct 2026).** Three adversarial reviews (money, security, reliability) confirmed 15
 findings; all are fixed with regression tests. Highlights:
@@ -95,6 +95,15 @@ structuring, deposits-then-withdraw over all deposits since the last withdrawal,
 withdrawal holds that only `aml.review` staff can release; players only ever see `manual_review`.
 Left for Phase 12: run manual reconciliation off the request path and make the balance continuity
 scan incremental.
+
+**Phase 11 (19 Oct 2026).** SMS/USSD channel, off by default (`SMS_BETTING_ENABLED`, `USSD_ENABLED`;
+licensed mode refuses the mock aggregators). Core `textcommand` (`GAMEID#PICK[#GAMEID#PICK…]#STAKE`,
+BAL, BETS, JP, HELP, STOP/START), `smstext`, `channelreply`, `ussd` state machine; db
+`packages/db/src/channels/` (`handleInboundSms`, `handleUssdCallback`, `placeChannelBet` → `placeBet`
+with the same RG/limits/live delay; SMS takes the price at receipt, USSD the price on its confirm
+screen). Inbound SMS is HMAC-signed and idempotent by message id (`inbound_messages`, append-only);
+USSD sessions in `ussd_sessions` (pruned after 7 days unless they hold a bet). Per-number limits are
+shared across SMS and USSD. Dev simulator at `/dev/channels`. Details in `docs/channels.md`.
 
 ## Legal context (do not change)
 
