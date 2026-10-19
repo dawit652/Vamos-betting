@@ -117,3 +117,29 @@ jobs:
             e2e/.stack/*.log
           retention-days: 7
           include-hidden-files: true
+
+  docker:
+    name: Docker images and smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      COMPOSE_FILE: infra/docker-compose.prod.yml
+      COMPOSE_ENV_FILES: infra/.env.prod
+    steps:
+      - uses: actions/checkout@v4
+      # Throwaway secrets; the stack runs in demo mode on http://localhost URLs.
+      - run: infra/scripts/init-env.sh
+      - name: Build the images (api, worker, web, admin)
+        run: docker compose build
+      - name: Start postgres, redis, migrate, api, worker, web and admin
+        run: |
+          docker compose up -d --wait --wait-timeout 240
+          docker compose run --rm migrate node dist/ops/seed.js
+      - name: Smoke test
+        run: scripts/smoke.sh --production --wait 120
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes
