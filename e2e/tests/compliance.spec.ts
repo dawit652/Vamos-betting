@@ -9,6 +9,7 @@ import type {
   GameSettingsView,
   MeResponse,
   RecomputeDailySummaryResponse,
+  ReconciliationRequestResponse,
   ReconciliationRunListResponse,
   WithdrawalView,
 } from '@vamos/contracts';
@@ -27,7 +28,8 @@ import { balanceChip, registerAndVerify } from '../support/ui';
  *    without having bet (the wagering multiplier is switched off for the test so the request
  *    reaches the AML rules; it is restored afterwards). The deposit-then-withdraw rule flags it
  *    (high severity) and the withdrawal waits for staff with review reason `aml_review`;
- *  - compliance staff sign in to the admin app, run the reconciliation now and see a clean run,
+ *  - compliance staff sign in to the admin app, run the reconciliation now (queued by the API,
+ *    run by the worker, polled by the page) and see a clean run,
  *    open today's daily summary and download its CSV, and see the AML flag of that player;
  *  - the ELS stream wrote the player's events (checked through the status route, not the files).
  *
@@ -163,18 +165,45 @@ test('a deposit followed at once by a withdrawal is flagged; compliance reconcil
       await expect(nav.getByRole('link', { name: 'AML flags' })).toBeVisible();
     });
 
-    await test.step('run reconciliation now: the run is clean', async () => {
+    await test.step('run reconciliation now (queued, run by the worker): the run is clean', async () => {
       await staffPage.goto(`${ADMIN_URL}/compliance/reconciliation`);
+      // The API answers 202 with the queued request; the page polls it until the worker is done.
+      const accepted = staffPage.waitForResponse(
+        (response) =>
+          response.url().endsWith('/admin/compliance/reconciliation-runs') &&
+          response.request().method() === 'POST',
+      );
       await staffPage.getByRole('button', { name: 'Run reconciliation now' }).click();
+      const response = await accepted;
+      expect(response.status()).toBe(202);
+      const { request } = (await response.json()) as ReconciliationRequestResponse;
+      expect(request.status).toBe('queued');
+      expect(response.headers()['location']).toBe(
+        `/admin/compliance/reconciliation-requests/${request.id}`,
+      );
       await expect(staffPage.getByText('Run clean: 0 mismatches.')).toBeVisible({
         timeout: 60_000,
+      });
+      const polled = await staff.request.get(
+        `${API_URL}/admin/compliance/reconciliation-requests/${request.id}`,
+      );
+      expect(((await polled.json()) as ReconciliationRequestResponse).request).toMatchObject({
+        status: 'done',
+        runId: request.id,
       });
       const runs = await staff.request.get(
         `${API_URL}/admin/compliance/reconciliation-runs?limit=1`,
       );
       const [latest] = ((await runs.json()) as ReconciliationRunListResponse).items;
-      expect(latest).toMatchObject({ kind: 'manual', status: 'clean', mismatchCount: 0 });
+      expect(latest).toMatchObject({
+        id: request.id,
+        kind: 'manual',
+        status: 'clean',
+        mismatchCount: 0,
+      });
       expect(latest!.checks.every((check) => check.ok)).toBe(true);
+      await staffPage.getByRole('link', { name: 'Open the run' }).click();
+      await expect(staffPage.getByRole('heading', { name: 'Reconciliation run' })).toBeVisible();
     });
 
     const today = businessDateNow();

@@ -5,6 +5,7 @@ import {
   diffSantim,
   formatBps,
   isBusinessDate,
+  reconciliationRequestMessage,
   reviewDecisions,
   summaryCsvName,
   validateReportRange,
@@ -72,5 +73,29 @@ describe('formatting and forms', () => {
     expect(reviewDecisions('open')).toEqual(['reviewed', 'dismissed', 'escalated']);
     expect(reviewDecisions('escalated')).toEqual(['reviewed', 'dismissed']);
     expect(reviewDecisions('reviewed')).toEqual([]);
+  });
+});
+
+describe('Run now (requested reconciliation)', () => {
+  it('describes each request state and the finished run', () => {
+    expect(reconciliationRequestMessage({ status: 'queued', error: null }).kind).toBe('pending');
+    expect(reconciliationRequestMessage({ status: 'running', error: null }).kind).toBe('pending');
+    expect(reconciliationRequestMessage({ status: 'done', error: null }).kind).toBe('pending');
+    expect(
+      reconciliationRequestMessage(
+        { status: 'done', error: null },
+        { status: 'clean', mismatchCount: 0 },
+      ),
+    ).toEqual({ kind: 'ok', text: 'Run clean: 0 mismatches.' });
+    expect(
+      reconciliationRequestMessage(
+        { status: 'done', error: null },
+        { status: 'mismatches', mismatchCount: 3 },
+      ),
+    ).toEqual({ kind: 'error', text: 'Run mismatches: 3 mismatches.' });
+    expect(reconciliationRequestMessage({ status: 'failed', error: 'abandoned' })).toEqual({
+      kind: 'error',
+      text: 'Run failed: abandoned',
+    });
   });
 });

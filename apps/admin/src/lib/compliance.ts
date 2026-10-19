@@ -1,6 +1,7 @@
 import type {
   DailyFiguresView,
   ReconciliationMismatchView,
+  ReconciliationRequestView,
   ReconciliationRunView,
 } from '@vamos/contracts';
 import { formatEtb, humanize } from './format';
@@ -108,4 +109,33 @@ export function reviewDecisions(status: string): ('reviewed' | 'dismissed' | 'es
   if (status === 'open') return ['reviewed', 'dismissed', 'escalated'];
   if (status === 'escalated') return ['reviewed', 'dismissed'];
   return [];
+}
+
+/** How often the "Run now" form polls its request, and for how long at most. */
+export const RECONCILIATION_POLL_MS = 1000;
+export const RECONCILIATION_POLL_LIMIT_MS = 10 * 60_000;
+
+/**
+ * The "Run now" form's message for a request: still waiting (queued or
+ * running), finished (the run's outcome) or failed. `run` is the run once
+ * the request is done.
+ */
+export function reconciliationRequestMessage(
+  request: Pick<ReconciliationRequestView, 'status' | 'error'>,
+  run?: Pick<ReconciliationRunView, 'status' | 'mismatchCount'> | null,
+): { kind: 'ok' | 'error' | 'pending'; text: string } {
+  switch (request.status) {
+    case 'queued':
+      return { kind: 'pending', text: 'Queued: the worker will run it in a moment…' };
+    case 'running':
+      return { kind: 'pending', text: 'Running: checking the ledger, wallets and payments…' };
+    case 'failed':
+      return { kind: 'error', text: `Run failed: ${request.error ?? 'unknown error'}` };
+    case 'done':
+      if (run === undefined || run === null) return { kind: 'pending', text: 'Finishing…' };
+      return {
+        kind: run.status === 'clean' ? 'ok' : 'error',
+        text: `Run ${run.status}: ${run.mismatchCount} mismatches.`,
+      };
+  }
 }

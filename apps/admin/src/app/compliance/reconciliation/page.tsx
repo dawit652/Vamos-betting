@@ -3,6 +3,7 @@
 import type {
   ImportPspStatementResponse,
   PspStatementView,
+  ReconciliationRequestResponse,
   ReconciliationRunDetailResponse,
   ReconciliationRunView,
 } from '@vamos/contracts';
@@ -12,15 +13,31 @@ import { usePaged } from '@/components/hooks';
 import { useSession } from '@/components/session';
 import { Badge, LoadMore, Loading, Notice, PageHeader } from '@/components/ui';
 import { api } from '@/lib/api';
-import { failedChecks, isBusinessDate, validateStatementUpload } from '@/lib/compliance';
+import {
+  failedChecks,
+  isBusinessDate,
+  RECONCILIATION_POLL_LIMIT_MS,
+  RECONCILIATION_POLL_MS,
+  reconciliationRequestMessage,
+  validateStatementUpload,
+} from '@/lib/compliance';
 import { describeError } from '@/lib/errors';
 import { formatDateTime, formatEtb } from '@/lib/format';
 
 const statusTone = (s: string) => (s === 'clean' ? 'good' : s === 'failed' ? 'bad' : 'warn');
 
+/**
+ * "Run now": the API queues the run (202) and the worker runs it off the
+ * request path; the form polls the request until it is done (then shows the
+ * run's outcome and links to it) or failed.
+ */
 function RunNow({ onDone }: { onDone: () => void }) {
   const [date, setDate] = useState('');
-  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    kind: 'ok' | 'error' | 'pending';
+    text: string;
+  } | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function submit(event: FormEvent) {
@@ -34,15 +51,36 @@ function RunNow({ onDone }: { onDone: () => void }) {
     }
     setBusy(true);
     setMessage(null);
+    setRunId(null);
     try {
-      const result = await api<ReconciliationRunDetailResponse>(
+      let { request } = await api<ReconciliationRequestResponse>(
         '/admin/compliance/reconciliation-runs',
         { method: 'POST', body: date.trim() === '' ? {} : { businessDate: date.trim() } },
       );
-      setMessage({
-        kind: result.run.status === 'clean' ? 'ok' : 'error',
-        text: `Run ${result.run.status}: ${result.run.mismatchCount} mismatches.`,
-      });
+      setMessage(reconciliationRequestMessage(request));
+      const deadline = Date.now() + RECONCILIATION_POLL_LIMIT_MS;
+      while (
+        (request.status === 'queued' || request.status === 'running') &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, RECONCILIATION_POLL_MS));
+        ({ request } = await api<ReconciliationRequestResponse>(
+          `/admin/compliance/reconciliation-requests/${request.id}`,
+        ));
+        setMessage(reconciliationRequestMessage(request));
+      }
+      if (request.status === 'done' && request.runId !== null) {
+        const detail = await api<ReconciliationRunDetailResponse>(
+          `/admin/compliance/reconciliation-runs/${request.runId}`,
+        );
+        setMessage(reconciliationRequestMessage(request, detail.run));
+        setRunId(detail.run.id);
+      } else if (request.status === 'queued' || request.status === 'running') {
+        setMessage({
+          kind: 'error',
+          text: 'Still running after 10 minutes: check the list of runs later.',
+        });
+      }
       onDone();
     } catch (e) {
       setMessage({ kind: 'error', text: describeError(e) });
@@ -62,7 +100,17 @@ function RunNow({ onDone }: { onDone: () => void }) {
       <button type="submit" className="primary" disabled={busy}>
         {busy ? 'Running…' : 'Run reconciliation now'}
       </button>
-      {message !== null && <Notice kind={message.kind}>{message.text}</Notice>}
+      {message !== null && (
+        <Notice kind={message.kind === 'pending' ? 'info' : message.kind}>
+          {message.text}
+          {runId !== null && (
+            <>
+              {' '}
+              <Link href={`/compliance/reconciliation/${runId}`}>Open the run</Link>
+            </>
+          )}
+        </Notice>
+      )}
     </form>
   );
 }
