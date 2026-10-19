@@ -91,14 +91,14 @@ export function parsePick(token: string): PickCode | null {
   return PICK_ALIASES[token.replace(/\s+/g, '').toUpperCase()] ?? null;
 }
 
-/** Longest stake accepted, in digits (999,999,999 birr). */
+/** Longest stake accepted, in significant digits (999,999,999 birr). */
 const MAX_STAKE_DIGITS = 9;
-const STAKE_PATTERN = new RegExp(`^(\\d{1,${MAX_STAKE_DIGITS}})(?:\\.0{1,2})?$`);
+const STAKE_PATTERN = new RegExp(`^0*(\\d{1,${MAX_STAKE_DIGITS}})(?:\\.0{1,2})?$`);
 
 /**
  * A stake typed in whole birr ("50", "050", "50.00") as santim, or null for
  * anything else (decimals other than zeros, signs, separators, spaces inside,
- * zero, more than nine digits). Never goes through a float.
+ * zero, more than nine significant digits). Never goes through a float.
  */
 export function parseWholeBirrStake(token: string): Santim | null {
   if (typeof token !== 'string') return null;

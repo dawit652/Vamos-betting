@@ -13,7 +13,7 @@
 import { BUSINESS_UTC_OFFSET_MS } from './businessday';
 import { formatBirr, type Santim } from './money';
 import { formatOdds } from './odds';
-import { cleanSmsText, fitLength, fitSms, MAX_SMS_SEGMENTS } from './smstext';
+import { cleanSmsText, fitLength, fitSms, isGsm7, MAX_SMS_SEGMENTS } from './smstext';
 import type { PickCode, TextCommandError } from './textcommand';
 
 export type ChannelLocale = 'en' | 'am';
@@ -88,10 +88,22 @@ export function formatAddisDate(instant: Date, locale: ChannelLocale): string {
     : `${p.day} ${MONTHS[p.month] ?? ''} ${p.year}`;
 }
 
-/** What the sender typed, made safe to quote: control characters and quotes removed, ≤ 12 characters. */
+/** Longest quoted token, ellipsis included. */
+const QUOTE_MAX = 12;
+
+/**
+ * What the sender typed, made safe to quote: control characters and quotes
+ * removed, at most 12 characters. A GSM-7 token is cut with "..." (never
+ * "…", which would turn the whole reply into UCS-2).
+ */
 export function quoteToken(token: string): string {
-  const clean = cleanSmsText(token).replace(/["“”]/g, '');
-  return fitLength(clean.length === 0 ? '?' : clean, 12);
+  const clean = cleanSmsText(typeof token === 'string' ? token : '').replace(/["“”]/g, '');
+  if (clean.length === 0) return '?';
+  if (clean.length <= QUOTE_MAX) return clean;
+  const chars = Array.from(clean);
+  const head = chars.slice(0, QUOTE_MAX - 3).join('');
+  if (isGsm7(head)) return `${head.trimEnd()}...`;
+  return fitLength(clean, QUOTE_MAX);
 }
 
 const SYNTAX: Text = {
@@ -132,9 +144,39 @@ export function betPlacedBody(bet: PlacedBetSummary, locale: ChannelLocale): str
   return `Bet ${bet.shortId} placed. ${terms}`;
 }
 
+/** Why a pending live bet was rejected after the acceptance delay (bets.reject_reason). */
+export type LiveBetRejectReason = 'selection_unavailable' | 'odds_changed' | 'slip_invalid';
+
+/**
+ * The outcome of a live bet placed by SMS or USSD once the acceptance delay
+ * has passed: accepted, or rejected with the stake refunded.
+ */
+export function liveBetOutcomeBody(
+  outcome:
+    | { shortId: string; accepted: true }
+    | { shortId: string; accepted: false; reason: LiveBetRejectReason; refund: Santim },
+  locale: ChannelLocale,
+): string {
+  if (outcome.accepted) {
+    return locale === 'am'
+      ? `የቀጥታ ውርርድ ${outcome.shortId} ተቀባይነት አግኝቷል።`
+      : `Live bet ${outcome.shortId} accepted.`;
+  }
+  const refund = formatMoney(outcome.refund, locale);
+  const why: Readonly<Record<LiveBetRejectReason, Text>> = {
+    odds_changed: { en: 'the odds changed', am: 'ዕድሉ ስለተቀየረ' },
+    selection_unavailable: { en: 'the market closed', am: 'ገበያው ስለተዘጋ' },
+    slip_invalid: { en: 'it broke the bet rules', am: 'የውርርድ ደንብ ስላላሟላ' },
+  };
+  return locale === 'am'
+    ? `የቀጥታ ውርርድ ${outcome.shortId} ${why[outcome.reason].am} ውድቅ ሆኗል። ${refund} ተመልሷል።`
+    : `Live bet ${outcome.shortId} rejected: ${why[outcome.reason].en}. ${refund} refunded.`;
+}
+
 // --- Refusals ------------------------------------------------------------------
 
-export type UnavailablePickReason = 'event_started' | 'event_closed' | 'suspended' | 'market_closed';
+export type UnavailablePickReason =
+  'event_started' | 'event_closed' | 'suspended' | 'market_closed';
 export type LossLimitPeriod = 'day' | 'week' | 'month';
 
 /** Why a channel bet was not placed (built from the resolution and placeBet's DomainErrors). */
@@ -485,11 +527,11 @@ function smsFits(body: string, maxSegments: number): boolean {
   return fitSms(text, maxSegments) === text;
 }
 
-/** HELP: the commands. */
+/** HELP: the commands (one GSM-7 message in English, prefix included). */
 export function helpBody(locale: ChannelLocale): string {
   return locale === 'am'
-    ? `${pickText(SYNTAX, locale)} ብዙ ጨዋታ: 1234#1#5678#X#50። BAL ቀሪ ሂሳብ፣ BETS ውርርዶች፣ JP ጃክፖት፣ STOP ማስታወቂያ አቁም።`
-    : `${pickText(SYNTAX, locale)} Multi: 1234#1#5678#X#50. BAL balance, BETS your bets, JP jackpot, STOP no offers.`;
+    ? 'ውርርድ: GAMEID#PICK#STAKE፣ ለምሳሌ 1234#1#50። ብዙ ጨዋታ: 1234#1#5678#X#50። ምርጫዎች: 1 X 2 OV25 UN25 GG NG። BAL ቀሪ ሂሳብ፣ BETS ውርርዶች፣ JP ጃክፖት፣ STOP ማስታወቂያ አቁም።'
+    : 'Bet: GAMEID#PICK#STAKE e.g. 1234#1#50. Multi: 1234#1#5678#X#50. Picks: 1 X 2 OV25 UN25 GG NG. BAL balance, BETS bets, JP jackpot, STOP no offers.';
 }
 
 /** STOP / START: the marketing opt-out confirmation, in the player's language. */

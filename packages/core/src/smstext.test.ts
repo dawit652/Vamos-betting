@@ -127,12 +127,16 @@ describe('fitLength and cleanSmsText', () => {
     expect(fitLength(`ab${EMOJI}cd`, 4)).toBe('ab…');
     expect(() => fitLength('x', 0)).toThrow(RangeError);
     fc.assert(
-      fc.property(fc.string({ unit: 'binary', maxLength: 300 }), fc.integer({ min: 1, max: USSD_MAX_LENGTH }), (text, max) => {
-        const out = fitLength(text, max);
-        expect(out.length).toBeLessThanOrEqual(max);
-        if (text.length <= max) expect(out).toBe(text);
-        else expect(hasLoneSurrogate(out)).toBe(false);
-      }),
+      fc.property(
+        fc.string({ unit: 'binary', maxLength: 300 }),
+        fc.integer({ min: 1, max: USSD_MAX_LENGTH }),
+        (text, max) => {
+          const out = fitLength(text, max);
+          expect(out.length).toBeLessThanOrEqual(max);
+          if (text.length <= max) expect(out).toBe(text);
+          else expect(hasLoneSurrogate(out)).toBe(false);
+        },
+      ),
     );
   });
 

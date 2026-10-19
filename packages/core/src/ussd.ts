@@ -32,7 +32,7 @@ import {
 } from './channelreply';
 import { formatGameId, parseGameId } from './codes';
 import { type Santim } from './money';
-import { formatOdds } from './odds';
+import { formatOdds, isValidOddsMilli } from './odds';
 import type { BetRules, MultiBonusConfig, TaxConfig } from './rules';
 import { fitLength, USSD_MAX_LENGTH } from './smstext';
 import { PICK_CODES, parseWholeBirrStake, type PickCode } from './textcommand';
@@ -300,7 +300,11 @@ function stakePrompt(
       t(T.back, ctx),
     ),
   );
-  return { kind: 'menu', state: { screen: 'bet_stake', gameId: game.gameId, pick: option.pick }, text };
+  return {
+    kind: 'menu',
+    state: { screen: 'bet_stake', gameId: game.gameId, pick: option.pick },
+    text,
+  };
 }
 
 /** The net possible win of a single at these odds (quoteBet under the context's terms). */
@@ -347,11 +351,7 @@ export function ussdStart(ctx: UssdContext): UssdStep {
 }
 
 /** The game a step needs: its data, `need_game`, or the "not found" prompt. */
-function withGame(
-  gameId: number,
-  ctx: UssdContext,
-  then: (game: UssdGame) => UssdStep,
-): UssdStep {
+function withGame(gameId: number, ctx: UssdContext, then: (game: UssdGame) => UssdStep): UssdStep {
   const game = ctx.games.get(gameId);
   if (game === undefined) return { kind: 'need_game', gameId };
   if (game === null) return gamePrompt(ctx, T.gameNotFound(gameId));
@@ -457,7 +457,10 @@ export function ussdPlacedEnd(bet: PlacedBetSummary, ctx: Pick<UssdContext, 'loc
 }
 
 /** END: the bet was refused. */
-export function ussdRefusedEnd(refusal: ChannelRefusal, ctx: Pick<UssdContext, 'locale'>): UssdStep {
+export function ussdRefusedEnd(
+  refusal: ChannelRefusal,
+  ctx: Pick<UssdContext, 'locale'>,
+): UssdStep {
   return endStep(refusalBody(refusal, ctx.locale));
 }
 
@@ -465,16 +468,21 @@ export function ussdRefusedEnd(refusal: ChannelRefusal, ctx: Pick<UssdContext, '
  * The odds moved between the confirm screen and the confirmation: the confirm
  * screen again at the new odds (confirming then places at those).
  */
-export function ussdOddsChanged(
-  bet: UssdBetRequest,
-  game: UssdGame,
-  ctx: UssdContext,
-): UssdStep {
+export function ussdOddsChanged(bet: UssdBetRequest, game: UssdGame, ctx: UssdContext): UssdStep {
   const option = game.options.find((candidate) => candidate.pick === bet.pick);
-  if (option === undefined || !listable(option, ctx.rules) || option.selectionId !== bet.selectionId) {
+  if (
+    option === undefined ||
+    !listable(option, ctx.rules) ||
+    option.selectionId !== bet.selectionId
+  ) {
     return pickScreen(game, ctx, T.optionUnavailable);
   }
-  return confirmScreen(game, { ...bet, oddsMilli: option.oddsMilli }, ctx, T.oddsChanged(option.oddsMilli));
+  return confirmScreen(
+    game,
+    { ...bet, oddsMilli: option.oddsMilli },
+    ctx,
+    T.oddsChanged(option.oddsMilli),
+  );
 }
 
 /** END: the session timed out (the aggregator's timeout passed, or it is too old). */
@@ -567,9 +575,7 @@ export function parseUssdState(json: unknown): UssdState | null {
       const { gameId, pick, selectionId, oddsMilli, stake } = value;
       if (!isGameId(gameId) || !isPick(pick)) return null;
       if (typeof selectionId !== 'string' || !UUID_RE.test(selectionId)) return null;
-      if (typeof oddsMilli !== 'number' || !Number.isSafeInteger(oddsMilli) || oddsMilli < 1001) {
-        return null;
-      }
+      if (typeof oddsMilli !== 'number' || !isValidOddsMilli(oddsMilli)) return null;
       if (typeof stake !== 'string' || !/^[1-9]\d{0,17}$/.test(stake)) return null;
       return { screen: 'bet_confirm', gameId, pick, selectionId, oddsMilli, stake: BigInt(stake) };
     }
