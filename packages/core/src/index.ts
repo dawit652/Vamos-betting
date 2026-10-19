@@ -25,3 +25,7 @@ export * from './dailysummary';
 export * from './aml';
 export * from './els';
 export * from './pspstatement';
+export * from './smstext';
+export * from './textcommand';
+export * from './channelreply';
+export * from './ussd';
