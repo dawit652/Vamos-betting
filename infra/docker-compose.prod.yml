@@ -139,7 +139,9 @@ services:
   redis:
     image: redis:7-alpine
     <<: *hardening
-    cap_add: [CHOWN, SETGID, SETUID]
+    # Run as the image's redis user from the start. Starting as root and dropping privileges needs
+    # DAC_OVERRIDE to read the 0700 appendonlydir after a restart, which is worse than no root.
+    user: redis
     # BullMQ needs noeviction; the append-only file keeps queued jobs across a restart.
     command:
       - redis-server
