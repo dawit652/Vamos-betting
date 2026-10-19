@@ -85,8 +85,27 @@ Responses are `CON …` / `END …`, at most 182 characters, in English or Amhar
   with input) is never acted on. New sessions are limited to 10 per number per 5 minutes, and the
   player is checked again on every callback.
 
-## For the worker
+## API routes (`apps/api/src/modules/channels`)
 
-- Route `channel.sms_reply` to the SMS queue and send `body` to `to` (template `channel_reply`).
-- Bets placed by SMS/USSD carry `channel` in `bet.placed`. To tell an SMS bettor whether a live
-  bet was accepted or rejected, `liveBetOutcomeBody` in `@vamos/core` builds the text.
+- `POST /channels/sms/inbound` (only while `SMS_BETTING_ENABLED`; otherwise not registered, so 404).
+  The raw body is JSON `SmsInboundWebhook` signed in `x-sms-signature: t=<unix s>,v1=<hex
+HMAC-SHA256 of "<t>.<raw body>">` under `SMS_WEBHOOK_SECRET`, refused (401 `missing_signature`,
+  `bad_signature`, `stale_timestamp`) when wrong or more than 5 minutes off the clock. Answer:
+  `SmsInboundAck`. Also rate limited per aggregator address (600 a minute).
+- `POST /channels/ussd` (only while `USSD_ENABLED`): JSON or form-encoded `UssdCallbackRequest`
+  with the shared secret in `x-ussd-secret` (401 `bad_secret`); answered `text/plain` `CON …` /
+  `END …`. 1200 a minute per aggregator address.
+- Dev simulator (demo mode and `NODE_ENV` not production only; session required): `GET
+/dev/channels` (`ChannelFlagsResponse`), `POST /dev/channels/sms` (`DevSmsSendRequest`: signs and
+  feeds the text through the inbound path as the player's phone; the reply also lands in `GET
+/dev/sms` once the worker sends it) and `POST /dev/channels/ussd` (`DevUssdRequest`). Each POST
+  answers 404 while its channel is off.
+- Back office: `GET /admin/channels` (`settings.view`), read-only `ChannelFlagsResponse`.
+
+## Worker
+
+- `channel.sms_reply` goes to the `sms` queue (`ChannelReplySmsJobData`) and `body` is sent to `to`
+  as it is (template `channel_reply`). Each re-send is its own outbox row, so its own job.
+- `bet.accepted` / `bet.rejected` also go to the `sms` queue (`LiveBetSmsJobData`); the consumer
+  texts `liveBetOutcomeBody` (template `channel_live_bet`, player's language) only when the bet's
+  channel is `sms` or `ussd`.
