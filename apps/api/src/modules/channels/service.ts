@@ -114,12 +114,12 @@ export async function receiveInboundSms(
       'inbound SMS id reused with a different sender or text: ignored',
     );
   }
-  return SmsInboundAck.parse({
-    received: true,
-    outcome: result.outcome,
-    replayed: result.replayed,
-    reply: result.conflict ? null : result.reply,
-  });
+  // A reused id is not this message: never hand back the stored outcome or reply.
+  return SmsInboundAck.parse(
+    result.conflict
+      ? { received: true, outcome: 'not_available', replayed: false, reply: null }
+      : { received: true, outcome: result.outcome, replayed: result.replayed, reply: result.reply },
+  );
 }
 
 export interface UssdRequest {

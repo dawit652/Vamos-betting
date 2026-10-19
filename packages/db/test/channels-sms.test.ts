@@ -340,6 +340,11 @@ describe('SMS bets that are refused', () => {
     expect(low.reply).toBe(reply('The minimum stake is ETB 5.00. No bet placed.'));
     const high = await receiveSms(handle.db, smsFrom(player.phone, `${gameId}#1#100001`));
     expect(high.reply).toBe(reply('The maximum stake is ETB 100,000.00. No bet placed.'));
+    // Whole birr too long for a stake still names the maximum, not "use whole birr".
+    const huge = await receiveSms(handle.db, smsFrom(player.phone, `${gameId}#1#1000000000`));
+    expect(huge).toMatchObject({ outcome: 'invalid_command', bet: null });
+    expect(huge.reply).toBe(reply('The maximum stake is ETB 100,000.00. No bet placed.'));
+    expect((await inboundRow(huge.inboundMessageId)).refusalCode).toBe('stake_too_large');
     await expectNoBet(player.userId, birr(200_000));
   });
 

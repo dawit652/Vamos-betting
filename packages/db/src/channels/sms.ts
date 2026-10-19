@@ -310,7 +310,7 @@ async function handleText(
       command: null,
       refusalCode: parsed.error.code,
       userId: player.id,
-      body: commandErrorBody(parsed.error, locale),
+      body: commandErrorBody(parsed.error, locale, { maxStake: settings.betRules.maxStake }),
     };
   }
   const { command } = parsed;

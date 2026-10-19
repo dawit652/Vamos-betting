@@ -287,6 +287,22 @@ describe('channels on', () => {
     expect(repliesAfter).toHaveLength(1);
   });
 
+  it('answers a message id reused by another sender neutrally, never with the stored outcome', async () => {
+    const player = await fundedPlayer(ctx);
+    const message = smsMessage(player.phone, `${game.gameId}#1#20`);
+    const first = SmsInboundAck.parse((await inboundSms(ctx, message)).json());
+    expect(first.outcome).toBe('bet_placed');
+    const reused = SmsInboundAck.parse(
+      (await inboundSms(ctx, { ...message, from: randomPhone(), text: 'BAL' })).json(),
+    );
+    expect(reused).toEqual({
+      received: true,
+      outcome: 'not_available',
+      replayed: false,
+      reply: null,
+    });
+  });
+
   it('gives every unregistered number the same generic reply and places nothing', async () => {
     const one = SmsInboundAck.parse(
       (await inboundSms(ctx, smsMessage(randomPhone(), `${game.gameId}#1#50`))).json(),
@@ -400,6 +416,25 @@ describe('channels on', () => {
       ).json(),
     );
     expect(redelivered).toEqual({ ...sms, replayed: true });
+    // Message ids are per player: another player's id neither shows that
+    // player's outcome nor blocks their own texts.
+    const other = await fundedPlayer(ctx);
+    const otherSms = DevSmsSendResponse.parse(
+      (
+        await ctx.app.inject({
+          method: 'POST',
+          url: '/dev/channels/sms',
+          payload: { text: 'BAL', messageId: 'dev-message-0001' },
+          headers: bearer(other),
+        })
+      ).json(),
+    );
+    expect(otherSms).toMatchObject({
+      messageId: 'dev-message-0001',
+      outcome: 'info',
+      replayed: false,
+    });
+    expect(otherSms.reply).toContain('ETB');
 
     const dialled = await ctx.app.inject({
       method: 'POST',

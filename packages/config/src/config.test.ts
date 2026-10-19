@@ -431,15 +431,28 @@ describe('loadConfig', () => {
     expect(problemsOf({ SMS_BETTING_ENABLED: 'true', USSD_ENABLED: 'true' })).toEqual([]);
   });
 
-  it('leaves the licensed-mode guard unchanged by the channel switches', () => {
-    const enabled = loadConfig({
-      ...LICENSED_ENV,
-      SMS_BETTING_ENABLED: 'true',
-      USSD_ENABLED: 'true',
+  it('refuses the demo "mock" aggregator in licensed mode while a channel is on', () => {
+    const secrets = {
       SMS_WEBHOOK_SECRET: 'a-unique-production-sms-secret',
       USSD_SHARED_SECRET: 'a-unique-production-ussd-secret',
+    };
+    const both = problemsOf({
+      ...LICENSED_ENV,
+      ...secrets,
+      SMS_BETTING_ENABLED: 'true',
+      USSD_ENABLED: 'true',
     });
-    expect(licensedModeViolations(enabled)).toEqual([]);
+    expect(both).toEqual([
+      'SMS_AGGREGATOR "mock" is not allowed in licensed mode (SMS betting needs a contracted aggregator)',
+      'USSD_AGGREGATOR "mock" is not allowed in licensed mode (USSD needs a contracted aggregator)',
+    ]);
+    const smsOnly = problemsOf({ ...LICENSED_ENV, ...secrets, SMS_BETTING_ENABLED: 'true' });
+    expect(smsOnly.join('\n')).toMatch(/SMS_AGGREGATOR "mock"/);
+    expect(smsOnly.join('\n')).not.toMatch(/USSD_AGGREGATOR/);
+    const ussdOnly = problemsOf({ ...LICENSED_ENV, ...secrets, FEATURE_USSD: 'true' });
+    expect(ussdOnly.join('\n')).toMatch(/USSD_AGGREGATOR "mock"/);
+    expect(ussdOnly.join('\n')).not.toMatch(/SMS_AGGREGATOR/);
+    // Channels off: the mock aggregator is never used, so nothing changes.
     expect(licensedModeViolations(loadConfig(LICENSED_ENV))).toEqual([]);
     // The guard still refuses what it refused before, whatever the channels say.
     expect(

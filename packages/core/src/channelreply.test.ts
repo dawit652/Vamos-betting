@@ -69,6 +69,7 @@ const COMMAND_ERRORS: TextCommandError[] = [
   { code: 'invalid_game_id', token: '99' },
   { code: 'invalid_pick', gameId: 1234, token: 'Z' },
   { code: 'invalid_stake', token: '50.5' },
+  { code: 'stake_too_large', token: '1000000000' },
   { code: 'duplicate_game', gameId: 1234 },
 ];
 
@@ -237,6 +238,40 @@ describe('command errors', () => {
     expect(commandErrorBody({ code: 'invalid_stake', token: '50.5' }, 'en')).toContain(
       'whole birr',
     );
+  });
+
+  it('names the maximum stake for a whole-birr stake that is too long', () => {
+    const error: TextCommandError = { code: 'stake_too_large', token: '1000000000' };
+    expect(commandErrorBody(error, 'en', { maxStake: 10_000_000n })).toBe(
+      'The maximum stake is ETB 100,000.00. No bet placed.',
+    );
+    expect(commandErrorBody(error, 'en')).not.toContain('whole birr');
+    expect(commandErrorBody(error, 'am', { maxStake: 10_000_000n })).toBe(
+      refusalBody({ code: 'stake_above_maximum', max: 10_000_000n }, 'am'),
+    );
+  });
+
+  it('shows Game IDs zero-padded, as printed on coupons and in USSD', () => {
+    for (const locale of LOCALES) {
+      for (const refusal of [
+        { code: 'game_not_found', gameId: 123 },
+        { code: 'pick_not_offered', gameId: 123, pick: 'GG' },
+        { code: 'pick_unavailable', gameId: 123, pick: '1', reason: 'event_started' },
+        { code: 'pick_unavailable', gameId: 123, pick: '1', reason: 'event_closed' },
+        { code: 'pick_unavailable', gameId: 123, pick: '1', reason: 'suspended' },
+        { code: 'pick_unavailable', gameId: 123, pick: '1', reason: 'market_closed' },
+        { code: 'duplicate_game', gameId: 123 },
+      ] satisfies ChannelRefusal[]) {
+        const body = refusalBody(refusal, locale);
+        expect(body).toContain('0123');
+      }
+      for (const error of [
+        { code: 'invalid_pick', gameId: 123, token: 'Z' },
+        { code: 'duplicate_game', gameId: 123 },
+      ] satisfies TextCommandError[]) {
+        expect(commandErrorBody(error, locale)).toContain('0123');
+      }
+    }
   });
 
   it('quotes a hostile token only shortened and cleaned', () => {

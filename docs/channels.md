@@ -18,7 +18,9 @@ off until the regulator (ELS) approves them.** While a channel is off its inboun
 | `USSD_SERVICE_CODE`   | `*123#`    | The code players dial.                                                          |
 
 The switches live in the environment, not in the settings table: turning a channel on is a
-deployment. The licensed-mode guard is unchanged.
+deployment. In licensed mode the guard also refuses to start while a channel is on with its demo
+`mock` aggregator (`SMS_AGGREGATOR` / `USSD_AGGREGATOR`): a channel needs a contracted aggregator
+before it can take real-money bets.
 
 ## Text commands
 
@@ -44,7 +46,8 @@ One transaction, retried on deadlock:
 2. **Idempotency:** the aggregator's message id (`inbound_messages`, unique per aggregator). A
    redelivery never handles the text again. Its stored reply is queued again only when the last
    send is at least 60 s old, at most 3 sends in all, so a quick retry does not text the player
-   twice. A reused id with another text or sender is ignored.
+   twice. A reused id with another text or sender is ignored and acknowledged as `not_available`
+   with no reply (never the stored outcome).
 3. **Rate limits per number:** 10 texts a minute and 60 an hour. Over a limit the text is not
    read, and "too many messages" is sent once per window.
 4. **Who may bet:** the sender must be an active player with a verified phone. Every other
@@ -97,7 +100,8 @@ HMAC-SHA256 of "<t>.<raw body>">` under `SMS_WEBHOOK_SECRET`, refused (401 `miss
   `END …`. 1200 a minute per aggregator address.
 - Dev simulator (demo mode and `NODE_ENV` not production only; session required): `GET
 /dev/channels` (`ChannelFlagsResponse`), `POST /dev/channels/sms` (`DevSmsSendRequest`: signs and
-  feeds the text through the inbound path as the player's phone; the reply also lands in `GET
+  feeds the text through the inbound path as the player's phone, with the message id namespaced
+  per player so ids never collide across players; the reply also lands in `GET
 /dev/sms` once the worker sends it) and `POST /dev/channels/ussd` (`DevUssdRequest`). Each POST
   answers 404 while its channel is off.
 - Back office: `GET /admin/channels` (`settings.view`), read-only `ChannelFlagsResponse`.

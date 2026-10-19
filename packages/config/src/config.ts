@@ -354,6 +354,18 @@ export function licensedModeViolations(config: AppConfig): string[] {
   if (config.feed.provider === 'mock') {
     problems.push('FEED_PROVIDER "mock" (simulated odds) is not allowed in licensed mode');
   }
+  // The mock aggregators' webhook schemes are demo-only (no replay protection
+  // or IP allowlist for USSD): a channel needs a contracted aggregator first.
+  if (config.channels.sms.enabled && config.channels.sms.aggregator === 'mock') {
+    problems.push(
+      'SMS_AGGREGATOR "mock" is not allowed in licensed mode (SMS betting needs a contracted aggregator)',
+    );
+  }
+  if (config.channels.ussd.enabled && config.channels.ussd.aggregator === 'mock') {
+    problems.push(
+      'USSD_AGGREGATOR "mock" is not allowed in licensed mode (USSD needs a contracted aggregator)',
+    );
+  }
   if (!config.taxConfigConfirmed) {
     problems.push(
       'TAX_CONFIG_CONFIRMED=true is required after the winnings-tax settings are confirmed with counsel',

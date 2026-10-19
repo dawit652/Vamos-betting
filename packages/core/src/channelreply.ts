@@ -11,6 +11,7 @@
  * by a native speaker before launch.
  */
 import { BUSINESS_UTC_OFFSET_MS } from './businessday';
+import { formatGameId } from './codes';
 import { formatBirr, type Santim } from './money';
 import { formatOdds } from './odds';
 import { cleanSmsText, fitLength, fitSms, isGsm7, MAX_SMS_SEGMENTS } from './smstext';
@@ -222,14 +223,14 @@ export function refusalBody(refusal: ChannelRefusal, locale: ChannelLocale): str
   switch (refusal.code) {
     case 'game_not_found':
       text = {
-        en: `Game ${refusal.gameId} not found. ${noBet}`,
-        am: `ጨዋታ ${refusal.gameId} አልተገኘም። ${noBet}`,
+        en: `Game ${formatGameId(refusal.gameId)} not found. ${noBet}`,
+        am: `ጨዋታ ${formatGameId(refusal.gameId)} አልተገኘም። ${noBet}`,
       };
       break;
     case 'pick_not_offered':
       text = {
-        en: `Pick ${refusal.pick} is not offered on game ${refusal.gameId}. ${noBet}`,
-        am: `ምርጫ ${refusal.pick} በጨዋታ ${refusal.gameId} ላይ የለም። ${noBet}`,
+        en: `Pick ${refusal.pick} is not offered on game ${formatGameId(refusal.gameId)}. ${noBet}`,
+        am: `ምርጫ ${refusal.pick} በጨዋታ ${formatGameId(refusal.gameId)} ላይ የለም። ${noBet}`,
       };
       break;
     case 'pick_unavailable':
@@ -316,8 +317,8 @@ export function refusalBody(refusal: ChannelRefusal, locale: ChannelLocale): str
       break;
     case 'duplicate_game':
       text = {
-        en: `Game ${refusal.gameId} is on the bet twice; one pick per game. ${noBet}`,
-        am: `ጨዋታ ${refusal.gameId} ሁለት ጊዜ ገብቷል፤ በአንድ ጨዋታ አንድ ምርጫ ብቻ። ${noBet}`,
+        en: `Game ${formatGameId(refusal.gameId)} is on the bet twice; one pick per game. ${noBet}`,
+        am: `ጨዋታ ${formatGameId(refusal.gameId)} ሁለት ጊዜ ገብቷል፤ በአንድ ጨዋታ አንድ ምርጫ ብቻ። ${noBet}`,
       };
       break;
     case 'bet_failed':
@@ -336,26 +337,27 @@ function unavailableText(
   reason: UnavailablePickReason,
   noBet: string,
 ): Text {
+  const id = formatGameId(gameId);
   switch (reason) {
     case 'event_started':
       return {
-        en: `Game ${gameId} has started; betting before kick-off is closed. ${noBet}`,
-        am: `ጨዋታ ${gameId} ተጀምሯል፤ የቅድመ-ጨዋታ ውርርድ ተዘግቷል። ${noBet}`,
+        en: `Game ${id} has started; betting before kick-off is closed. ${noBet}`,
+        am: `ጨዋታ ${id} ተጀምሯል፤ የቅድመ-ጨዋታ ውርርድ ተዘግቷል። ${noBet}`,
       };
     case 'event_closed':
       return {
-        en: `Game ${gameId} is closed for betting. ${noBet}`,
-        am: `ጨዋታ ${gameId} ለውርርድ ተዘግቷል። ${noBet}`,
+        en: `Game ${id} is closed for betting. ${noBet}`,
+        am: `ጨዋታ ${id} ለውርርድ ተዘግቷል። ${noBet}`,
       };
     case 'suspended':
       return {
-        en: `Betting on ${pick} for game ${gameId} is suspended right now. ${noBet}`,
-        am: `በጨዋታ ${gameId} ላይ ${pick} ውርርድ ለጊዜው ታግዷል። ${noBet}`,
+        en: `Betting on ${pick} for game ${id} is suspended right now. ${noBet}`,
+        am: `በጨዋታ ${id} ላይ ${pick} ውርርድ ለጊዜው ታግዷል። ${noBet}`,
       };
     case 'market_closed':
       return {
-        en: `Pick ${pick} on game ${gameId} is closed. ${noBet}`,
-        am: `በጨዋታ ${gameId} ላይ ምርጫ ${pick} ተዘግቷል። ${noBet}`,
+        en: `Pick ${pick} on game ${id} is closed. ${noBet}`,
+        am: `በጨዋታ ${id} ላይ ምርጫ ${pick} ተዘግቷል። ${noBet}`,
       };
   }
 }
@@ -363,7 +365,11 @@ function unavailableText(
 // --- Commands that could not be read --------------------------------------------
 
 /** The reply to a text that is not a command: what was wrong and the syntax. */
-export function commandErrorBody(error: TextCommandError, locale: ChannelLocale): string {
+export function commandErrorBody(
+  error: TextCommandError,
+  locale: ChannelLocale,
+  rules: { maxStake?: Santim } = {},
+): string {
   const syntax = pickText(SYNTAX, locale);
   let text: Text;
   switch (error.code) {
@@ -396,8 +402,8 @@ export function commandErrorBody(error: TextCommandError, locale: ChannelLocale)
       break;
     case 'invalid_pick':
       text = {
-        en: `"${quoteToken(error.token)}" is not a pick (game ${error.gameId}). Picks: 1 X 2 OV25 UN25 GG NG.`,
-        am: `"${quoteToken(error.token)}" ምርጫ አይደለም (ጨዋታ ${error.gameId})። ምርጫዎች: 1 X 2 OV25 UN25 GG NG።`,
+        en: `"${quoteToken(error.token)}" is not a pick (game ${formatGameId(error.gameId)}). Picks: 1 X 2 OV25 UN25 GG NG.`,
+        am: `"${quoteToken(error.token)}" ምርጫ አይደለም (ጨዋታ ${formatGameId(error.gameId)})። ምርጫዎች: 1 X 2 OV25 UN25 GG NG።`,
       };
       break;
     case 'invalid_stake':
@@ -406,10 +412,19 @@ export function commandErrorBody(error: TextCommandError, locale: ChannelLocale)
         am: `መጠን "${quoteToken(error.token)}" ትክክል አይደለም፤ ሙሉ ብር ይጠቀሙ፣ ለምሳሌ 1234#1#50።`,
       };
       break;
+    case 'stake_too_large':
+      if (rules.maxStake !== undefined) {
+        return refusalBody({ code: 'stake_above_maximum', max: rules.maxStake }, locale);
+      }
+      text = {
+        en: `The stake is above the maximum. ${pickText(NO_BET, 'en')}`,
+        am: `መጠኑ ከከፍተኛው በላይ ነው። ${pickText(NO_BET, 'am')}`,
+      };
+      break;
     case 'duplicate_game':
       text = {
-        en: `Game ${error.gameId} is on the bet twice; one pick per game.`,
-        am: `ጨዋታ ${error.gameId} ሁለት ጊዜ ገብቷል፤ በአንድ ጨዋታ አንድ ምርጫ ብቻ።`,
+        en: `Game ${formatGameId(error.gameId)} is on the bet twice; one pick per game.`,
+        am: `ጨዋታ ${formatGameId(error.gameId)} ሁለት ጊዜ ገብቷል፤ በአንድ ጨዋታ አንድ ምርጫ ብቻ።`,
       };
       break;
   }
@@ -494,7 +509,11 @@ function jackpotText(round: JackpotSummary, locale: ChannelLocale, withTeams: bo
   const pool = formatMoney(round.pool, locale);
   const closes = formatAddisDateTime(round.closesAt, locale);
   const games = round.games
-    .map((game) => (withTeams ? `${game.gameId} ${game.home}-${game.away}` : String(game.gameId)))
+    .map((game) =>
+      withTeams
+        ? `${formatGameId(game.gameId)} ${game.home}-${game.away}`
+        : formatGameId(game.gameId),
+    )
     .join(', ');
   return locale === 'am'
     ? `ጃክፖት ${code}: ${round.gameCount} ጨዋታዎች፣ ${cost} በአንድ ጥምረት፣ ሽልማት ${pool}፣ የሚዘጋው ${closes}። ጨዋታዎች: ${games}።`

@@ -94,6 +94,16 @@ export function parsePick(token: string): PickCode | null {
 /** Longest stake accepted, in significant digits (999,999,999 birr). */
 const MAX_STAKE_DIGITS = 9;
 const STAKE_PATTERN = new RegExp(`^0*(\\d{1,${MAX_STAKE_DIGITS}})(?:\\.0{1,2})?$`);
+const OVERLONG_STAKE_PATTERN = new RegExp(`^0*[1-9]\\d{${MAX_STAKE_DIGITS},}(?:\\.0{1,2})?$`);
+
+/**
+ * True when a token is a whole number of birr written correctly but with more
+ * than nine significant digits: it is above any maximum stake, so it is
+ * refused as too large rather than as unreadable.
+ */
+export function isOverlongWholeBirrStake(token: string): boolean {
+  return typeof token === 'string' && OVERLONG_STAKE_PATTERN.test(token.trim());
+}
 
 /**
  * A stake typed in whole birr ("50", "050", "50.00") as santim, or null for
@@ -139,6 +149,7 @@ export type TextCommandError =
   | { code: 'invalid_game_id'; token: string }
   | { code: 'invalid_pick'; gameId: number; token: string }
   | { code: 'invalid_stake'; token: string }
+  | { code: 'stake_too_large'; token: string }
   | { code: 'duplicate_game'; gameId: number };
 
 export type TextCommandResult =
@@ -218,7 +229,10 @@ export function parseTextCommand(
   }
   const stakeToken = tokens[tokens.length - 1] ?? '';
   const stake = parseWholeBirrStake(stakeToken);
-  if (stake === null) return failure({ code: 'invalid_stake', token: stakeToken });
+  if (stake === null) {
+    const code = isOverlongWholeBirrStake(stakeToken) ? 'stake_too_large' : 'invalid_stake';
+    return failure({ code, token: stakeToken });
+  }
 
   const seen = new Set<number>();
   for (const leg of legs) {

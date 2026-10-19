@@ -283,7 +283,7 @@ describe('placing a bet', () => {
   });
 
   it('re-prompts for an invalid, too small or too big stake', () => {
-    for (const input of ['', '0', '5.5', '-5', 'abc', '1e3', '5 0', '9'.repeat(25)]) {
+    for (const input of ['', '0', '5.5', '-5', 'abc', '1e3', '5 0', '1'.repeat(10) + '.5']) {
       const step = menu(run(['1', '1234', '1', input]));
       expect(step.state).toEqual({ screen: 'bet_stake', gameId: 1234, pick: '1' });
       expect(step.text.startsWith('Invalid stake: whole birr only.\nArsenal @2.00')).toBe(true);
@@ -292,6 +292,12 @@ describe('placing a bet', () => {
     expect(low.text.startsWith('Minimum stake ETB 5.00.\n')).toBe(true);
     const high = menu(run(['1', '1234', '1', '100001']));
     expect(high.text.startsWith('Maximum stake ETB 100,000.00.\n')).toBe(true);
+    // Whole birr too long to read is still over the maximum, not "whole birr only".
+    for (const input of ['1000000000', '9'.repeat(15), '1000000000.00']) {
+      const step = menu(run(['1', '1234', '1', input]));
+      expect(step.state).toEqual({ screen: 'bet_stake', gameId: 1234, pick: '1' });
+      expect(step.text.startsWith('Maximum stake ETB 100,000.00.\n')).toBe(true);
+    }
     expect(menu(run(['1', '1234', '1', '5'])).state.screen).toBe('bet_confirm');
     expect(menu(run(['1', '1234', '1', '100000'])).state.screen).toBe('bet_confirm');
   });

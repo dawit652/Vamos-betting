@@ -59,8 +59,16 @@ export default async function devChannelRoutes(app: FastifyInstance): Promise<vo
       const input = parseInput(DevSmsSendRequest, request.body);
       const messageId = input.messageId ?? `dev_${deps.randomBytes(12).toString('hex')}`;
       const { sms } = deps.config.channels;
+      // Ids are namespaced per player, so a player can neither see another
+      // player's outcome nor take ids that player will use.
+      const externalId = `dev_${user.id}_${messageId}`;
       const rawBody = Buffer.from(
-        JSON.stringify({ messageId, from: user.phone, to: sms.shortCode, text: input.text }),
+        JSON.stringify({
+          messageId: externalId,
+          from: user.phone,
+          to: sms.shortCode,
+          text: input.text,
+        }),
         'utf8',
       );
       const ack = await receiveInboundSms(

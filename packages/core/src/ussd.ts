@@ -35,7 +35,12 @@ import { type Santim } from './money';
 import { formatOdds, isValidOddsMilli } from './odds';
 import type { BetRules, MultiBonusConfig, TaxConfig } from './rules';
 import { fitLength, USSD_MAX_LENGTH } from './smstext';
-import { PICK_CODES, parseWholeBirrStake, type PickCode } from './textcommand';
+import {
+  isOverlongWholeBirrStake,
+  PICK_CODES,
+  parseWholeBirrStake,
+  type PickCode,
+} from './textcommand';
 
 /** Where the session is. Every value is JSON-safe except `stake` (see serializeUssdState). */
 export type UssdState =
@@ -413,7 +418,11 @@ export function ussdNext(state: UssdState, rawInput: string, ctx: UssdContext): 
           return pickScreen(game, ctx, T.optionUnavailable);
         }
         const stake = readable ? parseWholeBirrStake(input) : null;
-        if (stake === null) return stakePrompt(game, option, ctx, T.invalidStake);
+        if (stake === null) {
+          const tooLarge = readable && isOverlongWholeBirrStake(input);
+          const notice = tooLarge ? T.maxStake(ctx.rules.maxStake) : T.invalidStake;
+          return stakePrompt(game, option, ctx, notice);
+        }
         const bet: UssdBetRequest = {
           gameId: game.gameId,
           pick: option.pick,

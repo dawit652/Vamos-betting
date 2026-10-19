@@ -177,6 +177,22 @@ describe('stakes', () => {
       error: { code: 'invalid_stake', token: '0' },
     });
   });
+
+  it('tells a whole-birr stake that is too long apart from an unreadable one', () => {
+    for (const token of ['1000000000', '0001000000000', '12345678901234567890', '1000000000.00']) {
+      expect(parseWholeBirrStake(token)).toBeNull();
+      expect(parseTextCommand(`1234#1#${token}`)).toEqual({
+        ok: false,
+        error: { code: 'stake_too_large', token },
+      });
+    }
+    for (const token of ['1000000000.5', '1e10', '10,000,000,000']) {
+      expect(parseTextCommand(`1234#1#${token}`)).toEqual({
+        ok: false,
+        error: { code: 'invalid_stake', token },
+      });
+    }
+  });
 });
 
 describe('parseTextCommand: keywords', () => {
