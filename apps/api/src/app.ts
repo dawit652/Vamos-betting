@@ -2,10 +2,20 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyRateLimit from '@fastify/rate-limit';
-import type { AppConfig, TrustProxySetting } from '@vamos/config';
+import {
+  baseLoggerOptions,
+  NOOP_TELEMETRY,
+  redactUrl,
+  REQUEST_ID_HEADER,
+  requestIdFrom,
+  type AppConfig,
+  type SpanHandle,
+  type Telemetry,
+  type TrustProxySetting,
+} from '@vamos/config';
 import { STAFF_CSRF_HEADER, type HealthResponse } from '@vamos/contracts';
 import { DomainError } from '@vamos/db';
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { AppDeps } from './deps';
 import { BackgroundTasks } from './lib/background';
 import { AppError } from './lib/errors';
@@ -26,10 +36,23 @@ declare module 'fastify' {
     /** Work that runs after a response (see BackgroundTasks); awaited on close. */
     background: BackgroundTasks;
   }
+  interface FastifyRequest {
+    /** The request's tracing span (a no-op unless OpenTelemetry is on). */
+    span?: SpanHandle;
+  }
 }
 
+/** Where (and how verbosely) the API logs; `false` turns logging off (tests). */
+export type ApiLoggerOption = false | { level?: string; stream?: { write(line: string): unknown } };
+
 export interface BuildAppOptions {
-  logger?: FastifyServerOptions['logger'];
+  /**
+   * Default: pino at LOG_LEVEL on stdout. The redaction and the request
+   * serializers (apiLoggerOptions) always apply.
+   */
+  logger?: ApiLoggerOption;
+  /** Tracing (startTelemetry of @vamos/config); default the no-op. */
+  telemetry?: Telemetry;
   /** Redis key namespace for rate-limit counters (tests use one per app instance). */
   rateLimitNameSpace?: string;
   /**
@@ -61,15 +84,84 @@ export function corsOriginsFor(config: AppConfig, url: string): string[] {
   return [new URL(isAdminPath(url) ? config.web.adminUrl : config.web.publicUrl).origin];
 }
 
+interface LoggedRequest {
+  id: string;
+  method: string;
+  url: string;
+  ip: string;
+  headers: Record<string, string | string[] | undefined>;
+  routeOptions?: { url?: string | undefined };
+}
+
+/**
+ * The API's pino options: structured JSON with the service name, secrets
+ * redacted wherever they are logged (headers, bodies, nested objects; see
+ * logRedactPaths), and request lines that carry only the method, the URL
+ * (secret query values redacted), the route, the client address and the user
+ * agent: never headers, cookies or bodies. Every line of a request carries
+ * its `requestId`.
+ */
+export function apiLoggerOptions(
+  config: Pick<AppConfig, 'logLevel'>,
+  option: Exclude<ApiLoggerOption, false> = {},
+): FastifyServerOptions['logger'] {
+  return {
+    ...baseLoggerOptions({ level: option.level ?? config.logLevel, service: 'vamos-api' }),
+    ...(option.stream === undefined ? {} : { stream: option.stream }),
+    serializers: {
+      // Fastify logs the request as `req`; anything else logged under that key passes through
+      // (and the redaction still applies to it).
+      req: (request: LoggedRequest | Record<string, unknown>) =>
+        typeof request.method === 'string' && typeof request.url === 'string'
+          ? {
+              method: request.method,
+              url: redactUrl(request.url),
+              route: (request as LoggedRequest).routeOptions?.url,
+              remoteAddress: (request as LoggedRequest).ip,
+              userAgent: (request as LoggedRequest).headers?.['user-agent'],
+            }
+          : request,
+      res: (reply: { statusCode: number }) => ({ statusCode: reply.statusCode }),
+    },
+  } as FastifyServerOptions['logger'];
+}
+
+/**
+ * Security headers on every response: no rendering (CSP default-src and
+ * frame-ancestors 'none', X-Frame-Options DENY), no MIME sniffing, no
+ * Referer, and HSTS (one year, subdomains) in production and licensed mode,
+ * where the API is only reachable over HTTPS. Exported for tests.
+ */
+export function securityHeaderOptions(config: Pick<AppConfig, 'nodeEnv' | 'mode'>) {
+  const hsts = config.nodeEnv === 'production' || config.mode === 'licensed';
+  return {
+    // A JSON API serves no documents: forbid everything if a response is ever rendered.
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
+    },
+    // The web app (another port or subdomain) is same-site with the API.
+    crossOriginResourcePolicy: { policy: 'same-site' as const },
+    frameguard: { action: 'deny' as const },
+    noSniff: true,
+    referrerPolicy: { policy: 'no-referrer' as const },
+    strictTransportSecurity: hsts ? { maxAge: 31_536_000, includeSubDomains: true } : false,
+  };
+}
+
 export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyInstance {
   const { config } = deps;
+  const telemetry = options.telemetry ?? NOOP_TELEMETRY;
   const app = Fastify({
-    logger: options.logger ?? { level: config.logLevel },
+    logger: options.logger === false ? false : apiLoggerOptions(config, options.logger),
     // Never `true`: trusting every hop would let clients pick their own IP.
     trustProxy: options.trustProxy ?? config.api.trustProxy,
     bodyLimit: 64 * 1024,
-    genReqId: () => crypto.randomUUID(),
-    requestIdHeader: 'x-request-id',
+    // A well-formed incoming X-Request-ID is kept (it ties our lines to the proxy's); anything
+    // else (missing, too long, odd characters that could forge log lines) gets a new UUID.
+    requestIdHeader: false,
+    genReqId: (request) => requestIdFrom(request.headers[REQUEST_ID_HEADER]),
+    logController: new LogController({ requestIdLogLabel: 'requestId' }),
   });
 
   app.decorate('deps', deps);
@@ -80,15 +172,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   });
 
   void app.register(fastifyCookie);
-  void app.register(fastifyHelmet, {
-    // A JSON API serves no documents: forbid everything if a response is ever rendered.
-    contentSecurityPolicy: {
-      useDefaults: false,
-      directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
-    },
-    // The web app (another port or subdomain) is same-site with the API.
-    crossOriginResourcePolicy: { policy: 'same-site' },
-  });
+  void app.register(fastifyHelmet, securityHeaderOptions(config));
   const corsOptions = {
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
@@ -121,9 +205,41 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // After @fastify/cookie, so cookies are parsed when the session hook runs.
   void app.register(sessionPlugin);
 
+  if (telemetry.enabled) {
+    app.addHook('onRequest', async (request) => {
+      const traceparent = request.headers.traceparent;
+      request.span = telemetry.startSpan(
+        `${request.method} ${request.routeOptions.url ?? 'unmatched'}`,
+        {
+          kind: 'server',
+          traceparent: typeof traceparent === 'string' ? traceparent : undefined,
+          attributes: {
+            'http.request.method': request.method,
+            'http.route': request.routeOptions.url,
+            'vamos.request_id': request.id,
+          },
+        },
+      );
+    });
+    app.addHook('onResponse', async (request, reply) => {
+      request.span?.setAttributes({ 'http.response.status_code': reply.statusCode });
+      if (reply.statusCode >= 500) request.span?.recordError(`HTTP ${reply.statusCode}`);
+      request.span?.end();
+    });
+  }
+
   app.addHook('onSend', async (request, reply) => {
-    reply.header('x-request-id', request.id);
+    reply.header(REQUEST_ID_HEADER, request.id);
     reply.header('x-vamos-mode', config.mode);
+  });
+
+  // Every error body carries the request id, so a player or staff member can quote it to
+  // support and we find the matching log lines.
+  app.addHook('preSerialization', async (request, reply, payload) => {
+    if (reply.statusCode < 400 || payload === null || typeof payload !== 'object') return payload;
+    const error = (payload as { error?: unknown }).error;
+    if (error === null || typeof error !== 'object' || Array.isArray(error)) return payload;
+    return { ...payload, error: { ...error, requestId: request.id } };
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -141,6 +257,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       });
     }
     request.log.error({ err: error }, 'unhandled error');
+    request.span?.recordError(error);
     return reply
       .status(500)
       .send({ error: { code: 'internal_error', message: 'Something went wrong' } });

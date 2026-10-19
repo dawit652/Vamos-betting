@@ -40,3 +40,9 @@ export {
   type SpanKindName,
   type Telemetry,
 } from './telemetry';
+export {
+  gracefulShutdown,
+  type GracefulShutdownOptions,
+  type ShutdownLogger,
+  type ShutdownStep,
+} from './lifecycle';

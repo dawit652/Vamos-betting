@@ -24,6 +24,8 @@ export const ApiErrorSchema = z.object({
     code: z.string(),
     message: z.string(),
     details: z.unknown().optional(),
+    /** The request's X-Request-ID, to quote to support (the API adds it to every error). */
+    requestId: z.string().optional(),
   }),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;

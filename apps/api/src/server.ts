@@ -1,8 +1,9 @@
-import { ConfigError, loadConfig, loadDotEnv, type AppConfig } from '@vamos/config';
+import { ConfigError, loadConfig, loadDotEnv, startTelemetry, type AppConfig } from '@vamos/config';
 import { claimOperatingMode, OperatingModeMismatchError } from '@vamos/db';
 import { PaymentProviderError } from '@vamos/payments';
 import { buildApp } from './app';
 import { createDefaultDeps, ProviderNotImplementedError, type DefaultDeps } from './deps';
+import { createApiShutdown } from './lib/shutdown';
 import { apiConfigProblems } from './startup';
 
 function refuseToStart(message: string): never {
@@ -47,23 +48,20 @@ async function main(): Promise<void> {
     );
   }
 
-  const app = buildApp(deps);
+  // OpenTelemetry only when OTEL_EXPORTER_OTLP_ENDPOINT is set (no-op, nothing loaded, otherwise).
+  const telemetry = await startTelemetry(config, 'vamos-api');
+  const app = buildApp(deps, { telemetry });
   if (config.mode === 'demo') {
     app.log.warn('running in DEMO mode: play money only, mock providers, no real payments');
   }
+  if (telemetry.enabled) app.log.info('tracing on (OpenTelemetry, OTLP over HTTP)');
 
-  let shuttingDown = false;
-  const shutdown = async (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    app.log.info({ signal }, 'shutting down');
-    try {
-      await app.close();
-    } finally {
-      await deps.close();
-    }
-    process.exit(0);
-  };
+  const shutdown = createApiShutdown({
+    app,
+    closeDeps: () => deps.close(),
+    telemetry,
+    exit: (code) => process.exit(code),
+  });
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
