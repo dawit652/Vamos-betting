@@ -16,6 +16,8 @@ import {
   createFileElsReporter,
   DEPOSIT_SUCCEEDED,
   markDepositInitiated,
+  RECONCILIATION_REQUESTED,
+  requestReconciliation,
   schema,
 } from '@vamos/db';
 import { mockDepositRef } from '@vamos/payments';
@@ -26,6 +28,7 @@ import {
   elsReportTask,
   processAmlJob,
   processElsJob,
+  reconciliationRequestTask,
   runDailyAmlSweep,
   runDailySummaryTask,
   runElsSweep,
@@ -62,7 +65,7 @@ beforeAll(async () => {
   t.ctx.els = createFileElsReporter({ dir });
   await publishAll();
   dispatcher = createOutboxDispatcher(t.ctx);
-  consumers = [elsReportTask(t.ctx), amlEvaluateTask(t.ctx)];
+  consumers = [elsReportTask(t.ctx), amlEvaluateTask(t.ctx), reconciliationRequestTask(t.ctx)];
   for (const task of consumers) await task.start();
 }, SETUP_TIMEOUT);
 
@@ -366,6 +369,54 @@ describe('daily summaries and reconciliation', () => {
       } finally {
         t.clock.set(real);
       }
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+describe('requested reconciliation ("Run now")', () => {
+  it('routes the request to the reconciliation queue only for a well-formed payload', () => {
+    const row = (payload: unknown) =>
+      ({
+        id: 42n,
+        jobKey: 0,
+        type: RECONCILIATION_REQUESTED,
+        payload,
+      }) as unknown as Parameters<(typeof OUTBOX_ROUTES)[string][number]>[0];
+    const routes = OUTBOX_ROUTES[RECONCILIATION_REQUESTED] ?? [];
+    expect(routes).toHaveLength(1);
+    const requestId = randomUUID();
+    expect(routes[0]!(row({ requestId }), new Date())).toMatchObject({
+      queue: 'reconciliation',
+      data: { outboxId: '42', requestId },
+      opts: { attempts: 3 },
+    });
+    expect(routes[0]!(row({ requestId: 'nope' }), new Date())).toBeNull();
+  });
+
+  it(
+    'runs a queued request off the request path: outbox, queue, run with the request id',
+    async () => {
+      const adminId = randomUUID();
+      const request = await requestReconciliation(t.db.db, {
+        now: t.clock.now,
+        actor: { adminId, ip: null },
+      });
+      await dispatcher.run();
+      const done = async () => {
+        const [row] = await t.db.db
+          .select()
+          .from(schema.reconciliationRequests)
+          .where(eq(schema.reconciliationRequests.id, request.id));
+        return row?.status === 'done' ? row : null;
+      };
+      await eventually(async () => (await done()) !== null, 20_000, 'the requested run');
+      expect(await done()).toMatchObject({ runId: request.id, attempts: 1 });
+      const [run] = await t.db.db
+        .select()
+        .from(schema.reconciliationRuns)
+        .where(eq(schema.reconciliationRuns.id, request.id));
+      expect(run).toMatchObject({ kind: 'manual', triggeredBy: adminId });
     },
     TEST_TIMEOUT,
   );

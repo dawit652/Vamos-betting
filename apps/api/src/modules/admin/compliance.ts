@@ -17,6 +17,7 @@ import {
   PspStatementQuery,
   ReconciliationRunDetailResponse,
   ReconciliationRunListResponse,
+  ReconciliationRequestResponse,
   ReconciliationRunQuery,
   RecomputeDailySummaryResponse,
   ReviewAmlFlagRequest,
@@ -32,6 +33,7 @@ import {
   getDailySummary,
   getElsReportStatus,
   getPspStatement,
+  getReconciliationRequest,
   getReconciliationRun,
   importPspStatement,
   listAmlFlags,
@@ -40,17 +42,15 @@ import {
   listReconciliationRuns,
   refreshDailySummary,
   reviewAmlFlag,
-  runReconciliation,
+  requestReconciliation,
   updateComplianceSetting,
   writeAudit,
   type ElsReporterStatus,
 } from '@vamos/db';
-import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
-import type { Redis } from 'ioredis';
-import { conflict, notFound, parseInput } from '../../lib/errors';
+import { notFound, parseInput } from '../../lib/errors';
 import { staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, wire } from './common';
 
@@ -65,25 +65,6 @@ type DateParams = { Params: { date: string } };
  * service one over 20,000 lines (422 invalid_statement).
  */
 export const PSP_STATEMENT_BODY_LIMIT = 12 * 1024 * 1024;
-
-/** How long a staff-started reconciliation holds the "one at a time" lock at most. */
-const MANUAL_RECONCILIATION_LOCK_MS = 5 * 60_000;
-
-const RELEASE_LOCK = `if redis.call('get', KEYS[1]) == ARGV[1] then
-  return redis.call('del', KEYS[1])
-end
-return 0`;
-
-/** SET NX PX lock; null when someone else holds it. */
-async function tryLock(
-  redis: Redis,
-  key: string,
-  ttlMs: number,
-): Promise<{ release: () => Promise<unknown> } | null> {
-  const token = randomUUID();
-  if ((await redis.set(key, token, 'PX', ttlMs, 'NX')) !== 'OK') return null;
-  return { release: () => redis.eval(RELEASE_LOCK, 1, key, token) };
-}
 
 /** The file reporter's status as the API host sees it, without creating anything. */
 async function fileReporterStatus(dir: string): Promise<ElsReporterStatus> {
@@ -250,9 +231,12 @@ export default async function adminComplianceRoutes(app: FastifyInstance): Promi
   );
 
   /**
-   * Runs the reconciliation now (kind manual; the payment checks' day
-   * defaults to today). One staff run at a time: 409
-   * `reconciliation_running` while another is in progress.
+   * Runs the reconciliation now, off the request path (kind manual; the
+   * payment checks' day defaults to today): queues a request (outbox → the
+   * worker's `reconciliation` queue) and answers 202 with it and a Location
+   * header; the back office polls GET …/reconciliation-requests/:id, and
+   * the run gets the request's id. One request at a time: 409
+   * `reconciliation_running` while another is queued or running.
    */
   app.post(
     '/admin/compliance/reconciliation-runs',
@@ -260,28 +244,26 @@ export default async function adminComplianceRoutes(app: FastifyInstance): Promi
     async (request, reply) => {
       const input = parseInput(RunReconciliationRequest, request.body ?? {});
       const actor = staffActor(request);
-      const lock = await tryLock(
-        deps.redis,
-        'vamos:lock:compliance:reconciliation-manual',
-        MANUAL_RECONCILIATION_LOCK_MS,
-      );
-      if (lock === null) {
-        throw conflict(
-          'reconciliation_running',
-          'A reconciliation is already running. Try again in a minute.',
-        );
-      }
-      try {
-        const detail = await runReconciliation(deps.db, {
-          now: deps.clock(),
-          kind: 'manual',
-          ...opt('businessDate', input.businessDate),
-          actor: { adminId: actor.adminId, ip: actor.ip ?? null },
-        });
-        return reply.code(201).send(wire(ReconciliationRunDetailResponse, detail));
-      } finally {
-        await lock.release().catch(() => undefined);
-      }
+      const queued = await requestReconciliation(deps.db, {
+        now: deps.clock(),
+        ...opt('businessDate', input.businessDate),
+        actor: { adminId: actor.adminId, ip: actor.ip ?? null },
+      });
+      return reply
+        .code(202)
+        .header('location', `/admin/compliance/reconciliation-requests/${queued.id}`)
+        .send(wire(ReconciliationRequestResponse, { request: queued }));
+    },
+  );
+
+  app.get<IdParams>(
+    '/admin/compliance/reconciliation-requests/:id',
+    { config: { staff: 'reports.view' } },
+    async (request) => {
+      const id = parseUuid(request.params.id, 'Reconciliation request');
+      return wire(ReconciliationRequestResponse, {
+        request: await getReconciliationRequest(deps.db, id),
+      });
     },
   );
 

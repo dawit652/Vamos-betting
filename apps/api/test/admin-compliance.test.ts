@@ -9,6 +9,7 @@ import {
   ElsReportStatusResponse,
   ImportPspStatementResponse,
   PERMISSION_ROLES,
+  ReconciliationRequestResponse,
   ReconciliationRunDetailResponse,
   ReconciliationRunListResponse,
   RecomputeDailySummaryResponse,
@@ -17,7 +18,7 @@ import {
   type StaffRole,
 } from '@vamos/contracts';
 import { addBusinessDays, businessDateOf } from '@vamos/core';
-import { schema } from '@vamos/db';
+import { runRequestedReconciliation, schema } from '@vamos/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listAdminRoutes } from '../src/modules/admin/common';
@@ -195,50 +196,87 @@ describe('daily summaries', () => {
 });
 
 describe('reconciliation', () => {
-  it('runs now (manual, audited), lists and shows the run, one staff run at a time', async () => {
-    const run = await asStaff(
+  it('queues "Run now" (202), the worker runs it under the request id, one at a time', async () => {
+    const accepted = await asStaff(
       ctx,
       as('finance'),
       'POST',
       '/admin/compliance/reconciliation-runs',
       {},
     );
-    expect(run.statusCode, run.body).toBe(201);
-    const detail = ReconciliationRunDetailResponse.parse(run.json());
-    expect(detail.run).toMatchObject({
-      kind: 'manual',
-      triggeredBy: as('finance').id,
+    expect(accepted.statusCode, accepted.body).toBe(202);
+    const { request } = ReconciliationRequestResponse.parse(accepted.json());
+    expect(request).toMatchObject({
+      status: 'queued',
       businessDate: today(),
+      requestedBy: as('finance').id,
+      runId: null,
     });
-    expect(await auditActions('reconciliation.run', detail.run.id)).toHaveLength(1);
-
-    const list = ReconciliationRunListResponse.parse(
-      (await asStaff(ctx, as('compliance'), 'GET', '/admin/compliance/reconciliation-runs')).json(),
+    expect(accepted.headers.location).toBe(
+      `/admin/compliance/reconciliation-requests/${request.id}`,
     );
-    expect(list.items.map((item) => item.id)).toContain(detail.run.id);
+    expect(await auditActions('reconciliation.requested', request.id)).toHaveLength(1);
+    // The request handler did not run the checks: no run exists yet.
+    const notYet = await asStaff(
+      ctx,
+      as('admin'),
+      'GET',
+      `/admin/compliance/reconciliation-runs/${request.id}`,
+    );
+    expect(notYet.statusCode).toBe(404);
+
+    // Another "Run now" while it is queued: 409.
+    const busy = await asStaff(
+      ctx,
+      as('admin'),
+      'POST',
+      '/admin/compliance/reconciliation-runs',
+      {},
+    );
+    expect(busy.statusCode).toBe(409);
+    expect(ApiErrorSchema.parse(busy.json()).error.code).toBe('reconciliation_running');
+
+    // What the worker's `reconciliation` job does.
+    await runRequestedReconciliation(ctx.deps.db, { requestId: request.id, now: ctx.clock.now });
+    const polled = await asStaff(
+      ctx,
+      as('compliance'),
+      'GET',
+      `/admin/compliance/reconciliation-requests/${request.id}`,
+    );
+    expect(polled.statusCode).toBe(200);
+    expect(ReconciliationRequestResponse.parse(polled.json()).request).toMatchObject({
+      status: 'done',
+      runId: request.id,
+      attempts: 1,
+    });
     const shown = await asStaff(
       ctx,
       as('admin'),
       'GET',
-      `/admin/compliance/reconciliation-runs/${detail.run.id}`,
+      `/admin/compliance/reconciliation-runs/${request.id}`,
     );
     expect(shown.statusCode).toBe(200);
+    const detail = ReconciliationRunDetailResponse.parse(shown.json());
+    expect(detail.run).toMatchObject({
+      id: request.id,
+      kind: 'manual',
+      triggeredBy: as('finance').id,
+      businessDate: today(),
+    });
+    expect(await auditActions('reconciliation.run', request.id)).toHaveLength(1);
+    const list = ReconciliationRunListResponse.parse(
+      (await asStaff(ctx, as('compliance'), 'GET', '/admin/compliance/reconciliation-runs')).json(),
+    );
+    expect(list.items.map((item) => item.id)).toContain(request.id);
 
-    const key = 'vamos:lock:compliance:reconciliation-manual';
-    await ctx.deps.redis.set(key, 'someone-else', 'PX', 60_000);
-    try {
-      const busy = await asStaff(
-        ctx,
-        as('admin'),
-        'POST',
-        '/admin/compliance/reconciliation-runs',
-        {},
-      );
-      expect(busy.statusCode).toBe(409);
-      expect(ApiErrorSchema.parse(busy.json()).error.code).toBe('reconciliation_running');
-    } finally {
-      await ctx.deps.redis.del(key);
-    }
+    const unknown = await asStaff(
+      ctx,
+      as('admin'),
+      'GET',
+      '/admin/compliance/reconciliation-requests/00000000-0000-4000-8000-000000000000',
+    );
+    expect(unknown.statusCode).toBe(404);
     const badDate = await asStaff(
       ctx,
       as('admin'),

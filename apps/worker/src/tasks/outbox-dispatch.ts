@@ -18,6 +18,7 @@ import {
   JACKPOT_ENTERED,
   JACKPOT_SETTLED,
   MARKET_RESULTED,
+  RECONCILIATION_REQUESTED,
   markOutboxFailed,
   markOutboxPublished,
   WITHDRAWAL_APPROVED,
@@ -188,6 +189,12 @@ export interface AmlJobData {
   outboxId: string;
   type: string;
   userId: string;
+}
+
+/** Data of a `reconciliation` job: run this staff request (runRequestedReconciliation). */
+export interface ReconciliationJobData {
+  outboxId: string;
+  requestId: string;
 }
 
 export interface RoutedJob {
@@ -549,6 +556,26 @@ const amlRoute: OutboxRoute = (row) => {
   return { queue: QUEUE_NAMES.aml, name: row.type, data };
 };
 
+/**
+ * A staff "Run now" reconciliation (Phase 12): run in the worker, off the
+ * API request path. Few attempts: a request whose job gives up is marked
+ * failed, and staff can ask again.
+ */
+const reconciliationRoute: OutboxRoute = (row) => {
+  const parsed = z.object({ requestId: z.uuid() }).safeParse(row.payload);
+  if (!parsed.success) return null;
+  const data: ReconciliationJobData = {
+    outboxId: row.id.toString(),
+    requestId: parsed.data.requestId,
+  };
+  return {
+    queue: QUEUE_NAMES.reconciliation,
+    name: row.type,
+    data,
+    opts: { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+  };
+};
+
 /** The routes of each type, plus the compliance routes (ELS stream, AML) of the types they cover. */
 function withComplianceRoutes(
   routes: Record<string, readonly OutboxRoute[]>,
@@ -582,6 +609,7 @@ export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = w
     [WITHDRAWAL_PAID]: [smsRoute, userNotifyRoute],
     [WITHDRAWAL_FAILED]: [smsRoute, userNotifyRoute],
     [CHANNEL_SMS_REPLY]: [channelReplyRoute],
+    [RECONCILIATION_REQUESTED]: [reconciliationRoute],
   },
 );
 

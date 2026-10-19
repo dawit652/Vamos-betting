@@ -8,9 +8,11 @@ import {
   createOffElsReporter,
   emitElsEvent,
   evaluateAmlForEvent,
+  failReconciliationRequest,
   runAmlSweep,
   runDailySummaries,
   runReconciliation,
+  runRequestedReconciliation,
   schema,
   sweepElsReports,
   type ElsReporter,
@@ -18,6 +20,7 @@ import {
   type EmitElsResult,
   type EvaluateAmlResult,
   type ReconciliationRun,
+  type RequestedReconciliationResult,
   type RunDailySummariesResult,
 } from '@vamos/db';
 import type { Job } from 'bullmq';
@@ -27,7 +30,7 @@ import { tryLock } from '../lib/lock';
 import { createQueueWorker, QUEUE_NAMES, type QueueWorker } from '../lib/queues';
 import type { WorkerTask } from '../worker';
 import type { TaskContext } from './context';
-import type { AmlJobData, ElsJobData } from './outbox-dispatch';
+import type { AmlJobData, ElsJobData, ReconciliationJobData } from './outbox-dispatch';
 
 /**
  * Compliance tasks (Phase 10), all safe to replay and to run on several
@@ -50,6 +53,9 @@ import type { AmlJobData, ElsJobData } from './outbox-dispatch';
  *   scheduled run is skipped (a failed one is retried after `retryFailedMs`,
  *   1 h). The run holds a Postgres advisory lock (RECONCILIATION_LOCK) from
  *   the check to the stored result, so a day never runs twice.
+ * - `reconciliation-requests`: the `reconciliation` queue consumer: a staff
+ *   "Run now" (runRequestedReconciliation), one at a time; a request whose
+ *   job fails for good is marked failed so staff can ask again.
  * - `aml-evaluate`: the `aml` queue consumer (deposits, withdrawal requests,
  *   cash-outs): evaluateAmlForEvent; flags are deduplicated per player, rule
  *   and window, so a replay creates nothing new.
@@ -332,6 +338,64 @@ export function reconciliationTask(
     logger: ctx.logger,
     run: () => runScheduledReconciliation(ctx, options),
   });
+}
+
+/** Runs the staff request of one `reconciliation` job. */
+export function processReconciliationJob(
+  ctx: TaskContext,
+  data: ReconciliationJobData,
+): Promise<RequestedReconciliationResult> {
+  return runRequestedReconciliation(ctx.db, { requestId: data.requestId, now: ctx.clock() });
+}
+
+/** The `reconciliation` queue consumer (staff "Run now" requests, one at a time). */
+export function reconciliationRequestTask(ctx: TaskContext): WorkerTask {
+  let consumer: QueueWorker<ReconciliationJobData, string> | null = null;
+  return {
+    name: 'reconciliation-requests',
+    start: async () => {
+      if (consumer !== null) return;
+      consumer = createQueueWorker(
+        ctx.queues,
+        QUEUE_NAMES.reconciliation,
+        async (job: Job<ReconciliationJobData>) => {
+          try {
+            const result = await processReconciliationJob(ctx, job.data);
+            if (!result.ran) return result.reason;
+            ctx.logger[result.run.status === 'clean' ? 'info' : 'error'](
+              {
+                runId: result.run.id,
+                businessDate: result.run.businessDate,
+                status: result.run.status,
+                mismatches: result.run.mismatchCount,
+              },
+              'requested reconciliation',
+            );
+            return result.run.status;
+          } catch (error) {
+            if (job.attemptsMade + 1 >= (job.opts.attempts ?? 1)) {
+              await failReconciliationRequest(ctx.db, {
+                requestId: job.data.requestId,
+                now: ctx.clock(),
+                error: error instanceof Error ? error.message : String(error),
+              }).catch((cause: unknown) =>
+                ctx.logger.error({ err: cause }, 'could not mark the request failed'),
+              );
+            }
+            throw error;
+          }
+        },
+        ctx.logger,
+        // A reconciliation reads the whole ledger: one at a time, and a long lock.
+        { concurrency: 1, lockDuration: 5 * MINUTE },
+      );
+    },
+    stop: async () => {
+      const current = consumer;
+      consumer = null;
+      await current?.close();
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

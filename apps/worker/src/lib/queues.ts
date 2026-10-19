@@ -27,6 +27,8 @@ export const QUEUE_NAMES = {
   els: 'els',
   /** Deposits, withdrawal requests and cash-outs: evaluate the player's AML rules. */
   aml: 'aml',
+  /** compliance.reconciliation_requested: run a staff "Run now" reconciliation. */
+  reconciliation: 'reconciliation',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

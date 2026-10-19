@@ -167,6 +167,7 @@ describe('createTasks', () => {
     'els-sweep',
     'daily-summaries',
     'reconciliation',
+    'reconciliation-requests',
     'aml-evaluate',
     'aml-sweep',
     'ussd-session-prune',

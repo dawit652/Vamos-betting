@@ -20,6 +20,7 @@ export const COMPLIANCE_ROUTE_PERMISSIONS = {
   'GET /admin/compliance/reconciliation-runs': 'reports.view',
   'GET /admin/compliance/reconciliation-runs/:id': 'reports.view',
   'POST /admin/compliance/reconciliation-runs': 'reconciliation.run',
+  'GET /admin/compliance/reconciliation-requests/:id': 'reports.view',
   'GET /admin/compliance/psp-statements': 'reports.view',
   'GET /admin/compliance/psp-statements/:id': 'reports.view',
   'POST /admin/compliance/psp-statements': 'reconciliation.run',
@@ -278,7 +279,7 @@ export type ReconciliationRunQuery = z.infer<typeof ReconciliationRunQuery>;
 export const ReconciliationRunListResponse = page(ReconciliationRunView);
 export type ReconciliationRunListResponse = z.infer<typeof ReconciliationRunListResponse>;
 
-/** GET /admin/compliance/reconciliation-runs/:id, and the answer of POST …/reconciliation-runs. */
+/** GET /admin/compliance/reconciliation-runs/:id. */
 export const ReconciliationRunDetailResponse = z.object({
   run: ReconciliationRunView,
   mismatches: z.array(ReconciliationMismatchView),
@@ -288,6 +289,36 @@ export type ReconciliationRunDetailResponse = z.infer<typeof ReconciliationRunDe
 /** POST /admin/compliance/reconciliation-runs (run now): the payment checks' day, default today. */
 export const RunReconciliationRequest = z.object({ businessDate: BusinessDate.optional() });
 export type RunReconciliationRequest = z.infer<typeof RunReconciliationRequest>;
+
+/** queued → running → done (the run exists) | failed. */
+export const ReconciliationRequestStatusSchema = z.enum(['queued', 'running', 'done', 'failed']);
+
+/**
+ * A "Run now" request: the worker runs it off the request path; the run it
+ * produces has the same id (`runId` once done).
+ */
+export const ReconciliationRequestView = z.object({
+  id: z.string(),
+  status: ReconciliationRequestStatusSchema,
+  businessDate: BusinessDate,
+  requestedBy: z.string(),
+  attempts: Count,
+  error: z.string().nullable(),
+  requestedAt: IsoDateTime,
+  startedAt: IsoDateTime.nullable(),
+  finishedAt: IsoDateTime.nullable(),
+  runId: z.string().nullable(),
+});
+export type ReconciliationRequestView = z.infer<typeof ReconciliationRequestView>;
+
+/**
+ * The answer of POST /admin/compliance/reconciliation-runs (202 Accepted,
+ * Location: the request) and of GET /admin/compliance/reconciliation-requests/:id,
+ * which the back office polls until `done` (then it opens the run) or `failed`.
+ * 409 `reconciliation_running` while another request is queued or running.
+ */
+export const ReconciliationRequestResponse = z.object({ request: ReconciliationRequestView });
+export type ReconciliationRequestResponse = z.infer<typeof ReconciliationRequestResponse>;
 
 // ---------------------------------------------------------------------------
 // PSP statements (reports.view; upload: reconciliation.run).
