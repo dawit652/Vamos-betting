@@ -1,5 +1,13 @@
 import { randomBytes } from 'node:crypto';
-import { ConfigError, loadConfig, loadDotEnv, type AppConfig } from '@vamos/config';
+import {
+  baseLoggerOptions,
+  ConfigError,
+  gracefulShutdown,
+  loadConfig,
+  loadDotEnv,
+  startTelemetry,
+  type AppConfig,
+} from '@vamos/config';
 import {
   claimOperatingMode,
   createDb,
@@ -11,7 +19,13 @@ import {
 import { createPaymentProviders, PaymentProviderError } from '@vamos/payments';
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
-import { bindQueuePrefix, QueuePrefixBoundError, withTimeout } from './lib/queues';
+import { startHealthServer, workerReadinessChecks, type HealthServer } from './lib/health';
+import {
+  bindQueuePrefix,
+  QueuePrefixBoundError,
+  setQueueTelemetry,
+  withTimeout,
+} from './lib/queues';
 import { createSmsSender, SmsProviderNotImplementedError } from './lib/sms';
 import { createTasks } from './tasks/index';
 import { startWorker, type WorkerHandle } from './worker';
@@ -34,7 +48,8 @@ async function main(): Promise<void> {
     throw error;
   }
 
-  const logger = pino({ level: config.logLevel, base: { service: 'vamos-worker' } });
+  // Structured JSON logs with secrets redacted (the same rules as the API).
+  const logger = pino(baseLoggerOptions({ level: config.logLevel, service: 'vamos-worker' }));
 
   // Payment providers (only the mock one in demo mode): one that is not
   // configured must not run, like in the API.
@@ -121,6 +136,31 @@ async function main(): Promise<void> {
       feedIngest: { rolling: config.feed.rolling },
     },
   );
+  // OpenTelemetry only when OTEL_EXPORTER_OTLP_ENDPOINT is set: a consumer span per job.
+  const telemetry = await startTelemetry(config, 'vamos-worker');
+  setQueueTelemetry(telemetry);
+  if (telemetry.enabled) logger.info('tracing on (OpenTelemetry, OTLP over HTTP)');
+
+  // GET /health and /ready for the orchestrator (WORKER_HEALTH_PORT; 0 = off). A port in use is
+  // logged, not fatal: the worker's jobs matter more than its probe.
+  let health: HealthServer | null = null;
+  if (config.worker.healthPort > 0) {
+    try {
+      health = await startHealthServer({
+        host: config.worker.healthHost,
+        port: config.worker.healthPort,
+        checks: workerReadinessChecks({ db: handle.db, redis }),
+        logger,
+      });
+      logger.info({ port: health.port }, 'health server listening (/health, /ready)');
+    } catch (error) {
+      logger.error(
+        { err: error, port: config.worker.healthPort },
+        'could not start the health server (port in use?)',
+      );
+    }
+  }
+
   // Signal handlers go in before the tasks start, so a SIGTERM during startup
   // still shuts down cleanly (after the start finished) instead of killing
   // the process mid-way.
@@ -128,25 +168,28 @@ async function main(): Promise<void> {
   let starting: Promise<unknown> = Promise.resolve();
   // Keep the process alive while tasks run on their own timers/queues.
   const keepAlive = setInterval(() => undefined, 60_000);
-  let shuttingDown = false;
-  const shutdown = async (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logger.info({ signal }, 'shutting down');
-    clearInterval(keepAlive);
-    // A stop that hangs (e.g. on an unreachable Redis) must not keep the process up.
-    setTimeout(() => {
-      logger.error({ timeoutMs: SHUTDOWN_TIMEOUT_MS }, 'shutdown timed out; exiting');
-      process.exit(1);
-    }, SHUTDOWN_TIMEOUT_MS).unref();
-    try {
-      await starting.catch(() => undefined);
-      await worker?.stop();
-    } finally {
-      await closeConnections();
-    }
-    process.exit(0);
-  };
+  // SIGTERM: /ready answers 503 at once, the tasks stop taking work and finish the jobs in
+  // hand (BullMQ close waits for active jobs; interval tasks finish their run), then the
+  // health server, Redis and the database pool close and the last spans are flushed.
+  const shutdown = gracefulShutdown({
+    logger,
+    timeoutMs: SHUTDOWN_TIMEOUT_MS,
+    exit: (code) => process.exit(code),
+    steps: [
+      {
+        name: 'stop taking work',
+        run: async () => {
+          health?.markDraining();
+          clearInterval(keepAlive);
+          await starting.catch(() => undefined);
+          await worker?.stop();
+        },
+      },
+      { name: 'health server', run: async () => health?.close() },
+      { name: 'database and redis', run: closeConnections },
+      { name: 'telemetry', run: () => telemetry.shutdown() },
+    ],
+  });
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
@@ -157,6 +200,7 @@ async function main(): Promise<void> {
   } catch (error) {
     logger.error({ err: error }, 'failed to start');
     clearInterval(keepAlive);
+    await health?.close();
     await closeConnections();
     process.exit(1);
   }

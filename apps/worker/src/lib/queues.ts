@@ -1,3 +1,4 @@
+import { NOOP_TELEMETRY, type Telemetry } from '@vamos/config';
 import { Queue, Worker, type JobsOptions, type Processor, type WorkerOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
@@ -173,8 +174,31 @@ export function createQueueSet(config: QueueConfig, logger: Logger): QueueSet {
   };
 }
 
+/** Tracing of the queue consumers (set once at startup; the no-op by default). */
+let queueTelemetry: Telemetry = NOOP_TELEMETRY;
+
+/** Every job processed from now on gets a consumer span (startTelemetry of @vamos/config). */
+export function setQueueTelemetry(telemetry: Telemetry): void {
+  queueTelemetry = telemetry;
+}
+
+/** The consumers of this process that are open (for the readiness check). */
+const openQueueWorkers = new Set<QueueWorker<unknown, unknown>>();
+
+export interface QueueWorkerStatus {
+  queue: QueueName;
+  running: boolean;
+  connected: boolean;
+}
+
+/** Whether each open queue consumer is running and its Redis connection is ready. */
+export function queueWorkerStatuses(): QueueWorkerStatus[] {
+  return [...openQueueWorkers].map((consumer) => consumer.status());
+}
+
 export interface QueueWorker<Data, Result> {
   worker: Worker<Data, Result>;
+  status(): QueueWorkerStatus;
   /**
    * Closes the worker (waiting for active jobs) and then its connection. When
    * that takes longer than the close timeout (Redis unreachable: BullMQ's
@@ -208,7 +232,29 @@ export function createQueueWorker<Data, Result>(
   connection.on('error', (error: unknown) =>
     logger.debug({ err: error, queue: name }, 'worker redis connection error'),
   );
-  const worker = new Worker<Data, Result>(name, processor, {
+  // One consumer span per job attempt when tracing is on (a no-op otherwise).
+  const traced: Processor<Data, Result> = async (job, token, signal) => {
+    const span = queueTelemetry.startSpan(`${name} process`, {
+      kind: 'consumer',
+      attributes: {
+        'messaging.system': 'bullmq',
+        'messaging.destination.name': name,
+        'messaging.operation.name': 'process',
+        'messaging.message.id': job.id,
+        'vamos.job.name': job.name,
+        'vamos.job.attempt': job.attemptsMade + 1,
+      },
+    });
+    try {
+      return await processor(job, token, signal);
+    } catch (error) {
+      span.recordError(error);
+      throw error;
+    } finally {
+      span.end();
+    }
+  };
+  const worker = new Worker<Data, Result>(name, traced, {
     ...workerOptions,
     connection,
     prefix: config.prefix,
@@ -221,9 +267,15 @@ export function createQueueWorker<Data, Result>(
       exhausted ? 'job failed for good (kept in the failed set)' : 'job failed, will retry',
     );
   });
-  return {
+  const consumer: QueueWorker<Data, Result> = {
     worker,
+    status: () => ({
+      queue: name,
+      running: worker.isRunning(),
+      connected: connection.status === 'ready',
+    }),
     async close() {
+      openQueueWorkers.delete(consumer as QueueWorker<unknown, unknown>);
       try {
         await withTimeout(worker.close(), closeTimeoutMs, `closing the ${name} worker`);
       } catch (error) {
@@ -242,4 +294,6 @@ export function createQueueWorker<Data, Result>(
       }
     },
   };
+  openQueueWorkers.add(consumer as QueueWorker<unknown, unknown>);
+  return consumer;
 }

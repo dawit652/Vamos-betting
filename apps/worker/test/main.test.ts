@@ -23,21 +23,37 @@ interface Run {
  * Starts `src/main.ts` in a child process with the given environment. When
  * `stopWhen` matches the output, SIGTERM is sent (clean shutdown).
  */
-function runWorker(env: Record<string, string>, stopWhen?: RegExp): Promise<Run> {
+function runWorker(
+  env: Record<string, string>,
+  stopWhen?: RegExp,
+  beforeStop?: () => Promise<void>,
+): Promise<Run> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], {
       cwd: WORKER_DIR,
-      env: { ...process.env, NODE_ENV: 'test', REDIS_URL, QUEUE_PREFIX, ...env },
+      env: {
+        ...process.env,
+        NODE_ENV: 'test',
+        REDIS_URL,
+        QUEUE_PREFIX,
+        // No health server unless a test asks for one (port 4100 may be the dev stack's).
+        WORKER_HEALTH_PORT: '0',
+        ...env,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
     let stderr = '';
     let signalled = false;
-    const timer = setTimeout(() => child.kill('SIGKILL'), 20_000);
+    const timer = setTimeout(() => child.kill('SIGKILL'), 40_000);
     const check = () => {
       if (!signalled && stopWhen?.test(stdout)) {
         signalled = true;
-        child.kill('SIGTERM');
+        void (beforeStop ?? (() => Promise.resolve()))()
+          .catch((error: unknown) => {
+            stderr += `beforeStop failed: ${String(error)}`;
+          })
+          .finally(() => child.kill('SIGTERM'));
       }
     };
     child.stdout.on('data', (chunk: Buffer) => {
@@ -129,6 +145,62 @@ describe('worker main', () => {
         await redis.del(queuePrefixBindingKey(prefix));
         await redis.quit();
       }
+    },
+    SETUP_TIMEOUT,
+  );
+
+  it(
+    'serves /health and /ready, drains on SIGTERM and exits 0',
+    async () => {
+      const port = 20_000 + Math.floor(Math.random() * 20_000);
+      const seen: Array<{ path: string; status: number; body: unknown }> = [];
+      const probe = async (path: string) => {
+        const response = await fetch(`http://127.0.0.1:${port}${path}`);
+        seen.push({ path, status: response.status, body: await response.json() });
+        return response.status;
+      };
+      const run = await runWorker(
+        {
+          DATABASE_URL: demo.url,
+          OPERATING_MODE: 'demo',
+          FEED_PROVIDER: 'manual',
+          WORKER_HEALTH_PORT: String(port),
+          WORKER_HEALTH_HOST: '127.0.0.1',
+        },
+        /starting worker/,
+        async () => {
+          expect(await probe('/health')).toBe(200);
+          // Ready once every queue consumer has connected.
+          for (let i = 0; i < 50 && (await probe('/ready')) !== 200; i += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+        },
+      );
+      expect(run.stderr).toBe('');
+      expect(run.code).toBe(0);
+      expect(seen[0]).toEqual({
+        path: '/health',
+        status: 200,
+        body: { status: 'ok', service: 'vamos-worker' },
+      });
+      expect(seen.at(-1)).toEqual({
+        path: '/ready',
+        status: 200,
+        body: {
+          status: 'ok',
+          checks: { database: { ok: true }, redis: { ok: true }, queues: { ok: true } },
+        },
+      });
+      const lines = run.stdout
+        .split('\n')
+        .filter((line) => line.startsWith('{'))
+        .map((line) => JSON.parse(line) as { msg: string; service: string });
+      expect(lines.every((line) => line.service === 'vamos-worker')).toBe(true);
+      const messages = lines.map((line) => line.msg);
+      expect(messages).toContain('health server listening (/health, /ready)');
+      expect(messages.indexOf('shutting down')).toBeLessThan(messages.indexOf('shut down'));
+      // The health server is gone with the process.
+      await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
     },
     SETUP_TIMEOUT,
   );
