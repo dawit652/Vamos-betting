@@ -105,6 +105,13 @@ screen). Inbound SMS is HMAC-signed and idempotent by message id (`inbound_messa
 USSD sessions in `ussd_sessions` (pruned after 7 days unless they hold a bet). Per-number limits are
 shared across SMS and USSD. Dev simulator at `/dev/channels`. Details in `docs/channels.md`.
 
+**Phase 12 load test (19 Oct 2026).** `pnpm load:bets` (`scripts/load/bet-placement.ts`, autocannon,
+demo mode only) seeds bearer-session players, hammers `POST /bets` and `GET /events`, then asserts
+balances, no negative accounts and a clean full reconciliation; results in `docs/load-testing.md`.
+Fix: `placeBet` now posts the stake last, so the shared `house_stakes` row lock is held only for the
+posting and commit (bets 75 → 96/s at 50 connections, p95 504 ms; CPU-bound single API process).
+Full CI pipeline and the 16-test e2e suite were green; home page first load 149.7 KB.
+
 ## Legal context (do not change)
 
 - Ethiopia revoked all sports betting licences on 15 Dec 2025. Vamos Entertainment PLC was one of the
