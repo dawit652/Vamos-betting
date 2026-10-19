@@ -20,3 +20,23 @@ export {
   type TrustProxySetting,
 } from './config';
 export { loadDotEnv } from './dotenv';
+export {
+  baseLoggerOptions,
+  LOG_REDACTED,
+  logRedactPaths,
+  redactUrl,
+  REQUEST_ID_HEADER,
+  requestIdFrom,
+  SENSITIVE_BODY_FIELDS,
+  SENSITIVE_FIELDS,
+  SENSITIVE_HEADERS,
+} from './logging';
+export {
+  NOOP_TELEMETRY,
+  otlpTracesUrl,
+  startTelemetry,
+  type SpanAttributes,
+  type SpanHandle,
+  type SpanKindName,
+  type Telemetry,
+} from './telemetry';

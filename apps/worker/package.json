@@ -12,6 +12,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/core": "2.11.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.222.0",
+    "@opentelemetry/resources": "2.11.0",
+    "@opentelemetry/sdk-trace-base": "2.11.0",
     "@vamos/config": "workspace:*",
     "@vamos/contracts": "workspace:*",
     "@vamos/core": "workspace:*",
