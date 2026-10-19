@@ -79,13 +79,19 @@ test('bet and balance by text message, an invalid command gets the help reply', 
   });
 
   let shortId = '';
+  let replyOddsMilli = 0;
   await test.step('GAMEID#PICK#STAKE places a bet and the reply names it', async () => {
     await sendSms(page, `${event!.gameId}#1#${STAKE_BIRR}`);
     const reply = sms.getByText(/Bet [A-Z0-9]{8} placed\./);
     await expect(reply).toBeVisible({ timeout: 20_000 });
     const text = (await reply.textContent()) ?? '';
     shortId = /Bet ([A-Z0-9]{8}) placed/.exec(text)![1]!;
-    expect(text).toContain(`Odds ${(homePick!.oddsMilli / 1000).toFixed(2)}`);
+    // The bet takes the price at receipt; a prematch price can drift (every 30 s) after the
+    // snapshot above, so the reply's odds are checked for shape, then against the placed bet.
+    const odds = /Odds (\d+)\.(\d{2,3})\b/.exec(text);
+    expect(odds, 'the reply names the odds').not.toBeNull();
+    replyOddsMilli = Number(odds![1]) * 1000 + Number(odds![2]!.padEnd(3, '0'));
+    expect(replyOddsMilli).toBeGreaterThan(1000);
     expect(text).toContain(`stake ETB ${STAKE_BIRR}.00`);
     expect(text).toMatch(/possible win ETB [\d,]+\.\d\d/);
     await expect(sms.getByText('Result: bet_placed')).toBeVisible();
@@ -103,7 +109,7 @@ test('bet and balance by text message, an invalid command gets the help reply', 
     expect(bet?.channel).toBe('sms');
     expect(bet?.betType).toBe('single');
     expect(bet?.stake).toBe(stake.toString());
-    expect(bet?.totalOddsMilli).toBe(String(homePick!.oddsMilli));
+    expect(bet?.totalOddsMilli).toBe(String(replyOddsMilli));
     expect((await getWallet(page.request)).cash).toBe((BigInt(TOP_UP) - stake).toString());
 
     await page.goto('/my-bets');
@@ -172,6 +178,13 @@ test('a bet completed through the USSD phone emulator', async ({ page }) => {
     await expect(screen).toContainText('1 Confirm');
     await expect(screen).toContainText(`Stake ETB ${STAKE_BIRR}`);
     await ussdReply(page, '1');
+    // A prematch price can drift (every 30 s) between the confirm screen and the '1': the
+    // confirm screen then comes back at the new odds, and is confirmed again.
+    for (let retry = 0; retry < 3; retry += 1) {
+      if (!(await screen.innerText()).includes('Odds changed')) break;
+      await expect(screen).toContainText('1 Confirm');
+      await ussdReply(page, '1');
+    }
     await expect(screen).toContainText(/Bet [A-Z0-9]{8} placed\./);
     await expect(ussd.getByText('Session ended. Dial again to start over.')).toBeVisible();
   });
