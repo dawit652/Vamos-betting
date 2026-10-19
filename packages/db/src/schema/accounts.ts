@@ -48,6 +48,11 @@ export const users = pgTable(
      */
     registrationTokenHash: text('registration_token_hash'),
     termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }).notNull(),
+    /**
+     * When the player opted out of marketing SMS (by texting STOP); null =
+     * opted in. Service messages (bet replies, OTPs, payments) are still sent.
+     */
+    smsMarketingOptOutAt: timestamp('sms_marketing_opt_out_at', { withTimezone: true }),
     ...timestamps,
   },
   // Back-office player list (newest first) and the dashboard's registrations.
