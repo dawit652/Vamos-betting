@@ -44,10 +44,10 @@ export async function readiness(
       }
     }),
   );
-  const checks: HealthReport['checks'] = {};
-  for (const [name, result] of results) checks[name] = result;
+  const byName: HealthReport['checks'] = {};
+  for (const [name, result] of results) byName[name] = result;
   const ok = results.every(([, result]) => result.ok);
-  return { status: ok ? 'ok' : 'unavailable', checks };
+  return { status: ok ? 'ok' : 'unavailable', checks: byName };
 }
 
 /**
