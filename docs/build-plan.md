@@ -21,7 +21,7 @@ Last updated 12 Oct 2026.
 | 7     | Live betting and cash-out                                     | Done (reviewed, 8 fixes)  | `25360ec` … `bd8b033`                      |
 | 8     | Jackpots and promotions                                       | Done (reviewed, 8 fixes)  | `d35ae42` … `82bd130`                      |
 | 9     | Back office (`apps/admin`)                                    | Done (reviewed, 11 fixes) | `176a4cc` … `7f9151c`                      |
-| 10    | Compliance and regulator reporting                            | Done (reviewed, 12 fixes) | `560ee16` … `fd23540`                     |
+| 10    | Compliance and regulator reporting                            | Done (reviewed, 12 fixes) | `560ee16` … `fd23540`                      |
 | 11    | SMS/USSD channel (feature-flagged)                            | Not started               |                                            |
 | 12    | Hardening and deployment                                      | Not started               |                                            |
 
