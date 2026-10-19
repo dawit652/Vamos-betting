@@ -95,7 +95,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-vamos}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-vamos}
-    # WAL archiving for point-in-time recovery (docs/backups.md): segments go to the `pgwal` volume.
+    # WAL archiving for point-in-time recovery (docs/backups.md): gzipped segments go to the
+    # `pgwal` volume; a segment is also closed every 5 minutes (archive_timeout), so the data loss
+    # of a lost host is at most that, once backup.sh has copied the segments off the host.
     command:
       - postgres
       - -c
@@ -103,7 +105,7 @@ services:
       - -c
       - archive_mode=on
       - -c
-      - archive_command=test ! -f /backups/wal/%f && cp %p /backups/wal/%f
+      - archive_command=test ! -f /backups/wal/%f.gz && gzip -c %p > /backups/wal/%f.gz.tmp && mv /backups/wal/%f.gz.tmp /backups/wal/%f.gz
       - -c
       - archive_timeout=300
       - -c

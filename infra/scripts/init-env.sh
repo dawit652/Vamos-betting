@@ -18,5 +18,5 @@ for entry in POSTGRES_PASSWORD:16 REDIS_PASSWORD:16 SESSION_SECRET:32 ADMIN_TOTP
   name="${entry%%:*}" bytes="${entry##*:}"
   sed -i "s|^${name}=CHANGE_ME\$|${name}=$(openssl rand -hex "$bytes")|" "$TARGET"
 done
-if grep -q CHANGE_ME "$TARGET"; then echo "warning: CHANGE_ME values remain in $TARGET" >&2; fi
+if grep -q "=CHANGE_ME" "$TARGET"; then echo "warning: =CHANGE_ME values remain in $TARGET" >&2; fi
 echo "wrote $TARGET (mode 600). ADMIN_TOTP_KEY and SESSION_SECRET: store them in your secret manager."
