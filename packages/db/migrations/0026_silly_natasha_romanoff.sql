@@ -1,0 +1,1 @@
+CREATE INDEX "ussd_sessions_expires_idx" ON "ussd_sessions" USING btree ("expires_at") WHERE "ussd_sessions"."bet_id" IS NULL;

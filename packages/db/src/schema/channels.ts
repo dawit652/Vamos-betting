@@ -136,6 +136,10 @@ export const ussdSessions = pgTable(
     uniqueIndex('ussd_sessions_session_uq').on(t.aggregator, t.sessionId),
     // Per-number rate limit on new sessions.
     index('ussd_sessions_phone_idx').on(t.phone, t.createdAt),
+    // Pruning of expired sessions without a bet (pruneUssdSessions).
+    index('ussd_sessions_expires_idx')
+      .on(t.expiresAt)
+      .where(sql`${t.betId} IS NULL`),
     check('ussd_sessions_callbacks', sql`${t.callbacks} >= 1`),
   ],
 );

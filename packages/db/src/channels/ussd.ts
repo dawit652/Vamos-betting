@@ -25,7 +25,7 @@ import {
   type UssdState,
   type UssdStep,
 } from '@vamos/core';
-import { and, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt } from 'drizzle-orm';
 import type { UserBet } from '../betting/types';
 import type { Database } from '../client';
 import type { DbTransaction } from '../ledger/types';
@@ -35,7 +35,13 @@ import { ussdSessions } from '../schema/channels';
 import { loadGameSettings, type GameSettings } from '../settings/index';
 import { loadChannelGame } from './games';
 import { placeChannelBet, placedBetSummary, ussdBetKey } from './place';
-import { channelPhone, findChannelPlayer, lockChannelPhone, type ChannelPlayer } from './players';
+import {
+  channelPhone,
+  channelRequestsSince,
+  findChannelPlayer,
+  lockChannelPhone,
+  type ChannelPlayer,
+} from './players';
 import type { ChannelRateLimit } from './sms';
 import { channelBalances, openJackpotSummaries, recentBetLines } from './summaries';
 
@@ -48,7 +54,20 @@ export const MAX_USSD_TEXT_LENGTH = 500;
 /** Game lookups per callback (one is enough; this bounds a misbehaving state machine). */
 const MAX_GAME_LOOKUPS = 3;
 
-/** New sessions per number. */
+/**
+ * Callbacks handled in one session: a bet takes 6, so this only stops a
+ * session kept open by endless input (each callback extends its expiry).
+ */
+export const USSD_MAX_CALLBACKS = 30;
+/** Expired sessions without a bet are kept this long, then pruned (pruneUssdSessions). */
+export const USSD_SESSION_RETENTION_MS = 7 * 24 * 3_600_000;
+/** Sessions deleted per pruneUssdSessions call at most. */
+export const USSD_PRUNE_BATCH_SIZE = 1_000;
+
+/**
+ * New sessions per number. Texts from the number count too: SMS and USSD
+ * share one budget per number (channelRequestsSince).
+ */
 export const DEFAULT_USSD_RATE_LIMITS: readonly ChannelRateLimit[] = [
   { max: 10, windowMs: 300_000 },
 ];
@@ -139,11 +158,7 @@ async function rateLimited(
 ): Promise<boolean> {
   for (const limit of limits) {
     const since = new Date(now.getTime() - limit.windowMs);
-    const [row] = await tx
-      .select({ n: sql<number>`count(*)::int` })
-      .from(ussdSessions)
-      .where(and(eq(ussdSessions.phone, phone), gt(ussdSessions.createdAt, since)));
-    if ((row?.n ?? 0) >= limit.max) return true;
+    if ((await channelRequestsSince(tx, phone, since)) >= limit.max) return true;
   }
   return false;
 }
@@ -315,11 +330,14 @@ const storedState = (step: Screen): Record<string, unknown> =>
  *
  * 1. the number's channel lock (shared with SMS);
  * 2. the session row (FOR UPDATE). A callback whose text equals the last one
- *    handled is a redelivery: its stored response, nothing done again. A
- *    callback from another number is answered without touching the session;
- *    one after the session ended or expired (USSD_SESSION_TTL_MS without a
- *    callback), or whose text does not extend the last one, ends it;
- * 3. a new session: per-number rate limit (DEFAULT_USSD_RATE_LIMITS), an
+ *    handled is a redelivery, and one whose text is a prefix of it is a late
+ *    retry of an earlier callback: both get the stored response and change
+ *    nothing. A callback from another number is answered without touching
+ *    the session; one after the session ended, expired (USSD_SESSION_TTL_MS
+ *    without a callback) or reached USSD_MAX_CALLBACKS, or whose text does
+ *    not extend the last one, ends it;
+ * 3. a new session: per-number rate limit (DEFAULT_USSD_RATE_LIMITS, shared
+ *    with inbound texts), an
  *    active player with a verified phone (else one generic bilingual END),
  *    an empty text (else "expired": nothing is acted on in a session we did
  *    not start), then the main menu;
@@ -386,7 +404,12 @@ export async function handleUssdCallback(
         const step = ussdUnavailableEnd({ locale: 'en' }) as Screen;
         return { response: ussdResponse(step), ended: true, replayed: false, bet: null };
       }
-      if (input.text === session.lastText) {
+      // A late retry of an earlier callback (its text is a prefix of the last
+      // one handled) is answered with the current screen and changes nothing:
+      // it must not end the live session or overwrite the stored receipt.
+      const earlier =
+        input.text === '' ? session.lastText !== '' : session.lastText.startsWith(`${input.text}*`);
+      if (input.text === session.lastText || earlier) {
         return {
           response: session.lastResponse,
           ended: session.lastResponse.startsWith('END'),
@@ -399,7 +422,10 @@ export async function handleUssdCallback(
       if (session.endedAt !== null) {
         const ctx = { locale: await sessionLocale(tx, session), serviceCode: options.serviceCode };
         outcome = { step: ussdSessionEndedEnd(ctx) as Screen, userId: session.userId, bet: null };
-      } else if (now.getTime() > session.expiresAt.getTime()) {
+      } else if (
+        now.getTime() > session.expiresAt.getTime() ||
+        session.callbacks >= USSD_MAX_CALLBACKS
+      ) {
         const ctx = { locale: await sessionLocale(tx, session), serviceCode: options.serviceCode };
         outcome = { step: ussdExpiredEnd(ctx) as Screen, userId: session.userId, bet: null };
       } else {
@@ -424,4 +450,32 @@ export async function handleUssdCallback(
     },
     options.txRetry,
   );
+}
+
+/**
+ * Deletes, at most `batchSize` (USSD_PRUNE_BATCH_SIZE) at a time, the USSD
+ * sessions that expired more than `retentionMs` (USSD_SESSION_RETENTION_MS)
+ * before `now` and placed no bet; returns how many went. Sessions with a bet
+ * are kept with it. Inbound texts (inbound_messages) are evidence and are
+ * never pruned. Run by the worker's ussd-session-prune task.
+ */
+export async function pruneUssdSessions(
+  db: Database,
+  options: { now: Date; retentionMs?: number; batchSize?: number },
+): Promise<number> {
+  const before = new Date(
+    options.now.getTime() - (options.retentionMs ?? USSD_SESSION_RETENTION_MS),
+  );
+  const batchSize = options.batchSize ?? USSD_PRUNE_BATCH_SIZE;
+  const expired = db
+    .select({ id: ussdSessions.id })
+    .from(ussdSessions)
+    .where(and(isNull(ussdSessions.betId), lt(ussdSessions.expiresAt, before)))
+    .orderBy(asc(ussdSessions.expiresAt))
+    .limit(batchSize);
+  const deleted = await db
+    .delete(ussdSessions)
+    .where(inArray(ussdSessions.id, expired))
+    .returning({ id: ussdSessions.id });
+  return deleted.length;
 }

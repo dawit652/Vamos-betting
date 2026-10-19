@@ -43,12 +43,14 @@ import {
 } from './betting-fixtures';
 import {
   channelPlayer,
+  dialUssd,
   gameIdOf,
   receiveSms,
   smsFrom,
   smsReplies,
   unknownPhone,
   unusedGameId,
+  ussdSessionId,
 } from './channel-fixtures';
 import { cash, dropTestDatabase, pgCode } from './helpers';
 import { createGames, openRound } from './jackpot-fixtures';
@@ -71,6 +73,16 @@ async function inboundRow(id: string) {
   const [row] = await handle.db.select().from(inboundMessages).where(eq(inboundMessages.id, id));
   if (row === undefined) throw new Error(`no inbound message ${id}`);
   return row;
+}
+
+/** The outbox dispatcher handing the pending replies of a message to the queue. */
+async function publishReplies(inboundMessageId: string, at: Date) {
+  await handle.db
+    .update(outboxEvents)
+    .set({ publishedAt: at })
+    .where(
+      and(eq(outboxEvents.aggregateId, inboundMessageId), sql`${outboxEvents.publishedAt} IS NULL`),
+    );
 }
 
 async function betsOf(userId: string) {
@@ -447,6 +459,7 @@ describe('redelivered messages', () => {
     const t0 = new Date();
     const first = await receiveSms(handle.db, input, t0);
     expect(first.outcome).toBe('bet_placed');
+    await publishReplies(first.inboundMessageId, t0);
 
     const quick = await receiveSms(handle.db, input, new Date(t0.getTime() + 5_000));
     expect(quick).toMatchObject({
@@ -462,6 +475,7 @@ describe('redelivered messages', () => {
     const at = (ms: number) => new Date(t0.getTime() + ms);
     const later = await receiveSms(handle.db, input, at(SMS_REPLY_RESEND_INTERVAL_MS));
     expect(later).toMatchObject({ replayed: true, replyQueued: true, reply: first.reply });
+    await publishReplies(first.inboundMessageId, at(SMS_REPLY_RESEND_INTERVAL_MS));
     const third = await receiveSms(handle.db, input, at(2 * SMS_REPLY_RESEND_INTERVAL_MS));
     expect(third.replyQueued).toBe(true);
     const fourth = await receiveSms(handle.db, input, at(10 * SMS_REPLY_RESEND_INTERVAL_MS));
@@ -476,6 +490,30 @@ describe('redelivered messages', () => {
     expect(await betsOf(player.userId)).toHaveLength(1);
     expect(await stakePostings(first.betId!)).toHaveLength(1);
     expect(await getBalance(handle.db, cash(player.userId))).toBe(birr(950));
+  });
+
+  it('does not queue the reply again while the last one is still waiting to be dispatched', async () => {
+    const player = await channelPlayer(handle.db, { funds: birr(1_000) });
+    const input = smsFrom(player.phone, 'BAL');
+    const t0 = new Date();
+    const at = (ms: number) => new Date(t0.getTime() + ms);
+    const first = await receiveSms(handle.db, input, t0);
+    // The outbox has not dispatched send 1 yet (queue down, backoff): no second text.
+    const pending = await receiveSms(handle.db, input, at(SMS_REPLY_RESEND_INTERVAL_MS + 1_000));
+    expect(pending).toMatchObject({ replayed: true, replyQueued: false, reply: first.reply });
+    expect(await smsReplies(handle.db, first.inboundMessageId)).toHaveLength(1);
+    // Dispatched later: the interval counts from the dispatch.
+    const dispatched = at(SMS_REPLY_RESEND_INTERVAL_MS + 2_000);
+    await publishReplies(first.inboundMessageId, dispatched);
+    const soon = await receiveSms(handle.db, input, at(SMS_REPLY_RESEND_INTERVAL_MS + 30_000));
+    expect(soon.replyQueued).toBe(false);
+    const resent = await receiveSms(
+      handle.db,
+      input,
+      new Date(dispatched.getTime() + SMS_REPLY_RESEND_INTERVAL_MS),
+    );
+    expect(resent.replyQueued).toBe(true);
+    expect(await smsReplies(handle.db, first.inboundMessageId)).toHaveLength(2);
   });
 
   it('places once when the same message arrives several times at once', async () => {
@@ -647,6 +685,18 @@ describe('information and opt-out commands', () => {
 });
 
 describe('rate limits and stored evidence', () => {
+  it('shares the per-number budget with USSD', async () => {
+    const player = await channelPlayer(handle.db, { funds: birr(10) });
+    const now = new Date();
+    for (let i = 0; i < 2; i += 1) {
+      await dialUssd(handle.db, { sessionId: ussdSessionId(), phone: player.phone, text: '' }, now);
+    }
+    const limited = await receiveSms(handle.db, smsFrom(player.phone, 'BAL'), now, {
+      rateLimits: [{ max: 2, windowMs: 60_000 }],
+    });
+    expect(limited.outcome).toBe('rate_limited');
+  });
+
   it('limits texts per number and says so once per window', async () => {
     const player = await channelPlayer(handle.db, { funds: birr(10) });
     const limits = [{ max: 3, windowMs: 60_000 }];

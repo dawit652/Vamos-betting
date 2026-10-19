@@ -1,8 +1,16 @@
 import { birr, formatMoney, quoteBet, USSD_MAX_LENGTH } from '@vamos/core';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { getBalance, USSD_SESSION_TTL_MS, type CatalogIds, type GameSettings } from '../src/index';
-import { bets, rgExclusions, users, ussdSessions } from '../src/schema/index';
+import {
+  getBalance,
+  pruneUssdSessions,
+  USSD_MAX_CALLBACKS,
+  USSD_SESSION_RETENTION_MS,
+  USSD_SESSION_TTL_MS,
+  type CatalogIds,
+  type GameSettings,
+} from '../src/index';
+import { bets, inboundMessages, rgExclusions, users, ussdSessions } from '../src/schema/index';
 import {
   createBettingDatabase,
   createEvent,
@@ -14,6 +22,8 @@ import {
   channelPlayer,
   dialUssd,
   gameIdOf,
+  receiveSms,
+  smsFrom,
   unknownPhone,
   unusedGameId,
   ussdSessionId,
@@ -322,6 +332,71 @@ describe('USSD sessions', () => {
     expect(await betsOf(other.userId)).toEqual([]);
   });
 
+  it('answers a late duplicate of an earlier callback without touching the live session', async () => {
+    const { gameId } = await game();
+    const player = await channelPlayer(handle.db, { funds: birr(1_000) });
+    const run = await session(player.phone, ['1', String(gameId)]);
+    expect(run.last.startsWith('CON ')).toBe(true);
+    const dial = (text: string) =>
+      dialUssd(handle.db, { sessionId: run.sessionId, phone: player.phone, text });
+    // The aggregator retries earlier callbacks after the later one was handled.
+    for (const stale of ['1', '']) {
+      expect(await dial(stale)).toEqual({
+        response: run.last,
+        ended: false,
+        replayed: true,
+        bet: null,
+      });
+    }
+    expect(await sessionRow(run.sessionId)).toMatchObject({
+      lastText: run.text,
+      lastResponse: run.last,
+      endedAt: null,
+    });
+    // The player's real next inputs carry on, and the bet is placed once.
+    expect((await dial(`${run.text}*1`)).response.startsWith('CON ')).toBe(true);
+    expect((await dial(`${run.text}*1*50`)).response.startsWith('CON ')).toBe(true);
+    const confirmed = await dial(`${run.text}*1*50*1`);
+    expect(confirmed.response).toMatch(/^END Bet .* placed/);
+    // A stale callback after the bet keeps the receipt for a redelivered confirm.
+    expect((await dial(`${run.text}*1`)).response).toBe(confirmed.response);
+    expect(await dial(`${run.text}*1*50*1`)).toMatchObject({
+      response: confirmed.response,
+      replayed: true,
+    });
+    expect(await betsOf(player.userId)).toHaveLength(1);
+  });
+
+  it(`ends a session after ${USSD_MAX_CALLBACKS} callbacks`, async () => {
+    const player = await channelPlayer(handle.db);
+    const inputs = Array.from({ length: USSD_MAX_CALLBACKS - 1 }, () => '00');
+    const run = await session(player.phone, inputs);
+    expect(run.last.startsWith('CON ')).toBe(true);
+    const over = await dialUssd(handle.db, {
+      sessionId: run.sessionId,
+      phone: player.phone,
+      text: `${run.text}*00`,
+    });
+    expect(over.response).toBe('END Session expired. Dial *123# again.');
+    expect((await sessionRow(run.sessionId))?.endedAt).not.toBeNull();
+  });
+
+  it('shares the per-number budget with SMS', async () => {
+    const player = await channelPlayer(handle.db);
+    const limits = [{ max: 2, windowMs: 60_000 }];
+    const now = new Date();
+    for (let i = 0; i < 2; i += 1) {
+      await receiveSms(handle.db, smsFrom(player.phone, 'BAL'), now);
+    }
+    const limited = await dialUssd(
+      handle.db,
+      { sessionId: ussdSessionId(), phone: player.phone, text: '' },
+      now,
+      { rateLimits: limits },
+    );
+    expect(limited.response).toBe('END Too many requests. Please try again later.');
+  });
+
   it('limits new sessions per number', async () => {
     const player = await channelPlayer(handle.db);
     const limits = [{ max: 2, windowMs: 60_000 }];
@@ -356,5 +431,47 @@ describe('USSD sessions', () => {
     });
     expect(result.response).toContain('Register and verify it on the Vamos website.');
     expect(await betsOf(player.userId)).toEqual([]);
+  });
+});
+
+describe('USSD session retention', () => {
+  it('prunes expired sessions without a bet in bounded batches, keeping bets and inbound texts', async () => {
+    const { gameId } = await game();
+    const player = await channelPlayer(handle.db, { funds: birr(1_000) });
+    const t0 = new Date('2021-03-01T09:00:00.000Z');
+    const plain = [
+      await session(player.phone, [], t0),
+      await session(player.phone, ['2'], t0),
+      await session(unknownPhone(), [], t0),
+    ];
+    const withBet = await session(player.phone, ['1', String(gameId), '1', '50', '1'], t0);
+    expect(withBet.last).toMatch(/^END Bet .* placed/);
+    const sms = await receiveSms(handle.db, smsFrom(player.phone, 'BAL'), t0);
+    const ids = [...plain, withBet].map((run) => run.sessionId);
+    const left = async () =>
+      (
+        await handle.db
+          .select({ sessionId: ussdSessions.sessionId })
+          .from(ussdSessions)
+          .where(inArray(ussdSessions.sessionId, ids))
+      ).map((row) => row.sessionId);
+
+    const expired = t0.getTime() + USSD_SESSION_TTL_MS;
+    // Not yet past the retention window: nothing goes.
+    expect(
+      await pruneUssdSessions(handle.db, { now: new Date(expired + USSD_SESSION_RETENTION_MS) }),
+    ).toBe(0);
+    const later = new Date(expired + USSD_SESSION_RETENTION_MS + 1);
+    expect(await pruneUssdSessions(handle.db, { now: later, batchSize: 2 })).toBe(2);
+    expect(await left()).toHaveLength(2);
+    expect(await pruneUssdSessions(handle.db, { now: later, batchSize: 2 })).toBe(1);
+    expect(await left()).toEqual([withBet.sessionId]);
+    expect(await pruneUssdSessions(handle.db, { now: later })).toBe(0);
+    // Inbound texts are evidence and stay.
+    const [text] = await handle.db
+      .select({ id: inboundMessages.id })
+      .from(inboundMessages)
+      .where(and(eq(inboundMessages.id, sms.inboundMessageId)));
+    expect(text).toBeDefined();
   });
 });

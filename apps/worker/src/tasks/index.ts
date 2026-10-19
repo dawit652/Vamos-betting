@@ -43,6 +43,7 @@ import {
 import { prematchDriftTask, type PrematchDriftOptions } from './prematch-drift';
 import { smsNotifyTask, type SmsNotifyOptions } from './sms-notify';
 import { userNotifyTask, type UserNotifyOptions } from './user-notify';
+import { ussdPruneTask, type UssdPruneOptions } from './ussd-prune';
 import {
   settlementSweepTask,
   settlementTask,
@@ -75,6 +76,7 @@ export interface TaskOptions {
   amlEvaluate?: AmlEvaluateOptions;
   amlSweep?: AmlSweepOptions;
   outboxDispatch?: OutboxDispatchOptions;
+  ussdPrune?: UssdPruneOptions;
 }
 
 /**
@@ -130,6 +132,7 @@ export function createTasks(
     reconciliationTask(compliance, options.reconciliation),
     amlEvaluateTask(compliance, options.amlEvaluate),
     amlSweepTask(compliance, options.amlSweep),
+    ussdPruneTask(ctx, options.ussdPrune),
     outboxDispatchTask(ctx, options.outboxDispatch),
   );
   return tasks;

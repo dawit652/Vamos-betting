@@ -169,6 +169,7 @@ describe('createTasks', () => {
     'reconciliation',
     'aml-evaluate',
     'aml-sweep',
+    'ussd-session-prune',
     'outbox-dispatch',
   ];
 

@@ -7,6 +7,7 @@ import {
   CHANNEL_SMS_REPLY,
   enqueueOutbox,
   schema,
+  USSD_SESSION_RETENTION_MS,
 } from '@vamos/db';
 import { desc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -17,6 +18,7 @@ import {
   type LiveBetSmsJobData,
 } from '../src/tasks/outbox-dispatch';
 import { LIVE_BET_OUTCOME_TEMPLATE, processSmsJob } from '../src/tasks/sms-notify';
+import { runUssdPrune } from '../src/tasks/ussd-prune';
 import { createEvent, fundedUser, place, testSettings } from './betting';
 import {
   createWorkerTestContext,
@@ -206,4 +208,37 @@ describe('SMS channel replies (Phase 11)', () => {
     },
     TEST_TIMEOUT,
   );
+});
+
+describe('ussd-session-prune', () => {
+  it('deletes expired sessions without a bet past retention, in bounded batches per run', async () => {
+    const now = t.ctx.clock();
+    const expiredAt = new Date(now.getTime() - USSD_SESSION_RETENTION_MS - 60_000);
+    const phone = `+2519${String(Date.now()).slice(-8)}`;
+    const rows = Array.from({ length: 5 }, (_, i) => ({
+      aggregator: 'mock',
+      sessionId: `prune-${randomUUID()}-${i}`,
+      phone,
+      serviceCode: '*123#',
+      state: { screen: 'ended' },
+      lastText: '',
+      lastResponse: 'END Bye',
+      createdAt: expiredAt,
+      updatedAt: expiredAt,
+      expiresAt: i === 4 ? now : expiredAt,
+    }));
+    await t.db.db.insert(schema.ussdSessions).values(rows);
+    const left = async () =>
+      (
+        await t.db.db
+          .select({ id: schema.ussdSessions.id })
+          .from(schema.ussdSessions)
+          .where(eq(schema.ussdSessions.phone, phone))
+      ).length;
+    // Four are past retention; one stays (expired just now).
+    expect(await runUssdPrune(t.ctx, { batchSize: 2, maxBatches: 1 })).toBe(2);
+    expect(await left()).toBe(3);
+    expect(await runUssdPrune(t.ctx, { batchSize: 2, maxBatches: 5 })).toBe(2);
+    expect(await left()).toBe(1);
+  });
 });

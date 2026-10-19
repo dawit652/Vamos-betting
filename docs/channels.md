@@ -31,7 +31,9 @@ Case-insensitive; spaces around tokens are ignored; `*` works like `#` (parser:
   bet rules' `maxLegs`). Picks: `1`, `X`, `2` (football 1X2; `1`/`2` on two-way sports), `OV25` /
   `UN25` (over/under 2.5 goals), `GG` / `NG` (both teams to score). The stake is whole birr
   (`50`, `050` and `50.00` are ETB 50; `50.5`, `5,000` and `1e3` are refused), read as bigint
-  santim with no floating point.
+  santim with no floating point. Whole birr of more than nine digits is refused with the maximum
+  stake (SMS and USSD), not as unreadable. Replies show Game IDs zero-padded (`0123`), as USSD and
+  coupons do.
 - `BAL` (balance), `BETS` (last 3 bets), `JP` (open jackpot rounds: games and cost per
   combination; entering by SMS is out of scope), `HELP`, `STOP` / `START` (marketing SMS
   opt-out, stored in `users.sms_marketing_opt_out_at`).
@@ -45,11 +47,13 @@ One transaction, retried on deadlock:
 1. A per-number advisory lock (shared with USSD).
 2. **Idempotency:** the aggregator's message id (`inbound_messages`, unique per aggregator). A
    redelivery never handles the text again. Its stored reply is queued again only when the last
-   send is at least 60 s old, at most 3 sends in all, so a quick retry does not text the player
-   twice. A reused id with another text or sender is ignored and acknowledged as `not_available`
+   send was queued and handed to the job queue by the outbox at least 60 s ago, at most 3 sends
+   in all, so neither a quick retry nor a send still waiting in the outbox (queue down, backoff)
+   texts the player twice. A reused id with another text or sender is ignored and acknowledged as `not_available`
    with no reply (never the stored outcome).
-3. **Rate limits per number:** 10 texts a minute and 60 an hour. Over a limit the text is not
-   read, and "too many messages" is sent once per window.
+3. **Rate limits per number:** 10 a minute and 60 an hour, counting the number's texts and the
+   USSD sessions it started (one budget per number for both channels). Over a limit the text is
+   not read, and "too many messages" is sent once per window.
 4. **Who may bet:** the sender must be an active player with a verified phone. Every other
    number gets the same bilingual reply, whatever the reason, so a reply never tells whether a
    number is registered. `STOP` / `START` still work for any account. A sender that is not an
@@ -80,13 +84,20 @@ Responses are `CON …` / `END …`, at most 182 characters, in English or Amhar
 
 - The state reached after each callback is stored in `ussd_sessions`, so the next input applies
   to exactly what the player saw. A callback whose text equals the last one is a redelivery and
-  gets the stored response.
+  gets the stored response. A late retry of an earlier callback (its text is a prefix of the last
+  one) also gets the stored response and changes nothing, so it can neither end the live session
+  nor replace a stored bet receipt.
 - A confirmed bet is placed with `placeChannelBet` (channel `ussd`) at the odds the confirm screen
   showed (policy `none`). If the price moved, the confirm screen is shown again at the new odds.
   The idempotency key is the session id plus the callback number.
-- Sessions expire 3 minutes after the last callback. A session we did not start (first callback
-  with input) is never acted on. New sessions are limited to 10 per number per 5 minutes, and the
-  player is checked again on every callback.
+- Sessions expire 3 minutes after the last callback, and end after 30 callbacks. A session we
+  did not start (first callback with input) is never acted on. New sessions are limited to 10
+  per number per 5 minutes, counting the number's inbound texts too (the budget is shared with
+  SMS), and the player is checked again on every callback.
+- **Retention:** the worker's `ussd-session-prune` task (hourly, at most 10 batches of 1,000 per
+  run) deletes sessions that expired more than 7 days ago and placed no bet. Sessions with a bet
+  are kept with it. Inbound texts (`inbound_messages`) are evidence and are never pruned; any
+  archiving of them is a decision for the retention policy agreed with ELS (Phase 12).
 
 ## API routes (`apps/api/src/modules/channels`)
 
@@ -113,3 +124,4 @@ HMAC-SHA256 of "<t>.<raw body>">` under `SMS_WEBHOOK_SECRET`, refused (401 `miss
 - `bet.accepted` / `bet.rejected` also go to the `sms` queue (`LiveBetSmsJobData`); the consumer
   texts `liveBetOutcomeBody` (template `channel_live_bet`, player's language) only when the bet's
   channel is `sms` or `ussd`.
+- `ussd-session-prune` (hourly): see Retention above.

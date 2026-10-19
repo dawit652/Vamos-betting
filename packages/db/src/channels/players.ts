@@ -1,9 +1,10 @@
 import { normalizeEthiopianMsisdn } from '@vamos/core';
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, sql } from 'drizzle-orm';
 import { isUuid } from '../betting/selections';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { users } from '../schema/accounts';
+import { inboundMessages, ussdSessions } from '../schema/channels';
 
 /** Longest sender kept as received when it is not an Ethiopian mobile number. */
 const MAX_RAW_PHONE_LENGTH = 32;
@@ -39,6 +40,27 @@ export function channelPhone(input: string): { key: string; e164: string | null 
  */
 export async function lockChannelPhone(tx: DbTransaction, phoneKey: string): Promise<void> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`vamos:channel:${phoneKey}`}))`);
+}
+
+/**
+ * Requests from one number since `since` over both channels: inbound texts
+ * plus USSD sessions started. The per-number rate limits of SMS and USSD
+ * both count this, so the two channels share one budget per number.
+ */
+export async function channelRequestsSince(
+  tx: DbTransaction,
+  phoneKey: string,
+  since: Date,
+): Promise<number> {
+  const [texts] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(inboundMessages)
+    .where(and(eq(inboundMessages.phone, phoneKey), gt(inboundMessages.receivedAt, since)));
+  const [sessions] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(ussdSessions)
+    .where(and(eq(ussdSessions.phone, phoneKey), gt(ussdSessions.createdAt, since)));
+  return (texts?.n ?? 0) + (sessions?.n ?? 0);
 }
 
 /**

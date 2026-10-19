@@ -20,7 +20,7 @@ import {
   type TextCommand,
   type TextCommandKind,
 } from '@vamos/core';
-import { and, eq, gt, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNotNull } from 'drizzle-orm';
 import type { UserBet } from '../betting/types';
 import type { Database } from '../client';
 import type { DbTransaction } from '../ledger/types';
@@ -28,12 +28,14 @@ import { enqueueOutbox } from '../platform/outbox';
 import { withTxRetry, type TxRetryOptions } from '../retry';
 import { lockUser } from '../rg/limits';
 import { inboundMessages, type inboundMessageOutcome } from '../schema/channels';
+import { outboxEvents } from '../schema/platform';
 import { loadGameSettings, type GameSettings } from '../settings/index';
 import { CHANNEL_REPLY_TEMPLATE, CHANNEL_SMS_REPLY, type ChannelSmsReplyPayload } from './events';
 import { resolveTextBetLegs } from './games';
 import { placeChannelBet, placedBetSummary, smsBetKey } from './place';
 import {
   channelPhone,
+  channelRequestsSince,
   findChannelPlayer,
   lockChannelPhone,
   setSmsMarketingOptOut,
@@ -52,7 +54,10 @@ export const SMS_REPLY_RESEND_INTERVAL_MS = 60_000;
 /** …and never more than this many sends in all. */
 export const SMS_MAX_REPLY_SENDS = 3;
 
-/** At most `max` texts per number within `windowMs` (rate-limited texts count too). */
+/**
+ * At most `max` requests per number within `windowMs`: texts and USSD
+ * sessions started both count (channelRequestsSince), rate-limited ones too.
+ */
 export interface ChannelRateLimit {
   max: number;
   windowMs: number;
@@ -158,11 +163,7 @@ async function rateLimitHit(
 ): Promise<ChannelRateLimit | null> {
   for (const limit of limits) {
     const since = new Date(now.getTime() - limit.windowMs);
-    const [row] = await tx
-      .select({ n: sql<number>`count(*)::int` })
-      .from(inboundMessages)
-      .where(and(eq(inboundMessages.phone, phone), gt(inboundMessages.receivedAt, since)));
-    if ((row?.n ?? 0) >= limit.max) return limit;
+    if ((await channelRequestsSince(tx, phone, since)) >= limit.max) return limit;
   }
   return null;
 }
@@ -377,13 +378,32 @@ async function redelivered(
     return { ...result, reply: null, conflict: true };
   }
   const to = normalizeEthiopianMsisdn(row.phone);
+  const longAgo = (at: Date | null) =>
+    at === null || now.getTime() - at.getTime() >= SMS_REPLY_RESEND_INTERVAL_MS;
   const due =
     row.reply !== null &&
     to !== null &&
     row.replyCount < SMS_MAX_REPLY_SENDS &&
-    (row.lastReplyAt === null ||
-      now.getTime() - row.lastReplyAt.getTime() >= SMS_REPLY_RESEND_INTERVAL_MS);
+    longAgo(row.lastReplyAt);
   if (!due || row.reply === null || to === null) return result;
+  // A redelivery only shows the aggregator missed our HTTP answer, not that
+  // the reply was lost: while the last send still waits in the outbox, or was
+  // handed to the queue less than the interval ago, it is not queued again.
+  const [last] = await tx
+    .select({ publishedAt: outboxEvents.publishedAt })
+    .from(outboxEvents)
+    .where(
+      and(
+        eq(outboxEvents.aggregateType, 'inbound_message'),
+        eq(outboxEvents.aggregateId, row.id),
+        eq(outboxEvents.type, CHANNEL_SMS_REPLY),
+      ),
+    )
+    .orderBy(desc(outboxEvents.id))
+    .limit(1);
+  if (last !== undefined && (last.publishedAt === null || !longAgo(last.publishedAt))) {
+    return result;
+  }
   const send = row.replyCount + 1;
   await tx
     .update(inboundMessages)
@@ -406,10 +426,12 @@ async function redelivered(
  *
  * 1. the number's channel lock (SMS and USSD of one number run one at a time);
  * 2. a message id seen before is a redelivery: nothing is handled again; the
- *    stored reply is returned and queued again when the last send is at least
- *    SMS_REPLY_RESEND_INTERVAL_MS old (at most SMS_MAX_REPLY_SENDS sends), so
- *    a quick retry by the aggregator does not text the player twice;
- * 3. per-number rate limits (DEFAULT_SMS_RATE_LIMITS): over a limit the text
+ *    stored reply is returned and queued again when the last send was queued
+ *    and handed to the job queue at least SMS_REPLY_RESEND_INTERVAL_MS ago
+ *    (at most SMS_MAX_REPLY_SENDS sends), so neither a quick retry by the
+ *    aggregator nor a send still waiting in the outbox texts the player twice;
+ * 3. per-number rate limits (DEFAULT_SMS_RATE_LIMITS, shared with USSD
+ *    sessions): over a limit the text
  *    is not read, and "too many messages" is sent once per window;
  * 4. the sender must be an active player with a verified phone; any other
  *    number gets one generic bilingual reply (STOP / START still work);
