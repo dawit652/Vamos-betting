@@ -7,7 +7,7 @@ import { flagRows } from '@/lib/channels';
 
 /** Read-only: the switches live in the server environment and change only by a deployment. */
 export default function ChannelsPage() {
-  const { data, error, loading } = useFetch<ChannelFlagsResponse>('/admin/channels/flags');
+  const { data, error, loading } = useFetch<ChannelFlagsResponse>('/admin/channels');
   return (
     <>
       <PageHeader title="Channels" />

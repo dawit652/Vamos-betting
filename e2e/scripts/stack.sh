@@ -29,6 +29,13 @@ export ELS_REPORT_DIR="${ELS_REPORT_DIR:-$STATE_DIR/els}"
 export SIM_SPEED="${SIM_SPEED:-60}"
 export FEED_ROLLING_EVERY_MINUTES="${FEED_ROLLING_EVERY_MINUTES:-1}"
 export FEED_ROLLING_HORIZON_MINUTES="${FEED_ROLLING_HORIZON_MINUTES:-10}"
+# Phase 11: the SMS and USSD betting channels are off everywhere else; the e2e stack switches them on
+# (demo mode, mock aggregators, dev secrets) so channels.spec.ts can drive them through /dev/channels.
+export SMS_BETTING_ENABLED="${SMS_BETTING_ENABLED:-true}"
+export USSD_ENABLED="${USSD_ENABLED:-true}"
+# An older .env may still set the legacy spellings (false); a contradiction is a config error, so agree with it.
+export FEATURE_SMS_BETTING="$SMS_BETTING_ENABLED"
+export FEATURE_USSD="$USSD_ENABLED"
 
 running() {
   local pidfile="$STATE_DIR/$1.pid"
