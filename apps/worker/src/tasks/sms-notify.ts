@@ -14,11 +14,7 @@ import { createQueueWorker, QUEUE_NAMES, type QueueWorker } from '../lib/queues'
 import { paymentSmsBody, type PaymentSmsTemplate } from '../lib/sms';
 import type { WorkerTask } from '../worker';
 import type { TaskContext } from './context';
-import type {
-  ChannelReplySmsJobData,
-  LiveBetSmsJobData,
-  SmsJobData,
-} from './outbox-dispatch';
+import type { ChannelReplySmsJobData, LiveBetSmsJobData, SmsJobData } from './outbox-dispatch';
 
 /**
  * SMS notifications: a BullMQ worker on the `sms` queue, fed by the outbox
@@ -52,9 +48,7 @@ export type SmsJobResult =
   | {
       sent: true;
       template:
-        | PaymentSmsTemplate
-        | ChannelReplySmsJobData['template']
-        | typeof LIVE_BET_OUTCOME_TEMPLATE;
+        PaymentSmsTemplate | ChannelReplySmsJobData['template'] | typeof LIVE_BET_OUTCOME_TEMPLATE;
       messageId: string;
     }
   | { sent: false; reason: 'unknown_type' | 'unknown_user' | 'not_channel_bet' };

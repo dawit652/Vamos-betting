@@ -1,5 +1,5 @@
 import {
-  ChannelFlagsResponse,
+  type ChannelFlagsResponse,
   DevSmsSendRequest,
   DevSmsSendResponse,
   DevUssdRequest,

@@ -238,7 +238,10 @@ describe('channels on', () => {
     expect(stale.json()).toMatchObject({ error: { code: 'stale_timestamp' } });
     const malformed = await inboundSms(ctx, { messageId: 'x y', from: phone, text: 'BAL' });
     expect(malformed.statusCode).toBe(400);
-    const rows = await ctx.db.db.select().from(inboundMessages).where(eq(inboundMessages.phone, phone));
+    const rows = await ctx.db.db
+      .select()
+      .from(inboundMessages)
+      .where(eq(inboundMessages.phone, phone));
     expect(rows).toHaveLength(0);
   });
 
@@ -288,7 +291,9 @@ describe('channels on', () => {
     const one = SmsInboundAck.parse(
       (await inboundSms(ctx, smsMessage(randomPhone(), `${game.gameId}#1#50`))).json(),
     );
-    const two = SmsInboundAck.parse((await inboundSms(ctx, smsMessage(randomPhone(), 'BAL'))).json());
+    const two = SmsInboundAck.parse(
+      (await inboundSms(ctx, smsMessage(randomPhone(), 'BAL'))).json(),
+    );
     expect(one.outcome).toBe('not_available');
     expect(two.outcome).toBe('not_available');
     expect(one.reply).not.toBeNull();
@@ -297,7 +302,9 @@ describe('channels on', () => {
 
   it('answers BAL in the player language', async () => {
     const player = await fundedPlayer(ctx);
-    const ack = SmsInboundAck.parse((await inboundSms(ctx, smsMessage(player.phone, 'bal'))).json());
+    const ack = SmsInboundAck.parse(
+      (await inboundSms(ctx, smsMessage(player.phone, 'bal'))).json(),
+    );
     expect(ack.outcome).toBe('info');
     expect(ack.reply).toContain('1,000.00');
   });

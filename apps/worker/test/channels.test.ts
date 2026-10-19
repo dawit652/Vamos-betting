@@ -18,7 +18,12 @@ import {
 } from '../src/tasks/outbox-dispatch';
 import { LIVE_BET_OUTCOME_TEMPLATE, processSmsJob } from '../src/tasks/sms-notify';
 import { createEvent, fundedUser, place, testSettings } from './betting';
-import { createWorkerTestContext, SETUP_TIMEOUT, TEST_TIMEOUT, type WorkerTestContext } from './helpers';
+import {
+  createWorkerTestContext,
+  SETUP_TIMEOUT,
+  TEST_TIMEOUT,
+  type WorkerTestContext,
+} from './helpers';
 
 let t: WorkerTestContext;
 
@@ -30,7 +35,12 @@ afterAll(async () => {
   await t?.close();
 }, SETUP_TIMEOUT);
 
-async function outboxRow(type: string, aggregateType: string, aggregateId: string, payload: object) {
+async function outboxRow(
+  type: string,
+  aggregateType: string,
+  aggregateId: string,
+  payload: object,
+) {
   const id = await enqueueOutbox(t.db.db, {
     type,
     aggregateType,
@@ -105,6 +115,12 @@ describe('SMS channel replies (Phase 11)', () => {
       template: CHANNEL_REPLY_TEMPLATE,
     });
     expect(() => OUTBOX_ROUTES[CHANNEL_SMS_REPLY]![0]!(row, new Date())).toThrow();
+    // A live bet outcome without what the text needs gets no SMS job (and blocks nothing).
+    const outcome = await outboxRow(BET_ACCEPTED, 'bet', randomUUID(), { shortId: 'X' });
+    const smsJobs = OUTBOX_ROUTES[BET_ACCEPTED]!.map((route) => route(outcome, new Date())).filter(
+      (job) => job?.queue === QUEUE_NAMES.sms,
+    );
+    expect(smsJobs).toHaveLength(0);
   });
 
   it(

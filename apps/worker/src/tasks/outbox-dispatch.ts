@@ -304,9 +304,15 @@ const liveBetOutcomePayload = z.object({
     .optional(),
 });
 
-/** A live bet accepted or rejected: texted to the player when it was placed by SMS or USSD. */
+/**
+ * A live bet accepted or rejected: texted to the player when it was placed
+ * by SMS or USSD. A payload without what the text needs gets no job (like
+ * the push messages), so it never holds back the row's other jobs.
+ */
 const liveBetSmsRoute: OutboxRoute = (row) => {
-  const payload = liveBetOutcomePayload.parse(row.payload);
+  const parsed = liveBetOutcomePayload.safeParse(row.payload);
+  if (!parsed.success) return null;
+  const payload = parsed.data;
   const data: LiveBetSmsJobData = {
     outboxId: row.id.toString(),
     type: row.type === BET_REJECTED ? BET_REJECTED : BET_ACCEPTED,
