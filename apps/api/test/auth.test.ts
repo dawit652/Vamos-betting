@@ -738,7 +738,10 @@ describe('auth', () => {
       for (const attempt of attempts) {
         const response = await post(ctx, '/auth/login', attempt);
         expect(response.statusCode).toBe(401);
-        errors.push(apiError(response));
+        // Every error carries its own request id; the rest must not tell the cases apart.
+        const { requestId, ...error } = apiError(response) as Record<string, unknown>;
+        expect(requestId).toBe(response.headers['x-request-id']);
+        errors.push(error);
       }
       expect(errors[0]).toEqual({
         code: 'invalid_credentials',
