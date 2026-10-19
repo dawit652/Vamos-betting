@@ -52,6 +52,24 @@ import { computeDailyFigures, dailyFiguresHash } from './daily-summary';
  * Imported PSP statements are matched line by line in psp-statements.ts
  * (their own runs, kind `psp_statement`).
  *
+ * Cost (Phase 12): balance_after is checked incrementally, from the entry id
+ * the last clean run verified (compliance_cursors
+ * `reconciliation_balance_after`, moved only past entries written at least
+ * BALANCE_AFTER_GRACE_MS before the snapshot, and never past a difference),
+ * with a full scan when the last clean one is a week old. What still reads
+ * the whole ledger on every run: ledger_transactions (entries per
+ * transaction sum to zero) and ledger_accounts / wallet (each account's sum
+ * of entries). Both could become incremental the same way (transactions and
+ * per-account running sums are append-only), but they also catch a row
+ * changed behind the triggers' back, which only a full read can; they stay
+ * full until the ledger is large enough to matter (they are single
+ * aggregate passes, a few seconds per million entries).
+ *
+ * Staff "Run now" runs in the worker: requestReconciliation queues a
+ * reconciliation_requests row (one at a time) and the outbox event
+ * compliance.reconciliation_requested; runRequestedReconciliation runs it
+ * with the request's id.
+ *
  * A run with differences writes the outbox alert
  * compliance.reconciliation_mismatch and the audit record
  * `reconciliation.mismatch_detected`; the back office lists the runs.

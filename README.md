@@ -28,7 +28,8 @@ A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It i
 | `packages/i18n`      | UI messages: am, en, om, ti                                                                    |
 | `packages/config`    | Runtime configuration and the operating-mode guard                                             |
 | `e2e`                | Playwright end-to-end tests                                                                    |
-| `infra`              | docker-compose, native dev services script, Dockerfiles                                        |
+| `infra`              | dev + production docker-compose, Dockerfile, env template, backup and dev services scripts     |
+| `scripts`            | `smoke.sh`: smoke test for any deployment URL                                                  |
 
 See [`docs/architecture.md`](docs/architecture.md) for the design.
 
@@ -60,7 +61,20 @@ pnpm build
 pnpm e2e          # Playwright, against a running dev stack
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same checks with Postgres and Redis service containers.
+CI (`.github/workflows/ci.yml`) runs the same checks with Postgres and Redis service containers, plus a
+`docker` job that builds the production images, boots the compose stack and runs `scripts/smoke.sh`.
+
+## Deployment
+
+Production images and the compose stack are described in [`docs/deployment.md`](docs/deployment.md);
+backups in [`docs/backups.md`](docs/backups.md); incident procedures in [`docs/runbooks/`](docs/runbooks/README.md).
+
+```bash
+infra/scripts/init-env.sh && $EDITOR infra/.env.prod      # secrets are generated for you
+export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.prod
+docker compose build && docker compose up -d --wait
+scripts/smoke.sh --production --worker http://localhost:4100
+```
 
 ## Build phases
 
