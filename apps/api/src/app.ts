@@ -2,7 +2,7 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyRateLimit from '@fastify/rate-limit';
-import type { AppConfig } from '@vamos/config';
+import type { AppConfig, TrustProxySetting } from '@vamos/config';
 import { STAFF_CSRF_HEADER, type HealthResponse } from '@vamos/contracts';
 import { DomainError } from '@vamos/db';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
@@ -13,7 +13,6 @@ import { IDEMPOTENCY_KEY_HEADER, IDEMPOTENT_REPLAYED_HEADER } from './lib/idempo
 import { DEFAULT_AUTH_LIMITS, type AuthLimits } from './lib/rate-limits';
 import { registerModules } from './modules/index';
 import { CSRF_HEADER, sessionPlugin } from './plugins/session';
-import type { TrustProxySetting } from './startup';
 
 export type { AppDeps } from './deps';
 
@@ -34,8 +33,9 @@ export interface BuildAppOptions {
   /** Redis key namespace for rate-limit counters (tests use one per app instance). */
   rateLimitNameSpace?: string;
   /**
-   * Whose X-Forwarded-For may set `request.ip` (see `parseTrustProxy`).
-   * Default false: `request.ip` is the TCP peer, which clients cannot forge.
+   * Whose X-Forwarded-For may set `request.ip` (see `parseTrustProxy` of
+   * @vamos/config). Default: TRUST_PROXY (`config.api.trustProxy`), itself
+   * false by default: `request.ip` is the TCP peer, which clients cannot forge.
    */
   trustProxy?: TrustProxySetting;
   /** Overrides of DEFAULT_AUTH_LIMITS. */
@@ -66,7 +66,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   const app = Fastify({
     logger: options.logger ?? { level: config.logLevel },
     // Never `true`: trusting every hop would let clients pick their own IP.
-    trustProxy: options.trustProxy ?? false,
+    trustProxy: options.trustProxy ?? config.api.trustProxy,
     bodyLimit: 64 * 1024,
     genReqId: () => crypto.randomUUID(),
     requestIdHeader: 'x-request-id',

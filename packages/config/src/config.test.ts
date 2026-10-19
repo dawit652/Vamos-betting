@@ -11,6 +11,7 @@ import {
   licensedModeViolations,
   loadConfig,
   parseAdminTotpKey,
+  parseTrustProxy,
 } from './config';
 
 /** A production-grade ADMIN_TOTP_KEY (any 32 bytes other than the development key). */
@@ -458,5 +459,79 @@ describe('loadConfig', () => {
     expect(
       problemsOf({ ...LICENSED_ENV, SMS_BETTING_ENABLED: 'true', SMS_PROVIDER: 'mock' }).join('\n'),
     ).toMatch(/SMS_PROVIDER must be a real SMS gateway/);
+  });
+});
+
+describe('operations settings (Phase 12)', () => {
+  it('reads TRUST_PROXY into the config and never trusts every hop', () => {
+    expect(loadConfig({}).api.trustProxy).toBe(false);
+    for (const off of ['', ' ', 'false', '0']) {
+      expect(parseTrustProxy(off)).toBe(false);
+      expect(loadConfig({ TRUST_PROXY: off }).api.trustProxy).toBe(false);
+    }
+    expect(loadConfig({ TRUST_PROXY: '10.0.0.0/8, 192.168.1.10 ,fd00::/8,loopback' }).api).toEqual(
+      expect.objectContaining({
+        trustProxy: ['10.0.0.0/8', '192.168.1.10', 'fd00::/8', 'loopback'],
+      }),
+    );
+    for (const bad of ['true', '1', '2', 'proxy.local', '10.0.0.0/33', '1.2.3.4/8/9', ',']) {
+      expect(() => parseTrustProxy(bad), bad).toThrow(ConfigError);
+      expect(problemsOf({ TRUST_PROXY: bad }).join('\n'), bad).toMatch(/TRUST_PROXY/);
+    }
+  });
+
+  it('reads the worker health server and OpenTelemetry settings (tracing off by default)', () => {
+    const defaults = loadConfig({});
+    expect(defaults.worker).toEqual({ healthHost: '0.0.0.0', healthPort: 4100 });
+    expect(defaults.telemetry).toEqual({ otlpEndpoint: undefined, serviceName: undefined });
+    // A blank value (as in .env.example) leaves tracing off.
+    expect(loadConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: '' }).telemetry.otlpEndpoint).toBeUndefined();
+    const set = loadConfig({
+      WORKER_HEALTH_PORT: '0',
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector:4318',
+      OTEL_SERVICE_NAME: 'vamos-api-et',
+    });
+    expect(set.worker.healthPort).toBe(0);
+    expect(set.telemetry).toEqual({
+      otlpEndpoint: 'http://otel-collector:4318',
+      serviceName: 'vamos-api-et',
+    });
+    expect(problemsOf({ WORKER_HEALTH_PORT: '70000' }).join('\n')).toMatch(/WORKER_HEALTH_PORT/);
+    expect(problemsOf({ OTEL_EXPORTER_OTLP_ENDPOINT: 'not a url' }).join('\n')).toMatch(
+      /OTEL_EXPORTER_OTLP_ENDPOINT/,
+    );
+  });
+
+  it('requires https public URLs in production (CORS origins and Secure cookies)', () => {
+    const production = {
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+      ADMIN_TOTP_KEY: PRODUCTION_TOTP_KEY,
+      MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret',
+    };
+    // Local production builds (e2e, compose smoke tests) on loopback are fine.
+    expect(problemsOf(production)).toEqual([]);
+    expect(
+      problemsOf({
+        ...production,
+        PUBLIC_WEB_URL: 'https://vamos.et',
+        ADMIN_WEB_URL: 'https://admin.vamos.et',
+        PUBLIC_API_URL: 'https://api.vamos.et',
+      }),
+    ).toEqual([]);
+    expect(
+      problemsOf({
+        ...production,
+        PUBLIC_WEB_URL: 'http://vamos.et',
+        ADMIN_WEB_URL: 'http://admin.vamos.et',
+        PUBLIC_API_URL: 'http://api.vamos.et',
+      }),
+    ).toEqual([
+      'PUBLIC_WEB_URL must be an https URL in production (got http://vamos.et)',
+      'ADMIN_WEB_URL must be an https URL in production (got http://admin.vamos.et)',
+      'PUBLIC_API_URL must be an https URL in production (got http://api.vamos.et)',
+    ]);
+    // Development keeps plain http.
+    expect(problemsOf({ PUBLIC_WEB_URL: 'http://vamos.lan:3000' })).toEqual([]);
   });
 });

@@ -13,7 +13,7 @@ import {
 } from '../src/lib/passwords';
 import { MockKycVerifier } from '../src/providers/kyc';
 import { otpSmsBody, type SmsProvider } from '../src/providers/sms';
-import { apiConfigProblems, parseTrustProxy, StartupError } from '../src/startup';
+import { apiConfigProblems } from '../src/startup';
 import { dobForAge } from './helpers';
 
 describe('crypto helpers', () => {
@@ -166,21 +166,6 @@ describe('client address keys', () => {
 });
 
 describe('startup checks', () => {
-  it('parses TRUST_PROXY and never trusts every hop', () => {
-    for (const off of [undefined, '', ' ', 'false', '0']) {
-      expect(parseTrustProxy(off)).toBe(false);
-    }
-    expect(parseTrustProxy('10.0.0.0/8, 192.168.1.10 ,fd00::/8,loopback')).toEqual([
-      '10.0.0.0/8',
-      '192.168.1.10',
-      'fd00::/8',
-      'loopback',
-    ]);
-    for (const bad of ['true', '1', '2', '10.0.0.0/33', 'proxy.internal', '10.0.0.1/8/1', ',']) {
-      expect(() => parseTrustProxy(bad), bad).toThrow(StartupError);
-    }
-  });
-
   it('refuses licensed mode without NODE_ENV=production and a unique SESSION_SECRET', () => {
     const licensedEnv = {
       LOG_LEVEL: 'silent',

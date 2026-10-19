@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 
 /**
@@ -79,12 +80,85 @@ const csv = z.string().transform((value) =>
 
 const bool = z.stringbool();
 
+/** Fastify `trustProxy`: false, or the addresses / CIDRs of the trusted proxies. */
+export type TrustProxySetting = false | string[];
+
+/** Address ranges proxy-addr knows by name. */
+const NAMED_RANGES = new Set(['loopback', 'linklocal', 'uniquelocal']);
+
+function isAddressOrCidr(value: string): boolean {
+  if (NAMED_RANGES.has(value)) return true;
+  const [address = '', prefix, ...rest] = value.split('/');
+  const version = isIP(address);
+  if (version === 0 || rest.length > 0) return false;
+  if (prefix === undefined) return true;
+  if (!/^\d{1,3}$/.test(prefix)) return false;
+  return Number(prefix) <= (version === 4 ? 32 : 128);
+}
+
+/**
+ * Parses TRUST_PROXY, which says whose X-Forwarded-For may set the client
+ * address of an API request (used for rate limits, sessions and the audit log):
+ * - unset, empty, `false` or `0`: nobody. The address is the TCP peer.
+ * - a comma-separated list of the proxies' addresses or CIDRs (or
+ *   `loopback`, `linklocal`, `uniquelocal`), e.g. `10.0.0.0/8` for the load
+ *   balancer subnet. X-Forwarded-For is then read right to left, skipping
+ *   those proxies.
+ *
+ * `true` is refused: it would trust every hop, so any client could choose its
+ * own address and escape every per-address limit. A hop count is refused too,
+ * because it cannot check who the immediate peer is (Fastify ignores it).
+ * Throws ConfigError.
+ */
+export function parseTrustProxy(value: string | undefined): TrustProxySetting {
+  const text = value?.trim() ?? '';
+  if (text === '' || text === 'false' || text === '0') return false;
+  if (text === 'true' || /^\d+$/.test(text)) {
+    throw new ConfigError([
+      `TRUST_PROXY=${text} cannot tell a proxy from a client that sends X-Forwarded-For itself. ` +
+        'List the addresses or CIDRs of the proxies in front of the API instead (e.g. 10.0.0.0/8).',
+    ]);
+  }
+  const entries = text
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const invalid = entries.filter((entry) => !isAddressOrCidr(entry));
+  if (entries.length === 0 || invalid.length > 0) {
+    throw new ConfigError([
+      `TRUST_PROXY must be false or proxy addresses/CIDRs (invalid: ${invalid.join(', ') || text})`,
+    ]);
+  }
+  return entries;
+}
+
+/** Hosts a browser treats as a secure context over plain http (local stacks only). */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Whether a public URL is safe for production: https, or http on a loopback host. */
+function isProductionSafeUrl(url: string): boolean {
+  const parsed = new URL(url);
+  return parsed.protocol === 'https:' || LOOPBACK_HOSTS.has(parsed.hostname);
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   OPERATING_MODE: z.enum(['demo', 'licensed']).default('demo'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
   API_HOST: z.string().default('0.0.0.0'),
+  /** Whose X-Forwarded-For the API trusts (see parseTrustProxy); default nobody. */
+  TRUST_PROXY: z.string().optional(),
+  /** Port of the worker's /health and /ready server (0 turns it off). */
+  WORKER_HEALTH_PORT: z.coerce.number().int().min(0).max(65535).default(4100),
+  WORKER_HEALTH_HOST: z.string().default('0.0.0.0'),
+  /**
+   * OpenTelemetry: traces are exported (OTLP over HTTP) only when this is
+   * set; otherwise tracing is a no-op and its packages are never loaded.
+   */
+  OTEL_EXPORTER_OTLP_ENDPOINT: secret.pipe(z.url().optional()),
+  /** Overrides the service name of the exported traces (default vamos-api / vamos-worker). */
+  OTEL_SERVICE_NAME: secret,
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   PUBLIC_WEB_URL: z.url().default('http://localhost:3000'),
   ADMIN_WEB_URL: z.url().default('http://localhost:3001'),
@@ -199,7 +273,17 @@ export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
   mode: OperatingMode;
   logLevel: z.infer<typeof envSchema>['LOG_LEVEL'];
-  api: { host: string; port: number; publicUrl: string };
+  api: {
+    host: string;
+    port: number;
+    publicUrl: string;
+    /** TRUST_PROXY: whose X-Forwarded-For may set the client address (false: nobody). */
+    trustProxy: TrustProxySetting;
+  };
+  /** The worker's health server (WORKER_HEALTH_*; port 0 = off). */
+  worker: { healthHost: string; healthPort: number };
+  /** OpenTelemetry tracing: on only when `otlpEndpoint` is set. */
+  telemetry: { otlpEndpoint: string | undefined; serviceName: string | undefined };
   web: { publicUrl: string; adminUrl: string };
   databaseUrl: string;
   redisUrl: string;
@@ -419,7 +503,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     nodeEnv: e.NODE_ENV,
     mode: e.OPERATING_MODE,
     logLevel: e.LOG_LEVEL,
-    api: { host: e.API_HOST, port: e.API_PORT, publicUrl: e.PUBLIC_API_URL },
+    api: {
+      host: e.API_HOST,
+      port: e.API_PORT,
+      publicUrl: e.PUBLIC_API_URL,
+      trustProxy: parseTrustProxy(e.TRUST_PROXY),
+    },
+    worker: { healthHost: e.WORKER_HEALTH_HOST, healthPort: e.WORKER_HEALTH_PORT },
+    telemetry: { otlpEndpoint: e.OTEL_EXPORTER_OTLP_ENDPOINT, serviceName: e.OTEL_SERVICE_NAME },
     web: { publicUrl: e.PUBLIC_WEB_URL, adminUrl: e.ADMIN_WEB_URL },
     databaseUrl: e.DATABASE_URL,
     redisUrl: e.REDIS_URL,
@@ -489,6 +580,19 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     // CORS gives the back office origin /admin/* and the player origin the rest, so a script on
     // the player site cannot drive the staff API. One shared origin would undo that.
     problems.push('ADMIN_WEB_URL must be on a different origin from PUBLIC_WEB_URL');
+  }
+  if (config.nodeEnv === 'production') {
+    // CORS allows exactly these origins with credentials, and the session cookies are Secure in
+    // production: plain http would leak them (and browsers drop Secure cookies over http).
+    for (const [name, url] of [
+      ['PUBLIC_WEB_URL', config.web.publicUrl],
+      ['ADMIN_WEB_URL', config.web.adminUrl],
+      ['PUBLIC_API_URL', config.api.publicUrl],
+    ] as const) {
+      if (!isProductionSafeUrl(url)) {
+        problems.push(`${name} must be an https URL in production (got ${url})`);
+      }
+    }
   }
   if (config.nodeEnv === 'production' && config.sessionSecret === DEV_SESSION_SECRET) {
     problems.push('SESSION_SECRET must be set to a unique secret in production');

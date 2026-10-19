@@ -11,10 +11,12 @@ export {
   licensedModeViolations,
   loadConfig,
   parseAdminTotpKey,
+  parseTrustProxy,
   type AppConfig,
   type ChannelsConfig,
   type ElsReportingMode,
   type OperatingMode,
   type PaymentProvidersConfig,
+  type TrustProxySetting,
 } from './config';
 export { loadDotEnv } from './dotenv';

@@ -3,12 +3,7 @@ import { claimOperatingMode, OperatingModeMismatchError } from '@vamos/db';
 import { PaymentProviderError } from '@vamos/payments';
 import { buildApp } from './app';
 import { createDefaultDeps, ProviderNotImplementedError, type DefaultDeps } from './deps';
-import {
-  apiConfigProblems,
-  parseTrustProxy,
-  StartupError,
-  type TrustProxySetting,
-} from './startup';
+import { apiConfigProblems } from './startup';
 
 function refuseToStart(message: string): never {
   console.error(`[vamos-api] refusing to start.\n${message}`);
@@ -18,15 +13,10 @@ function refuseToStart(message: string): never {
 async function main(): Promise<void> {
   loadDotEnv();
   let config: AppConfig;
-  let trustProxy: TrustProxySetting;
   try {
     config = loadConfig();
-    // TRUST_PROXY is read here until it moves into @vamos/config.
-    trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
   } catch (error) {
-    if (error instanceof ConfigError || error instanceof StartupError) {
-      refuseToStart(error.message);
-    }
+    if (error instanceof ConfigError) refuseToStart(error.message);
     throw error;
   }
   const problems = apiConfigProblems(config);
@@ -57,7 +47,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const app = buildApp(deps, { trustProxy });
+  const app = buildApp(deps);
   if (config.mode === 'demo') {
     app.log.warn('running in DEMO mode: play money only, mock providers, no real payments');
   }
