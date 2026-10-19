@@ -8,6 +8,8 @@ import {
   BET_REJECTED,
   BET_REOPENED,
   BET_SETTLED,
+  CHANNEL_REPLY_TEMPLATE,
+  CHANNEL_SMS_REPLY,
   claimOutboxBatch,
   countDeadLetteredOutbox,
   DEPOSIT_SUCCEEDED,
@@ -117,8 +119,8 @@ export interface PayoutJobData {
   payoutId: string;
 }
 
-/** Data of an `sms` job: a payment notification to the player. */
-export interface SmsJobData {
+/** Data of an `sms` job for a payment notification to the player. */
+export interface PaymentSmsJobData {
   outboxId: string;
   /** The outbox type (payment.deposit_succeeded, payment.withdrawal_paid / _failed). */
   type: string;
@@ -126,6 +128,41 @@ export interface SmsJobData {
   /** Santim, decimal string. */
   amount: string;
 }
+
+/**
+ * Data of an `sms` job for the reply to an inbound SMS (channel.sms_reply,
+ * Phase 11): the text is final (built and stored when the SMS was handled)
+ * and goes to the number it came from, which need not be a player's.
+ */
+export interface ChannelReplySmsJobData {
+  outboxId: string;
+  type: typeof CHANNEL_SMS_REPLY;
+  inboundMessageId: string;
+  /** E.164 recipient. */
+  to: string;
+  body: string;
+  template: typeof CHANNEL_REPLY_TEMPLATE;
+}
+
+/**
+ * Data of an `sms` job for the outcome of a live bet (bet.accepted /
+ * bet.rejected). Only bets placed by SMS or USSD are texted (the consumer
+ * reads the bet's channel); web players see it in the app.
+ */
+export interface LiveBetSmsJobData {
+  outboxId: string;
+  type: typeof BET_ACCEPTED | typeof BET_REJECTED;
+  betId: string;
+  userId: string;
+  shortId: string;
+  /** bet.rejected only. */
+  reason?: 'selection_unavailable' | 'odds_changed' | 'slip_invalid';
+  /** bet.rejected only: the stake refunded, santim decimal string. */
+  refund?: string;
+}
+
+/** Data of an `sms` job. */
+export type SmsJobData = PaymentSmsJobData | ChannelReplySmsJobData | LiveBetSmsJobData;
 
 /**
  * Data of a `user-notify` job: push messages for one player, built from the
@@ -240,11 +277,58 @@ const notificationPayload = z.object({
 /** Payment outcomes the player hears about by SMS. */
 const smsRoute: OutboxRoute = (row) => {
   const payload = notificationPayload.parse(row.payload);
-  const data: SmsJobData = {
+  const data: PaymentSmsJobData = {
     outboxId: row.id.toString(),
     type: row.type,
     userId: payload.userId,
     amount: String(payload.amount),
+  };
+  return { queue: QUEUE_NAMES.sms, name: row.type, data };
+};
+
+const channelReplyPayload = z.object({
+  inboundMessageId: z.uuid(),
+  to: z.string().regex(/^\+\d{8,15}$/),
+  body: z.string().min(1).max(1_600),
+  template: z.literal(CHANNEL_REPLY_TEMPLATE),
+});
+
+const liveBetOutcomePayload = z.object({
+  betId: z.uuid(),
+  userId: z.uuid(),
+  shortId: nonEmpty,
+  reason: z.enum(['selection_unavailable', 'odds_changed', 'slip_invalid']).optional(),
+  refund: z
+    .union([z.string().regex(/^\d+$/), z.number().int().nonnegative()])
+    .transform((value) => String(value))
+    .optional(),
+});
+
+/** A live bet accepted or rejected: texted to the player when it was placed by SMS or USSD. */
+const liveBetSmsRoute: OutboxRoute = (row) => {
+  const payload = liveBetOutcomePayload.parse(row.payload);
+  const data: LiveBetSmsJobData = {
+    outboxId: row.id.toString(),
+    type: row.type === BET_REJECTED ? BET_REJECTED : BET_ACCEPTED,
+    betId: payload.betId,
+    userId: payload.userId,
+    shortId: payload.shortId,
+    ...(payload.reason === undefined ? {} : { reason: payload.reason }),
+    ...(payload.refund === undefined ? {} : { refund: payload.refund }),
+  };
+  return { queue: QUEUE_NAMES.sms, name: row.type, data };
+};
+
+/** The reply to an inbound SMS (each send, re-sends included, is its own outbox row and job). */
+const channelReplyRoute: OutboxRoute = (row) => {
+  const payload = channelReplyPayload.parse(row.payload);
+  const data: ChannelReplySmsJobData = {
+    outboxId: row.id.toString(),
+    type: CHANNEL_SMS_REPLY,
+    inboundMessageId: payload.inboundMessageId,
+    to: payload.to,
+    body: payload.body,
+    template: payload.template,
   };
   return { queue: QUEUE_NAMES.sms, name: row.type, data };
 };
@@ -477,8 +561,8 @@ export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = w
     [EVENT_RESULT_CORRECTED]: [settlementRoute, jackpotSettlementRoute],
     [MARKET_RESULTED]: [marketSettlementRoute, jackpotSettlementRoute],
     [BET_PLACED]: [betAcceptanceRoute, userNotifyRoute],
-    [BET_ACCEPTED]: [userNotifyRoute],
-    [BET_REJECTED]: [userNotifyRoute],
+    [BET_ACCEPTED]: [userNotifyRoute, liveBetSmsRoute],
+    [BET_REJECTED]: [userNotifyRoute, liveBetSmsRoute],
     [BET_SETTLED]: [userNotifyRoute],
     [BET_CASHED_OUT]: [userNotifyRoute],
     [BET_REOPENED]: [userNotifyRoute],
@@ -491,6 +575,7 @@ export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = w
     [WITHDRAWAL_CANCELLED]: [userNotifyRoute],
     [WITHDRAWAL_PAID]: [smsRoute, userNotifyRoute],
     [WITHDRAWAL_FAILED]: [smsRoute, userNotifyRoute],
+    [CHANNEL_SMS_REPLY]: [channelReplyRoute],
   },
 );
 

@@ -29,6 +29,8 @@ export interface TaskContext {
   payments: PaymentProviderRegistry;
   /** The SMS gateway for player notifications (SMS_PROVIDER). */
   sms: SmsSender;
+  /** Play-money mode (OPERATING_MODE=demo): channel texts say DEMO. Default true. */
+  demo?: boolean;
   /**
    * Where the ELS stream and daily summary files go (createElsReporter of
    * config.els). Absent: createTasks builds it from the configuration.

@@ -111,6 +111,7 @@ async function main(): Promise<void> {
       queues: { redisUrl: config.redisUrl, prefix: config.queuePrefix },
       payments,
       sms,
+      demo: config.mode === 'demo',
       // ELS_REPORTING_MODE (file in demo: JSONL + CSV under ELS_REPORT_DIR).
       els: createElsReporter(config.els),
     },
