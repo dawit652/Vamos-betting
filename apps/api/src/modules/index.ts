@@ -4,6 +4,8 @@ import adminRoutes from './admin/routes';
 import authRoutes from './auth/routes';
 import bettingRoutes from './betting/routes';
 import catalogRoutes from './catalog/routes';
+import devChannelRoutes, { devChannelsEnabled } from './channels/dev-routes';
+import channelRoutes from './channels/routes';
 import devRoutes, { devInboxEnabled } from './dev/routes';
 import devJackpotRoutes, { devJackpotsEnabled } from './jackpots/dev-routes';
 import jackpotRoutes from './jackpots/routes';
@@ -30,6 +32,8 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   await app.register(userStreamRoutes);
   await app.register(paymentRoutes);
   await app.register(jackpotRoutes);
+  // SMS / USSD aggregator routes: registered only while their flag is on (else 404).
+  await app.register(channelRoutes);
   // The back office: staff sessions and RBAC of their own (plugins/staff-session.ts).
   await app.register(adminRoutes);
   if (devInboxEnabled(deps)) {
@@ -42,5 +46,9 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   // DEV ONLY: quick jackpot rounds for e2e and demos (demo mode, not production).
   if (devJackpotsEnabled(deps)) {
     await app.register(devJackpotRoutes);
+  }
+  // DEV ONLY: the SMS / USSD simulator (demo mode, not production).
+  if (devChannelsEnabled(deps)) {
+    await app.register(devChannelRoutes);
   }
 }
