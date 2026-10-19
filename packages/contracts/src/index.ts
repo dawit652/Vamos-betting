@@ -11,3 +11,4 @@ export * from './payments';
 export * from './jackpots';
 export * from './admin';
 export * from './compliance';
+export * from './channels';
