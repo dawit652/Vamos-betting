@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useState, type FormEvent } from 'react';
 import { useFetch, usePaged } from '@/components/hooks';
 import { Badge, Field, LoadMore, Loading, PageHeader } from '@/components/ui';
+import { channelLabel } from '@/lib/channels';
 import { dayToIso, formatDateTime, formatEtb, formatOdds } from '@/lib/format';
 
 const STATUSES = ['pending_acceptance', 'open', 'won', 'lost', 'void', 'cashed_out', 'rejected'];
@@ -86,6 +87,7 @@ function BetsInner() {
               <th>Bet</th>
               <th>Player</th>
               <th>Type</th>
+              <th>Channel</th>
               <th>Status</th>
               <th className="num">Stake</th>
               <th className="num">Odds</th>
@@ -109,6 +111,7 @@ function BetsInner() {
                 <td>
                   {b.betType} ({b.legCount})
                 </td>
+                <td>{channelLabel(b.channel)}</td>
                 <td>
                   <Badge value={b.status} />
                 </td>

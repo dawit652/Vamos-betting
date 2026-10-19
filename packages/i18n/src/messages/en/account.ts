@@ -402,6 +402,39 @@ export const account = {
       invalidPhone: 'That phone number is not valid.',
     },
   },
+  channelsDev: {
+    title: 'SMS and USSD simulator',
+    intro:
+      'Demo only. Try betting by text message and by USSD without a phone. Everything is sent as your own registered number, with play money. The channels must be switched on in the server settings.',
+    notDemo: 'The simulator only exists in demo mode.',
+    from: 'From',
+    error: {
+      unavailable:
+        'Not available on this server: the channel is switched off or this is not a demo.',
+      failed: 'That did not work. Try again.',
+    },
+    sms: {
+      title: 'Text messages',
+      text: 'Message',
+      hint: 'For example 100#1#50, BAL, BETS, JP or HELP',
+      send: 'Send',
+      empty: 'No messages yet.',
+      parts: '{chars} characters, {count} SMS',
+      outcome: 'Result: {outcome}{replayed}',
+      replayed: ' (repeat, nothing was done again)',
+    },
+    ussd: {
+      title: 'USSD phone',
+      dial: 'Service code',
+      call: 'Call',
+      reply: 'Your reply',
+      send: 'Send',
+      idle: 'Dial the service code to start.',
+      ended: 'Session ended. Dial again to start over.',
+      badCode: 'Connection problem or invalid MMI code.',
+      session: 'Session {id}, typed so far: {text}',
+    },
+  },
   myBets: {
     title: 'My Bets',
     tabs: {

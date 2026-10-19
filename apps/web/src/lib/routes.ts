@@ -33,6 +33,8 @@ export const routes = {
   withdraw: '/wallet/withdraw',
   /** Demo-only simulated phone for approving mock deposits. */
   devPhone: '/dev/phone',
+  /** Demo-only SMS and USSD simulator. */
+  devChannels: '/dev/channels',
   login: '/login',
   register: '/register',
   forgotPassword: '/forgot-password',

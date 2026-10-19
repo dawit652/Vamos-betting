@@ -22,6 +22,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/compliance/reconciliation', label: 'Reconciliation', permission: 'reports.view' },
   { href: '/compliance/aml', label: 'AML flags', permission: 'aml.review' },
   { href: '/settings', label: 'Settings', permission: 'settings.view' },
+  { href: '/channels', label: 'Channels', permission: 'settings.view' },
   { href: '/audit', label: 'Audit log', permission: 'audit.view' },
 ];
 
