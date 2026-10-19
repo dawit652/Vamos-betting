@@ -1,0 +1,324 @@
+# Production stack: postgres 16, redis 7, migrate (one-shot), api, worker, web, admin and an
+# optional TLS reverse proxy (profile "proxy").
+#
+#   cp infra/env.prod.example infra/.env.prod && $EDITOR infra/.env.prod
+#   export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.prod
+#   docker compose build && docker compose up -d            # add --profile proxy for Caddy
+#   scripts/smoke.sh                                        # against the published ports
+#
+# Start order: postgres + redis healthy -> migrate exits 0 -> api + worker healthy -> web + admin.
+# Details, backups and upgrades: docs/deployment.md, docs/backups.md. The development services
+# (infra/docker-compose.yml) are separate and must not be used in production.
+
+name: vamos
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '20m'
+    max-file: '5'
+
+x-hardening: &hardening
+  restart: unless-stopped
+  init: true
+  logging: *logging
+  security_opt: ['no-new-privileges:true']
+  cap_drop: [ALL]
+
+# Shared by the api, worker and migrate job. Optional URL-valued settings use the bare
+# `- NAME` form, which sets nothing while the variable is unset (an empty value would be refused).
+x-app-env: &app-env
+  - NODE_ENV=${NODE_ENV:-production}
+  - OPERATING_MODE=${OPERATING_MODE:-demo}
+  - LOG_LEVEL=${LOG_LEVEL:-info}
+  - API_HOST=0.0.0.0
+  - API_PORT=4000
+  - TRUST_PROXY=${TRUST_PROXY:-}
+  - PUBLIC_WEB_URL=${PUBLIC_WEB_URL:?set PUBLIC_WEB_URL}
+  - ADMIN_WEB_URL=${ADMIN_WEB_URL:?set ADMIN_WEB_URL}
+  - PUBLIC_API_URL=${PUBLIC_API_URL:?set PUBLIC_API_URL}
+  - PAYMENT_CALLBACK_BASE_URL
+  - DATABASE_URL=postgres://${POSTGRES_USER:-vamos}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vamos}
+  - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+  - QUEUE_PREFIX=${QUEUE_PREFIX:-vamos}
+  - SESSION_SECRET=${SESSION_SECRET:?set SESSION_SECRET}
+  - ADMIN_TOTP_KEY=${ADMIN_TOTP_KEY:?set ADMIN_TOTP_KEY}
+  - MOCK_PAYMENT_WEBHOOK_SECRET=${MOCK_PAYMENT_WEBHOOK_SECRET:?set MOCK_PAYMENT_WEBHOOK_SECRET}
+  - FEED_PROVIDER=${FEED_PROVIDER:-mock}
+  - SIM_SPEED=${SIM_SPEED:-1}
+  - FEED_ROLLING_EVERY_MINUTES=${FEED_ROLLING_EVERY_MINUTES:-5}
+  - FEED_ROLLING_HORIZON_MINUTES=${FEED_ROLLING_HORIZON_MINUTES:-120}
+  - PAYMENT_PROVIDERS=${PAYMENT_PROVIDERS:-mock}
+  - KYC_PROVIDER=${KYC_PROVIDER:-mock}
+  - SMS_PROVIDER=${SMS_PROVIDER:-mock}
+  - CHAPA_BASE_URL=${CHAPA_BASE_URL:-https://api.chapa.co/v1}
+  - CHAPA_SECRET_KEY=${CHAPA_SECRET_KEY:-}
+  - CHAPA_WEBHOOK_SECRET=${CHAPA_WEBHOOK_SECRET:-}
+  - TELEBIRR_BASE_URL
+  - TELEBIRR_CHECKOUT_URL
+  - TELEBIRR_FABRIC_APP_ID=${TELEBIRR_FABRIC_APP_ID:-}
+  - TELEBIRR_APP_SECRET=${TELEBIRR_APP_SECRET:-}
+  - TELEBIRR_MERCHANT_APP_ID=${TELEBIRR_MERCHANT_APP_ID:-}
+  - TELEBIRR_SHORT_CODE=${TELEBIRR_SHORT_CODE:-}
+  - TELEBIRR_PRIVATE_KEY=${TELEBIRR_PRIVATE_KEY:-}
+  - TELEBIRR_PUBLIC_KEY=${TELEBIRR_PUBLIC_KEY:-}
+  - ELS_LICENSE_NUMBER
+  - ELS_REPORTING_MODE=${ELS_REPORTING_MODE:-file}
+  - ELS_REPORT_DIR=/var/lib/vamos/els
+  - ELS_REPORT_URL
+  - TAX_CONFIG_CONFIRMED=${TAX_CONFIG_CONFIRMED:-false}
+  - FEATURE_CASINO=${FEATURE_CASINO:-false}
+  - FEATURE_VIRTUALS=${FEATURE_VIRTUALS:-false}
+  - SMS_BETTING_ENABLED=${SMS_BETTING_ENABLED:-false}
+  - USSD_ENABLED=${USSD_ENABLED:-false}
+  - SMS_AGGREGATOR=${SMS_AGGREGATOR:-mock}
+  - SMS_WEBHOOK_SECRET=${SMS_WEBHOOK_SECRET:?set SMS_WEBHOOK_SECRET}
+  - SMS_SHORT_CODE=${SMS_SHORT_CODE:-8123}
+  - USSD_AGGREGATOR=${USSD_AGGREGATOR:-mock}
+  - USSD_SHARED_SECRET=${USSD_SHARED_SECRET:?set USSD_SHARED_SECRET}
+  - USSD_SERVICE_CODE=${USSD_SERVICE_CODE:-*123#}
+  - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-}
+
+x-build-args: &build-args
+  NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL}
+  NEXT_PUBLIC_OPERATING_MODE: ${NEXT_PUBLIC_OPERATING_MODE:-demo}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    <<: *hardening
+    # The image starts as root, chowns its data directory and drops to the postgres user.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vamos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-vamos}
+    # WAL archiving for point-in-time recovery (docs/backups.md): segments go to the `pgwal` volume.
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /backups/wal/%f && cp %p /backups/wal/%f
+      - -c
+      - archive_timeout=300
+      - -c
+      - max_connections=200
+      - -c
+      - log_min_duration_statement=1000
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - pgwal:/backups/wal
+    networks: [vamos]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    depends_on:
+      wal-permissions:
+        condition: service_completed_successfully
+
+  # One-shot: lets the postgres user (uid 70) write the WAL archive volume.
+  wal-permissions:
+    image: postgres:16-alpine
+    user: root
+    entrypoint: ['sh', '-c', 'chown postgres:postgres /backups/wal && chmod 700 /backups/wal']
+    volumes:
+      - pgwal:/backups/wal
+    restart: 'no'
+    networks: [vamos]
+
+  redis:
+    image: redis:7-alpine
+    <<: *hardening
+    cap_add: [CHOWN, SETGID, SETUID]
+    # BullMQ needs noeviction; the append-only file keeps queued jobs across a restart.
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      - --appendonly
+      - 'yes'
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redisdata:/data
+    networks: [vamos]
+    healthcheck:
+      test: ['CMD-SHELL', 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 10s
+      timeout: 4s
+      retries: 12
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  # One-shot job: applies pending migrations (same image as the api) and exits. Run it alone with
+  # `docker compose run --rm migrate`. Other jobs of this image: dist/ops/seed.js (demo catalogue),
+  # admin-create.js, admin-unlock.js (docs/deployment.md).
+  migrate:
+    image: vamos-api:${VAMOS_VERSION:-local}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile
+      target: api
+    <<: *hardening
+    restart: 'no'
+    read_only: true
+    command: ['node', 'dist/ops/migrate.js']
+    environment: *app-env
+    networks: [vamos]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: vamos-api:${VAMOS_VERSION:-local}
+    <<: *hardening
+    read_only: true
+    tmpfs: ['/tmp']
+    environment: *app-env
+    volumes:
+      - els:/var/lib/vamos/els:ro
+    ports:
+      - '${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-4000}:4000'
+    networks: [vamos]
+    stop_grace_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:4000/health']
+      interval: 15s
+      timeout: 4s
+      retries: 4
+      start_period: 30s
+
+  worker:
+    image: vamos-worker:${VAMOS_VERSION:-local}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile
+      target: worker
+    <<: *hardening
+    read_only: true
+    tmpfs: ['/tmp']
+    environment: *app-env
+    volumes:
+      - els:/var/lib/vamos/els
+    networks: [vamos]
+    # The worker finishes in-flight jobs on SIGTERM (up to 60 s).
+    stop_grace_period: 75s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:4100/health']
+      interval: 15s
+      timeout: 4s
+      retries: 4
+      start_period: 30s
+
+  web:
+    image: vamos-web:${VAMOS_VERSION:-local}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile
+      target: web
+      args: *build-args
+    <<: *hardening
+    tmpfs: ['/tmp']
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    ports:
+      - '${BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000'
+    networks: [vamos]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3000/']
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+
+  admin:
+    image: vamos-admin:${VAMOS_VERSION:-local}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile
+      target: admin
+      args: *build-args
+    <<: *hardening
+    tmpfs: ['/tmp']
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+    ports:
+      - '${BIND_ADDRESS:-127.0.0.1}:${ADMIN_PORT:-3001}:3001'
+    networks: [vamos]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3001/login']
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+
+  # Optional TLS reverse proxy: docker compose --profile proxy up -d
+  proxy:
+    image: caddy:2-alpine
+    profiles: [proxy]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      - WEB_DOMAIN=${WEB_DOMAIN:-}
+      - API_DOMAIN=${API_DOMAIN:-}
+      - ADMIN_DOMAIN=${ADMIN_DOMAIN:-}
+      - ACME_EMAIL=${ACME_EMAIL:-}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [vamos]
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      admin:
+        condition: service_healthy
+
+networks:
+  vamos:
+    ipam:
+      config:
+        - subnet: ${VAMOS_SUBNET:-172.30.77.0/24}
+
+volumes:
+  pgdata:
+  pgwal:
+  redisdata:
+  # ELS regulator reports (JSONL stream + daily CSVs), kept 7 years: include in every backup.
+  els:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,39 @@
+# Reverse proxy of the production compose stack (profile "proxy"): Caddy terminates TLS with
+# automatic certificates (Let's Encrypt / ZeroSSL; needs the three domains to resolve to this host
+# and ports 80/443 reachable). Replace it with your own load balancer if the host provider has one;
+# then keep the upstream ports and set TRUST_PROXY to the balancer's addresses.
+{
+	email {$ACME_EMAIL}
+}
+
+(common) {
+	encode zstd gzip
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+	}
+}
+
+{$WEB_DOMAIN} {
+	import common
+	# server.mjs already compresses (brotli) and sets cache headers.
+	reverse_proxy web:3000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+{$API_DOMAIN} {
+	import common
+	# SSE (/live/stream, /me/stream): flush every write instead of buffering.
+	reverse_proxy api:4000 {
+		flush_interval -1
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+{$ADMIN_DOMAIN} {
+	import common
+	reverse_proxy admin:3001 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
