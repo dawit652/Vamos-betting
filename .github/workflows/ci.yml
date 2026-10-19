@@ -136,7 +136,7 @@ jobs:
           docker compose up -d --wait --wait-timeout 240
           docker compose run --rm migrate node dist/ops/seed.js
       - name: Smoke test
-        run: scripts/smoke.sh --production --wait 120
+        run: scripts/smoke.sh --production --wait 120 --worker http://localhost:4100
       - name: Container logs
         if: failure()
         run: docker compose logs --no-color --tail 200

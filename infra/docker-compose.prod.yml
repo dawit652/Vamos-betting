@@ -217,6 +217,9 @@ services:
     environment: *app-env
     volumes:
       - els:/var/lib/vamos/els
+    # /health and /ready of the worker, for monitoring and scripts/smoke.sh --worker.
+    ports:
+      - '${BIND_ADDRESS:-127.0.0.1}:${WORKER_HEALTH_PORT:-4100}:4100'
     networks: [vamos]
     # The worker finishes in-flight jobs on SIGTERM (up to 60 s).
     stop_grace_period: 75s
