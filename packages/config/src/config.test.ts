@@ -4,6 +4,8 @@ import {
   DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
   DEV_SESSION_SECRET,
+  DEV_SMS_WEBHOOK_SECRET,
+  DEV_USSD_SHARED_SECRET,
   isDemo,
   isDevAdminTotpKey,
   licensedModeViolations,
@@ -336,5 +338,112 @@ describe('loadConfig', () => {
   it('reports invalid values', () => {
     expect(problemsOf({ API_PORT: 'not-a-port' }).join('\n')).toMatch(/API_PORT/);
     expect(problemsOf({ OPERATING_MODE: 'live' }).join('\n')).toMatch(/OPERATING_MODE/);
+  });
+
+  it('keeps SMS and USSD betting off by default with demo-only aggregator settings', () => {
+    const config = loadConfig({});
+    expect(config.channels).toEqual({
+      sms: {
+        enabled: false,
+        aggregator: 'mock',
+        webhookSecret: DEV_SMS_WEBHOOK_SECRET,
+        shortCode: '8123',
+      },
+      ussd: {
+        enabled: false,
+        aggregator: 'mock',
+        sharedSecret: DEV_USSD_SHARED_SECRET,
+        serviceCode: '*123#',
+      },
+    });
+    expect(config.features.smsBetting).toBe(false);
+    expect(config.features.ussd).toBe(false);
+  });
+
+  it('reads the channel switches under their names and the legacy FEATURE_* spellings', () => {
+    const on = loadConfig({ SMS_BETTING_ENABLED: 'true', USSD_ENABLED: 'true' });
+    expect(on.channels.sms.enabled).toBe(true);
+    expect(on.channels.ussd.enabled).toBe(true);
+    expect(on.features).toMatchObject({ smsBetting: true, ussd: true });
+    const legacy = loadConfig({ FEATURE_SMS_BETTING: 'true', FEATURE_USSD: 'false' });
+    expect(legacy.channels.sms.enabled).toBe(true);
+    expect(legacy.channels.ussd.enabled).toBe(false);
+    expect(
+      loadConfig({ SMS_BETTING_ENABLED: 'true', FEATURE_SMS_BETTING: 'true' }).channels.sms,
+    ).toMatchObject({ enabled: true });
+    expect(
+      problemsOf({ SMS_BETTING_ENABLED: 'false', FEATURE_SMS_BETTING: 'true' }).join('\n'),
+    ).toMatch(/SMS_BETTING_ENABLED=false contradicts the legacy FEATURE_SMS_BETTING=true/);
+    expect(problemsOf({ USSD_ENABLED: 'true', FEATURE_USSD: 'false' }).join('\n')).toMatch(
+      /USSD_ENABLED=true contradicts the legacy FEATURE_USSD=false/,
+    );
+    expect(problemsOf({ USSD_ENABLED: 'maybe' }).join('\n')).toMatch(/USSD_ENABLED/);
+  });
+
+  it('validates the aggregator settings', () => {
+    const config = loadConfig({
+      SMS_SHORT_CODE: '7000',
+      USSD_SERVICE_CODE: '*700*1#',
+      SMS_WEBHOOK_SECRET: 'a-long-enough-sms-secret',
+      USSD_SHARED_SECRET: 'a-long-enough-ussd-secret',
+    });
+    expect(config.channels.sms).toMatchObject({
+      shortCode: '7000',
+      webhookSecret: 'a-long-enough-sms-secret',
+    });
+    expect(config.channels.ussd).toMatchObject({
+      serviceCode: '*700*1#',
+      sharedSecret: 'a-long-enough-ussd-secret',
+    });
+    expect(problemsOf({ SMS_SHORT_CODE: '12' }).join('\n')).toMatch(/SMS_SHORT_CODE/);
+    expect(problemsOf({ USSD_SERVICE_CODE: '123' }).join('\n')).toMatch(/USSD_SERVICE_CODE/);
+    expect(problemsOf({ SMS_WEBHOOK_SECRET: 'short' }).join('\n')).toMatch(/SMS_WEBHOOK_SECRET/);
+    expect(problemsOf({ USSD_SHARED_SECRET: 'short' }).join('\n')).toMatch(/USSD_SHARED_SECRET/);
+    expect(problemsOf({ SMS_AGGREGATOR: 'africastalking' }).join('\n')).toMatch(/SMS_AGGREGATOR/);
+  });
+
+  it('refuses the development channel secrets in production only while the channel is on', () => {
+    const production = {
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+      ADMIN_TOTP_KEY: PRODUCTION_TOTP_KEY,
+      MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-payment-secret',
+    };
+    // Off (the default): the secrets are not used, so nothing changes.
+    expect(problemsOf(production)).toEqual([]);
+    const problems = problemsOf({
+      ...production,
+      SMS_BETTING_ENABLED: 'true',
+      USSD_ENABLED: 'true',
+    }).join('\n');
+    expect(problems).toMatch(/SMS_WEBHOOK_SECRET must be set to a unique secret in production/);
+    expect(problems).toMatch(/USSD_SHARED_SECRET must be set to a unique secret in production/);
+    expect(
+      problemsOf({
+        ...production,
+        SMS_BETTING_ENABLED: 'true',
+        USSD_ENABLED: 'true',
+        SMS_WEBHOOK_SECRET: 'a-unique-production-sms-secret',
+        USSD_SHARED_SECRET: 'a-unique-production-ussd-secret',
+      }),
+    ).toEqual([]);
+    // Development keeps the defaults usable.
+    expect(problemsOf({ SMS_BETTING_ENABLED: 'true', USSD_ENABLED: 'true' })).toEqual([]);
+  });
+
+  it('leaves the licensed-mode guard unchanged by the channel switches', () => {
+    const enabled = loadConfig({
+      ...LICENSED_ENV,
+      SMS_BETTING_ENABLED: 'true',
+      USSD_ENABLED: 'true',
+      SMS_WEBHOOK_SECRET: 'a-unique-production-sms-secret',
+      USSD_SHARED_SECRET: 'a-unique-production-ussd-secret',
+    });
+    expect(licensedModeViolations(enabled)).toEqual([]);
+    expect(licensedModeViolations(loadConfig(LICENSED_ENV))).toEqual([]);
+    // The guard still refuses what it refused before, whatever the channels say.
+    expect(
+      problemsOf({ ...LICENSED_ENV, SMS_BETTING_ENABLED: 'true', SMS_PROVIDER: 'mock' }).join('\n'),
+    ).toMatch(/SMS_PROVIDER must be a real SMS gateway/);
   });
 });

@@ -26,6 +26,19 @@ export const DEV_MOCK_PAYMENT_WEBHOOK_SECRET = 'dev-only-mock-payment-webhook-se
 export const DEV_ADMIN_TOTP_KEY =
   'aed9c3710ea4fb29e5d03551229bacfb328e796012897a735bda51c7d3432e4e';
 
+/**
+ * HMAC key of the mock SMS aggregator's inbound webhooks (SMS_WEBHOOK_SECRET).
+ * Development and the demo only: production refuses it while SMS betting is on.
+ */
+export const DEV_SMS_WEBHOOK_SECRET = 'dev-only-sms-aggregator-webhook-secret-0123456789';
+
+/**
+ * Shared secret the mock USSD aggregator sends with every callback
+ * (USSD_SHARED_SECRET). Development and the demo only: production refuses it
+ * while USSD is on.
+ */
+export const DEV_USSD_SHARED_SECRET = 'dev-only-ussd-aggregator-shared-secret-0123456789';
+
 const HEX_KEY_RE = /^[0-9a-fA-F]{64}$/;
 /** 32 bytes in base64 (standard or URL-safe alphabet, padding optional). */
 const BASE64_KEY_RE = /^[A-Za-z0-9+/_-]{43}=?$/;
@@ -140,8 +153,34 @@ const envSchema = z.object({
 
   FEATURE_CASINO: bool.default(false),
   FEATURE_VIRTUALS: bool.default(false),
-  FEATURE_SMS_BETTING: bool.default(false),
-  FEATURE_USSD: bool.default(false),
+
+  /**
+   * SMS and USSD betting (Phase 11). Both stay off until the regulator
+   * approves the channel; while off, the inbound routes answer 404.
+   * FEATURE_SMS_BETTING / FEATURE_USSD are read as legacy spellings.
+   */
+  SMS_BETTING_ENABLED: bool.optional(),
+  USSD_ENABLED: bool.optional(),
+  FEATURE_SMS_BETTING: bool.optional(),
+  FEATURE_USSD: bool.optional(),
+  /** The SMS aggregator delivering players' texts; only the demo `mock` exists until one is contracted. */
+  SMS_AGGREGATOR: z.enum(['mock']).default('mock'),
+  /** HMAC-SHA256 key of the inbound SMS webhooks (signature over the raw body). */
+  SMS_WEBHOOK_SECRET: z.string().min(16).default(DEV_SMS_WEBHOOK_SECRET),
+  /** The short code players text (shown in help texts and the dev simulator). */
+  SMS_SHORT_CODE: z
+    .string()
+    .regex(/^\d{3,8}$/, '3 to 8 digits')
+    .default('8123'),
+  /** The USSD aggregator calling back; only the demo `mock` exists until one is contracted. */
+  USSD_AGGREGATOR: z.enum(['mock']).default('mock'),
+  /** Shared secret the USSD aggregator sends in a header with every callback. */
+  USSD_SHARED_SECRET: z.string().min(16).default(DEV_USSD_SHARED_SECRET),
+  /** The USSD code players dial, e.g. *123#. */
+  USSD_SERVICE_CODE: z
+    .string()
+    .regex(/^\*\d{2,6}(\*\d{1,6})*#$/, 'a USSD code such as *123# or *123*4#')
+    .default('*123#'),
 });
 
 export type OperatingMode = 'demo' | 'licensed';
@@ -200,7 +239,33 @@ export interface AppConfig {
     reportUrl: string | undefined;
   };
   taxConfigConfirmed: boolean;
+  /** `smsBetting` and `ussd` mirror channels.sms.enabled and channels.ussd.enabled. */
   features: { casino: boolean; virtuals: boolean; smsBetting: boolean; ussd: boolean };
+  /**
+   * SMS and USSD betting (Phase 11), off by default and kept off until the
+   * regulator approves the channel. While a channel is off its inbound route
+   * answers 404 and nothing else changes.
+   */
+  channels: ChannelsConfig;
+}
+
+export interface ChannelsConfig {
+  sms: {
+    /** SMS_BETTING_ENABLED (legacy FEATURE_SMS_BETTING). */
+    enabled: boolean;
+    aggregator: 'mock';
+    /** HMAC-SHA256 key of the inbound webhooks (SMS_WEBHOOK_SECRET). */
+    webhookSecret: string;
+    shortCode: string;
+  };
+  ussd: {
+    /** USSD_ENABLED (legacy FEATURE_USSD). */
+    enabled: boolean;
+    aggregator: 'mock';
+    /** USSD_SHARED_SECRET, sent by the aggregator in a header with every callback. */
+    sharedSecret: string;
+    serviceCode: string;
+  };
 }
 
 export interface PaymentProvidersConfig {
@@ -331,6 +396,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ]);
   }
   const elsMode: ElsReportingMode = e.ELS_REPORTING_MODE ?? legacyElsMode ?? 'file';
+  const smsEnabled = channelFlag(
+    'SMS_BETTING_ENABLED',
+    e.SMS_BETTING_ENABLED,
+    e.FEATURE_SMS_BETTING,
+  );
+  const ussdEnabled = channelFlag('USSD_ENABLED', e.USSD_ENABLED, e.FEATURE_USSD);
 
   const config: AppConfig = {
     nodeEnv: e.NODE_ENV,
@@ -382,8 +453,22 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     features: {
       casino: e.FEATURE_CASINO,
       virtuals: e.FEATURE_VIRTUALS,
-      smsBetting: e.FEATURE_SMS_BETTING,
-      ussd: e.FEATURE_USSD,
+      smsBetting: smsEnabled,
+      ussd: ussdEnabled,
+    },
+    channels: {
+      sms: {
+        enabled: smsEnabled,
+        aggregator: e.SMS_AGGREGATOR,
+        webhookSecret: e.SMS_WEBHOOK_SECRET,
+        shortCode: e.SMS_SHORT_CODE,
+      },
+      ussd: {
+        enabled: ussdEnabled,
+        aggregator: e.USSD_AGGREGATOR,
+        sharedSecret: e.USSD_SHARED_SECRET,
+        serviceCode: e.USSD_SERVICE_CODE,
+      },
     },
   };
 
@@ -408,6 +493,21 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     // Anyone could forge the public demo's mock deposit webhooks otherwise.
     problems.push('MOCK_PAYMENT_WEBHOOK_SECRET must be set to a unique secret in production');
   }
+  if (
+    config.nodeEnv === 'production' &&
+    config.channels.sms.enabled &&
+    config.channels.sms.webhookSecret === DEV_SMS_WEBHOOK_SECRET
+  ) {
+    // The development key is public: anyone could forge players' texts (and bets) otherwise.
+    problems.push('SMS_WEBHOOK_SECRET must be set to a unique secret in production');
+  }
+  if (
+    config.nodeEnv === 'production' &&
+    config.channels.ussd.enabled &&
+    config.channels.ussd.sharedSecret === DEV_USSD_SHARED_SECRET
+  ) {
+    problems.push('USSD_SHARED_SECRET must be set to a unique secret in production');
+  }
   if (config.mode === 'demo') {
     const nonMock = config.providers.payments.filter((p) => p !== 'mock');
     if (nonMock.length > 0) {
@@ -422,6 +522,24 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new ConfigError(problems);
   }
   return config;
+}
+
+/**
+ * A channel switch given under its current name and/or its legacy FEATURE_*
+ * spelling: off unless set; both may be set only to the same value.
+ */
+function channelFlag(
+  name: string,
+  value: boolean | undefined,
+  legacy: boolean | undefined,
+): boolean {
+  if (value !== undefined && legacy !== undefined && value !== legacy) {
+    const legacyName = name === 'USSD_ENABLED' ? 'FEATURE_USSD' : 'FEATURE_SMS_BETTING';
+    throw new ConfigError([
+      `${name}=${String(value)} contradicts the legacy ${legacyName}=${String(legacy)}; set only ${name}`,
+    ]);
+  }
+  return value ?? legacy ?? false;
 }
 
 export function isDemo(config: Pick<AppConfig, 'mode'>): boolean {
