@@ -22,7 +22,7 @@ Last updated 12 Oct 2026.
 | 8     | Jackpots and promotions                                       | Done (reviewed, 8 fixes)  | `d35ae42` … `82bd130`                      |
 | 9     | Back office (`apps/admin`)                                    | Done (reviewed, 11 fixes) | `176a4cc` … `7f9151c`                      |
 | 10    | Compliance and regulator reporting                            | Done (reviewed, 12 fixes) | `560ee16` … `fd23540`                      |
-| 11    | SMS/USSD channel (feature-flagged)                            | Done (reviewed, 9 fixes)  | `8efbe59` … Phase 11 commit                |
+| 11    | SMS/USSD channel (feature-flagged)                            | Done (reviewed, 9 fixes)  | `8efbe59` … `e684b54`                      |
 | 12    | Hardening and deployment                                      | Not started               |                                            |
 
 **Phases 0–11 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
