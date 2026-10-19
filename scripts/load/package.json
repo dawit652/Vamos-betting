@@ -1,0 +1,18 @@
+{
+  "name": "@vamos/load",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Load tests (autocannon) against a running API; demo mode only",
+  "type": "module",
+  "scripts": {
+    "bet-placement": "tsx bet-placement.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/autocannon": "7.12.7",
+    "@vamos/config": "workspace:*",
+    "@vamos/db": "workspace:*",
+    "autocannon": "8.0.0",
+    "drizzle-orm": "0.45.3"
+  }
+}

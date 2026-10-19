@@ -195,10 +195,12 @@ async function insertBetRow(
  * 5. the odds-change policy compares the current odds with the client's
  *    (409 `odds_changed`); an accepted bet is priced at the current odds;
  * 6. core validateSlip / quoteBet with the given settings (422 `slip_invalid`);
- * 7. postTransaction(bet_stake) (422 `insufficient_funds`);
- * 8. the bet and its legs are inserted: `pending_acceptance` until
+ * 7. the bet and its legs are inserted: `pending_acceptance` until
  *    now + liveBetDelayMs when any leg's event is live, else `open`;
- * 9. the `bet.placed` outbox event and the audit record.
+ * 8. the `bet.placed` outbox event and the audit record;
+ * 9. postTransaction(bet_stake) (422 `insufficient_funds`, which rolls back
+ *    7 and 8 with the caller's transaction). It is last because it holds the
+ *    shared house_stakes row lock until commit.
  * Request-level slip errors (no legs, duplicates, invalid odds or stake) are
  * refused before anything is locked; too many legs (which depends on the
  * current bet rules) only after the replay check, so a replay always returns
@@ -279,30 +281,6 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
   if (quote.errors.length > 0) throw slipInvalidError(quote.errors);
 
   const betId = randomUUID();
-  try {
-    const posting = await postTransaction(tx, {
-      type: 'bet_stake',
-      idempotencyKey: stakeLedgerKey(userId, input.idempotencyKey),
-      refType: 'bet',
-      refId: betId,
-      description: `Bet stake (${quote.betType})`,
-      actor: { type: 'user', id: userId },
-      entries: stakeEntries(userId, stake),
-    });
-    if (!posting.created) {
-      // Bets and their stake postings commit together, so this key cannot exist without the bet.
-      throw new Error(`stake posting ${posting.transactionId} exists without its bet`);
-    }
-  } catch (error) {
-    if (error instanceof InsufficientFundsError) {
-      throw domainUnprocessable('insufficient_funds', 'Your balance is too low for this stake.', {
-        balance: toWire(error.available),
-        stake: toWire(stake),
-      });
-    }
-    throw error;
-  }
-
   const live = resolved.some(({ snapshot }) => snapshot.eventStatus === 'live');
   const acceptAfter = live ? new Date(now.getTime() + settings.liveBetDelayMs) : null;
   const status = live ? 'pending_acceptance' : 'open';
@@ -387,6 +365,35 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
 
   const bet = await getBetById(tx, betId);
   if (bet === null) throw new Error(`bet ${betId} was not inserted`);
+
+  // The stake posting comes last: it locks the shared house_stakes account
+  // row until commit, so every bet in the system queues on that lock. Writing
+  // it after everything else keeps the lock to the posting and the commit.
+  // A refusal (insufficient funds) still rolls back the whole transaction.
+  try {
+    const posting = await postTransaction(tx, {
+      type: 'bet_stake',
+      idempotencyKey: stakeLedgerKey(userId, input.idempotencyKey),
+      refType: 'bet',
+      refId: betId,
+      description: `Bet stake (${quote.betType})`,
+      actor: { type: 'user', id: userId },
+      entries: stakeEntries(userId, stake),
+    });
+    if (!posting.created) {
+      // Bets and their stake postings commit together, so this key cannot exist without the bet.
+      throw new Error(`stake posting ${posting.transactionId} exists without its bet`);
+    }
+  } catch (error) {
+    if (error instanceof InsufficientFundsError) {
+      throw domainUnprocessable('insufficient_funds', 'Your balance is too low for this stake.', {
+        balance: toWire(error.available),
+        stake: toWire(stake),
+      });
+    }
+    throw error;
+  }
+
   return { bet, replayed: false };
 }
 

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { BET_SHORT_ID_LENGTH, birr, isValidCode } from '@vamos/core';
 import { and, count, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   DomainError,
@@ -22,6 +23,7 @@ import {
   rgExclusions,
   rgLimits,
 } from '../src/schema/index';
+import * as schema from '../src/schema/index';
 import {
   balances,
   betKey,
@@ -506,6 +508,35 @@ describe('placeBet', () => {
         'odds_below_minimum',
       );
     });
+  });
+
+  it('posts the stake last, so the shared house_stakes lock is held only until commit', async () => {
+    // Every bet locks the house_stakes account row from its stake posting until commit; any
+    // write after the posting would make every other bet in the system wait for it too.
+    const userId = await player();
+    const queries: string[] = [];
+    const logged = drizzle(handle.pool, {
+      schema,
+      logger: { logQuery: (query) => queries.push(query) },
+    });
+    await place(logged, userId, {
+      stake: birr(10),
+      legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+      settings,
+      policy: 'any',
+    });
+    const firstLock = queries.findIndex((q) => /^update "ledger_accounts"/.test(q));
+    expect(firstLock).toBeGreaterThan(0);
+    const afterLock = queries.slice(firstLock);
+    expect(afterLock.filter((q) => /^(insert|update|delete)/.test(q) && !/"ledger_/.test(q))).toEqual(
+      [],
+    );
+    expect(afterLock.filter((q) => /^select/.test(q))).toEqual([]);
+    for (const table of ['bets', 'bet_legs', 'outbox_events', 'audit_log']) {
+      const write = queries.findIndex((q) => q.startsWith(`insert into "${table}"`));
+      expect(write, table).toBeGreaterThanOrEqual(0);
+      expect(write, table).toBeLessThan(firstLock);
+    }
   });
 
   describe('funds and responsible gambling', () => {
