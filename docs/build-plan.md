@@ -21,14 +21,14 @@ Last updated 12 Oct 2026.
 | 7     | Live betting and cash-out                                     | Done (reviewed, 8 fixes)  | `25360ec` … `bd8b033`                      |
 | 8     | Jackpots and promotions                                       | Done (reviewed, 8 fixes)  | `d35ae42` … `82bd130`                      |
 | 9     | Back office (`apps/admin`)                                    | Done (reviewed, 11 fixes) | `176a4cc` … `7f9151c`                      |
-| 10    | Compliance and regulator reporting                            | Not started               |                                            |
+| 10    | Compliance and regulator reporting                            | Done (reviewed, 12 fixes) | `560ee16` … Phase 10 commit                |
 | 11    | SMS/USSD channel (feature-flagged)                            | Not started               |                                            |
 | 12    | Hardening and deployment                                      | Not started               |                                            |
 
-**Phases 0–9 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
+**Phases 0–10 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
 pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
 and the payments flow (KYC, deposit approved on the simulated phone, wagering, withdrawal approved by
-the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, and back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s). Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
+the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s) and compliance (reconciliation, daily summary CSV, an AML flag and hold). Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
 
 **Phase 6 review (13 Oct 2026).** Three adversarial reviews (money, security, reliability) confirmed 15
 findings; all are fixed with regression tests. Highlights:
@@ -82,6 +82,19 @@ figures from ledger postings), players, KYC queue, trading incl. void market / v
 bets, withdrawals and flagged payouts, jackpot cancel, settings, audit viewer. Demo staff
 (`<role>@demo.vamos.test`, password `vamos-demo-staff`, TOTP secret in `seedDemoStaff`) exist only in
 demo mode. Admin UI in `apps/admin` (:3001); `e2e/scripts/stack.sh` starts it.
+
+**Phase 10 (19 Oct 2026).** Compliance (`packages/db/src/compliance/`, core `businessday`,
+`dailysummary`, `aml`, `els`, `pspstatement`; full definitions in `docs/compliance.md`): ELS stream
+written exactly once per outbox id (JSONL per business day, pseudonymous player ref, files 0600/0700;
+`ELS_REPORTING_MODE` file|http|off, licensed mode requires file with an absolute `ELS_REPORT_DIR`);
+daily summaries per Addis Ababa business day from ledger postings (turnover, payouts, GGR, tax,
+commission `els_commission` 15%), provisional then final and immutable; reconciliation (ledger
+integrity, wallets, house_stakes, house_jackpot, pending withdrawals, PSP movements and imported
+statements incl. direction) under an advisory lock with missed-day catch-up; AML rules (velocity,
+structuring, deposits-then-withdraw over all deposits since the last withdrawal, cash-out churn) with
+withdrawal holds that only `aml.review` staff can release; players only ever see `manual_review`.
+Left for Phase 12: run manual reconciliation off the request path and make the balance continuity
+scan incremental.
 
 ## Legal context (do not change)
 
