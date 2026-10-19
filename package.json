@@ -19,6 +19,7 @@
     "test": "pnpm -r --if-present test",
     "test:unit": "pnpm -r --if-present test:unit",
     "e2e": "pnpm --filter @vamos/e2e e2e",
+    "load:bets": "pnpm --filter @vamos/load bet-placement",
     "db:generate": "pnpm --filter @vamos/db generate",
     "db:migrate": "pnpm --filter @vamos/db migrate",
     "db:seed": "pnpm --filter @vamos/db seed",

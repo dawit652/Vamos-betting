@@ -528,9 +528,9 @@ describe('placeBet', () => {
     const firstLock = queries.findIndex((q) => /^update "ledger_accounts"/.test(q));
     expect(firstLock).toBeGreaterThan(0);
     const afterLock = queries.slice(firstLock);
-    expect(afterLock.filter((q) => /^(insert|update|delete)/.test(q) && !/"ledger_/.test(q))).toEqual(
-      [],
-    );
+    expect(
+      afterLock.filter((q) => /^(insert|update|delete)/.test(q) && !/"ledger_/.test(q)),
+    ).toEqual([]);
     expect(afterLock.filter((q) => /^select/.test(q))).toEqual([]);
     for (const table of ['bets', 'bet_legs', 'outbox_events', 'audit_log']) {
       const write = queries.findIndex((q) => q.startsWith(`insert into "${table}"`));

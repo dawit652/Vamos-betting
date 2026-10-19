@@ -147,46 +147,60 @@ async function pickSelections(): Promise<Pick[]> {
   return picks.slice(0, 30);
 }
 
-function runCannon(opts: autocannon.Options): Promise<autocannon.Result> {
+/** Runs one autocannon instance and records every response time (autocannon reports no p95). */
+function runCannon(
+  opts: autocannon.Options,
+): Promise<{ result: autocannon.Result; times: number[] }> {
+  const times: number[] = [];
   return new Promise((resolve, reject) => {
     const instance = autocannon(opts, (error, result) =>
-      error ? reject(error instanceof Error ? error : new Error(String(error))) : resolve(result),
+      error
+        ? reject(error instanceof Error ? error : new Error(String(error)))
+        : resolve({ result, times }),
     );
+    instance.on('response', (_client, _status, _bytes, responseTime: number) => {
+      times.push(responseTime);
+    });
     // Keep the process alive and quiet: one summary at the end.
     autocannon.track(instance, { renderProgressBar: false, renderResultsTable: false });
   });
 }
 
-function summarise(name: string, result: autocannon.Result) {
+/** Nearest-rank percentile of response times in ms. */
+function percentile(sorted: readonly number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const rank = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return Math.round(sorted[rank]! * 10) / 10;
+}
+
+function summarise(
+  name: string,
+  { result, times }: { result: autocannon.Result; times: number[] },
+) {
   const total = result.requests.total;
   const statuses: Record<string, number> = {};
-  for (const [code, count] of Object.entries(result.statusCodeStats ?? {})) {
-    statuses[code] = (count as { count: number }).count;
+  for (const [code, stats] of Object.entries(result.statusCodeStats ?? {})) {
+    statuses[code] = (stats as { count: number }).count;
   }
-  const non2xx = result.non2xx + result.errors + result.timeouts;
+  const failed = result.non2xx + result.errors + result.timeouts;
+  const sorted = [...times].sort((a, b) => a - b);
+  const mean = sorted.reduce((sum, t) => sum + t, 0) / Math.max(1, sorted.length);
   return {
     name,
     requests: total,
     throughputPerSec: Math.round((total / result.duration) * 10) / 10,
     latencyMs: {
-      p50: result.latency.p50,
-      p90: result.latency.p90,
-      p97_5: result.latency.p97_5,
-      p99: result.latency.p99,
-      max: result.latency.max,
-      mean: Math.round(result.latency.average * 10) / 10,
+      p50: percentile(sorted, 50),
+      p95: percentile(sorted, 95),
+      p99: percentile(sorted, 99),
+      max: percentile(sorted, 100),
+      mean: Math.round(mean * 10) / 10,
     },
     statuses,
     errors: result.errors,
     timeouts: result.timeouts,
-    errorRate: total === 0 ? 0 : Math.round((non2xx / total) * 10_000) / 10_000,
+    errorRate: total === 0 ? 0 : Math.round((failed / Math.max(total, 1)) * 10_000) / 10_000,
   };
-}
-
-/** autocannon reports p90, p97.5 and p99; p95 is read from its HDR histogram. */
-function p95(result: autocannon.Result): number {
-  const histogram = (result as unknown as { latency: { p95?: number } }).latency;
-  return histogram.p95 ?? result.latency.p97_5;
 }
 
 async function main(): Promise<void> {
@@ -242,8 +256,8 @@ async function main(): Promise<void> {
       }),
     ]);
 
-    const betSummary = { ...summarise('POST /bets', bets), p95: p95(bets) };
-    const readSummary = { ...summarise('GET /events', reads), p95: p95(reads) };
+    const betSummary = summarise('POST /bets', bets);
+    const readSummary = summarise('GET /events', reads);
 
     // Checks: every 201 is a stored bet, balances add up, nothing negative, the ledger reconciles.
     const placed = await db.execute<{ bets: string; stakes: string; mismatched: string }>(sql`
@@ -267,13 +281,13 @@ async function main(): Promise<void> {
     });
 
     const row = placed.rows[0]!;
-    const created = bets.statusCodeStats?.['201']?.count ?? 0;
+    const created = bets.result.statusCodeStats?.['201']?.count ?? 0;
     const checks = {
       betsStored: Number(row.bets),
       created201: created,
       // Requests still in flight when the run stops are stored but not counted as 201s.
-      betsSent: bets.requests.sent,
-      betsMatch201: Number(row.bets) >= created && Number(row.bets) <= bets.requests.sent,
+      betsSent: bets.result.requests.sent,
+      betsMatch201: Number(row.bets) >= created && Number(row.bets) <= bets.result.requests.sent,
       balanceMismatches: Number(row.mismatched),
       negativePlayerAccounts: Number(negative.rows[0]!.n),
       reconciliation: {
@@ -287,7 +301,13 @@ async function main(): Promise<void> {
     console.log(
       JSON.stringify(
         {
-          config: { duration, connections, betConnections, readConnections, players: players.length },
+          config: {
+            duration,
+            connections,
+            betConnections,
+            readConnections,
+            players: players.length,
+          },
           results: [betSummary, readSummary],
           checks,
         },
