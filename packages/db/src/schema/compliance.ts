@@ -267,6 +267,48 @@ export const reconciliationRuns = pgTable(
   ],
 );
 
+export const reconciliationRequestStatus = pgEnum('reconciliation_request_status', [
+  'queued',
+  'running',
+  'done',
+  'failed',
+]);
+
+/**
+ * A reconciliation staff asked for ("Run now", Phase 12): the API answers
+ * 202 at once and the worker runs it off the request path (outbox
+ * compliance.reconciliation_requested → the `reconciliation` queue). The
+ * run it produces has the request's id. At most one request is queued or
+ * running at a time (partial unique index in migration
+ * 0028_phase12_reconciliation_requests). Unlike the runs, requests change
+ * state (queued → running → done | failed).
+ */
+export const reconciliationRequests = pgTable(
+  'reconciliation_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    status: reconciliationRequestStatus('status').notNull().default('queued'),
+    /** The day of the payment checks (default: the day of the request). */
+    businessDate: date('business_date', { mode: 'string' }).notNull(),
+    /** The staff member's id. */
+    requestedBy: text('requested_by').notNull(),
+    ip: text('ip'),
+    /** Times the worker started it (a crashed worker's job is retried). */
+    attempts: integer('attempts').notNull().default(0),
+    error: text('error'),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    /** The run it produced (the same id), once done. */
+    runId: uuid('run_id').references(() => reconciliationRuns.id, { onDelete: 'restrict' }),
+  },
+  (t) => [
+    index('reconciliation_requests_requested_idx').on(t.requestedAt, t.id),
+    check('reconciliation_requests_done', sql`(${t.status} = 'done') = (${t.runId} IS NOT NULL)`),
+    check('reconciliation_requests_run_id', sql`${t.runId} IS NULL OR ${t.runId} = ${t.id}`),
+  ],
+);
+
 /** A difference a reconciliation run found (what was expected, what was there). */
 export const reconciliationMismatches = pgTable(
   'reconciliation_mismatches',

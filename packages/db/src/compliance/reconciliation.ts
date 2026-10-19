@@ -1,13 +1,20 @@
 import { addBusinessDays, businessDateOf, businessDayWindow, isBusinessDate } from '@vamos/core';
-import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '../client';
-import { domainBadRequest, domainNotFound } from '../errors';
+import { isUniqueViolation } from '../catalog/errors';
+import { domainBadRequest, domainConflict, domainNotFound } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
 import { OPEN_PAYOUT_STATUSES } from '../payments/types';
 import { bets } from '../schema/betting';
-import { dailySummaries, reconciliationMismatches, reconciliationRuns } from '../schema/compliance';
+import {
+  complianceCursors,
+  dailySummaries,
+  reconciliationMismatches,
+  reconciliationRequests,
+  reconciliationRuns,
+} from '../schema/compliance';
 import { jackpotEntries } from '../schema/jackpots';
 import { ledgerAccounts, ledgerEntries, ledgerTransactions } from '../schema/ledger';
 import { paymentIntents, payouts } from '../schema/payments';
@@ -216,7 +223,21 @@ async function checkAccounts(
   );
 }
 
-async function checkBalanceAfter(exec: DbExecutor, cap: number): Promise<CheckResult> {
+/**
+ * balance_after continuity. A full scan reads every entry (a window over the
+ * whole table); an incremental one (`after` set) reads only the entries after
+ * that id, each with its account's previous entry from the (account_id, id)
+ * index. Entries are append-only (trigger), so an entry checked once stays
+ * right. Also returns the next checkpoint: the newest entry id written at
+ * least `graceMs` before this snapshot (see BALANCE_AFTER_GRACE_MS).
+ */
+async function checkBalanceAfter(
+  exec: DbExecutor,
+  cap: number,
+  scope: { after: bigint | null; graceMs: number },
+): Promise<CheckResult & { checkpoint: bigint | null }> {
+  const incremental = scope.after !== null;
+  const after = (scope.after ?? 0n).toString();
   const found = await capped<{
     id: string;
     key: string;
@@ -225,31 +246,55 @@ async function checkBalanceAfter(exec: DbExecutor, cap: number): Promise<CheckRe
     previous: string | null;
   }>(
     exec,
-    sql`SELECT x.id::text AS id, a.key, x.amount::text AS amount, x.balance_after::text AS balance_after,
-          x.previous::text AS previous
-        FROM (
-          SELECT e.id, e.account_id, e.amount, e.balance_after,
-            lag(e.balance_after) OVER (PARTITION BY e.account_id ORDER BY e.id) AS previous
-          FROM ${ledgerEntries} e
-        ) x
-        JOIN ${ledgerAccounts} a ON a.id = x.account_id
-        WHERE x.balance_after <> COALESCE(x.previous, 0) + x.amount`,
+    incremental
+      ? sql`SELECT x.id::text AS id, a.key, x.amount::text AS amount,
+            x.balance_after::text AS balance_after, x.previous::text AS previous
+          FROM (
+            SELECT e.id, e.account_id, e.amount, e.balance_after,
+              (SELECT p.balance_after FROM ${ledgerEntries} p
+                WHERE p.account_id = e.account_id AND p.id < e.id
+                ORDER BY p.id DESC LIMIT 1) AS previous
+            FROM ${ledgerEntries} e
+            WHERE e.id > ${after}::bigint
+          ) x
+          JOIN ${ledgerAccounts} a ON a.id = x.account_id
+          WHERE x.balance_after <> COALESCE(x.previous, 0) + x.amount`
+      : sql`SELECT x.id::text AS id, a.key, x.amount::text AS amount,
+            x.balance_after::text AS balance_after, x.previous::text AS previous
+          FROM (
+            SELECT e.id, e.account_id, e.amount, e.balance_after,
+              lag(e.balance_after) OVER (PARTITION BY e.account_id ORDER BY e.id) AS previous
+            FROM ${ledgerEntries} e
+          ) x
+          JOIN ${ledgerAccounts} a ON a.id = x.account_id
+          WHERE x.balance_after <> COALESCE(x.previous, 0) + x.amount`,
     cap,
   );
-  const checked = await countOf(exec, sql`SELECT count(*)::int AS n FROM ${ledgerEntries}`);
-  return result(
-    'balance_after',
-    checked,
-    found.total,
-    found.rows.map((row) => ({
-      check: 'balance_after',
-      subjectType: 'ledger_entry',
-      subjectId: row.id,
-      expected: (BigInt(row.previous ?? '0') + BigInt(row.amount)).toString(),
-      actual: row.balance_after,
-      details: { account: row.key, amount: row.amount, previousBalanceAfter: row.previous },
-    })),
+  const range = await exec.execute<{ n: number; checkpoint: string | null }>(
+    sql`SELECT count(*)::int AS n,
+          max(id) FILTER (
+            WHERE created_at < now() - make_interval(secs => ${scope.graceMs / 1000})
+          )::text AS checkpoint
+        FROM ${ledgerEntries} WHERE id > ${after}::bigint`,
   );
+  const checked = Number(range.rows[0]?.n ?? 0);
+  const newest = range.rows[0]?.checkpoint ?? null;
+  return {
+    ...result(
+      'balance_after',
+      checked,
+      found.total,
+      found.rows.map((row) => ({
+        check: 'balance_after',
+        subjectType: 'ledger_entry',
+        subjectId: row.id,
+        expected: (BigInt(row.previous ?? '0') + BigInt(row.amount)).toString(),
+        actual: row.balance_after,
+        details: { account: row.key, amount: row.amount, previousBalanceAfter: row.previous },
+      })),
+    ),
+    checkpoint: newest === null ? scope.after : BigInt(newest),
+  };
 }
 
 async function houseBalance(exec: DbExecutor, key: string): Promise<bigint> {
@@ -563,16 +608,53 @@ async function checkDailySummaries(exec: DbExecutor, date: string): Promise<Chec
   return result('daily_summary', finals.length, mismatches.length, mismatches);
 }
 
-/** Runs every check on one snapshot (the caller's transaction should be REPEATABLE READ). */
+/**
+ * How old (by its transaction's start) an entry must be before the
+ * balance_after checkpoint moves past it. Entry ids are taken when a row is
+ * inserted but become visible at commit, so a ledger transaction still open
+ * could commit an id below one already seen; the grace covers that for any
+ * transaction shorter than half of it (ledger transactions take
+ * milliseconds; the weekly full scan covers the rest).
+ */
+export const BALANCE_AFTER_GRACE_MS = 30 * 60_000;
+/** A full balance_after scan runs when the last one is older than this. */
+export const BALANCE_AFTER_FULL_SCAN_EVERY_MS = 7 * 24 * 3600_000;
+/** compliance_cursors: the entry id up to which balance_after is verified. */
+export const BALANCE_AFTER_CURSOR = 'reconciliation_balance_after';
+/** compliance_cursors: when the last clean full balance_after scan ran (epoch ms). */
+export const BALANCE_AFTER_FULL_SCAN_CURSOR = 'reconciliation_balance_after_full';
+
+export interface ReconciliationChecksResult {
+  checks: CheckSummary[];
+  mismatches: MismatchInput[];
+  /** How balance_after was checked, and the checkpoint it reached (null: none yet). */
+  balanceAfter: { scope: 'full' | 'incremental'; checkpoint: bigint | null };
+}
+
+/**
+ * Runs every check on one snapshot (the caller's transaction should be
+ * REPEATABLE READ). `balanceAfterFrom` makes the balance_after check
+ * incremental (entries after that id only); null or absent: a full scan.
+ */
 export async function runReconciliationChecks(
   exec: DbExecutor,
-  input: { businessDate: string; maxMismatchesPerCheck?: number },
-): Promise<{ checks: CheckSummary[]; mismatches: MismatchInput[] }> {
+  input: {
+    businessDate: string;
+    maxMismatchesPerCheck?: number;
+    balanceAfterFrom?: bigint | null;
+    balanceAfterGraceMs?: number;
+  },
+): Promise<ReconciliationChecksResult> {
   const cap = input.maxMismatchesPerCheck ?? MAX_MISMATCHES_PER_CHECK;
+  const from = input.balanceAfterFrom ?? null;
+  const balanceAfter = await checkBalanceAfter(exec, cap, {
+    after: from,
+    graceMs: input.balanceAfterGraceMs ?? BALANCE_AFTER_GRACE_MS,
+  });
   const results: CheckResult[] = [
     await checkTransactions(exec, cap),
     await checkAccounts(exec, cap, 'house'),
-    await checkBalanceAfter(exec, cap),
+    balanceAfter,
     await checkAccounts(exec, cap, 'player'),
     ...(await checkHouseAccounts(exec)),
     ...(await checkPayments(exec, input.businessDate, cap)),
@@ -581,7 +663,41 @@ export async function runReconciliationChecks(
   return {
     checks: results.map((check) => check.summary),
     mismatches: results.flatMap((check) => check.mismatches),
+    balanceAfter: {
+      scope: from === null ? 'full' : 'incremental',
+      checkpoint: balanceAfter.checkpoint,
+    },
   };
+}
+
+/** The balance_after cursors (checkpoint id and last full scan). */
+async function balanceAfterCursors(
+  exec: DbExecutor,
+): Promise<{ checkpoint: bigint | null; lastFullScanMs: number | null }> {
+  const rows = await exec
+    .select({ name: complianceCursors.name, position: complianceCursors.position })
+    .from(complianceCursors)
+    .where(inArray(complianceCursors.name, [BALANCE_AFTER_CURSOR, BALANCE_AFTER_FULL_SCAN_CURSOR]));
+  const of = (name: string) => rows.find((row) => row.name === name)?.position ?? null;
+  const full = of(BALANCE_AFTER_FULL_SCAN_CURSOR);
+  return {
+    checkpoint: of(BALANCE_AFTER_CURSOR),
+    lastFullScanMs: full === null ? null : Number(full),
+  };
+}
+
+/** Moves a cursor forward (never back). */
+async function advanceCursor(tx: DbTransaction, name: string, position: bigint, now: Date) {
+  await tx
+    .insert(complianceCursors)
+    .values({ name, position, updatedAt: now })
+    .onConflictDoUpdate({
+      target: complianceCursors.name,
+      set: {
+        position: sql`GREATEST(${complianceCursors.position}, excluded.position)`,
+        updatedAt: now,
+      },
+    });
 }
 
 export interface ReconciliationRunDetail {
@@ -599,6 +715,8 @@ export interface ReconciliationRunDetail {
 export async function recordReconciliationRun(
   tx: DbTransaction,
   input: {
+    /** The run's id (a requested run takes its request's id); default a new one. */
+    id?: string;
     kind: 'scheduled' | 'manual' | 'psp_statement';
     businessDate: string | null;
     statementId?: string | null;
@@ -617,6 +735,7 @@ export async function recordReconciliationRun(
   const [run] = await tx
     .insert(reconciliationRuns)
     .values({
+      ...(input.id === undefined ? {} : { id: input.id }),
       kind: input.kind,
       status,
       businessDate: input.businessDate,
@@ -708,6 +827,14 @@ export async function runReconciliation(
     businessDate?: string;
     actor?: { adminId: string; ip?: string | null } | null;
     maxMismatchesPerCheck?: number;
+    /** The run's id (default a new one). */
+    runId?: string;
+    /** Runs in the transaction that stores the run (e.g. to close its request). */
+    onRecorded?: (tx: DbTransaction, detail: ReconciliationRunDetail) => Promise<void>;
+    /** Force a full balance_after scan (default: weekly, incremental in between). */
+    fullBalanceAfterScan?: boolean;
+    /** Default BALANCE_AFTER_GRACE_MS (tests use 0). */
+    balanceAfterGraceMs?: number;
   },
 ): Promise<ReconciliationRunDetail> {
   const kind = input.kind ?? (input.actor ? 'manual' : 'scheduled');
@@ -721,36 +848,271 @@ export async function runReconciliation(
   }
   const startedAt = input.now;
   const clockStart = Date.now();
-  let outcome: { checks: CheckSummary[]; mismatches: MismatchInput[] };
+  let outcome: ReconciliationChecksResult | null = null;
   let error: string | null = null;
   try {
     outcome = await db.transaction(
-      (tx) =>
-        runReconciliationChecks(tx, {
+      async (tx) => {
+        // balance_after: incremental from the verified checkpoint, with a full scan weekly
+        // (or when there is no checkpoint yet, or when asked).
+        const cursors = await balanceAfterCursors(tx);
+        const full =
+          input.fullBalanceAfterScan === true ||
+          cursors.checkpoint === null ||
+          cursors.lastFullScanMs === null ||
+          input.now.getTime() - cursors.lastFullScanMs >= BALANCE_AFTER_FULL_SCAN_EVERY_MS;
+        return runReconciliationChecks(tx, {
           businessDate,
+          balanceAfterFrom: full ? null : cursors.checkpoint,
+          ...(input.balanceAfterGraceMs === undefined
+            ? {}
+            : { balanceAfterGraceMs: input.balanceAfterGraceMs }),
           ...(input.maxMismatchesPerCheck === undefined
             ? {}
             : { maxMismatchesPerCheck: input.maxMismatchesPerCheck }),
-        }),
+        });
+      },
       { isolationLevel: 'repeatable read', accessMode: 'read only' },
     );
   } catch (caught) {
     error = (caught instanceof Error ? caught.message : String(caught)).slice(0, 1000);
-    outcome = { checks: [], mismatches: [] };
   }
-  return db.transaction((tx) =>
-    recordReconciliationRun(tx, {
+  return db.transaction(async (tx) => {
+    const detail = await recordReconciliationRun(tx, {
+      ...(input.runId === undefined ? {} : { id: input.runId }),
       kind,
       businessDate,
       triggeredBy: input.actor?.adminId ?? 'system',
-      checks: outcome.checks,
-      mismatches: outcome.mismatches,
+      checks: outcome?.checks ?? [],
+      mismatches: outcome?.mismatches ?? [],
       error,
       startedAt,
       finishedAt: new Date(startedAt.getTime() + Math.max(0, Date.now() - clockStart)),
       ip: input.actor?.ip ?? null,
-    }),
+    });
+    // The checkpoint moves only past entries found continuous: differences found are reported
+    // again by every run until they are dealt with.
+    const continuous = outcome?.checks.find((check) => check.check === 'balance_after')?.ok;
+    if (outcome !== null && continuous === true) {
+      if (outcome.balanceAfter.checkpoint !== null) {
+        await advanceCursor(tx, BALANCE_AFTER_CURSOR, outcome.balanceAfter.checkpoint, input.now);
+      }
+      if (outcome.balanceAfter.scope === 'full') {
+        await advanceCursor(
+          tx,
+          BALANCE_AFTER_FULL_SCAN_CURSOR,
+          BigInt(input.now.getTime()),
+          input.now,
+        );
+      }
+    }
+    await input.onRecorded?.(tx, detail);
+    return detail;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Requested runs ("Run now" from the back office, run by the worker).
+
+export type ReconciliationRequest = typeof reconciliationRequests.$inferSelect;
+
+/** Outbox event of a new request: the worker's `reconciliation` queue runs it. */
+export const RECONCILIATION_REQUESTED = 'compliance.reconciliation_requested';
+
+/**
+ * A request still queued or running after this long is taken as lost (its
+ * job exhausted or the worker gone) when staff ask again: it is failed so a
+ * new one can start.
+ */
+export const RECONCILIATION_REQUEST_STALE_MS = 30 * 60_000;
+
+const ONE_OPEN_REQUEST = 'reconciliation_requests_one_open';
+
+/**
+ * Queues a staff reconciliation ("Run now"): one request at a time (409
+ * `reconciliation_running` while another is queued or running, unless that
+ * one is older than `staleAfterMs`, which is then failed as lost). Writes
+ * the request, the outbox event compliance.reconciliation_requested (the
+ * worker runs it) and the audit record `reconciliation.requested` in one
+ * transaction. The run it produces will have the request's id.
+ */
+export async function requestReconciliation(
+  db: Database,
+  input: {
+    now: Date;
+    businessDate?: string;
+    actor: { adminId: string; ip?: string | null };
+    staleAfterMs?: number;
+  },
+): Promise<ReconciliationRequest> {
+  const businessDate = input.businessDate ?? businessDateOf(input.now);
+  if (!isBusinessDate(businessDate)) {
+    throw domainBadRequest('invalid_business_date', 'A business date is written YYYY-MM-DD.', {
+      date: businessDate,
+    });
+  }
+  const staleBefore = new Date(
+    input.now.getTime() - (input.staleAfterMs ?? RECONCILIATION_REQUEST_STALE_MS),
   );
+  try {
+    return await db.transaction(async (tx) => {
+      await tx
+        .update(reconciliationRequests)
+        .set({
+          status: 'failed',
+          error: 'abandoned: not finished in time (worker stopped or the job failed)',
+          finishedAt: input.now,
+        })
+        .where(
+          and(
+            inArray(reconciliationRequests.status, ['queued', 'running']),
+            lt(reconciliationRequests.requestedAt, staleBefore),
+          ),
+        );
+      const [request] = await tx
+        .insert(reconciliationRequests)
+        .values({
+          businessDate,
+          requestedBy: input.actor.adminId,
+          ip: input.actor.ip ?? null,
+          requestedAt: input.now,
+        })
+        .returning();
+      if (request === undefined) throw new Error('reconciliation request insert returned no row');
+      await enqueueOutbox(tx, {
+        type: RECONCILIATION_REQUESTED,
+        aggregateType: 'reconciliation_request',
+        aggregateId: request.id,
+        payload: { requestId: request.id, businessDate },
+      });
+      await writeAudit(tx, {
+        actorType: 'admin',
+        actorId: input.actor.adminId,
+        action: 'reconciliation.requested',
+        targetType: 'reconciliation_request',
+        targetId: request.id,
+        metadata: { businessDate },
+        ip: input.actor.ip ?? null,
+      });
+      return request;
+    });
+  } catch (error) {
+    if (isUniqueViolation(error, ONE_OPEN_REQUEST)) {
+      throw domainConflict(
+        'reconciliation_running',
+        'A reconciliation is already queued or running. Try again in a minute.',
+      );
+    }
+    throw error;
+  }
+}
+
+/** One request (404 when unknown). */
+export async function getReconciliationRequest(
+  exec: DbExecutor,
+  requestId: string,
+): Promise<ReconciliationRequest> {
+  const [request] = UUID_RE.test(requestId)
+    ? await exec
+        .select()
+        .from(reconciliationRequests)
+        .where(eq(reconciliationRequests.id, requestId))
+    : [];
+  if (request === undefined) throw domainNotFound('Reconciliation request');
+  return request;
+}
+
+export type RequestedReconciliationResult =
+  | { ran: true; request: ReconciliationRequest; run: ReconciliationRun }
+  | { ran: false; request: ReconciliationRequest | null; reason: 'not_found' | 'finished' };
+
+/**
+ * Runs a queued request (the worker's `reconciliation` job): marks it
+ * running, runs the reconciliation as a manual run of the staff member with
+ * the request's id, and marks it done in the transaction that stores the
+ * run. Safe to replay: a finished request is left alone, and a run already
+ * stored under the id (a crash between the two) just closes the request.
+ */
+export async function runRequestedReconciliation(
+  db: Database,
+  input: { requestId: string; now: Date; maxMismatchesPerCheck?: number },
+): Promise<RequestedReconciliationResult> {
+  const [claimed] = await db
+    .update(reconciliationRequests)
+    .set({
+      status: 'running',
+      startedAt: input.now,
+      attempts: sql`${reconciliationRequests.attempts} + 1`,
+    })
+    .where(
+      and(
+        eq(reconciliationRequests.id, input.requestId),
+        inArray(reconciliationRequests.status, ['queued', 'running']),
+      ),
+    )
+    .returning();
+  if (claimed === undefined) {
+    const [current] = UUID_RE.test(input.requestId)
+      ? await db
+          .select()
+          .from(reconciliationRequests)
+          .where(eq(reconciliationRequests.id, input.requestId))
+      : [];
+    return current === undefined
+      ? { ran: false, request: null, reason: 'not_found' }
+      : { ran: false, request: current, reason: 'finished' };
+  }
+  const markDone = async (exec: DbExecutor, finishedAt: Date) => {
+    const [done] = await exec
+      .update(reconciliationRequests)
+      .set({ status: 'done', runId: claimed.id, finishedAt, error: null })
+      .where(eq(reconciliationRequests.id, claimed.id))
+      .returning();
+    if (done === undefined) throw new Error('reconciliation request vanished');
+    return done;
+  };
+  const [existing] = await db
+    .select()
+    .from(reconciliationRuns)
+    .where(eq(reconciliationRuns.id, claimed.id));
+  if (existing !== undefined) {
+    return { ran: true, request: await markDone(db, existing.finishedAt), run: existing };
+  }
+  let request: ReconciliationRequest = claimed;
+  const detail = await runReconciliation(db, {
+    now: input.now,
+    kind: 'manual',
+    businessDate: claimed.businessDate,
+    actor: { adminId: claimed.requestedBy, ip: claimed.ip },
+    runId: claimed.id,
+    ...(input.maxMismatchesPerCheck === undefined
+      ? {}
+      : { maxMismatchesPerCheck: input.maxMismatchesPerCheck }),
+    onRecorded: async (tx, stored) => {
+      request = await markDone(tx, stored.run.finishedAt);
+    },
+  });
+  return { ran: true, request, run: detail.run };
+}
+
+/**
+ * Fails a request whose job will not run again (attempts exhausted). A
+ * request already done or failed is left as it is.
+ */
+export async function failReconciliationRequest(
+  db: Database,
+  input: { requestId: string; now: Date; error: string },
+): Promise<void> {
+  if (!UUID_RE.test(input.requestId)) return;
+  await db
+    .update(reconciliationRequests)
+    .set({ status: 'failed', error: input.error.slice(0, 1000), finishedAt: input.now })
+    .where(
+      and(
+        eq(reconciliationRequests.id, input.requestId),
+        inArray(reconciliationRequests.status, ['queued', 'running']),
+      ),
+    );
 }
 
 /** Runs newest first (cursor: the id of the last run of the previous page). */

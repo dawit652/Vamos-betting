@@ -82,8 +82,18 @@ export {
   type PspStatementWithRun,
 } from './psp-statements';
 export {
+  BALANCE_AFTER_CURSOR,
+  BALANCE_AFTER_FULL_SCAN_CURSOR,
+  BALANCE_AFTER_FULL_SCAN_EVERY_MS,
+  BALANCE_AFTER_GRACE_MS,
+  failReconciliationRequest,
+  getReconciliationRequest,
   getReconciliationRun,
   listReconciliationRuns,
+  RECONCILIATION_REQUEST_STALE_MS,
+  RECONCILIATION_REQUESTED,
+  requestReconciliation,
+  runRequestedReconciliation,
   MAX_MISMATCHES_PER_CHECK,
   RECONCILIATION_CHECKS,
   RECONCILIATION_MISMATCH,
@@ -95,7 +105,10 @@ export {
   type ReconciliationCheck,
   type ReconciliationMismatch,
   type ReconciliationRun,
+  type ReconciliationChecksResult,
+  type ReconciliationRequest,
   type ReconciliationRunDetail,
+  type RequestedReconciliationResult,
 } from './reconciliation';
 export {
   AmlRulesSchema,
