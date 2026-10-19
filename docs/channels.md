@@ -1,0 +1,92 @@
+# SMS and USSD betting (Phase 11)
+
+Betting by text message and USSD menus, Betika style. **Both channels are off by default and stay
+off until the regulator (ELS) approves them.** While a channel is off its inbound route answers
+404 and nothing else changes.
+
+## Switches
+
+| Variable              | Default    | Meaning                                                                         |
+| --------------------- | ---------- | ------------------------------------------------------------------------------- |
+| `SMS_BETTING_ENABLED` | `false`    | `POST /channels/sms/inbound` handles texts (legacy name `FEATURE_SMS_BETTING`). |
+| `USSD_ENABLED`        | `false`    | `POST /channels/ussd` handles callbacks (legacy name `FEATURE_USSD`).           |
+| `SMS_AGGREGATOR`      | `mock`     | Only the demo mock exists until an aggregator is contracted.                    |
+| `SMS_WEBHOOK_SECRET`  | dev secret | HMAC-SHA256 key over the raw body; production refuses the dev secret.           |
+| `SMS_SHORT_CODE`      | `8123`     | Shown in help texts and the dev simulator.                                      |
+| `USSD_AGGREGATOR`     | `mock`     | As above.                                                                       |
+| `USSD_SHARED_SECRET`  | dev secret | Sent by the aggregator in a header; production refuses the dev secret.          |
+| `USSD_SERVICE_CODE`   | `*123#`    | The code players dial.                                                          |
+
+The switches live in the environment, not in the settings table: turning a channel on is a
+deployment. The licensed-mode guard is unchanged.
+
+## Text commands
+
+Case-insensitive; spaces around tokens are ignored; `*` works like `#` (parser:
+`parseTextCommand` in `packages/core/src/textcommand.ts`).
+
+- **Bet:** `GAMEID#PICK#STAKE` (single) or `GAMEID#PICK#GAMEID#PICK…#STAKE` (multi, at most the
+  bet rules' `maxLegs`). Picks: `1`, `X`, `2` (football 1X2; `1`/`2` on two-way sports), `OV25` /
+  `UN25` (over/under 2.5 goals), `GG` / `NG` (both teams to score). The stake is whole birr
+  (`50`, `050` and `50.00` are ETB 50; `50.5`, `5,000` and `1e3` are refused), read as bigint
+  santim with no floating point.
+- `BAL` (balance), `BETS` (last 3 bets), `JP` (open jackpot rounds: games and cost per
+  combination; entering by SMS is out of scope), `HELP`, `STOP` / `START` (marketing SMS
+  opt-out, stored in `users.sms_marketing_opt_out_at`).
+- Anything else gets the syntax. Replies are in the player's language (Amharic for `am` and `ti`,
+  English otherwise), at most 3 SMS parts; English replies fit one GSM-7 message.
+
+## Placing a bet by SMS (`handleInboundSms`, `packages/db/src/channels/sms.ts`)
+
+One transaction, retried on deadlock:
+
+1. A per-number advisory lock (shared with USSD).
+2. **Idempotency:** the aggregator's message id (`inbound_messages`, unique per aggregator). A
+   redelivery never handles the text again. Its stored reply is queued again only when the last
+   send is at least 60 s old, at most 3 sends in all, so a quick retry does not text the player
+   twice. A reused id with another text or sender is ignored.
+3. **Rate limits per number:** 10 texts a minute and 60 an hour. Over a limit the text is not
+   read, and "too many messages" is sent once per window.
+4. **Who may bet:** the sender must be an active player with a verified phone. Every other
+   number gets the same bilingual reply, whatever the reason, so a reply never tells whether a
+   number is registered. `STOP` / `START` still work for any account. A sender that is not an
+   Ethiopian mobile number gets no reply.
+5. **Placement:** Game IDs and picks are resolved to selections under the player's lock with the
+   selections locked `FOR SHARE`, then `placeChannelBet` calls `placeBet` (channel `sms`) in a
+   savepoint. The checks are the web's: account status, exclusions, stake and loss limits,
+   bettability, bet rules, max payout, the `bet_stake` posting, and the live acceptance delay
+   (a bet with a live leg is `pending_acceptance` exactly as on the web).
+   **Odds policy:** the player cannot see odds, so the bet takes the price at receipt: policy
+   `none` against the current price, read under the `FOR SHARE` lock so it cannot move before the
+   bet commits. A live bet whose price moves during the acceptance delay is rejected and refunded,
+   like a web bet with policy `none`.
+6. The `inbound_messages` row (text, outcome, bet, reply) and the reply's `channel.sms_reply`
+   outbox event (payload `ChannelSmsReplyPayload`: `to`, `body`, `template: 'channel_reply'`,
+   `userId`, `send`). The worker sends it through the SMS provider; sending never blocks the
+   transaction, and nothing is sent unless it commits.
+
+Inbound messages are evidence: a trigger refuses deletes, truncation and changes other than the
+reply count and time.
+
+## USSD (`handleUssdCallback`, `packages/db/src/channels/ussd.ts`)
+
+The menu is a pure state machine (`packages/core/src/ussd.ts`): 1 Place bet (Game ID → pick from
+the listed options with current odds → stake → confirm with the possible win), 2 Balance, 3 My
+bets, 4 Jackpot, 5 Help, 0 Exit; `00` returns to the main menu and invalid input re-prompts.
+Responses are `CON …` / `END …`, at most 182 characters, in English or Amharic.
+
+- The state reached after each callback is stored in `ussd_sessions`, so the next input applies
+  to exactly what the player saw. A callback whose text equals the last one is a redelivery and
+  gets the stored response.
+- A confirmed bet is placed with `placeChannelBet` (channel `ussd`) at the odds the confirm screen
+  showed (policy `none`). If the price moved, the confirm screen is shown again at the new odds.
+  The idempotency key is the session id plus the callback number.
+- Sessions expire 3 minutes after the last callback. A session we did not start (first callback
+  with input) is never acted on. New sessions are limited to 10 per number per 5 minutes, and the
+  player is checked again on every callback.
+
+## For the worker
+
+- Route `channel.sms_reply` to the SMS queue and send `body` to `to` (template `channel_reply`).
+- Bets placed by SMS/USSD carry `channel` in `bet.placed`. To tell an SMS bettor whether a live
+  bet was accepted or rejected, `liveBetOutcomeBody` in `@vamos/core` builds the text.

@@ -130,9 +130,16 @@ export async function resolveTextBetLegs(
       event === undefined || ref === null ? [] : [{ eventId: event.eventId, ref }],
     ),
   );
+  // Only the legs' own selections (the lookup above can return more: it
+  // matches every market key on every event of the bet).
+  const wanted = refs.flatMap(({ event, ref }) => {
+    const id =
+      event === undefined || ref === null ? undefined : ids.get(pickKey(event.eventId, ref));
+    return id === undefined ? [] : [id];
+  });
   const snapshots = await loadSelectionSnapshots(
     exec,
-    [...ids.values()],
+    wanted,
     options.lock === 'share' ? { lock: 'share' } : {},
   );
 
