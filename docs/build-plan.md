@@ -23,9 +23,9 @@ Last updated 12 Oct 2026.
 | 9     | Back office (`apps/admin`)                                    | Done (reviewed, 11 fixes) | `176a4cc` … `7f9151c`                      |
 | 10    | Compliance and regulator reporting                            | Done (reviewed, 12 fixes) | `560ee16` … `fd23540`                      |
 | 11    | SMS/USSD channel (feature-flagged)                            | Done (reviewed, 9 fixes)  | `8efbe59` … `e684b54`                      |
-| 12    | Hardening and deployment                                      | Not started               |                                            |
+| 12    | Hardening and deployment                                      | Done (reviewed, 12 fixes) | `edde9dc` … Phase 12 commit                |
 
-**Phases 0–11 are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
+**All phases (0–12) are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
 pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
 and the payments flow (KYC, deposit approved on the simulated phone, wagering, withdrawal approved by
 the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s), compliance (reconciliation, daily summary CSV, an AML flag and hold) and SMS/USSD bets through the dev simulator. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
@@ -124,6 +124,19 @@ clean); licensed mode refuses http provider/callback/ELS URLs; Caddy `STAFF_ALLO
 and `/admin*` on the api host; proxy and web/admin container hardening; dev compose on loopback. Checks green: format, typecheck, lint, 2,251 unit and
 integration tests, `pnpm test:infra`, build, and the 16-test e2e suite run with the api and worker connected
 as `vamos_app` (home page first load 150.5 KB). `pnpm audit --prod`: no known vulnerabilities.
+
+**Phase 12 (24 Oct 2026).** Ops: request ids and secret redaction in logs, optional OpenTelemetry
+(`OTEL_EXPORTER_OTLP_ENDPOINT`), worker `/health` and `/ready` (:4100), graceful shutdown, security
+headers, `TRUST_PROXY` in the config schema, manual reconciliation via the worker queue. Deployment:
+`infra/docker/Dockerfile`, `infra/docker-compose.prod.yml` (api/worker connect as the restricted
+`vamos_app` role; only the migrate job owns the schema), Caddy with a staff allowlist,
+`scripts/smoke.sh`, `docs/deployment.md`, `docs/backups.md` (age-encrypted dumps and WAL),
+`docs/runbooks/`. Load test `pnpm load:bets` (`docs/load-testing.md`: ~96 bets/s, p95 504 ms on 4 CPUs).
+Final security review fixed 12 findings: withdrawals blocked while a settlement correction is pending
+(`settlement_correction_pending`), reset-code and staff/player lockout abuse limits, 8-char passwords
+with a common-password list, https required for provider URLs in licensed mode, dependency upgrades
+(`pnpm audit --prod` clean). `pnpm lint` runs ESLint with a 4 GB heap. Not exercised here: the full
+production compose build (Docker Hub rate limit); the CI docker job runs it.
 
 ## Legal context (do not change)
 
