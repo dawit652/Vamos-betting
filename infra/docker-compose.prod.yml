@@ -254,7 +254,9 @@ services:
       target: web
       args: *build-args
     <<: *hardening
-    tmpfs: ['/tmp']
+    # The code is root-owned in the image; only Next's cache directory is writable (uid 1000 = node).
+    read_only: true
+    tmpfs: ['/tmp', '/app/apps/web/.next/cache:uid=1000,gid=1000,mode=0700']
     environment:
       - PORT=3000
       - NODE_ENV=production
@@ -282,7 +284,9 @@ services:
       target: admin
       args: *build-args
     <<: *hardening
-    tmpfs: ['/tmp']
+    # The code is root-owned in the image; only Next's cache directory is writable (uid 1000 = node).
+    read_only: true
+    tmpfs: ['/tmp', '/app/apps/admin/.next/cache:uid=1000,gid=1000,mode=0700']
     environment:
       - PORT=3001
       - NODE_ENV=production
@@ -303,13 +307,19 @@ services:
   proxy:
     image: caddy:2-alpine
     profiles: [proxy]
-    restart: unless-stopped
-    logging: *logging
+    <<: *hardening
+    # Binds 80/443 as the image's root user: only that capability is kept.
+    cap_add: [NET_BIND_SERVICE]
+    read_only: true
+    tmpfs: ['/tmp']
     environment:
       - WEB_DOMAIN=${WEB_DOMAIN:-}
       - API_DOMAIN=${API_DOMAIN:-}
       - ADMIN_DOMAIN=${ADMIN_DOMAIN:-}
       - ACME_EMAIL=${ACME_EMAIL:-}
+      # Who may reach the back office and the staff API (/admin/* on API_DOMAIN): space-separated
+      # IPs/CIDRs. Default anywhere; set it to the office or VPN ranges.
+      - STAFF_ALLOWLIST=${STAFF_ALLOWLIST:-0.0.0.0/0 ::/0}
     ports:
       - '80:80'
       - '443:443'

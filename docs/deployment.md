@@ -49,7 +49,10 @@ the app role locally: `APP_DB_PASSWORD=<16+ chars> pnpm db:migrate`, then start 
 
 The images are built from one Dockerfile (`infra/docker/Dockerfile`): multi-stage, `pnpm fetch` for a cached
 dependency layer, production-only `pnpm install --prod` per service, `node:22-alpine`, non-root user
-`node`, a `HEALTHCHECK` in every image. The api and worker are bundled by tsup (workspace packages inlined),
+`node`, a `HEALTHCHECK` in every image. Every container runs with `no-new-privileges` and no capabilities
+(postgres keeps the few its entrypoint needs, Caddy only `NET_BIND_SERVICE`); api, worker, web, admin, migrate
+and the proxy have read-only root filesystems. The web and admin code is owned by root (the `node` user cannot
+change it); only Next's cache directory is writable (a tmpfs in compose). The api and worker are bundled by tsup (workspace packages inlined),
 so their images hold only `dist/` and the external npm packages (about 320 MB). The `api` image also carries
 the operations scripts (`dist/ops/{migrate,seed,admin-create,admin-unlock}.js`) and the SQL migrations.
 
@@ -119,7 +122,12 @@ loopback: session cookies are `Secure`). Either:
   client could otherwise pick its own address and escape every per-address rate limit.
 
 Use separate host names for web, admin and api (`ADMIN_WEB_URL` must differ from `PUBLIC_WEB_URL`; CORS for
-`/admin/*` allows only `ADMIN_WEB_URL`). Restrict the admin host to a VPN or an IP allowlist if you can.
+`/admin/*` allows only `ADMIN_WEB_URL`). Restrict the back office to a VPN or an IP allowlist if you can, and
+restrict **both** halves of it: the admin host and the staff API, which is the `/admin` path prefix on the
+**api** host (the back office calls it from the staff member's browser, so restricting only the admin host
+leaves the staff API open). With the Caddy profile set `STAFF_ALLOWLIST` (space-separated IPs/CIDRs): Caddy
+answers 403 to everyone else on `ADMIN_DOMAIN` and on `API_DOMAIN/admin*`. With your own balancer, apply the
+same rule to both.
 
 **Scaling.**
 
@@ -167,7 +175,8 @@ over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET 
 - [ ] `FEATURE_CASINO=false`, `FEATURE_VIRTUALS=false` (not licensable). SMS/USSD betting stays off until the
       regulator approves the channel and a real aggregator is contracted (the mock aggregators are refused).
 - [ ] Operational readiness (not enforced by code): backups running and a restore drill passed in the last
-      30 days; the runbooks reviewed by the on-call staff; the admin host restricted; staff accounts created
+      30 days; the runbooks reviewed by the on-call staff; the admin host and the staff API (`/admin*` on the
+      api host) restricted (`STAFF_ALLOWLIST`); staff accounts created
       with TOTP; responsible-gambling limits and age rule (21) reviewed; data residency decided (below);
       secrets in a secret manager (below); alerts wired.
 
@@ -249,6 +258,7 @@ in a secret manager, not in git.
 | `PORT`, `HOST`                                                                                              | web, admin             | Listen port (and address for `server.mjs`).                                                                     |
 | `ADMIN_PASSWORD`                                                                                            | `admin-create.js`      | Initial password of a new staff account (12+ chars); generated when unset.                                      |
 | `BIND_ADDRESS`, `API_PORT`, `WEB_PORT`, `ADMIN_PORT`, `WORKER_HEALTH_PORT`, `VAMOS_SUBNET`, `VAMOS_VERSION` | compose only           | Published addresses/ports, the stack's network, the image tag.                                                  |
+| `WEB_DOMAIN`, `API_DOMAIN`, `ADMIN_DOMAIN`, `ACME_EMAIL`, `STAFF_ALLOWLIST`                                 | compose (`proxy`)      | Caddy host names and ACME contact; `STAFF_ALLOWLIST` limits the admin host and `/admin*` on the api host.      |
 
 ## 6. Secrets management
 

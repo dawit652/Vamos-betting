@@ -155,14 +155,20 @@ HEALTHCHECK --interval=15s --timeout=4s --start-period=30s --retries=4 \
     CMD wget -q -O /dev/null "http://127.0.0.1:${WORKER_HEALTH_PORT}/health" || exit 1
 CMD ["node", "dist/main.js"]
 
+# web and admin: the code belongs to root, so the app user cannot change it; only Next's cache
+# directory is the app user's (compose also runs them read-only with a tmpfs there).
 FROM runtime AS web
 ENV PORT=3000
-COPY --chown=node:node package.json pnpm-workspace.yaml ./
-COPY --from=deps-web --chown=node:node /app/node_modules ./node_modules
-COPY --from=deps-web --chown=node:node /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=build-web --chown=node:node /app/apps/web/.next ./apps/web/.next
-COPY --chown=node:node apps/web/package.json apps/web/next.config.ts apps/web/server.mjs ./apps/web/
-COPY --chown=node:node apps/web/public ./apps/web/public
+COPY package.json pnpm-workspace.yaml ./
+COPY --from=deps-web /app/node_modules ./node_modules
+COPY --from=deps-web /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=build-web /app/apps/web/.next ./apps/web/.next
+COPY apps/web/package.json apps/web/next.config.ts apps/web/server.mjs ./apps/web/
+COPY apps/web/public ./apps/web/public
+USER root
+RUN rm -rf /app/apps/web/.next/cache && mkdir /app/apps/web/.next/cache \
+    && chown node:node /app/apps/web/.next/cache
+USER node
 WORKDIR /app/apps/web
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
@@ -171,11 +177,15 @@ CMD ["node", "server.mjs"]
 
 FROM runtime AS admin
 ENV PORT=3001
-COPY --chown=node:node package.json pnpm-workspace.yaml ./
-COPY --from=deps-admin --chown=node:node /app/node_modules ./node_modules
-COPY --from=deps-admin --chown=node:node /app/apps/admin/node_modules ./apps/admin/node_modules
-COPY --from=build-admin --chown=node:node /app/apps/admin/.next ./apps/admin/.next
-COPY --chown=node:node apps/admin/package.json apps/admin/next.config.ts ./apps/admin/
+COPY package.json pnpm-workspace.yaml ./
+COPY --from=deps-admin /app/node_modules ./node_modules
+COPY --from=deps-admin /app/apps/admin/node_modules ./apps/admin/node_modules
+COPY --from=build-admin /app/apps/admin/.next ./apps/admin/.next
+COPY apps/admin/package.json apps/admin/next.config.ts ./apps/admin/
+USER root
+RUN rm -rf /app/apps/admin/.next/cache && mkdir /app/apps/admin/.next/cache \
+    && chown node:node /app/apps/admin/.next/cache
+USER node
 WORKDIR /app/apps/admin
 EXPOSE 3001
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
