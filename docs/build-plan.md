@@ -121,7 +121,9 @@ account-wide delay no longer refuses addresses without failures (the right passw
 api/worker connect as the restricted role `vamos_app` (migration 0030; only the migrate job uses the owner,
 `APP_DB_PASSWORD`); encrypted, checksummed WAL backups (`pnpm test:infra`); dependency upgrades (prod audit
 clean); licensed mode refuses http provider/callback/ELS URLs; Caddy `STAFF_ALLOWLIST` covers the admin host
-and `/admin*` on the api host; proxy and web/admin container hardening; dev compose on loopback.
+and `/admin*` on the api host; proxy and web/admin container hardening; dev compose on loopback. Checks green: format, typecheck, lint, 2,251 unit and
+integration tests, `pnpm test:infra`, build, and the 16-test e2e suite run with the api and worker connected
+as `vamos_app` (home page first load 150.5 KB). `pnpm audit --prod`: no known vulnerabilities.
 
 ## Legal context (do not change)
 
