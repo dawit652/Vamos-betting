@@ -23,7 +23,7 @@ Last updated 12 Oct 2026.
 | 9     | Back office (`apps/admin`)                                    | Done (reviewed, 11 fixes) | `176a4cc` … `7f9151c`                      |
 | 10    | Compliance and regulator reporting                            | Done (reviewed, 12 fixes) | `560ee16` … `fd23540`                      |
 | 11    | SMS/USSD channel (feature-flagged)                            | Done (reviewed, 9 fixes)  | `8efbe59` … `e684b54`                      |
-| 12    | Hardening and deployment                                      | Done (reviewed, 12 fixes) | `edde9dc` … Phase 12 commit                |
+| 12    | Hardening and deployment                                      | Done (reviewed, 12 fixes) | `edde9dc` … `4721eeb`                      |
 
 **All phases (0–12) are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
 pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
