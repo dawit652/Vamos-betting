@@ -144,7 +144,9 @@ over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET 
       refused until ELS publishes its interface. Reports are kept 7 years.
 - [ ] `PAYMENT_PROVIDERS` lists only real providers (`chapa`, `telebirr`), each with its credentials; no
       `mock`. Webhook URLs registered with the providers point at `PAYMENT_CALLBACK_BASE_URL` (default
-      `PUBLIC_API_URL`). `CHAPA_WEBHOOK_SECRET` is at least 32 characters.
+      `PUBLIC_API_URL`). `CHAPA_WEBHOOK_SECRET` is at least 32 characters. `PAYMENT_CALLBACK_BASE_URL`,
+      `CHAPA_BASE_URL`, `TELEBIRR_BASE_URL`, `TELEBIRR_CHECKOUT_URL` and `ELS_REPORT_URL` are https whenever set
+      (plain http is refused, even on loopback).
 - [ ] `KYC_PROVIDER` is a real identity provider (`fayda`), `SMS_PROVIDER` a real gateway (`http`).
 - [ ] `FEED_PROVIDER=manual` (traders only) or a licensed real feed once an adapter exists; `mock` is refused.
 - [ ] `TAX_CONFIG_CONFIRMED=true`, set only after counsel confirmed the winnings-tax rate, base and exemption

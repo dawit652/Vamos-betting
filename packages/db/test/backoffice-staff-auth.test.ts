@@ -433,7 +433,7 @@ describe('staff sign-in', () => {
     ]);
   });
 
-  it('slows every address down with growing delays after many failures, never a hard lock', async () => {
+  it('slows failed addresses down with growing delays after many failures, never a hard lock', async () => {
     const staff = await newStaff();
     // Failures spread over addresses (4 each, under the per-address lock).
     let failures = 0;
@@ -463,8 +463,9 @@ describe('staff sign-in', () => {
     );
     const fresh = (ip: string, password = PASSWORD) =>
       loginStaff(deps(), { email: staff.email, password, code: nextCode(staff), ip });
-    // During the delay even the right credentials from a new address fail (not counted).
-    await expectInvalidCredentials(fresh('10.2.0.1'));
+    // During the delay an address that has failed is refused unchecked, even with the right
+    // credentials (not counted).
+    await expectInvalidCredentials(fresh('10.1.0.1'));
     expect((await userRow(staff.id)).failedLoginAttempts).toBe(STAFF_ACCOUNT_BACKOFF_THRESHOLD);
     // After it, the next failure doubles the delay.
     advance(STAFF_ACCOUNT_BACKOFF_BASE_MS);
@@ -472,8 +473,14 @@ describe('staff sign-in', () => {
     expect((await userRow(staff.id)).lockedUntil?.getTime()).toBe(
       now.getTime() + 2 * STAFF_ACCOUNT_BACKOFF_BASE_MS,
     );
-    advance(2 * STAFF_ACCOUNT_BACKOFF_BASE_MS);
-    // A success clears the account count.
+    // A wrong attempt from an address without failures is checked during the delay, and counts.
+    await expectInvalidCredentials(fresh('10.2.0.4', 'wrong password!'));
+    expect((await userRow(staff.id)).failedLoginAttempts).toBe(
+      STAFF_ACCOUNT_BACKOFF_THRESHOLD + 2,
+    );
+    // The right password and a fresh code from such an address get in even during the delay
+    // (review A2: strangers' failures must not keep the staff member out), and clear the count.
+    expect((await userRow(staff.id)).lockedUntil!.getTime()).toBeGreaterThan(now.getTime());
     expect((await fresh('10.2.0.3')).staff.id).toBe(staff.id);
     expect(await userRow(staff.id)).toMatchObject({ failedLoginAttempts: 0, lockedUntil: null });
     expect(await loginFailures(staff.id)).toContain('account_backoff');

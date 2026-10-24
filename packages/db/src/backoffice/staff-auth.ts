@@ -24,10 +24,14 @@ import { base32Encode, TOTP_SECRET_BYTES, totpUri, verifyTotp } from './totp';
  *   STAFF_LOCKOUT_THRESHOLD failures in a row from one client address lock
  *   that address out of the account for STAFF_LOCKOUT_MS (a stranger cannot
  *   lock the staff member out everywhere); from STAFF_ACCOUNT_BACKOFF_THRESHOLD
- *   failures from any address, each further failure delays every sign-in to
- *   the account (staffAccountBackoffMs: doubling, capped), never a hard lock;
- *   every attempt is audited, and the CLI (`pnpm admin:unlock`) or
- *   staff.manage lift both;
+ *   failures from any address, each further failure starts an account-wide
+ *   delay (staffAccountBackoffMs: doubling, capped), never a hard lock:
+ *   while it runs, addresses that have failed on the account are refused
+ *   unchecked, but an attempt from an address without failures is still
+ *   checked, so the right password and a fresh code get in (strangers'
+ *   failures cannot keep the staff member out; a guesser needs a new address
+ *   for every try); every attempt is audited, and the CLI
+ *   (`pnpm admin:unlock`) or staff.manage lift both;
  * - the password and the code are verified outside any database
  *   transaction (argon2 takes a while); a short transaction then locks the
  *   account row, re-checks what may have changed meanwhile, and records the
@@ -797,9 +801,24 @@ async function readStaffRow(exec: DbExecutor, id: string): Promise<AdminUserRow>
 }
 
 /**
+ * Whether the account-wide delay refuses an attempt from this address: it
+ * is running and the address has failed on the account since its last
+ * success (an address without failures is still checked; see the module
+ * comment).
+ */
+function backoffRefuses(
+  row: AdminUserRow,
+  throttle: ThrottleRow | undefined,
+  now: Date,
+): boolean {
+  return isFuture(row.lockedUntil, now) && (throttle?.failedAttempts ?? 0) > 0;
+}
+
+/**
  * Checks the password and the TOTP code of `user` (as read, outside any
  * transaction): refused at once (after a throwaway hash, so it costs the
- * same) while the address or the account is locked.
+ * same) while the address is locked out, or while the account-wide delay
+ * runs and the address has failed before (backoffRefuses).
  */
 async function verifyAttempt(
   deps: StaffAuthDeps,
@@ -810,7 +829,7 @@ async function verifyAttempt(
   now: Date,
 ): Promise<FactorCheck> {
   const throttle = await readThrottle(deps.db, user.id, clientKey);
-  if (isFuture(throttle?.lockedUntil, now) || isFuture(user.lockedUntil, now)) {
+  if (isFuture(throttle?.lockedUntil, now) || backoffRefuses(user, throttle, now)) {
     await dummyVerify(deps.passwords, password);
     return {
       ok: false,
@@ -854,7 +873,7 @@ function recheckAttempt(
   }
   if (row.disabledAt !== null) return 'disabled';
   if (isFuture(throttle?.lockedUntil, now)) return 'locked';
-  if (isFuture(row.lockedUntil, now)) return 'account_backoff';
+  if (backoffRefuses(row, throttle, now)) return 'account_backoff';
   if (!check.ok) return check.reason;
   if (row.totpLastStep !== null && check.step <= row.totpLastStep) return 'totp_replay';
   return null;

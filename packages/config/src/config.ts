@@ -458,7 +458,34 @@ export function licensedModeViolations(config: AppConfig): string[] {
   if (config.features.casino || config.features.virtuals) {
     problems.push('casino and virtual games are not licensable under the current ELS stance');
   }
+  // Provider calls carry our credentials (Chapa's bearer secret, telebirr's signed requests),
+  // provider webhooks and ELS reports carry player and money data: never over plain http, not
+  // even to a loopback stand-in. An unset PAYMENT_CALLBACK_BASE_URL is PUBLIC_API_URL, which
+  // the production rules already require to be https.
+  const { payments } = config;
+  for (const [name, url] of [
+    [
+      'PAYMENT_CALLBACK_BASE_URL',
+      payments.callbackBaseUrl === config.api.publicUrl ? undefined : payments.callbackBaseUrl,
+    ],
+    ['CHAPA_BASE_URL', payments.chapa.baseUrl],
+    ['TELEBIRR_BASE_URL', payments.telebirr.baseUrl],
+    ['TELEBIRR_CHECKOUT_URL', payments.telebirr.checkoutUrl],
+    ['ELS_REPORT_URL', config.els.reportUrl],
+  ] as const) {
+    if (url !== undefined && !isHttpsUrl(url)) {
+      problems.push(`${name} must be an https URL in licensed mode (got ${url})`);
+    }
+  }
   return problems;
+}
+
+function isHttpsUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 /** The decoded ADMIN_TOTP_KEY (the schema has already checked it). */

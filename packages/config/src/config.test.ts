@@ -153,6 +153,32 @@ describe('loadConfig', () => {
     ).toMatch(/placeholder/);
   });
 
+  it('refuses plain-http provider and callback URLs in licensed mode (review I4)', () => {
+    for (const [name, url] of [
+      ['PAYMENT_CALLBACK_BASE_URL', 'http://api.vamos.example'],
+      ['CHAPA_BASE_URL', 'http://api.chapa.co/v1'],
+      ['TELEBIRR_BASE_URL', 'http://telebirr.example/apiaccess'],
+      ['TELEBIRR_CHECKOUT_URL', 'http://telebirr.example/checkout'],
+      ['ELS_REPORT_URL', 'http://els.example/report'],
+      // Not even on loopback: provider calls carry secrets and must leave the host encrypted.
+      ['CHAPA_BASE_URL', 'http://localhost:8080/v1'],
+    ] as const) {
+      const problems = problemsOf({ ...LICENSED_ENV, [name]: url }).join('\n');
+      expect(problems, name).toMatch(new RegExp(`${name} must be an https URL in licensed mode`));
+    }
+    expect(
+      problemsOf({
+        ...LICENSED_ENV,
+        PAYMENT_CALLBACK_BASE_URL: 'https://api.vamos.example',
+        CHAPA_BASE_URL: 'https://api.chapa.co/v1',
+        TELEBIRR_BASE_URL: 'https://telebirr.example/apiaccess',
+        TELEBIRR_CHECKOUT_URL: 'https://telebirr.example/checkout',
+      }),
+    ).toEqual([]);
+    // Demo mode keeps accepting local http stand-ins.
+    expect(problemsOf({ CHAPA_BASE_URL: 'http://localhost:8080/v1' })).toEqual([]);
+  });
+
   it('refuses real payment providers in demo mode', () => {
     expect(problemsOf({ PAYMENT_PROVIDERS: 'mock,telebirr' }).join('\n')).toMatch(
       /demo mode only allows/,
