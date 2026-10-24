@@ -10,7 +10,7 @@ export const account = {
     phone: 'Phone number',
     phoneHint: 'Ethio telecom (09…) or Safaricom (07…) number',
     password: 'Password',
-    passwordHint: 'At least 6 characters',
+    passwordHint: 'At least 8 characters, not a common password',
     newPassword: 'New password',
     confirmPassword: 'Repeat the new password',
     dateOfBirth: 'Date of birth',
@@ -22,7 +22,7 @@ export const account = {
     phoneRequired: 'Enter your phone number.',
     phone: 'Enter an Ethiopian mobile number starting with 09 or 07, e.g. 0911 234 567.',
     passwordRequired: 'Enter your password.',
-    passwordShort: 'The password needs at least 6 characters.',
+    passwordShort: 'The password needs at least 8 characters.',
     passwordLong: 'The password can have at most 128 characters.',
     weakPassword:
       'This password is too easy to guess. Avoid simple sequences and your phone number.',
@@ -399,6 +399,8 @@ export const account = {
       notCancellable: 'This withdrawal can no longer be cancelled.',
       depositUnderReview:
         'One of your deposits is being checked by our staff. You can withdraw once that is done.',
+      settlementCorrection:
+        'A result on one of your bets was corrected and your balance is being adjusted. You can withdraw once that is done.',
       invalidPhone: 'That phone number is not valid.',
     },
   },

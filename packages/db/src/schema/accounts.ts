@@ -93,6 +93,13 @@ export const otpChallenges = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     consumedAt: timestamp('consumed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Rate-limit key of the client address that asked for the code (an IPv4
+     * address or an IPv6 /64). The resend cooldown and the hourly cap count
+     * per (phone, purpose, requester), under a higher per-number ceiling, so
+     * a stranger cannot use up the owner's codes. Null on older rows.
+     */
+    requesterKey: text('requester_key'),
   },
   (t) => [index('otp_phone_purpose_idx').on(t.phone, t.purpose, t.createdAt)],
 );

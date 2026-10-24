@@ -15,7 +15,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
 import { parseInput } from '../../lib/errors';
 import { warmUpPasswordHashing } from '../../lib/passwords';
-import { enforceLimit } from '../../lib/rate-limits';
+import { randomToken } from '../../lib/crypto';
+import {
+  enforceLimit,
+  loginPhoneLimitKey,
+  restartLoginPhoneLimit,
+} from '../../lib/rate-limits';
 import {
   clearSessionCookies,
   requireUser,
@@ -82,7 +87,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   // Login attempts per phone number from any address.
   const loginPerPhone = app.createRateLimit({
     ...authLimits.loginPerPhone,
-    keyGenerator: (request) => `login-phone|${bodyPhone(request) ?? 'invalid'}`,
+    keyGenerator: (request) => loginPhoneLimitKey(deps.redis, bodyPhone(request) ?? 'invalid'),
   });
 
   const clientLimit = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -167,6 +172,17 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply): Promise<OkResponse> => {
       const input = parseInput(ResetPasswordRequest, request.body);
       await resetPassword(deps, input, requestMeta(request));
+      // Whoever holds the SMS code is the owner: lift the per-number login lock a
+      // stranger may hold with wrong passwords, so the new password works at once.
+      const phone = bodyPhone(request);
+      if (phone !== null) {
+        await restartLoginPhoneLimit(
+          deps.redis,
+          phone,
+          authLimits.loginPerPhone,
+          randomToken(deps.randomBytes, 9),
+        );
+      }
       // Every session of the account was revoked, including any on this device.
       clearSessionCookies(reply, deps.config);
       return { ok: true };

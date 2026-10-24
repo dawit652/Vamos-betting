@@ -15,15 +15,36 @@ export type OtpPurpose = (typeof otpPurpose.enumValues)[number];
 
 export const OTP_TTL_MS = 5 * 60_000;
 export const OTP_MAX_ATTEMPTS = 5;
-/** Minimum time between two challenges for the same (phone, purpose). */
+/** Minimum time between two challenges for the same (phone, purpose) from one client address. */
 export const OTP_RESEND_COOLDOWN_MS = 60_000;
 /**
- * Maximum challenges per (phone, purpose) in a rolling hour. Per purpose, so
- * that password-reset requests for a number (which anyone can make, and which
- * send nothing when the number has no account) cannot block its registration.
+ * Maximum challenges per (phone, purpose, client address) in a rolling hour.
+ * Per purpose, so that password-reset requests for a number (which anyone
+ * can make, and which send nothing when the number has no account) cannot
+ * block its registration; per address, so that a stranger cannot use up the
+ * owner's codes (Phase 12 review A3).
  */
 export const OTP_HOURLY_LIMIT = 5;
+/**
+ * Maximum challenges per (phone, purpose) in a rolling hour from all
+ * addresses together: bounds the SMS sent to one number and the codes a
+ * group of addresses can guess at.
+ */
+export const OTP_HOURLY_PHONE_CEILING = 15;
+/**
+ * Wrong codes accepted per (phone, purpose) in a rolling 24 hours. Once
+ * used up no code of that purpose is issued or checked (not even the right
+ * one) until the oldest failures age out: 429 `otp_limit`. Only password
+ * reset has one; registration codes can only be tried by the holder of the
+ * registration token. 10 a day keeps a targeted guesser near 1 in 270 a
+ * year (Phase 12 review A1). The price: a stranger who spends it delays the
+ * owner's reset by up to a day (the password still works).
+ */
+export const OTP_DAILY_FAILURE_BUDGET: Readonly<Partial<Record<OtpPurpose, number>>> = {
+  password_reset: 10,
+};
 const HOUR_MS = 60 * 60_000;
+const DAY_MS = 24 * HOUR_MS;
 
 export interface IssuedOtp {
   challengeId: string;
@@ -50,25 +71,82 @@ export function hashOtpCode(
 const retryAfterSeconds = (until: number, now: Date) =>
   Math.max(1, Math.ceil((until - now.getTime()) / 1000));
 
+const otpLimit = (retryAfter: number) =>
+  tooManyRequests(
+    'otp_limit',
+    'Too many codes requested for this phone number. Please try again later.',
+    { retryAfterSeconds: retryAfter },
+  );
+
+/** Serialises the challenges and code checks of one phone number (transaction-scoped). */
+async function lockPhone(tx: DbTransaction, phone: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`otp:${phone}`}, 0))`);
+}
+
 /**
- * Creates a challenge for (phone, purpose) inside `tx`, enforcing the resend
- * cooldown and the hourly cap of that purpose (429 `otp_cooldown` /
- * `otp_limit`), and retires
- * any older unconsumed challenge for the same purpose. Challenges for one
- * phone are serialised with a transaction-scoped advisory lock. The SMS is
- * sent by the caller after commit (see `sendOtpSms`).
+ * When `purpose` has a daily failure budget (OTP_DAILY_FAILURE_BUDGET) and
+ * the wrong codes for (phone, purpose) over the last 24 hours (the attempts
+ * of the challenges created in that window) have used it up: the seconds
+ * until enough of them age out. Otherwise null.
+ */
+async function failureBudgetExhausted(
+  tx: DbTransaction,
+  phone: string,
+  purpose: OtpPurpose,
+  now: Date,
+): Promise<number | null> {
+  const budget = OTP_DAILY_FAILURE_BUDGET[purpose];
+  if (budget === undefined) return null;
+  const rows = await tx
+    .select({ createdAt: otpChallenges.createdAt, attempts: otpChallenges.attempts })
+    .from(otpChallenges)
+    .where(
+      and(
+        eq(otpChallenges.phone, phone),
+        eq(otpChallenges.purpose, purpose),
+        gt(otpChallenges.createdAt, new Date(now.getTime() - DAY_MS)),
+        gt(otpChallenges.attempts, 0),
+      ),
+    )
+    .orderBy(asc(otpChallenges.createdAt));
+  let failures = rows.reduce((sum, row) => sum + row.attempts, 0);
+  if (failures < budget) return null;
+  for (const row of rows) {
+    failures -= row.attempts;
+    if (failures < budget) return retryAfterSeconds(row.createdAt.getTime() + DAY_MS, now);
+  }
+  return retryAfterSeconds(now.getTime() + DAY_MS, now);
+}
+
+/**
+ * Creates a challenge for (phone, purpose) inside `tx` and retires any older
+ * unconsumed challenge for the same purpose. Enforced first (429):
+ * - `otp_cooldown`: a code for (phone, purpose) went to the same client
+ *   address (`requesterKey`, see clientAddressKey) less than
+ *   OTP_RESEND_COOLDOWN_MS ago;
+ * - `otp_limit`: OTP_HOURLY_LIMIT codes for (phone, purpose) went to that
+ *   address in the last hour, OTP_HOURLY_PHONE_CEILING went to any
+ *   address, or the purpose's daily failure budget is used up.
+ * Challenges for one phone are serialised with a transaction-scoped
+ * advisory lock. The SMS is sent by the caller after commit (see `sendOtpSms`).
  */
 export async function createOtpChallenge(
   tx: DbTransaction,
-  params: { secret: string; phone: string; purpose: OtpPurpose; now: Date },
+  params: { secret: string; phone: string; purpose: OtpPurpose; now: Date; requesterKey: string },
 ): Promise<IssuedOtp> {
-  const { secret, phone, purpose, now } = params;
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`otp:${phone}`}, 0))`);
+  const { secret, phone, purpose, now, requesterKey } = params;
+  await lockPhone(tx, phone);
 
   const [latest] = await tx
     .select({ createdAt: otpChallenges.createdAt })
     .from(otpChallenges)
-    .where(and(eq(otpChallenges.phone, phone), eq(otpChallenges.purpose, purpose)))
+    .where(
+      and(
+        eq(otpChallenges.phone, phone),
+        eq(otpChallenges.purpose, purpose),
+        eq(otpChallenges.requesterKey, requesterKey),
+      ),
+    )
     .orderBy(desc(otpChallenges.createdAt))
     .limit(1);
   if (latest && now.getTime() - latest.createdAt.getTime() < OTP_RESEND_COOLDOWN_MS) {
@@ -81,7 +159,7 @@ export async function createOtpChallenge(
   }
 
   const recent = await tx
-    .select({ createdAt: otpChallenges.createdAt })
+    .select({ createdAt: otpChallenges.createdAt, requesterKey: otpChallenges.requesterKey })
     .from(otpChallenges)
     .where(
       and(
@@ -91,15 +169,18 @@ export async function createOtpChallenge(
       ),
     )
     .orderBy(asc(otpChallenges.createdAt));
-  const oldest = recent[0];
-  if (oldest && recent.length >= OTP_HOURLY_LIMIT) {
-    const retryAfter = retryAfterSeconds(oldest.createdAt.getTime() + HOUR_MS, now);
-    throw tooManyRequests(
-      'otp_limit',
-      'Too many codes requested for this phone number. Please try again later.',
-      { retryAfterSeconds: retryAfter },
-    );
+  const mine = recent.filter((row) => row.requesterKey === requesterKey);
+  for (const [rows, cap] of [
+    [mine, OTP_HOURLY_LIMIT],
+    [recent, OTP_HOURLY_PHONE_CEILING],
+  ] as const) {
+    const oldest = rows[0];
+    if (oldest && rows.length >= cap) {
+      throw otpLimit(retryAfterSeconds(oldest.createdAt.getTime() + HOUR_MS, now));
+    }
   }
+  const exhausted = await failureBudgetExhausted(tx, phone, purpose, now);
+  if (exhausted !== null) throw otpLimit(exhausted);
 
   await tx
     .update(otpChallenges)
@@ -123,6 +204,7 @@ export async function createOtpChallenge(
       maxAttempts: OTP_MAX_ATTEMPTS,
       expiresAt,
       createdAt: now,
+      requesterKey,
     })
     .returning({ id: otpChallenges.id });
   if (!row) throw new Error('otp_challenges insert returned no row');
@@ -134,6 +216,8 @@ export async function createOtpChallenge(
  * and, when it matches, consumes it and runs `onValid` in the same
  * transaction (so the challenge is only spent if `onValid` commits).
  *
+ * - the purpose's daily failure budget is used up (OTP_DAILY_FAILURE_BUDGET):
+ *   429 `otp_limit`, before any code is compared (even the right one);
  * - no live challenge (missing, consumed, expired or out of attempts):
  *   400 `otp_expired`;
  * - wrong code: the attempt is recorded (and committed) and 400 `otp_invalid`
@@ -146,6 +230,12 @@ export async function consumeOtp<T>(
 ): Promise<T> {
   const { secret, phone, purpose, code, now } = params;
   const outcome = await db.transaction(async (tx) => {
+    if (OTP_DAILY_FAILURE_BUDGET[purpose] !== undefined) {
+      // Serialised with the number's other checks and new challenges, so the budget is exact.
+      await lockPhone(tx, phone);
+      const exhausted = await failureBudgetExhausted(tx, phone, purpose, now);
+      if (exhausted !== null) return { kind: 'exhausted', retryAfter: exhausted } as const;
+    }
     const [challenge] = await tx
       .select()
       .from(otpChallenges)
@@ -184,6 +274,12 @@ export async function consumeOtp<T>(
   });
 
   switch (outcome.kind) {
+    case 'exhausted':
+      throw tooManyRequests(
+        'otp_limit',
+        'Too many wrong codes for this phone number. Please try again later.',
+        { retryAfterSeconds: outcome.retryAfter },
+      );
     case 'expired':
       throw otpExpired();
     case 'invalid':

@@ -203,7 +203,9 @@ function requiredNote(text: string | undefined, code: string, message: string): 
  * processed or paid: `changed: false`; 409 `payout_not_reviewable` once
  * rejected, cancelled or failed; 409 `aml_review_pending` while the player's
  * withdrawals are held for AML, unless the approver holds aml.review
- * (`amlReviewer`). Audited as `payment.withdrawal_approved`.
+ * (`amlReviewer`); 409 `settlement_correction_pending` while a settlement
+ * correction of one of the player's bets is blocked. Audited as
+ * `payment.withdrawal_approved`.
  */
 export async function staffApproveWithdrawal(
   tx: DbTransaction,

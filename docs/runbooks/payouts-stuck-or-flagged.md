@@ -15,6 +15,7 @@ Back office: **Withdrawals** (queues: review, flagged) and flagged deposits.
 | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `requested` for long, reason `above_auto_approve_threshold` or `active_exclusion` | Waiting for finance: the amount is at or above the auto-approval limit, or the player is under an exclusion (check it before approving) |
 | `requested`, reason `aml_review`                                                  | Held by an AML flag: only `aml.review` staff may release it ([AML runbook](aml-flag-review.md))                                         |
+| `requested`, reason `settlement_correction`                                       | A corrected result on one of the player's bets would overdraw them (`bet.correction_blocked`): see below                                |
 | `approved`/`processing` for long, not flagged                                     | Worker down or provider slow: check `docker compose ps worker`, `curl localhost:4100/ready`, provider status                            |
 | Flag `ambiguous_result`                                                           | The provider's answer was unreadable/timed out: money may or may not have left                                                          |
 | Flag `attempts_exhausted`                                                         | Several unanswered attempts: the worker stopped retrying                                                                                |
@@ -55,6 +56,21 @@ Open Flagged deposits. Confirm with the provider whether the money was collected
 - Not collected -> **Resolve: close**.
   A note is required. While a deposit reversed at the provider awaits staff, the player's withdrawals are refused
   (`deposit_under_review`): resolve these quickly.
+
+## Procedure: a blocked settlement correction
+
+A result was corrected after the player had already moved the old winnings (into other bets or a withdrawal),
+so reversing them would take the balance below zero. The bet keeps its old settlement and the worker retries
+the correction every 5 minutes (`settlement_retry_at`); the first block writes `bet.correction_blocked`.
+Until it goes through: the player cannot request a withdrawal (`settlement_correction_pending`), nobody can
+approve one, and approved withdrawals not yet sent went back to review with reason `settlement_correction`.
+
+- It resolves itself when the player's balance covers the difference (an open bet wins, a deposit). The
+  retry then posts the correction; review the held withdrawals again afterwards (reject any the balance no
+  longer justifies).
+- If it stays blocked, decide with compliance: reject the held withdrawals (the hold returns to the balance,
+  which lets the next retry succeed), or void/correct by hand under the trading runbook. Never approve a
+  withdrawal of a player with a blocked correction around the rule.
 
 ## Afterwards
 

@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { InsufficientFundsError } from '../ledger/errors';
 import { lockAccounts, postTransaction } from '../ledger/post';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
+import { holdWithdrawalsForCorrection } from '../payments/withdrawals';
 import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
 import { betLegs, bets } from '../schema/betting';
@@ -33,7 +34,11 @@ import { parseTerms, type BetStatus } from './types';
  *   settlement stays in place. The bet gets settlement_retry_at (now +
  *   CORRECTION_RETRY_DELAY_MS), which the settlement sweep (listBetsToSettle)
  *   picks up to try again, and the first block writes a
- *   `bet.correction_blocked` event for the back office.
+ *   `bet.correction_blocked` event for the back office. While any bet of the
+ *   player is blocked, withdrawals are refused and cannot be approved (409
+ *   `settlement_correction_pending`), and each block sends the player's
+ *   approved withdrawals not yet sent back to review
+ *   (holdWithdrawalsForCorrection), so the money cannot leave first.
  */
 export type SettleOutcome =
   'settled' | 'resettled' | 'reopened' | 'unchanged' | 'skipped' | 'correction_blocked';
@@ -97,8 +102,10 @@ type ResultOf = (outcome: SettleOutcome, legsChanged: number, row?: BetRow) => S
 
 /**
  * Leaves a settled bet as it is because its correction would overdraw the
- * player: marks it for the settlement sweep (settlement_retry_at) and, the
- * first time only, writes `bet.correction_blocked` and an audit record.
+ * player: marks it for the settlement sweep (settlement_retry_at), sends the
+ * player's approved withdrawals not yet sent back to staff review (the held
+ * money may be needed for the correction) and, the first time only, writes
+ * `bet.correction_blocked` and an audit record.
  */
 async function blockCorrection(
   tx: DbTransaction,
@@ -117,6 +124,7 @@ async function blockCorrection(
     .update(bets)
     .set({ settlementRetryAt: new Date(now.getTime() + CORRECTION_RETRY_DELAY_MS), updatedAt: now })
     .where(eq(bets.id, bet.id));
+  await holdWithdrawalsForCorrection(tx, { userId: bet.userId, betId: bet.id, now });
   if (bet.settlementRetryAt === null) {
     const details = {
       betId: bet.id,

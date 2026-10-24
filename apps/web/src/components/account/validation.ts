@@ -13,7 +13,7 @@ import type { MessageKey } from '@vamos/i18n/translate';
  */
 
 export const MIN_AGE = DEFAULT_RESPONSIBLE_GAMBLING.minAge;
-export const MIN_PASSWORD_LENGTH = 6;
+export const MIN_PASSWORD_LENGTH = 8;
 export const MAX_PASSWORD_LENGTH = 128;
 
 export type FieldErrors<F extends string> = Partial<Record<F, MessageKey>>;

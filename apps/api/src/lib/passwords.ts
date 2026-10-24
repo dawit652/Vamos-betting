@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
+import { COMMON_PASSWORDS } from './common-passwords';
 import { badRequest } from './errors';
 
 /**
@@ -8,11 +9,15 @@ import { badRequest } from './errors';
  */
 const ARGON2_OPTIONS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
 
-/** Passwords people pick first. Compared case-insensitively. */
-const COMMON_PASSWORDS = new Set([
+/**
+ * Passwords people pick first, compared case-insensitively: the 10,000 most
+ * common of 8+ characters (common-passwords.ts) plus a few short classics
+ * (the length rule of the contracts refuses those already).
+ */
+const COMMON = new Set<string>([
+  ...COMMON_PASSWORDS,
   '123456',
   'password',
-  '12345678',
   '111111',
   '000000',
   '123123',
@@ -54,7 +59,7 @@ export async function warmUpPasswordHashing(): Promise<void> {
  * Length limits are enforced by the request contracts.
  */
 export function passwordWeakness(password: string, phone: string): string | null {
-  if (COMMON_PASSWORDS.has(password.trim().toLowerCase())) {
+  if (COMMON.has(password.trim().toLowerCase())) {
     return 'This password is too common. Choose one that is harder to guess.';
   }
   const digits = phone.replace(/\D/g, '');

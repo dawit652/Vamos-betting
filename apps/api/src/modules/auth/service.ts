@@ -20,6 +20,7 @@ import { users } from '@vamos/db/schema';
 import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AppDeps } from '../../deps';
+import { clientAddressKey } from '../../lib/client-address';
 import { randomToken, safeEqualHex, sha256Hex } from '../../lib/crypto';
 import { AppError, badRequest, conflict, forbidden, unprocessable } from '../../lib/errors';
 import { toLocale } from '../../lib/locale';
@@ -199,6 +200,7 @@ export async function registerUser(
       phone,
       purpose: 'register',
       now,
+      requesterKey: clientAddressKey(meta.ip),
     });
     await writeAudit(tx, {
       actorType: 'user',
@@ -396,6 +398,7 @@ export async function requestPasswordReset(
       phone,
       purpose: 'password_reset',
       now,
+      requesterKey: clientAddressKey(meta.ip),
     });
     await writeAudit(tx, {
       actorType: 'user',
@@ -490,6 +493,7 @@ export async function resendOtp(
           phone,
           purpose: 'register',
           now,
+          requesterKey: clientAddressKey(meta.ip),
         }),
       );
       await sendOtpSms(

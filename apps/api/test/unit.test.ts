@@ -1,4 +1,5 @@
 import { DEV_SESSION_SECRET, loadConfig } from '@vamos/config';
+import { LoginRequest, RegisterRequest, ResetPasswordRequest } from '@vamos/contracts';
 import { isOfAge } from '@vamos/core';
 import { describe, expect, it } from 'vitest';
 import { BackgroundTasks } from '../src/lib/background';
@@ -84,7 +85,7 @@ describe('passwords', () => {
 
   it('rejects common passwords and the phone number', () => {
     const phone = '+251911234567';
-    for (const password of ['123456', 'Password', ' qwerty ', '000000']) {
+    for (const password of ['12345678', 'Password', ' qwertyuiop ', '00000000']) {
       expect(passwordWeakness(password, phone)).toMatch(/too common/);
     }
     for (const password of [
@@ -100,6 +101,37 @@ describe('passwords', () => {
     expect(() => assertPasswordAcceptable('password', phone)).toThrow(
       expect.objectContaining({ statusCode: 400, code: 'weak_password' }),
     );
+  });
+
+  it('refuses the common passwords of a 10,000-entry list, case-insensitively (review A4)', () => {
+    const phone = '+251911234567';
+    for (const password of [
+      'iloveyou',
+      'Football',
+      'SUNSHINE1',
+      '1q2w3e4r5t',
+      'baseball',
+      'princess1',
+    ]) {
+      expect(passwordWeakness(password, phone)).toMatch(/too common/);
+    }
+    expect(passwordWeakness('Abebe-bikila-1960', phone)).toBeNull();
+  });
+
+  it('needs at least 8 characters for new passwords, but existing ones still log in (review A4)', () => {
+    const register = {
+      phone: '0911234567',
+      dateOfBirth: '1990-01-01',
+      acceptTerms: true,
+    } as const;
+    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$xy7' }).success).toBe(false);
+    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$xy7q' }).success).toBe(true);
+    const reset = { phone: '0911234567', code: '123456' };
+    expect(ResetPasswordRequest.safeParse({ ...reset, newPassword: 'Ab3$xy7' }).success).toBe(
+      false,
+    );
+    // A 6-character password chosen under the old rule keeps working.
+    expect(LoginRequest.safeParse({ phone: '0911234567', password: 'Ab3$xy' }).success).toBe(true);
   });
 });
 

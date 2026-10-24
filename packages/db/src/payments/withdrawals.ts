@@ -31,12 +31,14 @@ import { enqueueOutbox } from '../platform/outbox';
 import { getActiveExclusion } from '../rg/exclusions';
 import { lockUser } from '../rg/limits';
 import { kycProfiles, users } from '../schema/accounts';
+import { bets } from '../schema/betting';
 import { paymentEvents, paymentIntents, payouts } from '../schema/payments';
 import {
   WITHDRAWAL_APPROVED,
   WITHDRAWAL_CANCELLED,
   WITHDRAWAL_FAILED,
   WITHDRAWAL_FLAGGED,
+  WITHDRAWAL_HELD,
   WITHDRAWAL_PAID,
   WITHDRAWAL_REJECTED,
   WITHDRAWAL_REQUESTED,
@@ -73,11 +75,20 @@ export const AUTO_APPROVER = 'system:auto';
 
 /**
  * Why a withdrawal waits for staff (payouts.review_reason): at or above the
- * auto-approval threshold, the player is under an exclusion, or the player
+ * auto-approval threshold, the player is under an exclusion, the player
  * has an open or escalated high-severity AML flag (`aml_review`; also set
- * when such a flag sends an approved withdrawal back to review).
+ * when such a flag sends an approved withdrawal back to review), or a
+ * settlement correction of one of the player's bets was blocked
+ * (`settlement_correction`, set by holdWithdrawalsForCorrection).
  */
-export type ReviewReason = 'above_auto_approve_threshold' | 'active_exclusion' | 'aml_review';
+export type ReviewReason =
+  | 'above_auto_approve_threshold'
+  | 'active_exclusion'
+  | 'aml_review'
+  | 'settlement_correction';
+
+/** Review reason of a withdrawal sent back because a settlement correction was blocked. */
+export const SETTLEMENT_CORRECTION_REVIEW_REASON = 'settlement_correction';
 
 /**
  * Why a payout waits for staff (payouts.flag_reason):
@@ -177,6 +188,96 @@ async function withdrawnLastDay(tx: DbTransaction, userId: string, now: Date): P
 }
 
 /**
+ * A bet of the player whose settlement correction is blocked (it would take
+ * the player's cash below zero; see settlePlacedBet / blockCorrection), or
+ * null. While one exists the player still owes the house the difference, so
+ * no money may leave the account.
+ */
+export async function blockedSettlementCorrection(
+  exec: DbExecutor,
+  userId: string,
+): Promise<{ betId: string } | null> {
+  const [row] = await exec
+    .select({ betId: bets.id })
+    .from(bets)
+    .where(and(eq(bets.userId, userId), isNotNull(bets.settlementRetryAt)))
+    .limit(1);
+  return row ?? null;
+}
+
+function correctionPending(betId: string): DomainError {
+  return domainConflict(
+    'settlement_correction_pending',
+    'A result on one of your bets was corrected and your balance is being adjusted. You can withdraw once that is done.',
+    { betId },
+  );
+}
+
+/**
+ * Sends the player's approved withdrawals that no payout worker has taken
+ * yet back to staff review (`settlement_correction`), in the caller's
+ * transaction, because a settlement correction of `betId` was just blocked:
+ * the held money may be needed to recover the wrongly paid winnings. Rows
+ * another transaction holds right now are skipped (SKIP LOCKED: a payout
+ * worker is sending them, or a cancel / AML hold is changing them), so this
+ * never waits on, or deadlocks with, a payout that already left. Writes
+ * `payment.withdrawal_held` and an audit record per payout; returns the ids.
+ */
+export async function holdWithdrawalsForCorrection(
+  tx: DbTransaction,
+  input: { userId: string; betId: string; now: Date },
+): Promise<string[]> {
+  const { userId, betId, now } = input;
+  const approved = await tx
+    .select()
+    .from(payouts)
+    .where(
+      and(
+        eq(payouts.userId, userId),
+        eq(payouts.status, 'approved'),
+        eq(payouts.attempts, 0),
+        isNull(payouts.flaggedAt),
+      ),
+    )
+    .orderBy(asc(payouts.requestedAt))
+    .for('update', { skipLocked: true });
+  const held: string[] = [];
+  for (const payout of approved) {
+    await updatePayout(tx, payout.id, {
+      status: 'requested',
+      reviewReason: SETTLEMENT_CORRECTION_REVIEW_REASON,
+      approvedBy: null,
+      approvedAt: null,
+      nextAttemptAt: null,
+      updatedAt: now,
+    });
+    const payload = {
+      payoutId: payout.id,
+      userId,
+      provider: payout.provider,
+      amount: payout.amount,
+      reason: SETTLEMENT_CORRECTION_REVIEW_REASON,
+      betId,
+    };
+    await enqueueOutbox(tx, {
+      type: WITHDRAWAL_HELD,
+      aggregateType: 'payout',
+      aggregateId: payout.id,
+      payload,
+    });
+    await writeAudit(tx, {
+      actorType: 'system',
+      action: WITHDRAWAL_HELD,
+      targetType: 'payout',
+      targetId: payout.id,
+      metadata: payload,
+    });
+    held.push(payout.id);
+  }
+  return held;
+}
+
+/**
  * Flags the payout for staff (the worker skips it from now on), with the
  * `payment.withdrawal_flagged` outbox event and an audit record. A payout
  * that is already flagged keeps its reason and time, except that a
@@ -241,6 +342,9 @@ async function flagPayout(
  *    deposit of the player is flagged `failure_after_success` (the provider
  *    reports it reversed): the money may not be the player's until staff
  *    resolve it (resolveFlaggedDeposit);
+ * 5b. 409 `settlement_correction_pending` (details `{ betId }`) while a
+ *    settlement correction of one of the player's bets is blocked (the
+ *    player owes the house the difference; see blockedSettlementCorrection);
  * 6. 422 `withdrawal_amount_out_of_range` outside [minWithdrawal, maxWithdrawal];
  * 7. 422 `withdrawal_daily_cap_exceeded` when the open and paid withdrawals
  *    requested in the last 24 hours plus `amount` exceed dailyWithdrawalCap;
@@ -341,6 +445,8 @@ export async function requestWithdrawal(
       { depositId: underReview.id },
     );
   }
+  const blocked = await blockedSettlementCorrection(tx, userId);
+  if (blocked) throw correctionPending(blocked.betId);
   if (amount < rules.minWithdrawal || amount > rules.maxWithdrawal) {
     throw domainUnprocessable(
       'withdrawal_amount_out_of_range',
@@ -479,7 +585,9 @@ export async function requestWithdrawal(
  * `changed: false`; 409 `payout_not_reviewable` once it was rejected,
  * cancelled or failed. While the player's withdrawals are held for AML (an
  * open or escalated high-severity flag), only a reviewer with aml.review
- * (`amlReviewer`) may approve: 409 `aml_review_pending` otherwise.
+ * (`amlReviewer`) may approve: 409 `aml_review_pending` otherwise. Nobody
+ * may approve while a settlement correction of one of the player's bets is
+ * blocked: 409 `settlement_correction_pending`.
  */
 export async function approveWithdrawal(
   tx: DbTransaction,
@@ -507,6 +615,8 @@ export async function approveWithdrawal(
       'Compliance must review this player before the withdrawal can be approved.',
     );
   }
+  const blocked = await blockedSettlementCorrection(tx, payout.userId);
+  if (blocked) throw correctionPending(blocked.betId);
   const updated = await updatePayout(tx, payout.id, {
     status: 'approved',
     approvedBy: input.adminId,

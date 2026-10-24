@@ -13,6 +13,7 @@ import { DemoOtpHint, OtpInput, PasswordInput, PhoneInput } from './inputs';
 import { getPendingResetPhone, setPendingResetPhone } from './pending';
 import { Alert, Field, describedBy } from './ui';
 import {
+  MIN_PASSWORD_LENGTH,
   cleanOtp,
   hasErrors,
   normalizePhone,
@@ -114,7 +115,7 @@ export function ResetForm() {
           id="reset-password"
           name="newPassword"
           autoComplete="new-password"
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           maxLength={128}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}

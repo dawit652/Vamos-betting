@@ -6,7 +6,16 @@ export const PhoneInput = z.string().trim().min(9).max(20);
 /** Gregorian date of birth, YYYY-MM-DD. */
 export const DateOfBirth = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-DD');
 
-export const Password = z.string().min(6, 'at least 6 characters').max(128);
+/**
+ * A new password (registration, reset). The API also refuses common ones
+ * (`weak_password`). Login takes any non-empty password, so accounts created
+ * under the earlier 6-character rule keep working until they change it.
+ */
+export const MIN_PASSWORD_LENGTH = 8;
+export const Password = z
+  .string()
+  .min(MIN_PASSWORD_LENGTH, `at least ${MIN_PASSWORD_LENGTH} characters`)
+  .max(128);
 
 export const OtpCode = z.string().regex(/^\d{6}$/, 'the code has 6 digits');
 

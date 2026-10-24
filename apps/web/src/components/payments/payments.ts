@@ -294,6 +294,8 @@ export function paymentErrorMessage(error: unknown): Message {
       return { key: 'account.payments.errors.notCancellable' };
     case 'deposit_under_review':
       return { key: 'account.payments.errors.depositUnderReview' };
+    case 'settlement_correction_pending':
+      return { key: 'account.payments.errors.settlementCorrection' };
     case 'invalid_phone':
       return { key: 'account.payments.errors.invalidPhone' };
     case 'wrong_pin':

@@ -15,6 +15,7 @@ import { accountPaths, loginHref } from './paths';
 import { setPendingRegistration } from './pending';
 import { Alert, Field, describedBy } from './ui';
 import {
+  MIN_PASSWORD_LENGTH,
   hasErrors,
   latestBirthDate,
   normalizePhone,
@@ -147,7 +148,7 @@ export function RegisterForm({ next }: { next: string }) {
           id="reg-password"
           name="password"
           autoComplete="new-password"
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           maxLength={128}
           value={password}
           onChange={(e) => setPassword(e.target.value)}

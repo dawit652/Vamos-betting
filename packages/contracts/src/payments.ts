@@ -122,6 +122,9 @@ export type DepositsResponse = z.infer<typeof DepositsResponse>;
  * - 403 kyc_required, account_disabled;
  * - 409 deposit_under_review: a deposit of the player was reported reversed
  *   by its provider and waits for staff (details `{ depositId }`);
+ * - 409 settlement_correction_pending: a corrected result on one of the
+ *   player's bets could not be posted yet (it would overdraw the balance);
+ *   withdrawals wait until it is (details `{ betId }`);
  * - 422 payout_phone_mismatch, withdrawal_amount_out_of_range,
  *   withdrawal_daily_cap_exceeded, wagering_requirement_not_met (details
  *   `{ remaining }`), insufficient_funds, payment_provider_unavailable.
@@ -130,6 +133,7 @@ export const WithdrawalErrorCodeSchema = z.enum([
   'kyc_required',
   'account_disabled',
   'deposit_under_review',
+  'settlement_correction_pending',
   'payout_phone_mismatch',
   'withdrawal_amount_out_of_range',
   'withdrawal_daily_cap_exceeded',

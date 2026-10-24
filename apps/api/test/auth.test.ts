@@ -20,7 +20,7 @@ import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
 import { sha256Hex } from '../src/lib/crypto';
-import { OTP_TTL_MS } from '../src/lib/otp';
+import { OTP_HOURLY_PHONE_CEILING, OTP_TTL_MS } from '../src/lib/otp';
 import { DEFAULT_AUTH_LIMITS } from '../src/lib/rate-limits';
 import type { DevSmsResponse } from '../src/modules/dev/routes';
 import { assertCanGamble, getActiveExclusion } from '../src/modules/rg/guard';
@@ -249,15 +249,18 @@ describe('auth', () => {
       expect(response.statusCode).toBe(201);
     });
 
-    it.each(['123456', 'PASSWORD', 'qwerty'])('rejects the common password %s', async (pw) => {
-      const response = await post(
-        ctx,
-        '/auth/register',
-        registerPayload(randomPhone(), { password: pw }),
-      );
-      expect(response.statusCode).toBe(400);
-      expect(apiError(response).code).toBe('weak_password');
-    });
+    it.each(['12345678', 'PASSWORD', 'Qwertyuiop', 'iloveyou1'])(
+      'rejects the common password %s',
+      async (pw) => {
+        const response = await post(
+          ctx,
+          '/auth/register',
+          registerPayload(randomPhone(), { password: pw }),
+        );
+        expect(response.statusCode).toBe(400);
+        expect(apiError(response).code).toBe('weak_password');
+      },
+    );
 
     it('rejects the phone number as password', async () => {
       const phone = randomPhone();
@@ -647,14 +650,23 @@ describe('auth', () => {
       ctx.clock.advance(61_000);
       const registered = await post(ctx, '/auth/register', registerPayload(phone));
       expect(registered.statusCode).toBe(201);
-      // The reset bucket itself is still capped.
-      const sixth = await post(
+      // The reset bucket itself is still capped (per number, across addresses).
+      for (let i = 5; i < OTP_HOURLY_PHONE_CEILING; i += 1) {
+        const forgot = await post(
+          ctx,
+          '/auth/password/forgot',
+          { phone },
+          { remoteAddress: `192.0.2.${100 + i}` },
+        );
+        expect(forgot.statusCode).toBe(200);
+      }
+      const over = await post(
         ctx,
         '/auth/password/forgot',
         { phone },
         { remoteAddress: '192.0.2.99' },
       );
-      expect(apiError(sixth).code).toBe('otp_limit');
+      expect(apiError(over).code).toBe('otp_limit');
     });
 
     it('only resends registration codes to the holder of the registration token', async () => {

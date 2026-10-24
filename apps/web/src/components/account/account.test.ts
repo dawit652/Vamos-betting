@@ -107,13 +107,25 @@ describe('validation', () => {
       validateRegister(
         {
           phone: '0911 234 567',
-          password: 'secret1',
+          password: 'secret12',
           dateOfBirth: '1990-05-17',
           acceptTerms: true,
         },
         NOW,
       ),
     ).toEqual({});
+    // New passwords need 8 characters (the API also refuses common ones).
+    expect(
+      validateRegister(
+        {
+          phone: '0911 234 567',
+          password: 'secret1',
+          dateOfBirth: '1990-05-17',
+          acceptTerms: true,
+        },
+        NOW,
+      ).password,
+    ).toBe('account.validation.passwordShort');
     expect(
       validateRegister(
         { phone: '0111234567', password: '123', dateOfBirth: '', acceptTerms: false },
@@ -129,7 +141,7 @@ describe('validation', () => {
       validateRegister(
         {
           phone: '+251711234567',
-          password: 'abcdef',
+          password: 'abcdefgh',
           dateOfBirth: '1990-01-01',
           acceptTerms: true,
         },
@@ -166,8 +178,8 @@ describe('validation', () => {
       validateReset({
         phone: '0911234567',
         code: '123456',
-        newPassword: 'abcdef',
-        confirmPassword: 'abcdeg',
+        newPassword: 'abcdefgh',
+        confirmPassword: 'abcdefgi',
       }),
     ).toEqual({ confirmPassword: 'account.validation.passwordMismatch' });
     expect(hasErrors({})).toBe(false);
