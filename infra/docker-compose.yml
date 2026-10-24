@@ -1,5 +1,7 @@
 # Local development services. Usage:
 #   docker compose -f infra/docker-compose.yml up -d
+# Published on loopback only: the dev password and the password-less Redis must not be reachable
+# from the network.
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,7 +10,7 @@ services:
       POSTGRES_PASSWORD: vamos
       POSTGRES_DB: vamos
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,7 +23,7 @@ services:
     image: redis:7-alpine
     command: ['redis-server', '--save', '', '--appendonly', 'no']
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s

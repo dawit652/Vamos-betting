@@ -50,10 +50,14 @@ register (OTP) to verify.
 
 ## Database and Redis passwords
 
-- **Postgres:** `docker compose exec postgres psql -U vamos -d vamos -c "ALTER USER vamos PASSWORD '<new hex>'"`,
-  then set `POSTGRES_PASSWORD` and `docker compose up -d api worker` (the `postgres` container keeps the
-  password in its data directory; the environment value only matters for first initialisation and for the
-  URLs the other services build). Run `docker compose run --rm migrate` to confirm the new URL works.
+- **Postgres owner** (`POSTGRES_USER`, used only by the migrate job and the ops scripts):
+  `docker compose exec postgres psql -U vamos -d vamos -c "ALTER USER vamos PASSWORD '<new hex>'"`, then
+  set `POSTGRES_PASSWORD` and run `docker compose run --rm migrate` to confirm the new URL works (the
+  `postgres` container keeps the password in its data directory; the environment value only matters for
+  first initialisation and for the migrate job's URL).
+- **App role** (`vamos_app`, the api and worker): set a new `APP_DB_PASSWORD`, then
+  `docker compose run --rm migrate` (it sets the role's password) and `docker compose up -d api worker`.
+  Connections already open keep working until the restart.
 - **Redis:** set `REDIS_PASSWORD`, then `docker compose up -d redis api worker` (a short outage; queues are
   rebuilt from the outbox).
 

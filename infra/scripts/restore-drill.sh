@@ -39,6 +39,9 @@ done
 sleep 3
 docker exec "$NAME" pg_isready -U "$PGUSER_" -d "$PGDB" >/dev/null || { echo "scratch postgres did not start" >&2; exit 1; }
 
+# Roles live outside the dump: create the app role (migration 0030) so its GRANTs restore.
+docker exec "$NAME" psql -U "$PGUSER_" -d "$PGDB" -qc "CREATE ROLE vamos_app NOLOGIN" >/dev/null
+
 echo "restoring $DUMP ..."
 start=$SECONDS
 "${reader[@]}" | docker exec -i "$NAME" pg_restore -U "$PGUSER_" -d "$PGDB" --no-owner --exit-on-error

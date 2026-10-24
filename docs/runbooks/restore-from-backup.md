@@ -29,6 +29,11 @@ cat /var/backups/vamos/db/vamos-<stamp>.dump | docker compose exec -T postgres \
   sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error'
 ```
 
+Roles are not in the dump. The production cluster already has the app role `vamos_app` (migration 0030);
+on a **new** cluster (lost host) create it before step 3, or the dump's `GRANT ... TO vamos_app` stops the
+restore: `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "CREATE ROLE vamos_app NOLOGIN"'`.
+The migrate job gives it its login again from `APP_DB_PASSWORD` when the stack starts.
+
 If a connection still holds the old database, terminate it first (`SELECT pg_terminate_backend(pid) FROM
 pg_stat_activity WHERE datname = '<db>' AND pid <> pg_backend_pid()`).
 

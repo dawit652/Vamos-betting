@@ -1,5 +1,6 @@
 export { createDb, type Database, type DbHandle } from './client';
 export { MIGRATIONS_FOLDER, runMigrations } from './migrate';
+export { APP_ROLE, setAppRolePassword } from './app-role';
 export * as schema from './schema/index';
 export * from './errors';
 export * from './ledger/index';

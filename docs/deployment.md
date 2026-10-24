@@ -29,12 +29,23 @@ regulator.
 | ---------- | ------------ | ------ | ------------------------------------ | ------------------------------------------------------------------------------- |
 | `postgres` | postgres:16  | 5432   | volume `pgdata`, WAL archive `pgwal` | Never published. The ledger, audit log and all business rows.                   |
 | `redis`    | redis:7      | 6379   | volume `redisdata` (AOF)             | Never published. Password, `noeviction` (BullMQ needs it).                      |
-| `migrate`  | `api`        | none   | none                                 | One-shot job: `node dist/ops/migrate.js`, runs before the api and worker start. |
+| `migrate`  | `api`        | none   | none                                 | One-shot job: `node dist/ops/migrate.js`, runs before the api and worker start. The only service that connects as the database owner. |
 | `api`      | `api`        | 4000   | none (stateless)                     | `/health`. Reads the ELS volume read-only for the compliance status page.       |
 | `worker`   | `worker`     | 4100   | volume `els` (writer)                | `/health`, `/ready`. Run **one** instance (the ELS writer owns the directory).  |
 | `web`      | `web`        | 3000   | none                                 | Player PWA. `NEXT_PUBLIC_API_URL` is baked in at build time.                    |
 | `admin`    | `admin`      | 3001   | none                                 | Back office. Must be on a different origin from the web app.                    |
 | `proxy`    | caddy:2      | 80/443 | volumes `caddy_*`                    | Optional (`--profile proxy`): automatic TLS for three host names.               |
+
+**Database roles.** The api and worker connect as `vamos_app`, a role the migrations create (0030) with only
+what the app needs: no superuser, owner of nothing, no `TRUNCATE`, and only `INSERT`/`SELECT` on the
+append-only tables (ledger, audit log, cash-outs, summaries, reconciliation, PSP statements), so it can
+neither rewrite them nor switch their triggers off (`session_replication_role` needs a superuser). The
+owner (`POSTGRES_USER`, a superuser in the postgres image) is used only by the `migrate` job, which also sets
+`vamos_app`'s login from `APP_DB_PASSWORD` on every run, and by the ops scripts run through it (seed,
+admin-create, admin-unlock). Local development and the e2e stack keep using one owner role (`vamos`); to try
+the app role locally: `APP_DB_PASSWORD=<16+ chars> pnpm db:migrate`, then start the api/worker with
+`DATABASE_URL=postgres://vamos_app:<password>@localhost:5432/vamos`. A new append-only table must `REVOKE`
+`UPDATE, DELETE` from `vamos_app` in its guard migration (`packages/db/test/app-role.test.ts` checks it).
 
 The images are built from one Dockerfile (`infra/docker/Dockerfile`): multi-stage, `pnpm fetch` for a cached
 dependency layer, production-only `pnpm install --prod` per service, `node:22-alpine`, non-root user
@@ -87,7 +98,9 @@ time). The Caddy proxy profile and a restore from the dumps were not exercised i
 password that must be changed at first sign-in. The demo staff accounts (`<role>@demo.vamos.test`) exist only
 in demo mode and only when `NODE_ENV` is not `production`.
 
-**Upgrades.** `git pull`, `docker compose build`, `docker compose up -d --wait`. The `migrate` job reruns
+**Upgrades.** `git pull`, `docker compose build`, `docker compose up -d --wait`. (Upgrading from a release
+before the app role: add `APP_DB_PASSWORD=$(openssl rand -hex 16)` to `infra/.env.prod` first; compose refuses
+to start without it.) The `migrate` job reruns
 first (migrations are forward-only and idempotent). Take a [dump](backups.md) before any release that adds
 migrations. Rolling back code is safe only while no new migration was applied; otherwise restore
 (runbook: [restore from backup](runbooks/restore-from-backup.md)). Keep image tags per release:
@@ -184,7 +197,8 @@ in a secret manager, not in git.
 
 | Variable                               | Default                                                   | Meaning                                                                                                           |
 | -------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                         | local dev URL                                             | Postgres URL. Compose builds it from `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`.                         |
+| `DATABASE_URL`                         | local dev URL                                             | Postgres URL. Compose builds the api/worker URL for `vamos_app` from `APP_DB_PASSWORD`, the migrate job's from `POSTGRES_USER`, `POSTGRES_PASSWORD` (owner), both with `POSTGRES_DB`. |
+| `APP_DB_PASSWORD` (secret)             | unset                                                     | Migrate job only: gives the app role `vamos_app` its login and this password (16+ printable characters, hex from `init-env.sh`). |
 | `REDIS_URL`                            | local dev URL                                             | Redis URL. Compose builds it from `REDIS_PASSWORD`.                                                               |
 | `QUEUE_PREFIX`                         | `vamos`                                                   | Key prefix of the BullMQ queues. Change only with an empty queue.                                                 |
 | `SESSION_SECRET` (secret)              | dev value (refused in production)                         | 32+ chars. Keys OTP hashes and the national-ID hash that stops one ID opening two accounts. See rotation runbook. |

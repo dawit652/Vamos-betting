@@ -218,6 +218,10 @@ In Workflow scripts set `model` and `effort` on each `agent()` call to match thi
   TRUNCATE is blocked. Tests must create a fresh database with `createTestDatabase()` rather than
   cleaning tables.
 - Near-certain favourites priced between 1.001 and 1.01 keep almost no margin. That is expected.
+- Production api/worker connect as the restricted role `vamos_app` (migration 0030), not the owner. A new
+  table gets full DML through default privileges; a new append-only table must also `REVOKE UPDATE, DELETE`
+  from `vamos_app` in its guard migration (`packages/db/test/app-role.test.ts` reads the triggers and fails
+  otherwise). Never run app code that needs DDL, `TRUNCATE` or superuser settings.
 
 ## Conventions
 

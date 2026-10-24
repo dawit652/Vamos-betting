@@ -13,7 +13,7 @@ command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 2; }
 umask 077
 cp "$ROOT/infra/env.prod.example" "$TARGET"
 # Hex only: the passwords are embedded in connection URLs.
-for entry in POSTGRES_PASSWORD:16 REDIS_PASSWORD:16 SESSION_SECRET:32 ADMIN_TOTP_KEY:32 \
+for entry in POSTGRES_PASSWORD:16 APP_DB_PASSWORD:16 REDIS_PASSWORD:16 SESSION_SECRET:32 ADMIN_TOTP_KEY:32 \
   MOCK_PAYMENT_WEBHOOK_SECRET:24 SMS_WEBHOOK_SECRET:24 USSD_SHARED_SECRET:24; do
   name="${entry%%:*}" bytes="${entry##*:}"
   sed -i "s|^${name}=CHANGE_ME\$|${name}=$(openssl rand -hex "$bytes")|" "$TARGET"
