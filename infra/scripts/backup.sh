@@ -3,7 +3,7 @@
 #
 #   dump   logical dump of the database (pg_dump -Fc)               db/vamos-<UTC time>.dump
 #   base   physical base backup for point-in-time recovery          base/base-<UTC time>.tar
-#   wal    copies the archived WAL segments off the pgwal volume    wal/<segment>
+#   wal    copies new archived WAL segments off the pgwal volume    wal/<segment>.gz[.age]
 #   els    the ELS regulator reports (JSONL stream and CSVs)        els/els-<UTC time>.tar.gz
 #   prune  deletes dumps and base backups past their retention      (ELS archives are kept, see below)
 #   all    dump + els + wal (default)
@@ -12,7 +12,9 @@
 # Environment:
 #   COMPOSE_FILE / COMPOSE_ENV_FILES   default infra/docker-compose.prod.yml / infra/.env.prod
 #   BACKUP_DIR                         default ./backups
-#   BACKUP_AGE_RECIPIENT               an `age` public key: encrypts dump, base and els files (.age)
+#   BACKUP_AGE_RECIPIENT               an `age` public key: encrypts every file written (.age), WAL
+#                                      segments included. Once BACKUP_DIR holds .age files, a run
+#                                      without it is refused (BACKUP_ALLOW_PLAINTEXT=1 overrides)
 #   DUMP_KEEP_DAYS=35 DUMP_KEEP_MONTHS=24   daily dumps for 35 days, the 1st of each month for 24
 #                                      months, the 1st of January for ever (>= 7 years: the ledger,
 #                                      audit log and ELS reports must be kept 7 years)
@@ -62,10 +64,35 @@ do_base() {
     | write "$BACKUP_DIR/base/base-$STAMP.tar"
 }
 
+# A run without BACKUP_AGE_RECIPIENT (e.g. a cron line missing it) must not leave plaintext copies
+# next to encrypted backups.
+check_encryption() {
+  if [[ -z "${BACKUP_AGE_RECIPIENT:-}" && "${BACKUP_ALLOW_PLAINTEXT:-}" != 1 ]] &&
+    [[ -n "$(find "$BACKUP_DIR" -name '*.age' -print -quit 2>/dev/null)" ]]; then
+    echo "BACKUP_DIR holds encrypted backups but BACKUP_AGE_RECIPIENT is not set: refusing to" \
+      "write plaintext (set it, or BACKUP_ALLOW_PLAINTEXT=1)" >&2
+    exit 2
+  fi
+}
+
+# Each finished segment once, through write() (encrypted when BACKUP_AGE_RECIPIENT is set, with its
+# .sha256). archive_command writes <segment>.gz.tmp and renames it, so *.tmp is still being written.
+# WAL files never change: a segment with a checksum here (plain or .age) is not copied again.
 do_wal() {
   mkdir -p "$BACKUP_DIR/wal"
-  dc cp postgres:/backups/wal/. "$BACKUP_DIR/wal/"
-  echo "WAL segments in $BACKUP_DIR/wal: $(find "$BACKUP_DIR/wal" -type f | wc -l)"
+  local names name copied=0
+  names="$(dc exec -T postgres sh -c 'cd /backups/wal && ls -1A' </dev/null)"
+  while IFS= read -r name; do
+    [[ -n "$name" && "$name" != *.tmp ]] || continue
+    if [[ ! "$name" =~ ^[0-9A-Za-z._-]+$ ]]; then
+      echo "skipping unexpected name in the WAL archive: $name" >&2
+      continue
+    fi
+    [[ -f "$BACKUP_DIR/wal/$name.sha256" || -f "$BACKUP_DIR/wal/$name.age.sha256" ]] && continue
+    dc exec -T postgres cat "/backups/wal/$name" </dev/null | write "$BACKUP_DIR/wal/$name" >/dev/null
+    copied=$((copied + 1))
+  done <<<"$names"
+  echo "WAL: $copied new file(s) copied to $BACKUP_DIR/wal${BACKUP_AGE_RECIPIENT:+ (encrypted)}"
 }
 
 do_els() {
@@ -98,6 +125,9 @@ do_prune() {
   find "$BACKUP_DIR/els" -type f -name 'els-*' -mtime "+$ELS_KEEP_DAYS" -print -delete 2>/dev/null || true
 }
 
+case "${1:-all}" in
+  dump | base | wal | els | all) check_encryption ;;
+esac
 case "${1:-all}" in
   dump) do_dump ;;
   base) do_base ;;

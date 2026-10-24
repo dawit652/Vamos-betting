@@ -24,17 +24,23 @@ it against loss; their own retention is shorter except for the yearly archive.
    table or the whole database, version-independent within PostgreSQL 16.x. It is the backup the restore
    drill checks.
 2. **WAL archiving, continuous.** The compose Postgres runs `archive_mode=on` with `archive_timeout=300`:
-   every finished 16 MB segment (or every 5 minutes at the latest) is gzipped into the `pgwal` volume.
+   every finished 16 MB segment (or every 5 minutes at the latest) is gzipped into the `pgwal` volume, and
+   `backup.sh wal` copies each new one to `BACKUP_DIR/wal` through the same path as every other backup:
+   encrypted (`<segment>.gz.age`) when `BACKUP_AGE_RECIPIENT` is set, always with a `.sha256`.
    Together with a **weekly base backup** (`backup.sh base`, `pg_basebackup`) this allows point-in-time
    recovery to any moment, for example "one second before the bad deploy". Target RPO once the segments are
    copied off the host: 5 minutes. A dump alone gives an RPO of up to a day.
 3. **ELS directory archive** (`backup.sh els`, a tarball) at least daily, and after every business-day
    finalisation (the file set only grows).
 4. **Off the host, encrypted, in two places.** Everything under `BACKUP_DIR` is copied to storage on another
-   machine and another site (rsync/rclone/object storage), encrypted with `age` (`BACKUP_AGE_RECIPIENT`). Keep
+   machine and another site (rsync/rclone/object storage), encrypted with `age` (`BACKUP_AGE_RECIPIENT`:
+   every file `backup.sh` writes, WAL segments included, is encrypted on the host before it is copied
+   anywhere; once `BACKUP_DIR` holds `.age` files a run without the recipient is refused, so a cron line that
+   forgets it cannot leave plaintext beside them). Keep
    the private key apart from the backups and from the host (two custodians). Where the copies may live is a
    data-residency question ([deployment.md](deployment.md#7-hosting-in-ethiopia-and-data-residency-to-confirm)).
-5. **Checksums.** `backup.sh` writes a `.sha256` beside every file; the drill verifies it.
+5. **Checksums.** `backup.sh` writes a `.sha256` beside every file (WAL segments too); the drill verifies it.
+   `pnpm test:infra` (`infra/scripts/backup.test.sh`, in CI) checks the WAL path against a stub docker.
 
 Managed Postgres (when you move to one) replaces items 1-2 with its own snapshots and PITR; keep the nightly
 logical dump and the ELS archive.
@@ -46,7 +52,7 @@ Run from the repository root of the host (cron or a systemd timer), as a user th
 ```cron
 # m h dom mon dow
 17 2 * * *  cd /srv/vamos && BACKUP_DIR=/var/backups/vamos BACKUP_AGE_RECIPIENT=age1... infra/scripts/backup.sh all
-47 * * * *  cd /srv/vamos && BACKUP_DIR=/var/backups/vamos infra/scripts/backup.sh wal
+47 * * * *  cd /srv/vamos && BACKUP_DIR=/var/backups/vamos BACKUP_AGE_RECIPIENT=age1... infra/scripts/backup.sh wal
 37 3 * * 0  cd /srv/vamos && BACKUP_DIR=/var/backups/vamos BACKUP_AGE_RECIPIENT=age1... infra/scripts/backup.sh base
 27 4 * * *  cd /srv/vamos && BACKUP_DIR=/var/backups/vamos infra/scripts/backup.sh prune
 ```

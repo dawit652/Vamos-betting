@@ -46,7 +46,11 @@ settings** as production (`max_connections` etc.; the compose `command` list), o
 ```bash
 W=/srv/restore && mkdir -p $W/data $W/wal
 tar -xf /var/backups/vamos/base/base-<stamp>.tar -C $W/data          # newest base backup BEFORE the target
-cp -r /var/backups/vamos/wal/. $W/wal/ && chmod -R a+rX $W/wal         # all segments since that base backup
+cp /var/backups/vamos/wal/*.gz $W/wal/ 2>/dev/null; chmod -R a+rX $W/wal  # all segments since that base backup
+# Encrypted backups (BACKUP_AGE_RECIPIENT): decrypt the base backup and every segment first, e.g.
+#   age -d -i key.txt /var/backups/vamos/base/base-<stamp>.tar.age | tar -xf - -C $W/data
+#   for f in /var/backups/vamos/wal/*.gz.age; do b=$(basename "$f" .age); age -d -i key.txt -o "$W/wal/$b" "$f"; done
+# (check the .sha256 files first: cd /var/backups/vamos/wal && sha256sum -c --quiet *.sha256)
 mkdir -p $W/data/pg_wal && chown -R 70:70 $W/data && chmod 700 $W/data  # uid 70 = postgres in the alpine image
 cat >> $W/data/postgresql.auto.conf <<'CONF'
 restore_command = 'gunzip -c /wal/%f.gz > %p'

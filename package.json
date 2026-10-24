@@ -18,6 +18,7 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "test:unit": "pnpm -r --if-present test:unit",
+    "test:infra": "bash infra/scripts/backup.test.sh",
     "e2e": "pnpm --filter @vamos/e2e e2e",
     "load:bets": "pnpm --filter @vamos/load bet-placement",
     "db:generate": "pnpm --filter @vamos/db generate",
