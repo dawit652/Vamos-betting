@@ -16,11 +16,7 @@ import { clientAddressKey } from '../../lib/client-address';
 import { parseInput } from '../../lib/errors';
 import { warmUpPasswordHashing } from '../../lib/passwords';
 import { randomToken } from '../../lib/crypto';
-import {
-  enforceLimit,
-  loginPhoneLimitKey,
-  restartLoginPhoneLimit,
-} from '../../lib/rate-limits';
+import { enforceLimit, loginPhoneLimitKey, restartLoginPhoneLimit } from '../../lib/rate-limits';
 import {
   clearSessionCookies,
   requireUser,

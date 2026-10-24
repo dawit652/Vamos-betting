@@ -112,6 +112,17 @@ Fix: `placeBet` now posts the stake last, so the shared `house_stakes` row lock 
 posting and commit (bets 75 → 96/s at 50 connections, p95 504 ms; CPU-bound single API process).
 Full CI pipeline and the 16-test e2e suite were green; home page first load 149.7 KB.
 
+**Phase 12 security review (24 Oct 2026).** 12 findings fixed, each with a regression test:
+withdrawals refused and unapprovable while a settlement correction is blocked (approved, unsent ones go back
+to review); a daily budget of 10 wrong password-reset codes per number; OTP cooldown and hourly cap per
+(number, address) under a per-number ceiling of 15/h, and a password reset lifts the per-number login lock;
+new passwords need 8 characters and must not be among the 10,000 most common (server-side list); the staff
+account-wide delay no longer refuses addresses without failures (the right password and code get in);
+api/worker connect as the restricted role `vamos_app` (migration 0030; only the migrate job uses the owner,
+`APP_DB_PASSWORD`); encrypted, checksummed WAL backups (`pnpm test:infra`); dependency upgrades (prod audit
+clean); licensed mode refuses http provider/callback/ELS URLs; Caddy `STAFF_ALLOWLIST` covers the admin host
+and `/admin*` on the api host; proxy and web/admin container hardening; dev compose on loopback.
+
 ## Legal context (do not change)
 
 - Ethiopia revoked all sports betting licences on 15 Dec 2025. Vamos Entertainment PLC was one of the
@@ -206,6 +217,8 @@ In Workflow scripts set `model` and `effort` on each `agent()` call to match thi
   at runtime (for example `pg`, `drizzle-orm`) must also be a dependency of the app that bundles them,
   or the ESM build crashes with "Dynamic require of 'events' is not supported".
 - ESLint `@typescript-eslint/require-await` is disabled because Fastify handlers are async by contract.
+- Typed ESLint over the whole repo needs more than Node's default 2 GB heap on a 16 GB machine; `pnpm lint`
+  runs it with `--max-old-space-size=4096`. Call `pnpm lint`, not a bare `eslint .`.
 - Prettier was once non-idempotent on `apps/api/src/app.ts`. If `format:check` fails right after
   `format`, run `pnpm format` again.
 - Live/SSE tests must publish on a unique Redis channel per test, or parallel test files see each

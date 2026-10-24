@@ -806,11 +806,7 @@ async function readStaffRow(exec: DbExecutor, id: string): Promise<AdminUserRow>
  * success (an address without failures is still checked; see the module
  * comment).
  */
-function backoffRefuses(
-  row: AdminUserRow,
-  throttle: ThrottleRow | undefined,
-  now: Date,
-): boolean {
+function backoffRefuses(row: AdminUserRow, throttle: ThrottleRow | undefined, now: Date): boolean {
   return isFuture(row.lockedUntil, now) && (throttle?.failedAttempts ?? 0) > 0;
 }
 

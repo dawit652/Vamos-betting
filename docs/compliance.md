@@ -65,7 +65,10 @@ ledger postings by their own timestamp.
 | Active players  | distinct players with a bet, jackpot entry, deposit, withdrawal request or paid withdrawal that day |
 | ELS commission  | `floor(GGR x rateBps / 10000)`, and 0 when GGR <= 0                                                 |
 
-- A correction's reversal counts negative on the day it is posted. GGR is a stakes-in, payouts-out view of
+- A correction's reversal counts negative on the day it is posted. A correction that would take the player's
+  balance below zero waits (`bet.correction_blocked`, retried every 5 minutes); until it posts the player
+  cannot withdraw (`settlement_correction_pending`), nobody can approve their withdrawals, and approved ones
+  not yet sent go back to review (`settlement_correction`). GGR is a stakes-in, payouts-out view of
   each day. The Phase 9 dashboard GGR (what `house_revenue` gained) differs by the change in open stakes and
   the jackpot pool.
 - Rows live in `daily_summaries` (one per day). A **provisional** day may be recomputed and each change

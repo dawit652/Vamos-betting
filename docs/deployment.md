@@ -25,16 +25,16 @@ regulator.
                                   reconciliation, AML; writes the ELS reports to a volume
 ```
 
-| Service    | Image target | Port   | State                                | Notes                                                                           |
-| ---------- | ------------ | ------ | ------------------------------------ | ------------------------------------------------------------------------------- |
-| `postgres` | postgres:16  | 5432   | volume `pgdata`, WAL archive `pgwal` | Never published. The ledger, audit log and all business rows.                   |
-| `redis`    | redis:7      | 6379   | volume `redisdata` (AOF)             | Never published. Password, `noeviction` (BullMQ needs it).                      |
+| Service    | Image target | Port   | State                                | Notes                                                                                                                                 |
+| ---------- | ------------ | ------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `postgres` | postgres:16  | 5432   | volume `pgdata`, WAL archive `pgwal` | Never published. The ledger, audit log and all business rows.                                                                         |
+| `redis`    | redis:7      | 6379   | volume `redisdata` (AOF)             | Never published. Password, `noeviction` (BullMQ needs it).                                                                            |
 | `migrate`  | `api`        | none   | none                                 | One-shot job: `node dist/ops/migrate.js`, runs before the api and worker start. The only service that connects as the database owner. |
-| `api`      | `api`        | 4000   | none (stateless)                     | `/health`. Reads the ELS volume read-only for the compliance status page.       |
-| `worker`   | `worker`     | 4100   | volume `els` (writer)                | `/health`, `/ready`. Run **one** instance (the ELS writer owns the directory).  |
-| `web`      | `web`        | 3000   | none                                 | Player PWA. `NEXT_PUBLIC_API_URL` is baked in at build time.                    |
-| `admin`    | `admin`      | 3001   | none                                 | Back office. Must be on a different origin from the web app.                    |
-| `proxy`    | caddy:2      | 80/443 | volumes `caddy_*`                    | Optional (`--profile proxy`): automatic TLS for three host names.               |
+| `api`      | `api`        | 4000   | none (stateless)                     | `/health`. Reads the ELS volume read-only for the compliance status page.                                                             |
+| `worker`   | `worker`     | 4100   | volume `els` (writer)                | `/health`, `/ready`. Run **one** instance (the ELS writer owns the directory).                                                        |
+| `web`      | `web`        | 3000   | none                                 | Player PWA. `NEXT_PUBLIC_API_URL` is baked in at build time.                                                                          |
+| `admin`    | `admin`      | 3001   | none                                 | Back office. Must be on a different origin from the web app.                                                                          |
+| `proxy`    | caddy:2      | 80/443 | volumes `caddy_*`                    | Optional (`--profile proxy`): automatic TLS for three host names.                                                                     |
 
 **Database roles.** The api and worker connect as `vamos_app`, a role the migrations create (0030) with only
 what the app needs: no superuser, owner of nothing, no `TRUNCATE`, and only `INSERT`/`SELECT` on the
@@ -204,15 +204,15 @@ in a secret manager, not in git.
 
 **Data stores and secrets**
 
-| Variable                               | Default                                                   | Meaning                                                                                                           |
-| -------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Variable                               | Default                                                   | Meaning                                                                                                                                                                               |
+| -------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                         | local dev URL                                             | Postgres URL. Compose builds the api/worker URL for `vamos_app` from `APP_DB_PASSWORD`, the migrate job's from `POSTGRES_USER`, `POSTGRES_PASSWORD` (owner), both with `POSTGRES_DB`. |
-| `APP_DB_PASSWORD` (secret)             | unset                                                     | Migrate job only: gives the app role `vamos_app` its login and this password (16+ printable characters, hex from `init-env.sh`). |
-| `REDIS_URL`                            | local dev URL                                             | Redis URL. Compose builds it from `REDIS_PASSWORD`.                                                               |
-| `QUEUE_PREFIX`                         | `vamos`                                                   | Key prefix of the BullMQ queues. Change only with an empty queue.                                                 |
-| `SESSION_SECRET` (secret)              | dev value (refused in production)                         | 32+ chars. Keys OTP hashes and the national-ID hash that stops one ID opening two accounts. See rotation runbook. |
-| `ADMIN_TOTP_KEY` (secret)              | dev key (refused in production)                           | 32 bytes as 64 hex chars or base64. AES-256-GCM key of the staff TOTP secrets. See rotation runbook.              |
-| `MOCK_PAYMENT_WEBHOOK_SECRET` (secret) | dev value (refused in production while `mock` is enabled) | HMAC key of the mock provider's webhooks (demo only).                                                             |
+| `APP_DB_PASSWORD` (secret)             | unset                                                     | Migrate job only: gives the app role `vamos_app` its login and this password (16+ printable characters, hex from `init-env.sh`).                                                      |
+| `REDIS_URL`                            | local dev URL                                             | Redis URL. Compose builds it from `REDIS_PASSWORD`.                                                                                                                                   |
+| `QUEUE_PREFIX`                         | `vamos`                                                   | Key prefix of the BullMQ queues. Change only with an empty queue.                                                                                                                     |
+| `SESSION_SECRET` (secret)              | dev value (refused in production)                         | 32+ chars. Keys OTP hashes and the national-ID hash that stops one ID opening two accounts. See rotation runbook.                                                                     |
+| `ADMIN_TOTP_KEY` (secret)              | dev key (refused in production)                           | 32 bytes as 64 hex chars or base64. AES-256-GCM key of the staff TOTP secrets. See rotation runbook.                                                                                  |
+| `MOCK_PAYMENT_WEBHOOK_SECRET` (secret) | dev value (refused in production while `mock` is enabled) | HMAC key of the mock provider's webhooks (demo only).                                                                                                                                 |
 
 **Feed and simulator (demo)**
 
@@ -258,7 +258,7 @@ in a secret manager, not in git.
 | `PORT`, `HOST`                                                                                              | web, admin             | Listen port (and address for `server.mjs`).                                                                     |
 | `ADMIN_PASSWORD`                                                                                            | `admin-create.js`      | Initial password of a new staff account (12+ chars); generated when unset.                                      |
 | `BIND_ADDRESS`, `API_PORT`, `WEB_PORT`, `ADMIN_PORT`, `WORKER_HEALTH_PORT`, `VAMOS_SUBNET`, `VAMOS_VERSION` | compose only           | Published addresses/ports, the stack's network, the image tag.                                                  |
-| `WEB_DOMAIN`, `API_DOMAIN`, `ADMIN_DOMAIN`, `ACME_EMAIL`, `STAFF_ALLOWLIST`                                 | compose (`proxy`)      | Caddy host names and ACME contact; `STAFF_ALLOWLIST` limits the admin host and `/admin*` on the api host.      |
+| `WEB_DOMAIN`, `API_DOMAIN`, `ADMIN_DOMAIN`, `ACME_EMAIL`, `STAFF_ALLOWLIST`                                 | compose (`proxy`)      | Caddy host names and ACME contact; `STAFF_ALLOWLIST` limits the admin host and `/admin*` on the api host.       |
 
 ## 6. Secrets management
 

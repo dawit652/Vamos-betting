@@ -82,10 +82,7 @@ export const AUTO_APPROVER = 'system:auto';
  * (`settlement_correction`, set by holdWithdrawalsForCorrection).
  */
 export type ReviewReason =
-  | 'above_auto_approve_threshold'
-  | 'active_exclusion'
-  | 'aml_review'
-  | 'settlement_correction';
+  'above_auto_approve_threshold' | 'active_exclusion' | 'aml_review' | 'settlement_correction';
 
 /** Review reason of a withdrawal sent back because a settlement correction was blocked. */
 export const SETTLEMENT_CORRECTION_REVIEW_REASON = 'settlement_correction';

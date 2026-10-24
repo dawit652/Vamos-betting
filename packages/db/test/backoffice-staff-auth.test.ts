@@ -475,9 +475,7 @@ describe('staff sign-in', () => {
     );
     // A wrong attempt from an address without failures is checked during the delay, and counts.
     await expectInvalidCredentials(fresh('10.2.0.4', 'wrong password!'));
-    expect((await userRow(staff.id)).failedLoginAttempts).toBe(
-      STAFF_ACCOUNT_BACKOFF_THRESHOLD + 2,
-    );
+    expect((await userRow(staff.id)).failedLoginAttempts).toBe(STAFF_ACCOUNT_BACKOFF_THRESHOLD + 2);
     // The right password and a fresh code from such an address get in even during the delay
     // (review A2: strangers' failures must not keep the staff member out), and clear the count.
     expect((await userRow(staff.id)).lockedUntil!.getTime()).toBeGreaterThan(now.getTime());

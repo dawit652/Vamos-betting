@@ -22,7 +22,7 @@ afterAll(async () => {
 
 type Row = Record<string, unknown>;
 const rows = async (query: ReturnType<typeof sql>): Promise<Row[]> =>
-  (await handle.db.execute(query)).rows as Row[];
+  (await handle.db.execute(query)).rows;
 
 /** Runs `query` as the app role (SET LOCAL ROLE in a transaction) and returns the error, if any. */
 async function asAppRole(query: string): Promise<{ code?: string; message: string } | null> {
@@ -33,7 +33,11 @@ async function asAppRole(query: string): Promise<{ code?: string; message: strin
       throw new Error('__rollback__');
     });
   } catch (error) {
-    const err = error as { code?: string; message: string; cause?: { code?: string; message: string } };
+    const err = error as {
+      code?: string;
+      message: string;
+      cause?: { code?: string; message: string };
+    };
     if (err.message === '__rollback__') return null;
     return err.cause ?? err;
   }
@@ -124,7 +128,9 @@ describe('the app role', () => {
     try {
       const result = await app.db.execute(sql`SELECT current_user AS user`);
       expect(result.rows[0]).toEqual({ user: APP_ROLE });
-      await expect(app.db.execute(sql`UPDATE ledger_entries SET amount = amount`)).rejects.toThrow();
+      await expect(
+        app.db.execute(sql`UPDATE ledger_entries SET amount = amount`),
+      ).rejects.toThrow();
     } finally {
       await app.close();
     }
