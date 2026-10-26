@@ -4,6 +4,7 @@ import { useState, type InputHTMLAttributes } from 'react';
 import { useT } from '@/i18n/client';
 import { PUBLIC_API_URL } from '@/lib/api/config';
 import { Alert } from './ui';
+import { passwordStrength, type PasswordStrength } from './validation';
 
 type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'className'>;
 
@@ -43,6 +44,37 @@ export function PasswordInput(props: InputProps) {
           {visible ? null : <path d="M4 20 20 4" />}
         </svg>
       </button>
+    </div>
+  );
+}
+
+const STRENGTH_LEVELS: readonly PasswordStrength[] = ['short', 'fair', 'good', 'strong'];
+const STRENGTH_COLOURS: Record<PasswordStrength, string> = {
+  short: 'bg-down',
+  fair: 'bg-accent-strong',
+  good: 'bg-up',
+  strong: 'bg-brand',
+};
+
+/** The strength meter under a new password (ASVS 2.1.8); nothing while the field is empty. */
+export function PasswordStrengthMeter({ password }: { password: string }) {
+  const t = useT();
+  if (password.length === 0) return null;
+  const level = passwordStrength(password);
+  const filled = STRENGTH_LEVELS.indexOf(level) + 1;
+  return (
+    <div className="flex items-center gap-2" aria-live="polite">
+      <div className="flex flex-1 gap-1" aria-hidden="true">
+        {STRENGTH_LEVELS.map((name, index) => (
+          <span
+            key={name}
+            className={`h-1 flex-1 rounded ${index < filled ? STRENGTH_COLOURS[level] : 'bg-line'}`}
+          />
+        ))}
+      </div>
+      <span className="text-xs text-muted">
+        {t('account.strength.label')}: {t(`account.strength.${level}`)}
+      </span>
     </div>
   );
 }

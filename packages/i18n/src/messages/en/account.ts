@@ -10,7 +10,7 @@ export const account = {
     phone: 'Phone number',
     phoneHint: 'Ethio telecom (09…) or Safaricom (07…) number',
     password: 'Password',
-    passwordHint: 'At least 8 characters, not a common password',
+    passwordHint: 'At least 12 characters (a few words work well), not a common password',
     newPassword: 'New password',
     confirmPassword: 'Repeat the new password',
     dateOfBirth: 'Date of birth',
@@ -22,7 +22,7 @@ export const account = {
     phoneRequired: 'Enter your phone number.',
     phone: 'Enter an Ethiopian mobile number starting with 09 or 07, e.g. 0911 234 567.',
     passwordRequired: 'Enter your password.',
-    passwordShort: 'The password needs at least 8 characters.',
+    passwordShort: 'The password needs at least 12 characters.',
     passwordLong: 'The password can have at most 128 characters.',
     weakPassword:
       'This password is too easy to guess. Avoid simple sequences and your phone number.',
@@ -49,6 +49,15 @@ export const account = {
     otpWait: 'Please wait {seconds} s before requesting another code.',
     registrationExpired:
       'This sign-up is no longer valid. Register again with the same number to get a new code.',
+    passwordResetRequired:
+      'Your password no longer meets our security rules. Reset it with an SMS code to continue.',
+  },
+  strength: {
+    label: 'Password strength',
+    short: 'Too short',
+    fair: 'Fair',
+    good: 'Good',
+    strong: 'Strong',
   },
   demo: {
     smsNotice: 'Demo: no real SMS is sent.',

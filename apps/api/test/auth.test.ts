@@ -20,6 +20,7 @@ import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
 import { sha256Hex } from '../src/lib/crypto';
+import { hashPassword } from '../src/lib/passwords';
 import { OTP_HOURLY_PHONE_CEILING, OTP_TTL_MS } from '../src/lib/otp';
 import { DEFAULT_AUTH_LIMITS } from '../src/lib/rate-limits';
 import type { DevSmsResponse } from '../src/modules/dev/routes';
@@ -249,7 +250,7 @@ describe('auth', () => {
       expect(response.statusCode).toBe(201);
     });
 
-    it.each(['12345678', 'PASSWORD', 'Qwertyuiop', 'iloveyou1'])(
+    it.each(['qwerty123456', 'PASSWORD1234', 'Iloveyou1234', ' 1qaz2wsx3edc '])(
       'rejects the common password %s',
       async (pw) => {
         const response = await post(
@@ -264,11 +265,48 @@ describe('auth', () => {
 
     it('rejects the phone number as password', async () => {
       const phone = randomPhone();
-      for (const password of [localForm(phone), phone, phone.slice(1), phone.slice(4)]) {
+      for (const password of [phone, phone.slice(1), `00${phone.slice(1)}`]) {
         const response = await post(ctx, '/auth/register', registerPayload(phone, { password }));
         expect(response.statusCode).toBe(400);
         expect(apiError(response).code).toBe('weak_password');
       }
+      // The shorter forms fail the length rule first.
+      for (const password of [localForm(phone), phone.slice(4)]) {
+        const response = await post(ctx, '/auth/register', registerPayload(phone, { password }));
+        expect(response.statusCode).toBe(400);
+        expect(apiError(response).code).toBe('validation_error');
+      }
+    });
+
+    it('needs 12 characters, counting a run of spaces once (ASVS 2.1.1)', async () => {
+      for (const password of ['Abebe-bik-1', 'Abebe     bik-1']) {
+        const response = await post(
+          ctx,
+          '/auth/register',
+          registerPayload(randomPhone(), { password }),
+        );
+        expect(response.statusCode, password).toBe(400);
+        expect(apiError(response).code).toBe('validation_error');
+      }
+      const twelve = await post(
+        ctx,
+        '/auth/register',
+        registerPayload(randomPhone(), { password: 'Abebe-bik-19' }),
+      );
+      expect(twelve.statusCode).toBe(201);
+      // Any characters, including Ethiopic and spaces, up to 128.
+      const ethiopic = await post(
+        ctx,
+        '/auth/register',
+        registerPayload(randomPhone(), { password: 'ሰላም ለኢትዮጵያ ሀገሬ' }),
+      );
+      expect(ethiopic.statusCode).toBe(201);
+      const tooLong = await post(
+        ctx,
+        '/auth/register',
+        registerPayload(randomPhone(), { password: 'x'.repeat(129) }),
+      );
+      expect(apiError(tooLong).code).toBe('validation_error');
     });
 
     it('returns 409 phone_taken for a number with an account', async () => {
@@ -874,6 +912,33 @@ describe('auth', () => {
       });
       expect(response.statusCode).toBe(200);
     });
+
+    it('makes a password that no longer meets the rules be reset first (ASVS 2.1.7)', async () => {
+      for (const legacy of ['Ab3$xy7q', 'qwerty123456']) {
+        const player = await registerAndLogin(ctx);
+        // Set under an older rule (8 characters), or now on the common list.
+        await ctx.db.db
+          .update(users)
+          .set({ passwordHash: await hashPassword(legacy) })
+          .where(eq(users.id, player.userId));
+        const response = await post(ctx, '/auth/login', { phone: player.phone, password: legacy });
+        expect(response.statusCode, legacy).toBe(403);
+        expect(apiError(response).code).toBe('password_reset_required');
+        expect(response.cookies).toHaveLength(0);
+        // A wrong password still gets the generic answer: the rule is only revealed to the holder.
+        const wrong = await post(ctx, '/auth/login', { phone: player.phone, password: 'Ab3$xy7r' });
+        expect(apiError(wrong).code).toBe('invalid_credentials');
+        const audits = await ctx.db.db
+          .select({ metadata: auditLog.metadata })
+          .from(auditLog)
+          .where(
+            and(eq(auditLog.action, 'user.login_failed'), eq(auditLog.targetId, player.userId)),
+          );
+        expect(audits.map((row) => row.metadata)).toEqual(
+          expect.arrayContaining([expect.objectContaining({ reason: 'password_policy' })]),
+        );
+      }
+    });
   });
 
   describe('sessions and CSRF', () => {
@@ -1021,7 +1086,7 @@ describe('auth', () => {
       const weak = await post(ctx, '/auth/password/reset', {
         phone: player.phone,
         code,
-        newPassword: '12345678',
+        newPassword: '123456789012',
       });
       expect(apiError(weak).code).toBe('weak_password');
 

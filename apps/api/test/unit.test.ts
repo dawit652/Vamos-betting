@@ -85,7 +85,7 @@ describe('passwords', () => {
 
   it('rejects common passwords and the phone number', () => {
     const phone = '+251911234567';
-    for (const password of ['12345678', 'Password', ' qwertyuiop ', '00000000']) {
+    for (const password of ['123456789012', 'Password1234', ' qwertyuiop12 ', '000000000000']) {
       expect(passwordWeakness(password, phone)).toMatch(/too common/);
     }
     for (const password of [
@@ -98,7 +98,7 @@ describe('passwords', () => {
       expect(passwordWeakness(password, phone)).toMatch(/phone number/);
     }
     expect(passwordWeakness('0911234568', phone)).toBeNull();
-    expect(() => assertPasswordAcceptable('password', phone)).toThrow(
+    expect(() => assertPasswordAcceptable('password1234', phone)).toThrow(
       expect.objectContaining({ statusCode: 400, code: 'weak_password' }),
     );
   });
@@ -106,28 +106,32 @@ describe('passwords', () => {
   it('refuses the common passwords of a 10,000-entry list, case-insensitively (review A4)', () => {
     const phone = '+251911234567';
     for (const password of [
-      'iloveyou',
-      'Football',
-      'SUNSHINE1',
-      '1q2w3e4r5t',
-      'baseball',
-      'princess1',
+      'iloveyou1234',
+      'Football1234',
+      'SUNSHINE1234',
+      '1q2w3e4r5t6y',
+      'baseball1234',
+      'princess1234',
     ]) {
       expect(passwordWeakness(password, phone)).toMatch(/too common/);
     }
     expect(passwordWeakness('Abebe-bikila-1960', phone)).toBeNull();
   });
 
-  it('needs at least 8 characters for new passwords, but existing ones still log in (review A4)', () => {
+  it('needs at least 12 characters for new passwords, but existing ones still log in (ASVS 2.1.1)', () => {
     const register = {
       phone: '0911234567',
       dateOfBirth: '1990-01-01',
       acceptTerms: true,
     } as const;
-    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$xy7' }).success).toBe(false);
-    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$xy7q' }).success).toBe(true);
+    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$xy7q-9k' }).success).toBe(false);
+    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$xy7q-9kz' }).success).toBe(true);
+    // A run of spaces counts once.
+    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$  xy7q-9' }).success).toBe(
+      false,
+    );
     const reset = { phone: '0911234567', code: '123456' };
-    expect(ResetPasswordRequest.safeParse({ ...reset, newPassword: 'Ab3$xy7' }).success).toBe(
+    expect(ResetPasswordRequest.safeParse({ ...reset, newPassword: 'Ab3$xy7q' }).success).toBe(
       false,
     );
     // A 6-character password chosen under the old rule keeps working.

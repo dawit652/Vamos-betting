@@ -10,7 +10,7 @@ import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { formatBirthDate } from './dates';
 import { formErrors, retryAfterSeconds } from './errors';
-import { PasswordInput, PhoneInput } from './inputs';
+import { PasswordInput, PasswordStrengthMeter, PhoneInput } from './inputs';
 import { accountPaths, loginHref } from './paths';
 import { setPendingRegistration } from './pending';
 import { Alert, Field, describedBy } from './ui';
@@ -155,6 +155,7 @@ export function RegisterForm({ next }: { next: string }) {
           required
           {...describedBy('reg-password', error('password'), true)}
         />
+        <PasswordStrengthMeter password={password} />
       </Field>
       <Field
         id="reg-dob"

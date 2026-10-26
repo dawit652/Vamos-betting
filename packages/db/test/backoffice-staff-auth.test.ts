@@ -651,6 +651,30 @@ describe('staff self-service (own password and authenticator)', () => {
     expect((await userRow((await newStaff()).id)).passwordChangeRequired).toBe(false);
   });
 
+  it('refuses common passwords and requires a change when one still signs in (ASVS 2.1.7)', async () => {
+    const admin = await newStaff('admin');
+    await expect(
+      resetStaffPassword(deps(), {
+        adminUserId: admin.id,
+        password: 'Qwerty123456',
+        actor: { type: 'system', via: 'test' },
+      }),
+    ).rejects.toMatchObject({ code: 'weak_password' });
+    // Set before the list grew: the right password and code still sign in, but only to change it.
+    const staff = await newStaff('finance');
+    await handle.db
+      .update(adminUsers)
+      .set({ passwordHash: await argon2PasswordHasher.hash('qwerty123456') })
+      .where(eq(adminUsers.id, staff.id));
+    const signedIn = await loginStaff(deps(), {
+      email: staff.email,
+      password: 'qwerty123456',
+      code: nextCode(staff),
+    });
+    expect(signedIn.staff.passwordChangeRequired).toBe(true);
+    expect((await userRow(staff.id)).passwordChangeRequired).toBe(true);
+  });
+
   it('re-enrols the authenticator once a code from the new secret confirms it', async () => {
     const staff = await newStaff();
     const current = await login(staff);

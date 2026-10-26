@@ -9,7 +9,7 @@ import { authApi } from '@/lib/api/account';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { formErrors } from './errors';
-import { DemoOtpHint, OtpInput, PasswordInput, PhoneInput } from './inputs';
+import { DemoOtpHint, OtpInput, PasswordInput, PasswordStrengthMeter, PhoneInput } from './inputs';
 import { getPendingResetPhone, setPendingResetPhone } from './pending';
 import { Alert, Field, describedBy } from './ui';
 import {
@@ -122,6 +122,7 @@ export function ResetForm() {
           required
           {...describedBy('reset-password', error('newPassword'), true)}
         />
+        <PasswordStrengthMeter password={newPassword} />
       </Field>
       <Field
         id="reset-confirm"

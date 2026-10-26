@@ -36,6 +36,7 @@ import {
   assertPasswordAcceptable,
   dummyVerifyPassword,
   hashPassword,
+  meetsPasswordPolicy,
   verifyPassword,
 } from '../../lib/passwords';
 import {
@@ -335,6 +336,15 @@ export async function login(
   if (exclusion !== null) {
     await auditLoginFailure(deps, meta, 'self_excluded', user, phone);
     throw exclusionError(exclusion);
+  }
+  // A password set under an older rule (shorter, or now on the common list) must be replaced,
+  // through the SMS reset, which also proves the player still holds the number (ASVS 2.1.7).
+  if (!meetsPasswordPolicy(input.password, user.phone)) {
+    await auditLoginFailure(deps, meta, 'password_policy', user, phone);
+    throw forbidden(
+      'password_reset_required',
+      'Your password no longer meets our security rules. Reset it with an SMS code to continue.',
+    );
   }
 
   const session = await deps.db.transaction(async (tx) => {

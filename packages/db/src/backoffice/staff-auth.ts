@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { isCommonPassword } from '@vamos/core/common-passwords';
 import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { Database } from '../client';
 import { DomainError, domainConflict, domainNotFound, domainUnprocessable } from '../errors';
@@ -222,7 +223,8 @@ function checkedRole(role: string): StaffRole {
   return role as StaffRole;
 }
 
-const COMMON_PASSWORDS = new Set([
+/** Back-office words on top of the shared list of common passwords. */
+const STAFF_COMMON_PASSWORDS = new Set([
   'password1234',
   'password12345',
   '123456789012',
@@ -231,7 +233,12 @@ const COMMON_PASSWORDS = new Set([
   'letmein12345',
 ]);
 
-/** Why `password` is unacceptable for the staff account `email`, or null. */
+/**
+ * Why `password` is unacceptable for the staff account `email`, or null: too
+ * short or long, one of the 10,000 most common passwords
+ * (@vamos/core/common-passwords, ASVS 2.1.7), too few different characters,
+ * or the email address.
+ */
 export function staffPasswordWeakness(password: string, email: string): string | null {
   if (password.length < STAFF_PASSWORD_MIN_LENGTH) {
     return `Use at least ${STAFF_PASSWORD_MIN_LENGTH} characters.`;
@@ -240,7 +247,9 @@ export function staffPasswordWeakness(password: string, email: string): string |
     return `Use at most ${STAFF_PASSWORD_MAX_LENGTH} characters.`;
   }
   const lower = password.trim().toLowerCase();
-  if (COMMON_PASSWORDS.has(lower)) return 'This password is too common.';
+  if (STAFF_COMMON_PASSWORDS.has(lower) || isCommonPassword(password)) {
+    return 'This password is too common.';
+  }
   if (new Set(password).size < 4) return 'This password repeats too few characters.';
   const normalizedEmail = normalizeStaffEmail(email);
   const local = normalizedEmail.split('@')[0] ?? '';
@@ -972,6 +981,10 @@ export async function loginStaff(
     deps,
     { before: user, check, clientKey, now, ip },
     async (tx, row, step): Promise<StaffLoginResult> => {
+      // A password that no longer meets the rules (a common one, ASVS 2.1.7) must be
+      // replaced before anything but the session and self-service routes.
+      const weakPassword = staffPasswordWeakness(password, row.email) !== null;
+      const passwordChangeRequired = row.passwordChangeRequired || weakPassword;
       await tx
         .update(adminUsers)
         .set({
@@ -979,6 +992,7 @@ export async function loginStaff(
           lockedUntil: null,
           totpLastStep: step,
           lastLoginAt: now,
+          passwordChangeRequired,
           updatedAt: now,
         })
         .where(eq(adminUsers.id, row.id));
@@ -994,7 +1008,7 @@ export async function loginStaff(
         action: 'staff.login',
         targetType: 'admin_user',
         targetId: row.id,
-        metadata: { sessionId: session.id },
+        metadata: { sessionId: session.id, ...(weakPassword ? { weakPassword: true } : {}) },
         ip,
       });
       return {
@@ -1004,7 +1018,7 @@ export async function loginStaff(
           email: row.email,
           displayName: row.displayName,
           role: row.role,
-          passwordChangeRequired: row.passwordChangeRequired,
+          passwordChangeRequired,
           sessionId: session.id,
           csrfToken: session.csrfToken,
           expiresAt: session.expiresAt,

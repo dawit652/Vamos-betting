@@ -26,6 +26,7 @@ const ERRORS = {
     phone_not_verified: { key: 'account.errors.phoneNotVerified' },
     account_disabled: { key: 'account.errors.accountDisabled' },
     self_excluded: { key: 'account.errors.selfExcluded' },
+    password_reset_required: { key: 'account.errors.passwordResetRequired' },
   },
 } as const;
 
@@ -38,6 +39,8 @@ export function LoginForm({ next, passwordChanged }: { next: string; passwordCha
   const [fields, setFields] = useState<FieldErrors<LoginField>>({});
   const [formError, setFormError] = useState<MessageKey | null>(null);
   const [busy, setBusy] = useState(false);
+  // The password is right but must be replaced first (it predates today's rules).
+  const resetRequired = formError === 'account.errors.passwordResetRequired';
 
   // Signed in (now or already): continue to where the player was going.
   useEffect(() => {
@@ -68,6 +71,11 @@ export function LoginForm({ next, passwordChanged }: { next: string; passwordCha
     <form noValidate onSubmit={submit} className="card mx-3 space-y-3">
       {passwordChanged ? <Alert tone="success">{t('account.login.passwordChanged')}</Alert> : null}
       {formError ? <Alert>{t(formError)}</Alert> : null}
+      {resetRequired ? (
+        <Link href={routes.forgotPassword} className="btn btn-primary w-full">
+          {t('account.login.forgot')}
+        </Link>
+      ) : null}
       <Field
         id="login-phone"
         label={t('account.fields.phone')}

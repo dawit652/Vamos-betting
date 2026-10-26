@@ -45,6 +45,8 @@ import {
   validateLogin,
   validateRegister,
   validateReset,
+  passwordError,
+  passwordStrength,
 } from './validation';
 import {
   DEFAULT_DEMO_TOPUP,
@@ -107,19 +109,19 @@ describe('validation', () => {
       validateRegister(
         {
           phone: '0911 234 567',
-          password: 'secret12',
+          password: 'secret12-abc',
           dateOfBirth: '1990-05-17',
           acceptTerms: true,
         },
         NOW,
       ),
     ).toEqual({});
-    // New passwords need 8 characters (the API also refuses common ones).
+    // New passwords need 12 characters (the API also refuses common ones).
     expect(
       validateRegister(
         {
           phone: '0911 234 567',
-          password: 'secret1',
+          password: 'secret1-abc',
           dateOfBirth: '1990-05-17',
           acceptTerms: true,
         },
@@ -141,7 +143,7 @@ describe('validation', () => {
       validateRegister(
         {
           phone: '+251711234567',
-          password: 'abcdefgh',
+          password: 'abcdefgh-ijk',
           dateOfBirth: '1990-01-01',
           acceptTerms: true,
         },
@@ -178,13 +180,25 @@ describe('validation', () => {
       validateReset({
         phone: '0911234567',
         code: '123456',
-        newPassword: 'abcdefgh',
-        confirmPassword: 'abcdefgi',
+        newPassword: 'abcdefgh-ijk',
+        confirmPassword: 'abcdefgh-ijl',
       }),
     ).toEqual({ confirmPassword: 'account.validation.passwordMismatch' });
     expect(hasErrors({})).toBe(false);
     expect(hasErrors({ phone: undefined })).toBe(false);
     expect(hasErrors({ phone: 'account.validation.phone' })).toBe(true);
+  });
+
+  it('counts a run of spaces once and rates password strength (ASVS 2.1.1, 2.1.8)', () => {
+    expect(passwordError('abc  defghij')).toBe('account.validation.passwordShort');
+    expect(passwordError('abc defghijkl')).toBeUndefined();
+    expect(passwordError('x'.repeat(129))).toBe('account.validation.passwordLong');
+    expect(passwordStrength('short')).toBe('short');
+    expect(passwordStrength('aaaaaaaaaaaa')).toBe('fair');
+    expect(passwordStrength('abcdefghijkl')).toBe('fair');
+    expect(passwordStrength('abcdefghijkl12')).toBe('good');
+    expect(passwordStrength('Abebe-bikila-1960')).toBe('strong');
+    expect(passwordStrength('tej and injera at noon')).toBe('strong');
   });
 
   it('accepts a Fayda FIN or FAN with spaces or dashes', () => {

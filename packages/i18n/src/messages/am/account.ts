@@ -7,7 +7,7 @@ export const account: Messages['account'] = {
     phone: 'ስልክ ቁጥር',
     phoneHint: 'የኢትዮ ቴሌኮም (09…) ወይም የሳፋሪኮም (07…) ቁጥር',
     password: 'የይለፍ ቃል',
-    passwordHint: 'ቢያንስ 8 ቁምፊዎች፤ የተለመደ የይለፍ ቃል አይሁን',
+    passwordHint: 'ቢያንስ 12 ቁምፊዎች (ጥቂት ቃላት በደንብ ይሠራሉ)፤ የተለመደ የይለፍ ቃል አይሁን',
     newPassword: 'አዲስ የይለፍ ቃል',
     confirmPassword: 'አዲሱን የይለፍ ቃል ይድገሙ',
     dateOfBirth: 'የትውልድ ቀን',
@@ -19,7 +19,7 @@ export const account: Messages['account'] = {
     phoneRequired: 'ስልክ ቁጥርዎን ያስገቡ።',
     phone: 'በ09 ወይም በ07 የሚጀምር የኢትዮጵያ ሞባይል ቁጥር ያስገቡ፤ ለምሳሌ 0911 234 567።',
     passwordRequired: 'የይለፍ ቃልዎን ያስገቡ።',
-    passwordShort: 'የይለፍ ቃሉ ቢያንስ 8 ቁምፊዎች ሊኖሩት ይገባል።',
+    passwordShort: 'የይለፍ ቃሉ ቢያንስ 12 ቁምፊዎች ሊኖሩት ይገባል።',
     passwordLong: 'የይለፍ ቃሉ ከ128 ቁምፊዎች መብለጥ የለበትም።',
     weakPassword: 'ይህ የይለፍ ቃል በቀላሉ ይገመታል። ቀላል ተከታታይ ቁጥሮችንና ስልክ ቁጥርዎን አይጠቀሙ።',
     passwordMismatch: 'ሁለቱ የይለፍ ቃሎች አይመሳሰሉም።',
@@ -43,6 +43,15 @@ export const account: Messages['account'] = {
     coolingOff: 'በእረፍት ጊዜ ላይ ነዎት። እረፍቱ እስኪያበቃ ድረስ ውርርድና ገንዘብ ማስገባት ተቋርጠዋል።',
     otpWait: 'ሌላ ኮድ ከመጠየቅዎ በፊት {seconds} ሰከንድ ይጠብቁ።',
     registrationExpired: 'ይህ ምዝገባ ከአሁን በኋላ አያገለግልም። አዲስ ኮድ ለማግኘት በዚሁ ቁጥር እንደገና ይመዝገቡ።',
+    passwordResetRequired:
+      'የይለፍ ቃልዎ አሁን ያሉትን የደህንነት መስፈርቶች አያሟላም። ለመቀጠል በኤስኤምኤስ ኮድ አዲስ የይለፍ ቃል ያስገቡ።',
+  },
+  strength: {
+    label: 'የይለፍ ቃሉ ጥንካሬ',
+    short: 'በጣም አጭር',
+    fair: 'መካከለኛ',
+    good: 'ጥሩ',
+    strong: 'ጠንካራ',
   },
   demo: {
     smsNotice: 'ማሳያ፦ እውነተኛ ኤስኤምኤስ አይላክም።',

@@ -13,8 +13,35 @@ import type { MessageKey } from '@vamos/i18n/translate';
  */
 
 export const MIN_AGE = DEFAULT_RESPONSIBLE_GAMBLING.minAge;
-export const MIN_PASSWORD_LENGTH = 8;
+export const MIN_PASSWORD_LENGTH = 12;
 export const MAX_PASSWORD_LENGTH = 128;
+
+/**
+ * The length a password counts for, like the API (effectivePasswordLength in
+ * @vamos/contracts): Unicode characters, a run of spaces counting once.
+ */
+export function effectivePasswordLength(password: string): number {
+  return Array.from(password.replace(/ {2,}/g, ' ')).length;
+}
+
+export type PasswordStrength = 'short' | 'fair' | 'good' | 'strong';
+
+/**
+ * A rough strength for the meter under a new password (ASVS 2.1.8): length
+ * first, then the kinds of characters and how many different ones. It never
+ * blocks anything; the API refuses short and common passwords.
+ */
+export function passwordStrength(password: string): PasswordStrength {
+  const length = effectivePasswordLength(password);
+  if (length < MIN_PASSWORD_LENGTH) return 'short';
+  const kinds = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) =>
+    re.test(password),
+  ).length;
+  if (new Set(password.toLowerCase()).size < 6) return 'fair';
+  if (length >= 20 || (length >= 16 && kinds >= 2) || kinds >= 3) return 'strong';
+  if (length >= 14 || kinds >= 2) return 'good';
+  return 'fair';
+}
 
 export type FieldErrors<F extends string> = Partial<Record<F, MessageKey>>;
 
@@ -34,7 +61,8 @@ export function phoneError(input: string): MessageKey | undefined {
 
 export function passwordError(input: string): MessageKey | undefined {
   if (input.length === 0) return 'account.validation.passwordRequired';
-  if (input.length < MIN_PASSWORD_LENGTH) return 'account.validation.passwordShort';
+  if (effectivePasswordLength(input) < MIN_PASSWORD_LENGTH)
+    return 'account.validation.passwordShort';
   if (input.length > MAX_PASSWORD_LENGTH) return 'account.validation.passwordLong';
   return undefined;
 }
