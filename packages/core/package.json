@@ -5,7 +5,8 @@
   "description": "Pure, dependency-free domain logic: money, odds, betslip, bonus, tax, cash-out, jackpot",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./common-passwords": "./src/common-passwords.ts"
   },
   "sideEffects": false,
   "scripts": {

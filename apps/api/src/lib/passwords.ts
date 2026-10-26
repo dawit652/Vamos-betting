@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
-import { COMMON_PASSWORDS } from './common-passwords';
+import { effectivePasswordLength, MIN_PASSWORD_LENGTH } from '@vamos/contracts';
+import { isCommonPassword } from '@vamos/core/common-passwords';
 import { badRequest } from './errors';
 
 /**
@@ -8,21 +9,6 @@ import { badRequest } from './errors';
  * baseline: 19 MiB memory, 2 passes, 1 lane.
  */
 const ARGON2_OPTIONS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
-
-/**
- * Passwords people pick first, compared case-insensitively: the 10,000 most
- * common of 8+ characters (common-passwords.ts) plus a few short classics
- * (the length rule of the contracts refuses those already).
- */
-const COMMON = new Set<string>([
-  ...COMMON_PASSWORDS,
-  '123456',
-  'password',
-  '111111',
-  '000000',
-  '123123',
-  'qwerty',
-]);
 
 export async function hashPassword(password: string): Promise<string> {
   return hash(password, ARGON2_OPTIONS);
@@ -55,11 +41,13 @@ export async function warmUpPasswordHashing(): Promise<void> {
 }
 
 /**
- * Why `password` is unacceptable for the account with E.164 `phone`, or null.
- * Length limits are enforced by the request contracts.
+ * Why `password` is unacceptable for the account with E.164 `phone`, or null:
+ * one of the 10,000 most common passwords (@vamos/core/common-passwords,
+ * ASVS 2.1.7) or the phone number itself. Length limits are enforced by the
+ * request contracts.
  */
 export function passwordWeakness(password: string, phone: string): string | null {
-  if (COMMON.has(password.trim().toLowerCase())) {
+  if (isCommonPassword(password)) {
     return 'This password is too common. Choose one that is harder to guess.';
   }
   const digits = phone.replace(/\D/g, '');
@@ -77,4 +65,16 @@ export function assertPasswordAcceptable(password: string, phone: string): void 
   if (problem !== null) {
     throw badRequest('weak_password', problem);
   }
+}
+
+/**
+ * Whether a password that just signed in still meets today's rules for a new
+ * one (MIN_PASSWORD_LENGTH, not common, not the phone number). Accounts made
+ * under an older rule must replace it before they can sign in (ASVS 2.1.7).
+ */
+export function meetsPasswordPolicy(password: string, phone: string): boolean {
+  return (
+    effectivePasswordLength(password) >= MIN_PASSWORD_LENGTH &&
+    passwordWeakness(password, phone) === null
+  );
 }

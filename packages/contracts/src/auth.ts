@@ -7,15 +7,26 @@ export const PhoneInput = z.string().trim().min(9).max(20);
 export const DateOfBirth = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-DD');
 
 /**
- * A new password (registration, reset). The API also refuses common ones
- * (`weak_password`). Login takes any non-empty password, so accounts created
- * under the earlier 6-character rule keep working until they change it.
+ * A new password (registration, reset, change): 12 to 128 characters, any
+ * characters (ASVS 2.1.1–2.1.4, 2.1.9). The API also refuses the 10,000 most
+ * common ones and the phone number (`weak_password`). Login takes any
+ * non-empty password, but an account whose password no longer meets these
+ * rules must reset it before it can sign in (`password_reset_required`).
  */
-export const MIN_PASSWORD_LENGTH = 8;
+export const MIN_PASSWORD_LENGTH = 12;
+export const MAX_PASSWORD_LENGTH = 128;
+
+/** The length a password counts for: Unicode characters, a run of spaces counting once. */
+export function effectivePasswordLength(password: string): number {
+  return Array.from(password.replace(/ {2,}/g, ' ')).length;
+}
+
 export const Password = z
   .string()
-  .min(MIN_PASSWORD_LENGTH, `at least ${MIN_PASSWORD_LENGTH} characters`)
-  .max(128);
+  .max(MAX_PASSWORD_LENGTH)
+  .refine((value) => effectivePasswordLength(value) >= MIN_PASSWORD_LENGTH, {
+    message: `at least ${MIN_PASSWORD_LENGTH} characters`,
+  });
 
 export const OtpCode = z.string().regex(/^\d{6}$/, 'the code has 6 digits');
 
