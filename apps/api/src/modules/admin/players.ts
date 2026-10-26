@@ -15,6 +15,7 @@ import {
   listKycQueue,
   reviewKyc,
   searchPlayers,
+  writeAudit,
   type LimitShape,
   type LimitSlotState,
   type PlayerDetail,
@@ -102,6 +103,16 @@ export default async function adminPlayerRoutes(app: FastifyInstance): Promise<v
       const userId = parseUuid(request.params.id, 'Player');
       const detail = await getPlayerDetail(deps.db, userId, deps.clock());
       if (detail === null) throw notFound('Player');
+      // Reading a player's personal data is audited (who, when, whose; never the data itself).
+      const actor = staffActor(request);
+      await writeAudit(deps.db, {
+        actorType: 'admin',
+        actorId: actor.adminId,
+        action: 'player.viewed',
+        targetType: 'user',
+        targetId: userId,
+        ip: actor.ip ?? null,
+      });
       return playerDetailView(detail);
     },
   );

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Redis } from 'ioredis';
+import { clientAddressKey } from './client-address';
 import { tooManyRequests } from './errors';
 
 const MINUTE_MS = 60_000;
@@ -46,6 +47,33 @@ export const DEFAULT_AUTH_LIMITS: AuthLimits = {
   staffLoginPerClient: { max: 60, timeWindow: 15 * MINUTE_MS },
   staffLoginPerEmail: { max: 20, timeWindow: 15 * MINUTE_MS },
 };
+
+/**
+ * Requests per minute of the signed-in player's account routes (profile,
+ * responsible-gambling settings, password and sessions). Generous for a
+ * person, tight for a script.
+ */
+export const ACCOUNT_RATE_LIMIT_PER_MINUTE = 30;
+
+/**
+ * Route `config` with a per-player limit of `max` requests per `timeWindow`
+ * (default a minute). It runs as a preHandler, after the session hook, so a
+ * signed-in player has their own budget; without a session it counts per
+ * client address.
+ */
+export function perPlayerRateLimit(name: string, max: number, timeWindow = MINUTE_MS) {
+  return {
+    rateLimit: {
+      max,
+      timeWindow,
+      hook: 'preHandler' as const,
+      keyGenerator: (request: FastifyRequest) =>
+        request.user === null
+          ? `${name}|ip|${clientAddressKey(request.ip)}`
+          : `${name}|user|${request.user.id}`,
+    },
+  };
+}
 
 export type Limiter = ReturnType<FastifyInstance['createRateLimit']>;
 

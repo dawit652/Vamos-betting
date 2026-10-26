@@ -6,6 +6,7 @@ import {
 } from '@vamos/contracts';
 import type { FastifyInstance } from 'fastify';
 import { parseInput } from '../../lib/errors';
+import { ACCOUNT_RATE_LIMIT_PER_MINUTE, perPlayerRateLimit } from '../../lib/rate-limits';
 import { clearSessionCookies, requireUser } from '../../plugins/session';
 import { createExclusion, getLimits, updateLimits } from './service';
 
@@ -32,7 +33,10 @@ export default async function rgRoutes(app: FastifyInstance): Promise<void> {
 
   app.put(
     '/me/limits',
-    { preHandler: app.requireAuth },
+    {
+      preHandler: app.requireAuth,
+      config: perPlayerRateLimit('me-limits', ACCOUNT_RATE_LIMIT_PER_MINUTE),
+    },
     async (request): Promise<RgLimitsResponse> => {
       const user = requireUser(request);
       const input = parseInput(RgLimitsRequest, request.body);
@@ -40,15 +44,22 @@ export default async function rgRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.post('/me/exclusions', { preHandler: app.requireAuth }, async (request, reply) => {
-    const user = requireUser(request);
-    const input = parseInput(CreateExclusionRequest, request.body);
-    const { exclusion } = await createExclusion(deps, user.id, input, { ip: request.ip });
-    if (input.kind === 'self_exclusion') {
-      // Every session (this one included) was revoked.
-      clearSessionCookies(reply, deps.config);
-    }
-    const body: CreateExclusionResponse = { exclusion };
-    return reply.status(201).send(body);
-  });
+  app.post(
+    '/me/exclusions',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayerRateLimit('me-exclusions', ACCOUNT_RATE_LIMIT_PER_MINUTE),
+    },
+    async (request, reply) => {
+      const user = requireUser(request);
+      const input = parseInput(CreateExclusionRequest, request.body);
+      const { exclusion } = await createExclusion(deps, user.id, input, { ip: request.ip });
+      if (input.kind === 'self_exclusion') {
+        // Every session (this one included) was revoked.
+        clearSessionCookies(reply, deps.config);
+      }
+      const body: CreateExclusionResponse = { exclusion };
+      return reply.status(201).send(body);
+    },
+  );
 }

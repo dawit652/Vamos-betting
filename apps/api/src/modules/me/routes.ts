@@ -1,6 +1,7 @@
 import { UpdateMeRequest, type MeResponse } from '@vamos/contracts';
 import type { FastifyInstance } from 'fastify';
 import { parseInput } from '../../lib/errors';
+import { ACCOUNT_RATE_LIMIT_PER_MINUTE, perPlayerRateLimit } from '../../lib/rate-limits';
 import { requireUser } from '../../plugins/session';
 import { getMe, updateMe } from './service';
 
@@ -13,9 +14,16 @@ export default async function meRoutes(app: FastifyInstance): Promise<void> {
     return getMe(deps.db, user.id, deps.clock());
   });
 
-  app.patch('/me', { preHandler: app.requireAuth }, async (request): Promise<MeResponse> => {
-    const user = requireUser(request);
-    const input = parseInput(UpdateMeRequest, request.body);
-    return updateMe(deps, user.id, input, { ip: request.ip });
-  });
+  app.patch(
+    '/me',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayerRateLimit('me-update', ACCOUNT_RATE_LIMIT_PER_MINUTE),
+    },
+    async (request): Promise<MeResponse> => {
+      const user = requireUser(request);
+      const input = parseInput(UpdateMeRequest, request.body);
+      return updateMe(deps, user.id, input, { ip: request.ip });
+    },
+  );
 }

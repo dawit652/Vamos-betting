@@ -45,7 +45,17 @@ export const SENSITIVE_FIELDS = [
   'faydaId',
   'authorization',
   'cookie',
+  // Personal data (PDPP): a phone number identifies a player.
+  'phone',
+  'msisdn',
 ] as const;
+
+/**
+ * Query parameters whose values are personal data rather than secrets: the
+ * back-office searches (`q` is a phone number, a name or an id). They are
+ * redacted from logged URLs only.
+ */
+export const SENSITIVE_QUERY_FIELDS = ['q'] as const;
 
 /**
  * Fields that are secret only in a request body or query (OTP and TOTP codes
@@ -54,7 +64,9 @@ export const SENSITIVE_FIELDS = [
 export const SENSITIVE_BODY_FIELDS = ['code'] as const;
 
 const SENSITIVE_FIELD_SET = new Set<string>(
-  [...SENSITIVE_FIELDS, ...SENSITIVE_BODY_FIELDS].map((field) => field.toLowerCase()),
+  [...SENSITIVE_FIELDS, ...SENSITIVE_BODY_FIELDS, ...SENSITIVE_QUERY_FIELDS].map((field) =>
+    field.toLowerCase(),
+  ),
 );
 
 /**
@@ -96,7 +108,8 @@ export function baseLoggerOptions(input: { level: string; service: string }): {
 
 /**
  * A URL path with the values of sensitive query parameters replaced
- * (e.g. `/reset?token=abc` → `/reset?token=[redacted]`).
+ * (e.g. `/reset?token=abc` → `/reset?token=[redacted]`): secrets, phone
+ * numbers and search terms (SENSITIVE_QUERY_FIELDS).
  */
 export function redactUrl(url: string): string {
   const mark = url.indexOf('?');

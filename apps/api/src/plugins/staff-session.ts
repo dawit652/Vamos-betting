@@ -1,4 +1,4 @@
-import type { AppConfig } from '@vamos/config';
+import { redactUrl, type AppConfig } from '@vamos/config';
 import {
   hasPermission,
   permissionsOf,
@@ -148,10 +148,32 @@ export function requirePermission(permission: StaffPermission) {
   };
 }
 
-/** Resolves the staff cookie of every request in the scope it is registered in. */
+/**
+ * Resolves the staff cookie of every request in the scope it is registered in,
+ * and leaves one access line per request of a signed-in staff member (who,
+ * role, method, URL with search terms redacted, status): the trail of which
+ * staff read which player data and when (ASVS 8.3.5). Changes are also in the
+ * audit log.
+ */
 export async function staffSessionPlugin(app: FastifyInstance): Promise<void> {
   const { deps } = app;
   app.decorateRequest('staffAuth', null);
+  app.addHook('onResponse', async (request, reply) => {
+    const check = request.staffAuth;
+    if (check === null || check.status !== 'ok') return;
+    request.log.info(
+      {
+        staffAccess: {
+          staffId: check.staff.id,
+          role: check.staff.role,
+          method: request.method,
+          url: redactUrl(request.url),
+          statusCode: reply.statusCode,
+        },
+      },
+      'staff access',
+    );
+  });
   app.addHook('onRequest', async (request) => {
     if (request.method === 'OPTIONS') return;
     const token = request.cookies[STAFF_SESSION_COOKIE];

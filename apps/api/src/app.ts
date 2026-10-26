@@ -15,7 +15,13 @@ import {
 } from '@vamos/config';
 import { STAFF_CSRF_HEADER, type HealthResponse } from '@vamos/contracts';
 import { DomainError } from '@vamos/db';
-import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import Fastify, {
+  LogController,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+  type FastifyServerOptions,
+} from 'fastify';
 import type { AppDeps } from './deps';
 import { BackgroundTasks } from './lib/background';
 import { AppError } from './lib/errors';
@@ -149,6 +155,59 @@ export function securityHeaderOptions(config: Pick<AppConfig, 'nodeEnv' | 'mode'
   };
 }
 
+/** Content types answered as a download if opened as a page (see applyResponseDefaults). */
+const ATTACHMENT_NAMES: ReadonlyArray<readonly [prefix: string, filename: string]> = [
+  ['application/json', 'api.json'],
+  ['text/plain', 'api.txt'],
+];
+
+/**
+ * Defaults for every response, unless the route set its own:
+ * - `Cache-Control: no-store`: answers carry balances, personal data and
+ *   session tokens, which no browser or proxy may keep (ASVS 8.1.1, 8.2.1).
+ *   Public catalogue routes opt into short public caching.
+ * - `Content-Disposition: attachment` for JSON and plain-text bodies, so a
+ *   response opened directly in a browser is downloaded, never rendered
+ *   (ASVS 14.4.2). fetch() and EventSource ignore it. Exported for tests.
+ */
+export function applyResponseDefaults(reply: FastifyReply): void {
+  if (!reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
+  if (reply.hasHeader('content-disposition')) return;
+  const type = String(reply.getHeader('content-type') ?? '').toLowerCase();
+  const match = ATTACHMENT_NAMES.find(([prefix]) => type.startsWith(prefix));
+  if (match !== undefined)
+    reply.header('content-disposition', `attachment; filename="${match[1]}"`);
+}
+
+/** Refusals logged as warnings: authentication, authorization, CSRF and rate limits. */
+const WARN_STATUSES = new Set([401, 403, 429]);
+/** Refusals logged as info: bad input (validation, parsing, size, media type), unknown ids. */
+const INFO_STATUSES = new Set([400, 401, 404, 413, 415]);
+
+/**
+ * One structured line per refused request (ASVS 7.1.3, 7.2.2): who (player
+ * or staff id, address, route) was refused what (status and error code).
+ * Failed access decisions and rate limits are warnings; input that failed
+ * validation or parsing, an unknown id and a request without credentials are
+ * info. Business refusals (409, 422: odds changed, limits) are not security
+ * events and are left to the request log. Never logs bodies or tokens.
+ */
+function logRefusal(request: FastifyRequest, status: number, code: string): void {
+  const plainUnauthenticated = status === 401 && code === 'unauthorized';
+  const warn = WARN_STATUSES.has(status) && !plainUnauthenticated;
+  if (!warn && !INFO_STATUSES.has(status)) return;
+  const staff = request.staffAuth?.status === 'ok' ? request.staffAuth.staff.id : undefined;
+  const security = {
+    status,
+    code,
+    route: request.routeOptions.url,
+    ...(request.user === null ? {} : { userId: request.user.id }),
+    ...(staff === undefined ? {} : { staffId: staff }),
+  };
+  if (warn) request.log.warn({ security }, 'request refused');
+  else request.log.info({ security }, 'request refused');
+}
+
 export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyInstance {
   const { config } = deps;
   const telemetry = options.telemetry ?? NOOP_TELEMETRY;
@@ -231,6 +290,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.addHook('onSend', async (request, reply) => {
     reply.header(REQUEST_ID_HEADER, request.id);
     reply.header('x-vamos-mode', config.mode);
+    applyResponseDefaults(reply);
   });
 
   // Every error body carries the request id, so a player or staff member can quote it to
@@ -245,15 +305,15 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.setErrorHandler((error, request, reply) => {
     // AppError and the DomainError thrown by shared @vamos/db services.
     if (error instanceof DomainError) {
+      logRefusal(request, error.status, error.code);
       return reply.status(error.status).send(error.toBody());
     }
     const statusCode = (error as { statusCode?: number }).statusCode;
     if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+      const code = (error as { code?: string }).code ?? 'bad_request';
+      logRefusal(request, statusCode, code);
       return reply.status(statusCode).send({
-        error: {
-          code: (error as { code?: string }).code ?? 'bad_request',
-          message: (error as Error).message,
-        },
+        error: { code, message: (error as Error).message },
       });
     }
     request.log.error({ err: error }, 'unhandled error');

@@ -52,6 +52,14 @@ describe('log redaction', () => {
     expect(redactUrl('/events?sport=football')).toBe('/events?sport=football');
     expect(redactUrl('/health')).toBe('/health');
   });
+
+  it('redacts personal data in query strings: phone numbers and search terms', () => {
+    expect(redactUrl('/dev/sms?phone=%2B251911234567')).toBe(`/dev/sms?phone=${LOG_REDACTED}`);
+    expect(redactUrl('/admin/users?q=0911234567&status=active&limit=25')).toBe(
+      `/admin/users?q=${LOG_REDACTED}&status=active&limit=25`,
+    );
+    expect(logRedactPaths()).toContain('*.phone');
+  });
 });
 
 describe('telemetry', () => {
