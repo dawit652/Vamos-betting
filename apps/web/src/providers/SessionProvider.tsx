@@ -12,17 +12,22 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { UNAUTHORIZED_EVENT } from '@/lib/api/client';
+import { setCsrfToken, UNAUTHORIZED_EVENT } from '@/lib/api/client';
 import { isApiClientError } from '@/lib/api/errors';
 import { sessionApi } from '@/lib/api/session';
 import { useLocale, useSetLocale } from '@/i18n/client';
-import { CSRF_COOKIE, LOCALE_COOKIE, readBrowserCookie } from '@/lib/cookies';
+import { LOCALE_COOKIE, readBrowserCookie } from '@/lib/cookies';
 
 /**
  * The signed-in player, on the client. `status` is:
- * - `loading` while /me and /wallet are in flight (only when a session cookie exists);
+ * - `loading` while the session, /me and /wallet are in flight (only when the
+ *   server saw a session cookie: on one host, as in development);
  * - `anonymous` when there is no session (or it expired: any 401 from the API);
  * - `authenticated` with `me` and `wallet` set.
+ *
+ * The session is read from GET /auth/session, which also gives the CSRF token
+ * the API client sends on changes (the API's own cookies are out of reach
+ * when it runs on another host, as in production).
  *
  * After logging in or out, call `refresh()`; after a balance change (bet placed,
  * top-up), call `refreshWallet()`.
@@ -77,11 +82,14 @@ export function SessionProvider({
 
   const refresh = useCallback(async () => {
     const run = ++generation.current;
-    if (readBrowserCookie(CSRF_COOKIE) === null) {
-      setState(ANONYMOUS);
-      return;
-    }
     try {
+      const { session } = await sessionApi.state();
+      if (run !== generation.current) return;
+      setCsrfToken(session?.csrfToken ?? null);
+      if (session === null) {
+        setState(ANONYMOUS);
+        return;
+      }
       const [me, wallet] = await Promise.all([sessionApi.me(), sessionApi.wallet()]);
       if (run !== generation.current) return;
       lastWalletAt.current = Date.now();
@@ -117,6 +125,7 @@ export function SessionProvider({
       if (!(isApiClientError(error) && error.status === 401)) return false;
     }
     generation.current++;
+    setCsrfToken(null);
     setState(ANONYMOUS);
     return true;
   }, []);
@@ -140,6 +149,7 @@ export function SessionProvider({
   useEffect(() => {
     const onUnauthorized = () => {
       generation.current++;
+      setCsrfToken(null);
       setState(ANONYMOUS);
     };
     const onVisible = () => {

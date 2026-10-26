@@ -6,24 +6,35 @@ import {
   parseIsoDate,
 } from '@vamos/core';
 import type {
+  ChangePasswordRequest,
   ForgotPasswordRequest,
   LoginRequest,
   OtpSentResponse,
+  PlayerSessionsResponse,
   RegisterRequest,
   RegisterResponse,
   ResendOtpRequest,
   ResetPasswordRequest,
+  RevokeSessionsRequest,
+  RevokeSessionsResponse,
   VerifyOtpRequest,
 } from '@vamos/contracts';
 import { writeAudit, type DbExecutor } from '@vamos/db';
-import { users } from '@vamos/db/schema';
-import { eq } from 'drizzle-orm';
+import { sessions, users } from '@vamos/db/schema';
+import { and, desc, eq, gt, isNull, ne } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AppDeps } from '../../deps';
 import { clientAddressKey } from '../../lib/client-address';
 import { randomToken, safeEqualHex, sha256Hex } from '../../lib/crypto';
-import { AppError, badRequest, conflict, forbidden, unprocessable } from '../../lib/errors';
-import { toLocale } from '../../lib/locale';
+import {
+  AppError,
+  badRequest,
+  conflict,
+  forbidden,
+  notFound,
+  unprocessable,
+} from '../../lib/errors';
+import { toLocale, type Locale } from '../../lib/locale';
 import {
   consumeOtp,
   createOtpChallenge,
@@ -43,9 +54,11 @@ import {
   createSession,
   revokeAllUserSessions,
   revokeSession,
+  SESSION_IDLE_MS,
   type IssuedSession,
   type SessionUser,
 } from '../../plugins/session';
+import { passwordChangedSmsBody } from '../../providers/sms';
 import { exclusionError, getActiveExclusion } from '../rg/guard';
 import { announceSessionRevoked } from '../stream/control';
 
@@ -436,23 +449,51 @@ export async function requestPasswordReset(
   return { response: otpSentBody(deps, phone, otp, 'password_reset'), deliver };
 }
 
-/** Sets a new password with a reset code and revokes every session of the account. */
+/** A committed password change: `deliver` sends the player's notice (never throws). */
+export interface PasswordChanged {
+  deliver: () => Promise<void>;
+}
+
+/**
+ * Sends the "your password was changed" SMS (ASVS 2.2.3, 2.5.5). A gateway
+ * failure is logged, never thrown: the change itself has committed.
+ */
+export async function notifyPasswordChanged(
+  deps: Pick<AppDeps, 'sms'>,
+  phone: string,
+  locale: Locale,
+  log?: Pick<FastifyBaseLogger, 'error'>,
+): Promise<void> {
+  try {
+    await deps.sms.send({
+      to: phone,
+      body: passwordChangedSmsBody(locale),
+      template: 'password_changed',
+    });
+  } catch (error) {
+    log?.error({ err: error, provider: deps.sms.name }, 'password-change SMS could not be sent');
+  }
+}
+
+/**
+ * Sets a new password with a reset code and revokes every session of the
+ * account. The caller sends the notice (`deliver`) after answering.
+ */
 export async function resetPassword(
   deps: AppDeps,
   input: ResetPasswordRequest,
   meta: RequestMeta,
-): Promise<void> {
+): Promise<PasswordChanged> {
   const phone = requirePhone(input.phone);
   assertPasswordAcceptable(input.newPassword, phone);
   const passwordHash = await hashPassword(input.newPassword);
   const now = deps.clock();
-  let resetUserId: string | null = null;
-  await consumeOtp(
+  const reset = await consumeOtp(
     deps.db,
     { secret: deps.config.sessionSecret, phone, purpose: 'password_reset', code: input.code, now },
     async (tx) => {
       const [user] = await tx
-        .select({ id: users.id, status: users.status })
+        .select({ id: users.id, status: users.status, locale: users.locale })
         .from(users)
         .where(eq(users.phone, phone))
         .for('update');
@@ -460,7 +501,6 @@ export async function resetPassword(
       if (!user || user.status !== 'active') throw otpExpired();
       await tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, user.id));
       const revokedSessions = await revokeAllUserSessions(tx, user.id, now);
-      resetUserId = user.id;
       await writeAudit(tx, {
         actorType: 'user',
         actorId: user.id,
@@ -470,10 +510,207 @@ export async function resetPassword(
         metadata: { revokedSessions },
         ip: meta.ip,
       });
+      return { userId: user.id, locale: toLocale(user.locale) };
     },
   );
   // Committed: end every open push stream of the account now.
-  if (resetUserId !== null) await announceSessionRevoked(deps, resetUserId, null);
+  await announceSessionRevoked(deps, reset.userId, null);
+  return { deliver: () => notifyPasswordChanged(deps, phone, reset.locale, meta.log) };
+}
+
+/** 403 `reauth_failed`: the password re-entered to confirm a change is not the account's. */
+const reauthFailed = () =>
+  forbidden('reauth_failed', 'The password you entered is not correct. Please try again.');
+
+/**
+ * Checks the password a signed-in player re-entered (argon2, outside any
+ * transaction). A wrong one is audited as `user.reauth_failed` and answered
+ * 403 `reauth_failed`. Returns the hash it matched, so the caller can make sure
+ * it did not change before its own transaction.
+ */
+async function verifyCurrentPassword(
+  deps: Pick<AppDeps, 'db'>,
+  user: SessionUser,
+  password: string,
+  purpose: 'password_change' | 'sessions_revoke',
+  meta: RequestMeta,
+): Promise<string> {
+  const [row] = await deps.db
+    .select({ passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+  if (row !== undefined && (await verifyPassword(row.passwordHash, password))) {
+    return row.passwordHash;
+  }
+  await writeAudit(deps.db, {
+    actorType: 'user',
+    actorId: user.id,
+    action: 'user.reauth_failed',
+    targetType: 'user',
+    targetId: user.id,
+    metadata: { purpose },
+    ip: meta.ip,
+  });
+  throw reauthFailed();
+}
+
+/**
+ * POST /me/password: the signed-in player changes the password with the
+ * current one (ASVS 2.1.5, 2.1.6). The new one must meet the rules and differ
+ * from the current one (422 `password_unchanged`). Every other session of the
+ * account ends (ASVS 3.3.3); this one stays. Audited as
+ * `user.password_changed`; the caller sends the notice (`deliver`).
+ */
+export async function changePassword(
+  deps: AppDeps,
+  user: SessionUser,
+  input: ChangePasswordRequest,
+  meta: RequestMeta,
+): Promise<PasswordChanged & { revokedSessions: number }> {
+  assertPasswordAcceptable(input.newPassword, user.phone);
+  if (input.newPassword === input.currentPassword) {
+    throw unprocessable('password_unchanged', 'Choose a password different from the current one.');
+  }
+  const verifiedHash = await verifyCurrentPassword(
+    deps,
+    user,
+    input.currentPassword,
+    'password_change',
+    meta,
+  );
+  const passwordHash = await hashPassword(input.newPassword);
+  const now = deps.clock();
+  const revoked = await deps.db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .for('update');
+    // Changed meanwhile (a reset, which also ended this session): the check no longer holds.
+    if (row === undefined || row.passwordHash !== verifiedHash) throw reauthFailed();
+    await tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, user.id));
+    const ended = await revokeOtherUserSessions(tx, user, now);
+    await writeAudit(tx, {
+      actorType: 'user',
+      actorId: user.id,
+      action: 'user.password_changed',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { revokedSessions: ended.length },
+      ip: meta.ip,
+    });
+    return ended;
+  });
+  // Committed: end the other sessions' open push streams now.
+  for (const sessionId of revoked) await announceSessionRevoked(deps, user.id, sessionId);
+  return {
+    revokedSessions: revoked.length,
+    deliver: () => notifyPasswordChanged(deps, user.phone, user.locale, meta.log),
+  };
+}
+
+/** The player's live sessions other than `user`'s (optionally one of them) as of `now`. */
+function otherLiveSessions(user: SessionUser, now: Date, sessionId?: string) {
+  return and(
+    eq(sessions.userId, user.id),
+    ne(sessions.id, user.sessionId),
+    isNull(sessions.revokedAt),
+    gt(sessions.expiresAt, now),
+    gt(sessions.lastSeenAt, new Date(now.getTime() - SESSION_IDLE_MS)),
+    ...(sessionId === undefined ? [] : [eq(sessions.id, sessionId)]),
+  );
+}
+
+async function revokeOtherUserSessions(
+  tx: DbExecutor,
+  user: SessionUser,
+  now: Date,
+  sessionId?: string,
+): Promise<string[]> {
+  const rows = await tx
+    .update(sessions)
+    .set({ revokedAt: now })
+    .where(otherLiveSessions(user, now, sessionId))
+    .returning({ id: sessions.id });
+  return rows.map((row) => row.id);
+}
+
+/** GET /me/sessions: the player's live sessions, most recently used first (ASVS 3.3.4). */
+export async function listSessions(
+  deps: Pick<AppDeps, 'db' | 'clock'>,
+  user: SessionUser,
+): Promise<PlayerSessionsResponse> {
+  const now = deps.clock();
+  const rows = await deps.db
+    .select({
+      id: sessions.id,
+      createdAt: sessions.createdAt,
+      lastSeenAt: sessions.lastSeenAt,
+      expiresAt: sessions.expiresAt,
+      ip: sessions.ip,
+      userAgent: sessions.userAgent,
+    })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.userId, user.id),
+        isNull(sessions.revokedAt),
+        gt(sessions.expiresAt, now),
+        gt(sessions.lastSeenAt, new Date(now.getTime() - SESSION_IDLE_MS)),
+      ),
+    )
+    .orderBy(desc(sessions.lastSeenAt))
+    .limit(MAX_LISTED_SESSIONS);
+  return {
+    items: rows.map((row) => ({
+      id: row.id,
+      current: row.id === user.sessionId,
+      createdAt: row.createdAt.toISOString(),
+      lastSeenAt: row.lastSeenAt.toISOString(),
+      expiresAt: row.expiresAt.toISOString(),
+      ip: row.ip,
+      userAgent: row.userAgent,
+    })),
+  };
+}
+
+/** Sessions GET /me/sessions lists at most. */
+export const MAX_LISTED_SESSIONS = 50;
+
+/**
+ * POST /me/sessions/revoke: after the password is re-entered, ends one other
+ * live session of the player (404 when it is not theirs or already over) or
+ * every other one (ASVS 3.3.4). The current session is ended with log out
+ * (400 `current_session`). Audited as `user.sessions_revoked`.
+ */
+export async function revokeSessions(
+  deps: AppDeps,
+  user: SessionUser,
+  input: RevokeSessionsRequest,
+  meta: RequestMeta,
+): Promise<RevokeSessionsResponse> {
+  if (input.sessionId === user.sessionId) {
+    throw badRequest('current_session', 'Use log out to end the session you are using.');
+  }
+  await verifyCurrentPassword(deps, user, input.password, 'sessions_revoke', meta);
+  const now = deps.clock();
+  const revoked = await deps.db.transaction(async (tx) => {
+    const ended = await revokeOtherUserSessions(tx, user, now, input.sessionId);
+    if (input.sessionId !== undefined && ended.length === 0) throw notFound('Session');
+    await writeAudit(tx, {
+      actorType: 'user',
+      actorId: user.id,
+      action: 'user.sessions_revoked',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { revoked: ended.length, scope: input.sessionId === undefined ? 'others' : 'one' },
+      ip: meta.ip,
+    });
+    return ended;
+  });
+  for (const sessionId of revoked) await announceSessionRevoked(deps, user.id, sessionId);
+  return { revoked: revoked.length };
 }
 
 /**

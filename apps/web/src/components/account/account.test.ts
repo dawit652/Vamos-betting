@@ -26,6 +26,7 @@ import {
 } from './exclusion';
 import { KYC_LABEL } from './kyc';
 import { refetchPages } from './paging';
+import { deviceLabel } from './security';
 import {
   buildLimitsRequest,
   limitFormFrom,
@@ -523,5 +524,23 @@ describe('message keys used by the account pages', () => {
       expect(lookup(MESSAGES.en, key), key).toBeTypeOf('string');
       expect(lookup(MESSAGES.am, key), key).toBeTypeOf('string');
     }
+  });
+});
+
+describe('security page helpers', () => {
+  it('names the device of a session from its user agent', () => {
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
+      ),
+    ).toBe('Chrome · Android');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+      ),
+    ).toBe('Safari · iOS');
+    expect(deviceLabel('Opera/9.80 (J2ME/MIDP; Opera Mini/9.80 (S60; SymbOS)')).toBe('Opera Mini');
+    expect(deviceLabel('curl/8.0')).toBeNull();
+    expect(deviceLabel(null)).toBeNull();
   });
 });

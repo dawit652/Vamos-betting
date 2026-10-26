@@ -25,6 +25,7 @@ import {
   createTestContext,
   post,
   registerAndLogin,
+  relogin,
   type LoggedInUser,
   type TestContext,
 } from './helpers';
@@ -253,6 +254,7 @@ describe('responsible gambling', () => {
       });
 
       ctx.clock.advance(LIMIT_INCREASE_DELAY_MS - 1);
+      await relogin(ctx, player);
       expect((await getLimitsRequest(player)).loss.week.amount).toBe('50000');
       ctx.clock.advance(1);
       expect((await getLimitsRequest(player)).loss.week).toEqual({
@@ -273,6 +275,7 @@ describe('responsible gambling', () => {
         pending: { amount: null, effectiveFrom: at(DAY_MS).toISOString() },
       });
       ctx.clock.advance(DAY_MS);
+      await relogin(ctx, player);
       expect((await getLimitsRequest(player)).stake.bet).toEqual(NO_LIMIT);
     });
 
@@ -281,9 +284,11 @@ describe('responsible gambling', () => {
       await setLimits(player, { deposit: { month: '500000' } });
       await setLimits(player, { deposit: { month: '900000' } });
       ctx.clock.advance(HOUR_MS);
+      await relogin(ctx, player);
       const body = await setLimits(player, { deposit: { month: '400000' } });
       expect(body.deposit.month).toEqual({ amount: '400000', pending: null });
       ctx.clock.advance(2 * DAY_MS);
+      await relogin(ctx, player);
       expect((await getLimitsRequest(player)).deposit.month).toEqual({
         amount: '400000',
         pending: null,
@@ -296,6 +301,7 @@ describe('responsible gambling', () => {
       await setLimits(player, { deposit: { day: '50000' } });
       await setLimits(player, { deposit: { day: '90000' } });
       ctx.clock.advance(12 * HOUR_MS);
+      await relogin(ctx, player);
       const body = await setLimits(player, { deposit: { day: '70000' } });
       const effectiveFrom = new Date(start.getTime() + 36 * HOUR_MS);
       expect(body.deposit.day).toEqual({
@@ -308,8 +314,10 @@ describe('responsible gambling', () => {
 
       // The superseded 90,000 never comes into force.
       ctx.clock.advance(12 * HOUR_MS);
+      await relogin(ctx, player);
       expect((await getLimitsRequest(player)).deposit.day.amount).toBe('50000');
       ctx.clock.now = effectiveFrom;
+      await relogin(ctx, player);
       expect((await getLimitsRequest(player)).deposit.day).toEqual({
         amount: '70000',
         pending: null,
@@ -321,6 +329,7 @@ describe('responsible gambling', () => {
       await setLimits(player, { loss: { day: '20000' } });
       const first = await setLimits(player, { loss: { day: '30000' } });
       ctx.clock.advance(HOUR_MS);
+      await relogin(ctx, player);
       const again = await setLimits(player, { loss: { day: '30000' } });
       expect(again.loss.day).toEqual(first.loss.day);
       expect(await audits(player.userId, 'rg.limits_changed')).toHaveLength(2);
@@ -333,6 +342,7 @@ describe('responsible gambling', () => {
       const body = await setLimits(player, { loss: { day: '20000' } });
       expect(body.loss.day).toEqual({ amount: '20000', pending: null });
       ctx.clock.advance(2 * DAY_MS);
+      await relogin(ctx, player);
       expect((await getLimitsRequest(player)).loss.day).toEqual({ amount: '20000', pending: null });
     });
 
@@ -673,6 +683,7 @@ describe('responsible gambling', () => {
 
       // Once it ends the player can start another one.
       ctx.clock.advance(DAY_MS);
+      await relogin(ctx, player);
       const again = await startExclusion(player, { kind: 'cool_off', duration: '7d' });
       expect(again.statusCode).toBe(201);
       expect(again.json()).toMatchObject({ exclusion: { endsAt: at(7 * DAY_MS).toISOString() } });
@@ -694,6 +705,7 @@ describe('responsible gambling', () => {
       }
 
       ctx.clock.advance(HOUR_MS);
+      await relogin(ctx, player);
       const longer = await startExclusion(player, { kind: 'cool_off', duration: '30d' });
       expect(longer.statusCode).toBe(201);
       expect((await audits(player.userId, 'rg.exclusion_started')).at(-1)!.metadata).toMatchObject({

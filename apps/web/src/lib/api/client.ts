@@ -4,14 +4,28 @@ import { ApiClientError, errorFromBody, networkError } from './errors';
 
 /**
  * Browser-side API calls (client components only). Sends the session cookie
- * (`credentials: 'include'`), echoes the `vamos_csrf` cookie in `x-csrf-token`
- * on unsafe methods, and rejects with ApiClientError on any failure.
+ * (`credentials: 'include'`), sends the session's CSRF token in
+ * `x-csrf-token` on unsafe methods, and rejects with ApiClientError on any
+ * failure.
+ *
+ * The CSRF token comes from the API (GET /auth/session, see SessionProvider):
+ * in production the API is on another host, whose cookies this page cannot
+ * read. On one host (local development) the readable `vamos_csrf` cookie is the
+ * fallback.
  *
  * Import response/request TYPES from @vamos/contracts with `import type` only:
  * a value import would pull zod into the browser bundle.
  */
 
 export const UNAUTHORIZED_EVENT = 'vamos:unauthorized';
+
+/** The session's CSRF token, kept in memory only (null without a session). */
+let csrfToken: string | null = null;
+
+/** Sets the CSRF token sent on unsafe requests (SessionProvider, after GET /auth/session). */
+export function setCsrfToken(token: string | null): void {
+  csrfToken = token;
+}
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const SAFE_METHODS = new Set(['GET', 'HEAD']);
@@ -32,7 +46,7 @@ export async function apiFetch<T>(path: string, options: ApiRequestOptions = {})
   const headers: Record<string, string> = { accept: 'application/json' };
   if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (!SAFE_METHODS.has(method)) {
-    const csrf = readBrowserCookie(CSRF_COOKIE);
+    const csrf = csrfToken ?? readBrowserCookie(CSRF_COOKIE);
     if (csrf !== null) headers[CSRF_HEADER] = csrf;
   }
   if (options.idempotencyKey !== undefined) headers['idempotency-key'] = options.idempotencyKey;

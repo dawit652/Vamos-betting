@@ -25,7 +25,13 @@ import { OTP_HOURLY_PHONE_CEILING, OTP_TTL_MS } from '../src/lib/otp';
 import { DEFAULT_AUTH_LIMITS } from '../src/lib/rate-limits';
 import type { DevSmsResponse } from '../src/modules/dev/routes';
 import { assertCanGamble, getActiveExclusion } from '../src/modules/rg/guard';
-import { SESSION_TTL_MS, secureCookies, type SessionUser } from '../src/plugins/session';
+import {
+  SESSION_ABSOLUTE_MS,
+  SESSION_IDLE_MS,
+  csrfTokenFor,
+  secureCookies,
+  type SessionUser,
+} from '../src/plugins/session';
 import type { SmsMessage, SmsProvider } from '../src/providers/sms';
 import {
   ADULT_DOB,
@@ -506,7 +512,14 @@ describe('auth', () => {
         status: 'active',
         locale: 'am',
       });
-      expect(new Date(body.expiresAt).getTime()).toBe(ctx.clock.now.getTime() + SESSION_TTL_MS);
+      expect(new Date(body.expiresAt).getTime()).toBe(
+        ctx.clock.now.getTime() + SESSION_ABSOLUTE_MS,
+      );
+      expect(new Date(body.idleExpiresAt).getTime()).toBe(
+        ctx.clock.now.getTime() + SESSION_IDLE_MS,
+      );
+      // The CSRF token is derived from the session token, so GET /auth/session can hand it out.
+      expect(body.csrfToken).toBe(csrfTokenFor(body.sessionToken));
 
       const sessionCookie = response.cookies.find((c) => c.name === 'vamos_session');
       const csrfCookie = response.cookies.find((c) => c.name === 'vamos_csrf');
@@ -532,12 +545,13 @@ describe('auth', () => {
       expect(stored!.csrfHash).not.toBe(body.csrfToken);
 
       const me = await whoami({ cookie: cookieHeader(response) });
-      expect(me.user).toEqual({
+      expect(me.user).toMatchObject({
         id: userId,
         phone,
         status: 'active',
         locale: 'am',
         sessionId: stored!.id,
+        csrfToken: body.csrfToken,
       });
 
       // The session works: log out with it.
@@ -1005,11 +1019,26 @@ describe('auth', () => {
       expect(noAuth.statusCode).toBe(401);
       expect((await whoami(bearer('not-a-real-token'))).statusCode).toBe(401);
 
+      // 12 hours after sign-in at the latest, however active (ASVS 3.3.2).
       const player = await registerAndLogin(ctx);
-      ctx.clock.advance(SESSION_TTL_MS - 1000);
+      const signedInAt = ctx.clock.now.getTime();
+      while (ctx.clock.now.getTime() + SESSION_IDLE_MS / 2 < signedInAt + SESSION_ABSOLUTE_MS) {
+        ctx.clock.advance(SESSION_IDLE_MS / 2);
+        expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(200);
+      }
+      ctx.clock.advance(signedInAt + SESSION_ABSOLUTE_MS - ctx.clock.now.getTime() - 1000);
       expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(200);
       ctx.clock.advance(1000);
       expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(401);
+
+      // 30 minutes without a request.
+      const idle = await registerAndLogin(ctx);
+      ctx.clock.advance(SESSION_IDLE_MS - 1000);
+      expect((await whoami(bearer(idle.sessionToken))).statusCode).toBe(200);
+      ctx.clock.advance(SESSION_IDLE_MS - 1000);
+      expect((await whoami(bearer(idle.sessionToken))).statusCode).toBe(200);
+      ctx.clock.advance(SESSION_IDLE_MS);
+      expect((await whoami(bearer(idle.sessionToken))).statusCode).toBe(401);
     });
 
     it('marks cookies Secure in production, in licensed mode and behind HTTPS', async () => {
@@ -1033,10 +1062,24 @@ describe('auth', () => {
           payload: { phone: player.phone, password: player.password },
         });
         expect(response.statusCode).toBe(200);
-        expect(response.cookies.map((cookie) => [cookie.name, cookie.secure])).toEqual([
-          ['vamos_session', true],
-          ['vamos_csrf', true],
+        // __Host- names: Secure, path /, no Domain (ASVS 3.4.4).
+        expect(
+          response.cookies.map((cookie) => [
+            cookie.name,
+            cookie.secure,
+            cookie.path,
+            cookie.domain,
+          ]),
+        ).toEqual([
+          ['__Host-vamos_session', true, '/', undefined],
+          ['__Host-vamos_csrf', true, '/', undefined],
         ]);
+        const token = response.json<{ sessionToken: string }>().sessionToken;
+        const me = (cookie: string) =>
+          licensed.inject({ method: 'GET', url: '/me', headers: { cookie } });
+        // Only the __Host- cookie authenticates: a plain one could be planted by a sibling host.
+        expect((await me(`__Host-vamos_session=${token}`)).statusCode).toBe(200);
+        expect((await me(`vamos_session=${token}`)).statusCode).toBe(401);
       } finally {
         await licensed.close();
       }

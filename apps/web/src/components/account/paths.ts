@@ -14,6 +14,7 @@ export const accountPaths = {
   kyc: `${routes.account}/kyc`,
   limits: `${routes.account}/limits`,
   selfExclusion: `${routes.account}/self-exclusion`,
+  security: `${routes.account}/security`,
   deposit: routes.deposit,
   withdraw: routes.withdraw,
 } as const;

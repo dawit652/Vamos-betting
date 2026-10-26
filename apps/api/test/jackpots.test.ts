@@ -45,6 +45,7 @@ import {
 import {
   createTestContext,
   registerAndLogin,
+  relogin,
   type LoggedInUser,
   type TestContext,
 } from './helpers';
@@ -382,6 +383,8 @@ describe('POST /jackpots/:id/entries', () => {
 
     const closing = await openRound();
     ctx.clock.now = at(60);
+    // An hour without a request ends the session (30 minutes idle): sign in again.
+    await relogin(ctx, user);
     const late = await enter(user, closing.roundId, [['1'], ['X'], ['2']]);
     expect(late.statusCode).toBe(409);
     expect(apiError(late).code).toBe('jackpot_closed');

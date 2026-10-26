@@ -10,6 +10,7 @@ import {
   type OtpSentResponse,
   type RegisterResponse,
   type SessionResponse,
+  type SessionStateResponse,
 } from '@vamos/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
@@ -21,6 +22,7 @@ import {
   clearSessionCookies,
   requireUser,
   sessionResponseBody,
+  sessionStateBody,
   setSessionCookies,
 } from '../../plugins/session';
 import {
@@ -143,6 +145,12 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // The request's session (and its CSRF token, which a web app on another host cannot read
+  // from the API's cookies), or null: always 200, so probing it is no refused request.
+  app.get('/auth/session', async (request): Promise<SessionStateResponse> =>
+    sessionStateBody(request.user),
+  );
+
   app.post(
     '/auth/logout',
     { preHandler: app.requireAuth },
@@ -167,7 +175,9 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: clientLimit, config: phoneRateLimit(10, HOUR_MS) },
     async (request, reply): Promise<OkResponse> => {
       const input = parseInput(ResetPasswordRequest, request.body);
-      await resetPassword(deps, input, requestMeta(request));
+      const { deliver } = await resetPassword(deps, input, requestMeta(request));
+      // The "your password was changed" notice goes out after the answer.
+      app.background.run('password_changed_sms', deliver);
       // Whoever holds the SMS code is the owner: lift the per-number login lock a
       // stranger may hold with wrong passwords, so the new password works at once.
       const phone = bodyPhone(request);

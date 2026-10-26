@@ -172,6 +172,27 @@ export interface LoggedInUser {
   sessionToken: string;
 }
 
+/**
+ * Signs `player` in again and puts the new session on it. Sessions end 30
+ * minutes after their last request and 12 hours after sign-in, so a test whose
+ * clock jumps further (a 24-hour limit delay, a cool-off) signs in again, like
+ * the player would.
+ */
+export async function relogin(ctx: TestContext, player: LoggedInUser): Promise<LoggedInUser> {
+  const response = await post(ctx, '/auth/login', {
+    phone: player.phone,
+    password: player.password,
+  });
+  if (response.statusCode !== 200) {
+    throw new Error(`login failed: ${response.statusCode} ${response.body}`);
+  }
+  const session = SessionResponse.parse(response.json());
+  player.cookie = cookieHeader(response);
+  player.csrfToken = session.csrfToken;
+  player.sessionToken = session.sessionToken;
+  return player;
+}
+
 /** Registers `phone` (random by default), verifies it with the SMS code and returns the session. */
 export async function registerAndLogin(
   ctx: TestContext,

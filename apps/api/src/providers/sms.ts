@@ -53,3 +53,15 @@ export function otpSmsBody(code: string, locale: Locale): string {
   const english = `Your code is ${code}. Valid 5 min. Never share it.`;
   return locale === 'en' ? `Vamos: ${english} ${amharic}` : `Vamos: ${amharic} ${english}`;
 }
+
+/**
+ * The notice sent after the password of an account changed (a change in the
+ * account or a reset with an SMS code; ASVS 2.2.3, 2.5.5). Bilingual like the
+ * codes, and it carries no secret.
+ */
+export function passwordChangedSmsBody(locale: Locale): string {
+  const amharic = 'የይለፍ ቃልዎ ተቀይሯል። እርስዎ ካልቀየሩት ወዲያውኑ የይለፍ ቃልዎን ዳግም ያስጀምሩና የደንበኞች አገልግሎትን ያነጋግሩ።';
+  const english =
+    'Your password was changed. If this was not you, reset your password now and contact support.';
+  return locale === 'en' ? `Vamos: ${english} ${amharic}` : `Vamos: ${amharic} ${english}`;
+}

@@ -25,7 +25,8 @@ import { secureCookies } from './session';
 /**
  * Staff (back office) sessions, separate from the player sessions:
  * - the `vamos_staff` cookie (httpOnly, SameSite=Strict, path /admin, Secure
- *   like the player cookies) is the only credential; there are no bearer
+ *   like the player cookies; `__Host-vamos_staff` with path / when Secure,
+ *   see staffCookieName) is the only credential; there are no bearer
  *   tokens, and the player plugin ignores every /admin request;
  * - sessions live in admin_sessions (idle and absolute expiry, see
  *   @vamos/db staff-auth), so a player token never authenticates staff and
@@ -65,12 +66,23 @@ export function staffAuthDeps(deps: AppDeps): StaffAuthDeps {
   };
 }
 
+/**
+ * The staff cookie's name: `__Host-vamos_staff` when cookies are Secure, so a
+ * sibling subdomain can neither set nor overwrite it (ASVS 3.4.4; the prefix
+ * needs path /, and the API host serves nothing else); `vamos_staff`, limited
+ * to /admin, over plain http (development).
+ */
+export function staffCookieName(config: Pick<AppConfig, 'nodeEnv' | 'mode' | 'api'>): string {
+  return secureCookies(config) ? `__Host-${STAFF_SESSION_COOKIE}` : STAFF_SESSION_COOKIE;
+}
+
 function staffCookieOptions(config: AppConfig) {
+  const secure = secureCookies(config);
   return {
     httpOnly: true,
     sameSite: 'strict' as const,
-    secure: secureCookies(config),
-    path: '/admin',
+    secure,
+    path: secure ? '/' : '/admin',
   };
 }
 
@@ -79,14 +91,14 @@ export function setStaffCookie(
   config: AppConfig,
   session: IssuedStaffSession,
 ): void {
-  reply.setCookie(STAFF_SESSION_COOKIE, session.token, {
+  reply.setCookie(staffCookieName(config), session.token, {
     ...staffCookieOptions(config),
     expires: session.expiresAt,
   });
 }
 
 export function clearStaffCookie(reply: FastifyReply, config: AppConfig): void {
-  reply.clearCookie(STAFF_SESSION_COOKIE, staffCookieOptions(config));
+  reply.clearCookie(staffCookieName(config), staffCookieOptions(config));
 }
 
 /** The StaffSessionResponse body for a signed-in staff member. */
@@ -176,7 +188,7 @@ export async function staffSessionPlugin(app: FastifyInstance): Promise<void> {
   });
   app.addHook('onRequest', async (request) => {
     if (request.method === 'OPTIONS') return;
-    const token = request.cookies[STAFF_SESSION_COOKIE];
+    const token = request.cookies[staffCookieName(deps.config)];
     if (typeof token !== 'string' || token.length === 0) {
       request.staffAuth = { status: 'none' };
       return;

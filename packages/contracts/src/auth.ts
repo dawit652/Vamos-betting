@@ -107,25 +107,91 @@ export const ResetPasswordRequest = z.object({
 });
 export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequest>;
 
+const SessionUserView = z.object({
+  id: z.string(),
+  phone: z.string(),
+  status: z.enum(['pending_verification', 'active', 'suspended', 'closed']),
+  locale: LocaleSchema,
+});
+
 /**
  * Returned by OTP verification and login. The session token is set as an
- * httpOnly cookie (`vamos_session`); `csrfToken` must be echoed in the
- * `x-csrf-token` header on state-changing requests (it is also set as the
- * readable `vamos_csrf` cookie). Non-browser clients may instead send
- * `Authorization: Bearer <sessionToken>`, which needs no CSRF token.
+ * httpOnly cookie (`vamos_session`, `__Host-vamos_session` over https);
+ * `csrfToken` must be echoed in the `x-csrf-token` header on state-changing
+ * requests (it is also set as the readable `vamos_csrf` cookie, and GET
+ * /auth/session hands it out again). Non-browser clients may instead send
+ * `Authorization: Bearer <sessionToken>`, which needs no CSRF token. A
+ * session ends at `expiresAt` (12 hours after sign-in) or 30 minutes after
+ * its last request (`idleExpiresAt` moves on with every request).
  */
 export const SessionResponse = z.object({
-  user: z.object({
-    id: z.string(),
-    phone: z.string(),
-    status: z.enum(['pending_verification', 'active', 'suspended', 'closed']),
-    locale: LocaleSchema,
-  }),
+  user: SessionUserView,
   csrfToken: z.string(),
   sessionToken: z.string(),
   expiresAt: z.string(),
+  idleExpiresAt: z.string(),
 });
 export type SessionResponse = z.infer<typeof SessionResponse>;
+
+/**
+ * GET /auth/session: the request's session (its CSRF token included, for a
+ * web app on another host that cannot read the API's cookies), or null
+ * without a live one. Always 200.
+ */
+export const SessionStateResponse = z.object({
+  session: z
+    .object({
+      user: SessionUserView,
+      csrfToken: z.string(),
+      expiresAt: z.string(),
+      idleExpiresAt: z.string(),
+    })
+    .nullable(),
+});
+export type SessionStateResponse = z.infer<typeof SessionStateResponse>;
+
+/** The current password, re-entered to confirm a sensitive change (any length, like login). */
+export const CurrentPassword = z.string().min(1).max(MAX_PASSWORD_LENGTH);
+
+/**
+ * POST /me/password: the current and the new password (ASVS 2.1.5, 2.1.6).
+ * Every other session of the account ends, and the player gets an SMS.
+ */
+export const ChangePasswordRequest = z.object({
+  currentPassword: CurrentPassword,
+  newPassword: Password,
+});
+export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequest>;
+
+/** One live session of the player (GET /me/sessions). */
+export const PlayerSessionView = z.object({
+  id: z.string(),
+  /** The session this request was made with. */
+  current: z.boolean(),
+  createdAt: z.string(),
+  lastSeenAt: z.string(),
+  expiresAt: z.string(),
+  ip: z.string().nullable(),
+  userAgent: z.string().nullable(),
+});
+export type PlayerSessionView = z.infer<typeof PlayerSessionView>;
+
+export const PlayerSessionsResponse = z.object({ items: z.array(PlayerSessionView) });
+export type PlayerSessionsResponse = z.infer<typeof PlayerSessionsResponse>;
+
+/**
+ * POST /me/sessions/revoke: ends one other session (`sessionId`) or, without
+ * it, every other session of the account; the password is re-entered first
+ * (ASVS 3.3.4). The current session is ended with POST /auth/logout.
+ */
+export const RevokeSessionsRequest = z.object({
+  password: CurrentPassword,
+  sessionId: z.uuid().optional(),
+});
+export type RevokeSessionsRequest = z.infer<typeof RevokeSessionsRequest>;
+
+export const RevokeSessionsResponse = z.object({ revoked: z.number().int().nonnegative() });
+export type RevokeSessionsResponse = z.infer<typeof RevokeSessionsResponse>;
 
 export const OkResponse = z.object({ ok: z.literal(true) });
 export type OkResponse = z.infer<typeof OkResponse>;

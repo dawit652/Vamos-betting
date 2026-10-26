@@ -1,5 +1,6 @@
 import type {
   BetView,
+  ChangePasswordRequest,
   CreateExclusionRequest,
   Exclusion,
   ForgotPasswordRequest,
@@ -9,10 +10,13 @@ import type {
   MyBetsResponse,
   OkResponse,
   OtpSentResponse,
+  PlayerSessionsResponse,
   RegisterRequest,
   RegisterResponse,
   ResendOtpRequest,
   ResetPasswordRequest,
+  RevokeSessionsRequest,
+  RevokeSessionsResponse,
   RgLimitsRequest,
   RgLimitsResponse,
   SessionResponse,
@@ -55,6 +59,15 @@ export const accountApi = {
   updateLimits: (body: RgLimitsRequest) => api.put<RgLimitsResponse>('/me/limits', body),
   createExclusion: (body: CreateExclusionRequest) =>
     api.post<CreateExclusionResponse>('/me/exclusions', body),
+};
+
+/** The player's password and sessions (the "Password and devices" page). */
+export const securityApi = {
+  changePassword: (body: ChangePasswordRequest) => api.post<OkResponse>('/me/password', body),
+  sessions: (signal?: AbortSignal) =>
+    api.get<PlayerSessionsResponse>('/me/sessions', signal ? { signal } : {}),
+  revokeSessions: (body: RevokeSessionsRequest) =>
+    api.post<RevokeSessionsResponse>('/me/sessions/revoke', body),
 };
 
 export const walletApi = {

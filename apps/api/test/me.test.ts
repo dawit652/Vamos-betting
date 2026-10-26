@@ -9,6 +9,7 @@ import {
   ADULT_DOB,
   createTestContext,
   registerAndLogin,
+  relogin,
   type LoggedInUser,
   type TestContext,
 } from './helpers';
@@ -135,6 +136,8 @@ describe('GET /me and PATCH /me', () => {
     const at = ctx.clock.now;
     ctx.clock.now = endsAt;
     try {
+      // A day later the session has ended (12 hours at most): sign in again.
+      await relogin(ctx, player);
       const later = MeResponse.parse((await getMeRequest(player)).json());
       expect(later.exclusion).toBeNull();
       expect(later.canGamble).toBe(true);

@@ -1,5 +1,6 @@
+import { createHmac } from 'node:crypto';
 import type { AppConfig } from '@vamos/config';
-import type { SessionResponse } from '@vamos/contracts';
+import type { SessionResponse, SessionStateResponse } from '@vamos/contracts';
 import type { DbExecutor } from '@vamos/db';
 import { sessions, users, type userStatus } from '@vamos/db/schema';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -10,10 +11,22 @@ import { forbidden, unauthorized } from '../lib/errors';
 import { toLocale, type Locale } from '../lib/locale';
 import { isStaffPath } from '../lib/staff-path';
 
+/** Cookie names over plain http (local development and tests). */
 export const SESSION_COOKIE = 'vamos_session';
 export const CSRF_COOKIE = 'vamos_csrf';
+/**
+ * Cookie names when cookies are Secure (production, licensed mode, https):
+ * the `__Host-` prefix makes browsers refuse them unless Secure, Path=/ and
+ * without Domain, so a sibling subdomain can neither set nor overwrite them
+ * (ASVS 3.4.4). Only these names are read then.
+ */
+export const SECURE_SESSION_COOKIE = `__Host-${SESSION_COOKIE}`;
+export const SECURE_CSRF_COOKIE = `__Host-${CSRF_COOKIE}`;
 export const CSRF_HEADER = 'x-csrf-token';
-export const SESSION_TTL_MS = 30 * 24 * 60 * 60_000;
+/** A session ends this long after sign-in, however active (ASVS 3.3.2, level 2: 12 hours). */
+export const SESSION_ABSOLUTE_MS = 12 * 60 * 60_000;
+/** A session ends after this long without a request (ASVS 3.3.2, level 2: 30 minutes). */
+export const SESSION_IDLE_MS = 30 * 60_000;
 /** `last_seen_at` is written at most this often per session. */
 const LAST_SEEN_RESOLUTION_MS = 60_000;
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -27,6 +40,12 @@ export interface SessionUser {
   status: UserStatus;
   locale: Locale;
   sessionId: string;
+  /** The session's CSRF token (csrfTokenFor its token), for GET /auth/session. */
+  csrfToken: string;
+  /** Absolute end of the session. */
+  expiresAt: Date;
+  /** When the session ends without further requests. */
+  idleExpiresAt: Date;
 }
 
 declare module 'fastify' {
@@ -44,12 +63,46 @@ export interface IssuedSession {
   id: string;
   /** Bearer token; only its SHA-256 is stored. */
   token: string;
-  /** Double-submit CSRF token; only its SHA-256 is stored. */
+  /** Double-submit CSRF token (csrfTokenFor the token); only its SHA-256 is stored. */
   csrfToken: string;
   expiresAt: Date;
+  idleExpiresAt: Date;
 }
 
-/** Creates a 30-day session for `userId`. Run it in the transaction that authenticates the user. */
+/**
+ * The CSRF token of a session: an HMAC keyed by the (secret, httpOnly)
+ * session token, so the API can hand it out again (GET /auth/session) to a
+ * web app on another host, which cannot read the API's cookies.
+ */
+export function csrfTokenFor(sessionToken: string): string {
+  return createHmac('sha256', sessionToken).update('vamos:player-csrf:v1').digest('base64url');
+}
+
+/** When a session last seen at `lastSeenAt` ends without further requests. */
+function idleExpiry(lastSeenAt: Date, expiresAt: Date): Date {
+  return new Date(Math.min(lastSeenAt.getTime() + SESSION_IDLE_MS, expiresAt.getTime()));
+}
+
+/**
+ * Whether a session row still authenticates at `now`: not revoked, before its
+ * absolute end and used within SESSION_IDLE_MS.
+ */
+export function sessionLive(
+  row: { revokedAt: Date | null; expiresAt: Date; lastSeenAt: Date },
+  now: Date,
+): boolean {
+  const t = now.getTime();
+  return (
+    row.revokedAt === null &&
+    t < row.expiresAt.getTime() &&
+    t - row.lastSeenAt.getTime() < SESSION_IDLE_MS
+  );
+}
+
+/**
+ * Creates a session for `userId` (SESSION_ABSOLUTE_MS, idle SESSION_IDLE_MS).
+ * Run it in the transaction that authenticates the user.
+ */
 export async function createSession(
   exec: DbExecutor,
   deps: Pick<AppDeps, 'clock' | 'randomBytes'>,
@@ -57,8 +110,8 @@ export async function createSession(
 ): Promise<IssuedSession> {
   const now = deps.clock();
   const token = randomToken(deps.randomBytes);
-  const csrfToken = randomToken(deps.randomBytes);
-  const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
+  const csrfToken = csrfTokenFor(token);
+  const expiresAt = new Date(now.getTime() + SESSION_ABSOLUTE_MS);
   const [row] = await exec
     .insert(sessions)
     .values({
@@ -73,7 +126,7 @@ export async function createSession(
     })
     .returning({ id: sessions.id });
   if (!row) throw new Error('sessions insert returned no row');
-  return { id: row.id, token, csrfToken, expiresAt };
+  return { id: row.id, token, csrfToken, expiresAt, idleExpiresAt: idleExpiry(now, expiresAt) };
 }
 
 export async function revokeSession(exec: DbExecutor, sessionId: string, now: Date): Promise<void> {
@@ -109,6 +162,16 @@ export function secureCookies(config: Pick<AppConfig, 'nodeEnv' | 'mode' | 'api'
   );
 }
 
+/** The session and CSRF cookie names for this configuration (`__Host-` when Secure). */
+export function sessionCookieNames(config: Pick<AppConfig, 'nodeEnv' | 'mode' | 'api'>): {
+  session: string;
+  csrf: string;
+} {
+  return secureCookies(config)
+    ? { session: SECURE_SESSION_COOKIE, csrf: SECURE_CSRF_COOKIE }
+    : { session: SESSION_COOKIE, csrf: CSRF_COOKIE };
+}
+
 function cookieOptions(config: AppConfig, httpOnly: boolean) {
   return {
     httpOnly,
@@ -124,19 +187,21 @@ export function setSessionCookies(
   config: AppConfig,
   session: IssuedSession,
 ): void {
-  reply.setCookie(SESSION_COOKIE, session.token, {
+  const names = sessionCookieNames(config);
+  reply.setCookie(names.session, session.token, {
     ...cookieOptions(config, true),
     expires: session.expiresAt,
   });
-  reply.setCookie(CSRF_COOKIE, session.csrfToken, {
+  reply.setCookie(names.csrf, session.csrfToken, {
     ...cookieOptions(config, false),
     expires: session.expiresAt,
   });
 }
 
 export function clearSessionCookies(reply: FastifyReply, config: AppConfig): void {
-  reply.clearCookie(SESSION_COOKIE, cookieOptions(config, true));
-  reply.clearCookie(CSRF_COOKIE, cookieOptions(config, false));
+  const names = sessionCookieNames(config);
+  reply.clearCookie(names.session, cookieOptions(config, true));
+  reply.clearCookie(names.csrf, cookieOptions(config, false));
 }
 
 /** The `SessionResponse` body for a freshly created session. */
@@ -149,13 +214,27 @@ export function sessionResponseBody(
     csrfToken: session.csrfToken,
     sessionToken: session.token,
     expiresAt: session.expiresAt.toISOString(),
+    idleExpiresAt: session.idleExpiresAt.toISOString(),
+  };
+}
+
+/** The GET /auth/session body of a request: its session, or null without one. */
+export function sessionStateBody(user: SessionUser | null): SessionStateResponse {
+  if (user === null) return { session: null };
+  return {
+    session: {
+      user: { id: user.id, phone: user.phone, status: user.status, locale: user.locale },
+      csrfToken: user.csrfToken,
+      expiresAt: user.expiresAt.toISOString(),
+      idleExpiresAt: user.idleExpiresAt.toISOString(),
+    },
   };
 }
 
 /**
- * Whether a session still authenticates: not revoked, not expired and its
- * user still active (the checks of `authenticate`). Long-lived streams call
- * it to end when the player logs out.
+ * Whether a session still authenticates: not revoked, not expired (absolute
+ * or idle) and its user still active (the checks of `authenticate`).
+ * Long-lived streams call it to end when the player logs out.
  */
 export async function isSessionActive(
   deps: Pick<AppDeps, 'db' | 'clock'>,
@@ -165,18 +244,14 @@ export async function isSessionActive(
     .select({
       expiresAt: sessions.expiresAt,
       revokedAt: sessions.revokedAt,
+      lastSeenAt: sessions.lastSeenAt,
       status: users.status,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(eq(sessions.id, sessionId))
     .limit(1);
-  return (
-    row !== undefined &&
-    row.revokedAt === null &&
-    row.expiresAt.getTime() > deps.clock().getTime() &&
-    row.status === 'active'
-  );
+  return row !== undefined && sessionLive(row, deps.clock()) && row.status === 'active';
 }
 
 /** The authenticated player, or a 401 `unauthorized`. */
@@ -189,21 +264,22 @@ export function requireUser(request: FastifyRequest): SessionUser {
 
 type Credential = { token: string; via: 'bearer' | 'cookie' };
 
-function readCredential(request: FastifyRequest): Credential | null {
+function readCredential(request: FastifyRequest, cookieName: string): Credential | null {
   const authorization = request.headers.authorization;
   if (typeof authorization === 'string') {
     const match = /^Bearer\s+(\S+)\s*$/i.exec(authorization);
     if (match?.[1]) return { token: match[1], via: 'bearer' };
   }
-  const cookie = request.cookies[SESSION_COOKIE];
+  const cookie = request.cookies[cookieName];
   return cookie ? { token: cookie, via: 'cookie' } : null;
 }
 
 /**
- * Resolves the session behind the request. Revoked or expired sessions and
- * users who are no longer active count as unauthenticated. Cookie-based
- * requests with an unsafe method must echo the CSRF token in `x-csrf-token`
- * (403 `csrf_invalid`); bearer requests cannot be forged cross-site and are exempt.
+ * Resolves the session behind the request. Revoked or expired sessions (12
+ * hours after sign-in, or 30 minutes without a request) and users who are no
+ * longer active count as unauthenticated. Cookie-based requests with an
+ * unsafe method must echo the CSRF token in `x-csrf-token` (403
+ * `csrf_invalid`); bearer requests cannot be forged cross-site and are exempt.
  * /admin requests are never authenticated as a player.
  */
 async function authenticate(deps: AppDeps, request: FastifyRequest): Promise<SessionUser | null> {
@@ -211,7 +287,7 @@ async function authenticate(deps: AppDeps, request: FastifyRequest): Promise<Ses
   // The staff API has its own sessions (plugins/staff-session.ts): a player
   // credential never reaches it, not even to fail a CSRF check there.
   if (isStaffPath(request.url)) return null;
-  const credential = readCredential(request);
+  const credential = readCredential(request, sessionCookieNames(deps.config).session);
   if (credential === null) return null;
 
   const now = deps.clock();
@@ -231,12 +307,7 @@ async function authenticate(deps: AppDeps, request: FastifyRequest): Promise<Ses
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(eq(sessions.tokenHash, sha256Hex(credential.token)))
     .limit(1);
-  if (
-    !row ||
-    row.revokedAt !== null ||
-    row.expiresAt.getTime() <= now.getTime() ||
-    row.status !== 'active'
-  ) {
+  if (!row || !sessionLive(row, now) || row.status !== 'active') {
     return null;
   }
 
@@ -248,8 +319,10 @@ async function authenticate(deps: AppDeps, request: FastifyRequest): Promise<Ses
     }
   }
 
+  let lastSeenAt = row.lastSeenAt;
   if (now.getTime() - row.lastSeenAt.getTime() >= LAST_SEEN_RESOLUTION_MS) {
     await deps.db.update(sessions).set({ lastSeenAt: now }).where(eq(sessions.id, row.sessionId));
+    lastSeenAt = now;
   }
 
   return {
@@ -258,6 +331,9 @@ async function authenticate(deps: AppDeps, request: FastifyRequest): Promise<Ses
     status: row.status,
     locale: toLocale(row.locale),
     sessionId: row.sessionId,
+    csrfToken: csrfTokenFor(credential.token),
+    expiresAt: row.expiresAt,
+    idleExpiresAt: idleExpiry(lastSeenAt, row.expiresAt),
   };
 }
 

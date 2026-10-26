@@ -181,6 +181,7 @@ export function AccountOverview() {
           <MenuLink href={accountPaths.selfExclusion}>
             {t('account.overview.menu.exclusion')}
           </MenuLink>
+          <MenuLink href={accountPaths.security}>{t('account.overview.menu.security')}</MenuLink>
           <MenuLink href={routes.responsibleGambling}>
             {t('account.overview.menu.responsibleGambling')}
           </MenuLink>
