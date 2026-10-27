@@ -40,6 +40,7 @@ export const routes = {
   forgotPassword: '/forgot-password',
   help: '/help',
   terms: '/terms',
+  privacy: '/privacy',
   responsibleGambling: '/responsible-gambling',
 } as const;
 

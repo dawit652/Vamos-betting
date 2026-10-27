@@ -24,6 +24,7 @@ export const common = {
     wallet: 'Wallet',
     help: 'Help',
     terms: 'Terms',
+    privacy: 'Privacy',
     responsibleGambling: 'Responsible gambling',
     main: 'Main navigation',
     sports: 'Sports',

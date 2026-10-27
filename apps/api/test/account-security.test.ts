@@ -12,7 +12,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
 import { sha256Hex } from '../src/lib/crypto';
 import { SESSION_IDLE_MS } from '../src/plugins/session';
-import { REAUTH_LIMIT } from '../src/modules/me/routes';
+import { DATA_EXPORT_FORMAT } from '../src/modules/me/export';
+import { DATA_EXPORTS_PER_HOUR, REAUTH_LIMIT } from '../src/modules/me/routes';
 import { demoCode, seedStaff, staffEmail } from './admin-helpers';
 import {
   cookieHeader,
@@ -272,6 +273,73 @@ describe('account security', () => {
         .orderBy(desc(auditLog.id))
         .limit(1);
       expect(audit?.metadata).toEqual({ revoked: 1, scope: 'others' });
+    });
+  });
+
+  describe('GET /me/data-export (ASVS 8.3.2)', () => {
+    it('gives the player a download of their data, audited and rate limited', async () => {
+      const player = await registerAndLogin(ctx);
+      const topUp = await ctx.app.inject({
+        method: 'POST',
+        url: '/wallet/demo-topup',
+        headers: { ...bearer(player.sessionToken), 'idempotency-key': `export-${player.userId}` },
+        payload: { amount: '50000' },
+      });
+      expect(topUp.statusCode).toBe(200);
+      const exported = await ctx.app.inject({
+        method: 'GET',
+        url: '/me/data-export',
+        headers: bearer(player.sessionToken),
+      });
+      expect(exported.statusCode).toBe(200);
+      expect(exported.headers['content-disposition']).toBe(
+        'attachment; filename="vamos-my-data.json"',
+      );
+      expect(exported.headers['cache-control']).toBe('no-store');
+      const body = exported.json<{
+        format: string;
+        profile: { id: string; phone: string };
+        sessions: Array<{ createdAt: string }>;
+        walletTransactions: { items: Array<{ type: string; amount: string }>; truncated: boolean };
+        bets: { open: { items: unknown[] }; settled: { items: unknown[] } };
+      }>();
+      expect(body.format).toBe(DATA_EXPORT_FORMAT);
+      expect(body.profile).toMatchObject({ id: player.userId, phone: player.phone });
+      expect(body.sessions.length).toBeGreaterThanOrEqual(1);
+      expect(body.walletTransactions).toMatchObject({
+        items: [{ type: 'demo_topup', amount: '50000' }],
+        truncated: false,
+      });
+      expect(body.bets.open.items).toEqual([]);
+      // Never a secret: no password hash, session token or ID-number hash.
+      expect(exported.body).not.toContain('$argon2');
+      expect(exported.body).not.toContain(player.sessionToken);
+
+      const [audit] = await ctx.db.db
+        .select({ actorId: auditLog.actorId })
+        .from(auditLog)
+        .where(
+          and(eq(auditLog.action, 'user.data_exported'), eq(auditLog.targetId, player.userId)),
+        );
+      expect(audit?.actorId).toBe(player.userId);
+
+      for (let i = 1; i < DATA_EXPORTS_PER_HOUR; i += 1) {
+        const again = await ctx.app.inject({
+          method: 'GET',
+          url: '/me/data-export',
+          headers: bearer(player.sessionToken),
+        });
+        expect(again.statusCode).toBe(200);
+      }
+      const limited = await ctx.app.inject({
+        method: 'GET',
+        url: '/me/data-export',
+        headers: bearer(player.sessionToken),
+      });
+      expect(limited.statusCode).toBe(429);
+      expect((await ctx.app.inject({ method: 'GET', url: '/me/data-export' })).statusCode).toBe(
+        401,
+      );
     });
   });
 

@@ -82,8 +82,9 @@ export const account = {
     ageNotice:
       'Vamos is for people aged 21 and over. We may check your age with your Fayda ID; under-21 accounts are closed.',
     dobHint: 'You must be born on or before {date}.',
-    acceptTerms: 'I am 21 or older and I accept the terms and conditions.',
+    acceptTerms: 'I am 21 or older and I accept the terms and conditions and the privacy notice.',
     readTerms: 'Read the terms',
+    readPrivacy: 'Read the privacy notice',
     haveAccount: 'Already have an account?',
     login: 'Log in',
     playMoney: 'Demo: your account uses play money only. Nothing can be won or lost.',
@@ -167,6 +168,11 @@ export const account = {
     endOthers: 'Log out all other devices',
     ended: 'Done: {count} other session(s) logged out.',
     none: 'You are not logged in on any other device.',
+    dataTitle: 'Your data',
+    dataIntro:
+      'Download a copy of what Vamos keeps about you: profile, identity check, limits and breaks, sign-ins, transactions and bets.',
+    dataDownload: 'Download my data',
+    privacyLink: 'How we use your data (privacy notice)',
   },
   kyc: {
     title: 'Verify your identity',
@@ -702,6 +708,37 @@ export const account = {
         contact: {
           q: 'How do I contact support?',
           a: 'This demo has no support desk yet. A support line and email will be added before launch.',
+        },
+      },
+    },
+    privacy: {
+      title: 'Privacy notice',
+      intro:
+        'What personal data Vamos keeps, why, who receives it and for how long. Demo version: counsel reviews the final notice before Vamos takes real money.',
+      sections: {
+        collect: {
+          title: 'What we collect',
+          body: 'Your mobile number, your password (only as a secure hash), date of birth, name and language and, if you verify your identity, the result of the Fayda ID check: we keep the last 4 digits and a keyed hash of the ID number, never the number itself. We also record your bets, wallet transactions, limits and breaks and, for security, the address and browser of each sign-in.',
+        },
+        use: {
+          title: 'Why we use it',
+          body: 'To run your account and your bets; to check that you are 21 or older and that one person has one account; to protect your account and stop fraud and money laundering; to keep the records the law and the regulator require; and to send service SMS such as codes, bet results and security notices.',
+        },
+        share: {
+          title: 'Who receives it',
+          body: 'Only those who need it: the SMS gateway (your number and the message), the identity provider (your ID details when you verify), the payment providers (your number and the amount when you pay or withdraw) and the Ethiopian Lottery Service, which receives your transactions under a pseudonymous id, without your name or number. We never sell your data.',
+        },
+        keep: {
+          title: 'How long we keep it',
+          body: 'Sign-in sessions and SMS codes are deleted after at most 90 days. Bets, transactions and the audit trail are kept as long as the law requires (planned: 7 years), also after an account is closed.',
+        },
+        rights: {
+          title: 'Your choices',
+          body: 'In your account you can see your profile, bets and transactions, download a copy of your data, change your password and log out other devices. Text STOP to stop marketing SMS. Support can correct your data, or delete it where the law allows.',
+        },
+        consent: {
+          title: 'Your consent',
+          body: 'By registering you agree to this use of your data. You can close your account at any time through support.',
         },
       },
     },

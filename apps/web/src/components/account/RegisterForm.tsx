@@ -207,6 +207,14 @@ export function RegisterForm({ next }: { next: string }) {
         >
           {t('account.register.readTerms')}
         </Link>
+        <Link
+          href={routes.privacy}
+          target="_blank"
+          prefetch={false}
+          className="ml-7 inline-block text-xs font-semibold text-brand underline"
+        >
+          {t('account.register.readPrivacy')}
+        </Link>
       </div>
       <button type="submit" className="btn btn-accent w-full" disabled={busy || cooldown > 0}>
         {busy ? t('common.actions.loading') : t('account.register.submit')}

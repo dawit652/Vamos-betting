@@ -26,7 +26,7 @@ import {
 } from './exclusion';
 import { KYC_LABEL } from './kyc';
 import { refetchPages } from './paging';
-import { deviceLabel } from './security';
+import { deviceLabel, exportFileName } from './security';
 import {
   buildLimitsRequest,
   limitFormFrom,
@@ -542,5 +542,9 @@ describe('security page helpers', () => {
     expect(deviceLabel('Opera/9.80 (J2ME/MIDP; Opera Mini/9.80 (S60; SymbOS)')).toBe('Opera Mini');
     expect(deviceLabel('curl/8.0')).toBeNull();
     expect(deviceLabel(null)).toBeNull();
+  });
+
+  it('names the data export file by its UTC date', () => {
+    expect(exportFileName(new Date('2026-10-27T21:30:00Z'))).toBe('vamos-my-data-2026-10-27.json');
   });
 });

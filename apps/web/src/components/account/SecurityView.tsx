@@ -2,14 +2,16 @@
 
 import type { PlayerSessionView } from '@vamos/contracts';
 import type { MessageKey, MessageVars } from '@vamos/i18n/translate';
+import Link from 'next/link';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useLocale, useT } from '@/i18n/client';
 import { securityApi } from '@/lib/api/account';
 import { errorMessageKey } from '@/lib/api/errors';
+import { routes } from '@/lib/routes';
 import { formatDateTime } from './dates';
 import { formErrors } from './errors';
 import { PasswordInput, PasswordStrengthMeter } from './inputs';
-import { deviceLabel } from './security';
+import { deviceLabel, exportFileName } from './security';
 import { Alert, Field, Skeleton, describedBy } from './ui';
 import {
   MAX_PASSWORD_LENGTH,
@@ -286,13 +288,62 @@ function SessionsList({ reload }: { reload: number }) {
   );
 }
 
-/** The "Password and devices" page (ASVS 2.1.5, 2.1.6, 3.3.3, 3.3.4). */
+/** A copy of the player's data (GET /me/data-export, ASVS 8.3.2), saved as a JSON file. */
+function DataExportCard() {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<MessageKey | null>(null);
+
+  const download = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await securityApi.exportData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = exportFileName(new Date());
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (failure) {
+      setError(errorMessageKey(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card mx-3 space-y-3">
+      <h2 className="text-sm font-bold">{t('account.security.dataTitle')}</h2>
+      <p className="text-muted">{t('account.security.dataIntro')}</p>
+      {error ? <Alert>{t(error)}</Alert> : null}
+      <button
+        type="button"
+        className="btn btn-outline w-full"
+        disabled={busy}
+        onClick={() => void download()}
+      >
+        {busy ? t('common.actions.loading') : t('account.security.dataDownload')}
+      </button>
+      <Link href={routes.privacy} className="block text-center text-xs font-semibold text-brand">
+        {t('account.security.privacyLink')}
+      </Link>
+    </section>
+  );
+}
+
+/** The "Password and devices" page (ASVS 2.1.5, 2.1.6, 3.3.3, 3.3.4, 8.3.2). */
 export function SecurityView() {
   const [reload, setReload] = useState(0);
   return (
     <div className="space-y-3 pb-3">
       <ChangePasswordForm onChanged={() => setReload((n) => n + 1)} />
       <SessionsList reload={reload} />
+      <DataExportCard />
     </div>
   );
 }

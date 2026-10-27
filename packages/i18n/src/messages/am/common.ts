@@ -22,6 +22,7 @@ export const common: Messages['common'] = {
     wallet: 'ቦርሳ',
     help: 'እገዛ',
     terms: 'ውሎች',
+    privacy: 'ግላዊነት',
     responsibleGambling: 'ኃላፊነት የተሞላበት ውርርድ',
     main: 'ዋና ማውጫ',
     sports: 'ስፖርቶች',

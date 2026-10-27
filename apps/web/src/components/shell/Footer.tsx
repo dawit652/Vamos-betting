@@ -16,6 +16,9 @@ export async function Footer() {
         <Link href={routes.terms} prefetch={false}>
           {t('common.nav.terms')}
         </Link>
+        <Link href={routes.privacy} prefetch={false}>
+          {t('common.nav.privacy')}
+        </Link>
         <Link href={routes.responsibleGambling} prefetch={false}>
           {t('common.nav.responsibleGambling')}
         </Link>

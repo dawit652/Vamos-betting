@@ -68,6 +68,8 @@ export const securityApi = {
     api.get<PlayerSessionsResponse>('/me/sessions', signal ? { signal } : {}),
   revokeSessions: (body: RevokeSessionsRequest) =>
     api.post<RevokeSessionsResponse>('/me/sessions/revoke', body),
+  /** Everything the platform keeps about the player (a JSON document to save). */
+  exportData: () => api.get<unknown>('/me/data-export', { timeoutMs: 60_000 }),
 };
 
 export const walletApi = {

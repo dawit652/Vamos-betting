@@ -31,3 +31,8 @@ export function deviceLabel(userAgent: string | null): string | null {
   const parts = [browser, system].filter((part): part is string => part !== undefined);
   return parts.length === 0 ? null : parts.join(' · ');
 }
+
+/** The file name of a data export downloaded on `date`: `vamos-my-data-2026-10-27.json`. */
+export function exportFileName(date: Date): string {
+  return `vamos-my-data-${date.toISOString().slice(0, 10)}.json`;
+}

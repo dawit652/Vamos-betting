@@ -17,9 +17,14 @@ import {
 } from '../../lib/rate-limits';
 import { requireUser } from '../../plugins/session';
 import { changePassword, listSessions, revokeSessions, type RequestMeta } from '../auth/service';
+import { exportMyData } from './export';
 import { getMe, updateMe } from './service';
 
 const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+
+/** Data exports per player and hour (each one reads the whole account). */
+export const DATA_EXPORTS_PER_HOUR = 5;
 
 /**
  * Password checks of the account security routes (change the password, end
@@ -31,7 +36,10 @@ function requestMeta(request: FastifyRequest): RequestMeta {
   return { ip: request.ip, userAgent: request.headers['user-agent'] ?? null, log: request.log };
 }
 
-/** Player profile (GET/PATCH /me), password change and sessions (/me/password, /me/sessions). */
+/**
+ * Player profile (GET/PATCH /me), a copy of the player's data (GET /me/data-export), the
+ * password change and the sessions (/me/password, /me/sessions).
+ */
 export default async function meRoutes(app: FastifyInstance): Promise<void> {
   const { deps } = app;
 
@@ -60,6 +68,19 @@ export default async function meRoutes(app: FastifyInstance): Promise<void> {
       const user = requireUser(request);
       const input = parseInput(UpdateMeRequest, request.body);
       return updateMe(deps, user.id, input, { ip: request.ip });
+    },
+  );
+
+  app.get(
+    '/me/data-export',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayerRateLimit('me-data-export', DATA_EXPORTS_PER_HOUR, HOUR_MS),
+    },
+    async (request, reply) => {
+      const body = await exportMyData(deps, requireUser(request), { ip: request.ip });
+      void reply.header('content-disposition', 'attachment; filename="vamos-my-data.json"');
+      return body;
     },
   );
 
