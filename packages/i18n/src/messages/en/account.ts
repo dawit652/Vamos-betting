@@ -320,6 +320,7 @@ export const account = {
       telebirr: 'telebirr',
       cbebirr: 'CBE Birr',
       'mpesa-et': 'M-Pesa',
+      sms: 'Transfer (telebirr or bank)',
     },
     loading: 'Loading payment options…',
     unavailable: 'Payments are not available right now. Try again in a moment.',

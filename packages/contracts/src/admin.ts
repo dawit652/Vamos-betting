@@ -51,6 +51,10 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  * - bets.view: bet search and detail [GET /admin/bets*]
  * - withdrawals.view: withdrawal queues and flagged payments [GET /admin/withdrawals*, /admin/deposits/flagged]
  * - withdrawals.approve: approve / reject withdrawals, flag / clear / settle payouts, resolve flagged deposits
+ * - payouts.settle_manual: claim, pay by hand and settle SMS-rail payouts [/admin/manual-payouts*]
+ *   (never one the same staff member approved: the four-eyes rule)
+ * - sms.review: the SMS rail's received messages and review queue, crediting or closing them
+ *   [/admin/sms*]
  * - jackpots.view: rounds and their entries [GET /admin/jackpots/*]
  * - jackpots.manage: cancel a round before its first kick-off
  * - settings.view: the business settings [GET /admin/settings]
@@ -77,6 +81,8 @@ export const STAFF_PERMISSIONS = [
   'bets.view',
   'withdrawals.view',
   'withdrawals.approve',
+  'payouts.settle_manual',
+  'sms.review',
   'jackpots.view',
   'jackpots.manage',
   'settings.view',
@@ -104,6 +110,8 @@ export const PERMISSION_ROLES: Readonly<Record<StaffPermission, readonly StaffRo
   'bets.view': ['admin', 'support', 'trader', 'compliance', 'finance'],
   'withdrawals.view': ['admin', 'finance', 'compliance'],
   'withdrawals.approve': ['admin', 'finance'],
+  'payouts.settle_manual': ['admin', 'finance'],
+  'sms.review': ['admin', 'finance', 'compliance'],
   'jackpots.view': ['admin', 'trader', 'compliance', 'support'],
   'jackpots.manage': ['admin', 'trader'],
   'settings.view': ['admin', 'trader', 'finance', 'compliance'],
@@ -839,6 +847,24 @@ export type PayoutFlagReason = z.infer<typeof PayoutFlagReasonSchema>;
 
 /** A withdrawal as finance sees it (flags and staff fields included). */
 export const StaffWithdrawalView = z.object({
+  /** SMS rail: paid by hand (see payingBy / settledBy and the destination). */
+  manual: z.boolean(),
+  destination: z
+    .object({
+      institution: z.string(),
+      institutionName: z.string(),
+      kind: z.enum(['wallet', 'bank']),
+      account: z.string(),
+      name: z.string(),
+    })
+    .nullable(),
+  payingBy: z.string().nullable(),
+  settledBy: z.string().nullable(),
+  settlementReference: z.string().nullable(),
+  /** The outgoing SMS proposed as this payout's proof (shown on the settle form). */
+  proposedSms: z
+    .object({ id: z.string(), reference: z.string().nullable(), receivedAt: z.string() })
+    .nullable(),
   id: z.string(),
   userId: z.string(),
   provider: z.string(),
@@ -937,6 +963,110 @@ export const ResolveDepositRequest = z.object({
   note: AuditText,
 });
 export type ResolveDepositRequest = z.infer<typeof ResolveDepositRequest>;
+
+// ---------------------------------------------------------------------------
+// SMS rail (sms.review, payouts.settle_manual).
+
+export const ReceivedSmsStatusSchema = z.enum([
+  'unparsed',
+  'unmatched',
+  'ambiguous',
+  'matched',
+  'flagged',
+  'ignored_debit',
+  'settlement_proposed',
+  'settled',
+  'credited_by_staff',
+  'closed',
+]);
+export type ReceivedSmsStatus = z.infer<typeof ReceivedSmsStatusSchema>;
+
+export const StaffSmsView = z.object({
+  id: z.string(),
+  source: z.enum(['gateway', 'simulator', 'receipt']),
+  sender: z.string().nullable(),
+  rawText: z.string(),
+  institution: z.string().nullable(),
+  direction: z.enum(['credit', 'debit']).nullable(),
+  amount: Santim.nullable(),
+  reference: z.string().nullable(),
+  counterpartyName: z.string().nullable(),
+  counterpartyPhone: z.string().nullable(),
+  balance: Santim.nullable(),
+  receivedAt: z.string(),
+  status: ReceivedSmsStatusSchema,
+  statusReason: z.string().nullable(),
+  matchedIntentId: z.string().nullable(),
+  flaggedIntentId: z.string().nullable(),
+  matchedUserId: z.string().nullable(),
+  proposedPayoutId: z.string().nullable(),
+  receiptStatus: z.enum(['verified', 'rejected', 'indeterminate', 'skipped']).nullable(),
+  receiptReason: z.string().nullable(),
+  resolvedBy: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+});
+export type StaffSmsView = z.infer<typeof StaffSmsView>;
+
+/** GET /admin/sms?queue=review (the review queue) or ?status=… (the log, newest first). */
+export const StaffSmsQuery = z.object({
+  queue: z.enum(['review', 'all']).default('review'),
+  status: ReceivedSmsStatusSchema.optional(),
+  limit: pageLimit(500, 100),
+});
+export type StaffSmsQuery = z.infer<typeof StaffSmsQuery>;
+
+export const StaffSmsListResponse = z.object({ items: z.array(StaffSmsView) });
+export type StaffSmsListResponse = z.infer<typeof StaffSmsListResponse>;
+
+/** POST /admin/sms/:id/credit: credit what arrived to a player (after checking who paid). */
+export const CreditSmsRequest = z.object({ userId: Uuid, note: AuditText });
+export type CreditSmsRequest = z.infer<typeof CreditSmsRequest>;
+
+/** POST /admin/sms/:id/close and …/acknowledge-receipt. */
+export const SmsNoteRequest = z.object({ note: AuditText });
+export type SmsNoteRequest = z.infer<typeof SmsNoteRequest>;
+
+export const StaffSmsChangeResponse = z.object({ sms: StaffSmsView });
+export type StaffSmsChangeResponse = z.infer<typeof StaffSmsChangeResponse>;
+
+/** GET /admin/sms/health: the rail at a glance (also on the dashboard). */
+export const SmsRailHealthResponse = z.object({
+  mode: z.enum(['simulated', 'live']),
+  lastGatewaySmsAt: z.string().nullable(),
+  reviewQueue: z.number().int(),
+  oldestReviewAt: z.string().nullable(),
+  receiptAlarms: z.number().int(),
+  manualPayoutsOpen: z.number().int(),
+  oldestManualPayoutApprovedAt: z.string().nullable(),
+  receiptVerify: z.enum(['off', 'audit']),
+  receiptBreaker: z.enum(['closed', 'open', 'half_open']).nullable(),
+});
+export type SmsRailHealthResponse = z.infer<typeof SmsRailHealthResponse>;
+
+/** POST /admin/manual-payouts/:id/release: hand a claimed payout back unpaid. */
+export const ReleaseManualPayoutRequest = z.object({ note: AuditText });
+export type ReleaseManualPayoutRequest = z.infer<typeof ReleaseManualPayoutRequest>;
+
+/**
+ * POST /admin/manual-payouts/:id/settle: the claimer sent the money. Either
+ * the outgoing SMS proposed for it (`smsId`) or the transfer reference the
+ * banking app showed. Bank payouts need `holderNameConfirmed` (the bank
+ * showed the player's own name as the holder).
+ */
+export const SettleManualPayoutRequest = z
+  .object({
+    smsId: Uuid.optional(),
+    reference: z.string().trim().min(6).max(40).optional(),
+    holderNameConfirmed: z.boolean().default(false),
+  })
+  .refine((v) => v.smsId !== undefined || v.reference !== undefined, {
+    message: 'give the proposed SMS or the transfer reference',
+  });
+export type SettleManualPayoutRequest = z.infer<typeof SettleManualPayoutRequest>;
+
+/** POST /admin/manual-payouts/:id/fail: the transfer did not go out (the hold goes back). */
+export const FailManualPayoutRequest = z.object({ reason: AuditText });
+export type FailManualPayoutRequest = z.infer<typeof FailManualPayoutRequest>;
 
 // ---------------------------------------------------------------------------
 // Jackpots (jackpots.view / jackpots.manage).

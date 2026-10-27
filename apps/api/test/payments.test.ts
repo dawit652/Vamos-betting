@@ -202,7 +202,8 @@ describe('GET /payments/options', () => {
     expect(response.statusCode).toBe(200);
     const body = PaymentOptionsResponse.parse(response.json());
     expect(body.demo).toBe(true);
-    expect(body.providers).toEqual([{ name: 'mock', deposits: true, payouts: true }]);
+    expect(body.providers).toEqual([{ name: 'mock', deposits: true, payouts: true, manual: false }]);
+    expect(body.smsRail).toBeNull();
     expect(body.limits).toMatchObject({
       minDeposit: '1000',
       maxDeposit: '10000000',

@@ -306,6 +306,7 @@ export const account: Messages['account'] = {
       telebirr: 'ቴሌብር',
       cbebirr: 'ሲቢኢ ብር',
       'mpesa-et': 'ኤም-ፔሳ',
+      sms: 'ማስተላለፍ (ቴሌብር ወይም ባንክ)',
     },
     loading: 'የክፍያ አማራጮች በመጫን ላይ…',
     unavailable: 'ክፍያ አሁን አይገኝም። ከጥቂት ጊዜ በኋላ እንደገና ይሞክሩ።',

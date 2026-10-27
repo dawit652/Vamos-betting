@@ -14,7 +14,9 @@ import {
   applyPayoutEvent,
   cancelWithdrawal,
   createDepositIntent,
+  createSmsDepositIntent,
   getRemainingWagering,
+  SMS_PROVIDER,
   getUserDepositIntent,
   listUserDepositIntents,
   listUserPayouts,
@@ -47,6 +49,7 @@ import {
   unprocessable,
 } from '../../lib/errors';
 import { cachedGameSettings } from '../betting/service';
+import { smsRailOptions } from './smsrail';
 import { depositView, withdrawalView } from './views';
 
 type Deps = Pick<AppDeps, 'config' | 'db' | 'clock' | 'payments'>;
@@ -94,8 +97,11 @@ export async function paymentOptions(
     demo: deps.config.mode === 'demo',
     providers: deps.payments.names.flatMap((name) => {
       const provider = deps.payments.get(name);
-      return provider === undefined ? [] : [{ name, ...provider.capabilities }];
+      if (provider === undefined) return [];
+      const { deposits, payouts: canPayOut, manual } = provider.capabilities;
+      return [{ name, deposits, payouts: canPayOut, manual: manual === true }];
     }),
+    smsRail: smsRailOptions(deps),
     limits: {
       minDeposit: toWire(rules.minDeposit),
       maxDeposit: toWire(rules.maxDeposit),
@@ -198,6 +204,24 @@ export async function createPlayerDeposit(
   const { request } = command;
   const provider = pickProvider(deps.payments, request.provider, 'deposits');
   const now = deps.clock();
+  if (provider.name === SMS_PROVIDER) {
+    // The SMS rail: an exact amount to send to a collection account, nobody to ask.
+    if (request.phone !== undefined) {
+      throw badRequest('phone_not_applicable', 'SMS rail deposits are not tied to a phone.');
+    }
+    const sms = await withTxRetry(deps.db, async (tx) => {
+      const settings = await loadGameSettings(tx);
+      return createSmsDepositIntent(tx, {
+        userId: command.userId,
+        amount: BigInt(request.amount),
+        idempotencyKey: command.idempotencyKey,
+        now,
+        rules: settings.payments,
+        ip: command.ip ?? null,
+      });
+    });
+    return { deposit: depositView(sms.intent), replayed: sms.replayed };
+  }
   const created = await withTxRetry(deps.db, async (tx) => {
     const settings = await loadGameSettings(tx);
     return createDepositIntent(tx, {
@@ -259,6 +283,19 @@ export async function requestPlayerWithdrawal(
 ): Promise<{ withdrawal: WithdrawalView; replayed: boolean }> {
   const { request } = command;
   const provider = pickProvider(deps.payments, request.provider, 'payouts');
+  const manual = provider.capabilities.manual === true;
+  if (manual && request.payoutAccountId === undefined) {
+    throw unprocessable(
+      'payout_account_required',
+      'Choose the account to be paid to (your phone wallet or a bank account in your name).',
+    );
+  }
+  if (!manual && request.payoutAccountId !== undefined) {
+    throw badRequest(
+      'payout_account_not_applicable',
+      'This payment method pays your phone directly.',
+    );
+  }
   const now = deps.clock();
   const result = await withTxRetry(deps.db, async (tx) => {
     const settings = await loadGameSettings(tx);
@@ -270,6 +307,9 @@ export async function requestPlayerWithdrawal(
       amount: BigInt(request.amount),
       phone: request.phone ?? command.phone,
       provider: provider.name,
+      ...(manual && request.payoutAccountId !== undefined
+        ? { manual: true, payoutAccountId: request.payoutAccountId }
+        : {}),
       idempotencyKey: command.idempotencyKey,
       now,
       rules: settings.payments,

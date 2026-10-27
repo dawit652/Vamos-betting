@@ -94,3 +94,40 @@ CREATE TRIGGER payout_accounts_guard
   FOR EACH ROW EXECUTE FUNCTION vamos_guard_payout_account();
 --> statement-breakpoint
 REVOKE DELETE ON received_sms, payout_accounts FROM vamos_app;
+--> statement-breakpoint
+-- Operating-mode guard (behind @vamos/config, which runs the rail `simulated` in demo mode and
+-- `live` only in licensed mode): SMS from the dev simulator credit play money, like mock
+-- payments. A database holding any cannot be claimed for licensed mode, and a licensed database
+-- refuses them.
+CREATE OR REPLACE FUNCTION vamos_check_licensed_claim() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM ledger_transactions WHERE type = 'demo_topup')
+    OR EXISTS (SELECT 1 FROM ledger_accounts WHERE kind = 'house_demo_funding' AND balance <> 0)
+  THEN
+    RAISE EXCEPTION 'this database holds play money from demo mode and cannot be used in licensed mode'
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM ledger_accounts WHERE kind = 'house_psp_clearing' AND provider = 'mock')
+    OR EXISTS (SELECT 1 FROM payment_intents WHERE provider = 'mock')
+    OR EXISTS (SELECT 1 FROM payouts WHERE provider = 'mock')
+  THEN
+    RAISE EXCEPTION 'this database holds play-money payments of the mock payment provider and cannot be used in licensed mode'
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM received_sms WHERE source = 'simulator') THEN
+    RAISE EXCEPTION 'this database holds play-money SMS deposits from the dev simulator and cannot be used in licensed mode'
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM kyc_profiles WHERE provider = 'mock') THEN
+    RAISE EXCEPTION 'this database holds identity checks made by the mock KYC provider and cannot be used in licensed mode'
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
+CREATE TRIGGER received_sms_no_simulator_when_licensed
+  BEFORE INSERT ON received_sms
+  FOR EACH ROW WHEN (NEW.source = 'simulator')
+  EXECUTE FUNCTION vamos_reject_play_money_when_licensed();

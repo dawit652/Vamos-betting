@@ -4,7 +4,7 @@ import type {
   WithdrawalStep,
   WithdrawalView,
 } from '@vamos/contracts';
-import { toWire } from '@vamos/core';
+import { payoutDestination, toWire } from '@vamos/core';
 import type { PaymentIntent, Payout } from '@vamos/db';
 
 const iso = (date: Date | null): string | null => (date === null ? null : date.toISOString());
@@ -29,6 +29,13 @@ export function depositView(intent: PaymentIntent): DepositView {
           },
     failureReason: intent.failureReason,
     underReview: intent.flaggedAt !== null,
+    transfer:
+      intent.initiationKind === 'transfer'
+        ? {
+            requestedAmount: toWire(intent.requestedAmount ?? intent.amount),
+            sendAmount: toWire(intent.amount),
+          }
+        : null,
     expiresAt: intent.expiresAt.toISOString(),
     createdAt: intent.createdAt.toISOString(),
     completedAt: iso(intent.completedAt),
@@ -92,6 +99,18 @@ export function withdrawalView(payout: Payout): WithdrawalView {
     amount: toWire(payout.amount),
     currency: 'ETB',
     phone: payout.phone,
+    manual: payout.manual,
+    destination:
+      payout.destinationInstitution === null || payout.destinationAccount === null
+        ? null
+        : {
+            institution: payout.destinationInstitution,
+            institutionName:
+              payoutDestination(payout.destinationInstitution)?.name ??
+              payout.destinationInstitution,
+            account: payout.destinationAccount,
+          },
+    settlementReference: payout.status === 'paid' ? payout.settlementReference : null,
     status: payout.status,
     reviewReason: payout.status === 'requested' ? playerReviewReason(payout.reviewReason) : null,
     rejectionReason: payout.status === 'rejected' ? payout.reviewReason : null,

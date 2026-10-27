@@ -9,6 +9,7 @@ import adminJackpotRoutes from './jackpots';
 import adminPaymentRoutes from './payments';
 import adminPlayerRoutes from './players';
 import adminSettingsRoutes from './settings';
+import adminSmsRailRoutes from './smsrail';
 import adminTradingRoutes from './trading';
 
 /**
@@ -26,6 +27,7 @@ export default async function adminRoutes(app: FastifyInstance): Promise<void> {
   await app.register(adminTradingRoutes);
   await app.register(adminBetRoutes);
   await app.register(adminPaymentRoutes);
+  await app.register(adminSmsRailRoutes);
   await app.register(adminJackpotRoutes);
   await app.register(adminSettingsRoutes);
   await app.register(adminAuditRoutes);
