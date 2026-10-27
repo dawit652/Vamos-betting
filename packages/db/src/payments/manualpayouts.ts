@@ -1,0 +1,376 @@
+import {
+  assessManualPayout,
+  bareSmsReference,
+  payoutDestination,
+  type ManualPayoutAction,
+} from '@vamos/core';
+import { and, asc, eq, inArray, ne } from 'drizzle-orm';
+import { amlHoldsWithdrawals } from '../compliance/aml';
+import { domainConflict, domainUnprocessable } from '../errors';
+import { postTransaction } from '../ledger/post';
+import type { DbExecutor, DbTransaction } from '../ledger/types';
+import { writeAudit } from '../platform/audit';
+import { enqueueOutbox } from '../platform/outbox';
+import { payouts } from '../schema/payments';
+import { receivedSms } from '../schema/smsrail';
+import { WITHDRAWAL_FAILED, WITHDRAWAL_PAID } from './events';
+import { withdrawalPaidEntries, withdrawalPaidLedgerKey } from './postings';
+import type { Payout } from './types';
+import {
+  blockedSettlementCorrection,
+  correctionPending,
+  lockPayout,
+  reverse,
+  updatePayout,
+} from './withdrawals';
+
+/**
+ * Manual payouts (SMS rail): an operator sends the money from a collection
+ * account by hand and records it. Separation of duties (core
+ * assessManualPayout, repeated by the payouts_manual_* constraints):
+ *
+ *     approved --claim--> processing --settle--> paid
+ *                                    --release-> approved (nothing was sent)
+ *                                    --fail----> failed   (the hold goes back)
+ *
+ * The approver never claims or settles; only the claimer settles, releases
+ * or fails a claimed payout, so two operators never both send it.
+ */
+
+/** Staff acting on a manual payout (admin user id; audit and ledger actor). */
+export interface ManualPayoutActor {
+  staffId: string;
+  ip?: string | null;
+}
+
+const MAX_TEXT_LENGTH = 500;
+
+const DENIAL_MESSAGES = {
+  wrong_status: 'This withdrawal is not in a state that allows this.',
+  approver_cannot_pay: 'You approved this withdrawal, so someone else must pay it.',
+  claimed_by_someone_else: 'Another operator is paying this withdrawal.',
+} as const;
+
+async function lockManualPayout(
+  tx: DbTransaction,
+  payoutId: string,
+  action: ManualPayoutAction,
+  staffId: string,
+): Promise<Payout> {
+  const payout = await lockPayout(tx, payoutId);
+  if (!payout.manual) {
+    throw domainConflict(
+      'not_a_manual_payout',
+      'This withdrawal is paid by a provider, not by hand.',
+    );
+  }
+  const verdict = assessManualPayout({
+    status: payout.status,
+    action,
+    actor: staffId,
+    approvedBy: payout.approvedBy,
+    payingBy: payout.payingBy,
+  });
+  if (!verdict.ok) {
+    throw domainConflict(`manual_payout_${verdict.reason}`, DENIAL_MESSAGES[verdict.reason], {
+      status: payout.status,
+    });
+  }
+  return payout;
+}
+
+/** Approved and claimed manual payouts, oldest approval first (the operators' queue). */
+export async function listManualPayoutQueue(
+  exec: DbExecutor,
+  options: { limit?: number } = {},
+): Promise<Payout[]> {
+  return exec
+    .select()
+    .from(payouts)
+    .where(and(eq(payouts.manual, true), inArray(payouts.status, ['approved', 'processing'])))
+    .orderBy(asc(payouts.approvedAt), asc(payouts.id))
+    .limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
+}
+
+/**
+ * An operator takes an approved manual payout to send it (`approved` →
+ * `processing`, paying_by = the operator). Re-checked at the moment money
+ * is about to leave: 409 `aml_review_pending` while the player's
+ * withdrawals are held for AML, `settlement_correction_pending` while a
+ * correction is blocked. 409 `manual_payout_*` for the approver or a
+ * payout that is not approved.
+ */
+export async function claimManualPayout(
+  tx: DbTransaction,
+  input: ManualPayoutActor & { payoutId: string; now: Date },
+): Promise<Payout> {
+  const payout = await lockManualPayout(tx, input.payoutId, 'claim', input.staffId);
+  if (await amlHoldsWithdrawals(tx, payout.userId)) {
+    throw domainConflict(
+      'aml_review_pending',
+      'Compliance must review this player before the withdrawal can be paid.',
+    );
+  }
+  const blocked = await blockedSettlementCorrection(tx, payout.userId);
+  if (blocked) throw correctionPending(blocked.betId);
+  const updated = await updatePayout(tx, payout.id, {
+    status: 'processing',
+    payingBy: input.staffId,
+    processingAt: input.now,
+    attempts: payout.attempts + 1,
+    updatedAt: input.now,
+  });
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.staffId,
+    action: 'payment.withdrawal_claimed',
+    targetType: 'payout',
+    targetId: payout.id,
+    metadata: { amount: payout.amount, destination: payout.destinationInstitution },
+    ip: input.ip ?? null,
+  });
+  return updated;
+}
+
+/** The claimer hands a payout back unpaid (`processing` → `approved`), with a note. */
+export async function releaseManualPayout(
+  tx: DbTransaction,
+  input: ManualPayoutActor & { payoutId: string; note: string; now: Date },
+): Promise<Payout> {
+  const note = input.note.trim().slice(0, MAX_TEXT_LENGTH);
+  if (note.length === 0) throw new RangeError('releaseManualPayout: a note is required');
+  const payout = await lockManualPayout(tx, input.payoutId, 'release', input.staffId);
+  const updated = await updatePayout(tx, payout.id, {
+    status: 'approved',
+    payingBy: null,
+    updatedAt: input.now,
+  });
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.staffId,
+    action: 'payment.withdrawal_released',
+    targetType: 'payout',
+    targetId: payout.id,
+    metadata: { amount: payout.amount, note },
+    ip: input.ip ?? null,
+  });
+  return updated;
+}
+
+export interface SettleManualPayoutInput extends ManualPayoutActor {
+  payoutId: string;
+  /** The transfer's reference as the operator's banking app shows it. */
+  reference?: string;
+  /** The outgoing confirmation SMS proposed for this payout (its reference is used). */
+  smsId?: string;
+  /** Bank payouts: the bank showed the player's own name as the account holder. */
+  holderNameConfirmed: boolean;
+  /** PAYOUT_REQUIRE_PROOF: settle only against an outgoing SMS. */
+  requireProof: boolean;
+  now: Date;
+}
+
+/**
+ * The claimer records the payout as sent (`processing` → `paid`): the hold
+ * moves to the SMS rail's clearing account (`withdrawal`,
+ * house_withdrawals_pending -amount, house_psp_clearing:<provider> +amount)
+ * with `payment.withdrawal_paid`, exactly once.
+ * - 422 `holder_name_not_confirmed` for a bank payout without the holder
+ *   confirmation;
+ * - proof: `smsId` must be the debit SMS proposed for this payout; a typed
+ *   reference that matches a debit SMS we hold must be of this amount and
+ *   not proposed for another payout (409 `settlement_reference_mismatch`),
+ *   and is then linked as the proof; 409 `settlement_proof_required` with
+ *   `requireProof` and no SMS; 422 `invalid_settlement_reference`;
+ * - 409 `settlement_reference_used` when the reference settled another payout.
+ */
+export async function settleManualPayout(
+  tx: DbTransaction,
+  input: SettleManualPayoutInput,
+): Promise<Payout> {
+  const payout = await lockManualPayout(tx, input.payoutId, 'settle', input.staffId);
+  const destination = payout.destinationInstitution
+    ? payoutDestination(payout.destinationInstitution)
+    : null;
+  if (destination?.kind === 'bank' && !input.holderNameConfirmed) {
+    throw domainUnprocessable(
+      'holder_name_not_confirmed',
+      "Confirm that the bank showed the player's own name as the account holder.",
+    );
+  }
+
+  let proof: { id: string; reference: string };
+  if (input.smsId !== undefined) {
+    const [sms] = await tx
+      .select()
+      .from(receivedSms)
+      .where(eq(receivedSms.id, input.smsId))
+      .for('update')
+      .limit(1);
+    if (
+      !sms ||
+      sms.direction !== 'debit' ||
+      sms.proposedPayoutId !== payout.id ||
+      sms.status !== 'settlement_proposed' ||
+      sms.reference === null
+    ) {
+      throw domainConflict(
+        'settlement_proof_mismatch',
+        'That SMS is not the proposed proof of this withdrawal.',
+      );
+    }
+    proof = { id: sms.id, reference: sms.reference };
+  } else {
+    const typed = input.reference === undefined ? null : bareSmsReference(input.reference);
+    if (typed === null) {
+      throw domainUnprocessable(
+        'invalid_settlement_reference',
+        'Enter the transfer reference (6–25 letters and digits).',
+      );
+    }
+    const [sms] = await tx
+      .select()
+      .from(receivedSms)
+      .where(eq(receivedSms.reference, typed))
+      .for('update')
+      .limit(1);
+    if (sms) {
+      if (
+        sms.direction !== 'debit' ||
+        sms.amount !== payout.amount ||
+        (sms.proposedPayoutId !== null && sms.proposedPayoutId !== payout.id) ||
+        !['ignored_debit', 'settlement_proposed'].includes(sms.status)
+      ) {
+        throw domainConflict(
+          'settlement_reference_mismatch',
+          'We hold an SMS with that reference that is not this payment. Check the reference.',
+        );
+      }
+      proof = { id: sms.id, reference: typed };
+    } else if (input.requireProof) {
+      throw domainConflict(
+        'settlement_proof_required',
+        'Wait for the outgoing confirmation SMS from the collection account before settling.',
+      );
+    } else {
+      return pay(tx, payout, input, { reference: typed, smsId: null });
+    }
+  }
+  return pay(tx, payout, input, { reference: proof.reference, smsId: proof.id });
+}
+
+async function pay(
+  tx: DbTransaction,
+  payout: Payout,
+  input: SettleManualPayoutInput,
+  settlement: { reference: string; smsId: string | null },
+): Promise<Payout> {
+  const { now } = input;
+  const [used] = await tx
+    .select({ id: payouts.id })
+    .from(payouts)
+    .where(and(eq(payouts.settlementReference, settlement.reference), ne(payouts.id, payout.id)))
+    .limit(1);
+  if (used) {
+    throw domainConflict(
+      'settlement_reference_used',
+      'That reference already settled another withdrawal.',
+    );
+  }
+  const posting = await postTransaction(tx, {
+    type: 'withdrawal',
+    idempotencyKey: withdrawalPaidLedgerKey(payout.id),
+    refType: 'payout',
+    refId: payout.id,
+    description: `Withdrawal paid by hand via ${payout.provider}`,
+    actor: { type: 'admin', id: input.staffId },
+    entries: withdrawalPaidEntries(payout.provider, payout.amount),
+  });
+  const updated = await updatePayout(tx, payout.id, {
+    status: 'paid',
+    payingBy: null,
+    settledBy: input.staffId,
+    settlementReference: settlement.reference,
+    settlementSmsId: settlement.smsId,
+    holderNameConfirmed: input.holderNameConfirmed,
+    paidLedgerTransactionId: posting.transactionId,
+    lastError: null,
+    nextAttemptAt: null,
+    completedAt: now,
+    updatedAt: now,
+  });
+  if (settlement.smsId !== null) {
+    await tx
+      .update(receivedSms)
+      .set({ status: 'settled', proposedPayoutId: payout.id, updatedAt: now })
+      .where(eq(receivedSms.id, settlement.smsId));
+  }
+  await enqueueOutbox(tx, {
+    type: WITHDRAWAL_PAID,
+    aggregateType: 'payout',
+    aggregateId: payout.id,
+    payload: {
+      payoutId: payout.id,
+      userId: payout.userId,
+      provider: payout.provider,
+      amount: payout.amount,
+      providerRef: settlement.reference,
+    },
+  });
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.staffId,
+    action: WITHDRAWAL_PAID,
+    targetType: 'payout',
+    targetId: payout.id,
+    metadata: {
+      amount: payout.amount,
+      provider: payout.provider,
+      manual: true,
+      reference: settlement.reference,
+      evidencedBySms: settlement.smsId,
+      approvedBy: payout.approvedBy,
+      holderNameConfirmed: input.holderNameConfirmed,
+    },
+    ip: input.ip ?? null,
+  });
+  return updated;
+}
+
+/**
+ * The claimer reports that the transfer did not go out (refused, bounced):
+ * the hold goes back to the player (`failed`, `payment.withdrawal_failed`).
+ * Only when no money left the collection account.
+ */
+export async function failManualPayout(
+  tx: DbTransaction,
+  input: ManualPayoutActor & { payoutId: string; reason: string; now: Date },
+): Promise<Payout> {
+  const reason = input.reason.trim().slice(0, MAX_TEXT_LENGTH);
+  if (reason.length === 0) throw new RangeError('failManualPayout: a reason is required');
+  const payout = await lockManualPayout(tx, input.payoutId, 'fail', input.staffId);
+  const updated = await reverse(
+    tx,
+    payout,
+    'failed',
+    { failureReason: reason, closedBy: input.staffId, payingBy: null },
+    input.now,
+    { type: 'admin', id: input.staffId },
+  );
+  await enqueueOutbox(tx, {
+    type: WITHDRAWAL_FAILED,
+    aggregateType: 'payout',
+    aggregateId: payout.id,
+    payload: { payoutId: payout.id, userId: payout.userId, amount: payout.amount, reason },
+  });
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.staffId,
+    action: WITHDRAWAL_FAILED,
+    targetType: 'payout',
+    targetId: payout.id,
+    metadata: { amount: payout.amount, reason, manual: true },
+    ip: input.ip ?? null,
+  });
+  return updated;
+}

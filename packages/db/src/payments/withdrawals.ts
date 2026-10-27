@@ -33,6 +33,7 @@ import { lockUser } from '../rg/limits';
 import { kycProfiles, users } from '../schema/accounts';
 import { bets } from '../schema/betting';
 import { paymentEvents, paymentIntents, payouts } from '../schema/payments';
+import { payoutAccounts } from '../schema/smsrail';
 import {
   WITHDRAWAL_APPROVED,
   WITHDRAWAL_CANCELLED,
@@ -121,6 +122,17 @@ export interface RequestWithdrawalInput {
   phone: string;
   /** An enabled provider that can pay out (capabilities.payouts; the caller checks it). */
   provider: string;
+  /**
+   * Paid by hand by an operator (the provider's capabilities.manualPayouts,
+   * the SMS rail): `payoutAccountId` is then required, and the payout
+   * worker never takes the payout (staff claim and settle it).
+   */
+  manual?: boolean;
+  /**
+   * Manual payouts: the player's verified payout account (payout_accounts)
+   * it goes to. Its destination is copied onto the payout.
+   */
+  payoutAccountId?: string;
   /** The client's idempotency key (already validated: 8–100 printable characters). */
   idempotencyKey: string;
   now: Date;
@@ -153,13 +165,29 @@ export interface PayoutChange {
 const wire = (amount: bigint): string => toWire(amount);
 const isOpen = (payout: Payout) => payout.status === 'approved' || payout.status === 'processing';
 
-async function lockPayout(tx: DbTransaction, payoutId: string): Promise<Payout> {
+/**
+ * 409 `manual_payout` for a payout an operator pays by hand (SMS rail): it
+ * is claimed, settled and failed with the manual-payout functions, under
+ * the four-eyes rule, never through the provider paths.
+ */
+function assertNotManual(payout: Payout): void {
+  if (payout.manual) {
+    throw domainConflict(
+      'manual_payout',
+      'This withdrawal is paid by hand; claim and settle it from the manual payout queue.',
+    );
+  }
+}
+
+/** @internal Locks a payout row (manual payouts reuse it). */
+export async function lockPayout(tx: DbTransaction, payoutId: string): Promise<Payout> {
   const [row] = await tx.select().from(payouts).where(eq(payouts.id, payoutId)).for('update');
   if (!row) throw domainNotFound('Withdrawal');
   return row;
 }
 
-async function updatePayout(
+/** @internal */
+export async function updatePayout(
   tx: DbTransaction,
   payoutId: string,
   values: Partial<typeof payouts.$inferInsert>,
@@ -202,7 +230,8 @@ export async function blockedSettlementCorrection(
   return row ?? null;
 }
 
-function correctionPending(betId: string): DomainError {
+/** @internal */
+export function correctionPending(betId: string): DomainError {
   return domainConflict(
     'settlement_correction_pending',
     'A result on one of your bets was corrected and your balance is being adjusted. You can withdraw once that is done.',
@@ -373,6 +402,12 @@ export async function requestWithdrawal(
   assertAmount(amount, 'withdrawal amount');
   assertProviderName(input.provider);
   const phone = normalizeEthiopianMsisdn(input.phone);
+  const manual = input.manual === true;
+  if (manual !== (input.payoutAccountId !== undefined)) {
+    throw new RangeError(
+      'requestWithdrawal: payoutAccountId is required for, and only for, manual payouts',
+    );
+  }
 
   await lockUser(tx, userId);
 
@@ -385,7 +420,8 @@ export async function requestWithdrawal(
     if (
       existing.amount !== amount ||
       existing.provider !== input.provider ||
-      existing.phone !== phone
+      existing.phone !== phone ||
+      existing.payoutAccountId !== (input.payoutAccountId ?? null)
     ) {
       throw domainUnprocessable(
         'idempotency_key_reused',
@@ -444,6 +480,38 @@ export async function requestWithdrawal(
   }
   const blocked = await blockedSettlementCorrection(tx, userId);
   if (blocked) throw correctionPending(blocked.betId);
+  let destination: {
+    payoutAccountId: string;
+    destinationInstitution: string;
+    destinationAccount: string;
+    destinationName: string;
+  } | null = null;
+  if (input.payoutAccountId !== undefined) {
+    const [account] = await tx
+      .select()
+      .from(payoutAccounts)
+      .where(
+        and(
+          eq(payoutAccounts.id, input.payoutAccountId),
+          eq(payoutAccounts.userId, userId),
+          isNull(payoutAccounts.removedAt),
+        ),
+      )
+      .limit(1);
+    if (!account) throw domainNotFound('Payout account');
+    if (account.verifiedAt === null) {
+      throw domainUnprocessable(
+        'payout_account_unverified',
+        'Confirm this payout account with the code we sent before withdrawing to it.',
+      );
+    }
+    destination = {
+      payoutAccountId: account.id,
+      destinationInstitution: account.institution,
+      destinationAccount: account.account,
+      destinationName: account.accountName,
+    };
+  }
   if (amount < rules.minWithdrawal || amount > rules.maxWithdrawal) {
     throw domainUnprocessable(
       'withdrawal_amount_out_of_range',
@@ -530,6 +598,8 @@ export async function requestWithdrawal(
       amount,
       phone: user.phone,
       recipientName: verifiedName,
+      manual,
+      ...(destination ?? {}),
       status: autoApproved ? 'approved' : 'requested',
       reviewReason,
       approvedBy: autoApproved ? AUTO_APPROVER : null,
@@ -645,8 +715,11 @@ export async function approveWithdrawal(
   return { payout: updated, changed: true };
 }
 
-/** Returns the hold to the player (`withdrawal_reversal`) and closes the payout with `status`. */
-async function reverse(
+/**
+ * @internal Returns the hold to the player (`withdrawal_reversal`) and
+ * closes the payout with `status`.
+ */
+export async function reverse(
   tx: DbTransaction,
   payout: Payout,
   status: 'failed' | 'rejected' | 'cancelled',
@@ -783,6 +856,8 @@ export async function claimDuePayouts(
       and(
         inArray(payouts.status, ['approved', 'processing']),
         isNull(payouts.flaggedAt),
+        // Paid by hand by an operator: no provider to send them to.
+        eq(payouts.manual, false),
         or(isNull(payouts.nextAttemptAt), lte(payouts.nextAttemptAt, options.now)),
       ),
     )
@@ -808,6 +883,7 @@ export async function markPayoutProcessing(
   input: { payoutId: string; now: Date; checkAt: Date; providerRef?: string | null },
 ): Promise<Payout> {
   const payout = await lockPayout(tx, input.payoutId);
+  assertNotManual(payout);
   if (!isOpen(payout)) {
     throw domainConflict('payout_not_processable', 'This withdrawal cannot be processed.', {
       status: payout.status,
@@ -869,6 +945,7 @@ export async function markPayoutPaid(
 ): Promise<PayoutChange> {
   const payout = await lockPayout(tx, input.payoutId);
   if (payout.status === 'paid') return { payout, changed: false };
+  assertNotManual(payout);
   if (!isOpen(payout)) throw notOpenError(payout);
   if (input.admin !== undefined) assertStaffMaySettle(payout);
   if (
@@ -944,6 +1021,7 @@ export async function markPayoutFailed(
 ): Promise<PayoutChange> {
   const payout = await lockPayout(tx, input.payoutId);
   if (payout.status === 'failed') return { payout, changed: false };
+  assertNotManual(payout);
   if (payout.status === 'paid') {
     throw domainConflict('payout_already_paid', 'This withdrawal was already paid.');
   }
@@ -1205,6 +1283,7 @@ export async function flagPayoutForStaff(
   if (note.length === 0) throw new RangeError('flagPayoutForStaff: a note is required');
   const payout = await lockPayout(tx, input.payoutId);
   if (payout.flaggedAt !== null) return { payout, changed: false };
+  assertNotManual(payout);
   if (!isOpen(payout)) throw notOpenError(payout);
   const flagged = await flagPayout(
     tx,
