@@ -192,6 +192,44 @@ describe('account security', () => {
     });
   });
 
+  describe('a sign-in from a new device (ASVS 2.2.3)', () => {
+    it('sends the player an SMS notice; a known browser does not', async () => {
+      const player = await registerAndLogin(ctx);
+      const loginFrom = (userAgent: string) =>
+        post(
+          ctx,
+          '/auth/login',
+          { phone: player.phone, password: player.password },
+          { headers: { 'user-agent': userAgent } },
+        );
+      const notices = async () =>
+        (await smsTo(player.phone)).filter((sms) => sms.template === 'new_sign_in');
+
+      // The browser that registered (inject's own user agent) is known.
+      expect(
+        (await post(ctx, '/auth/login', { phone: player.phone, password: player.password }))
+          .statusCode,
+      ).toBe(200);
+      expect(await notices()).toHaveLength(0);
+
+      const phone = 'Mozilla/5.0 (Linux; Android 12) Chrome/141.0 Mobile Safari/537.36';
+      expect((await loginFrom(phone)).statusCode).toBe(200);
+      const [notice] = await notices();
+      expect(notice?.body).toContain('A new device signed in to your account');
+      // Once seen, the same browser signs in quietly.
+      expect((await loginFrom(phone)).statusCode).toBe(200);
+      expect(await notices()).toHaveLength(1);
+      const [audit] = await ctx.db.db
+        .select({ metadata: auditLog.metadata })
+        .from(auditLog)
+        .where(and(eq(auditLog.action, 'user.login'), eq(auditLog.actorId, player.userId)))
+        .orderBy(desc(auditLog.id))
+        .limit(2)
+        .then((rows) => rows.slice(1));
+      expect(audit?.metadata).toEqual({ newDevice: true });
+    });
+  });
+
   describe('a password reset', () => {
     it('sends the "password changed" notice too', async () => {
       const player = await registerAndLogin(ctx);

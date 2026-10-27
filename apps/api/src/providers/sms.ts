@@ -54,14 +54,26 @@ export function otpSmsBody(code: string, locale: Locale): string {
   return locale === 'en' ? `Vamos: ${english} ${amharic}` : `Vamos: ${amharic} ${english}`;
 }
 
+/** The security notices players get by SMS (the template id of each message). */
+export type SecurityNotice = 'password_changed' | 'new_sign_in';
+
+const SECURITY_NOTICES: Record<SecurityNotice, { am: string; en: string }> = {
+  password_changed: {
+    am: 'የይለፍ ቃልዎ ተቀይሯል። እርስዎ ካልቀየሩት ወዲያውኑ የይለፍ ቃልዎን ዳግም ያስጀምሩና የደንበኞች አገልግሎትን ያነጋግሩ።',
+    en: 'Your password was changed. If this was not you, reset your password now and contact support.',
+  },
+  new_sign_in: {
+    am: 'ወደ መለያዎ በአዲስ መሣሪያ ተገብቷል። እርስዎ ካልሆኑ ወዲያውኑ የይለፍ ቃልዎን ዳግም ያስጀምሩና የደንበኞች አገልግሎትን ያነጋግሩ።',
+    en: 'A new device signed in to your account. If this was not you, reset your password now and contact support.',
+  },
+};
+
 /**
- * The notice sent after the password of an account changed (a change in the
- * account or a reset with an SMS code; ASVS 2.2.3, 2.5.5). Bilingual like the
- * codes, and it carries no secret.
+ * A security notice (ASVS 2.2.3, 2.5.5): after the password changed (in the
+ * account, or reset with an SMS code) or a sign-in from a new device.
+ * Bilingual like the codes, and it carries no secret.
  */
-export function passwordChangedSmsBody(locale: Locale): string {
-  const amharic = 'የይለፍ ቃልዎ ተቀይሯል። እርስዎ ካልቀየሩት ወዲያውኑ የይለፍ ቃልዎን ዳግም ያስጀምሩና የደንበኞች አገልግሎትን ያነጋግሩ።';
-  const english =
-    'Your password was changed. If this was not you, reset your password now and contact support.';
-  return locale === 'en' ? `Vamos: ${english} ${amharic}` : `Vamos: ${amharic} ${english}`;
+export function securityNoticeSmsBody(event: SecurityNotice, locale: Locale): string {
+  const { am, en } = SECURITY_NOTICES[event];
+  return locale === 'en' ? `Vamos: ${en} ${am}` : `Vamos: ${am} ${en}`;
 }

@@ -59,7 +59,7 @@ import {
   type IssuedSession,
   type SessionUser,
 } from '../../plugins/session';
-import { passwordChangedSmsBody } from '../../providers/sms';
+import { securityNoticeSmsBody, type SecurityNotice } from '../../providers/sms';
 import { exclusionError, getActiveExclusion } from '../rg/guard';
 import { announceSessionRevoked } from '../stream/control';
 
@@ -75,6 +75,27 @@ type UserRow = typeof users.$inferSelect;
 export interface AuthenticatedUser {
   user: Pick<UserRow, 'id' | 'phone' | 'status' | 'locale'>;
   session: IssuedSession;
+  /** Sends the "new device signed in" SMS after the answer; null when none is due. */
+  deliver?: (() => Promise<void>) | null;
+}
+
+/**
+ * Whether no session of the player (kept 90 days after it ended) came from
+ * this browser (its user agent): a sign-in from an unknown device, which the
+ * player is told about by SMS (ASVS 2.2.3). No user agent counts as unknown.
+ */
+async function isNewDevice(
+  exec: DbExecutor,
+  userId: string,
+  userAgent: string | null,
+): Promise<boolean> {
+  if (userAgent === null || userAgent.trim() === '') return true;
+  const [seen] = await exec
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.userId, userId), eq(sessions.userAgent, userAgent.slice(0, 512))))
+    .limit(1);
+  return seen === undefined;
 }
 
 /** E.164 phone or 400 `invalid_phone`. */
@@ -366,6 +387,7 @@ export async function login(
   const rehashed = passwordNeedsRehash(user.passwordHash, deps.config.passwordPepper)
     ? await hashPassword(input.password, deps.config.passwordPepper)
     : null;
+  const newDevice = await isNewDevice(deps.db, user.id, meta.userAgent);
   const session = await deps.db.transaction(async (tx) => {
     if (rehashed !== null) {
       await tx
@@ -384,11 +406,15 @@ export async function login(
       action: 'user.login',
       targetType: 'session',
       targetId: created.id,
+      ...(newDevice ? { metadata: { newDevice: true } } : {}),
       ip: meta.ip,
     });
     return created;
   });
-  return { user, session };
+  const deliver = newDevice
+    ? () => notifySecurityEvent(deps, user.phone, 'new_sign_in', toLocale(user.locale), meta.log)
+    : null;
+  return { user, session, deliver };
 }
 
 export async function logout(deps: AppDeps, user: SessionUser, meta: RequestMeta): Promise<void> {
@@ -467,23 +493,21 @@ export interface PasswordChanged {
 }
 
 /**
- * Sends the "your password was changed" SMS (ASVS 2.2.3, 2.5.5). A gateway
- * failure is logged, never thrown: the change itself has committed.
+ * Sends a security notice by SMS (ASVS 2.2.3, 2.5.5): the password changed, or
+ * a new device signed in. A gateway failure is logged, never thrown: what it
+ * reports has already happened.
  */
-export async function notifyPasswordChanged(
+export async function notifySecurityEvent(
   deps: Pick<AppDeps, 'sms'>,
   phone: string,
+  event: SecurityNotice,
   locale: Locale,
   log?: Pick<FastifyBaseLogger, 'error'>,
 ): Promise<void> {
   try {
-    await deps.sms.send({
-      to: phone,
-      body: passwordChangedSmsBody(locale),
-      template: 'password_changed',
-    });
+    await deps.sms.send({ to: phone, body: securityNoticeSmsBody(event, locale), template: event });
   } catch (error) {
-    log?.error({ err: error, provider: deps.sms.name }, 'password-change SMS could not be sent');
+    log?.error({ err: error, provider: deps.sms.name, event }, 'security notice SMS not sent');
   }
 }
 
@@ -527,7 +551,9 @@ export async function resetPassword(
   );
   // Committed: end every open push stream of the account now.
   await announceSessionRevoked(deps, reset.userId, null);
-  return { deliver: () => notifyPasswordChanged(deps, phone, reset.locale, meta.log) };
+  return {
+    deliver: () => notifySecurityEvent(deps, phone, 'password_changed', reset.locale, meta.log),
+  };
 }
 
 /** 403 `reauth_failed`: the password re-entered to confirm a change is not the account's. */
@@ -621,7 +647,7 @@ export async function changePassword(
   for (const sessionId of revoked) await announceSessionRevoked(deps, user.id, sessionId);
   return {
     revokedSessions: revoked.length,
-    deliver: () => notifyPasswordChanged(deps, user.phone, user.locale, meta.log),
+    deliver: () => notifySecurityEvent(deps, user.phone, 'password_changed', user.locale, meta.log),
   };
 }
 

@@ -139,7 +139,9 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: loginLimits, config: phoneRateLimit(10, 15 * MINUTE_MS) },
     async (request, reply): Promise<SessionResponse> => {
       const input = parseInput(LoginRequest, request.body);
-      const { user, session } = await login(deps, input, requestMeta(request));
+      const { user, session, deliver } = await login(deps, input, requestMeta(request));
+      // A sign-in from a device the account never used: the player is told by SMS.
+      if (deliver) app.background.run('new_sign_in_sms', deliver);
       setSessionCookies(reply, deps.config, session);
       return sessionResponseBody(user, session);
     },
