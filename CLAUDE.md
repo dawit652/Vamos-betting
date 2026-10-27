@@ -1,6 +1,6 @@
 # Vamos Betting – contributor notes
 
-Mobile-first sportsbook for Ethiopia, modelled on Betika. TypeScript pnpm monorepo.
+Mobile-first sportsbook for Costa Rica, modelled on Betika. TypeScript pnpm monorepo.
 
 ## Commands
 
