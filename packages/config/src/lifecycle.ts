@@ -21,15 +21,16 @@ export interface GracefulShutdownOptions {
 
 /**
  * A SIGTERM / SIGINT handler: runs the steps once, in order, then exits with
- * 0 (1 when a step failed or the whole shutdown outlived `timeoutMs`, e.g. a
- * pool waiting on an unreachable server). Later signals are ignored while it
- * runs. Resolves when the steps are done (tests await it).
+ * 0 (1 when a step failed, the whole shutdown outlived `timeoutMs`, e.g. a
+ * pool waiting on an unreachable server, or `crashed`: the last-resort
+ * handler's call). Later calls are ignored while it runs. Resolves when the
+ * steps are done (tests await it).
  */
 export function gracefulShutdown(
   options: GracefulShutdownOptions,
-): (signal: string) => Promise<void> {
+): (signal: string, crashed?: boolean) => Promise<void> {
   let running: Promise<void> | null = null;
-  return (signal) => {
+  return (signal, crashed = false) => {
     if (running !== null) return running;
     running = (async () => {
       options.logger.info({ signal }, 'shutting down');
@@ -49,8 +50,37 @@ export function gracefulShutdown(
       }
       clearTimeout(timer);
       options.logger.info({ signal, failed }, 'shut down');
-      options.exit(failed ? 1 : 0);
+      options.exit(failed || crashed ? 1 : 0);
     })();
     return running;
   };
+}
+
+/** Where installLastResortHandlers listens (process in production, a stand-in in tests). */
+export interface CrashSource {
+  on(
+    event: 'uncaughtException' | 'unhandledRejection',
+    listener: (error: unknown) => void,
+  ): unknown;
+}
+
+/**
+ * The last-resort error handler of the api and the worker (ASVS 7.4.3): an
+ * exception or a promise rejection that nothing caught is logged as `fatal`
+ * through the redacting logger, then the process shuts down gracefully and
+ * exits 1, so the orchestrator restarts it from a clean state instead of
+ * letting it run on in an unknown one.
+ */
+export function installLastResortHandlers(options: {
+  logger: { fatal(object: object, message: string): void };
+  shutdown: (signal: string, crashed?: boolean) => Promise<void>;
+  source?: CrashSource;
+}): void {
+  const source = options.source ?? process;
+  for (const kind of ['uncaughtException', 'unhandledRejection'] as const) {
+    source.on(kind, (error) => {
+      options.logger.fatal({ err: error, kind }, 'unhandled error; shutting down');
+      void options.shutdown(kind, true);
+    });
+  }
 }

@@ -1,4 +1,11 @@
-import { ConfigError, loadConfig, loadDotEnv, startTelemetry, type AppConfig } from '@vamos/config';
+import {
+  ConfigError,
+  installLastResortHandlers,
+  loadConfig,
+  loadDotEnv,
+  startTelemetry,
+  type AppConfig,
+} from '@vamos/config';
 import { claimOperatingMode, OperatingModeMismatchError } from '@vamos/db';
 import { PaymentProviderError } from '@vamos/payments';
 import { buildApp } from './app';
@@ -64,6 +71,7 @@ async function main(): Promise<void> {
   });
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  installLastResortHandlers({ logger: app.log, shutdown });
 
   try {
     await app.listen({ host: config.api.host, port: config.api.port });

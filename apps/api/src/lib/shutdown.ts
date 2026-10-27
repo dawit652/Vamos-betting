@@ -16,7 +16,7 @@ export function createApiShutdown(input: {
   telemetry: Telemetry;
   exit: (code: number) => void;
   timeoutMs?: number;
-}): (signal: string) => Promise<void> {
+}): (signal: string, crashed?: boolean) => Promise<void> {
   return gracefulShutdown({
     logger: input.app.log,
     timeoutMs: input.timeoutMs ?? API_SHUTDOWN_TIMEOUT_MS,

@@ -3,6 +3,7 @@ import {
   baseLoggerOptions,
   ConfigError,
   gracefulShutdown,
+  installLastResortHandlers,
   loadConfig,
   loadDotEnv,
   startTelemetry,
@@ -192,6 +193,7 @@ async function main(): Promise<void> {
   });
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  installLastResortHandlers({ logger, shutdown });
 
   try {
     const started = startWorker(config, logger, tasks);

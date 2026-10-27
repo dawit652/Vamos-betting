@@ -141,6 +141,13 @@ jobs:
       - uses: actions/checkout@v4
       # Throwaway secrets; the stack runs in demo mode on http://localhost URLs.
       - run: infra/scripts/init-env.sh
+      - name: Validate the Caddy configuration (proxy profile)
+        run: |
+          docker run --rm -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e ACME_EMAIL=ops@example.et -e WEB_DOMAIN=vamos.example.et \
+            -e API_DOMAIN=api.vamos.example.et -e ADMIN_DOMAIN=admin.vamos.example.et \
+            -e STAFF_ALLOWLIST=10.0.0.0/8 \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Build the images (api, worker, web, admin)
         run: docker compose build
       - name: Start postgres, redis, migrate, api, worker, web and admin

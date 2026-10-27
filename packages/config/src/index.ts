@@ -43,6 +43,8 @@ export {
 } from './telemetry';
 export {
   gracefulShutdown,
+  installLastResortHandlers,
+  type CrashSource,
   type GracefulShutdownOptions,
   type ShutdownLogger,
   type ShutdownStep,
