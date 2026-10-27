@@ -28,12 +28,46 @@ import {
   type ReceivedSms,
 } from '@vamos/db';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { AppDeps } from '../../deps';
 import { notFound, parseInput } from '../../lib/errors';
 import { staffActor } from '../../plugins/staff-session';
 import { smsProviderOf } from '../payments/smsrail';
 import { inTx, parseUuid, wire } from './common';
 
 type IdParams = { Params: { id: string } };
+
+/** Redis key prefix of the worker's balance reconciliation (tasks/smsrail.ts in the worker). */
+export const BALANCE_RESULT_KEY = 'sms-rail:balance:';
+
+/** The worker's last balance reconciliation of `institution`, or null (none yet, or Redis down). */
+async function readBalanceResult(deps: AppDeps, institution: string) {
+  try {
+    const raw = await deps.redis.get(`${BALANCE_RESULT_KEY}${institution}`);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as {
+      checkedAt?: unknown;
+      result?: { status?: unknown; drift?: unknown; observations?: unknown };
+    };
+    const status = parsed.result?.status;
+    const observations = parsed.result?.observations;
+    if (
+      (status !== 'consistent' && status !== 'drift' && status !== 'insufficient_data') ||
+      typeof observations !== 'number' ||
+      typeof parsed.checkedAt !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      institution,
+      checkedAt: parsed.checkedAt,
+      status,
+      drift: typeof parsed.result?.drift === 'string' ? parsed.result.drift : null,
+      observations,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The SMS rail in the back office:
@@ -65,11 +99,18 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
   app.get('/admin/sms/health', { config: { staff: 'sms.review' } }, async () => {
     const provider = smsProviderOf(deps);
     const health = await smsRailHealth(deps.db);
+    const institutions = [...new Set(provider?.collectionAccounts.map((a) => a.institution) ?? [])];
+    const balance = [];
+    for (const institution of institutions) {
+      const stored = await readBalanceResult(deps, institution);
+      if (stored !== null) balance.push(stored);
+    }
     return wire(SmsRailHealthResponse, {
       ...health,
       mode: provider?.mode ?? 'simulated',
       receiptVerify: deps.config.payments.sms.receiptVerify,
       receiptBreaker: deps.receipts?.state().breaker ?? null,
+      balance,
     });
   });
 

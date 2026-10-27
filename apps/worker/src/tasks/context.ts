@@ -1,5 +1,5 @@
 import type { Database, ElsReporter } from '@vamos/db';
-import type { PaymentProviderRegistry } from '@vamos/payments';
+import type { PaymentProviderRegistry, ReceiptVerifier } from '@vamos/payments';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { QueueConfig } from '../lib/queues';
@@ -27,6 +27,11 @@ export interface TaskContext {
    * in demo mode), used by the payout worker and the deposit reconciliation.
    */
   payments: PaymentProviderRegistry;
+  /**
+   * The receipt verifier of the live SMS rail (RECEIPT_VERIFY=audit): the
+   * receipt audit checks every credited telebirr SMS with it. Absent otherwise.
+   */
+  receipts?: ReceiptVerifier;
   /** The SMS gateway for player notifications (SMS_PROVIDER). */
   sms: SmsSender;
   /** Play-money mode (OPERATING_MODE=demo): channel texts say DEMO. Default true. */

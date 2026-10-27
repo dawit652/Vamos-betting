@@ -11,6 +11,7 @@ import {
   lt,
   lte,
   ne,
+  notInArray,
   or,
   sql,
 } from 'drizzle-orm';
@@ -847,6 +848,8 @@ export async function listPendingDepositIntents(
     now: Date;
     createdBefore: Date;
     provider?: string;
+    /** Providers nobody can be asked about (the SMS rail: its deposits wait for their SMS). */
+    excludeProviders?: readonly string[];
     limit?: number;
     lateWindowMs?: number;
   },
@@ -868,6 +871,9 @@ export async function listPendingDepositIntents(
         lt(paymentIntents.createdAt, options.createdBefore),
         or(isNull(paymentIntents.nextPollAt), lte(paymentIntents.nextPollAt, options.now)),
         options.provider === undefined ? undefined : eq(paymentIntents.provider, options.provider),
+        options.excludeProviders === undefined || options.excludeProviders.length === 0
+          ? undefined
+          : notInArray(paymentIntents.provider, [...options.excludeProviders]),
       ),
     )
     .orderBy(

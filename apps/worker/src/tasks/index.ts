@@ -44,6 +44,7 @@ import {
 import { prematchDriftTask, type PrematchDriftOptions } from './prematch-drift';
 import { retentionPruneTask, type RetentionPruneOptions } from './retention-prune';
 import { smsNotifyTask, type SmsNotifyOptions } from './sms-notify';
+import { smsRailTasks, type SmsRailTaskOptions } from './smsrail';
 import { userNotifyTask, type UserNotifyOptions } from './user-notify';
 import { ussdPruneTask, type UssdPruneOptions } from './ussd-prune';
 import {
@@ -80,6 +81,7 @@ export interface TaskOptions {
   outboxDispatch?: OutboxDispatchOptions;
   ussdPrune?: UssdPruneOptions;
   retentionPrune?: RetentionPruneOptions;
+  smsRail?: SmsRailTaskOptions;
 }
 
 /**
@@ -139,6 +141,8 @@ export function createTasks(
     amlSweepTask(compliance, options.amlSweep),
     ussdPruneTask(ctx, options.ussdPrune),
     retentionPruneTask(ctx, options.retentionPrune),
+    // The SMS rail's receipt audit, balance reconciliation and watch (only with `sms`).
+    ...smsRailTasks(ctx, options.smsRail),
     outboxDispatchTask(ctx, options.outboxDispatch),
   );
   return tasks;

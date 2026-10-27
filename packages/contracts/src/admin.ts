@@ -1040,6 +1040,21 @@ export const SmsRailHealthResponse = z.object({
   oldestManualPayoutApprovedAt: z.string().nullable(),
   receiptVerify: z.enum(['off', 'audit']),
   receiptBreaker: z.enum(['closed', 'open', 'half_open']).nullable(),
+  /**
+   * The last balance reconciliation per collection institution (the worker,
+   * hourly over 24 hours): `drift` is actual − expected movement; negative
+   * means we credited more than arrived (a forged SMS?), positive that SMS
+   * went missing (players waiting).
+   */
+  balance: z.array(
+    z.object({
+      institution: z.string(),
+      checkedAt: z.string(),
+      status: z.enum(['consistent', 'drift', 'insufficient_data']),
+      drift: Santim.nullable(),
+      observations: z.number().int(),
+    }),
+  ),
 });
 export type SmsRailHealthResponse = z.infer<typeof SmsRailHealthResponse>;
 
