@@ -142,10 +142,7 @@ production compose build (Docker Hub rate limit); the CI docker job runs it.
 
 ## Legal context (do not change)
 
-- Ethiopia revoked all sports betting licences on 15 Dec 2025. Vamos Entertainment PLC was one of the
-  22 suspended operators. The Ethiopian Lottery Service (ELS) is preparing a stricter relaunch with
-  real-time transaction monitoring.
-- So the platform runs as a **play-money demo**: `OPERATING_MODE=demo` is the default, with "Demo ETB",
+- The platform runs as a **play-money demo**: `OPERATING_MODE=demo` is the default, with "Demo ETB",
   mock payment/KYC/SMS providers and a permanent "DEMO – no real money" banner.
 - `OPERATING_MODE=licensed` refuses to start unless all of these hold: real payment and KYC
   providers, `TAX_CONFIG_CONFIRMED=true`, `NODE_ENV=production` and a non-default `SESSION_SECRET`. The guard is in `packages/config/src/config.ts`. Never weaken it.
@@ -531,7 +528,7 @@ commit and a push.
   - On `event.resulted` / `event.result_corrected`, read `selections.result`, which `resultEvent` has
     already set, for every open leg on that event, and update the leg states.
   - For each affected bet, lock the bet row. Once `canSettle` allows, run `settleBet`, post the
-    ledger entries and set the status. Then enqueue `bet.settled`; SMS and ELS consume it later.
+    ledger entries and set the status. Then enqueue `bet.settled`; SMS consumes it later.
   - A `cancelled` result (feed withdrawal, postponement) voids the legs. A void leg counts as 1.00.
   - A correction reverses the old settlement with `settlement_reversal` and settles again with the
     next version. Never edit ledger rows.
@@ -732,7 +729,7 @@ Every admin action writes to the audit log (`writeAudit`).
 
 ## Out of scope / backlog
 
-- casino, crash and virtual games, unless the new ELS rules allow them
+- casino, crash and virtual games
 - live video streaming (the match tracker replaces it)
 - athletics outright markets
 - a real feed adapter (Sportradar or BetConstruct, once there is a contract)

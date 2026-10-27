@@ -1,7 +1,7 @@
 # SMS and USSD betting (Phase 11)
 
 Betting by text message and USSD menus, Betika style. **Both channels are off by default and stay
-off until the regulator (ELS) approves them.** While a channel is off its inbound route answers
+off until the regulator approves them.** While a channel is off its inbound route answers
 404 and nothing else changes.
 
 ## Switches

@@ -726,7 +726,7 @@ export const account = {
         },
         share: {
           title: 'Who receives it',
-          body: 'Only those who need it: the SMS gateway (your number and the message), the identity provider (your ID details when you verify), the payment providers (your number and the amount when you pay or withdraw) and the Ethiopian Lottery Service, which receives your transactions under a pseudonymous id, without your name or number. We never sell your data.',
+          body: 'Only those who need it: the SMS gateway (your number and the message), the identity provider (your ID details when you verify) and the payment providers (your number and the amount when you pay or withdraw). We never sell your data.',
         },
         keep: {
           title: 'How long we keep it',
