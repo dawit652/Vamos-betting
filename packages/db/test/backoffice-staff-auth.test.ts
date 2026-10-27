@@ -1,7 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { argon2PasswordHasher } from '../src/backoffice/argon2';
+import {
+  argon2PasswordHasher,
+  createPasswordHasher,
+  PEPPERED_HASH_PREFIX,
+} from '../src/backoffice/argon2';
 import { DomainError } from '../src/errors';
 import { createDb } from '../src/client';
 import {
@@ -304,6 +308,26 @@ describe('staff sign-in', () => {
       .from(auditLog)
       .where(and(eq(auditLog.action, 'staff.login'), eq(auditLog.targetId, staff.id)));
     expect(audit).toMatchObject({ actorType: 'admin', actorId: staff.id, ip: '10.0.0.9' });
+  });
+
+  it('replaces a hash made before the pepper at the next sign-in (ASVS 2.4.5)', async () => {
+    const staff = await newStaff('support');
+    const peppered = createPasswordHasher('a-test-password-pepper-of-32-characters!');
+    const before = (await userRow(staff.id)).passwordHash;
+    expect(before.startsWith(PEPPERED_HASH_PREFIX)).toBe(false);
+    await loginStaff(
+      { ...deps(), passwords: peppered },
+      { email: staff.email, password: PASSWORD, code: nextCode(staff) },
+    );
+    const after = (await userRow(staff.id)).passwordHash;
+    expect(after.startsWith(PEPPERED_HASH_PREFIX)).toBe(true);
+    expect(await peppered.verify(after, PASSWORD)).toBe(true);
+    // Signed in again with the pepper: the hash stays.
+    await loginStaff(
+      { ...deps(), passwords: peppered },
+      { email: staff.email, password: PASSWORD, code: nextCode(staff) },
+    );
+    expect((await userRow(staff.id)).passwordHash).toBe(after);
   });
 
   it('answers every failure with the same 401 and records why', async () => {

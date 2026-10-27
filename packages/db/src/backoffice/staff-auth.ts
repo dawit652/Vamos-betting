@@ -88,11 +88,16 @@ export const STAFF_DISPLAY_NAME_MAX_LENGTH = 100;
 /** Issuer shown by authenticator apps. */
 export const STAFF_TOTP_ISSUER = 'Vamos Back Office';
 
-/** Hashes and checks passwords (argon2id; see @vamos/db/passwords and the API's lib/passwords). */
+/** Hashes and checks passwords (argon2id with the pepper; see @vamos/db/passwords). */
 export interface PasswordHasher {
   hash: (password: string) => Promise<string>;
   /** True when `password` matches; false (never a throw) for a malformed hash. */
   verify: (storedHash: string, password: string) => Promise<boolean>;
+  /**
+   * True when a stored hash predates the current scheme (made without the
+   * pepper): a successful sign-in then stores a new one. Absent: never.
+   */
+  needsRehash?: (storedHash: string) => boolean;
 }
 
 export interface StaffAuthDeps {
@@ -999,6 +1004,12 @@ export async function loginStaff(
     throw staffInvalidCredentialsError();
   }
   const check = await verifyAttempt(deps, user, clientKey, password, code, now);
+  // A hash made before the pepper was set is replaced on this successful sign-in (hashed here,
+  // outside the transaction; commitAttempt makes sure the stored hash did not change meanwhile).
+  const rehashed =
+    check.ok && deps.passwords.needsRehash?.(user.passwordHash) === true
+      ? await deps.passwords.hash(password)
+      : null;
   const outcome = await commitAttempt(
     deps,
     { before: user, check, clientKey, now, ip },
@@ -1015,6 +1026,7 @@ export async function loginStaff(
           totpLastStep: step,
           lastLoginAt: now,
           passwordChangeRequired,
+          ...(rehashed === null ? {} : { passwordHash: rehashed }),
           updatedAt: now,
         })
         .where(eq(adminUsers.id, row.id));

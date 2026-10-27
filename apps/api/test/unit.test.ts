@@ -221,6 +221,7 @@ describe('startup checks', () => {
     const production = loadConfig({
       ...licensedEnv,
       NODE_ENV: 'production',
+      PASSWORD_PEPPER: 'a-unique-password-pepper-0123456789abcdef',
       SESSION_SECRET: 'a-unique-production-secret-0123456789abcdef',
     });
     const devDefaults = {
@@ -237,6 +238,7 @@ describe('startup checks', () => {
         loadConfig({
           ...licensedEnv,
           NODE_ENV: 'production',
+          PASSWORD_PEPPER: 'a-unique-password-pepper-0123456789abcdef',
           SESSION_SECRET: 'a-unique-production-secret-0123456789abcdef',
         }),
       ),

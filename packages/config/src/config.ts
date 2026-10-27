@@ -172,6 +172,15 @@ const envSchema = z.object({
     .regex(/^[A-Za-z0-9_-]{1,64}$/, 'letters, digits, "_" or "-" (at most 64)')
     .default('vamos'),
   SESSION_SECRET: z.string().min(32).default(DEV_SESSION_SECRET),
+  /**
+   * The secret key every password hash also depends on (argon2's secret, a
+   * "pepper", ASVS 2.4.5), kept outside the database: a copy of the database
+   * alone cannot be cracked offline. Required in production; unset in
+   * development and tests.
+   */
+  PASSWORD_PEPPER: secret.refine((value) => value === undefined || value.length >= 32, {
+    message: 'must have at least 32 characters',
+  }),
   /** Encrypts staff TOTP secrets at rest: 32 bytes as 64 hex characters or base64. */
   ADMIN_TOTP_KEY: z
     .string()
@@ -289,6 +298,8 @@ export interface AppConfig {
   redisUrl: string;
   queuePrefix: string;
   sessionSecret: string;
+  /** PASSWORD_PEPPER: argon2's secret key for player and staff passwords (unset: none). */
+  passwordPepper: string | undefined;
   /** The back office (staff accounts). */
   admin: {
     /** AES-256-GCM key (32 bytes) of the staff TOTP secrets (ADMIN_TOTP_KEY). */
@@ -395,6 +406,11 @@ export function licensedModeViolations(config: AppConfig): string[] {
   if (isDevAdminTotpKey(config.admin.totpKey)) {
     problems.push(
       'ADMIN_TOTP_KEY must be a unique key in licensed mode (it encrypts the staff TOTP secrets)',
+    );
+  }
+  if (config.passwordPepper === undefined) {
+    problems.push(
+      'PASSWORD_PEPPER is required in licensed mode (the secret key of every password hash, kept outside the database)',
     );
   }
   if (!config.els.licenseNumber) {
@@ -543,6 +559,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     redisUrl: e.REDIS_URL,
     queuePrefix: e.QUEUE_PREFIX,
     sessionSecret: e.SESSION_SECRET,
+    passwordPepper: e.PASSWORD_PEPPER,
     admin: { totpKey: adminTotpKeyOf(e.ADMIN_TOTP_KEY) },
     feed: {
       provider: e.FEED_PROVIDER,
@@ -627,6 +644,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (config.nodeEnv === 'production' && isDevAdminTotpKey(config.admin.totpKey)) {
     // The development key is public: staff TOTP secrets would be readable from a database copy.
     problems.push('ADMIN_TOTP_KEY must be set to a unique key in production');
+  }
+  if (config.nodeEnv === 'production' && config.passwordPepper === undefined) {
+    // Without it a copy of the database is all an offline password-cracking attack needs.
+    problems.push('PASSWORD_PEPPER must be set in production (32+ characters)');
+  }
+  if (config.passwordPepper !== undefined && config.passwordPepper === config.sessionSecret) {
+    problems.push('PASSWORD_PEPPER must differ from SESSION_SECRET (one key, one purpose)');
   }
   if (
     config.nodeEnv === 'production' &&

@@ -14,7 +14,7 @@
 import { randomBytes } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { loadConfig, loadDotEnv } from '@vamos/config';
-import { argon2PasswordHasher } from '../backoffice/argon2';
+import { createPasswordHasher } from '../backoffice/argon2';
 import { createStaffUser, STAFF_ROLES, type StaffRole } from '../backoffice/staff-auth';
 import { createDb } from '../client';
 import { DomainError } from '../errors';
@@ -55,7 +55,7 @@ try {
       clock: () => new Date(),
       randomBytes,
       totpKey: config.admin.totpKey,
-      passwords: argon2PasswordHasher,
+      passwords: createPasswordHasher(config.passwordPepper),
     },
     {
       email: values.email,

@@ -498,6 +498,7 @@ describe('dev channel routes outside demo development', () => {
     ctx = await createTestContext({
       ...ON,
       NODE_ENV: 'production',
+      PASSWORD_PEPPER: 'a-unique-password-pepper-0123456789abcdef',
       SESSION_SECRET: randomBytes(32).toString('hex'),
       ADMIN_TOTP_KEY: randomBytes(32).toString('hex'),
       MOCK_PAYMENT_WEBHOOK_SECRET: randomBytes(32).toString('hex'),

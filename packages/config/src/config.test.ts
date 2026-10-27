@@ -16,6 +16,8 @@ import {
 
 /** A production-grade ADMIN_TOTP_KEY (any 32 bytes other than the development key). */
 const PRODUCTION_TOTP_KEY = '7f'.repeat(32);
+/** A production PASSWORD_PEPPER (32+ characters). */
+const PRODUCTION_PEPPER = 'a-real-password-pepper-of-at-least-32-chars';
 
 const LICENSED_ENV = {
   NODE_ENV: 'production',
@@ -29,6 +31,7 @@ const LICENSED_ENV = {
   FEED_PROVIDER: 'manual',
   TAX_CONFIG_CONFIRMED: 'true',
   SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+  PASSWORD_PEPPER: PRODUCTION_PEPPER,
   ADMIN_TOTP_KEY: PRODUCTION_TOTP_KEY,
 };
 
@@ -198,6 +201,32 @@ describe('loadConfig', () => {
     ).toEqual([]);
   });
 
+  it('requires PASSWORD_PEPPER (32+ characters, not the session secret) in production and licensed mode', () => {
+    const production = {
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+      MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret-for-the-demo',
+      ADMIN_TOTP_KEY: PRODUCTION_TOTP_KEY,
+    };
+    expect(problemsOf(production)).toEqual([
+      'PASSWORD_PEPPER must be set in production (32+ characters)',
+    ]);
+    expect(problemsOf({ ...production, PASSWORD_PEPPER: 'too-short' }).join('\n')).toMatch(
+      /PASSWORD_PEPPER: must have at least 32 characters/,
+    );
+    expect(
+      problemsOf({ ...production, PASSWORD_PEPPER: production.SESSION_SECRET }).join('\n'),
+    ).toMatch(/PASSWORD_PEPPER must differ from SESSION_SECRET/);
+    expect(problemsOf({ ...production, PASSWORD_PEPPER: PRODUCTION_PEPPER })).toEqual([]);
+    expect(loadConfig({ ...production, PASSWORD_PEPPER: PRODUCTION_PEPPER }).passwordPepper).toBe(
+      PRODUCTION_PEPPER,
+    );
+    // Development and tests run without one.
+    expect(loadConfig({}).passwordPepper).toBeUndefined();
+    const { PASSWORD_PEPPER: _omit, ...licensed } = LICENSED_ENV;
+    expect(problemsOf(licensed).join('\n')).toMatch(/PASSWORD_PEPPER is required in licensed mode/);
+  });
+
   it('refuses the development session secret in production', () => {
     expect(
       problemsOf({ NODE_ENV: 'production', SESSION_SECRET: DEV_SESSION_SECRET }).join('\n'),
@@ -208,12 +237,14 @@ describe('loadConfig', () => {
     const problems = problemsOf({
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+      PASSWORD_PEPPER: PRODUCTION_PEPPER,
     }).join('\n');
     expect(problems).toMatch(/MOCK_PAYMENT_WEBHOOK_SECRET/);
     expect(
       problemsOf({
         NODE_ENV: 'production',
         SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+        PASSWORD_PEPPER: PRODUCTION_PEPPER,
         MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret-for-the-demo',
         ADMIN_TOTP_KEY: PRODUCTION_TOTP_KEY,
       }),
@@ -261,6 +292,7 @@ describe('loadConfig', () => {
     const production = {
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+      PASSWORD_PEPPER: PRODUCTION_PEPPER,
       MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret-for-the-demo',
     };
     expect(problemsOf(production)).toEqual([
@@ -433,6 +465,7 @@ describe('loadConfig', () => {
     const production = {
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+      PASSWORD_PEPPER: PRODUCTION_PEPPER,
       ADMIN_TOTP_KEY: PRODUCTION_TOTP_KEY,
       MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-payment-secret',
     };
@@ -532,6 +565,7 @@ describe('operations settings (Phase 12)', () => {
     const production = {
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
+      PASSWORD_PEPPER: PRODUCTION_PEPPER,
       ADMIN_TOTP_KEY: PRODUCTION_TOTP_KEY,
       MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret',
     };

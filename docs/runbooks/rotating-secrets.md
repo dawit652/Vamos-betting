@@ -48,6 +48,19 @@ Rotate only on a suspected leak. Accept the duplicate-check gap, or re-run KYC v
 afterwards (compliance decides). Set the new value, recreate `api` and `worker`, and ask a test player to
 register (OTP) to verify.
 
+## PASSWORD_PEPPER (password hashes)
+
+The pepper is argon2's secret key for every player and staff password hash (stored as `pepper1:$argon2id$…`;
+ASVS 2.4.5). It never leaves the secret store and the database alone cannot be cracked offline. **There is
+one active pepper and no re-hashing tool**: changing or losing it makes every peppered password unusable.
+
+- Rotate only on a suspected leak of the pepper **together with** a database copy (the pepper alone is
+  useless). Set a new value and recreate `api` and `worker`: every player then resets the password with an
+  SMS code (the login page offers it), and staff passwords are reset by an admin (`POST
+/admin/staff/:id/reset-password`) or with `admin-create` for a break-glass account. Announce it first.
+- Hashes made before a pepper was first set keep working and are replaced at the next successful sign-in.
+- Keep a sealed copy with `ADMIN_TOTP_KEY` and the backup keys: a restore needs the same pepper.
+
 ## Database and Redis passwords
 
 - **Postgres owner** (`POSTGRES_USER`, used only by the migrate job and the ops scripts):

@@ -17,7 +17,7 @@ export async function seedStaff(ctx: TestContext): Promise<void> {
       db: ctx.deps.db,
       clock: ctx.deps.clock,
       totpKey: ctx.deps.config.admin.totpKey,
-      passwords: apiPasswordHasher,
+      passwords: apiPasswordHasher(ctx.deps.config),
     },
     { mode: 'demo', nodeEnv: 'test' },
   );

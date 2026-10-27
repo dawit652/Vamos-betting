@@ -48,6 +48,7 @@ import {
   dummyVerifyPassword,
   hashPassword,
   meetsPasswordPolicy,
+  passwordNeedsRehash,
   verifyPassword,
 } from '../../lib/passwords';
 import {
@@ -168,7 +169,7 @@ export async function registerUser(
   if (existing !== null && existing.status !== 'pending_verification') {
     throw phoneTaken();
   }
-  const passwordHash = await hashPassword(input.password);
+  const passwordHash = await hashPassword(input.password, deps.config.passwordPepper);
   const registrationToken = randomToken(deps.randomBytes);
 
   const { userId, otp } = await deps.db.transaction(async (tx) => {
@@ -325,11 +326,11 @@ export async function login(
   const phone = normalizeEthiopianMsisdn(input.phone);
   const user = phone === null ? null : await findUserByPhone(deps.db, phone);
   if (user === null) {
-    await dummyVerifyPassword(input.password);
+    await dummyVerifyPassword(input.password, deps.config.passwordPepper);
     await auditLoginFailure(deps, meta, 'unknown_phone', null, phone);
     throw invalidCredentials();
   }
-  if (!(await verifyPassword(user.passwordHash, input.password))) {
+  if (!(await verifyPassword(user.passwordHash, input.password, deps.config.passwordPepper))) {
     await auditLoginFailure(deps, meta, 'wrong_password', user, phone);
     throw invalidCredentials();
   }
@@ -360,7 +361,18 @@ export async function login(
     );
   }
 
+  // A hash made before the pepper was set is replaced now that the password is known (only if
+  // it did not change meanwhile).
+  const rehashed = passwordNeedsRehash(user.passwordHash, deps.config.passwordPepper)
+    ? await hashPassword(input.password, deps.config.passwordPepper)
+    : null;
   const session = await deps.db.transaction(async (tx) => {
+    if (rehashed !== null) {
+      await tx
+        .update(users)
+        .set({ passwordHash: rehashed, updatedAt: now })
+        .where(and(eq(users.id, user.id), eq(users.passwordHash, user.passwordHash)));
+    }
     const created = await createSession(tx, deps, {
       userId: user.id,
       ip: meta.ip,
@@ -486,7 +498,7 @@ export async function resetPassword(
 ): Promise<PasswordChanged> {
   const phone = requirePhone(input.phone);
   assertPasswordAcceptable(input.newPassword, phone);
-  const passwordHash = await hashPassword(input.newPassword);
+  const passwordHash = await hashPassword(input.newPassword, deps.config.passwordPepper);
   const now = deps.clock();
   const reset = await consumeOtp(
     deps.db,
@@ -529,7 +541,7 @@ const reauthFailed = () =>
  * it did not change before its own transaction.
  */
 async function verifyCurrentPassword(
-  deps: Pick<AppDeps, 'db'>,
+  deps: Pick<AppDeps, 'db' | 'config'>,
   user: SessionUser,
   password: string,
   purpose: 'password_change' | 'sessions_revoke',
@@ -540,7 +552,10 @@ async function verifyCurrentPassword(
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
-  if (row !== undefined && (await verifyPassword(row.passwordHash, password))) {
+  if (
+    row !== undefined &&
+    (await verifyPassword(row.passwordHash, password, deps.config.passwordPepper))
+  ) {
     return row.passwordHash;
   }
   await writeAudit(deps.db, {
@@ -579,7 +594,7 @@ export async function changePassword(
     'password_change',
     meta,
   );
-  const passwordHash = await hashPassword(input.newPassword);
+  const passwordHash = await hashPassword(input.newPassword, deps.config.passwordPepper);
   const now = deps.clock();
   const revoked = await deps.db.transaction(async (tx) => {
     const [row] = await tx

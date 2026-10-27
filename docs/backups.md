@@ -7,13 +7,13 @@ What is backed up, how often, how long it is kept, and how to prove it can be re
 
 ## 1. What matters
 
-| Data                                                                                | Where                               | Loss means                                                                          | Kept                                                   |
-| ----------------------------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| PostgreSQL: ledger, bets, wallets, audit log, KYC, staff, summaries, reconciliation | volume `pgdata`                     | Money records gone. The ledger and audit log are append-only by DB trigger.         | **7 years** (ledger, audit, summaries, reconciliation) |
-| ELS reports (JSONL stream, daily CSVs)                                              | volume `els` (`/var/lib/vamos/els`) | A regulatory breach; the database can re-emit missing rows but not rewrite history. | **7 years**                                            |
-| Secrets (`ADMIN_TOTP_KEY`, `SESSION_SECRET`, provider keys)                         | secret manager                      | Staff cannot sign in after a restore; ID-uniqueness hashes stop matching.           | as long as the data they protect                       |
-| Redis (queues, rate limits, pub/sub)                                                | volume `redisdata`                  | Nothing durable: queued jobs are rebuilt from the outbox by sweeps.                 | not backed up                                          |
-| Images and code                                                                     | git + registry                      | Rebuild from the tagged commit.                                                     | per release                                            |
+| Data                                                                                | Where                               | Loss means                                                                           | Kept                                                   |
+| ----------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| PostgreSQL: ledger, bets, wallets, audit log, KYC, staff, summaries, reconciliation | volume `pgdata`                     | Money records gone. The ledger and audit log are append-only by DB trigger.          | **7 years** (ledger, audit, summaries, reconciliation) |
+| ELS reports (JSONL stream, daily CSVs)                                              | volume `els` (`/var/lib/vamos/els`) | A regulatory breach; the database can re-emit missing rows but not rewrite history.  | **7 years**                                            |
+| Secrets (`ADMIN_TOTP_KEY`, `SESSION_SECRET`, `PASSWORD_PEPPER`, provider keys)      | secret manager                      | Staff cannot sign in after a restore; no password verifies; ID hashes stop matching. | as long as the data they protect                       |
+| Redis (queues, rate limits, pub/sub)                                                | volume `redisdata`                  | Nothing durable: queued jobs are rebuilt from the outbox by sweeps.                  | not backed up                                          |
+| Images and code                                                                     | git + registry                      | Rebuild from the tagged commit.                                                      | per release                                            |
 
 The database is never pruned, so the live database itself holds 7 years of ledger. The backups below protect
 it against loss; their own retention is shorter except for the yearly archive.

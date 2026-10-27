@@ -1,5 +1,5 @@
 import { loadConfig, loadDotEnv } from '@vamos/config';
-import { argon2PasswordHasher } from '../backoffice/argon2';
+import { createPasswordHasher } from '../backoffice/argon2';
 import { seedDemoStaff } from '../backoffice/demo-staff';
 import { createDb } from '../client';
 import { seed } from '../seed/index';
@@ -15,7 +15,7 @@ try {
       db: handle.db,
       clock: () => new Date(),
       totpKey: config.admin.totpKey,
-      passwords: argon2PasswordHasher,
+      passwords: createPasswordHasher(config.passwordPepper),
     },
     { mode: config.mode, nodeEnv: config.nodeEnv },
   );

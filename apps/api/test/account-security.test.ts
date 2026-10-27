@@ -5,12 +5,14 @@ import {
   SessionStateResponse,
   StaffSessionResponse,
 } from '@vamos/contracts';
-import { auditLog, sessions, smsMessages } from '@vamos/db/schema';
+import { auditLog, sessions, smsMessages, users } from '@vamos/db/schema';
 import { and, desc, eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
+import { PEPPERED_HASH_PREFIX } from '@vamos/db/passwords';
 import { sha256Hex } from '../src/lib/crypto';
+import { hashPassword, verifyPassword } from '../src/lib/passwords';
 import { SESSION_IDLE_MS } from '../src/plugins/session';
 import { DATA_EXPORT_FORMAT } from '../src/modules/me/export';
 import { DATA_EXPORTS_PER_HOUR, REAUTH_LIMIT } from '../src/modules/me/routes';
@@ -340,6 +342,41 @@ describe('account security', () => {
       expect((await ctx.app.inject({ method: 'GET', url: '/me/data-export' })).statusCode).toBe(
         401,
       );
+    });
+  });
+
+  describe('PASSWORD_PEPPER (ASVS 2.4.5)', () => {
+    it('peppers new hashes and replaces older ones at the next login', async () => {
+      const pepper = 'a-test-password-pepper-of-32-characters!';
+      const peppered = await createTestContext({ PASSWORD_PEPPER: pepper });
+      try {
+        const player = await registerAndLogin(peppered);
+        const storedHash = async () => {
+          const [row] = await peppered.db.db
+            .select({ passwordHash: users.passwordHash })
+            .from(users)
+            .where(eq(users.id, player.userId));
+          return row!.passwordHash;
+        };
+        expect((await storedHash()).startsWith(PEPPERED_HASH_PREFIX)).toBe(true);
+        // A hash from before the pepper was set: still logs in, then it is replaced.
+        await peppered.db.db
+          .update(users)
+          .set({ passwordHash: await hashPassword(player.password) })
+          .where(eq(users.id, player.userId));
+        const login = await post(peppered, '/auth/login', {
+          phone: player.phone,
+          password: player.password,
+        });
+        expect(login.statusCode).toBe(200);
+        const rehashed = await storedHash();
+        expect(rehashed.startsWith(PEPPERED_HASH_PREFIX)).toBe(true);
+        expect(await verifyPassword(rehashed, player.password, pepper)).toBe(true);
+        // Useless without the pepper.
+        expect(await verifyPassword(rehashed, player.password)).toBe(false);
+      } finally {
+        await peppered.close();
+      }
     });
   });
 

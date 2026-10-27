@@ -60,7 +60,7 @@ export default async function adminAuthRoutes(app: FastifyInstance): Promise<voi
   const { deps, authLimits } = app;
   const authDeps = staffAuthDeps(deps);
   // An unknown email then costs as much as a wrong password from the first request.
-  await warmUpStaffPasswordHashing(apiPasswordHasher);
+  await warmUpStaffPasswordHashing(apiPasswordHasher(deps.config));
 
   const perClient = app.createRateLimit({
     ...authLimits.staffLoginPerClient,

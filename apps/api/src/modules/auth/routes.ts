@@ -75,7 +75,7 @@ function requestMeta(request: FastifyRequest): RequestMeta {
 
 export default async function authRoutes(app: FastifyInstance): Promise<void> {
   const { deps, authLimits } = app;
-  await warmUpPasswordHashing();
+  await warmUpPasswordHashing(deps.config.passwordPepper);
 
   // Shared by every unauthenticated auth endpoint: one budget per client address.
   const perClient = app.createRateLimit({

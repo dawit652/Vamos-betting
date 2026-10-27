@@ -19,7 +19,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppDeps } from '../deps';
 import { forbidden, unauthorized } from '../lib/errors';
-import { hashPassword, verifyPassword } from '../lib/passwords';
+import { passwordHasher } from '../lib/passwords';
 import { secureCookies } from './session';
 
 /**
@@ -49,11 +49,10 @@ declare module 'fastify' {
   }
 }
 
-/** The password hasher the staff services use (argon2id, like the players'). */
-export const apiPasswordHasher: PasswordHasher = {
-  hash: hashPassword,
-  verify: verifyPassword,
-};
+/** The password hasher the staff services use (argon2id with the pepper, like the players'). */
+export function apiPasswordHasher(config: Pick<AppConfig, 'passwordPepper'>): PasswordHasher {
+  return passwordHasher(config.passwordPepper);
+}
 
 /** The dependencies of the @vamos/db staff-auth services. */
 export function staffAuthDeps(deps: AppDeps): StaffAuthDeps {
@@ -62,7 +61,7 @@ export function staffAuthDeps(deps: AppDeps): StaffAuthDeps {
     clock: deps.clock,
     randomBytes: deps.randomBytes,
     totpKey: deps.config.admin.totpKey,
-    passwords: apiPasswordHasher,
+    passwords: apiPasswordHasher(deps.config),
   };
 }
 

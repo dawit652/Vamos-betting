@@ -98,12 +98,14 @@ Validated on 2026-10-19 with Docker Engine 29.8 (all four images built, stack bo
 time). The Caddy proxy profile and a restore from the dumps were not exercised in that run.
 
 `admin-create` prints the TOTP enrolment (scan the `otpauth://` URI); without `ADMIN_PASSWORD` it generates a
-password that must be changed at first sign-in. The demo staff accounts (`<role>@demo.vamos.test`) exist only
+password that must be changed at first sign-in, within 72 hours (it stops working after that). The demo staff accounts (`<role>@demo.vamos.test`) exist only
 in demo mode and only when `NODE_ENV` is not `production`.
 
 **Upgrades.** `git pull`, `docker compose build`, `docker compose up -d --wait`. (Upgrading from a release
 before the app role: add `APP_DB_PASSWORD=$(openssl rand -hex 16)` to `infra/.env.prod` first; compose refuses
-to start without it.) The `migrate` job reruns
+to start without it. Upgrading from a release before the INSA readiness pass: add
+`PASSWORD_PEPPER=$(openssl rand -hex 32)` the same way; existing password hashes are re-made with it at each
+account's next sign-in.) The `migrate` job reruns
 first (migrations are forward-only and idempotent). Take a [dump](backups.md) before any release that adds
 migrations. Rolling back code is safe only while no new migration was applied; otherwise restore
 (runbook: [restore from backup](runbooks/restore-from-backup.md)). Keep image tags per release:
@@ -158,8 +160,8 @@ over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET 
 - [ ] An ELS licence exists and `ELS_LICENSE_NUMBER` is set.
 - [ ] `NODE_ENV=production`; `PUBLIC_WEB_URL`, `ADMIN_WEB_URL`, `PUBLIC_API_URL` are https and the admin
       origin differs from the web origin.
-- [ ] Unique `SESSION_SECRET` (32+ chars), `ADMIN_TOTP_KEY` (32 bytes), and no development default left in any
-      secret of a feature that is on.
+- [ ] Unique `SESSION_SECRET` (32+ chars), `ADMIN_TOTP_KEY` (32 bytes), `PASSWORD_PEPPER` (32+ chars), and no
+      development default left in any secret of a feature that is on.
 - [ ] `ELS_REPORTING_MODE=file` with an absolute `ELS_REPORT_DIR` on a durable, **backed-up** volume (the
       compose file mounts the `els` volume at `/var/lib/vamos/els`). `off` and the `http` placeholder are
       refused until ELS publishes its interface. Reports are kept 7 years.
@@ -211,6 +213,7 @@ in a secret manager, not in git.
 | `REDIS_URL`                            | local dev URL                                             | Redis URL. Compose builds it from `REDIS_PASSWORD`.                                                                                                                                   |
 | `QUEUE_PREFIX`                         | `vamos`                                                   | Key prefix of the BullMQ queues. Change only with an empty queue.                                                                                                                     |
 | `SESSION_SECRET` (secret)              | dev value (refused in production)                         | 32+ chars. Keys OTP hashes and the national-ID hash that stops one ID opening two accounts. See rotation runbook.                                                                     |
+| `PASSWORD_PEPPER` (secret)             | unset (required in production and licensed mode)          | 32+ chars, not the `SESSION_SECRET`. argon2's secret key for every password hash, kept outside the database (losing it makes passwords unusable). See rotation runbook.               |
 | `ADMIN_TOTP_KEY` (secret)              | dev key (refused in production)                           | 32 bytes as 64 hex chars or base64. AES-256-GCM key of the staff TOTP secrets. See rotation runbook.                                                                                  |
 | `MOCK_PAYMENT_WEBHOOK_SECRET` (secret) | dev value (refused in production while `mock` is enabled) | HMAC key of the mock provider's webhooks (demo only).                                                                                                                                 |
 

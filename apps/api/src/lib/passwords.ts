@@ -1,43 +1,69 @@
 import { randomUUID } from 'node:crypto';
-import { hash, verify } from '@node-rs/argon2';
 import { effectivePasswordLength, MIN_PASSWORD_LENGTH } from '@vamos/contracts';
 import { isCommonPassword } from '@vamos/core/common-passwords';
+import { createPasswordHasher, type PepperedPasswordHasher } from '@vamos/db/passwords';
 import { badRequest } from './errors';
 
 /**
- * Argon2id (the library default algorithm) with the OWASP-recommended
- * baseline: 19 MiB memory, 2 passes, 1 lane.
+ * Player and staff passwords: argon2id with the OWASP baseline (19 MiB, 2
+ * passes, 1 lane) and PASSWORD_PEPPER as argon2's secret key when it is set
+ * (createPasswordHasher of @vamos/db/passwords, ASVS 2.4.1, 2.4.5). Every
+ * function takes the pepper (`config.passwordPepper`).
  */
-const ARGON2_OPTIONS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
+const hashers = new Map<string, PepperedPasswordHasher>();
 
-export async function hashPassword(password: string): Promise<string> {
-  return hash(password, ARGON2_OPTIONS);
+/** The hasher of a pepper (one per value; undefined: no pepper). */
+export function passwordHasher(pepper: string | undefined): PepperedPasswordHasher {
+  const key = pepper ?? '';
+  let hasher = hashers.get(key);
+  if (hasher === undefined) {
+    hasher = createPasswordHasher(pepper);
+    hashers.set(key, hasher);
+  }
+  return hasher;
+}
+
+export async function hashPassword(password: string, pepper?: string): Promise<string> {
+  return passwordHasher(pepper).hash(password);
 }
 
 /** True when `password` matches the stored hash. A malformed hash never matches. */
-export async function verifyPassword(storedHash: string, password: string): Promise<boolean> {
-  try {
-    return await verify(storedHash, password);
-  } catch {
-    return false;
-  }
+export async function verifyPassword(
+  storedHash: string,
+  password: string,
+  pepper?: string,
+): Promise<boolean> {
+  return passwordHasher(pepper).verify(storedHash, password);
 }
 
-let dummyHash: Promise<string> | undefined;
+/** True when the stored hash was made without the configured pepper (replace it at sign-in). */
+export function passwordNeedsRehash(storedHash: string, pepper?: string): boolean {
+  return passwordHasher(pepper).needsRehash(storedHash);
+}
+
+const dummyHashes = new Map<string, Promise<string>>();
+
+function dummyHash(pepper: string | undefined): Promise<string> {
+  const key = pepper ?? '';
+  let dummy = dummyHashes.get(key);
+  if (dummy === undefined) {
+    dummy = hashPassword(randomUUID(), pepper);
+    dummyHashes.set(key, dummy);
+  }
+  return dummy;
+}
 
 /**
  * Runs a verification against a throwaway hash so that a login for an
  * unknown phone takes about as long as one with a wrong password.
  */
-export async function dummyVerifyPassword(password: string): Promise<void> {
-  dummyHash ??= hashPassword(randomUUID());
-  await verifyPassword(await dummyHash, password);
+export async function dummyVerifyPassword(password: string, pepper?: string): Promise<void> {
+  await verifyPassword(await dummyHash(pepper), password, pepper);
 }
 
 /** Computes the dummy hash ahead of the first login so its cost is not observable. */
-export async function warmUpPasswordHashing(): Promise<void> {
-  dummyHash ??= hashPassword(randomUUID());
-  await dummyHash;
+export async function warmUpPasswordHashing(pepper?: string): Promise<void> {
+  await dummyHash(pepper);
 }
 
 /**
