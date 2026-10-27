@@ -24,6 +24,9 @@ x-hardening: &hardening
   logging: *logging
   security_opt: ['no-new-privileges:true']
   cap_drop: [ALL]
+  # A runaway or compromised process cannot fork-bomb the host (postgres needs about one process
+  # per connection: max_connections is 200).
+  pids_limit: 512
 
 # Shared by the api, worker and migrate job (a mapping, so a service can override one entry).
 # Optional URL-valued settings have no value (`NAME:`), which sets nothing while the variable is

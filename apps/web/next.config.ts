@@ -4,6 +4,23 @@ import type { NextConfig } from 'next';
 const publicApiUrl =
   process.env.NEXT_PUBLIC_API_URL || process.env.PUBLIC_API_URL || 'http://localhost:4000';
 
+/**
+ * Security headers of every response (ASVS 14.4): no MIME sniffing, no framing,
+ * HTTPS only for a year (browsers ignore it over plain http, as on a local
+ * stack), no powerful browser features, and no window shared with other origins.
+ */
+const SECURITY_HEADERS = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+  {
+    key: 'Permissions-Policy',
+    value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()',
+  },
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -18,12 +35,9 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // Every response; pages also get a per-request Content Security Policy (src/proxy.ts).
         source: '/:path*',
-        headers: [
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'DENY' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-        ],
+        headers: SECURITY_HEADERS,
       },
       {
         // The service worker must always be revalidated so updates roll out.

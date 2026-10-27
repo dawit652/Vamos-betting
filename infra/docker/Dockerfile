@@ -129,13 +129,15 @@ RUN mkdir -p /var/lib/vamos/els && chown node:node /var/lib/vamos/els \
        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
 USER node
 
+# api and worker: the code belongs to root, like web and admin, so the app user can read but never
+# change it (compose also runs them with read-only root filesystems).
 FROM runtime AS api
 ENV API_HOST=0.0.0.0 API_PORT=4000 ELS_REPORT_DIR=/var/lib/vamos/els
-COPY --chown=node:node package.json pnpm-workspace.yaml ./
-COPY --from=deps-api --chown=node:node /app/node_modules ./node_modules
-COPY --from=deps-api --chown=node:node /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=build-server --chown=node:node /app/apps/api/dist ./apps/api/dist
-COPY --chown=node:node apps/api/package.json ./apps/api/package.json
+COPY package.json pnpm-workspace.yaml ./
+COPY --from=deps-api /app/node_modules ./node_modules
+COPY --from=deps-api /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=build-server /app/apps/api/dist ./apps/api/dist
+COPY apps/api/package.json ./apps/api/package.json
 WORKDIR /app/apps/api
 EXPOSE 4000
 HEALTHCHECK --interval=15s --timeout=4s --start-period=30s --retries=4 \
@@ -144,11 +146,11 @@ CMD ["node", "dist/server.js"]
 
 FROM runtime AS worker
 ENV WORKER_HEALTH_HOST=0.0.0.0 WORKER_HEALTH_PORT=4100 ELS_REPORT_DIR=/var/lib/vamos/els
-COPY --chown=node:node package.json pnpm-workspace.yaml ./
-COPY --from=deps-worker --chown=node:node /app/node_modules ./node_modules
-COPY --from=deps-worker --chown=node:node /app/apps/worker/node_modules ./apps/worker/node_modules
-COPY --from=build-server --chown=node:node /app/apps/worker/dist ./apps/worker/dist
-COPY --chown=node:node apps/worker/package.json ./apps/worker/package.json
+COPY package.json pnpm-workspace.yaml ./
+COPY --from=deps-worker /app/node_modules ./node_modules
+COPY --from=deps-worker /app/apps/worker/node_modules ./apps/worker/node_modules
+COPY --from=build-server /app/apps/worker/dist ./apps/worker/dist
+COPY apps/worker/package.json ./apps/worker/package.json
 WORKDIR /app/apps/worker
 EXPOSE 4100
 HEALTHCHECK --interval=15s --timeout=4s --start-period=30s --retries=4 \
