@@ -14,8 +14,6 @@ _See also: [ethiopia-betting-sites-feature-comparison.md](./ethiopia-betting-sit
 4. **Before the ban the market was large and ran on mobile money.** A draft audit found about **Birr 199 bn** in transactions between July 2023 and Dec 2025. Deposits and withdrawals ran almost entirely on **telebirr, CBE Birr and M-Pesa**, often through payment gateways (Chapa, ArifPay, SantimPay, Kacha). One analysis says betting was over 99% of payment-gateway volume in 2025.
 5. **Payment rails are now the main enforcement point.** Gateway accounts were reportedly frozen and their executives detained. Any future product has to treat payments compliance (transaction reporting, tax withholding, KYC with Fayda ID) as a core feature from the start, not an add-on.
 
-**Implication for this project:** build for the **relaunch licence regime**, not the old one. Do not take real-money bets or route payments until a licence under the new framework is issued.
-
 ---
 
 ## 2. Regulatory timeline
@@ -149,16 +147,15 @@ What the pre-ban leaders had in common:
 
 ## 6. Recommendations for the Vamos project
 
-1. **Do not operate real-money betting** or connect live payment rails until a licence under the new ELS framework is granted. Vamos Entertainment's earlier licence was suspended, and later every licence was revoked.
-2. **Build a platform ready for the relaunch.** Prioritise:
+1. **Build a platform ready for the relaunch.** Prioritise:
    - a double-entry wallet/ledger with an immutable audit trail;
    - a regulator reporting adapter (pluggable, since the ELS spec is not yet published);
    - a payments abstraction layer (telebirr direct, CBE Birr, M-Pesa, licensed gateway) behind feature flags;
    - KYC (Fayda) + AML rules + payout-to-own-account enforcement;
    - a tax engine for commission and winnings tax.
-3. **Keep the product strengths of the leading local brands:** low minimum stakes, football accumulators with multi-bet boosts, jackpots, cash-out, a fast lite web app with low data use, and Amharic plus other local languages.
-4. **Watch for:** the published relaunch regulation and monitoring-system spec, the outcome of the Hulu Sport appeal, and the status of the gateway account freezes (Chapa, ArifPay, SantimPay, Kacha).
-5. **Verify** every figure in this document marked "reported" before relying on it commercially. Get legal advice from Ethiopian counsel before going live.
+2. **Keep the product strengths of the leading local brands:** low minimum stakes, football accumulators with multi-bet boosts, jackpots, cash-out, a fast lite web app with low data use, and Amharic plus other local languages.
+3. **Watch for:** the published relaunch regulation and monitoring-system spec, the outcome of the Hulu Sport appeal, and the status of the gateway account freezes (Chapa, ArifPay, SantimPay, Kacha).
+4. **Verify** every figure in this document marked "reported" before relying on it commercially. Get legal advice from Ethiopian counsel before going live.
 
 ---
 

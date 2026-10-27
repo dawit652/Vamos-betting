@@ -2,9 +2,7 @@
 
 A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It is lightweight on data, pays through mobile money, uses low stakes, and offers football accumulators, daily and weekly jackpots, live betting and cash-out. It adds Vamos's own accumulator bonus ladder, Amharic and other Ethiopian languages, and compliance built into the core.
 
-> **Demo mode only.** Ethiopia revoked every sports betting licence on 15 Dec 2025. The Ethiopian Lottery Service is preparing a new, stricter licensing framework.
->
-> Until a licence is granted, Vamos runs as a **play-money demo** (`OPERATING_MODE=demo`):
+> **Demo mode by default.** Vamos runs as a **play-money demo** (`OPERATING_MODE=demo`):
 >
 > - only simulated odds and mock payment, KYC and SMS providers
 > - a permanent "DEMO" banner on the site

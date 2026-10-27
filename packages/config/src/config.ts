@@ -6,9 +6,7 @@ import { z } from 'zod';
  *
  * Vamos runs in `demo` (play-money) mode by default. `licensed` mode handles
  * real money and is refused at startup unless every compliance prerequisite
- * is configured. All Ethiopian sports-betting licences were revoked on
- * 15 Dec 2025; real-money operation must wait for a licence under the new
- * Ethiopian Lottery Service framework.
+ * is configured.
  */
 
 export const DEV_SESSION_SECRET = 'dev-only-session-secret-change-me-0123456789';

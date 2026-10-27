@@ -5,10 +5,8 @@ checklist and operations. Day-to-day procedures are in [`runbooks/`](runbooks/RE
 [`backups.md`](backups.md). Nothing here is legal advice; items marked **to confirm** need counsel or the
 regulator.
 
-> **Operating mode.** `OPERATING_MODE=demo` (play money, mock providers) is the default and the only mode
-> that can run today: all Ethiopian betting licences were revoked on 15 Dec 2025 and real money needs an
-> Ethiopian Lottery Service (ELS) licence. `licensed` mode refuses to start unless every prerequisite below
-> holds. Never weaken that guard (`packages/config/src/config.ts`).
+> **Operating mode.** `OPERATING_MODE=demo` (play money, mock providers) is the default. `licensed` mode
+> refuses to start unless every prerequisite below holds. Never weaken that guard (`packages/config/src/config.ts`).
 
 ## 1. Architecture
 
@@ -63,7 +61,7 @@ the operations scripts (`dist/ops/{migrate,seed,admin-create,admin-unlock,totp-r
 | Local development | `demo` / `development`    | `pnpm services:start && pnpm dev` (README). Dev OTP inbox, demo staff, fast simulator knobs.                                                                                                               |
 | CI / e2e          | `demo` / `development`    | `.github/workflows/ci.yml`: checks, e2e, and the `docker` job (compose build, boot, `scripts/smoke.sh`).                                                                                                   |
 | Demo / staging    | `demo` / `production`     | The compose stack below. Play money, mock providers. Needs unique secrets and https URLs, **no OTP inbox**: sign-ups cannot receive their code unless you set `NODE_ENV=development` (private demos only). |
-| Production        | `licensed` / `production` | Only with an ELS licence and every item of section 4.                                                                                                                                                      |
+| Production        | `licensed` / `production` | Only with every item of section 4.                                                                                                                                                                         |
 
 A database belongs to one mode for life: both the api and the worker `claimOperatingMode` at startup and
 refuse to run a demo database as licensed (or the reverse). Never point a licensed deployment at a demo
