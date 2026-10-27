@@ -1,6 +1,5 @@
 export {
   ConfigError,
-  DEFAULT_ELS_REPORT_DIR,
   DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
   DEV_SESSION_SECRET,
@@ -14,7 +13,6 @@ export {
   parseTrustProxy,
   type AppConfig,
   type ChannelsConfig,
-  type ElsReportingMode,
   type OperatingMode,
   type PaymentProvidersConfig,
   type TrustProxySetting,

@@ -22,8 +22,6 @@ const PRODUCTION_PEPPER = 'a-real-password-pepper-of-at-least-32-chars';
 const LICENSED_ENV = {
   NODE_ENV: 'production',
   OPERATING_MODE: 'licensed',
-  ELS_REPORTING_MODE: 'file',
-  ELS_REPORT_DIR: '/var/lib/vamos/els',
   PAYMENT_PROVIDERS: 'telebirr,chapa',
   KYC_PROVIDER: 'fayda',
   SMS_PROVIDER: 'http',
@@ -83,48 +81,15 @@ describe('loadConfig', () => {
     expect(problems).toMatch(/TAX_CONFIG_CONFIRMED/);
   });
 
-  it('refuses licensed mode with reporting off or casino enabled', () => {
-    const problems = problemsOf({
-      ...LICENSED_ENV,
-      ELS_REPORTING_MODE: 'off',
-      FEATURE_CASINO: 'true',
-    }).join('\n');
-    expect(problems).toMatch(/ELS_REPORTING_MODE must not be "off"/);
+  it('refuses licensed mode with casino enabled', () => {
+    const problems = problemsOf({ ...LICENSED_ENV, FEATURE_CASINO: 'true' }).join('\n');
     expect(problems).toMatch(/casino/);
-    // The legacy spelling is refused the same way.
-    const { ELS_REPORTING_MODE: _mode, ...legacy } = LICENSED_ENV;
-    expect(problemsOf({ ...legacy, ELS_REPORTING: 'disabled' }).join('\n')).toMatch(
-      /must not be "off"/,
-    );
-    expect(problemsOf({ ...legacy, ELS_REPORTING: 'file' })).toEqual([]);
   });
 
-  it('reports to files under ./var/els by default, and accepts the legacy variable', () => {
-    expect(loadConfig({}).els).toMatchObject({
-      reportingMode: 'file',
-      reporting: 'file',
-      reportDir: './var/els',
-    });
-    expect(loadConfig({ ELS_REPORTING_MODE: 'off' }).els).toMatchObject({
-      reportingMode: 'off',
-      reporting: 'disabled',
-    });
-    expect(loadConfig({ ELS_REPORTING: 'disabled' }).els.reportingMode).toBe('off');
+  it('ignores the removed ELS reporting variables', () => {
     expect(
-      loadConfig({ ELS_REPORTING_MODE: 'http', ELS_REPORTING: 'http' }).els.reportingMode,
-    ).toBe('http');
-    expect(
-      problemsOf({ ELS_REPORTING_MODE: 'file', ELS_REPORTING: 'disabled' }).join('\n'),
-    ).toMatch(/contradicts/);
-    expect(problemsOf({ ELS_REPORTING_MODE: 'ftp' }).join('\n')).toMatch(/ELS_REPORTING_MODE/);
-  });
-
-  it('needs an absolute report directory in licensed mode', () => {
-    expect(problemsOf({ ...LICENSED_ENV, ELS_REPORT_DIR: './var/els' }).join('\n')).toMatch(
-      /ELS_REPORT_DIR must be an absolute path/,
-    );
-    const { ELS_REPORT_DIR: _dir, ...env } = LICENSED_ENV;
-    expect(problemsOf(env).join('\n')).toMatch(/ELS_REPORT_DIR/);
+      problemsOf({ ...LICENSED_ENV, ELS_REPORTING_MODE: 'off', ELS_REPORT_DIR: './var/els' }),
+    ).toEqual([]);
   });
 
   it('refuses licensed mode outside production or with the development secret', () => {
@@ -137,26 +102,12 @@ describe('loadConfig', () => {
     expect(problems).toMatch(/SESSION_SECRET/);
   });
 
-  it('refuses http reporting in licensed mode until ELS publishes its interface', () => {
-    const problems = problemsOf({ ...LICENSED_ENV, ELS_REPORTING_MODE: 'http' }).join('\n');
-    expect(problems).toMatch(/ELS_REPORT_URL/);
-    expect(problems).toMatch(/placeholder/);
-    expect(
-      problemsOf({
-        ...LICENSED_ENV,
-        ELS_REPORTING_MODE: 'http',
-        ELS_REPORT_URL: 'https://els.example/report',
-      }).join('\n'),
-    ).toMatch(/placeholder/);
-  });
-
   it('refuses plain-http provider and callback URLs in licensed mode (review I4)', () => {
     for (const [name, url] of [
       ['PAYMENT_CALLBACK_BASE_URL', 'http://api.vamos.example'],
       ['CHAPA_BASE_URL', 'http://api.chapa.co/v1'],
       ['TELEBIRR_BASE_URL', 'http://telebirr.example/apiaccess'],
       ['TELEBIRR_CHECKOUT_URL', 'http://telebirr.example/checkout'],
-      ['ELS_REPORT_URL', 'http://els.example/report'],
       // Not even on loopback: provider calls carry secrets and must leave the host encrypted.
       ['CHAPA_BASE_URL', 'http://localhost:8080/v1'],
     ] as const) {

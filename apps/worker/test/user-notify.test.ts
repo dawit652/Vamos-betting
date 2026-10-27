@@ -177,7 +177,7 @@ describe('user-notify routes', () => {
     const jobs = (OUTBOX_ROUTES[BET_PLACED] ?? [])
       .map((route) => route(pending, NOW))
       .filter((job) => job !== null);
-    expect(jobs.map((job) => job.queue)).toEqual([QUEUE_NAMES.betAcceptance, QUEUE_NAMES.els]);
+    expect(jobs.map((job) => job.queue)).toEqual([QUEUE_NAMES.betAcceptance]);
   });
 });
 

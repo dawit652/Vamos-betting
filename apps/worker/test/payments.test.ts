@@ -318,8 +318,8 @@ describe('outbox routes', () => {
 
         const summary = await dispatcher.run();
         // The approved payout; each outcome on sms and user-notify (a wallet.changed push);
-        // the deposit and the paid withdrawal on els, the deposit on aml.
-        expect(summary).toMatchObject({ claimed: 5, published: 4, jobs: 10, failed: 1 });
+        // the deposit on aml.
+        expect(summary).toMatchObject({ claimed: 5, published: 4, jobs: 8, failed: 1 });
 
         const row = async (id: bigint) => {
           const [r] = await t.db.db

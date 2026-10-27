@@ -13,8 +13,8 @@ import { adminSessions, otpChallenges, sessions } from '../schema/accounts';
  * - One-time SMS codes: kept OTP_RETENTION_MS after they were issued (the
  *   hourly and daily abuse limits look back 24 hours at most).
  *
- * The ledger, the audit log, bets and payments follow the 7-year retention of
- * docs/compliance.md and are never pruned here.
+ * The ledger, the audit log, bets and payments are kept 7 years and are never
+ * pruned here.
  */
 const DAY_MS = 24 * 3_600_000;
 export const SESSION_RETENTION_MS = 90 * DAY_MS;

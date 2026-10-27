@@ -9,7 +9,7 @@ A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It i
 > - only simulated odds and mock payment, KYC and SMS providers
 > - a permanent "DEMO" banner on the site
 >
-> `OPERATING_MODE=licensed` refuses to start unless all of these are configured: regulator reporting, real payment, KYC, SMS and odds providers, and confirmed tax settings.
+> `OPERATING_MODE=licensed` refuses to start unless all of these are configured: real payment, KYC, SMS and odds providers, and confirmed tax settings.
 >
 > See [`docs/research`](docs/research) for the market analysis behind these decisions.
 

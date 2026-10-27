@@ -28,7 +28,7 @@ Last updated 12 Oct 2026.
 **All phases (0–12) are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
 pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
 and the payments flow (KYC, deposit approved on the simulated phone, wagering, withdrawal approved by
-the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s), compliance (reconciliation, daily summary CSV, an AML flag and hold) and SMS/USSD bets through the dev simulator. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
+the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s), compliance (reconciliation, an AML flag and hold) and SMS/USSD bets through the dev simulator. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
 
 **Phase 6 review (13 Oct 2026).** Three adversarial reviews (money, security, reliability) confirmed 15
 findings; all are fixed with regression tests. Highlights:
@@ -94,7 +94,9 @@ statements incl. direction) under an advisory lock with missed-day catch-up; AML
 structuring, deposits-then-withdraw over all deposits since the last withdrawal, cash-out churn) with
 withdrawal holds that only `aml.review` staff can release; players only ever see `manual_review`.
 Left for Phase 12: run manual reconciliation off the request path and make the balance continuity
-scan incremental.
+scan incremental. **Later removed** (the ELS has no counterpart in the new target market): the ELS
+stream, the daily summaries and the `els_commission` setting (migration 0032 drops their tables), and
+`docs/compliance.md`.
 
 **Phase 11 (19 Oct 2026).** SMS/USSD channel, off by default (`SMS_BETTING_ENABLED`, `USSD_ENABLED`;
 licensed mode refuses the mock aggregators). Core `textcommand` (`GAMEID#PICK[#GAMEID#PICK…]#STAKE`,
@@ -120,7 +122,7 @@ new passwords need 8 characters and must not be among the 10,000 most common (se
 account-wide delay no longer refuses addresses without failures (the right password and code get in);
 api/worker connect as the restricted role `vamos_app` (migration 0030; only the migrate job uses the owner,
 `APP_DB_PASSWORD`); encrypted, checksummed WAL backups (`pnpm test:infra`); dependency upgrades (prod audit
-clean); licensed mode refuses http provider/callback/ELS URLs; Caddy `STAFF_ALLOWLIST` covers the admin host
+clean); licensed mode refuses http provider/callback URLs; Caddy `STAFF_ALLOWLIST` covers the admin host
 and `/admin*` on the api host; proxy and web/admin container hardening; dev compose on loopback. Checks green: format, typecheck, lint, 2,251 unit and
 integration tests, `pnpm test:infra`, build, and the 16-test e2e suite run with the api and worker connected
 as `vamos_app` (home page first load 150.5 KB). `pnpm audit --prod`: no known vulnerabilities.
@@ -145,9 +147,8 @@ production compose build (Docker Hub rate limit); the CI docker job runs it.
   real-time transaction monitoring.
 - So the platform runs as a **play-money demo**: `OPERATING_MODE=demo` is the default, with "Demo ETB",
   mock payment/KYC/SMS providers and a permanent "DEMO – no real money" banner.
-- `OPERATING_MODE=licensed` refuses to start unless all of these hold: ELS reporting
-  enabled, real payment and KYC providers, `TAX_CONFIG_CONFIRMED=true`, `NODE_ENV=production`
-  and a non-default `SESSION_SECRET`. The guard is in `packages/config/src/config.ts`. Never weaken it.
+- `OPERATING_MODE=licensed` refuses to start unless all of these hold: real payment and KYC
+  providers, `TAX_CONFIG_CONFIRMED=true`, `NODE_ENV=production` and a non-default `SESSION_SECRET`. The guard is in `packages/config/src/config.ts`. Never weaken it.
 - The `database_identity` table ties a database to one mode. API and worker both call
   `claimOperatingMode` at startup and refuse to run against a database of the other mode.
 - Excluded by policy: casino, crash and virtual games; crypto; agent/cash channels; payouts to a
@@ -401,8 +402,7 @@ score, previous?}`. It also returns `'unchanged'` when nothing changed. The serv
 
 ## Business defaults
 
-All of these become editable in admin (Phase 9) and are listed in `docs/compliance.md` as
-"confirm with counsel". The constants live in `packages/core/src/rules.ts`.
+All of these become editable in admin (Phase 9) and are placeholders to "confirm with counsel". The constants live in `packages/core/src/rules.ts`.
 
 | Setting                     | Default                                                                                |
 | --------------------------- | -------------------------------------------------------------------------------------- |

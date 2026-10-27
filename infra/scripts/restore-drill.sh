@@ -3,15 +3,14 @@
 # and checks that the ledger is intact. It never touches the running stack. Run it monthly, and
 # after every change to the backup setup; record the result in the drill log.
 #
-# Usage: infra/scripts/restore-drill.sh <dump file>  [els archive to list]
+# Usage: infra/scripts/restore-drill.sh <dump file>
 #   <dump file>   a pg_dump -Fc file from backup.sh (a .age file needs AGE_IDENTITY=<key file>)
 # Environment: POSTGRES_USER (default vamos), POSTGRES_DB (default vamos), POSTGRES_IMAGE
 # (default postgres:16-alpine, keep it equal to the production major version).
 # Exit status: 0 when every check passed.
 set -euo pipefail
 
-DUMP="${1:?usage: restore-drill.sh <dump file> [els archive]}"
-ELS="${2:-}"
+DUMP="${1:?usage: restore-drill.sh <dump file>}"
 PGUSER_="${POSTGRES_USER:-vamos}"
 PGDB="${POSTGRES_DB:-vamos}"
 IMAGE="${POSTGRES_IMAGE:-postgres:16-alpine}"
@@ -69,12 +68,6 @@ for t in ledger_transactions ledger_entries audit_log users bets; do
 done
 printf '%-24s %s\n' "latest ledger entry" "$(q "SELECT coalesce(max(created_at)::text, 'none') FROM ledger_entries")"
 printf '%-24s %s\n' "latest audit record" "$(q "SELECT coalesce(max(created_at)::text, 'none') FROM audit_log")"
-
-if [[ -n "$ELS" ]]; then
-  echo "--- ELS archive $ELS ---"
-  tar -tzf "$ELS" | head -n 5
-  printf 'files: %s\n' "$(tar -tzf "$ELS" | grep -c '\.\(jsonl\|csv\)$' || true)"
-fi
 
 if ((fail)); then echo "restore drill FAILED"; exit 1; fi
 echo "restore drill passed"

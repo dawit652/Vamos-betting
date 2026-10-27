@@ -97,7 +97,7 @@ Responses are `CON …` / `END …`, at most 182 characters, in English or Amhar
 - **Retention:** the worker's `ussd-session-prune` task (hourly, at most 10 batches of 1,000 per
   run) deletes sessions that expired more than 7 days ago and placed no bet. Sessions with a bet
   are kept with it. Inbound texts (`inbound_messages`) are evidence and are never pruned; any
-  archiving of them is a decision for the retention policy agreed with ELS (Phase 12).
+  archiving of them is a decision for the retention policy agreed with the regulator (Phase 12).
 
 ## API routes (`apps/api/src/modules/channels`)
 

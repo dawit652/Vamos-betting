@@ -2,14 +2,8 @@ import {
   AmlFlagDetailResponse,
   AmlFlagListResponse,
   AmlFlagQuery,
-  BusinessDate,
   ComplianceSettingKeySchema,
   ComplianceSettingsResponse,
-  DailySummaryCsvQuery,
-  DailySummaryDetailResponse,
-  DailySummaryListResponse,
-  DailySummaryQuery,
-  ElsReportStatusResponse,
   ImportPspStatementRequest,
   ImportPspStatementResponse,
   PspStatementDetailResponse,
@@ -19,43 +13,31 @@ import {
   ReconciliationRunListResponse,
   ReconciliationRequestResponse,
   ReconciliationRunQuery,
-  RecomputeDailySummaryResponse,
   ReviewAmlFlagRequest,
   ReviewAmlFlagResponse,
   RunReconciliationRequest,
   UpdateSettingRequest,
 } from '@vamos/contracts';
 import {
-  createElsReporter,
-  dailySummariesCsv,
   getAmlFlag,
   getComplianceSettings,
-  getDailySummary,
-  getElsReportStatus,
   getPspStatement,
   getReconciliationRequest,
   getReconciliationRun,
   importPspStatement,
   listAmlFlags,
-  listDailySummaries,
   listPspStatements,
   listReconciliationRuns,
-  refreshDailySummary,
   reviewAmlFlag,
   requestReconciliation,
   updateComplianceSetting,
-  writeAudit,
-  type ElsReporterStatus,
 } from '@vamos/db';
-import { constants } from 'node:fs';
-import { access } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { notFound, parseInput } from '../../lib/errors';
 import { staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, wire } from './common';
 
 type IdParams = { Params: { id: string } };
-type DateParams = { Params: { date: string } };
 
 /**
  * Body limit of a PSP statement upload: the contract's 5,000,000 characters
@@ -66,142 +48,23 @@ type DateParams = { Params: { date: string } };
  */
 export const PSP_STATEMENT_BODY_LIMIT = 12 * 1024 * 1024;
 
-/** The file reporter's status as the API host sees it, without creating anything. */
-async function fileReporterStatus(dir: string): Promise<ElsReporterStatus> {
-  try {
-    await access(dir, constants.W_OK);
-    return { mode: 'file', ready: true, detail: 'writing JSONL and CSV files', target: dir };
-  } catch {
-    return {
-      mode: 'file',
-      ready: false,
-      detail: `${dir} does not exist or is not writable on the API host yet (the worker creates it on its first write)`,
-      target: dir,
-    };
-  }
-}
-
-/** A business date path parameter; anything else is a 404 for `what`. */
-function parseDate(date: string, what: string): string {
-  const parsed = BusinessDate.safeParse(date);
-  if (!parsed.success) throw notFound(what);
-  return parsed.data;
-}
-
 /** A query field's value only when it is set (exactOptionalPropertyTypes). */
 function opt<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
   return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };
 }
 
 /**
- * The compliance back office (/admin/compliance/*, Phase 10): daily
- * summaries (list, detail, CSV, recompute), the ELS stream's status,
+ * The compliance back office (/admin/compliance/*, Phase 10):
  * reconciliation runs (list, detail, run now), PSP statements (list,
  * detail, upload), AML flags (list, detail, review) and the compliance
  * settings. Each route's permission is COMPLIANCE_ROUTE_PERMISSIONS of
  * @vamos/contracts (reports.view: admin, compliance, finance;
  * reconciliation.run: the same; aml.review: admin, compliance). Every
  * change is audited with the staff actor (the services write the audit
- * records; the recompute route writes its own).
+ * records).
  */
 export default async function adminComplianceRoutes(app: FastifyInstance): Promise<void> {
   const { deps } = app;
-  // The status of the reporter this deployment is configured with (the worker writes through it).
-  const reporter = createElsReporter(deps.config.els);
-
-  // -------------------------------------------------------------------------
-  // Daily summaries.
-
-  app.get(
-    '/admin/compliance/daily-summaries',
-    { config: { staff: 'reports.view' } },
-    async (request) => {
-      const query = parseInput(DailySummaryQuery, request.query);
-      const page = await listDailySummaries(deps.db, {
-        ...opt('from', query.from),
-        ...opt('to', query.to),
-        ...opt('status', query.status),
-        ...opt('cursor', query.cursor),
-        limit: query.limit,
-      });
-      return wire(DailySummaryListResponse, page);
-    },
-  );
-
-  /** text/csv download (amounts in santim), oldest day first. */
-  app.get(
-    '/admin/compliance/daily-summaries.csv',
-    { config: { staff: 'reports.view' } },
-    async (request, reply) => {
-      const query = parseInput(DailySummaryCsvQuery, request.query);
-      const csv = await dailySummariesCsv(deps.db, query);
-      return reply
-        .header('content-type', 'text/csv; charset=utf-8')
-        .header(
-          'content-disposition',
-          `attachment; filename="vamos-daily-summaries-${query.from}-to-${query.to}.csv"`,
-        )
-        .header('cache-control', 'no-store')
-        .header('x-content-type-options', 'nosniff')
-        .send(csv);
-    },
-  );
-
-  app.get<DateParams>(
-    '/admin/compliance/daily-summaries/:date',
-    { config: { staff: 'reports.view' } },
-    async (request) => {
-      const date = parseDate(request.params.date, 'Daily summary');
-      return wire(DailySummaryDetailResponse, await getDailySummary(deps.db, date));
-    },
-  );
-
-  /** Recomputes a provisional day from the ledger now (a final day is returned as it is). */
-  app.post<DateParams>(
-    '/admin/compliance/daily-summaries/:date/recompute',
-    { config: { staff: 'reconciliation.run' } },
-    async (request) => {
-      const date = parseDate(request.params.date, 'Daily summary');
-      const actor = staffActor(request);
-      const now = deps.clock();
-      const result = await inTx(deps, async (tx) => {
-        const refreshed = await refreshDailySummary(tx, { date, now, actor: actor.adminId });
-        await writeAudit(tx, {
-          actorType: 'admin',
-          actorId: actor.adminId,
-          action: 'compliance.daily_summary_recomputed',
-          targetType: 'daily_summary',
-          targetId: date,
-          metadata: {
-            outcome: refreshed.outcome,
-            version: refreshed.summary.version,
-            status: refreshed.summary.status,
-            hash: refreshed.summary.hash,
-          },
-          ip: actor.ip ?? null,
-        });
-        return refreshed;
-      });
-      return wire(RecomputeDailySummaryResponse, result);
-    },
-  );
-
-  // -------------------------------------------------------------------------
-  // ELS stream.
-
-  /**
-   * The stream's counts (from els_reports) and the configured reporter. For
-   * the file reporter the API only looks at the directory (the worker
-   * creates it on its first write; the API never writes there).
-   */
-  app.get('/admin/compliance/els', { config: { staff: 'reports.view' } }, async () => {
-    const status = await getElsReportStatus(deps.db);
-    const reporterStatus =
-      reporter.mode === 'file'
-        ? await fileReporterStatus(deps.config.els.reportDir)
-        : await reporter.status();
-    return wire(ElsReportStatusResponse, { ...status, reporter: reporterStatus });
-  });
 
   // -------------------------------------------------------------------------
   // Reconciliation.
@@ -380,7 +243,7 @@ export default async function adminComplianceRoutes(app: FastifyInstance): Promi
   );
 
   // -------------------------------------------------------------------------
-  // Settings (els_commission, aml_rules).
+  // Settings (aml_rules).
 
   app.get('/admin/compliance/settings', { config: { staff: 'reports.view' } }, async () =>
     wire(ComplianceSettingsResponse, await getComplianceSettings(deps.db)),

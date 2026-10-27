@@ -21,8 +21,8 @@ regulator.
                          PostgreSQL 16 (system of record)           Redis 7 (pub/sub, BullMQ queues,
                               ▲                                      rate limits)
                               └────────────── worker :4100 (health only) ┘
-                                  feed, live simulator, settlement, payouts, SMS, ELS reporting,
-                                  reconciliation, AML; writes the ELS reports to a volume
+                                  feed, live simulator, settlement, payouts, SMS,
+                                  reconciliation, AML
 ```
 
 | Service    | Image target | Port   | State                                | Notes                                                                                                                                 |
@@ -30,15 +30,15 @@ regulator.
 | `postgres` | postgres:16  | 5432   | volume `pgdata`, WAL archive `pgwal` | Never published. The ledger, audit log and all business rows.                                                                         |
 | `redis`    | redis:7      | 6379   | volume `redisdata` (AOF)             | Never published. Password, `noeviction` (BullMQ needs it).                                                                            |
 | `migrate`  | `api`        | none   | none                                 | One-shot job: `node dist/ops/migrate.js`, runs before the api and worker start. The only service that connects as the database owner. |
-| `api`      | `api`        | 4000   | none (stateless)                     | `/health`. Reads the ELS volume read-only for the compliance status page.                                                             |
-| `worker`   | `worker`     | 4100   | volume `els` (writer)                | `/health`, `/ready`. Run **one** instance (the ELS writer owns the directory).                                                        |
+| `api`      | `api`        | 4000   | none (stateless)                     | `/health`.                                                                                                                            |
+| `worker`   | `worker`     | 4100   | none                                 | `/health`, `/ready`. Run **one** instance.                                                                                            |
 | `web`      | `web`        | 3000   | none                                 | Player PWA. `NEXT_PUBLIC_API_URL` is baked in at build time.                                                                          |
 | `admin`    | `admin`      | 3001   | none                                 | Back office. Must be on a different origin from the web app.                                                                          |
 | `proxy`    | caddy:2      | 80/443 | volumes `caddy_*`                    | Optional (`--profile proxy`): automatic TLS for three host names.                                                                     |
 
 **Database roles.** The api and worker connect as `vamos_app`, a role the migrations create (0030) with only
 what the app needs: no superuser, owner of nothing, no `TRUNCATE`, and only `INSERT`/`SELECT` on the
-append-only tables (ledger, audit log, cash-outs, summaries, reconciliation, PSP statements), so it can
+append-only tables (ledger, audit log, cash-outs, reconciliation, PSP statements), so it can
 neither rewrite them nor switch their triggers off (`session_replication_role` needs a superuser). The
 owner (`POSTGRES_USER`, a superuser in the postgres image) is used only by the `migrate` job, which also sets
 `vamos_app`'s login from `APP_DB_PASSWORD` on every run, and by the ops scripts run through it (seed,
@@ -72,7 +72,7 @@ database, and never copy production data into a lower environment.
 ## 3. Deploying the compose stack
 
 Requirements: a Linux host with Docker Engine 25+ and the compose plugin (v2.20+, for `up --wait`), 2 vCPU / 4 GB RAM minimum for the demo, a disk with room for the
-database, WAL archive, ELS reports and backups.
+database, WAL archive and backups.
 
 ```bash
 # 1. Configuration. Review every value; the generator only fills the secrets.
@@ -137,8 +137,8 @@ same rule to both.
   the balancer (drop the host port mapping and give each replica its own service entry or use an
   orchestrator).
 - `web` and `admin` are stateless Next.js servers; scale the same way.
-- `worker`: keep **one** instance. Its tasks take advisory/Redis locks, but the ELS reporter writes plain files
-  into one directory. Scale vertically; a second worker needs a design review first.
+- `worker`: keep **one** instance. Its tasks take advisory/Redis locks; scale vertically, and review the
+  design before running a second worker.
 - `postgres`: a single primary. Size `max_connections` (set to 200 in the compose file) against
   api replicas x pool + worker pool (10). Read replicas are not used. Move to a managed or HA Postgres
   (streaming replication + failover) when the licence requires higher availability.
@@ -150,7 +150,7 @@ redacted secrets; compose rotates them (20 MB x 5). Ship them with your agent of
 over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET /health`, worker `GET
 :4100/health` and `/ready` (database, Redis, queues). Alert on: any container unhealthy or restarting,
 `/ready` failing, payouts pending > 24 h (flagged in the back office), a reconciliation run with status
-`mismatches` or `failed`, ELS pending records growing, disk below 20%, a failed backup.
+`mismatches` or `failed`, disk below 20%, a failed backup.
 
 ## 4. Licensed-mode checklist
 
@@ -161,18 +161,14 @@ over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET 
       origin differs from the web origin.
 - [ ] Unique `SESSION_SECRET` (32+ chars), `ADMIN_TOTP_KEY` (32 bytes), `PASSWORD_PEPPER` (32+ chars), and no
       development default left in any secret of a feature that is on.
-- [ ] `ELS_REPORTING_MODE=file` with an absolute `ELS_REPORT_DIR` on a durable, **backed-up** volume (the
-      compose file mounts the `els` volume at `/var/lib/vamos/els`). `off` and the `http` placeholder are
-      refused until ELS publishes its interface. Reports are kept 7 years.
 - [ ] `PAYMENT_PROVIDERS` lists only real providers (`chapa`, `telebirr`), each with its credentials; no
       `mock`. Webhook URLs registered with the providers point at `PAYMENT_CALLBACK_BASE_URL` (default
       `PUBLIC_API_URL`). `CHAPA_WEBHOOK_SECRET` is at least 32 characters. `PAYMENT_CALLBACK_BASE_URL`,
-      `CHAPA_BASE_URL`, `TELEBIRR_BASE_URL`, `TELEBIRR_CHECKOUT_URL` and `ELS_REPORT_URL` are https whenever set
+      `CHAPA_BASE_URL`, `TELEBIRR_BASE_URL` and `TELEBIRR_CHECKOUT_URL` are https whenever set
       (plain http is refused, even on loopback).
 - [ ] `KYC_PROVIDER` is a real identity provider (`fayda`), `SMS_PROVIDER` a real gateway (`http`).
 - [ ] `FEED_PROVIDER=manual` (traders only) or a licensed real feed once an adapter exists; `mock` is refused.
-- [ ] `TAX_CONFIG_CONFIRMED=true`, set only after counsel confirmed the winnings-tax rate, base and exemption
-      (and the `els_commission` rate in the back-office settings).
+- [ ] `TAX_CONFIG_CONFIRMED=true`, set only after counsel confirmed the winnings-tax rate, base and exemption.
 - [ ] `FEATURE_CASINO=false`, `FEATURE_VIRTUALS=false` (not licensable). SMS/USSD betting stays off until the
       regulator approves the channel and a real aggregator is contracted (the mock aggregators are refused).
 - [ ] Operational readiness (not enforced by code): backups running and a restore drill passed in the last
@@ -235,19 +231,16 @@ in a secret manager, not in git.
 | `TELEBIRR_FABRIC_APP_ID`, `TELEBIRR_APP_SECRET`, `TELEBIRR_MERCHANT_APP_ID`, `TELEBIRR_SHORT_CODE` | unset                | telebirr merchant credentials (secrets).                                                     |
 | `TELEBIRR_PRIVATE_KEY`, `TELEBIRR_PUBLIC_KEY`                                                      | unset                | PEM keys; `\n` in the value is read as a newline.                                            |
 
-**Regulator, tax and features**
+**Tax and features**
 
-| Variable                                             | Default         | Meaning                                                                                                                                                                             |
-| ---------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ELS_REPORTING_MODE`                                 | `file`          | `file` (JSONL stream + daily CSVs), `http` (placeholder: sends nothing), `off` (demo only). The legacy `ELS_REPORTING=disabled\|file\|http` is still read; setting both must agree. |
-| `ELS_REPORT_DIR`                                     | `./var/els`     | Report directory; absolute in licensed mode. Compose fixes `/var/lib/vamos/els` (volume `els`).                                                                                     |
-| `ELS_REPORT_URL`                                     | unset           | For the `http` placeholder only.                                                                                                                                                    |
-| `TAX_CONFIG_CONFIRMED`                               | `false`         | Licensed mode requires `true` (counsel confirmed the winnings-tax settings).                                                                                                        |
-| `FEATURE_CASINO`, `FEATURE_VIRTUALS`                 | `false`         | Not licensable; licensed mode refuses `true`.                                                                                                                                       |
-| `SMS_BETTING_ENABLED`, `USSD_ENABLED`                | `false`         | SMS/USSD betting channels (legacy `FEATURE_SMS_BETTING`, `FEATURE_USSD`). Routes answer 404 while off.                                                                              |
-| `SMS_AGGREGATOR`, `USSD_AGGREGATOR`                  | `mock`          | Only `mock` exists until an aggregator is contracted; licensed mode refuses it while the channel is on.                                                                             |
-| `SMS_WEBHOOK_SECRET`, `USSD_SHARED_SECRET` (secrets) | dev values      | Inbound authentication of the channels. Production refuses the dev values while the channel is on; compose requires them to be set.                                                 |
-| `SMS_SHORT_CODE`, `USSD_SERVICE_CODE`                | `8123`, `*123#` | Shown to players.                                                                                                                                                                   |
+| Variable                                             | Default         | Meaning                                                                                                                             |
+| ---------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `TAX_CONFIG_CONFIRMED`                               | `false`         | Licensed mode requires `true` (counsel confirmed the winnings-tax settings).                                                        |
+| `FEATURE_CASINO`, `FEATURE_VIRTUALS`                 | `false`         | Not licensable; licensed mode refuses `true`.                                                                                       |
+| `SMS_BETTING_ENABLED`, `USSD_ENABLED`                | `false`         | SMS/USSD betting channels (legacy `FEATURE_SMS_BETTING`, `FEATURE_USSD`). Routes answer 404 while off.                              |
+| `SMS_AGGREGATOR`, `USSD_AGGREGATOR`                  | `mock`          | Only `mock` exists until an aggregator is contracted; licensed mode refuses it while the channel is on.                             |
+| `SMS_WEBHOOK_SECRET`, `USSD_SHARED_SECRET` (secrets) | dev values      | Inbound authentication of the channels. Production refuses the dev values while the channel is on; compose requires them to be set. |
+| `SMS_SHORT_CODE`, `USSD_SERVICE_CODE`                | `8123`, `*123#` | Shown to players.                                                                                                                   |
 
 **Read only by the web and admin apps / the ops scripts**
 
@@ -278,13 +271,11 @@ in a secret manager, not in git.
 
 Open questions for counsel and the regulator **before** any real-money launch:
 
-1. **PDPP residency.** Does the Personal Data Protection Proclamation (and any ELS licence condition)
-   require personal data of Ethiopian players, and the ELS report files, to stay in Ethiopia, or is a
-   transfer abroad allowed with safeguards or consent? Does the ELS require real-time access to the
-   transaction stream on infrastructure it can inspect?
+1. **PDPP residency.** Does the Personal Data Protection Proclamation (and any licence condition)
+   require personal data of Ethiopian players to stay in Ethiopia, or is a transfer abroad allowed with
+   safeguards or consent?
 2. **What counts as personal data here.** Phone numbers, names, KYC fields (Fayda ID hash, last four digits,
-   date of birth), bank/wallet identifiers, IP addresses in the audit log, and the pseudonymous `playerRef`
-   in the ELS stream. The ELS stream already minimises: no names, phones or free text.
+   date of birth), bank/wallet identifiers and IP addresses in the audit log.
 3. **In-country hosting options** to evaluate: colocation or cloud capacity in an Addis Ababa data centre
    (national carrier or local provider) versus a regional cloud. Weigh latency to mobile networks,
    bandwidth cost, power and uplink redundancy, the ability to run Docker/PostgreSQL with backups, and
@@ -292,8 +283,7 @@ Open questions for counsel and the regulator **before** any real-money launch:
    plain Docker and PostgreSQL, so it moves between hosts without code changes.
 4. **Backups and logs** are personal data too: keep copies where the residency decision allows, and encrypt
    them (`BACKUP_AGE_RECIPIENT` in `backup.sh`).
-5. **Retention.** Ledger, audit log, ELS reports and summaries: 7 years (placeholder in
-   `docs/compliance.md`, to confirm). Player PII is removed or anonymised on account closure once retention
+5. **Retention.** Ledger, audit log and reconciliation: 7 years (a placeholder, to confirm). Player PII is removed or anonymised on account closure once retention
    duties allow.
 6. **Provider callbacks** from telebirr/Chapa must reach `api` from the internet (or a provider VPN): plan the
    public IP, allowlists and the clock (NTP) of the host.

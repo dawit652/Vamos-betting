@@ -24,7 +24,7 @@ Vamos is modelled on **Betika**, the East African sportsbook that operated in Et
 
 **Excluded by policy:**
 
-- casino, crash and virtual games (not licensable under the current ELS stance)
+- casino, crash and virtual games
 - crypto
 - agent/cash channels
 - payouts to third-party wallets
@@ -69,7 +69,7 @@ The guard is `licensedModeViolations()` in `packages/config/src/config.ts`. Both
           │ apps/worker (BullMQ)               │
           │ feed ingest · live simulator ·     │
           │ settlement · payouts · SMS ·       │
-          │ ELS reporting · reconciliation     │
+          │ reconciliation · AML               │
           └────────────────────────────────────┘
 ```
 
