@@ -673,7 +673,7 @@ export async function listSmsReviewQueue(
     )
     .orderBy(
       // Receipt alarms first: money credited that the institution disowns.
-      desc(sql`(${receivedSms.receiptStatus} = 'rejected')`),
+      desc(sql`(${receivedSms.receiptStatus} IS NOT DISTINCT FROM 'rejected')`),
       asc(receivedSms.receivedAt),
     )
     .limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
