@@ -3,6 +3,12 @@
 Status: draft, not started. Scope: deposits and withdrawals only. Melabingo's bingo game, rooms, bot
 and cashier network are not ported (casino-style games are excluded by policy).
 
+**Target: production.** The rail is built to run with real money in `OPERATING_MODE=licensed`, with
+real collection accounts and a real SMS gateway. Demo mode keeps only an SMS simulator, for
+development, CI and the public demo. Licensed mode still starts only when the existing licence guard
+passes (ELS licence and the rest of the checklist in `docs/deployment.md` §4). This plan adds rail
+checks to that guard (§3.4) and removes none.
+
 Source: `dawit652/melabingo` at `4774910` (v0.2.0), mainly `packages/payments`, `packages/core/src/withdrawal-flow.ts`,
 migrations `0002`, `0004`–`0007`, `apps/api/src/routes/{deposits,sms,withdrawals,payout-accounts,admin}.ts`,
 `apps/worker/src/jobs/{receipt-verify,balance-reconcile}.ts` and the miniapp's `Wallet`,
@@ -49,7 +55,7 @@ migrations `0002`, `0004`–`0007`, `apps/api/src/routes/{deposits,sms,withdrawa
 
 | Melabingo                                     | Vamos rule                                                   | Port as                                                                                                                         |
 | --------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| Real money from day one                       | `OPERATING_MODE=demo` = play money                           | In demo the rail only takes SMS from a dev simulator. Real collection accounts need licensed mode. The guard is not weakened.   |
+| Real money from day one                       | Real money only in `licensed` mode                           | Production build: real collection accounts and gateway in licensed mode. In demo only the simulator feeds the rail.             |
 | Any beneficiary name, any account             | No payouts to third-party wallets                            | Wallets: the registered phone only. Banks: name = KYC name **and** a credited SMS deposit from that account (Melabingo's TODO). |
 | OTP over Telegram                             | SMS OTP (`otp_challenges`)                                   | New purpose `payout_account`, keeping Melabingo's binding check.                                                                |
 | Own ledger (`postTransaction`, `ledger_idem`) | `applyDepositEvent` / `requestWithdrawal` / `markPayoutPaid` | Keep Vamos's functions, so limits, wagering, AML, KYC and settlement-correction blocks still apply.                             |
@@ -132,8 +138,18 @@ simulator`), the `receipt_*` columns, `proposed_payout_id` (unique) and the raw 
   - `COLLECTION_ACCOUNTS` (JSON, zod);
   - `RECEIPT_VERIFY`, `RECEIPT_VERIFY_TIMEOUT_MS`;
   - `PAYOUT_REQUIRE_PROOF`.
-- Config guard: in demo the gateway route only takes simulator input. In licensed mode the existing
-  licence checks apply unchanged.
+- Config guard. `licensedModeViolations` gets these extra checks when `sms` is enabled:
+  - `SMS_GATEWAY_SECRET` is set, at least 32 characters, and differs from every other secret;
+  - `COLLECTION_ACCOUNTS` is non-empty. Each entry names an institution that has a parser spec and
+    carries `ownerName` equal to `OPERATOR_LEGAL_NAME` (a new config value), because collection accounts must be in the
+    company's name;
+  - `RECEIPT_VERIFY` is `audit` or `enforce`, never `off`;
+  - `PAYOUT_REQUIRE_PROOF=true`, or an explicit `PAYOUT_PROOF_WAIVED=true` that the start-up log names;
+  - the dev simulator is off.
+
+  Demo mode refuses real `COLLECTION_ACCOUNTS`: only the simulator account is accepted. The existing
+  licence checks stay as they are.
+
 - Contracts: `DepositView.transfer`, `DepositCheckRequest/Response`, the payout-account schemas,
   `CreateWithdrawalRequest.payoutAccountId`, and the admin SMS and settle schemas.
 
@@ -151,6 +167,14 @@ simulator`), the `receipt_*` columns, `proposed_payout_id` (unique) and the raw 
 | `POST /admin/withdrawals/:id/settle` (`reference` or `smsId`)           | `/admin/withdrawals/:id/settle` |
 | Health: SMS age, receipt mismatches, breaker, balance drift             | `/admin/health`                 |
 | `POST /dev/payments/sms`: compose an incoming SMS (demo only)           | new (replaces the real handset) |
+
+The webhook in production:
+
+- It answers 200 only after the SMS row is committed. Parsing and matching run in the same
+  transaction, so a lost answer just means a redelivery that the unique reference absorbs.
+- It is rate-limited per source IP, and its body is capped at 4 KB.
+- It is served on the api host and can be restricted to the gateway's IP (`SMS_GATEWAY_ALLOWLIST`).
+- The dev route is never mounted when `NODE_ENV=production`.
 
 ### 3.6 `apps/worker`
 
@@ -195,6 +219,43 @@ Port the miniapp's wallet UX into `DepositView`/`WithdrawView`:
 - Refusal cases: a debit SMS, a replayed SMS.
 - `docs/runbooks/sms-rail.md`, from `SMS-RAIL.md` and `RECEIPTS.md`.
 
+### 3.10 Production hardening
+
+- **Observability.**
+  - Prometheus metrics:
+    - `vamos_sms_received_total{institution,direction,status}`;
+    - `vamos_sms_match_total{confidence}`;
+    - `vamos_receipt_verifications_total{status}`;
+    - `vamos_balance_drift_santim{institution}`;
+    - `vamos_payout_settle_seconds`.
+  - Alerts:
+    - no SMS for 30 minutes during active hours;
+    - review queue over 10 or older than 15 minutes;
+    - any `receipt_mismatch`;
+    - balance drift ≠ 0;
+    - the receipt breaker open for more than 10 minutes;
+    - a cleared payout older than 2 h.
+- **Compliance.**
+  - SMS-rail deposits and manual payouts produce the same outbox events as other providers, so ELS
+    reporting, daily totals and the AML rules cover them without new code.
+  - `received_sms` joins the reconciliation as PSP movements (per institution).
+  - Raw SMS and receipt HTML are kept 7 years, like the ELS reports.
+- **Security.**
+  - Run the adversarial review that Phase 6 had (money, security, reliability) over the rail before
+    go-live, and fix every confirmed finding with a regression test.
+  - Cover the replay, forgery and four-eyes cases with tests.
+  - Add `SMS_GATEWAY_SECRET` to the secret-rotation runbook, and rotate it on every staff change.
+- **Data.** Backups and the restore drill cover the new tables. Phone numbers and names in
+  `received_sms` follow the existing privacy retention, and the player data export includes payout
+  accounts.
+- **Load.** Extend `pnpm load:bets` with a deposit burst: 500 intents on the same base amount plus a
+  forwarded-SMS storm. The cent space must refuse cleanly and nothing may double-credit.
+- **Handset operations** (`docs/runbooks/sms-rail.md`):
+  - a company-owned Android on mains power and wifi, with a second SIM-less spare already set up;
+  - forwarder app settings and allowed senders;
+  - what to do when the handset is offline (the player paste path keeps deposits working);
+  - the daily check that the telco balance equals the ledger balance.
+
 ## 4. Order and size
 
 1. Core port and tests (2 days).
@@ -204,8 +265,27 @@ Port the miniapp's wallet UX into `DepositView`/`WithdrawView`:
 5. Web screens (2–3 days).
 6. Admin queues, worker jobs, health (2 days).
 7. e2e, runbook, review (2 days).
+8. Production hardening (§3.10), the adversarial review and its fixes (4–5 days).
 
-Total: about 3 weeks. Each step ships green on `pnpm lint`, `pnpm typecheck` and `pnpm test`.
+Total: about 4 weeks. Each step ships green on `pnpm lint`, `pnpm typecheck` and `pnpm test`.
+
+### Go-live checklist (production, real money)
+
+- [ ] ELS licence held, and `OPERATING_MODE=licensed` starts with zero guard violations, including the
+      rail checks in §3.4.
+- [ ] Collection accounts opened in the company's name (telebirr merchant or business wallet, CBE
+      business account). No personal SIMs.
+- [ ] A real SMS and a real receipt page captured for every collection institution. They are in the
+      fixtures and the tests pass.
+- [ ] `RECEIPT_VERIFY=audit` running for a week on staff test deposits with zero unexplained mismatches.
+      Then decide whether to use `enforce`.
+- [ ] Balance-chain drift has been 0 for 7 days on test traffic.
+- [ ] Staff accounts in place: at least two approvers and two operators, with TOTP. The four-eyes
+      rule has been tested in production with 1-birr payouts.
+- [ ] All the alerts in §3.10 fire in a drill and reach the on-call phone.
+- [ ] Runbook rehearsed: handset offline, review-queue backlog, a forged-SMS drill, secret rotation.
+- [ ] Staged rollout: 1. staff accounts only; 2. 100 invited players with a 1,000 birr deposit cap; 3. raise the caps; 4. open to everyone.
+      Each stage holds for at least 3 days with a clean reconciliation.
 
 ## 5. Risks
 
