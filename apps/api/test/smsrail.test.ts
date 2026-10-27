@@ -130,8 +130,17 @@ function gateway(body: unknown, headers: Record<string, string> = {}) {
   });
 }
 
+/** "dd/mm/yyyy at h:mm:ss AM" in EAT, as telebirr writes the time of a payment. */
+function eatStamp(at: Date): string {
+  const eat = new Date(at.getTime() + 3 * 60 * 60_000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const h24 = eat.getUTCHours();
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${pad(eat.getUTCDate())}/${pad(eat.getUTCMonth() + 1)}/${eat.getUTCFullYear()} at ${h12}:${pad(eat.getUTCMinutes())}:${pad(eat.getUTCSeconds())} ${h24 < 12 ? 'AM' : 'PM'}`;
+}
+
 function telebirrCredit(amount: bigint, phone: string, reference: string): string {
-  return `Dear CUSTOMER, you have received ETB ${santimToBirrString(amount)} from SENDER (${phone.slice(1)}) on 10/10/2026 at 1:00:00 PM. Your transaction number is ${reference}.`;
+  return `Dear CUSTOMER, you have received ETB ${santimToBirrString(amount)} from SENDER (${phone.slice(1)}) on ${eatStamp(ctx.clock.now)}. Your transaction number is ${reference}.`;
 }
 
 describe('payment options', () => {

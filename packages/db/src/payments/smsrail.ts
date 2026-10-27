@@ -6,6 +6,7 @@ import {
   parseSms,
   pastedSmsReference,
   proposePayoutForSms,
+  smsPaidBy,
   toWire,
   type OpenSmsDeposit,
   type ParsedSms,
@@ -68,9 +69,6 @@ export const SMS_PROVIDER = 'sms';
  */
 export const SMS_AMOUNT_QUARANTINE_MS = 2 * 60 * 60_000;
 
-/** How far an institution's clock may run ahead of ours when a receipt says when it was paid. */
-const RECEIPT_CLOCK_SKEW_MS = 5 * 60_000;
-
 const MAX_NOTE_LENGTH = 500;
 const MAX_RAW_LENGTH = 4000;
 
@@ -110,8 +108,11 @@ export interface CreateSmsDepositInput {
  * amount plus 1–50 santim, unique among open SMS deposits and those expired
  * within SMS_AMOUNT_QUARANTINE_MS).
  *
- * 1. an advisory lock on the requested amount serialises allocations of the
- *    same base (the partial unique index is the backstop);
+ * 1. one advisory lock serialises every SMS amount allocation: ranges of
+ *    different bases overlap (100.00 and 100.25 both reach 100.30), so a
+ *    lock per base would let two of them pick the same amount (the partial
+ *    unique index is the backstop); the lock is held only for this short
+ *    transaction;
  * 2. a replayed idempotency key returns the existing deposit (422
  *    `idempotency_key_reused` for another amount or provider);
  * 3. 409 `sms_amount_unavailable` when all 50 offsets are taken (the player
@@ -126,9 +127,7 @@ export async function createSmsDepositIntent(
 ): Promise<{ intent: PaymentIntent; replayed: boolean }> {
   const { userId, amount, now } = input;
   assertAmount(amount, 'deposit amount');
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`vamos:sms_amount:${amount.toString()}`}, 0))`,
-  );
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('vamos:sms_amount', 0))`);
 
   const [existing] = await tx
     .select()
@@ -445,7 +444,8 @@ export interface IngestSmsInput {
  * Records a forwarded SMS and acts on it, in the caller's transaction:
  * duplicates (the same sender and text, or the same reference) change
  * nothing; an unparsed message waits for staff; a credit is matched against
- * every open SMS deposit and credited (or flagged, or left for review); a
+ * every open SMS deposit created before the money moved (core smsPaidBy)
+ * and credited (or flagged, or left for review); a
  * debit proposes the manual payout it paid. Only credits can credit.
  */
 export async function ingestSms(tx: DbTransaction, input: IngestSmsInput): Promise<SmsResult> {
@@ -495,7 +495,14 @@ export async function ingestSms(tx: DbTransaction, input: IngestSmsInput): Promi
   }
   if (!sms) return { sms: inserted, outcome: 'unparsed' };
   if (sms.direction === 'debit') return applyDebit(tx, inserted, sms, now);
-  return applyCredit(tx, inserted, sms, await openSmsDeposits(tx, { now }), now);
+  // Only deposits that existed when the money moved: a backlog forwarded after an outage must not
+  // pay a newer deposit that was handed the same amount once the first one released it.
+  const createdBefore = smsPaidBy({
+    occurredAt: sms.occurredAt,
+    deviceReceivedAt: input.deviceReceivedAt ?? null,
+    now,
+  });
+  return applyCredit(tx, inserted, sms, await openSmsDeposits(tx, { now, createdBefore }), now);
 }
 
 /**
@@ -597,7 +604,8 @@ export interface VerifiedReceiptPayment {
  * carries (the handset was offline) that the institution's receipt page
  * confirmed as a completed payment to one of our accounts. Recorded as a
  * `receipt` row (unique reference: it can be used once) and matched against
- * the player's own deposits that existed before it was paid.
+ * the player's own deposits that existed before it was paid (a receipt
+ * without a payment time waits for staff).
  */
 export async function recordReceiptPaymentForPlayer(
   tx: DbTransaction,
@@ -640,12 +648,20 @@ export async function recordReceiptPaymentForPlayer(
     // The gateway delivered it meanwhile (or another check recorded it).
     return checkSmsDepositForPlayer(tx, { userId: input.userId, text: receipt.reference, now });
   }
-  const paidAt = receipt.paidAt ?? now;
+  if (receipt.paidAt === null) {
+    // Without the time it was paid, any deposit the player opened since (even one handed this
+    // amount after its first owner released it) would fit: a person decides.
+    const updated = await updateSms(tx, inserted.id, {
+      statusReason: 'receipt_without_time',
+      updatedAt: now,
+    });
+    return { status: 'in_review', reference: receipt.reference, sms: updated };
+  }
   return rematchForPlayer(
     tx,
     inserted,
     input.userId,
-    new Date(Math.min(paidAt.getTime() + RECEIPT_CLOCK_SKEW_MS, now.getTime())),
+    smsPaidBy({ occurredAt: receipt.paidAt, deviceReceivedAt: null, now }),
     now,
   );
 }

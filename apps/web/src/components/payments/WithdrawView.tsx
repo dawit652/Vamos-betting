@@ -211,6 +211,8 @@ function Rules({
   );
 }
 
+const WITHDRAW_FORM_ID = 'withdraw-form';
+
 function WithdrawForm({
   options,
   onCreated,
@@ -280,29 +282,33 @@ function WithdrawForm({
 
   const checked = checkAmount(input, options.limits.minWithdrawal, options.limits.maxWithdrawal);
   return (
-    <form
-      className="card space-y-3"
-      noValidate
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-    >
+    // The form holds only the amount (Enter submits it) and the button points at it: the payout
+    // account picker has a form of its own (add a bank account), and forms must not nest.
+    <div className="card space-y-3">
       <p className="text-muted">
         {manual ? t('account.payments.withdraw.introManual') : t('account.payments.withdraw.intro')}
       </p>
-      <Field id="withdraw-amount" label={t('account.payments.amount')} error={amountError}>
-        <input
-          id="withdraw-amount"
-          className="input tabular-nums"
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder="0.00"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          {...describedBy('withdraw-amount', amountError)}
-        />
-      </Field>
+      <form
+        id={WITHDRAW_FORM_ID}
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <Field id="withdraw-amount" label={t('account.payments.amount')} error={amountError}>
+          <input
+            id="withdraw-amount"
+            className="input tabular-nums"
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0.00"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            {...describedBy('withdraw-amount', amountError)}
+          />
+        </Field>
+      </form>
       {manual ? (
         <PayoutAccountPicker value={payoutAccountId} onChange={setPayoutAccountId} />
       ) : (
@@ -323,14 +329,19 @@ function WithdrawForm({
         />
       </Field>
       {error ? <Alert>{t(error.key, error.vars)}</Alert> : null}
-      <button type="submit" className="btn btn-accent w-full" disabled={busy}>
+      <button
+        type="submit"
+        form={WITHDRAW_FORM_ID}
+        className="btn btn-accent w-full"
+        disabled={busy}
+      >
         {busy
           ? t('common.actions.loading')
           : t('account.payments.withdraw.submit', {
               amount: checked.ok ? formatSantim(checked.amount) : '…',
             })}
       </button>
-    </form>
+    </div>
   );
 }
 

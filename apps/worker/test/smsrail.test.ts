@@ -80,6 +80,15 @@ async function createPlayer(): Promise<{ userId: string; phone: string }> {
   return { userId: row!.id, phone };
 }
 
+/** "dd/mm/yyyy at h:mm:ss AM" in EAT, as telebirr writes the time of a payment. */
+function eatStamp(at: Date): string {
+  const eat = new Date(at.getTime() + 3 * 60 * 60_000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const h24 = eat.getUTCHours();
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${pad(eat.getUTCDate())}/${pad(eat.getUTCMonth() + 1)}/${eat.getUTCFullYear()} at ${h12}:${pad(eat.getUTCMinutes())}:${pad(eat.getUTCSeconds())} ${h24 < 12 ? 'AM' : 'PM'}`;
+}
+
 let refCounter = 0;
 async function creditedSms(balance?: bigint) {
   const player = await createPlayer();
@@ -96,7 +105,7 @@ async function creditedSms(balance?: bigint) {
   const reference = `WK${String(refCounter).padStart(8, '0')}`;
   const tail =
     balance === undefined ? '' : ` Your telebirr balance is ETB ${santimToBirrString(balance)}.`;
-  const text = `Dear CUSTOMER, you have received ETB ${santimToBirrString(intent.amount)} from P (${player.phone.slice(1)}) on 10/10/2026 at 1:00:00 PM. Your transaction number is ${reference}.${tail}`;
+  const text = `Dear CUSTOMER, you have received ETB ${santimToBirrString(intent.amount)} from P (${player.phone.slice(1)}) on ${eatStamp(t.ctx.clock())}. Your transaction number is ${reference}.${tail}`;
   const result = await t.db.db.transaction((tx) =>
     ingestSms(tx, { source: 'gateway', sender: 'telebirr', text, now: t.ctx.clock() }),
   );

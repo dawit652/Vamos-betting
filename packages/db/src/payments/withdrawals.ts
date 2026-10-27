@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { normalizeEthiopianMsisdn, toWire, type AmlRules, type PaymentRules } from '@vamos/core';
+import {
+  normalizeEthiopianMsisdn,
+  payoutDestination,
+  toWire,
+  type AmlRules,
+  type PaymentRules,
+} from '@vamos/core';
 import {
   and,
   asc,
@@ -503,6 +509,16 @@ export async function requestWithdrawal(
       throw domainUnprocessable(
         'payout_account_unverified',
         'Confirm this payout account with the code we sent before withdrawing to it.',
+      );
+    }
+    // Wallet payouts go only to the phone registered now (a saved number may no longer be theirs).
+    if (
+      payoutDestination(account.institution)?.accountKind !== 'account' &&
+      account.account !== user.phone
+    ) {
+      throw domainUnprocessable(
+        'payout_account_not_own',
+        'Wallet withdrawals are only paid to your registered phone number.',
       );
     }
     destination = {

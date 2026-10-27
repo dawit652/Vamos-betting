@@ -44,6 +44,7 @@ import {
   paymentIntents,
   payouts,
   receivedSms,
+  users,
 } from '../src/schema/index';
 import { createTestDatabase } from '../src/testing';
 import { dropTestDatabase, pgCode } from './helpers';
@@ -125,13 +126,19 @@ async function openDeposit(
   return intent;
 }
 
-async function gateway(text: string, options: { now?: Date; sender?: string } = {}) {
+async function gateway(
+  text: string,
+  options: { now?: Date; sender?: string; deviceReceivedAt?: Date } = {},
+) {
   return db.transaction((tx) =>
     ingestSms(tx, {
       source: 'gateway',
       sender: options.sender ?? 'telebirr',
       text,
       now: options.now ?? at(1),
+      ...(options.deviceReceivedAt === undefined
+        ? {}
+        : { deviceReceivedAt: options.deviceReceivedAt }),
     }),
   );
 }
@@ -194,6 +201,36 @@ describe('SMS deposit intents', () => {
     }
     const late = await createPlayer(db);
     expect((await domainError(openDeposit(late.userId, base))).code).toBe('sms_amount_unavailable');
+  });
+
+  it('serialises allocations across overlapping bases (444.00 and 444.25 share 444.26–444.50)', async () => {
+    const [first, second] = await Promise.all([createPlayer(db), createPlayer(db)]);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let opened!: () => void;
+    const firstOpened = new Promise<void>((resolve) => (opened = resolve));
+    // The first allocation (444.30) stays uncommitted while the second, on another base, picks
+    // 444.30 too (offset 5 from 444.25): it must wait and take the next free amount, not collide.
+    const one = db.transaction(async (tx) => {
+      const { intent } = await createSmsDepositIntent(tx, {
+        userId: first.userId,
+        amount: birr(444),
+        idempotencyKey: idemKey('overlap'),
+        now: NOW,
+        rules: rules(),
+        randomOffset: () => 30,
+      });
+      opened();
+      await held;
+      return intent;
+    });
+    await firstOpened;
+    const two = openDeposit(second.userId, birr(444) + 25n, { offset: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+    const [a, b] = await Promise.all([one, two]);
+    expect(a.amount).toBe(birr(444) + 30n);
+    expect(b.amount).toBe(birr(444) + 31n);
   });
 });
 
@@ -371,6 +408,36 @@ describe('gateway SMS', () => {
     expect(result.outcome).toBe('unmatched');
   });
 
+  it('never pays a deposit opened after the money moved (a backlog forwarded hours late)', async () => {
+    // The handset was offline: a payment made at 12:01 EAT for a deposit whose amount has since
+    // been released reaches us at 15:20, when a newer deposit was handed the same exact amount.
+    const [payer, newcomer] = await Promise.all([createPlayer(db), createPlayer(db)]);
+    const old = await openDeposit(payer.userId, birr(777), { offset: 7 });
+    const released = at(200);
+    await db.transaction((tx) => expireStaleDepositIntents(tx, { now: released }));
+    const fresh = await openDeposit(newcomer.userId, birr(777), { offset: 7, now: released });
+    expect(fresh.amount).toBe(old.amount);
+    const backlog = telebirrCredit(old.amount, { phone: null }); // "on 10/10/2026 at 12:01:00 PM"
+    const result = await gateway(backlog.text, { now: at(201) });
+    expect(result.outcome).toBe('unmatched');
+    expect(await cashOf(db, newcomer.userId)).toBe(0n);
+
+    // A date-only message (CBE) is bounded by the handset's receive time instead.
+    const cbe = await gateway(
+      `Dear Customer, You have received ETB ${santimToBirrString(fresh.amount)} from SENDER NAME on 10/10/2026. Ref No CBEBACKLOG1`,
+      { now: at(202), sender: 'CBE', deviceReceivedAt: at(2) },
+    );
+    expect(cbe.outcome).toBe('unmatched');
+    expect(await cashOf(db, newcomer.userId)).toBe(0n);
+    // The newcomer's own payment, made after their deposit opened (15:23 EAT), still credits.
+    const own = await gateway(
+      `Dear CUSTOMER, you have received ETB ${santimToBirrString(fresh.amount)} from SENDER NAME (${newcomer.phone.slice(1)}) on 10/10/2026 at 3:23:00 PM. Your transaction number is OWNPAY0001.`,
+      { now: at(203), deviceReceivedAt: at(203) },
+    );
+    expect(own.outcome).toBe('credited');
+    expect(await cashOf(db, newcomer.userId)).toBe(fresh.amount);
+  });
+
   it('sends a second payment for an already credited deposit to review', async () => {
     const player = await createPlayer(db);
     const intent = await openDeposit(player.userId, birr(107));
@@ -480,6 +547,29 @@ describe('the player check', () => {
       }),
     );
     expect(result.status).toBe('in_review');
+    expect(await cashOf(db, player.userId)).toBe(0n);
+  });
+  it('leaves a receipt without a payment time to staff', async () => {
+    const player = await createPlayer(db);
+    const intent = await openDeposit(player.userId, birr(115), { now: at(0) });
+    const result = await db.transaction((tx) =>
+      recordReceiptPaymentForPlayer(tx, {
+        userId: player.userId,
+        receipt: {
+          institution: 'telebirr',
+          reference: nextRef(),
+          amount: intent.amount,
+          payerName: null,
+          payerPhone: player.phone,
+          receiver: '0911000000',
+          paidAt: null,
+          raw: '',
+        },
+        now: at(3),
+      }),
+    );
+    expect(result.status).toBe('in_review');
+    expect(result.sms).toMatchObject({ status: 'unmatched', statusReason: 'receipt_without_time' });
     expect(await cashOf(db, player.userId)).toBe(0n);
   });
 });
@@ -702,6 +792,16 @@ describe('manual payouts', () => {
       }),
     );
   }
+
+  it('pays a saved wallet only while it is still the registered phone', async () => {
+    const player = await playerWithMoney(birr(500));
+    const newPhone = `+2519${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+    await db.update(users).set({ phone: newPhone }).where(eq(users.id, player.userId));
+    const error = await domainError(
+      manualWithdraw({ ...player, phone: newPhone }, player.walletId, birr(200)),
+    );
+    expect(error.code).toBe('payout_account_not_own');
+  });
 
   it('copies the destination, holds the money and keeps it away from the payout worker', async () => {
     const player = await playerWithMoney(birr(500));

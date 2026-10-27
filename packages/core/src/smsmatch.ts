@@ -134,6 +134,50 @@ export function matchSmsDeposit(
   return { type: 'unmatched', reason: 'no_amount_or_phone_match' };
 }
 
+/** How far an institution's clock may run ahead of ours. */
+export const SMS_INSTITUTION_CLOCK_SKEW_MS = 5 * 60_000;
+/** How far the collection handset's clock may run ahead of ours (a phone's clock drifts more). */
+export const SMS_HANDSET_CLOCK_SKEW_MS = 30 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
+const EAT_OFFSET_MS = 3 * 60 * 60_000;
+
+/**
+ * The latest moment the money in an SMS can have moved: only a deposit
+ * created before it can be what the SMS pays. A transfer forwarded hours
+ * late (the handset was offline) must not pay a newer deposit that was
+ * handed the same exact amount after the first one released it.
+ *
+ * The earliest of: the institution's time (+ skew; a date without a time,
+ * read as midnight EAT, counts as the end of that day), the handset's
+ * receive time (+ a larger skew), and now. A time in our future is ignored.
+ */
+export function smsPaidBy(input: {
+  occurredAt: Date | null;
+  deviceReceivedAt: Date | null;
+  now: Date;
+}): Date {
+  const now = input.now.getTime();
+  let bound = now;
+  const occurred = input.occurredAt?.getTime();
+  if (
+    occurred !== undefined &&
+    Number.isFinite(occurred) &&
+    occurred <= now + SMS_INSTITUTION_CLOCK_SKEW_MS
+  ) {
+    const dateOnly = (occurred + EAT_OFFSET_MS) % DAY_MS === 0;
+    bound = Math.min(bound, occurred + (dateOnly ? DAY_MS : 0) + SMS_INSTITUTION_CLOCK_SKEW_MS);
+  }
+  const device = input.deviceReceivedAt?.getTime();
+  if (
+    device !== undefined &&
+    Number.isFinite(device) &&
+    device <= now + SMS_HANDSET_CLOCK_SKEW_MS
+  ) {
+    bound = Math.min(bound, device + SMS_HANDSET_CLOCK_SKEW_MS);
+  }
+  return new Date(bound);
+}
+
 /** A payout waiting to be paid by hand, as the proposer sees it. */
 export interface ManualPayoutCandidate {
   payoutId: string;

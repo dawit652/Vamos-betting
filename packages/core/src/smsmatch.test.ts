@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_SANTIM_OFFSET,
   allocateSmsAmount,
+  SMS_HANDSET_CLOCK_SKEW_MS,
+  SMS_INSTITUTION_CLOCK_SKEW_MS,
   matchSmsDeposit,
   proposePayoutForSms,
+  smsPaidBy,
   type ManualPayoutCandidate,
   type OpenSmsDeposit,
 } from './smsmatch';
@@ -252,6 +255,53 @@ describe('proposePayoutForSms', () => {
           );
         },
       ),
+    );
+  });
+});
+
+describe('smsPaidBy', () => {
+  const now = new Date('2026-08-15T18:00:00Z'); // 21:00 EAT
+
+  it('is the institution time plus skew, or the end of its day for a date without a time', () => {
+    const at = new Date('2026-08-15T12:31:00Z'); // 15:31 EAT
+    expect(smsPaidBy({ occurredAt: at, deviceReceivedAt: null, now })).toEqual(
+      new Date(at.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS),
+    );
+    const midnightEat = new Date('2026-08-14T21:00:00Z'); // "on 15/08/2026"
+    expect(smsPaidBy({ occurredAt: midnightEat, deviceReceivedAt: null, now })).toEqual(now);
+    const yesterday = new Date('2026-08-13T21:00:00Z'); // "on 14/08/2026"
+    expect(smsPaidBy({ occurredAt: yesterday, deviceReceivedAt: null, now })).toEqual(
+      new Date('2026-08-14T21:05:00Z'),
+    );
+  });
+
+  it('uses the handset receive time, and ignores times in our future', () => {
+    const device = new Date('2026-08-15T14:00:00Z');
+    expect(smsPaidBy({ occurredAt: null, deviceReceivedAt: device, now })).toEqual(
+      new Date(device.getTime() + SMS_HANDSET_CLOCK_SKEW_MS),
+    );
+    const future = new Date(now.getTime() + 2 * 60 * 60_000);
+    expect(smsPaidBy({ occurredAt: future, deviceReceivedAt: future, now })).toEqual(now);
+    expect(smsPaidBy({ occurredAt: null, deviceReceivedAt: null, now })).toEqual(now);
+  });
+
+  it('is never after now, nor before the earliest time given plus its skew', () => {
+    const time = fc.date({
+      min: new Date('2026-01-01T00:00:00Z'),
+      max: new Date('2027-01-01T00:00:00Z'),
+      noInvalidDate: true,
+    });
+    fc.assert(
+      fc.property(fc.option(time), fc.option(time), time, (occurredAt, deviceReceivedAt, at) => {
+        const bound = smsPaidBy({ occurredAt, deviceReceivedAt, now: at }).getTime();
+        expect(bound).toBeLessThanOrEqual(at.getTime());
+        const floors = [at.getTime()];
+        if (occurredAt !== null) floors.push(occurredAt.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS);
+        if (deviceReceivedAt !== null) {
+          floors.push(deviceReceivedAt.getTime() + SMS_HANDSET_CLOCK_SKEW_MS);
+        }
+        expect(bound).toBeGreaterThanOrEqual(Math.min(...floors));
+      }),
     );
   });
 });
