@@ -1,6 +1,9 @@
 # Plan: port Melabingo's deposits and withdrawals into Vamos
 
-Status: draft, not started. Scope: deposits and withdrawals only. Melabingo's bingo game, rooms, bot
+Status: built (27 Oct 2026), demo mode verified end to end; not live. Production go-live waits on the
+checklist in §4 (licence, company collection accounts, real SMS and receipt fixtures). What was built,
+the deviations from this plan and the open gaps are listed in [§7](#7-build-status). Scope: deposits and
+withdrawals only. Melabingo's bingo game, rooms, bot
 and cashier network are not ported (casino-style games are excluded by policy).
 
 **Target: production.** The rail is built to run with real money in `OPERATING_MODE=licensed`, with
@@ -309,3 +312,32 @@ Total: about 4 weeks. Each step ships green on `pnpm lint`, `pnpm typecheck` and
    credit what arrived (Melabingo)?
 4. Should the cashier/shop network (counter loads and OTP cash-outs on a credit line) be planned
    separately?
+
+## 7. Build status
+
+Built on branch `claude/laughing-rubin-t4scxg`. Operations: [`docs/runbooks/sms-rail.md`](../runbooks/sms-rail.md).
+
+- **Done:** core (amount allocation, 33 parsers, matching, balance chain, payout flow) with unit and property
+  tests; migrations `0032_sms_rail` and `0033_sms_rail_guards`; the `sms` provider, the receipt verifier and
+  the licensed-mode rail checks; API (gateway webhook, the player check, payout accounts, dev simulator);
+  web deposit and withdraw screens (English and Amharic); the admin SMS rail and manual payouts pages; worker
+  receipt audit, balance reconciliation and watch; `e2e/tests/sms-rail.spec.ts`; config docs and the env
+  templates.
+- **Adversarial review fixes (each with a regression test):** one lock for every amount allocation
+  (overlapping bases could pick the same amount); a late SMS only pays a deposit that existed when the money
+  moved (core `smsPaidBy`), so a backlog cannot credit a newer deposit handed the same amount; a receipt
+  without a payment time goes to staff; wallet payouts only to the phone registered now; the bank form no
+  longer nests inside the withdraw form (submitting it also submitted the withdrawal).
+- **Deviations from the plan:**
+  - bank ownership cannot be proven from SMS (inter-bank SMS carry no account number), so the operator
+    confirms the holder name the bank shows at settlement;
+  - alarms are `error` log lines with an `alarm` field instead of Prometheus metrics (the project has no
+    metrics endpoint);
+  - the e2e covers deposit, review, the check and payout accounts; the four-eyes payout itself is covered
+    by the API and DB tests.
+- **Open gaps:**
+  - real SMS and receipt-page fixtures for the collection accounts (the current ones are reconstructed);
+  - no re-parse action for an `unparsed` payment SMS;
+  - one staff member can credit an unmatched SMS to any player (audited, not four-eyes);
+  - the load test deposit burst (§3.10) is not written;
+  - `received_sms` is not yet part of the daily reconciliation or the privacy retention job.

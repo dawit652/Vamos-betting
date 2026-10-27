@@ -98,6 +98,10 @@ Coordinate both sides, because there is one active secret at a time:
   polled for 24 h, so nothing is lost; watch the payments for 30 minutes.
 - **`SMS_WEBHOOK_SECRET` / `USSD_SHARED_SECRET`** (only while a channel is on): agree a time with the
   aggregator; inbound messages fail authentication between the two changes.
+- **`SMS_GATEWAY_SECRET`** (SMS deposit rail, 32+ chars): rotate on every staff change involving the
+  collection handset and at once if it may have leaked (it alone can credit deposits). Set it in the
+  forwarder app and the environment within a few minutes of each other, recreate `api`, then resend what
+  the handset forwarded in between (401s); duplicates are recognised. See the [SMS rail runbook](sms-rail.md).
 - **`MOCK_PAYMENT_WEBHOOK_SECRET`**: demo only.
 
 ## Backup encryption (age) and TLS

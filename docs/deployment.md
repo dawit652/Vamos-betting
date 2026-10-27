@@ -165,11 +165,16 @@ over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET 
 - [ ] `ELS_REPORTING_MODE=file` with an absolute `ELS_REPORT_DIR` on a durable, **backed-up** volume (the
       compose file mounts the `els` volume at `/var/lib/vamos/els`). `off` and the `http` placeholder are
       refused until ELS publishes its interface. Reports are kept 7 years.
-- [ ] `PAYMENT_PROVIDERS` lists only real providers (`chapa`, `telebirr`), each with its credentials; no
+- [ ] `PAYMENT_PROVIDERS` lists only real providers (`chapa`, `telebirr`, `sms`), each with its credentials; no
       `mock`. Webhook URLs registered with the providers point at `PAYMENT_CALLBACK_BASE_URL` (default
       `PUBLIC_API_URL`). `CHAPA_WEBHOOK_SECRET` is at least 32 characters. `PAYMENT_CALLBACK_BASE_URL`,
       `CHAPA_BASE_URL`, `TELEBIRR_BASE_URL`, `TELEBIRR_CHECKOUT_URL` and `ELS_REPORT_URL` are https whenever set
       (plain http is refused, even on loopback).
+- [ ] With the SMS deposit rail (`sms`, [runbook](runbooks/sms-rail.md)): `SMS_RAIL_MODE=live`; its own
+      `SMS_GATEWAY_SECRET` (32+ chars, shared with no other secret); `OPERATOR_LEGAL_NAME` set and every
+      account in `SMS_COLLECTION_ACCOUNTS` in that name (no personal SIMs); `RECEIPT_VERIFY=audit`; and
+      `PAYOUT_REQUIRE_PROOF=true` (or the explicit, logged waiver `PAYOUT_PROOF_WAIVED=true`). The database
+      also refuses simulator SMS once it is licensed.
 - [ ] `KYC_PROVIDER` is a real identity provider (`fayda`), `SMS_PROVIDER` a real gateway (`http`).
 - [ ] `FEED_PROVIDER=manual` (traders only) or a licensed real feed once an adapter exists; `mock` is refused.
 - [ ] `TAX_CONFIG_CONFIRMED=true`, set only after counsel confirmed the winnings-tax rate, base and exemption
@@ -229,12 +234,26 @@ in a secret manager, not in git.
 
 | Variable                                                                                           | Default              | Meaning                                                                                      |
 | -------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------- |
-| `PAYMENT_PROVIDERS`                                                                                | `mock`               | Comma list: `mock` (demo only), `chapa`, `telebirr`.                                         |
+| `PAYMENT_PROVIDERS`                                                                                | `mock`               | Comma list: `mock` (demo only), `chapa`, `telebirr`, `sms` (the SMS deposit rail).           |
 | `KYC_PROVIDER` / `SMS_PROVIDER`                                                                    | `mock` / `mock`      | `mock` or `fayda`; `mock` or `http`. Real ones are licensed-mode only.                       |
 | `CHAPA_BASE_URL`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`                                       | Chapa API URL, unset | Chapa credentials (secrets). The webhook secret is 32+ chars, also set in Chapa's dashboard. |
 | `TELEBIRR_BASE_URL`, `TELEBIRR_CHECKOUT_URL`                                                       | unset                | telebirr endpoints. Leave unset, not empty.                                                  |
 | `TELEBIRR_FABRIC_APP_ID`, `TELEBIRR_APP_SECRET`, `TELEBIRR_MERCHANT_APP_ID`, `TELEBIRR_SHORT_CODE` | unset                | telebirr merchant credentials (secrets).                                                     |
 | `TELEBIRR_PRIVATE_KEY`, `TELEBIRR_PUBLIC_KEY`                                                      | unset                | PEM keys; `\n` in the value is read as a newline.                                            |
+
+**SMS deposit rail** (`sms`; see [the runbook](runbooks/sms-rail.md))
+
+| Variable                    | Default     | Meaning                                                                                                                                                                       |
+| --------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SMS_RAIL_MODE`             | `simulated` | `simulated` (demo: demo collection accounts and the dev SMS simulator) or `live` (licensed mode only, and required there).                                                    |
+| `SMS_GATEWAY_SECRET`        | unset       | Secret, 32+ chars. The collection handset's forwarder sends it as `x-gateway-secret` to `POST /payments/webhooks/sms`. It alone can credit deposits: rotate on staff changes. |
+| `SMS_GATEWAY_ALLOWLIST`     | empty       | Comma list of exact client addresses allowed to post SMS; empty allows any (the secret still applies).                                                                        |
+| `SMS_COLLECTION_ACCOUNTS`   | unset       | JSON array of `{ "institution": "telebirr", "account": "09…", "name": "…", "hint"?: "…" }`, the accounts players pay into. Live rail only.                                    |
+| `OPERATOR_LEGAL_NAME`       | unset       | The licence holder's legal name; every collection account must be in it.                                                                                                      |
+| `RECEIPT_VERIFY`            | `audit`     | `audit` checks every credited telebirr SMS against the receipt page (required live), `off` does not.                                                                          |
+| `RECEIPT_VERIFY_TIMEOUT_MS` | `6000`      | Timeout of one receipt-page request (500–30000).                                                                                                                              |
+| `PAYOUT_REQUIRE_PROOF`      | `false`     | `true`: a manual payout settles only with its debit SMS as proof. Required in licensed mode unless waived.                                                                    |
+| `PAYOUT_PROOF_WAIVED`       | `false`     | The explicit waiver of `PAYOUT_REQUIRE_PROOF` in licensed mode (the api logs a warning at start).                                                                             |
 
 **Regulator, tax and features**
 

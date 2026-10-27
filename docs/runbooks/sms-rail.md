@@ -1,0 +1,170 @@
+# SMS deposit rail and manual payouts
+
+The `sms` payment provider, ported from Melabingo. A player asks to deposit, say, ETB 100 and is told to
+send **exactly** ETB 100.xx (1–50 extra santim, unique among open deposits for 2 h) to one of our collection
+accounts. The collection handset (a company Android phone holding the collection SIM and the bank's SMS
+number) forwards each confirmation SMS to `POST /payments/webhooks/sms`. We parse it, match it to the open
+deposit by that exact amount and credit the player, in one database transaction with its ledger posting and
+outbox events. Withdrawals on this rail are **manual payouts**: staff send the money by hand from a
+collection account, under four eyes.
+
+What makes a credit safe, and what you check when something looks wrong:
+
+- **The amount is the reference.** The SMS is only evidence that money arrived. A player who pastes an SMS
+  or a transaction number in "Paid, but your balance has not changed?" only gives us a lookup key: we credit
+  what the handset forwarded, or what the institution's own receipt page confirms (telebirr), never the
+  pasted text.
+- **A debit never credits.** Money leaving a collection account at most _proposes_ that it paid a manual
+  payout.
+- **The handset is the trust anchor.** Anyone who controls it, or the gateway secret, can inject SMS. Two
+  independent checks run on the live rail: the **receipt audit** (every credited telebirr SMS against Ethio
+  Telecom's receipt page) and the **balance chain** (the balance each SMS reports must move by exactly what
+  the messages say; the only check for CBE).
+- **Policy differences from Melabingo:** a payment from another phone (`third_party_payer`) or of another
+  amount (`amount_mismatch`, typically a rounded amount) is **flagged for staff**, not credited; payouts go
+  only to the player's own phone wallet or a bank account in their own (KYC) name, confirmed with an SMS
+  code and by the operator at settlement. No payouts to third parties.
+
+Who: `sms.review` (admin, finance, compliance) works the SMS page; `payouts.settle_manual` (admin, finance)
+claims and settles manual payouts; `withdrawals.approve` approves withdrawals as for every provider.
+Back office: **SMS rail** (`/sms`: health panel, review queue, all messages) and **Manual payouts**
+(`/manual-payouts`).
+
+In demo mode the rail is **simulated** (`SMS_RAIL_MODE=simulated`, demo collection accounts, play money):
+the deposit screen offers "Demo: play the bank" and the dev SMS simulator sends the SMS. The database
+refuses simulator SMS in a licensed database, and licensed mode refuses the simulated rail.
+
+## Alarms
+
+Alarms are `error` log lines with an `alarm` field; wire the log-based alerts to these names.
+
+| `alarm`                 | Meaning                                                                                      | Do                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `sms_receipt_rejected`  | A **credited** telebirr SMS is contradicted by the receipt page (not found, other receiver…) | [Receipt alarm](#receipt-alarm-a-possibly-forged-sms). SEV1 until explained |
+| `sms_balance_drift`     | The balance an SMS reports moved by a different amount than the messages say                 | [Balance drift](#balance-drift)                                             |
+| `sms_gateway_silent`    | No SMS from the handset for 30 minutes after 06:00 EAT                                       | [Handset offline](#handset-offline)                                         |
+| `sms_review_backlog`    | More than 10 SMS wait for a person, or the oldest has waited over 15 minutes                 | Work the [review queue](#the-review-queue)                                  |
+| `manual_payout_waiting` | An approved manual payout has waited more than 2 hours                                       | [Manual payouts](#manual-payouts)                                           |
+
+When the receipt page is slow or down a check is `indeterminate` and retried a few times before it is
+recorded as final; after repeated failures the breaker opens for a while and the health panel shows
+"Receipt page: open". Deposits keep being credited from the SMS; the audit catches up when the page is back.
+
+## The review queue
+
+SMS rail → Review queue. Receipt alarms are listed first, then the oldest first. Each row shows the
+institution, direction, amount, reference and payer, the status and the raw message.
+
+| Status                | Meaning                                                                          | Do                                                                                                                                                                                                                                                                                |
+| --------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flagged`             | Matched a deposit but was flagged: `third_party_payer` or `amount_mismatch`      | Call the player. If they confirm who paid (and it is not a payment on someone else's behalf), **Credit to player** (prefilled) with a note. Otherwise **Close**.                                                                                                                  |
+| `unmatched`           | A credit that fits no open deposit: late, a typo in the amount, an unknown payer | Find the player (by payer phone or name in Players). If you are sure, **Credit to player** with their id and a note; if not, leave it and ask.                                                                                                                                    |
+| `ambiguous`           | Fits two open deposits                                                           | Ask both players; credit the one who paid.                                                                                                                                                                                                                                        |
+| `unparsed`            | No parser could read it: a new message shape, or a non-payment SMS               | Read it. Not a payment: **Close**. A payment: leave it open and escalate to engineering with the text (capture it as a fixture, below). Staff never type an amount, so it cannot be credited from here, and there is no re-parse action yet: tell the player it is being handled. |
+| `ignored_debit`       | Money left a collection account and fits no manual payout                        | Someone sent money that is not a recorded payout: find out who. Close only with an explanation.                                                                                                                                                                                   |
+| `settlement_proposed` | An outgoing transfer that looks like it paid a manual payout                     | Nothing here: the operator settling that payout links it.                                                                                                                                                                                                                         |
+
+Rules: a note is required for every action and is audited. **Credit** posts exactly the amount in the SMS
+(never what the player says they sent), once: the message is then `credited_by_staff`. Never credit a
+flagged deposit from the generic Withdrawals → Flagged deposits tab; the API refuses it (`sms_deposit_flag`)
+so the SMS and the deposit cannot get out of step. A credited player still has to bet the deposit before
+withdrawing, as for every provider.
+
+## Receipt alarm: a possibly forged SMS
+
+A credited SMS whose receipt page says otherwise. The credit is **not** reversed automatically.
+
+1. Open the row (top of the queue): note the reference, the amount, the reason (`not_a_receipt`: no such
+   transaction; `reference_mismatch`; `receiver_not_ours`: paid to another account; `amount_absent`;
+   `not_completed`) and the stored receipt excerpt.
+2. Look the reference up yourself in the telebirr merchant portal (or the receipt link) for the collection
+   account. Check the balance-chain result on the health panel too.
+3. **The money arrived** (the receipt page was wrong or changed shape): **Acknowledge alarm** with what you
+   found. If the page changed shape, capture it as a fixture (below): every credit will alarm until fixed.
+4. **The money did not arrive:** treat it as fraud. SEV1 ([incident basics](incident-basics.md)). Do not
+   approve or pay any withdrawal of that player (reject the open ones with the incident number; a manual
+   payout cannot leave without an operator), check the handset (who had it, is the forwarder still the one
+   we installed) and rotate `SMS_GATEWAY_SECRET` (below). The back office has no balance adjustment yet:
+   the correction is an engineering task through the ledger services, never SQL. Acknowledge the alarm with
+   the incident number.
+
+## Balance drift
+
+`credited_more_than_arrived` (the account grew less than we credited) is the forged-SMS signature: handle it
+like a receipt alarm, starting from the SMS credited in the drift window. `arrived_more_than_seen` means SMS
+went missing (handset offline, the forwarder filtered a sender): find the missing messages on the handset
+and forward them again, or let the players use the "I paid" check. Drift is computed over the last 24 h, per
+institution, hourly, and shown on the health panel. A refund or bank fee that sends no SMS also shows as
+drift: write it down so the next person recognises it.
+
+## Handset offline
+
+`sms_gateway_silent`, or players say their deposits do not arrive.
+
+1. Check the phone: power, wifi/data, the forwarder app running and not battery-optimised, the SIM present.
+2. Meanwhile deposits keep working: a telebirr player can paste the confirmation SMS or its transaction
+   number and is credited once the receipt page confirms it (source `receipt`). CBE payments wait in the
+   queue until the handset is back.
+3. If the phone is lost or stolen: rotate `SMS_GATEWAY_SECRET` at once, set up the spare, and ask the telco
+   to block the SIM and move the number.
+4. Once back, forward the messages it missed (the forwarder's resend). Duplicates are recognised (same
+   sender and text, or same reference) and change nothing. A late message only pays a deposit that existed
+   when the money moved (the institution's time in the SMS, or the handset's receive time), so a backlog
+   cannot credit a newer deposit that was handed the same amount; messages whose deposit expired more than
+   2 hours ago land in the review queue as `unmatched`.
+
+### The handset
+
+- A company-owned Android phone on mains power and wifi, in a locked room, screen lock on, used for nothing
+  else. A second phone already set up with the forwarder, without the SIM, as the spare.
+- The forwarder posts JSON `{ "sender": "...", "text": "...", "receivedAt": <epoch ms> }` to
+  `https://<api host>/payments/webhooks/sms` with the header `x-gateway-secret: <SMS_GATEWAY_SECRET>`
+  (a `secret` field in the body is accepted for forwarders that cannot set headers).
+- Allowed senders only: the collection institutions' SMS numbers (`127` / `telebirr`, `CBE`). Do not forward
+  personal messages.
+- If the forwarder has fixed egress addresses, list them in `SMS_GATEWAY_ALLOWLIST`; requests from other
+  addresses get 403.
+- Every day before 10:00: the balance in the telebirr app and the CBE statement equal the latest balance on
+  the health panel, and the balance check is ok.
+
+## Manual payouts
+
+A withdrawal on the `sms` provider goes `requested` → `approved` (by a person with `withdrawals.approve`, as
+for every provider, or automatically below the threshold) → **claimed** by an operator (`processing`) →
+`paid`, or back to `approved` (**Release**: nothing was sent) or `failed` (the hold returns to the player).
+The person who approved it can never claim or settle it, and only the operator who claimed it can settle,
+release or fail it, so two operators never both send it. The worker never touches manual payouts.
+
+1. Manual payouts → **Claim** the oldest. Claiming is refused while compliance holds the player
+   (`aml_review_pending`).
+2. Send the money from the collection account shown, to the destination shown: the player's own telebirr
+   number, or a bank account with the holder name shown. For a bank, check that the name the bank shows for
+   the account is the player's name before sending.
+3. When the debit SMS comes in it is proposed for the payout (`settlement_proposed`). **Settle** with that
+   SMS (or the transfer reference if the SMS did not come); tick "holder name confirmed" for a bank. With
+   `PAYOUT_REQUIRE_PROOF=true` (required in licensed mode unless explicitly waived) the debit SMS is
+   required.
+4. If you cannot send it (the bank refuses, the name does not match): **Release** with a note before you have
+   sent anything, or **Fail** with the reason if the money definitely did not leave and will not. Never fail a
+   payout you are unsure about: find the transfer first.
+
+Refusals you may see: `settlement_reference_used` (that reference settled another payout),
+`settlement_reference_mismatch` (the SMS is for another amount or payout), `holder_name_not_confirmed`.
+
+## Capturing real fixtures
+
+Parsers and the receipt reader are tested against fixtures in `packages/core/src/smsparse.fixtures.ts` and
+`packages/payments/src/receipts/fixtures.ts`. Before go-live, and whenever a message or the receipt page
+changes shape:
+
+1. From the queue (raw text) or the handset, copy the SMS. Replace the payer's name and phone with made-up
+   ones, keep everything else byte for byte (spacing, punctuation, the balance phrase).
+2. Add it to the fixtures with the expected parse, and a test; fix the parser until the suite passes.
+3. For a receipt page, save the HTML of a staff test payment (no player data) as a fixture.
+
+## Rotating `SMS_GATEWAY_SECRET`
+
+On a schedule, on every staff change involving the handset, and at once on a suspected leak. There is one
+active secret: set the new one in the forwarder and the environment within a few minutes of each other and
+recreate `api`. SMS forwarded with the old secret in between get 401 and stay on the handset: forward them
+again afterwards (duplicates are harmless). See [rotating secrets](rotating-secrets.md).
