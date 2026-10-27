@@ -19,3 +19,11 @@ export {
   OperatingModeMismatchError,
   type DatabaseOperatingMode,
 } from './operating-mode';
+export {
+  OTP_RETENTION_MS,
+  pruneExpiredSecurityRecords,
+  RETENTION_BATCH_SIZE,
+  SESSION_RETENTION_MS,
+  type RetentionOptions,
+  type RetentionResult,
+} from './retention';

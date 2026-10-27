@@ -63,6 +63,11 @@ export const STAFF_ACCOUNT_BACKOFF_BASE_MS = 60_000;
 export const STAFF_ACCOUNT_BACKOFF_MAX_MS = 15 * 60_000;
 /** How long a self-service authenticator enrolment waits for its confirming code. */
 export const STAFF_TOTP_PENDING_MS = 10 * 60_000;
+/**
+ * How long a password someone else chose (account creation by staff or the CLI with a
+ * generated password, a reset by staff) works before its owner replaces it (ASVS 2.3.1).
+ */
+export const STAFF_INITIAL_PASSWORD_TTL_MS = 72 * 60 * 60_000;
 
 /** The account-wide delay after `attempts` counted failures in a row (0 below the threshold). */
 export function staffAccountBackoffMs(attempts: number): number {
@@ -405,6 +410,8 @@ export async function createStaffUser(
   const id = randomUUID();
   const { stored, enrolment } = newEnrolment(deps, id, email);
   const now = deps.clock();
+  const passwordChangeRequired =
+    input.actor.type === 'admin' || (input.requirePasswordChange ?? false);
   const user = await deps.db.transaction(async (tx) => {
     const [row] = await tx
       .insert(adminUsers)
@@ -416,8 +423,10 @@ export async function createStaffUser(
         role,
         totpSecretEnc: stored,
         totpEnrolledAt: now,
-        passwordChangeRequired:
-          input.actor.type === 'admin' || (input.requirePasswordChange ?? false),
+        passwordChangeRequired,
+        passwordExpiresAt: passwordChangeRequired
+          ? new Date(now.getTime() + STAFF_INITIAL_PASSWORD_TTL_MS)
+          : null,
         createdAt: now,
         updatedAt: now,
       })
@@ -675,6 +684,10 @@ export async function resetStaffPassword(
       .set({
         passwordHash,
         passwordChangeRequired: input.actor.type === 'admin',
+        passwordExpiresAt:
+          input.actor.type === 'admin'
+            ? new Date(now.getTime() + STAFF_INITIAL_PASSWORD_TTL_MS)
+            : null,
         failedLoginAttempts: 0,
         lockedUntil: null,
         updatedAt: now,
@@ -759,6 +772,8 @@ type LoginFailureReason =
   /** The password or TOTP secret changed while this attempt was being verified. */
   | 'credentials_changed'
   | 'password'
+  /** A password someone else chose, not replaced within STAFF_INITIAL_PASSWORD_TTL_MS. */
+  | 'password_expired'
   | 'totp_not_enrolled'
   | 'totp_unreadable'
   | 'totp_invalid'
@@ -844,6 +859,13 @@ async function verifyAttempt(
   const passwordOk = await deps.passwords.verify(user.passwordHash, password);
   if (user.disabledAt !== null) return { ok: false, reason: 'disabled' };
   if (!passwordOk) return { ok: false, reason: 'password' };
+  if (
+    user.passwordChangeRequired &&
+    user.passwordExpiresAt !== null &&
+    now.getTime() >= user.passwordExpiresAt.getTime()
+  ) {
+    return { ok: false, reason: 'password_expired' };
+  }
   if (user.totpSecretEnc === null) return { ok: false, reason: 'totp_not_enrolled' };
   let secret: Buffer;
   try {
@@ -1173,6 +1195,7 @@ export async function changeOwnStaffPassword(
         .set({
           passwordHash: passwordHash ?? row.passwordHash,
           passwordChangeRequired: false,
+          passwordExpiresAt: null,
           totpLastStep: step,
           failedLoginAttempts: 0,
           lockedUntil: null,

@@ -222,6 +222,13 @@ export const adminUsers = pgTable(
      */
     totpPendingSecretEnc: text('totp_pending_secret_enc'),
     totpPendingAt: timestamp('totp_pending_at', { withTimezone: true }),
+    /**
+     * When a password someone else chose (account creation, reset by staff)
+     * stops working if the staff member has not replaced it by then
+     * (STAFF_INITIAL_PASSWORD_TTL_MS; ASVS 2.3.1); null for a password of
+     * their own.
+     */
+    passwordExpiresAt: timestamp('password_expires_at', { withTimezone: true }),
     disabledAt: timestamp('disabled_at', { withTimezone: true }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     ...timestamps,

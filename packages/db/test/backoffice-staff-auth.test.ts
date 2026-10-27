@@ -28,6 +28,7 @@ import {
   STAFF_SESSION_ABSOLUTE_MS,
   STAFF_SESSION_IDLE_MS,
   STAFF_TOTP_PENDING_MS,
+  STAFF_INITIAL_PASSWORD_TTL_MS,
   staffAccountBackoffMs,
   startOwnStaffTotpEnrolment,
   totpCode,
@@ -649,6 +650,51 @@ describe('staff self-service (own password and authenticator)', () => {
     });
     expect((await userRow(staff.id)).passwordChangeRequired).toBe(true);
     expect((await userRow((await newStaff()).id)).passwordChangeRequired).toBe(false);
+  });
+
+  it('lets a password someone else chose work for 72 hours only (ASVS 2.3.1)', async () => {
+    const admin = await newStaff('admin');
+    const created = await createStaffUser(deps(), {
+      email: `expiring${emailCounter}@vamos.test`,
+      displayName: 'Expiring',
+      role: 'kyc',
+      actor: { type: 'admin', adminId: admin.id },
+    });
+    const staff = {
+      id: created.user.id,
+      email: created.user.email,
+      secret: base32Decode(created.totp.secret),
+    };
+    expect((await userRow(staff.id)).passwordExpiresAt?.getTime()).toBe(
+      now.getTime() + STAFF_INITIAL_PASSWORD_TTL_MS,
+    );
+    const signIn = (password: string) =>
+      loginStaff(deps(), { email: staff.email, password, code: nextCode(staff) });
+    // Unused for 72 hours: the generic 401, recorded as expired, not counted as a guess.
+    advance(STAFF_INITIAL_PASSWORD_TTL_MS);
+    await expectInvalidCredentials(signIn(created.generatedPassword!));
+    expect((await loginFailures(staff.id)).at(-1)).toBe('password_expired');
+    expect((await userRow(staff.id)).failedLoginAttempts).toBe(0);
+
+    // A new reset by staff gives another 72 hours; the staff member's own password has none.
+    await resetStaffPassword(deps(), {
+      adminUserId: staff.id,
+      password: 'a temporary long password',
+      actor: { type: 'admin', adminId: admin.id },
+    });
+    const signedIn = await signIn('a temporary long password');
+    await changeOwnStaffPassword(deps(), {
+      adminUserId: staff.id,
+      sessionId: signedIn.session.id,
+      currentPassword: 'a temporary long password',
+      code: nextCode(staff),
+      newPassword: NEW_PASSWORD,
+    });
+    expect((await userRow(staff.id)).passwordExpiresAt).toBeNull();
+    advance(STAFF_INITIAL_PASSWORD_TTL_MS);
+    expect((await signIn(NEW_PASSWORD)).staff.passwordChangeRequired).toBe(false);
+    // Accounts the CLI or the demo seed made with a chosen password never expire.
+    expect((await userRow((await newStaff()).id)).passwordExpiresAt).toBeNull();
   });
 
   it('refuses common passwords and requires a change when one still signs in (ASVS 2.1.7)', async () => {

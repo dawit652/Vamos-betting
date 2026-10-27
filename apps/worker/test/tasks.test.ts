@@ -171,6 +171,7 @@ describe('createTasks', () => {
     'aml-evaluate',
     'aml-sweep',
     'ussd-session-prune',
+    'retention-prune',
     'outbox-dispatch',
   ];
 

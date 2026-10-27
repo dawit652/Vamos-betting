@@ -42,6 +42,7 @@ import {
   type PayoutTaskOptions,
 } from './payouts';
 import { prematchDriftTask, type PrematchDriftOptions } from './prematch-drift';
+import { retentionPruneTask, type RetentionPruneOptions } from './retention-prune';
 import { smsNotifyTask, type SmsNotifyOptions } from './sms-notify';
 import { userNotifyTask, type UserNotifyOptions } from './user-notify';
 import { ussdPruneTask, type UssdPruneOptions } from './ussd-prune';
@@ -78,6 +79,7 @@ export interface TaskOptions {
   amlSweep?: AmlSweepOptions;
   outboxDispatch?: OutboxDispatchOptions;
   ussdPrune?: UssdPruneOptions;
+  retentionPrune?: RetentionPruneOptions;
 }
 
 /**
@@ -90,7 +92,8 @@ export interface TaskOptions {
  * sweep), live bet acceptance, the payout worker (and
  * its sweep), deposit reconciliation, SMS notifications, player push
  * messages, the compliance tasks (ELS stream and its sweep, daily summaries,
- * reconciliation, AML evaluation and sweep; see ./compliance.ts) and the
+ * reconciliation, AML evaluation and sweep; see ./compliance.ts), the
+ * retention pruning (USSD sessions; ended sessions and old one-time codes) and the
  * outbox dispatcher run in every mode and with every feed; the payment providers in
  * ctx.payments are whatever PAYMENT_PROVIDERS enables (only the mock one in
  * demo mode). The consumers come before the dispatcher, so they are started
@@ -135,6 +138,7 @@ export function createTasks(
     amlEvaluateTask(compliance, options.amlEvaluate),
     amlSweepTask(compliance, options.amlSweep),
     ussdPruneTask(ctx, options.ussdPrune),
+    retentionPruneTask(ctx, options.retentionPrune),
     outboxDispatchTask(ctx, options.outboxDispatch),
   );
   return tasks;

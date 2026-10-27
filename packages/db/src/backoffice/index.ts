@@ -57,6 +57,7 @@ export {
   STAFF_SESSION_TOUCH_MS,
   STAFF_TOTP_ISSUER,
   STAFF_TOTP_PENDING_MS,
+  STAFF_INITIAL_PASSWORD_TTL_MS,
   staffAccountBackoffMs,
   staffCsrfTokenFor,
   staffInvalidCredentialsError,
