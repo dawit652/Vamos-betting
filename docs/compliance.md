@@ -9,7 +9,7 @@ in this file is legal advice.
   22 suspended operators. The Ethiopian Lottery Service (ELS) is preparing a stricter relaunch with
   real-time transaction monitoring. ELS has not published a reporting specification yet.
 - The platform therefore runs as a play-money demo (`OPERATING_MODE=demo`, the default). Real money needs an
-  ELS licence. `OPERATING_MODE=licensed` refuses to start unless an ELS licence number, ELS reporting,
+  ELS licence. `OPERATING_MODE=licensed` refuses to start unless ELS reporting,
   real payment and KYC providers, `TAX_CONFIG_CONFIRMED=true`, `NODE_ENV=production` and a non-default
   `SESSION_SECRET` are all set. The guard is in `packages/config/src/config.ts`.
 - Phase 10 only strengthens that guard: in licensed mode `ELS_REPORTING_MODE=off` and `=http` are refused

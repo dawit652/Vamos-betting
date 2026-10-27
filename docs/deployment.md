@@ -157,7 +157,6 @@ over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET 
 `OPERATING_MODE=licensed` is refused unless **all** of these hold (the exact messages come from
 `licensedModeViolations` in `packages/config/src/config.ts` plus the api's own checks):
 
-- [ ] An ELS licence exists and `ELS_LICENSE_NUMBER` is set.
 - [ ] `NODE_ENV=production`; `PUBLIC_WEB_URL`, `ADMIN_WEB_URL`, `PUBLIC_API_URL` are https and the admin
       origin differs from the web origin.
 - [ ] Unique `SESSION_SECRET` (32+ chars), `ADMIN_TOTP_KEY` (32 bytes), `PASSWORD_PEPPER` (32+ chars), and no
@@ -240,7 +239,6 @@ in a secret manager, not in git.
 
 | Variable                                             | Default         | Meaning                                                                                                                                                                             |
 | ---------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ELS_LICENSE_NUMBER`                                 | unset           | Required in licensed mode. Leave unset, not empty.                                                                                                                                  |
 | `ELS_REPORTING_MODE`                                 | `file`          | `file` (JSONL stream + daily CSVs), `http` (placeholder: sends nothing), `off` (demo only). The legacy `ELS_REPORTING=disabled\|file\|http` is still read; setting both must agree. |
 | `ELS_REPORT_DIR`                                     | `./var/els`     | Report directory; absolute in licensed mode. Compose fixes `/var/lib/vamos/els` (volume `els`).                                                                                     |
 | `ELS_REPORT_URL`                                     | unset           | For the `http` placeholder only.                                                                                                                                                    |

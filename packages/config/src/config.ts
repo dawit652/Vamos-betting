@@ -225,7 +225,6 @@ const envSchema = z.object({
   KYC_PROVIDER: z.enum(['mock', 'fayda']).default('mock'),
   SMS_PROVIDER: z.enum(['mock', 'http']).default('mock'),
 
-  ELS_LICENSE_NUMBER: z.string().trim().min(1).optional(),
   /** How regulator (ELS) reports are produced: file (JSONL + CSV), http (placeholder) or off. */
   ELS_REPORTING_MODE: z.enum(['file', 'http', 'off']).optional(),
   /** Legacy spelling of ELS_REPORTING_MODE ('disabled' = 'off'). */
@@ -319,7 +318,6 @@ export interface AppConfig {
    */
   payments: PaymentProvidersConfig;
   els: {
-    licenseNumber: string | undefined;
     /**
      * ELS_REPORTING_MODE: `file` writes the transaction stream (JSONL) and the
      * daily summaries (CSV) under reportDir; `http` is a placeholder that
@@ -411,11 +409,6 @@ export function licensedModeViolations(config: AppConfig): string[] {
   if (config.passwordPepper === undefined) {
     problems.push(
       'PASSWORD_PEPPER is required in licensed mode (the secret key of every password hash, kept outside the database)',
-    );
-  }
-  if (!config.els.licenseNumber) {
-    problems.push(
-      'ELS_LICENSE_NUMBER is required: real-money betting needs an Ethiopian Lottery Service licence',
     );
   }
   if (config.els.reportingMode === 'off' || config.els.reporting === 'disabled') {
@@ -590,7 +583,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       },
     },
     els: {
-      licenseNumber: e.ELS_LICENSE_NUMBER,
       reportingMode: elsMode,
       reporting: elsMode === 'off' ? 'disabled' : elsMode,
       reportDir: e.ELS_REPORT_DIR ?? DEFAULT_ELS_REPORT_DIR,

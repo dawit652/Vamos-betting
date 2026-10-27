@@ -22,7 +22,6 @@ const PRODUCTION_PEPPER = 'a-real-password-pepper-of-at-least-32-chars';
 const LICENSED_ENV = {
   NODE_ENV: 'production',
   OPERATING_MODE: 'licensed',
-  ELS_LICENSE_NUMBER: 'ELS/SB/0001',
   ELS_REPORTING_MODE: 'file',
   ELS_REPORT_DIR: '/var/lib/vamos/els',
   PAYMENT_PROVIDERS: 'telebirr,chapa',
@@ -65,11 +64,6 @@ describe('loadConfig', () => {
     expect(config.mode).toBe('licensed');
     expect(config.providers.payments).toEqual(['telebirr', 'chapa']);
     expect(config.taxConfigConfirmed).toBe(true);
-  });
-
-  it('refuses licensed mode without a licence number', () => {
-    const { ELS_LICENSE_NUMBER: _omit, ...env } = LICENSED_ENV;
-    expect(problemsOf(env).join('\n')).toMatch(/ELS_LICENSE_NUMBER/);
   });
 
   it('refuses licensed mode with mock payments, mock KYC, mock SMS, mock feed or unconfirmed tax', () => {

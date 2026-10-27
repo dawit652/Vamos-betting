@@ -206,7 +206,6 @@ describe('startup checks', () => {
     const licensedEnv = {
       LOG_LEVEL: 'silent',
       OPERATING_MODE: 'licensed',
-      ELS_LICENSE_NUMBER: 'ELS-1',
       PAYMENT_PROVIDERS: 'telebirr',
       KYC_PROVIDER: 'fayda',
       SMS_PROVIDER: 'http',

@@ -145,8 +145,8 @@ production compose build (Docker Hub rate limit); the CI docker job runs it.
   real-time transaction monitoring.
 - So the platform runs as a **play-money demo**: `OPERATING_MODE=demo` is the default, with "Demo ETB",
   mock payment/KYC/SMS providers and a permanent "DEMO – no real money" banner.
-- `OPERATING_MODE=licensed` refuses to start unless all of these hold: an ELS licence number, ELS
-  reporting enabled, real payment and KYC providers, `TAX_CONFIG_CONFIRMED=true`, `NODE_ENV=production`
+- `OPERATING_MODE=licensed` refuses to start unless all of these hold: ELS reporting
+  enabled, real payment and KYC providers, `TAX_CONFIG_CONFIRMED=true`, `NODE_ENV=production`
   and a non-default `SESSION_SECRET`. The guard is in `packages/config/src/config.ts`. Never weaken it.
 - The `database_identity` table ties a database to one mode. API and worker both call
   `claimOperatingMode` at startup and refuse to run against a database of the other mode.

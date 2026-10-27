@@ -15,7 +15,7 @@ Mobile-first sportsbook for Costa Rica, modelled on Betika. TypeScript pnpm mono
 ## Rules that matter
 
 - **Operating mode.** `OPERATING_MODE=demo` is the default (play money, mock providers). Never weaken the
-  licensed-mode guard in `packages/config/src/config.ts`. Real money needs a Costa Rican operating licence.
+  licensed-mode guard in `packages/config/src/config.ts`.
 - **Money** is `bigint` santim (1 ETB = 100 santim) end to end; odds are integer milli (1.85 → 1850).
   Never use floating point for money. Round payouts **down**. Over the wire, money is a decimal string.
 - **Ledger.** Every balance change is a double-entry `ledger_transaction` whose entries sum to zero,

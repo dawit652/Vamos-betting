@@ -40,7 +40,6 @@ Vamos is modelled on **Betika**, the East African sportsbook that operated in Et
 
 **Licensed-mode startup conditions:**
 
-- an ELS licence number is set
 - regulator reporting is enabled
 - real payment, KYC, SMS and feed providers are configured
 - the tax configuration is confirmed
