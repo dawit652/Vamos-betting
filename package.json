@@ -1,7 +1,7 @@
 {
   "name": "vamos-betting",
   "private": true,
-  "description": "Vamos Betting – mobile-first sportsbook for the Ethiopian market (demo mode until licensed)",
+  "description": "Vamos Betting \u2013 mobile-first sportsbook for the Ethiopian market (demo mode until licensed)",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22.13.0"
@@ -19,6 +19,8 @@
     "test": "pnpm -r --if-present test",
     "test:unit": "pnpm -r --if-present test:unit",
     "test:infra": "bash infra/scripts/backup.test.sh",
+    "sbom": "node scripts/sbom.mjs",
+    "audit:prod": "pnpm audit --prod",
     "e2e": "pnpm --filter @vamos/e2e e2e",
     "load:bets": "pnpm --filter @vamos/load bet-placement",
     "db:generate": "pnpm --filter @vamos/db generate",
@@ -50,6 +52,12 @@
       "@swc/core",
       "@parcel/watcher",
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "zod@<4.6.6": "4.6.7",
+      "tsup>esbuild": "0.28.2",
+      "@esbuild-kit/core-utils>esbuild": "0.25.12",
+      "hyperid>uuid": "11.1.1"
+    }
   }
 }

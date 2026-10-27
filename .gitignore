@@ -34,3 +34,6 @@ var/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# software bill of materials (pnpm sbom; a CI artifact)
+sbom.cdx.json
