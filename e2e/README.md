@@ -25,6 +25,18 @@ a few seconds. Logs are in `e2e/.stack/`. Set `E2E_WEB_URL` / `E2E_API_URL` / `E
 Single specs: `pnpm --filter @vamos/e2e e2e:flow` (bet flow), `pnpm --filter @vamos/e2e budget`
 (page weight).
 
+## Testing a deployed demo
+
+`deployment/payments.spec.ts` (its own config, `playwright.deployment.config.ts`, no dev tools needed)
+walks a deposit and a withdrawal through the public pages of a demo deployment with `NODE_ENV=production`:
+sign-up code on screen, KYC, deposit approved on the simulated phone, bets, withdrawal approved by a real
+staff account in the back office, paid. See `docs/deployment.md`, section 8:
+
+```bash
+E2E_WEB_URL=… E2E_API_URL=… E2E_ADMIN_URL=… E2E_STAFF_EMAIL=… E2E_STAFF_PASSWORD=… \
+E2E_STAFF_TOTP_SECRET=… pnpm e2e:deployment
+```
+
 ## Specs
 
 | Spec                    | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |

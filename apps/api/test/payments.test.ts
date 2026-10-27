@@ -39,7 +39,11 @@ import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
 import { IDEMPOTENT_REPLAYED_HEADER } from '../src/lib/idempotency';
-import { DEV_BACK_OFFICE_ACTOR, devPaymentsEnabled } from '../src/modules/payments/dev-routes';
+import {
+  DEV_BACK_OFFICE_ACTOR,
+  demoPhoneEnabled,
+  devPaymentsEnabled,
+} from '../src/modules/payments/dev-routes';
 import { WEBHOOK_BODY_LIMIT } from '../src/modules/payments/routes';
 import { depositReturnUrl } from '../src/modules/payments/service';
 import { withdrawalSteps } from '../src/modules/payments/views';
@@ -1194,7 +1198,7 @@ describe('licensed mode and dev route gating', () => {
     ).toThrow(ProviderNotConfiguredError);
   });
 
-  it('enables the dev payment tools only in demo mode, with the mock provider, outside production', () => {
+  it('enables the stand-in back office only in demo mode, with the mock provider, outside production', () => {
     const { config, payments } = ctx.deps;
     expect(devPaymentsEnabled({ config, payments })).toBe(true);
     expect(devPaymentsEnabled({ config: { ...config, mode: 'licensed' }, payments })).toBe(false);
@@ -1202,6 +1206,65 @@ describe('licensed mode and dev route gating', () => {
       false,
     );
     expect(devPaymentsEnabled({ config, payments: noMock })).toBe(false);
+  });
+
+  it('enables the phone simulator in demo mode with the mock provider, production included', () => {
+    const { config, payments } = ctx.deps;
+    expect(demoPhoneEnabled({ config, payments })).toBe(true);
+    expect(demoPhoneEnabled({ config: { ...config, nodeEnv: 'production' }, payments })).toBe(true);
+    expect(demoPhoneEnabled({ config: { ...config, mode: 'licensed' }, payments })).toBe(false);
+    expect(demoPhoneEnabled({ config, payments: noMock })).toBe(false);
+  });
+
+  it('takes deposits on a production demo, without the stand-in back office', async () => {
+    const player = await registerAndLogin(ctx);
+    const app = buildApp(
+      { ...ctx.deps, config: { ...ctx.deps.config, nodeEnv: 'production' } },
+      { logger: false, rateLimitNameSpace: `prod-demo-pay-${randomBytes(4).toString('hex')}:` },
+    );
+    try {
+      const before = await cashOf(player);
+      const created = await postDeposit(
+        player,
+        { amount: '25000', provider: 'mock' },
+        undefined,
+        app,
+      );
+      expect(created.statusCode).toBe(201);
+      const deposit = DepositView.parse(created.json());
+
+      const pushes = await app.inject({
+        method: 'GET',
+        url: '/dev/payments/phone',
+        headers: bearer(player),
+      });
+      expect(DevPhonePushesResponse.parse(pushes.json()).items.map((i) => i.depositId)).toEqual([
+        deposit.id,
+      ]);
+      const approved = await app.inject({
+        method: 'POST',
+        url: '/dev/payments/phone',
+        payload: { depositId: deposit.id, decision: 'approve', pin: PIN },
+        headers: bearer(player),
+      });
+      expect(DevPhoneDecisionResponse.parse(approved.json())).toMatchObject({
+        outcome: 'credited',
+        deposit: { status: 'succeeded' },
+      });
+      expect(await cashOf(player)).toBe(before + 25_000n);
+
+      // Withdrawals are approved by staff in the real back office there.
+      for (const route of [
+        { method: 'GET' as const, url: '/dev/payments/withdrawals' },
+        { method: 'POST' as const, url: `/dev/payments/withdrawals/${randomUUID()}/approve` },
+        { method: 'POST' as const, url: `/dev/payments/withdrawals/${randomUUID()}/reject` },
+      ]) {
+        const response = await app.inject({ ...route, payload: {} });
+        expect(response.statusCode, route.url).toBe(404);
+      }
+    } finally {
+      await app.close();
+    }
   });
 
   it('has no simulator, no stand-in back office and no mock webhook in licensed mode', async () => {

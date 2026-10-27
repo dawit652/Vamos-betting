@@ -32,17 +32,25 @@ import { depositView, withdrawalView } from './views';
 export const DEV_BACK_OFFICE_ACTOR = 'dev:back-office-stand-in';
 
 /**
- * The dev payment tools exist only for local development, tests and e2e:
- * demo mode, the mock (play-money) payment provider enabled and NODE_ENV other
- * than production, like the dev SMS inbox. A public deployment (production)
- * never has them, and licensed mode never does.
+ * The phone simulator: demo mode with the mock (play-money) payment provider,
+ * whatever NODE_ENV is, so a public demo deployment (NODE_ENV=production) can
+ * take deposits too. It is the only way to complete a mock deposit, and it
+ * gives a player nothing the demo top-up (POST /wallet/demo-topup) does not:
+ * play money, for their own session and their own deposits only. Licensed mode
+ * never has it (the mock provider is refused there).
+ */
+export function demoPhoneEnabled(deps: Pick<AppDeps, 'config' | 'payments'>): boolean {
+  return deps.config.mode === 'demo' && deps.payments.get('mock') instanceof MockPaymentProvider;
+}
+
+/**
+ * The stand-in back office (no staff session) exists only for local
+ * development, tests and e2e: the phone simulator's conditions plus NODE_ENV
+ * other than production, like the dev SMS inbox. A public deployment approves
+ * withdrawals in the real back office (apps/admin).
  */
 export function devPaymentsEnabled(deps: Pick<AppDeps, 'config' | 'payments'>): boolean {
-  return (
-    deps.config.mode === 'demo' &&
-    deps.config.nodeEnv !== 'production' &&
-    deps.payments.get('mock') instanceof MockPaymentProvider
-  );
+  return demoPhoneEnabled(deps) && deps.config.nodeEnv !== 'production';
 }
 
 function mockProvider(deps: Pick<AppDeps, 'payments'>): MockPaymentProvider {
@@ -66,23 +74,23 @@ function sessionPhone(request: FastifyRequest, named: string | undefined): strin
 }
 
 /**
- * DEV ONLY – not part of the product.
+ * DEMO ONLY – not part of the licensed product.
  *
- * The dev phone simulator for the mock provider, for the signed-in
+ * The phone simulator for the mock provider, for the signed-in
  * player's own registered phone only (session required, CSRF for cookies):
  * - GET /dev/payments/phone lists the deposit pushes waiting on it;
  * - POST /dev/payments/phone approves (PIN 1234) or declines one. It builds
  *   the signed mock webhook and feeds it through the same verification and
  *   apply path as POST /payments/webhooks/mock.
  *
- * A STAND-IN for the Phase 9 back office (no staff login yet), so e2e can
+ * DEV ONLY (not in production): a STAND-IN for the back office, so e2e can
  * walk a withdrawal through review (no session: it plays the staff side):
  * - GET /dev/payments/withdrawals lists withdrawals waiting for review;
  * - POST /dev/payments/withdrawals/:id/approve and …/reject.
  */
 export default async function devPaymentRoutes(app: FastifyInstance): Promise<void> {
   const { deps } = app;
-  if (!devPaymentsEnabled(deps)) return;
+  if (!demoPhoneEnabled(deps)) return;
 
   app.get(
     '/dev/payments/phone',
@@ -154,6 +162,9 @@ export default async function devPaymentRoutes(app: FastifyInstance): Promise<vo
       return { outcome: ack.outcome, deposit: depositView(updated) };
     },
   );
+
+  // Unauthenticated staff actions: never on a public deployment.
+  if (!devPaymentsEnabled(deps)) return;
 
   app.get('/dev/payments/withdrawals', async (): Promise<DevWithdrawalQueueResponse> => {
     const rows = await listPayoutsForReview(deps.db);
