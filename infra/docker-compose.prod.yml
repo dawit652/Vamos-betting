@@ -174,7 +174,7 @@ services:
 
   # One-shot job: applies pending migrations (same image as the api) and exits. Run it alone with
   # `docker compose run --rm migrate`. Other jobs of this image: dist/ops/seed.js (demo catalogue),
-  # admin-create.js, admin-unlock.js (docs/deployment.md).
+  # admin-create.js, admin-unlock.js, totp-rekey.js (docs/deployment.md).
   migrate:
     image: vamos-api:${VAMOS_VERSION:-local}
     build:

@@ -19,7 +19,8 @@
     "migrate": "tsx src/scripts/migrate.ts",
     "seed": "tsx src/scripts/seed.ts",
     "admin:create": "tsx src/scripts/admin-create.ts",
-    "admin:unlock": "tsx src/scripts/admin-unlock.ts"
+    "admin:unlock": "tsx src/scripts/admin-unlock.ts",
+    "admin:totp-rekey": "tsx src/scripts/totp-rekey.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "2.2.2",

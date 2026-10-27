@@ -12,10 +12,24 @@ protects is [deployment.md](../deployment.md#5-configuration-reference). General
 ## ADMIN_TOTP_KEY (staff authenticator secrets)
 
 The key encrypts each staff member's TOTP secret at rest (AES-256-GCM, stored as `v1.<iv>.<ciphertext>.<tag>`
-and bound to the staff account id). **There is no key versioning and no re-encryption tool**: after the key
-changes, every stored secret fails to decrypt and nobody can pass the authenticator step. Rotation therefore
-means re-enrolling every staff member. Losing the key (not rotating it) has the same effect, which is why
-the key is kept in the secret manager and sealed with the backups' keys.
+and bound to the staff account id). A rotation re-encrypts the stored secrets with `totp-rekey`, so nobody
+re-enrols. Losing the key is different: nothing decrypts any more and every staff member must re-enrol
+(below). That is why the key is kept in the secret manager and sealed with the backups' keys.
+
+**Scheduled rotation (the old key is still known):**
+
+1. Agree a short window (staff sign-in fails between steps 2 and 3; open sessions keep working).
+2. Re-encrypt every secret under the new key, in one transaction (every secret moves or none does):
+   ```bash
+   docker compose run --rm -T -e ADMIN_TOTP_KEY_PREVIOUS='<old key>' -e ADMIN_TOTP_KEY='<new key>' \
+     migrate node dist/ops/totp-rekey.js
+   ```
+   It prints the count and is audited as `staff.totp_rekeyed`. A repeat changes nothing. If one secret
+   decrypts with neither key, it stops, names the account and changes nothing.
+3. Set the new `ADMIN_TOTP_KEY` in the secret store and `infra/.env.prod`; recreate `api` and `worker`
+   (`docker compose up -d api worker`). Ask one staff member to sign in to verify.
+
+**Lost key, or the old key leaked together with a database copy:**
 
 1. List active staff (`GET /admin/staff`, or the back office) and agree a window; tell them to expect to
    re-enrol. Sessions already open keep working until they expire (30 min idle / 12 h absolute).

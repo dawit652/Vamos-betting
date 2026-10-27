@@ -54,7 +54,7 @@ dependency layer, production-only `pnpm install --prod` per service, `node:22-al
 and the proxy have read-only root filesystems. The web and admin code is owned by root (the `node` user cannot
 change it); only Next's cache directory is writable (a tmpfs in compose). The api and worker are bundled by tsup (workspace packages inlined),
 so their images hold only `dist/` and the external npm packages (about 320 MB). The `api` image also carries
-the operations scripts (`dist/ops/{migrate,seed,admin-create,admin-unlock}.js`) and the SQL migrations.
+the operations scripts (`dist/ops/{migrate,seed,admin-create,admin-unlock,totp-rekey}.js`) and the SQL migrations.
 
 ## 2. Environments
 

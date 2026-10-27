@@ -18,7 +18,7 @@
 #
 # The api and worker are bundled by tsup (the @vamos/* packages are inlined), so their images carry
 # only dist/ and the npm packages that stay external. The api image also carries the operations
-# scripts (migrate, seed, admin-create, admin-unlock) in dist/ops and the SQL migrations in
+# scripts (migrate, seed, admin-create, admin-unlock, totp-rekey) in dist/ops and the SQL migrations in
 # dist/migrations: the compose `migrate` job is this image with another command.
 #
 # Behind a TLS-intercepting proxy, pass its CA to the install steps:

@@ -25,6 +25,7 @@ export {
   type VerifyTotpOptions,
 } from './totp';
 export { decryptTotpSecret, encryptTotpSecret, TotpSecretError } from './secret-box';
+export { rekeyStaffTotpSecrets, type TotpRekeyResult } from './totp-rekey';
 export {
   authenticateStaffSession,
   changeOwnStaffPassword,
