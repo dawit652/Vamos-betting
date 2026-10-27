@@ -5,6 +5,7 @@ import {
   buildSettingValue,
   formFromSetting,
   parseJsonValue,
+  passwordStrength,
   validateCode,
   validateLogin,
   validatePasswordChange,
@@ -142,5 +143,16 @@ describe('JSON editor', () => {
     expect(parseJsonValue('[1]').ok).toBe(true);
     expect(parseJsonValue('5').ok).toBe(false);
     expect(parseJsonValue('{bad').ok).toBe(false);
+  });
+});
+
+describe('new password strength hint (ASVS 2.1.8)', () => {
+  it('rates by length first, then by the kinds of characters', () => {
+    expect(passwordStrength('short')).toBe('Too short');
+    expect(passwordStrength('abc  defghij')).toBe('Too short');
+    expect(passwordStrength('aaaaaaaaaaaa')).toBe('Fair');
+    expect(passwordStrength('abcdefghijkl')).toBe('Fair');
+    expect(passwordStrength('abcdefghijkl12')).toBe('Good');
+    expect(passwordStrength('a new long passphrase')).toBe('Strong');
   });
 });

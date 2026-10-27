@@ -243,3 +243,22 @@ export function parseJsonValue(
     return { ok: false, error: 'This is not valid JSON.' };
   }
 }
+
+export type PasswordStrength = 'Too short' | 'Fair' | 'Good' | 'Strong';
+
+/**
+ * A rough strength for the hint under a new staff password (ASVS 2.1.8): the
+ * length first (12 at least, counting a run of spaces once), then the kinds of
+ * characters. It blocks nothing; the API refuses short and common passwords.
+ */
+export function passwordStrength(password: string): PasswordStrength {
+  const length = Array.from(password.replace(/ {2,}/g, ' ')).length;
+  if (length < 12) return 'Too short';
+  const kinds = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) =>
+    re.test(password),
+  ).length;
+  if (new Set(password.toLowerCase()).size < 6) return 'Fair';
+  if (length >= 20 || (length >= 16 && kinds >= 2) || kinds >= 3) return 'Strong';
+  if (length >= 14 || kinds >= 2) return 'Good';
+  return 'Fair';
+}

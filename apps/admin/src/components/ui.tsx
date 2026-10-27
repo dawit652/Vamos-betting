@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
 import { describeError } from '@/lib/errors';
-import { validateReason } from '@/lib/forms';
+import { passwordStrength, validateReason } from '@/lib/forms';
 
 export function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (
@@ -86,6 +86,44 @@ export function Field({ label, children }: { label: string; children: ReactNode 
       <span>{label}</span>
       {children}
     </label>
+  );
+}
+
+/**
+ * A password input that shows its text while `visible` (ShowPasswords, ASVS
+ * 2.1.12). The toggle sits outside the field's label, so the label stays the
+ * input's whole accessible name.
+ */
+export function PasswordInput({
+  visible = false,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { visible?: boolean }) {
+  return <input {...props} type={visible ? 'text' : 'password'} />;
+}
+
+/** The "Show passwords" checkbox of a form (ASVS 2.1.12). */
+export function ShowPasswords({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="check small muted">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      Show passwords
+    </label>
+  );
+}
+
+/** The strength hint under a new password (ASVS 2.1.8); nothing while it is empty. */
+export function PasswordStrengthHint({ password }: { password: string }) {
+  if (password.length === 0) return null;
+  return (
+    <span className="small muted" aria-live="polite">
+      Strength: {passwordStrength(password)} (12+ characters, not a common password)
+    </span>
   );
 }
 

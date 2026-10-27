@@ -161,6 +161,16 @@ h2 {
   color: var(--muted);
 }
 
+.check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.check input {
+  padding: 0;
+}
+
 input,
 select,
 textarea,

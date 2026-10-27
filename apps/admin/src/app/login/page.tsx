@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Field, Notice } from '@/components/ui';
+import { Field, Notice, PasswordInput, ShowPasswords } from '@/components/ui';
 import { useSession } from '@/components/session';
 import { describeError } from '@/lib/errors';
 import { validateLogin } from '@/lib/forms';
@@ -10,6 +10,7 @@ export default function LoginPage() {
   const { login } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,14 +49,15 @@ export default function LoginPage() {
           />
         </Field>
         <Field label="Password">
-          <input
-            type="password"
+          <PasswordInput
             name="password"
+            visible={showPassword}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
           />
         </Field>
+        <ShowPasswords checked={showPassword} onChange={setShowPassword} />
         <Field label="Authenticator code">
           <input
             name="code"

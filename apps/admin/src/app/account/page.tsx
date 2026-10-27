@@ -3,7 +3,14 @@
 import type { TotpEnrolmentView } from '@vamos/contracts';
 import { useState, type FormEvent } from 'react';
 import { useSession } from '@/components/session';
-import { Field, Notice, PageHeader } from '@/components/ui';
+import {
+  Field,
+  Notice,
+  PageHeader,
+  PasswordInput,
+  PasswordStrengthHint,
+  ShowPasswords,
+} from '@/components/ui';
 import { api } from '@/lib/api';
 import { describeError } from '@/lib/errors';
 import { validateCode, validatePasswordChange } from '@/lib/forms';
@@ -32,6 +39,7 @@ function PasswordForm() {
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -70,8 +78,8 @@ function PasswordForm() {
       <h2>Change password</h2>
       <p className="muted small">Your other sessions are signed out.</p>
       <Field label="Current password">
-        <input
-          type="password"
+        <PasswordInput
+          visible={showPasswords}
           value={currentPassword}
           onChange={(e) => setCurrentPassword(e.target.value)}
           autoComplete="current-password"
@@ -87,21 +95,23 @@ function PasswordForm() {
         />
       </Field>
       <Field label="New password">
-        <input
-          type="password"
+        <PasswordInput
+          visible={showPasswords}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           autoComplete="new-password"
         />
       </Field>
+      <PasswordStrengthHint password={newPassword} />
       <Field label="New password again">
-        <input
-          type="password"
+        <PasswordInput
+          visible={showPasswords}
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           autoComplete="new-password"
         />
       </Field>
+      <ShowPasswords checked={showPasswords} onChange={setShowPasswords} />
       {error !== null && <Notice>{error}</Notice>}
       {done && <Notice kind="ok">Password changed.</Notice>}
       <button type="submit" className="primary" disabled={busy}>
@@ -113,6 +123,7 @@ function PasswordForm() {
 
 function AuthenticatorForm() {
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [code, setCode] = useState('');
   const [enrolment, setEnrolment] = useState<TotpEnrolmentView | null>(null);
   const [newCode, setNewCode] = useState('');
@@ -177,13 +188,14 @@ function AuthenticatorForm() {
             confirm the new one.
           </p>
           <Field label="Current password">
-            <input
-              type="password"
+            <PasswordInput
+              visible={showPassword}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
             />
           </Field>
+          <ShowPasswords checked={showPassword} onChange={setShowPassword} />
           <Field label="Current authenticator code">
             <input
               inputMode="numeric"
