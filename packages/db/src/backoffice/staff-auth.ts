@@ -1,8 +1,14 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { isCommonPassword } from '@vamos/core/common-passwords';
-import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import type { Database } from '../client';
-import { DomainError, domainConflict, domainNotFound, domainUnprocessable } from '../errors';
+import {
+  DomainError,
+  domainBadRequest,
+  domainConflict,
+  domainNotFound,
+  domainUnprocessable,
+} from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { adminLoginThrottles, adminSessions, adminUsers } from '../schema/accounts';
@@ -1536,4 +1542,120 @@ export async function logoutStaff(
     });
     return true;
   });
+}
+
+/** Sessions listOwnStaffSessions returns at most. */
+export const MAX_LISTED_STAFF_SESSIONS = 50;
+
+/** One of the signed-in staff member's live sessions (never a token). */
+export interface StaffSessionListItem {
+  id: string;
+  /** The session this request was made with. */
+  current: boolean;
+  createdAt: Date;
+  lastSeenAt: Date;
+  expiresAt: Date;
+  ip: string | null;
+  userAgent: string | null;
+}
+
+/** The signed-in staff member's live sessions, most recently used first (ASVS 3.3.4). */
+export async function listOwnStaffSessions(
+  deps: Pick<StaffAuthDeps, 'db' | 'clock'>,
+  input: { adminUserId: string; sessionId: string },
+): Promise<StaffSessionListItem[]> {
+  const now = deps.clock();
+  const rows = await deps.db
+    .select({
+      id: adminSessions.id,
+      createdAt: adminSessions.createdAt,
+      lastSeenAt: adminSessions.lastSeenAt,
+      expiresAt: adminSessions.expiresAt,
+      ip: adminSessions.ip,
+      userAgent: adminSessions.userAgent,
+    })
+    .from(adminSessions)
+    .where(
+      and(
+        eq(adminSessions.adminUserId, input.adminUserId),
+        isNull(adminSessions.revokedAt),
+        isNotNull(adminSessions.mfaVerifiedAt),
+        gt(adminSessions.expiresAt, now),
+        gt(adminSessions.lastSeenAt, new Date(now.getTime() - STAFF_SESSION_IDLE_MS)),
+      ),
+    )
+    .orderBy(desc(adminSessions.lastSeenAt))
+    .limit(MAX_LISTED_STAFF_SESSIONS);
+  return rows.map((row) => ({ ...row, current: row.id === input.sessionId }));
+}
+
+/**
+ * Ends one other session (`targetSessionId`) or every other session of the
+ * signed-in staff member, after the current password and a code (ASVS
+ * 3.3.4). 400 `current_session` for the session in use (sign out instead),
+ * 403 `reauth_failed`, 404 for a session that is not theirs or already over
+ * (the code is used up either way). Audited as `staff.sessions_revoked`.
+ */
+export async function revokeOwnStaffSessions(
+  deps: StaffAuthDeps,
+  input: ReauthInput & { sessionId: string; targetSessionId?: string },
+): Promise<{ revoked: number }> {
+  if (input.targetSessionId === input.sessionId) {
+    throw domainBadRequest('current_session', 'Sign out to end the session you are using.');
+  }
+  const user = await readStaffRow(deps.db, input.adminUserId);
+  const now = deps.clock();
+  const clientKey = clientKeyOf(input);
+  const ip = input.ip ?? null;
+  const check = await verifyAttempt(deps, user, clientKey, input.password, input.code.trim(), now);
+  const outcome = await commitAttempt(
+    deps,
+    { before: user, check, clientKey, now, ip, context: 'sessions_revoke' },
+    async (tx, row, step) => {
+      await tx
+        .update(adminUsers)
+        .set({ totpLastStep: step, failedLoginAttempts: 0, lockedUntil: null, updatedAt: now })
+        .where(eq(adminUsers.id, row.id));
+      const target =
+        input.targetSessionId === undefined || !UUID_RE.test(input.targetSessionId)
+          ? undefined
+          : input.targetSessionId;
+      const ended =
+        input.targetSessionId !== undefined && target === undefined
+          ? []
+          : await tx
+              .update(adminSessions)
+              .set({ revokedAt: now })
+              .where(
+                and(
+                  eq(adminSessions.adminUserId, row.id),
+                  isNull(adminSessions.revokedAt),
+                  ne(adminSessions.id, input.sessionId),
+                  // Only live ones (what listOwnStaffSessions shows), so the count means something.
+                  gt(adminSessions.expiresAt, now),
+                  gt(adminSessions.lastSeenAt, new Date(now.getTime() - STAFF_SESSION_IDLE_MS)),
+                  ...(target === undefined ? [] : [eq(adminSessions.id, target)]),
+                ),
+              )
+              .returning({ id: adminSessions.id });
+      await writeAudit(tx, {
+        actorType: 'admin',
+        actorId: row.id,
+        action: 'staff.sessions_revoked',
+        targetType: 'admin_user',
+        targetId: row.id,
+        metadata: {
+          revoked: ended.length,
+          scope: input.targetSessionId === undefined ? 'others' : 'one',
+        },
+        ip,
+      });
+      return ended.length;
+    },
+  );
+  if (!outcome.ok) throw staffReauthFailedError();
+  if (input.targetSessionId !== undefined && outcome.value === 0) {
+    throw domainNotFound('Session');
+  }
+  return { revoked: outcome.value };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  deviceLabel,
   dayToIso,
   formatEtb,
   formatOdds,
@@ -77,5 +78,22 @@ describe('dates and labels', () => {
   it('humanizes codes', () => {
     expect(humanize('pending_acceptance')).toBe('pending acceptance');
     expect(humanize(null)).toBe('–');
+  });
+});
+
+describe('device label of a session', () => {
+  it('names the browser and system, or says it does not know', () => {
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+      ),
+    ).toBe('Chrome · Windows');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.6; rv:131.0) Gecko/20100101 Firefox/131.0',
+      ),
+    ).toBe('Firefox · macOS');
+    expect(deviceLabel('curl/8.0')).toBe('Unknown device');
+    expect(deviceLabel(null)).toBe('Unknown device');
   });
 });

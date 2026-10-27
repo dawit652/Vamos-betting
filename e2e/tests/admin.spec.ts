@@ -395,10 +395,12 @@ test('a support user is refused trading: 403 on the API and no trading nav', asy
       await expect(nav.getByRole('link', { name: hidden })).toHaveCount(0);
     }
 
-    // Every role has its own account page (own password and authenticator).
+    // Every role has its own account page (own password, authenticator and sessions).
     await staffPage.getByRole('link', { name: 'My account' }).click();
     await expect(staffPage.getByRole('heading', { name: 'Change password' })).toBeVisible();
     await expect(staffPage.getByRole('heading', { name: 'Authenticator app' })).toBeVisible();
+    const sessions = staffPage.getByRole('region', { name: 'Signed-in sessions' });
+    await expect(sessions.getByText('this session')).toBeVisible();
 
     // Typing the URL does not help: the page itself says no.
     await staffPage.goto(`${ADMIN_URL}/trading`);

@@ -81,3 +81,29 @@ export function nameOf(name: { en: string } | null | undefined): string {
 export function humanize(code: string | null | undefined): string {
   return code === null || code === undefined ? '–' : code.replace(/_/g, ' ');
 }
+
+const SYSTEMS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/Android/i, 'Android'],
+  [/iPhone|iPad|iPod/i, 'iOS'],
+  [/Windows/i, 'Windows'],
+  [/Mac OS X|Macintosh/i, 'macOS'],
+  [/CrOS/i, 'ChromeOS'],
+  [/Linux/i, 'Linux'],
+];
+
+const BROWSERS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/OPR\/|Opera/i, 'Opera'],
+  [/Edg\//i, 'Edge'],
+  [/Firefox\//i, 'Firefox'],
+  [/Chrome\//i, 'Chrome'],
+  [/Safari\//i, 'Safari'],
+];
+
+/** "Chrome · Windows" for a session's user agent, or "Unknown device" (the sessions list). */
+export function deviceLabel(userAgent: string | null): string {
+  if (userAgent === null) return 'Unknown device';
+  const browser = BROWSERS.find(([re]) => re.test(userAgent))?.[1];
+  const system = SYSTEMS.find(([re]) => re.test(userAgent))?.[1];
+  const parts = [browser, system].filter((part): part is string => part !== undefined);
+  return parts.length === 0 ? 'Unknown device' : parts.join(' · ');
+}

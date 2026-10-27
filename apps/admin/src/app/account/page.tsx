@@ -1,10 +1,16 @@
 'use client';
 
-import type { TotpEnrolmentView } from '@vamos/contracts';
+import type {
+  RevokeOwnStaffSessionsResponse,
+  StaffOwnSessionsResponse,
+  TotpEnrolmentView,
+} from '@vamos/contracts';
 import { useState, type FormEvent } from 'react';
+import { useFetch } from '@/components/hooks';
 import { useSession } from '@/components/session';
 import {
   Field,
+  Loading,
   Notice,
   PageHeader,
   PasswordInput,
@@ -13,9 +19,10 @@ import {
 } from '@/components/ui';
 import { api } from '@/lib/api';
 import { describeError } from '@/lib/errors';
+import { deviceLabel, formatDateTime } from '@/lib/format';
 import { validateCode, validatePasswordChange } from '@/lib/forms';
 
-/** The signed-in staff member's own password and authenticator app. */
+/** The signed-in staff member's own password, authenticator app and sessions. */
 export default function AccountPage() {
   const { staff } = useSession();
   return (
@@ -29,6 +36,7 @@ export default function AccountPage() {
       )}
       <PasswordForm />
       <AuthenticatorForm />
+      <SessionsCard />
     </>
   );
 }
@@ -239,6 +247,149 @@ function AuthenticatorForm() {
       {done && (
         <Notice kind="ok">Authenticator changed. Your other sessions are signed out.</Notice>
       )}
+    </section>
+  );
+}
+
+/**
+ * Where the account is signed in now; ending one other session or all of
+ * them takes the password and a code (ASVS 3.3.4).
+ */
+function SessionsCard() {
+  const sessions = useFetch<StaffOwnSessionsResponse>('/admin/me/sessions');
+  // undefined: no confirmation open; null: every other session; a string: that session.
+  const [target, setTarget] = useState<string | null | undefined>(undefined);
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function choose(next: string | null | undefined) {
+    setTarget(next);
+    setError(null);
+    setDone(null);
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const problem = password.length === 0 ? 'Enter your current password.' : validateCode(code);
+    if (problem !== null) {
+      setError(problem);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api<RevokeOwnStaffSessionsResponse>('/admin/me/sessions/revoke', {
+        method: 'POST',
+        body: {
+          password,
+          code: code.trim(),
+          ...(typeof target === 'string' ? { sessionId: target } : {}),
+        },
+      });
+      setDone(
+        result.revoked === 1 ? '1 session signed out.' : `${result.revoked} sessions signed out.`,
+      );
+      setTarget(undefined);
+      setPassword('');
+      sessions.reload();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setCode('');
+      setBusy(false);
+    }
+  }
+
+  const items = sessions.data?.items ?? [];
+  const others = items.filter((item) => !item.current).length;
+  return (
+    <section className="card" aria-label="Signed-in sessions">
+      <h2>Signed-in sessions</h2>
+      <p className="muted small">
+        Where your account is signed in now. Sign out any session you do not recognise, then change
+        your password.
+      </p>
+      <Loading loading={sessions.loading} error={sessions.error} />
+      {items.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Address</th>
+              <th>Signed in</th>
+              <th>Last active</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  {deviceLabel(item.userAgent)}{' '}
+                  {item.current && <span className="badge good">this session</span>}
+                </td>
+                <td>{item.ip ?? '–'}</td>
+                <td>{formatDateTime(item.createdAt)}</td>
+                <td>{formatDateTime(item.lastSeenAt)}</td>
+                <td>
+                  {!item.current && (
+                    <button type="button" onClick={() => choose(item.id)}>
+                      Sign out
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {others > 1 && target === undefined && (
+        <p>
+          <button type="button" onClick={() => choose(null)}>
+            Sign out all other sessions
+          </button>
+        </p>
+      )}
+      {target !== undefined && (
+        <form onSubmit={submit} autoComplete="off" aria-label="Confirm sign-out">
+          <p className="small">
+            {target === null ? 'Sign out every other session.' : 'Sign out the chosen session.'}{' '}
+            Confirm with your password and a code.
+          </p>
+          <Field label="Current password">
+            <PasswordInput
+              visible={showPassword}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+          </Field>
+          <ShowPasswords checked={showPassword} onChange={setShowPassword} />
+          <Field label="Authenticator code">
+            <input
+              inputMode="numeric"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoComplete="one-time-code"
+            />
+          </Field>
+          <div className="row">
+            <button type="submit" className="primary" disabled={busy}>
+              {busy ? 'Signing out…' : 'Sign out'}
+            </button>
+            <button type="button" onClick={() => choose(undefined)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+      {error !== null && <Notice>{error}</Notice>}
+      {done !== null && <Notice kind="ok">{done}</Notice>}
     </section>
   );
 }

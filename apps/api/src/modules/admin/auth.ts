@@ -4,13 +4,16 @@ import {
   CreateStaffRequest,
   CreateStaffResponse,
   ResetStaffPasswordRequest,
+  RevokeOwnStaffSessionsRequest,
   StaffListResponse,
+  StaffOwnSessionsResponse,
   StaffLoginRequest,
   StaffUserView,
   StartTotpEnrolmentRequest,
   TotpEnrolmentView,
   UpdateStaffRequest,
   type OkResponse,
+  type RevokeOwnStaffSessionsResponse,
   type StaffSessionResponse,
 } from '@vamos/contracts';
 import {
@@ -18,12 +21,14 @@ import {
   confirmOwnStaffTotpEnrolment,
   createStaffUser,
   getStaffUser,
+  listOwnStaffSessions,
   listStaffUsers,
   loginStaff,
   logoutStaff,
   normalizeStaffEmail,
   resetStaffPassword,
   resetStaffTotp,
+  revokeOwnStaffSessions,
   setStaffDisabled,
   startOwnStaffTotpEnrolment,
   unlockStaffUser,
@@ -178,6 +183,33 @@ export default async function adminAuthRoutes(app: FastifyInstance): Promise<voi
         ip: request.ip,
       });
       return { ok: true };
+    },
+  );
+
+  app.get('/admin/me/sessions', { config: { staff: 'session' } }, async (request) => {
+    const staff = requireStaff(request);
+    const items = await listOwnStaffSessions(deps, {
+      adminUserId: staff.id,
+      sessionId: staff.sessionId,
+    });
+    return wire(StaffOwnSessionsResponse, { items });
+  });
+
+  app.post(
+    '/admin/me/sessions/revoke',
+    { config: { staff: 'session' }, preHandler: selfServiceLimits },
+    async (request): Promise<RevokeOwnStaffSessionsResponse> => {
+      const staff = requireStaff(request);
+      const input = parseInput(RevokeOwnStaffSessionsRequest, request.body);
+      return revokeOwnStaffSessions(authDeps, {
+        adminUserId: staff.id,
+        sessionId: staff.sessionId,
+        password: input.password,
+        code: input.code,
+        ...(input.sessionId === undefined ? {} : { targetSessionId: input.sessionId }),
+        ip: request.ip,
+        clientKey: clientAddressKey(request.ip),
+      });
     },
   );
 

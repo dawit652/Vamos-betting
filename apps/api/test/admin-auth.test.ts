@@ -1,7 +1,10 @@
+import { createHash } from 'node:crypto';
 import {
   ApiErrorSchema,
   CreateStaffResponse,
   permissionsOf,
+  RevokeOwnStaffSessionsResponse,
+  StaffOwnSessionsResponse,
   StaffSessionResponse,
   StaffUserView,
   STAFF_CSRF_HEADER,
@@ -10,7 +13,7 @@ import {
 } from '@vamos/contracts';
 import { base32Decode, totpCode } from '@vamos/db/totp';
 import { DEMO_STAFF_PASSWORD } from '@vamos/db/demo-staff';
-import { auditLog } from '@vamos/db/schema';
+import { adminSessions, auditLog } from '@vamos/db/schema';
 import { and, eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -507,6 +510,60 @@ describe('staff self-service (/admin/me)', () => {
     ).toBe(200);
     expect(await auditActions(support.id)).toEqual(
       expect.arrayContaining(['staff.totp_enrolment_started', 'staff.totp_changed']),
+    );
+  });
+});
+
+describe('own staff sessions (ASVS 3.3.4)', () => {
+  it('lists the live sessions and ends one or all others after the password and a code', async () => {
+    const current = await staffLogin(ctx, 'compliance');
+    const second = await staffLogin(ctx, 'compliance');
+    const third = await staffLogin(ctx, 'compliance');
+    const sessionIds = async () => {
+      const listed = await asStaff(ctx, current, 'GET', '/admin/me/sessions');
+      expect(listed.statusCode).toBe(200);
+      const items = StaffOwnSessionsResponse.parse(listed.json()).items;
+      expect(items.filter((item) => item.current)).toHaveLength(1);
+      expect(JSON.stringify(items)).not.toContain(current.token);
+      return items;
+    };
+    const before = await sessionIds();
+    expect(before).toHaveLength(3);
+    const currentId = before.find((item) => item.current)!.id;
+    const [secondRow] = await ctx.db.db
+      .select({ id: adminSessions.id })
+      .from(adminSessions)
+      .where(eq(adminSessions.tokenHash, createHash('sha256').update(second.token).digest('hex')));
+    const secondId = secondRow!.id;
+
+    const revoke = (payload: Record<string, unknown>) => {
+      ctx.clock.advance(30_000);
+      return asStaff(ctx, current, 'POST', '/admin/me/sessions/revoke', {
+        password: DEMO_STAFF_PASSWORD,
+        code: demoCode(ctx),
+        ...payload,
+      });
+    };
+    expect(apiError(await revoke({ sessionId: currentId })).code).toBe('current_session');
+    expect(apiError(await revoke({ password: 'not my password' })).code).toBe('reauth_failed');
+    expect((await revoke({ sessionId: '00000000-0000-4000-8000-000000000000' })).statusCode).toBe(
+      404,
+    );
+
+    const one = await revoke({ sessionId: secondId });
+    expect(one.statusCode).toBe(200);
+    expect(RevokeOwnStaffSessionsResponse.parse(one.json())).toEqual({ revoked: 1 });
+    expect((await sessionIds()).map((item) => item.id)).not.toContain(secondId);
+
+    const rest = await revoke({});
+    expect(RevokeOwnStaffSessionsResponse.parse(rest.json())).toEqual({ revoked: 1 });
+    expect((await sessionIds()).map((item) => item.id)).toEqual([currentId]);
+    for (const ended of [second, third]) {
+      expect((await asStaff(ctx, ended, 'GET', '/admin/session')).statusCode).toBe(401);
+    }
+    expect((await asStaff(ctx, current, 'GET', '/admin/session')).statusCode).toBe(200);
+    expect(await auditActions(current.id)).toEqual(
+      expect.arrayContaining(['staff.sessions_revoked']),
     );
   });
 });

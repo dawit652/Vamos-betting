@@ -287,6 +287,40 @@ export type StartTotpEnrolmentRequest = z.infer<typeof StartTotpEnrolmentRequest
 export const ConfirmTotpEnrolmentRequest = z.object({ code: StaffCode });
 export type ConfirmTotpEnrolmentRequest = z.infer<typeof ConfirmTotpEnrolmentRequest>;
 
+/** GET /admin/me/sessions: the own live sessions, most recently used first (ASVS 3.3.4). */
+export const StaffOwnSessionView = z.object({
+  id: z.string(),
+  /** The session this request was made with. */
+  current: z.boolean(),
+  createdAt: z.string(),
+  lastSeenAt: z.string(),
+  expiresAt: z.string(),
+  ip: z.string().nullable(),
+  userAgent: z.string().nullable(),
+});
+export type StaffOwnSessionView = z.infer<typeof StaffOwnSessionView>;
+
+export const StaffOwnSessionsResponse = z.object({ items: z.array(StaffOwnSessionView) });
+export type StaffOwnSessionsResponse = z.infer<typeof StaffOwnSessionsResponse>;
+
+/**
+ * POST /admin/me/sessions/revoke: ends one other session (`sessionId`) or,
+ * without it, every other session of the account, after the current password
+ * and a code (403 `reauth_failed`; 400 `current_session`; 404 when the session
+ * is not one of the account's live ones).
+ */
+export const RevokeOwnStaffSessionsRequest = z.object({
+  password: z.string().min(1).max(128),
+  code: StaffCode,
+  sessionId: z.uuid().optional(),
+});
+export type RevokeOwnStaffSessionsRequest = z.infer<typeof RevokeOwnStaffSessionsRequest>;
+
+export const RevokeOwnStaffSessionsResponse = z.object({
+  revoked: z.number().int().nonnegative(),
+});
+export type RevokeOwnStaffSessionsResponse = z.infer<typeof RevokeOwnStaffSessionsResponse>;
+
 export const StaffSessionResponse = z.object({
   staff: StaffMeView,
   csrfToken: z.string(),
