@@ -3,6 +3,7 @@ import { ProviderNotConfiguredError, UnknownPaymentProviderError } from './error
 import { ChapaProvider } from './providers/chapa';
 import { MockPaymentProvider } from './providers/mock';
 import { CbeBirrProvider, MpesaEthiopiaProvider } from './providers/skeleton';
+import { SmsRailProvider } from './providers/smsrail';
 import { TelebirrProvider } from './providers/telebirr';
 import {
   isPaymentProviderName,
@@ -122,6 +123,13 @@ export function createPaymentProvider(
         deps,
       );
     }
+    case 'sms':
+      return new SmsRailProvider({
+        mode: p.sms.mode,
+        gatewaySecret: p.sms.gatewaySecret,
+        gatewayAllowlist: p.sms.gatewayAllowlist,
+        collectionAccounts: p.sms.collectionAccounts,
+      });
     case 'cbebirr':
       throw new CbeBirrProvider().notConfiguredError();
     case 'mpesa-et':

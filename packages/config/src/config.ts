@@ -222,6 +222,35 @@ const envSchema = z.object({
   TELEBIRR_PRIVATE_KEY: pem,
   /** telebirr's RSA public key (PEM) that verifies its notify_url callbacks. */
   TELEBIRR_PUBLIC_KEY: pem,
+  /**
+   * SMS deposit rail (PAYMENT_PROVIDERS includes `sms`). `simulated`: only
+   * the dev SMS simulator feeds it, against demo collection accounts (play
+   * money, demo mode). `live`: the collection handset forwards real SMS to
+   * /payments/webhooks/sms (licensed mode only).
+   */
+  SMS_RAIL_MODE: z.enum(['simulated', 'live']).default('simulated'),
+  /** Shared secret of the SMS forwarder on the collection handset (header or body). */
+  SMS_GATEWAY_SECRET: secret,
+  /** Client addresses the gateway may post from (comma-separated IPs; empty: any). */
+  SMS_GATEWAY_ALLOWLIST: csv.default([]),
+  /**
+   * The collection accounts players pay into, as JSON:
+   * [{"institution":"telebirr","account":"0911…","name":"…","hint":"…"}].
+   */
+  SMS_COLLECTION_ACCOUNTS: secret,
+  /** The operator's legal name: every live collection account must be in it. */
+  OPERATOR_LEGAL_NAME: secret,
+  /**
+   * Receipt verification of credited SMS against the institution's receipt
+   * page (telebirr): `audit` checks every credit out of band and raises a
+   * contradiction to the top of the review queue; `off` does not check.
+   */
+  RECEIPT_VERIFY: z.enum(['off', 'audit']).default('audit'),
+  RECEIPT_VERIFY_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(6_000),
+  /** Settle a manual payout only against the collection account's outgoing SMS. */
+  PAYOUT_REQUIRE_PROOF: bool.default(false),
+  /** Licensed mode without PAYOUT_REQUIRE_PROOF: an explicit, logged waiver. */
+  PAYOUT_PROOF_WAIVED: bool.default(false),
   KYC_PROVIDER: z.enum(['mock', 'fayda']).default('mock'),
   SMS_PROVIDER: z.enum(['mock', 'http']).default('mock'),
 
@@ -363,9 +392,44 @@ export interface ChannelsConfig {
   };
 }
 
+/** A collection account of the SMS rail (what players pay into). */
+export interface CollectionAccount {
+  /** Institution id (core INSTITUTIONS: telebirr, cbe…). */
+  institution: string;
+  /** The number or account players send to, as they type it. */
+  account: string;
+  /** The account holder's name as the player's app shows it. */
+  name: string;
+  /** Optional extra instruction ("telebirr app or *127#"). */
+  hint?: string;
+}
+
+/**
+ * The demo collection accounts of the simulated rail (no money moves: the
+ * dev simulator composes the SMS).
+ */
+export const DEMO_COLLECTION_ACCOUNTS: readonly CollectionAccount[] = [
+  { institution: 'telebirr', account: '0900000000', name: 'Vamos Demo' },
+  { institution: 'cbe', account: '1000000000000', name: 'Vamos Demo' },
+];
+
+export interface SmsRailConfig {
+  mode: 'simulated' | 'live';
+  gatewaySecret: string | undefined;
+  gatewayAllowlist: string[];
+  collectionAccounts: CollectionAccount[];
+  operatorLegalName: string | undefined;
+  receiptVerify: 'off' | 'audit';
+  receiptVerifyTimeoutMs: number;
+  requirePayoutProof: boolean;
+  payoutProofWaived: boolean;
+}
+
 export interface PaymentProvidersConfig {
   /** Base URL of the provider webhooks (PAYMENT_CALLBACK_BASE_URL, else PUBLIC_API_URL). */
   callbackBaseUrl: string;
+  /** The SMS deposit rail (`sms` provider): see SMS_RAIL_MODE. */
+  sms: SmsRailConfig;
   mock: { webhookSecret: string };
   chapa: { baseUrl: string; secretKey: string | undefined; webhookSecret: string | undefined };
   telebirr: {
@@ -474,6 +538,8 @@ export function licensedModeViolations(config: AppConfig): string[] {
   if (config.features.casino || config.features.virtuals) {
     problems.push('casino and virtual games are not licensable under the current ELS stance');
   }
+  if (config.providers.payments.includes('sms'))
+    problems.push(...smsRailLicensedViolations(config));
   // Provider calls carry our credentials (Chapa's bearer secret, telebirr's signed requests),
   // provider webhooks and ELS reports carry player and money data: never over plain http, not
   // even to a loopback stand-in. An unset PAYMENT_CALLBACK_BASE_URL is PUBLIC_API_URL, which
@@ -494,6 +560,106 @@ export function licensedModeViolations(config: AppConfig): string[] {
     }
   }
   return problems;
+}
+
+/** Case, spacing and punctuation do not distinguish two spellings of one legal name. */
+function normalizeLegalName(name: string): string {
+  return name
+    .normalize('NFKC')
+    .toUpperCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** What the SMS rail needs to take real money (licensed mode). */
+function smsRailLicensedViolations(config: AppConfig): string[] {
+  const problems: string[] = [];
+  const sms = config.payments.sms;
+  if (sms.mode !== 'live') {
+    problems.push('SMS_RAIL_MODE=live is required for the sms payment provider in licensed mode');
+  }
+  const secret = sms.gatewaySecret ?? '';
+  if (secret.length < 32) {
+    problems.push('SMS_GATEWAY_SECRET must be set (32+ characters) for the live SMS rail');
+  } else if (
+    [
+      config.sessionSecret,
+      config.passwordPepper,
+      config.payments.mock.webhookSecret,
+      config.payments.chapa.webhookSecret,
+      config.channels.sms.webhookSecret,
+      config.channels.ussd.sharedSecret,
+    ].includes(secret)
+  ) {
+    problems.push('SMS_GATEWAY_SECRET must be its own secret (it alone can credit deposits)');
+  }
+  if (!sms.operatorLegalName?.trim()) {
+    problems.push(
+      'OPERATOR_LEGAL_NAME is required: live collection accounts must be in the operator’s name',
+    );
+  }
+  if (sms.collectionAccounts.length === 0) {
+    problems.push('SMS_COLLECTION_ACCOUNTS must list the live collection accounts');
+  }
+  const legal = normalizeLegalName(sms.operatorLegalName ?? '');
+  for (const account of sms.collectionAccounts) {
+    if (legal.length > 0 && normalizeLegalName(account.name) !== legal) {
+      problems.push(
+        `SMS_COLLECTION_ACCOUNTS: the ${account.institution} account ${account.account} is not in OPERATOR_LEGAL_NAME (personal accounts are not allowed)`,
+      );
+    }
+  }
+  if (sms.receiptVerify === 'off') {
+    problems.push('RECEIPT_VERIFY must be "audit" for the live SMS rail (it catches forged SMS)');
+  }
+  if (!sms.requirePayoutProof && !sms.payoutProofWaived) {
+    problems.push(
+      'PAYOUT_REQUIRE_PROOF=true is required for manual payouts in licensed mode (or waive it explicitly with PAYOUT_PROOF_WAIVED=true)',
+    );
+  }
+  return problems;
+}
+
+const COLLECTION_ACCOUNTS_SCHEMA = z
+  .array(
+    z.object({
+      institution: z
+        .string()
+        .regex(/^[a-z]{2,20}$/, 'an institution id such as "telebirr" or "cbe"'),
+      account: z
+        .string()
+        .trim()
+        .regex(/^\+?[0-9A-Za-z -]{5,30}$/, 'a phone or account number'),
+      name: z.string().trim().min(2).max(120),
+      hint: z.string().trim().max(120).optional(),
+    }),
+  )
+  .max(10);
+
+/** Parses SMS_COLLECTION_ACCOUNTS (JSON); a ConfigError for anything else. */
+function parseCollectionAccounts(raw: string | undefined): CollectionAccount[] {
+  if (raw === undefined) return [];
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new ConfigError(['SMS_COLLECTION_ACCOUNTS: must be a JSON array']);
+  }
+  const parsed = COLLECTION_ACCOUNTS_SCHEMA.safeParse(value);
+  if (!parsed.success) {
+    throw new ConfigError(
+      parsed.error.issues.map(
+        (issue) => `SMS_COLLECTION_ACCOUNTS.${issue.path.join('.') || '(root)'}: ${issue.message}`,
+      ),
+    );
+  }
+  return parsed.data.map((a) => ({
+    institution: a.institution,
+    account: a.account,
+    name: a.name,
+    ...(a.hint === undefined ? {} : { hint: a.hint }),
+  }));
 }
 
 function isHttpsUrl(url: string): boolean {
@@ -572,6 +738,20 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {
       callbackBaseUrl: e.PAYMENT_CALLBACK_BASE_URL ?? e.PUBLIC_API_URL,
+      sms: {
+        mode: e.SMS_RAIL_MODE,
+        gatewaySecret: e.SMS_GATEWAY_SECRET,
+        gatewayAllowlist: e.SMS_GATEWAY_ALLOWLIST,
+        collectionAccounts:
+          e.SMS_RAIL_MODE === 'simulated' && e.SMS_COLLECTION_ACCOUNTS === undefined
+            ? DEMO_COLLECTION_ACCOUNTS.map((a) => ({ ...a }))
+            : parseCollectionAccounts(e.SMS_COLLECTION_ACCOUNTS),
+        operatorLegalName: e.OPERATOR_LEGAL_NAME,
+        receiptVerify: e.RECEIPT_VERIFY,
+        receiptVerifyTimeoutMs: e.RECEIPT_VERIFY_TIMEOUT_MS,
+        requirePayoutProof: e.PAYOUT_REQUIRE_PROOF,
+        payoutProofWaived: e.PAYOUT_PROOF_WAIVED,
+      },
       mock: { webhookSecret: e.MOCK_PAYMENT_WEBHOOK_SECRET },
       chapa: {
         baseUrl: e.CHAPA_BASE_URL,
@@ -676,10 +856,19 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     problems.push('USSD_SHARED_SECRET must be set to a unique secret in production');
   }
   if (config.mode === 'demo') {
-    const nonMock = config.providers.payments.filter((p) => p !== 'mock');
-    if (nonMock.length > 0) {
+    // The simulated SMS rail is play money too: only the dev simulator feeds it.
+    const smsSimulated = config.payments.sms.mode === 'simulated';
+    const real = config.providers.payments.filter(
+      (p) => p !== 'mock' && !(p === 'sms' && smsSimulated),
+    );
+    if (real.length > 0) {
       problems.push(
-        `demo mode only allows the "mock" payment provider (got: ${nonMock.join(', ')}); real payments require licensed mode`,
+        `demo mode only allows the "mock" payment provider and the simulated SMS rail (got: ${real.join(', ')}); real payments require licensed mode`,
+      );
+    }
+    if (smsSimulated && e.SMS_COLLECTION_ACCOUNTS !== undefined) {
+      problems.push(
+        'SMS_COLLECTION_ACCOUNTS is for the live SMS rail (licensed mode); the simulated rail uses demo accounts',
       );
     }
   } else {

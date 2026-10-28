@@ -225,6 +225,20 @@
       "when": 1793066857919,
       "tag": "0031_staff_password_expiry",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793117001991,
+      "tag": "0032_sms_rail",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793117003294,
+      "tag": "0033_sms_rail_guards",
+      "breakpoints": true
     }
   ]
 }

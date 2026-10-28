@@ -66,4 +66,24 @@ export {
   type TelebirrSignatureScheme,
 } from './providers/telebirr';
 export { CbeBirrProvider, MpesaEthiopiaProvider } from './providers/skeleton';
+export {
+  SMS_GATEWAY_SECRET_HEADER,
+  SmsRailProvider,
+  type SmsRailProviderOptions,
+} from './providers/smsrail';
+export { receiptAccountMatches, receiptMatchesAnyAccount } from './receipts/accountmatch';
+export {
+  createReceiptVerifier,
+  judgeReceipt,
+  type ReceiptVerifierOptions,
+} from './receipts/verifier';
+export { flattenHtml, isReceiptNotFoundPage, parseTelebirrReceipt } from './receipts/telebirrhtml';
+export type {
+  ReceiptFacts,
+  ReceiptIndeterminateReason,
+  ReceiptRejectReason,
+  ReceiptVerdict,
+  ReceiptVerifier,
+  ReceiptVerifyRequest,
+} from './receipts/types';
 export { hexDigestEquals, hmacSha256Hex } from './util';

@@ -100,6 +100,12 @@ export const otpChallenges = pgTable(
      * a stranger cannot use up the owner's codes. Null on older rows.
      */
     requesterKey: text('requester_key'),
+    /**
+     * What the code authorises, when the purpose names something beyond the
+     * phone (`payout_account`: `payout_account:<id>`). consumeOtp compares
+     * it, so a code sent while adding one account cannot confirm another.
+     */
+    binding: text('binding'),
   },
   (t) => [index('otp_phone_purpose_idx').on(t.phone, t.purpose, t.createdAt)],
 );

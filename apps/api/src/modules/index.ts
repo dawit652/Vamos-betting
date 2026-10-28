@@ -12,6 +12,7 @@ import jackpotRoutes from './jackpots/routes';
 import kycRoutes from './kyc/routes';
 import meRoutes from './me/routes';
 import devPaymentRoutes, { demoPhoneEnabled } from './payments/dev-routes';
+import devSmsRoutes, { devSmsEnabled } from './payments/dev-sms';
 import paymentRoutes from './payments/routes';
 import rgRoutes from './rg/routes';
 import userStreamRoutes from './stream/routes';
@@ -43,6 +44,10 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   // production, the stand-in back office.
   if (demoPhoneEnabled(deps)) {
     await app.register(devPaymentRoutes);
+  }
+  // DEV ONLY: the SMS rail simulator (demo + simulated rail, not production).
+  if (devSmsEnabled(deps)) {
+    await app.register(devSmsRoutes);
   }
   // DEV ONLY: quick jackpot rounds for e2e and demos (demo mode, not production).
   if (devJackpotsEnabled(deps)) {

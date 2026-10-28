@@ -300,6 +300,24 @@ export function paymentErrorMessage(error: unknown): Message {
       return { key: 'account.payments.errors.invalidPhone' };
     case 'wrong_pin':
       return { key: 'account.payments.dev.wrongPin' };
+    case 'payout_account_required':
+      return { key: 'account.payments.errors.payoutAccountRequired' };
+    case 'payout_account_unverified':
+      return { key: 'account.payments.errors.payoutAccountUnverified' };
+    case 'payout_account_not_own':
+      return { key: 'account.payments.errors.payoutAccountNotOwn' };
+    case 'payout_account_name_mismatch':
+      return { key: 'account.payments.errors.payoutAccountNameMismatch' };
+    case 'invalid_payout_account':
+      return { key: 'account.payments.errors.invalidPayoutAccount' };
+    case 'too_many_payout_accounts':
+      return { key: 'account.payments.errors.tooManyPayoutAccounts' };
+    case 'sms_amount_unavailable':
+      return { key: 'account.payments.errors.smsAmountUnavailable' };
+    case 'otp_invalid':
+      return { key: 'account.payments.errors.otpInvalid' };
+    case 'otp_expired':
+      return { key: 'account.payments.errors.otpExpired' };
     default:
       return { key: 'common.errors.generic' };
   }
@@ -311,3 +329,44 @@ export function paymentErrorMessage(error: unknown): Message {
 export const DEV_PHONE_PIN_HINT = '1234';
 
 export const DEV_PHONE_REFRESH_MS = 4000;
+
+// ------------------------------------------------------------------ SMS rail
+
+/**
+ * The exact amount of a transfer deposit, split for display: the whole
+ * birr, and the santim that identify the payment (highlighted).
+ */
+export function splitSendAmount(sendAmount: string): { birr: string; santim: string } {
+  const formatted = formatSantim(sendAmount);
+  const dot = formatted.lastIndexOf('.');
+  return dot === -1
+    ? { birr: formatted, santim: '00' }
+    : { birr: formatted.slice(0, dot), santim: formatted.slice(dot + 1) };
+}
+
+/** The santim added to the requested amount (what makes the amount the reference). */
+export function extraSantim(transfer: { requestedAmount: string; sendAmount: string }): string {
+  return (BigInt(transfer.sendAmount) - BigInt(transfer.requestedAmount)).toString();
+}
+
+/**
+ * What the copy button puts on the clipboard. Wallet apps prefill the
+ * country code and ask for the nine subscriber digits, so a pasted
+ * `0911…` would become `+2510911…`: a phone-shaped account is copied as its
+ * nine digits. Bank account numbers are copied as they are.
+ */
+export function clipboardAccount(account: string): string {
+  const compact = account.replace(/[\s-]/g, '');
+  const local = /^0([79]\d{8})$/.exec(compact);
+  if (local?.[1]) return local[1];
+  const international = /^\+?251([79]\d{8})$/.exec(compact);
+  if (international?.[1]) return international[1];
+  return compact;
+}
+
+export const DEPOSIT_CHECK_LABEL = {
+  credited: 'account.payments.deposit.transfer.checkResult.credited',
+  already_credited: 'account.payments.deposit.transfer.checkResult.already_credited',
+  in_review: 'account.payments.deposit.transfer.checkResult.in_review',
+  not_found: 'account.payments.deposit.transfer.checkResult.not_found',
+} as const satisfies Record<string, MessageKey>;

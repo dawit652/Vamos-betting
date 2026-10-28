@@ -14,5 +14,8 @@
   "dependencies": {
     "@vamos/config": "workspace:*",
     "@vamos/core": "workspace:*"
+  },
+  "devDependencies": {
+    "fast-check": "4.10.2"
   }
 }

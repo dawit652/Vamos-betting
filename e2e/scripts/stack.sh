@@ -36,6 +36,9 @@ export USSD_ENABLED="${USSD_ENABLED:-true}"
 # An older .env may still set the legacy spellings (false); a contradiction is a config error, so agree with it.
 export FEATURE_SMS_BETTING="$SMS_BETTING_ENABLED"
 export FEATURE_USSD="$USSD_ENABLED"
+# The SMS deposit rail, simulated (demo mode: the dev SMS simulator plays the bank), next to the mock
+# provider, so sms-rail.spec.ts can deposit through it and staff can work its review queue.
+export PAYMENT_PROVIDERS="${PAYMENT_PROVIDERS:-mock,sms}"
 
 running() {
   local pidfile="$STATE_DIR/$1.pid"

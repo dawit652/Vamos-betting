@@ -170,8 +170,11 @@ export async function runDepositReconciliation(
   // Wall time, not the business clock: this only bounds how long a run takes.
   const deadline = performance.now() + (options.deadlineMs ?? 40_000);
   const startedAt = ctx.clock();
+  // The SMS rail has nobody to ask: its deposits wait for their SMS (or the player's check).
+  const manual = ctx.payments.names.filter((name) => ctx.payments.get(name)?.capabilities.manual);
   const due = await listPendingDepositIntents(ctx.db, {
     now: startedAt,
+    excludeProviders: manual,
     createdBefore: new Date(startedAt.getTime() - (options.queryAfterMs ?? 2 * 60_000)),
     limit: options.queryLimit ?? 50,
   });
