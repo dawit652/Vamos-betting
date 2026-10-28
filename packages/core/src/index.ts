@@ -23,6 +23,7 @@ export * from './wagering';
 export * from './businessday';
 export * from './aml';
 export * from './pspstatement';
+export * from './scrape';
 export * from './smstext';
 export * from './textcommand';
 export * from './channelreply';
