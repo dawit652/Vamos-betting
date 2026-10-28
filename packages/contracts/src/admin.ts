@@ -61,10 +61,10 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  * - settings.edit: change them [PUT /admin/settings/:key]
  * - audit.view: the audit log [GET /admin/audit]
  * - staff.manage: staff accounts [/admin/staff*]
- * - reports.view: daily summaries and their CSV, ELS stream status, reconciliation runs,
- *   PSP statements, compliance settings [GET /admin/compliance/*, except aml-flags]
- * - reconciliation.run: run a reconciliation now, upload a PSP statement, recompute a
- *   provisional daily summary [POST /admin/compliance/reconciliation-runs, /psp-statements, …/recompute]
+ * - reports.view: reconciliation runs, PSP statements, compliance settings
+ *   [GET /admin/compliance/*, except aml-flags]
+ * - reconciliation.run: run a reconciliation now, upload a PSP statement
+ *   [POST /admin/compliance/reconciliation-runs, /psp-statements]
  * - aml.review: AML flags and their review [/admin/compliance/aml-flags*]
  * (COMPLIANCE_ROUTE_PERMISSIONS in compliance.ts lists every compliance route.)
  */

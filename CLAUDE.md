@@ -4,7 +4,7 @@ Oct 27, 2026 · @Which Version Of Claude Are U
 
 ## Overview
 
-Vamos Betting is a mobile-first sportsbook for Ethiopia, modelled on Betika: a TypeScript pnpm monorepo that runs in productionready mode.
+Vamos Betting is a mobile-first sportsbook for Costa Rica, modelled on Betika: a TypeScript pnpm monorepo. Money stays in Ethiopian birr (ETB) and deposits and payouts go through telebirr, CBE (SMS rail) and Chapa.
 
 | Path                 | Package            | What it holds                                                                                    |
 | -------------------- | ------------------ | ------------------------------------------------------------------------------------------------ |
@@ -41,7 +41,7 @@ Node 22 and pnpm 10. Run these from the repository root.
 
 ## Rules that matter
 
-- **Operating mode.** `OPERATING_MODE=``production`` ``ready`is the default: pla, providers, the SMS rail simulated. `packages/config/src/config.ts`..
+- **Operating mode.** `OPERATING_MODE` is `demo` (the default: play money, mock providers, the SMS rail simulated) or `licensed` (real money, refused at startup unless every check in `licensedModeViolations` passes). Never weaken the licensed-mode guard in `packages/config/src/config.ts`.
 - **Money** is `bigint` santim (1 ETB = 100 santim) end to end; odds are integer milli (1.85 → 1850). Never use floating point for money. Round payouts **down**. Over the wire, money is a decimal string.
 - **Ledger.** Every balance change is a double-entry `ledger_transaction` whose entries sum to zero, written in the same DB transaction as the business row and its `outbox_events`. Never edit the ledger by hand: corrections are new postings through the application.
 - **Idempotency.** Bet placement, deposits, payouts and webhooks take idempotency keys.

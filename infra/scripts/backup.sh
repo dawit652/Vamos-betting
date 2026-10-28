@@ -4,11 +4,10 @@
 #   dump   logical dump of the database (pg_dump -Fc)               db/vamos-<UTC time>.dump
 #   base   physical base backup for point-in-time recovery          base/base-<UTC time>.tar
 #   wal    copies new archived WAL segments off the pgwal volume    wal/<segment>.gz[.age]
-#   els    the ELS regulator reports (JSONL stream and CSVs)        els/els-<UTC time>.tar.gz
-#   prune  deletes dumps and base backups past their retention      (ELS archives are kept, see below)
-#   all    dump + els + wal (default)
+#   prune  deletes dumps and base backups past their retention
+#   all    dump + wal (default)
 #
-# Usage: infra/scripts/backup.sh [dump|base|wal|els|prune|all]
+# Usage: infra/scripts/backup.sh [dump|base|wal|prune|all]
 # Environment:
 #   COMPOSE_FILE / COMPOSE_ENV_FILES   default infra/docker-compose.prod.yml / infra/.env.prod
 #   BACKUP_DIR                         default ./backups
@@ -16,9 +15,8 @@
 #                                      segments included. Once BACKUP_DIR holds .age files, a run
 #                                      without it is refused (BACKUP_ALLOW_PLAINTEXT=1 overrides)
 #   DUMP_KEEP_DAYS=35 DUMP_KEEP_MONTHS=24   daily dumps for 35 days, the 1st of each month for 24
-#                                      months, the 1st of January for ever (>= 7 years: the ledger,
-#                                      audit log and ELS reports must be kept 7 years)
-#   ELS_KEEP_DAYS=2600                 ELS archives (7 years + margin); prune never touches newer ones
+#                                      months, the 1st of January for ever (>= 7 years: the ledger
+#                                      and audit log must be kept 7 years)
 # Run it from cron or a systemd timer (docs/backups.md) and copy BACKUP_DIR off the host.
 set -euo pipefail
 
@@ -29,7 +27,6 @@ export COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-infra/.env.prod}"
 BACKUP_DIR="${BACKUP_DIR:-$ROOT/backups}"
 DUMP_KEEP_DAYS="${DUMP_KEEP_DAYS:-35}"
 DUMP_KEEP_MONTHS="${DUMP_KEEP_MONTHS:-24}"
-ELS_KEEP_DAYS="${ELS_KEEP_DAYS:-2600}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 umask 077
 
@@ -95,11 +92,6 @@ do_wal() {
   echo "WAL: $copied new file(s) copied to $BACKUP_DIR/wal${BACKUP_AGE_RECIPIENT:+ (encrypted)}"
 }
 
-do_els() {
-  mkdir -p "$BACKUP_DIR/els"
-  dc exec -T worker tar -C /var/lib/vamos/els -czf - . | write "$BACKUP_DIR/els/els-$STAMP.tar.gz"
-}
-
 # keep_dump NAME: succeeds when a dump/base file named ...-YYYYmmddTHHMMSSZ... must be kept.
 keep_dump() {
   local stamp day month age_days
@@ -122,18 +114,16 @@ do_prune() {
       echo "pruned $f"
     fi
   done
-  find "$BACKUP_DIR/els" -type f -name 'els-*' -mtime "+$ELS_KEEP_DAYS" -print -delete 2>/dev/null || true
 }
 
 case "${1:-all}" in
-  dump | base | wal | els | all) check_encryption ;;
+  dump | base | wal | all) check_encryption ;;
 esac
 case "${1:-all}" in
   dump) do_dump ;;
   base) do_base ;;
   wal) do_wal ;;
-  els) do_els ;;
   prune) do_prune ;;
-  all) do_dump; do_els; do_wal ;;
+  all) do_dump; do_wal ;;
   *) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//' >&2; exit 2 ;;
 esac

@@ -123,16 +123,14 @@ FROM node:${NODE_VERSION}-alpine AS runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
-# /var/lib/vamos/els: the ELS report directory (mount a volume; the worker writes, the api reads).
-RUN mkdir -p /var/lib/vamos/els && chown node:node /var/lib/vamos/els \
-    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
 USER node
 
 # api and worker: the code belongs to root, like web and admin, so the app user can read but never
 # change it (compose also runs them with read-only root filesystems).
 FROM runtime AS api
-ENV API_HOST=0.0.0.0 API_PORT=4000 ELS_REPORT_DIR=/var/lib/vamos/els
+ENV API_HOST=0.0.0.0 API_PORT=4000
 COPY package.json pnpm-workspace.yaml ./
 COPY --from=deps-api /app/node_modules ./node_modules
 COPY --from=deps-api /app/apps/api/node_modules ./apps/api/node_modules
@@ -145,7 +143,7 @@ HEALTHCHECK --interval=15s --timeout=4s --start-period=30s --retries=4 \
 CMD ["node", "dist/server.js"]
 
 FROM runtime AS worker
-ENV WORKER_HEALTH_HOST=0.0.0.0 WORKER_HEALTH_PORT=4100 ELS_REPORT_DIR=/var/lib/vamos/els
+ENV WORKER_HEALTH_HOST=0.0.0.0 WORKER_HEALTH_PORT=4100
 COPY package.json pnpm-workspace.yaml ./
 COPY --from=deps-worker /app/node_modules ./node_modules
 COPY --from=deps-worker /app/apps/worker/node_modules ./apps/worker/node_modules

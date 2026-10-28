@@ -70,10 +70,6 @@ x-app-env: &app-env
   TELEBIRR_SHORT_CODE: '${TELEBIRR_SHORT_CODE:-}'
   TELEBIRR_PRIVATE_KEY: '${TELEBIRR_PRIVATE_KEY:-}'
   TELEBIRR_PUBLIC_KEY: '${TELEBIRR_PUBLIC_KEY:-}'
-  ELS_LICENSE_NUMBER:
-  ELS_REPORTING_MODE: '${ELS_REPORTING_MODE:-file}'
-  ELS_REPORT_DIR: '/var/lib/vamos/els'
-  ELS_REPORT_URL:
   TAX_CONFIG_CONFIRMED: '${TAX_CONFIG_CONFIRMED:-false}'
   FEATURE_CASINO: '${FEATURE_CASINO:-false}'
   FEATURE_VIRTUALS: '${FEATURE_VIRTUALS:-false}'
@@ -202,8 +198,6 @@ services:
     read_only: true
     tmpfs: ['/tmp']
     environment: *app-env
-    volumes:
-      - els:/var/lib/vamos/els:ro
     ports:
       - '${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-4000}:4000'
     networks: [vamos]
@@ -230,8 +224,6 @@ services:
     read_only: true
     tmpfs: ['/tmp']
     environment: *app-env
-    volumes:
-      - els:/var/lib/vamos/els
     # /health and /ready of the worker, for monitoring and scripts/smoke.sh --worker.
     ports:
       - '${BIND_ADDRESS:-127.0.0.1}:${WORKER_HEALTH_PORT:-4100}:4100'
@@ -351,7 +343,5 @@ volumes:
   pgdata:
   pgwal:
   redisdata:
-  # ELS regulator reports (JSONL stream + daily CSVs), kept 7 years: include in every backup.
-  els:
   caddy_data:
   caddy_config:

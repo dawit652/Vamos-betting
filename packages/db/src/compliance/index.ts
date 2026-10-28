@@ -1,9 +1,7 @@
 /**
- * Compliance and regulator reporting (Phase 10): the ELS transaction stream
- * (els.ts), daily summaries (daily-summary.ts), reconciliation
- * (reconciliation.ts), PSP statement matching (psp-statements.ts), AML
- * rules and flags (aml.ts) and their settings (settings.ts). The pure maths
- * is in @vamos/core; the definitions and defaults are in docs/compliance.md.
+ * Compliance (Phase 10): reconciliation (reconciliation.ts), PSP statement
+ * matching (psp-statements.ts), AML rules and flags (aml.ts) and their
+ * settings (settings.ts). The pure maths is in @vamos/core.
  */
 export {
   AML_FLAG_RAISED,
@@ -24,51 +22,6 @@ export {
   type AmlReviewDecision,
   type EvaluateAmlResult,
 } from './aml';
-export {
-  computeDailyFigures,
-  DAILY_SUMMARY_GRACE_MS,
-  DAILY_SUMMARY_MAX_DAYS_PER_RUN,
-  dailyFiguresHash,
-  dailySummariesCsv,
-  dailySummaryRowOf,
-  figuresOf,
-  figuresToJson,
-  finalizeDailySummary,
-  getDailySummary,
-  listDailySummaries,
-  loadDailyTotals,
-  refreshDailySummary,
-  runDailySummaries,
-  type DailySummary,
-  type DailySummaryQuery,
-  type DailySummaryVersion,
-  type FinalizeDailySummaryResult,
-  type RefreshDailySummaryOutcome,
-  type RefreshDailySummaryResult,
-  type RunDailySummariesResult,
-} from './daily-summary';
-export {
-  createElsReporter,
-  createFileElsReporter,
-  createHttpElsReporter,
-  createOffElsReporter,
-  ELS_OUTBOX_CURSOR,
-  elsLineHash,
-  elsReportRange,
-  ElsReportingUnavailableError,
-  emitElsEvent,
-  getElsReportStatus,
-  recordElsEvent,
-  sweepElsReports,
-  type ElsReport,
-  type ElsReporter,
-  type ElsReporterStatus,
-  type ElsReportingMode,
-  type ElsReportStatus,
-  type ElsSweepResult,
-  type EmitElsOutcome,
-  type EmitElsResult,
-} from './els';
 export {
   getPspStatement,
   importPspStatement,
@@ -114,7 +67,6 @@ export {
   AmlRulesSchema,
   COMPLIANCE_SETTING_KEYS,
   DEFAULT_COMPLIANCE_SETTINGS,
-  ElsCommissionSchema,
   getComplianceSettings,
   loadComplianceSettings,
   parseComplianceSettings,
@@ -122,5 +74,4 @@ export {
   type ComplianceSettingKey,
   type ComplianceSettings,
   type ComplianceSettingsView,
-  type ElsCommissionSetting,
 } from './settings';

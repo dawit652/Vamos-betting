@@ -48,7 +48,7 @@ async function collect<T>(
  * responsible-gambling limits and breaks, sign-in sessions, the wallet
  * statement, bets, jackpot entries, deposits and withdrawals. Audited as
  * `user.data_exported`. Correction and erasure go through support, within
- * the retention duties of docs/compliance.md.
+ * the retention duties (7 years for money and bets).
  */
 export async function exportMyData(
   deps: AppDeps,

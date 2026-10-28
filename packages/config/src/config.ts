@@ -6,9 +6,7 @@ import { z } from 'zod';
  *
  * Vamos runs in `demo` (play-money) mode by default. `licensed` mode handles
  * real money and is refused at startup unless every compliance prerequisite
- * is configured. All Ethiopian sports-betting licences were revoked on
- * 15 Dec 2025; real-money operation must wait for a licence under the new
- * Ethiopian Lottery Service framework.
+ * is configured.
  */
 
 export const DEV_SESSION_SECRET = 'dev-only-session-secret-change-me-0123456789';
@@ -254,13 +252,6 @@ const envSchema = z.object({
   KYC_PROVIDER: z.enum(['mock', 'fayda']).default('mock'),
   SMS_PROVIDER: z.enum(['mock', 'http']).default('mock'),
 
-  ELS_LICENSE_NUMBER: z.string().trim().min(1).optional(),
-  /** How regulator (ELS) reports are produced: file (JSONL + CSV), http (placeholder) or off. */
-  ELS_REPORTING_MODE: z.enum(['file', 'http', 'off']).optional(),
-  /** Legacy spelling of ELS_REPORTING_MODE ('disabled' = 'off'). */
-  ELS_REPORTING: z.enum(['disabled', 'file', 'http']).optional(),
-  ELS_REPORT_DIR: z.string().trim().min(1).optional(),
-  ELS_REPORT_URL: z.url().optional(),
   TAX_CONFIG_CONFIRMED: bool.default(false),
 
   FEATURE_CASINO: bool.default(false),
@@ -296,16 +287,6 @@ const envSchema = z.object({
 });
 
 export type OperatingMode = 'demo' | 'licensed';
-
-export type ElsReportingMode = 'file' | 'http' | 'off';
-
-/** Default ELS_REPORT_DIR (relative to the working directory; licensed mode needs an absolute path). */
-export const DEFAULT_ELS_REPORT_DIR = './var/els';
-
-/** True for an absolute POSIX or Windows path. */
-function isAbsolutePath(path: string): boolean {
-  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
-}
 
 export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
@@ -347,21 +328,6 @@ export interface AppConfig {
    * checked when a provider is built (@vamos/payments), not here.
    */
   payments: PaymentProvidersConfig;
-  els: {
-    licenseNumber: string | undefined;
-    /**
-     * ELS_REPORTING_MODE: `file` writes the transaction stream (JSONL) and the
-     * daily summaries (CSV) under reportDir; `http` is a placeholder that
-     * refuses to send until ELS publishes its interface; `off` reports nothing
-     * (demo only: licensed mode refuses it).
-     */
-    reportingMode: ElsReportingMode;
-    /** The same setting in its legacy spelling (ELS_REPORTING): 'disabled' = 'off'. */
-    reporting: 'disabled' | 'file' | 'http';
-    /** Where the file reporter writes (ELS_REPORT_DIR, default ./var/els). */
-    reportDir: string;
-    reportUrl: string | undefined;
-  };
   taxConfigConfirmed: boolean;
   /** `smsBetting` and `ussd` mirror channels.sms.enabled and channels.ussd.enabled. */
   features: { casino: boolean; virtuals: boolean; smsBetting: boolean; ussd: boolean };
@@ -477,31 +443,6 @@ export function licensedModeViolations(config: AppConfig): string[] {
       'PASSWORD_PEPPER is required in licensed mode (the secret key of every password hash, kept outside the database)',
     );
   }
-  if (!config.els.licenseNumber) {
-    problems.push(
-      'ELS_LICENSE_NUMBER is required: real-money betting needs an Ethiopian Lottery Service licence',
-    );
-  }
-  if (config.els.reportingMode === 'off' || config.els.reporting === 'disabled') {
-    problems.push(
-      'ELS_REPORTING_MODE must not be "off" in licensed mode (ELS reporting must be enabled)',
-    );
-  }
-  if (config.els.reportingMode === 'http' || config.els.reporting === 'http') {
-    if (!config.els.reportUrl) {
-      problems.push('ELS_REPORT_URL is required when ELS_REPORTING_MODE=http');
-    }
-    // The HTTP reporter refuses to send until ELS publishes its interface, so
-    // http would report nothing: licensed mode reports to files until then.
-    problems.push(
-      'ELS_REPORTING_MODE=http is a placeholder until ELS publishes its reporting interface; use "file" in licensed mode',
-    );
-  }
-  if (config.els.reportingMode === 'file' && !isAbsolutePath(config.els.reportDir)) {
-    problems.push(
-      'ELS_REPORT_DIR must be an absolute path in licensed mode (a durable, backed-up volume: reports are kept 7 years)',
-    );
-  }
   const realPaymentProviders = config.providers.payments.filter((p) => p !== 'mock');
   if (config.providers.payments.includes('mock')) {
     problems.push('the "mock" payment provider is not allowed in licensed mode');
@@ -536,13 +477,13 @@ export function licensedModeViolations(config: AppConfig): string[] {
     );
   }
   if (config.features.casino || config.features.virtuals) {
-    problems.push('casino and virtual games are not licensable under the current ELS stance');
+    problems.push('casino and virtual games are excluded by policy');
   }
   if (config.providers.payments.includes('sms'))
     problems.push(...smsRailLicensedViolations(config));
-  // Provider calls carry our credentials (Chapa's bearer secret, telebirr's signed requests),
-  // provider webhooks and ELS reports carry player and money data: never over plain http, not
-  // even to a loopback stand-in. An unset PAYMENT_CALLBACK_BASE_URL is PUBLIC_API_URL, which
+  // Provider calls carry our credentials (Chapa's bearer secret, telebirr's signed requests) and
+  // provider webhooks carry player and money data: never over plain http, not even to a
+  // loopback stand-in. An unset PAYMENT_CALLBACK_BASE_URL is PUBLIC_API_URL, which
   // the production rules already require to be https.
   const { payments } = config;
   for (const [name, url] of [
@@ -553,7 +494,6 @@ export function licensedModeViolations(config: AppConfig): string[] {
     ['CHAPA_BASE_URL', payments.chapa.baseUrl],
     ['TELEBIRR_BASE_URL', payments.telebirr.baseUrl],
     ['TELEBIRR_CHECKOUT_URL', payments.telebirr.checkoutUrl],
-    ['ELS_REPORT_URL', config.els.reportUrl],
   ] as const) {
     if (url !== undefined && !isHttpsUrl(url)) {
       problems.push(`${name} must be an https URL in licensed mode (got ${url})`);
@@ -689,18 +629,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     );
   }
   const e = parsed.data;
-  const legacyElsMode: ElsReportingMode | undefined =
-    e.ELS_REPORTING === 'disabled' ? 'off' : e.ELS_REPORTING;
-  if (
-    e.ELS_REPORTING_MODE !== undefined &&
-    legacyElsMode !== undefined &&
-    e.ELS_REPORTING_MODE !== legacyElsMode
-  ) {
-    throw new ConfigError([
-      `ELS_REPORTING_MODE=${e.ELS_REPORTING_MODE} contradicts the legacy ELS_REPORTING=${e.ELS_REPORTING ?? ''}; set only ELS_REPORTING_MODE`,
-    ]);
-  }
-  const elsMode: ElsReportingMode = e.ELS_REPORTING_MODE ?? legacyElsMode ?? 'file';
   const smsEnabled = channelFlag(
     'SMS_BETTING_ENABLED',
     e.SMS_BETTING_ENABLED,
@@ -768,13 +696,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         privateKey: e.TELEBIRR_PRIVATE_KEY,
         publicKey: e.TELEBIRR_PUBLIC_KEY,
       },
-    },
-    els: {
-      licenseNumber: e.ELS_LICENSE_NUMBER,
-      reportingMode: elsMode,
-      reporting: elsMode === 'off' ? 'disabled' : elsMode,
-      reportDir: e.ELS_REPORT_DIR ?? DEFAULT_ELS_REPORT_DIR,
-      reportUrl: e.ELS_REPORT_URL,
     },
     taxConfigConfirmed: e.TAX_CONFIG_CONFIRMED,
     features: {

@@ -5,7 +5,7 @@
  * - Phase 4: bets, bet legs, booking codes
  * - Phase 6: payments
  * - Phase 8: jackpot rounds, games and entries
- * - Phase 10: compliance (ELS reports, daily summaries, reconciliation, PSP statements, AML flags)
+ * - Phase 10: compliance (reconciliation, PSP statements, AML flags)
  * - Phase 11: SMS / USSD channels (inbound messages, USSD sessions)
  * - SMS deposit rail: received SMS, payout accounts
  */

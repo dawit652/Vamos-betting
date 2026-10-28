@@ -1,4 +1,4 @@
-import type { Database, ElsReporter } from '@vamos/db';
+import type { Database } from '@vamos/db';
 import type { PaymentProviderRegistry, ReceiptVerifier } from '@vamos/payments';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
@@ -36,9 +36,4 @@ export interface TaskContext {
   sms: SmsSender;
   /** Play-money mode (OPERATING_MODE=demo): channel texts say DEMO. Default true. */
   demo?: boolean;
-  /**
-   * Where the ELS stream and daily summary files go (createElsReporter of
-   * config.els). Absent: createTasks builds it from the configuration.
-   */
-  els?: ElsReporter;
 }

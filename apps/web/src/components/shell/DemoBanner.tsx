@@ -1,8 +1,8 @@
 import { getT } from '@/i18n/server';
 
 /**
- * Permanent play-money notice. The platform runs in demo mode until an ELS
- * licence exists (see CLAUDE.md); never hide or remove this banner.
+ * Permanent play-money notice while the platform runs in demo mode (see
+ * CLAUDE.md); never hide or remove this banner.
  */
 export async function DemoBanner() {
   const t = await getT();

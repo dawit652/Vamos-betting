@@ -1,19 +1,14 @@
 import { randomInt, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   addBusinessDays,
   businessDateOf,
   businessDayWindow,
-  DAILY_SUMMARY_FINALIZED,
   DEFAULT_PAYMENT_RULES,
   type PaymentRules,
 } from '@vamos/core';
 import {
   applyDepositEvent,
   createDepositIntent,
-  createFileElsReporter,
   DEPOSIT_SUCCEEDED,
   markDepositInitiated,
   RECONCILIATION_REQUESTED,
@@ -25,13 +20,9 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   amlEvaluateTask,
-  elsReportTask,
   processAmlJob,
-  processElsJob,
   reconciliationRequestTask,
   runDailyAmlSweep,
-  runDailySummaryTask,
-  runElsSweep,
   RECONCILIATION_LOCK,
   runScheduledReconciliation,
 } from '../src/tasks/compliance';
@@ -39,7 +30,6 @@ import {
   createOutboxDispatcher,
   OUTBOX_ROUTES,
   type AmlJobData,
-  type ElsJobData,
   type OutboxDispatcher,
 } from '../src/tasks/outbox-dispatch';
 import type { WorkerTask } from '../src/worker';
@@ -55,17 +45,14 @@ const HOUR = 3_600_000;
 const RULES: PaymentRules = { ...DEFAULT_PAYMENT_RULES, wageringMultiplierBps: 0 };
 
 let t: WorkerTestContext;
-let dir: string;
 let dispatcher: OutboxDispatcher;
 let consumers: WorkerTask[];
 
 beforeAll(async () => {
   t = await createWorkerTestContext();
-  dir = await mkdtemp(join(tmpdir(), 'vamos-els-'));
-  t.ctx.els = createFileElsReporter({ dir });
   await publishAll();
   dispatcher = createOutboxDispatcher(t.ctx);
-  consumers = [elsReportTask(t.ctx), amlEvaluateTask(t.ctx), reconciliationRequestTask(t.ctx)];
+  consumers = [amlEvaluateTask(t.ctx), reconciliationRequestTask(t.ctx)];
   for (const task of consumers) await task.start();
 }, SETUP_TIMEOUT);
 
@@ -73,7 +60,6 @@ afterAll(async () => {
   for (const task of [...(consumers ?? [])].reverse()) await task.stop();
   await dispatcher?.close();
   await t?.close();
-  if (dir) await rm(dir, { recursive: true, force: true });
 }, SETUP_TIMEOUT);
 
 /** Marks every outbox row published (rows of earlier steps never reach the queues). */
@@ -152,25 +138,12 @@ async function outboxRowsOf(type: string, aggregateId?: string) {
     );
 }
 
-/** The records of the ELS stream files, by outbox id. */
-async function streamRecords(): Promise<Array<{ outboxId: string; type: string }>> {
-  const dates = new Set([businessDateOf(new Date()), businessDateOf(new Date(Date.now() - HOUR))]);
-  const records: Array<{ outboxId: string; type: string }> = [];
-  for (const date of dates) {
-    const text = await readFile(join(dir, 'stream', `${date}.jsonl`), 'utf8').catch(() => '');
-    for (const line of text.split('\n')) {
-      if (line.length > 0) records.push(JSON.parse(line) as { outboxId: string; type: string });
-    }
-  }
-  return records;
-}
-
 async function flagsOf(userId: string) {
   return t.db.db.select().from(schema.amlFlags).where(eq(schema.amlFlags.userId, userId));
 }
 
 describe('outbox routes (compliance)', () => {
-  it('routes reportable events to the els queue and AML triggers to the aml queue', () => {
+  it('routes AML triggers to the aml queue', () => {
     const userId = randomUUID();
     const row = {
       id: 42n,
@@ -183,73 +156,12 @@ describe('outbox routes (compliance)', () => {
     const jobs = (OUTBOX_ROUTES[DEPOSIT_SUCCEEDED] ?? [])
       .map((route) => route(row, new Date()))
       .filter((job) => job !== null);
-    expect(jobs.find((job) => job.queue === 'els')?.data as ElsJobData).toEqual({
-      outboxId: '42',
-      type: DEPOSIT_SUCCEEDED,
-    });
     expect(jobs.find((job) => job.queue === 'aml')?.data as AmlJobData).toEqual({
       outboxId: '42',
       type: DEPOSIT_SUCCEEDED,
       userId,
     });
-    // The daily summary record goes to the stream, and nothing else.
-    expect((OUTBOX_ROUTES[DAILY_SUMMARY_FINALIZED] ?? []).length).toBe(1);
   });
-});
-
-describe('ELS stream', () => {
-  it(
-    'writes each reportable event once, through the queue, a replayed job and the sweep',
-    async () => {
-      const userId = await createPlayer();
-      const intentId = await deposit(userId, 50_000n);
-      const [row] = await outboxRowsOf(DEPOSIT_SUCCEEDED, intentId);
-      expect(row).toBeDefined();
-      const outboxId = row!.id.toString();
-
-      await dispatcher.run();
-      await eventually(
-        async () => (await streamRecords()).some((record) => record.outboxId === outboxId),
-        10_000,
-        'the ELS record',
-      );
-
-      // A replayed job (same outbox id), and the sweep, write nothing more.
-      const replay = await processElsJob(t.ctx, { outboxId, type: DEPOSIT_SUCCEEDED });
-      expect(replay.outcome).toBe('already_written');
-      await runElsSweep(t.ctx, { graceMs: 0 });
-      const lines = (await streamRecords()).filter((record) => record.outboxId === outboxId);
-      expect(lines).toHaveLength(1);
-      // No player PII in the stream line.
-      const text = JSON.stringify(lines[0]);
-      expect(text).not.toContain('Abebe');
-      expect(text).not.toContain('+2519');
-    },
-    TEST_TIMEOUT,
-  );
-
-  it(
-    'the sweep writes an event whose job was lost, once',
-    async () => {
-      const userId = await createPlayer();
-      const intentId = await deposit(userId, 20_000n);
-      // Published without a job: the queue never sees it.
-      await publishAll();
-      const [row] = await outboxRowsOf(DEPOSIT_SUCCEEDED, intentId);
-      const outboxId = row!.id.toString();
-      expect((await streamRecords()).some((record) => record.outboxId === outboxId)).toBe(false);
-
-      const first = await runElsSweep(t.ctx, { graceMs: 0 });
-      expect(first.recorded).toBeGreaterThanOrEqual(1);
-      expect(first.failed).toBe(0);
-      const second = await runElsSweep(t.ctx, { graceMs: 0 });
-      expect(second).toMatchObject({ recorded: 0, written: 0, failed: 0 });
-      expect((await streamRecords()).filter((record) => record.outboxId === outboxId)).toHaveLength(
-        1,
-      );
-    },
-    TEST_TIMEOUT,
-  );
 });
 
 describe('AML', () => {
@@ -282,26 +194,13 @@ describe('AML', () => {
   );
 });
 
-describe('daily summaries and reconciliation', () => {
+describe('scheduled reconciliation', () => {
   it(
-    'finalises a day once and reconciles yesterday once per day',
+    'reconciles yesterday once per day',
     async () => {
       const real = t.clock.now;
       const today = businessDateOf(real);
       try {
-        // Two days later: today is over and past its grace period.
-        t.clock.set(new Date(businessDayWindow(addBusinessDays(today, 2)).start.getTime() + HOUR));
-        const first = await runDailySummaryTask(t.ctx);
-        expect(first.finalized).toContain(today);
-        const second = await runDailySummaryTask(t.ctx);
-        expect(second.finalized).toEqual([]);
-        const [summary] = await t.db.db
-          .select()
-          .from(schema.dailySummaries)
-          .where(eq(schema.dailySummaries.businessDate, today));
-        expect(summary?.status).toBe('final');
-        expect(await outboxRowsOf(DAILY_SUMMARY_FINALIZED, today)).toHaveLength(1);
-
         // Reconciliation of `today` runs the next day, 3 h after midnight in Addis Ababa.
         const tomorrow = businessDayWindow(addBusinessDays(today, 1)).start.getTime();
         t.clock.set(new Date(tomorrow + HOUR));

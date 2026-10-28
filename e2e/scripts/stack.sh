@@ -23,9 +23,6 @@ ADMIN_URL="${E2E_ADMIN_URL:-http://localhost:3001}"
 START_TIMEOUT_S="${E2E_START_TIMEOUT_S:-60}"
 
 export OPERATING_MODE="${OPERATING_MODE:-demo}"
-# One absolute ELS report directory for the API (status page) and the worker (writer); the compliance
-# spec reads the stream from it. A relative ELS_REPORT_DIR would resolve against each app's own folder.
-export ELS_REPORT_DIR="${ELS_REPORT_DIR:-$STATE_DIR/els}"
 export SIM_SPEED="${SIM_SPEED:-60}"
 export FEED_ROLLING_EVERY_MINUTES="${FEED_ROLLING_EVERY_MINUTES:-1}"
 export FEED_ROLLING_HORIZON_MINUTES="${FEED_ROLLING_HORIZON_MINUTES:-10}"

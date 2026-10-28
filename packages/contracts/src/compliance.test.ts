@@ -6,7 +6,6 @@ import {
   BusinessDate,
   COMPLIANCE_ROUTE_PERMISSIONS,
   COMPLIANCE_SETTING_VALUE_SCHEMAS,
-  DailySummaryQuery,
   ImportPspStatementRequest,
   ReviewAmlFlagRequest,
 } from './compliance';
@@ -42,8 +41,6 @@ describe('compliance request contracts', () => {
     for (const text of ['2026-02-30', '2026-13-01', '18-10-2026', '', '1969-12-31']) {
       expect(BusinessDate.safeParse(text).success, text).toBe(false);
     }
-    expect(DailySummaryQuery.parse({ limit: '7' })).toMatchObject({ limit: 7 });
-    expect(DailySummaryQuery.safeParse({ cursor: 'yesterday' }).success).toBe(false);
   });
 
   it('needs a note to review an AML flag, and reads status lists', () => {
@@ -109,8 +106,6 @@ describe('compliance request contracts', () => {
         structuring: { ...rules.structuring, reportingThreshold: '0' },
       }).success,
     ).toBe(false);
-    const commission = COMPLIANCE_SETTING_VALUE_SCHEMAS.els_commission;
-    expect(commission.safeParse({ rateBps: 1500 }).success).toBe(true);
-    expect(commission.safeParse({ rateBps: 10_001 }).success).toBe(false);
+    expect(Object.keys(COMPLIANCE_SETTING_VALUE_SCHEMAS)).toEqual(['aml_rules']);
   });
 });

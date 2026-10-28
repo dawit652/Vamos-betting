@@ -4,10 +4,10 @@ The worker reconciles yesterday every day (and catches up to 7 missed days) unde
 staff can also start a run (Compliance -> Reconciliation -> "Run now", permission `reconciliation.run`) and
 upload provider statements. A run ends `clean`, `mismatches` or `failed`; each difference is a row in
 `reconciliation_mismatches` with its check name, shown with the run. A mismatch raises an alert (outbox event)
-and an audit record. See [compliance.md](../compliance.md#3-reconciliation) for the checks.
+and an audit record. The checks are listed in `packages/db/src/compliance/reconciliation.ts`.
 
 **Severity:** ledger integrity or wallet mismatches are SEV1 (the books are wrong or someone bypassed the
-application); PSP or daily-summary mismatches are SEV2 until explained.
+application); PSP mismatches are SEV2 until explained.
 
 ## 1. Read the run
 
@@ -28,7 +28,6 @@ Open the run: which checks failed, how many rows, the business date. Then triage
   it, then **Run now** again; the run is idempotent per day.
 - **A flagged/settled-by-hand payout or deposit**: correct through the Withdrawals/Deposits actions so a
   proper posting exists.
-- **Provisional daily summary out of date**: Compliance -> the day -> "Recompute" (creates a version).
 - **A real application defect** (wrong or missing posting): do not hand-post. Stop the affected flow
   (incident basics), reproduce in a test, ship the fix, and let the application reverse/repost through its
   own correction path (e.g. bet settlement reversal). Keep the original entries: the ledger is append-only.
@@ -40,8 +39,7 @@ Open the run: which checks failed, how many rows, the business date. Then triage
 ## 3. Close
 
 Run reconciliation again until it is `clean`, with the original business date. Record in the incident log:
-run ids (before/after), cause, fix, who. The daily summary figures that go to ELS must match: compare the CSV
-(`/admin/compliance/daily-summaries.csv`) with the ledger after any correction.
+run ids (before/after), cause, fix, who.
 
 ## Run failures (`failed`)
 

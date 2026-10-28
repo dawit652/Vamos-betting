@@ -1,6 +1,5 @@
 export {
   ConfigError,
-  DEFAULT_ELS_REPORT_DIR,
   DEMO_COLLECTION_ACCOUNTS,
   DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
@@ -16,7 +15,6 @@ export {
   type AppConfig,
   type ChannelsConfig,
   type CollectionAccount,
-  type ElsReportingMode,
   type OperatingMode,
   type PaymentProvidersConfig,
   type SmsRailConfig,

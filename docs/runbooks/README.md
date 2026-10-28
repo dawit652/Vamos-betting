@@ -14,11 +14,10 @@ export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.p
 | [SMS rail and manual payouts](sms-rail.md)              | An SMS-rail alarm, the SMS review queue, a manual payout, the collection handset |
 | [Reconciliation mismatch](reconciliation-mismatch.md)   | A reconciliation run ends in `mismatches` or `failed`                            |
 | [AML flag review](aml-flag-review.md)                   | A player was flagged or a withdrawal is held for `aml_review`                    |
-| [ELS reporting failure](els-reporting-failure.md)       | ELS pending records grow, the reporter shows an error, files are missing         |
 | [Rotating secrets](rotating-secrets.md)                 | Scheduled rotation or a suspected leak (incl. `ADMIN_TOTP_KEY`)                  |
 | [Restore from backup](restore-from-backup.md)           | Data loss, corruption, a bad migration, or a disaster-recovery drill             |
 
-Related: [deployment](../deployment.md), [backups](../backups.md), [compliance](../compliance.md).
+Related: [deployment](../deployment.md), [backups](../backups.md).
 
 Rules that hold in every runbook:
 
