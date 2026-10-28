@@ -9898,7 +9898,7 @@ export const COMMON_PASSWORDS: readonly string[] = [
   'anotherworld',
   'area51area51',
   'arshabitandi',
-  'asdfghjkl;\\\'',
+  "asdfghjkl;\\'",
   'bestfriends123',
   'bigbangisvip',
   'bolodechocolate',

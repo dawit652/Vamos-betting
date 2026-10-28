@@ -58,12 +58,12 @@ the operations scripts (`dist/ops/{migrate,seed,admin-create,admin-unlock,totp-r
 
 ## 2. Environments
 
-| Environment       | Mode / `NODE_ENV`         | Use                                                                                                                                                                                                        |
-| ----------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Local development | `demo` / `development`    | `pnpm services:start && pnpm dev` (README). Dev OTP inbox, demo staff, fast simulator knobs.                                                                                                               |
-| CI / e2e          | `demo` / `development`    | `.github/workflows/ci.yml`: checks, e2e, and the `docker` job (compose build, boot, `scripts/smoke.sh`).                                                                                                   |
-| Demo / staging    | `demo` / `production`     | The compose stack below. Play money, mock providers. Needs unique secrets and https URLs, **no OTP inbox**: sign-ups cannot receive their code unless you set `NODE_ENV=development` (private demos only). |
-| Production        | `licensed` / `production` | Only with an ELS licence and every item of section 4.                                                                                                                                                      |
+| Environment       | Mode / `NODE_ENV`         | Use                                                                                                                                                                                                                                                            |
+| ----------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local development | `demo` / `development`    | `pnpm services:start && pnpm dev` (README). Dev OTP inbox, demo staff, fast simulator knobs.                                                                                                                                                                   |
+| CI / e2e          | `demo` / `development`    | `.github/workflows/ci.yml`: checks, e2e, and the `docker` job (compose build, boot, `scripts/smoke.sh`).                                                                                                                                                       |
+| Demo / staging    | `demo` / `production`     | The compose stack below. Play money, mock providers. Needs unique secrets and https URLs. No SMS leaves the server: the sign-up code is shown on screen, deposits are approved on the simulated phone and withdrawals by staff in the back office (section 8). |
+| Production        | `licensed` / `production` | Only with an ELS licence and every item of section 4.                                                                                                                                                                                                          |
 
 A database belongs to one mode for life: both the api and the worker `claimOperatingMode` at startup and
 refuse to run a demo database as licensed (or the reverse). Never point a licensed deployment at a demo
@@ -301,3 +301,36 @@ Open questions for counsel and the regulator **before** any real-money launch:
    public IP, allowlists and the clock (NTP) of the host.
 
 Until these are answered, run only the demo, with no real player data.
+
+## 8. Testing deposits and withdrawals on a demo deployment
+
+A demo deployment (`OPERATING_MODE=demo`, `NODE_ENV=production`, `PAYMENT_PROVIDERS=mock`) runs the
+whole money path with play money: the ledger, idempotency, limits, KYC, wagering, staff review, the
+payout worker and the ELS stream are the same code as in licensed mode; only the providers are
+simulated. Nothing here moves real money, and nothing here can: real deposits need licensed mode (section 4).
+
+What a tester needs: the site (`PUBLIC_WEB_URL`), the back office (`ADMIN_WEB_URL`) and a staff account
+with the `admin` or `finance` role (`admin-create.js`, section 3; scan the printed `otpauth://` URI into an
+authenticator app).
+
+| Step           | Where                               | What to do                                                                                                                                                                                                    |
+| -------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Register    | `/register`                         | Any Ethiopian mobile number (`09…`/`07…`), a 12+ character password, an adult date of birth. No SMS is sent: the verify page shows the code, **Fill in**, **Verify**.                                         |
+| 2. Verify ID   | Account → Identity (`/account/kyc`) | Any 12-digit Fayda FIN and a name. The mock registry verifies it, except an ID ending `0000` (not found) or `9999` (manual review: approve it in the back office KYC queue).                                  |
+| 3. Deposit     | Wallet → Deposit                    | Choose an amount, **Deposit**. Open the simulated phone (the link under the waiting card, `/dev/phone`, same browser), enter PIN `1234` and **Approve** (or **Decline**). The balance updates within seconds. |
+| 4. Bet it      | Any match                           | Every deposit must be staked once before it can be withdrawn (anti-money-laundering rule, wagering multiplier 1x in the back office settings). The withdraw page shows how much is left to bet.               |
+| 5. Withdraw    | Wallet → Withdraw                   | Withdrawals go to the player's own registered number. Below the auto-approve threshold (default ETB 5,000) they are approved at once; from it upwards they wait for staff.                                    |
+| 6. Approve     | Back office → Withdrawals           | **Approve** (or **Reject** with a reason). The worker pays within seconds.                                                                                                                                    |
+| 7. See it paid | Wallet → Withdraw                   | The tracker shows Requested → Approved → Processing → Paid. Payout outcomes follow the number: ending `0000` fails (the money goes back), `9999` stays pending until the next status check.                   |
+
+The same walk-through runs automatically against any deployment (about 5 to 10 minutes, most of it
+waiting for a simulated match to be played; screenshots optional):
+
+```bash
+E2E_WEB_URL=https://www.example.et E2E_API_URL=https://api.example.et E2E_ADMIN_URL=https://admin.example.et \
+E2E_STAFF_EMAIL=you@example.et E2E_STAFF_PASSWORD='…' E2E_STAFF_TOTP_SECRET=<base32 secret from admin-create> \
+E2E_SCREENSHOTS_DIR=/tmp/vamos-shots pnpm e2e:deployment
+```
+
+It uses a fresh random player each run (the play-money rows stay in the demo database). If `STAFF_ALLOWLIST`
+is set, run it from an allowed address.

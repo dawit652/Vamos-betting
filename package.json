@@ -22,6 +22,7 @@
     "sbom": "node scripts/sbom.mjs",
     "audit:prod": "pnpm audit --prod",
     "e2e": "pnpm --filter @vamos/e2e e2e",
+    "e2e:deployment": "pnpm --filter @vamos/e2e deployment",
     "load:bets": "pnpm --filter @vamos/load bet-placement",
     "db:generate": "pnpm --filter @vamos/db generate",
     "db:migrate": "pnpm --filter @vamos/db migrate",
