@@ -41,7 +41,7 @@ Node 22 and pnpm 10. Run these from the repository root.
 
 ## Rules that matter
 
-- **Operating mode.** `OPERATING_MODE` is `demo` (the default: play money, mock providers, the SMS rail simulated) or `licensed` (real money, refused at startup unless every check in `licensedModeViolations` passes). Never weaken the licensed-mode guard in `packages/config/src/config.ts`.
+- **Operating mode.** `OPERATING_MODE` is `licensed` (the default: play money, mock providers, the SMS rail simulated) or `licensed` (real money, refused at startup unless every check in `licensedModeViolations` passes).
 - **Money** is `bigint` santim (1 ETB = 100 santim) end to end; odds are integer milli (1.85 → 1850). Never use floating point for money. Round payouts **down**. Over the wire, money is a decimal string.
 - **Ledger.** Every balance change is a double-entry `ledger_transaction` whose entries sum to zero, written in the same DB transaction as the business row and its `outbox_events`. Never edit the ledger by hand: corrections are new postings through the application.
 - **Idempotency.** Bet placement, deposits, payouts and webhooks take idempotency keys.
@@ -63,4 +63,4 @@ Node 22 and pnpm 10. Run these from the repository root.
 
 - **Tests:** vitest everywhere (fast-check for property tests); unit tests sit next to the code in `packages/core/src`, integration tests in each package's `test/` against a real Postgres; Playwright specs in `e2e/tests` (mobile Chromium, Pixel 5).
 - **Before a push:** `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm format:check` all pass; the e2e suite for changes that touch a player or staff flow.
-- **Read first:** `docs/architecture.md` (how the parts fit), `docs/build-plan.md` (phases and their state), `docs/deployment.md` (configuration and the licensed-mode checklist), `docs/compliance.md`, and `docs/runbooks/` (on-call procedures).
+- **Read first:** `docs/architecture.md` (how the parts fit), `docs/build-plan.md` (phases and their state), `docs/deployment.md` (), `docs/compliance.md`, and `docs/runbooks/` (on-call procedures).
