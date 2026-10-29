@@ -101,7 +101,13 @@ no `manual`), so rule O1 treats them as not calibrated until a trader runs `rati
 (section 2) and a person has not yet checked the club list on UNAFUT; add them when that is done. The alias draft
 `data/costa-rica-aliases.csv` is in the `aliases import` format (team aliases from the evidenced spellings, four
 competition aliases, all sources); the one "Liga" variant for Alajuelense was left out because it also names the
-league and other clubs. Import it with `aliases import --file docs/scraper-plan/data/costa-rica-aliases.csv`.
+league and other clubs. **Removed: `Sporting`, `Sporting F.C.` and `Sporting San José` (all mapped to Sporting CR).**
+They were generic words (`Sporting` names clubs in Portugal, Spain and elsewhere), and with an empty `source` column
+the alias applies to every source, so a Portuguese or Spanish source's "Sporting" would have been priced and settled
+as the Costa Rican club (wrong match, found in the data accuracy evaluation, section 3.5). Sporting CR is still
+found by its catalogue short name `Sporting CR` and its official name `Sporting Football Club`. Rule for this file:
+an alias must never be a generic word unless it is scoped to one source id (the `source` column). Import it with
+`aliases import --file docs/scraper-plan/data/costa-rica-aliases.csv`.
 
 ## 3. Candidate sources
 

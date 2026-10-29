@@ -94,7 +94,7 @@ describe('Costa Rica catalogue and alias file', () => {
     const header = rows[0]!.cells;
     const col = (cells: string[], name: string) => cells[header.indexOf(name)] ?? '';
     const body = rows.slice(1);
-    expect(body.filter((r) => col(r.cells, 'kind') === 'team').length).toBeGreaterThanOrEqual(10);
+    expect(body.filter((r) => col(r.cells, 'kind') === 'team').length).toBeGreaterThanOrEqual(8);
     expect(body.filter((r) => col(r.cells, 'kind') === 'competition')).toHaveLength(4);
     for (const { cells } of body) {
       expect(col(cells, 'source')).toBe('');
@@ -115,6 +115,21 @@ describe('Costa Rica catalogue and alias file', () => {
         });
       }
     }
+  });
+
+  it('does not map the generic word Sporting to Sporting CR (removed from the file)', () => {
+    // Sporting names clubs in other countries; these aliases were removed so that a
+    // Portuguese or Spanish source's "Sporting" is never matched to the Costa Rican club.
+    const removed = readFileSync(ALIAS_FILE, 'utf8');
+    for (const raw of ['Sporting', 'Sporting F.C.', 'Sporting San José']) {
+      expect(removed.toLowerCase(), raw).not.toContain(`,${raw.toLowerCase()},`);
+      expect(team(raw), raw).toEqual({ status: 'unknown' });
+    }
+    // The club is still found by its catalogue short name and official name.
+    expect(team('Sporting Football Club')).toMatchObject({
+      status: 'resolved',
+      id: teamIds.get('Sporting CR'),
+    });
   });
 
   it('resolves the competition names the sources use', () => {
