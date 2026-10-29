@@ -51,6 +51,10 @@ function pairOf(value: unknown): Pair | string {
   return [a, b];
 }
 
+const isEmptyObject = (v: unknown): boolean =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length === 0;
+const isBareGoallessDraw = (v: unknown): boolean =>
+  Array.isArray(v) && v.length === 2 && v[0] === 0 && v[1] === 0;
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -134,7 +138,19 @@ export function createOpenFootballAdapter(
         let score: Score | null = null;
         let basis: 'regular_time' | 'unknown' = 'regular_time';
         const raw = m.score;
-        if (raw !== undefined && raw !== null) {
+        if (isBareGoallessDraw(raw)) {
+          // The dataset writes a goalless draw as a bare pair; 0-0 at full time forces 0-0 at half time.
+          score = { home: 0, away: 0, htHome: 0, htAway: 0 };
+        } else if (raw !== undefined && raw !== null && !isEmptyObject(raw)) {
+          if (Array.isArray(raw)) {
+            collector.issue(
+              'error',
+              'bad_score',
+              'a bare score pair other than 0-0 is ambiguous',
+              named,
+            );
+            return;
+          }
           if (!isObject(raw)) {
             collector.issue('error', 'bad_score', 'score must be an object', named);
             return;

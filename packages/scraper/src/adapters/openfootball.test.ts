@@ -127,6 +127,94 @@ describe('openfootball record rules', () => {
   });
 });
 
+describe('openfootball bare score pair and empty score', () => {
+  const real = readFileSync(
+    new URL('./__fixtures__/openfootball-en1-2025-26-goalless.json', import.meta.url),
+    'utf8',
+  );
+  const one = (score: unknown) =>
+    adapter().parse(
+      doc(
+        matches([{ round: 'R', date: '2025-01-10', time: '15:00', team1: 'A', team2: 'B', score }]),
+      ),
+    );
+
+  it('real goalless draws are finished 0-0 results', () => {
+    const o = adapter().parse(doc(real));
+    expect(o.issues).toEqual([]);
+    expect(o.results).toHaveLength(2);
+    expect(o.results[0]).toMatchObject({
+      kind: 'result',
+      home: 'Aston Villa FC',
+      away: 'Newcastle United FC',
+      status: 'finished',
+      kickoff: new Date('2025-08-16T11:30:00Z'),
+      score: { home: 0, away: 0, htHome: 0, htAway: 0 },
+      scoreBasis: 'regular_time',
+    });
+    expect(o.results[1]).toMatchObject({
+      home: 'Chelsea FC',
+      away: 'Crystal Palace FC',
+      kickoff: new Date('2025-08-17T13:00:00Z'),
+      score: { home: 0, away: 0, htHome: 0, htAway: 0 },
+    });
+  });
+
+  it('bare [0, 0] equals the object form {ft, ht}', () => {
+    expect(one([0, 0]).results[0]).toEqual(one({ ft: [0, 0], ht: [0, 0] }).results[0]);
+  });
+
+  it('a normal {ft, ht} result is unchanged', () => {
+    expect(one({ ft: [2, 1], ht: [1, 0] }).results[0]).toMatchObject({
+      score: { home: 2, away: 1, htHome: 1, htAway: 0 },
+      scoreBasis: 'regular_time',
+    });
+  });
+
+  it('{} is no score: a scheduled fixture, no issue', () => {
+    const o = one({});
+    expect(o.issues).toEqual([]);
+    expect(o.results).toHaveLength(0);
+    expect(o.fixtures).toHaveLength(1);
+    expect(o.fixtures[0]?.status).toBe('scheduled');
+  });
+
+  it('[2, 1] stays rejected as ambiguous', () => {
+    const o = one([2, 1]);
+    expect(o.stats.recordsAccepted).toBe(0);
+    expect(o.issues).toHaveLength(1);
+    expect(o.issues[0]?.code).toBe('bad_score');
+    expect(o.issues[0]?.message).toBe('a bare score pair other than 0-0 is ambiguous');
+  });
+
+  it.each([
+    ['[1]', [1]],
+    ['[0]', [0]],
+    ['[]', []],
+    ['[0,0,0]', [0, 0, 0]],
+    ['[1,0]', [1, 0]],
+    ['[0,1]', [0, 1]],
+    ['[-0,-1]', [0, -1]],
+    ['strings', ['0', '0']],
+    ['floats', [0.5, 0]],
+    ['nulls', [null, null]],
+    ['nested', [[0, 0]]],
+    ['string', '0-0'],
+    ['number', 0],
+    ['true', true],
+    ['false', false],
+    ['object without usable keys', { x: [0, 0] }],
+    ['ht only', { ht: [0, 0] }],
+    ['ft null', { ft: null }],
+    ['ft bare 0-0 string', { ft: '0-0' }],
+  ])('no other shape yields a result: %s', (_n, score) => {
+    const o = one(score);
+    expect(o.results).toHaveLength(0);
+    expect(o.stats.recordsAccepted).toBe(0);
+    expect(o.issues.map((i) => i.code)).toEqual(['bad_score']);
+  });
+});
+
 describe('openfootball fatal', () => {
   it.each([
     ['empty', ''],

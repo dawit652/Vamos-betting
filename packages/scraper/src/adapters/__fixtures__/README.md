@@ -7,3 +7,5 @@
   2. Everton v Leeds: only `et` and `p` in the score (no `ft`) -> result with `scoreBasis: 'unknown'`.
   3. Aston Villa v Newcastle: `ft` has 3 elements -> dropped with `bad_score`.
 - `generic-json-league.json`, `generic-html-league.html`: made-up documents for the configurable adapters.
+- `openfootball-en1-2025-26-goalless.json`: two real records (Aston Villa v Newcastle, Chelsea v Crystal Palace, Matchday 1)
+  of the 2025/26 English Premier League file, unchanged. The dataset writes a goalless draw as a bare pair `"score": [0, 0]`.

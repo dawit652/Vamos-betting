@@ -36,9 +36,11 @@ settlement and payouts, so only real games appear.
 pnpm --filter @vamos/scraper-app cli dry-fetch --source-file docs/scraper-plan/data/source-openfootball-en1.json --limit 5
 ```
 
-Expected, in October 2026: `records seen 380, accepted 375; 330 fixtures, 45 results, 5 issues`. The five
-issues are matches the dataset lists with a bare `[0, 0]` instead of a proper score. The scraper refuses to
-guess a score, so those five are skipped. That is the safe behaviour.
+Expected, in late October 2026: `records seen 380, accepted 380; 330 fixtures, 50 results, 0 issues` (the
+counts of results and fixtures grow as the season is played). The dataset writes a goalless draw as a bare
+`"score": [0, 0]`; the adapter reads exactly that pair as a finished 0-0 (half-time 0-0). Any other bare pair
+(for example `[2, 1]`) is still rejected as `bad_score`, because nothing says what it would mean. An empty
+`"score": {}` is read as "not played yet". Anything else you see under `issues` needs a look.
 
 The file is for the 2026-27 season. Each August, change `2026-27` in the URL to the new season.
 
