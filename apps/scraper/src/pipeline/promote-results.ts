@@ -30,6 +30,7 @@ import {
   reviewsOf,
   scoreContradicts,
   type CompetitionPolicy,
+  type GateReview,
   type ResolvedObservation,
   type ResultObservation,
   type Score,
@@ -162,7 +163,9 @@ export async function promoteResults(ctx: ScraperContext): Promise<PromoteResult
         if (done.applied) summary.applied += 1;
         summary.published += done.published;
       } else if (decision.action === 'hold') {
-        await ctx.db.transaction((tx) => openGateReviews(tx, reviewsOf(decision), now));
+        await ctx.db.transaction((tx) =>
+          openResultReviews(tx, reviewsOf(decision), observations, now),
+        );
         summary.held += 1;
       }
     } catch (error) {
@@ -281,16 +284,31 @@ async function evidenceHashes(
   observations: readonly ResultObs[],
   score: Score,
 ): Promise<string[]> {
+  return snapshotHashes(
+    tx,
+    observations.filter(
+      (o) =>
+        o.obs.status === 'finished' &&
+        o.obs.scoreBasis === 'regular_time' &&
+        o.obs.score !== null &&
+        o.obs.score.home === score.home &&
+        o.obs.score.away === score.away,
+    ),
+    (history) => history.status === 'finished',
+  );
+}
+
+/**
+ * Content hashes of the snapshots behind these observations: the page each one
+ * currently stands on, and the pages of the history rows `inHistory` accepts.
+ */
+async function snapshotHashes(
+  tx: DbTransaction,
+  observations: readonly ResultObs[],
+  inHistory: (history: { status: string }) => boolean,
+): Promise<string[]> {
   const rawIds = new Set<string>();
   for (const o of observations) {
-    if (o.obs.status !== 'finished' || o.obs.scoreBasis !== 'regular_time') continue;
-    if (
-      o.obs.score === null ||
-      o.obs.score.home !== score.home ||
-      o.obs.score.away !== score.away
-    ) {
-      continue;
-    }
     if (o.obs.externalRef === null) continue;
     const [row] = await tx
       .select({ id: scrapeObservations.id, rawId: scrapeObservations.rawId })
@@ -305,7 +323,7 @@ async function evidenceHashes(
     if (row === undefined) continue;
     if (row.rawId !== null) rawIds.add(row.rawId);
     for (const h of await listObservationHistory(tx, row.id)) {
-      if (h.status === 'finished' && h.rawId !== null) rawIds.add(h.rawId);
+      if (inHistory(h) && h.rawId !== null) rawIds.add(h.rawId);
     }
   }
   if (rawIds.size === 0) return [];
@@ -314,6 +332,33 @@ async function evidenceHashes(
     .from(scrapeRaw)
     .where(inArray(scrapeRaw.id, [...rawIds]));
   return [...new Set(rows.map((r) => r.hash))].sort();
+}
+
+/** The review kinds that dispute a result; the pages behind them are evidence for the person who decides. */
+const DISPUTE_KINDS: ReadonlySet<string> = new Set([
+  'result_conflict',
+  'result_correction',
+  'result_unverified',
+]);
+
+/**
+ * Opens (or refreshes) the items of a result hold and, when one of them is a
+ * dispute (`result_conflict`, `result_correction`, `result_unverified`), marks
+ * the raw snapshots of every current result observation of the fixture, and of
+ * their history, as kept, in the same transaction. Without this the pages a
+ * person needs to judge the dispute would be pruned after the retention period
+ * (30 days) while the item may still be open. Same mechanism as the applied
+ * path: `markRawKeep` by content hash.
+ */
+async function openResultReviews(
+  tx: DbTransaction,
+  reviews: readonly GateReview[],
+  observations: readonly ResultObs[],
+  now: Date,
+): Promise<void> {
+  await openGateReviews(tx, reviews, now);
+  if (!reviews.some((review) => DISPUTE_KINDS.has(review.kind))) return;
+  await markRawKeep(tx, await snapshotHashes(tx, observations, () => true));
 }
 
 // ---------------------------------------------------------------------------
