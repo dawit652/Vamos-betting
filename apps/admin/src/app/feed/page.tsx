@@ -1,0 +1,239 @@
+'use client';
+
+import type {
+  CompetitionPolicyView,
+  FeedCompetitionsResponse,
+  FeedHealthResponse,
+  FeedReviewKind,
+  SetSourceEnabledResponse,
+  SourceHealthView,
+  UpdateCompetitionPolicyResponse,
+} from '@vamos/contracts';
+import Link from 'next/link';
+import { useState } from 'react';
+import { useFetch } from '@/components/hooks';
+import { useSession } from '@/components/session';
+import { ActionButton, Badge, Loading, Notice, PageHeader } from '@/components/ui';
+import { api } from '@/lib/api';
+import { describeError } from '@/lib/errors';
+import {
+  ageText,
+  flagPermission,
+  POLICY_FLAGS,
+  policyFlag,
+  runStatusTone,
+  SOURCE_STATE_LABELS,
+  sourceStateTone,
+} from '@/lib/feed';
+import { formatDateTime, humanize } from '@/lib/format';
+
+function SourceRow({ source, onChanged }: { source: SourceHealthView; onChanged: () => void }) {
+  const { can } = useSession();
+  const toggle = async () => {
+    await api<SetSourceEnabledResponse>(`/admin/feed/sources/${source.id}`, {
+      method: 'PUT',
+      body: { enabled: !source.enabled },
+    });
+    onChanged();
+  };
+  return (
+    <tr>
+      <td>
+        {source.name}
+        <div className="muted small">
+          {source.adapter} · {source.upstream}
+        </div>
+      </td>
+      <td>
+        <Badge value={SOURCE_STATE_LABELS[source.state]} tone={sourceStateTone(source.state)} />
+      </td>
+      <td>
+        {source.lastRun === null ? (
+          <span className="muted">never</span>
+        ) : (
+          <>
+            <Badge value={source.lastRun.status} tone={runStatusTone(source.lastRun.status)} />{' '}
+            <span title={formatDateTime(source.lastRun.startedAt)}>
+              {ageText(source.lastRun.startedAt)}
+            </span>
+          </>
+        )}
+      </td>
+      <td>
+        {source.lastRun === null
+          ? '–'
+          : `${source.lastRun.recordsAccepted} / ${source.lastRun.recordsSeen}`}
+      </td>
+      <td>{source.consecutiveFailures}</td>
+      <td>
+        <Link href={`/feed/review?status=open`}>{source.openReviewItems}</Link>
+      </td>
+      <td>
+        {can('trading.status') ? (
+          <ActionButton label={source.enabled ? 'Disable' : 'Enable'} onAction={toggle} />
+        ) : (
+          <span className="muted small">no access</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function FlagCell({
+  policy,
+  flag,
+  onChanged,
+}: {
+  policy: CompetitionPolicyView;
+  flag: (typeof POLICY_FLAGS)[number][0];
+  onChanged: () => void;
+}) {
+  const { can } = useSession();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const value = policyFlag(policy, flag);
+  const allowed = can(flagPermission(flag, !value));
+  const change = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api<UpdateCompetitionPolicyResponse>(
+        `/admin/feed/competitions/${policy.competitionId}`,
+        {
+          method: 'PUT',
+          body: { [flag]: !value },
+        },
+      );
+      onChanged();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <td>
+      <button
+        type="button"
+        aria-pressed={value}
+        disabled={!allowed || busy}
+        title={allowed ? undefined : 'Your role may not make this change'}
+        onClick={() => void change()}
+      >
+        {value ? 'on' : 'off'}
+      </button>
+      {error !== null && <Notice>{error}</Notice>}
+    </td>
+  );
+}
+
+export default function FeedOverviewPage() {
+  const health = useFetch<FeedHealthResponse>('/admin/feed/health');
+  const competitions = useFetch<FeedCompetitionsResponse>('/admin/feed/competitions');
+  const reloadAll = () => {
+    health.reload();
+    competitions.reload();
+  };
+  const data = health.data;
+
+  return (
+    <>
+      <PageHeader title="Feed">
+        <Link href="/feed/review">Review queue</Link>
+        <Link href="/feed/aliases">Aliases</Link>
+      </PageHeader>
+      <Loading loading={health.loading && data === null} error={health.error} />
+      {data !== null && (
+        <>
+          <h2>Sources</h2>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>State</th>
+                  <th>Last run</th>
+                  <th>Accepted / seen</th>
+                  <th>Failures in a row</th>
+                  <th>Open items</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {data.sources.map((s) => (
+                  <SourceRow key={s.id} source={s} onChanged={reloadAll} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data.sources.length === 0 && <p className="muted">No sources.</p>}
+
+          <h2>Review queue ({data.queue.open} open)</h2>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Kind</th>
+                  <th>Open</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(Object.entries(data.queue.byKind) as [FeedReviewKind, number][])
+                  .filter(([, count]) => count > 0)
+                  .map(([kind, count]) => (
+                    <tr key={kind}>
+                      <td>
+                        <Link href={`/feed/review?status=open&kind=${kind}`}>{humanize(kind)}</Link>
+                      </td>
+                      <td>{count}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          {data.queue.open === 0 && <p className="muted">Nothing to review.</p>}
+        </>
+      )}
+
+      <h2>Competitions</h2>
+      <Loading
+        loading={competitions.loading && competitions.data === null}
+        error={competitions.error}
+      />
+      {competitions.data !== null && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Competition</th>
+                {POLICY_FLAGS.map(([flag, label]) => (
+                  <th key={flag}>{label}</th>
+                ))}
+                <th>Changed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {competitions.data.items.map((c) => (
+                <tr key={c.competitionId}>
+                  <td>{c.name}</td>
+                  {POLICY_FLAGS.map(([flag]) => (
+                    <FlagCell key={flag} policy={c} flag={flag} onChanged={reloadAll} />
+                  ))}
+                  <td className="muted small">
+                    {c.updatedAt === null
+                      ? 'never'
+                      : `${formatDateTime(c.updatedAt)} by ${c.updatedBy ?? ''}`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted small">
+        Turning a flag off needs trading access; turning one on, or changing extra time, needs
+        settings access.
+      </p>
+    </>
+  );
+}

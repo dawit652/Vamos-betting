@@ -38,6 +38,13 @@ describe('navigation by role', () => {
     expect(permissionForPath('/compliance/reconciliation/abc')).toBe('reports.view');
   });
 
+  it('the feed pages follow trading.view', () => {
+    for (const role of ['trader', 'admin']) expect(labels(role)).toContain('Feed');
+    for (const role of ['support', 'finance', 'compliance', 'kyc'])
+      expect(labels(role)).not.toContain('Feed');
+    expect(permissionForPath('/feed/review/abc')).toBe('trading.view');
+  });
+
   it('every role sees the dashboard, and an unknown role sees nothing', () => {
     for (const role of STAFF_ROLES) expect(labels(role)).toContain('Dashboard');
     expect(navFor([])).toEqual([]);
