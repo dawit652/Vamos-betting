@@ -4,6 +4,8 @@ A living checklist for the work described in [scraper.md](scraper.md). It is
 updated at every checkpoint so that a pause (for instance a usage limit) never
 loses the plan. Newest facts first.
 
+The task-by-task plan for everything below is in [scraper-plan/](scraper-plan/README.md).
+
 ## Usage budget (why the work is paused here)
 
 - 2026-10-29 00:57 UTC: 5-hour window **82%** used (resets 05:10 UTC), weekly
