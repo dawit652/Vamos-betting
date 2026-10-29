@@ -51,6 +51,9 @@ pnpm db:seed
 pnpm dev          # api :4000, worker, web :3000
 ```
 
+To try the data scraper with real Premier League data (games, odds, a trader opening betting), follow
+[`docs/scraper-local-test.md`](docs/scraper-local-test.md).
+
 ## Quality checks
 
 ```bash
