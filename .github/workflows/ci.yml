@@ -5,6 +5,17 @@ on:
   # trigger next to it ran the whole workflow twice for each push to a branch with an open PR.
   push:
     branches: ['**']
+    # A change to documentation only cannot break the code, and costs no runner minutes.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  # Actions tab -> CI -> Run workflow: all three jobs on the branch you pick (see the cost note below).
+  workflow_dispatch:
+
+# Cost: the GitHub Free plan includes 2,000 runner minutes a month for private repositories.
+# `checks` (about 15 minutes) runs on every push. The two slow jobs, `e2e` (about 20 minutes) and
+# `docker` (about 6), run on pushes to the default branch and on demand, so a full run is about
+# 40 minutes and a branch push about 15.
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -67,6 +78,7 @@ jobs:
 
   e2e:
     name: End-to-end (Playwright, mobile Chromium)
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -133,6 +145,7 @@ jobs:
 
   docker:
     name: Docker images and smoke test
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:

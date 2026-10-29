@@ -61,8 +61,10 @@ pnpm build
 pnpm e2e          # Playwright, against a running dev stack
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same checks with Postgres and Redis service containers, plus a
-`docker` job that builds the production images, boots the compose stack and runs `scripts/smoke.sh`.
+CI (`.github/workflows/ci.yml`) runs the same checks with Postgres and Redis service containers on every push
+(not for changes to documentation only). The slow jobs, end-to-end and `docker` (builds the production images,
+boots the compose stack and runs `scripts/smoke.sh`), run on pushes to the default branch and on demand
+(Actions → CI → Run workflow), to stay within the free runner minutes.
 
 ## Deployment
 

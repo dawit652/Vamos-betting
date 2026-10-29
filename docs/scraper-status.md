@@ -87,9 +87,17 @@ Everything else is in [known-limits.md](scraper-plan/known-limits.md).
 
 ## What still needs a person
 
-- **GitHub Actions**: no CI job has started since 2026-10-27. Check
-  Settings → Billing and plans (or make the repository public, or wait for the
-  monthly reset).
+- **GitHub Actions**: no CI job has started since 2026-10-27. GitHub's
+  message is "The job was not started because recent account payments have
+  failed or your spending limit needs to be increased". The Free plan's free
+  minutes for October appear to be used up and the Actions budget is $0
+  (Settings → Billing and licensing → Budgets and alerts). Nothing has to be
+  paid: the free minutes reset on 1 November, and CI now uses about a third of
+  the minutes per push (see the cost note in `.github/workflows/ci.yml`). The
+  pull request is mergeable without CI, because none of its checks is
+  required. Check Payment history for a failed payment if the jobs still do
+  not start after 1 November. Do not make the repository public just for the
+  minutes: it is a betting platform's code.
 - **Network access for the research**: allow `en.wikipedia.org`,
   `es.wikipedia.org`, `www.unafut.com`, `www.fedefutbol.com`,
   `www.api-football.com`, `api-sports.io`, `www.sportmonks.com` and
