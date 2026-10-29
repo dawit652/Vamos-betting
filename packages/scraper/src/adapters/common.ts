@@ -12,8 +12,7 @@ import {
   type Score,
   type SourceAdapter,
 } from '../types';
-// Switch to `from '../normalize'` when it exports these, then delete _tz-fallback.ts.
-import { isValidTimeZone, zonedToUtc } from './_tz-fallback';
+import { isValidTimeZone, zonedToUtc } from '../normalize';
 
 export { isValidTimeZone, zonedToUtc };
 

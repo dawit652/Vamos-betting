@@ -232,6 +232,20 @@
       "when": 1793107152181,
       "tag": "0032_remove_els_reporting",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793233036163,
+      "tag": "0033_scrape_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793233050032,
+      "tag": "0034_scrape_history_guards",
+      "breakpoints": true
     }
   ]
 }

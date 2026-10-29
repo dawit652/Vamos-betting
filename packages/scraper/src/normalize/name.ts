@@ -46,7 +46,9 @@ const TRANSLITERATION_RE = new RegExp(`[${[...TRANSLITERATION.keys()].join('')}]
  * KEPT: in those scripts a mark can be the only difference between two
  * names, and stripping it could make two clubs collide.
  */
-const DIACRITIC_RE = /[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]/gu;
+// The class lists combining marks on purpose: it is the set to strip.
+// eslint-disable-next-line no-misleading-character-class
+const DIACRITIC_RE = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]/gu;
 
 /** Apostrophes vanish without splitting a word: "Newell's" and "Newells" agree. */
 const APOSTROPHE_RE = /['`´‘’ʼʻ]/gu;

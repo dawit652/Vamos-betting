@@ -7,6 +7,7 @@
  * - Phase 8: jackpot rounds, games and entries
  * - Phase 10: compliance (reconciliation, PSP statements, AML flags)
  * - Phase 11: SMS / USSD channels (inbound messages, USSD sessions)
+ * - Data scraper: sources, runs, observations, aliases, review queue (docs/scraper.md)
  */
 export * from './enums';
 export * from './accounts';
@@ -18,3 +19,4 @@ export * from './payments';
 export * from './jackpots';
 export * from './compliance';
 export * from './channels';
+export * from './scrape';
