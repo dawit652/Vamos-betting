@@ -163,8 +163,13 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     maxAttempts: 1,
     now: () => clock.getTime(),
     sleep: () => Promise.resolve(),
-    fetchImpl: (input) => {
+    fetchImpl: (input, init) => {
       const hit = responses.get(input) ?? { status: 404, body: 'not found' };
+      // Like a real server: a conditional request for the page's current ETag gets a 304.
+      const sent = (init?.headers as Record<string, string> | undefined)?.['if-none-match'];
+      if (hit.status === 200 && hit.headers?.etag !== undefined && sent === hit.headers.etag) {
+        return Promise.resolve(new Response(null, { status: 304 }));
+      }
       return Promise.resolve(
         new Response(hit.body, {
           status: hit.status,

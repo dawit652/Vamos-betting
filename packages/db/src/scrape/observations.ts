@@ -494,3 +494,33 @@ export async function listObservationHistory(
     .where(eq(scrapeObservationHistory.observationId, observationId))
     .orderBy(asc(scrapeObservationHistory.id));
 }
+
+/**
+ * A `304 Not Modified` is a sighting of everything the unchanged page lists:
+ * moves last_seen_at, run_id and raw_id of the source's observations that came
+ * from snapshot `fromRawId` onto the new run and snapshot (history is
+ * untouched: the payloads did not change). Returns how many were touched.
+ */
+export async function touchObservationsOfRaw(
+  tx: DbTransaction,
+  input: { sourceId: string; fromRawId: string; toRawId: string; runId: string; seenAt: Date },
+): Promise<{ fixtures: number; results: number }> {
+  const rows = await tx
+    .update(scrapeObservations)
+    .set({
+      lastSeenAt: sql`greatest(${scrapeObservations.lastSeenAt}, ${input.seenAt.toISOString()}::timestamptz)`,
+      runId: input.runId,
+      rawId: input.toRawId,
+    })
+    .where(
+      and(
+        eq(scrapeObservations.sourceId, input.sourceId),
+        eq(scrapeObservations.rawId, input.fromRawId),
+      ),
+    )
+    .returning({ kind: scrapeObservations.kind });
+  return {
+    fixtures: rows.filter((r) => r.kind === 'fixture').length,
+    results: rows.filter((r) => r.kind === 'result').length,
+  };
+}

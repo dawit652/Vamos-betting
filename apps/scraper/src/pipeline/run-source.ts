@@ -1,6 +1,7 @@
 import {
   closeReviewItemsBySubject,
   finishRun,
+  latestAcceptedRaw,
   loadAliasInputs,
   openReviewItem,
   recentAcceptedCounts,
@@ -8,6 +9,7 @@ import {
   setObservationResolution,
   listUnresolvedObservations,
   startRun,
+  touchObservationsOfRaw,
   upsertObservation,
   type DbTransaction,
   type ScrapeRunIssueJson,
@@ -244,6 +246,10 @@ async function execute(
   };
   const counts = { requests: 0, bytes: 0, seen: 0, accepted: 0, fixtures: 0, results: 0 };
   const indexes = aliasIndexCache(ctx);
+  /** Pages of this run that were parsed and accepted (a 304 is not one: nothing was parsed). */
+  let pagesParsed = 0;
+  /** The URL being processed, to forget its validators if the run crashes on it. */
+  let currentUrl: string | null = null;
 
   try {
     for (const item of adapter.plan(ctx.clock())) {
@@ -252,7 +258,27 @@ async function execute(
         allowedHosts: adapter.allowedHosts,
         sourceKey: source.id,
       });
-      if (result.kind === 'not_modified') continue;
+      if (result.kind === 'not_modified') {
+        const seen = await recordNotModified(ctx, source.id, run.id, result.url, result.fetchedAt);
+        if (seen === null) {
+          // Nothing we stored stands behind this 304 (a lost database, a crash before storing):
+          // never trust it; the next run fetches the page in full.
+          await ctx.fetcher.forgetValidators(result.url);
+          worsen('failed');
+          issues.push({
+            severity: 'error',
+            code: 'not_modified_unknown',
+            message: 'the page was reported unchanged but no accepted copy of it is stored',
+            context: { url: item.url },
+          });
+          continue;
+        }
+        counts.seen += seen.recordsSeen;
+        counts.accepted += seen.recordsAccepted;
+        counts.fixtures += seen.fixtures;
+        counts.results += seen.results;
+        continue;
+      }
       if (result.kind === 'blocked') {
         worsen('blocked');
         issues.push({
@@ -283,6 +309,7 @@ async function execute(
         });
         continue;
       }
+      currentUrl = result.url;
       counts.bytes += result.body.length;
       // Evidence first: nothing is parsed (let alone stored) that was not archived.
       await ctx.archive.put(result.body, { fetchedAt: result.fetchedAt });
@@ -311,6 +338,8 @@ async function execute(
       if (shape.status === 'broken') {
         // Nothing of this document is stored.
         worsen('broken');
+        // The ETag of this page was remembered on the 200; a later 304 must not stand for it.
+        await ctx.fetcher.forgetValidators(result.url);
         issues.push({
           severity: 'error',
           code: 'shape_broken',
@@ -334,10 +363,13 @@ async function execute(
       const stored = await storeObservations(ctx, source, run.id, raw.id, parsed, indexes, issues);
       counts.fixtures += stored.fixtures;
       counts.results += stored.results;
+      pagesParsed += 1;
+      currentUrl = null;
     }
   } catch (error) {
     // A bug or an archive/database failure: the run failed, whatever was committed stays valid.
     worsen('failed');
+    if (currentUrl !== null) await ctx.fetcher.forgetValidators(currentUrl);
     const message = error instanceof Error ? error.message : String(error);
     ctx.logger.error({ err: error, sourceId: source.id }, 'source run crashed');
     issues.push({ severity: 'error', code: 'run_crashed', message });
@@ -346,7 +378,8 @@ async function execute(
   const status: ScrapeRunStatus = outcome;
   const errorText = issues.find((i) => i.fatal || i.code === 'run_crashed')?.message ?? null;
   await ctx.db.transaction(async (tx) => {
-    if (status === 'ok') {
+    // Only a run that parsed a page shows the source parses again; a 304 shows nothing.
+    if (status === 'ok' && pagesParsed > 0) {
       await closeReviewItemsBySubject(tx, subjectKey, {
         kinds: ['source_broken'],
         resolution: 'the source parses as before again',
@@ -374,6 +407,54 @@ async function execute(
     fixtures: counts.fixtures,
     results: counts.results,
   };
+}
+
+/**
+ * A 304 Not Modified is a sighting of the page we stored last time: a raw row
+ * for this run (same bytes, hash and yield as that page), and the
+ * observations that page produced move to this run and moment, so "last
+ * listed" keeps up with a page that does not change. null when no accepted
+ * copy is stored.
+ */
+async function recordNotModified(
+  ctx: ScraperContext,
+  sourceId: string,
+  runId: string,
+  url: string,
+  fetchedAt: Date,
+): Promise<{
+  recordsSeen: number;
+  recordsAccepted: number;
+  fixtures: number;
+  results: number;
+} | null> {
+  return ctx.db.transaction(async (tx) => {
+    const previous = await latestAcceptedRaw(tx, sourceId, url);
+    if (previous === null) return null;
+    const { raw } = await recordRaw(tx, {
+      runId,
+      url,
+      status: 304,
+      contentType: previous.contentType,
+      contentHash: previous.contentHash,
+      bytes: previous.bytes,
+      fetchedAt,
+      ...(previous.recordsSeen === null ? {} : { recordsSeen: previous.recordsSeen }),
+      ...(previous.recordsAccepted === null ? {} : { recordsAccepted: previous.recordsAccepted }),
+    });
+    const touched = await touchObservationsOfRaw(tx, {
+      sourceId,
+      fromRawId: previous.id,
+      toRawId: raw.id,
+      runId,
+      seenAt: fetchedAt,
+    });
+    return {
+      recordsSeen: previous.recordsSeen ?? 0,
+      recordsAccepted: previous.recordsAccepted ?? 0,
+      ...touched,
+    };
+  });
 }
 
 function toIssueJson(issue: ParseOutcome['issues'][number]): ScrapeRunIssueJson {

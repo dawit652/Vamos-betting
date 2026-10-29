@@ -463,3 +463,91 @@ describe('review finding 6: the staff path applies the same checks as the gates'
     TEST_TIMEOUT,
   );
 });
+
+describe('review finding 7: a 304 is a sighting, and a broken page is not remembered as seen', () => {
+  const etagged = (body: string, etag: string) => ({
+    status: 200,
+    body,
+    headers: { etag },
+  });
+
+  it(
+    'F5: unchanged pages answered with 304 keep their fixtures listed',
+    async () => {
+      h = await createHarness();
+      h.serve(URL_A, etagged(ofDoc([ARSENAL_CHELSEA_OF]), '"a1"'));
+      h.serve(URL_B, etagged(jsonDoc([ARSENAL_CHELSEA_JSON]), '"b1"'));
+      await h.run('src-a');
+      await h.run('src-b');
+      expect((await promoteFixtures(h.ctx)).created).toBe(1);
+      const seenBefore = await rows<{ last_seen_at: Date }>(
+        `SELECT last_seen_at FROM scrape_observations ORDER BY source_id`,
+      );
+      for (let i = 0; i < 4; i++) {
+        h.advance(13 * HOUR);
+        expect((await h.run('src-a')).status).toBe('ok');
+        expect((await h.run('src-b')).status).toBe('ok');
+      }
+      // The runs really were 304s: a raw row per run, with the hash of the page they stand for.
+      expect(
+        await h.count(`SELECT count(*) AS n FROM scrape_raw WHERE status = 304 AND url = $1`, [
+          URL_B,
+        ]),
+      ).toBe(4);
+      expect(
+        await h.count(`SELECT count(DISTINCT content_hash) AS n FROM scrape_raw WHERE url = $1`, [
+          URL_B,
+        ]),
+      ).toBe(1);
+      const seenAfter = await rows<{ last_seen_at: Date }>(
+        `SELECT last_seen_at FROM scrape_observations ORDER BY source_id`,
+      );
+      expect(seenAfter.map((r) => r.last_seen_at.getTime())).toEqual(
+        seenBefore.map(() => h.now().getTime()),
+      );
+      expect((await promoteFixtures(h.ctx)).missing).toBe(0);
+      expect(await openKinds()).not.toContain('fixture_missing');
+      // Another change on the page is still seen as a change.
+      h.serve(
+        URL_B,
+        etagged(jsonDoc([{ ...ARSENAL_CHELSEA_JSON, kick: '2026-11-02T15:03:00Z' }]), '"b2"'),
+      );
+      h.advance(MINUTE);
+      expect((await h.run('src-b')).status).toBe('ok');
+      expect(
+        await h.count(
+          `SELECT count(*) AS n FROM scrape_observation_history WHERE source_id = 'src-b'`,
+        ),
+      ).toBe(2);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'S1: a broken page is fetched in full again, never answered 304, and source_broken stays open',
+    async () => {
+      h = await createHarness();
+      const two = [
+        ARSENAL_CHELSEA_JSON,
+        { ...ARSENAL_CHELSEA_JSON, id: 9, h: 'Liverpool', a: 'Everton' },
+      ];
+      for (let i = 0; i < 3; i++) {
+        h.serve(URL_B, jsonDoc(two) + ' '.repeat(i));
+        await h.run('src-b');
+        h.advance(20 * MINUTE);
+      }
+      h.serve(URL_B, etagged('{"changed":true}', '"x"'));
+      expect((await h.run('src-b')).status).toBe('broken');
+      expect(await openKinds()).toContain('source_broken');
+      h.advance(20 * MINUTE);
+      expect((await h.run('src-b')).status).toBe('broken');
+      expect(await openKinds()).toContain('source_broken');
+      // The site is fixed: a full fetch parses, and only then is the item closed.
+      h.serve(URL_B, etagged(jsonDoc(two), '"y"'));
+      h.advance(20 * MINUTE);
+      expect((await h.run('src-b')).status).toBe('ok');
+      expect(await openKinds()).not.toContain('source_broken');
+    },
+    TEST_TIMEOUT,
+  );
+});

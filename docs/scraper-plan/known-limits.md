@@ -52,6 +52,7 @@ The safer reading was always taken. The notable ones:
 - The host allow-list is exact (no wildcard subdomains); a port other than 443, credentials in a URL, a missing Content-Type and any status other than 200 are refused or treated as errors.
 - Not covered: DNS rebinding and private-address checks. The allow-list, reviewed by a person, is the only host control.
 - A 429 or 503 that matches a block-page marker is `blocked` and is not retried.
+- Every 304 adds a `scrape_raw` row (status 304, the previous page's hash), so a page polled every 15 minutes adds about 100 rows a day per URL until the 30-day prune; the archive keeps one file per hash. Validators live in memory: after a restart the first request is a full fetch. A source whose only open `source_broken` item came from an invalid configuration is not auto-closed by 304-only runs; dismiss it by hand or wait for the page to change.
 
 ## Adapters (`packages/scraper/src/adapters`)
 

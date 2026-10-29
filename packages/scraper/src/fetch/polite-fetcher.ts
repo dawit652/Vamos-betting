@@ -516,6 +516,20 @@ export class PoliteFetcher {
     return headers;
   }
 
+  /**
+   * Forgets the ETag / Last-Modified remembered for a URL, so the next request
+   * is unconditional. The caller does this when the page it got was not
+   * accepted (broken markup, storing failed): a later 304 would otherwise
+   * stand for a page that was never used.
+   */
+  async forgetValidators(url: string): Promise<void> {
+    try {
+      await this.#store.set(new URL(url).href, { etag: null, lastModified: null });
+    } catch {
+      /* best effort: the store is an optimisation */
+    }
+  }
+
   async #validatorsFor(url: URL) {
     try {
       return (await this.#store.get(url.href)) ?? null;

@@ -44,6 +44,7 @@ export {
 } from './runs';
 export {
   deleteRaw,
+  latestAcceptedRaw,
   listPrunableRaw,
   markRawKeep,
   recordRaw,
@@ -56,6 +57,7 @@ export {
   listUnresolvedObservations,
   observationPayloadHash,
   setObservationResolution,
+  touchObservationsOfRaw,
   upsertObservation,
   type ListObservationsQuery,
   type ObservationHistoryRow,

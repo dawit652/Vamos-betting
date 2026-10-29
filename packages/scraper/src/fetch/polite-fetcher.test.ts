@@ -426,6 +426,23 @@ describe('conditional requests', () => {
     expect(store.get(`https://${H}/fixtures.json`)).toBeUndefined();
   });
 
+  it('forgetValidators makes the next request unconditional (a page that was not accepted)', async () => {
+    const store = new InMemoryConditionalStore();
+    const { fetcher, f } = setup(
+      (_u, call) =>
+        call.headers['if-none-match'] === '"v1"'
+          ? res(null, 304)
+          : json('{}', 200, { etag: '"v1"' }),
+      { conditionalStore: store },
+    );
+    await fetcher.fetch(item(), CTX);
+    await fetcher.forgetValidators(`https://${H}/fixtures.json`);
+    expect(store.get(`https://${H}/fixtures.json`)).toBeUndefined();
+    expect((await fetcher.fetch(item(), CTX)).kind).toBe('ok');
+    expect(f.calls[1]?.headers['if-none-match']).toBeUndefined();
+    await expect(fetcher.forgetValidators('not a url')).resolves.toBeUndefined();
+  });
+
   it('treats a 304 to an unconditional request as an error, not as success', async () => {
     const { fetcher } = setup(() => res(null, 304));
     expect(await fetcher.fetch(item(), CTX)).toMatchObject({

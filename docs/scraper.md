@@ -226,6 +226,14 @@ Every rule has an id; tests cite the id in their names. Constants are in
   baseline, zero where the baseline is positive, or any `fatal` issue →
   `broken`: nothing is stored, `source_broken` opens, and the source is skipped
   until a run is healthy again.
+- **S1a Conditional requests.** A `304 Not Modified` is a sighting of the page
+  stored last time: the run records a raw row with that page's hash and yield and
+  moves `last_seen_at` / `run_id` / `raw_id` of the observations that page
+  produced (so "last listed", F5, keeps up with a page that does not change). A
+  304 with no accepted copy stored is a failed run. The validators (ETag,
+  Last-Modified) of a page that was not accepted (`broken`, or storing it failed)
+  are forgotten, so the next request is unconditional; `source_broken` is closed
+  only by a run that parsed at least one page.
 - **S2 Transport.** Non-2xx and network errors are `failed` (retried with
   backoff by the fetcher, circuit breaker per source). A robots.txt refusal or
   a block page is `blocked`: we back off; we do not work around it.

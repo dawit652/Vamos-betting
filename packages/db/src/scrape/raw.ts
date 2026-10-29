@@ -1,6 +1,6 @@
-import { and, eq, getTableColumns, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { DbExecutor } from '../ledger/types';
-import { scrapeRaw } from '../schema/scrape';
+import { scrapeRaw, scrapeRuns } from '../schema/scrape';
 import { clampLimit } from './common';
 
 export interface ScrapeRawRecord {
@@ -114,4 +114,31 @@ export async function deleteRaw(exec: DbExecutor, ids: readonly string[]): Promi
     .where(and(inArray(scrapeRaw.id, [...ids]), eq(scrapeRaw.keep, false)))
     .returning({ id: scrapeRaw.id });
   return rows.length;
+}
+
+/**
+ * The newest snapshot of `url` that a successful (`ok`) run of the source
+ * stored with a known yield: the page a later `304 Not Modified` stands for.
+ * null when there is none.
+ */
+export async function latestAcceptedRaw(
+  exec: DbExecutor,
+  sourceId: string,
+  url: string,
+): Promise<ScrapeRawRecord | null> {
+  const [row] = await exec
+    .select(getTableColumns(scrapeRaw))
+    .from(scrapeRaw)
+    .innerJoin(scrapeRuns, eq(scrapeRuns.id, scrapeRaw.runId))
+    .where(
+      and(
+        eq(scrapeRuns.sourceId, sourceId),
+        eq(scrapeRuns.status, 'ok'),
+        eq(scrapeRaw.url, url),
+        isNotNull(scrapeRaw.recordsAccepted),
+      ),
+    )
+    .orderBy(desc(scrapeRuns.startedAt), desc(scrapeRuns.id))
+    .limit(1);
+  return row ?? null;
 }
