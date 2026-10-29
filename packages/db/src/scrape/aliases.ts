@@ -175,7 +175,11 @@ export async function addCompetitionAlias(
   return { alias: competitionRecord(existing), created: false };
 }
 
-/** Removes an alias (audited). Observations keep the ids they already resolved to until re-resolved. */
+/**
+ * Removes an alias (audited). Observations keep the ids they already resolved to
+ * until they are re-resolved: the scraper's promotion pass does so when the alias
+ * tables changed (`reresolveChangedAliases`), and a new fetch writes the new resolution.
+ */
 export async function removeAlias(
   tx: DbTransaction,
   kind: AliasKind,

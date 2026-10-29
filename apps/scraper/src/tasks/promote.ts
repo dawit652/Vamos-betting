@@ -3,7 +3,7 @@ import { intervalTask, type IntervalTask } from '../lib/interval';
 import { tryLock } from '../lib/lock';
 import { promoteFixtures } from '../pipeline/promote-fixtures';
 import { applyStaffConfirmations, promoteResults } from '../pipeline/promote-results';
-import { reresolveUnresolved } from '../pipeline/run-source';
+import { reresolveChangedAliases, reresolveUnresolved } from '../pipeline/run-source';
 
 export const PROMOTE_INTERVAL_MS = 60_000;
 const PROMOTE_LOCK_TTL_MS = 5 * 60_000;
@@ -18,6 +18,8 @@ export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
   if (lock === null) return false;
   try {
     const steps: Array<[string, () => Promise<unknown>]> = [
+      // First: an alias that was removed or changed un-maps/re-maps what is stored (finding 8).
+      ['re-resolve changed aliases', () => reresolveChangedAliases(ctx)],
       ['reresolve', () => reresolveUnresolved(ctx)],
       ['fixtures', () => promoteFixtures(ctx)],
       // Before the result gate: a confirmed item must not be shadowed by a fresh one.

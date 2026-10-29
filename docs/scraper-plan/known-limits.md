@@ -41,6 +41,7 @@ The safer reading was always taken. The notable ones:
 ## Database (`packages/db/src/scrape`)
 
 - `listCurrentObservations` hides observations of disabled sources by default, so the kill switch stops a source voting at once; the back office asks for them explicitly.
+- `upsertObservation` writes the resolution it is given, null included; `undefined` keeps the stored ids while the names are unchanged. Re-resolution after an alias change covers observations with a kickoff from 14 days back to 150 days ahead (at most 20,000 rows, a warning is logged beyond that), runs once per process start and whenever the names/aliases of the sport change, and is not triggered by an alias change in another process until that process's next pass.
 - `raw_id` columns have no foreign key, so pruning snapshots never touches the append-only history.
 - A stale read never overwrites a newer one. Callers upsert keys in a stable sorted order to avoid lock-order deadlocks.
 - `getEventExposure` re-implements the unsettled-bets query (statuses `open` and `pending_acceptance`, a multi counted once per event) instead of reusing `backoffice/trading.ts`; check it against the real definition.

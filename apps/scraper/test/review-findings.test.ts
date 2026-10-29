@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import {
+  addTeamAlias,
   listScrapedEvents,
+  removeAlias,
   resolveReviewItem,
   setCompetitionPolicy,
   setSourceEnabled,
@@ -9,6 +11,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyKickoff, promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { applyStaffConfirmations, promoteResults } from '../src/pipeline/promote-results';
+import { runPromotion } from '../src/tasks/promote';
 import {
   ARSENAL_CHELSEA_JSON,
   ARSENAL_CHELSEA_OF,
@@ -547,6 +550,86 @@ describe('review finding 7: a 304 is a sighting, and a broken page is not rememb
       h.advance(20 * MINUTE);
       expect((await h.run('src-b')).status).toBe('ok');
       expect(await openKinds()).not.toContain('source_broken');
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+describe('review finding 8: removing an alias un-maps what is stored', () => {
+  const GUNNERS = { ...ARSENAL_CHELSEA_JSON, h: 'Gunners' };
+  const homeOf = async () =>
+    (
+      await rows<{ home_team_id: string | null }>(
+        `SELECT home_team_id FROM scrape_observations WHERE source_id = 'src-b'`,
+      )
+    )[0]!.home_team_id;
+
+  /** "Gunners" is mapped to Arsenal by an alias, a source lists it, then the alias is removed. */
+  async function aliasedThenRemoved(): Promise<void> {
+    h = await createHarness();
+    await h.ctx.db.transaction((tx) =>
+      addTeamAlias(
+        tx,
+        { sportId: 'football', aliasNorm: 'gunners', sourceId: null, teamId: h.team('Arsenal') },
+        { system: 'test' },
+      ),
+    );
+    h.serve(URL_B, jsonDoc([GUNNERS]));
+    await h.run('src-b');
+    expect(await homeOf()).toBe(h.team('Arsenal'));
+    const [alias] = await rows<{ id: string }>(
+      `SELECT id FROM team_aliases WHERE alias_norm = 'gunners'`,
+    );
+    await h.ctx.db.transaction((tx) => removeAlias(tx, 'team', alias!.id, { system: 'test' }));
+  }
+
+  it(
+    'N2: the promotion pass un-maps observations of a page that did not change, and asks for a new alias',
+    async () => {
+      await aliasedThenRemoved();
+      h.advance(MINUTE);
+      await runPromotion(h.ctx);
+      expect(await homeOf()).toBeNull();
+      const items = await rows<{ subject_key: string }>(
+        `SELECT subject_key FROM scrape_review_items WHERE kind = 'unknown_team' AND status = 'open'`,
+      );
+      expect(items.map((i) => i.subject_key)).toEqual(['football|gunners']);
+      // Idempotent: nothing is rewritten again, and the unmapped observation no longer votes.
+      expect(await runPromotion(h.ctx)).toBe(true);
+      expect(await homeOf()).toBeNull();
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'N2: a new fetch writes the unresolved name even when nothing else changed on the page',
+    async () => {
+      await aliasedThenRemoved();
+      h.advance(MINUTE);
+      await h.run('src-b');
+      expect(await homeOf()).toBeNull();
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'N2: an alias changed to another team re-maps the stored observation',
+    async () => {
+      await aliasedThenRemoved();
+      await h.ctx.db.transaction((tx) =>
+        addTeamAlias(
+          tx,
+          {
+            sportId: 'football',
+            aliasNorm: 'gunners',
+            sourceId: null,
+            teamId: h.team('Liverpool'),
+          },
+          { system: 'test' },
+        ),
+      );
+      await runPromotion(h.ctx);
+      expect(await homeOf()).toBe(h.team('Liverpool'));
     },
     TEST_TIMEOUT,
   );

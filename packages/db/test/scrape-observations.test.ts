@@ -178,6 +178,50 @@ describe('upsertObservation', () => {
     expect(cleared).toMatchObject({ homeTeamId: null, awayTeamId: null, competitionId: null });
   });
 
+  it('review finding 8: an explicit null resolution is written, undefined keeps the stored one', async () => {
+    const key = 'resolve-explicit-null';
+    const ids = {
+      competitionId: ctx.competitionId,
+      homeTeamId: ctx.team('Arsenal'),
+      awayTeamId: ctx.team('Chelsea'),
+    };
+    const a = await upsert(fixtureObs({ sourceId: 'src-a', runId, sourceKey: key, ...ids }));
+    const read = async () =>
+      (
+        await ctx.handle.db.select().from(scrapeObservations).where(eq(scrapeObservations.id, a.id))
+      )[0];
+    // Identical payload, ids not given: kept.
+    await upsert({
+      ...fixtureObs({ sourceId: 'src-a', runId, sourceKey: key }),
+      observedAt: at(2),
+    });
+    expect(await read()).toMatchObject({ homeTeamId: ids.homeTeamId });
+    // Identical payload, the home team no longer resolves: cleared, the rest kept.
+    await upsert({
+      ...fixtureObs({ sourceId: 'src-a', runId, sourceKey: key, ...ids }),
+      homeTeamId: null,
+      observedAt: at(3),
+    });
+    expect(await read()).toMatchObject({
+      homeTeamId: null,
+      awayTeamId: ids.awayTeamId,
+      competitionId: ids.competitionId,
+    });
+    // Changed payload, same names, away team explicitly unresolved: cleared too.
+    await upsert({
+      ...fixtureObs({ sourceId: 'src-a', runId, sourceKey: key, ...ids }),
+      homeTeamId: ids.homeTeamId,
+      awayTeamId: null,
+      status: 'postponed',
+      observedAt: at(4),
+    });
+    expect(await read()).toMatchObject({
+      homeTeamId: ids.homeTeamId,
+      awayTeamId: null,
+      competitionId: ids.competitionId,
+    });
+  });
+
   it('rejects inconsistent input before it reaches the database', async () => {
     const base = { sourceId: 'src-a', runId, sourceKey: 'bad-1' };
     await expect(upsert(resultObs({ ...base, score: null }))).rejects.toThrow(/score/);

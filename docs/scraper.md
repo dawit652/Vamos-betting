@@ -256,6 +256,12 @@ Every rule has an id; tests cite the id in their names. Constants are in
   an alias (source-specific alias first, then global) or a catalogue name /
   short name of the sport. Never fuzzy. If it maps to more than one team it is
   ambiguous and unresolved.
+- **N2a Aliases act on stored data.** Removing or changing an alias (or a
+  catalogue name) changes what is already stored: the promotion pass re-resolves
+  the current observations of the sport when the names/aliases changed, un-maps
+  a name that no longer resolves (its `unknown_team` / `unknown_competition` item
+  opens) and re-maps one that now points elsewhere; a fetch writes the resolution
+  it computed, null included.
 - **N3 Suggestions.** Unresolved names open `unknown_team` /
   `unknown_competition` with up to three suggested catalogue matches (token
   similarity). Suggestions are for people; they are never applied.

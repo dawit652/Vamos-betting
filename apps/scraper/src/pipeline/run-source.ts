@@ -7,6 +7,7 @@ import {
   recentAcceptedCounts,
   recordRaw,
   setObservationResolution,
+  listCurrentObservations,
   listUnresolvedObservations,
   startRun,
   touchObservationsOfRaw,
@@ -17,6 +18,7 @@ import {
   type ScrapeSource,
 } from '@vamos/db';
 import type { ScrapeRunStatus } from '@vamos/core';
+import { createHash } from 'node:crypto';
 import {
   buildAliasIndex,
   checkShape,
@@ -36,6 +38,7 @@ import {
   type ParseOutcome,
   type Resolution,
 } from '@vamos/scraper';
+import { scrapeObservations } from '@vamos/db/schema';
 import { tryLock } from '../lib/lock';
 import type { ScraperContext } from '../context';
 import { compareText } from './common';
@@ -620,4 +623,78 @@ export async function reresolveUnresolved(ctx: ScraperContext): Promise<number> 
     );
   }
   return updated;
+}
+
+/** Resolved observations are re-resolved for kickoffs in this window around now. */
+const RERESOLVE_BACK_MS = 14 * 24 * 3_600_000;
+const RERESOLVE_AHEAD_MS = 150 * 24 * 3_600_000;
+const RERESOLVE_LIMIT = 20_000;
+
+/**
+ * Fingerprint of everything name resolution reads (catalogue names, aliases) per
+ * sport, as last seen by this process. The first pass after a start therefore
+ * re-resolves once; resolution is deterministic, so doing it again is harmless.
+ */
+const resolutionSeen = new WeakMap<object, Map<string, string>>();
+
+/**
+ * Review finding 8: removing or changing an alias must also change what is
+ * already stored. When the names/aliases of a sport changed since the last pass,
+ * every current observation of that sport is resolved again and its ids are
+ * rewritten when they differ: a name that no longer resolves is un-mapped (null)
+ * and gets its unknown_team / unknown_competition item, a name that now maps
+ * elsewhere gets the new id. Returns the number of observations rewritten.
+ */
+export async function reresolveChangedAliases(ctx: ScraperContext): Promise<number> {
+  const sports = await ctx.db
+    .selectDistinct({ sport: scrapeObservations.sport })
+    .from(scrapeObservations);
+  const seen = resolutionSeen.get(ctx.db) ?? new Map<string, string>();
+  resolutionSeen.set(ctx.db, seen);
+  let rewritten = 0;
+  for (const { sport } of sports) {
+    const inputs = await loadAliasInputs(ctx.db, sport);
+    const fingerprint = createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
+    if (seen.get(sport) === fingerprint) continue;
+    const index = buildAliasIndex(inputs);
+    const now = ctx.clock();
+    const rows = await listCurrentObservations(ctx.db, {
+      kickoffFrom: new Date(now.getTime() - RERESOLVE_BACK_MS),
+      kickoffTo: new Date(now.getTime() + RERESOLVE_AHEAD_MS),
+      includeDisabledSources: true,
+      limit: RERESOLVE_LIMIT,
+    });
+    if (rows.length >= RERESOLVE_LIMIT) {
+      ctx.logger.warn({ sport }, 'alias re-resolution reached its row limit');
+    }
+    const unknown: UnknownName[] = [];
+    for (const row of rows) {
+      if (row.sport !== sport) continue;
+      const ids = resolveNames(
+        index,
+        {
+          sport,
+          sourceId: row.sourceId,
+          competition: row.competitionRaw,
+          home: row.homeRaw,
+          away: row.awayRaw,
+        },
+        unknown,
+      );
+      if (
+        ids.competitionId === row.competitionId &&
+        ids.homeTeamId === row.homeTeamId &&
+        ids.awayTeamId === row.awayTeamId
+      ) {
+        continue;
+      }
+      await ctx.db.transaction((tx) => setObservationResolution(tx, row.id, ids));
+      rewritten += 1;
+    }
+    if (unknown.length > 0) {
+      await ctx.db.transaction((tx) => openUnknownNameItems(tx, index, unknown, now));
+    }
+    seen.set(sport, fingerprint);
+  }
+  return rewritten;
 }

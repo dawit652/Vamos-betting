@@ -40,7 +40,11 @@ export interface UpsertObservationInput {
   observedAt: Date;
   runId: string;
   rawId?: string | null;
-  /** Resolved catalogue ids, when already known. */
+  /**
+   * Resolved catalogue ids. An id or an explicit null is written (null: the name
+   * does not resolve, which un-maps a row whose alias was removed); undefined
+   * leaves the stored id while the names are unchanged.
+   */
   competitionId?: string | null;
   homeTeamId?: string | null;
   awayTeamId?: string | null;
@@ -165,9 +169,10 @@ function assertConsistent(input: UpsertObservationInput): void {
  * Concurrency: the insert is ON CONFLICT DO NOTHING and an existing row is
  * read FOR UPDATE, so two concurrent upserts of one key serialise on the row
  * and the history stays one row per distinct payload, in commit order.
- * Resolved ids given in the input are kept when the names did not change;
- * when a name did change and the input carries no ids, resolution is cleared
- * (the new names have to resolve again).
+ * Resolved ids: an id given in the input is written, and so is an explicit
+ * null (the name no longer resolves, e.g. its alias was removed). Left out
+ * (undefined) they are kept while the names did not change, and cleared when a
+ * name did change (the new names have to resolve again).
  */
 export async function upsertObservation(
   tx: DbTransaction,
@@ -263,15 +268,10 @@ export async function upsertObservation(
         lastSeenAt: input.observedAt,
         runId: input.runId,
         rawId: input.rawId ?? null,
-        ...(input.competitionId === null || input.competitionId === undefined
-          ? {}
-          : { competitionId: input.competitionId }),
-        ...(input.homeTeamId === null || input.homeTeamId === undefined
-          ? {}
-          : { homeTeamId: input.homeTeamId }),
-        ...(input.awayTeamId === null || input.awayTeamId === undefined
-          ? {}
-          : { awayTeamId: input.awayTeamId }),
+        // Explicit input is written, null included (a removed alias un-maps); undefined keeps.
+        ...(input.competitionId === undefined ? {} : { competitionId: input.competitionId }),
+        ...(input.homeTeamId === undefined ? {} : { homeTeamId: input.homeTeamId }),
+        ...(input.awayTeamId === undefined ? {} : { awayTeamId: input.awayTeamId }),
       })
       .where(eq(scrapeObservations.id, current.id))
       .returning({ lastSeenAt: scrapeObservations.lastSeenAt });
@@ -284,7 +284,7 @@ export async function upsertObservation(
     current.awayRaw === input.awayRaw &&
     current.sport === input.sport;
   const keep = <T>(given: T | null | undefined, existing: T | null): T | null =>
-    given ?? (namesSame ? existing : null);
+    given === undefined ? (namesSame ? existing : null) : given;
   await tx
     .update(scrapeObservations)
     .set({
