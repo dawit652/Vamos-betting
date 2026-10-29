@@ -3,55 +3,73 @@
 A living checklist for the work described in [scraper.md](scraper.md). Newest
 facts first. The task-by-task plan is in [scraper-plan/](scraper-plan/README.md).
 
-## Status on 2026-10-29: code complete for version 1
+## Status on 2026-10-29 (evening): code complete for version 1, Costa Rica prepared
 
-Every code task of the plan (01–07 and 09) is done, verified and pushed on
-branch `claude/busy-rubin-1shjt6`. What is left needs people (sources, terms,
-ratings, a shadow period); see the end of this file.
+Every code task of the plan (01–07 and 09) is done, and a second round of
+decisions taken on the person's behalf is built, verified and pushed on branch
+`claude/busy-rubin-1shjt6` (pull request #2). What is left needs people:
+sources and their terms, accounts, ratings and a shadow period (see the end of
+this file).
 
-### Final verification (task 09)
+### Verification on `d76e719`
 
-| Check                                                           | Result                                                                                                                                                                        |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint` | pass (lint with zero warnings)                                                                                                                                                |
-| `pnpm format:check`                                             | only the known `packages/core/src/common-passwords.ts` warning                                                                                                                |
-| All package tests (Postgres 16 and Redis running)               | 2,933 pass: core 662, db 608, scraper 441, api 405, web 194, feed 168, worker 103, payments 93, scraper-app 91, contracts 62, admin 52, config 45, i18n 9                     |
-| Migrations                                                      | `pnpm db:migrate` applies 0033–0035; `drizzle-kit generate` reports no schema changes                                                                                         |
-| Bundle and smoke test                                           | `pnpm --filter @vamos/scraper-app build`; `node dist/main.js` with `FEED_PROVIDER=scraped` answers `ok` on `/health` and `/ready`                                             |
-| No dangerous capability                                         | no `voidMarket` or `voidSelection` call in `apps/scraper`, `packages/scraper` or the feed routes; the only `resultEvent` call is in `applyConfirmedResult`, status `finished` |
-| Licensed guard                                                  | covered by the `@vamos/config` tests                                                                                                                                          |
-| Docker image, compose service, archive backup                   | `backup.test.sh` passes; image build and boot are proven by the CI `docker` job (no Docker daemon in the build session)                                                       |
-| e2e (Playwright)                                                | not run (optional for the scraper; needs the dev stack)                                                                                                                       |
+| Check                                                                              | Result                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm install --frozen-lockfile`, `pnpm audit --prod`                              | pass, no known vulnerabilities                                                                                                                                                                               |
+| `pnpm format:check`, `pnpm typecheck`, `pnpm lint`                                 | pass (lint with zero warnings)                                                                                                                                                                               |
+| All package tests (Postgres 16, Redis 7)                                           | 3,079 pass: core 662, db 609, scraper 521, api 408, web 194, feed 168, scraper-app 149, worker 103, payments 93, contracts 63, admin 55, config 45, i18n 9                                                   |
+| `pnpm build`                                                                       | pass                                                                                                                                                                                                         |
+| Migrations                                                                         | 0033–0035 apply; `drizzle-kit generate` reports no schema changes                                                                                                                                            |
+| End-to-end (`pnpm e2e` as the CI job runs it, fresh database)                      | 17 of 17 pass, including the new `feed.spec.ts`, with Costa Rica seeded first                                                                                                                                |
+| Docker job (all five images, production compose, smoke test, archive volume, CLI)  | pass locally on `ebd7ab6`: stack healthy, smoke 15 passed and 1 skipped (`/ready` on the API predates this work), CLI runs in the scraper image; real encrypted backup and restore drill of the archive pass |
+| Back office in a browser (every `/feed` page and action, trader and support roles) | pass; four display defects fixed                                                                                                                                                                             |
+| No dangerous capability                                                            | no `voidMarket` or `voidSelection` call in the scraper or the feed routes; the only `resultEvent` call is in `applyConfirmedResult`, status `finished`                                                       |
+| GitHub Actions                                                                     | **blocked outside the code**: no job has been given a runner since 2026-10-27 15:11 UTC, on any branch (account minutes or spending limit)                                                                   |
 
-One flaky test was fixed during verification: `scrape-observations.test.ts`
-assumed an order between two observations with the same kickoff, which is by a
-random id.
+### Round 2: decisions taken on the person's behalf
 
-### What was built in this round
+| Decision                                                                                                                                                   | Commits                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Scraper rule added to CLAUDE.md; CI unblocked from its one formatting failure; CI runs once per push instead of twice on branches with a pull request      | `ebd7ab6`                       |
+| Pull request #2 opened against the default branch (it contains #1)                                                                                         | –                               |
+| Remove an alias (API, back office, CLI); `ratings set` / `ratings list` for traders; the CLI documented and tested inside the scraper image for production | `fdf6b3a`, `85c9562`, `8020042` |
+| Review findings 9 and 10 (low) fixed                                                                                                                       | `eb5c8fd`, `6ae55b1`            |
+| Snapshots behind an open result dispute are kept, not pruned                                                                                               | `6c314a0`                       |
+| A promotion read that hits its row limit decides nothing near the cut                                                                                      | `9f5896c`                       |
+| When teams become calibrated, `ratings_uncalibrated` closes and a trader gets an "Open betting" item (betting is never opened automatically here)          | `3f33d59`                       |
+| Scheduler retry logic tested                                                                                                                               | `70c243e`                       |
+| Back office checked in a browser, display fixes, repeatable e2e flow and a demo-only seeding tool (`seed:review`)                                          | `af790f3`, `6ef1b91`, `feab881` |
+| Closed events may show their (unbettable) prices; a trader reviews prices before opening betting                                                           | no change                       |
+| First competition: Costa Rica's Primera División (Liga FPD). Research and recommendation in [sources-costa-rica.md](scraper-plan/sources-costa-rica.md)    | `9a107e0`                       |
+| The Primera División and its ten Apertura 2026 clubs are in the catalogue (first, featured, uncalibrated ratings); alias file draft                        | `9241257`                       |
+| `generic-json` sources can send an API key header whose value comes from an environment secret (needed for API-Football)                                   | `50283b8`, `d76e719`            |
 
-| Task | What                                                                                                                                                         | Commits              |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
-| 01   | Independent review ([review-2026-10.md](scraper-plan/review-2026-10.md)): 10 findings; all 5 high and 3 medium fixed with regression tests; 2 low in backlog | `0bcc08f`…`2020b9b`  |
-| 02   | `/admin/feed/*` routes, strict resolve body (no request can carry a score or a price)                                                                        | `5980f33`            |
-| 03   | Back-office pages `/feed`, `/feed/review`, `/feed/review/[id]`, `/feed/aliases`                                                                              | `15c0281`            |
-| 04   | Docker `scraper` target, compose service, `scraper_archive` volume in backups, CI smoke                                                                      | `d964c32`            |
-| 05   | [Operations guide](scraper-operations.md) and three runbooks                                                                                                 | `7b0b7cf`            |
-| 06   | Re-pricing after ratings change (rule O3), migration 0035, `apply_reprice` decision                                                                          | `6d887e4`, `7442397` |
-| 07   | Source and ratings CLI (`sources`, `dry-parse`, `dry-fetch`, `aliases import`, `ratings backfill`); fixed a bundle crash at start                            | `f13f8f7`            |
-| –    | The F7 `odds_approval` item is written in the contract's shape, so "Open betting" works on real items                                                        | `9ed1bf7`            |
+### Round 1 (plan tasks)
+
+| Task | What                                                                                                                   | Commits              |
+| ---- | ---------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| 01   | Independent review ([review-2026-10.md](scraper-plan/review-2026-10.md)): 10 findings, all fixed with regression tests | `0bcc08f`…`6ae55b1`  |
+| 02   | `/admin/feed/*` routes, strict resolve body (no request can carry a score or a price)                                  | `5980f33`            |
+| 03   | Back-office pages `/feed`, `/feed/review`, `/feed/review/[id]`, `/feed/aliases`                                        | `15c0281`            |
+| 04   | Docker `scraper` target, compose service, `scraper_archive` volume in backups, CI smoke                                | `d964c32`            |
+| 05   | [Operations guide](scraper-operations.md) and three runbooks                                                           | `7b0b7cf`            |
+| 06   | Re-pricing after ratings change (rule O3), migration 0035, `apply_reprice` decision                                    | `6d887e4`, `7442397` |
+| 07   | Source and ratings CLI; fixed a bundle crash at start                                                                  | `f13f8f7`            |
+| –    | The F7 `odds_approval` item is written in the contract's shape, so "Open betting" works on real items                  | `9ed1bf7`            |
 
 ## Open items (code)
 
-- Review findings 9 and 10 (low): see the review report.
-- No alias removal from the back office or the CLI (`removeAlias` exists).
-- No documented route to run the CLI's write commands against the production
-  database (Postgres is not published by the stack).
-- Snapshots behind an open dispute are pruned after 30 days like any other; the
-  disputed-result runbook says to export evidence first.
-- `open_betting` is refused on `ratings_uncalibrated` items by design; a trader
-  must calibrate (or set `manual`) first.
-- The admin pages have not been checked by hand in a browser; an e2e flow
-  (`e2e/tests/feed.spec.ts`) is optional.
+- The ratings history for Costa Rica (two tournaments, about 180 matches) could
+  not be transcribed: the environment's network policy refused the pages.
+- Municipal Liberia and Guadalupe are not seeded (their 2026-27 status was
+  unverified); add them if they play.
+- The API key block exists for `generic-json` only. `Authorization` headers are
+  refused on purpose; allowing `Bearer` later is a one-line change.
+- Locally, `pnpm e2e` needs a Chromium matching the pinned Playwright 1.56.1
+  (revision 1194); the dev container ships revision 1243. CI installs its own.
+- Possible follow-ups from the hardening round: mark snapshots when a staff
+  rejection reopens a `result_unverified` item; the 20,000-row limit of
+  `reresolveChangedAliases` only warns.
 - Version 1 excludes live scores, other sports and headless-browser fetching
   (task 08).
 
@@ -69,15 +87,22 @@ Everything else is in [known-limits.md](scraper-plan/known-limits.md).
 
 ## What still needs a person
 
-- The real source list for your market (the reference adapter uses the
-  public-domain openfootball dataset, which covers major European leagues, not
-  Costa Rica or Ethiopia), and each source's terms of use.
-- At least one genuinely independent second source for results (ideally a
-  licensed data provider). Two scrapers of the same upstream do not count as two.
-- Starting ratings for the teams of the chosen league (or a season of history
-  to replay with `ratings backfill`) and a trader to approve the first prices.
-- A shadow-mode period (2–4 weeks) and the scorecard of task 07 before any
-  competition goes automatic.
-- Proposed lines for CLAUDE.md (not edited by the agents): "Scraper: results
-  reach `resultEvent` only through the gates; no code path may cancel, void or
-  abandon an event from scraped data" and "see docs/scraper.md".
+- **GitHub Actions**: no CI job has started since 2026-10-27. Check
+  Settings → Billing and plans (or make the repository public, or wait for the
+  monthly reset).
+- **Network access for the research**: allow `en.wikipedia.org`,
+  `es.wikipedia.org`, `www.unafut.com`, `www.fedefutbol.com`,
+  `www.api-football.com`, `api-sports.io`, `www.sportmonks.com` and
+  `docs.sportmonks.com` in the environment's network settings, so the terms,
+  robots files, page structure and ratings history can be read and verified.
+- **Sources**: read UNAFUT's terms and robots file and ask UNAFUT for
+  permission; sign up for API-Football, test league 162, and ask API-Sports in
+  writing whether a betting operator may use the data and where it comes from.
+  Legal sign-off on each source.
+- **Competition settings**: switch `extraTime` on for the Primera División
+  before the semifinals (9 December 2026); confirm the 2026-27 club list.
+- **Ratings and prices**: starting ratings (`ratings backfill` once the history
+  is available, or `ratings set`), and a trader to approve the first prices.
+- **Shadow mode**: the scorecard needs 200 results compared with ground truth;
+  this tournament has about 30 matches left, so plan for the Clausura 2027.
+  Until then a person confirms every result.
