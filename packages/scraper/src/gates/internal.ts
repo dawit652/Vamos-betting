@@ -167,3 +167,8 @@ export function observationSummary(o: ResolvedObservation): { [key: string]: Gat
     changedAt: isoOrNull(o?.changedAt),
   };
 }
+
+/** The array itself, or an empty one when a caller passed something else (never throws, keeps the element type). */
+export function listOf<T>(value: readonly T[] | null | undefined): readonly T[] {
+  return Array.isArray(value) ? (value as readonly T[]) : [];
+}

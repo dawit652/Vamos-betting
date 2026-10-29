@@ -17,6 +17,7 @@ import {
   canonicalEntries,
   eventProblem,
   iso,
+  listOf,
   observationProblem,
   observationSummary,
   type Pairing,
@@ -136,7 +137,7 @@ type FixtureObs = ResolvedObservation<FixtureObservation>;
 /** Decides F2–F7 for one cluster. Pure; throws only for programmer errors (bad `now`, wrong policy). */
 export function decideFixture(input: FixtureGateInput): FixtureDecision {
   const nowMs = requireNow(input.now);
-  const observations = Array.isArray(input.observations) ? input.observations : [];
+  const observations = listOf(input.observations);
   if (observations.length === 0) return { action: 'none', reason: 'no_observations' };
 
   const pairings = pairingsOf(observations);
@@ -156,7 +157,12 @@ export function decideFixture(input: FixtureGateInput): FixtureDecision {
 
   if (pairing === undefined || pairings.length > 1) {
     return conflict(clusterKey(pairing), [
-      { kind: 'fixture_conflict', rule: 'F1', reason: 'mixed_cluster', detail: pairings.map(pairingText) },
+      {
+        kind: 'fixture_conflict',
+        rule: 'F1',
+        reason: 'mixed_cluster',
+        detail: pairings.map(pairingText),
+      },
     ]);
   }
   if (input.policy?.competitionId !== pairing.competitionId) {
@@ -170,7 +176,12 @@ export function decideFixture(input: FixtureGateInput): FixtureDecision {
   });
   if (invalid.length > 0) {
     return conflict(clusterKey(pairing), [
-      { kind: 'fixture_conflict', rule: 'F2', reason: 'invalid_observation', detail: canonicalEntries(invalid) },
+      {
+        kind: 'fixture_conflict',
+        rule: 'F2',
+        reason: 'invalid_observation',
+        detail: canonicalEntries(invalid),
+      },
     ]);
   }
 
@@ -221,7 +232,8 @@ function decideNew(
   const kickoffs = observations.map((o) => o.obs.kickoff.getTime());
   const earliest = Math.min(...kickoffs);
   const latest = Math.max(...kickoffs);
-  const inWindow = (ms: number): boolean => ms > nowMs + MIN_LEAD_MS && ms <= nowMs + FIXTURE_HORIZON_MS;
+  const inWindow = (ms: number): boolean =>
+    ms > nowMs + MIN_LEAD_MS && ms <= nowMs + FIXTURE_HORIZON_MS;
   const subjectKey = fixtureFeedRef(pairing, new Date(earliest));
 
   // "Or nothing, when the fixture is simply outside the window."
@@ -268,28 +280,23 @@ function decideNew(
     return { ...base, openBetting: true, review: null };
   }
   const kind = calibrated ? 'odds_approval' : 'ratings_uncalibrated';
-  const reason = !calibrated ? 'ratings_uncalibrated' : !pricesSane ? 'prices_not_sane' : 'auto_open_off';
-  const [review] = holdFrom(subjectKey, [{ kind, rule: 'F7', reason }], () => ({
+  const reason = !calibrated
+    ? 'ratings_uncalibrated'
+    : !pricesSane
+      ? 'prices_not_sane'
+      : 'auto_open_off';
+  const { review } = holdFrom(subjectKey, [{ kind, rule: 'F7', reason }], () => ({
     feedRef: subjectKey,
     kickoff: iso(earliest),
     calibrated,
     pricesSane,
     autoOpen: input.policy.autoOpen === true,
-  })).also.length === 0
-    ? [
-        holdFrom(subjectKey, [{ kind, rule: 'F7', reason }], () => ({
-          feedRef: subjectKey,
-          kickoff: iso(earliest),
-          calibrated,
-          pricesSane,
-          autoOpen: input.policy.autoOpen === true,
-        })).review,
-      ]
-    : [];
-  if (review === undefined || (review.kind !== 'odds_approval' && review.kind !== 'ratings_uncalibrated')) {
-    throw new Error('internal: F7 review missing');
-  }
-  return { ...base, openBetting: false, review: review as GateReview<'odds_approval' | 'ratings_uncalibrated'> };
+  }));
+  return {
+    ...base,
+    openBetting: false,
+    review: { ...review, kind },
+  };
 }
 
 /** F4 + F6 for a cluster that matched exactly one event. */
@@ -303,9 +310,14 @@ function decideExisting(
   const startMs = event.startTime.getTime();
   const sources = sortedUnique(observations.map((o) => o.obs.sourceId));
   const scheduled = observations.filter((o) => o.obs.status === 'scheduled');
-  const eventPayload: GatePayload = { eventId: event.eventId, feedRef: event.feedRef, eventStart: iso(startMs) };
+  const eventPayload: GatePayload = {
+    eventId: event.eventId,
+    feedRef: event.feedRef,
+    eventStart: iso(startMs),
+  };
 
-  if (event.resultedAt !== null || event.score !== null) return { action: 'none', reason: 'event_closed' };
+  if (event.resultedAt !== null || event.score !== null)
+    return { action: 'none', reason: 'event_closed' };
   if (event.status === 'postponed' || event.status === 'cancelled') {
     // Sources list a new date for a match the catalogue holds as postponed: a person re-schedules it.
     const future = scheduled.filter((o) => o.obs.kickoff.getTime() > nowMs);
@@ -369,7 +381,12 @@ function decideExisting(
     upstreams: upstreamsOf(observations.map(voiceOf)),
   });
   if (independent >= MIN_INDEPENDENT_SOURCES) return update('F4a');
-  if (independent === 1 && later && earliest - startMs <= SMALL_SHIFT_MS && event.hasBets === false) {
+  if (
+    independent === 1 &&
+    later &&
+    earliest - startMs <= SMALL_SHIFT_MS &&
+    event.hasBets === false
+  ) {
     return update('F4b');
   }
   return proposal('needs_independent_sources', severity);
@@ -405,7 +422,7 @@ function distinctCandidates(candidates: readonly ExistingEvent[]): {
 } {
   const byId = new Map<string, { event: ExistingEvent; text: string }>();
   let inconsistent = false;
-  for (const event of Array.isArray(candidates) ? candidates : []) {
+  for (const event of listOf(candidates)) {
     const id = String(event?.eventId);
     const text = JSON.stringify(event, (_key, value: unknown) =>
       typeof value === 'bigint' ? value.toString() : value,

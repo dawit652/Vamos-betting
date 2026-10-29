@@ -38,6 +38,7 @@ export {
   startRun,
   type FinishRunInput,
   type ScrapeRun,
+  type ScrapeRunIssueJson,
   type ScrapeRunTrigger,
   type SourceHealth,
 } from './runs';

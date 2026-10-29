@@ -99,7 +99,7 @@ export async function listPrunableRaw(
       and(
         eq(scrapeRaw.keep, false),
         lt(scrapeRaw.fetchedAt, olderThan),
-        sql`NOT EXISTS (SELECT 1 FROM scrape_raw k WHERE k.content_hash = ${scrapeRaw.contentHash} AND k.keep)`,
+        sql`NOT EXISTS (SELECT 1 FROM scrape_raw k WHERE k.content_hash = scrape_raw.content_hash AND k.keep)`,
       ),
     )
     .orderBy(scrapeRaw.fetchedAt, scrapeRaw.id)

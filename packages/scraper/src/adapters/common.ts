@@ -40,7 +40,7 @@ export const MAX_FIELD_TEXT = 500;
 // Control characters, plus the invisible bidi/zero-width characters that can
 // make a name display as something else. ZWNJ/ZWJ stay: Persian and Indic
 // names need them.
-const STRIPPED = /[\p{Cc}​‎‏‪-‮⁦-⁩﻿]/gu;
+const STRIPPED = /[\p{Cc}\u200B\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/gu;
 
 /** Strips control characters, collapses whitespace, caps the length. */
 export function cleanText(value: string, max = MAX_FIELD_TEXT): string {
@@ -59,7 +59,7 @@ function clipContextValue(value: unknown): unknown {
   if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
   if (value === undefined) return null;
   try {
-    return clipContextValue(JSON.stringify(value) ?? String(value));
+    return clipContextValue(JSON.stringify(value) ?? '[unprintable]');
   } catch {
     return '[unprintable]';
   }
@@ -106,7 +106,11 @@ export class ParseCollector {
     if (this.seen >= MAX_RECORDS) {
       if (!this.capReported) {
         this.capReported = true;
-        this.issue('error', 'record_limit', `more than ${MAX_RECORDS} records; the rest are ignored`);
+        this.issue(
+          'error',
+          'record_limit',
+          `more than ${MAX_RECORDS} records; the rest are ignored`,
+        );
       }
       this.recordOpen = false;
       return false;
@@ -189,7 +193,9 @@ export class ParseCollector {
   }
 
   outcome(): ParseOutcome {
-    let issues: ParseIssue[] = this.fatalIssue ? [this.fatalIssue, ...this.issues] : [...this.issues];
+    let issues: ParseIssue[] = this.fatalIssue
+      ? [this.fatalIssue, ...this.issues]
+      : [...this.issues];
     let suppressed = this.suppressed;
     if (issues.length > MAX_ISSUES) {
       suppressed += issues.length - (MAX_ISSUES - 1);
@@ -229,9 +235,13 @@ export function documentProblem(doc: RawDocument): { code: string; message: stri
     (doc.body.length * 3 > MAX_DOCUMENT_BYTES &&
       new TextEncoder().encode(doc.body).length > MAX_DOCUMENT_BYTES);
   if (tooBig) {
-    return { code: 'document_too_large', message: `the document is over ${MAX_DOCUMENT_BYTES} bytes` };
+    return {
+      code: 'document_too_large',
+      message: `the document is over ${MAX_DOCUMENT_BYTES} bytes`,
+    };
   }
-  if (doc.body.trim().length === 0) return { code: 'empty_document', message: 'the document is empty' };
+  if (doc.body.trim().length === 0)
+    return { code: 'empty_document', message: 'the document is empty' };
   return null;
 }
 
@@ -271,7 +281,10 @@ export function safeParse(adapter: SourceAdapter, doc: RawDocument): ParseOutcom
     };
   } catch (error) {
     const c = new ParseCollector(adapter.descriptor.id, new Date(0));
-    c.fatal('parser_crashed', `adapter threw: ${error instanceof Error ? error.message : String(error)}`);
+    c.fatal(
+      'parser_crashed',
+      `adapter threw: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return c.outcome();
   }
 }
@@ -280,7 +293,13 @@ export function safeParse(adapter: SourceAdapter, doc: RawDocument): ParseOutcom
 // Turning one source record into observations
 
 export type SourceStatus = ScrapeFixtureStatus | ScrapeResultStatus;
-export const SOURCE_STATUSES = ['scheduled', 'postponed', 'cancelled', 'finished', 'abandoned'] as const;
+export const SOURCE_STATUSES = [
+  'scheduled',
+  'postponed',
+  'cancelled',
+  'finished',
+  'abandoned',
+] as const;
 
 export interface RecordParts {
   home: string;
@@ -370,7 +389,11 @@ export function parseIsoInstant(text: string): Date | null {
   const m = ISO_INSTANT.exec(text.trim());
   if (!m) return null;
   const [y, mo, d, h, mi] = [m[1], m[2], m[3], m[4], m[5]].map(Number) as [
-    number, number, number, number, number,
+    number,
+    number,
+    number,
+    number,
+    number,
   ];
   const s = Number(m[6] ?? '0');
   if (!validCalendar(y, mo, d) || h > 23 || mi > 59 || s > 59) return null;
@@ -398,9 +421,30 @@ export const DATE_FORMATS = ['YYYY-MM-DD', 'DD/MM/YYYY', 'DD.MM.YYYY', 'MMM D, Y
 export type DateFormat = (typeof DATE_FORMATS)[number];
 
 const MONTHS: Record<string, number> = {
-  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5,
-  jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9,
-  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12,
 };
 
 const pad = (n: number, width: number): string => String(n).padStart(width, '0');
@@ -575,7 +619,7 @@ export function regexSchema(minGroups: number): z.ZodString {
   return z.string().superRefine((source, ctx) => {
     const problem = regexProblem(source, minGroups);
     if (problem) ctx.addIssue({ code: 'custom', message: problem });
-  }) as unknown as z.ZodString;
+  });
 }
 
 /** Normalised key for status maps: source values compare case-insensitively, trimmed. */

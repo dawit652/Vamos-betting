@@ -25,13 +25,20 @@ import {
   canonicalEntries,
   eventProblem,
   iso,
+  listOf,
   observationProblem,
   observationSummary,
   requireNow,
   samePairing,
   sortedUnique,
 } from './internal';
-import { type GateFinding, type GateHold, type GateJson, type GatePayload, holdFrom } from './review';
+import {
+  type GateFinding,
+  type GateHold,
+  type GateJson,
+  type GatePayload,
+  holdFrom,
+} from './review';
 
 /**
  * Result rules R1–R11 (docs/scraper.md 6.2): whether the result observations
@@ -146,7 +153,11 @@ export function decideResult(input: ResultGateInput): ResultDecision {
   const { event, policy } = input;
   const subjectKey = eventSubjectKey(event);
   const exposure = exposureJson(input.exposure);
-  const hold = (findings: GateFinding[], observations: readonly ResultObs[], extra: GatePayload = {}) =>
+  const hold = (
+    findings: GateFinding[],
+    observations: readonly ResultObs[],
+    extra: GatePayload = {},
+  ) =>
     holdFrom(subjectKey, findings, (kind) => ({
       eventId: typeof event?.eventId === 'string' ? event.eventId : null,
       feedRef: typeof event?.feedRef === 'string' ? event.feedRef : null,
@@ -157,7 +168,10 @@ export function decideResult(input: ResultGateInput): ResultDecision {
 
   const badEvent = eventProblem(event);
   if (badEvent !== null) {
-    return hold([{ kind: 'result_conflict', rule: 'R1', reason: 'invalid_event', detail: badEvent }], []);
+    return hold(
+      [{ kind: 'result_conflict', rule: 'R1', reason: 'invalid_event', detail: badEvent }],
+      [],
+    );
   }
   if (policy?.competitionId !== event.competitionId) {
     throw new RangeError(
@@ -165,11 +179,11 @@ export function decideResult(input: ResultGateInput): ResultDecision {
     );
   }
 
-  const mine = (Array.isArray(input.observations) ? input.observations : []).filter((o) =>
-    samePairing(o?.names, event),
-  );
-  const resulted = event.resultedAt !== null || event.score !== null || SETTLED_EVENT_STATUSES.has(event.status);
-  if (mine.length === 0) return { action: 'none', reason: resulted ? 'already_resulted' : 'no_observations' };
+  const mine = listOf(input.observations).filter((o) => samePairing(o?.names, event));
+  const resulted =
+    event.resultedAt !== null || event.score !== null || SETTLED_EVENT_STATUSES.has(event.status);
+  if (mine.length === 0)
+    return { action: 'none', reason: resulted ? 'already_resulted' : 'no_observations' };
 
   const invalid = mine.flatMap((o) => {
     const problem = observationProblem(o, 'result');
@@ -177,7 +191,14 @@ export function decideResult(input: ResultGateInput): ResultDecision {
   });
   if (invalid.length > 0) {
     return hold(
-      [{ kind: 'result_conflict', rule: 'R2', reason: 'invalid_observation', detail: canonicalEntries(invalid) }],
+      [
+        {
+          kind: 'result_conflict',
+          rule: 'R2',
+          reason: 'invalid_observation',
+          detail: canonicalEntries(invalid),
+        },
+      ],
       mine,
     );
   }
@@ -210,7 +231,10 @@ export function decideResult(input: ResultGateInput): ResultDecision {
       kind: 'result_conflict',
       rule: 'R1',
       reason: 'kickoff_mismatch',
-      detail: { eventStart: iso(startMs), sources: sortedUnique(mismatched.map((o) => o.obs.sourceId)) },
+      detail: {
+        eventStart: iso(startMs),
+        sources: sortedUnique(mismatched.map((o) => o.obs.sourceId)),
+      },
     });
   };
 
@@ -241,7 +265,12 @@ export function decideResult(input: ResultGateInput): ResultDecision {
   kickoffFinding();
   const fullTimes = sortedUnique(finished.map((o) => fullTimeKey(o.obs.score as Score)));
   if (fullTimes.length > 1) {
-    findings.push({ kind: 'result_conflict', rule: 'R3', reason: 'score_disagreement', detail: fullTimes });
+    findings.push({
+      kind: 'result_conflict',
+      rule: 'R3',
+      reason: 'score_disagreement',
+      detail: fullTimes,
+    });
   }
   if (needsHalfTime) {
     const halfTimes = sortedUnique(
@@ -264,7 +293,9 @@ export function decideResult(input: ResultGateInput): ResultDecision {
 
   // R2: votes come only from finished, regular-time scores (with half time when needed).
   const regular = finished.filter((o) => o.obs.scoreBasis === 'regular_time');
-  const voters = regular.filter((o) => !needsHalfTime || halfTimeKey(o.obs.score as Score) !== null);
+  const voters = regular.filter(
+    (o) => !needsHalfTime || halfTimeKey(o.obs.score as Score) !== null,
+  );
   const voices = voters.map((o) => ({ sourceId: o.obs.sourceId, upstream: o.upstream }));
   const independent = countIndependent(voices);
   const agreed = agreedScore(voters);
@@ -304,7 +335,9 @@ export function decideResult(input: ResultGateInput): ResultDecision {
       const candidate = agreedScore(voters) ?? agreedScore(regular);
       return hold(findings, mine, {
         score: candidate === null ? null : scoreJson(candidate),
-        upstreams: upstreamsOf(regular.map((o) => ({ sourceId: o.obs.sourceId, upstream: o.upstream }))),
+        upstreams: upstreamsOf(
+          regular.map((o) => ({ sourceId: o.obs.sourceId, upstream: o.upstream })),
+        ),
       });
     }
     if (findings.length > 0) return hold(findings, mine);
@@ -322,12 +355,18 @@ export function decideResult(input: ResultGateInput): ResultDecision {
 function decideCorrection(
   event: ExistingEvent,
   mine: readonly ResultObs[],
-  hold: (findings: GateFinding[], observations: readonly ResultObs[], extra?: GatePayload) => GateHold,
+  hold: (
+    findings: GateFinding[],
+    observations: readonly ResultObs[],
+    extra?: GatePayload,
+  ) => GateHold,
 ): ResultDecision {
   const applied = event.score;
   const differing = mine.filter((o) => {
     if (o.obs.status === 'finished') {
-      return applied === null || contradicts(applied, o.obs.score as Score, event.needsHalfTimeScore);
+      return (
+        applied === null || contradicts(applied, o.obs.score as Score, event.needsHalfTimeScore)
+      );
     }
     // A void status after a finished result would reverse payouts too.
     return applied !== null || event.status === 'finished';

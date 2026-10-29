@@ -10,7 +10,7 @@ export interface DecodedBody {
   fallback: boolean;
 }
 
-function tryDecoder(label: string): TextDecoder | null {
+function tryDecoder(label: string): InstanceType<typeof TextDecoder> | null {
   try {
     return new TextDecoder(label, { fatal: false });
   } catch {
@@ -77,7 +77,12 @@ export function decodeBodyDetailed(bytes: Uint8Array, contentType: string | null
     }
     fallback = true;
   }
-  return { text: new TextDecoder('utf-8').decode(bytes), charset: 'utf-8', source: 'default', fallback };
+  return {
+    text: new TextDecoder('utf-8').decode(bytes),
+    charset: 'utf-8',
+    source: 'default',
+    fallback,
+  };
 }
 
 export function decodeBody(bytes: Uint8Array, contentType: string | null): string {

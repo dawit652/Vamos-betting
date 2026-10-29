@@ -3,6 +3,8 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { domainNotFound } from '../errors';
 import type { DbExecutor } from '../ledger/types';
 import { scrapeRuns, type ScrapeRunIssueJson } from '../schema/scrape';
+
+export type { ScrapeRunIssueJson };
 import { ScrapeRunStateError, clampLimit } from './common';
 
 /** At most this many issues are stored per run; the rest are summarised in one last issue. */

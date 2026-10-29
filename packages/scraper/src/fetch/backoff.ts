@@ -19,7 +19,11 @@ export function backoffCeilingMs(attempt: number, { baseMs, capMs }: BackoffOpti
 }
 
 /** Full jitter: a uniform wait in [0, ceiling]. `random` is in [0, 1); out-of-range values are clamped. */
-export function backoffDelayMs(attempt: number, options: BackoffOptions, random: () => number): number {
+export function backoffDelayMs(
+  attempt: number,
+  options: BackoffOptions,
+  random: () => number,
+): number {
   const r = Math.min(1, Math.max(0, random()));
   return Math.floor(r * backoffCeilingMs(attempt, options));
 }

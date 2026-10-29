@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import type { FetchPlanItem, ParseOutcome, RawDocument, SourceAdapter, SourceDescriptor } from '../types';
+import type {
+  FetchPlanItem,
+  ParseOutcome,
+  RawDocument,
+  SourceAdapter,
+  SourceDescriptor,
+} from '../types';
 import {
   allowedHostsSchema,
   checkRequests,
@@ -24,7 +30,9 @@ export const OpenFootballConfigSchema = z
   .strictObject({
     allowedHosts: allowedHostsSchema.default(['raw.githubusercontent.com']),
     requests: z
-      .array(z.strictObject({ url: requestUrlSchema, competition: z.string().trim().min(1).max(120) }))
+      .array(
+        z.strictObject({ url: requestUrlSchema, competition: z.string().trim().min(1).max(120) }),
+      )
       .min(1)
       .max(20),
     timeZone: timeZoneSchema,
@@ -63,7 +71,9 @@ export function createOpenFootballAdapter(
         config.requests.find((r) => r.url === doc.url) ??
         (config.requests.length === 1 ? config.requests[0] : undefined);
       if (!request) {
-        collector.fatal('unknown_request', 'the document URL matches no configured request', { url: doc.url });
+        collector.fatal('unknown_request', 'the document URL matches no configured request', {
+          url: doc.url,
+        });
         return collector.outcome();
       }
       let json: unknown;
@@ -93,7 +103,10 @@ export function createOpenFootballAdapter(
         }
         const named = { ...ctx, home, away };
         if (typeof m.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(m.date)) {
-          collector.issue('error', 'bad_date', 'date must be YYYY-MM-DD', { ...named, date: m.date });
+          collector.issue('error', 'bad_date', 'date must be YYYY-MM-DD', {
+            ...named,
+            date: m.date,
+          });
           return;
         }
         if (m.time === undefined || m.time === null) {
@@ -149,7 +162,12 @@ export function createOpenFootballAdapter(
             }
             ht = h;
           }
-          score = { home: main[0], away: main[1], htHome: ht?.[0] ?? null, htAway: ht?.[1] ?? null };
+          score = {
+            home: main[0],
+            away: main[1],
+            htHome: ht?.[0] ?? null,
+            htAway: ht?.[1] ?? null,
+          };
         }
         const parts: RecordParts = {
           home,
@@ -157,7 +175,7 @@ export function createOpenFootballAdapter(
           competition: request.competition,
           kickoff: zoned.instant,
           externalRef: null,
-          round: typeof m.round === 'string' ? cleanName(m.round)?.slice(0, 80) ?? null : null,
+          round: typeof m.round === 'string' ? (cleanName(m.round)?.slice(0, 80) ?? null) : null,
           status: score ? 'finished' : 'scheduled',
           score,
           scoreBasis: score ? basis : null,

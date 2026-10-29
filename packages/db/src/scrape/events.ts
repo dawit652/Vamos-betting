@@ -77,17 +77,17 @@ export async function listScrapedEvents(
       scoreAway: events.scoreAway,
       htScoreHome: events.htScoreHome,
       htScoreAway: events.htScoreAway,
-      hasBets: sql<boolean>`EXISTS (SELECT 1 FROM bet_legs bl WHERE bl.event_id = ${events.id})`,
-      needsHalfTimeScore: sql<boolean>`EXISTS (SELECT 1 FROM markets m WHERE m.event_id = ${events.id} AND m.type IN (${halfTimeTypes}))`,
+      hasBets: sql<boolean>`EXISTS (SELECT 1 FROM bet_legs bl WHERE bl.event_id = events.id)`,
+      needsHalfTimeScore: sql<boolean>`EXISTS (SELECT 1 FROM markets m WHERE m.event_id = events.id AND m.type IN (${halfTimeTypes}))`,
       lastListedAt: sql<Date | string | null>`(
         SELECT max(o.last_seen_at)
         FROM scrape_observations o
         JOIN scrape_sources s ON s.id = o.source_id
         WHERE o.kind = 'fixture' AND s.enabled
-          AND o.competition_id = ${events.competitionId}
-          AND o.home_team_id = ${events.homeTeamId}
-          AND o.away_team_id = ${events.awayTeamId}
-          AND abs(extract(epoch FROM (o.kickoff - ${events.startTime}))) * 1000 <= ${windowMs}
+          AND o.competition_id = events.competition_id
+          AND o.home_team_id = events.home_team_id
+          AND o.away_team_id = events.away_team_id
+          AND abs(extract(epoch FROM (o.kickoff - events.start_time))) * 1000 <= ${windowMs}
           AND (SELECT r.status FROM scrape_runs r
                WHERE r.source_id = s.id AND r.status NOT IN ('running', 'skipped')
                ORDER BY r.started_at DESC, r.id DESC LIMIT 1) = 'ok')`,
@@ -128,13 +128,13 @@ export async function getEventExposure(exec: DbExecutor, eventId: string): Promi
   const [row] = await exec
     .select({
       openBets: sql<number>`count(*)::int`,
-      totalStake: sql<string>`COALESCE(sum(${bets.stake}), 0)::text`,
+      totalStake: sql<string>`COALESCE(sum(bets.stake), 0)::text`,
     })
     .from(bets)
     .where(
       and(
         inArray(bets.status, ['open', 'pending_acceptance']),
-        sql`EXISTS (SELECT 1 FROM bet_legs bl WHERE bl.bet_id = ${bets.id} AND bl.event_id = ${eventId})`,
+        sql`EXISTS (SELECT 1 FROM bet_legs bl WHERE bl.bet_id = bets.id AND bl.event_id = ${eventId})`,
       ),
     );
   return { openBets: row?.openBets ?? 0, totalStake: row?.totalStake ?? '0' };

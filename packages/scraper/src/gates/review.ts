@@ -14,12 +14,7 @@ import type { ScrapeReviewKind, ScrapeSeverity } from '@vamos/core';
 
 /** A JSON value: what a payload (jsonb) can hold. No bigint, no Date. */
 export type GateJson =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly GateJson[]
-  | { readonly [key: string]: GateJson };
+  string | number | boolean | null | readonly GateJson[] | { readonly [key: string]: GateJson };
 
 export type GatePayload = { readonly [key: string]: GateJson };
 
@@ -96,7 +91,11 @@ const TITLES: Readonly<Record<ScrapeReviewKind, string>> = Object.freeze({
   unknown_team: 'Unknown team name',
 });
 
-const SEVERITY_RANK: Readonly<Record<ScrapeSeverity, number>> = { info: 0, warning: 1, critical: 2 };
+const SEVERITY_RANK: Readonly<Record<ScrapeSeverity, number>> = {
+  info: 0,
+  warning: 1,
+  critical: 2,
+};
 
 /** One reason a gate raised (internal building block of GateReview). */
 export interface GateFinding {
@@ -127,7 +126,10 @@ export function buildReviews(
     let severity = GATE_REVIEW_SEVERITY[kind];
     const details: Record<string, GateJson> = {};
     for (const finding of mine) {
-      if (finding.severity !== undefined && SEVERITY_RANK[finding.severity] > SEVERITY_RANK[severity]) {
+      if (
+        finding.severity !== undefined &&
+        SEVERITY_RANK[finding.severity] > SEVERITY_RANK[severity]
+      ) {
         severity = finding.severity;
       }
       if (finding.detail !== undefined) details[finding.reason] = finding.detail;

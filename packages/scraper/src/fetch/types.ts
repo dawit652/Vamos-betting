@@ -71,9 +71,4 @@ export interface FetchError {
 }
 
 export type FetchResult =
-  | FetchOk
-  | FetchNotModified
-  | FetchBlocked
-  | FetchCircuitOpen
-  | FetchRefused
-  | FetchError;
+  FetchOk | FetchNotModified | FetchBlocked | FetchCircuitOpen | FetchRefused | FetchError;

@@ -58,12 +58,13 @@ const textEncoder = new TextEncoder();
  */
 function normalisePercent(input: string): string {
   let out = '';
-  for (let i = 0; i < input.length; ) {
+  for (let i = 0; i < input.length;) {
     const ch = input.charAt(i);
     if (ch === '%' && /^[0-9a-fA-F]{2}$/.test(input.slice(i + 1, i + 3))) {
       const code = parseInt(input.slice(i + 1, i + 3), 16);
       const decoded = String.fromCharCode(code);
-      out += code < 0x80 && UNRESERVED.test(decoded) ? decoded : `%${HEX[code >> 4]}${HEX[code & 15]}`;
+      out +=
+        code < 0x80 && UNRESERVED.test(decoded) ? decoded : `%${HEX[code >> 4]}${HEX[code & 15]}`;
       i += 3;
     } else if (ch.charCodeAt(0) < 0x80) {
       out += ch;
@@ -237,7 +238,8 @@ export function isAllowed(robots: RobotsRules, userAgentToken: string, path: str
 export function robotsCrawlDelayMs(robots: RobotsRules, userAgentToken: string): number {
   let seconds = 0;
   for (const group of applicableGroups(robots, userAgentToken)) {
-    if (group.crawlDelaySec !== null && group.crawlDelaySec > seconds) seconds = group.crawlDelaySec;
+    if (group.crawlDelaySec !== null && group.crawlDelaySec > seconds)
+      seconds = group.crawlDelaySec;
   }
   return Math.min(ROBOTS_MAX_CRAWL_DELAY_MS, Math.round(seconds * 1000));
 }
