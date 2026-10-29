@@ -634,3 +634,78 @@ describe('review finding 8: removing an alias un-maps what is stored', () => {
     TEST_TIMEOUT,
   );
 });
+
+describe('review finding 9: an approved item is not lost behind newer items of its kind', () => {
+  it(
+    'R5: with 201 newer resolved items the oldest approved one is still applied',
+    async () => {
+      await createdEvent({ autoResults: false });
+      h.at(new Date(KICKOFF.getTime() + 2 * HOUR));
+      h.serve(URL_A, ofDoc([finishedOf([2, 1], [1, 0])]));
+      h.serve(URL_B, jsonDoc([finishedJson([2, 1], [1, 0])]));
+      await h.run('src-a');
+      await h.run('src-b');
+      h.advance(16 * MINUTE);
+      await h.run('src-a');
+      await h.run('src-b');
+      await promoteResults(h.ctx);
+      const [ready] = await rows<{ id: string }>(
+        `SELECT id FROM scrape_review_items WHERE kind = 'result_ready' AND status = 'open'`,
+      );
+      await h.ctx.db.transaction((tx) =>
+        resolveReviewItem(tx, ready!.id, {
+          status: 'resolved',
+          resolution: JSON.stringify({ decision: 'apply_result' }),
+          actor: { adminId: randomUUID() },
+          now: h.now(),
+        }),
+      );
+
+      // 201 later items of the same kind, resolved with another decision, newer than the approved one.
+      await h.pool.query(
+        `INSERT INTO scrape_review_items
+           (kind, subject_key, status, severity, title, payload, created_at, updated_at, resolution, resolved_by, resolved_at)
+         SELECT 'result_ready', 'filler|' || n, 'resolved', 'info', 'filler', '{}'::jsonb,
+                $1::timestamptz + n * interval '1 second', $1::timestamptz, $2, 'system:test', $1::timestamptz
+           FROM generate_series(1, 201) AS n`,
+        [new Date(h.now().getTime() + 1000).toISOString(), JSON.stringify({ decision: 'dismiss' })],
+      );
+
+      h.advance(MINUTE);
+      expect(await applyStaffConfirmations(h.ctx)).toEqual({ applied: 1, rejected: 0 });
+      expect(await event()).toMatchObject({ status: 'finished', score_home: 2, score_away: 1 });
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'R5: an approval older than 24 hours is left alone',
+    async () => {
+      await createdEvent({ autoResults: false });
+      h.at(new Date(KICKOFF.getTime() + 2 * HOUR));
+      h.serve(URL_A, ofDoc([finishedOf([2, 1], [1, 0])]));
+      h.serve(URL_B, jsonDoc([finishedJson([2, 1], [1, 0])]));
+      await h.run('src-a');
+      await h.run('src-b');
+      h.advance(16 * MINUTE);
+      await h.run('src-a');
+      await h.run('src-b');
+      await promoteResults(h.ctx);
+      const [ready] = await rows<{ id: string }>(
+        `SELECT id FROM scrape_review_items WHERE kind = 'result_ready' AND status = 'open'`,
+      );
+      await h.ctx.db.transaction((tx) =>
+        resolveReviewItem(tx, ready!.id, {
+          status: 'resolved',
+          resolution: JSON.stringify({ decision: 'apply_result' }),
+          actor: { adminId: randomUUID() },
+          now: h.now(),
+        }),
+      );
+      h.advance(25 * HOUR);
+      expect(await applyStaffConfirmations(h.ctx)).toEqual({ applied: 0, rejected: 0 });
+      expect(await event()).toMatchObject({ status: 'scheduled', score_home: null });
+    },
+    TEST_TIMEOUT,
+  );
+});

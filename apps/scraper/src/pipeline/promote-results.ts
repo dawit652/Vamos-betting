@@ -373,7 +373,7 @@ export async function applyStaffConfirmations(ctx: ScraperContext): Promise<{
   const result = { applied: 0, rejected: 0 };
   let events: ScrapedEvent[] | null = null;
   for (const kind of STAFF_KINDS) {
-    const items = await listReviewItems(ctx.db, { kind, limit: 200 });
+    const items = await recentlyResolved(ctx, kind, now);
     const rejected = await rejectedConfirmations(ctx, items);
     for (const item of items) {
       if (item.status !== 'resolved' || decisionOf(item.resolution) !== 'apply_result') continue;
@@ -405,6 +405,35 @@ export async function applyStaffConfirmations(ctx: ScraperContext): Promise<{
     }
   }
   return result;
+}
+
+const STAFF_PAGE = 200;
+
+/**
+ * Every item of `kind` resolved within the look-back window (review finding 9),
+ * newest first. The query is bounded by resolution time, not by a count, and
+ * paged until exhausted, so a burst of newer items never hides an older
+ * confirmation that is still inside the window.
+ */
+async function recentlyResolved(
+  ctx: ScraperContext,
+  kind: (typeof STAFF_KINDS)[number],
+  now: Date,
+): Promise<ScrapeReviewItem[]> {
+  const resolvedSince = new Date(now.getTime() - STAFF_LOOK_BACK_MS);
+  const all: ScrapeReviewItem[] = [];
+  for (;;) {
+    const last = all.at(-1);
+    const page = await listReviewItems(ctx.db, {
+      kind,
+      status: 'resolved',
+      resolvedSince,
+      limit: STAFF_PAGE,
+      ...(last === undefined ? {} : { after: { createdAt: last.createdAt, id: last.id } }),
+    });
+    all.push(...page);
+    if (page.length < STAFF_PAGE) return all;
+  }
 }
 
 /** The ids among `items` whose confirmation was rejected before (audit `scrape.result.confirmation_rejected`). */

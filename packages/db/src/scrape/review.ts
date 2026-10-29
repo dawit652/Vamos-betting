@@ -5,7 +5,7 @@ import {
   type ScrapeReviewStatus,
   type ScrapeSeverity,
 } from '@vamos/core';
-import { and, desc, eq, getTableColumns, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, lt, or, sql, type SQL } from 'drizzle-orm';
 import { domainNotFound } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { toJsonSafe } from '../platform/json';
@@ -93,6 +93,8 @@ export interface ListReviewItemsQuery {
   status?: ScrapeReviewStatus;
   kind?: ScrapeReviewKind;
   limit?: number;
+  /** Only items resolved or dismissed at or after this moment (open items have no such moment). */
+  resolvedSince?: Date;
   /** Keyset cursor: the last item of the previous page (newest first). */
   after?: { createdAt: Date; id: string };
 }
@@ -105,6 +107,9 @@ export async function listReviewItems(
   const filters: Array<SQL | undefined> = [
     query.status === undefined ? undefined : eq(scrapeReviewItems.status, query.status),
     query.kind === undefined ? undefined : eq(scrapeReviewItems.kind, query.kind),
+    query.resolvedSince === undefined
+      ? undefined
+      : gte(scrapeReviewItems.resolvedAt, query.resolvedSince),
     query.after === undefined
       ? undefined
       : or(
