@@ -13,7 +13,7 @@ import type {
   Score,
 } from '../types';
 import {
-  contradicts,
+  scoreContradicts,
   countIndependent,
   effectiveConfirmMs,
   fullTimeKey,
@@ -365,7 +365,8 @@ function decideCorrection(
   const differing = mine.filter((o) => {
     if (o.obs.status === 'finished') {
       return (
-        applied === null || contradicts(applied, o.obs.score as Score, event.needsHalfTimeScore)
+        applied === null ||
+        scoreContradicts(applied, o.obs.score as Score, event.needsHalfTimeScore)
       );
     }
     // A void status after a finished result would reverse payouts too.

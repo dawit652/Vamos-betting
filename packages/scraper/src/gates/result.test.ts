@@ -17,16 +17,7 @@ import type {
 } from '../types';
 import { decideResult, type ResultDecision, type ResultExposure } from './result';
 import { reviewsOf } from './review';
-import {
-  END,
-  FEED_REF,
-  KICKOFF,
-  makeEvent,
-  makePolicy,
-  NAMES,
-  resultObs,
-  score,
-} from './testkit';
+import { END, FEED_REF, KICKOFF, makeEvent, makePolicy, NAMES, resultObs, score } from './testkit';
 
 const NOW = END + HOUR_MS;
 const EXPOSURE: ResultExposure = { openBets: 3, totalStake: 12_345n };
@@ -142,7 +133,11 @@ describe('R2 agreement', () => {
       resultObs({ source: 's2', upstream: 'u1' }),
       resultObs({ source: 's3', upstream: 'u2' }),
     ]);
-    expect(d).toMatchObject({ action: 'apply', upstreams: ['u1', 'u2'], sources: ['s1', 's2', 's3'] });
+    expect(d).toMatchObject({
+      action: 'apply',
+      upstreams: ['u1', 'u2'],
+      sources: ['s1', 's2', 's3'],
+    });
   });
 
   it('a finished score of another basis does not vote', () => {
@@ -156,7 +151,10 @@ describe('R2 agreement', () => {
     it('is required and identical when the event needs it', () => {
       const s1 = resultObs({ source: 's1', score: score(2, 1, [1, 0]) });
       const s2 = resultObs({ source: 's2', score: score(2, 1, [1, 0]) });
-      expect(decide([s1, s2], needs)).toMatchObject({ action: 'apply', score: score(2, 1, [1, 0]) });
+      expect(decide([s1, s2], needs)).toMatchObject({
+        action: 'apply',
+        score: score(2, 1, [1, 0]),
+      });
       const bare = resultObs({ source: 's2', score: score(2, 1) });
       expect(decide([s1, bare], needs)).toMatchObject({ action: 'wait', reason: 'single_source' });
       const other = resultObs({ source: 's2', score: score(2, 1, [0, 0]) });
@@ -185,7 +183,11 @@ describe('R2 agreement', () => {
     });
     const otherCompetition = resultObs({ source: 's4', names: { competitionId: 'cup' } });
     expect(decide([A, other, swapped, otherCompetition]).action).toBe('wait');
-    const foreignDissent = resultObs({ source: 's3', names: { homeTeamId: 'team-x' }, score: score(0, 0) });
+    const foreignDissent = resultObs({
+      source: 's3',
+      names: { homeTeamId: 'team-x' },
+      score: score(0, 0),
+    });
     expect(decide([A, B, foreignDissent]).action).toBe('apply');
   });
 });
@@ -205,7 +207,11 @@ describe('R3 dissent blocks', () => {
   });
 
   it('dissent of another basis blocks too', () => {
-    const d = decide([A, B, resultObs({ source: 's3', basis: 'includes_extra_time', score: score(3, 1) })]);
+    const d = decide([
+      A,
+      B,
+      resultObs({ source: 's3', basis: 'includes_extra_time', score: score(3, 1) }),
+    ]);
     expect(kinds(d)).toEqual(['result_conflict', 'score_basis_unknown']);
   });
 
@@ -248,22 +254,32 @@ describe('R4 stability', () => {
     });
   });
 
-  it.each([0, 1, MIN_RESULT_CONFIRM_MS - 1])('a delay of %i is raised to MIN_RESULT_CONFIRM_MS', (ms) => {
-    expect(decide(at(NOW - MIN_RESULT_CONFIRM_MS), { confirmMs: ms })).toMatchObject({
-      action: 'apply',
-      confirmMs: MIN_RESULT_CONFIRM_MS,
-    });
-    expect(decide(at(NOW - MIN_RESULT_CONFIRM_MS + 1), { confirmMs: ms }).action).toBe('wait');
-  });
+  it.each([0, 1, MIN_RESULT_CONFIRM_MS - 1])(
+    'a delay of %i is raised to MIN_RESULT_CONFIRM_MS',
+    (ms) => {
+      expect(decide(at(NOW - MIN_RESULT_CONFIRM_MS), { confirmMs: ms })).toMatchObject({
+        action: 'apply',
+        confirmMs: MIN_RESULT_CONFIRM_MS,
+      });
+      expect(decide(at(NOW - MIN_RESULT_CONFIRM_MS + 1), { confirmMs: ms }).action).toBe('wait');
+    },
+  );
 
   it('a configured delay above the minimum is honoured', () => {
     const d = decide(at(NOW - 20 * MINUTE_MS), { confirmMs: 30 * MINUTE_MS });
-    expect(d).toEqual({ action: 'wait', until: new Date(NOW + 10 * MINUTE_MS), reason: 'not_stable' });
+    expect(d).toEqual({
+      action: 'wait',
+      until: new Date(NOW + 10 * MINUTE_MS),
+      reason: 'not_stable',
+    });
   });
 
-  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('a delay of %d is a programmer error', (ms) => {
-    expect(() => decide([A, B], { confirmMs: ms })).toThrow(RangeError);
-  });
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'a delay of %d is a programmer error',
+    (ms) => {
+      expect(() => decide([A, B], { confirmMs: ms })).toThrow(RangeError);
+    },
+  );
 
   it('every observation of the fixture must be unchanged, not only the voters', () => {
     const needs = { event: { needsHalfTimeScore: true } };
@@ -280,7 +296,9 @@ describe('R4 stability', () => {
   });
 
   it('a change in the future is not stable', () => {
-    expect(decide([A, resultObs({ source: 's2', changedAt: NOW + MINUTE_MS })]).action).toBe('wait');
+    expect(decide([A, resultObs({ source: 's2', changedAt: NOW + MINUTE_MS })]).action).toBe(
+      'wait',
+    );
   });
 });
 
@@ -289,7 +307,11 @@ describe('R5 apply', () => {
     const d = decide([A, B], { policy: { autoResults: false } });
     expect(d.action).toBe('hold');
     if (d.action !== 'hold') return;
-    expect(d.review).toMatchObject({ kind: 'result_ready', subjectKey: FEED_REF, severity: 'warning' });
+    expect(d.review).toMatchObject({
+      kind: 'result_ready',
+      subjectKey: FEED_REF,
+      severity: 'warning',
+    });
     expect(d.review.payload).toMatchObject({
       score: { home: 2, away: 1, htHome: null, htAway: null },
       upstreams: ['up-s1', 'up-s2'],
@@ -345,9 +367,16 @@ describe('R7 no automatic cancel/void', () => {
 });
 
 describe('R8 corrections', () => {
-  const resulted = { status: 'finished' as const, resultedAt: new Date(NOW - HOUR_MS), score: score(2, 1) };
+  const resulted = {
+    status: 'finished' as const,
+    resultedAt: new Date(NOW - HOUR_MS),
+    score: score(2, 1),
+  };
   it('the same score again changes nothing', () => {
-    expect(decide([A, B], { event: resulted })).toEqual({ action: 'none', reason: 'already_resulted' });
+    expect(decide([A, B], { event: resulted })).toEqual({
+      action: 'none',
+      reason: 'already_resulted',
+    });
   });
 
   it('one current observation with another score opens result_correction', () => {
@@ -365,34 +394,42 @@ describe('R8 corrections', () => {
     const d = decide([resultObs({ source: 's1', status: 'abandoned' })], { event: resulted });
     expect(kinds(d)).toEqual(['result_correction']);
     const voided = { status: 'cancelled' as const, resultedAt: new Date(NOW), score: null };
-    expect(decide([resultObs({ source: 's1', status: 'postponed' })], { event: voided }).action).toBe('none');
+    expect(
+      decide([resultObs({ source: 's1', status: 'postponed' })], { event: voided }).action,
+    ).toBe('none');
     expect(kinds(decide([A], { event: voided }))).toEqual(['result_correction']);
   });
 
   it('half time counts only when the event needs it, and only when a source gives it', () => {
     const ht = { ...resulted, score: score(2, 1, [1, 0]), needsHalfTimeScore: true };
-    expect(kinds(decide([resultObs({ source: 's1', score: score(2, 1, [0, 0]) })], { event: ht }))).toEqual([
-      'result_correction',
-    ]);
-    expect(decide([resultObs({ source: 's1', score: score(2, 1) })], { event: ht }).action).toBe('none');
-    const noHt = { ...ht, needsHalfTimeScore: false };
-    expect(decide([resultObs({ source: 's1', score: score(2, 1, [0, 0]) })], { event: noHt }).action).toBe(
+    expect(
+      kinds(decide([resultObs({ source: 's1', score: score(2, 1, [0, 0]) })], { event: ht })),
+    ).toEqual(['result_correction']);
+    expect(decide([resultObs({ source: 's1', score: score(2, 1) })], { event: ht }).action).toBe(
       'none',
     );
+    const noHt = { ...ht, needsHalfTimeScore: false };
+    expect(
+      decide([resultObs({ source: 's1', score: score(2, 1, [0, 0]) })], { event: noHt }).action,
+    ).toBe('none');
   });
 });
 
 describe('R9 impact', () => {
   it('items asking for a result decision carry the exposure as decimal strings', () => {
     const d = decide([A, B], { policy: { autoResults: false } });
-    expect(d.action === 'hold' && d.review.payload.exposure).toEqual({ openBets: 3, totalStake: '12345' });
+    expect(d.action === 'hold' && d.review.payload.exposure).toEqual({
+      openBets: 3,
+      totalStake: '12345',
+    });
     const unknown = decide([A, B], { policy: { autoResults: false }, exposure: null });
     expect(unknown.action === 'hold' && unknown.review.payload.exposure).toBeNull();
   });
 
   it('every result item kind carries it; the basis notice does not need it', () => {
     const d = decide([A, B, resultObs({ source: 's3', status: 'cancelled' })]);
-    for (const review of reviewsOf(d)) expect(review.payload.exposure).toEqual({ openBets: 3, totalStake: '12345' });
+    for (const review of reviewsOf(d))
+      expect(review.payload.exposure).toEqual({ openBets: 3, totalStake: '12345' });
     const basis = decide([resultObs({ source: 's1', basis: 'unknown' })]);
     expect(basis.action === 'hold' && 'exposure' in basis.review.payload).toBe(false);
   });
@@ -411,9 +448,15 @@ describe('R10 basis', () => {
   });
 
   it('scores of another basis alone are held, even where extra time is impossible', () => {
-    const d = decide([resultObs({ source: 's1', basis: 'includes_extra_time' }), resultObs({ source: 's2', basis: 'unknown' })], {
-      policy: { extraTime: false },
-    });
+    const d = decide(
+      [
+        resultObs({ source: 's1', basis: 'includes_extra_time' }),
+        resultObs({ source: 's2', basis: 'unknown' }),
+      ],
+      {
+        policy: { extraTime: false },
+      },
+    );
     expect(kinds(d)).toEqual(['score_basis_unknown']);
   });
 });
@@ -424,7 +467,10 @@ describe('R11 idempotent', () => {
     const d = decide([A, B]);
     if (d.action !== 'apply') throw new Error('expected apply');
     const after = { status: 'finished' as const, resultedAt: new Date(NOW), score: d.score };
-    expect(decide([A, B], { event: after })).toEqual({ action: 'none', reason: 'already_resulted' });
+    expect(decide([A, B], { event: after })).toEqual({
+      action: 'none',
+      reason: 'already_resulted',
+    });
   });
 });
 
@@ -435,14 +481,27 @@ describe('fail closed on bad input', () => {
     return decide([A, B, o]);
   };
   it.each([
-    ['NaN kickoff', (o: ResolvedObservation<ResultObservation>) => (o.obs.kickoff = new Date(Number.NaN))],
+    [
+      'NaN kickoff',
+      (o: ResolvedObservation<ResultObservation>) => (o.obs.kickoff = new Date(Number.NaN)),
+    ],
     ['NaN changedAt', (o: ResolvedObservation<ResultObservation>) => (o.changedAt = new Date('x'))],
     ['finished without score', (o: ResolvedObservation<ResultObservation>) => (o.obs.score = null)],
-    ['half time above full time', (o: ResolvedObservation<ResultObservation>) => (o.obs.score = score(1, 0, [2, 0]))],
+    [
+      'half time above full time',
+      (o: ResolvedObservation<ResultObservation>) => (o.obs.score = score(1, 0, [2, 0])),
+    ],
     ['negative goals', (o: ResolvedObservation<ResultObservation>) => (o.obs.score = score(-1, 0))],
-    ['unknown status', (o: ResolvedObservation<ResultObservation>) => ((o.obs as { status: string }).status = 'live')],
+    [
+      'unknown status',
+      (o: ResolvedObservation<ResultObservation>) =>
+        ((o.obs as { status: string }).status = 'live'),
+    ],
     ['blank upstream', (o: ResolvedObservation<ResultObservation>) => (o.upstream = ' ')],
-    ['wrong kind', (o: ResolvedObservation<ResultObservation>) => ((o.obs as { kind: string }).kind = 'fixture')],
+    [
+      'wrong kind',
+      (o: ResolvedObservation<ResultObservation>) => ((o.obs as { kind: string }).kind = 'fixture'),
+    ],
   ])('%s holds result_conflict', (_name, mutate) => {
     const d = broken(mutate);
     expect(d.action === 'hold' && d.review.kind).toBe('result_conflict');
@@ -475,10 +534,23 @@ const FULL_TIMES = [
 
 const obsSpec = fc.record({
   src: fc.integer({ min: 0, max: SOURCES.length - 1 }),
-  status: fc.constantFrom('finished', 'finished', 'finished', 'cancelled', 'postponed', 'abandoned'),
+  status: fc.constantFrom(
+    'finished',
+    'finished',
+    'finished',
+    'cancelled',
+    'postponed',
+    'abandoned',
+  ),
   ft: fc.integer({ min: 0, max: FULL_TIMES.length - 1 }),
   ht: fc.constantFrom<[number, number] | null>(null, [0, 0], [1, 0]),
-  basis: fc.constantFrom('regular_time', 'regular_time', 'regular_time', 'unknown', 'includes_extra_time'),
+  basis: fc.constantFrom(
+    'regular_time',
+    'regular_time',
+    'regular_time',
+    'unknown',
+    'includes_extra_time',
+  ),
   kickoffOff: fc.constantFrom(0, 0, 0, 0, 4 * MINUTE_MS, -KICKOFF_TOLERANCE_MS, 6 * MINUTE_MS),
   changedOff: fc.integer({ min: -HOUR_MS, max: 8 * HOUR_MS }),
   foreign: fc.constantFrom(false, false, false, false, false, false, false, true),
@@ -510,6 +582,31 @@ const scenario = fc.record({
 });
 type Scenario = typeof scenario extends fc.Arbitrary<infer T> ? T : never;
 
+/** Mostly agreeing, stable observations: the inputs where a mistake would become an apply. */
+const likely = <T>(usual: T, ...rare: T[]): fc.Arbitrary<T> =>
+  fc.oneof(
+    { weight: 9, arbitrary: fc.constant(usual) },
+    { weight: 1, arbitrary: fc.constantFrom(usual, ...rare) },
+  );
+const agreeingSpec = fc.record({
+  src: fc.integer({ min: 0, max: SOURCES.length - 1 }),
+  status: likely<ObsSpec['status']>('finished', 'cancelled'),
+  ft: likely(0, 1),
+  ht: fc.constantFrom<[number, number] | null>(null, [1, 0]),
+  basis: likely<ObsSpec['basis']>('regular_time', 'unknown'),
+  kickoffOff: likely(0, 6 * MINUTE_MS),
+  changedOff: fc.integer({ min: -HOUR_MS, max: 0 }),
+  foreign: likely(false, true),
+});
+const agreeingScenario = fc.record({
+  specs: fc.array(agreeingSpec, { minLength: 2, maxLength: 5 }),
+  nowOff: fc.integer({ min: 0, max: 8 * HOUR_MS }),
+  needsHalfTime: fc.boolean(),
+  autoResults: likely(true, false),
+  confirmMs: fc.constantFrom(0, MIN_RESULT_CONFIRM_MS, DEFAULT_RESULT_CONFIRM_MS, 30 * MINUTE_MS),
+});
+const anyScenario = fc.oneof(scenario, agreeingScenario);
+
 function run(s: Scenario, observations = s.specs.map(build)): ResultDecision {
   return decide(observations, {
     now: END + s.nowOff,
@@ -523,7 +620,10 @@ const belongs = (o: ResolvedObservation<ResultObservation>): boolean =>
   o.names.homeTeamId === NAMES.homeTeamId;
 
 /** A source whose every observation is clean and agrees with every other finished observation. */
-function agreeingSources(s: Scenario, observations: ResolvedObservation<ResultObservation>[]): string[] {
+function agreeingSources(
+  s: Scenario,
+  observations: ResolvedObservation<ResultObservation>[],
+): string[] {
   const nowMs = END + s.nowOff;
   const confirm = Math.max(s.confirmMs, MIN_RESULT_CONFIRM_MS);
   const mine = observations.filter(belongs);
@@ -553,7 +653,7 @@ describe('properties', () => {
   it('permuting the observations never changes the decision', () => {
     fc.assert(
       fc.property(
-        scenario.chain((s) =>
+        anyScenario.chain((s) =>
           fc.tuple(fc.constant(s), fc.shuffledSubarray(s.specs, { minLength: s.specs.length })),
         ),
         ([s, shuffled]) => {
@@ -566,7 +666,7 @@ describe('properties', () => {
 
   it('duplicating an observation never changes the decision (never adds a vote)', () => {
     fc.assert(
-      fc.property(scenario, fc.nat(), (s, pick) => {
+      fc.property(anyScenario, fc.nat(), (s, pick) => {
         const observations = s.specs.map(build);
         const copy = observations[pick % Math.max(observations.length, 1)];
         if (copy === undefined) return;
@@ -578,12 +678,19 @@ describe('properties', () => {
 
   it('adding a dissenting observation never yields apply', () => {
     const dissent = fc.oneof(
-      fc.constantFrom('cancelled', 'abandoned', 'postponed').map((status) => ({ status, score: null })),
+      fc
+        .constantFrom('cancelled', 'abandoned', 'postponed')
+        .map((status) => ({ status, score: null })),
       fc.constant({ status: 'finished' as const, score: score(5, 5) }),
     );
     fc.assert(
-      fc.property(scenario, dissent, fc.constantFrom('s1', 's2', 's9'), (s, d, source) => {
-        const extra = resultObs({ source, upstream: `up-${source}`, status: d.status, score: d.score });
+      fc.property(anyScenario, dissent, fc.constantFrom('s1', 's2', 's9'), (s, d, source) => {
+        const extra = resultObs({
+          source,
+          upstream: `up-${source}`,
+          status: d.status,
+          score: d.score,
+        });
         const decision = run(s, [...s.specs.map(build), extra]);
         expect(decision.action).not.toBe('apply');
       }),
@@ -592,37 +699,48 @@ describe('properties', () => {
   });
 
   it('removing an agreeing source never turns a hold, wait or none into apply', () => {
+    let removals = 0;
     fc.assert(
-      fc.property(scenario, fc.nat(), (s, pick) => {
+      fc.property(anyScenario, fc.nat(), (s, pick) => {
         const observations = s.specs.map(build);
         if (run(s, observations).action === 'apply') return;
         const agreeing = agreeingSources(s, observations);
         const removed = agreeing[pick % Math.max(agreeing.length, 1)];
         if (removed === undefined) return;
         const rest = observations.filter((o) => o.obs.sourceId !== removed);
+        removals++;
         expect(run(s, rest).action).not.toBe('apply');
       }),
       { numRuns: 500 },
     );
+    expect(removals).toBeGreaterThan(20);
   });
 
   it('an apply satisfies R1-R5 when recomputed independently', () => {
+    let applies = 0;
     fc.assert(
-      fc.property(scenario, (s) => {
+      fc.property(anyScenario, (s) => {
         const observations = s.specs.map(build);
         const decision = run(s, observations);
         if (decision.action !== 'apply') return;
+        applies++;
         const nowMs = END + s.nowOff;
         expect(KICKOFF + MIN_MATCH_DURATION_MS).toBeLessThanOrEqual(nowMs);
         expect(s.autoResults).toBe(true);
         const mine = observations.filter(belongs);
-        const upstreams = new Set(mine.map((o) => o.upstream.trim().toLowerCase()));
+        // With half time needed, only rows that give it vote (a missing one is silence).
+        const voters = s.needsHalfTime ? mine.filter((o) => o.obs.score?.htHome !== null) : mine;
+        const upstreams = new Set(voters.map((o) => o.upstream.trim().toLowerCase()));
         expect(upstreams.size).toBeGreaterThanOrEqual(2);
+        if (s.needsHalfTime) expect(decision.score.htHome).not.toBeNull();
         for (const o of mine) {
           expect(o.obs.status).toBe('finished');
           expect(o.obs.scoreBasis).toBe('regular_time');
-          expect([o.obs.score?.home, o.obs.score?.away]).toEqual([decision.score.home, decision.score.away]);
-          if (s.needsHalfTime) {
+          expect([o.obs.score?.home, o.obs.score?.away]).toEqual([
+            decision.score.home,
+            decision.score.away,
+          ]);
+          if (s.needsHalfTime && o.obs.score?.htHome !== null) {
             expect([o.obs.score?.htHome, o.obs.score?.htAway]).toEqual([
               decision.score.htHome,
               decision.score.htAway,
@@ -630,16 +748,19 @@ describe('properties', () => {
           }
           const since = Math.max(o.changedAt.getTime(), o.firstSeenAt.getTime());
           expect(since + Math.max(s.confirmMs, MIN_RESULT_CONFIRM_MS)).toBeLessThanOrEqual(nowMs);
-          expect(Math.abs(o.obs.kickoff.getTime() - KICKOFF)).toBeLessThanOrEqual(KICKOFF_TOLERANCE_MS);
+          expect(Math.abs(o.obs.kickoff.getTime() - KICKOFF)).toBeLessThanOrEqual(
+            KICKOFF_TOLERANCE_MS,
+          );
         }
       }),
       { numRuns: 1000 },
     );
+    expect(applies).toBeGreaterThan(20);
   });
 
   it('sources of one upstream never produce an apply', () => {
     fc.assert(
-      fc.property(scenario, (s) => {
+      fc.property(anyScenario, (s) => {
         const sameUpstream = s.specs.map((spec) => ({ ...spec, src: spec.src % 2 === 0 ? 0 : 2 }));
         expect(run(s, sameUpstream.map(build)).action).not.toBe('apply');
       }),
@@ -653,7 +774,11 @@ describe('properties', () => {
         const event = resulted
           ? { status: 'finished' as const, resultedAt: new Date(END), score: score(2, 1) }
           : {};
-        const d = decide([], { now: END + s.nowOff, event, policy: { autoResults: s.autoResults } });
+        const d = decide([], {
+          now: END + s.nowOff,
+          event,
+          policy: { autoResults: s.autoResults },
+        });
         expect(d.action).toBe('none');
       }),
     );

@@ -36,6 +36,8 @@ export interface SourceDescriptor {
 // ---------------------------------------------------------------------------
 // Observations
 
+// Intentional: names must not carry control characters.
+// eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 const nameSchema = z

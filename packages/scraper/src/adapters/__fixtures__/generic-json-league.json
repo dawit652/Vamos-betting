@@ -1,8 +1,57 @@
-{"data":{"events":[
- {"id":101,"league":"Demo League","kick":"2025-03-01T15:00:00+03:00","h":"Alpha FC","a":"Beta United","st":"FT","hs":"2","as":"1","hth":"1","hta":"0"},
- {"id":102,"league":"Demo League","kick":"2025-03-08T15:00:00Z","h":"Gamma","a":"Delta","st":"NS","hs":null,"as":null},
- {"id":103,"league":"Demo League","kick":"2025-03-09T15:00:00Z","h":"Eps","a":"Zeta","st":"PST","hs":null,"as":null},
- {"id":104,"league":"Demo League","kick":"2025-03-09T15:00:00","h":"No","a":"Offset","st":"NS"},
- {"id":105,"league":"Demo League","kick":"2025-03-10T15:00:00Z","h":"Bad","a":"Score","st":"FT","hs":"2.5","as":"1"},
- "junk"
-]}}
+{
+  "data": {
+    "events": [
+      {
+        "id": 101,
+        "league": "Demo League",
+        "kick": "2025-03-01T15:00:00+03:00",
+        "h": "Alpha FC",
+        "a": "Beta United",
+        "st": "FT",
+        "hs": "2",
+        "as": "1",
+        "hth": "1",
+        "hta": "0"
+      },
+      {
+        "id": 102,
+        "league": "Demo League",
+        "kick": "2025-03-08T15:00:00Z",
+        "h": "Gamma",
+        "a": "Delta",
+        "st": "NS",
+        "hs": null,
+        "as": null
+      },
+      {
+        "id": 103,
+        "league": "Demo League",
+        "kick": "2025-03-09T15:00:00Z",
+        "h": "Eps",
+        "a": "Zeta",
+        "st": "PST",
+        "hs": null,
+        "as": null
+      },
+      {
+        "id": 104,
+        "league": "Demo League",
+        "kick": "2025-03-09T15:00:00",
+        "h": "No",
+        "a": "Offset",
+        "st": "NS"
+      },
+      {
+        "id": 105,
+        "league": "Demo League",
+        "kick": "2025-03-10T15:00:00Z",
+        "h": "Bad",
+        "a": "Score",
+        "st": "FT",
+        "hs": "2.5",
+        "as": "1"
+      },
+      "junk"
+    ]
+  }
+}

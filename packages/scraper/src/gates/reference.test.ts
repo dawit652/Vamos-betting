@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DEFAULT_RESULT_CONFIRM_MS,
-  DAY_MS,
-  HOUR_MS,
-  MINUTE_MS,
-} from '../constants';
+import { DEFAULT_RESULT_CONFIRM_MS, DAY_MS, HOUR_MS, MINUTE_MS } from '../constants';
 import type { FixtureObservation, ResolvedObservation, ResultObservation } from '../types';
 import { decideFixture } from './fixture';
 import { decideResult } from './result';
@@ -44,7 +39,12 @@ function naiveIndependent(voices: { source: string; upstream: string }[]): numbe
   return groups.length;
 }
 
-function text(s: { home: number; away: number; htHome: number | null; htAway: number | null }): string {
+function text(s: {
+  home: number;
+  away: number;
+  htHome: number | null;
+  htAway: number | null;
+}): string {
   return s.htHome === null ? `${s.home}-${s.away}` : `${s.home}-${s.away}/${s.htHome}-${s.htAway}`;
 }
 
@@ -56,7 +56,9 @@ function referenceResult(
   now: number,
   configuredConfirm: number,
 ): Outcome {
-  const mine = all.filter((o) => o.names.homeTeamId === 'team-h' && o.names.awayTeamId === 'team-a');
+  const mine = all.filter(
+    (o) => o.names.homeTeamId === 'team-h' && o.names.awayTeamId === 'team-a',
+  );
   if (mine.length === 0) return { action: 'none' };
   let anyVoid = false;
   let anyFinished = false;
@@ -65,20 +67,24 @@ function referenceResult(
     else anyVoid = true;
   }
   // R7 (+R3): never applied, raised at once.
-  if (anyVoid) return { action: 'hold', kind: anyFinished ? 'result_conflict' : 'cancellation_proposed' };
+  if (anyVoid)
+    return { action: 'hold', kind: anyFinished ? 'result_conflict' : 'cancellation_proposed' };
   // R1
   const earliestEnd = KICKOFF + 105 * 60 * 1000;
   if (now < earliestEnd) return { action: 'wait', until: earliestEnd };
   // R3, pairwise; kickoffs within 5 minutes of the event start.
   for (const a of mine) {
-    if (Math.abs(a.obs.kickoff.getTime() - KICKOFF) > 5 * 60 * 1000) return { action: 'hold', kind: 'result_conflict' };
+    if (Math.abs(a.obs.kickoff.getTime() - KICKOFF) > 5 * 60 * 1000)
+      return { action: 'hold', kind: 'result_conflict' };
     for (const b of mine) {
       const sa = a.obs.score;
       const sb = b.obs.score;
       if (sa === null || sb === null) return { action: 'hold', kind: 'result_conflict' };
-      if (sa.home !== sb.home || sa.away !== sb.away) return { action: 'hold', kind: 'result_conflict' };
+      if (sa.home !== sb.home || sa.away !== sb.away)
+        return { action: 'hold', kind: 'result_conflict' };
       if (needsHt && sa.htHome !== null && sb.htHome !== null) {
-        if (sa.htHome !== sb.htHome || sa.htAway !== sb.htAway) return { action: 'hold', kind: 'result_conflict' };
+        if (sa.htHome !== sb.htHome || sa.htAway !== sb.htAway)
+          return { action: 'hold', kind: 'result_conflict' };
       }
     }
   }
@@ -86,7 +92,9 @@ function referenceResult(
   const voters = mine.filter(
     (o) => o.obs.scoreBasis === 'regular_time' && (!needsHt || o.obs.score?.htHome !== null),
   );
-  const independent = naiveIndependent(voters.map((o) => ({ source: o.obs.sourceId, upstream: o.upstream })));
+  const independent = naiveIndependent(
+    voters.map((o) => ({ source: o.obs.sourceId, upstream: o.upstream })),
+  );
   if (independent >= 2) {
     // R4: never below five minutes; every observation unchanged that long.
     const confirm = configuredConfirm < 5 * 60 * 1000 ? 5 * 60 * 1000 : configuredConfirm;
@@ -95,18 +103,26 @@ function referenceResult(
       lastChange = Math.max(lastChange, o.changedAt.getTime(), o.firstSeenAt.getTime());
     }
     if (now - lastChange < confirm) {
-      return basisDoubt ? { action: 'hold', kind: 'score_basis_unknown' } : { action: 'wait', until: lastChange + confirm };
+      return basisDoubt
+        ? { action: 'hold', kind: 'score_basis_unknown' }
+        : { action: 'wait', until: lastChange + confirm };
     }
     if (basisDoubt || !autoResults) return { action: 'hold', kind: 'result_ready' };
     const first = voters[0]?.obs.score;
     if (!first) throw new Error('reference: no voter');
-    const sameHt = voters.every((v) => v.obs.score?.htHome === first.htHome && v.obs.score?.htAway === first.htAway);
-    return { action: 'apply', score: text(sameHt ? first : { ...first, htHome: null, htAway: null }) };
+    const sameHt = voters.every(
+      (v) => v.obs.score?.htHome === first.htHome && v.obs.score?.htAway === first.htAway,
+    );
+    return {
+      action: 'apply',
+      score: text(sameHt ? first : { ...first, htHome: null, htAway: null }),
+    };
   }
   const regular = mine.filter((o) => o.obs.scoreBasis === 'regular_time');
   if (regular.length > 0) {
     // R6: six hours after the earliest possible end.
-    if (now >= earliestEnd + 6 * 60 * 60 * 1000) return { action: 'hold', kind: 'result_unverified' };
+    if (now >= earliestEnd + 6 * 60 * 60 * 1000)
+      return { action: 'hold', kind: 'result_unverified' };
     return basisDoubt
       ? { action: 'hold', kind: 'score_basis_unknown' }
       : { action: 'wait', until: earliestEnd + 6 * 60 * 60 * 1000 };
@@ -160,7 +176,16 @@ describe('reference model: results R1-R7, R10 (exhaustive)', () => {
     for (const [source, upstream] of sources) {
       for (const st of states) {
         for (const changedAt of [END, END + 50 * MINUTE_MS]) {
-          options.push(resultObs({ source, upstream, status: st.status, score: st.score, basis: st.basis, changedAt }));
+          options.push(
+            resultObs({
+              source,
+              upstream,
+              status: st.status,
+              score: st.score,
+              basis: st.basis,
+              changedAt,
+            }),
+          );
         }
       }
     }
@@ -182,15 +207,37 @@ describe('reference model: results R1-R7, R10 (exhaustive)', () => {
               }),
             );
             if (JSON.stringify(got) !== JSON.stringify(expected)) {
-              expect({ combo: combo.map((o) => [o.obs.sourceId, o.obs.status, o.obs.score, o.obs.scoreBasis, o.changedAt]), now, autoResults, confirmMs, got }).toEqual({
-                combo: combo.map((o) => [o.obs.sourceId, o.obs.status, o.obs.score, o.obs.scoreBasis, o.changedAt]),
+              expect({
+                combo: combo.map((o) => [
+                  o.obs.sourceId,
+                  o.obs.status,
+                  o.obs.score,
+                  o.obs.scoreBasis,
+                  o.changedAt,
+                ]),
+                now,
+                autoResults,
+                confirmMs,
+                got,
+              }).toEqual({
+                combo: combo.map((o) => [
+                  o.obs.sourceId,
+                  o.obs.status,
+                  o.obs.score,
+                  o.obs.scoreBasis,
+                  o.changedAt,
+                ]),
                 now,
                 autoResults,
                 confirmMs,
                 got: expected,
               });
             }
-            seen.add(JSON.stringify(expected).replace(/"until":\d+/, '').replace(/"score":"[^"]*"/, ''));
+            seen.add(
+              JSON.stringify(expected)
+                .replace(/"until":\d+/, '')
+                .replace(/"score":"[^"]*"/, ''),
+            );
             compared++;
           }
         }
@@ -227,12 +274,21 @@ describe('reference model: results R1-R7, R10 (exhaustive)', () => {
     ] as const;
     const options: RObs[] = [];
     for (const [source, upstream] of sources) {
-      for (const st of states) options.push(resultObs({ source, upstream, score: st.score, basis: st.basis, kickoff: st.kickoff }));
+      for (const st of states)
+        options.push(
+          resultObs({ source, upstream, score: st.score, basis: st.basis, kickoff: st.kickoff }),
+        );
     }
     for (const combo of multisets(options, 3)) {
       for (const now of [END - 1, END + HOUR_MS, END + 7 * HOUR_MS]) {
         for (const autoResults of [true, false]) {
-          const expected = referenceResult(combo, true, autoResults, now, DEFAULT_RESULT_CONFIRM_MS);
+          const expected = referenceResult(
+            combo,
+            true,
+            autoResults,
+            now,
+            DEFAULT_RESULT_CONFIRM_MS,
+          );
           const got = actual(
             decideResult({
               event: makeEvent({ needsHalfTimeScore: true }),
@@ -251,7 +307,8 @@ describe('reference model: results R1-R7, R10 (exhaustive)', () => {
 });
 
 type FObs = ResolvedObservation<FixtureObservation>;
-type KickoffOutcome = { action: 'update'; to: number; rule: string } | { action: 'hold' } | { action: 'none' };
+type KickoffOutcome =
+  { action: 'update'; to: number; rule: string } | { action: 'hold' } | { action: 'none' };
 
 /** F4 for a scheduled, unresulted event starting at KICKOFF (all observations scheduled). */
 function referenceKickoff(all: FObs[], hasBets: boolean, now: number): KickoffOutcome {
@@ -265,7 +322,9 @@ function referenceKickoff(all: FObs[], hasBets: boolean, now: number): KickoffOu
   if (Math.abs(to - KICKOFF) <= five) return { action: 'none' };
   if (KICKOFF <= now + ten) return { action: 'hold' };
   if (to <= now + ten) return { action: 'hold' };
-  const independent = naiveIndependent(all.map((o) => ({ source: o.obs.sourceId, upstream: o.upstream })));
+  const independent = naiveIndependent(
+    all.map((o) => ({ source: o.obs.sourceId, upstream: o.upstream })),
+  );
   if (independent >= 2) return { action: 'update', to, rule: 'F4a' };
   if (independent === 1 && to > KICKOFF && to - KICKOFF <= 2 * 60 * 60 * 1000 && !hasBets) {
     return { action: 'update', to, rule: 'F4b' };
@@ -275,21 +334,38 @@ function referenceKickoff(all: FObs[], hasBets: boolean, now: number): KickoffOu
 
 describe('reference model: F4 kickoff change (exhaustive)', () => {
   it('agrees on every combination of up to three observations', () => {
-    const offsets = [0, 3 * MINUTE_MS, 5 * MINUTE_MS, 5 * MINUTE_MS + 1, HOUR_MS, 2 * HOUR_MS, 2 * HOUR_MS + 1, -HOUR_MS, -5 * MINUTE_MS - 1];
+    const offsets = [
+      0,
+      3 * MINUTE_MS,
+      5 * MINUTE_MS,
+      5 * MINUTE_MS + 1,
+      HOUR_MS,
+      2 * HOUR_MS,
+      2 * HOUR_MS + 1,
+      -HOUR_MS,
+      -5 * MINUTE_MS - 1,
+      HOUR_MS + 5 * MINUTE_MS,
+    ];
     const options: FObs[] = [];
     for (const [source, upstream] of [
       ['s1', 'u1'],
       ['s2', 'u2'],
       ['s3', 'u1'],
     ] as const) {
-      for (const offset of offsets) options.push(fixtureObs({ source, upstream, kickoff: KICKOFF + offset }));
+      for (const offset of offsets)
+        options.push(fixtureObs({ source, upstream, kickoff: KICKOFF + offset }));
     }
     const outcomes = new Set<string>();
     let compared = 0;
     for (const combo of multisets(options, 3)) {
       if (combo.length === 0) continue;
       for (const hasBets of [false, true]) {
-        for (const now of [KICKOFF - DAY_MS, KICKOFF - 70 * MINUTE_MS, KICKOFF - 10 * MINUTE_MS, KICKOFF - 10 * MINUTE_MS - 1]) {
+        for (const now of [
+          KICKOFF - DAY_MS,
+          KICKOFF - 70 * MINUTE_MS,
+          KICKOFF - 10 * MINUTE_MS,
+          KICKOFF - 10 * MINUTE_MS - 1,
+        ]) {
           const expected = referenceKickoff(combo, hasBets, now);
           const d = decideFixture({
             observations: combo,

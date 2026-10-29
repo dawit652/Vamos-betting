@@ -16,7 +16,7 @@ export function upstreamKey(upstream: string): string {
 }
 
 /** A vote: which source said it and who produces that source's data. */
-export interface Voice {
+export interface ConsensusVoice {
   sourceId: string;
   upstream: string;
 }
@@ -27,7 +27,7 @@ export interface Voice {
  * count once, a source counts once even if rows disagree about its upstream,
  * and a duplicated observation adds nothing.
  */
-export function countIndependent(voices: readonly Voice[]): number {
+export function countIndependent(voices: readonly ConsensusVoice[]): number {
   const parent = new Map<string, string>();
   const find = (node: string): string => {
     let root = node;
@@ -49,7 +49,7 @@ export function countIndependent(voices: readonly Voice[]): number {
 }
 
 /** The distinct normalised upstreams of some voices, sorted (for payloads). */
-export function upstreamsOf(voices: readonly Voice[]): string[] {
+export function upstreamsOf(voices: readonly ConsensusVoice[]): string[] {
   return [...new Set(voices.map((voice) => upstreamKey(voice.upstream)))].sort();
 }
 
@@ -75,7 +75,7 @@ export function stableSinceMs(o: { changedAt: Date; firstSeenAt: Date }): number
 }
 
 /** R4: unchanged for at least `confirmMs` at `nowMs` (exactly confirmMs counts as stable). */
-export function isStable(
+export function isStableFor(
   o: { changedAt: Date; firstSeenAt: Date },
   nowMs: number,
   confirmMs: number,
@@ -98,7 +98,11 @@ export function halfTimeKey(score: Score): string | null {
  * different full time, or (only when the event needs it) a different
  * half time. A missing half time is silence, not a contradiction.
  */
-export function contradicts(reference: Score, observed: Score, needsHalfTime: boolean): boolean {
+export function scoreContradicts(
+  reference: Score,
+  observed: Score,
+  needsHalfTime: boolean,
+): boolean {
   if (fullTimeKey(reference) !== fullTimeKey(observed)) return true;
   if (!needsHalfTime) return false;
   const seen = halfTimeKey(observed);
