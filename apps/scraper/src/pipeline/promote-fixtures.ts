@@ -5,6 +5,7 @@ import {
   listCurrentObservations,
   listScrapedEvents,
   lockEvent,
+  recordEventPriced,
   setEventBettingOpen,
   upsertFixture,
   type LiveMessage,
@@ -23,6 +24,7 @@ import {
   isCalibrated,
   matchEvent,
   MATCH_WINDOW_MS,
+  ratingsKey,
   reviewsOf,
   type CompetitionPolicy,
   type EventMatch,
@@ -52,7 +54,7 @@ export interface PromoteFixturesSummary {
 /** Fixture observations are read from this far back (clusters straddle the start) ... */
 const LOOK_BACK_MS = 2 * DAY_MS;
 /** ... to this far ahead (a source may move a fixture beyond the creation horizon). */
-const LOOK_AHEAD_MS = FIXTURE_HORIZON_MS + 14 * DAY_MS;
+export const LOOK_AHEAD_MS = FIXTURE_HORIZON_MS + 14 * DAY_MS;
 
 /**
  * Promotes the current fixture observations (rules F1 to F7): for every
@@ -146,7 +148,7 @@ export async function promoteFixtures(ctx: ScraperContext): Promise<PromoteFixtu
       let messages: LiveMessage[] = [];
       switch (decision.action) {
         case 'create': {
-          const created = await applyCreate(ctx, decision, pricing?.markets ?? [], now);
+          const created = await applyCreate(ctx, decision, pricing, now);
           messages = created.messages;
           if (created.created) summary.created += 1;
           else summary.held += 1;
@@ -291,7 +293,12 @@ async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTeamId: s
   const min = ctx.config.scraper.minRatingMatches;
   const calibrated = isCalibrated(home, min) && isCalibrated(away, min);
   const markets = priceFixture('football', home, away);
-  return { calibrated, markets, pricesSane: checkMarkets(markets).ok };
+  return {
+    calibrated,
+    markets,
+    ratingsKey: ratingsKey(home, away),
+    pricesSane: checkMarkets(markets).ok,
+  };
 }
 
 /** The feed_ref of a create decision is already taken (review finding 2). */
@@ -308,7 +315,7 @@ class FeedRefTaken extends Error {}
 async function applyCreate(
   ctx: ScraperContext,
   decision: FixtureCreate,
-  markets: ReturnType<typeof priceFixture>,
+  pricing: { markets: ReturnType<typeof priceFixture>; ratingsKey: string } | null,
   now: Date,
 ): Promise<{ created: boolean; messages: LiveMessage[] }> {
   try {
@@ -334,11 +341,13 @@ async function applyCreate(
           awayTeamId: decision.awayTeamId,
           startTime: decision.kickoff,
         },
-        markets,
+        pricing?.markets ?? [],
         { now },
       );
       // Another transaction created it after the check: the upsert took its update path; undo it.
       if (!result.created) throw new FeedRefTaken();
+      // O3: remember the ratings the prices come from, so only a later change re-prices the event.
+      if (pricing !== null) await recordEventPriced(tx, result.eventId, pricing.ratingsKey, now);
       const messages = [...result.messages];
       // F7: closed unless the decision says it may open.
       const changed = await setEventBettingOpen(tx, result.eventId, decision.openBetting);

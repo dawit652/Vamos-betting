@@ -8,6 +8,7 @@ import {
   type GateMarket,
   isCalibrated,
   type OddsCheck,
+  ratingsKey,
   repriceReview,
 } from './odds';
 
@@ -190,6 +191,27 @@ describe('O3 re-pricing', () => {
     expect(review.payload.proposal).toEqual([
       { type: '1x2', line: null, selections: book(3000)[0]?.selections },
     ]);
+  });
+
+  it('the proposal item carries the runner extras, but the gate fields win', () => {
+    const check = checkReprice(book(2000), book(3000));
+    if (check.ok) throw new Error('expected refusal');
+    const review = repriceReview({ eventId: 'ev-1', feedRef: 'fx|a' }, book(3000), check, {
+      ratingsKey: 'k',
+      eventId: 'forged',
+    });
+    expect(review.payload).toMatchObject({ ratingsKey: 'k', eventId: 'ev-1' });
+  });
+
+  it('ratingsKey: equal for equal ratings whatever the key order, different when a number moves', () => {
+    const a = { attack: 1.2, defence: 0.9, matches: 10 };
+    expect(ratingsKey(a, a)).toBe(ratingsKey({ matches: 10, defence: 0.9, attack: 1.2 }, a));
+    expect(ratingsKey(a, a)).not.toBe(ratingsKey({ ...a, matches: 11 }, a));
+    expect(ratingsKey(a, a)).not.toBe(ratingsKey(a, { ...a, attack: 1.21 }));
+    // The two teams are not interchangeable (home advantage).
+    expect(ratingsKey(a, { ...a, attack: 1 })).not.toBe(ratingsKey({ ...a, attack: 1 }, a));
+    expect(ratingsKey(null, undefined)).toBe(ratingsKey({}, {}));
+    expect(ratingsKey({ attack: Number.NaN, note: 'x' }, null)).toBe(ratingsKey({}, {}));
   });
 
   it('property: a selection is refused exactly when next/prev leaves [0.8, 1.25]', () => {

@@ -24,7 +24,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { competitions, sports, teams } from './catalog';
+import { competitions, events, sports, teams } from './catalog';
 
 /**
  * The data scraper's tables (docs/scraper.md section 4). The services are in
@@ -441,4 +441,22 @@ export const scrapeReviewItems = pgTable(
 export const scrapeRatingApplied = pgTable('scrape_rating_applied', {
   fixtureKey: text('fixture_key').primaryKey(),
   appliedAt: timestamp('applied_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Which ratings an event's prices were computed from (rule O3, re-pricing).
+ * `ratings_key` is the fingerprint of both teams' ratings behind the stored
+ * prices (null: not known, an event created before this table existed);
+ * `held_key` is the fingerprint of the last proposal a person was asked about,
+ * so a held or dismissed proposal is not raised again until the ratings change.
+ * Existing bets are unaffected: a bet leg keeps the odds it was accepted at.
+ */
+export const scrapeEventPricing = pgTable('scrape_event_pricing', {
+  eventId: uuid('event_id')
+    .primaryKey()
+    .references(() => events.id, { onDelete: 'cascade' }),
+  ratingsKey: text('ratings_key'),
+  pricedAt: timestamp('priced_at', { withTimezone: true }),
+  heldKey: text('held_key'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

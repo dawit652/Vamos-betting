@@ -90,7 +90,9 @@ export type OddsIssueCode =
   | 'overround_high'
   | 'market_set_changed'
   | 'selection_set_changed'
-  | 'price_move_too_large';
+  | 'price_move_too_large'
+  /** O3 + S4: the competition's policy is switched off, so nothing is re-priced by itself. */
+  | 'policy_disabled';
 
 export interface OddsIssue {
   readonly code: OddsIssueCode;
@@ -290,15 +292,42 @@ export function checkReprice(
   return result(issues);
 }
 
+/** Suffix of the subject key of a re-price item (`<feedRef>|reprice`). */
+export const REPRICE_SUBJECT_SUFFIX = '|reprice';
+
+/**
+ * A fingerprint of the ratings a book is priced from (rule O3): the numeric
+ * entries of both teams' ratings, keys sorted, as text. Two equal fingerprints
+ * price the same book, so a stamp of it says whether the stored prices are
+ * current. `null` ratings and `{}` are the same (both price from neutral).
+ */
+export function ratingsKey(
+  home: Readonly<Record<string, unknown>> | null | undefined,
+  away: Readonly<Record<string, unknown>> | null | undefined,
+): string {
+  const side = (ratings: Readonly<Record<string, unknown>> | null | undefined): string => {
+    if (typeof ratings !== 'object' || ratings === null) return '[]';
+    const entries = Object.entries(ratings)
+      .filter((entry): entry is [string, number] => Number.isFinite(entry[1]))
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return JSON.stringify(entries);
+  };
+  return `${side(home)}|${side(away)}`;
+}
+
 /**
  * The `odds_approval` item for a refused re-price (O3: the old prices stay).
  * Its subject is the event's feedRef suffixed with '|reprice', so it never
- * merges with the F7 item that asks a trader to open betting.
+ * merges with the F7 item that asks a trader to open betting. `extra` is
+ * merged into the payload first (the runner adds what a person needs to read
+ * the item: names, kickoff, the ratings fingerprint the proposal belongs to);
+ * the gate's own fields win.
  */
 export function repriceReview(
   event: { readonly eventId: string; readonly feedRef: string },
   next: readonly GateMarket[],
   check: Extract<OddsCheck, { ok: false }>,
+  extra: { readonly [key: string]: GateJson } = {},
 ): GateReview<'odds_approval'> {
   const proposal: GateJson = next.map((m) => ({
     type: m.type,
@@ -306,9 +335,10 @@ export function repriceReview(
     selections: m.selections.map((s) => ({ code: s.code, oddsMilli: s.oddsMilli })),
   }));
   const [review] = buildReviews(
-    `${event.feedRef}|reprice`,
+    `${event.feedRef}${REPRICE_SUBJECT_SUFFIX}`,
     check.issues.map((i) => ({ kind: 'odds_approval' as const, rule: 'O3', reason: i.code })),
     () => ({
+      ...extra,
       eventId: event.eventId,
       feedRef: event.feedRef,
       proposal,
