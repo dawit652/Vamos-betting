@@ -1,12 +1,12 @@
 # 01. Independent review and fixes
 
-|                |                                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------------ |
-| Status         | **In progress** when this plan was written (an Opus reviewer was running; read its report before restarting) |
-| Model / effort | review: Opus, high (a different model from the writers; Fable needs usage credits). Fixes: Sonnet, high      |
-| Size           | review about 300k tokens; fixes about 100k                                                                   |
-| Depends on     | –                                                                                                            |
-| Blocks         | task 06; any go-live                                                                                         |
+|                |                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------- |
+| Status         | Not started (an earlier attempt was cancelled before producing a report)                                |
+| Model / effort | review: Opus, high (a different model from the writers; Fable needs usage credits). Fixes: Sonnet, high |
+| Size           | review about 300k tokens; fixes about 100k                                                              |
+| Depends on     | –                                                                                                       |
+| Blocks         | task 06; any go-live                                                                                    |
 
 ## Goal
 

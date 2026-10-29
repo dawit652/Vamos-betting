@@ -25,14 +25,13 @@ Written 2026-10-29. Branch `claude/gallant-davinci-kwmu2k`, last pushed commit
 | Database: 10 tables, migrations 0033–0034, services                             | `packages/db/src/scrape`                         | 56 (db suite: 605) |
 | Scraper process: run pipeline, promotion, staff confirmation, scheduler, health | `apps/scraper`                                   | 22                 |
 
-**Running when this plan was written** (their results are not reflected here;
-check `git status` and the agent reports before restarting either):
+**Started but cancelled before producing any output** (an interruption stopped
+the background agents; nothing from them is on disk): task 01, the independent
+review, and task 02, the admin API routes. Treat both as not started. The one
+related change that did land is `"sideEffects": false` in
+`packages/scraper/package.json`, which task 02 relies on.
 
-- Task 01, the independent review (Opus, read-only).
-- Task 02, the admin API routes (Sonnet), plus a one-line `sideEffects: false`
-  in `packages/scraper/package.json` that is not committed yet.
-
-**Not started:** tasks 03 to 09.
+**Not started:** tasks 01 to 09.
 
 ## Tasks, order and dependencies
 

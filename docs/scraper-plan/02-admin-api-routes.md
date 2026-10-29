@@ -1,12 +1,12 @@
 # 02. Back-office API routes (`/admin/feed/*`)
 
-|                |                                                                                                                                                                                  |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status         | **In progress** when this plan was written (a Sonnet agent was building it; check `apps/api/src/modules/admin/feed.ts` and `apps/api/test/admin-feed.test.ts` before restarting) |
-| Model / effort | Sonnet, high                                                                                                                                                                     |
-| Size           | about 250k tokens                                                                                                                                                                |
-| Depends on     | contracts `packages/contracts/src/feed.ts` (done), database services (done)                                                                                                      |
-| Blocks         | task 03                                                                                                                                                                          |
+|                |                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Status         | Not started (an earlier attempt was cancelled before writing any file; `apps/api/src/modules/admin/feed.ts` does not exist yet) |
+| Model / effort | Sonnet, high                                                                                                                    |
+| Size           | about 250k tokens                                                                                                               |
+| Depends on     | contracts `packages/contracts/src/feed.ts` (done), database services (done)                                                     |
+| Blocks         | task 03                                                                                                                         |
 
 ## Goal
 

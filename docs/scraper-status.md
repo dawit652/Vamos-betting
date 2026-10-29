@@ -8,12 +8,15 @@ The task-by-task plan for everything below is in [scraper-plan/](scraper-plan/RE
 
 ## Usage budget (why the work is paused here)
 
-- 2026-10-29 00:57 UTC: 5-hour window **82%** used (resets 05:10 UTC), weekly
-  allowance **88%** used (resets **2026-10-30 20:00 UTC**).
+- 2026-10-29 09:09 UTC: weekly allowance **93%** used (resets **2026-10-30
+  20:00 UTC**), current 5-hour window 51% (resets 12:50 UTC). This is the stop
+  line: no more agents are started until the weekly reset.
+- What happened since the last checkpoint: the independent review (Opus) and the
+  admin API routes (Sonnet) were started, then cancelled by an interruption
+  before they wrote anything. They used about 5 points of the weekly allowance
+  for no output. Both are still to do (see `scraper-plan/01` and `02`).
 - Measured cost: about 1.0M agent tokens cost about 6 points of the weekly
-  allowance, so one point is roughly 170–200k tokens. The independent review
-  (about 300k tokens) would push the current 5-hour window over its limit, so it
-  waits for the 05:10 UTC reset.
+  allowance, so one point is roughly 170–200k tokens.
 - Policy: cheaper models wherever quality allows (Opus only for the safety
   gates and the final review), small waves, one usage check after each wave,
   stop and update this file at about 93% weekly.
