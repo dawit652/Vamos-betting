@@ -81,7 +81,7 @@ interface ResolvedIds {
 }
 
 type NameKind = 'team' | 'competition';
-interface UnknownName {
+export interface UnknownName {
   kind: NameKind;
   sport: string;
   raw: string;
@@ -137,19 +137,39 @@ export function unknownSubject(sport: string, raw: string): string {
   return `${sport}|${normalizeName(raw)}`;
 }
 
-/** Opens unknown_team / unknown_competition items (deduplicated per subject, with suggestions N3). */
+export interface UnknownItemPlan {
+  kind: 'unknown_team' | 'unknown_competition';
+  subjectKey: string;
+  name: UnknownName;
+}
+
+/**
+ * The unknown_team / unknown_competition items to open for these names: one per
+ * (kind, subject), in (kind, subject key) order, whatever order the records
+ * came in (review finding 10). Two runs that open overlapping sets then lock
+ * the item rows in the same order and cannot deadlock.
+ */
+export function planUnknownItems(unknown: readonly UnknownName[]): UnknownItemPlan[] {
+  const byId = new Map<string, UnknownItemPlan>();
+  for (const name of unknown) {
+    const kind = name.kind === 'team' ? 'unknown_team' : 'unknown_competition';
+    const subjectKey = unknownSubject(name.sport, name.raw);
+    const id = `${kind}\u0000${subjectKey}`;
+    if (!byId.has(id)) byId.set(id, { kind, subjectKey, name });
+  }
+  return [...byId.values()].sort(
+    (a, b) => compareText(a.kind, b.kind) || compareText(a.subjectKey, b.subjectKey),
+  );
+}
+
+/** Opens unknown_team / unknown_competition items (deduplicated per subject, with suggestions N3), sorted. */
 export async function openUnknownNameItems(
   tx: DbTransaction,
   index: AliasIndex,
   unknown: readonly UnknownName[],
   now: Date,
 ): Promise<void> {
-  const seen = new Set<string>();
-  for (const item of unknown) {
-    const kind = item.kind === 'team' ? 'unknown_team' : 'unknown_competition';
-    const subjectKey = unknownSubject(item.sport, item.raw);
-    if (seen.has(`${kind}\u0000${subjectKey}`)) continue;
-    seen.add(`${kind}\u0000${subjectKey}`);
+  for (const { kind, subjectKey, name: item } of planUnknownItems(unknown)) {
     const suggestions = (item.kind === 'team' ? suggestTeams : suggestCompetitions)(index, {
       sportId: item.sport,
       raw: item.raw,
@@ -544,7 +564,8 @@ async function storeObservations(
         ...ids,
       });
     }
-    for (const sport of new Set(unknown.map((u) => u.sport))) {
+    // One fixed order across runs: sport by sport (the sport is the prefix of every subject key), each sorted.
+    for (const sport of [...new Set(unknown.map((u) => u.sport))].sort(compareText)) {
       await openUnknownNameItems(
         tx,
         await indexes.get(sport),
