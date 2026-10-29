@@ -71,7 +71,16 @@ The guard is `licensedModeViolations()` in `packages/config/src/config.ts`. Both
           │ settlement · payouts · SMS ·       │
           │ reconciliation · AML               │
           └────────────────────────────────────┘
+          ┌────────────────────────────────────┐
+          │ apps/scraper (data scraper)        │
+          │ sources to gates to catalogue      │
+          │ Redis locks, same database         │
+          └────────────────────────────────────┘
 ```
+
+The data scraper (`apps/scraper`) is a separate process. It collects fixtures and results from public sources and
+changes the catalogue only through the existing services and the safety gates; see [scraper.md](scraper.md) and
+[scraper-operations.md](scraper-operations.md).
 
 ## Core conventions
 

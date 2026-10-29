@@ -7,16 +7,19 @@ must be recorded. Commands assume the production compose stack, run from the rep
 export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.prod
 ```
 
-| Runbook                                                 | Use it when                                                                  |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| [Incident basics](incident-basics.md)                   | Anything is down, slow or wrong: first 15 minutes, severities, communication |
-| [Payouts stuck or flagged](payouts-stuck-or-flagged.md) | A withdrawal is pending too long, flagged, or a deposit is flagged           |
-| [Reconciliation mismatch](reconciliation-mismatch.md)   | A reconciliation run ends in `mismatches` or `failed`                        |
-| [AML flag review](aml-flag-review.md)                   | A player was flagged or a withdrawal is held for `aml_review`                |
-| [Rotating secrets](rotating-secrets.md)                 | Scheduled rotation or a suspected leak (incl. `ADMIN_TOTP_KEY`)              |
-| [Restore from backup](restore-from-backup.md)           | Data loss, corruption, a bad migration, or a disaster-recovery drill         |
+| Runbook                                                 | Use it when                                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| [Incident basics](incident-basics.md)                   | Anything is down, slow or wrong: first 15 minutes, severities, communication         |
+| [Payouts stuck or flagged](payouts-stuck-or-flagged.md) | A withdrawal is pending too long, flagged, or a deposit is flagged                   |
+| [Reconciliation mismatch](reconciliation-mismatch.md)   | A reconciliation run ends in `mismatches` or `failed`                                |
+| [AML flag review](aml-flag-review.md)                   | A player was flagged or a withdrawal is held for `aml_review`                        |
+| [Rotating secrets](rotating-secrets.md)                 | Scheduled rotation or a suspected leak (incl. `ADMIN_TOTP_KEY`)                      |
+| [Restore from backup](restore-from-backup.md)           | Data loss, corruption, a bad migration, or a disaster-recovery drill                 |
+| [Feed source broken or blocked](feed-source-broken.md)  | A scraper source shows `broken` or `blocked`, or a `source_broken` item is open      |
+| [Feed result disputed](feed-result-disputed.md)         | A result item is open: `result_conflict`, `result_correction` or `result_unverified` |
+| [Adding a new feed source](feed-new-source.md)          | A new scraper source is to be onboarded, from terms and dry runs to shadow mode      |
 
-Related: [deployment](../deployment.md), [backups](../backups.md).
+Related: [deployment](../deployment.md), [backups](../backups.md), [scraper operations](../scraper-operations.md).
 
 Rules that hold in every runbook:
 

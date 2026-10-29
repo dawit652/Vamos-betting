@@ -145,7 +145,8 @@ same rule to both.
   it from the host with the container address, e.g.
   `scripts/smoke.sh --scraper "http://$(docker inspect -f '{{ (index .NetworkSettings.Networks "vamos_vamos").IPAddress }}' "$(docker compose ps -q scraper)"):4200"`.
   The service always runs with `FEED_PROVIDER=scraped`; in licensed mode that needs `SCRAPER_CONTACT` and
-  `SCRAPER_ROBOTS=enforce` (docs/scraper.md section 7).
+  `SCRAPER_ROBOTS=enforce` (docs/scraper.md section 7). Daily operation, kill switches and the evidence kept:
+  [scraper-operations.md](scraper-operations.md); incident procedures in [runbooks](runbooks/README.md).
 - `postgres`: a single primary. Size `max_connections` (set to 200 in the compose file) against
   api replicas x pool + worker pool (10). Read replicas are not used. Move to a managed or HA Postgres
   (streaming replication + failover) when the licence requires higher availability.

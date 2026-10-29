@@ -17,6 +17,8 @@ A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It i
 | -------------------- | ---------------------------------------------------------------------------------------------- |
 | `apps/api`           | Fastify REST + SSE API (port 4000)                                                             |
 | `apps/worker`        | Background workers: feed ingest, live simulator, settlement, payouts, notifications, reporting |
+| `apps/scraper`       | Data scraper process (port 4200): fetch, parse, safety gates, promotion; onboarding CLI        |
+| `packages/scraper`   | Pure scraper toolkit, no database: adapters, name matching, polite fetcher, gates              |
 | `apps/web`           | Player PWA (port 3000): Betika-style lite UI, Amharic/English                                  |
 | `apps/admin`         | Back office (port 3001): trading, risk, KYC, finance, compliance                               |
 | `packages/core`      | Pure domain logic: money, odds, betslip, multi-bonus, tax, cash-out, jackpots                  |
@@ -29,7 +31,7 @@ A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It i
 | `infra`              | dev + production docker-compose, Dockerfile, env template, backup and dev services scripts     |
 | `scripts`            | `smoke.sh`: smoke test for any deployment URL                                                  |
 
-See [`docs/architecture.md`](docs/architecture.md) for the design.
+See [`docs/architecture.md`](docs/architecture.md) for the design, and [`docs/scraper-operations.md`](docs/scraper-operations.md) for the data scraper.
 
 ## Getting started
 
