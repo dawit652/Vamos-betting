@@ -177,7 +177,10 @@ Every rule has an id; tests cite the id in their names. Constants are in
   It is opened automatically only if the competition policy has `auto_open`, both
   teams are calibrated (rule O1) and the prices pass O2. Otherwise it opens
   `odds_approval` (teams calibrated) or `ratings_uncalibrated` (not), and a
-  trader opens betting.
+  trader opens betting. `auto_open` is read only at creation: when the teams of an
+  event created uncalibrated become calibrated and its prices follow their
+  ratings, the re-price step (O3) resolves `ratings_uncalibrated` itself
+  (`{"decision":"calibrated"}`) and opens `odds_approval`; it never opens betting.
 
 ### 6.2 Results
 
