@@ -48,6 +48,16 @@ function text(s: {
   return s.htHome === null ? `${s.home}-${s.away}` : `${s.home}-${s.away}/${s.htHome}-${s.htAway}`;
 }
 
+/** The policies that matter for R5: only all of auto_results, enabled and no extra time applies by itself. */
+const POLICIES = [
+  { autoResults: true, enabled: true, extraTime: false },
+  { autoResults: false, enabled: true, extraTime: false },
+  { autoResults: true, enabled: false, extraTime: false },
+  { autoResults: true, enabled: true, extraTime: true },
+];
+const autoApply = (p: { autoResults: boolean; enabled: boolean; extraTime: boolean }): boolean =>
+  p.autoResults && p.enabled && !p.extraTime;
+
 /** R1–R7 and R10 for a scheduled, unresulted event starting at KICKOFF. */
 function referenceResult(
   all: RObs[],
@@ -193,14 +203,15 @@ describe('reference model: results R1-R7, R10 (exhaustive)', () => {
     const seen = new Set<string>();
     for (const combo of multisets(options, 3)) {
       for (const now of [END - 1, END + HOUR_MS, END + 7 * HOUR_MS]) {
-        for (const autoResults of [true, false]) {
+        for (const policy of POLICIES) {
+          const autoResults = autoApply(policy);
           for (const confirmMs of [0, DEFAULT_RESULT_CONFIRM_MS]) {
             const expected = referenceResult(combo, false, autoResults, now, confirmMs);
             const got = actual(
               decideResult({
                 event: makeEvent(),
                 observations: combo,
-                policy: makePolicy({ autoResults }),
+                policy: makePolicy(policy),
                 now: new Date(now),
                 confirmMs,
                 exposure: null,
@@ -281,11 +292,11 @@ describe('reference model: results R1-R7, R10 (exhaustive)', () => {
     }
     for (const combo of multisets(options, 3)) {
       for (const now of [END - 1, END + HOUR_MS, END + 7 * HOUR_MS]) {
-        for (const autoResults of [true, false]) {
+        for (const policy of POLICIES) {
           const expected = referenceResult(
             combo,
             true,
-            autoResults,
+            autoApply(policy),
             now,
             DEFAULT_RESULT_CONFIRM_MS,
           );
@@ -293,7 +304,7 @@ describe('reference model: results R1-R7, R10 (exhaustive)', () => {
             decideResult({
               event: makeEvent({ needsHalfTimeScore: true }),
               observations: combo,
-              policy: makePolicy({ autoResults }),
+              policy: makePolicy(policy),
               now: new Date(now),
               confirmMs: DEFAULT_RESULT_CONFIRM_MS,
               exposure: null,
@@ -311,7 +322,12 @@ type KickoffOutcome =
   { action: 'update'; to: number; rule: string } | { action: 'hold' } | { action: 'none' };
 
 /** F4 for a scheduled, unresulted event starting at KICKOFF (all observations scheduled). */
-function referenceKickoff(all: FObs[], hasBets: boolean, now: number): KickoffOutcome {
+function referenceKickoff(
+  all: FObs[],
+  hasBets: boolean,
+  now: number,
+  enabled: boolean,
+): KickoffOutcome {
   const five = 5 * 60 * 1000;
   const ten = 10 * 60 * 1000;
   const ks = all.map((o) => o.obs.kickoff.getTime());
@@ -322,6 +338,8 @@ function referenceKickoff(all: FObs[], hasBets: boolean, now: number): KickoffOu
   if (Math.abs(to - KICKOFF) <= five) return { action: 'none' };
   if (KICKOFF <= now + ten) return { action: 'hold' };
   if (to <= now + ten) return { action: 'hold' };
+  // A disabled policy only proposes: the kill switch stops every move.
+  if (!enabled) return { action: 'hold' };
   const independent = naiveIndependent(
     all.map((o) => ({ source: o.obs.sourceId, upstream: o.upstream })),
   );
@@ -359,18 +377,22 @@ describe('reference model: F4 kickoff change (exhaustive)', () => {
     let compared = 0;
     for (const combo of multisets(options, 3)) {
       if (combo.length === 0) continue;
-      for (const hasBets of [false, true]) {
+      for (const [hasBets, enabled] of [
+        [false, true],
+        [true, true],
+        [false, false],
+      ] as const) {
         for (const now of [
           KICKOFF - DAY_MS,
           KICKOFF - 70 * MINUTE_MS,
           KICKOFF - 10 * MINUTE_MS,
           KICKOFF - 10 * MINUTE_MS - 1,
         ]) {
-          const expected = referenceKickoff(combo, hasBets, now);
+          const expected = referenceKickoff(combo, hasBets, now, enabled);
           const d = decideFixture({
             observations: combo,
             candidates: [makeEvent({ hasBets })],
-            policy: makePolicy(),
+            policy: makePolicy({ enabled }),
             now: new Date(now),
             calibrated: true,
             pricesSane: true,

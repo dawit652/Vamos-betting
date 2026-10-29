@@ -26,6 +26,7 @@ The safer reading was always taken. The notable ones:
 - **R7** fires immediately (postponed, cancelled, abandoned are never applied), even before kickoff plus 105 minutes.
 - **R8** is wider than the spec: a void status after a finished result, or a score after a void result, is also `result_correction`.
 - **F2** the event is created at the earliest kickoff in the cluster; scheduled mixed with postponed is a conflict; a disabled policy creates nothing but still raises conflicts.
+- **S4** a disabled competition policy also moves no kickoff (`kickoff_change`, reason `policy_disabled`) and applies no result (`result_ready`); `extra_time` on never auto-applies a result. A person's explicit confirmation of a `result_ready` item is still applied (staff path).
 - **F4** every source in the cluster must agree on the new time; the new time is the earliest; an event starting within `MIN_LEAD_MS` is never moved.
 - **O2** the correct-score market is checked too (the grid plus "other" covers every result); double chance is checked as its sum divided by two.
 - **O1** the minimum number of matches is clamped up to `MIN_RATING_MATCHES`; `manual` must equal exactly 1.

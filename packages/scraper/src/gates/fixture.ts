@@ -56,7 +56,9 @@ import {
  *   source still giving another time is a conflict), and never moves an event
  *   that starts within MIN_LEAD_MS (or has started);
  * - F2 also refuses a cluster in which some source says postponed/cancelled;
- * - in shadow mode (policy disabled) conflicts are still raised, nothing is created.
+ * - in shadow mode (policy disabled) conflicts are still raised, nothing is created
+ *   and no kickoff is moved: a change that would be applied is proposed as
+ *   `kickoff_change` (`policy_disabled`) instead.
  */
 
 export interface FixtureGateInput {
@@ -215,7 +217,9 @@ export function decideFixture(input: FixtureGateInput): FixtureDecision {
     ]);
   }
   const existing = candidates.events[0];
-  if (existing !== undefined) return decideExisting(existing, observations, nowMs, conflict);
+  if (existing !== undefined) {
+    return decideExisting(existing, observations, nowMs, conflict, input.policy);
+  }
   return decideNew(input, pairing, observations, nowMs, conflict);
 }
 
@@ -305,6 +309,7 @@ function decideExisting(
   observations: readonly FixtureObs[],
   nowMs: number,
   conflict: Conflict,
+  policy: CompetitionPolicy,
 ): FixtureDecision {
   const subjectKey = event.feedRef;
   const startMs = event.startTime.getTime();
@@ -368,6 +373,9 @@ function decideExisting(
   if (startMs <= nowMs + MIN_LEAD_MS) return proposal('event_about_to_start', severity);
   // "A new time before now + MIN_LEAD_MS is never applied" (at it neither: same bound as F2).
   if (earliest <= nowMs + MIN_LEAD_MS) return proposal('new_time_too_close', severity);
+
+  // S4: a switched-off competition is never moved by the scraper, a person decides.
+  if (policy.enabled !== true) return proposal('policy_disabled', severity);
 
   const independent = countIndependent(observations.map(voiceOf));
   const later = earliest > startMs;

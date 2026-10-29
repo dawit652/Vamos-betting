@@ -8,10 +8,12 @@ import { actorLabel, auditScrape, type ScrapeActor } from './common';
 /** The flags of a competition policy (structurally CompetitionPolicy in @vamos/scraper). */
 export interface CompetitionPolicy {
   competitionId: string;
-  /** The scraper may create fixtures here. */
+  /** Kill switch (S4): off, the scraper creates, moves and applies nothing here; it only observes and raises items. */
   enabled: boolean;
   autoOpen: boolean;
+  /** Apply agreed final scores without a person; ignored while `enabled` is off or `extraTime` is on. */
   autoResults: boolean;
+  /** Knockout competition: a score is never applied automatically, a person confirms it. */
   extraTime: boolean;
 }
 

@@ -256,6 +256,23 @@ describe('F4 kickoff change', () => {
     expect(reasons(d)).toEqual(['sources_disagree']);
   });
 
+  it('review finding 5: a disabled policy never moves a kickoff, it proposes the change', () => {
+    for (const obs of [
+      [at('s1', 3 * HOUR_MS), at('s2', 3 * HOUR_MS)],
+      [at('s1', SMALL_SHIFT_MS)],
+    ]) {
+      const d = decide(obs, { ...withEvent(), policy: { enabled: false } });
+      expect(d.action).toBe('hold');
+      if (d.action !== 'hold') return;
+      expect(d.review).toMatchObject({ kind: 'kickoff_change', subjectKey: FEED_REF });
+      expect(reasons(d)).toEqual(['policy_disabled']);
+    }
+    // Nothing to change: still nothing, enabled or not.
+    expect(decide([at('s1', 0)], { ...withEvent(), policy: { enabled: false } }).action).toBe(
+      'none',
+    );
+  });
+
   it('a closed or resulted event is left alone', () => {
     for (const over of [
       { status: 'finished' as const },
@@ -478,6 +495,7 @@ describe('properties', () => {
         }
         if (d.action === 'update-kickoff') {
           seen.update++;
+          expect(s.enabled).toBe(true);
           const voices = observations.map((o) => ({
             sourceId: o.obs.sourceId,
             upstream: o.upstream,

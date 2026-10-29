@@ -178,9 +178,12 @@ Every rule has an id; tests cite the id in their names. Constants are in
   observation has been unchanged for the configured confirmation time
   (`DEFAULT_RESULT_CONFIRM_MS`, never below `MIN_RESULT_CONFIRM_MS`) and no
   observation changed to a conflicting state in that time.
-- **R5 Apply.** With the competition's `auto_results` on, apply with
-  `resultEvent(status 'finished')`; off, open `result_ready` (with the exposure,
-  R9) and a trader confirms. Same service either way.
+- **R5 Apply.** With the competition's `auto_results` on, the policy `enabled`
+  and `extra_time` off, apply with `resultEvent(status 'finished')`; otherwise
+  open `result_ready` (with the exposure, R9) and a trader confirms. A policy
+  that is switched off (S4) or has `extra_time` (a source wrongly configured as
+  regular time could pass a longer-play score off) never applies by itself.
+  Same service either way.
 - **R6 Single source.** A final score from only one upstream, still alone
   `UNVERIFIED_AFTER_MS` after the earliest possible end, opens
   `result_unverified`. A trader can apply it, audited as an override.
@@ -212,7 +215,11 @@ Every rule has an id; tests cite the id in their names. Constants are in
   `allowedHosts`, after every redirect.
 - **S4 Manual stop.** `scrape_sources.enabled = false` and
   `scrape_competition_policy.enabled = false` stop the scraper immediately and
-  are available to traders in the back office.
+  are available to traders in the back office. A disabled competition policy
+  stops everything the scraper does by itself there: no event is created, no
+  kickoff is moved (a change that would be applied opens `kickoff_change`
+  instead) and no result is applied (an agreed score opens `result_ready`);
+  observing and raising review items go on (shadow mode).
 
 ### 6.4 Names and time
 

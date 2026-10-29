@@ -64,7 +64,11 @@ import {
  *   `result_ready` confirmation for a person;
  * - an observation whose kickoff differs from the event's start by more than
  *   KICKOFF_TOLERANCE_MS blocks the result (pending reschedule, wrong match);
- * - R8 also flags a void status observed after a finished result.
+ * - R8 also flags a void status observed after a finished result;
+ * - a result is applied without a person only when the policy has `autoResults`
+ *   on AND is `enabled` (switching a competition off is the kill switch, S4) AND is
+ *   not an `extraTime` competition; otherwise the agreed score goes to a person
+ *   as `result_ready`.
  */
 
 /** R9: the event's exposure, copied into review items that ask for a result decision. */
@@ -309,8 +313,12 @@ export function decideResult(input: ResultGateInput): ResultDecision {
     }
     const upstreams = upstreamsOf(voices);
     const sources = sortedUnique(voters.map((o) => o.obs.sourceId));
-    // R5: automatic only with auto_results and no basis doubt (R10).
-    if (policy.autoResults === true && findings.length === 0) {
+    // R5: automatic only with auto_results, the policy switched on (the kill switch, S4),
+    // no extra-time competition (a wrongly configured source could pass an extra-time
+    // score off as regular time) and no basis doubt (R10).
+    const automatic =
+      policy.autoResults === true && policy.enabled === true && policy.extraTime !== true;
+    if (automatic && findings.length === 0) {
       return {
         action: 'apply',
         eventId: event.eventId,
@@ -322,7 +330,14 @@ export function decideResult(input: ResultGateInput): ResultDecision {
         confirmMs,
       };
     }
-    findings.push({ kind: 'result_ready', rule: 'R5', reason: 'confirmed_by_sources' });
+    findings.push({
+      kind: 'result_ready',
+      rule: 'R5',
+      reason:
+        !automatic && policy.autoResults === true
+          ? 'policy_requires_person'
+          : 'confirmed_by_sources',
+    });
     return hold(findings, mine, { score: scoreJson(agreed), upstreams, sources, confirmMs });
   }
 

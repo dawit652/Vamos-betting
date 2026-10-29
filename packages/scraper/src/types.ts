@@ -241,12 +241,20 @@ export interface ExistingEvent {
 /** scrape_competition_policy as the rules see it. */
 export interface CompetitionPolicy {
   competitionId: string;
-  /** The scraper may create fixtures in this competition. */
+  /**
+   * The kill switch (rule S4): the scraper may create fixtures, move kickoffs and
+   * apply results in this competition. Off, it only observes and raises review
+   * items (shadow mode); nothing is created, moved or applied by itself.
+   */
   enabled: boolean;
   /** Open betting by itself on new fixtures whose teams are calibrated. */
   autoOpen: boolean;
-  /** Apply confirmed final scores without a person. */
+  /** Apply confirmed final scores without a person (only while `enabled`, and never with `extraTime`). */
   autoResults: boolean;
-  /** Matches can go to extra time / penalties (knockouts). */
+  /**
+   * Matches can go to extra time / penalties (knockouts). A source wrongly
+   * configured as regular time could then pass a longer-play score off as
+   * settling, so such a competition never auto-applies: a person confirms.
+   */
   extraTime: boolean;
 }

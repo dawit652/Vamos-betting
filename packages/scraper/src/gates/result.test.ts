@@ -320,6 +320,17 @@ describe('R5 apply', () => {
     expect(d.also).toEqual([]);
   });
 
+  it('review finding 5: a disabled policy or an extra-time competition never auto-applies', () => {
+    for (const policy of [{ enabled: false }, { extraTime: true }]) {
+      const d = decide([A, B], { policy: { autoResults: true, ...policy } });
+      expect(d.action).toBe('hold');
+      if (d.action !== 'hold') return;
+      expect(d.review).toMatchObject({ kind: 'result_ready', subjectKey: FEED_REF });
+      expect(d.review.payload).toMatchObject({ score: { home: 2, away: 1 } });
+    }
+    expect(decide([A, B], { policy: { autoResults: true } }).action).toBe('apply');
+  });
+
   it('a decision can only ever carry the status finished', () => {
     const d = decide([A, B]);
     expect(d.action === 'apply' && d.status).toBe('finished');
@@ -578,6 +589,8 @@ const scenario = fc.record({
   nowOff: fc.integer({ min: -30 * MINUTE_MS, max: 8 * HOUR_MS }),
   needsHalfTime: fc.boolean(),
   autoResults: fc.boolean(),
+  enabled: fc.boolean(),
+  extraTime: fc.boolean(),
   confirmMs: fc.constantFrom(0, MIN_RESULT_CONFIRM_MS, DEFAULT_RESULT_CONFIRM_MS, 30 * MINUTE_MS),
 });
 type Scenario = typeof scenario extends fc.Arbitrary<infer T> ? T : never;
@@ -603,6 +616,8 @@ const agreeingScenario = fc.record({
   nowOff: fc.integer({ min: 0, max: 8 * HOUR_MS }),
   needsHalfTime: fc.boolean(),
   autoResults: likely(true, false),
+  enabled: likely(true, false),
+  extraTime: likely(false, true),
   confirmMs: fc.constantFrom(0, MIN_RESULT_CONFIRM_MS, DEFAULT_RESULT_CONFIRM_MS, 30 * MINUTE_MS),
 });
 const anyScenario = fc.oneof(scenario, agreeingScenario);
@@ -611,7 +626,7 @@ function run(s: Scenario, observations = s.specs.map(build)): ResultDecision {
   return decide(observations, {
     now: END + s.nowOff,
     event: { needsHalfTimeScore: s.needsHalfTime },
-    policy: { autoResults: s.autoResults },
+    policy: { autoResults: s.autoResults, enabled: s.enabled, extraTime: s.extraTime },
     confirmMs: s.confirmMs,
   });
 }
@@ -726,7 +741,7 @@ describe('properties', () => {
         applies++;
         const nowMs = END + s.nowOff;
         expect(KICKOFF + MIN_MATCH_DURATION_MS).toBeLessThanOrEqual(nowMs);
-        expect(s.autoResults).toBe(true);
+        expect([s.autoResults, s.enabled, s.extraTime]).toEqual([true, true, false]);
         const mine = observations.filter(belongs);
         // With half time needed, only rows that give it vote (a missing one is silence).
         const voters = s.needsHalfTime ? mine.filter((o) => o.obs.score?.htHome !== null) : mine;
