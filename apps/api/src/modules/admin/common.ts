@@ -23,6 +23,12 @@ declare module 'fastify' {
   interface FastifyContextConfig {
     /** Required on every /admin route: the guard is attached from it (see guardAdminRoutes). */
     staff?: StaffRouteAccess;
+    /**
+     * A route guarded more finely than one permission can say: a role with
+     * this permission passes the guard too, and the handler then checks the
+     * finer rule itself (the registered `staff` access stays the strictest).
+     */
+    staffOr?: StaffPermission;
   }
 }
 
@@ -60,7 +66,9 @@ export function guardAdminRoutes(app: FastifyInstance): void {
     }
     if (access === 'public') return;
     const guard: preHandlerAsyncHookHandler =
-      access === 'session' ? requireStaffSession : requirePermission(access);
+      access === 'session'
+        ? requireStaffSession
+        : requirePermission(access, route.config?.staffOr);
     const existing = route.preHandler;
     route.preHandler =
       existing === undefined
