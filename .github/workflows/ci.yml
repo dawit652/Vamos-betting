@@ -161,6 +161,9 @@ jobs:
           scraper_ip="$(docker inspect -f '{{ (index .NetworkSettings.Networks "vamos_vamos").IPAddress }}' "$(docker compose ps -q scraper)")"
           test -n "$scraper_ip"
           scripts/smoke.sh --production --wait 120 --worker http://localhost:4100 --scraper "http://$scraper_ip:4200"
+      - name: Scraper CLI runs in the image against the compose database
+        # Postgres is not published: the command line is run inside the scraper image (docs/scraper.md, 12).
+        run: docker compose run --rm --no-deps scraper node dist/cli.js sources list
       - name: Scraper archive volume is writable and can be backed up
         run: |
           docker compose exec -T scraper sh -c 'touch /var/lib/vamos/scraper/.ci && rm /var/lib/vamos/scraper/.ci'
