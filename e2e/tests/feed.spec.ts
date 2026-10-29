@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { devices, expect, test } from '@playwright/test';
 import { ADMIN_URL } from '../support/env';
 import { loginInBrowser, staffApiOf } from '../support/staff';
@@ -27,7 +27,7 @@ interface Seeded {
 
 function seed(tag: string): Seeded {
   const output = execFileSync('pnpm', ['--filter', '@vamos/scraper-app', 'seed:review', tag], {
-    cwd: resolve(__dirname, '../..'),
+    cwd: fileURLToPath(new URL('../..', import.meta.url)),
     encoding: 'utf8',
     timeout: 90_000,
   });
@@ -106,7 +106,7 @@ test('a trader reads the feed overview and review queue, inspects items and dism
       await expect(page.getByText(`A fixture of ${tag} vanished`)).toBeVisible();
       await page.getByRole('button', { name: 'Dismiss' }).click();
       await page.getByRole('button', { name: 'Dismiss' }).last().click();
-      await expect(page.getByRole('alert')).toBeVisible(); // empty note refused
+      await expect(page.getByText('A reason is required.')).toBeVisible(); // empty note refused
       await page.getByLabel('Note (required)').fill('e2e: checked by hand');
       await page.getByRole('button', { name: 'Dismiss' }).last().click();
       await expect(page.getByText('Saved.')).toBeVisible();
