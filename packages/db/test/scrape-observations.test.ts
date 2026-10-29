@@ -418,20 +418,31 @@ describe('listing', () => {
     const db = ctx.handle.db;
     const q = { sourceIds: ['src-list'], limit: 100 };
     const all = await listCurrentObservations(db, q);
-    expect(all.map((o) => o.sourceKey)).toEqual(['l1', 'l3', 'l2']);
-    expect(all[0]).toMatchObject({
+    // Ordered by kickoff; l1 and l3 share a kickoff, so their order is by random id.
+    expect(
+      all
+        .map((o) => o.sourceKey)
+        .slice(0, 2)
+        .sort(),
+    ).toEqual(['l1', 'l3']);
+    expect(all[2]!.sourceKey).toBe('l2');
+    const l1 = all.find((o) => o.sourceKey === 'l1')!;
+    const l3 = all.find((o) => o.sourceKey === 'l3')!;
+    expect(l1).toMatchObject({
       upstream: 'up-list',
       sourceId: 'src-list',
       kind: 'fixture',
       rawId: null,
     });
-    expect(all[0]!.firstSeenAt).toEqual(at(200));
-    expect(all[1]).toMatchObject({ scoreBasis: 'regular_time', score: { home: 2, away: 1 } });
+    expect(l1.firstSeenAt).toEqual(at(200));
+    expect(l3).toMatchObject({ scoreBasis: 'regular_time', score: { home: 2, away: 1 } });
     expect(
       (await listCurrentObservations(db, { ...q, kind: 'result' })).map((o) => o.sourceKey),
     ).toEqual(['l3']);
     expect(
-      (await listCurrentObservations(db, { ...q, resolvedOnly: true })).map((o) => o.sourceKey),
+      (await listCurrentObservations(db, { ...q, resolvedOnly: true }))
+        .map((o) => o.sourceKey)
+        .sort(),
     ).toEqual(['l1', 'l3']);
     expect(
       (

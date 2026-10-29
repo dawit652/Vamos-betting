@@ -10,6 +10,11 @@ Written 2026-10-29. Branch `claude/gallant-davinci-kwmu2k`, last pushed commit
 
 ## Where things stand
 
+**Update 2026-10-29 (afternoon):** tasks 01 to 07 and 09 are done, verified and
+pushed; task 08 stays out of version 1. The current state, test counts and what
+still needs a person are in [../scraper-status.md](../scraper-status.md). The
+text below is the plan as written before that work.
+
 **Built, verified and pushed**
 
 | Piece                                                                           | Where                                            | Tests              |

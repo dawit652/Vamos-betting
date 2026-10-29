@@ -1,93 +1,61 @@
 # Scraper: build status and what is left
 
-A living checklist for the work described in [scraper.md](scraper.md). It is
-updated at every checkpoint so that a pause (for instance a usage limit) never
-loses the plan. Newest facts first.
+A living checklist for the work described in [scraper.md](scraper.md). Newest
+facts first. The task-by-task plan is in [scraper-plan/](scraper-plan/README.md).
 
-The task-by-task plan for everything below is in [scraper-plan/](scraper-plan/README.md).
+## Status on 2026-10-29: code complete for version 1
 
-## Usage budget (why the work is paused here)
+Every code task of the plan (01–07 and 09) is done, verified and pushed on
+branch `claude/busy-rubin-1shjt6`. What is left needs people (sources, terms,
+ratings, a shadow period); see the end of this file.
 
-- 2026-10-29 09:09 UTC: weekly allowance **93%** used (resets **2026-10-30
-  20:00 UTC**), current 5-hour window 51% (resets 12:50 UTC). This is the stop
-  line: no more agents are started until the weekly reset.
-- What happened since the last checkpoint: the independent review (Opus) and the
-  admin API routes (Sonnet) were started, then cancelled by an interruption
-  before they wrote anything. They used about 5 points of the weekly allowance
-  for no output. Both are still to do (see `scraper-plan/01` and `02`).
-- Measured cost: about 1.0M agent tokens cost about 6 points of the weekly
-  allowance, so one point is roughly 170–200k tokens.
-- Policy: cheaper models wherever quality allows (Opus only for the safety
-  gates and the final review), small waves, one usage check after each wave,
-  stop and update this file at about 93% weekly.
+### Final verification (task 09)
 
-## Done, verified and pushed
+| Check                                                           | Result                                                                                                                                                                        |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint` | pass (lint with zero warnings)                                                                                                                                                |
+| `pnpm format:check`                                             | only the known `packages/core/src/common-passwords.ts` warning                                                                                                                |
+| All package tests (Postgres 16 and Redis running)               | 2,933 pass: core 662, db 608, scraper 441, api 405, web 194, feed 168, worker 103, payments 93, scraper-app 91, contracts 62, admin 52, config 45, i18n 9                     |
+| Migrations                                                      | `pnpm db:migrate` applies 0033–0035; `drizzle-kit generate` reports no schema changes                                                                                         |
+| Bundle and smoke test                                           | `pnpm --filter @vamos/scraper-app build`; `node dist/main.js` with `FEED_PROVIDER=scraped` answers `ok` on `/health` and `/ready`                                             |
+| No dangerous capability                                         | no `voidMarket` or `voidSelection` call in `apps/scraper`, `packages/scraper` or the feed routes; the only `resultEvent` call is in `applyConfirmedResult`, status `finished` |
+| Licensed guard                                                  | covered by the `@vamos/config` tests                                                                                                                                          |
+| Docker image, compose service, archive backup                   | `backup.test.sh` passes; image build and boot are proven by the CI `docker` job (no Docker daemon in the build session)                                                       |
+| e2e (Playwright)                                                | not run (optional for the scraper; needs the dev stack)                                                                                                                       |
 
-| Piece                                                                                                                                                          | Where                                                                | Tests                                         |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------- |
-| Design spec, shared vocabulary, package and app skeletons                                                                                                      | `docs/scraper.md`, `packages/core/src/scrape.ts`, `packages/scraper` | –                                             |
-| Admin API contracts (`/admin/feed/*`, typed review payloads)                                                                                                   | `packages/contracts/src/feed.ts`                                     | 22                                            |
-| Scraper settings and licensed-mode checks (`FEED_PROVIDER=scraped`, `SCRAPER_*`)                                                                               | `packages/config`, env examples                                      | 45                                            |
-| Ratings update from results, in-house pricing from ratings                                                                                                     | `packages/feed/src/pricing/ratings.ts`                               | 25                                            |
-| Name matching, time zones, fixture clustering and matching                                                                                                     | `packages/scraper/src/normalize`, `match`                            | 96                                            |
-| Source adapters: openfootball, generic JSON, generic HTML, registry, golden fixtures                                                                           | `packages/scraper/src/adapters`                                      | 79                                            |
-| Polite fetcher (allow-list, robots, rate limit, retries, breaker), raw archive, cadence                                                                        | `packages/scraper/src/fetch`, `archive`                              | 126                                           |
-| Safety gates: fixture, result consensus, shape, odds rules (brute-force reference model, mutation checks)                                                      | `packages/scraper/src/gates`                                         | 122                                           |
-| Database: 10 tables, migrations 0033–0034, services                                                                                                            | `packages/db/src/schema/scrape.ts`, `src/scrape`, `migrations`       | 56 (full db suite: 605)                       |
-| Scraper process: run pipeline, name resolution, fixture and result promotion (one `applyConfirmedResult` path), staff confirmation, scheduler, health endpoint | `apps/scraper`                                                       | 22, on a real Postgres, incl. fault injection |
+One flaky test was fixed during verification: `scrape-observations.test.ts`
+assumed an order between two observations with the same kickoff, which is by a
+random id.
 
-The whole `@vamos/scraper` package passes (424 tests). `apps/scraper` passes
-typecheck, lint and format, bundles with tsup, and a manual smoke test started
-the process against the local database and Redis and got `ok` from `/health` and
-`/ready`. `main.ts` and the health server are not covered by the automated
-tests.
+### What was built in this round
 
-## Known limits of what is built (for the review to look at)
+| Task | What                                                                                                                                                         | Commits              |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| 01   | Independent review ([review-2026-10.md](scraper-plan/review-2026-10.md)): 10 findings; all 5 high and 3 medium fixed with regression tests; 2 low in backlog | `0bcc08f`…`2020b9b`  |
+| 02   | `/admin/feed/*` routes, strict resolve body (no request can carry a score or a price)                                                                        | `5980f33`            |
+| 03   | Back-office pages `/feed`, `/feed/review`, `/feed/review/[id]`, `/feed/aliases`                                                                              | `15c0281`            |
+| 04   | Docker `scraper` target, compose service, `scraper_archive` volume in backups, CI smoke                                                                      | `d964c32`            |
+| 05   | [Operations guide](scraper-operations.md) and three runbooks                                                                                                 | `7b0b7cf`            |
+| 06   | Re-pricing after ratings change (rule O3), migration 0035, `apply_reprice` decision                                                                          | `6d887e4`, `7442397` |
+| 07   | Source and ratings CLI (`sources`, `dry-parse`, `dry-fetch`, `aliases import`, `ratings backfill`); fixed a bundle crash at start                            | `f13f8f7`            |
+| –    | The F7 `odds_approval` item is written in the contract's shape, so "Open betting" works on real items                                                        | `9ed1bf7`            |
 
-- New events for teams without calibrated ratings are created with markets
-  priced from neutral ratings while betting is closed (`ratings_uncalibrated`
-  item opens). Decide whether closed events should show those odds at all.
-- Competitions without a policy row are skipped for fixtures (shadow mode);
-  results treat a missing policy as all flags off.
-- A staff decision is stored as the review item's `resolution` text:
-  `{"decision":"apply_result"}`, `apply_result` or `apply_result:...`. The score
-  applied always comes from the item payload, never from a request. Items are
-  honoured for 24 h after they are resolved.
-- A source without external ids that reschedules a match to another day leaves
-  the old observation as a stale current row; this fails closed (cluster
-  conflict or `kickoff_change`).
-- The scheduler's skip-until-`retryAt` logic has no test.
-- Re-pricing scheduled events after ratings change (rule O3) is built (task 06): see
-  `scraper-plan/known-limits.md` for the choices. The payload of the F7 item written at
-  creation is not in the contract's shape (known limit); the re-price item is.
-- Raw snapshots are pruned after 30 days; evidence behind applied results is
-  kept.
+## Open items (code)
 
-## Remaining (in this order)
+- Review findings 9 and 10 (low): see the review report.
+- No alias removal from the back office or the CLI (`removeAlias` exists).
+- No documented route to run the CLI's write commands against the production
+  database (Postgres is not published by the stack).
+- Snapshots behind an open dispute are pruned after 30 days like any other; the
+  disputed-result runbook says to export evidence first.
+- `open_betting` is refused on `ratings_uncalibrated` items by design; a trader
+  must calibrate (or set `manual`) first.
+- The admin pages have not been checked by hand in a browser; an e2e flow
+  (`e2e/tests/feed.spec.ts`) is optional.
+- Version 1 excludes live scores, other sports and headless-browser fetching
+  (task 08).
 
-1. **Independent adversarial review** of `apps/scraper`, the way the gates are
-   used, the database services and the migrations, by a different model from the
-   ones that wrote them (Opus, high or xhigh; Fable needs usage credits). Look
-   especially for: any path that changes an event without a gate decision,
-   transaction and lock-order mistakes, double application, and mapping errors
-   between observations and events. Then fix what it finds.
-2. **Back-office API routes** `/admin/feed/*` (health, review queue, resolve,
-   aliases, source kill switch, competition policy) with tests (Sonnet, high).
-   Contracts exist. The route that confirms a result may only write the
-   `apply_result` resolution; it must never take a score from the request.
-3. **Back-office pages** (health, review queue, alias mapping) (Sonnet, medium).
-4. **Docker target, compose service, CI step** for `apps/scraper`, and a volume
-   for `SCRAPER_ARCHIVE_DIR` that is included in backups (Sonnet, medium).
-5. **Operations guide and runbook** ("a source broke", "a result is disputed",
-   onboarding a new source checklist) (Haiku, low).
-6. ~~**Re-pricing of scheduled events** after ratings change, gated by rule O3.~~ Done:
-   `apps/scraper/src/pipeline/reprice.ts`, migration `0035_scrape_event_pricing`, the
-   `apply_reprice` decision of `/admin/feed/review/:id/resolve` and its button on the
-   review page.
-7. **Live scores**, other sports, and headless-browser fetching (explicitly out
-   of version 1).
-8. Final full verification (typecheck, lint, format, all package tests, e2e)
-   and a push.
+Everything else is in [known-limits.md](scraper-plan/known-limits.md).
 
 ## Decisions already taken (from the plan)
 
@@ -107,5 +75,9 @@ tests.
 - At least one genuinely independent second source for results (ideally a
   licensed data provider). Two scrapers of the same upstream do not count as two.
 - Starting ratings for the teams of the chosen league (or a season of history
-  to replay) and a trader to approve the first prices.
-- A shadow-mode period (2–4 weeks) before any competition goes automatic.
+  to replay with `ratings backfill`) and a trader to approve the first prices.
+- A shadow-mode period (2–4 weeks) and the scorecard of task 07 before any
+  competition goes automatic.
+- Proposed lines for CLAUDE.md (not edited by the agents): "Scraper: results
+  reach `resultEvent` only through the gates; no code path may cancel, void or
+  abandon an event from scraped data" and "see docs/scraper.md".
