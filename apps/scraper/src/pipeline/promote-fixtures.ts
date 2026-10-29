@@ -346,7 +346,7 @@ async function scrapedEvents(ctx: ScraperContext, now: Date): Promise<ScrapedEve
 }
 
 /** O1 and O2 for a fixture that has no event yet. */
-async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTeamId: string) {
+export async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTeamId: string) {
   const ratings = await getTeamRatings(ctx.db, [homeTeamId, awayTeamId]);
   const home = ratings.get(homeTeamId)?.ratings ?? null;
   const away = ratings.get(awayTeamId)?.ratings ?? null;
@@ -378,7 +378,7 @@ class FeedRefTaken extends Error {}
  * If the feed_ref exists, nothing changes and a `fixture_conflict`
  * (`feed_ref_exists`) asks a person.
  */
-async function applyCreate(
+export async function applyCreate(
   ctx: ScraperContext,
   decision: FixtureCreate,
   pricing: { markets: ReturnType<typeof priceFixture>; ratingsKey: string } | null,

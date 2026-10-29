@@ -9,6 +9,7 @@
     "start": "node dist/main.js",
     "cli": "tsx src/cli.ts",
     "seed:review": "tsx src/devtools/seed-review-queue.ts",
+    "seed:result-demo": "tsx src/devtools/seed-result-demo.ts",
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests"
