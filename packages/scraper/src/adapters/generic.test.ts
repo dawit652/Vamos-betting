@@ -192,3 +192,135 @@ describe('generic-html golden', () => {
     expect(o.issues[0]?.fatal).toBe(true);
   });
 });
+
+describe('review finding 4: a score never makes a record finished', () => {
+  const rows = (st: unknown) =>
+    doc(
+      JSON.stringify({
+        data: {
+          events: [
+            { id: 1, league: 'L', kick: '2025-03-01T10:00:00Z', h: 'A', a: 'B', st, hs: 1, as: 0 },
+          ],
+        },
+      }),
+    );
+  const withStatus = (status: unknown) => ({
+    ...jsonCfg,
+    fields: { ...jsonCfg.fields, status },
+  });
+  const mapOnly = { path: 'st', map: { FT: 'finished', NS: 'scheduled' } };
+
+  it('a score without a configured status field is refused at creation', () => {
+    const { status: _status, ...noStatus } = jsonCfg.fields;
+    const json = createAdapter({
+      id: 's',
+      adapter: 'generic-json',
+      upstream: 'u',
+      config: { ...jsonCfg, fields: noStatus },
+    });
+    expect(json.ok).toBe(false);
+    expect(json.ok === false && json.errors.join(' ')).toContain('status');
+    const html = createAdapter({
+      id: 's',
+      adapter: 'generic-html',
+      upstream: 'u',
+      config: {
+        allowedHosts: ['www.example.com'],
+        requests: [{ url: 'https://www.example.com/league', purpose: 'both' }],
+        itemSelector: 'tr.match',
+        fields: {
+          home: { selector: '.home' },
+          away: { selector: '.away' },
+          competition: { fixed: 'L' },
+          kickoff: { selector: 'time', attr: 'datetime', format: 'iso' },
+          score: { selector: '.score' },
+        },
+        scoreBasis: 'regular_time',
+      },
+    });
+    expect(html.ok).toBe(false);
+  });
+
+  it('`default: finished` is refused', () => {
+    const json = createAdapter({
+      id: 's',
+      adapter: 'generic-json',
+      upstream: 'u',
+      config: withStatus({ ...mapOnly, default: 'finished' }),
+    });
+    expect(json.ok).toBe(false);
+  });
+
+  it.each([null, '', '   '])('json: a blank or null status (%j) with a score is dropped', (st) => {
+    const out = make('generic-json', withStatus(mapOnly)).parse(rows(st));
+    expect(out.results).toEqual([]);
+    expect(out.fixtures).toEqual([]);
+    expect(out.issues.map((i) => i.code)).toEqual(['missing_status']);
+  });
+
+  it('json: a missing status field is dropped too, a configured default is used instead', () => {
+    const noField = doc(
+      JSON.stringify({
+        data: {
+          events: [
+            { id: 1, league: 'L', kick: '2025-03-01T10:00:00Z', h: 'A', a: 'B', hs: 1, as: 0 },
+          ],
+        },
+      }),
+    );
+    expect(
+      make('generic-json', withStatus(mapOnly))
+        .parse(noField)
+        .issues.map((i) => i.code),
+    ).toEqual(['missing_status']);
+    const out = make('generic-json', withStatus({ ...mapOnly, default: 'scheduled' })).parse(
+      noField,
+    );
+    expect(out.results).toEqual([]);
+    expect(out.fixtures.map((f) => f.status)).toEqual(['scheduled']);
+    expect(out.issues).toEqual([]);
+  });
+
+  it('json: an explicit finished status still produces the result', () => {
+    const out = make('generic-json', withStatus(mapOnly)).parse(rows('FT'));
+    expect(out.results.map((r) => r.status)).toEqual(['finished']);
+  });
+
+  it('html: a blank status cell with a score is dropped, a default scheduled is a fixture', () => {
+    const page = doc(
+      `<table><tr class="match" data-id="x"><td class="comp">L</td><td class="home">A</td><td class="away">B</td>
+       <td><time datetime="2025-03-01T10:00:00Z">1 Mar</time></td><td class="score">1 - 0</td><td class="status"></td></tr></table>`,
+      'https://www.example.com/league',
+    );
+    const config = (status: unknown) => ({
+      allowedHosts: ['www.example.com'],
+      requests: [{ url: 'https://www.example.com/league', purpose: 'both' }],
+      itemSelector: 'tr.match',
+      fields: {
+        home: { selector: '.home' },
+        away: { selector: '.away' },
+        competition: { selector: '.comp' },
+        kickoff: { selector: 'time', attr: 'datetime', format: 'iso' },
+        externalRef: { attr: 'data-id' },
+        status,
+        score: { selector: '.score' },
+      },
+      scoreBasis: 'regular_time',
+    });
+    const mapped = { selector: '.status', map: { FT: 'finished', Scheduled: 'scheduled' } };
+    const dropped = make('generic-html', config(mapped)).parse(page);
+    expect(dropped.results).toEqual([]);
+    expect(dropped.issues.map((i) => i.code)).toEqual(['missing_status']);
+    const used = make('generic-html', config({ ...mapped, default: 'scheduled' })).parse(page);
+    expect(used.results).toEqual([]);
+    expect(used.fixtures.map((f) => f.status)).toEqual(['scheduled']);
+    expect(
+      createAdapter({
+        id: 's',
+        adapter: 'generic-html',
+        upstream: 'u',
+        config: config({ ...mapped, default: 'finished' }),
+      }).ok,
+    ).toBe(false);
+  });
+});

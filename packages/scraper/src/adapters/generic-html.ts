@@ -27,7 +27,10 @@ import {
   sportSchema,
   startParse,
   statusKey,
+  defaultStatusSchema,
+  requireStatusWithScore,
   statusValueSchema,
+  statusWhenBlank,
   timeZoneSchema,
   zonedToUtc,
   type SourceStatus,
@@ -93,7 +96,7 @@ export const GenericHtmlConfigSchema = z
       round: refSchema.optional(),
       status: refWith({
         map: z.record(z.string().max(80), statusValueSchema),
-        default: statusValueSchema.optional(),
+        default: defaultStatusSchema.optional(),
       }).optional(),
       score: scoreRef.optional(),
       /** Half-time score, same rules as `score`. */
@@ -103,6 +106,7 @@ export const GenericHtmlConfigSchema = z
   })
   .superRefine((c, ctx) => {
     checkRequests(c, ctx);
+    requireStatusWithScore(c, ctx);
     if (c.fields.score && !c.scoreBasis) {
       ctx.addIssue({
         code: 'custom',
@@ -284,7 +288,12 @@ export function createGenericHtmlAdapter(
             }
           }
         }
-        status ??= score ? 'finished' : (f.status?.default ?? 'scheduled');
+        // Never derive 'finished' from a score: a live score looks like a final one.
+        status ??= statusWhenBlank(f.score !== undefined, f.status?.default);
+        if (status === null) {
+          collector.issue('error', 'missing_status', 'the record has no status', named);
+          return;
+        }
         const drafts = draftsFor({
           home,
           away,

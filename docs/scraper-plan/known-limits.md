@@ -58,6 +58,7 @@ The safer reading was always taken. The notable ones:
 - A `postponed` or `cancelled` record emits both a fixture and a result observation without a score, so both rule paths see it.
 - `generic-html` is fatal ("changed markup") when `itemSelector` matches nothing; `generic-json` is fatal when `recordsPath` does not lead to a list (an empty list is fine).
 - ISO kickoffs must carry an offset; nothing is guessed.
+- A generic adapter with a score needs a status field with a map (config error otherwise, so a source saved earlier without one stops working until it is fixed); a blank status is `status.default` or the record is dropped (`missing_status`); `default: finished` is refused. A score never makes a record finished. Upcoming matches whose status cell is blank therefore need `default: scheduled`.
 - The `json-ld` mode of `generic-html` is not built.
 - Config regexes are statically checked and run in a `node:vm` with a watchdog; the adapters module is Node-only.
 

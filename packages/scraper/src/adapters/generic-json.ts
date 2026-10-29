@@ -22,7 +22,10 @@ import {
   sportSchema,
   startParse,
   statusKey,
+  defaultStatusSchema,
+  requireStatusWithScore,
   statusValueSchema,
+  statusWhenBlank,
   timeZoneSchema,
   zonedToUtc,
   MAX_RECORDS,
@@ -166,7 +169,7 @@ export const GenericJsonConfigSchema = z
         .strictObject({
           path: pathSchema,
           map: statusMapSchema,
-          default: statusValueSchema.optional(),
+          default: defaultStatusSchema.optional(),
         })
         .optional(),
       score: z
@@ -183,6 +186,7 @@ export const GenericJsonConfigSchema = z
   })
   .superRefine((c, ctx) => {
     checkRequests(c, ctx);
+    requireStatusWithScore(c, ctx);
     if (c.fields.score && !c.scoreBasis) {
       ctx.addIssue({
         code: 'custom',
@@ -370,7 +374,12 @@ export function createGenericJsonAdapter(
             }
           }
         }
-        status ??= score ? 'finished' : (f.status?.default ?? 'scheduled');
+        // Never derive 'finished' from a score: a live score looks like a final one.
+        status ??= statusWhenBlank(f.score !== undefined, f.status?.default);
+        if (status === null) {
+          collector.issue('error', 'missing_status', 'the record has no status', named);
+          return;
+        }
         const refRaw = f.externalRef ? one(rec, f.externalRef) : null;
         const ref = text(refRaw)?.trim().slice(0, 200) || null;
         const roundRaw = f.round ? text(one(rec, f.round)) : null;

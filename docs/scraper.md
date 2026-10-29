@@ -69,6 +69,11 @@ An adapter turns one document into `FixtureObservation`s and
 - Everything is validated with the zod schemas in `types.ts` before it leaves
   the adapter. Invalid records are dropped with an issue; they are never
   repaired.
+- A score never makes a record `finished`. A generic adapter configured with a
+  score must also have a status field with a map; a missing, null or blank
+  status uses `status.default` if one is set (never `finished`), otherwise the
+  record is dropped with `missing_status`. Only a status the operator mapped to
+  `finished` produces a final result.
 - `parse` never throws. A page it cannot understand at all yields a `fatal`
   issue and zero records.
 

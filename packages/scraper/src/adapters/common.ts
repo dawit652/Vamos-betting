@@ -629,6 +629,43 @@ export function statusKey(text: string): string {
 
 export const statusValueSchema = z.enum(SOURCE_STATUSES);
 
+/**
+ * The status used when a record gives none (`status.default`). Never 'finished':
+ * a score alone, or a blank status, must not settle a match (review finding 4).
+ */
+export const defaultStatusSchema = statusValueSchema.refine((v) => v !== 'finished', {
+  message: "a default status must not be 'finished'",
+});
+
+/**
+ * The status of a record whose status field gave nothing (missing, null or
+ * blank). With a score configured the source must say what state the match is
+ * in: the configured default, else null (the record is dropped as
+ * `missing_status`). Without a score the record is just a fixture: 'scheduled'.
+ * 'finished' is never derived (a live score looks like a final one).
+ */
+export function statusWhenBlank(
+  scoreConfigured: boolean,
+  configuredDefault: SourceStatus | undefined,
+): SourceStatus | null {
+  if (configuredDefault !== undefined) return configuredDefault;
+  return scoreConfigured ? null : 'scheduled';
+}
+
+/** Superrefine check: a configured score needs a status field to tell live from final. */
+export function requireStatusWithScore(
+  c: { fields: { score?: unknown; status?: unknown } },
+  ctx: z.RefinementCtx,
+): void {
+  if (c.fields.score && !c.fields.status) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'a status field (with a map) is required when a score is configured',
+      path: ['fields', 'status'],
+    });
+  }
+}
+
 /** Builds the lookup of a configured status map; duplicate keys after normalising are an error. */
 export function compileStatusMap(
   map: Record<string, SourceStatus>,

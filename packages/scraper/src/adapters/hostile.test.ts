@@ -103,8 +103,13 @@ describe('config validation (S3)', () => {
   it('requires scoreBasis when a score is configured', () => {
     const score = { homePath: 'x', awayPath: 'y' };
     expect(row('generic-json', { ...json, fields: { ...json.fields, score } }).ok).toBe(false);
+    const status = { path: 's', map: { FT: 'finished' } };
     expect(
-      row('generic-json', { ...json, fields: { ...json.fields, score }, scoreBasis: 'unknown' }).ok,
+      row('generic-json', {
+        ...json,
+        fields: { ...json.fields, score, status },
+        scoreBasis: 'unknown',
+      }).ok,
     ).toBe(true);
     const hs = { ...html.fields, score: { selector: '.s' } };
     expect(row('generic-html', { ...html, fields: hs }).ok).toBe(false);
