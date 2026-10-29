@@ -7,16 +7,8 @@ import {
   expectedGoals,
 } from '@vamos/feed';
 import { checkMarkets, MARKET_OUTCOME_COVER } from '@vamos/scraper';
-import { marketKey, selectionsFor, type MarketTypeCode } from '@vamos/core';
-import {
-  FOOTBALL_DATA_NAME,
-  loadOpenfootball,
-  out,
-  round,
-  seededRatings,
-  writeJson,
-  type Ratings,
-} from './odds-lib';
+import { marketKey, selectionsFor } from '@vamos/core';
+import { loadOpenfootball, out, round, seededRatings, writeJson, type Ratings } from './odds-lib';
 
 /**
  * Price integrity of what priceFixture publishes, checked with the production
@@ -169,7 +161,7 @@ function checkBook(
     const cover = MARKET_OUTCOME_COVER[m.type];
     const sel = selectionMap(m);
     // selection set and price bounds
-    const expected = selectionsFor(m.type as MarketTypeCode);
+    const expected = selectionsFor(m.type);
     if (expected.length !== sel.size || !expected.every((c) => sel.has(c))) {
       tally.add({ check: 'selection_set', inputs: where, detail: key });
     }
@@ -703,6 +695,6 @@ const result = {
 };
 writeJson(outPath, result);
 out(`grid books ${gridBooks}, throws ${throws}`);
-out(JSON.stringify((result.ratingGrid as { violationCounts: unknown }).violationCounts));
-out(JSON.stringify((result.premierLeague2026_27 as { violationCounts: unknown }).violationCounts));
+out(JSON.stringify(Object.fromEntries(gridTally.counts)));
+out(JSON.stringify(Object.fromEntries(fixtureTally.counts)));
 out(JSON.stringify(result.mirrorSymmetry));

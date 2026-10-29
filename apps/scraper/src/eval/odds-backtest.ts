@@ -414,7 +414,7 @@ const result: Record<string, unknown> = {
   generatedFor: 'odds-backtest.ts',
   dataInfo: Object.fromEntries([...data.entries()].map(([k, v]) => [k, v.info])),
   groundTruthCheck: groundTruth,
-  runs: {} as Record<string, unknown>,
+  runs: {},
 };
 const runs = result.runs as Record<string, unknown>;
 
