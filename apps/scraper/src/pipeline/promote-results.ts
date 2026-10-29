@@ -32,7 +32,7 @@ import {
   type ResultObservation,
   type Score,
 } from '@vamos/scraper';
-import { events as eventsTable, scrapeObservations, scrapeRaw } from '@vamos/db/schema';
+import { auditLog, events as eventsTable, scrapeObservations, scrapeRaw } from '@vamos/db/schema';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
@@ -358,7 +358,8 @@ const STAFF_KINDS = ['result_ready', 'result_unverified'] as const;
  * source shows exactly that score, and no current observation disagrees (R3,
  * R7). Anything else leaves the event untouched and opens a fresh review item
  * of the same kind saying why. Idempotent: an event that already has the
- * proposed score is left alone.
+ * proposed score is left alone. A rejected confirmation is final: the item is
+ * never replayed, whatever happens to the item reopened in its place.
  */
 export async function applyStaffConfirmations(ctx: ScraperContext): Promise<{
   applied: number;
@@ -369,6 +370,7 @@ export async function applyStaffConfirmations(ctx: ScraperContext): Promise<{
   let events: ScrapedEvent[] | null = null;
   for (const kind of STAFF_KINDS) {
     const items = await listReviewItems(ctx.db, { kind, limit: 200 });
+    const rejected = await rejectedConfirmations(ctx, items);
     for (const item of items) {
       if (item.status !== 'resolved' || decisionOf(item.resolution) !== 'apply_result') continue;
       if (
@@ -378,6 +380,9 @@ export async function applyStaffConfirmations(ctx: ScraperContext): Promise<{
         continue;
       }
       if (items.some((other) => other.payload.reopenedFor === item.id)) continue;
+      // A rejection is final (review finding 3): the reopened item's payload is replaced by
+      // each gate pass, so the audit row, which nothing overwrites, is what remembers it.
+      if (rejected.has(item.id)) continue;
       events ??= await listScrapedEvents(ctx.db, {
         from: new Date(now.getTime() - 60 * DAY_MS),
         to: new Date(now.getTime() + DAY_MS),
@@ -396,6 +401,26 @@ export async function applyStaffConfirmations(ctx: ScraperContext): Promise<{
     }
   }
   return result;
+}
+
+/** The ids among `items` whose confirmation was rejected before (audit `scrape.result.confirmation_rejected`). */
+async function rejectedConfirmations(
+  ctx: ScraperContext,
+  items: readonly ScrapeReviewItem[],
+): Promise<Set<string>> {
+  const ids = items.filter((i) => i.status === 'resolved').map((i) => i.id);
+  if (ids.length === 0) return new Set();
+  const rows = await ctx.db
+    .select({ id: auditLog.targetId })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.action, 'scrape.result.confirmation_rejected'),
+        eq(auditLog.targetType, 'scrape_review_item'),
+        inArray(auditLog.targetId, ids),
+      ),
+    );
+  return new Set(rows.flatMap((r) => (r.id === null ? [] : [r.id])));
 }
 
 async function confirmOne(
