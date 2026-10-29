@@ -188,7 +188,18 @@ describe('seedCatalog', () => {
     const feed = await loadFeedTeams(handle.db);
     const pool = (slug: string) => feed.teams[slug] ?? [];
 
-    expect(pool('premier-league')).toHaveLength(20);
+    expect(pool('premier-league')).toHaveLength(23);
+    // The clubs promoted for 2026-27, with the modest starting ratings of the other seeded clubs.
+    for (const [short, attack, defence] of [
+      ['Coventry', 0.88, 1.12],
+      ['Hull', 0.82, 1.18],
+      ['Ipswich', 0.86, 1.14],
+    ] as const) {
+      expect(pool('premier-league').find((t) => t.shortName === short)?.ratings).toEqual({
+        attack,
+        defence,
+      });
+    }
     for (const slug of ['laliga', 'serie-a', 'bundesliga', 'ligue-1']) {
       expect(pool(slug).length).toBeGreaterThanOrEqual(12);
     }
