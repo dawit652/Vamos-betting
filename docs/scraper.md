@@ -317,7 +317,11 @@ Existing permissions are reused (no new ones):
 Every mutation is audited with the staff actor. Resolving a result applies it
 through the same function as automatic promotion, so the rules R1, R8–R11 hold
 for people too (a person may override R2/R6 only through `result_unverified` /
-`result_ready`).
+`result_ready`). Before it is applied the confirmation is
+re-checked against the current observations (kickoff within tolerance, no
+dissent on full time or on the half time an event needs, a half time present when
+the event needs one); a failed check rejects it, audits
+`scrape.result.confirmation_rejected` and opens a fresh item.
 
 ## 9. Testing requirements
 

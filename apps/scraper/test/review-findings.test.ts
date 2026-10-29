@@ -372,3 +372,94 @@ describe('review finding 2: a create decision never touches an existing feed_ref
     TEST_TIMEOUT,
   );
 });
+
+describe('review finding 6: the staff path applies the same checks as the gates', () => {
+  const resolveApply = (id: string) =>
+    h.ctx.db.transaction((tx) =>
+      resolveReviewItem(tx, id, {
+        status: 'resolved',
+        resolution: JSON.stringify({ decision: 'apply_result' }),
+        actor: { adminId: randomUUID() },
+        now: h.now(),
+      }),
+    );
+  const openItem = async (kind: string) =>
+    (
+      await rows<{ id: string; payload: Record<string, unknown> }>(
+        `SELECT id, payload FROM scrape_review_items WHERE kind = $1 AND status = 'open'`,
+        [kind],
+      )
+    )[0]!;
+  /** A result_ready item for 2-1 (half time 1-0), approved by a person but not yet applied. */
+  async function approvedReady(): Promise<void> {
+    await createdEvent({ autoResults: false });
+    h.at(new Date(KICKOFF.getTime() + 2 * HOUR));
+    h.serve(URL_A, ofDoc([finishedOf([2, 1], [1, 0])]));
+    h.serve(URL_B, jsonDoc([finishedJson([2, 1], [1, 0])]));
+    await h.run('src-a');
+    await h.run('src-b');
+    h.advance(16 * MINUTE);
+    await h.run('src-a');
+    await h.run('src-b');
+    await promoteResults(h.ctx);
+    await resolveApply((await openItem('result_ready')).id);
+    h.advance(MINUTE);
+  }
+  const reasonOfRejection = async () =>
+    (
+      await rows<{ reason: string }>(
+        `SELECT metadata->>'reason' AS reason FROM audit_log WHERE action = 'scrape.result.confirmation_rejected'`,
+      )
+    )[0]?.reason;
+
+  it(
+    'R3: a current source that now disputes the half time rejects the confirmation',
+    async () => {
+      await approvedReady();
+      expect(
+        await h.count(
+          `SELECT count(*) AS n FROM markets m JOIN events e ON e.id = m.event_id WHERE e.feed_provider = 'scraped' AND m.type = 'ht_1x2'`,
+        ),
+      ).toBeGreaterThan(0);
+      h.serve(URL_B, jsonDoc([finishedJson([2, 1], [0, 0])]));
+      await h.run('src-b');
+      expect(await applyStaffConfirmations(h.ctx)).toEqual({ applied: 0, rejected: 1 });
+      expect(await event()).toMatchObject({ status: 'scheduled', score_home: null });
+      expect(await reasonOfRejection()).toContain('disagrees');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'R1: a source whose kickoff no longer matches the event rejects the confirmation',
+    async () => {
+      await approvedReady();
+      h.serve(URL_B, jsonDoc([{ ...finishedJson([2, 1], [1, 0]), kick: '2026-11-02T17:00:00Z' }]));
+      await h.run('src-b');
+      expect(await applyStaffConfirmations(h.ctx)).toEqual({ applied: 0, rejected: 1 });
+      expect(await event()).toMatchObject({ status: 'scheduled', score_home: null });
+      expect(await reasonOfRejection()).toContain('kickoff');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'R2: an event that needs a half time is not settled by a proposal without one',
+    async () => {
+      await createdEvent({ autoResults: false });
+      // Only one source has the final score, and it gives no half time: R6 asks a person.
+      h.at(new Date(KICKOFF.getTime() + 9 * HOUR));
+      h.serve(URL_B, jsonDoc([{ ...finishedJson([2, 1]), hth: null, hta: null }]));
+      await h.run('src-b');
+      await promoteResults(h.ctx);
+      const item = await openItem('result_unverified');
+      expect(item.payload.score).toMatchObject({ home: 2, away: 1, htHome: null });
+      await resolveApply(item.id);
+      h.advance(MINUTE);
+      expect(await applyStaffConfirmations(h.ctx)).toEqual({ applied: 0, rejected: 1 });
+      expect(await event()).toMatchObject({ status: 'scheduled', score_home: null });
+      expect(await reasonOfRejection()).toContain('(R2)');
+    },
+    TEST_TIMEOUT,
+  );
+});

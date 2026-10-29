@@ -23,10 +23,12 @@ import {
   clusterObservations,
   decideResult,
   DAY_MS,
+  KICKOFF_TOLERANCE_MS,
   MIN_MATCH_DURATION_MS,
   MINUTE_MS,
   matchEvent,
   reviewsOf,
+  scoreContradicts,
   type CompetitionPolicy,
   type ResolvedObservation,
   type ResultObservation,
@@ -354,9 +356,11 @@ const STAFF_KINDS = ['result_ready', 'result_unverified'] as const;
  * `result_unverified` item with the decision `apply_result`; it carries no
  * score, so the score applied is the one the item proposed, and only if it
  * still holds: the event is scheduled and unresulted, the match could have
- * ended (R1), a current regular-time `finished` observation of an enabled
- * source shows exactly that score, and no current observation disagrees (R3,
- * R7). Anything else leaves the event untouched and opens a fresh review item
+ * ended (R1), every current observation has the event's kickoff (R1), the
+ * proposal has a half time when the event needs one (R2), a current regular-time
+ * `finished` observation of an enabled source shows exactly that score, and no
+ * current observation disagrees: full time, and half time when the event needs
+ * it (R3), or a void status (R7). Anything else leaves the event untouched and opens a fresh review item
  * of the same kind saying why. Idempotent: an event that already has the
  * proposed score is left alone. A rejected confirmation is final: the item is
  * never replayed, whatever happens to the item reopened in its place.
@@ -445,20 +449,36 @@ async function confirmOne(
   if (now.getTime() < event.startTime.getTime() + MIN_MATCH_DURATION_MS) {
     return { reason: 'the match cannot have ended yet (R1)' };
   }
+  // R2: an event with a half-time market is settled with a half time, or not at all.
+  if (event.needsHalfTimeScore && (proposed.htHome === null || proposed.htAway === null)) {
+    return { reason: 'the event needs a half-time score and the proposal has none (R2)' };
+  }
   const observations = (await resultObservationsByEvent(ctx, events, now)).get(eventId) ?? [];
-  const dissent = observations.filter(
+  // R3: any current observation that is not a `finished` one, or whose score contradicts the
+  // proposal (full time, and half time when the event needs it), blocks it.
+  const hardDissent = observations.filter(
     (o) =>
       o.obs.status !== 'finished' ||
       o.obs.score === null ||
-      o.obs.score.home !== proposed.home ||
-      o.obs.score.away !== proposed.away,
+      scoreContradicts(proposed, o.obs.score, event.needsHalfTimeScore),
   );
-  const hardDissent = dissent;
   if (hardDissent.length > 0) {
     return {
       reason: `a current observation disagrees (${hardDissent
         .map((o) => `${o.obs.sourceId}: ${o.obs.status}`)
         .join(', ')})`,
+    };
+  }
+  // R1: an observation of another kickoff is a pending reschedule or the wrong match.
+  const startMs = event.startTime.getTime();
+  const mismatched = observations.filter(
+    (o) => Math.abs(o.obs.kickoff.getTime() - startMs) > KICKOFF_TOLERANCE_MS,
+  );
+  if (mismatched.length > 0) {
+    return {
+      reason: `a current observation has another kickoff than the event (${mismatched
+        .map((o) => o.obs.sourceId)
+        .join(', ')}) (R1)`,
     };
   }
   const supporting = observations.filter(
