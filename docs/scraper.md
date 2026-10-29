@@ -351,7 +351,7 @@ Existing permissions are reused (no new ones):
 | `GET /admin/feed/review`, `GET /admin/feed/review/:id`                      | `trading.view`                                                                          |
 | `POST /admin/feed/review/:id/resolve` – open betting, dismiss, map alias    | `trading.status`                                                                        |
 | … same route applying a **result** (`result_ready`, `result_unverified`)    | `trading.result`                                                                        |
-| `GET /admin/feed/aliases`, `POST /admin/feed/aliases`                       | `trading.view` / `trading.status`                                                       |
+| `GET /admin/feed/aliases`, `POST` and `DELETE /admin/feed/aliases/:id`      | `trading.view` / `trading.status`                                                       |
 | `PUT /admin/feed/sources/:id` – enable or disable (kill switch)             | `trading.status`                                                                        |
 | `GET /admin/feed/competitions`, `PUT /admin/feed/competitions/:id` – policy | `trading.view` / `settings.edit` (turning a policy **off** needs only `trading.status`) |
 
@@ -418,14 +418,18 @@ stderr. Exit code: `0` success, `1` the command failed or refused, `2` the
 command line is wrong. Commands that need the database use `DATABASE_URL` from
 `.env` and check the operating mode like the runner does.
 
-| Command                                                                 | What it does                                                                                                                                     |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sources list`                                                          | Every source with state: enabled or disabled, last run, failures since the last ok run, open review items.                                       |
-| `sources upsert --file source.json`                                     | Checks the config with `createAdapter` (the runner's own check, so config errors such as a score without a status map are listed), then upserts. |
-| `dry-parse --source-file source.json --document page.html`              | Parses a saved page; prints observations and issues. No database, no network. Options: `--url`, `--at`, `--content-type`, `--limit`.             |
-| `dry-fetch --source-file source.json`                                   | Fetches the planned URLs through the `PoliteFetcher` (allow-list, robots.txt, rate limit) and parses; prints only. Writes nothing.               |
-| `aliases import --file aliases.csv`                                     | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written.                                              |
-| `ratings backfill --file results.json --competition <slug> [--dry-run]` | Learns ratings from historical results; prints before and after per team.                                                                        |
+| Command                                                                            | What it does                                                                                                                                     |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sources list`                                                                     | Every source with state: enabled or disabled, last run, failures since the last ok run, open review items.                                       |
+| `sources upsert --file source.json`                                                | Checks the config with `createAdapter` (the runner's own check, so config errors such as a score without a status map are listed), then upserts. |
+| `dry-parse --source-file source.json --document page.html`                         | Parses a saved page; prints observations and issues. No database, no network. Options: `--url`, `--at`, `--content-type`, `--limit`.             |
+| `dry-fetch --source-file source.json`                                              | Fetches the planned URLs through the `PoliteFetcher` (allow-list, robots.txt, rate limit) and parses; prints only. Writes nothing.               |
+| `aliases import --file aliases.csv`                                                | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written.                                              |
+| `aliases list [--kind team\|competition] [--q text]`                               | Aliases newest first with their ids; `--q` matches the name or the target.                                                                       |
+| `aliases remove --id <id>`                                                         | Removes one alias (audited). The next promotion pass re-resolves the observations that used it.                                                  |
+| `ratings backfill --file results.json --competition <slug> [--dry-run]`            | Learns ratings from historical results; prints before and after per team.                                                                        |
+| `ratings set --team <name> --attack <n> --defence <n> [--matches <n>] [--dry-run]` | Sets a team's ratings by hand, with `manual = 1`; prints before and after.                                                                       |
+| `ratings list [--team text]`                                                       | Football teams that have ratings: attack, defence, matches, manual.                                                                              |
 
 `source.json` is `{ "id", "name", "adapter", "upstream", "config" }` (the
 columns of `scrape_sources`; `enabled` is not allowed). **A new source starts
@@ -439,8 +443,12 @@ failed `dry-parse` or `dry-fetch` mean the config or the page needs work.
 `football`, `alias` is the source's spelling (normalised on import), `target` is
 the catalogue team's short name or the competition's slug, `source` is a source
 id (empty or `*` = every source). An alias that already points at another team
-or competition is reported as a conflict; remove the old alias in the back
-office first.
+or competition is reported as a conflict; remove the old alias first, on
+`/feed/aliases` (the **Remove** button asks for a second click) or with
+`aliases list --q <name>` and `aliases remove --id <id>`. Removing an alias
+changes nothing at once: the promotion pass notices the change within a minute
+and re-resolves the stored observations, which can open `unknown_team` items
+for names that no longer resolve.
 
 `results.json` is an array of `{ "date": "YYYY-MM-DD", "home", "away",
 "homeGoals", "awayGoals" }` (regular-time scores, any order; team names are
@@ -452,3 +460,44 @@ refuses, writing nothing for any team, when a team has `manual = 1`, has already
 learned from more matches than the file holds (live results were applied since),
 or was backfilled through a later date than the file reaches. `--dry-run`
 reports all of this without writing, and exits 1 on a refusal too.
+
+`ratings set` is for a team that has no season of history: a trader sets
+`attack` and `defence` (multipliers of the league average: 1 is average, and a
+higher defence concedes **more**) and the command writes them with `manual = 1`,
+so the team counts as calibrated whatever its match count (rule O1) and a later
+backfill leaves it alone. Both numbers must lie between 0.35 and 3, the band
+the ratings model keeps every strength in. `--matches` (a whole number, default
+what the team already has) is only informational for a manual team. Other keys
+the team has, such as `backfilled_through`, are kept. The team name must match
+exactly one football team (short name or any catalogue name, compared
+normalised); an unknown or ambiguous name is refused and the command lists
+similar names or the candidates. It prints the ratings before and after, writes
+one `scrape.ratings.updated` audit row (`before` and `after`), and writes nothing
+with `--dry-run` or when nothing would change. Prices of scheduled events change
+on the next promotion pass, under rule O3. Football only.
+
+### Production
+
+The production stack does not publish Postgres, so the command line runs inside
+the scraper image, on the compose network, with the service's own environment
+(the restricted `vamos_app` role, the operating mode, `read_only` root, the
+`node` user). `dist/cli.js` is in the image (`apps/scraper/tsup.config.ts` builds
+it next to `dist/main.js`; the working directory is `/app/apps/scraper`). From
+the checkout on the host, with `COMPOSE_FILE` and `COMPOSE_ENV_FILES` set as in
+[deployment.md](deployment.md):
+
+```
+docker compose run --rm --no-deps scraper node dist/cli.js sources list
+docker compose run --rm --no-deps -v "$PWD/source.json:/in/source.json:ro" \
+  scraper node dist/cli.js sources upsert --file /in/source.json
+```
+
+- `--no-deps` starts nothing else: postgres must already be up (`docker compose up -d`). `--rm` removes the
+  one-off container; it does not touch the running `scraper` service.
+- Files the command reads (`source.json`, `aliases.csv`, `results.json`) are mounted read-only at `/in/...` and
+  the path after `--file` is the path **inside** the container. The `node` user (uid 1000) must be able to read
+  them (mode `0644`).
+- `dry-fetch` fetches from inside the container, so it uses the production network path and `SCRAPER_*` settings.
+- Output and exit codes are the same as in development; add `--json` for scripts. CI runs
+  `sources list` this way after the smoke test, which proves the command line works in the image against the
+  compose database.

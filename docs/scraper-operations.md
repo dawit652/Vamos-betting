@@ -167,7 +167,7 @@ log. Automatic changes are written with the actor `system:scraper`; staff action
 
 **Other items a person handles** (not result decisions): `unknown_team` and `unknown_competition` (map an alias,
 or dismiss), `odds_approval` (open betting on the proposed prices), `ratings_uncalibrated` (a team has too few
-matches to be priced; nothing to do until its ratings are backfilled or a trader sets them), `kickoff_change`
+matches to be priced; nothing to do until its ratings are backfilled or a trader sets them with `ratings set`), `kickoff_change`
 (apply the new time or dismiss), `fixture_conflict` and `fixture_missing` (look at the sources; nothing is
 cancelled because a page did not list an event), and `source_broken`.
 
@@ -186,11 +186,21 @@ cancelled because a page did not list an event), and `source_broken`.
 The feed pages need `trading.view`, which only the admin and trader roles hold; other staff roles cannot open them.
 
 **Aliases.** An alias maps a source's spelling of a team or competition to the catalogue (rule N2: exact match
-only, never fuzzy). Add one from `/feed/aliases` (the target is a catalogue id) or in bulk with the CLI. The
-aliases page has **no removal button** and no command removes an alias yet. A wrong alias is therefore an
-engineering task: the removal service (`removeAlias` in `packages/db/src/scrape/aliases.ts`) exists but no
-screen calls it (**pending**). Until it is fixed, add a corrected alias for the right spelling and tell an
-engineer.
+only, never fuzzy). Add one from `/feed/aliases` (the target is a catalogue id) or in bulk with the CLI. To
+remove a wrong one, use the **Remove** button on `/feed/aliases` (it asks for a second click; it needs
+`trading.status`, so other staff roles do not see it), or the CLI: `aliases list --q <name>` shows the ids and
+`aliases remove --id <id>` removes one. Both are audited (`scrape.alias.removed`). The observations already stored
+keep what they resolved to until the promotion pass runs again (within a minute), which re-resolves them; names
+that no longer resolve reappear as `unknown_team` or `unknown_competition` items. Add the correct alias afterwards
+(an alias that points elsewhere is refused until the old one is removed).
+
+**Ratings by hand.** A trader calibrates a team that has no history with `ratings set --team <name> --attack <n>
+--defence <n>` (section 12 of [scraper.md](scraper.md)); there is no screen for ratings. `ratings list` shows what
+is stored and which teams are manual.
+
+**Command line in production.** The database is not published, so the commands run in the scraper image:
+`docker compose run --rm --no-deps scraper node dist/cli.js <command>`, with files mounted read-only (`-v
+"$PWD/file:/in/file:ro"`). Details and an example are in [scraper.md](scraper.md#production).
 
 ## 6. Evidence and retention
 

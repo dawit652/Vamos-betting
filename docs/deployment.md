@@ -147,6 +147,9 @@ same rule to both.
   The service always runs with `FEED_PROVIDER=scraped`; in licensed mode that needs `SCRAPER_CONTACT` and
   `SCRAPER_ROBOTS=enforce` (docs/scraper.md section 7). Daily operation, kill switches and the evidence kept:
   [scraper-operations.md](scraper-operations.md); incident procedures in [runbooks](runbooks/README.md).
+  The onboarding command line (sources, aliases, ratings) runs inside the scraper image, because Postgres is not
+  published: `docker compose run --rm --no-deps scraper node dist/cli.js sources list` (files are mounted with
+  `-v "$PWD/source.json:/in/source.json:ro"`; see [scraper.md](scraper.md#production)).
 - `postgres`: a single primary. Size `max_connections` (set to 200 in the compose file) against
   api replicas x pool + worker pool (10). Read replicas are not used. Move to a managed or HA Postgres
   (streaming replication + failover) when the licence requires higher availability.

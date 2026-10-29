@@ -14,9 +14,11 @@ Work through the checklist in order. Each step names what it needs and what must
       competition with no policy row shows all four flags off, which is what shadow mode needs.
 - [ ] The commands below run from a checkout of the repository with `pnpm install` done. They read
       `DATABASE_URL` and the operating mode from the environment or from `.env`. The production database is not
-      published by the stack, so the commands that write (`sources upsert`, `aliases import`, `ratings backfill`)
-      need a route to it that is **pending**: an engineer confirms the route before the first production source.
-      `dry-parse` and `dry-fetch` need no database.
+      published by the stack, so against production run the same command inside the scraper image instead:
+      `docker compose run --rm --no-deps scraper node dist/cli.js <command>`, with each input file mounted
+      read-only, for example `-v "$PWD/source.json:/in/source.json:ro"` and `--file /in/source.json` (see
+      [scraper.md](../scraper.md#production); `COMPOSE_FILE` and `COMPOSE_ENV_FILES` set as in
+      [deployment.md](../deployment.md)). `dry-parse` and `dry-fetch --source-file` need no database.
 - [ ] Work in a scratch directory outside the repository (for example `<scratch dir>`), so that no file with a page
       or a config lands in a commit.
 
@@ -118,9 +120,9 @@ competition,football,<the source's spelling>,<catalogue competition slug>,<sourc
 pnpm --filter @vamos/scraper-app cli aliases import --file <scratch dir>/aliases.csv
 ```
 
-An alias that already points elsewhere is reported as a conflict. Remove the old one first: no screen or command
-does that yet (see [scraper operations](../scraper-operations.md#5-how-results-reach-the-catalogue)), so ask an
-engineer. Names that are still unknown appear on `/feed/review` as `unknown_team` or `unknown_competition` after
+An alias that already points elsewhere is reported as a conflict. Remove the old one first, then import again:
+`aliases list --q <name>` shows its id and `aliases remove --id <id>` removes it (or the **Remove** button on
+`/feed/aliases`; see [scraper operations](../scraper-operations.md#5-how-results-reach-the-catalogue)). Names that are still unknown appear on `/feed/review` as `unknown_team` or `unknown_competition` after
 the first run; map them there (**Map to this team**, which needs the catalogue id) or add the alias and import again.
 
 ## 8. Ratings (only if the teams need prices)
@@ -139,6 +141,18 @@ pnpm --filter @vamos/scraper-app cli ratings backfill --file <scratch dir>/resul
 Read the `--dry-run` output first: it shows the before and after of each team and every refusal. The backfill
 refuses, writing nothing for any team, when a team was set by a trader (`manual = 1`), already learned from more
 matches than the file holds, or was backfilled through a later date. Running the same file again changes nothing.
+
+For a team with no history to learn from, a trader sets the ratings by hand (1 is the league average, a higher
+`--defence` concedes more, both between 0.35 and 3). Look first, then set; the command prints before and after and
+refuses an unknown or ambiguous name:
+
+```bash
+pnpm --filter @vamos/scraper-app cli ratings list --team <name>
+pnpm --filter @vamos/scraper-app cli ratings set --team <name> --attack 1.2 --defence 0.9 --dry-run
+pnpm --filter @vamos/scraper-app cli ratings set --team <name> --attack 1.2 --defence 0.9
+```
+
+This sets `manual = 1`: the team counts as calibrated, and a later backfill will not overwrite it.
 
 ## 9. Golden fixture
 
