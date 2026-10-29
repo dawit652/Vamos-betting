@@ -12,6 +12,7 @@ import {
   loadConfig,
   parseAdminTotpKey,
   parseTrustProxy,
+  scraperUserAgent,
 } from './config';
 
 /** A production-grade ADMIN_TOTP_KEY (any 32 bytes other than the development key). */
@@ -538,5 +539,167 @@ describe('operations settings (Phase 12)', () => {
     ]);
     // Development keeps plain http.
     expect(problemsOf({ PUBLIC_WEB_URL: 'http://vamos.lan:3000' })).toEqual([]);
+  });
+});
+
+describe('data scraper settings (docs/scraper.md section 7)', () => {
+  const SCRAPED_LICENSED = {
+    ...LICENSED_ENV,
+    FEED_PROVIDER: 'scraped',
+    SCRAPER_ARCHIVE_DIR: '/var/lib/vamos/scraper',
+    SCRAPER_CONTACT: 'https://vamos.et/bot',
+  };
+
+  it('has safe defaults and exposes them on config.scraper', () => {
+    expect(loadConfig({}).scraper).toEqual({
+      archiveDir: './var/scraper',
+      userAgent: 'VamosBot/1.0',
+      contact: undefined,
+      robots: 'enforce',
+      port: 4200,
+      maxConcurrency: 4,
+      resultConfirmMinutes: 15,
+      minRatingMatches: 8,
+    });
+    // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
+    expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
+  });
+
+  it('reads every setting', () => {
+    const config = loadConfig({
+      SCRAPER_ARCHIVE_DIR: ' /data/scraper ',
+      SCRAPER_USER_AGENT: 'VamosBot/2.0',
+      SCRAPER_CONTACT: ' ops@vamos.et ',
+      SCRAPER_ROBOTS: 'off',
+      SCRAPER_PORT: '0',
+      SCRAPER_MAX_CONCURRENCY: '8',
+      SCRAPER_RESULT_CONFIRM_MINUTES: '5',
+      SCRAPER_MIN_RATING_MATCHES: '1',
+    });
+    expect(config.scraper).toEqual({
+      archiveDir: '/data/scraper',
+      userAgent: 'VamosBot/2.0',
+      contact: 'ops@vamos.et',
+      robots: 'off',
+      port: 0,
+      maxConcurrency: 8,
+      resultConfirmMinutes: 5,
+      minRatingMatches: 1,
+    });
+    // A blank contact (as in an env file) is "not set".
+    expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();
+  });
+
+  it('refuses values out of range or of the wrong kind', () => {
+    for (const [name, values] of [
+      ['SCRAPER_RESULT_CONFIRM_MINUTES', ['4', '0', '-1', '15.5', 'soon', '1441']],
+      ['SCRAPER_MIN_RATING_MATCHES', ['0', '-3', '2.5', 'many']],
+      ['SCRAPER_MAX_CONCURRENCY', ['0', '-1', '1.5', 'x', '65']],
+      ['SCRAPER_PORT', ['-1', '70000', '42.5', 'x']],
+      ['SCRAPER_ROBOTS', ['maybe', 'ON', 'false']],
+      ['SCRAPER_ARCHIVE_DIR', ['   ']],
+      ['SCRAPER_USER_AGENT', ['   ', 'Bot\r\nX-Evil: 1', 'Bøt/1.0']],
+      ['SCRAPER_CONTACT', ['not a contact', 'ftp://vamos.et', 'a@b', 'ops@vamos.et)\r\nX: y']],
+    ] as const) {
+      for (const value of values) {
+        expect(problemsOf({ [name]: value }).join('\n'), `${name}=${value}`).toMatch(
+          new RegExp(name),
+        );
+      }
+    }
+  });
+
+  it('builds the User-Agent with the contact when there is one', () => {
+    expect(scraperUserAgent(loadConfig({}).scraper)).toBe('VamosBot/1.0');
+    expect(scraperUserAgent(loadConfig({ SCRAPER_CONTACT: 'ops@vamos.et' }).scraper)).toBe(
+      'VamosBot/1.0 (+ops@vamos.et)',
+    );
+    expect(scraperUserAgent({ userAgent: 'VamosBot/2.0', contact: 'https://vamos.et/bot' })).toBe(
+      'VamosBot/2.0 (+https://vamos.et/bot)',
+    );
+  });
+
+  it('accepts FEED_PROVIDER=scraped on its own in demo mode, whatever the scraper settings', () => {
+    expect(problemsOf({ FEED_PROVIDER: 'scraped' })).toEqual([]);
+    expect(loadConfig({ FEED_PROVIDER: 'scraped' }).feed.provider).toBe('scraped');
+    // The strict checks apply to licensed mode only.
+    expect(
+      problemsOf({
+        FEED_PROVIDER: 'scraped',
+        SCRAPER_ROBOTS: 'off',
+        SCRAPER_ARCHIVE_DIR: 'relative/dir',
+      }),
+    ).toEqual([]);
+    expect(problemsOf({ FEED_PROVIDER: 'robot' }).join('\n')).toMatch(/FEED_PROVIDER/);
+  });
+
+  it('accepts a fully configured licensed environment with scraped fixtures', () => {
+    const config = loadConfig(SCRAPED_LICENSED);
+    expect(config.feed.provider).toBe('scraped');
+    expect(licensedModeViolations(config)).toEqual([]);
+    for (const archiveDir of [
+      '/srv/scraper',
+      'C:\\scraper',
+      'D:/scraper',
+      '\\\\nas\\share\\scraper',
+    ]) {
+      expect(
+        problemsOf({ ...SCRAPED_LICENSED, SCRAPER_ARCHIVE_DIR: archiveDir }),
+        archiveDir,
+      ).toEqual([]);
+    }
+  });
+
+  it('refuses licensed scraping without an absolute archive dir, a contact or robots enforcement', () => {
+    for (const archiveDir of [
+      './var/scraper',
+      'var/scraper',
+      '../scraper',
+      'C:scraper',
+      '~/scraper',
+    ]) {
+      expect(
+        problemsOf({ ...SCRAPED_LICENSED, SCRAPER_ARCHIVE_DIR: archiveDir }),
+        archiveDir,
+      ).toEqual([expect.stringMatching(/^SCRAPER_ARCHIVE_DIR must be an absolute path/)]);
+    }
+    // The defaults are demo-friendly and therefore refused here.
+    const { SCRAPER_ARCHIVE_DIR: _dir, SCRAPER_CONTACT: _contact, ...bare } = SCRAPED_LICENSED;
+    const problems = problemsOf(bare);
+    expect(problems).toEqual([
+      expect.stringMatching(/^SCRAPER_ARCHIVE_DIR must be an absolute path/),
+      expect.stringMatching(/^SCRAPER_CONTACT is required in licensed mode/),
+    ]);
+    expect(problemsOf({ ...SCRAPED_LICENSED, SCRAPER_ROBOTS: 'off' })).toEqual([
+      expect.stringMatching(/^SCRAPER_ROBOTS must be "enforce" in licensed mode/),
+    ]);
+    expect(problemsOf({ ...SCRAPED_LICENSED, SCRAPER_CONTACT: '' }).join('\n')).toMatch(
+      /SCRAPER_CONTACT is required/,
+    );
+  });
+
+  it('does not ask for scraper settings in licensed mode unless the feed is scraped', () => {
+    expect(problemsOf({ ...LICENSED_ENV, SCRAPER_ROBOTS: 'off' })).toEqual([]);
+    expect(problemsOf({ ...LICENSED_ENV, FEED_PROVIDER: 'manual', SCRAPER_ROBOTS: 'off' })).toEqual(
+      [],
+    );
+  });
+
+  it('still refuses the mock feed in licensed mode, scraper settings or not', () => {
+    const problems = problemsOf({ ...SCRAPED_LICENSED, FEED_PROVIDER: 'mock' });
+    expect(problems).toEqual([
+      'FEED_PROVIDER "mock" (simulated odds) is not allowed in licensed mode',
+    ]);
+    const config = loadConfig(SCRAPED_LICENSED);
+    expect(
+      licensedModeViolations({ ...config, feed: { ...config.feed, provider: 'mock' } }),
+    ).toEqual(['FEED_PROVIDER "mock" (simulated odds) is not allowed in licensed mode']);
+    // Every scraper violation is reported together.
+    expect(
+      licensedModeViolations({
+        ...config,
+        scraper: { ...config.scraper, archiveDir: 'x', contact: undefined, robots: 'off' },
+      }),
+    ).toHaveLength(3);
   });
 });

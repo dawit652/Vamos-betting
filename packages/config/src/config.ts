@@ -139,6 +139,30 @@ function isProductionSafeUrl(url: string): boolean {
   return parsed.protocol === 'https:' || LOOPBACK_HOSTS.has(parsed.hostname);
 }
 
+/**
+ * Whether a path is absolute in POSIX form (`/var/scraper`) or Windows form
+ * (`C:\scraper`, `C:/scraper`, `\\server\share`). A drive-relative `C:scraper` is not.
+ */
+function isAbsolutePath(path: string): boolean {
+  return /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path);
+}
+
+/** A header value: printable characters only (no control characters or line breaks). */
+const HEADER_TEXT_RE = /^[\u0020-\u007e]+$/;
+
+/** A contact that sources can write to: an http(s) URL or an email address. */
+function isScraperContact(value: string): boolean {
+  // It goes into the User-Agent header, inside parentheses: printable ASCII, no spaces or brackets.
+  if (!HEADER_TEXT_RE.test(value) || /[\s()]/.test(value)) return false;
+  try {
+    const protocol = new URL(value).protocol;
+    if (protocol === 'http:' || protocol === 'https:') return true;
+  } catch {
+    // not a URL: it may still be an email address
+  }
+  return /^[^@\s()<>]+@[^@\s()<>]+\.[^@\s()<>]+$/.test(value);
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   OPERATING_MODE: z.enum(['demo', 'licensed']).default('demo'),
@@ -187,7 +211,7 @@ const envSchema = z.object({
     })
     .default(DEV_ADMIN_TOTP_KEY),
 
-  FEED_PROVIDER: z.enum(['mock', 'manual']).default('mock'),
+  FEED_PROVIDER: z.enum(['mock', 'manual', 'scraped']).default('mock'),
   /** Simulated match minutes per real second for the mock live simulator. */
   SIM_SPEED: z.coerce.number().positive().default(1),
   /**
@@ -197,6 +221,36 @@ const envSchema = z.object({
    */
   FEED_ROLLING_EVERY_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
   FEED_ROLLING_HORIZON_MINUTES: z.coerce.number().int().min(0).max(4320).default(120),
+
+  /**
+   * The data scraper (docs/scraper.md, section 7). There is deliberately no
+   * setting for how many independent sources a result needs: that is the
+   * constant MIN_INDEPENDENT_SOURCES in @vamos/scraper.
+   */
+  /** Where raw snapshots are stored; must be an absolute path in licensed mode. */
+  SCRAPER_ARCHIVE_DIR: z.string().trim().min(1).default('./var/scraper'),
+  /** Identifies us to the sources (printable ASCII, no line breaks). */
+  SCRAPER_USER_AGENT: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(HEADER_TEXT_RE, 'printable ASCII only')
+    .default('VamosBot/1.0'),
+  /** URL or email appended to the user agent; required for FEED_PROVIDER=scraped in licensed mode. */
+  SCRAPER_CONTACT: secret.refine((value) => value === undefined || isScraperContact(value), {
+    message: 'must be an http(s) URL or an email address',
+  }),
+  /** `off` ignores robots.txt and is refused in licensed mode. */
+  SCRAPER_ROBOTS: z.enum(['enforce', 'off']).default('enforce'),
+  /** Port of the scraper's /health and /ready server (0 turns it off). */
+  SCRAPER_PORT: z.coerce.number().int().min(0).max(65535).default(4200),
+  /** Hosts fetched in parallel. */
+  SCRAPER_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(4),
+  /** How long an agreed result must stay unchanged before it is applied (rule R4). */
+  SCRAPER_RESULT_CONFIRM_MINUTES: z.coerce.number().int().min(5).max(1440).default(15),
+  /** Rated matches a team needs before real bets are priced from its ratings (rule O1). */
+  SCRAPER_MIN_RATING_MATCHES: z.coerce.number().int().min(1).max(10_000).default(8),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -287,11 +341,13 @@ export interface AppConfig {
     totpKey: Buffer;
   };
   feed: {
-    provider: 'mock' | 'manual';
+    provider: 'mock' | 'manual' | 'scraped';
     simSpeed: number;
     /** Rolling demo fixtures of the mock feed (FEED_ROLLING_*). */
     rolling: { everyMinutes: number; horizonMinutes: number };
   };
+  /** The data scraper (SCRAPER_*, docs/scraper.md section 7). */
+  scraper: ScraperConfig;
   providers: { payments: string[]; kyc: 'mock' | 'fayda'; sms: 'mock' | 'http' };
   /**
    * Payment provider settings (PAYMENT_*, MOCK_PAYMENT_*, CHAPA_*, TELEBIRR_*).
@@ -308,6 +364,32 @@ export interface AppConfig {
    * answers 404 and nothing else changes.
    */
   channels: ChannelsConfig;
+}
+
+export interface ScraperConfig {
+  /** SCRAPER_ARCHIVE_DIR: raw snapshot store (absolute in licensed mode). */
+  archiveDir: string;
+  /** SCRAPER_USER_AGENT: the product token; see scraperUserAgent for the header sent. */
+  userAgent: string;
+  /** SCRAPER_CONTACT: URL or email appended to the user agent (unset: none). */
+  contact: string | undefined;
+  /** SCRAPER_ROBOTS: `off` is refused in licensed mode. */
+  robots: 'enforce' | 'off';
+  /** SCRAPER_PORT: health server (0 = off). */
+  port: number;
+  /** SCRAPER_MAX_CONCURRENCY: hosts fetched in parallel. */
+  maxConcurrency: number;
+  /** SCRAPER_RESULT_CONFIRM_MINUTES (at least 5): rule R4. */
+  resultConfirmMinutes: number;
+  /** SCRAPER_MIN_RATING_MATCHES (at least 1): rule O1. */
+  minRatingMatches: number;
+}
+
+/** The User-Agent header sent to sources: `VamosBot/1.0 (+ops@example.com)` when a contact is set. */
+export function scraperUserAgent(scraper: Pick<ScraperConfig, 'userAgent' | 'contact'>): string {
+  return scraper.contact === undefined
+    ? scraper.userAgent
+    : `${scraper.userAgent} (+${scraper.contact})`;
 }
 
 export interface ChannelsConfig {
@@ -394,6 +476,23 @@ export function licensedModeViolations(config: AppConfig): string[] {
   }
   if (config.feed.provider === 'mock') {
     problems.push('FEED_PROVIDER "mock" (simulated odds) is not allowed in licensed mode');
+  }
+  if (config.feed.provider === 'scraped') {
+    if (!isAbsolutePath(config.scraper.archiveDir)) {
+      problems.push(
+        `SCRAPER_ARCHIVE_DIR must be an absolute path in licensed mode (got ${config.scraper.archiveDir}); it holds the evidence behind settled results`,
+      );
+    }
+    if (config.scraper.contact === undefined) {
+      problems.push(
+        'SCRAPER_CONTACT is required in licensed mode when FEED_PROVIDER=scraped (a URL or email that sources can reach us at)',
+      );
+    }
+    if (config.scraper.robots !== 'enforce') {
+      problems.push(
+        'SCRAPER_ROBOTS must be "enforce" in licensed mode (robots.txt is always obeyed)',
+      );
+    }
   }
   // The mock aggregators' webhook schemes are demo-only (no replay protection
   // or IP allowlist for USSD): a channel needs a contracted aggregator first.
@@ -496,6 +595,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         everyMinutes: e.FEED_ROLLING_EVERY_MINUTES,
         horizonMinutes: e.FEED_ROLLING_HORIZON_MINUTES,
       },
+    },
+    scraper: {
+      archiveDir: e.SCRAPER_ARCHIVE_DIR,
+      userAgent: e.SCRAPER_USER_AGENT,
+      contact: e.SCRAPER_CONTACT,
+      robots: e.SCRAPER_ROBOTS,
+      port: e.SCRAPER_PORT,
+      maxConcurrency: e.SCRAPER_MAX_CONCURRENCY,
+      resultConfirmMinutes: e.SCRAPER_RESULT_CONFIRM_MINUTES,
+      minRatingMatches: e.SCRAPER_MIN_RATING_MATCHES,
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {

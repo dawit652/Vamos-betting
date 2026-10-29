@@ -11,10 +11,12 @@ export {
   loadConfig,
   parseAdminTotpKey,
   parseTrustProxy,
+  scraperUserAgent,
   type AppConfig,
   type ChannelsConfig,
   type OperatingMode,
   type PaymentProvidersConfig,
+  type ScraperConfig,
   type TrustProxySetting,
 } from './config';
 export { loadDotEnv } from './dotenv';

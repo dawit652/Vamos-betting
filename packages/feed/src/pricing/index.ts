@@ -19,6 +19,7 @@ export {
 export * from './football';
 export * from './basketball';
 export * from './tennis';
+export * from './ratings';
 
 /**
  * Model inputs of one match, derived from the two teams' ratings and shared
