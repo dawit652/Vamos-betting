@@ -127,14 +127,18 @@ function assertConsistent(input: UpsertObservationInput): void {
     throw new RangeError('kickoff and observedAt must be valid dates');
   }
   const finished = input.kind === 'result' && input.status === 'finished';
-  if (finished !== (input.score != null)) {
+  if (finished !== (input.score !== null && input.score !== undefined)) {
     throw new RangeError('a finished result has a score and anything else has none');
   }
   if (input.kind === 'result') {
-    if (input.scoreBasis == null || !SCRAPE_SCORE_BASES.includes(input.scoreBasis)) {
+    if (
+      input.scoreBasis === null ||
+      input.scoreBasis === undefined ||
+      !SCRAPE_SCORE_BASES.includes(input.scoreBasis)
+    ) {
       throw new RangeError('a result needs a score basis');
     }
-  } else if (input.scoreBasis != null) {
+  } else if (input.scoreBasis !== null && input.scoreBasis !== undefined) {
     throw new RangeError('a fixture has no score basis');
   }
   const points =
@@ -259,9 +263,15 @@ export async function upsertObservation(
         lastSeenAt: input.observedAt,
         runId: input.runId,
         rawId: input.rawId ?? null,
-        ...(input.competitionId == null ? {} : { competitionId: input.competitionId }),
-        ...(input.homeTeamId == null ? {} : { homeTeamId: input.homeTeamId }),
-        ...(input.awayTeamId == null ? {} : { awayTeamId: input.awayTeamId }),
+        ...(input.competitionId === null || input.competitionId === undefined
+          ? {}
+          : { competitionId: input.competitionId }),
+        ...(input.homeTeamId === null || input.homeTeamId === undefined
+          ? {}
+          : { homeTeamId: input.homeTeamId }),
+        ...(input.awayTeamId === null || input.awayTeamId === undefined
+          ? {}
+          : { awayTeamId: input.awayTeamId }),
       })
       .where(eq(scrapeObservations.id, current.id))
       .returning({ lastSeenAt: scrapeObservations.lastSeenAt });

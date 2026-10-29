@@ -110,7 +110,10 @@ export async function finishRun(
       ...(input.fixtures === undefined ? {} : { fixtures: input.fixtures }),
       ...(input.results === undefined ? {} : { results: input.results }),
       issues: capIssues(input.issues ?? []),
-      error: input.error == null ? null : input.error.slice(0, MAX_RUN_ERROR_LENGTH),
+      error:
+        input.error === null || input.error === undefined
+          ? null
+          : input.error.slice(0, MAX_RUN_ERROR_LENGTH),
     })
     .where(and(eq(scrapeRuns.id, runId), eq(scrapeRuns.status, 'running')))
     .returning();

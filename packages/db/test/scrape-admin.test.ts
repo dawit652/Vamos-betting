@@ -86,12 +86,16 @@ describe('sources', () => {
       tx((t) => upsertSource(t, { ...base, id: 'bad-adapter', adapter: 'nope' as never }, SYSTEM)),
     ).rejects.toMatchObject({ code: 'scrape_bad_adapter' });
     expect(
-      pgCode(await tx((t) => upsertSource(t, { ...base, id: 'Bad Id' }, SYSTEM)).catch((e) => e)),
+      pgCode(
+        await tx((t) => upsertSource(t, { ...base, id: 'Bad Id' }, SYSTEM)).catch(
+          (e: unknown) => e,
+        ),
+      ),
     ).toBe('23514');
     expect(
       pgCode(
         await tx((t) => upsertSource(t, { ...base, id: 'ok-id', upstream: ' ' }, SYSTEM)).catch(
-          (e) => e,
+          (e: unknown) => e,
         ),
       ),
     ).toBe('23514');
@@ -187,7 +191,7 @@ describe('aliases', () => {
     expect(again).toMatchObject({ created: false, alias: { id: first.alias.id } });
     expect(await audits('scrape.alias.added', first.alias.id)).toHaveLength(1);
     const clash = await tx((t) => addTeamAlias(t, { ...input, teamId: chelsea() }, STAFF)).catch(
-      (e) => e,
+      (e: unknown) => e,
     );
     expect(clash).toBeInstanceOf(ScrapeAliasConflictError);
     expect(clash).toMatchObject({
@@ -275,7 +279,7 @@ describe('aliases', () => {
             { sportId: 'football', aliasNorm: 'x', sourceId: 'no-such-source', teamId: arsenal() },
             STAFF,
           ),
-        ).catch((e) => e),
+        ).catch((e: unknown) => e),
       ),
     ).toBe('23503');
   });
@@ -408,9 +412,9 @@ describe('review items', () => {
     expect(await audits('scrape.review.resolved', a.item.id)).toHaveLength(1);
     const again = await tx((t) =>
       resolveReviewItem(t, a.item.id, { status: 'dismissed', resolution: 'x', actor: STAFF }),
-    ).catch((e) => e);
+    ).catch((e: unknown) => e);
     expect(again).toBeInstanceOf(ScrapeReviewStateError);
-    expect(again.status).toBe(409);
+    expect((again as ScrapeReviewStateError).status).toBe(409);
     expect((await getReviewItem(ctx.handle.db, a.item.id))?.status).toBe('resolved');
     await expect(
       tx((t) =>

@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { HOUR_MS, MINUTE_MS } from '../constants';
 import { backoffCeilingMs, backoffDelayMs, parseRetryAfter } from './backoff';
 import { detectBlockPage } from './blockpage';
-import { backoffAfterFailures, fixturesPollIntervalMs, isDue, resultsPollIntervalMs } from './cadence';
+import {
+  backoffAfterFailures,
+  fixturesPollIntervalMs,
+  isDue,
+  resultsPollIntervalMs,
+} from './cadence';
 import { CircuitBreaker } from './circuit-breaker';
 import { InMemoryConditionalStore } from './conditional';
 import { decodeBody, decodeBodyDetailed, toRawDocument } from './decode';
@@ -16,16 +21,24 @@ const enc = (s: string) => new TextEncoder().encode(s);
 describe('backoff', () => {
   const o = { baseMs: 1000, capMs: 30_000 };
   it('doubles up to the cap', () => {
-    expect([1, 2, 3, 4, 5, 6, 50].map((a) => backoffCeilingMs(a, o))).toEqual([1000, 2000, 4000, 8000, 16_000, 30_000, 30_000]);
+    expect([1, 2, 3, 4, 5, 6, 50].map((a) => backoffCeilingMs(a, o))).toEqual([
+      1000, 2000, 4000, 8000, 16_000, 30_000, 30_000,
+    ]);
   });
   it('property: delay in [0, cap]; ceiling non-decreasing in the attempt', () => {
     fc.assert(
-      fc.property(fc.integer({ min: 1, max: 200 }), fc.double({ min: 0, max: 0.999999, noNaN: true }), (attempt, r) => {
-        const d = backoffDelayMs(attempt, o, () => r);
-        expect(d).toBeGreaterThanOrEqual(0);
-        expect(d).toBeLessThanOrEqual(o.capMs);
-        expect(backoffCeilingMs(attempt + 1, o)).toBeGreaterThanOrEqual(backoffCeilingMs(attempt, o));
-      }),
+      fc.property(
+        fc.integer({ min: 1, max: 200 }),
+        fc.double({ min: 0, max: 0.999999, noNaN: true }),
+        (attempt, r) => {
+          const d = backoffDelayMs(attempt, o, () => r);
+          expect(d).toBeGreaterThanOrEqual(0);
+          expect(d).toBeLessThanOrEqual(o.capMs);
+          expect(backoffCeilingMs(attempt + 1, o)).toBeGreaterThanOrEqual(
+            backoffCeilingMs(attempt, o),
+          );
+        },
+      ),
     );
   });
   it('clamps a misbehaving random', () => {
@@ -46,14 +59,20 @@ describe('backoff', () => {
 
 describe('decodeBody', () => {
   it('uses the header charset first', () => {
-    expect(decodeBody(Uint8Array.from([0x63, 0x61, 0x66, 0xe9]), 'text/html; charset=ISO-8859-1')).toBe('café');
+    expect(
+      decodeBody(Uint8Array.from([0x63, 0x61, 0x66, 0xe9]), 'text/html; charset=ISO-8859-1'),
+    ).toBe('café');
   });
   it('falls back to the BOM, then <meta charset>, then UTF-8', () => {
     expect(decodeBody(Uint8Array.from([0xff, 0xfe, 0x61, 0x00]), 'text/plain')).toBe('a');
     const meta = Uint8Array.from([...enc('<meta charset="windows-1252">caf'), 0xe9]);
     expect(decodeBodyDetailed(meta, 'text/html').source).toBe('meta');
     expect(decodeBody(meta, 'text/html')).toContain('café');
-    expect(decodeBodyDetailed(enc('plain'), null)).toMatchObject({ charset: 'utf-8', source: 'default', fallback: false });
+    expect(decodeBodyDetailed(enc('plain'), null)).toMatchObject({
+      charset: 'utf-8',
+      source: 'default',
+      fallback: false,
+    });
   });
   it('strips a UTF-8 BOM', () => {
     expect(decodeBody(Uint8Array.from([0xef, 0xbb, 0xbf, 0x68, 0x69]), null)).toBe('hi');
@@ -63,20 +82,42 @@ describe('decodeBody', () => {
     expect(d).toMatchObject({ text: 'ok', charset: 'utf-8', fallback: true });
   });
   it('replaces invalid sequences instead of throwing', () => {
-    expect(decodeBody(Uint8Array.from([0x61, 0xff, 0xfe, 0x62]), 'text/plain; charset=utf-8')).toBe('a��b');
+    expect(decodeBody(Uint8Array.from([0x61, 0xff, 0xfe, 0x62]), 'text/plain; charset=utf-8')).toBe(
+      'a��b',
+    );
   });
   it('property: never throws', () => {
-    fc.assert(fc.property(fc.uint8Array({ maxLength: 300 }), fc.option(fc.string({ maxLength: 40 }), { nil: null }), (bytes, ct) => {
-      expect(typeof decodeBody(bytes, ct)).toBe('string');
-    }));
+    fc.assert(
+      fc.property(
+        fc.uint8Array({ maxLength: 300 }),
+        fc.option(fc.string({ maxLength: 40 }), { nil: null }),
+        (bytes, ct) => {
+          expect(typeof decodeBody(bytes, ct)).toBe('string');
+        },
+      ),
+    );
   });
   it('toRawDocument carries the fetch metadata', () => {
     const ok: FetchOk = {
-      kind: 'ok', status: 200, url: 'https://a.example/x', headers: {}, body: enc('{"a":1}'),
-      contentType: 'application/json', fetchedAt: new Date(START), durationMs: 5, attempts: 1, contentHash: 'h'.repeat(64),
+      kind: 'ok',
+      status: 200,
+      url: 'https://a.example/x',
+      headers: {},
+      body: enc('{"a":1}'),
+      contentType: 'application/json',
+      fetchedAt: new Date(START),
+      durationMs: 5,
+      attempts: 1,
+      contentHash: 'h'.repeat(64),
     };
     expect(toRawDocument('src', ok)).toEqual({
-      sourceId: 'src', url: ok.url, status: 200, contentType: 'application/json', body: '{"a":1}', fetchedAt: ok.fetchedAt, contentHash: ok.contentHash,
+      sourceId: 'src',
+      url: ok.url,
+      status: 200,
+      contentType: 'application/json',
+      body: '{"a":1}',
+      fetchedAt: ok.fetchedAt,
+      contentHash: ok.contentHash,
     });
   });
 });
@@ -153,7 +194,10 @@ describe('HostRateLimiter', () => {
   it('property: starts to one host are never closer than the minimum interval (simulated clock)', async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.array(fc.tuple(fc.integer({ min: 0, max: 2 }), fc.integer({ min: 0, max: 3000 })), { minLength: 1, maxLength: 25 }),
+        fc.array(fc.tuple(fc.integer({ min: 0, max: 2 }), fc.integer({ min: 0, max: 3000 })), {
+          minLength: 1,
+          maxLength: 25,
+        }),
         fc.integer({ min: 0, max: 5000 }),
         fc.array(fc.double({ min: 0, max: 0.999, noNaN: true }), { minLength: 1, maxLength: 10 }),
         fc.integer({ min: 1, max: 4 }),
@@ -161,8 +205,12 @@ describe('HostRateLimiter', () => {
           const clock = makeClock();
           let i = 0;
           const limiter = new HostRateLimiter({
-            minIntervalMs: interval, jitterFraction: 0.25, maxConcurrency: cap,
-            now: clock.now, sleep: clock.sleep, random: () => randoms[i++ % randoms.length] ?? 0,
+            minIntervalMs: interval,
+            jitterFraction: 0.25,
+            maxConcurrency: cap,
+            now: clock.now,
+            sleep: clock.sleep,
+            random: () => randoms[i++ % randoms.length] ?? 0,
           });
           const starts = new Map<string, number[]>();
           await Promise.all(
@@ -188,7 +236,14 @@ describe('HostRateLimiter', () => {
 
   it('adds at most 25% jitter and honours a larger per-call interval', async () => {
     const clock = makeClock();
-    const limiter = new HostRateLimiter({ minIntervalMs: 2000, jitterFraction: 0.25, maxConcurrency: 4, now: clock.now, sleep: clock.sleep, random: () => 0.999 });
+    const limiter = new HostRateLimiter({
+      minIntervalMs: 2000,
+      jitterFraction: 0.25,
+      maxConcurrency: 4,
+      now: clock.now,
+      sleep: clock.sleep,
+      random: () => 0.999,
+    });
     await limiter.run('h', () => Promise.resolve());
     await limiter.run('h', () => Promise.resolve());
     expect(clock.sleeps).toEqual([2499]);
@@ -198,7 +253,14 @@ describe('HostRateLimiter', () => {
 
   it('never exceeds the global concurrency cap', async () => {
     const clock = makeClock();
-    const limiter = new HostRateLimiter({ minIntervalMs: 0, jitterFraction: 0, maxConcurrency: 2, now: clock.now, sleep: clock.sleep, random: () => 0 });
+    const limiter = new HostRateLimiter({
+      minIntervalMs: 0,
+      jitterFraction: 0,
+      maxConcurrency: 2,
+      now: clock.now,
+      sleep: clock.sleep,
+      random: () => 0,
+    });
     let active = 0;
     let peak = 0;
     await Promise.all(
@@ -216,7 +278,14 @@ describe('HostRateLimiter', () => {
 
   it('keeps a host serial even when a task throws', async () => {
     const clock = makeClock();
-    const limiter = new HostRateLimiter({ minIntervalMs: 0, jitterFraction: 0, maxConcurrency: 4, now: clock.now, sleep: clock.sleep, random: () => 0 });
+    const limiter = new HostRateLimiter({
+      minIntervalMs: 0,
+      jitterFraction: 0,
+      maxConcurrency: 4,
+      now: clock.now,
+      sleep: clock.sleep,
+      random: () => 0,
+    });
     await expect(limiter.run('h', () => Promise.reject(new Error('boom')))).rejects.toThrow('boom');
     await expect(limiter.run('h', () => Promise.resolve(7))).resolves.toBe(7);
   });
@@ -240,35 +309,68 @@ describe('cadence', () => {
     expect(isDue({ lastRunAt: null, intervalMs: 1, now })).toBe(true);
     expect(isDue({ lastRunAt: new Date(START), intervalMs: 10 * MINUTE_MS, now })).toBe(true);
     expect(isDue({ lastRunAt: new Date(START + 1), intervalMs: 10 * MINUTE_MS, now })).toBe(false);
-    expect(isDue({ lastRunAt: new Date(START + 1), intervalMs: 10 * MINUTE_MS, now, jitterFraction: 0.1 })).toBe(true);
-    expect(isDue({ lastRunAt: new Date(START + 20 * MINUTE_MS), intervalMs: HOUR_MS, now })).toBe(true); // clock skew
+    expect(
+      isDue({
+        lastRunAt: new Date(START + 1),
+        intervalMs: 10 * MINUTE_MS,
+        now,
+        jitterFraction: 0.1,
+      }),
+    ).toBe(true);
+    expect(isDue({ lastRunAt: new Date(START + 20 * MINUTE_MS), intervalMs: HOUR_MS, now })).toBe(
+      true,
+    ); // clock skew
   });
   it('property: jitter only makes a run earlier; due is monotonic in time', () => {
     fc.assert(
-      fc.property(fc.integer({ min: 1, max: 1e7 }), fc.integer({ min: 0, max: 1e7 }), fc.integer({ min: 0, max: 1e7 }), fc.double({ min: 0, max: 1, noNaN: true }), (interval, elapsed, extra, j) => {
-        const last = new Date(START);
-        const t1 = new Date(START + elapsed);
-        const t2 = new Date(START + elapsed + extra);
-        if (isDue({ lastRunAt: last, intervalMs: interval, now: t1 })) expect(isDue({ lastRunAt: last, intervalMs: interval, now: t1, jitterFraction: j })).toBe(true);
-        if (isDue({ lastRunAt: last, intervalMs: interval, now: t1, jitterFraction: j })) expect(isDue({ lastRunAt: last, intervalMs: interval, now: t2, jitterFraction: j })).toBe(true);
-      }),
+      fc.property(
+        fc.integer({ min: 1, max: 1e7 }),
+        fc.integer({ min: 0, max: 1e7 }),
+        fc.integer({ min: 0, max: 1e7 }),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        (interval, elapsed, extra, j) => {
+          const last = new Date(START);
+          const t1 = new Date(START + elapsed);
+          const t2 = new Date(START + elapsed + extra);
+          if (isDue({ lastRunAt: last, intervalMs: interval, now: t1 }))
+            expect(
+              isDue({ lastRunAt: last, intervalMs: interval, now: t1, jitterFraction: j }),
+            ).toBe(true);
+          if (isDue({ lastRunAt: last, intervalMs: interval, now: t1, jitterFraction: j }))
+            expect(
+              isDue({ lastRunAt: last, intervalMs: interval, now: t2, jitterFraction: j }),
+            ).toBe(true);
+        },
+      ),
     );
   });
   it('backoffAfterFailures doubles up to 6 h and never goes below normal', () => {
     const n = 15 * MINUTE_MS;
-    expect([0, 1, 2, 3, 4, 5, 99].map((f) => backoffAfterFailures(f, n))).toEqual([n, 2 * n, 4 * n, 8 * n, 16 * n, 6 * HOUR_MS, 6 * HOUR_MS]);
+    expect([0, 1, 2, 3, 4, 5, 99].map((f) => backoffAfterFailures(f, n))).toEqual([
+      n,
+      2 * n,
+      4 * n,
+      8 * n,
+      16 * n,
+      6 * HOUR_MS,
+      6 * HOUR_MS,
+    ]);
     expect(backoffAfterFailures(3, 12 * HOUR_MS)).toBe(12 * HOUR_MS);
     expect(backoffAfterFailures(-4, n)).toBe(n);
     expect(backoffAfterFailures(Number.NaN, n)).toBe(n);
   });
   it('property: backoff is non-decreasing in failures and within [normal, max(normal, 6h)]', () => {
     fc.assert(
-      fc.property(fc.integer({ min: 1, max: 24 * HOUR_MS }), fc.integer({ min: 0, max: 100 }), (normal, f) => {
-        const a = backoffAfterFailures(f, normal);
-        expect(backoffAfterFailures(f + 1, normal)).toBeGreaterThanOrEqual(a);
-        expect(a).toBeGreaterThanOrEqual(normal);
-        expect(a).toBeLessThanOrEqual(Math.max(normal, 6 * HOUR_MS));
-      }),
+      fc.property(
+        fc.integer({ min: 1, max: 24 * HOUR_MS }),
+        fc.integer({ min: 0, max: 100 }),
+        (normal, f) => {
+          const a = backoffAfterFailures(f, normal);
+          expect(backoffAfterFailures(f + 1, normal)).toBeGreaterThanOrEqual(a);
+          expect(a).toBeGreaterThanOrEqual(normal);
+          expect(a).toBeLessThanOrEqual(Math.max(normal, 6 * HOUR_MS));
+        },
+      ),
     );
   });
 });

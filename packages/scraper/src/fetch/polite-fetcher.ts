@@ -99,7 +99,7 @@ export function isAllowedContentType(contentType: string | null): boolean {
     mime.startsWith('text/') ||
     mime === 'application/json' ||
     mime === 'application/xml' ||
-    /^application\/[a-z0-9.\-]+\+json$/.test(mime)
+    /^application\/[a-z0-9.-]+\+json$/.test(mime)
   );
 }
 
@@ -570,7 +570,7 @@ export class PoliteFetcher {
       if (!fullBody) {
         // Redirects and errors: the body is not wanted, except a peek to recognise a block page.
         const peek = REDIRECT_STATUSES.has(status) || status === 304 ? 0 : BLOCK_PAGE_SCAN_BYTES;
-        const read = await this.#readBody(res, peek, 'truncate');
+        const read = await this.#readBody(res, peek, 'truncate', controller.signal);
         if (read.kind === 'error') return failed(read.error, true);
         if (read.kind === 'too_large') return { kind: 'refused', reason: 'too_large' };
         return {
@@ -599,6 +599,7 @@ export class PoliteFetcher {
         res,
         mode === 'robots' ? ROBOTS_MAX_BYTES : this.#maxBytes,
         mode === 'robots' ? 'truncate' : 'refuse',
+        controller.signal,
       );
       if (read.kind === 'error') return failed(read.error, true);
       if (read.kind === 'too_large') return { kind: 'refused', reason: 'too_large' };
@@ -615,17 +616,28 @@ export class PoliteFetcher {
   }
 
   /** Reads up to `limit` bytes. Past the limit: 'refuse' reports too_large, 'truncate' keeps the head. Always cancels the stream. */
-  async #readBody(res: Response, limit: number, overflow: 'refuse' | 'truncate') {
+  async #readBody(
+    res: Response,
+    limit: number,
+    overflow: 'refuse' | 'truncate',
+    signal: AbortSignal,
+  ) {
     if (res.body === null || limit === 0) {
       swallow(res.body?.cancel());
       return { kind: 'ok' as const, body: new Uint8Array(0) };
     }
-    const reader = res.body.getReader();
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    // Do not trust the body stream to notice the deadline: race every read against it.
+    const aborted = new Promise<never>((_resolve, reject) => {
+      if (signal.aborted) reject(new Error('aborted'));
+      else signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    });
+    aborted.catch(() => undefined);
     const chunks: Uint8Array[] = [];
     let total = 0;
     try {
       for (;;) {
-        const { done, value } = await reader.read();
+        const { done, value } = await Promise.race([reader.read(), aborted]);
         if (done) break;
         total += value.byteLength;
         if (total > limit) {

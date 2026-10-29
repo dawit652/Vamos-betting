@@ -23,7 +23,9 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
   });
 
   it('uses the longest match and lets Allow win a tie', () => {
-    const r = parseRobots('User-agent: *\nDisallow: /a\nAllow: /a/b\nDisallow: /a/b/c\nAllow: /t\nDisallow: /t');
+    const r = parseRobots(
+      'User-agent: *\nDisallow: /a\nAllow: /a/b\nDisallow: /a/b/c\nAllow: /t\nDisallow: /t',
+    );
     expect(isAllowed(r, UA, '/a/x')).toBe(false);
     expect(isAllowed(r, UA, '/a/b/x')).toBe(true);
     expect(isAllowed(r, UA, '/a/b/c/d')).toBe(false);
@@ -32,7 +34,9 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
   });
 
   it('supports * and $ wildcards', () => {
-    const r = parseRobots('User-agent: *\nDisallow: /*.json$\nDisallow: /tmp*draft\nAllow: /tmp/ok');
+    const r = parseRobots(
+      'User-agent: *\nDisallow: /*.json$\nDisallow: /tmp*draft\nAllow: /tmp/ok',
+    );
     expect(isAllowed(r, UA, '/data/x.json')).toBe(false);
     expect(isAllowed(r, UA, '/data/x.json?x=1')).toBe(true);
     expect(isAllowed(r, UA, '/data/x.jsonl')).toBe(true);
@@ -72,14 +76,17 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
   });
 
   it('merges several groups naming the same agent', () => {
-    const r = parseRobots('User-agent: vamosbot\nDisallow: /a\n\nUser-agent: vamosbot\nDisallow: /b');
+    const r = parseRobots(
+      'User-agent: vamosbot\nDisallow: /a\n\nUser-agent: vamosbot\nDisallow: /b',
+    );
     expect(isAllowed(r, UA, '/a')).toBe(false);
     expect(isAllowed(r, UA, '/b')).toBe(false);
     expect(isAllowed(r, UA, '/c')).toBe(true);
   });
 
   it('handles comments, CRLF, CR, BOM, odd spacing and case of field names', () => {
-    const text = '﻿USER-AGENT : *  # everyone\r\nDISALLOW:/x # no\r\rAllow:   /x/y\r\nSitemap: https://e.com/s.xml\r\n';
+    const text =
+      '﻿USER-AGENT : *  # everyone\r\nDISALLOW:/x # no\r\rAllow:   /x/y\r\nSitemap: https://e.com/s.xml\r\n';
     const r = parseRobots(text);
     expect(isAllowed(r, UA, '/x/z')).toBe(false);
     expect(isAllowed(r, UA, '/x/y')).toBe(true);
@@ -92,7 +99,9 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
   });
 
   it('compares after percent-normalisation', () => {
-    const r = parseRobots('User-agent: *\nDisallow: /caf%C3%A9\nDisallow: /a%2fb\nDisallow: /~user');
+    const r = parseRobots(
+      'User-agent: *\nDisallow: /caf%C3%A9\nDisallow: /a%2fb\nDisallow: /~user',
+    );
     expect(isAllowed(r, UA, '/café/menu')).toBe(false);
     expect(isAllowed(r, UA, '/a%2Fb')).toBe(false);
     expect(isAllowed(r, UA, '/%7Euser/x')).toBe(false);
@@ -111,7 +120,12 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
     expect(robotsCrawlDelayMs(parseRobots('User-agent: *\nCrawl-delay: 9999'), UA)).toBe(60_000);
     expect(robotsCrawlDelayMs(parseRobots('User-agent: *\nCrawl-delay: -3'), UA)).toBe(0);
     expect(robotsCrawlDelayMs(parseRobots('User-agent: *\nCrawl-delay: soon'), UA)).toBe(0);
-    expect(robotsCrawlDelayMs(parseRobots('User-agent: vamosbot\nCrawl-delay: 7\nUser-agent: *\nCrawl-delay: 1'), UA)).toBe(7000);
+    expect(
+      robotsCrawlDelayMs(
+        parseRobots('User-agent: vamosbot\nCrawl-delay: 7\nUser-agent: *\nCrawl-delay: 1'),
+        UA,
+      ),
+    ).toBe(7000);
   });
 
   it('stays fast on a pathological pattern', () => {
@@ -130,26 +144,43 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
 describe('robots properties', () => {
   it('parseRobots never throws and isAllowed is deterministic', () => {
     fc.assert(
-      fc.property(fc.string({ maxLength: 600 }), fc.string({ maxLength: 60 }), fc.string({ maxLength: 60 }), (text, ua, path) => {
-        const rules = parseRobots(text);
-        const a = isAllowed(rules, ua, path);
-        expect(isAllowed(rules, ua, path)).toBe(a);
-        expect(isAllowed(parseRobots(text), ua, path)).toBe(a);
-      }),
+      fc.property(
+        fc.string({ maxLength: 600 }),
+        fc.string({ maxLength: 60 }),
+        fc.string({ maxLength: 60 }),
+        (text, ua, path) => {
+          const rules = parseRobots(text);
+          const a = isAllowed(rules, ua, path);
+          expect(isAllowed(rules, ua, path)).toBe(a);
+          expect(isAllowed(parseRobots(text), ua, path)).toBe(a);
+        },
+      ),
     );
   });
 
   it('structured robots files never throw either', () => {
     const line = fc.oneof(
-      fc.constantFrom('User-agent: *', 'User-agent: vamosbot', 'Disallow: /', 'Allow: /a', 'Disallow: /*.x$', 'Crawl-delay: 5', '# c'),
+      fc.constantFrom(
+        'User-agent: *',
+        'User-agent: vamosbot',
+        'Disallow: /',
+        'Allow: /a',
+        'Disallow: /*.x$',
+        'Crawl-delay: 5',
+        '# c',
+      ),
       fc.string({ maxLength: 30 }),
     );
     fc.assert(
-      fc.property(fc.array(line, { maxLength: 40 }), fc.string({ maxLength: 40 }), (lines, path) => {
-        const rules = parseRobots(lines.join('\r\n'));
-        expect(typeof isAllowed(rules, 'vamosbot', path)).toBe('boolean');
-        expect(robotsCrawlDelayMs(rules, 'vamosbot')).toBeLessThanOrEqual(60_000);
-      }),
+      fc.property(
+        fc.array(line, { maxLength: 40 }),
+        fc.string({ maxLength: 40 }),
+        (lines, path) => {
+          const rules = parseRobots(lines.join('\r\n'));
+          expect(typeof isAllowed(rules, 'vamosbot', path)).toBe('boolean');
+          expect(robotsCrawlDelayMs(rules, 'vamosbot')).toBeLessThanOrEqual(60_000);
+        },
+      ),
     );
   });
 });

@@ -237,9 +237,8 @@ describe('upsertObservation', () => {
 
   it('payload hash ignores resolved ids and observedAt but not the claim', () => {
     const a = fixtureObs({ sourceId: 'src-a', runId });
-    expect(observationPayloadHash(a)).toBe(
-      observationPayloadHash({ ...a, observedAt: at(99), competitionId: ctx.competitionId }),
-    );
+    const other = { ...a, observedAt: at(99), competitionId: ctx.competitionId };
+    expect(observationPayloadHash(a)).toBe(observationPayloadHash(other));
     expect(observationPayloadHash(a)).not.toBe(observationPayloadHash({ ...a, homeRaw: 'Other' }));
     expect(observationPayloadHash(a)).toMatch(/^[0-9a-f]{64}$/);
   });

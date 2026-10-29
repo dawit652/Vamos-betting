@@ -33,7 +33,7 @@ export interface RobotsRules {
 }
 
 /** No robots.txt (4xx): everything is allowed. */
-export const ROBOTS_ALLOW_ALL: RobotsRules = Object.freeze({ groups: [] }) as RobotsRules;
+export const ROBOTS_ALLOW_ALL: RobotsRules = Object.freeze({ groups: [] });
 
 /** robots.txt unavailable (5xx, unreachable): RFC 9309 2.3.1.4 says assume complete disallow. */
 export const ROBOTS_DISALLOW_ALL: RobotsRules = Object.freeze({
@@ -44,7 +44,7 @@ export const ROBOTS_DISALLOW_ALL: RobotsRules = Object.freeze({
       crawlDelaySec: null,
     },
   ],
-}) as RobotsRules;
+});
 
 const UNRESERVED = /[A-Za-z0-9\-._~]/;
 const HEX = '0123456789ABCDEF';

@@ -68,7 +68,9 @@ describe('runs', () => {
       error: null,
     });
     expect(done.finishedAt).toBeInstanceOf(Date);
-    const again = await finishRun(ctx.handle.db, run.id, { status: 'failed' }).catch((e) => e);
+    const again = await finishRun(ctx.handle.db, run.id, { status: 'failed' }).catch(
+      (e: unknown) => e,
+    );
     expect(again).toBeInstanceOf(ScrapeRunStateError);
     expect((await listRecentRuns(ctx.handle.db, { sourceId: 'run-a' }))[0]?.status).toBe('ok');
     await expect(
@@ -100,11 +102,15 @@ describe('runs', () => {
   it('the database rejects an unknown status and a running run with a finish time', async () => {
     const run = await startRun(ctx.handle.db, { sourceId: 'run-a', startedAt: at(2) });
     const error = await finishRun(ctx.handle.db, run.id, { status: 'weird' as never }).catch(
-      (e) => e,
+      (e: unknown) => e,
     );
     expect(pgCode(error)).toBe('23514');
     expect(
-      pgCode(await startRun(ctx.handle.db, { sourceId: 'nope', startedAt: at(2) }).catch((e) => e)),
+      pgCode(
+        await startRun(ctx.handle.db, { sourceId: 'nope', startedAt: at(2) }).catch(
+          (e: unknown) => e,
+        ),
+      ),
     ).toBe('23503');
   });
 
@@ -167,12 +173,14 @@ describe('raw snapshots', () => {
       fetchedAt: at(1),
     };
     expect(
-      pgCode(await recordRaw(ctx.handle.db, { ...base, contentHash: 'abc' }).catch((e) => e)),
+      pgCode(
+        await recordRaw(ctx.handle.db, { ...base, contentHash: 'abc' }).catch((e: unknown) => e),
+      ),
     ).toBe('23514');
     expect(
       pgCode(
         await recordRaw(ctx.handle.db, { ...base, contentHash: sha('x'), status: 99 }).catch(
-          (e) => e,
+          (e: unknown) => e,
         ),
       ),
     ).toBe('23514');
