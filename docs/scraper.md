@@ -147,7 +147,17 @@ Every rule has an id; tests cite the id in their names. Constants are in
   one source, and the shift is later, at most `SMALL_SHIFT_MS`, and the event
   has no bets. A move to an earlier time, with bets on the event, needs (a). A
   new time before `now + MIN_LEAD_MS` is never applied. Anything else →
-  `kickoff_change`.
+  `kickoff_change`. The move is re-checked under the event's row lock (still
+  scheduled, still starting at the time the decision was taken, and for (b) still
+  without bets); if anything changed, nothing is applied and the next pass decides
+  again.
+- **F4c Several clusters, one fixture.** Sources that differ by more than
+  `CLUSTER_WINDOW_MS` form several clusters (F1). If they match the same open
+  event (F3), or the same pairing is unknown and the clusters lie within
+  `MATCH_WINDOW_MS` of each other, none of them is decided: one `kickoff_change`
+  (`sources_disagree`) or `fixture_conflict` is opened and nothing is moved or
+  created. A cluster decided alone would flip the kickoff on every pass or
+  create the fixture twice.
 - **F5 Absence never cancels.** A fixture missing from a source changes
   nothing. An event no enabled source has listed in a successful run for
   `MISSING_AFTER_MS` opens `fixture_missing`. Nothing is cancelled because a

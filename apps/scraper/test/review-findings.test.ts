@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { resolveReviewItem, setCompetitionPolicy } from '@vamos/db';
+import {
+  listScrapedEvents,
+  resolveReviewItem,
+  setCompetitionPolicy,
+  setSourceEnabled,
+  upsertSource,
+} from '@vamos/db';
 import { afterEach, describe, expect, it } from 'vitest';
-import { promoteFixtures } from '../src/pipeline/promote-fixtures';
+import { applyKickoff, promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { applyStaffConfirmations, promoteResults } from '../src/pipeline/promote-results';
 import {
   ARSENAL_CHELSEA_JSON,
@@ -31,6 +37,7 @@ afterEach(async () => {
   await h?.close();
 }, SETUP_TIMEOUT);
 
+const DAY = 24 * HOUR;
 const rows = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) =>
   (await h.pool.query<T>(sql, params)).rows;
 const event = async () =>
@@ -196,6 +203,124 @@ describe('review finding 3: a rejected staff confirmation is never replayed', ()
       );
       expect(await applyStaffConfirmations(h.ctx)).toEqual({ applied: 0, rejected: 0 });
       expect(await event()).toMatchObject({ status: 'scheduled', score_home: null });
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+describe('review finding 1: several clusters of one event never flip its kickoff', () => {
+  const URL_C = 'https://api.example.com/c';
+  const URL_D = 'https://api.example.com/d';
+  const MOVED = '2026-11-04T15:00:00Z';
+
+  async function withExtraSources(): Promise<void> {
+    await createdEvent();
+    await h.ctx.db.transaction(async (tx) => {
+      for (const [id, url] of [
+        ['src-c', URL_C],
+        ['src-d', URL_D],
+      ] as const) {
+        await upsertSource(
+          tx,
+          {
+            id,
+            name: id,
+            adapter: 'generic-json',
+            upstream: `${id}-upstream`,
+            config: {
+              allowedHosts: ['api.example.com'],
+              requests: [{ url, purpose: 'both' }],
+              sport: 'football',
+              recordsPath: 'data.events[*]',
+              fields: {
+                home: 'h',
+                away: 'a',
+                competition: { path: 'league' },
+                kickoff: { path: 'kick', format: 'iso' },
+                externalRef: 'id',
+                status: { path: 'st', map: { FT: 'finished', NS: 'scheduled', PST: 'postponed' } },
+              },
+            },
+          },
+          { system: 'test' },
+        );
+        await setSourceEnabled(tx, id, true, { system: 'test' });
+        h.serve(url, jsonDoc([ARSENAL_CHELSEA_JSON]));
+      }
+    });
+    for (const id of ['src-c', 'src-d']) await h.run(id);
+  }
+
+  it(
+    'F4: two sources move the match, two still say the old date: no move, one kickoff_change',
+    async () => {
+      await withExtraSources();
+      // b and c (independent upstreams) move the match two days later; a and d still say the old date.
+      h.advance(MINUTE);
+      h.serve(URL_B, jsonDoc([{ ...ARSENAL_CHELSEA_JSON, kick: MOVED }]));
+      h.serve(URL_C, jsonDoc([{ ...ARSENAL_CHELSEA_JSON, kick: MOVED }]));
+      for (const id of ['src-a', 'src-b', 'src-c', 'src-d']) await h.run(id);
+      for (let pass = 0; pass < 3; pass++) {
+        h.advance(MINUTE);
+        expect((await promoteFixtures(h.ctx)).kickoffMoved).toBe(0);
+        expect((await event()).start_time.toISOString()).toBe(KICKOFF.toISOString());
+      }
+      expect(
+        await h.count(
+          `SELECT count(*) AS n FROM audit_log WHERE action = 'scrape.fixture.kickoff_moved'`,
+        ),
+      ).toBe(0);
+      const items = await rows<{ kind: string; payload: { reasons: string[] } }>(
+        `SELECT kind, payload FROM scrape_review_items WHERE status = 'open' AND kind = 'kickoff_change'`,
+      );
+      expect(items).toHaveLength(1);
+      expect(items[0]!.payload.reasons).toEqual(['sources_disagree']);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'F3: an unknown fixture seen as two clusters is not created twice',
+    async () => {
+      h = await createHarness();
+      h.serve(URL_A, ofDoc([ARSENAL_CHELSEA_OF]));
+      h.serve(URL_B, jsonDoc([{ ...ARSENAL_CHELSEA_JSON, kick: MOVED }]));
+      await h.run('src-a');
+      await h.run('src-b');
+      const summary = await promoteFixtures(h.ctx);
+      expect(summary.created).toBe(0);
+      expect(
+        await h.count(`SELECT count(*) AS n FROM events WHERE feed_provider = 'scraped'`),
+      ).toBe(0);
+      expect(await openKinds()).toContain('fixture_conflict');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'F4: a move is re-checked under the event lock (the start is no longer the one decided on)',
+    async () => {
+      await createdEvent();
+      const [scraped] = await listScrapedEvents(h.ctx.db, {
+        from: new Date(KICKOFF.getTime() - 30 * DAY),
+        to: new Date(KICKOFF.getTime() + 30 * DAY),
+        includeFinished: true,
+      });
+      const decision = {
+        action: 'update-kickoff' as const,
+        eventId: scraped!.eventId,
+        feedRef: scraped!.feedRef,
+        from: new Date(KICKOFF.getTime() + HOUR),
+        to: new Date(KICKOFF.getTime() + 3 * HOUR),
+        rule: 'F4a' as const,
+        upstreams: ['a', 'b'],
+      };
+      const done = await applyKickoff(h.ctx, decision, scraped!, h.now());
+      expect(done.moved).toBe(false);
+      expect((await event()).start_time.toISOString()).toBe(KICKOFF.toISOString());
+      const ok = await applyKickoff(h.ctx, { ...decision, from: KICKOFF }, scraped!, h.now());
+      expect(ok.moved).toBe(true);
+      expect((await event()).start_time.getTime()).toBe(KICKOFF.getTime() + 3 * HOUR);
     },
     TEST_TIMEOUT,
   );

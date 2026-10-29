@@ -29,6 +29,7 @@ import {
   fixtureFeedRef,
   type GateFinding,
   type GateHold,
+  type GateJson,
   type GatePayload,
   type GateReview,
   holdFrom,
@@ -135,6 +136,75 @@ export interface FixtureNone {
 export type FixtureDecision = FixtureCreate | FixtureUpdateKickoff | GateHold | FixtureNone;
 
 type FixtureObs = ResolvedObservation<FixtureObservation>;
+
+/**
+ * Several clusters (rule F1) for ONE fixture: sources that disagree by more than
+ * the cluster window (the kickoff moved for some, not for others). Each cluster
+ * decided on its own would move the kickoff back and forth on every pass, or
+ * create the fixture twice, so none is decided: one hold asks a person.
+ *
+ * - `event`: the clusters all matched this scheduled event (F3) → a
+ *   `kickoff_change` (`sources_disagree`), critical when a cluster says the
+ *   match starts earlier than the event does (betting would stay open too long);
+ * - `pairing`: the clusters matched no event but are the same pairing within
+ *   MATCH_WINDOW_MS of each other → a `fixture_conflict` (`sources_disagree`);
+ *   nothing is created.
+ *
+ * Pure; the order of the clusters does not matter.
+ */
+export function holdSeveralClusters(
+  input:
+    | { readonly event: ExistingEvent; readonly clusters: readonly (readonly FixtureObs[])[] }
+    | { readonly pairing: Pairing; readonly clusters: readonly (readonly FixtureObs[])[] },
+): GateHold {
+  const summaries = input.clusters
+    .map((items) => {
+      const kickoffs = listOf(items).map((o) => o.obs.kickoff.getTime());
+      return {
+        earliest: Math.min(...kickoffs),
+        latest: Math.max(...kickoffs),
+        sources: sortedUnique(listOf(items).map((o) => o.obs.sourceId)),
+        statuses: sortedUnique(listOf(items).map((o) => o.obs.status)),
+      };
+    })
+    .sort((a, b) => a.earliest - b.earliest || a.latest - b.latest);
+  const clusters: GateJson = summaries.map((c) => ({
+    earliest: iso(c.earliest),
+    latest: iso(c.latest),
+    sources: c.sources,
+    statuses: c.statuses,
+  }));
+  if ('event' in input) {
+    const { event } = input;
+    const startMs = event.startTime.getTime();
+    const earlier = summaries.some((c) => c.earliest < startMs);
+    return holdFrom(
+      event.feedRef,
+      [
+        {
+          kind: 'kickoff_change',
+          rule: 'F4',
+          reason: 'sources_disagree',
+          ...(earlier ? { severity: 'critical' as const } : {}),
+        },
+      ],
+      () => ({
+        eventId: event.eventId,
+        feedRef: event.feedRef,
+        eventStart: iso(startMs),
+        hasBets: event.hasBets,
+        clusters,
+      }),
+    );
+  }
+  const first = Math.min(...summaries.map((c) => c.earliest));
+  const subjectKey = fixtureFeedRef(input.pairing, new Date(first));
+  return holdFrom(
+    subjectKey,
+    [{ kind: 'fixture_conflict', rule: 'F1', reason: 'sources_disagree' }],
+    () => ({ feedRef: subjectKey, clusters }),
+  );
+}
 
 /** Decides F2–F7 for one cluster. Pure; throws only for programmer errors (bad `now`, wrong policy). */
 export function decideFixture(input: FixtureGateInput): FixtureDecision {

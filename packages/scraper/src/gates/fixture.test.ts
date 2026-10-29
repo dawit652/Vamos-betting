@@ -17,7 +17,7 @@ import type {
   ResolvedObservation,
 } from '../types';
 import { countIndependent } from './confirmation';
-import { decideFixture, type FixtureDecision } from './fixture';
+import { decideFixture, holdSeveralClusters, type FixtureDecision } from './fixture';
 import { reviewsOf } from './review';
 import { FEED_REF, fixtureObs, KICKOFF, makeEvent, makePolicy, NAMES } from './testkit';
 
@@ -528,5 +528,50 @@ describe('properties', () => {
       }),
       { numRuns: 100 },
     );
+  });
+});
+
+describe('review finding 1: several clusters for one fixture are never decided one by one', () => {
+  const event = makeEvent();
+  const later = [at('s1', 2 * DAY_MS), at('s2', 2 * DAY_MS)];
+  const stale = [at('s3', 0), at('s4', 0)];
+
+  it('an event matched by two clusters gets one kickoff_change (sources_disagree) and nothing else', () => {
+    const d = holdSeveralClusters({ event, clusters: [later, stale] });
+    expect(d.action).toBe('hold');
+    expect(d.review).toMatchObject({ kind: 'kickoff_change', subjectKey: FEED_REF });
+    expect(d.review.payload).toMatchObject({
+      reasons: ['sources_disagree'],
+      eventId: event.eventId,
+      eventStart: new Date(KICKOFF).toISOString(),
+    });
+    expect(d.also).toEqual([]);
+  });
+
+  it('is critical when a cluster puts the match earlier than the event, otherwise a warning', () => {
+    expect(holdSeveralClusters({ event, clusters: [later, stale] }).review.severity).toBe(
+      'warning',
+    );
+    expect(
+      holdSeveralClusters({ event, clusters: [[at('s1', -DAY_MS)], stale] }).review.severity,
+    ).toBe('critical');
+  });
+
+  it('does not depend on the order of the clusters', () => {
+    expect(holdSeveralClusters({ event, clusters: [stale, later] })).toEqual(
+      holdSeveralClusters({ event, clusters: [later, stale] }),
+    );
+  });
+
+  it('a pairing with several new clusters is one fixture_conflict, nothing is created', () => {
+    const d = holdSeveralClusters({
+      pairing: NAMES,
+      clusters: [later, stale],
+    });
+    expect(d.review).toMatchObject({
+      kind: 'fixture_conflict',
+      subjectKey: FEED_REF,
+    });
+    expect(d.review.payload).toMatchObject({ reasons: ['sources_disagree'] });
   });
 });
