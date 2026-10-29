@@ -166,6 +166,7 @@ describe('seedCatalog', () => {
       'ethiopian-premier-league',
       'laliga',
       'premier-league',
+      'primera-division',
       'serie-a',
       'uefa-champions-league',
     ]);
@@ -227,6 +228,59 @@ describe('seedCatalog', () => {
       am: 'ቅዱስ ጊዮርጊስ',
     });
     expect((await teamRow('football', 'Mekelle 70')).name.am).toBe('መቐለ 70 እንደርታ');
+  });
+
+  it('seeds the Costa Rican top division first, with the ten Apertura 2026 clubs and neutral ratings', async () => {
+    const [first] = await handle.db
+      .select()
+      .from(categories)
+      .where(eq(categories.sportId, 'football'))
+      .orderBy(asc(categories.sortOrder))
+      .limit(1);
+    expect(first).toMatchObject({
+      slug: 'costa-rica',
+      countryCode: 'CR',
+      name: { en: 'Costa Rica' },
+    });
+    const primera = await competitionRow('football', 'primera-division');
+    expect(primera).toMatchObject({
+      name: { en: 'Primera División' },
+      featured: true,
+      active: true,
+      categoryId: first!.id,
+    });
+
+    const feed = await loadFeedTeams(handle.db);
+    const pool = feed.teams['primera-division'] ?? [];
+    expect(pool.map((t) => t.shortName).sort()).toEqual(
+      [
+        'Alajuelense',
+        'Cartaginés',
+        'Escorpiones',
+        'Herediano',
+        'Inter San Carlos',
+        'Pérez Zeledón',
+        'Puntarenas',
+        'San Carlos',
+        'Saprissa',
+        'Sporting CR',
+      ].sort(),
+    );
+    const rows = await handle.db
+      .select()
+      .from(teams)
+      .where(and(eq(teams.sportId, 'football'), eq(teams.countryCode, 'CR')));
+    expect(rows).toHaveLength(10);
+    // Neutral and uncalibrated (rule O1): no `matches`, no `manual`.
+    for (const row of rows) expect(row.ratings).toEqual({ attack: 1, defence: 1 });
+    expect((await teamRow('football', 'Pérez Zeledón')).name).toEqual({
+      en: 'Municipal Pérez Zeledón',
+    });
+    const unverified = await handle.db
+      .select({ shortName: teams.shortName })
+      .from(teams)
+      .where(sql`${teams.shortName} ILIKE '%liberia%' OR ${teams.shortName} ILIKE '%guadalupe%'`);
+    expect(unverified).toEqual([]);
   });
 
   it('keeps back-office edits and refreshes only what the seed owns', async () => {

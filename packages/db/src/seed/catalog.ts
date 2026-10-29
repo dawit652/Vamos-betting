@@ -220,6 +220,26 @@ const LIGUE_1 = football('FR', [
   ['Auxerre', 'AJ Auxerre', 0.9, 1.1],
 ]);
 
+/**
+ * Liga de Fútbol de Primera División (Liga FPD), the 10 clubs of Apertura 2026
+ * (docs/scraper-plan/sources-costa-rica.md). Ratings are deliberately neutral
+ * and carry neither `matches` nor `manual`, so rule O1 treats every club as
+ * NOT calibrated until a trader runs `ratings set` or `ratings backfill`.
+ * Spanish names need no translation, hence English-only names.
+ */
+const COSTA_RICAN_PRIMERA = football('CR', [
+  ['Alajuelense', 'Liga Deportiva Alajuelense', 1, 1],
+  ['Saprissa', 'Deportivo Saprissa', 1, 1],
+  ['Herediano', 'Club Sport Herediano', 1, 1],
+  ['Cartaginés', 'Club Sport Cartaginés', 1, 1],
+  ['Pérez Zeledón', 'Municipal Pérez Zeledón', 1, 1],
+  ['Puntarenas', 'Puntarenas Fútbol Club', 1, 1],
+  ['Sporting CR', 'Sporting Football Club', 1, 1],
+  ['San Carlos', 'Asociación Deportiva San Carlos', 1, 1],
+  ['Inter San Carlos', 'Inter San Carlos', 1, 1],
+  ['Escorpiones', 'Escorpiones de Belén', 1, 1],
+]);
+
 const ETHIOPIAN_PREMIER_LEAGUE = football('ET', [
   ['St George', { en: 'Saint George', am: 'ቅዱስ ጊዮርጊስ' }, 1.3, 0.8],
   ['Fasil Kenema', { en: 'Fasil Kenema', am: 'ፋሲል ከነማ' }, 1.2, 0.85],
@@ -333,6 +353,7 @@ export const CATALOG_TEAMS: readonly CatalogTeam[] = [
   ...SERIE_A,
   ...BUNDESLIGA,
   ...LIGUE_1,
+  ...COSTA_RICAN_PRIMERA,
   ...ETHIOPIAN_PREMIER_LEAGUE,
   ...CAF_CLUBS,
   ...NBA,
@@ -343,6 +364,24 @@ export const CATALOG_TEAMS: readonly CatalogTeam[] = [
 const shortNames = (list: readonly CatalogTeam[]) => list.map((team) => team.shortName);
 
 export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
+  {
+    // Home market, listed first. Sort order 5 sits before the existing 10..80 so
+    // databases seeded earlier (whose sort orders the seed never rewrites) agree.
+    sport: 'football',
+    slug: 'costa-rica',
+    name: { en: 'Costa Rica' },
+    countryCode: 'CR',
+    sortOrder: 5,
+    competitions: [
+      {
+        slug: 'primera-division',
+        name: { en: 'Primera División' },
+        featured: true,
+        sortOrder: 10,
+        teams: shortNames(COSTA_RICAN_PRIMERA),
+      },
+    ],
+  },
   {
     sport: 'football',
     slug: 'england',

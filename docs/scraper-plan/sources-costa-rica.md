@@ -91,6 +91,18 @@ Consequences for our rules:
 - **Matches left for shadow mode:** Apertura 2026 has about five regular-season matchdays (25 matches)
   and 6 to 8 play-off matches left.
 
+### Catalogue
+
+The seed (`packages/db/src/seed/catalog.ts`) now holds category `costa-rica` (country `CR`, first in the football
+list) with the featured competition `primera-division` ("Primera División") and the ten clubs marked
+`in_apertura_2026 = yes` in `data/costa-rica-teams.csv`. Ratings are neutral (`attack 1, defence 1`, no `matches`,
+no `manual`), so rule O1 treats them as not calibrated until a trader runs `ratings set` or `ratings backfill`.
+**Municipal Liberia and Guadalupe were left out**: their place in Apertura 2026 is contradicted across sources
+(section 2) and a person has not yet checked the club list on UNAFUT; add them when that is done. The alias draft
+`data/costa-rica-aliases.csv` is in the `aliases import` format (team aliases from the evidenced spellings, four
+competition aliases, all sources); the one "Liga" variant for Alajuelense was left out because it also names the
+league and other clubs. Import it with `aliases import --file docs/scraper-plan/data/costa-rica-aliases.csv`.
+
 ## 3. Candidate sources
 
 Every URL below was found by search on 2026-10-29. "Robots" is **not read** for all of them; "terms" give what the
