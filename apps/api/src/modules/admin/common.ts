@@ -66,9 +66,7 @@ export function guardAdminRoutes(app: FastifyInstance): void {
     }
     if (access === 'public') return;
     const guard: preHandlerAsyncHookHandler =
-      access === 'session'
-        ? requireStaffSession
-        : requirePermission(access, route.config?.staffOr);
+      access === 'session' ? requireStaffSession : requirePermission(access, route.config?.staffOr);
     const existing = route.preHandler;
     route.preHandler =
       existing === undefined
