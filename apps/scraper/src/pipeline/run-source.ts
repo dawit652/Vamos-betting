@@ -40,6 +40,7 @@ import {
 } from '@vamos/scraper';
 import { scrapeObservations } from '@vamos/db/schema';
 import { tryLock } from '../lib/lock';
+import { secretProblemMessage } from '../lib/secrets';
 import type { ScraperContext } from '../context';
 import { compareText } from './common';
 
@@ -319,6 +320,20 @@ async function execute(
           code: 'circuit_open',
           message: 'too many recent failures; not trying until the breaker closes',
           context: { url: item.url, retryAt: result.retryAt.toISOString() },
+        });
+        break;
+      }
+      if (result.kind === 'refused' && result.reason.startsWith('secret_')) {
+        // A key problem is the same for every request of the source: stop here. Nothing is
+        // quoted but the NAME of the variable; the value never reaches an issue or a log.
+        worsen('failed');
+        issues.push({
+          severity: 'error',
+          code: result.reason,
+          message: secretProblemMessage(result.reason, item.auth?.secret),
+          // Like invalid_config: the run could not proceed, and the run's error says why.
+          fatal: true,
+          context: { url: item.url },
         });
         break;
       }

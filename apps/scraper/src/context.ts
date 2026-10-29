@@ -1,8 +1,9 @@
 import { scraperUserAgent, type AppConfig } from '@vamos/config';
 import { LIVE_CHANNEL, type Database } from '@vamos/db';
-import { FileRawArchive, PoliteFetcher, type RawArchive } from '@vamos/scraper';
+import { FileRawArchive, PoliteFetcher, type RawArchive, type SecretReader } from '@vamos/scraper';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
+import { envSecretReader } from './lib/secrets';
 
 /** What every part of the scraper needs from the outside world (tests pass their own). */
 export interface ScraperContext {
@@ -27,6 +28,8 @@ export interface ScraperContextInput {
   logger: Logger;
   clock?: () => Date;
   fetcher?: PoliteFetcher;
+  /** Where API keys are read when the fetcher is built here (default: the process environment). */
+  secrets?: SecretReader;
   archive?: RawArchive;
   channel?: string;
 }
@@ -47,6 +50,7 @@ export function createScraperContext(input: ScraperContextInput): ScraperContext
         userAgent: scraperUserAgent(config.scraper),
         robots: config.scraper.robots,
         maxConcurrency: config.scraper.maxConcurrency,
+        secrets: input.secrets ?? envSecretReader(),
       }),
     archive: input.archive ?? new FileRawArchive(config.scraper.archiveDir, { now: clock }),
     channel: input.channel ?? LIVE_CHANNEL,

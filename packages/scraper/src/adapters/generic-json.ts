@@ -18,6 +18,7 @@ import {
   parseScoreInt,
   parseTimeText,
   purposeSchema,
+  requestAuthSchema,
   requestUrlSchema,
   sportSchema,
   startParse,
@@ -150,6 +151,12 @@ export const GenericJsonConfigSchema = z
       .array(z.strictObject({ url: requestUrlSchema, purpose: purposeSchema }))
       .min(1)
       .max(20),
+    /**
+     * An API key sent as a request header: `{ header, secret }`, where `secret` is the NAME of
+     * an environment variable (SCRAPER_SECRET_*). At most one header; it goes to the origin of
+     * each request URL and is dropped on a redirect to another origin.
+     */
+    auth: requestAuthSchema.optional(),
     sport: sportSchema,
     recordsPath: recordsPathSchema,
     fields: z.strictObject({
@@ -227,7 +234,14 @@ export function createGenericJsonAdapter(
     descriptor,
     allowedHosts: config.allowedHosts,
     plan(): FetchPlanItem[] {
-      return config.requests.map((r) => ({ url: r.url, purpose: r.purpose }));
+      return config.requests.map((r) => ({
+        url: r.url,
+        purpose: r.purpose,
+        // A reference only: the fetcher reads the value when it fetches.
+        ...(config.auth
+          ? { auth: { header: config.auth.header, secret: config.auth.secret } }
+          : {}),
+      }));
     },
     parse(doc: RawDocument): ParseOutcome {
       const { collector, usable } = startParse(descriptor.id, doc);

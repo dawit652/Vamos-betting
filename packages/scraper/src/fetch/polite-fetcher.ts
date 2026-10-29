@@ -3,6 +3,14 @@ import { backoffCeilingMs, backoffDelayMs, parseRetryAfter } from './backoff';
 import { detectBlockPage, BLOCK_PAGE_SCAN_BYTES } from './blockpage';
 import { CircuitBreaker, type CircuitBreakerOptions } from './circuit-breaker';
 import { InMemoryConditionalStore, type ConditionalStore } from './conditional';
+import {
+  FORBIDDEN_REQUEST_HEADERS,
+  SECRET_NAME_RE,
+  SECRET_VALUE_RE,
+  authHeaderProblem,
+  redactSecret,
+  type SecretReader,
+} from './auth';
 import { decodeBody } from './decode';
 import { HostRateLimiter } from './rate-limiter';
 import {
@@ -50,6 +58,19 @@ export interface PoliteFetcherOptions {
   breaker?: Omit<CircuitBreakerOptions, 'now'>;
   /** Allow http: and any port. For tests against a local server only. */
   allowInsecure?: boolean;
+  /**
+   * Where a plan item's `auth.secret` is read (the app passes its environment). Without it every
+   * item that needs a key is refused as `secret_missing`.
+   */
+  secrets?: SecretReader;
+}
+
+/** A resolved API key: lives for one `fetch` call and is never returned, logged or stored. */
+interface ResolvedAuth {
+  header: string;
+  value: string;
+  /** Only requests to this origin carry the key. */
+  origin: string;
 }
 
 export interface FetchContext {
@@ -76,18 +97,6 @@ interface RobotsEntry {
 
 const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([408, 429, 500, 502, 503, 504]);
 const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
-/** Headers a plan item may not set: identity, credentials ("no login") and framing. */
-const FORBIDDEN_REQUEST_HEADERS: ReadonlySet<string> = new Set([
-  'host',
-  'user-agent',
-  'cookie',
-  'authorization',
-  'proxy-authorization',
-  'content-length',
-  'connection',
-  'if-none-match',
-  'if-modified-since',
-]);
 const DEFAULT_ACCEPT =
   'text/html,application/json,application/xml,text/calendar;q=0.9,text/*;q=0.8';
 
@@ -129,6 +138,10 @@ function isDecodeError(e: unknown): boolean {
   );
 }
 
+function containsBytes(body: Uint8Array, text: string): boolean {
+  return Buffer.from(body.buffer, body.byteOffset, body.byteLength).includes(text);
+}
+
 function swallow(promise: Promise<unknown> | undefined): void {
   promise?.catch(() => undefined);
 }
@@ -161,6 +174,7 @@ export class PoliteFetcher {
   readonly #minIntervalMs: number;
   readonly #breakerOptions: Omit<CircuitBreakerOptions, 'now'>;
   readonly #allowInsecure: boolean;
+  readonly #secrets: SecretReader;
   readonly #limiter: HostRateLimiter;
   readonly #breakers = new Map<string, CircuitBreaker>();
   readonly #robots = new Map<string, RobotsEntry>();
@@ -206,6 +220,7 @@ export class PoliteFetcher {
       throw new RangeError('jitterFraction must be in [0, 1]');
     this.#breakerOptions = options.breaker ?? {};
     this.#allowInsecure = options.allowInsecure === true;
+    this.#secrets = options.secrets ?? (() => undefined);
     this.#limiter = new HostRateLimiter({
       minIntervalMs: this.#minIntervalMs,
       jitterFraction,
@@ -227,13 +242,26 @@ export class PoliteFetcher {
     const refusal = this.#checkUrl(start, ctx);
     if (refusal) return refusal;
 
+    // The key is resolved after the allow-list check (a refused host never sees it, not even
+    // in memory) and before anything is requested: no key, no request, robots.txt included.
+    const auth = this.#resolveAuth(item, start);
+    if ('kind' in auth) return auth;
+
     const breaker = this.#breakerFor(ctx.sourceKey);
     const permit = breaker.tryAcquire();
     if (!permit.allowed) return { kind: 'circuit_open', retryAt: permit.retryAt };
 
+    const secret = auth.value;
     let result: FetchResult;
     try {
-      result = await this.#follow(start, item.headers ?? {}, ctx, 'document', { attempts: 0 });
+      result = await this.#follow(
+        start,
+        item.headers ?? {},
+        ctx,
+        'document',
+        { attempts: 0 },
+        auth.resolved,
+      );
     } catch (e) {
       // A bug, not an expected failure: report it, but do not let it blame the server.
       breaker.recordNeutral();
@@ -242,11 +270,46 @@ export class PoliteFetcher {
         code: 'network',
         retryable: false,
         attempts: 0,
-        message: `unexpected: ${errorText(e)}`,
+        message: `unexpected: ${redactSecret(errorText(e), secret)}`,
       };
+    }
+    if (result.kind === 'error') {
+      // A transport error can quote the request it failed on: the key must not leave with it.
+      result = { ...result, message: redactSecret(result.message, secret) };
+    } else if (result.kind === 'ok' && secret !== null && containsBytes(result.body, secret)) {
+      // The server echoed our key back. The body would reach the archive and the database.
+      result = { kind: 'refused', reason: 'secret_echoed' };
     }
     this.#settle(breaker, result);
     return result;
+  }
+
+  /**
+   * The key for this item, or a refusal. `{ value: null, resolved: null }` for an item that needs none.
+   * The plan item is checked again here (name, header): the fetcher does not rely on the adapter.
+   */
+  #resolveAuth(
+    item: FetchPlanItem,
+    start: URL,
+  ): FetchRefused | { value: string | null; resolved: ResolvedAuth | null } {
+    const ref = item.auth;
+    if (ref === undefined) return { value: null, resolved: null };
+    if (!SECRET_NAME_RE.test(ref.secret) || authHeaderProblem(ref.header) !== null) {
+      return { kind: 'refused', reason: 'secret_invalid' };
+    }
+    let raw: string | undefined;
+    try {
+      raw = this.#secrets(ref.secret);
+    } catch {
+      raw = undefined;
+    }
+    const value = typeof raw === 'string' ? raw.trim() : '';
+    if (value === '') return { kind: 'refused', reason: 'secret_missing' };
+    if (!SECRET_VALUE_RE.test(value)) return { kind: 'refused', reason: 'secret_invalid' };
+    return {
+      value,
+      resolved: { header: ref.header.toLowerCase(), value, origin: start.origin },
+    };
   }
 
   #breakerFor(key: string): CircuitBreaker {
@@ -303,6 +366,7 @@ export class PoliteFetcher {
     ctx: FetchContext,
     mode: Mode,
     state: { attempts: number },
+    auth: ResolvedAuth | null = null,
   ): Promise<FetchResult> {
     let url = start;
     for (let hops = 0; ; hops += 1) {
@@ -318,7 +382,9 @@ export class PoliteFetcher {
         }
         crawlDelayMs = entry.crawlDelayMs;
       }
-      const hop = await this.#hop(url, planHeaders, mode, state, crawlDelayMs);
+      // The key goes to the origin it was meant for; a redirect (even inside the allow-list) loses it.
+      const hopAuth = auth !== null && url.origin === auth.origin ? auth : null;
+      const hop = await this.#hop(url, planHeaders, mode, state, crawlDelayMs, hopAuth);
       if (hop.kind === 'result') return hop.result;
       if (hops + 1 > this.#maxRedirects) return { kind: 'refused', reason: 'too_many_redirects' };
       try {
@@ -347,9 +413,10 @@ export class PoliteFetcher {
     mode: Mode,
     state: { attempts: number },
     crawlDelayMs: number,
+    auth: ResolvedAuth | null,
   ): Promise<Hop> {
     const validators = mode === 'document' ? await this.#validatorsFor(url) : null;
-    const headers = this.#requestHeaders(planHeaders, validators);
+    const headers = this.#requestHeaders(planHeaders, validators, auth);
     const conditional = 'if-none-match' in headers || 'if-modified-since' in headers;
     const done = (result: FetchResult): Hop => ({ kind: 'result', result });
 
@@ -500,6 +567,7 @@ export class PoliteFetcher {
   #requestHeaders(
     plan: Record<string, string>,
     validators: { etag: string | null; lastModified: string | null } | null,
+    auth: ResolvedAuth | null,
   ): Record<string, string> {
     const headers: Record<string, string> = { accept: DEFAULT_ACCEPT };
     for (const [name, value] of Object.entries(plan)) {
@@ -507,6 +575,7 @@ export class PoliteFetcher {
       if (!FORBIDDEN_REQUEST_HEADERS.has(key) && /^[\x20-\x7e]*$/.test(value)) headers[key] = value;
     }
     headers['user-agent'] = this.#userAgent;
+    if (auth !== null) headers[auth.header] = auth.value;
     const printable = /^[\x20-\x7e]+$/;
     if (validators?.etag && printable.test(validators.etag))
       headers['if-none-match'] = validators.etag;

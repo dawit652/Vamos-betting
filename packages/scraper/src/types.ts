@@ -171,10 +171,22 @@ export interface ParseOutcome {
   stats: ParseStats;
 }
 
+/**
+ * A reference to an API key, never the key: the header to send it in and the NAME of the
+ * environment variable (SCRAPER_SECRET_*) that holds it. The fetcher reads the value when it
+ * fetches (docs/scraper.md 6.7).
+ */
+export interface RequestAuthRef {
+  header: string;
+  secret: string;
+}
+
 export interface FetchPlanItem {
   url: string;
   purpose: 'fixtures' | 'results' | 'both';
   headers?: Record<string, string>;
+  /** Sent only to the origin of `url`; a redirect to another origin drops it. */
+  auth?: RequestAuthRef;
 }
 
 /**

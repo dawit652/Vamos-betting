@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   safeParse,
   toRawDocument,
+  type FetchPlanItem,
   type FetchResult,
   type ParseOutcome,
   type RawDocument,
@@ -21,6 +22,7 @@ import {
   type CliEnv,
   type ParsedArgs,
 } from './io';
+import { secretProblemMessage } from '../lib/secrets';
 import { loadSourceFile } from './source-file';
 
 const DEFAULT_LIMIT = 25;
@@ -132,7 +134,10 @@ export async function dryParse(args: string[], env: CliEnv): Promise<number> {
   return hasFatal(outcome) ? EXIT_FAILED : EXIT_OK;
 }
 
-function describeFetchFailure(result: Exclude<FetchResult, { kind: 'ok' }>): string {
+function describeFetchFailure(
+  result: Exclude<FetchResult, { kind: 'ok' }>,
+  item: FetchPlanItem,
+): string {
   switch (result.kind) {
     case 'not_modified':
       return 'not modified (304)';
@@ -141,7 +146,9 @@ function describeFetchFailure(result: Exclude<FetchResult, { kind: 'ok' }>): str
     case 'circuit_open':
       return 'circuit open after recent failures';
     case 'refused':
-      return `refused (${result.reason})`;
+      return result.reason.startsWith('secret_')
+        ? `refused (${result.reason}): ${secretProblemMessage(result.reason, item.auth?.secret)}`
+        : `refused (${result.reason})`;
     case 'error':
       return `error (${result.code}): ${result.message}`;
   }
@@ -177,7 +184,7 @@ export async function dryFetch(args: string[], env: CliEnv): Promise<number> {
     lines.push(`GET ${item.url}  (${item.purpose})`);
     if (result.kind !== 'ok') {
       failed = true;
-      const message = describeFetchFailure(result);
+      const message = describeFetchFailure(result, item);
       lines.push(`  ${message}`);
       requests.push({ url: item.url, purpose: item.purpose, ok: false, problem: message });
       continue;

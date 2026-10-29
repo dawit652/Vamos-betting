@@ -50,7 +50,13 @@ export type RefusalReason =
   | 'scheme_not_allowed'
   | 'too_many_redirects'
   | 'content_type_not_allowed'
-  | 'too_large';
+  | 'too_large'
+  /** The plan item needs an API key and its environment variable is not set (or empty): nothing was requested. */
+  | 'secret_missing'
+  /** The plan item's auth reference or the key's value is not usable (bad name, bad header, not printable ASCII). */
+  | 'secret_invalid'
+  /** The response contained the API key: it is dropped, never archived or parsed. */
+  | 'secret_echoed';
 
 /** A policy refusal: retrying cannot help. */
 export interface FetchRefused {

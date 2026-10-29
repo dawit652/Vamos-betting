@@ -12,6 +12,7 @@ import {
   type Score,
   type SourceAdapter,
 } from '../types';
+import { authHeaderProblem, SECRET_NAME_RE } from '../fetch/auth';
 import { isValidTimeZone, zonedToUtc } from '../normalize';
 
 export { isValidTimeZone, zonedToUtc };
@@ -558,6 +559,30 @@ export function checkRequests(
 }
 
 export const requestUrlSchema = z.string().min(1).max(2000);
+
+/**
+ * How a source sends an API key (docs/scraper.md 6.7): one header, whose VALUE the fetcher
+ * reads from the environment variable named in `secret`. The config holds only that name, so
+ * the database, the audit trail and every error message built from the config never hold a key.
+ * Messages never repeat what was configured: a key pasted into the wrong field must not leak
+ * through the error that refuses it.
+ */
+export const requestAuthSchema = z.strictObject({
+  header: z
+    .string()
+    .max(64, 'header: at most 64 characters')
+    .superRefine((name, ctx) => {
+      const problem = authHeaderProblem(name);
+      if (problem !== null) ctx.addIssue({ code: 'custom', message: problem });
+    }),
+  secret: z
+    .string()
+    .regex(
+      SECRET_NAME_RE,
+      'must be the NAME of an environment variable matching ^SCRAPER_SECRET_[A-Z0-9_]{1,64}$ (the key itself never goes in the config)',
+    ),
+});
+export type RequestAuth = z.infer<typeof requestAuthSchema>;
 
 /** Flattens zod errors to the strings `createAdapter` returns. */
 export function zodErrors(error: z.ZodError): string[] {

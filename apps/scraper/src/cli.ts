@@ -19,6 +19,7 @@ import {
   UsageError,
   type CliEnv,
 } from './cli/io';
+import { envSecretReader } from './lib/secrets';
 import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
 import { sourcesList, sourcesUpsert } from './cli/sources';
 
@@ -174,6 +175,8 @@ function realEnv(): { env: CliEnv; close: () => Promise<void> } {
           userAgent: scraperUserAgent(cfg.scraper),
           robots: cfg.scraper.robots,
           maxConcurrency: cfg.scraper.maxConcurrency,
+          // The same variables the service reads (loadDotEnv above filled the environment).
+          secrets: envSecretReader(),
         });
       }
       return fetcher;
