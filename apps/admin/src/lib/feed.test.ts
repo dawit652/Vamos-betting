@@ -7,7 +7,9 @@ import {
   exposureText,
   flagPermission,
   payloadSummary,
+  closedByText,
   priceText,
+  resolutionText,
   reviewQuery,
   scorePercent,
   scoreText,
@@ -103,5 +105,29 @@ describe('feed helpers', () => {
     expect(validateAliasForm({ raw: 'Man Utd', targetId: 'abc' })).not.toBeNull();
     expect(validateAliasForm({ raw: 'a\u0001b', targetId: UUID })).not.toBeNull();
     expect(validateAliasForm({ raw: 'Man Utd', targetId: UUID })).toBeNull();
+  });
+});
+
+describe('resolution and closer text', () => {
+  it('reads a resolution as a sentence', () => {
+    expect(resolutionText({ decision: 'dismiss', note: 'seen, not ours', by: UUID })).toBe(
+      'dismiss: seen, not ours',
+    );
+    expect(resolutionText({ decision: 'apply_result', by: UUID })).toBe('apply result');
+    expect(resolutionText({})).toBe('closed');
+    expect(resolutionText(null)).toBe('–');
+  });
+  it('shortens a staff id and keeps system actors', () => {
+    expect(closedByText(UUID)).toBe('staff 3f2b8c1e');
+    expect(closedByText('system:scraper')).toBe('system:scraper');
+    expect(closedByText(null)).toBe('–');
+  });
+  it('shows kickoff changes as local dates, not ISO text', () => {
+    const text = payloadSummary('kickoff_change', {
+      currentKickoff: '2026-10-29T19:49:07.680Z',
+      proposedKickoff: 'bad',
+    });
+    expect(text).not.toContain('T19');
+    expect(text.endsWith('to –')).toBe(true);
   });
 });

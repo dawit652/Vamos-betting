@@ -8,6 +8,7 @@
     "dev": "tsx watch --clear-screen=false src/main.ts",
     "start": "node dist/main.js",
     "cli": "tsx src/cli.ts",
+    "seed:review": "tsx src/devtools/seed-review-queue.ts",
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests"

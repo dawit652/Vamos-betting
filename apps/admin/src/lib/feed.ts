@@ -4,7 +4,7 @@ import type {
   FeedSourceState,
   ReviewItemView,
 } from '@vamos/contracts';
-import { formatOdds, humanize } from './format';
+import { formatDateTime, formatOdds, humanize } from './format';
 
 /** Pure helpers for the feed pages. Money stays a decimal string of santim. */
 
@@ -167,7 +167,7 @@ export function payloadSummary(kind: string, payload: Record<string, unknown>): 
     case 'source_broken':
       return str(payload.reason) ?? str(payload.sourceId) ?? '–';
     case 'kickoff_change':
-      return `${str(payload.currentKickoff) ?? '–'} to ${str(payload.proposedKickoff) ?? '–'}`;
+      return `${formatDateTime(str(payload.currentKickoff))} to ${formatDateTime(str(payload.proposedKickoff))}`;
     default:
       return str(payload.detail) ?? '–';
   }
@@ -205,4 +205,20 @@ export function validateAliasForm(input: { raw: string; targetId: string }): str
   if (/[\u0000-\u001f\u007f]/.test(raw)) return 'Control characters are not allowed.';
   if (!isTargetId(input.targetId)) return 'Choose a target (its id is a UUID).';
   return null;
+}
+
+/** A closed item's resolution as a sentence: "dismiss: the note", "map alias", "apply result". */
+export function resolutionText(resolution: Record<string, unknown> | null | undefined): string {
+  if (resolution === null || resolution === undefined) return '–';
+  const decision = str(resolution.decision);
+  const note = str(resolution.note);
+  const head = decision === null ? 'closed' : humanize(decision).toLowerCase();
+  const base = note === null ? head : `${head}: ${note}`;
+  return base;
+}
+
+/** Who closed an item: "system:scraper" as is, a staff id shortened to its first eight characters. */
+export function closedByText(resolvedBy: string | null | undefined): string {
+  if (resolvedBy === null || resolvedBy === undefined || resolvedBy === '') return '–';
+  return UUID.test(resolvedBy) ? `staff ${resolvedBy.slice(0, 8)}` : resolvedBy;
 }

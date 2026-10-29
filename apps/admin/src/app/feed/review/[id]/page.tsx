@@ -26,6 +26,7 @@ import { api } from '@/lib/api';
 import {
   ageText,
   canApplyResult,
+  closedByText,
   confirmApplyText,
   decisionPermission,
   exposureText,
@@ -33,6 +34,7 @@ import {
   isTargetId,
   kindLabel,
   priceText,
+  resolutionText,
   reviewStatusTone,
   scorePercent,
   scoreText,
@@ -99,9 +101,11 @@ function ApplyResult({
 }
 
 function MapAlias({
+  noun,
   suggestions,
   resolve,
 }: {
+  noun: string;
   suggestions: { id: string; name: string; score: number }[];
   resolve: Resolve;
 }) {
@@ -127,7 +131,7 @@ function MapAlias({
       </Field>
       <ActionButton
         primary
-        label="Map to this team"
+        label={`Map to this ${noun}`}
         onAction={async () => {
           if (!isTargetId(targetId)) {
             setError('Choose a suggestion or enter a valid id.');
@@ -324,7 +328,13 @@ function Body({
               ],
             ]}
           />
-          {allow('map_alias') && <MapAlias suggestions={p.suggestions} resolve={resolve} />}
+          {allow('map_alias') && (
+            <MapAlias
+              noun={kind === 'unknown_team' ? 'team' : 'competition'}
+              suggestions={p.suggestions}
+              resolve={resolve}
+            />
+          )}
         </>
       );
     }
@@ -416,8 +426,11 @@ export default function ReviewItemPage() {
               ...(item.status === 'open'
                 ? []
                 : ([
-                    ['Closed', `${formatDateTime(item.resolvedAt)} by ${item.resolvedBy ?? ''}`],
-                    ['Resolution', JSON.stringify(item.resolution)],
+                    [
+                      'Closed',
+                      `${formatDateTime(item.resolvedAt)} by ${closedByText(item.resolvedBy)}`,
+                    ],
+                    ['Resolution', resolutionText(item.resolution)],
                   ] as [string, ReactNode][])),
             ]}
           />
