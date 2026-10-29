@@ -25,7 +25,7 @@ The safer reading was always taken. The notable ones:
 - **Added check**: a result observation whose kickoff differs from the event start by more than the tolerance is held as `result_conflict` (a pending reschedule or the wrong match). Adapters must emit real kickoffs on result pages.
 - **R7** fires immediately (postponed, cancelled, abandoned are never applied), even before kickoff plus 105 minutes.
 - **R8** is wider than the spec: a void status after a finished result, or a score after a void result, is also `result_correction`.
-- **F2** the event is created at the earliest kickoff in the cluster; scheduled mixed with postponed is a conflict; a disabled policy creates nothing but still raises conflicts.
+- **F2** the event is created at the earliest kickoff in the cluster; scheduled mixed with postponed is a conflict; a disabled policy creates nothing but still raises conflicts. Creation is insert-only: an existing `feed_ref` (an event moved by a trader beyond `MATCH_WINDOW_MS`) is a `fixture_conflict` (`feed_ref_exists`); `matchEvent` itself still matches by window only.
 - **S4** a disabled competition policy also moves no kickoff (`kickoff_change`, reason `policy_disabled`) and applies no result (`result_ready`); `extra_time` on never auto-applies a result. A person's explicit confirmation of a `result_ready` item is still applied (staff path).
 - **F4** every source in the cluster must agree on the new time; the new time is the earliest; an event starting within `MIN_LEAD_MS` is never moved.
 - **O2** the correct-score market is checked too (the grid plus "other" covers every result); double chance is checked as its sum divided by two.

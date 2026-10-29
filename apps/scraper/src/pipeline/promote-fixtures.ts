@@ -12,6 +12,7 @@ import {
 } from '@vamos/db';
 import { priceFixture } from '@vamos/feed';
 import {
+  buildReviews,
   checkMarkets,
   clusterObservations,
   decideFixture,
@@ -32,7 +33,7 @@ import {
   type ResolvedObservation,
 } from '@vamos/scraper';
 import { betLegs, events as eventsTable } from '@vamos/db/schema';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { auditScraper, openGateReviews, toResolved } from './common';
@@ -144,10 +145,13 @@ export async function promoteFixtures(ctx: ScraperContext): Promise<PromoteFixtu
       });
       let messages: LiveMessage[] = [];
       switch (decision.action) {
-        case 'create':
-          messages = await applyCreate(ctx, decision, pricing?.markets ?? [], now);
-          summary.created += 1;
+        case 'create': {
+          const created = await applyCreate(ctx, decision, pricing?.markets ?? [], now);
+          messages = created.messages;
+          if (created.created) summary.created += 1;
+          else summary.held += 1;
           break;
+        }
         case 'update-kickoff': {
           const moved = await applyKickoff(
             ctx,
@@ -290,29 +294,52 @@ async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTeamId: s
   return { calibrated, markets, pricesSane: checkMarkets(markets).ok };
 }
 
+/** The feed_ref of a create decision is already taken (review finding 2). */
+class FeedRefTaken extends Error {}
+
+/**
+ * Creates the event of a `create` decision. INSERT ONLY: a decision to create
+ * was taken because no event matched within MATCH_WINDOW_MS, but an event with
+ * the same feed_ref may still exist (a trader rescheduled it far out); the
+ * upsert would then move its start and re-price it with no F4, O3 or trader.
+ * If the feed_ref exists, nothing changes and a `fixture_conflict`
+ * (`feed_ref_exists`) asks a person.
+ */
 async function applyCreate(
   ctx: ScraperContext,
   decision: FixtureCreate,
   markets: ReturnType<typeof priceFixture>,
   now: Date,
-): Promise<LiveMessage[]> {
-  return ctx.db.transaction(async (tx) => {
-    const result = await upsertFixture(
-      tx,
-      {
-        feedProvider: SCRAPED_FEED_PROVIDER,
-        feedRef: decision.feedRef,
-        sport: 'football',
-        competitionId: decision.competitionId,
-        homeTeamId: decision.homeTeamId,
-        awayTeamId: decision.awayTeamId,
-        startTime: decision.kickoff,
-      },
-      markets,
-      { now },
-    );
-    const messages = [...result.messages];
-    if (result.created) {
+): Promise<{ created: boolean; messages: LiveMessage[] }> {
+  try {
+    const messages = await ctx.db.transaction(async (tx) => {
+      const [taken] = await tx
+        .select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(
+          and(
+            eq(eventsTable.feedProvider, SCRAPED_FEED_PROVIDER),
+            eq(eventsTable.feedRef, decision.feedRef),
+          ),
+        );
+      if (taken !== undefined) throw new FeedRefTaken();
+      const result = await upsertFixture(
+        tx,
+        {
+          feedProvider: SCRAPED_FEED_PROVIDER,
+          feedRef: decision.feedRef,
+          sport: 'football',
+          competitionId: decision.competitionId,
+          homeTeamId: decision.homeTeamId,
+          awayTeamId: decision.awayTeamId,
+          startTime: decision.kickoff,
+        },
+        markets,
+        { now },
+      );
+      // Another transaction created it after the check: the upsert took its update path; undo it.
+      if (!result.created) throw new FeedRefTaken();
+      const messages = [...result.messages];
       // F7: closed unless the decision says it may open.
       const changed = await setEventBettingOpen(tx, result.eventId, decision.openBetting);
       messages.push(...changed.messages);
@@ -329,9 +356,41 @@ async function applyCreate(
           reviews: reviewsOf(decision).map((r: GateReview) => r.kind),
         },
       });
-    }
-    return messages;
-  });
+      return messages;
+    });
+    return { created: true, messages };
+  } catch (error) {
+    if (!(error instanceof FeedRefTaken)) throw error;
+    await ctx.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({
+          id: eventsTable.id,
+          status: eventsTable.status,
+          startTime: eventsTable.startTime,
+        })
+        .from(eventsTable)
+        .where(
+          and(
+            eq(eventsTable.feedProvider, SCRAPED_FEED_PROVIDER),
+            eq(eventsTable.feedRef, decision.feedRef),
+          ),
+        );
+      const [review] = buildReviews(
+        decision.feedRef,
+        [{ kind: 'fixture_conflict', rule: 'F3', reason: 'feed_ref_exists' }],
+        () => ({
+          feedRef: decision.feedRef,
+          eventId: existing?.id ?? null,
+          eventStatus: existing?.status ?? null,
+          eventStart: existing?.startTime.toISOString() ?? null,
+          observedKickoff: decision.kickoff.toISOString(),
+          sources: [...decision.sources],
+        }),
+      );
+      await openGateReviews(tx, [review!], now);
+    });
+    return { created: false, messages: [] };
+  }
 }
 
 /**

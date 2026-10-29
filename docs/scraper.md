@@ -140,7 +140,10 @@ Every rule has an id; tests cite the id in their names. Constants are in
 - **F3 Match an existing event.** Among scraped events with the same
   competition, home and away whose start is within `MATCH_WINDOW_MS` of the
   cluster: exactly one → that event (a reschedule keeps its `feed_ref`); none →
-  new; more than one → `fixture_conflict` (ambiguous), nothing applied.
+  new; more than one → `fixture_conflict` (ambiguous), nothing applied. Creating is
+  insert-only: if an event with the new fixture's `feed_ref` exists after all
+  (rescheduled further than `MATCH_WINDOW_MS` away), nothing is changed and a
+  `fixture_conflict` (`feed_ref_exists`) opens.
 - **F4 Kickoff change.** For a `scheduled` event whose cluster kickoff differs by
   more than `KICKOFF_TOLERANCE_MS`: apply if (a) at least
   `MIN_INDEPENDENT_SOURCES` independent upstreams agree on the new time, or (b)

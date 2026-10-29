@@ -325,3 +325,50 @@ describe('review finding 1: several clusters of one event never flip its kickoff
     TEST_TIMEOUT,
   );
 });
+
+describe('review finding 2: a create decision never touches an existing feed_ref', () => {
+  it(
+    'F2/F3: a trader reschedules an event 60 days out, a stale source lists the old date: nothing moves, a conflict opens',
+    async () => {
+      await createdEvent();
+      await h.pool.query(
+        `UPDATE events SET start_time = start_time + interval '60 days' WHERE feed_provider = 'scraped'`,
+      );
+      const before = await event();
+      const [market] = await rows<{ odds: string }>(
+        `SELECT string_agg(s.odds_milli::text, ',' ORDER BY s.id) AS odds FROM selections s JOIN markets m ON m.id = s.market_id JOIN events e ON e.id = m.event_id WHERE e.feed_provider = 'scraped'`,
+      );
+      // Ratings changed since the event was priced: an upsert would re-price the open selections.
+      await h.pool.query(
+        `UPDATE teams SET ratings = jsonb_set(ratings, '{attack}', '2.5') WHERE id = $1`,
+        [h.team('Arsenal')],
+      );
+      h.advance(MINUTE);
+      h.serve(URL_B, jsonDoc([]));
+      await h.run('src-a');
+      await h.run('src-b');
+      const summary = await promoteFixtures(h.ctx);
+      expect(summary.created).toBe(0);
+      expect(summary.held).toBe(1);
+      expect(
+        await h.count(`SELECT count(*) AS n FROM events WHERE feed_provider = 'scraped'`),
+      ).toBe(1);
+      expect((await event()).start_time.getTime()).toBe(before.start_time.getTime());
+      const [after] = await rows<{ odds: string }>(
+        `SELECT string_agg(s.odds_milli::text, ',' ORDER BY s.id) AS odds FROM selections s JOIN markets m ON m.id = s.market_id JOIN events e ON e.id = m.event_id WHERE e.feed_provider = 'scraped'`,
+      );
+      expect(after!.odds).toBe(market!.odds);
+      const items = await rows<{ payload: { reasons: string[] } }>(
+        `SELECT payload FROM scrape_review_items WHERE kind = 'fixture_conflict' AND status = 'open'`,
+      );
+      expect(items).toHaveLength(1);
+      expect(items[0]!.payload.reasons).toEqual(['feed_ref_exists']);
+      expect(
+        await h.count(
+          `SELECT count(*) AS n FROM audit_log WHERE action = 'scrape.fixture.created'`,
+        ),
+      ).toBe(1);
+    },
+    TEST_TIMEOUT,
+  );
+});
