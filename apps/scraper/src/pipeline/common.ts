@@ -13,13 +13,14 @@ import {
 } from '@vamos/db';
 import { teams as teamsTable } from '@vamos/db/schema';
 import { inArray } from 'drizzle-orm';
-import type {
-  FixtureObservation,
-  GateJson,
-  GateMarket,
-  GateReview,
-  ResolvedObservation,
-  ResultObservation,
+import {
+  CLUSTER_WINDOW_MS,
+  type FixtureObservation,
+  type GateJson,
+  type GateMarket,
+  type GateReview,
+  type ResolvedObservation,
+  type ResultObservation,
 } from '@vamos/scraper';
 
 /** Competition id -> slug, for ResolvedNames. */
@@ -155,4 +156,39 @@ export async function teamNames(
     .from(teamsTable)
     .where(inArray(teamsTable.id, [...ids]));
   return new Map(rows.map((row) => [row.id, row.name.en || row.shortName]));
+}
+
+/** Most current observations one promotion pass reads (`listCurrentObservations` is ordered by kickoff). */
+export const OBSERVATION_ROW_LIMIT = 20_000;
+
+/** Test hook for the promotion steps. */
+export interface PromoteOptions {
+  /** Row limit of the observation read; default OBSERVATION_ROW_LIMIT. */
+  rowLimit?: number;
+}
+
+/**
+ * Fails closed when an observation read hit its limit (review, not-covered list).
+ * The rows come ordered by kickoff, so a read that returned exactly `limit` rows
+ * may have cut through the last kickoff group, hiding sources that disagree.
+ * Returns the kickoff from which nothing may be decided on this pass, or null
+ * when the read was complete: the last kickoff returned, moved back by the
+ * clustering window, because a hidden row at that kickoff chains into the
+ * cluster of a fixture up to that window earlier. Those fixtures are decided on
+ * a later pass, once the window has moved on and the read fits.
+ */
+export function undecidedFrom(
+  rows: ReadonlyArray<{ kickoff: Date }>,
+  limit: number,
+  logger: { error: (obj: object, msg: string) => void },
+  what: string,
+): Date | null {
+  const last = rows.at(-1);
+  if (last === undefined || rows.length < limit) return null;
+  const from = new Date(last.kickoff.getTime() - CLUSTER_WINDOW_MS);
+  logger.error(
+    { limit, what, lastKickoff: last.kickoff.toISOString(), undecidedFrom: from.toISOString() },
+    'observation read reached its row limit: fixtures from this kickoff on are not decided in this pass',
+  );
+  return from;
 }

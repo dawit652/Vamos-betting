@@ -38,13 +38,24 @@ import { betLegs, events as eventsTable } from '@vamos/db/schema';
 import { and, eq } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
-import { auditScraper, display, openGateReviews, teamNames, toResolved } from './common';
+import {
+  auditScraper,
+  display,
+  OBSERVATION_ROW_LIMIT,
+  openGateReviews,
+  teamNames,
+  toResolved,
+  undecidedFrom,
+  type PromoteOptions,
+} from './common';
 
 export interface PromoteFixturesSummary {
   clusters: number;
   created: number;
   kickoffMoved: number;
   held: number;
+  /** Clusters left for a later pass because the observation read hit its row limit. */
+  deferred: number;
   /** fixture_missing items opened or refreshed. */
   missing: number;
   failed: number;
@@ -63,13 +74,17 @@ export const LOOK_AHEAD_MS = FIXTURE_HORIZON_MS + 14 * DAY_MS;
  * nothing else. Also flags events no source lists any more (F5). This code
  * has no way to cancel, void or result an event.
  */
-export async function promoteFixtures(ctx: ScraperContext): Promise<PromoteFixturesSummary> {
+export async function promoteFixtures(
+  ctx: ScraperContext,
+  options: PromoteOptions = {},
+): Promise<PromoteFixturesSummary> {
   const now = ctx.clock();
   const summary: PromoteFixturesSummary = {
     clusters: 0,
     created: 0,
     kickoffMoved: 0,
     held: 0,
+    deferred: 0,
     missing: 0,
     failed: 0,
     published: 0,
@@ -92,13 +107,16 @@ export async function promoteFixtures(ctx: ScraperContext): Promise<PromoteFixtu
   );
   if (policies.size === 0) return summary;
 
+  const limit = options.rowLimit ?? OBSERVATION_ROW_LIMIT;
   const rows = await listCurrentObservations(ctx.db, {
     kind: 'fixture',
     resolvedOnly: true,
     kickoffFrom: new Date(now.getTime() - LOOK_BACK_MS),
     kickoffTo: new Date(now.getTime() + LOOK_AHEAD_MS),
-    limit: 20_000,
+    limit,
   });
+  // Fails closed: a read that hit its limit may have hidden sources of the last kickoffs.
+  const cutoff = undecidedFrom(rows, limit, ctx.logger, 'fixtures');
   const observations = rows.flatMap((row) => {
     const resolved = toResolved(row, slugs);
     return resolved !== null &&
@@ -111,10 +129,15 @@ export async function promoteFixtures(ctx: ScraperContext): Promise<PromoteFixtu
 
   const clusters = clusterObservations(observations).filter((c) => policies.has(c.competitionId));
   const plan = planClusters(clusters, events);
+  const deferred = cutoff === null ? new Set<number>() : deferredClusters(clusters, plan, cutoff);
   for (const [index, cluster] of clusters.entries()) {
     summary.clusters += 1;
     const policy = policies.get(cluster.competitionId);
     if (policy === undefined) continue;
+    if (deferred.has(index)) {
+      summary.deferred += 1;
+      continue;
+    }
     try {
       const several = plan.several.get(index);
       if (several !== undefined) {
@@ -275,6 +298,43 @@ function planClusters(
     flush();
   }
   return { matches, several };
+}
+
+/**
+ * The clusters nothing may be decided for when the observation read was cut
+ * (see `undecidedFrom`): clusters, or the events they match, at or after the
+ * cut-off, and with them every cluster of the same fixture group (several
+ * clusters of one event are only ever decided together).
+ */
+function deferredClusters(
+  clusters: readonly ClusterOf[],
+  plan: ClusterPlan,
+  cutoff: Date,
+): Set<number> {
+  const late = (ms: number): boolean => ms >= cutoff.getTime();
+  const unsafe = (index: number): boolean => {
+    const match = plan.matches[index]!;
+    const events =
+      match.kind === 'existing'
+        ? [match.event]
+        : match.kind === 'ambiguous'
+          ? match.candidates
+          : [];
+    return (
+      late(clusters[index]!.lastKickoff.getTime()) ||
+      events.some((e) => late(e.startTime.getTime()))
+    );
+  };
+  const groupOf = (index: number): number => plan.several.get(index)?.first ?? index;
+  const lateGroups = new Set<number>();
+  clusters.forEach((_, index) => {
+    if (unsafe(index)) lateGroups.add(groupOf(index));
+  });
+  const out = new Set<number>();
+  clusters.forEach((_, index) => {
+    if (lateGroups.has(groupOf(index))) out.add(index);
+  });
+  return out;
 }
 
 async function scrapedEvents(ctx: ScraperContext, now: Date): Promise<ScrapedEvent[]> {

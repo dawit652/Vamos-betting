@@ -39,12 +39,21 @@ import { auditLog, events as eventsTable, scrapeObservations, scrapeRaw } from '
 import { and, eq, inArray } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
-import { auditScraper, openGateReviews, toResolved } from './common';
+import {
+  auditScraper,
+  OBSERVATION_ROW_LIMIT,
+  openGateReviews,
+  toResolved,
+  undecidedFrom,
+  type PromoteOptions,
+} from './common';
 
 export interface PromoteResultsSummary {
   events: number;
   applied: number;
   held: number;
+  /** Events left for a later pass because the observation read hit its row limit. */
+  deferred: number;
   failed: number;
   published: number;
 }
@@ -54,24 +63,34 @@ const RESULT_LOOK_BACK_MS = 14 * DAY_MS;
 
 type ResultObs = ResolvedObservation<ResultObservation>;
 
+interface ResultObservations {
+  byEvent: Map<string, ResultObs[]>;
+  /** Events starting at or after this are not decided: the read hit its row limit (see `undecidedFrom`). */
+  cutoff: Date | null;
+}
+
 /** The current result observations of each scraped event (rule F3 matching, as for fixtures). */
 async function resultObservationsByEvent(
   ctx: ScraperContext,
   events: readonly ScrapedEvent[],
   now: Date,
-): Promise<Map<string, ResultObs[]>> {
+  options: PromoteOptions = {},
+): Promise<ResultObservations> {
   const out = new Map<string, ResultObs[]>();
-  if (events.length === 0) return out;
+  if (events.length === 0) return { byEvent: out, cutoff: null };
   const policyRows = await listCompetitionPolicies(ctx.db, { sportId: 'football' });
   const slugs = new Map(policyRows.map((row) => [row.competitionId, row.slug]));
   const from = Math.min(...events.map((e) => e.startTime.getTime()));
+  const limit = options.rowLimit ?? OBSERVATION_ROW_LIMIT;
   const rows = await listCurrentObservations(ctx.db, {
     kind: 'result',
     resolvedOnly: true,
     kickoffFrom: new Date(from - 2 * DAY_MS),
     kickoffTo: new Date(now.getTime() + DAY_MS),
-    limit: 20_000,
+    limit,
   });
+  // Fails closed: a read that hit its limit may have hidden sources of the last kickoffs.
+  const cutoff = undecidedFrom(rows, limit, ctx.logger, 'results');
   const observations = rows.flatMap((row) => {
     const resolved = toResolved(row, slugs);
     return resolved !== null && resolved.obs.kind === 'result' ? [resolved as ResultObs] : [];
@@ -84,8 +103,12 @@ async function resultObservationsByEvent(
     list.push(...cluster.items);
     out.set(match.event.eventId, list);
   }
-  return out;
+  return { byEvent: out, cutoff };
 }
+
+/** True when the read was cut and this event is among those it may have hidden sources of. */
+const deferredEvent = (cutoff: Date | null, event: ScrapedEvent): boolean =>
+  cutoff !== null && event.startTime.getTime() >= cutoff.getTime();
 
 /** Events a result decision applies to: scheduled and unresulted, or finished (R8 corrections). */
 function decidable(event: ScrapedEvent): boolean {
@@ -107,19 +130,23 @@ async function listResultEvents(ctx: ScraperContext, now: Date): Promise<Scraped
  * confirmed `finished` regular-time score is ever applied; no code path here
  * cancels, voids or abandons an event.
  */
-export async function promoteResults(ctx: ScraperContext): Promise<PromoteResultsSummary> {
+export async function promoteResults(
+  ctx: ScraperContext,
+  options: PromoteOptions = {},
+): Promise<PromoteResultsSummary> {
   const now = ctx.clock();
   const summary: PromoteResultsSummary = {
     events: 0,
     applied: 0,
     held: 0,
+    deferred: 0,
     failed: 0,
     published: 0,
   };
   const all = await listResultEvents(ctx, now);
   const candidates = all.filter(decidable);
   if (candidates.length === 0) return summary;
-  const byEvent = await resultObservationsByEvent(ctx, all, now);
+  const { byEvent, cutoff } = await resultObservationsByEvent(ctx, all, now, options);
   const policyRows = await listCompetitionPolicies(ctx.db, { sportId: 'football' });
   const policies = new Map<string, CompetitionPolicy>(
     policyRows.map((row) => [
@@ -139,6 +166,10 @@ export async function promoteResults(ctx: ScraperContext): Promise<PromoteResult
     const observations = byEvent.get(event.eventId);
     const policy = policies.get(event.competitionId);
     if (observations === undefined || policy === undefined) continue;
+    if (deferredEvent(cutoff, event)) {
+      summary.deferred += 1;
+      continue;
+    }
     summary.events += 1;
     try {
       const exposure = await getEventExposure(ctx.db, event.eventId);
@@ -410,7 +441,10 @@ const STAFF_KINDS = ['result_ready', 'result_unverified'] as const;
  * proposed score is left alone. A rejected confirmation is final: the item is
  * never replayed, whatever happens to the item reopened in its place.
  */
-export async function applyStaffConfirmations(ctx: ScraperContext): Promise<{
+export async function applyStaffConfirmations(
+  ctx: ScraperContext,
+  options: PromoteOptions = {},
+): Promise<{
   applied: number;
   rejected: number;
 }> {
@@ -438,9 +472,9 @@ export async function applyStaffConfirmations(ctx: ScraperContext): Promise<{
         includeFinished: true,
       });
       try {
-        const verdict = await confirmOne(ctx, item, events, now);
+        const verdict = await confirmOne(ctx, item, events, now, options);
         if (verdict === 'applied') result.applied += 1;
-        else if (verdict !== 'noop') {
+        else if (verdict !== 'noop' && verdict !== 'deferred') {
           result.rejected += 1;
           await rejectConfirmation(ctx, item, verdict.reason, now);
         }
@@ -506,7 +540,8 @@ async function confirmOne(
   item: ScrapeReviewItem,
   events: readonly ScrapedEvent[],
   now: Date,
-): Promise<'applied' | 'noop' | { reason: string }> {
+  options: PromoteOptions,
+): Promise<'applied' | 'noop' | 'deferred' | { reason: string }> {
   const proposed = scoreOfPayload(item.payload);
   const eventId = item.payload.eventId;
   if (proposed === null || typeof eventId !== 'string') {
@@ -527,7 +562,11 @@ async function confirmOne(
   if (event.needsHalfTimeScore && (proposed.htHome === null || proposed.htAway === null)) {
     return { reason: 'the event needs a half-time score and the proposal has none (R2)' };
   }
-  const observations = (await resultObservationsByEvent(ctx, events, now)).get(eventId) ?? [];
+  const read = await resultObservationsByEvent(ctx, events, now, options);
+  // The read hit its row limit and may have hidden a source of this event: neither applied nor
+  // rejected, the confirmation stands and is looked at again on the next pass.
+  if (deferredEvent(read.cutoff, event)) return 'deferred';
+  const observations = read.byEvent.get(eventId) ?? [];
   // R3: any current observation that is not a `finished` one, or whose score contradicts the
   // proposal (full time, and half time when the event needs it), blocks it.
   const hardDissent = observations.filter(
