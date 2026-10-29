@@ -1,0 +1,51 @@
+{
+  "id": "api-football-cr",
+  "name": "DRAFT API-Football (API-Sports), Costa Rica Liga Promerica",
+  "adapter": "generic-json",
+  "upstream": "API-Sports own collection (UNVERIFIED, ask the vendor)",
+  "config": {
+    "allowedHosts": ["v3.football.api-sports.io"],
+    "requests": [
+      {
+        "url": "https://v3.football.api-sports.io/fixtures?league=162&season=2026",
+        "purpose": "both"
+      }
+    ],
+    "sport": "football",
+    "recordsPath": "response",
+    "fields": {
+      "home": "teams.home.name",
+      "away": "teams.away.name",
+      "competition": { "fixed": "Liga Promerica" },
+      "kickoff": { "path": "fixture.date", "format": "iso" },
+      "externalRef": "fixture.id",
+      "round": "league.round",
+      "status": {
+        "path": "fixture.status.short",
+        "map": {
+          "TBD": "scheduled",
+          "NS": "scheduled",
+          "1H": "scheduled",
+          "HT": "scheduled",
+          "2H": "scheduled",
+          "ET": "scheduled",
+          "BT": "scheduled",
+          "P": "scheduled",
+          "LIVE": "scheduled",
+          "FT": "finished",
+          "PST": "postponed",
+          "CANC": "cancelled",
+          "ABD": "abandoned"
+        },
+        "default": "scheduled"
+      },
+      "score": {
+        "homePath": "score.fulltime.home",
+        "awayPath": "score.fulltime.away",
+        "htHomePath": "score.halftime.home",
+        "htAwayPath": "score.halftime.away"
+      }
+    },
+    "scoreBasis": "regular_time"
+  }
+}
