@@ -4,6 +4,7 @@
   "private": true,
   "description": "Scraping toolkit: polite fetching, source adapters, name matching and the safety gates in front of the catalogue. No database access.",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
   },
