@@ -3,14 +3,16 @@
 # and checks that the ledger is intact. It never touches the running stack. Run it monthly, and
 # after every change to the backup setup; record the result in the drill log.
 #
-# Usage: infra/scripts/restore-drill.sh <dump file>
+# Usage: infra/scripts/restore-drill.sh <dump file> [scraper archive to list]
 #   <dump file>   a pg_dump -Fc file from backup.sh (a .age file needs AGE_IDENTITY=<key file>)
+#   scraper archive   a scraper-<time>.tar.gz from backup.sh (a .age file is decrypted the same way)
 # Environment: POSTGRES_USER (default vamos), POSTGRES_DB (default vamos), POSTGRES_IMAGE
 # (default postgres:16-alpine, keep it equal to the production major version).
 # Exit status: 0 when every check passed.
 set -euo pipefail
 
-DUMP="${1:?usage: restore-drill.sh <dump file>}"
+DUMP="${1:?usage: restore-drill.sh <dump file> [scraper archive]}"
+SCRAPER="${2:-}"
 PGUSER_="${POSTGRES_USER:-vamos}"
 PGDB="${POSTGRES_DB:-vamos}"
 IMAGE="${POSTGRES_IMAGE:-postgres:16-alpine}"
@@ -68,6 +70,20 @@ for t in ledger_transactions ledger_entries audit_log users bets; do
 done
 printf '%-24s %s\n' "latest ledger entry" "$(q "SELECT coalesce(max(created_at)::text, 'none') FROM ledger_entries")"
 printf '%-24s %s\n' "latest audit record" "$(q "SELECT coalesce(max(created_at)::text, 'none') FROM audit_log")"
+
+if [[ -n "$SCRAPER" ]]; then
+  echo "--- scraper archive $SCRAPER ---"
+  [[ -f "$SCRAPER" ]] || { echo "no such file: $SCRAPER" >&2; exit 2; }
+  if [[ -f "$SCRAPER.sha256" ]]; then
+    (cd "$(dirname "$SCRAPER")" && sha256sum -c "$(basename "$SCRAPER").sha256") || { echo "scraper archive checksum mismatch" >&2; exit 1; }
+  fi
+  listing=(cat "$SCRAPER")
+  if [[ "$SCRAPER" == *.age ]]; then
+    listing=(age -d -i "${AGE_IDENTITY:?set AGE_IDENTITY to the age identity file}" "$SCRAPER")
+  fi
+  "${listing[@]}" | tar -tz | head -n 5
+  printf 'snapshots: %s\n' "$("${listing[@]}" | tar -tz | grep -c '\.gz$' || true)"
+fi
 
 if ((fail)); then echo "restore drill FAILED"; exit 1; fi
 echo "restore drill passed"

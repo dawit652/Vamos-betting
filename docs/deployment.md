@@ -30,6 +30,7 @@ regulator.
 | `migrate`  | `api`        | none   | none                                 | One-shot job: `node dist/ops/migrate.js`, runs before the api and worker start. The only service that connects as the database owner. |
 | `api`      | `api`        | 4000   | none (stateless)                     | `/health`.                                                                                                                            |
 | `worker`   | `worker`     | 4100   | none                                 | `/health`, `/ready`. Run **one** instance.                                                                                            |
+| `scraper`  | `scraper`    | 4200   | volume `scraper_archive`             | `/health`, `/ready`; not published. Raw snapshots in `/var/lib/vamos/scraper`. Run **one** instance.                                  |
 | `web`      | `web`        | 3000   | none                                 | Player PWA. `NEXT_PUBLIC_API_URL` is baked in at build time.                                                                          |
 | `admin`    | `admin`      | 3001   | none                                 | Back office. Must be on a different origin from the web app.                                                                          |
 | `proxy`    | caddy:2      | 80/443 | volumes `caddy_*`                    | Optional (`--profile proxy`): automatic TLS for three host names.                                                                     |
@@ -81,8 +82,8 @@ $EDITOR infra/.env.prod                        # public URLs, mode, providers (s
 export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.prod
 
 # 3. Build, start, check.
-docker compose build                           # api, worker, web, admin (web/admin bake in PUBLIC_API_URL)
-docker compose up -d --wait                    # postgres + redis -> migrate -> api + worker -> web + admin
+docker compose build                           # api, worker, scraper, web, admin (web/admin bake in PUBLIC_API_URL)
+docker compose up -d --wait                    # postgres + redis -> migrate -> api + worker + scraper -> web + admin
 scripts/smoke.sh --production --worker http://localhost:4100
 
 # 4. First data.
@@ -137,6 +138,14 @@ same rule to both.
 - `web` and `admin` are stateless Next.js servers; scale the same way.
 - `worker`: keep **one** instance. Its tasks take advisory/Redis locks; scale vertically, and review the
   design before running a second worker.
+- `scraper`: keep **one** instance. The source locks make a second harmless, but it only duplicates fetches
+  (and requests to the sources). Its raw snapshots are the `scraper_archive` volume
+  (`/var/lib/vamos/scraper`, `SCRAPER_ARCHIVE_DIR`): the evidence behind every applied result, kept as long as
+  bets are kept and backed up by `backup.sh scraper` ([backups.md](backups.md)). Its port is not published; check
+  it from the host with the container address, e.g.
+  `scripts/smoke.sh --scraper "http://$(docker inspect -f '{{ (index .NetworkSettings.Networks "vamos_vamos").IPAddress }}' "$(docker compose ps -q scraper)"):4200"`.
+  The service always runs with `FEED_PROVIDER=scraped`; in licensed mode that needs `SCRAPER_CONTACT` and
+  `SCRAPER_ROBOTS=enforce` (docs/scraper.md section 7).
 - `postgres`: a single primary. Size `max_connections` (set to 200 in the compose file) against
   api replicas x pool + worker pool (10). Read replicas are not used. Move to a managed or HA Postgres
   (streaming replication + failover) when the licence requires higher availability.

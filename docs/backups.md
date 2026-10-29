@@ -7,12 +7,13 @@ What is backed up, how often, how long it is kept, and how to prove it can be re
 
 ## 1. What matters
 
-| Data                                                                           | Where              | Loss means                                                                           | Kept                                        |
-| ------------------------------------------------------------------------------ | ------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------- |
-| PostgreSQL: ledger, bets, wallets, audit log, KYC, staff, reconciliation       | volume `pgdata`    | Money records gone. The ledger and audit log are append-only by DB trigger.          | **7 years** (ledger, audit, reconciliation) |
-| Secrets (`ADMIN_TOTP_KEY`, `SESSION_SECRET`, `PASSWORD_PEPPER`, provider keys) | secret manager     | Staff cannot sign in after a restore; no password verifies; ID hashes stop matching. | as long as the data they protect            |
-| Redis (queues, rate limits, pub/sub)                                           | volume `redisdata` | Nothing durable: queued jobs are rebuilt from the outbox by sweeps.                  | not backed up                               |
-| Images and code                                                                | git + registry     | Rebuild from the tagged commit.                                                      | per release                                 |
+| Data                                                                           | Where                                               | Loss means                                                                                                                                   | Kept                                                          |
+| ------------------------------------------------------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| PostgreSQL: ledger, bets, wallets, audit log, KYC, staff, reconciliation       | volume `pgdata`                                     | Money records gone. The ledger and audit log are append-only by DB trigger.                                                                  | **7 years** (ledger, audit, reconciliation)                   |
+| Scraper raw snapshots (the evidence behind applied results)                    | volume `scraper_archive` (`/var/lib/vamos/scraper`) | An applied result (one that may have settled bets) can no longer be shown or replayed; the database row stays but its source bytes are gone. | **as long as bets are kept** (the database marks them `keep`) |
+| Secrets (`ADMIN_TOTP_KEY`, `SESSION_SECRET`, `PASSWORD_PEPPER`, provider keys) | secret manager                                      | Staff cannot sign in after a restore; no password verifies; ID hashes stop matching.                                                         | as long as the data they protect                              |
+| Redis (queues, rate limits, pub/sub)                                           | volume `redisdata`                                  | Nothing durable: queued jobs are rebuilt from the outbox by sweeps.                                                                          | not backed up                                                 |
+| Images and code                                                                | git + registry                                      | Rebuild from the tagged commit.                                                                                                              | per release                                                   |
 
 The database is never pruned, so the live database itself holds 7 years of ledger. The backups below protect
 it against loss; their own retention is shorter except for the yearly archive.
@@ -29,15 +30,19 @@ it against loss; their own retention is shorter except for the yearly archive.
    Together with a **weekly base backup** (`backup.sh base`, `pg_basebackup`) this allows point-in-time
    recovery to any moment, for example "one second before the bad deploy". Target RPO once the segments are
    copied off the host: 5 minutes. A dump alone gives an RPO of up to a day.
-3. **Off the host, encrypted, in two places.** Everything under `BACKUP_DIR` is copied to storage on another
+3. **Scraper archive** (`backup.sh scraper`, a tarball of the `scraper_archive` volume, read through the running
+   `scraper` container) at least daily, so it is part of `all`. The archive only grows and every run is a full
+   tarball, so a restore needs only the newest one. Snapshots behind an applied result are marked `keep` in the
+   database and are never pruned there; `prune` never deletes scraper tarballs either.
+4. **Off the host, encrypted, in two places.** Everything under `BACKUP_DIR` is copied to storage on another
    machine and another site (rsync/rclone/object storage), encrypted with `age` (`BACKUP_AGE_RECIPIENT`:
    every file `backup.sh` writes, WAL segments included, is encrypted on the host before it is copied
    anywhere; once `BACKUP_DIR` holds `.age` files a run without the recipient is refused, so a cron line that
    forgets it cannot leave plaintext beside them). Keep
    the private key apart from the backups and from the host (two custodians). Where the copies may live is a
    data-residency question ([deployment.md](deployment.md#7-hosting-in-ethiopia-and-data-residency-to-confirm)).
-4. **Checksums.** `backup.sh` writes a `.sha256` beside every file (WAL segments too); the drill verifies it.
-   `pnpm test:infra` (`infra/scripts/backup.test.sh`, in CI) checks the WAL path against a stub docker.
+5. **Checksums.** `backup.sh` writes a `.sha256` beside every file (WAL segments too); the drill verifies it.
+   `pnpm test:infra` (`infra/scripts/backup.test.sh`, in CI) checks the WAL and scraper paths against a stub docker.
 
 Managed Postgres (when you move to one) replaces items 1-2 with its own snapshots and PITR; keep the nightly
 logical dump.
@@ -59,7 +64,7 @@ Then sync `/var/backups/vamos` off the host right after each run and alert when 
 Hourly `wal` copies bound the loss of a lost disk to about an hour; run it every 5 minutes if the RPO
 promise is 5 minutes.
 
-`all` = dump + wal. WAL segments in the `pgwal` volume are cleaned manually after a base backup, so the
+`all` = dump + scraper + wal. WAL segments in the `pgwal` volume are cleaned manually after a base backup, so the
 volume does not fill: keep everything since the oldest base backup you still rely on, then
 `docker compose exec postgres pg_archivecleanup -x .gz /backups/wal <first segment named in the oldest kept
 base backup's .backup label>` (the label file is `<segment>.<offset>.backup` in the same directory).
@@ -70,6 +75,7 @@ base backup's .backup label>` (the label file is `<segment>.<offset>.backup` in 
 | ------------------------- | ------------------------------------------------------------------------------------------------ |
 | Nightly dumps             | 35 days; the 1st of each month for 24 months; **the 1st of January for ever** (at least 7 years) |
 | Weekly base backups + WAL | the last 5 weeks of base backups and every WAL segment since the oldest of them                  |
+| Scraper archives          | **as long as bets are kept** (at least the 7 years of the ledger); `prune` never deletes them    |
 | Drill logs and checksums  | 7 years                                                                                          |
 
 `backup.sh prune` applies the dump and base-backup rules (`DUMP_KEEP_DAYS`, `DUMP_KEEP_MONTHS`). After the
@@ -86,10 +92,11 @@ Prove the backups work, on a calendar, not when you need them.
 - **Logical check (minutes, no impact on production):**
 
   ```bash
-  infra/scripts/restore-drill.sh /var/backups/vamos/db/vamos-<stamp>.dump[.age]
+  infra/scripts/restore-drill.sh /var/backups/vamos/db/vamos-<stamp>.dump[.age] [/var/backups/vamos/scraper/scraper-<stamp>.tar.gz[.age]]
   ```
 
-  (an `.age` file needs `AGE_IDENTITY=/path/to/age-key.txt`). It verifies the checksum, restores into a
+  (an `.age` file needs `AGE_IDENTITY=/path/to/age-key.txt`). With the optional second argument it also verifies the scraper archive's checksum and lists its first
+  entries and the number of snapshots. It verifies the checksum, restores into a
   throwaway postgres container, and checks that every ledger transaction sums to zero, every account balance
   equals the sum of its entries, every entry has its transaction, and the migrations are recorded. It prints
   row counts and the newest ledger/audit timestamps: compare them with production

@@ -148,14 +148,22 @@ jobs:
             -e API_DOMAIN=api.vamos.example.et -e ADMIN_DOMAIN=admin.vamos.example.et \
             -e STAFF_ALLOWLIST=10.0.0.0/8 \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - name: Build the images (api, worker, web, admin)
+      - name: Build the images (api, worker, scraper, web, admin)
         run: docker compose build
-      - name: Start postgres, redis, migrate, api, worker, web and admin
+      - name: Start postgres, redis, migrate, api, worker, scraper, web and admin
         run: |
           docker compose up -d --wait --wait-timeout 240
           docker compose run --rm migrate node dist/ops/seed.js
       - name: Smoke test
-        run: scripts/smoke.sh --production --wait 120 --worker http://localhost:4100
+        run: |
+          # The scraper's port is not published: reach the container on the compose network.
+          scraper_ip="$(docker inspect -f '{{ (index .NetworkSettings.Networks "vamos_vamos").IPAddress }}' "$(docker compose ps -q scraper)")"
+          test -n "$scraper_ip"
+          scripts/smoke.sh --production --wait 120 --worker http://localhost:4100 --scraper "http://$scraper_ip:4200"
+      - name: Scraper archive volume is writable and can be backed up
+        run: |
+          docker compose exec -T scraper sh -c 'touch /var/lib/vamos/scraper/.ci && rm /var/lib/vamos/scraper/.ci'
+          docker compose exec -T scraper tar -C /var/lib/vamos/scraper -czf - . | tar -tz >/dev/null
       - name: Container logs
         if: failure()
         run: docker compose logs --no-color --tail 200

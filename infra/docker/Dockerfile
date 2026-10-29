@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1
 #
-# Production images for Vamos Betting: api, worker, web (apps/web/server.mjs) and admin.
+# Production images for Vamos Betting: api, worker, scraper, web (apps/web/server.mjs) and admin.
 # One Dockerfile, one target per service. Build from the repository root:
 #
 #   docker build -f infra/docker/Dockerfile --target api    -t vamos-api .
 #   docker build -f infra/docker/Dockerfile --target worker -t vamos-worker .
+#   docker build -f infra/docker/Dockerfile --target scraper -t vamos-scraper .
 #   docker build -f infra/docker/Dockerfile --target web    -t vamos-web   --build-arg NEXT_PUBLIC_API_URL=https://api.example.et .
 #   docker build -f infra/docker/Dockerfile --target admin  -t vamos-admin --build-arg NEXT_PUBLIC_API_URL=https://api.example.et .
 #
@@ -14,10 +15,11 @@
 #   fetch     pnpm fetch: downloads the locked packages. Cached until pnpm-lock.yaml changes.
 #   build-*   full install (offline from the fetched store) and the app builds.
 #   deps-*    production-only install of one service's dependencies (pnpm install --prod).
-#   api, worker, web, admin   minimal runtime images (node:22-alpine, non-root user `node`).
+#   api, worker, scraper, web, admin   minimal runtime images (node:22-alpine, non-root user `node`).
 #
-# The api and worker are bundled by tsup (the @vamos/* packages are inlined), so their images carry
-# only dist/ and the npm packages that stay external. The api image also carries the operations
+# The api, worker and scraper are bundled by tsup (the @vamos/* packages are inlined, and so is
+# cheerio, which only packages/scraper uses), so their images carry only dist/ and the npm packages
+# that stay external (the scraper: drizzle-orm, ioredis, pg, pino, zod). The api image also carries the operations
 # scripts (migrate, seed, admin-create, admin-unlock, totp-rekey) in dist/ops and the SQL migrations in
 # dist/migrations: the compose `migrate` job is this image with another command.
 #
@@ -54,6 +56,7 @@ RUN --mount=type=secret,id=extra-ca \
 FROM fetch AS manifests
 COPY apps/api/package.json apps/api/package.json
 COPY apps/worker/package.json apps/worker/package.json
+COPY apps/scraper/package.json apps/scraper/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/admin/package.json apps/admin/package.json
 COPY packages/config/package.json packages/config/package.json
@@ -63,6 +66,7 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/feed/package.json packages/feed/package.json
 COPY packages/i18n/package.json packages/i18n/package.json
 COPY packages/payments/package.json packages/payments/package.json
+COPY packages/scraper/package.json packages/scraper/package.json
 COPY e2e/package.json e2e/package.json
 
 # ---------------------------------------------------------------------------------------------
@@ -73,6 +77,9 @@ RUN pnpm install --offline --frozen-lockfile --prod --filter "@vamos/api..."
 
 FROM manifests AS deps-worker
 RUN pnpm install --offline --frozen-lockfile --prod --filter "@vamos/worker..."
+
+FROM manifests AS deps-scraper
+RUN pnpm install --offline --frozen-lockfile --prod --filter "@vamos/scraper-app..."
 
 FROM manifests AS deps-web
 RUN pnpm install --offline --frozen-lockfile --prod --filter "@vamos/web..."
@@ -100,6 +107,9 @@ FROM build AS build-server
 RUN pnpm --filter @vamos/api --filter @vamos/worker build \
     && pnpm --filter @vamos/api exec tsup --config tsup.ops.config.ts \
     && cp -r packages/db/migrations apps/api/dist/migrations
+
+FROM build AS build-scraper
+RUN pnpm --filter @vamos/scraper-app build
 
 FROM build AS build-web
 # Inlined into the browser bundle at build time: the public URL of the API.
@@ -153,6 +163,24 @@ WORKDIR /app/apps/worker
 EXPOSE 4100
 HEALTHCHECK --interval=15s --timeout=4s --start-period=30s --retries=4 \
     CMD wget -q -O /dev/null "http://127.0.0.1:${WORKER_HEALTH_PORT}/health" || exit 1
+CMD ["node", "dist/main.js"]
+
+# scraper: like the worker, plus the raw snapshot archive (SCRAPER_ARCHIVE_DIR). Compose mounts the
+# `scraper_archive` volume there; a new named volume takes the owner of this directory (the app user).
+FROM runtime AS scraper
+ENV SCRAPER_PORT=4200 SCRAPER_ARCHIVE_DIR=/var/lib/vamos/scraper
+COPY package.json pnpm-workspace.yaml ./
+COPY --from=deps-scraper /app/node_modules ./node_modules
+COPY --from=deps-scraper /app/apps/scraper/node_modules ./apps/scraper/node_modules
+COPY --from=build-scraper /app/apps/scraper/dist ./apps/scraper/dist
+COPY apps/scraper/package.json ./apps/scraper/package.json
+USER root
+RUN mkdir -p /var/lib/vamos/scraper && chown node:node /var/lib/vamos/scraper
+USER node
+WORKDIR /app/apps/scraper
+EXPOSE 4200
+HEALTHCHECK --interval=15s --timeout=4s --start-period=30s --retries=4 \
+    CMD wget -q -O /dev/null "http://127.0.0.1:${SCRAPER_PORT}/health" || exit 1
 CMD ["node", "dist/main.js"]
 
 # web and admin: the code belongs to root, so the app user cannot change it; only Next's cache

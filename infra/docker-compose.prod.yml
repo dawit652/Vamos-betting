@@ -1,4 +1,4 @@
-# Production stack: postgres 16, redis 7, migrate (one-shot), api, worker, web, admin and an
+# Production stack: postgres 16, redis 7, migrate (one-shot), api, worker, scraper, web, admin and an
 # optional TLS reverse proxy (profile "proxy").
 #
 #   cp infra/env.prod.example infra/.env.prod && $EDITOR infra/.env.prod
@@ -6,7 +6,7 @@
 #   docker compose build && docker compose up -d            # add --profile proxy for Caddy
 #   scripts/smoke.sh                                        # against the published ports
 #
-# Start order: postgres + redis healthy -> migrate exits 0 -> api + worker healthy -> web + admin.
+# Start order: postgres + redis healthy -> migrate exits 0 -> api + worker + scraper healthy -> web + admin.
 # Details, backups and upgrades: docs/deployment.md, docs/backups.md. The development services
 # (infra/docker-compose.yml) are separate and must not be used in production.
 
@@ -83,6 +83,17 @@ x-app-env: &app-env
   USSD_SERVICE_CODE: '${USSD_SERVICE_CODE:-*123#}'
   OTEL_EXPORTER_OTLP_ENDPOINT: '${OTEL_EXPORTER_OTLP_ENDPOINT:-}'
   OTEL_SERVICE_NAME: '${OTEL_SERVICE_NAME:-}'
+  # Scraper (docs/scraper.md section 7). Every service validates them (licensed mode with
+  # FEED_PROVIDER=scraped needs a contact, robots enforced and an absolute archive directory); only
+  # the scraper service writes the archive, at the path of its `scraper_archive` volume.
+  SCRAPER_ARCHIVE_DIR: '/var/lib/vamos/scraper'
+  SCRAPER_USER_AGENT: '${SCRAPER_USER_AGENT:-VamosBot/1.0}'
+  SCRAPER_CONTACT: '${SCRAPER_CONTACT:-}'
+  SCRAPER_ROBOTS: '${SCRAPER_ROBOTS:-enforce}'
+  SCRAPER_PORT: '4200'
+  SCRAPER_MAX_CONCURRENCY: '${SCRAPER_MAX_CONCURRENCY:-4}'
+  SCRAPER_RESULT_CONFIRM_MINUTES: '${SCRAPER_RESULT_CONFIRM_MINUTES:-15}'
+  SCRAPER_MIN_RATING_MATCHES: '${SCRAPER_MIN_RATING_MATCHES:-8}'
 
 x-build-args: &build-args
   NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL}
@@ -242,6 +253,41 @@ services:
       retries: 4
       start_period: 30s
 
+  # Collects fixtures, odds inputs and results from the configured sources and promotes checked data
+  # to the catalogue. Run ONE instance (the source locks make a second harmless, but there is no
+  # reason for it). The raw snapshots behind every applied result live in the `scraper_archive`
+  # volume: kept as long as bets are kept, included in backup.sh (docs/backups.md).
+  scraper:
+    image: vamos-scraper:${VAMOS_VERSION:-local}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile
+      target: scraper
+    <<: *hardening
+    read_only: true
+    tmpfs: ['/tmp']
+    environment:
+      <<: *app-env
+      FEED_PROVIDER: 'scraped'
+    volumes:
+      - scraper_archive:/var/lib/vamos/scraper
+    # /health and /ready are not published (nothing outside the stack needs them): scripts/smoke.sh
+    # --scraper takes the container's address, see docs/deployment.md.
+    networks: [vamos]
+    # Shutdown waits up to 60 s for in-flight source runs.
+    stop_grace_period: 75s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:4200/health']
+      interval: 15s
+      timeout: 4s
+      retries: 4
+      start_period: 30s
+
   web:
     image: vamos-web:${VAMOS_VERSION:-local}
     build:
@@ -343,5 +389,7 @@ volumes:
   pgdata:
   pgwal:
   redisdata:
+  # Raw scraper snapshots (the evidence behind applied results), kept as long as bets: back it up.
+  scraper_archive:
   caddy_data:
   caddy_config:
