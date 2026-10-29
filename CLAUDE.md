@@ -24,4 +24,6 @@ Mobile-first sportsbook for Costa Rica, modelled on Betika. TypeScript pnpm mono
 - Domain math lives in `packages/core` (pure, no I/O) and must have unit + property tests.
 - API input is validated with zod contracts from `packages/contracts` via `parseInput`.
 - Integration tests use a real Postgres (`createTestDatabase` from `@vamos/db/testing`).
+- **Scraper.** Scraped results reach `resultEvent` only through the gates (`applyConfirmedResult` in
+  `apps/scraper`); no code path may cancel, void or abandon an event from scraped data. See `docs/scraper.md`.
 - Excluded by policy: casino/crash/virtual games, crypto, payouts to third-party wallets.

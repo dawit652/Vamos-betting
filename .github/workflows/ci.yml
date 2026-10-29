@@ -1,9 +1,10 @@
 name: CI
 
 on:
+  # Every branch push, which also covers pull requests from this repository: a `pull_request`
+  # trigger next to it ran the whole workflow twice for each push to a branch with an open PR.
   push:
-    branches: [main, 'claude/**']
-  pull_request:
+    branches: ['**']
 
 concurrency:
   group: ci-${{ github.ref }}
