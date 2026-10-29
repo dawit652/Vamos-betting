@@ -3,6 +3,24 @@
 A living checklist for the work described in [scraper.md](scraper.md). Newest
 facts first. The task-by-task plan is in [scraper-plan/](scraper-plan/README.md).
 
+## Evaluation of 2026-10-29: not ready for real money
+
+Three independent evaluators measured accuracy, speed, odds and resilience on real data. The merged scorecard and the
+ranked fix plan, with the model and effort chosen for each task, are in
+[scraper-evaluation/00-scorecard-and-fix-plan.md](scraper-evaluation/00-scorecard-and-fix-plan.md); the evidence is in
+reports [01](scraper-evaluation/01-data-accuracy.md), [02](scraper-evaluation/02-speed-and-resilience.md) and
+[03](scraper-evaluation/03-odds-accuracy.md).
+
+- **Fixed already (Wave 0):** goalless draws are no longer dropped (F-03); generic aliases that could map a foreign
+  club to a Costa Rican one are gone from the draft alias file (F-13, alias part).
+- **Next (Wave 1, after the weekly allowance resets on 2026-10-30 18:00 UTC):** the kickoff safety rule (F-01, Opus
+  first), the source-frozen alarm (F-02), the overdue-result item (F-04), the generic "open betting" checks (F-10)
+  and the flaky test teardown (F-20).
+- **Needs a decision from the owner:** a licensed data provider (F-06) and an exposure policy for model-priced
+  events (F-05).
+- **Not measured yet:** replay of the real history, concurrency and crash tests, throughput, failure scenarios and
+  per-league odds (F-19).
+
 ## Status on 2026-10-29 (evening): code complete for version 1, Costa Rica prepared
 
 Every code task of the plan (01–07 and 09) is done, and a second round of
