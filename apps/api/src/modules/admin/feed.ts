@@ -8,6 +8,7 @@ import {
   FeedCompetitionsResponse,
   FeedHealthResponse,
   hasPermission,
+  isRepriceItem,
   parseReviewPayload,
   competitionPolicyPermission,
   resolveReviewPermission,
@@ -26,7 +27,7 @@ import {
   type FeedSourceState,
   type SourceHealthView,
 } from '@vamos/contracts';
-import type { SportCode } from '@vamos/core';
+import { marketKey, type MarketTypeCode, type SportCode } from '@vamos/core';
 import {
   addCompetitionAlias,
   addTeamAlias,
@@ -34,12 +35,15 @@ import {
   type DomainError,
   getReviewItem,
   getSource,
+  getTeamRatings,
   listAliases,
   listCompetitionPolicies,
   listRecentRuns,
   listReviewItems,
   listSources,
+  marketsWithSelections,
   recentAcceptedCounts,
+  recordEventPriced,
   resolveReviewItem,
   ScrapeAliasConflictError,
   ScrapeReviewStateError,
@@ -48,6 +52,7 @@ import {
   setSourceEnabled,
   sourceHealth,
   upsertFixture,
+  writeAudit,
   type AliasListRow,
   type CompetitionPolicyRow,
   type DbExecutor,
@@ -57,7 +62,15 @@ import {
   type SourceHealth,
 } from '@vamos/db';
 import { competitions, events, teams } from '@vamos/db/schema';
-import { MIN_LEAD_MS, normalizeName, RESULTS_SLOW_INTERVAL_MS } from '@vamos/scraper';
+import {
+  checkReprice,
+  MIN_LEAD_MS,
+  normalizeName,
+  ratingsKey,
+  REPRICE_SUBJECT_SUFFIX,
+  RESULTS_SLOW_INTERVAL_MS,
+  type GateMarket,
+} from '@vamos/scraper';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
@@ -425,7 +438,9 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
    * the item's kind does not take, 409 `review_closed` for an item that is
    * not open, 404 for an unknown id. `apply_result` stores only the decision
    * (`{"decision":"apply_result","by":"<admin id>"}`): the scraper applies the
-   * score of the item's payload after re-validating it.
+   * score of the item's payload after re-validating it. `apply_reprice` (an
+   * odds_approval item whose subject ends in `|reprice`, rule O3) applies the book
+   * stored in the item, never a price from the request, in this transaction.
    */
   app.post<IdParams>(
     '/admin/feed/review/:id/resolve',
@@ -449,6 +464,18 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             'decision_not_allowed',
             `The decision ${input.decision} does not apply to ${item.kind} items`,
             { decision: input.decision, kind: item.kind },
+          );
+        }
+        // An odds_approval item is either the F7 request to open betting or a re-price
+        // (subject `<feedRef>|reprice`): each takes only its own decision.
+        if (
+          (input.decision === 'apply_reprice' && !isRepriceItem(item)) ||
+          (input.decision === 'open_betting' && isRepriceItem(item))
+        ) {
+          throw unprocessable(
+            'decision_not_allowed',
+            `The decision ${input.decision} does not apply to this ${item.kind} item`,
+            { decision: input.decision, kind: item.kind, subjectKey: item.subjectKey },
           );
         }
         if (item.status !== 'open') {
@@ -553,6 +580,115 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
               decision: 'apply_kickoff',
               eventId: event!.id,
               kickoff: proposed.toISOString(),
+              by: actor.adminId,
+            };
+            break;
+          }
+          case 'apply_reprice': {
+            const payload = parseReviewPayload('odds_approval', item.payload);
+            if (
+              payload === null ||
+              payload.proposal === undefined ||
+              payload.ratingsKey === undefined
+            ) {
+              throw badPayload();
+            }
+            const event = await lockEvent(tx, payload.eventId);
+            const refusal = eventRefusal(event);
+            if (refusal !== null) throw refusal;
+            if (item.subjectKey !== `${event!.feedRef}${REPRICE_SUBJECT_SUFFIX}`)
+              throw badPayload();
+            if (event!.startTime.getTime() < now.getTime() + MIN_LEAD_MS) {
+              throw unprocessable(
+                'kickoff_too_close',
+                'The event starts too soon to change its prices by hand',
+              );
+            }
+            // The proposal is the book of the ratings it was priced from; if they moved, a
+            // newer proposal replaces it (the scraper refreshes the open item).
+            const rated = await getTeamRatings(tx, [event!.homeTeamId, event!.awayTeamId]);
+            const currentKey = ratingsKey(
+              rated.get(event!.homeTeamId)?.ratings,
+              rated.get(event!.awayTeamId)?.ratings,
+            );
+            if (currentKey !== payload.ratingsKey) {
+              throw conflict(
+                'proposal_stale',
+                'The team ratings changed since this proposal was made',
+                { id },
+              );
+            }
+            // Only prices change: the markets the upsert may touch must be exactly those of the
+            // proposal and the book must pass the sanity rules; the size of the move is what the
+            // trader is approving (O3), so it is not checked again.
+            const stored = await marketsWithSelections(tx, event!.id);
+            const updatable = stored.filter((m) => m.status === 'open' || m.status === 'suspended');
+            const frozen = new Set(stored.filter((m) => !updatable.includes(m)).map((m) => m.key));
+            const proposal: GateMarket[] = payload.proposal.map((m) => ({
+              type: m.type as MarketTypeCode,
+              line: m.line,
+              selections: m.selections,
+            }));
+            const next = proposal.filter((m) => {
+              try {
+                return !frozen.has(marketKey(m.type, m.line));
+              } catch {
+                return true; // checkReprice names it
+              }
+            });
+            const check = checkReprice(
+              updatable.map((m) => ({
+                type: m.type as MarketTypeCode,
+                line: m.line,
+                selections: m.selections,
+              })),
+              next,
+            );
+            const blocking = check.ok
+              ? []
+              : check.issues.filter((issue) => issue.code !== 'price_move_too_large');
+            if (blocking.length > 0) {
+              throw unprocessable(
+                'proposal_not_applicable',
+                "The proposal does not fit the event's markets any more",
+                { issues: blocking.map((issue) => ({ ...issue })) },
+              );
+            }
+            const repriced = await upsertFixture(
+              tx,
+              {
+                feedProvider: event!.feedProvider,
+                feedRef: event!.feedRef,
+                sport: event!.sportId as SportCode,
+                competitionId: event!.competitionId,
+                homeTeamId: event!.homeTeamId,
+                awayTeamId: event!.awayTeamId,
+                startTime: event!.startTime,
+              },
+              next,
+              { now },
+            );
+            await recordEventPriced(tx, event!.id, currentKey, now);
+            await writeAudit(tx, {
+              actorType: 'admin',
+              actorId: actor.adminId,
+              action: 'scrape.fixture.repriced',
+              targetType: 'event',
+              targetId: event!.id,
+              metadata: {
+                feedRef: event!.feedRef,
+                via: 'staff',
+                reviewItemId: id,
+                ratingsKey: currentKey,
+                oddsChanged: repriced.oddsChanged,
+              },
+              ip: actor.ip ?? null,
+            });
+            messages.push(...repriced.messages);
+            resolution = {
+              decision: 'apply_reprice',
+              eventId: event!.id,
+              oddsChanged: repriced.oddsChanged,
               by: actor.adminId,
             };
             break;

@@ -20,6 +20,8 @@ import {
   FEED_SOURCE_STATES,
   FEED_SPORTS,
   FeedHealthResponse,
+  FEED_REPRICE_SUBJECT_SUFFIX,
+  isRepriceItem,
   parseReviewPayload,
   REVIEW_PAYLOAD_SCHEMAS,
   ResolveReviewRequest,
@@ -69,10 +71,11 @@ describe('feed routes', () => {
     expect(hasPermission('trader', 'trading.result')).toBe(true);
   });
 
-  it('asks trading.result to apply a result and trading.status for every other decision', () => {
+  it('asks trading.result to apply a result, trading.odds to apply prices and trading.status for every other decision', () => {
     expect(resolveReviewPermission({ decision: 'apply_result' })).toBe('trading.result');
+    expect(resolveReviewPermission({ decision: 'apply_reprice' })).toBe('trading.odds');
     for (const decision of FEED_RESOLVE_DECISIONS) {
-      if (decision === 'apply_result') continue;
+      if (decision === 'apply_result' || decision === 'apply_reprice') continue;
       expect(resolveReviewPermission({ decision }), decision).toBe('trading.status');
     }
   });
@@ -123,6 +126,7 @@ describe('feed requests', () => {
       { decision: 'apply_result' },
       { decision: 'apply_result', note: 'checked on the league site' },
       { decision: 'apply_kickoff' },
+      { decision: 'apply_reprice' },
     ]) {
       expect(ResolveReviewRequest.safeParse(body).success, JSON.stringify(body)).toBe(true);
     }
@@ -144,6 +148,9 @@ describe('feed requests', () => {
       { decision: 'dismiss', note: 'x', targetId: 'team_1' },
       { decision: 'open_betting', note: 'extra field' },
       { decision: 'apply_kickoff', kickoff: NOW },
+      { decision: 'apply_reprice', note: 'extra field' },
+      { decision: 'apply_reprice', oddsMilli: 2000 },
+      { decision: 'apply_reprice', markets: [] },
     ]) {
       expect(ResolveReviewRequest.safeParse(body).success, JSON.stringify(body)).toBe(false);
     }
@@ -157,7 +164,12 @@ describe('feed requests', () => {
       { htHome: 1, htAway: 0 },
       { finalScore: '2-1' },
     ]) {
-      for (const decision of ['apply_result', 'open_betting', 'apply_kickoff'] as const) {
+      for (const decision of [
+        'apply_result',
+        'open_betting',
+        'apply_kickoff',
+        'apply_reprice',
+      ] as const) {
         expect(
           ResolveReviewRequest.safeParse({ decision, ...extra }).success,
           `${decision} ${JSON.stringify(extra)}`,
@@ -400,6 +412,33 @@ describe('review payloads', () => {
         },
       ],
     };
+    // A re-price item also carries the exact book and the ratings fingerprint.
+    const reprice = {
+      ...odds,
+      proposal: [
+        {
+          type: '1x2',
+          line: null,
+          selections: [
+            { code: '1', oddsMilli: 1850 },
+            { code: 'X', oddsMilli: 3400 },
+          ],
+        },
+      ],
+      ratingsKey: 'k',
+    };
+    expect(parseReviewPayload('odds_approval', reprice)).toEqual(reprice);
+    expect(
+      parseReviewPayload('odds_approval', {
+        ...reprice,
+        proposal: [{ type: '1x2', line: null, selections: [{ code: '1', oddsMilli: 900 }] }],
+      }),
+    ).toBeNull();
+    expect(isRepriceItem({ kind: 'odds_approval', subjectKey: 'fx|a|reprice' })).toBe(true);
+    expect(isRepriceItem({ kind: 'odds_approval', subjectKey: 'fx|a' })).toBe(false);
+    expect(isRepriceItem({ kind: 'ratings_uncalibrated', subjectKey: 'fx|a|reprice' })).toBe(false);
+    expect(FEED_REPRICE_SUBJECT_SUFFIX).toBe('|reprice');
+
     for (const kind of ['odds_approval', 'ratings_uncalibrated'] as const) {
       expect(parseReviewPayload(kind, odds), kind).toEqual(odds);
       expect(parseReviewPayload(kind, { ...odds, markets: [] }), kind).not.toBeNull();

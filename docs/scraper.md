@@ -95,6 +95,7 @@ Text columns with a closed set get a CHECK constraint built from
 | `team_aliases`, `competition_aliases` | normalised raw name → catalogue id, optionally limited to one `source_id` (null = any source). Unique per `(sport/normalised name/source)`                                                                                                                                                         |
 | `scrape_review_items`                 | what a person must look at: `kind` (`SCRAPE_REVIEW_KINDS`), `subject_key`, `status`, `severity`, `title`, `payload` jsonb, `created_at`, resolution fields. At most one **open** item per `(kind, subject_key)` (partial unique index)                                                             |
 | `scrape_rating_applied`               | `fixture_key` PK, `applied_at`: a result updates ratings at most once                                                                                                                                                                                                                              |
+| `scrape_event_pricing`                | `event_id` PK, `ratings_key` (fingerprint of the ratings behind the stored prices, null if unknown), `priced_at`, `held_key` (the fingerprint of the last proposal a person was asked about), `updated_at` (rule O3)                                                                               |
 
 Events created by the scraper have `feed_provider = 'scraped'` and
 `feed_ref = fixture key` (`fx|competitionId|homeTeamId|awayTeamId|YYYY-MM-DD`
@@ -281,6 +282,32 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
 - **O3 Re-pricing.** After ratings change, scheduled events are re-priced only if
   no selection moves by more than `MAX_PRICE_MOVE_RATIO` in either direction;
   otherwise the old prices stay and `odds_approval` opens with the proposal.
+  How it is done (`repriceScheduledEvents`, the last step of the promotion pass):
+  `scrape_event_pricing` stamps, per event, a fingerprint of both teams' ratings
+  (`ratingsKey`) that the stored prices were computed from, set when the event
+  is created and on every re-price. An event whose teams' current fingerprint
+  differs is priced again (`priceFixture`) and checked with `checkReprice`
+  against its stored open and suspended markets (a closed market keeps its
+  price). Accepted: applied with `upsertFixture` in one transaction (only open
+  selections whose feed price moved change, so a trader's price stays until the
+  model itself moves), stamp and audit `scrape.fixture.repriced` in the same
+  transaction, deltas published after COMMIT. Refused: nothing changes and the
+  item `odds_approval` with subject `<feedRef>|reprice` carries the proposal and
+  the fingerprint; the held fingerprint is remembered, so the same ratings are
+  not raised again (even if the item is dismissed). Never re-priced: events that
+  are not `scheduled`, are resulted, start within `MIN_LEAD_MS`, whose
+  competition has no policy row, or whose teams are not calibrated (O1). A
+  competition whose policy is not `enabled` is not re-priced by itself either
+  (S4): the proposal is held as the same item (reason `policy_disabled`) and
+  switching the policy on looks at the event anew. Betting stays as it is (a
+  closed event is re-priced and stays closed) and bets already placed keep the
+  odds they were accepted at (a bet leg stores them). A trader applies a held
+  proposal with the decision `apply_reprice` (`trading.odds`): the server uses the
+  proposal stored in the item (never a price from the request), refuses it when
+  the ratings changed since (409 `proposal_stale`), the event is not scheduled
+  or starts within `MIN_LEAD_MS`, or the book no longer fits the event's markets
+  or fails O2 (422 `proposal_not_applicable`), and applies it in one
+  transaction like the automatic path; only the size of the move is waived.
 - **O4 Ratings update.** A confirmed result updates both teams' ratings once
   (`scrape_rating_applied`), in the same transaction as the result.
 

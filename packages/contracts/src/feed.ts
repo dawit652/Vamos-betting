@@ -13,8 +13,8 @@ import { Id, IsoDateTime, OddsMilli, Santim } from './common';
  * Two routes are guarded more finely than this table can say; the API checks
  * the finer permission from the request body with the helpers below:
  * - `POST /admin/feed/review/:id/resolve` needs `trading.status`, or
- *   `trading.result` when the decision is `apply_result`
- *   (`resolveReviewPermission`).
+ *   `trading.result` when the decision is `apply_result`, or `trading.odds`
+ *   when it is `apply_reprice` (`resolveReviewPermission`).
  * - `PUT /admin/feed/competitions/:id` is listed with its strictest permission,
  *   `settings.edit`; a request that only turns flags off needs just
  *   `trading.status` (`competitionPolicyPermission`).
@@ -362,6 +362,29 @@ const ResultObservationView = z.object({
   changedAt: IsoDateTime,
 });
 
+/**
+ * The suffix of the subject key of a re-price item (rule O3): an `odds_approval`
+ * item whose subject ends in it asks a trader to apply new prices to an event
+ * that already has some, as opposed to opening betting. A drift test in the API
+ * compares it with the scraper's REPRICE_SUBJECT_SUFFIX.
+ */
+export const FEED_REPRICE_SUBJECT_SUFFIX = '|reprice';
+
+/** True for the `odds_approval` items that propose a re-price (`apply_reprice` applies them). */
+export function isRepriceItem(item: { kind: string; subjectKey: string }): boolean {
+  return item.kind === 'odds_approval' && item.subjectKey.endsWith(FEED_REPRICE_SUBJECT_SUFFIX);
+}
+
+/** A priced book as the scraper stores it in a re-price item: markets by type and line, selections by code. */
+export const RepriceProposal = z.array(
+  z.object({
+    type: z.string().min(1),
+    line: z.string().nullable(),
+    selections: z.array(z.object({ code: z.string().min(1), oddsMilli: OddsMilli })),
+  }),
+);
+export type RepriceProposal = z.infer<typeof RepriceProposal>;
+
 const OddsReviewPayload = z.object({
   ...EventRef,
   /** Why a person is asked (e.g. which team has too few rated matches, or which price moved too far). */
@@ -380,6 +403,13 @@ const OddsReviewPayload = z.object({
       ),
     }),
   ),
+  /**
+   * Re-price items only (subject ends in FEED_REPRICE_SUBJECT_SUFFIX): the
+   * exact book `apply_reprice` applies, and the fingerprint of the ratings it
+   * was priced from (the decision is refused when the ratings moved since).
+   */
+  proposal: RepriceProposal.optional(),
+  ratingsKey: z.string().optional(),
 });
 
 const ResultReviewPayload = z.object({
@@ -514,6 +544,11 @@ export type ReviewDetailResponse = z.infer<typeof ReviewDetailResponse>;
  *   proposes. The request carries no score: the server applies the one in the
  *   item's payload, so a client cannot invent one.
  * - apply_kickoff: kickoff_change: move the event to the proposed kickoff.
+ * - apply_reprice: odds_approval items that propose a re-price (rule O3, see
+ *   `isRepriceItem`): set the prices the item proposes on the event. The
+ *   request carries no price: the server applies the proposal stored in the
+ *   item, after checking again that the event is scheduled, not about to
+ *   start, and that the ratings it was priced from still hold.
  */
 export const ResolveReviewRequest = z.discriminatedUnion('decision', [
   z.strictObject({ decision: z.literal('dismiss'), note: Note }),
@@ -521,6 +556,7 @@ export const ResolveReviewRequest = z.discriminatedUnion('decision', [
   z.strictObject({ decision: z.literal('open_betting') }),
   z.strictObject({ decision: z.literal('apply_result'), note: Note.optional() }),
   z.strictObject({ decision: z.literal('apply_kickoff') }),
+  z.strictObject({ decision: z.literal('apply_reprice') }),
 ]);
 export type ResolveReviewRequest = z.infer<typeof ResolveReviewRequest>;
 
@@ -530,6 +566,7 @@ export const FEED_RESOLVE_DECISIONS = [
   'open_betting',
   'apply_result',
   'apply_kickoff',
+  'apply_reprice',
 ] as const;
 export type FeedResolveDecision = (typeof FEED_RESOLVE_DECISIONS)[number];
 
@@ -540,15 +577,21 @@ export const FEED_RESOLVE_DECISION_KINDS = {
   open_betting: ['odds_approval'],
   apply_result: ['result_ready', 'result_unverified'],
   apply_kickoff: ['kickoff_change'],
+  // Only the odds_approval items of a re-price (isRepriceItem); the route checks the subject.
+  apply_reprice: ['odds_approval'],
 } as const satisfies Record<FeedResolveDecision, readonly FeedReviewKind[]>;
 
-/** The permission each decision needs; applying a result is `trading.result`, the rest `trading.status`. */
+/**
+ * The permission each decision needs; applying a result is `trading.result`,
+ * applying prices is `trading.odds`, the rest `trading.status`.
+ */
 export const FEED_RESOLVE_DECISION_PERMISSIONS = {
   dismiss: 'trading.status',
   map_alias: 'trading.status',
   open_betting: 'trading.status',
   apply_result: 'trading.result',
   apply_kickoff: 'trading.status',
+  apply_reprice: 'trading.odds',
 } as const satisfies Record<FeedResolveDecision, StaffPermission>;
 
 export function resolveReviewPermission(

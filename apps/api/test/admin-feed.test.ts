@@ -5,6 +5,7 @@ import {
   FEED_ADAPTERS,
   FEED_DATA_CLASSES,
   FEED_FIXTURE_STATUSES,
+  FEED_REPRICE_SUBJECT_SUFFIX,
   FEED_REVIEW_KINDS,
   FEED_REVIEW_STATUSES,
   FEED_ROUTE_PERMISSIONS,
@@ -41,11 +42,12 @@ import {
   openReviewItem,
   schema,
   setSourceEnabled,
+  setTeamRatings,
   startRun,
   upsertSource,
   type Database,
 } from '@vamos/db';
-import { normalizeName } from '@vamos/scraper';
+import { normalizeName, ratingsKey, REPRICE_SUBJECT_SUFFIX } from '@vamos/scraper';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { listAdminRoutes } from '../src/modules/admin/common';
@@ -238,6 +240,7 @@ describe('contract drift', () => {
     expect(FEED_REVIEW_KINDS).toEqual(SCRAPE_REVIEW_KINDS);
     expect(FEED_REVIEW_STATUSES).toEqual(SCRAPE_REVIEW_STATUSES);
     expect(FEED_SEVERITIES).toEqual(SCRAPE_SEVERITIES);
+    expect(FEED_REPRICE_SUBJECT_SUFFIX).toBe(REPRICE_SUBJECT_SUFFIX);
   });
 });
 
@@ -461,6 +464,9 @@ describe('POST /admin/feed/review/:id/resolve', () => {
       { decision: 'map_alias', targetId: ids.home, score },
       { decision: 'open_betting', score },
       { decision: 'apply_kickoff', score },
+      { decision: 'apply_reprice', score },
+      { decision: 'apply_reprice', oddsMilli: 2000 },
+      { decision: 'apply_reprice', proposal: [] },
       { decision: 'cancel_event' },
       { decision: 'void' },
       {},
@@ -518,6 +524,11 @@ describe('POST /admin/feed/review/:id/resolve', () => {
       reason: null,
       markets: [],
     });
+    const reprice = await openItem(
+      'odds_approval',
+      { ...eventRef(ABSENT_ID, ctx.clock.now), reason: null, markets: [] },
+      'fx|some-event|reprice',
+    );
     const attempts: Array<[string, unknown]> = [
       [broken, { decision: 'map_alias', targetId: ids.home }],
       [broken, { decision: 'open_betting' }],
@@ -526,6 +537,10 @@ describe('POST /admin/feed/review/:id/resolve', () => {
       [odds, { decision: 'apply_result' }],
       [odds, { decision: 'apply_kickoff' }],
       [odds, { decision: 'map_alias', targetId: ids.home }],
+      // An odds_approval item that is not a re-price takes no apply_reprice, and a re-price no open_betting.
+      [odds, { decision: 'apply_reprice' }],
+      [broken, { decision: 'apply_reprice' }],
+      [reprice, { decision: 'open_betting' }],
     ];
     for (const [id, body] of attempts) {
       const response = await resolve('admin', id, body);
@@ -534,6 +549,7 @@ describe('POST /admin/feed/review/:id/resolve', () => {
     }
     expect((await itemRow(broken)).status).toBe('open');
     expect((await itemRow(odds)).status).toBe('open');
+    expect((await itemRow(reprice)).status).toBe('open');
   });
 
   it('map_alias adds the normalised alias (all sources or one), closes the item, audits; the same name for another target is 409', async () => {
@@ -816,6 +832,321 @@ describe('POST /admin/feed/review/:id/resolve', () => {
       expect((await itemRow(refused)).status, label).toBe('open');
     }
     expect((await eventRow(soon.id)).startTime.toISOString()).toBe(soon.startTime.toISOString());
+  });
+
+  describe('apply_reprice (rule O3)', () => {
+    const RATINGS = { attack: 1.2, defence: 0.9, matches: 10 };
+    // Far beyond MAX_PRICE_MOVE_RATIO either way, and a sane 1x2 book (overround about 1.04).
+    const PROPOSAL = [
+      {
+        type: '1x2',
+        line: null,
+        selections: [
+          { code: '1', oddsMilli: 2400 },
+          { code: 'X', oddsMilli: 3400 },
+          { code: '2', oddsMilli: 3000 },
+        ],
+      },
+    ];
+    const pricesOf = async (marketId: string) =>
+      Object.fromEntries(
+        (
+          await db.select().from(schema.selections).where(eq(schema.selections.marketId, marketId))
+        ).map((row) => [row.code, row.oddsMilli]),
+      );
+    const stampOf = async (eventId: string) =>
+      (
+        await db
+          .select()
+          .from(schema.scrapeEventPricing)
+          .where(eq(schema.scrapeEventPricing.eventId, eventId))
+      )[0];
+
+    async function repriceCase(
+      startsInMs = 3 * HOUR,
+      options: {
+        proposal?: unknown;
+        ratingsKey?: string | undefined;
+        subject?: (feedRef: string) => string;
+        markets?: Array<[string, string | null, Array<[string, number]>]>;
+      } = {},
+    ) {
+      await db.transaction(async (tx) => {
+        await setTeamRatings(tx, ids.home, RATINGS, { system: 'test' });
+        await setTeamRatings(tx, ids.away, RATINGS, { system: 'test' });
+      });
+      const event = await newEvent(startsInMs);
+      const market = await insertMarket(db, event.id, '1x2', null, ONE_X_TWO);
+      for (const [type, line, selectionRows] of options.markets ?? []) {
+        await insertMarket(db, event.id, type, line, selectionRows);
+      }
+      const feedRef = (await eventRow(event.id)).feedRef;
+      const item = await openItem(
+        'odds_approval',
+        {
+          ...eventRef(event.id, event.startTime),
+          reason: 'price_move_too_large 1x2 1 1850 → 2400',
+          markets: [],
+          ...('proposal' in options && options.proposal === undefined
+            ? {}
+            : { proposal: options.proposal ?? PROPOSAL }),
+          ...('ratingsKey' in options && options.ratingsKey === undefined
+            ? {}
+            : { ratingsKey: options.ratingsKey ?? ratingsKey(RATINGS, RATINGS) }),
+        },
+        options.subject?.(feedRef) ?? `${feedRef}${REPRICE_SUBJECT_SUFFIX}`,
+      );
+      return { event, market, item, feedRef };
+    }
+
+    it('applies the stored proposal in one transaction, stamps the ratings, audits and publishes', async () => {
+      const { event, market, item } = await repriceCase();
+      const before = await pricesOf(market.id);
+      expect(before).toEqual({ '1': 1850, X: 3400, '2': 4200 });
+      const publish = vi.spyOn(ctx.redis, 'pipeline');
+      const response = await resolve('trader', item, { decision: 'apply_reprice' });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(publish).toHaveBeenCalled();
+      publish.mockRestore();
+
+      expect(ResolveReviewResponse.parse(response.json()).item).toMatchObject({
+        status: 'resolved',
+        resolution: {
+          decision: 'apply_reprice',
+          eventId: event.id,
+          oddsChanged: 2,
+          by: as('trader').id,
+        },
+      });
+      expect(await pricesOf(market.id)).toEqual({ '1': 2400, X: 3400, '2': 3000 });
+      const history = await db
+        .select()
+        .from(schema.oddsHistory)
+        .where(eq(schema.oddsHistory.selectionId, market.selectionIds['1']!));
+      expect(history.map((h) => [h.oddsMilli, h.source])).toEqual([[2400, 'feed']]);
+      // The event itself is untouched: still open for betting, same start.
+      expect(await eventRow(event.id)).toMatchObject({
+        status: 'scheduled',
+        bettingOpen: true,
+        startTime: event.startTime,
+      });
+      expect((await stampOf(event.id))?.ratingsKey).toBe(ratingsKey(RATINGS, RATINGS));
+      const [audit] = await auditActions('scrape.fixture.repriced', event.id);
+      expect(audit).toMatchObject({ actorType: 'admin', actorId: as('trader').id });
+      expect(audit!.metadata).toMatchObject({ via: 'staff', reviewItemId: item, oddsChanged: 2 });
+      expect(await auditActions('scrape.review.resolved', item)).toHaveLength(1);
+
+      // Closed now: a second resolve changes nothing.
+      const again = await resolve('trader', item, { decision: 'apply_reprice' });
+      expect(again.statusCode).toBe(409);
+      expect(errorOf(again).code).toBe('review_closed');
+    });
+
+    it('is refused, with nothing changed, for a stale proposal, a live, resulted, missing or too close event', async () => {
+      const cases: Array<
+        [string, () => Promise<{ item: string; market: { id: string } }>, number, string]
+      > = [];
+      cases.push([
+        'ratings moved since',
+        async () => {
+          const c = await repriceCase();
+          await db.transaction((tx) =>
+            setTeamRatings(
+              tx,
+              ids.home,
+              { ...RATINGS, attack: 1.3, matches: 11 },
+              { system: 'test' },
+            ),
+          );
+          return c;
+        },
+        409,
+        'proposal_stale',
+      ]);
+      cases.push([
+        'live',
+        async () => {
+          const c = await repriceCase();
+          await db
+            .update(schema.events)
+            .set({ status: 'live' })
+            .where(eq(schema.events.id, c.event.id));
+          return c;
+        },
+        422,
+        'event_not_scheduled',
+      ]);
+      cases.push([
+        'resulted',
+        async () => {
+          const c = await repriceCase();
+          await db
+            .update(schema.events)
+            .set({ resultedAt: ctx.clock.now })
+            .where(eq(schema.events.id, c.event.id));
+          return c;
+        },
+        422,
+        'event_not_scheduled',
+      ]);
+      cases.push(['too close', () => repriceCase(5 * MINUTE), 422, 'kickoff_too_close']);
+      cases.push([
+        'event deleted',
+        async () => {
+          const c = await repriceCase();
+          // The item points at an event that does not exist.
+          await db
+            .update(schema.scrapeReviewItems)
+            .set({
+              payload: {
+                ...eventRef(ABSENT_ID, ctx.clock.now),
+                reason: null,
+                markets: [],
+                proposal: PROPOSAL,
+                ratingsKey: ratingsKey(RATINGS, RATINGS),
+              },
+            })
+            .where(eq(schema.scrapeReviewItems.id, c.item));
+          return c;
+        },
+        422,
+        'event_not_found',
+      ]);
+      cases.push([
+        'another event',
+        async () => {
+          // The payload names an event whose feed_ref is not the item's subject.
+          const c = await repriceCase();
+          const other = await newEvent(4 * HOUR);
+          await insertMarket(db, other.id, '1x2', null, ONE_X_TWO);
+          await db
+            .update(schema.scrapeReviewItems)
+            .set({
+              payload: {
+                ...eventRef(other.id, other.startTime),
+                reason: null,
+                markets: [],
+                proposal: PROPOSAL,
+                ratingsKey: ratingsKey(RATINGS, RATINGS),
+              },
+            })
+            .where(eq(schema.scrapeReviewItems.id, c.item));
+          return c;
+        },
+        422,
+        'invalid_payload',
+      ]);
+      cases.push([
+        'no proposal',
+        () => repriceCase(3 * HOUR, { proposal: undefined }),
+        422,
+        'invalid_payload',
+      ]);
+      cases.push([
+        'no ratings fingerprint',
+        () => repriceCase(3 * HOUR, { ratingsKey: undefined }),
+        422,
+        'invalid_payload',
+      ]);
+      cases.push([
+        'insane book (overround too high)',
+        () =>
+          repriceCase(3 * HOUR, {
+            proposal: [
+              {
+                type: '1x2',
+                line: null,
+                selections: [
+                  { code: '1', oddsMilli: 1500 },
+                  { code: 'X', oddsMilli: 1500 },
+                  { code: '2', oddsMilli: 1500 },
+                ],
+              },
+            ],
+          }),
+        422,
+        'proposal_not_applicable',
+      ]);
+      cases.push([
+        'a market the event does not have',
+        () =>
+          repriceCase(3 * HOUR, {
+            proposal: [
+              ...PROPOSAL,
+              {
+                type: 'btts',
+                line: null,
+                selections: [
+                  { code: 'yes', oddsMilli: 1800 },
+                  { code: 'no', oddsMilli: 2100 },
+                ],
+              },
+            ],
+          }),
+        422,
+        'proposal_not_applicable',
+      ]);
+      cases.push([
+        'a market the proposal lacks',
+        () =>
+          repriceCase(3 * HOUR, {
+            markets: [
+              [
+                'btts',
+                null,
+                [
+                  ['yes', 1800],
+                  ['no', 2100],
+                ],
+              ],
+            ],
+          }),
+        422,
+        'proposal_not_applicable',
+      ]);
+      const audited = (await auditActions('scrape.fixture.repriced')).length;
+      for (const [label, make, status, code] of cases) {
+        const { item, market } = await make();
+        const before = await pricesOf(market.id);
+        const response = await resolve('trader', item, { decision: 'apply_reprice' });
+        expect(response.statusCode, `${label}: ${response.body}`).toBe(status);
+        expect(errorOf(response).code, label).toBe(code);
+        expect((await itemRow(item)).status, label).toBe('open');
+        expect(await pricesOf(market.id), label).toEqual(before);
+      }
+      expect(await auditActions('scrape.fixture.repriced')).toHaveLength(audited);
+    });
+
+    it('leaves a closed market alone and still applies the rest', async () => {
+      const { event, item } = await repriceCase(3 * HOUR, {
+        proposal: [
+          ...PROPOSAL,
+          {
+            type: 'btts',
+            line: null,
+            selections: [
+              { code: 'yes', oddsMilli: 1000 + 800 },
+              { code: 'no', oddsMilli: 2100 },
+            ],
+          },
+        ],
+      });
+      // The event has no btts market in this case: add it closed, so the proposal's btts is skipped.
+      const closed = await insertMarket(
+        db,
+        event.id,
+        'btts',
+        null,
+        [
+          ['yes', 1700],
+          ['no', 2200],
+        ],
+        'closed',
+      );
+      const response = await resolve('trader', item, { decision: 'apply_reprice' });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(await pricesOf(closed.id)).toEqual({ yes: 1700, no: 2200 });
+    });
   });
 
   it('never cancels or voids an event: no decision changes an event status', async () => {

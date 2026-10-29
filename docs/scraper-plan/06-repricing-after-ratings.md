@@ -2,7 +2,7 @@
 
 |                |                                                                     |
 | -------------- | ------------------------------------------------------------------- |
-| Status         | Not started                                                         |
+| Status         | Done (see docs/scraper-status.md)                                   |
 | Model / effort | Sonnet, high                                                        |
 | Size           | about 200k tokens                                                   |
 | Depends on     | task 01 (so the review's findings are in before more code is added) |

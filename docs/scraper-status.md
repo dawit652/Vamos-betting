@@ -57,7 +57,9 @@ tests.
   the old observation as a stale current row; this fails closed (cluster
   conflict or `kickoff_change`).
 - The scheduler's skip-until-`retryAt` logic has no test.
-- Re-pricing scheduled events after ratings change (rule O3) is not built.
+- Re-pricing scheduled events after ratings change (rule O3) is built (task 06): see
+  `scraper-plan/known-limits.md` for the choices. The payload of the F7 item written at
+  creation is not in the contract's shape (known limit); the re-price item is.
 - Raw snapshots are pruned after 30 days; evidence behind applied results is
   kept.
 
@@ -78,7 +80,10 @@ tests.
    for `SCRAPER_ARCHIVE_DIR` that is included in backups (Sonnet, medium).
 5. **Operations guide and runbook** ("a source broke", "a result is disputed",
    onboarding a new source checklist) (Haiku, low).
-6. **Re-pricing of scheduled events** after ratings change, gated by rule O3.
+6. ~~**Re-pricing of scheduled events** after ratings change, gated by rule O3.~~ Done:
+   `apps/scraper/src/pipeline/reprice.ts`, migration `0035_scrape_event_pricing`, the
+   `apply_reprice` decision of `/admin/feed/review/:id/resolve` and its button on the
+   review page.
 7. **Live scores**, other sports, and headless-browser fetching (explicitly out
    of version 1).
 8. Final full verification (typecheck, lint, format, all package tests, e2e)

@@ -88,8 +88,11 @@ export function isOpen(item: Pick<ReviewItemView, 'status'>): boolean {
 }
 
 /** The permission a decision needs (as the API checks it). */
-export function decisionPermission(decision: string): 'trading.result' | 'trading.status' {
-  return decision === 'apply_result' ? 'trading.result' : 'trading.status';
+export function decisionPermission(
+  decision: string,
+): 'trading.result' | 'trading.odds' | 'trading.status' {
+  if (decision === 'apply_result') return 'trading.result';
+  return decision === 'apply_reprice' ? 'trading.odds' : 'trading.status';
 }
 
 /**

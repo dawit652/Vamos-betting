@@ -53,6 +53,7 @@ describe('feed helpers', () => {
     expect(flagPermission('extraTime', false)).toBe('settings.edit');
     expect(flagPermission('extraTime', true)).toBe('settings.edit');
     expect(decisionPermission('apply_result')).toBe('trading.result');
+    expect(decisionPermission('apply_reprice')).toBe('trading.odds');
     expect(decisionPermission('dismiss')).toBe('trading.status');
   });
 

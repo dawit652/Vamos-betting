@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  isRepriceItem,
   parseReviewPayload,
   type ResolveReviewResponse,
   type ReviewDetailResponse,
@@ -279,11 +280,18 @@ function Body({
               ],
             ]}
           />
-          {kind === 'odds_approval' && allow('open_betting') && (
+          {kind === 'odds_approval' && !isRepriceItem(item) && allow('open_betting') && (
             <ActionButton
               primary
               label="Open betting"
               onAction={() => resolve({ decision: 'open_betting' })}
+            />
+          )}
+          {isRepriceItem(item) && p.proposal !== undefined && allow('apply_reprice') && (
+            <ActionButton
+              primary
+              label="Apply the proposed prices"
+              onAction={() => resolve({ decision: 'apply_reprice' })}
             />
           )}
         </>
