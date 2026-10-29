@@ -3,6 +3,7 @@ import {
   AliasListResponse,
   CreateAliasRequest,
   CreateAliasResponse,
+  RemoveAliasResponse,
   FEED_RESOLVE_DECISION_KINDS,
   FEED_SPORTS,
   FeedCompetitionsResponse,
@@ -32,7 +33,7 @@ import {
   addCompetitionAlias,
   addTeamAlias,
   countReviewItemsByKind,
-  type DomainError,
+  DomainError,
   getReviewItem,
   getSource,
   getTeamRatings,
@@ -44,6 +45,7 @@ import {
   marketsWithSelections,
   recentAcceptedCounts,
   recordEventPriced,
+  removeAlias,
   resolveReviewItem,
   ScrapeAliasConflictError,
   ScrapeReviewStateError,
@@ -778,6 +780,36 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
         throw contractError(error);
       });
       return reply.code(view.created ? 201 : 200).send(wire(CreateAliasResponse, view));
+    },
+  );
+
+  /**
+   * Removes an alias; the id says whether it is a team's or a competition's.
+   * 404 for an unknown id. removeAlias audits (`scrape.alias.removed`), so this
+   * route does not. Observations are re-resolved by the scraper's next
+   * promotion pass; nothing else happens here.
+   */
+  app.delete<IdParams>(
+    '/admin/feed/aliases/:id',
+    { config: { staff: 'trading.status' } },
+    async (request) => {
+      const id = parseUuid(request.params.id, 'Alias');
+      const actor = staffActor(request);
+      const removed = await inTx(deps, async (tx) => {
+        for (const kind of ['team', 'competition'] as const) {
+          try {
+            const record = await removeAlias(tx, kind, id, actor);
+            return aliasView({
+              ...record,
+              targetLabel: await targetName(tx, kind, record.targetId),
+            });
+          } catch (error) {
+            if (!(error instanceof DomainError && error.status === 404)) throw error;
+          }
+        }
+        throw notFound('Alias');
+      });
+      return wire(RemoveAliasResponse, { removed });
     },
   );
 

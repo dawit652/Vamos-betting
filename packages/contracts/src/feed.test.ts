@@ -20,6 +20,7 @@ import {
   FEED_SOURCE_STATES,
   FEED_SPORTS,
   FeedHealthResponse,
+  RemoveAliasResponse,
   FEED_REPRICE_SUBJECT_SUFFIX,
   isRepriceItem,
   parseReviewPayload,
@@ -47,7 +48,7 @@ describe('feed routes', () => {
   it('guards every route with a known permission and a known method', () => {
     for (const [route, permission] of Object.entries(FEED_ROUTE_PERMISSIONS)) {
       expect(STAFF_PERMISSIONS, route).toContain(permission);
-      expect(route).toMatch(/^(GET|POST|PUT) \/admin\/feed\//);
+      expect(route).toMatch(/^(GET|POST|PUT|DELETE) \/admin\/feed\//);
     }
   });
 
@@ -227,6 +228,30 @@ describe('feed requests', () => {
     }
     expect(AliasListQuery.parse({}).limit).toBe(50);
     expect(AliasListQuery.safeParse({ q: '' }).success).toBe(false);
+  });
+
+  it('removes an alias by id: trading.status, and the response echoes the alias', () => {
+    expect(FEED_ROUTE_PERMISSIONS['DELETE /admin/feed/aliases/:id']).toBe(
+      FEED_ROUTE_PERMISSIONS['POST /admin/feed/aliases'],
+    );
+    expect(FEED_ROUTE_PERMISSIONS['DELETE /admin/feed/aliases/:id']).toBe('trading.status');
+    const alias = {
+      id: 'a1',
+      kind: 'team',
+      sport: 'football',
+      raw: 'man utd',
+      normalized: 'man utd',
+      targetId: 't1',
+      targetName: 'Manchester United',
+      sourceId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdBy: 'cli',
+    };
+    expect(RemoveAliasResponse.parse({ removed: alias }).removed.id).toBe('a1');
+    expect(RemoveAliasResponse.safeParse({}).success).toBe(false);
+    expect(RemoveAliasResponse.safeParse({ removed: { ...alias, kind: 'player' } }).success).toBe(
+      false,
+    );
   });
 
   it('switches a source on or off with a boolean and nothing else', () => {

@@ -8,7 +8,7 @@ import {
 } from '@vamos/config';
 import { claimOperatingMode, createDb, DomainError, type Database, type DbHandle } from '@vamos/db';
 import { PoliteFetcher } from '@vamos/scraper';
-import { aliasesImport } from './cli/aliases';
+import { aliasesImport, aliasesList, aliasesRemove } from './cli/aliases';
 import { dryFetch, dryParse } from './cli/dry-run';
 import {
   CliFailure,
@@ -19,7 +19,7 @@ import {
   UsageError,
   type CliEnv,
 } from './cli/io';
-import { ratingsBackfill } from './cli/ratings';
+import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
 import { sourcesList, sourcesUpsert } from './cli/sources';
 
 /**
@@ -44,9 +44,20 @@ commands:
   aliases import --file aliases.csv
       Bulk team and competition aliases (columns: kind,sport,alias,target,source). Idempotent;
       all or nothing.
+  aliases list [--kind team|competition] [--q text]
+      Aliases, newest first, with their ids (the name or the target contains the text).
+  aliases remove --id <id>
+      Removes one alias (team or competition). The next promotion pass re-resolves
+      observations that used it. Audited.
   ratings backfill --file results.json --competition <slug> [--dry-run]
       Learns team ratings from historical results. Re-running the same file changes nothing;
       refuses teams with manual = 1 or with more matches than the file holds.
+  ratings set --team <name> --attack <n> --defence <n> [--matches <n>] [--dry-run]
+      Sets a football team's ratings by hand (sets manual = 1, audited). Attack and defence
+      are multipliers of the league average (1 = average, a higher defence concedes more),
+      between 0.35 and 3. Refuses unknown or ambiguous team names. Prints before and after.
+  ratings list [--team text]
+      Football teams that have ratings: attack, defence, matches, manual.
 
 every command accepts --json (machine-readable output).
 exit codes: 0 success, 1 failed or refused, 2 wrong command line.`;
@@ -59,7 +70,11 @@ const COMMANDS: Record<string, Command> = {
   'dry-parse': dryParse,
   'dry-fetch': dryFetch,
   'aliases import': aliasesImport,
+  'aliases list': aliasesList,
+  'aliases remove': aliasesRemove,
   'ratings backfill': ratingsBackfill,
+  'ratings set': ratingsSet,
+  'ratings list': ratingsList,
 };
 
 /** Words that take a sub-command; the rest are commands on their own. */

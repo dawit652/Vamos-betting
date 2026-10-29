@@ -26,6 +26,7 @@ export const FEED_ROUTE_PERMISSIONS = {
   'POST /admin/feed/review/:id/resolve': 'trading.status',
   'GET /admin/feed/aliases': 'trading.view',
   'POST /admin/feed/aliases': 'trading.status',
+  'DELETE /admin/feed/aliases/:id': 'trading.status',
   'PUT /admin/feed/sources/:id': 'trading.status',
   'GET /admin/feed/competitions': 'trading.view',
   'PUT /admin/feed/competitions/:id': 'settings.edit',
@@ -273,7 +274,7 @@ export function competitionPolicyPermission(
 }
 
 // ---------------------------------------------------------------------------
-// Aliases (GET / POST /admin/feed/aliases).
+// Aliases (GET / POST / DELETE /admin/feed/aliases).
 
 export const FEED_ALIAS_KINDS = ['team', 'competition'] as const;
 export const FeedAliasKindSchema = z.enum(FEED_ALIAS_KINDS);
@@ -329,6 +330,15 @@ export type CreateAliasRequest = z.infer<typeof CreateAliasRequest>;
 /** `created: false` when the same alias already existed. */
 export const CreateAliasResponse = z.object({ alias: AliasView, created: z.boolean() });
 export type CreateAliasResponse = z.infer<typeof CreateAliasResponse>;
+
+/**
+ * DELETE /admin/feed/aliases/:id (audited): removes one alias, team or
+ * competition (the id says which). 404 for an unknown id. Observations keep
+ * the target they resolved to until the scraper's next promotion pass
+ * re-resolves them, so the route only removes.
+ */
+export const RemoveAliasResponse = z.object({ removed: AliasView });
+export type RemoveAliasResponse = z.infer<typeof RemoveAliasResponse>;
 
 // ---------------------------------------------------------------------------
 // Review queue payloads. Each kind's `payload` has the shape below; the wire

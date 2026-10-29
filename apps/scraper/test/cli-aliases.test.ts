@@ -119,3 +119,102 @@ describe('aliases import', () => {
     expect(await aliasCount()).toBe(before);
   });
 });
+
+describe('aliases list and remove', () => {
+  let db: Awaited<ReturnType<typeof catalogDatabase>>;
+  let cli: ReturnType<typeof cliHarness>;
+  beforeAll(async () => {
+    db = await catalogDatabase();
+    cli = cliHarness({ db: db.db });
+    cli.files.set('src.json', JSON.stringify(OPENFOOTBALL_SOURCE));
+    expect((await cli.run('sources', 'upsert', '--file', 'src.json')).code).toBe(0);
+    cli.files.set(
+      'a.csv',
+      'kind,sport,alias,target,source\n' +
+        'team,football,Spurs,Tottenham,\n' +
+        'team,football,Gunners,Arsenal,cli-openfootball\n' +
+        'competition,football,English Premier League,premier-league,*\n',
+    );
+    expect((await cli.run('aliases', 'import', '--file', 'a.csv')).code).toBe(0);
+  }, SETUP_TIMEOUT);
+  afterAll(async () => {
+    await db?.drop();
+  }, SETUP_TIMEOUT);
+
+  interface Listed {
+    id: string;
+    kind: string;
+    alias: string;
+    source: string | null;
+  }
+  const list = async (...args: string[]): Promise<Listed[]> => {
+    const result = await cli.run('aliases', 'list', '--json', ...args);
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    return (JSON.parse(result.stdout) as { aliases: Listed[] }).aliases;
+  };
+  const removedAudits = async (id: string) =>
+    Number(
+      (
+        await db.pool.query(
+          `SELECT count(*) AS n FROM audit_log WHERE action = 'scrape.alias.removed' AND target_id = $1`,
+          [id],
+        )
+      ).rows[0].n,
+    );
+
+  it('lists every alias with its id, as a table and as JSON', async () => {
+    const text = await cli.run('aliases', 'list');
+    expect(text.code).toBe(0);
+    expect(text.stdout).toMatch(/^id\s+kind\s+alias\s+target\s+source\s+created/);
+    expect(text.stdout).toMatch(/spurs\s+Tottenham/);
+    expect(text.stdout).toContain('3 alias(es)');
+    const all = await list();
+    expect(all.map((a) => a.alias).sort()).toEqual(['english premier league', 'gunners', 'spurs']);
+    expect(all.find((a) => a.alias === 'gunners')?.source).toBe('cli-openfootball');
+  });
+
+  it('filters by --kind and --q (name or target, case-insensitive)', async () => {
+    expect((await list('--kind', 'competition')).map((a) => a.alias)).toEqual([
+      'english premier league',
+    ]);
+    expect((await list('--kind', 'team')).map((a) => a.kind)).toEqual(['team', 'team']);
+    expect((await list('--q', 'SPUR')).map((a) => a.alias)).toEqual(['spurs']);
+    expect((await list('--q', 'arsenal')).map((a) => a.alias)).toEqual(['gunners']);
+    expect(await list('--q', 'zzz-nothing')).toEqual([]);
+    const bad = await cli.run('aliases', 'list', '--kind', 'player');
+    expect(bad.code).toBe(2);
+    expect(bad.stderr).toContain('--kind must be "team" or "competition"');
+  });
+
+  it('removes a team alias and a competition alias by id, audited once', async () => {
+    const [spurs] = await list('--q', 'spurs');
+    const result = await cli.run('aliases', 'remove', '--id', spurs!.id);
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    expect(result.stdout).toContain('removed team alias "spurs" (all sources)');
+    expect(await list('--q', 'spurs')).toEqual([]);
+    expect(await removedAudits(spurs!.id)).toBe(1);
+
+    const [competition] = await list('--kind', 'competition');
+    expect((await cli.run('aliases', 'remove', '--id', competition!.id, '--json')).code).toBe(0);
+    expect(await list('--kind', 'competition')).toEqual([]);
+    expect(await removedAudits(competition!.id)).toBe(1);
+  });
+
+  it('fails for an unknown or already removed id and audits nothing more', async () => {
+    const [gunners] = await list('--q', 'gunners');
+    expect((await cli.run('aliases', 'remove', '--id', gunners!.id)).code).toBe(0);
+    for (const id of [gunners!.id, '00000000-0000-4000-8000-000000000000', 'not-a-uuid']) {
+      const result = await cli.run('aliases', 'remove', '--id', id);
+      expect(result.code, id).toBe(1);
+      expect(result.stderr).toContain('no alias with id');
+    }
+    expect(await removedAudits(gunners!.id)).toBe(1);
+    expect((await cli.run('aliases', 'remove')).code).toBe(2);
+  });
+
+  it('lets an alias be added again after removal (the point of removing)', async () => {
+    cli.files.set('b.csv', 'kind,sport,alias,target\nteam,football,Spurs,Everton\n');
+    expect((await cli.run('aliases', 'import', '--file', 'b.csv')).code).toBe(0);
+    expect((await list('--q', 'spurs')).length).toBe(1);
+  });
+});

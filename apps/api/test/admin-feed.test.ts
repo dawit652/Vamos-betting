@@ -2,6 +2,7 @@ import {
   AliasListResponse,
   ApiErrorSchema,
   CreateAliasResponse,
+  RemoveAliasResponse,
   FEED_ADAPTERS,
   FEED_DATA_CLASSES,
   FEED_FIXTURE_STATUSES,
@@ -263,13 +264,16 @@ describe('/admin/feed RBAC', () => {
       baseline: null,
     });
     const view: StaffRole[] = ['admin', 'trader'];
-    const table: Array<[method: 'GET' | 'POST' | 'PUT', url: string, allowed: StaffRole[]]> = [
+    const table: Array<
+      [method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, allowed: StaffRole[]]
+    > = [
       ['GET', '/admin/feed/health', view],
       ['GET', '/admin/feed/review', view],
       ['GET', `/admin/feed/review/${reviewId}`, view],
       ['POST', `/admin/feed/review/${reviewId}/resolve`, view],
       ['GET', '/admin/feed/aliases', view],
       ['POST', '/admin/feed/aliases', view],
+      ['DELETE', `/admin/feed/aliases/${ABSENT_ID}`, view],
       ['PUT', '/admin/feed/sources/src-off', view],
       ['GET', '/admin/feed/competitions', view],
       ['PUT', `/admin/feed/competitions/${ids.cup}`, ['admin']],
@@ -1302,6 +1306,62 @@ describe('aliases', () => {
     expect(
       (await asStaff(ctx, as('trader'), 'GET', '/admin/feed/aliases?limit=0')).statusCode,
     ).toBe(400);
+  });
+});
+
+describe('DELETE /admin/feed/aliases/:id', () => {
+  const remove = (id: string, role: StaffRole = 'trader') =>
+    asStaff(ctx, as(role), 'DELETE', `/admin/feed/aliases/${id}`);
+  const create = async (body: unknown) =>
+    CreateAliasResponse.parse(
+      (await asStaff(ctx, as('trader'), 'POST', '/admin/feed/aliases', body)).json(),
+    ).alias;
+  const listed = async (q: string) =>
+    AliasListResponse.parse(
+      (await asStaff(ctx, as('trader'), 'GET', `/admin/feed/aliases?q=${q}`)).json(),
+    ).items;
+
+  it('removes a team alias and a competition alias, audited once each', async () => {
+    const team = await create({ kind: 'team', raw: 'Removable Team', targetId: ids.away });
+    const competition = await create({
+      kind: 'competition',
+      raw: 'Removable Cup',
+      targetId: ids.league,
+      sourceId: 'src-ok',
+    });
+    for (const alias of [team, competition]) {
+      const response = await remove(alias.id);
+      expect(response.statusCode, response.body).toBe(200);
+      expect(RemoveAliasResponse.parse(response.json()).removed).toEqual(alias);
+      expect(await auditActions('scrape.alias.removed', alias.id)).toHaveLength(1);
+    }
+    expect(await listed('removable')).toEqual([]);
+    // Gone: a second removal is a 404 and writes no second audit row.
+    const again = await remove(team.id);
+    expect(again.statusCode).toBe(404);
+    expect(errorOf(again).code).toBe('not_found');
+    expect(await auditActions('scrape.alias.removed', team.id)).toHaveLength(1);
+  });
+
+  it('answers 404 for an unknown id and for text that is not an id', async () => {
+    expect((await remove(ABSENT_ID)).statusCode).toBe(404);
+    expect((await remove('not-a-uuid')).statusCode).toBe(404);
+  });
+
+  it('is for trading.status: 401 without a session, 403 for other roles, admin may', async () => {
+    const alias = await create({ kind: 'team', raw: 'Guarded Team', targetId: ids.away });
+    expect(
+      (await ctx.app.inject({ method: 'DELETE', url: `/admin/feed/aliases/${alias.id}` }))
+        .statusCode,
+    ).toBe(401);
+    for (const role of ['support', 'kyc', 'finance', 'compliance'] as const) {
+      const denied = await remove(alias.id, role);
+      expect(denied.statusCode, role).toBe(403);
+      expect(errorOf(denied).code).toBe('forbidden');
+    }
+    expect(await listed('guarded')).toHaveLength(1);
+    expect((await remove(alias.id, 'admin')).statusCode).toBe(200);
+    expect(await listed('guarded')).toEqual([]);
   });
 });
 

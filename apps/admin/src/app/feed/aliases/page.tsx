@@ -1,6 +1,6 @@
 'use client';
 
-import type { AliasView, CreateAliasResponse } from '@vamos/contracts';
+import type { AliasView, CreateAliasResponse, RemoveAliasResponse } from '@vamos/contracts';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { usePaged } from '@/components/hooks';
@@ -25,6 +25,28 @@ export default function AliasesPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The alias waiting for a second click, and the one being removed.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  async function remove(alias: AliasView) {
+    setMessage(null);
+    setError(null);
+    setRemoving(alias.id);
+    try {
+      await api<RemoveAliasResponse>(`/admin/feed/aliases/${encodeURIComponent(alias.id)}`, {
+        method: 'DELETE',
+      });
+      setMessage(`Alias "${alias.normalized}" removed.`);
+      list.reload();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setRemoving(null);
+      setConfirming(null);
+    }
+  }
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -82,6 +104,8 @@ export default function AliasesPage() {
           Filter
         </button>
       </form>
+      {can('trading.status') && error !== null && <Notice>{error}</Notice>}
+      {can('trading.status') && message !== null && <Notice kind="ok">{message}</Notice>}
       <Loading loading={list.loading && list.items.length === 0} error={list.error} />
       <div className="table-wrap">
         <table>
@@ -92,6 +116,7 @@ export default function AliasesPage() {
               <th>Maps to</th>
               <th>Source</th>
               <th>Created</th>
+              {can('trading.status') && <th />}
             </tr>
           </thead>
           <tbody>
@@ -104,6 +129,37 @@ export default function AliasesPage() {
                 <td>
                   {formatDateTime(a.createdAt)} by {a.createdBy}
                 </td>
+                {can('trading.status') && (
+                  <td>
+                    {confirming === a.id ? (
+                      <span className="row">
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={removing !== null}
+                          onClick={() => void remove(a)}
+                        >
+                          Confirm remove
+                        </button>
+                        <button
+                          type="button"
+                          disabled={removing !== null}
+                          onClick={() => setConfirming(null)}
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={removing !== null}
+                        onClick={() => setConfirming(a.id)}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -140,8 +196,6 @@ export default function AliasesPage() {
               Add
             </button>
           </form>
-          {error !== null && <Notice>{error}</Notice>}
-          {message !== null && <Notice kind="ok">{message}</Notice>}
         </section>
       )}
     </>

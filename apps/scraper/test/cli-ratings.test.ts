@@ -210,3 +210,182 @@ describe('ratings backfill', () => {
     expect((await cli.run('ratings', 'backfill', '--file', FILE)).code).toBe(2);
   });
 });
+
+describe('ratings set and list', () => {
+  let rdb: Awaited<ReturnType<typeof catalogDatabase>>;
+  let rcli: ReturnType<typeof cliHarness>;
+  beforeAll(async () => {
+    rdb = await catalogDatabase();
+    rcli = cliHarness({ db: rdb.db });
+  }, SETUP_TIMEOUT);
+  afterAll(async () => {
+    await rdb?.drop();
+  }, SETUP_TIMEOUT);
+
+  const teamIdOf = async (shortName: string): Promise<string> =>
+    (
+      await rdb.pool.query<{ id: string }>(`SELECT id FROM teams WHERE short_name = $1`, [
+        shortName,
+      ])
+    ).rows[0]!.id;
+  const stored = async (shortName: string) =>
+    (
+      await rdb.pool.query<{ ratings: Record<string, number> | null }>(
+        `SELECT ratings FROM teams WHERE short_name = $1`,
+        [shortName],
+      )
+    ).rows[0]!.ratings;
+  const setAudits = async () =>
+    Number(
+      (
+        await rdb.pool.query(
+          `SELECT count(*) AS n FROM audit_log WHERE action = 'scrape.ratings.updated'`,
+        )
+      ).rows[0].n,
+    );
+  const SET = (team: string, ...rest: string[]) => [
+    'ratings',
+    'set',
+    '--team',
+    team,
+    '--attack',
+    '1.45',
+    '--defence',
+    '0.8',
+    ...rest,
+  ];
+
+  it('--dry-run prints before and after and writes nothing', async () => {
+    const result = await rcli.run(...SET('Arsenal', '--dry-run'));
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    expect(result.stdout).toContain('Arsenal: would update');
+    expect(result.stdout).toContain('before  attack 1.500 defence 0.680 matches 0');
+    expect(result.stdout).toContain('after   attack 1.450 defence 0.800 matches 0 manual');
+    expect(result.stdout).toContain('nothing was written');
+    expect(await stored('Arsenal')).toMatchObject({ attack: 1.5 });
+    expect(await setAudits()).toBe(0);
+  });
+
+  it('sets the ratings with manual = 1, keeps other keys and audits before and after', async () => {
+    const arsenalId = await teamIdOf('Arsenal');
+    await rdb.db.transaction((tx) =>
+      setTeamRatings(
+        tx,
+        arsenalId,
+        { attack: 1.5, defence: 0.68, matches: 3, [BACKFILL_KEY]: 20250927 },
+        { system: 't' },
+      ),
+    );
+    const before = await setAudits();
+    const result = await rcli.run(...SET('arsenal'));
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('Arsenal: updated');
+    // matches is kept when --matches is not given.
+    expect(await stored('Arsenal')).toEqual({
+      attack: 1.45,
+      defence: 0.8,
+      matches: 3,
+      manual: 1,
+      [BACKFILL_KEY]: 20250927,
+    });
+    expect(await setAudits()).toBe(before + 1);
+    const audit = await rdb.pool.query(
+      `SELECT metadata FROM audit_log WHERE action = 'scrape.ratings.updated' ORDER BY created_at DESC LIMIT 1`,
+    );
+    expect(audit.rows[0].metadata.before).toMatchObject({ attack: 1.5, matches: 3 });
+    expect(audit.rows[0].metadata.after).toMatchObject({ attack: 1.45, manual: 1 });
+  });
+
+  it('sets --matches, and a repeat changes and audits nothing', async () => {
+    const first = await rcli.run(...SET('Everton', '--matches', '12'));
+    expect(first.code).toBe(0);
+    expect(await stored('Everton')).toEqual({ attack: 1.45, defence: 0.8, matches: 12, manual: 1 });
+    const audits = await setAudits();
+    const again = await rcli.run(...SET('Everton', '--matches', '12'));
+    expect(again.stdout).toContain('Everton: unchanged');
+    expect(await setAudits()).toBe(audits);
+  });
+
+  it('makes the team untouchable by a backfill (manual = 1)', async () => {
+    rcli.files.set(
+      'r.json',
+      JSON.stringify([
+        { date: '2025-08-16', home: 'Everton', away: 'Chelsea', homeGoals: 1, awayGoals: 0 },
+      ]),
+    );
+    const result = await rcli.run(
+      'ratings',
+      'backfill',
+      '--file',
+      'r.json',
+      '--competition',
+      'premier-league',
+    );
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain('REFUSED: manual = 1');
+  });
+
+  it('refuses unknown and ambiguous team names without writing', async () => {
+    const audits = await setAudits();
+    const unknown = await rcli.run(...SET('Nowhere United'));
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain('no football team named "Nowhere United"');
+    // A short name that is part of several names is not a match by itself.
+    const partial = await rcli.run(...SET('Manchester'));
+    expect(partial.code).toBe(1);
+    expect(partial.stderr).toContain('similar:');
+    await rdb.pool.query(
+      `INSERT INTO teams (id, sport_id, name, short_name)
+       SELECT gen_random_uuid(), sport_id, name, 'Arsenal B' FROM teams WHERE short_name = 'Chelsea'`,
+    );
+    const twin = await rcli.run(...SET('Chelsea'));
+    expect(twin.code).toBe(1);
+    expect(twin.stderr).toContain('matches 2 teams');
+    expect(await setAudits()).toBe(audits);
+  });
+
+  it('validates the numbers against the ratings model', async () => {
+    const audits = await setAudits();
+    const bad = async (flags: string[], message: string) => {
+      const result = await rcli.run('ratings', 'set', '--team', 'Liverpool', ...flags);
+      expect(result.code, flags.join(' ')).toBe(2);
+      expect(result.stderr).toContain(message);
+    };
+    await bad(['--attack', '0.1', '--defence', '1'], '--attack must be between 0.35 to 3');
+    await bad(['--attack', '1', '--defence', '3.5'], '--defence must be between');
+    await bad(['--attack', 'abc', '--defence', '1'], '--attack must be a number');
+    await bad(['--attack', 'NaN', '--defence', '1'], '--attack must be a number');
+    await bad(['--attack', '1', '--defence', 'Infinity'], '--defence must be a number');
+    await bad(['--attack', '1', '--defence', '1', '--matches', '2.5'], '--matches must be a whole');
+    await bad(['--attack', '1', '--defence', '1', '--matches=-1'], '--matches must be a whole');
+    await bad(['--attack', '1'], '--defence is required');
+    expect((await rcli.run('ratings', 'set', '--attack', '1', '--defence', '1')).code).toBe(2);
+    expect(await setAudits()).toBe(audits);
+    // The edges of the band are accepted.
+    const edge = await rcli.run(
+      'ratings',
+      'set',
+      '--team',
+      'Liverpool',
+      '--attack',
+      '0.35',
+      '--defence',
+      '3',
+    );
+    expect(edge.code).toBe(0);
+  });
+
+  it('lists the teams that have ratings, filtered by name, as a table and JSON', async () => {
+    const text = await rcli.run('ratings', 'list');
+    expect(text.code).toBe(0);
+    expect(text.stdout).toMatch(/^team\s+attack\s+defence\s+matches\s+manual/);
+    expect(text.stdout).toMatch(/Everton\s+1\.450\s+0\.800\s+12\s+yes/);
+    const filtered = await rcli.run('ratings', 'list', '--team', 'EVERT', '--json');
+    const parsed = JSON.parse(filtered.stdout) as {
+      teams: Array<{ team: string; manual: boolean; matches: number }>;
+    };
+    expect(parsed.teams).toMatchObject([{ team: 'Everton', manual: true, matches: 12 }]);
+    const none = await rcli.run('ratings', 'list', '--team', 'zzz');
+    expect(none.stdout).toContain('0 team(s) with ratings');
+  });
+});

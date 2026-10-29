@@ -2,7 +2,10 @@ import { SCRAPE_SPORTS } from '@vamos/core';
 import {
   addCompetitionAlias,
   addTeamAlias,
+  DomainError,
   getSource,
+  listAliases,
+  removeAlias,
   loadCatalogIds,
   ScrapeAliasConflictError,
   type Database,
@@ -14,9 +17,12 @@ import {
   EXIT_OK,
   emit,
   noPositionals,
+  optionalString,
   parseCommandArgs,
   readInput,
   requiredString,
+  table,
+  UsageError,
   type CliEnv,
 } from './io';
 
@@ -176,6 +182,111 @@ export async function aliasesImport(args: string[], env: CliEnv): Promise<number
           `added ${r.kind} alias "${r.aliasNorm}" -> ${r.target} (${r.sourceId ?? 'all sources'})`,
       ),
       `${created.length} added, ${existing} already present`,
+    ],
+  );
+  return EXIT_OK;
+}
+
+/**
+ * `aliases list [--kind team|competition] [--q text]`: aliases newest first,
+ * with the id `aliases remove` takes. `--q` keeps the aliases whose name or
+ * target contains the text (the name is compared normalised).
+ */
+export async function aliasesList(args: string[], env: CliEnv): Promise<number> {
+  const parsed = parseCommandArgs(args, { kind: { type: 'string' }, q: { type: 'string' } });
+  noPositionals(parsed);
+  const kind = optionalString(parsed, 'kind');
+  if (kind !== undefined && kind !== 'team' && kind !== 'competition') {
+    throw new UsageError(`--kind must be "team" or "competition", got "${kind}"`);
+  }
+  const q = optionalString(parsed, 'q');
+  const needle = q?.trim().toLowerCase();
+  const normalized = q === undefined ? '' : normalizeName(q);
+
+  const db: Database = await env.database();
+  const rows = (
+    await listAliases(db, { ...(kind === undefined ? {} : { kind }), limit: 2000 })
+  ).filter(
+    (r) =>
+      needle === undefined ||
+      r.aliasNorm.includes(needle) ||
+      (normalized !== '' && r.aliasNorm.includes(normalized)) ||
+      r.targetLabel.toLowerCase().includes(needle),
+  );
+  emit(
+    env,
+    parsed,
+    {
+      aliases: rows.map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        sport: r.sportId,
+        alias: r.aliasNorm,
+        target: r.targetLabel,
+        targetId: r.targetId,
+        source: r.sourceId,
+        createdAt: r.createdAt.toISOString(),
+        createdBy: r.createdBy,
+      })),
+    },
+    [
+      ...table(
+        ['id', 'kind', 'alias', 'target', 'source', 'created'],
+        rows.map((r) => [
+          r.id,
+          r.kind,
+          r.aliasNorm,
+          r.targetLabel,
+          r.sourceId ?? 'all',
+          `${r.createdAt.toISOString().slice(0, 19)}Z by ${r.createdBy ?? 'system'}`,
+        ]),
+      ),
+      `${rows.length} alias(es)`,
+    ],
+  );
+  return EXIT_OK;
+}
+
+/**
+ * `aliases remove --id <id>`: removes one alias, team or competition (the id
+ * is unique across both). Audited by removeAlias. Observations keep what they
+ * resolved to until the scraper's next promotion pass re-resolves them.
+ */
+export async function aliasesRemove(args: string[], env: CliEnv): Promise<number> {
+  const parsed = parseCommandArgs(args, { id: { type: 'string' } });
+  noPositionals(parsed);
+  const id = requiredString(parsed, 'id').trim();
+
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID.test(id)) throw new CliFailure(`no alias with id "${id}" (see "aliases list")`);
+
+  const db: Database = await env.database();
+  const removed = await db.transaction(async (tx) => {
+    for (const kind of ['team', 'competition'] as const) {
+      try {
+        return await removeAlias(tx, kind, id, env.actor);
+      } catch (error) {
+        if (!(error instanceof DomainError && error.status === 404)) throw error;
+      }
+    }
+    return null;
+  });
+  if (removed === null) throw new CliFailure(`no alias with id "${id}" (see "aliases list")`);
+  emit(
+    env,
+    parsed,
+    {
+      removed: {
+        id: removed.id,
+        kind: removed.kind,
+        alias: removed.aliasNorm,
+        targetId: removed.targetId,
+        source: removed.sourceId,
+      },
+    },
+    [
+      `removed ${removed.kind} alias "${removed.aliasNorm}" (${removed.sourceId ?? 'all sources'})`,
+      'observations are re-resolved on the next promotion pass',
     ],
   );
   return EXIT_OK;

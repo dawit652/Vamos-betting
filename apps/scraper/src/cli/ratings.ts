@@ -1,4 +1,4 @@
-import { replayRatings, type FootballResult } from '@vamos/feed';
+import { MAX_TEAM_RATING, MIN_TEAM_RATING, replayRatings, type FootballResult } from '@vamos/feed';
 import { getTeamRatings, localizedNames, setTeamRatings, type Database } from '@vamos/db';
 import { competitions, teams } from '@vamos/db/schema';
 import { normalizeName } from '@vamos/scraper';
@@ -10,11 +10,13 @@ import {
   EXIT_OK,
   emit,
   noPositionals,
+  optionalString,
   parseCommandArgs,
   parseJson,
   readInput,
   requiredString,
   table,
+  UsageError,
   type CliEnv,
 } from './io';
 
@@ -296,4 +298,195 @@ export async function ratingsBackfill(args: string[], env: CliEnv): Promise<numb
     ],
   );
   return refused ? EXIT_FAILED : EXIT_OK;
+}
+
+/** Most matches a hand-set rating can claim; far above any calibration threshold. */
+const MAX_MANUAL_MATCHES = 10_000;
+
+interface TeamCandidate {
+  id: string;
+  shortName: string;
+  names: string[];
+}
+
+/** Football teams of the catalogue with every name they answer to. */
+async function footballTeams(exec: Database): Promise<TeamCandidate[]> {
+  const rows = await exec
+    .select({ id: teams.id, shortName: teams.shortName, name: teams.name })
+    .from(teams)
+    .where(eq(teams.sportId, 'football'));
+  return rows.map((r) => ({
+    id: r.id,
+    shortName: r.shortName,
+    names: [r.shortName, ...localizedNames(r.name)],
+  }));
+}
+
+const matchesName = (team: TeamCandidate, key: string): boolean =>
+  team.names.some((n) => normalizeName(n) === key);
+
+/** A strict decimal number: no empty text, no "1abc", no NaN or Infinity. */
+function parseNumber(parsed: Parameters<typeof requiredString>[0], name: string): number {
+  const text = requiredString(parsed, name).trim();
+  const value = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(text) ? Number(text) : NaN;
+  if (!Number.isFinite(value)) throw new UsageError(`--${name} must be a number, got "${text}"`);
+  return value;
+}
+
+const fmtRatings = (r: Record<string, number> | null): string => {
+  if (r === null) return '-';
+  const s = snapshot(r);
+  return `${fmt(s)}${r.manual === 1 ? ' manual' : ''}`;
+};
+
+/**
+ * `ratings set --team <name> --attack <n> --defence <n> [--matches <n>] [--dry-run]`:
+ * a trader's hand-set ratings for one football team (for a team without a
+ * season of history). Writes attack, defence, matches and `manual = 1`
+ * through setTeamRatings (audited with before and after); other keys the team
+ * has (such as the backfill date) are kept. `--matches` defaults to what the
+ * team already has (0 for a new one); manual = 1 makes the team calibrated
+ * whatever the count (rule O1). The numbers must lie in the band the ratings
+ * model keeps every learned strength in (MIN_TEAM_RATING to MAX_TEAM_RATING);
+ * the team name must match exactly one catalogue team (short name or any
+ * localized name, normalised); unknown or ambiguous names are refused.
+ */
+export async function ratingsSet(args: string[], env: CliEnv): Promise<number> {
+  const parsed = parseCommandArgs(args, {
+    team: { type: 'string' },
+    attack: { type: 'string' },
+    defence: { type: 'string' },
+    matches: { type: 'string' },
+    'dry-run': { type: 'boolean' },
+  });
+  noPositionals(parsed);
+  const name = requiredString(parsed, 'team').trim();
+  const attack = parseNumber(parsed, 'attack');
+  const defence = parseNumber(parsed, 'defence');
+  const matches =
+    optionalString(parsed, 'matches') === undefined ? null : parseNumber(parsed, 'matches');
+  const dryRun = parsed.values['dry-run'] === true;
+  const band = `${MIN_TEAM_RATING} to ${MAX_TEAM_RATING}`;
+  for (const [label, value] of [
+    ['attack', attack],
+    ['defence', defence],
+  ] as const) {
+    if (value < MIN_TEAM_RATING || value > MAX_TEAM_RATING) {
+      throw new UsageError(`--${label} must be between ${band} (1 = league average), got ${value}`);
+    }
+  }
+  if (
+    matches !== null &&
+    (!Number.isInteger(matches) || matches < 0 || matches > MAX_MANUAL_MATCHES)
+  ) {
+    throw new UsageError(`--matches must be a whole number from 0 to ${MAX_MANUAL_MATCHES}`);
+  }
+  const key = normalizeName(name);
+  if (key === '') throw new UsageError('--team is empty');
+
+  const db: Database = await env.database();
+  const result = await db.transaction(async (tx) => {
+    const found = (await footballTeams(tx)).filter((t) => matchesName(t, key));
+    if (found.length === 0) {
+      const near = (await footballTeams(tx))
+        .filter((t) => t.names.some((n) => normalizeName(n).includes(key)))
+        .map((t) => t.shortName)
+        .sort()
+        .slice(0, 10);
+      throw new CliFailure(
+        `no football team named "${name}"`,
+        near.length > 0 ? [`similar: ${near.join(', ')}`] : [],
+      );
+    }
+    if (found.length > 1) {
+      throw new CliFailure(
+        `"${name}" matches ${found.length} teams; use a name that is unique`,
+        found.map((t) => `${t.shortName} (${t.id})`),
+      );
+    }
+    const team = found[0]!;
+    const current = (await getTeamRatings(tx, [team.id], { forUpdate: true })).get(team.id);
+    const was = current?.ratings ?? null;
+    const next: Record<string, number> = {
+      ...(was ?? {}),
+      attack,
+      defence,
+      matches: matches ?? current?.matches ?? 0,
+      manual: 1,
+    };
+    const unchanged =
+      was !== null &&
+      Object.keys(next).length === Object.keys(was).length &&
+      Object.entries(next).every(([k, v]) => was[k] === v);
+    if (!dryRun && !unchanged) await setTeamRatings(tx, team.id, next, env.actor);
+    return { team, was, next, unchanged };
+  });
+
+  const status = result.unchanged ? 'unchanged' : dryRun ? 'would update' : 'updated';
+  emit(
+    env,
+    parsed,
+    {
+      teamId: result.team.id,
+      team: result.team.shortName,
+      dryRun,
+      status,
+      before: result.was,
+      after: result.next,
+    },
+    [
+      `${result.team.shortName}: ${status}`,
+      `  before  ${fmtRatings(result.was)}`,
+      `  after   ${fmtRatings(result.next)}`,
+      ...(dryRun ? ['dry run: nothing was written'] : []),
+    ],
+  );
+  return EXIT_OK;
+}
+
+/**
+ * `ratings list [--team text] [--json]`: football teams that have ratings
+ * (learned or set by hand), by name. `--team` keeps the teams whose name
+ * contains the text (normalised).
+ */
+export async function ratingsList(args: string[], env: CliEnv): Promise<number> {
+  const parsed = parseCommandArgs(args, { team: { type: 'string' } });
+  noPositionals(parsed);
+  const text = optionalString(parsed, 'team');
+  const key = text === undefined ? '' : normalizeName(text);
+  if (text !== undefined && key === '') throw new UsageError('--team is empty');
+
+  const db: Database = await env.database();
+  const candidates = (await footballTeams(db)).filter(
+    (t) => key === '' || t.names.some((n) => normalizeName(n).includes(key)),
+  );
+  const current = await getTeamRatings(
+    db,
+    candidates.map((t) => t.id),
+  );
+  const rows = candidates
+    .map((t) => ({ team: t, ratings: current.get(t.id) }))
+    .filter((r) => r.ratings?.ratings !== null && r.ratings?.ratings !== undefined)
+    .sort((a, b) => a.team.shortName.localeCompare(b.team.shortName))
+    .map((r) => ({
+      teamId: r.team.id,
+      team: r.team.shortName,
+      ...snapshot(r.ratings!.ratings),
+      manual: r.ratings!.manual,
+      ratings: r.ratings!.ratings,
+    }));
+  emit(env, parsed, { teams: rows }, [
+    ...table(
+      ['team', 'attack', 'defence', 'matches', 'manual'],
+      rows.map((r) => [
+        r.team,
+        r.attack?.toFixed(3) ?? '-',
+        r.defence?.toFixed(3) ?? '-',
+        String(r.matches),
+        r.manual ? 'yes' : 'no',
+      ]),
+    ),
+    `${rows.length} team(s) with ratings`,
+  ]);
+  return EXIT_OK;
 }
