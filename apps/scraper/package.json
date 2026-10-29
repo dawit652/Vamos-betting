@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/main.ts",
     "start": "node dist/main.js",
+    "cli": "tsx src/cli.ts",
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests"

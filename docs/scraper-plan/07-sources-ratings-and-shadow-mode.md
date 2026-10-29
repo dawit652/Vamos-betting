@@ -2,7 +2,7 @@
 
 |                |                                                               |
 | -------------- | ------------------------------------------------------------- |
-| Status         | Not started (partly needs a person)                           |
+| Status         | CLI built (docs/scraper.md, section 12); rest needs people    |
 | Model / effort | Sonnet, high for the CLI; people for the rest                 |
 | Size           | CLI about 200k tokens; shadow mode 2–4 weeks of calendar time |
 | Depends on     | task 02 for the review queue; the CLI can start earlier       |

@@ -377,3 +377,51 @@ change downstream: it is one more adapter with its own `upstream`.
   are small integers.
 - Every automated change is idempotent and audited.
 - Prefer failing closed: when unsure, open a review item and change nothing.
+
+## 12. Onboarding commands (`apps/scraper/src/cli.ts`)
+
+No back-office screen creates sources, so onboarding uses a command line:
+
+```
+pnpm --filter @vamos/scraper-app cli <command> [options]
+```
+
+Results go to stdout (`--json` for machine-readable output), problems to
+stderr. Exit code: `0` success, `1` the command failed or refused, `2` the
+command line is wrong. Commands that need the database use `DATABASE_URL` from
+`.env` and check the operating mode like the runner does.
+
+| Command                                                                 | What it does                                                                                                                                     |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sources list`                                                          | Every source with state: enabled or disabled, last run, failures since the last ok run, open review items.                                       |
+| `sources upsert --file source.json`                                     | Checks the config with `createAdapter` (the runner's own check, so config errors such as a score without a status map are listed), then upserts. |
+| `dry-parse --source-file source.json --document page.html`              | Parses a saved page; prints observations and issues. No database, no network. Options: `--url`, `--at`, `--content-type`, `--limit`.             |
+| `dry-fetch --source-file source.json`                                   | Fetches the planned URLs through the `PoliteFetcher` (allow-list, robots.txt, rate limit) and parses; prints only. Writes nothing.               |
+| `aliases import --file aliases.csv`                                     | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written.                                              |
+| `ratings backfill --file results.json --competition <slug> [--dry-run]` | Learns ratings from historical results; prints before and after per team.                                                                        |
+
+`source.json` is `{ "id", "name", "adapter", "upstream", "config" }` (the
+columns of `scrape_sources`; `enabled` is not allowed). **A new source starts
+disabled**, and `sources upsert` never changes the flag of an existing one:
+switching a source on is a person's decision, made after `dry-fetch` looks right
+and the terms check is recorded (`docs/scraper-plan/07-*`). Exit code 1 and a
+failed `dry-parse` or `dry-fetch` mean the config or the page needs work.
+
+`aliases.csv` has a header with the columns `kind,sport,alias,target,source`
+(any order, `source` optional): `kind` is `team` or `competition`, `sport` is
+`football`, `alias` is the source's spelling (normalised on import), `target` is
+the catalogue team's short name or the competition's slug, `source` is a source
+id (empty or `*` = every source). An alias that already points at another team
+or competition is reported as a conflict; remove the old alias in the back
+office first.
+
+`results.json` is an array of `{ "date": "YYYY-MM-DD", "home", "away",
+"homeGoals", "awayGoals" }` (regular-time scores, any order; team names are
+catalogue short names or names). The backfill replays them oldest first with
+every team starting neutral and stores `attack`, `defence`, `matches` (the
+file's results for that team) and `backfilled_through` (the newest date,
+`YYYYMMDD`). Running the same file again changes and audits nothing. The command
+refuses, writing nothing for any team, when a team has `manual = 1`, has already
+learned from more matches than the file holds (live results were applied since),
+or was backfilled through a later date than the file reaches. `--dry-run`
+reports all of this without writing, and exits 1 on a refusal too.
