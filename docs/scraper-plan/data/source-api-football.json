@@ -11,6 +11,7 @@
         "purpose": "both"
       }
     ],
+    "auth": { "header": "x-apisports-key", "secret": "SCRAPER_SECRET_API_FOOTBALL" },
     "sport": "football",
     "recordsPath": "response",
     "fields": {

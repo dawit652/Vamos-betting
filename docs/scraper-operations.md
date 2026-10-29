@@ -68,6 +68,9 @@ the kickoff tolerance, the shape threshold (`SHAPE_MIN_RATIO = 0.5`) and the oth
 
 The scraper's own settings are read at start. Changing one needs `docker compose up -d scraper`.
 
+API keys of sources are not settings of this table: they are the `SCRAPER_SECRET_<NAME>` variables of
+section 7.
+
 ## 3. Daily and weekly checks
 
 ### Daily: the back office `/feed` page
@@ -222,3 +225,30 @@ see [backups](backups.md#4-retention)). A restore drill can check one archive wi
 can no longer be shown or replayed. Treat a missing archive as an incident (severity by its impact on settled
 bets) and restore it from backup before anything else. Do not re-fetch the page to replace it: the live page
 has changed.
+
+## 7. API keys of sources
+
+A source with a licensed API (API-Football, `x-apisports-key`) names an environment variable in its config:
+`"auth": { "header": "x-apisports-key", "secret": "SCRAPER_SECRET_API_FOOTBALL" }` (rules in
+[scraper.md](scraper.md) 6.7). The config and the database hold that **name**; the key itself lives in one place.
+
+- **Where the key lives.** In the deployment environment of the **scraper service only**: `SCRAPER_SECRET_API_FOOTBALL`
+  in `infra/.env.prod` (mode `0600`, never in git; the template line in `infra/env.prod.example` is commented out),
+  passed to the `scraper` service by `infra/docker-compose.prod.yml`. The api, worker and migrate jobs do not get
+  it. A second key needs its own `SCRAPER_SECRET_<NAME>` line in both files. Locally, `.env` (see `.env.example`).
+- **Adding it.** Put the key in `infra/.env.prod`, `docker compose up -d scraper`, then
+  `docker compose run --rm --no-deps -v "$PWD/source.json:/in/source.json:ro" scraper node dist/cli.js dry-fetch --source-file /in/source.json`.
+  The one-off container has the same environment as the service. The output shows the parsed fixtures and never the key.
+- **Rotation.** Change the variable in `infra/.env.prod` and restart the scraper: `docker compose up -d scraper`
+  (the environment is read when a source is fetched, but a container only gets a changed `.env.prod` when it is
+  recreated). No config edit, no migration, nothing in the database changes. Revoke the old key at the vendor after
+  the first `ok` run of the source. Rotate after anyone who could read `.env.prod` leaves, and on any suspicion.
+- **If the variable is missing or empty** the source's run fails **before any request** with the issue
+  `secret_missing` (it names the variable, never a value) and the run's error says the same; `/feed` shows the
+  source failing. `secret_invalid` means the value has a line break or non-ASCII characters; fix the line in
+  `.env.prod` (no quotes needed, no trailing text).
+- **If a response contains the key** (the vendor echoes request headers) the run fails with `secret_echoed` and the
+  response is neither archived nor parsed. That is a reason to ask the vendor, not to work around it.
+- **Where the value never goes.** Logs, run issues, review items, the audit trail, `scrape_sources`, the raw archive
+  and the CLI output. A key that was pasted into a source file by mistake is refused by `sources upsert`; if one
+  ever reached a ticket, chat or git, treat it as leaked and rotate it.

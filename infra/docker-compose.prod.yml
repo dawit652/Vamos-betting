@@ -269,6 +269,11 @@ services:
     environment:
       <<: *app-env
       FEED_PROVIDER: 'scraped'
+      # API keys of sources that authenticate with a header (docs/scraper.md 6.7). Only this service
+      # gets them (not api, worker or migrate, which share *app-env). A source config names the
+      # variable; the key is read here and never stored. Add one line per key, named
+      # SCRAPER_SECRET_<NAME>; unset (empty) makes a source that needs it fail without a request.
+      SCRAPER_SECRET_API_FOOTBALL: '${SCRAPER_SECRET_API_FOOTBALL:-}'
     volumes:
       - scraper_archive:/var/lib/vamos/scraper
     # /health and /ready are not published (nothing outside the stack needs them): scripts/smoke.sh

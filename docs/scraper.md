@@ -320,7 +320,39 @@ One identifying `User-Agent` with a contact; robots.txt enforced (licensed mode
 refuses to turn it off); per-host minimum interval with jitter; conditional
 requests; `Retry-After` honoured; response size and time limits; no login, no
 CAPTCHA or bot-protection circumvention, no proxy rotation to evade blocks.
-Each source's terms are checked by a person before it is enabled.
+Each source's terms are checked by a person before it is enabled. A licensed
+API's key is not a login: it is sent as in 6.7.
+
+### 6.7 Source authentication (API keys)
+
+A licensed API such as API-Football authenticates with a request header
+(`x-apisports-key`). A `generic-json` config may carry one optional `auth` block:
+
+```json
+"auth": { "header": "x-apisports-key", "secret": "SCRAPER_SECRET_API_FOOTBALL" }
+```
+
+- `header` is a valid header name (token, at most 64 characters). It may not be `host`, `cookie`,
+  `content-length`, `connection`, any hop-by-hop header (`keep-alive`, `proxy-authenticate`,
+  `proxy-authorization`, `proxy-connection`, `te`, `trailer`, `transfer-encoding`, `upgrade`), or one the
+  fetcher owns (`user-agent`, `authorization`, `if-none-match`, `if-modified-since`, `set-cookie`).
+- `secret` is the **name** of an environment variable and must match `^SCRAPER_SECRET_[A-Z0-9_]{1,64}$`. The
+  config (and so `scrape_sources.config`, the audit trail and every config error) never holds a value: a key
+  pasted into the config is refused by the schema, and the refusal does not repeat it. There is one block and
+  one header per source; the block applies to every request of that source (`generic-json` only).
+- The adapter's plan carries only that reference (`FetchPlanItem.auth`). **The fetcher reads the value**
+  when it fetches, from the reader it was given (`PoliteFetcher` option `secrets`; the app passes the process
+  environment, tests pass a map). The value is trimmed; empty or unset is `secret_missing`, a value that is not
+  printable ASCII is `secret_invalid`. Both are refusals **before any request** (robots.txt included) and
+  before the circuit breaker is touched; the run fails with that issue code (fatal, naming the variable) and
+  `dry-fetch` exits 1.
+- The host allow-list, robots.txt (fetched without the key), the rate limit and the retries apply exactly as
+  for any request. The key goes only to the **origin** (scheme, host and port) of the request URL: a redirect
+  to any other origin, even one in `allowedHosts`, is followed without it.
+- The value is kept out of everything we write: transport errors are redacted before they leave the fetcher;
+  a response that contains the key is dropped (`secret_echoed`: not archived, not parsed); nothing logs
+  request headers; the value is not in the config object, the context or the database. Tests search logs,
+  run issues, every table, the archive and the CLI output for it.
 
 ## 7. Configuration
 
@@ -341,6 +373,10 @@ normative):
 
 There is **no** setting for the number of sources a result needs: it is the
 constant `MIN_INDEPENDENT_SOURCES = 2`.
+
+`SCRAPER_SECRET_<NAME>` (any name matching `^SCRAPER_SECRET_[A-Z0-9_]{1,64}$`, none by default) holds the API key
+of a source whose config names it in `auth.secret` (6.7). These are read by the fetcher, not by `packages/config`,
+so they are not in the config object; the production compose file passes them to the `scraper` service only.
 
 ## 8. Back office
 
@@ -421,18 +457,18 @@ stderr. Exit code: `0` success, `1` the command failed or refused, `2` the
 command line is wrong. Commands that need the database use `DATABASE_URL` from
 `.env` and check the operating mode like the runner does.
 
-| Command                                                                            | What it does                                                                                                                                     |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sources list`                                                                     | Every source with state: enabled or disabled, last run, failures since the last ok run, open review items.                                       |
-| `sources upsert --file source.json`                                                | Checks the config with `createAdapter` (the runner's own check, so config errors such as a score without a status map are listed), then upserts. |
-| `dry-parse --source-file source.json --document page.html`                         | Parses a saved page; prints observations and issues. No database, no network. Options: `--url`, `--at`, `--content-type`, `--limit`.             |
-| `dry-fetch --source-file source.json`                                              | Fetches the planned URLs through the `PoliteFetcher` (allow-list, robots.txt, rate limit) and parses; prints only. Writes nothing.               |
-| `aliases import --file aliases.csv`                                                | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written.                                              |
-| `aliases list [--kind team\|competition] [--q text]`                               | Aliases newest first with their ids; `--q` matches the name or the target.                                                                       |
-| `aliases remove --id <id>`                                                         | Removes one alias (audited). The next promotion pass re-resolves the observations that used it.                                                  |
-| `ratings backfill --file results.json --competition <slug> [--dry-run]`            | Learns ratings from historical results; prints before and after per team.                                                                        |
-| `ratings set --team <name> --attack <n> --defence <n> [--matches <n>] [--dry-run]` | Sets a team's ratings by hand, with `manual = 1`; prints before and after.                                                                       |
-| `ratings list [--team text]`                                                       | Football teams that have ratings: attack, defence, matches, manual.                                                                              |
+| Command                                                                            | What it does                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sources list`                                                                     | Every source with state: enabled or disabled, last run, failures since the last ok run, open review items.                                                                              |
+| `sources upsert --file source.json`                                                | Checks the config with `createAdapter` (the runner's own check, so config errors such as a score without a status map are listed), then upserts.                                        |
+| `dry-parse --source-file source.json --document page.html`                         | Parses a saved page; prints observations and issues. No database, no network. Options: `--url`, `--at`, `--content-type`, `--limit`.                                                    |
+| `dry-fetch --source-file source.json`                                              | Fetches the planned URLs through the `PoliteFetcher` (allow-list, robots.txt, rate limit; the `auth` key from its `SCRAPER_SECRET_*` variable) and parses; prints only. Writes nothing. |
+| `aliases import --file aliases.csv`                                                | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written.                                                                                     |
+| `aliases list [--kind team\|competition] [--q text]`                               | Aliases newest first with their ids; `--q` matches the name or the target.                                                                                                              |
+| `aliases remove --id <id>`                                                         | Removes one alias (audited). The next promotion pass re-resolves the observations that used it.                                                                                         |
+| `ratings backfill --file results.json --competition <slug> [--dry-run]`            | Learns ratings from historical results; prints before and after per team.                                                                                                               |
+| `ratings set --team <name> --attack <n> --defence <n> [--matches <n>] [--dry-run]` | Sets a team's ratings by hand, with `manual = 1`; prints before and after.                                                                                                              |
+| `ratings list [--team text]`                                                       | Football teams that have ratings: attack, defence, matches, manual.                                                                                                                     |
 
 `source.json` is `{ "id", "name", "adapter", "upstream", "config" }` (the
 columns of `scrape_sources`; `enabled` is not allowed). **A new source starts
