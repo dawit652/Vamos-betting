@@ -4,6 +4,7 @@ import {
   getTeamRatings,
   listCompetitionPolicies,
   listEventPricing,
+  listReviewItems,
   listScrapedEvents,
   lockEvent,
   marketsWithSelections,
@@ -16,6 +17,8 @@ import {
 import { events as eventsTable } from '@vamos/db/schema';
 import { priceFixture } from '@vamos/feed';
 import {
+  buildReviews,
+  checkMarkets,
   checkReprice,
   isCalibrated,
   MIN_LEAD_MS,
@@ -23,6 +26,7 @@ import {
   REPRICE_SUBJECT_SUFFIX,
   repriceReview,
   type GateMarket,
+  type GateReview,
   type OddsCheck,
   type OddsIssue,
 } from '@vamos/scraper';
@@ -41,6 +45,8 @@ export interface RepriceSummary {
   held: number;
   /** Not looked at: uncalibrated teams, or the event changed under us. */
   skipped: number;
+  /** Events whose `ratings_uncalibrated` item was closed and handed to a trader (`odds_approval`). */
+  calibrated: number;
   failed: number;
   published: number;
 }
@@ -74,11 +80,17 @@ const skipped = (): Outcome => ({ kind: 'skipped', messages: [] });
  *   policy is not `enabled` (S4: a switched-off competition changes nothing by
  *   itself; the hold keeps the proposal visible, and switching the policy on
  *   again looks at the event anew);
+ * - hands an event over once its teams are calibrated and its prices follow the
+ *   ratings (`handOverCalibrated`): the `ratings_uncalibrated` item closes
+ *   and an `odds_approval` item asks a trader to open betting;
  * - never touches an event that is not scheduled, has a result, starts within
  *   MIN_LEAD_MS, belongs to a competition without a policy row, or whose
  *   teams are not calibrated (O1).
  *
- * Betting stays as it is: a closed event is re-priced and stays closed. Bets
+ * Betting stays as it is: a closed event is re-priced and stays closed. This
+ * step never opens betting, not even for a competition with `auto_open` on:
+ * `auto_open` is read only when an event is created (F7); an event that was
+ * created uncalibrated is opened by a person from the feed screen. Bets
  * already placed keep their odds (a leg stores the odds it was accepted at).
  * Idempotent: a stamped event is not looked at again until its ratings change,
  * and a held proposal is not raised again for the same ratings.
@@ -90,6 +102,7 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     repriced: 0,
     held: 0,
     skipped: 0,
+    calibrated: 0,
     failed: 0,
     published: 0,
   };
@@ -151,10 +164,10 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
       ctx.logger.error({ err: error, eventId: event.eventId }, 're-pricing failed');
     }
   }
-  ctx.logger[summary.repriced + summary.held + summary.failed > 0 ? 'info' : 'debug'](
-    { ...summary },
-    'repricing run',
-  );
+  await handOverCalibrated(ctx, scheduled, enabledOf, now, summary);
+  ctx.logger[
+    summary.repriced + summary.held + summary.calibrated + summary.failed > 0 ? 'info' : 'debug'
+  ]({ ...summary }, 'repricing run');
   return summary;
 }
 
@@ -316,4 +329,146 @@ function differs(previous: readonly GateMarket[], next: readonly GateMarket[]): 
   return next.some((m) =>
     m.selections.some((s) => old.get(`${marketKey(m.type, m.line)}|${s.code}`) !== s.oddsMilli),
   );
+}
+
+/** The subject keys (event feed refs) of every open `ratings_uncalibrated` item. */
+async function openUncalibratedSubjects(ctx: ScraperContext): Promise<Set<string>> {
+  const subjects = new Set<string>();
+  const PAGE = 200;
+  let last: { createdAt: Date; id: string } | undefined;
+  for (;;) {
+    const page = await listReviewItems(ctx.db, {
+      kind: 'ratings_uncalibrated',
+      status: 'open',
+      limit: PAGE,
+      ...(last === undefined ? {} : { after: last }),
+    });
+    for (const item of page) subjects.add(item.subjectKey);
+    const tail = page.at(-1);
+    if (tail === undefined || page.length < PAGE) return subjects;
+    last = { createdAt: tail.createdAt, id: tail.id };
+  }
+}
+
+/**
+ * The uncalibrated to calibrated flow. An event created for teams without
+ * calibrated ratings has betting closed and an open `ratings_uncalibrated` item
+ * (F7), which the API refuses to open betting on. Nothing else closes that
+ * item, so here: for every scheduled event of an enabled competition whose item
+ * is open, once both teams are calibrated (O1) and the stored prices come from
+ * the teams' current ratings (the stamp equals the ratings key: the re-price was
+ * applied just now, nothing needed changing, or a trader applied the held
+ * proposal), the item is resolved by the system (`{"decision":"calibrated"}`)
+ * and an `odds_approval` item in the contract's odds payload shape asks a trader
+ * to open betting. A held re-price keeps the item open, because the stamp is not
+ * moved until the proposal is applied. Betting is never opened here.
+ */
+async function handOverCalibrated(
+  ctx: ScraperContext,
+  scheduled: readonly ScrapedEvent[],
+  enabledOf: ReadonlyMap<string, boolean>,
+  now: Date,
+  summary: RepriceSummary,
+): Promise<void> {
+  const waiting = await openUncalibratedSubjects(ctx);
+  if (waiting.size === 0) return;
+  for (const event of scheduled) {
+    if (!waiting.has(event.feedRef) || enabledOf.get(event.competitionId) !== true) continue;
+    try {
+      if (await handOverOne(ctx, event, now)) summary.calibrated += 1;
+    } catch (error) {
+      summary.failed += 1;
+      ctx.logger.error(
+        { err: error, eventId: event.eventId },
+        'handing over a calibrated event failed',
+      );
+    }
+  }
+}
+
+async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): Promise<boolean> {
+  return ctx.db.transaction(async (tx) => {
+    const locked = await lockEvent(tx, event.eventId);
+    const [row] = await tx
+      .select({
+        gameId: eventsTable.gameId,
+        feedRef: eventsTable.feedRef,
+        homeTeamId: eventsTable.homeTeamId,
+        awayTeamId: eventsTable.awayTeamId,
+        startTime: eventsTable.startTime,
+        resultedAt: eventsTable.resultedAt,
+        bettingOpen: eventsTable.bettingOpen,
+      })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, event.eventId));
+    if (
+      row === undefined ||
+      locked.status !== 'scheduled' ||
+      row.resultedAt !== null ||
+      row.startTime.getTime() < now.getTime() + MIN_LEAD_MS
+    ) {
+      return false;
+    }
+    const rated = await getTeamRatings(tx, [row.homeTeamId, row.awayTeamId]);
+    const home = rated.get(row.homeTeamId)?.ratings ?? null;
+    const away = rated.get(row.awayTeamId)?.ratings ?? null;
+    const min = ctx.config.scraper.minRatingMatches;
+    if (!isCalibrated(home, min) || !isCalibrated(away, min)) return false;
+    const key = ratingsKey(home, away);
+    const stamp = (await listEventPricing(tx, [event.eventId])).get(event.eventId);
+    // The stored prices must come from these ratings (not an older book, nor a held proposal).
+    if (stamp?.ratingsKey !== key) return false;
+
+    const closed = await closeReviewItemsBySubject(tx, row.feedRef, {
+      kinds: ['ratings_uncalibrated'],
+      resolution: JSON.stringify({ decision: 'calibrated' }),
+      now,
+    });
+    if (closed.length === 0) return false;
+
+    // A person may have opened betting meanwhile: then there is nothing to ask.
+    let asked = false;
+    if (!row.bettingOpen) {
+      const stored = await marketsWithSelections(tx, event.eventId);
+      const book = stored
+        .filter((m) => m.status === 'open' || m.status === 'suspended')
+        .map((m) => asGate(m.type, m.line, m.selections));
+      const pricesSane = checkMarkets(priceFixture('football', home, away)).ok;
+      const names = await teamNames(tx, [row.homeTeamId, row.awayTeamId]);
+      const reason = pricesSane ? 'ratings_calibrated' : 'prices_not_sane';
+      const [review] = buildReviews(
+        row.feedRef,
+        [{ kind: 'odds_approval', rule: 'F7', reason }],
+        () => ({
+          feedRef: row.feedRef,
+          kickoff: row.startTime.toISOString(),
+          calibrated: true,
+          pricesSane,
+          // auto_open is read at creation only; this event waits for a person.
+          autoOpen: false,
+        }),
+      );
+      const approval: GateReview = {
+        ...review!,
+        payload: {
+          ...review!.payload,
+          eventId: event.eventId,
+          gameId: String(row.gameId),
+          home: names.get(row.homeTeamId) ?? row.homeTeamId,
+          away: names.get(row.awayTeamId) ?? row.awayTeamId,
+          reason,
+          markets: display([], book),
+        },
+      };
+      await openGateReviews(tx, [approval], now);
+      asked = true;
+    }
+    await auditScraper(tx, {
+      action: 'scrape.fixture.calibrated',
+      targetType: 'event',
+      targetId: event.eventId,
+      metadata: { feedRef: row.feedRef, ratingsKey: key, approvalOpened: asked },
+    });
+    return true;
+  });
 }
