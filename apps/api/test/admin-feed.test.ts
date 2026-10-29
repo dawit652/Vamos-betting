@@ -679,6 +679,42 @@ describe('POST /admin/feed/review/:id/resolve', () => {
     expect(await auditActions('scrape.review.resolved', item)).toHaveLength(1);
   });
 
+  it('open_betting works on the exact payload the scraper writes when it creates an event (F7)', async () => {
+    // Shape of apps/scraper/test/review-payload.test.ts: the contract fields plus the gate's own.
+    {
+      const kind = 'odds_approval' as const;
+      const event = await newEvent(3 * HOUR, { bettingOpen: false });
+      const item = await openItem(kind, {
+        eventId: event.id,
+        gameId: '4711',
+        home: 'Arsenal',
+        away: 'Chelsea',
+        kickoff: event.startTime.toISOString(),
+        reason: 'auto_open_off',
+        markets: [
+          {
+            market: '1x2',
+            selections: [
+              { name: '1', oddsMilli: 2100 },
+              { name: 'X', oddsMilli: 3300 },
+              { name: '2', oddsMilli: 3400 },
+            ],
+          },
+        ],
+        feedRef: 'fx|league|home|away|2026-11-02',
+        calibrated: true,
+        pricesSane: true,
+        autoOpen: false,
+        rules: ['F7'],
+        reasons: ['auto_open_off'],
+        details: {},
+      });
+      const response = await resolve('trader', item, { decision: 'open_betting' });
+      expect(response.statusCode, `${kind}: ${response.body}`).toBe(200);
+      expect((await eventRow(event.id)).bettingOpen, kind).toBe(true);
+    }
+  });
+
   it('open_betting is refused (422, nothing changes) for a live, resulted, open, too-close or missing event', async () => {
     const cases: Array<[string, string, string]> = [];
     const live = await newEvent(-HOUR, { status: 'live', bettingOpen: false });

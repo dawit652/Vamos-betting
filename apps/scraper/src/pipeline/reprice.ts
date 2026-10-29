@@ -10,11 +10,10 @@ import {
   recordEventHeld,
   recordEventPriced,
   upsertFixture,
-  type DbTransaction,
   type LiveMessage,
   type ScrapedEvent,
 } from '@vamos/db';
-import { events as eventsTable, teams as teamsTable } from '@vamos/db/schema';
+import { events as eventsTable } from '@vamos/db/schema';
 import { priceFixture } from '@vamos/feed';
 import {
   checkReprice,
@@ -23,16 +22,15 @@ import {
   ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
   repriceReview,
-  type GateJson,
   type GateMarket,
   type OddsCheck,
   type OddsIssue,
 } from '@vamos/scraper';
-import { eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { LOOK_AHEAD_MS } from './promote-fixtures';
-import { auditScraper, openGateReviews } from './common';
+import { auditScraper, display, openGateReviews, teamNames } from './common';
 
 export interface RepriceSummary {
   /** Scheduled events whose ratings changed since they were priced. */
@@ -318,34 +316,4 @@ function differs(previous: readonly GateMarket[], next: readonly GateMarket[]): 
   return next.some((m) =>
     m.selections.some((s) => old.get(`${marketKey(m.type, m.line)}|${s.code}`) !== s.oddsMilli),
   );
-}
-
-/** The proposal as the review page shows it: per market, each selection with its stored price. */
-function display(previous: readonly GateMarket[], next: readonly GateMarket[]): GateJson {
-  const old = new Map<string, number>();
-  for (const m of previous) {
-    for (const s of m.selections) old.set(`${marketKey(m.type, m.line)}|${s.code}`, s.oddsMilli);
-  }
-  return next.map((m) => {
-    const key = marketKey(m.type, m.line);
-    return {
-      market: key,
-      selections: m.selections.map((s) => {
-        const before = old.get(`${key}|${s.code}`);
-        return {
-          name: s.code,
-          oddsMilli: s.oddsMilli,
-          ...(before === undefined ? {} : { previousOddsMilli: before }),
-        };
-      }),
-    };
-  });
-}
-
-async function teamNames(tx: DbTransaction, ids: readonly string[]): Promise<Map<string, string>> {
-  const rows = await tx
-    .select({ id: teamsTable.id, name: teamsTable.name, shortName: teamsTable.shortName })
-    .from(teamsTable)
-    .where(inArray(teamsTable.id, [...ids]));
-  return new Map(rows.map((row) => [row.id, row.name.en || row.shortName]));
 }

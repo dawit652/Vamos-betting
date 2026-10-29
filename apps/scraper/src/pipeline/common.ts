@@ -1,4 +1,9 @@
-import { SCRAPER_ACTOR, type ScrapeFixtureStatus, type ScrapeResultStatus } from '@vamos/core';
+import {
+  marketKey,
+  SCRAPER_ACTOR,
+  type ScrapeFixtureStatus,
+  type ScrapeResultStatus,
+} from '@vamos/core';
 import {
   openReviewItem,
   writeAudit,
@@ -6,8 +11,12 @@ import {
   type DbTransaction,
   type ScrapeObservationRow,
 } from '@vamos/db';
+import { teams as teamsTable } from '@vamos/db/schema';
+import { inArray } from 'drizzle-orm';
 import type {
   FixtureObservation,
+  GateJson,
+  GateMarket,
   GateReview,
   ResolvedObservation,
   ResultObservation,
@@ -113,4 +122,37 @@ export async function auditScraper(
 /** Stable text compare for sorting. */
 export function compareText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** The proposal as the review page shows it: per market, each selection with its stored price. */
+export function display(previous: readonly GateMarket[], next: readonly GateMarket[]): GateJson {
+  const old = new Map<string, number>();
+  for (const m of previous) {
+    for (const s of m.selections) old.set(`${marketKey(m.type, m.line)}|${s.code}`, s.oddsMilli);
+  }
+  return next.map((m) => {
+    const key = marketKey(m.type, m.line);
+    return {
+      market: key,
+      selections: m.selections.map((s) => {
+        const before = old.get(`${key}|${s.code}`);
+        return {
+          name: s.code,
+          oddsMilli: s.oddsMilli,
+          ...(before === undefined ? {} : { previousOddsMilli: before }),
+        };
+      }),
+    };
+  });
+}
+
+export async function teamNames(
+  tx: DbTransaction,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const rows = await tx
+    .select({ id: teamsTable.id, name: teamsTable.name, shortName: teamsTable.shortName })
+    .from(teamsTable)
+    .where(inArray(teamsTable.id, [...ids]));
+  return new Map(rows.map((row) => [row.id, row.name.en || row.shortName]));
 }

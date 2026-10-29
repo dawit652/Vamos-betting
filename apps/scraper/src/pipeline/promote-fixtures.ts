@@ -38,7 +38,7 @@ import { betLegs, events as eventsTable } from '@vamos/db/schema';
 import { and, eq } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
-import { auditScraper, openGateReviews, toResolved } from './common';
+import { auditScraper, display, openGateReviews, teamNames, toResolved } from './common';
 
 export interface PromoteFixturesSummary {
   clusters: number;
@@ -301,6 +301,12 @@ async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTeamId: s
   };
 }
 
+/** Why a trader is asked: the gate's reason codes, as text. */
+function reviewReason(payload: GateReview['payload']): string | null {
+  const reasons = payload.reasons;
+  return Array.isArray(reasons) && reasons.length > 0 ? reasons.join('; ') : null;
+}
+
 /** The feed_ref of a create decision is already taken (review finding 2). */
 class FeedRefTaken extends Error {}
 
@@ -352,7 +358,31 @@ async function applyCreate(
       // F7: closed unless the decision says it may open.
       const changed = await setEventBettingOpen(tx, result.eventId, decision.openBetting);
       messages.push(...changed.messages);
-      await openGateReviews(tx, reviewsOf(decision), now);
+      // The F7 item is read by `open_betting` and the review page, so it carries the
+      // contract's odds payload (event, names, proposed prices) next to the gate's own fields.
+      const names = await teamNames(tx, [decision.homeTeamId, decision.awayTeamId]);
+      const proposed = display(
+        [],
+        (pricing?.markets ?? []).map((m) => ({
+          type: m.type,
+          line: m.line,
+          selections: m.selections.map((s) => ({ code: s.code, oddsMilli: s.oddsMilli })),
+        })),
+      );
+      const reviews = reviewsOf(decision).map((review): GateReview => ({
+        ...review,
+        payload: {
+          ...review.payload,
+          eventId: result.eventId,
+          gameId: String(result.gameId),
+          home: names.get(decision.homeTeamId) ?? decision.homeTeamId,
+          away: names.get(decision.awayTeamId) ?? decision.awayTeamId,
+          kickoff: decision.kickoff.toISOString(),
+          reason: reviewReason(review.payload),
+          markets: proposed,
+        },
+      }));
+      await openGateReviews(tx, reviews, now);
       await auditScraper(tx, {
         action: 'scrape.fixture.created',
         targetType: 'event',
