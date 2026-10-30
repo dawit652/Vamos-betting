@@ -164,6 +164,10 @@ export function payloadSummary(kind: string, payload: Record<string, unknown>): 
     case 'odds_approval':
     case 'ratings_uncalibrated':
       return match ?? '–';
+    case 'result_overdue': {
+      const hours = payload.hoursSinceKickoff;
+      return `${match ?? '–'}: ${typeof hours === 'number' ? `${hours} h after kickoff` : 'no result'}`;
+    }
     case 'source_broken':
       return str(payload.reason) ?? str(payload.sourceId) ?? '–';
     case 'kickoff_change':

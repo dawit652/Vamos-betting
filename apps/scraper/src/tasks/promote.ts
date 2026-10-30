@@ -2,7 +2,11 @@ import type { ScraperContext } from '../context';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import { tryLock } from '../lib/lock';
 import { promoteFixtures } from '../pipeline/promote-fixtures';
-import { applyStaffConfirmations, promoteResults } from '../pipeline/promote-results';
+import {
+  applyStaffConfirmations,
+  flagOverdueResults,
+  promoteResults,
+} from '../pipeline/promote-results';
 import { repriceScheduledEvents } from '../pipeline/reprice';
 import { reresolveChangedAliases, reresolveUnresolved } from '../pipeline/run-source';
 
@@ -11,8 +15,8 @@ const PROMOTE_LOCK_TTL_MS = 5 * 60_000;
 
 /**
  * One promotion pass: re-resolve names, promote fixtures, apply what staff
- * confirmed, promote results, then re-price the events whose teams' ratings
- * moved. Each step is independent: one failing does not stop the others.
+ * confirmed, promote results, raise the matches no source has a result for,
+ * then re-price the events whose teams' ratings moved. Each step is independent: one failing does not stop the others.
  * Under a Redis lock so two instances do not both promote.
  */
 export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
@@ -27,6 +31,8 @@ export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
       // Before the result gate: a confirmed item must not be shadowed by a fresh one.
       ['staff confirmations', () => applyStaffConfirmations(ctx)],
       ['results', () => promoteResults(ctx)],
+      // After results: what no source will ever settle is raised for a person (F-04).
+      ['overdue results', () => flagOverdueResults(ctx)],
       // After results: they move the ratings the prices depend on (rule O3).
       ['reprice', () => repriceScheduledEvents(ctx)],
     ];

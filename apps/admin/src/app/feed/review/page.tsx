@@ -30,6 +30,7 @@ const KINDS = [
   'result_conflict',
   'result_correction',
   'score_basis_unknown',
+  'result_overdue',
   'source_broken',
 ] as const;
 

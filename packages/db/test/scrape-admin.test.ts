@@ -1,3 +1,4 @@
+import { SCRAPE_REVIEW_KINDS } from '@vamos/core';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -503,7 +504,8 @@ describe('review items', () => {
     const counts = await countReviewItemsByKind(ctx.handle.db);
     expect(counts.kickoff_change).toBe(5);
     expect(counts.source_broken).toBe(0);
-    expect(Object.keys(counts)).toHaveLength(14);
+    // Every kind is present, whatever their number (a new kind is added in one place).
+    expect(Object.keys(counts).sort()).toEqual([...SCRAPE_REVIEW_KINDS].sort());
     expect(
       (await listReviewItems(ctx.handle.db, { status: 'dismissed' })).every(
         (i) => i.status === 'dismissed',

@@ -231,6 +231,26 @@ function Body({
         </>
       );
     }
+    case 'result_overdue': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <>
+          <DefList
+            rows={[
+              ['Match', <Match key="m" p={p} />],
+              ['Overdue', `${p.hoursSinceKickoff} hours after kickoff`],
+              ['Exposure', exposureText(p.exposure.openBets, formatEtb(p.exposure.totalStake))],
+            ]}
+          />
+          <p>
+            No source has a final score for this match. Look the score up on an official site, then
+            enter it on the event&apos;s <Link href={`/trading/${p.eventId}`}>trading page</Link>.
+            This item closes by itself once the event has a result.
+          </p>
+        </>
+      );
+    }
     case 'result_conflict':
     case 'result_correction': {
       const p = parseReviewPayload(kind, item.payload);

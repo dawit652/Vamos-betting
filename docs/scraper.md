@@ -221,6 +221,14 @@ Every rule has an id; tests cite the id in their names. Constants are in
   `regular_time` never counts towards R2; it opens `score_basis_unknown`
   once per fixture.
 - **R11 Idempotent.** Applying a result again changes nothing.
+- **R12 Overdue.** An event of an enabled competition that is still scheduled and unresulted
+  `MIN_MATCH_DURATION_MS + UNVERIFIED_AFTER_MS` after kickoff (7 h 45 min), with no open result item about
+  it (`result_ready`, `result_unverified`, `result_conflict`, `result_correction`, `score_basis_unknown`,
+  `cancellation_proposed`), opens `result_overdue` with the event's exposure (R9). The gates only speak about
+  a score they have seen, so without this a match no source has a score for was silent forever. A person
+  looks the score up on an official site and enters it in Trading. Dismissing the item silences it for
+  24 hours. It closes by itself when the event has a result, its kickoff moved later or another result item
+  opens. It applies, cancels and voids nothing.
 
 ### 6.3 Source health
 

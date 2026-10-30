@@ -65,6 +65,7 @@ export const FEED_REVIEW_KINDS = [
   'result_conflict',
   'result_correction',
   'score_basis_unknown',
+  'result_overdue',
   'source_broken',
 ] as const;
 export const FEED_REVIEW_STATUSES = ['open', 'resolved', 'dismissed'] as const;
@@ -474,6 +475,12 @@ export const REVIEW_PAYLOAD_SCHEMAS = {
   result_conflict: ResultDisputePayload,
   result_correction: ResultDisputePayload,
   score_basis_unknown: GenericPayload,
+  result_overdue: z.object({
+    ...EventRef,
+    /** Whole hours between kickoff and the moment the item was raised or last refreshed. */
+    hoursSinceKickoff: Count,
+    exposure: Exposure,
+  }),
   source_broken: z.object({
     sourceId: z.string(),
     runId: z.string(),

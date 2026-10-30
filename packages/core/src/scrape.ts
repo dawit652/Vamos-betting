@@ -73,6 +73,8 @@ export const SCRAPE_REVIEW_KINDS = [
   'result_correction',
   /** The score is not known to be a regular-time score. */
   'score_basis_unknown',
+  /** The match should be over, nothing will settle it and no other item asks a person to (F-04). */
+  'result_overdue',
   /** A source's pages stopped parsing the way they used to. */
   'source_broken',
 ] as const;

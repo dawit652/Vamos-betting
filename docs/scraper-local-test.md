@@ -14,7 +14,9 @@ end on 2026-10-29 against the real file for the 2026-27 season; the numbers belo
 - **Betting starts closed.** Every new event waits for a trader to open it. A team's ratings must be reviewed
   first (a team that nobody reviewed is "uncalibrated"), otherwise the trader cannot open betting.
 - **Results lag.** The dataset is kept by volunteers. Matches can be played a few days before their score
-  appears. A faster source (a paid data provider) is the way to get results quickly.
+  appears. A faster source (a paid data provider) is the way to get results quickly. A match that is over and
+  still has no score from any source 7 hours 45 minutes after kickoff gets a "No result yet" item (Feed →
+  Review), so a trader settles it by hand from an official site.
 - **One source, one vote.** Results need two independent upstreams to apply by themselves. With this single
   source a result always waits for a trader to confirm it (`result_unverified`). That is intended.
 

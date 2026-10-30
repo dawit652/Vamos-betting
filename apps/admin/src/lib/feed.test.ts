@@ -93,6 +93,10 @@ describe('feed helpers', () => {
         score: { home: 1, away: 0, htHome: null, htAway: null },
       }),
     ).toBe('A v B: 1-0');
+    expect(payloadSummary('result_overdue', { home: 'A', away: 'B', hoursSinceKickoff: 9 })).toBe(
+      'A v B: 9 h after kickoff',
+    );
+    expect(payloadSummary('result_overdue', {})).toBe('–: no result');
     expect(payloadSummary('fixture_missing', { detail: 'gone' })).toBe('gone');
     expect(payloadSummary('result_ready', {})).toBe('–: –');
     expect(payloadSummary('source_broken', {})).toBe('–');

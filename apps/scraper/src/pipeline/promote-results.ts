@@ -23,26 +23,35 @@ import {
   clusterObservations,
   decideResult,
   DAY_MS,
+  HOUR_MS,
   KICKOFF_TOLERANCE_MS,
   MIN_MATCH_DURATION_MS,
   MINUTE_MS,
   matchEvent,
   reviewsOf,
   scoreContradicts,
+  UNVERIFIED_AFTER_MS,
   type CompetitionPolicy,
   type GateReview,
   type ResolvedObservation,
   type ResultObservation,
   type Score,
 } from '@vamos/scraper';
-import { auditLog, events as eventsTable, scrapeObservations, scrapeRaw } from '@vamos/db/schema';
-import { and, eq, inArray } from 'drizzle-orm';
+import {
+  auditLog,
+  events as eventsTable,
+  scrapeObservations,
+  scrapeRaw,
+  scrapeReviewItems,
+} from '@vamos/db/schema';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import {
   auditScraper,
   OBSERVATION_ROW_LIMIT,
   openGateReviews,
+  teamNames,
   toResolved,
   undecidedFrom,
   type PromoteOptions,
@@ -211,6 +220,161 @@ export async function promoteResults(
   return summary;
 }
 
+/** Open items that already ask a person to act on an event's result: nothing is overdue while one exists. */
+const RESULT_ITEM_KINDS = [
+  'result_ready',
+  'result_unverified',
+  'result_conflict',
+  'result_correction',
+  'score_basis_unknown',
+  'cancellation_proposed',
+] as const;
+
+/** A dismissed overdue item stays quiet this long; a match still unsettled after that is raised again. */
+const OVERDUE_SNOOZE_MS = 24 * HOUR_MS;
+
+/** When a match with no score from any source needs a person: R1's shortest match plus R6's waiting time. */
+const overdueAtMs = (event: ScrapedEvent): number =>
+  event.startTime.getTime() + MIN_MATCH_DURATION_MS + UNVERIFIED_AFTER_MS;
+
+/** The ids of the events that an open result item (of the kinds above) is about. */
+async function eventsWithOpenResultItems(ctx: ScraperContext): Promise<Set<string>> {
+  const rows = await ctx.db
+    .select({ eventId: sql<string | null>`${scrapeReviewItems.payload}->>'eventId'` })
+    .from(scrapeReviewItems)
+    .where(
+      and(
+        eq(scrapeReviewItems.status, 'open'),
+        inArray(scrapeReviewItems.kind, [...RESULT_ITEM_KINDS]),
+      ),
+    );
+  return new Set(rows.flatMap((row) => (row.eventId === null ? [] : [row.eventId])));
+}
+
+export interface OverdueResultsSummary {
+  opened: number;
+  closed: number;
+}
+
+/**
+ * A match that should be over, that nothing will settle, and that no item has told a person about
+ * (F-04). The gates only ever speak about a score they have seen, so a match no source has a score
+ * for was silent forever. An event of an enabled competition is overdue once the time a lone source
+ * would need has passed (kickoff + R1's shortest match + R6's waiting time, 7 h 45 min), it is
+ * still scheduled and unresulted, and no open result item is about it. A `result_overdue` item names
+ * the match and its exposure; a person looks the score up on an official site and enters it in
+ * Trading. Dismissing it silences it for 24 hours. It closes by itself once the event has a result,
+ * its kickoff moved later, or another result item exists. Nothing is applied, cancelled or voided here.
+ */
+export async function flagOverdueResults(ctx: ScraperContext): Promise<OverdueResultsSummary> {
+  const now = ctx.clock();
+  const summary: OverdueResultsSummary = { opened: 0, closed: 0 };
+
+  const unresulted = (await listResultEvents(ctx, now)).filter(
+    (event) => event.status === 'scheduled' && event.resultedAt === null,
+  );
+  const enabled = new Set(
+    (await listCompetitionPolicies(ctx.db, { sportId: 'football' }))
+      .filter((policy) => policy.enabled)
+      .map((policy) => policy.competitionId),
+  );
+  const asked = await eventsWithOpenResultItems(ctx);
+  const snoozed = new Set(
+    (
+      await listReviewItems(ctx.db, {
+        kind: 'result_overdue',
+        status: 'dismissed',
+        resolvedSince: new Date(now.getTime() - OVERDUE_SNOOZE_MS),
+        limit: 200,
+      })
+    ).map((item) => item.subjectKey),
+  );
+
+  const overdue = unresulted.filter(
+    (event) =>
+      enabled.has(event.competitionId) &&
+      overdueAtMs(event) <= now.getTime() &&
+      !asked.has(event.eventId) &&
+      !snoozed.has(event.feedRef),
+  );
+  for (const event of overdue) {
+    try {
+      await ctx.db.transaction(async (tx) => {
+        const names = await teamNames(tx, [event.homeTeamId, event.awayTeamId]);
+        const home = names.get(event.homeTeamId) ?? event.homeTeamId;
+        const away = names.get(event.awayTeamId) ?? event.awayTeamId;
+        const exposure = await getEventExposure(tx, event.eventId);
+        const { created } = await openReviewItem(tx, {
+          kind: 'result_overdue',
+          subjectKey: event.feedRef,
+          severity: 'warning',
+          title: `No result yet: ${home} v ${away}`,
+          payload: {
+            eventId: event.eventId,
+            gameId: String(event.gameId),
+            home,
+            away,
+            kickoff: event.startTime.toISOString(),
+            hoursSinceKickoff: Math.floor((now.getTime() - event.startTime.getTime()) / HOUR_MS),
+            exposure: { openBets: exposure.openBets, totalStake: BigInt(exposure.totalStake) },
+          },
+          now,
+        });
+        if (created) summary.opened += 1;
+      });
+    } catch (error) {
+      ctx.logger.error({ err: error, eventId: event.eventId }, 'overdue result item failed');
+    }
+  }
+
+  // Close what the world has moved past. Each open item is checked against its own event, so an
+  // item about a match older than the look-back is not closed just because the list does not reach it.
+  const open = await listReviewItems(ctx.db, {
+    kind: 'result_overdue',
+    status: 'open',
+    limit: 200,
+  });
+  for (const item of open) {
+    const eventId = typeof item.payload.eventId === 'string' ? item.payload.eventId : null;
+    if (eventId === null) continue;
+    try {
+      const [row] = await ctx.db
+        .select({
+          status: eventsTable.status,
+          resultedAt: eventsTable.resultedAt,
+          startTime: eventsTable.startTime,
+        })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, eventId));
+      const reason =
+        row === undefined || row.status !== 'scheduled' || row.resultedAt !== null
+          ? 'the event has a result'
+          : row.startTime.getTime() + MIN_MATCH_DURATION_MS + UNVERIFIED_AFTER_MS > now.getTime()
+            ? 'the kickoff moved later'
+            : asked.has(eventId)
+              ? 'another item asks for the result'
+              : null;
+      if (reason === null) continue;
+      const closed = await ctx.db.transaction((tx) =>
+        closeReviewItemsBySubject(tx, item.subjectKey, {
+          kinds: ['result_overdue'],
+          resolution: reason,
+          now,
+        }),
+      );
+      summary.closed += closed.length;
+    } catch (error) {
+      ctx.logger.error({ err: error, itemId: item.id }, 'closing an overdue result item failed');
+    }
+  }
+
+  ctx.logger[summary.opened + summary.closed > 0 ? 'info' : 'debug'](
+    { ...summary },
+    'overdue result run',
+  );
+  return summary;
+}
+
 const sameScore = (a: Score, b: Score): boolean =>
   a.home === b.home && a.away === b.away && a.htHome === b.htHome && a.htAway === b.htAway;
 
@@ -282,7 +446,7 @@ export async function applyConfirmedResult(
     const hashes = await evidenceHashes(tx, input.observations, input.score);
     await markRawKeep(tx, hashes);
     await closeReviewItemsBySubject(tx, input.feedRef, {
-      kinds: ['result_ready', 'result_unverified'],
+      kinds: ['result_ready', 'result_unverified', 'result_overdue'],
       resolution: 'the result was applied',
       now,
     });
