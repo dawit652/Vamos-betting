@@ -221,10 +221,26 @@ export function checkMarkets(markets: readonly GateMarket[]): OddsCheck {
 }
 
 /**
+ * The markets whose moves rule O3 limits: the 1X2 and the 2.5 goals line, the
+ * two prices a customer compares first and the ones the other markets follow.
+ * A re-price evaluated on the Premier League held 21.6% of its checks against
+ * a 10% target, every hold from the long-odds selections of the other markets
+ * (correct score, high lines, both teams to score), which move by larger
+ * percentages than the 1X2 for the same rating change and never from the 1X2
+ * itself (docs/scraper-evaluation/03-odds-accuracy.md, 3.6). Those markets
+ * follow the main ones: they still change when the event is re-priced, and
+ * their own moves do not hold it.
+ */
+export const PRICE_MOVE_LIMITED_MARKETS: ReadonlySet<string> = new Set(['1x2', 'ou:2.5']);
+
+/**
  * O3: a re-price may replace `previous` by `next` without a person only if
- * both books have the same markets and selections, `next` passes O2, and every
- * selection stays within [previous / MAX_PRICE_MOVE_RATIO, previous ×
- * MAX_PRICE_MOVE_RATIO] (exactly on a bound passes).
+ * both books have the same markets and selections, `next` passes O2 (every
+ * market, whichever its move), and every selection of the markets in
+ * PRICE_MOVE_LIMITED_MARKETS stays within [previous / MAX_PRICE_MOVE_RATIO,
+ * previous × MAX_PRICE_MOVE_RATIO] (exactly on a bound passes). The other
+ * markets' prices may move by any factor, but they must still be valid odds
+ * and the market and selection sets must be unchanged.
  */
 export function checkReprice(
   previous: readonly GateMarket[],
@@ -284,6 +300,7 @@ export function checkReprice(
       // to ≤ from × R  and  to ≥ from / R, with R = num/den.
       const a = BigInt(from);
       const b = BigInt(to);
+      if (!PRICE_MOVE_LIMITED_MARKETS.has(key)) continue;
       if (b * MOVE.den > a * MOVE.num || b * MOVE.num < a * MOVE.den) {
         issues.push(issue('price_move_too_large', key, code, `${String(from)} → ${String(to)}`));
       }

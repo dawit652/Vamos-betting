@@ -1,7 +1,8 @@
 import type { SportCode } from '@vamos/core';
 import type { FeedMarket, TeamRatings } from '../types';
 import { clamp, isPositiveFinite } from './book';
-import { FOOTBALL_BASE_GOALS, FOOTBALL_HOME_ADVANTAGE, expectedGoals } from './football';
+import { FOOTBALL_BASE_GOALS, expectedGoals } from './football';
+import { homeAdvantageOf } from './homeadvantage';
 import { RATING_KEYS, matchStrengths, priceMatch } from './index';
 
 /**
@@ -55,7 +56,11 @@ export interface RatingUpdateOptions {
   shrink?: number;
   /** League-average goals per team, as in expectedGoals (default FOOTBALL_BASE_GOALS). */
   base?: number;
-  /** Home advantage, as in expectedGoals (default FOOTBALL_HOME_ADVANTAGE). */
+  /**
+   * Home advantage, as in expectedGoals. Default: the one stored on the home team's
+   * ratings (what matchStrengths prices with, so what is learned is what gets priced),
+   * else FOOTBALL_HOME_ADVANTAGE.
+   */
   homeAdvantage?: number;
 }
 
@@ -103,7 +108,7 @@ export function updateFootballRatings(
 ): { home: TeamRatings; away: TeamRatings } {
   checkGoals(score.home, 'home goals');
   checkGoals(score.away, 'away goals');
-  const options = checkedOptions(opts);
+  const options = checkedOptions(opts, homeAdvantageOf(home));
 
   const h = readFootball(home);
   const a = readFootball(away);
@@ -260,14 +265,17 @@ function checkGoals(goals: number, what: string): void {
   }
 }
 
-function checkedOptions(opts: RatingUpdateOptions): Required<RatingUpdateOptions> {
+function checkedOptions(
+  opts: RatingUpdateOptions,
+  homeAdvantage: number,
+): Required<RatingUpdateOptions> {
   const options = {
     kMin: opts.kMin ?? DEFAULT_RATING_K_MIN,
     kOffset: opts.kOffset ?? DEFAULT_RATING_K_OFFSET,
     maxRatio: opts.maxRatio ?? DEFAULT_MAX_GOALS_RATIO,
     shrink: opts.shrink ?? DEFAULT_RATING_SHRINK,
     base: opts.base ?? FOOTBALL_BASE_GOALS,
-    homeAdvantage: opts.homeAdvantage ?? FOOTBALL_HOME_ADVANTAGE,
+    homeAdvantage: opts.homeAdvantage ?? homeAdvantage,
   };
   if (!(Number.isFinite(options.kMin) && options.kMin >= 0 && options.kMin <= 1)) {
     throw new RangeError(`kMin must be in [0, 1], got ${String(options.kMin)}`);

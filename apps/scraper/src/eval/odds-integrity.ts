@@ -19,10 +19,13 @@ import { loadOpenfootball, out, round, seededRatings, writeJson, type Ratings } 
  * <data-dir>/of/2026-27_en.1.json is the real 2026-27 Premier League fixture list.
  *
  * Independent checks use INTERVAL arithmetic: a published price o (integer
- * milli) can only come from a probability p in a known interval, because the
- * price is odds = floor(1000 / (p (1 + m)) to a hundredth, 1.01 floor,
- * fallback to thousandths for heavy favourites, cap 1000. A violation means no
- * probability vector at all could have produced the book.
+ * milli) can only come from a probability p in a known interval (see
+ * probInterval: p <= 1/o, and p >= 1/o minus the book's excess over its
+ * cover). A violation means no probability vector at all could have produced
+ * the book.
+ *
+ * The margin check compares every market's overround with the declared margin
+ * (F-08: 0 books outside +-0.5 pp is the acceptance).
  */
 
 const [dataDir, outPath] = process.argv.slice(2);
@@ -36,17 +39,20 @@ const declared = (type: string): number => (DECLARED_BPS[type] ?? 600) / 10_000;
 
 type Interval2 = [number, number];
 
-/** The probabilities that can have produced a published price (see header). */
-function probInterval(oddsMilli: number, margin: number): Interval2 {
-  const m = 1 + margin;
-  if (oddsMilli >= 1_000_000) return [0, 1000 / (1_000_000 * m)];
-  if (oddsMilli === 1010) return [1000 / (1020 * m), 1000 / 1010];
-  if (oddsMilli < 1010) {
-    // Fallback of priceProbability: for p above 1/1.01 the 6% margin pushes the raw price below
-    // 1.001, so the price is the 1.001 floor; any p in (1/1.01, 1/1.001] ends up here.
-    return [1000 / 1010, 1000 / oddsMilli];
-  }
-  return [1000 / ((oddsMilli + 10) * m), 1000 / (oddsMilli * m)];
+/**
+ * The probabilities that can have produced a published price, given the market's whole book.
+ *
+ * The book is priced as a whole (priceBook in @vamos/feed): every price is at or below its fair
+ * price (1/odds >= p) and the probabilities of a market add up to its cover (1, or 2 for double
+ * chance). A selection's probability is therefore at most 1/odds, and at least 1/odds minus the
+ * book's excess over the cover, because the other selections cannot make up more than their own
+ * implied probability. `excess` is sum(1/odds) minus the cover. Earlier versions of this script
+ * inverted the per-selection formula, which is no longer the pricing rule: the margin of a book
+ * that cannot carry it on a heavy favourite is spread over the other selections.
+ */
+function probInterval(oddsMilli: number, excess: number): Interval2 {
+  const hi = 1000 / oddsMilli;
+  return [Math.max(0, hi - Math.max(0, excess)), hi];
 }
 
 interface Inputs {
@@ -166,7 +172,6 @@ function checkBook(
       tally.add({ check: 'selection_set', inputs: where, detail: key });
     }
     let sum = 0;
-    const intervals = new Map<string, Interval2>();
     for (const [code, o] of sel) {
       stats.selections++;
       if (!Number.isInteger(o) || o < 1001 || o > 1_000_000) {
@@ -179,8 +184,9 @@ function checkBook(
         tally.add({ check: 'not_whole_hundredth', inputs: where, detail: `${key} ${code} ${o}` });
       }
       sum += 1000 / o;
-      intervals.set(code, probInterval(o, margin));
     }
+    const intervals = new Map<string, Interval2>();
+    for (const [code, o] of sel) intervals.set(code, probInterval(o, sum - cover));
     iv.set(key, intervals);
     // overround versus the declared margin
     const per = sum / cover;

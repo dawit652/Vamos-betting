@@ -37,6 +37,11 @@ const rows = async <T = Record<string, unknown>>(sql: string, params: unknown[] 
 const BASE = { attack: 1.2, defence: 0.9, matches: 10 };
 /** A small change: every 1x2 price moves, none by more than MAX_PRICE_MOVE_RATIO. */
 const SMALL = { attack: 1.26, defence: 0.9, matches: 11 };
+/**
+ * A change between the two: the 1X2 and the 2.5 line move by less than MAX_PRICE_MOVE_RATIO
+ * (1.18 at most), but correct score, which only follows them, moves by 1.46 (F-09).
+ */
+const MEDIUM = { attack: 1.4, defence: 0.9, matches: 11 };
 /** A large change: the home price moves far beyond the ratio. */
 const LARGE = { attack: 2.4, defence: 0.9, matches: 11 };
 
@@ -150,6 +155,75 @@ describe('O3: re-pricing after ratings change', () => {
       expect(await oneXTwo(eventId)).toEqual(after);
       expect(await h.count(`SELECT count(*) AS n FROM odds_history`)).toBe(history);
       expect(await audits('scrape.fixture.repriced')).toBe(1);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'a learned home advantage reprices through the same O3 gate (F-07)',
+    async () => {
+      const { eventId } = await createdEvent();
+      const before = await oneXTwo(eventId);
+      const learned = { ...BASE, homeAdvantage: 1.25 };
+      await setRatings('Arsenal', learned);
+
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({
+        events: 1,
+        repriced: 1,
+        held: 0,
+      });
+      const after = await oneXTwo(eventId);
+      expect(after).toEqual(await modelOneXTwo());
+      // Arsenal (home) shorter, Chelsea (away) longer, within the ratio.
+      expect(after['1']!).toBeLessThan(before['1']!);
+      expect(after['2']!).toBeGreaterThan(before['2']!);
+      for (const code of Object.keys(before)) {
+        const ratio = after[code]! / before[code]!;
+        expect(ratio).toBeGreaterThanOrEqual(0.8);
+        expect(ratio).toBeLessThanOrEqual(1.25);
+      }
+      expect((await stamp(eventId))?.ratings_key).toBe(ratingsKey(learned, BASE));
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'a move beyond the ratio in a market other than the 1X2 and the 2.5 line does not hold the event (F-09)',
+    async () => {
+      const { eventId } = await createdEvent();
+      const allPrices = async (): Promise<Record<string, number>> =>
+        Object.fromEntries(
+          (
+            await rows<{ key: string; code: string; odds_milli: number }>(
+              `SELECT m.key, s.code, s.odds_milli FROM selections s JOIN markets m ON m.id = s.market_id
+                WHERE m.event_id = $1`,
+              [eventId],
+            )
+          ).map((r) => [`${r.key}|${r.code}`, r.odds_milli]),
+        );
+      const before = await allPrices();
+      await setRatings('Arsenal', MEDIUM);
+
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({
+        events: 1,
+        repriced: 1,
+        held: 0,
+        failed: 0,
+      });
+      expect(await openReprice()).toHaveLength(0);
+      const after = await allPrices();
+      const ratio = (key: string): number =>
+        Math.max(after[key]! / before[key]!, before[key]! / after[key]!);
+      // The main markets moved within the ratio, the other ones did not, and all were re-priced.
+      for (const key of Object.keys(before)) {
+        if (key.startsWith('1x2|') || key.startsWith('ou:2.5|')) {
+          expect(ratio(key)).toBeLessThanOrEqual(1.25);
+        }
+      }
+      expect(Math.max(...Object.keys(before).map(ratio))).toBeGreaterThan(1.25);
+      expect(after).not.toEqual(before);
+      expect(await oneXTwo(eventId)).toEqual(await modelOneXTwo());
+      expect((await stamp(eventId))?.ratings_key).toBe(ratingsKey(MEDIUM, BASE));
     },
     TEST_TIMEOUT,
   );

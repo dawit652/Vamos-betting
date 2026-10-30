@@ -429,8 +429,7 @@ describe('priceFixture', () => {
     }
     const oneXTwo = markets.find((m) => m.type === '1x2')!;
     const overround = bookOverround(oneXTwo);
-    expect(overround).toBeGreaterThanOrEqual(1 + DEFAULT_MARGIN_BPS / 10_000 - 1e-9);
-    expect(overround).toBeLessThan(1 + DEFAULT_MARGIN_BPS / 10_000 + 0.02);
+    expect(Math.abs(overround - (1 + DEFAULT_MARGIN_BPS / 10_000))).toBeLessThan(0.005);
   });
 
   it('refuses sports whose ratings this path does not calibrate', () => {

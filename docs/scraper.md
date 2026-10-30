@@ -301,15 +301,26 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
 - **O2 Sane prices.** Prices come from `priceMatch(matchStrengths(...))`. Before
   a market is stored or opened: every price is a valid odds value; where the
   selections partition the outcomes, the overround lies in
-  `[OVERROUND_MIN, OVERROUND_MAX]`.
+  `[OVERROUND_MIN, OVERROUND_MAX]`. Each market is priced as one book
+  (`priceBook`, `packages/feed/src/pricing/book.ts`): the margin (6%, correct
+  score 15%) is spread over the whole book in proportion to the probabilities,
+  and the prices are rounded to the hundredth so the total comes out within a
+  rounding step of it (under 0.2 percentage points on every market of the odds
+  evaluation grid, 0 of 6561 books and of 380 real fixtures outside
+  +-0.5 pp, where before a lopsided over/under, double chance or 1X2 book came out
+  down to 6 pp thin). A heavy favourite is still priced at 1.01 (1.001 above
+  p = 0.990) and the longshot opposite carries what it cannot; every price stays
+  at or below its fair price.
 - **O1 and O2 when a person opens betting.** Both controls that open betting on an event the scraper
   created (the review item's "Open betting", `POST /admin/feed/review/:id/resolve`, and the betting switch
   in Trading, `POST /admin/trading/events/:id/betting`) apply O1 and O2 again at that moment, on the stored
   prices of the open and suspended markets: 422 `teams_uncalibrated` or `prices_failed_checks`, and a review
   item stays open. Closing betting is never refused; events of any other feed are not affected.
 - **O3 Re-pricing.** After ratings change, scheduled events are re-priced only if
-  no selection moves by more than `MAX_PRICE_MOVE_RATIO` in either direction;
-  otherwise the old prices stay and `odds_approval` opens with the proposal.
+  no selection of the 1X2 or the 2.5 goals line moves by more than `MAX_PRICE_MOVE_RATIO` in
+  either direction (`PRICE_MOVE_LIMITED_MARKETS`; the other markets follow them and their own
+  moves do not hold the event, but they must keep the same markets and selections and pass O2,
+  which applies to every market); otherwise the old prices stay and `odds_approval` opens with the proposal.
   How it is done (`repriceScheduledEvents`, the last step of the promotion pass):
   `scrape_event_pricing` stamps, per event, a fingerprint of both teams' ratings
   (`ratingsKey`) that the stored prices were computed from, set when the event
@@ -337,7 +348,18 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   or fails O2 (422 `proposal_not_applicable`), and applies it in one
   transaction like the automatic path; only the size of the move is waived.
 - **O4 Ratings update.** A confirmed result updates both teams' ratings once
-  (`scrape_rating_applied`), in the same transaction as the result.
+  (`scrape_rating_applied`), in the same transaction as the result. In the same
+  transaction the competition's home advantage is re-derived from its finished
+  scraped results (`competitionGoalEvidence`: home goals, away goals, matches),
+  blended with the default 1.15 by 800 pseudo-matches, kept in 1.05 to 1.35 and
+  rounded to a hundredth (`learnedHomeAdvantage`), and written as `homeAdvantage` on
+  both teams' ratings, only once the competition has 40 results and the value
+  differs from the default. Pricing and the next update read it from the HOME
+  team's ratings (`matchStrengths`, `updateFootballRatings`), so what is learned
+  is what is priced; it is part of the ratings fingerprint, so a change goes
+  through the O3 re-price like any other. Open bets keep their odds. Seasons
+  of results that were only backfilled (`ratings backfill`) are not events and do
+  not count as evidence. Evaluated out of sample (odds evaluation, F-07).
 
 ### 6.6 Scraping manners
 

@@ -210,13 +210,27 @@ describe('priceFootball prematch', () => {
   });
 
   it('applies 600 bps to the main markets and 1500 bps to correct score', () => {
-    // Rounding odds down to hundredths only ever adds a little overround.
+    // The margin is spread over the whole book and the rounding is done to hit the total.
     const main = bookOverround(find(markets, '1x2')!);
-    expect(main).toBeGreaterThanOrEqual(1.06 - 1e-9);
-    expect(main).toBeLessThan(1.08);
+    expect(Math.abs(main - 1.06)).toBeLessThan(0.005);
     const cs = bookOverround(find(markets, 'cs')!);
-    expect(cs).toBeGreaterThanOrEqual(1.15 - 1e-9);
-    expect(cs).toBeLessThan(1.2);
+    expect(Math.abs(cs - 1.15)).toBeLessThan(0.005);
+  });
+
+  it('delivers the declared margin on every market, lopsided fixtures included (F-08)', () => {
+    const lambdas = [0.1, 0.35, 0.8, 1.35, 2.2, 3.5, 5];
+    let books = 0;
+    for (const lh of lambdas) {
+      for (const la of lambdas) {
+        for (const market of priceFootball(lh, la)) {
+          const cover = market.type === 'dc' ? 2 : 1;
+          const declared = market.type === 'cs' ? 1.15 : 1.06;
+          expect(Math.abs(bookOverround(market) / cover - declared)).toBeLessThan(0.005);
+          books++;
+        }
+      }
+    }
+    expect(books).toBeGreaterThan(300);
   });
 
   it('gives a fair book (overround ≈ 1) with a zero margin', () => {
@@ -262,8 +276,11 @@ describe('priceFootball prematch', () => {
         const oddsA = odds(priced, '1x2', a);
         const oddsB = odds(priced, '1x2', b);
         expect(dcOdds).toBeLessThanOrEqual(Math.min(oddsA, oddsB));
-        if (Math.min(dcOdds, oddsA, oddsB) >= 1100 && Math.max(oddsA, oddsB) < 100_000) {
-          // Same margin on both books: the DC price is the sum of its parts.
+        const books = [...find(priced, 'dc')!.selections, ...find(priced, '1x2')!.selections];
+        if (books.every((x) => x.oddsMilli >= 1100 && x.oddsMilli < 100_000)) {
+          // Same margin on both books and none carrying another's share of it (that is what a
+          // price at a bound, a favourite at 1.01 or a longshot at 1000, does): the DC price is
+          // the sum of its parts.
           expect(Math.abs(1000 / dcOdds - (1000 / oddsA + 1000 / oddsB))).toBeLessThan(0.02);
         }
       }
@@ -328,9 +345,9 @@ describe('priceFootball in play', () => {
     const prematch = bookOverround(find(priceFootball(home, away), '1x2')!);
     const kickOff = priceFootball(home, away, { state: { minute: 0, home: 0, away: 0 } });
     const live = bookOverround(find(kickOff, '1x2')!);
-    expect(live).toBeGreaterThanOrEqual(1.08 - 1e-9);
+    expect(Math.abs(live - 1.08)).toBeLessThan(0.005);
     expect(live).toBeGreaterThan(prematch);
-    expect(bookOverround(find(kickOff, 'cs')!)).toBeGreaterThanOrEqual(1.17 - 1e-9);
+    expect(Math.abs(bookOverround(find(kickOff, 'cs')!) - 1.17)).toBeLessThan(0.005);
   });
 
   it('omits O/U lines already exceeded', () => {

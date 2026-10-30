@@ -8,6 +8,7 @@ import {
   type GateMarket,
   isCalibrated,
   type OddsCheck,
+  PRICE_MOVE_LIMITED_MARKETS,
   ratingsKey,
   repriceReview,
 } from './odds';
@@ -160,6 +161,89 @@ describe('O3 re-pricing', () => {
     expect(moved(2000, 1600)).toBe(false);
     expect(moved(2000, 1599)).toBe(true);
     expect(checkReprice(book(2000), book(2000))).toEqual({ ok: true });
+  });
+
+  describe('F-09: only the 1X2 and the 2.5 line are held to the move limit', () => {
+    /** The partner price that gives a two-way book an overround of about 1.06. */
+    const partner = (over: number): number => Math.floor(1000 / (1.06 - 1000 / over));
+    /** An over/under book on `line` with the given over price and a balanced under. */
+    const ouBook = (line: string, over: number): GateMarket =>
+      twoWay('ou', over, partner(over), line);
+    const main = m1x2(2000, 3200, 4000);
+    const heldBy = (prev: GateMarket[], next: GateMarket[]): string[] =>
+      codes(checkReprice(prev, next));
+
+    it('names the limited markets', () => {
+      expect([...PRICE_MOVE_LIMITED_MARKETS].sort()).toEqual(['1x2', 'ou:2.5']);
+    });
+
+    it('a move of the 2.5 line beyond the ratio is held, as the 1X2 is', () => {
+      expect(heldBy([main, ouBook('2.5', 1900)], [main, ouBook('2.5', 2500)])).toEqual([
+        'price_move_too_large',
+      ]);
+      expect(heldBy([main, ouBook('2.5', 1900)], [main, ouBook('2.5', 2000)])).toEqual([]);
+    });
+
+    it('a move of any other market beyond the ratio does not hold the event', () => {
+      // Over 1.5 1.30 -> 2.00 (1.54x), over 3.5 1.5 -> 9.0 (6x), a both-teams-to-score tail.
+      expect(heldBy([main, ouBook('1.5', 1300)], [main, ouBook('1.5', 2000)])).toEqual([]);
+      expect(heldBy([main, ouBook('3.5', 1500)], [main, ouBook('3.5', 9000)])).toEqual([]);
+      const btts = (yes: number): GateMarket => twoWay('btts', yes, partner(yes));
+      expect(heldBy([main, btts(1800)], [main, btts(3000)])).toEqual([]);
+    });
+
+    it('the 1X2 still holds the event whatever the other markets do', () => {
+      const moved = m1x2(2600, 2900, 3200); // home 2.00 -> 2.60 (1.3x), overround 1.04
+      expect(heldBy([main, ouBook('1.5', 1300)], [moved, ouBook('1.5', 1310)])).toEqual([
+        'price_move_too_large',
+      ]);
+    });
+
+    it('O2 still applies to every market, moved or not', () => {
+      // A sure win on the 1.5 line (overround below 1.01) is refused, not waved through.
+      expect(heldBy([main, ouBook('1.5', 1300)], [main, twoWay('ou', 2500, 2500, '1.5')])).toEqual([
+        'overround_low',
+      ]);
+      expect(heldBy([main, ouBook('1.5', 1300)], [main, twoWay('ou', 1050, 1050, '1.5')])).toEqual([
+        'overround_high',
+      ]);
+      expect(heldBy([main, ouBook('1.5', 1300)], [main, twoWay('ou', 10, 1900, '1.5')])).toEqual(
+        expect.arrayContaining(['invalid_price']),
+      );
+    });
+
+    it('the market and selection sets must still match for every market', () => {
+      expect(heldBy([main, ouBook('1.5', 1300)], [main])).toEqual(['market_set_changed']);
+      expect(heldBy([main], [main, ouBook('1.5', 1300)])).toEqual(['market_set_changed']);
+      const renamed: GateMarket = {
+        type: 'ou',
+        line: '1.5',
+        selections: [
+          { code: 'over', oddsMilli: 1300 },
+          { code: 'below', oddsMilli: partner(1300) },
+        ],
+      };
+      expect(heldBy([main, ouBook('1.5', 1300)], [main, renamed])).toEqual(
+        expect.arrayContaining(['bad_selections', 'selection_set_changed']),
+      );
+    });
+
+    it('a move of exactly the ratio passes and one milli more is held, on the limited markets', () => {
+      // Same price on the under side in both books: only the over moves.
+      const fixed = (over: number): GateMarket => twoWay('ou', over, 1500, '2.5');
+      expect(heldBy([main, fixed(1800)], [main, fixed(2250)])).toEqual([]);
+      expect(heldBy([main, fixed(1800)], [main, fixed(2251)])).toEqual(['price_move_too_large']);
+    });
+
+    it('property: another market is never held for the size of a move alone', () => {
+      const odds = fc.integer({ min: 1300, max: 9000 });
+      fc.assert(
+        fc.property(odds, odds, (from, to) => {
+          const check = checkReprice([main, ouBook('1.5', from)], [main, ouBook('1.5', to)]);
+          expect(codes(check)).not.toContain('price_move_too_large');
+        }),
+      );
+    });
   });
 
   it('markets and selections must match, and the new book must pass O2', () => {

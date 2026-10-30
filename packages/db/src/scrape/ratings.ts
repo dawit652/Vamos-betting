@@ -1,7 +1,8 @@
-import { eq, inArray } from 'drizzle-orm';
+import { SCRAPED_FEED_PROVIDER } from '@vamos/core';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
-import { teams } from '../schema/catalog';
+import { events, teams } from '../schema/catalog';
 import { scrapeRatingApplied } from '../schema/scrape';
 import { auditScrape, type ScrapeActor } from './common';
 
@@ -84,4 +85,45 @@ export async function setTeamRatings(
     metadata: { before: current.ratings, after: ratings },
   });
   return toRatings(ratings);
+}
+
+/** What a competition's finished results say about its home advantage: whole numbers. */
+export interface CompetitionGoalEvidence {
+  /** Finished matches with a full-time score. */
+  matches: number;
+  homeGoals: number;
+  awayGoals: number;
+}
+
+/**
+ * The home and away goals of every finished, scored event of the competition
+ * that the scraper created (F-07). Derived from the stored results, so it
+ * needs no counter of its own: a result applied in the same transaction is
+ * included, a corrected score is picked up, and nothing can drift.
+ */
+export async function competitionGoalEvidence(
+  exec: DbExecutor,
+  competitionId: string,
+): Promise<CompetitionGoalEvidence> {
+  const [row] = await exec
+    .select({
+      matches: sql<number>`count(*)::int`,
+      homeGoals: sql<number>`coalesce(sum(${events.scoreHome}), 0)::int`,
+      awayGoals: sql<number>`coalesce(sum(${events.scoreAway}), 0)::int`,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.competitionId, competitionId),
+        eq(events.feedProvider, SCRAPED_FEED_PROVIDER),
+        eq(events.status, 'finished'),
+        isNotNull(events.scoreHome),
+        isNotNull(events.scoreAway),
+      ),
+    );
+  return {
+    matches: row?.matches ?? 0,
+    homeGoals: row?.homeGoals ?? 0,
+    awayGoals: row?.awayGoals ?? 0,
+  };
 }

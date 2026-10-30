@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  competitionGoalEvidence,
   getEventExposure,
   listScrapedEvents,
   loadGameSettings,
@@ -229,6 +230,49 @@ describe('getEventExposure', () => {
     expect(await getEventExposure(ctx.handle.db, none.eventId)).toEqual({
       openBets: 0,
       totalStake: '0',
+    });
+  });
+});
+
+describe('competitionGoalEvidence (F-07)', () => {
+  it('sums the scores of the finished scraped events of the competition only', async () => {
+    const db = ctx.handle.db;
+    const before = await competitionGoalEvidence(db, ctx.competitionId);
+    const finish = async (home: number, away: number): Promise<void> => {
+      const ev = await createScrapedEvent(ctx, { halfTime: true });
+      await db.transaction((tx) =>
+        resultEvent(tx, ev.eventId, {
+          status: 'finished',
+          score: { home, away, htHome: 0, htAway: 0 },
+        }),
+      );
+    };
+    await finish(3, 1);
+    await finish(0, 0);
+    // A cancelled event, a scheduled one and one of another competition do not count.
+    const cancelled = await createScrapedEvent(ctx);
+    await db.transaction((tx) => resultEvent(tx, cancelled.eventId, { status: 'cancelled' }));
+    await createScrapedEvent(ctx);
+    const other =
+      ctx.ids.competitions.get('football/la-liga') ??
+      [...ctx.ids.competitions.values()].find((id) => id !== ctx.competitionId)!;
+
+    const after = await competitionGoalEvidence(db, ctx.competitionId);
+    expect(after).toEqual({
+      matches: before.matches + 2,
+      homeGoals: before.homeGoals + 3,
+      awayGoals: before.awayGoals + 1,
+    });
+    expect((await competitionGoalEvidence(db, other)).matches).toBe(0);
+  });
+
+  it('is zero for a competition without results', async () => {
+    expect(
+      await competitionGoalEvidence(ctx.handle.db, '00000000-0000-4000-8000-000000000000'),
+    ).toEqual({
+      matches: 0,
+      homeGoals: 0,
+      awayGoals: 0,
     });
   });
 });

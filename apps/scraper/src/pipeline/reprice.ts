@@ -68,8 +68,9 @@ const skipped = (): Outcome => ({ kind: 'skipped', messages: [] });
  * whose teams' ratings differ from the ratings their prices were computed from
  * (`scrape_event_pricing`, stamped when an event is created or re-priced) and:
  *
- * - applies it when `checkReprice` accepts it (same markets and selections, O2,
- *   no selection moved by more than MAX_PRICE_MOVE_RATIO), with
+ * - applies it when `checkReprice` accepts it (same markets and selections, O2
+ *   on every market, no selection of the 1X2 or the 2.5 goals line moved by more
+ *   than MAX_PRICE_MOVE_RATIO; the other markets follow them and may move more), with
  *   `upsertFixture`: only open selections whose feed price moved change, a
  *   trader's or the drift's price stays until the model itself moves; in one
  *   transaction with the stamp and the audit, deltas published after COMMIT;

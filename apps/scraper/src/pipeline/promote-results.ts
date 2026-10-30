@@ -1,6 +1,7 @@
 import { SCRAPER_ACTOR } from '@vamos/core';
 import {
   getEventExposure,
+  competitionGoalEvidence,
   getTeamRatings,
   listCompetitionPolicies,
   listCurrentObservations,
@@ -18,7 +19,7 @@ import {
   type ScrapedEvent,
   type ScrapeReviewItem,
 } from '@vamos/db';
-import { updateFootballRatings } from '@vamos/feed';
+import { learnedHomeAdvantage, updateFootballRatings, withHomeAdvantage } from '@vamos/feed';
 import {
   clusterObservations,
   decideResult,
@@ -408,6 +409,7 @@ export async function applyConfirmedResult(
     const [event] = await tx
       .select({
         resultedAt: eventsTable.resultedAt,
+        competitionId: eventsTable.competitionId,
         homeTeamId: eventsTable.homeTeamId,
         awayTeamId: eventsTable.awayTeamId,
       })
@@ -438,8 +440,18 @@ export async function applyConfirmedResult(
         ratings.get(event.awayTeamId)?.ratings ?? null,
         { home: input.score.home, away: input.score.away },
       );
-      await setTeamRatings(tx, event.homeTeamId, next.home, { system: SCRAPER_ACTOR });
-      await setTeamRatings(tx, event.awayTeamId, next.away, { system: SCRAPER_ACTOR });
+      // F-07: the competition's home advantage, from its finished results (this one is
+      // already stored), is written on both teams' ratings, where pricing and the next
+      // update read it. A new league keeps the default until it has results of its own.
+      const homeAdvantage = learnedHomeAdvantage(
+        await competitionGoalEvidence(tx, event.competitionId),
+      );
+      await setTeamRatings(tx, event.homeTeamId, withHomeAdvantage(next.home, homeAdvantage), {
+        system: SCRAPER_ACTOR,
+      });
+      await setTeamRatings(tx, event.awayTeamId, withHomeAdvantage(next.away, homeAdvantage), {
+        system: SCRAPER_ACTOR,
+      });
       ratingsUpdated = true;
     }
 
