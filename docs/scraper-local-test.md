@@ -87,7 +87,7 @@ Go to **Feed**:
 
 Within a minute or two the scraper reads the file and creates events for the games in the next few weeks.
 In October 2026 that was **15 events**, each with prices and **betting closed**. Five more games in that
-period waited because they involve clubs that are not in the catalogue (see the end of this page).
+period waited because they involve clubs that were not in the catalogue yet (see the end of this page).
 
 ## 6. Review the ratings so betting can open
 
@@ -104,9 +104,12 @@ Bournemouth|1.1|1.02
 Brentford|1.1|1.08
 Brighton|1.15|1.0
 Chelsea|1.35|0.85
+Coventry|0.88|1.12
 Crystal Palace|1.05|0.95
 Everton|0.92|1.0
 Fulham|1.02|1.02
+Hull|0.82|1.18
+Ipswich|0.86|1.14
 Leeds|0.9|1.12
 Liverpool|1.55|0.75
 Man City|1.52|0.78
@@ -136,9 +139,12 @@ closer.
 
 ## Known gaps in this walk-through
 
-- **Three clubs are missing from the catalogue.** Coventry City, Hull City and Ipswich Town came up for 2026-27.
-  Games involving them wait with an "unknown team" item; the back office can map a name to an existing team
-  but cannot create a team. Adding a club is a change to `packages/db/src/seed/catalog.ts`.
+- **Three clubs were missing from the catalogue** when this was first run: Coventry City, Hull City and Ipswich
+  Town came up for 2026-27, and games involving them waited with an "unknown team" item. They have been added
+  to the catalogue since (the ratings list in section 6 includes them). If your database was seeded before
+  29 October, run `pnpm db:seed` again (it is safe to repeat); the scraper then resolves their names on its
+  next pass, or an "unknown team" item lets a trader map a different spelling. The back office cannot create
+  a team: a new club is a change to `packages/db/src/seed/catalog.ts`.
 - Relegated clubs (Burnley, West Ham, Wolves) stay in the catalogue; they simply have no games in this file.
 
 ## Match results
@@ -151,4 +157,36 @@ settles the event, and the worker settles the bets.
 
 Real matches finish on their own schedule, so you can only watch a real result after the games on your
 list have been played and the dataset has been updated (for the games of 31 October to 2 November, in the
-following days).
+following days). To watch the whole path today, use the demo match below.
+
+## Try a result today (demo only)
+
+One command puts a finished match into your **demo** database, in the state a real result is in just before a
+trader confirms it. Nothing is faked except the network: the event is created by the scraper's own gate, the
+result is read and checked by the scraper's own code, and it is applied by the same function as a real one.
+
+1. Sign up as a player at http://localhost:3000 and add play money in **Wallet** (ETB 150 or more).
+2. With the stack from section 4 running (API, worker and scraper), run this with the phone number you signed
+   up with (the one below is only an example):
+
+   ```bash
+   pnpm --filter @vamos/scraper-app seed:result-demo demo --player +251911000123
+   ```
+
+   It prints one line of JSON with the ids, and refuses to run outside demo mode. It builds a demo league with
+   two clubs ("Rovers demo FC" and "Athletic demo United"), a source, the match, and two bets for your player,
+   placed as of two hours before kickoff: ETB 100 on the home side and ETB 50 on the away side, at the model's
+   prices (1.58 and 4.74 in the test run). The kickoff is 9 hours before you run it, because with one source
+   the scraper only asks a trader to confirm a result 7 hours 45 minutes after kickoff (rule R6). Running it
+   again with the same word (`demo`) changes nothing; use another word for another match.
+
+3. Within a minute or two, in the back office (sign in as the trader): **Feed → Review**, kind **result
+   unverified**, "Final score not confirmed by a second independent source", 2-1 (half-time 1-0). Open it,
+   press **Apply this result** and repeat the score in the confirm step.
+4. The scraper's next pass applies the score, and the worker then settles the bets. In **My bets** the
+   ETB 100 bet has won (ETB 158.00 paid) and the ETB 50 bet has lost.
+
+It was run this way on 2026-10-30 with the real scraper, API and worker processes: the item appeared at once
+and the trader's request went through the real API (the one the button sends). The scraper applied the score
+6 seconds later (`scrape.result.applied`, event `finished` 2-1, half-time 1-0), and the worker settled both
+bets one second after that. The same flow is also covered by `apps/scraper/test/seed-result-demo.test.ts`.

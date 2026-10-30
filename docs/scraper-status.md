@@ -20,6 +20,10 @@ reports [01](scraper-evaluation/01-data-accuracy.md), [02](scraper-evaluation/02
   events (F-05).
 - **Not measured yet:** replay of the real history, concurrency and crash tests, throughput, failure scenarios and
   per-league odds (F-19).
+- **Demo you can run today:** one command builds a finished match with two bets in the demo database, and you
+  watch a trader apply the result and the bets settle ("Try a result today" in
+  [scraper-local-test.md](scraper-local-test.md)). Proven by a test and by a run by hand with the real
+  scraper, API and worker on 2026-10-30.
 
 ## Status on 2026-10-29 (evening): code complete for version 1, Costa Rica prepared
 
@@ -57,6 +61,7 @@ this file).
 | When teams become calibrated, `ratings_uncalibrated` closes and a trader gets an "Open betting" item (betting is never opened automatically here)          | `3f33d59`                       |
 | Scheduler retry logic tested                                                                                                                               | `70c243e`                       |
 | Back office checked in a browser, display fixes, repeatable e2e flow and a demo-only seeding tool (`seed:review`)                                          | `af790f3`, `6ef1b91`, `feab881` |
+| A demo-only finished match with two bets (`seed:result-demo`): a trader applies the result and the bets settle; test plus a by-hand run on 2026-10-30      | –                               |
 | Closed events may show their (unbettable) prices; a trader reviews prices before opening betting                                                           | no change                       |
 | First competition: Costa Rica's Primera División (Liga FPD). Research and recommendation in [sources-costa-rica.md](scraper-plan/sources-costa-rica.md)    | `9a107e0`                       |
 | The Primera División and its ten Apertura 2026 clubs are in the catalogue (first, featured, uncalibrated ratings); alias file draft                        | `9241257`                       |

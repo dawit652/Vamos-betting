@@ -24,7 +24,6 @@ import {
   KICKOFF_AGO_MS,
   seedResultDemo,
 } from '../src/devtools/seed-result-demo';
-import { promoteResults } from '../src/pipeline/promote-results';
 import { runPromotion } from '../src/tasks/promote';
 import { runDueSources } from '../src/tasks/scheduler';
 import { HOUR, MINUTE, REDIS_URL, SETUP_TIMEOUT, TEST_TIMEOUT } from './helpers';
@@ -38,8 +37,6 @@ let redis: Redis;
 let dir: string;
 let config: AppConfig;
 let now = new Date();
-/** What the network answers to the scraper's own fetcher (the seed command has its own fake). */
-let network: 'down' = 'down';
 
 beforeAll(async () => {
   db = await createTestDatabase();
@@ -98,7 +95,6 @@ afterAll(async () => {
 
 /** The scraper as the owner runs it: the real clock (moved by the tests), a network that is down. */
 function scraper(): ScraperContext {
-  void network;
   return createScraperContext({
     config,
     db: db.db,

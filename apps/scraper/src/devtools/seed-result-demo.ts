@@ -388,7 +388,7 @@ export async function seedResultDemo(
       })
       .from(schema.selections)
       .innerJoin(schema.markets, eq(schema.markets.id, schema.selections.marketId))
-      .where(and(eq(schema.markets.eventId, eventId!), eq(schema.markets.key, key)));
+      .where(and(eq(schema.markets.eventId, eventId), eq(schema.markets.key, key)));
     const placedAt = new Date(kickoff.getTime() - 2 * HOUR);
     for (const [pick, code, stake] of [
       ['home', '1', HOME_STAKE],
@@ -435,7 +435,7 @@ export async function seedResultDemo(
     competition: { id: competitionId, name: names.competition },
     teams: { home: homeTeam, away: awayTeam },
     names: { home: names.home, away: names.away },
-    eventId: eventId!,
+    eventId: eventId,
     feedRef,
     kickoff: kickoff.toISOString(),
     score: DEMO_SCORE,
