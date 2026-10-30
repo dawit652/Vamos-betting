@@ -719,6 +719,64 @@ describe('POST /admin/feed/review/:id/resolve', () => {
     }
   });
 
+  it('open_betting checks the ratings and the prices again when the trader presses it, on a scraped event (O1, O2)', async () => {
+    const home = await insertTeam(db, 'football', 'OB1', { en: 'Open Home' });
+    const away = await insertTeam(db, 'football', 'OB2', { en: 'Open Away' });
+    const scraped = async (prices: typeof ONE_X_TWO) => {
+      const startTime = new Date(ctx.clock.now.getTime() + 3 * HOUR);
+      const event = await insertEvent(db, {
+        sportId: 'football',
+        competitionId: ids.league,
+        homeTeamId: home,
+        awayTeamId: away,
+        startTime,
+        bettingOpen: false,
+      });
+      await db
+        .update(schema.events)
+        .set({ feedProvider: 'scraped' })
+        .where(eq(schema.events.id, event.id));
+      await insertMarket(db, event.id, '1x2', null, prices);
+      const item = await openItem('odds_approval', {
+        ...eventRef(event.id, startTime),
+        reason: 'auto_open_off',
+        markets: [],
+      });
+      return { event, item };
+    };
+
+    // Ratings nobody reviewed: refused, and the item stays open for the trader.
+    const first = await scraped(ONE_X_TWO);
+    const refused = await resolve('trader', first.item, { decision: 'open_betting' });
+    expect(refused.statusCode, refused.body).toBe(422);
+    expect(errorOf(refused).code).toBe('teams_uncalibrated');
+    expect((await itemRow(first.item)).status).toBe('open');
+    expect((await eventRow(first.event.id)).bettingOpen).toBe(false);
+
+    // Reviewed: the same item now opens betting.
+    for (const team of [home, away]) {
+      await db.transaction((tx) =>
+        setTeamRatings(tx, team, { attack: 1.2, defence: 0.9, manual: 1 }, { system: 'test' }),
+      );
+    }
+    expect((await resolve('trader', first.item, { decision: 'open_betting' })).statusCode).toBe(
+      200,
+    );
+    expect((await eventRow(first.event.id)).bettingOpen).toBe(true);
+
+    // Prices that were changed to something that fails the checks after the item was raised.
+    const second = await scraped([
+      ['1', 30000],
+      ['X', 30000],
+      ['2', 30000],
+    ]);
+    const insane = await resolve('trader', second.item, { decision: 'open_betting' });
+    expect(insane.statusCode, insane.body).toBe(422);
+    expect(errorOf(insane).code).toBe('prices_failed_checks');
+    expect((await itemRow(second.item)).status).toBe('open');
+    expect((await eventRow(second.event.id)).bettingOpen).toBe(false);
+  });
+
   it('open_betting is refused (422, nothing changes) for a live, resulted, open, too-close or missing event', async () => {
     const cases: Array<[string, string, string]> = [];
     const live = await newEvent(-HOUR, { status: 'live', bettingOpen: false });

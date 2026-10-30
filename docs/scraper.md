@@ -282,6 +282,11 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   a market is stored or opened: every price is a valid odds value; where the
   selections partition the outcomes, the overround lies in
   `[OVERROUND_MIN, OVERROUND_MAX]`.
+- **O1 and O2 when a person opens betting.** Both controls that open betting on an event the scraper
+  created (the review item's "Open betting", `POST /admin/feed/review/:id/resolve`, and the betting switch
+  in Trading, `POST /admin/trading/events/:id/betting`) apply O1 and O2 again at that moment, on the stored
+  prices of the open and suspended markets: 422 `teams_uncalibrated` or `prices_failed_checks`, and a review
+  item stays open. Closing betting is never refused; events of any other feed are not affected.
 - **O3 Re-pricing.** After ratings change, scheduled events are re-priced only if
   no selection moves by more than `MAX_PRICE_MOVE_RATIO` in either direction;
   otherwise the old prices stay and `odds_approval` opens with the proposal.

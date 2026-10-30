@@ -29,6 +29,7 @@ import type { FastifyInstance } from 'fastify';
 import { notFound, parseInput } from '../../lib/errors';
 import { staffActor } from '../../plugins/staff-session';
 import { inTx, optionalDate, parseUuid, publishLive, wire } from './common';
+import { assertScrapedEventMayOpen } from './open-betting';
 
 type IdParams = { Params: { id: string } };
 
@@ -141,14 +142,18 @@ export default async function adminTradingRoutes(app: FastifyInstance): Promise<
       const eventId = parseUuid(request.params.id, 'Event');
       const input = parseInput(EventBettingRequest, request.body);
       const actor = staffActor(request);
-      const change = await inTx(deps, (tx) =>
-        staffSetEventBettingOpen(tx, {
+      const change = await inTx(deps, async (tx) => {
+        // A scraped event opens only with reviewed ratings and sane prices (rules O1, O2).
+        if (input.open) {
+          await assertScrapedEventMayOpen(tx, eventId, deps.config.scraper.minRatingMatches);
+        }
+        return staffSetEventBettingOpen(tx, {
           eventId,
           open: input.open,
           ...(input.reason === undefined ? {} : { reason: input.reason }),
           actor,
-        }),
-      );
+        });
+      });
       await publishLive(app, change.messages);
       return { changed: change.changed };
     },
