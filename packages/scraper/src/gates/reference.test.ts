@@ -168,153 +168,167 @@ function multisets<T>(options: readonly T[], max: number): T[][] {
   return out;
 }
 
+/**
+ * The exhaustive tests take about 3 s alone and more when the whole repository's tests run at once
+ * (`pnpm test`, a small CI runner): the default 5 s timeout made them fail at random.
+ */
+const EXHAUSTIVE_TIMEOUT_MS = 60_000;
+
 describe('reference model: results R1-R7, R10 (exhaustive)', () => {
-  it('agrees on every combination of up to three observations (no half time)', () => {
-    const sources = [
-      ['s1', 'u1'],
-      ['s2', 'u2'],
-      ['s3', 'u1'],
-      ['s4', ' U2'],
-    ] as const;
-    const states = [
-      { status: 'finished', score: score(2, 1), basis: 'regular_time' },
-      { status: 'finished', score: score(1, 1), basis: 'regular_time' },
-      { status: 'finished', score: score(2, 1), basis: 'unknown' },
-      { status: 'cancelled', score: null, basis: 'regular_time' },
-    ] as const;
-    const options: RObs[] = [];
-    for (const [source, upstream] of sources) {
-      for (const st of states) {
-        for (const changedAt of [END, END + 50 * MINUTE_MS]) {
-          options.push(
-            resultObs({
-              source,
-              upstream,
-              status: st.status,
-              score: st.score,
-              basis: st.basis,
-              changedAt,
-            }),
-          );
-        }
-      }
-    }
-    let compared = 0;
-    const seen = new Set<string>();
-    for (const combo of multisets(options, 3)) {
-      for (const now of [END - 1, END + HOUR_MS, END + 7 * HOUR_MS]) {
-        for (const policy of POLICIES) {
-          const autoResults = autoApply(policy);
-          for (const confirmMs of [0, DEFAULT_RESULT_CONFIRM_MS]) {
-            const expected = referenceResult(combo, false, autoResults, now, confirmMs);
-            const got = actual(
-              decideResult({
-                event: makeEvent(),
-                observations: combo,
-                policy: makePolicy(policy),
-                now: new Date(now),
-                confirmMs,
-                exposure: null,
+  it(
+    'agrees on every combination of up to three observations (no half time)',
+    () => {
+      const sources = [
+        ['s1', 'u1'],
+        ['s2', 'u2'],
+        ['s3', 'u1'],
+        ['s4', ' U2'],
+      ] as const;
+      const states = [
+        { status: 'finished', score: score(2, 1), basis: 'regular_time' },
+        { status: 'finished', score: score(1, 1), basis: 'regular_time' },
+        { status: 'finished', score: score(2, 1), basis: 'unknown' },
+        { status: 'cancelled', score: null, basis: 'regular_time' },
+      ] as const;
+      const options: RObs[] = [];
+      for (const [source, upstream] of sources) {
+        for (const st of states) {
+          for (const changedAt of [END, END + 50 * MINUTE_MS]) {
+            options.push(
+              resultObs({
+                source,
+                upstream,
+                status: st.status,
+                score: st.score,
+                basis: st.basis,
+                changedAt,
               }),
             );
-            if (JSON.stringify(got) !== JSON.stringify(expected)) {
-              expect({
-                combo: combo.map((o) => [
-                  o.obs.sourceId,
-                  o.obs.status,
-                  o.obs.score,
-                  o.obs.scoreBasis,
-                  o.changedAt,
-                ]),
-                now,
-                autoResults,
-                confirmMs,
-                got,
-              }).toEqual({
-                combo: combo.map((o) => [
-                  o.obs.sourceId,
-                  o.obs.status,
-                  o.obs.score,
-                  o.obs.scoreBasis,
-                  o.changedAt,
-                ]),
-                now,
-                autoResults,
-                confirmMs,
-                got: expected,
-              });
-            }
-            seen.add(
-              JSON.stringify(expected)
-                .replace(/"until":\d+/, '')
-                .replace(/"score":"[^"]*"/, ''),
-            );
-            compared++;
           }
         }
       }
-    }
-    expect(compared).toBeGreaterThan(70_000);
-    // The space reaches every outcome the rules can produce.
-    expect([...seen].sort()).toEqual(
-      [
-        '{"action":"apply",}',
-        '{"action":"hold","kind":"cancellation_proposed"}',
-        '{"action":"hold","kind":"result_conflict"}',
-        '{"action":"hold","kind":"result_ready"}',
-        '{"action":"hold","kind":"result_unverified"}',
-        '{"action":"hold","kind":"score_basis_unknown"}',
-        '{"action":"none"}',
-        '{"action":"wait",}',
-      ].sort(),
-    );
-  });
-
-  it('agrees with half time required and kickoff mismatches', () => {
-    const sources = [
-      ['s1', 'u1'],
-      ['s2', 'u2'],
-      ['s3', 'u1'],
-    ] as const;
-    const states = [
-      { score: score(2, 1, [1, 0]), basis: 'regular_time', kickoff: KICKOFF },
-      { score: score(2, 1, [0, 0]), basis: 'regular_time', kickoff: KICKOFF },
-      { score: score(2, 1), basis: 'regular_time', kickoff: KICKOFF },
-      { score: score(2, 1, [1, 0]), basis: 'regular_time', kickoff: KICKOFF + 6 * MINUTE_MS },
-      { score: score(2, 1), basis: 'includes_extra_time', kickoff: KICKOFF - 5 * MINUTE_MS },
-    ] as const;
-    const options: RObs[] = [];
-    for (const [source, upstream] of sources) {
-      for (const st of states)
-        options.push(
-          resultObs({ source, upstream, score: st.score, basis: st.basis, kickoff: st.kickoff }),
-        );
-    }
-    for (const combo of multisets(options, 3)) {
-      for (const now of [END - 1, END + HOUR_MS, END + 7 * HOUR_MS]) {
-        for (const policy of POLICIES) {
-          const expected = referenceResult(
-            combo,
-            true,
-            autoApply(policy),
-            now,
-            DEFAULT_RESULT_CONFIRM_MS,
-          );
-          const got = actual(
-            decideResult({
-              event: makeEvent({ needsHalfTimeScore: true }),
-              observations: combo,
-              policy: makePolicy(policy),
-              now: new Date(now),
-              confirmMs: DEFAULT_RESULT_CONFIRM_MS,
-              exposure: null,
-            }),
-          );
-          expect(got).toEqual(expected);
+      let compared = 0;
+      const seen = new Set<string>();
+      for (const combo of multisets(options, 3)) {
+        for (const now of [END - 1, END + HOUR_MS, END + 7 * HOUR_MS]) {
+          for (const policy of POLICIES) {
+            const autoResults = autoApply(policy);
+            for (const confirmMs of [0, DEFAULT_RESULT_CONFIRM_MS]) {
+              const expected = referenceResult(combo, false, autoResults, now, confirmMs);
+              const got = actual(
+                decideResult({
+                  event: makeEvent(),
+                  observations: combo,
+                  policy: makePolicy(policy),
+                  now: new Date(now),
+                  confirmMs,
+                  exposure: null,
+                }),
+              );
+              if (JSON.stringify(got) !== JSON.stringify(expected)) {
+                expect({
+                  combo: combo.map((o) => [
+                    o.obs.sourceId,
+                    o.obs.status,
+                    o.obs.score,
+                    o.obs.scoreBasis,
+                    o.changedAt,
+                  ]),
+                  now,
+                  autoResults,
+                  confirmMs,
+                  got,
+                }).toEqual({
+                  combo: combo.map((o) => [
+                    o.obs.sourceId,
+                    o.obs.status,
+                    o.obs.score,
+                    o.obs.scoreBasis,
+                    o.changedAt,
+                  ]),
+                  now,
+                  autoResults,
+                  confirmMs,
+                  got: expected,
+                });
+              }
+              seen.add(
+                JSON.stringify(expected)
+                  .replace(/"until":\d+/, '')
+                  .replace(/"score":"[^"]*"/, ''),
+              );
+              compared++;
+            }
+          }
         }
       }
-    }
-  });
+      expect(compared).toBeGreaterThan(70_000);
+      // The space reaches every outcome the rules can produce.
+      expect([...seen].sort()).toEqual(
+        [
+          '{"action":"apply",}',
+          '{"action":"hold","kind":"cancellation_proposed"}',
+          '{"action":"hold","kind":"result_conflict"}',
+          '{"action":"hold","kind":"result_ready"}',
+          '{"action":"hold","kind":"result_unverified"}',
+          '{"action":"hold","kind":"score_basis_unknown"}',
+          '{"action":"none"}',
+          '{"action":"wait",}',
+        ].sort(),
+      );
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
+
+  it(
+    'agrees with half time required and kickoff mismatches',
+    () => {
+      const sources = [
+        ['s1', 'u1'],
+        ['s2', 'u2'],
+        ['s3', 'u1'],
+      ] as const;
+      const states = [
+        { score: score(2, 1, [1, 0]), basis: 'regular_time', kickoff: KICKOFF },
+        { score: score(2, 1, [0, 0]), basis: 'regular_time', kickoff: KICKOFF },
+        { score: score(2, 1), basis: 'regular_time', kickoff: KICKOFF },
+        { score: score(2, 1, [1, 0]), basis: 'regular_time', kickoff: KICKOFF + 6 * MINUTE_MS },
+        { score: score(2, 1), basis: 'includes_extra_time', kickoff: KICKOFF - 5 * MINUTE_MS },
+      ] as const;
+      const options: RObs[] = [];
+      for (const [source, upstream] of sources) {
+        for (const st of states)
+          options.push(
+            resultObs({ source, upstream, score: st.score, basis: st.basis, kickoff: st.kickoff }),
+          );
+      }
+      for (const combo of multisets(options, 3)) {
+        for (const now of [END - 1, END + HOUR_MS, END + 7 * HOUR_MS]) {
+          for (const policy of POLICIES) {
+            const expected = referenceResult(
+              combo,
+              true,
+              autoApply(policy),
+              now,
+              DEFAULT_RESULT_CONFIRM_MS,
+            );
+            const got = actual(
+              decideResult({
+                event: makeEvent({ needsHalfTimeScore: true }),
+                observations: combo,
+                policy: makePolicy(policy),
+                now: new Date(now),
+                confirmMs: DEFAULT_RESULT_CONFIRM_MS,
+                exposure: null,
+              }),
+            );
+            expect(got).toEqual(expected);
+          }
+        }
+      }
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
 });
 
 type FObs = ResolvedObservation<FixtureObservation>;
@@ -353,69 +367,73 @@ function referenceKickoff(
 }
 
 describe('reference model: F4 kickoff change (exhaustive)', () => {
-  it('agrees on every combination of up to three observations', () => {
-    const offsets = [
-      0,
-      3 * MINUTE_MS,
-      5 * MINUTE_MS,
-      5 * MINUTE_MS + 1,
-      HOUR_MS,
-      2 * HOUR_MS,
-      2 * HOUR_MS + 1,
-      -HOUR_MS,
-      -5 * MINUTE_MS - 1,
-      HOUR_MS + 5 * MINUTE_MS,
-    ];
-    const options: FObs[] = [];
-    for (const [source, upstream] of [
-      ['s1', 'u1'],
-      ['s2', 'u2'],
-      ['s3', 'u1'],
-    ] as const) {
-      for (const offset of offsets)
-        options.push(fixtureObs({ source, upstream, kickoff: KICKOFF + offset }));
-    }
-    const outcomes = new Set<string>();
-    let compared = 0;
-    for (const combo of multisets(options, 3)) {
-      if (combo.length === 0) continue;
-      for (const [hasBets, enabled, bettingOpen] of [
-        [false, true, false],
-        [false, true, true],
-        [true, true, false],
-        [true, true, true],
-        [false, false, false],
+  it(
+    'agrees on every combination of up to three observations',
+    () => {
+      const offsets = [
+        0,
+        3 * MINUTE_MS,
+        5 * MINUTE_MS,
+        5 * MINUTE_MS + 1,
+        HOUR_MS,
+        2 * HOUR_MS,
+        2 * HOUR_MS + 1,
+        -HOUR_MS,
+        -5 * MINUTE_MS - 1,
+        HOUR_MS + 5 * MINUTE_MS,
+      ];
+      const options: FObs[] = [];
+      for (const [source, upstream] of [
+        ['s1', 'u1'],
+        ['s2', 'u2'],
+        ['s3', 'u1'],
       ] as const) {
-        for (const now of [
-          KICKOFF - DAY_MS,
-          KICKOFF - 70 * MINUTE_MS,
-          KICKOFF - 10 * MINUTE_MS,
-          KICKOFF - 10 * MINUTE_MS - 1,
-        ]) {
-          const expected = referenceKickoff(combo, hasBets, now, enabled, bettingOpen);
-          const d = decideFixture({
-            observations: combo,
-            candidates: [makeEvent({ hasBets, bettingOpen })],
-            policy: makePolicy({ enabled }),
-            now: new Date(now),
-            calibrated: true,
-            pricesSane: true,
-            kickoffConfirmed: true,
-          });
-          const got: KickoffOutcome =
-            d.action === 'update-kickoff'
-              ? { action: 'update', to: d.to.getTime(), rule: d.rule }
-              : d.action === 'hold'
-                ? { action: 'hold' }
-                : { action: 'none' };
-          if (d.action === 'hold') expect(d.review.kind).toBe('kickoff_change');
-          expect(got).toEqual(expected);
-          outcomes.add(got.action === 'update' ? got.rule : got.action);
-          compared++;
+        for (const offset of offsets)
+          options.push(fixtureObs({ source, upstream, kickoff: KICKOFF + offset }));
+      }
+      const outcomes = new Set<string>();
+      let compared = 0;
+      for (const combo of multisets(options, 3)) {
+        if (combo.length === 0) continue;
+        for (const [hasBets, enabled, bettingOpen] of [
+          [false, true, false],
+          [false, true, true],
+          [true, true, false],
+          [true, true, true],
+          [false, false, false],
+        ] as const) {
+          for (const now of [
+            KICKOFF - DAY_MS,
+            KICKOFF - 70 * MINUTE_MS,
+            KICKOFF - 10 * MINUTE_MS,
+            KICKOFF - 10 * MINUTE_MS - 1,
+          ]) {
+            const expected = referenceKickoff(combo, hasBets, now, enabled, bettingOpen);
+            const d = decideFixture({
+              observations: combo,
+              candidates: [makeEvent({ hasBets, bettingOpen })],
+              policy: makePolicy({ enabled }),
+              now: new Date(now),
+              calibrated: true,
+              pricesSane: true,
+              kickoffConfirmed: true,
+            });
+            const got: KickoffOutcome =
+              d.action === 'update-kickoff'
+                ? { action: 'update', to: d.to.getTime(), rule: d.rule }
+                : d.action === 'hold'
+                  ? { action: 'hold' }
+                  : { action: 'none' };
+            if (d.action === 'hold') expect(d.review.kind).toBe('kickoff_change');
+            expect(got).toEqual(expected);
+            outcomes.add(got.action === 'update' ? got.rule : got.action);
+            compared++;
+          }
         }
       }
-    }
-    expect(compared).toBeGreaterThan(30_000);
-    expect([...outcomes].sort()).toEqual(['F4a', 'F4b', 'hold', 'none']);
-  });
+      expect(compared).toBeGreaterThan(30_000);
+      expect([...outcomes].sort()).toEqual(['F4a', 'F4b', 'hold', 'none']);
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
 });
