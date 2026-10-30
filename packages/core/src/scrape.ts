@@ -77,6 +77,8 @@ export const SCRAPE_REVIEW_KINDS = [
   'result_overdue',
   /** A source's pages stopped parsing the way they used to. */
   'source_broken',
+  /** A source keeps answering but has had nothing new for days while matches it lists have ended. */
+  'source_stale',
 ] as const;
 export type ScrapeReviewKind = (typeof SCRAPE_REVIEW_KINDS)[number];
 

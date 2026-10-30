@@ -93,6 +93,7 @@ export {
   type ScrapeReviewItem,
 } from './review';
 export { listEventPricing, recordEventHeld, recordEventPriced, type EventPricing } from './pricing';
+export { listSourceContentFacts, type SourceContentFacts } from './staleness';
 export { getTeamRatings, markRatingApplied, setTeamRatings, type TeamRatings } from './ratings';
 export {
   DEFAULT_LISTED_WINDOW_MS,

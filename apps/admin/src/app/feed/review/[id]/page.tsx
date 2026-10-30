@@ -396,6 +396,28 @@ function Body({
         />
       );
     }
+    case 'source_stale': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <>
+          <DefList
+            rows={[
+              ['Source', p.sourceName],
+              ['Last change', formatDateTime(p.lastChangedAt)],
+              ['Unchanged for', `${p.hoursUnchanged} hours`],
+              ['Matches waiting', String(p.dueMatches)],
+            ]}
+          />
+          <p>
+            The source still answers, but nothing it shows has changed while matches it lists have
+            ended, so no result can come from it. Check the source&apos;s own page. Until it moves
+            again, results for those matches come from another source or are entered by hand in
+            Trading. This item closes by itself when the source shows something new.
+          </p>
+        </>
+      );
+    }
     default: {
       const p = parseReviewPayload(kind, item.payload) as { detail?: string } | null;
       if (p === null) return raw();

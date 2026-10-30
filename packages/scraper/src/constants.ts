@@ -46,6 +46,11 @@ export const SHAPE_BASELINE_RUNS = 5;
 export const SHAPE_MIN_BASELINE_RUNS = 3;
 /** Accepted records below this share of the baseline mark a page as broken. */
 export const SHAPE_MIN_RATIO = 0.5;
+/**
+ * S5: a source that keeps answering but has shown nothing new since a match it lists ended, this
+ * long after that match's earliest possible end, is "stale" (frozen or lagging) and a person is told.
+ */
+export const SOURCE_STALE_AFTER_MS = 48 * HOUR_MS;
 
 // --- Odds -------------------------------------------------------------------
 

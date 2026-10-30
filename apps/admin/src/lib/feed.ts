@@ -168,6 +168,13 @@ export function payloadSummary(kind: string, payload: Record<string, unknown>): 
       const hours = payload.hoursSinceKickoff;
       return `${match ?? '–'}: ${typeof hours === 'number' ? `${hours} h after kickoff` : 'no result'}`;
     }
+    case 'source_stale': {
+      const hours = payload.hoursUnchanged;
+      const due = payload.dueMatches;
+      return `${str(payload.sourceName) ?? str(payload.sourceId) ?? '–'}: ${
+        typeof hours === 'number' ? `${hours} h unchanged` : 'unchanged'
+      }${typeof due === 'number' ? `, ${due} ${due === 1 ? 'match' : 'matches'} waiting` : ''}`;
+    }
     case 'source_broken':
       return str(payload.reason) ?? str(payload.sourceId) ?? '–';
     case 'kickoff_change':

@@ -52,6 +52,7 @@ export const GATE_REVIEW_PRIORITY: readonly ScrapeReviewKind[] = Object.freeze([
   'odds_approval',
   'ratings_uncalibrated',
   'source_broken',
+  'source_stale',
   'unknown_competition',
   'unknown_team',
 ] as const);
@@ -72,6 +73,7 @@ export const GATE_REVIEW_SEVERITY: Readonly<Record<ScrapeReviewKind, ScrapeSever
     odds_approval: 'info',
     ratings_uncalibrated: 'info',
     source_broken: 'warning',
+    source_stale: 'warning',
     unknown_competition: 'info',
     unknown_team: 'info',
   });
@@ -90,6 +92,7 @@ const TITLES: Readonly<Record<ScrapeReviewKind, string>> = Object.freeze({
   odds_approval: 'Betting is closed until a trader approves the odds',
   ratings_uncalibrated: 'Team ratings are not calibrated: no odds offered',
   source_broken: 'Source pages stopped parsing as before',
+  source_stale: 'A source has had nothing new for days while matches have ended',
   unknown_competition: 'Unknown competition name',
   unknown_team: 'Unknown team name',
 });

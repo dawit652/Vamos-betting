@@ -258,6 +258,18 @@ Every rule has an id; tests cite the id in their names. Constants are in
   kickoff is moved (a change that would be applied opens `kickoff_change`
   instead) and no result is applied (an agreed score opens `result_ready`);
   observing and raising review items go on (shadow mode).
+- **S5 Stale.** A source can answer every run with a page that never changes, and
+  every other signal says "ok". An enabled source whose latest run was `ok` is
+  stale when a match it lists (a current fixture observation of the source for the
+  event's competition and teams) is still scheduled and unresulted, ended (at the
+  earliest, kickoff + `MIN_MATCH_DURATION_MS`) `SOURCE_STALE_AFTER_MS` (48 h) ago or
+  more, and nothing the source shows has changed since that end (`changed_at` of its
+  observations). `source_stale` opens for the source with the hours unchanged and the
+  matches waiting; a source that is quiet between match days is not stale, because
+  the clock starts when a listed match ends. Dismissing it silences it for 24
+  hours. It closes by itself when the source shows something new, when no listed
+  match is waiting, or when the source is disabled or failing (those have their own
+  signals). It changes no data.
 
 ### 6.4 Names and time
 

@@ -67,6 +67,7 @@ export const FEED_REVIEW_KINDS = [
   'score_basis_unknown',
   'result_overdue',
   'source_broken',
+  'source_stale',
 ] as const;
 export const FEED_REVIEW_STATUSES = ['open', 'resolved', 'dismissed'] as const;
 export const FEED_SEVERITIES = ['info', 'warning', 'critical'] as const;
@@ -489,6 +490,16 @@ export const REVIEW_PAYLOAD_SCHEMAS = {
     recordsAccepted: Count,
     /** The median yield of the source's recent healthy runs (null when there is none). */
     baseline: z.number().min(0).nullable(),
+  }),
+  source_stale: z.object({
+    sourceId: z.string(),
+    sourceName: z.string(),
+    /** When anything the source shows last changed. */
+    lastChangedAt: IsoDateTime,
+    /** Whole hours since then, when the item was raised or last refreshed. */
+    hoursUnchanged: Count,
+    /** Matches it lists that ended since then with no result from it. */
+    dueMatches: Count,
   }),
 } as const satisfies Record<FeedReviewKind, z.ZodType>;
 

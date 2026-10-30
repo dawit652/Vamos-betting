@@ -1,0 +1,2 @@
+ALTER TABLE "scrape_review_items" DROP CONSTRAINT "scrape_review_items_kind";--> statement-breakpoint
+ALTER TABLE "scrape_review_items" ADD CONSTRAINT "scrape_review_items_kind" CHECK ("scrape_review_items"."kind" IN ('unknown_team', 'unknown_competition', 'fixture_conflict', 'kickoff_change', 'fixture_missing', 'cancellation_proposed', 'ratings_uncalibrated', 'odds_approval', 'result_ready', 'result_unverified', 'result_conflict', 'result_correction', 'score_basis_unknown', 'result_overdue', 'source_broken', 'source_stale'));

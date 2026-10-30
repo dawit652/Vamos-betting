@@ -32,6 +32,7 @@ const KINDS = [
   'score_basis_unknown',
   'result_overdue',
   'source_broken',
+  'source_stale',
 ] as const;
 
 export default function ReviewQueuePage() {

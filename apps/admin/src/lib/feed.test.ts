@@ -97,6 +97,17 @@ describe('feed helpers', () => {
       'A v B: 9 h after kickoff',
     );
     expect(payloadSummary('result_overdue', {})).toBe('–: no result');
+    expect(
+      payloadSummary('source_stale', {
+        sourceName: 'Volunteer data',
+        hoursUnchanged: 60,
+        dueMatches: 2,
+      }),
+    ).toBe('Volunteer data: 60 h unchanged, 2 matches waiting');
+    expect(payloadSummary('source_stale', { sourceId: 's1', dueMatches: 1 })).toBe(
+      's1: unchanged, 1 match waiting',
+    );
+    expect(payloadSummary('source_stale', {})).toBe('–: unchanged');
     expect(payloadSummary('fixture_missing', { detail: 'gone' })).toBe('gone');
     expect(payloadSummary('result_ready', {})).toBe('–: –');
     expect(payloadSummary('source_broken', {})).toBe('–');

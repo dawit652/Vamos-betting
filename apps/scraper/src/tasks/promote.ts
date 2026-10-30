@@ -8,6 +8,7 @@ import {
   promoteResults,
 } from '../pipeline/promote-results';
 import { repriceScheduledEvents } from '../pipeline/reprice';
+import { flagStaleSources } from '../pipeline/stale-sources';
 import { reresolveChangedAliases, reresolveUnresolved } from '../pipeline/run-source';
 
 export const PROMOTE_INTERVAL_MS = 60_000;
@@ -33,6 +34,8 @@ export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
       ['results', () => promoteResults(ctx)],
       // After results: what no source will ever settle is raised for a person (F-04).
       ['overdue results', () => flagOverdueResults(ctx)],
+      // A source that answers but shows nothing new while matches end (S5).
+      ['stale sources', () => flagStaleSources(ctx)],
       // After results: they move the ratings the prices depend on (rule O3).
       ['reprice', () => repriceScheduledEvents(ctx)],
     ];

@@ -173,7 +173,10 @@ log. Automatic changes are written with the actor `system:scraper`; staff action
 or dismiss), `odds_approval` (open betting on the proposed prices), `ratings_uncalibrated` (a team has too few
 matches to be priced; nothing to do until its ratings are backfilled or a trader sets them with `ratings set`), `kickoff_change`
 (apply the new time or dismiss), `fixture_conflict` and `fixture_missing` (look at the sources; nothing is
-cancelled because a page did not list an event), and `source_broken`.
+cancelled because a page did not list an event), `source_broken` (a source's pages stopped parsing as before) and
+`source_stale` (a source still answers but has shown nothing new since a match it lists ended 48 hours ago or more, so
+no result can come from it: check the source's own page; results for those matches come from another source or are
+entered by hand in Trading; the item closes by itself when the source moves, and dismissing it silences it for 24 hours).
 
 **Who can do what**
 
