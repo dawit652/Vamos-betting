@@ -31,6 +31,11 @@ export async function createTestDatabase(
     ...handle,
     url: url.toString(),
     drop: async () => {
+      // A pool forgets a client as soon as it asks it to end, so `close()` can resolve while a connection
+      // is still open. The forced drop below then ends it from the server's side (57P01) and the late
+      // error would reach the process as an uncaught exception, failing the whole test run although every
+      // test passed. The database is being thrown away: there is nothing to learn from that error.
+      handle.pool.on('error', () => undefined);
       await handle.close();
       const dropper = new pg.Client({ connectionString: adminUrl.toString() });
       await dropper.connect();
