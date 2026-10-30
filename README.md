@@ -54,6 +54,9 @@ pnpm dev          # api :4000, worker, web :3000
 To try the data scraper with real Premier League data (games, odds, a trader opening betting), follow
 [`docs/scraper-local-test.md`](docs/scraper-local-test.md).
 
+To test on your laptop and on several phones on the same Wi-Fi, follow
+[`docs/testing-with-phones.md`](docs/testing-with-phones.md).
+
 ## Quality checks
 
 ```bash

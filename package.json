@@ -29,6 +29,10 @@
     "admin:create": "pnpm --filter @vamos/db admin:create",
     "admin:unlock": "pnpm --filter @vamos/db admin:unlock",
     "admin:totp-rekey": "pnpm --filter @vamos/db admin:totp-rekey",
+    "lan": "node scripts/lan.mjs",
+    "phones:build": "bash e2e/scripts/stack.sh build",
+    "phones:start": "bash e2e/scripts/stack.sh start",
+    "phones:stop": "bash e2e/scripts/stack.sh stop",
     "services:start": "bash infra/scripts/dev-services.sh start",
     "services:stop": "bash infra/scripts/dev-services.sh stop",
     "services:status": "bash infra/scripts/dev-services.sh status"
