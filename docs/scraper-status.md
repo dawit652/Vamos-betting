@@ -17,8 +17,10 @@ reports [01](scraper-evaluation/01-data-accuracy.md), [02](scraper-evaluation/02
   betting by hand (the review item and the Trading switch) re-checks the teams' ratings and the prices (F-10).
   A match that is over with no score from any source now raises a "No result yet" item 7 h 45 min after kickoff (F-04).
   A source that answers but shows nothing new 48 hours after a match it lists ended now raises a "source stale" item (F-02).
-- **Next (Wave 1, after the weekly allowance resets on 2026-10-30 18:00 UTC):** the kickoff safety rule (F-01, Opus
-  first).
+  Prices: the margin is now delivered on every market, lopsided ones included (F-08), the home advantage is learned per
+  competition from its own results (F-07), and a re-price no longer waits for a trader because of side markets (F-09).
+- **Next (Wave 1, after the weekly allowance resets on 2026-10-30 18:00 UTC):** the kickoff safety rule (F-01): the design is done
+  ([kickoff-safety.md](scraper-plan/kickoff-safety.md)) and the build is next.
 - **Needs a decision from the owner:** a licensed data provider (F-06) and an exposure policy for model-priced
   events (F-05).
 - **Not measured yet:** replay of the real history, concurrency and crash tests, throughput, failure scenarios and
