@@ -1,6 +1,7 @@
 import type { ScraperContext } from '../context';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import { tryLock } from '../lib/lock';
+import { closeBettingOnEarlierKickoff } from '../pipeline/kickoff-safety';
 import { promoteFixtures } from '../pipeline/promote-fixtures';
 import {
   applyStaffConfirmations,
@@ -15,7 +16,7 @@ export const PROMOTE_INTERVAL_MS = 60_000;
 const PROMOTE_LOCK_TTL_MS = 5 * 60_000;
 
 /**
- * One promotion pass: re-resolve names, promote fixtures, apply what staff
+ * One promotion pass: re-resolve names, close betting on earlier kickoffs (K1), promote fixtures, apply what staff
  * confirmed, promote results, raise the matches no source has a result for,
  * then re-price the events whose teams' ratings moved. Each step is independent: one failing does not stop the others.
  * Under a Redis lock so two instances do not both promote.
@@ -28,6 +29,8 @@ export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
       // First: an alias that was removed or changed un-maps/re-maps what is stored (finding 8).
       ['re-resolve changed aliases', () => reresolveChangedAliases(ctx)],
       ['reresolve', () => reresolveUnresolved(ctx)],
+      // Before anything else decides on fixtures: betting open while a source says the match starts earlier is closed (K1).
+      ['kickoff safety', () => closeBettingOnEarlierKickoff(ctx)],
       ['fixtures', () => promoteFixtures(ctx)],
       // Before the result gate: a confirmed item must not be shadowed by a fresh one.
       ['staff confirmations', () => applyStaffConfirmations(ctx)],

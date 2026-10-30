@@ -4,6 +4,7 @@ import {
   listCompetitionPolicies,
   listCurrentObservations,
   listScrapedEvents,
+  listSourceKickoffFacts,
   lockEvent,
   recordEventPriced,
   setEventBettingOpen,
@@ -13,6 +14,7 @@ import {
 } from '@vamos/db';
 import { priceFixture } from '@vamos/feed';
 import {
+  assessKickoff,
   buildReviews,
   checkMarkets,
   clusterObservations,
@@ -22,16 +24,21 @@ import {
   FIXTURE_HORIZON_MS,
   holdSeveralClusters,
   isCalibrated,
+  KICKOFF_EVIDENCE_WINDOW_MS,
   matchEvent,
   MATCH_WINDOW_MS,
+  MIN_MATCH_DURATION_MS,
   ratingsKey,
   reviewsOf,
+  SOURCE_STALE_AFTER_MS,
   type CompetitionPolicy,
   type EventMatch,
   type FixtureCreate,
   type FixtureObservation,
   type FixtureUpdateKickoff,
   type GateReview,
+  type KickoffAssessment,
+  type KickoffStatement,
   type ResolvedObservation,
 } from '@vamos/scraper';
 import { betLegs, events as eventsTable } from '@vamos/db/schema';
@@ -160,20 +167,34 @@ export async function promoteFixtures(
         candidates.length === 0
           ? await pricingFor(ctx, cluster.homeTeamId, cluster.awayTeamId)
           : null;
-      const decision = decideFixture({
+      const gateInput = {
         observations: cluster.items,
         candidates,
         policy,
         now,
         calibrated: pricing?.calibrated ?? false,
         pricesSane: pricing?.pricesSane ?? false,
-        // wired to the real assessment in step 4 of docs/scraper-plan/kickoff-safety.md
-        kickoffConfirmed: true,
-      });
+      };
+      // K2 at creation: the kickoff must be confirmed before the gate may open betting (F7). It is
+      // assessed only for a fixture that would be created, with the same pure function as everywhere.
+      let decision = decideFixture({ ...gateInput, kickoffConfirmed: false });
+      let kickoff: KickoffAssessment | null = null;
+      if (decision.action === 'create') {
+        kickoff = await assessCreation(ctx, decision, now);
+        if (kickoff.confirmed) {
+          const confirmed = decideFixture({ ...gateInput, kickoffConfirmed: true });
+          if (
+            confirmed.action === 'create' &&
+            confirmed.kickoff.getTime() === decision.kickoff.getTime()
+          ) {
+            decision = confirmed;
+          }
+        }
+      }
       let messages: LiveMessage[] = [];
       switch (decision.action) {
         case 'create': {
-          const created = await applyCreate(ctx, decision, pricing, now);
+          const created = await applyCreate(ctx, decision, pricing, now, kickoff);
           messages = created.messages;
           if (created.created) summary.created += 1;
           else summary.held += 1;
@@ -347,6 +368,69 @@ async function scrapedEvents(ctx: ScraperContext, now: Date): Promise<ScrapedEve
   });
 }
 
+/** The statements of the evidence read at most this many rows (a competition within +-7 days of a start). */
+const CREATION_EVIDENCE_LIMIT = 5000;
+
+/**
+ * Rule K2 for a fixture that has no event yet: `assessKickoff` for the kickoff that would be created,
+ * over the statements the definitions of docs/scraper.md 6.1a give (listed rows of enabled sources
+ * about this pairing within `KICKOFF_EVIDENCE_WINDOW_MS`, fixtures and results, so another cluster of
+ * the same pairing counts as dissent), the freshness of each source from `listSourceKickoffFacts`,
+ * and no person record (nobody can confirm an event that does not exist).
+ */
+async function assessCreation(
+  ctx: ScraperContext,
+  decision: FixtureCreate,
+  now: Date,
+): Promise<KickoffAssessment> {
+  const start = decision.kickoff;
+  const facts = new Map(
+    (
+      await listSourceKickoffFacts(ctx.db, {
+        now,
+        minMatchDurationMs: MIN_MATCH_DURATION_MS,
+        staleAfterMs: SOURCE_STALE_AFTER_MS,
+      })
+    ).map((fact) => [fact.sourceId, fact]),
+  );
+  const rows = await listCurrentObservations(ctx.db, {
+    competitionId: decision.competitionId,
+    resolvedOnly: true,
+    kickoffFrom: new Date(start.getTime() - KICKOFF_EVIDENCE_WINDOW_MS),
+    // `kickoffTo` is exclusive.
+    kickoffTo: new Date(start.getTime() + KICKOFF_EVIDENCE_WINDOW_MS + 1),
+    limit: CREATION_EVIDENCE_LIMIT,
+  });
+  // Fails closed: a cut read may have hidden a dissenting statement.
+  if (rows.length >= CREATION_EVIDENCE_LIMIT) {
+    throw new Error(`kickoff evidence of ${decision.feedRef} reached its row limit`);
+  }
+  const statements: KickoffStatement[] = [];
+  for (const row of rows) {
+    const fact = facts.get(row.sourceId);
+    if (
+      row.homeTeamId !== decision.homeTeamId ||
+      row.awayTeamId !== decision.awayTeamId ||
+      fact === undefined ||
+      fact.latestOkRunStartedAt === null ||
+      // A listed row: seen at the source's latest successful read.
+      row.lastSeenAt.getTime() < fact.latestOkRunStartedAt.getTime()
+    ) {
+      continue;
+    }
+    statements.push({
+      sourceId: row.sourceId,
+      upstream: fact.upstream,
+      kind: row.kind,
+      status: row.status as KickoffStatement['status'],
+      kickoff: row.kickoff,
+      changedAt: row.changedAt,
+      sourceFresh: fact.fresh,
+    });
+  }
+  return assessKickoff({ start, now, statements, person: null });
+}
+
 /** O1 and O2 for a fixture that has no event yet. */
 export async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTeamId: string) {
   const ratings = await getTeamRatings(ctx.db, [homeTeamId, awayTeamId]);
@@ -378,13 +462,15 @@ class FeedRefTaken extends Error {}
  * the same feed_ref may still exist (a trader rescheduled it far out); the
  * upsert would then move its start and re-price it with no F4, O3 or trader.
  * If the feed_ref exists, nothing changes and a `fixture_conflict`
- * (`feed_ref_exists`) asks a person.
+ * (`feed_ref_exists`) asks a person. `kickoff` is the K2 assessment the gate's `kickoffConfirmed` came
+ * from, recorded in the audit row (null: not assessed, as in the demo seed).
  */
 export async function applyCreate(
   ctx: ScraperContext,
   decision: FixtureCreate,
   pricing: { markets: ReturnType<typeof priceFixture>; ratingsKey: string } | null,
   now: Date,
+  kickoff: Pick<KickoffAssessment, 'confirmed' | 'basis'> | null = null,
 ): Promise<{ created: boolean; messages: LiveMessage[] }> {
   try {
     const messages = await ctx.db.transaction(async (tx) => {
@@ -454,6 +540,8 @@ export async function applyCreate(
           kickoff: decision.kickoff.toISOString(),
           sources: [...decision.sources],
           bettingOpen: decision.openBetting,
+          kickoffConfirmed: kickoff?.confirmed ?? null,
+          kickoffBasis: kickoff?.basis ?? null,
           reviews: reviewsOf(decision).map((r: GateReview) => r.kind),
         },
       });
