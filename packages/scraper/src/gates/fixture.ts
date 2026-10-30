@@ -78,6 +78,12 @@ export interface FixtureGateInput {
   readonly calibrated: boolean;
   /** Rule O2 for the prices the new event would get (checkMarkets(...).ok). Anything but true counts as false. */
   readonly pricesSane: boolean;
+  /**
+   * Rule K2 for the kickoff being created (`assessKickoff(...).confirmed`, no person record).
+   * Without it F7 never opens betting: the event is created closed (`kickoff_unconfirmed`).
+   * Anything but true counts as false.
+   */
+  readonly kickoffConfirmed: boolean;
 }
 
 interface FixtureCreateBase {
@@ -96,7 +102,7 @@ interface FixtureCreateBase {
 
 /**
  * Create the event (F2). `openBetting` says whether betting may be opened right
- * after (F7: auto_open, both teams calibrated, prices sane); otherwise
+ * after (F7: auto_open, both teams calibrated, prices sane, kickoff confirmed (K2)); otherwise
  * `review` is the item that asks a trader to open it.
  */
 export type FixtureCreate = FixtureCreateBase &
@@ -115,7 +121,7 @@ export interface FixtureUpdateKickoff {
   readonly feedRef: string;
   readonly from: Date;
   readonly to: Date;
-  /** F4a: independent upstreams agree; F4b: one source, small later shift, no bets. */
+  /** F4a: independent upstreams agree; F4b: one source, small later shift, no bets, betting closed (K4). */
   readonly rule: 'F4a' | 'F4b';
   readonly upstreams: readonly string[];
 }
@@ -194,6 +200,11 @@ export function holdSeveralClusters(
         eventStart: iso(startMs),
         hasBets: event.hasBets,
         clusters,
+        ...kickoffContract(
+          event,
+          summaries.map((c) => c.earliest),
+          input.clusters.flatMap((items) => listOf(items)),
+        ),
       }),
     );
   }
@@ -350,7 +361,8 @@ function decideNew(
   };
   const calibrated = input.calibrated === true;
   const pricesSane = input.pricesSane === true;
-  if (input.policy.autoOpen === true && calibrated && pricesSane) {
+  const kickoffConfirmed = input.kickoffConfirmed === true;
+  if (input.policy.autoOpen === true && calibrated && pricesSane && kickoffConfirmed) {
     return { ...base, openBetting: true, review: null };
   }
   const kind = calibrated ? 'odds_approval' : 'ratings_uncalibrated';
@@ -358,12 +370,15 @@ function decideNew(
     ? 'ratings_uncalibrated'
     : !pricesSane
       ? 'prices_not_sane'
-      : 'auto_open_off';
+      : input.policy.autoOpen !== true
+        ? 'auto_open_off'
+        : 'kickoff_unconfirmed';
   const { review } = holdFrom(subjectKey, [{ kind, rule: 'F7', reason }], () => ({
     feedRef: subjectKey,
     kickoff: iso(earliest),
     calibrated,
     pricesSane,
+    kickoffConfirmed,
     autoOpen: input.policy.autoOpen === true,
   }));
   return {
@@ -400,7 +415,14 @@ function decideExisting(
     return conflict(
       subjectKey,
       [{ kind: 'kickoff_change', rule: 'F4', reason: 'event_not_scheduled', detail: sources }],
-      eventPayload,
+      {
+        ...eventPayload,
+        ...kickoffContract(
+          event,
+          future.map((o) => o.obs.kickoff.getTime()),
+          future,
+        ),
+      },
     );
   }
   if (event.status !== 'scheduled') return { action: 'none', reason: 'event_closed' };
@@ -431,9 +453,8 @@ function decideExisting(
   const proposal = (reason: string, severity: 'warning' | 'critical'): GateHold =>
     conflict(subjectKey, [{ kind: 'kickoff_change', rule: 'F4', reason, severity }], {
       ...eventPayload,
-      proposedKickoff: iso(earliest),
+      ...kickoffContract(event, kickoffs, observations),
       latestKickoff: iso(latest),
-      hasBets: event.hasBets,
       upstreams: upstreamsOf(observations.map(voiceOf)),
     });
   // A move to an earlier time left undone keeps betting open too long: critical.
@@ -465,6 +486,9 @@ function decideExisting(
     earliest - startMs <= SMALL_SHIFT_MS &&
     event.hasBets === false
   ) {
+    // K4: a later time from one source is moved to only while betting is closed. If the source is
+    // wrong, a moved start would keep betting open past the real kickoff.
+    if (event.bettingOpen !== false) return proposal('betting_open', severity);
     return update('F4b');
   }
   return proposal('needs_independent_sources', severity);
@@ -472,6 +496,38 @@ function decideExisting(
 
 function voiceOf(o: FixtureObs): { sourceId: string; upstream: string } {
   return { sourceId: o.obs.sourceId, upstream: o.upstream };
+}
+
+/**
+ * The fields of the `kickoff_change` contract (packages/contracts/src/feed.ts) that every kickoff
+ * item of the gate carries, so `apply_kickoff` and the review page can read it: the event, its
+ * current kickoff, the proposed one (the earliest given, the same reading as the decision), who
+ * said so (`SourceVote`: source, upstream, when its observation took its value; sorted) and bets.
+ */
+function kickoffContract(
+  event: ExistingEvent,
+  proposedMs: readonly number[],
+  observations: readonly FixtureObs[],
+): GatePayload {
+  const sources = observations
+    .map((o) => ({
+      sourceId: o.obs.sourceId,
+      upstream: o.upstream,
+      changedAt: iso(o.changedAt.getTime()),
+    }))
+    .sort(
+      (a, b) =>
+        (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0) ||
+        (a.changedAt < b.changedAt ? -1 : a.changedAt > b.changedAt ? 1 : 0) ||
+        (a.upstream < b.upstream ? -1 : a.upstream > b.upstream ? 1 : 0),
+    );
+  return {
+    eventId: event.eventId,
+    currentKickoff: iso(event.startTime.getTime()),
+    proposedKickoff: iso(Math.min(...proposedMs)),
+    sources,
+    hasBets: event.hasBets,
+  };
 }
 
 /** Distinct pairings of a cluster, sorted (one expected). */

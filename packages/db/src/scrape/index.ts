@@ -95,6 +95,20 @@ export {
 export { listEventPricing, recordEventHeld, recordEventPriced, type EventPricing } from './pricing';
 export { listSourceContentFacts, type SourceContentFacts } from './staleness';
 export {
+  KICKOFF_CONFIRMED_AUDIT_ACTION,
+  listSourceKickoffFacts,
+  loadKickoffEvidence,
+  recordKickoffConfirmation,
+  type KickoffEventFacts,
+  type KickoffEvidence,
+  type KickoffPersonRow,
+  type KickoffStatementRow,
+  type KickoffThresholds,
+  type LoadKickoffEvidenceOptions,
+  type RecordKickoffConfirmationInput,
+  type SourceKickoffFacts,
+} from './kickoff';
+export {
   competitionGoalEvidence,
   getTeamRatings,
   markRatingApplied,

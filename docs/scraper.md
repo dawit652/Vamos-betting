@@ -153,13 +153,18 @@ Every rule has an id; tests cite the id in their names. Constants are in
 - **F4 Kickoff change.** For a `scheduled` event whose cluster kickoff differs by
   more than `KICKOFF_TOLERANCE_MS`: apply if (a) at least
   `MIN_INDEPENDENT_SOURCES` independent upstreams agree on the new time, or (b)
-  one source, and the shift is later, at most `SMALL_SHIFT_MS`, and the event
-  has no bets. A move to an earlier time, with bets on the event, needs (a). A
+  one source, and the shift is later, at most `SMALL_SHIFT_MS`, the event
+  has no bets **and betting is closed** (K4: with betting open the change is a
+  `kickoff_change` with reason `betting_open`, severity warning). A move to an
+  earlier time, with bets on the event, needs (a). A
   new time before `now + MIN_LEAD_MS` is never applied. Anything else →
   `kickoff_change`. The move is re-checked under the event's row lock (still
   scheduled, still starting at the time the decision was taken, and for (b) still
-  without bets); if anything changed, nothing is applied and the next pass decides
-  again.
+  without bets and with betting still closed); if anything changed, nothing is applied
+  and the next pass decides again. Every `kickoff_change` the gate writes carries the
+  contract's fields (`eventId`, `currentKickoff`, `proposedKickoff`, `sources` as
+  `{sourceId, upstream, changedAt}` sorted by source id, `hasBets`) next to its own, so
+  "Apply new kickoff" can read it.
 - **F4c Several clusters, one fixture.** Sources that differ by more than
   `CLUSTER_WINDOW_MS` form several clusters (F1). If they match the same open
   event (F3), or the same pairing is unknown and the clusters lie within
@@ -175,12 +180,91 @@ Every rule has an id; tests cite the id in their names. Constants are in
   void bets. They open `cancellation_proposed` with the sources that said so.
 - **F7 Betting stays closed.** A new event is created with betting **closed**.
   It is opened automatically only if the competition policy has `auto_open`, both
-  teams are calibrated (rule O1) and the prices pass O2. Otherwise it opens
-  `odds_approval` (teams calibrated) or `ratings_uncalibrated` (not), and a
+  teams are calibrated (rule O1), the prices pass O2 and the kickoff is confirmed
+  (K2). Otherwise it opens
+  `odds_approval` (teams calibrated; reason `kickoff_unconfirmed` when only the
+  kickoff stopped an `auto_open` event) or `ratings_uncalibrated` (not), and a
   trader opens betting. `auto_open` is read only at creation: when the teams of an
   event created uncalibrated become calibrated and its prices follow their
   ratings, the re-price step (O3) resolves `ratings_uncalibrated` itself
   (`{"decision":"calibrated"}`) and opens `odds_approval`; it never opens betting.
+
+### 6.1a Kickoff safety (K1 to K6)
+
+Design, measurements and tests: `docs/scraper-plan/kickoff-safety.md`. Prematch betting on an event closes
+by itself at `events.start_time` and scraped events never go live, so the exposure is exactly this: betting
+is open and the real kickoff is earlier than our `start_time`. Nothing here changes results, statuses,
+prices or bets. The pure rules are in `packages/scraper/src/gates/kickoff.ts` (`assessKickoff`,
+`earlierKickoffAction`).
+
+Definitions (used by every rule below):
+
+- **Listed row.** A row of `scrape_observations` of an enabled source with `last_seen_at` at or after the
+  `started_at` of that source's latest run with status `ok` (a 304 sighting counts). A row a source no longer
+  lists, such as the old-day row a keyless source leaves when a match moves, is not listed.
+- **Statement** about event E: a listed row, of kind fixture or result, with E's competition, home and away
+  and a kickoff at most `KICKOFF_EVIDENCE_WINDOW_MS` before or after `E.start_time`.
+- **Agreeing statement:** a `scheduled` fixture within `KICKOFF_TOLERANCE_MS` of the start. Any other
+  statement **dissents**: a scheduled fixture further away, a `postponed` or `cancelled` fixture, any result
+  statement.
+- **Earlier-kickoff statement:** a `scheduled` fixture or a `finished` result whose kickoff lies in
+  `[start - KICKOFF_EVIDENCE_WINDOW_MS, start - KICKOFF_TOLERANCE_MS)`; it may be in the past. Postponed,
+  cancelled and abandoned statements are never earlier-kickoff statements (K5).
+- **Fresh source:** its latest finished run is `ok`; _known_ (a listed row ended at least
+  `MIN_MATCH_DURATION_MS + SOURCE_STALE_AFTER_MS` ago; a source with nothing ended cannot be judged) and
+  _not stale_ (S5 computed on the source's own rows, not read from the `source_stale` item).
+- **Independent upstreams:** `countIndependent` over the statements' upstreams, as in F2 and R2.
+- **Person record:** the latest audit row `scrape.fixture.kickoff_confirmed` of the event
+  (`startTime`, `confirmedAt`, `evidenceKey`). A statement is _acknowledged_ when the record names exactly the
+  event's current `start_time` and `statement.changed_at <= confirmedAt`; a record for another start is
+  ignored, so any kickoff move voids it.
+- **Confirmed kickoff** at `now`: **C1** no dissenting statement and agreeing statements of fresh sources
+  from at least `MIN_INDEPENDENT_SOURCES` independent upstreams; or **C2** no dissenting statement,
+  `now >= start - KICKOFF_CONFIRM_LEAD_MS` and an agreeing statement of a fresh source with
+  `changed_at <= now - KICKOFF_STABLE_MS`; or **C3** a person record for this start and every dissenting
+  statement acknowledged.
+- **Evidence key:** SHA-256 (hex) of the canonical JSON array `[startISO, statements]`, statements sorted by
+  source id, kind and kickoff, each `[sourceId, kind, status, kickoffISO, changedAtISO]`: it names exactly
+  what a person was shown.
+
+| Constant                     | Value  | Used by    |
+| ---------------------------- | ------ | ---------- |
+| `KICKOFF_CONFIRM_LEAD_MS`    | 72 h   | C2         |
+| `KICKOFF_STABLE_MS`          | 24 h   | C2         |
+| `KICKOFF_EVIDENCE_WINDOW_MS` | 7 days | statements |
+
+Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_MS`, `MIN_MATCH_DURATION_MS`,
+`MIN_LEAD_MS`.
+
+- **K1 Earlier kickoff closes betting.** For a scraped, `scheduled`, unresulted event with
+  `betting_open = true` and `start_time > now` that has an earlier-kickoff statement nobody acknowledged, the
+  scraper, in one transaction under the event's row lock that re-reads the event and the evidence, sets
+  `events.betting_open = false` (no actor: automatic) and nothing else (markets, selections, prices,
+  `start_time`, `status` and bets are not touched; bets already placed stand), writes the audit
+  `scrape.fixture.betting_closed` (`rule: 'K1'`, the earlier statements, the evidence key) and opens or
+  refreshes the critical `kickoff_change` item with subject `<feedRef>|earlier`, a separate subject so the F4
+  item cannot overwrite it. It publishes the `match` delta after COMMIT. K1 runs whatever the confirmation
+  basis and acts only on open betting.
+- **K2 No opening on an unconfirmed kickoff.** Betting on a scraped event is opened only if its kickoff is
+  confirmed (C1, C2 or C3) at that moment and it starts later than `now + MIN_LEAD_MS`: F7 automatic opening
+  (the gate input `kickoffConfirmed`; otherwise the event is created closed with an `odds_approval` item,
+  reason `kickoff_unconfirmed`), the review item's "Open betting" and the Trading switch (422
+  `kickoff_too_close`, 422 `kickoff_unconfirmed` with the statements and the evidence key; a person confirms
+  by sending the key they were shown, C3). Closing betting is never checked; events of other feeds are not
+  affected. Reasons: `no_statement`, `earlier_kickoff_reported`, `sources_disagree`, `void_status_reported`,
+  `result_reported`, `source_not_fresh`, `too_early_for_single_source`, `not_stable`.
+- **K3 Confirmation never opens betting.** Confirmation is computed when someone tries to open (and by F7 at
+  creation) and is not stored. When a kickoff becomes confirmed later nothing happens by itself: a trader
+  opens the event. `auto_open` stays creation-only. A confirmation does not survive a kickoff move.
+- **K4 Later kickoffs.** F4 is kept with one tightening: F4b (one source, later, at most `SMALL_SHIFT_MS`, no
+  bets) also needs betting **closed**; with betting open it is a `kickoff_change` with reason `betting_open`
+  (warning). F4a (independent upstreams agree) still applies with betting open.
+- **K5 Void statuses stay with a person.** Postponed, cancelled and abandoned statements never trigger K1,
+  never change a status and never void anything (F6 and R7 unchanged); they only make the kickoff
+  unconfirmed.
+- **K6 Idempotent and race-safe.** K1 changes something only while `betting_open` is true, so a second pass
+  with the same data changes nothing (no audit, no item refresh). The scraper and the API take the event row
+  lock and re-read event, statements and person record inside the transaction before deciding.
 
 ### 6.2 Results
 
@@ -257,7 +341,9 @@ Every rule has an id; tests cite the id in their names. Constants are in
   stops everything the scraper does by itself there: no event is created, no
   kickoff is moved (a change that would be applied opens `kickoff_change`
   instead) and no result is applied (an agreed score opens `result_ready`);
-  observing and raising review items go on (shadow mode).
+  observing and raising review items go on (shadow mode). One exception, because it only
+  reduces exposure: K1 still closes betting on an earlier-kickoff report while the
+  competition policy is off; K2 does not depend on the policy.
 - **S5 Stale.** A source can answer every run with a page that never changes, and
   every other signal says "ok". An enabled source whose latest run was `ok` is
   stale when a match it lists (a current fixture observation of the source for the
@@ -315,7 +401,9 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   created (the review item's "Open betting", `POST /admin/feed/review/:id/resolve`, and the betting switch
   in Trading, `POST /admin/trading/events/:id/betting`) apply O1 and O2 again at that moment, on the stored
   prices of the open and suspended markets: 422 `teams_uncalibrated` or `prices_failed_checks`, and a review
-  item stays open. Closing betting is never refused; events of any other feed are not affected.
+  item stays open. Before O1 and O2 the same two controls apply K2 (6.1a): the kickoff must be confirmed
+  (C1, C2 or a person's confirmation, C3) and start later than `now + MIN_LEAD_MS`. Closing betting is never
+  refused; events of any other feed are not affected.
 - **O3 Re-pricing.** After ratings change, scheduled events are re-priced only if
   no selection of the 1X2 or the 2.5 goals line moves by more than `MAX_PRICE_MOVE_RATIO` in
   either direction (`PRICE_MOVE_LIMITED_MARKETS`; the other markets follow them and their own

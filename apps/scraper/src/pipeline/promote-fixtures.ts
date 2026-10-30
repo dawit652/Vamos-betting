@@ -167,6 +167,8 @@ export async function promoteFixtures(
         now,
         calibrated: pricing?.calibrated ?? false,
         pricesSane: pricing?.pricesSane ?? false,
+        // wired to the real assessment in step 4 of docs/scraper-plan/kickoff-safety.md
+        kickoffConfirmed: true,
       });
       let messages: LiveMessage[] = [];
       switch (decision.action) {
@@ -496,7 +498,7 @@ export async function applyCreate(
  * Moves the kickoff of an event. The decision was taken on a snapshot, so
  * everything it rests on is checked again under the event's row lock: the
  * event is still scheduled, still starts at `decision.from`, and, for the
- * one-source rule F4b, still has no bets. Otherwise nothing changes (the next
+ * one-source rule F4b, still has betting closed (K4) and no bets. Otherwise nothing changes (the next
  * pass decides again from the current state).
  */
 export async function applyKickoff(
@@ -516,6 +518,8 @@ export async function applyKickoff(
       return { moved: false, messages: [] };
     }
     if (decision.rule === 'F4b') {
+      // K4: the one-source move needs betting closed (it was checked on a snapshot).
+      if (locked.bettingOpen !== false) return { moved: false, messages: [] };
       const [bet] = await tx
         .select({ id: betLegs.id })
         .from(betLegs)

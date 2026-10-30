@@ -29,6 +29,8 @@ interface Opts {
   now?: number;
   calibrated?: boolean;
   pricesSane?: boolean;
+  /** Rule K2 input; the gate tests default it to true. */
+  kickoffConfirmed?: boolean;
 }
 
 function decide(
@@ -42,6 +44,7 @@ function decide(
     now: new Date(opts.now ?? NOW),
     calibrated: opts.calibrated ?? true,
     pricesSane: opts.pricesSane ?? true,
+    kickoffConfirmed: opts.kickoffConfirmed ?? true,
   });
 }
 
@@ -163,6 +166,9 @@ describe('F4 kickoff change', () => {
     ...opts,
     candidates: [makeEvent(over)],
   });
+  /** An event with betting closed: the only kind F4b moves (K4). */
+  const closedEvent = (over: Partial<ExistingEvent> = {}, opts: Opts = {}) =>
+    withEvent({ bettingOpen: false, ...over }, opts);
 
   it('changes within KICKOFF_TOLERANCE_MS are no change', () => {
     expect(decide([at('s1', KICKOFF_TOLERANCE_MS)], withEvent())).toEqual({
@@ -172,7 +178,9 @@ describe('F4 kickoff change', () => {
     expect(
       decide([at('s1', -KICKOFF_TOLERANCE_MS), at('s2', KICKOFF_TOLERANCE_MS)], withEvent()).action,
     ).toBe('none');
-    expect(decide([at('s1', KICKOFF_TOLERANCE_MS + 1)], withEvent()).action).toBe('update-kickoff');
+    expect(decide([at('s1', KICKOFF_TOLERANCE_MS + 1)], closedEvent()).action).toBe(
+      'update-kickoff',
+    );
   });
 
   it('(a) independent upstreams agreeing apply either way, with or without bets', () => {
@@ -191,18 +199,92 @@ describe('F4 kickoff change', () => {
   });
 
   it('(b) one source may move later by at most SMALL_SHIFT_MS, only without bets', () => {
-    expect(decide([at('s1', SMALL_SHIFT_MS)], withEvent())).toMatchObject({
+    expect(decide([at('s1', SMALL_SHIFT_MS)], closedEvent())).toMatchObject({
       action: 'update-kickoff',
       rule: 'F4b',
     });
-    const tooFar = decide([at('s1', SMALL_SHIFT_MS + 1)], withEvent());
+    const tooFar = decide([at('s1', SMALL_SHIFT_MS + 1)], closedEvent());
     expect(tooFar.action === 'hold' && tooFar.review.kind).toBe('kickoff_change');
-    expect(decide([at('s1', HOUR_MS)], withEvent({ hasBets: true })).action).toBe('hold');
+    expect(decide([at('s1', HOUR_MS)], closedEvent({ hasBets: true })).action).toBe('hold');
     // Two sources of one upstream are one source.
     expect(
-      decide([at('s1', HOUR_MS, 'opta'), at('s2', HOUR_MS, 'OPTA')], withEvent({ hasBets: true }))
+      decide([at('s1', HOUR_MS, 'opta'), at('s2', HOUR_MS, 'OPTA')], closedEvent({ hasBets: true }))
         .action,
     ).toBe('hold');
+  });
+
+  it('K4 (b) needs betting closed: with betting open it is a warning kickoff_change (betting_open)', () => {
+    for (const shift of [KICKOFF_TOLERANCE_MS + 1, HOUR_MS, SMALL_SHIFT_MS]) {
+      const d = decide([at('s1', shift)], withEvent({ bettingOpen: true }));
+      expect(d.action).toBe('hold');
+      if (d.action !== 'hold') return;
+      expect(d.review).toMatchObject({ kind: 'kickoff_change', severity: 'warning' });
+      expect(reasons(d)).toEqual(['betting_open']);
+    }
+    // The same change with betting closed is applied.
+    expect(decide([at('s1', HOUR_MS)], withEvent({ bettingOpen: false }))).toMatchObject({
+      action: 'update-kickoff',
+      rule: 'F4b',
+    });
+    // (a) is not affected: two independent upstreams still move an event with betting open.
+    expect(
+      decide([at('s1', HOUR_MS), at('s2', HOUR_MS)], withEvent({ bettingOpen: true })),
+    ).toMatchObject({ action: 'update-kickoff', rule: 'F4a' });
+    expect(
+      decide([at('s1', 3 * HOUR_MS), at('s2', 3 * HOUR_MS)], withEvent({ bettingOpen: true })),
+    ).toMatchObject({ action: 'update-kickoff', rule: 'F4a' });
+  });
+
+  it('F4 payload: every kickoff_change the gate writes satisfies the contract fields (currentKickoff, proposedKickoff, sources, hasBets)', () => {
+    const changed = (ms: number) => new Date(KICKOFF - ms).toISOString();
+    const a = fixtureObs({ source: 's2', upstream: 'up-b', kickoff: KICKOFF + 3 * HOUR_MS });
+    const b = fixtureObs({ source: 's1', upstream: 'Up-A', kickoff: KICKOFF + 3 * HOUR_MS });
+    a.changedAt = new Date(KICKOFF - 2 * HOUR_MS);
+    b.changedAt = new Date(KICKOFF - 5 * HOUR_MS);
+    const cases: [string, FixtureDecision][] = [
+      // needs_independent_sources (one source, too far)
+      ['one source, too far', decide([at('s1', 3 * HOUR_MS)], withEvent({ hasBets: true }))],
+      // sources_disagree
+      ['sources disagree', decide([at('s1', HOUR_MS), at('s2', 3 * HOUR_MS)], withEvent())],
+      // policy_disabled
+      ['policy off', decide([a, b], { ...withEvent(), policy: { enabled: false } })],
+      // event_not_scheduled
+      [
+        'event postponed',
+        decide([at('s1', 7 * DAY_MS)], { candidates: [makeEvent({ status: 'postponed' })] }),
+      ],
+      // betting_open (K4)
+      ['betting open', decide([at('s1', HOUR_MS)], withEvent({ bettingOpen: true }))],
+    ];
+    for (const [label, d] of cases) {
+      expect(d.action, label).toBe('hold');
+      if (d.action !== 'hold') return;
+      expect(d.review.kind, label).toBe('kickoff_change');
+      expect(d.review.payload, label).toMatchObject({
+        eventId: event.eventId,
+        currentKickoff: new Date(KICKOFF).toISOString(),
+        proposedKickoff: expect.any(String) as unknown,
+        hasBets: expect.any(Boolean) as unknown,
+        sources: expect.any(Array) as unknown,
+      });
+      expect(Number.isNaN(Date.parse(d.review.payload.proposedKickoff as string)), label).toBe(
+        false,
+      );
+    }
+    // The fields themselves: sources are {sourceId, upstream, changedAt}, sorted by sourceId.
+    const held = decide([a, b], { ...withEvent({ hasBets: true }), policy: { enabled: false } });
+    expect(held.action === 'hold' && held.review.payload).toMatchObject({
+      eventId: event.eventId,
+      eventStart: new Date(KICKOFF).toISOString(),
+      currentKickoff: new Date(KICKOFF).toISOString(),
+      proposedKickoff: new Date(KICKOFF + 3 * HOUR_MS).toISOString(),
+      hasBets: true,
+      sources: [
+        { sourceId: 's1', upstream: 'Up-A', changedAt: changed(5 * HOUR_MS) },
+        { sourceId: 's2', upstream: 'up-b', changedAt: changed(2 * HOUR_MS) },
+      ],
+      upstreams: ['up-a', 'up-b'],
+    });
   });
 
   it('an earlier time from one source is never applied, and is critical', () => {
@@ -261,7 +343,7 @@ describe('F4 kickoff change', () => {
       [at('s1', 3 * HOUR_MS), at('s2', 3 * HOUR_MS)],
       [at('s1', SMALL_SHIFT_MS)],
     ]) {
-      const d = decide(obs, { ...withEvent(), policy: { enabled: false } });
+      const d = decide(obs, { ...closedEvent(), policy: { enabled: false } });
       expect(d.action).toBe('hold');
       if (d.action !== 'hold') return;
       expect(d.review).toMatchObject({ kind: 'kickoff_change', subjectKey: FEED_REF });
@@ -338,6 +420,28 @@ describe('F7 betting stays closed', () => {
     }
   });
 
+  it('K2 F7 never opens without a confirmed kickoff: closed with an odds_approval item (kickoff_unconfirmed)', () => {
+    const d = decide([at('s1', 0)], { policy: { autoOpen: true }, kickoffConfirmed: false });
+    expect(d).toMatchObject({ action: 'create', bettingOpen: false, openBetting: false });
+    expect(reviewsOf(d).map((r) => [r.kind, r.subjectKey, r.payload.reasons])).toEqual([
+      ['odds_approval', FEED_REF, ['kickoff_unconfirmed']],
+    ]);
+    expect(reviewsOf(d)[0]?.payload).toMatchObject({ kickoffConfirmed: false, autoOpen: true });
+    // With auto_open off the reason stays auto_open_off, and the other reasons keep their priority.
+    expect(
+      reviewsOf(decide([at('s1', 0)], { kickoffConfirmed: false })).map((r) => r.payload.reasons),
+    ).toEqual([['auto_open_off']]);
+    expect(
+      reviewsOf(
+        decide([at('s1', 0)], {
+          policy: { autoOpen: true },
+          pricesSane: false,
+          kickoffConfirmed: false,
+        }),
+      ).map((r) => r.payload.reasons),
+    ).toEqual([['prices_not_sane']]);
+  });
+
   it('anything but true counts as false', () => {
     const d = decideFixture({
       observations: [at('s1', 0)],
@@ -346,8 +450,19 @@ describe('F7 betting stays closed', () => {
       now: new Date(NOW),
       calibrated: 'yes' as unknown as boolean,
       pricesSane: 1 as unknown as boolean,
+      kickoffConfirmed: true,
     });
     expect(d).toMatchObject({ action: 'create', openBetting: false });
+    const unconfirmed = decideFixture({
+      observations: [at('s1', 0)],
+      candidates: [],
+      policy: makePolicy({ autoOpen: true }),
+      now: new Date(NOW),
+      calibrated: true,
+      pricesSane: true,
+      kickoffConfirmed: 'true' as unknown as boolean,
+    });
+    expect(unconfirmed).toMatchObject({ action: 'create', openBetting: false });
   });
 });
 
@@ -414,6 +529,8 @@ const scenario = fc.record({
   autoOpen: fc.boolean(),
   calibrated: fc.boolean(),
   pricesSane: fc.boolean(),
+  bettingOpen: fc.boolean(),
+  kickoffConfirmed: fc.boolean(),
 });
 type Scenario = typeof scenario extends fc.Arbitrary<infer T> ? T : never;
 /** Every source agreeing on one kickoff, policy on: the inputs that can create or move. */
@@ -441,11 +558,12 @@ function buildObs(s: Scenario): ResolvedObservation<FixtureObservation>[] {
 
 function runScenario(s: Scenario, observations = buildObs(s)): FixtureDecision {
   return decide(observations, {
-    candidates: s.existing ? [makeEvent({ hasBets: s.hasBets })] : [],
+    candidates: s.existing ? [makeEvent({ hasBets: s.hasBets, bettingOpen: s.bettingOpen })] : [],
     now: KICKOFF + s.nowOff,
     policy: { enabled: s.enabled, autoOpen: s.autoOpen },
     calibrated: s.calibrated,
     pricesSane: s.pricesSane,
+    kickoffConfirmed: s.kickoffConfirmed,
   });
 }
 
@@ -490,7 +608,12 @@ describe('properties', () => {
           expect(s.enabled).toBe(true);
           expect(observations.every((o) => o.obs.status === 'scheduled')).toBe(true);
           if (d.openBetting)
-            expect([s.autoOpen, s.calibrated, s.pricesSane]).toEqual([true, true, true]);
+            expect([s.autoOpen, s.calibrated, s.pricesSane, s.kickoffConfirmed]).toEqual([
+              true,
+              true,
+              true,
+              true,
+            ]);
           else expect(d.review.kind).toBe(s.calibrated ? 'odds_approval' : 'ratings_uncalibrated');
         }
         if (d.action === 'update-kickoff') {
@@ -512,7 +635,30 @@ describe('properties', () => {
             expect(d.to.getTime() - KICKOFF).toBeLessThanOrEqual(SMALL_SHIFT_MS);
             expect(d.to.getTime()).toBeGreaterThan(KICKOFF);
             expect(s.hasBets).toBe(false);
+            expect(s.bettingOpen).toBe(false);
           }
+        }
+      }),
+      { numRuns: 1000 },
+    );
+    expect(seen.create).toBeGreaterThan(20);
+    expect(seen.update).toBeGreaterThan(20);
+  });
+
+  it('P10 gate: an unconfirmed kickoff never opens a new event; with betting open F4b never moves one', () => {
+    const seen = { create: 0, update: 0 };
+    fc.assert(
+      fc.property(anyScenario, (s) => {
+        const unconfirmed = runScenario({ ...s, kickoffConfirmed: false });
+        if (unconfirmed.action === 'create') {
+          seen.create++;
+          expect(unconfirmed.openBetting).toBe(false);
+          expect(unconfirmed.review).not.toBeNull();
+        }
+        const open = runScenario({ ...s, existing: true, bettingOpen: true });
+        if (open.action === 'update-kickoff') {
+          seen.update++;
+          expect(open.rule).not.toBe('F4b');
         }
       }),
       { numRuns: 1000 },

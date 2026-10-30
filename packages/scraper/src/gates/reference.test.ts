@@ -327,6 +327,7 @@ function referenceKickoff(
   hasBets: boolean,
   now: number,
   enabled: boolean,
+  bettingOpen: boolean,
 ): KickoffOutcome {
   const five = 5 * 60 * 1000;
   const ten = 10 * 60 * 1000;
@@ -345,7 +346,8 @@ function referenceKickoff(
   );
   if (independent >= 2) return { action: 'update', to, rule: 'F4a' };
   if (independent === 1 && to > KICKOFF && to - KICKOFF <= 2 * 60 * 60 * 1000 && !hasBets) {
-    return { action: 'update', to, rule: 'F4b' };
+    // K4: the one-source move needs betting closed.
+    return bettingOpen ? { action: 'hold' } : { action: 'update', to, rule: 'F4b' };
   }
   return { action: 'hold' };
 }
@@ -377,10 +379,12 @@ describe('reference model: F4 kickoff change (exhaustive)', () => {
     let compared = 0;
     for (const combo of multisets(options, 3)) {
       if (combo.length === 0) continue;
-      for (const [hasBets, enabled] of [
-        [false, true],
-        [true, true],
-        [false, false],
+      for (const [hasBets, enabled, bettingOpen] of [
+        [false, true, false],
+        [false, true, true],
+        [true, true, false],
+        [true, true, true],
+        [false, false, false],
       ] as const) {
         for (const now of [
           KICKOFF - DAY_MS,
@@ -388,14 +392,15 @@ describe('reference model: F4 kickoff change (exhaustive)', () => {
           KICKOFF - 10 * MINUTE_MS,
           KICKOFF - 10 * MINUTE_MS - 1,
         ]) {
-          const expected = referenceKickoff(combo, hasBets, now, enabled);
+          const expected = referenceKickoff(combo, hasBets, now, enabled, bettingOpen);
           const d = decideFixture({
             observations: combo,
-            candidates: [makeEvent({ hasBets })],
+            candidates: [makeEvent({ hasBets, bettingOpen })],
             policy: makePolicy({ enabled }),
             now: new Date(now),
             calibrated: true,
             pricesSane: true,
+            kickoffConfirmed: true,
           });
           const got: KickoffOutcome =
             d.action === 'update-kickoff'

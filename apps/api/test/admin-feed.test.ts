@@ -48,7 +48,14 @@ import {
   upsertSource,
   type Database,
 } from '@vamos/db';
-import { normalizeName, ratingsKey, REPRICE_SUBJECT_SUFFIX } from '@vamos/scraper';
+import {
+  decideFixture,
+  normalizeName,
+  ratingsKey,
+  REPRICE_SUBJECT_SUFFIX,
+  type FixtureObservation,
+  type ResolvedObservation,
+} from '@vamos/scraper';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { listAdminRoutes } from '../src/modules/admin/common';
@@ -930,6 +937,105 @@ describe('POST /admin/feed/review/:id/resolve', () => {
       expect((await itemRow(refused)).status, label).toBe('open');
     }
     expect((await eventRow(soon.id)).startTime.toISOString()).toBe(soon.startTime.toISOString());
+  });
+
+  /**
+   * A kickoff_change item as the scraper's fixture gate writes it (rule F4), not a hand-written payload:
+   * `source` alone says the match starts `shiftMs` later or earlier than the event.
+   */
+  async function gateKickoffItem(
+    event: Awaited<ReturnType<typeof newEvent>>,
+    shiftMs: number,
+  ): Promise<{ item: string; payload: Record<string, unknown>; severity: string }> {
+    const seenAt = new Date(ctx.clock.now.getTime() - HOUR);
+    const observation: ResolvedObservation<FixtureObservation> = {
+      upstream: 'up-gate',
+      names: {
+        competitionId: ids.league,
+        competitionSlug: 'premier-league',
+        homeTeamId: ids.home,
+        awayTeamId: ids.away,
+      },
+      obs: {
+        kind: 'fixture',
+        sourceId: 'src-ok',
+        externalRef: null,
+        sport: 'football',
+        competition: 'Premier League',
+        home: 'Saint George',
+        away: 'Fasil Kenema',
+        kickoff: new Date(event.startTime.getTime() + shiftMs),
+        observedAt: seenAt,
+        status: 'scheduled',
+        round: null,
+      },
+      firstSeenAt: seenAt,
+      changedAt: seenAt,
+      lastSeenAt: seenAt,
+    };
+    const row = await eventRow(event.id);
+    const decision = decideFixture({
+      observations: [observation],
+      candidates: [
+        {
+          eventId: row.id,
+          feedRef: row.feedRef,
+          competitionId: row.competitionId,
+          homeTeamId: row.homeTeamId,
+          awayTeamId: row.awayTeamId,
+          startTime: row.startTime,
+          status: 'scheduled',
+          bettingOpen: row.bettingOpen,
+          hasBets: false,
+          needsHalfTimeScore: false,
+          resultedAt: null,
+          score: null,
+        },
+      ],
+      policy: {
+        competitionId: ids.league,
+        enabled: true,
+        autoOpen: false,
+        autoResults: false,
+        extraTime: false,
+      },
+      now: ctx.clock.now,
+      calibrated: true,
+      pricesSane: true,
+      kickoffConfirmed: true,
+    });
+    expect(decision.action).toBe('hold');
+    if (decision.action !== 'hold') throw new Error('the gate did not hold');
+    const payload = { ...decision.review.payload };
+    return {
+      item: await openItem('kickoff_change', payload, decision.review.subjectKey),
+      payload,
+      severity: decision.review.severity,
+    };
+  }
+
+  it('apply_kickoff works on kickoff_change items written by the real gate (later and earlier)', async () => {
+    for (const shift of [3 * HOUR, -HOUR]) {
+      const event = await newEvent(5 * HOUR);
+      const { item, payload, severity } = await gateKickoffItem(event, shift);
+      expect(severity).toBe(shift < 0 ? 'critical' : 'warning');
+      expect(payload).toMatchObject({
+        eventId: event.id,
+        currentKickoff: event.startTime.toISOString(),
+        proposedKickoff: new Date(event.startTime.getTime() + shift).toISOString(),
+        hasBets: false,
+        sources: [{ sourceId: 'src-ok', upstream: 'up-gate' }],
+      });
+      const response = await resolve('trader', item, { decision: 'apply_kickoff' });
+      expect(response.statusCode, response.body).toBe(200);
+      expect((await eventRow(event.id)).startTime.toISOString()).toBe(
+        new Date(event.startTime.getTime() + shift).toISOString(),
+      );
+      expect(ResolveReviewResponse.parse(response.json()).item).toMatchObject({
+        status: 'resolved',
+        resolution: { decision: 'apply_kickoff', eventId: event.id },
+      });
+    }
   });
 
   describe('apply_reprice (rule O3)', () => {

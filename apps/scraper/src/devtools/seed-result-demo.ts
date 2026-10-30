@@ -351,6 +351,9 @@ export async function seedResultDemo(
       now: listedAt,
       calibrated: pricing.calibrated,
       pricesSane: pricing.pricesSane,
+      // A one-match demo source can never be "known" (rule K2), so the kickoff could not be confirmed.
+      // Demo-only code: this script refuses to run outside demo mode.
+      kickoffConfirmed: true,
     });
     if (decision.action !== 'create') {
       throw new Error(`the scraper's gate did not create the event (${decision.action})`);

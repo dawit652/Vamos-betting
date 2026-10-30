@@ -52,6 +52,15 @@ export const SHAPE_MIN_RATIO = 0.5;
  */
 export const SOURCE_STALE_AFTER_MS = 48 * HOUR_MS;
 
+// --- Kickoff safety (docs/scraper.md 6.1a, docs/scraper-plan/kickoff-safety.md) -----------
+
+/** C2: a single fresh source can confirm a kickoff only this close to it (0 wrong opens at 72 h and 96 h). */
+export const KICKOFF_CONFIRM_LEAD_MS = 72 * HOUR_MS;
+/** C2: the confirming statement must have held its value this long (insurance against a source mid-edit). */
+export const KICKOFF_STABLE_MS = 24 * HOUR_MS;
+/** A statement about an event has a kickoff at most this far from the event's start (largest measured early move 4.9 days). */
+export const KICKOFF_EVIDENCE_WINDOW_MS = 7 * DAY_MS;
+
 // --- Odds -------------------------------------------------------------------
 
 /** A team's ratings need at least this many matches behind them to price real bets. */
