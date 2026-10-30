@@ -85,11 +85,21 @@ export function sourceBrokenReview(
   sourceId: string,
   url: string,
   check: Extract<ShapeCheck, { status: 'broken' }>,
+  runId: string,
 ): GateReview<'source_broken'> {
   const [review] = buildReviews(
     `source|${sourceId}`,
     [{ kind: 'source_broken', rule: 'S1', reason: check.reason }],
-    () => ({ sourceId, url, accepted: check.accepted, baseline: check.baseline }),
+    // runId, reason and recordsAccepted are what the back office reads (contract source_broken).
+    () => ({
+      sourceId,
+      runId,
+      url,
+      reason: check.reason,
+      recordsAccepted: check.accepted,
+      accepted: check.accepted,
+      baseline: check.baseline,
+    }),
   );
   if (review === undefined) throw new Error('internal: source_broken review missing');
   return { ...review, kind: 'source_broken' };

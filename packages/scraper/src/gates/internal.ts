@@ -140,6 +140,20 @@ export function scoreText(score: unknown): string | null {
   return score.htHome === null ? ft : `${ft} (ht ${score.htHome}-${score.htAway})`;
 }
 
+/**
+ * A score as JSON the back office reads (`FeedScoreView`): full time and half time, null half time when
+ * there is none; null for anything that is not a valid score.
+ */
+export function scoreView(score: unknown): { [key: string]: GateJson } | null {
+  if (!isValidScore(score)) return null;
+  return {
+    home: score.home,
+    away: score.away,
+    htHome: score.htHome ?? null,
+    htAway: score.htAway ?? null,
+  };
+}
+
 /** Sorted, de-duplicated strings: payloads must not depend on input order or duplicates. */
 export function sortedUnique(values: Iterable<string>): string[] {
   return [...new Set(values)].sort();
@@ -161,7 +175,7 @@ export function observationSummary(o: ResolvedObservation): { [key: string]: Gat
     sourceId: typeof obs.sourceId === 'string' ? obs.sourceId : null,
     upstream: typeof o?.upstream === 'string' ? o.upstream : null,
     status: typeof obs.status === 'string' ? obs.status : null,
-    score: scoreText(obs.score),
+    score: scoreView(obs.score),
     scoreBasis: typeof obs.scoreBasis === 'string' ? obs.scoreBasis : null,
     kickoff: isoOrNull(obs.kickoff),
     changedAt: isoOrNull(o?.changedAt),

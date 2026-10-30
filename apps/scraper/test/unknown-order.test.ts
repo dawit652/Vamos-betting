@@ -21,6 +21,7 @@ const unknownName = (
   raw,
   resolution: { status: 'unknown' },
   sourceId: 'src-b',
+  competition: 'Premier League',
 });
 
 /** Deterministic pseudo-random numbers (no extra dependency): a small LCG. */

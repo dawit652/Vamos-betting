@@ -97,6 +97,24 @@ const TITLES: Readonly<Record<ScrapeReviewKind, string>> = Object.freeze({
   unknown_team: 'Unknown team name',
 });
 
+/** The kinds the back office reads as a plain `{ detail: string }` (contract GenericPayload). */
+const DETAIL_KINDS: ReadonlySet<ScrapeReviewKind> = new Set([
+  'fixture_conflict',
+  'fixture_missing',
+  'cancellation_proposed',
+  'score_basis_unknown',
+]);
+
+/** The findings of one kind as a sentence: the title, then each reason with its detail (shortened). */
+function describeFindings(kind: ScrapeReviewKind, findings: readonly GateFinding[]): string {
+  const parts = findings.map((finding) => {
+    if (finding.detail === undefined) return finding.reason;
+    const text = JSON.stringify(finding.detail);
+    return `${finding.reason} ${text.length > 240 ? `${text.slice(0, 237)}...` : text}`;
+  });
+  return `${TITLES[kind]}: ${parts.join('; ')}`;
+}
+
 const SEVERITY_RANK: Readonly<Record<ScrapeSeverity, number>> = {
   info: 0,
   warning: 1,
@@ -146,6 +164,7 @@ export function buildReviews(
       severity,
       title: TITLES[kind],
       payload: {
+        ...(DETAIL_KINDS.has(kind) ? { detail: describeFindings(kind, mine) } : {}),
         ...context(kind),
         rules: [...new Set(mine.map((f) => f.rule))].sort(),
         reasons: [...new Set(mine.map((f) => f.reason))].sort(),

@@ -205,7 +205,7 @@ export async function promoteResults(
         summary.published += done.published;
       } else if (decision.action === 'hold') {
         await ctx.db.transaction((tx) =>
-          openResultReviews(tx, reviewsOf(decision), observations, now),
+          openResultReviews(tx, reviewsOf(decision), observations, now, event),
         );
         summary.held += 1;
       }
@@ -557,13 +557,38 @@ const DISPUTE_KINDS: ReadonlySet<string> = new Set([
  * (30 days) while the item may still be open. Same mechanism as the applied
  * path: `markRawKeep` by content hash.
  */
+/** The result items the back office reads with the event they are about (contract EventRef). */
+const EVENT_REF_KINDS: ReadonlySet<string> = new Set([
+  'result_ready',
+  'result_unverified',
+  'result_conflict',
+  'result_correction',
+]);
+
 async function openResultReviews(
   tx: DbTransaction,
   reviews: readonly GateReview[],
   observations: readonly ResultObs[],
   now: Date,
+  event: ScrapedEvent,
 ): Promise<void> {
-  await openGateReviews(tx, reviews, now);
+  // Without these four fields the back office cannot read the item and offers no way to act on it.
+  const names = await teamNames(tx, [event.homeTeamId, event.awayTeamId]);
+  const ref = {
+    gameId: String(event.gameId),
+    home: names.get(event.homeTeamId) ?? event.homeTeamId,
+    away: names.get(event.awayTeamId) ?? event.awayTeamId,
+    kickoff: event.startTime.toISOString(),
+  };
+  await openGateReviews(
+    tx,
+    reviews.map((review) =>
+      EVENT_REF_KINDS.has(review.kind)
+        ? { ...review, payload: { ...review.payload, ...ref } }
+        : review,
+    ),
+    now,
+  );
   if (!reviews.some((review) => DISPUTE_KINDS.has(review.kind))) return;
   await markRawKeep(tx, await snapshotHashes(tx, observations, () => true));
 }

@@ -538,6 +538,14 @@ dissent on full time or on the half time an event needs, a half time present whe
 the event needs one); a failed check rejects it, audits
 `scrape.result.confirmation_rejected` and opens a fresh item.
 
+Every review item is written in the shape of `REVIEW_PAYLOAD_SCHEMAS` (`packages/contracts/src/feed.ts`): the
+page reads an item only if its payload parses, and otherwise shows "could not be read" without an Apply, Map or
+Open button. Result items carry the match (`gameId`, `home`, `away`, `kickoff`), the score and the sources behind
+it as `{ sourceId, upstream, changedAt }`; dispute items carry the applied score and each source's observation as
+a score object; unknown-name items carry the competition and suggestions as `{ id, name, score 0 to 1 }`;
+`source_broken` carries `runId`, `reason`, `recordsAccepted` and `baseline`; the plain kinds carry a `detail`
+sentence. `apps/scraper/test/review-contract.test.ts` checks every kind on items the real pipeline wrote.
+
 ## 9. Testing requirements
 
 - Pure modules: unit tests plus property tests (`fast-check`), as for

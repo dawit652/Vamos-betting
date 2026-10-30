@@ -73,7 +73,7 @@ describe('S1 shape', () => {
   it('opens one source_broken item per source', () => {
     const check = checkShape(stats(0), [fatal], []);
     if (check.status !== 'broken') throw new Error('expected broken');
-    expect(sourceBrokenReview('src-1', 'https://example.test/a', check)).toMatchObject({
+    expect(sourceBrokenReview('src-1', 'https://example.test/a', check, 'run-1')).toMatchObject({
       kind: 'source_broken',
       subjectKey: 'source|src-1',
       payload: { sourceId: 'src-1', url: 'https://example.test/a', reasons: ['fatal_issue'] },

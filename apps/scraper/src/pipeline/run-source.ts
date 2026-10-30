@@ -42,7 +42,7 @@ import { scrapeObservations } from '@vamos/db/schema';
 import { tryLock } from '../lib/lock';
 import { secretProblemMessage } from '../lib/secrets';
 import type { ScraperContext } from '../context';
-import { compareText } from './common';
+import { compareText, competitionNames, teamNames } from './common';
 
 /** A source run holds its lock this long at most (a crashed holder blocks others no longer). */
 export const SOURCE_LOCK_TTL_MS = 15 * 60_000;
@@ -88,6 +88,8 @@ export interface UnknownName {
   raw: string;
   resolution: Resolution;
   sourceId: string;
+  /** The competition label of the fixture the name was seen in (the name itself for a competition). */
+  competition: string;
 }
 
 /** The alias index per sport, built when first needed (once per run). */
@@ -119,7 +121,14 @@ export function resolveNames(
   const query = (raw: string) => ({ sportId: input.sport, sourceId: input.sourceId, raw });
   const pick = (kind: NameKind, raw: string, resolution: Resolution): string | null => {
     if (resolution.status === 'resolved') return resolution.id;
-    unknown.push({ kind, sport: input.sport, raw, resolution, sourceId: input.sourceId });
+    unknown.push({
+      kind,
+      sport: input.sport,
+      raw,
+      resolution,
+      sourceId: input.sourceId,
+      competition: input.competition,
+    });
     return null;
   };
   return {
@@ -171,11 +180,25 @@ export async function openUnknownNameItems(
   now: Date,
 ): Promise<void> {
   for (const { kind, subjectKey, name: item } of planUnknownItems(unknown)) {
-    const suggestions = (item.kind === 'team' ? suggestTeams : suggestCompetitions)(index, {
+    const found = (item.kind === 'team' ? suggestTeams : suggestCompetitions)(index, {
       sportId: item.sport,
       raw: item.raw,
       limit: 3,
     });
+    // The back office reads { id, name, score 0 to 1 }: the catalogue's own name, the score in permille / 1000.
+    const shown =
+      found.length === 0
+        ? new Map<string, string>()
+        : await (item.kind === 'team' ? teamNames : competitionNames)(
+            tx,
+            found.map((s) => s.id),
+          );
+    const suggestions = found.map((s) => ({
+      id: s.id,
+      name: shown.get(s.id) ?? s.matchedName,
+      score: s.score / 1000,
+      matchedName: s.matchedName,
+    }));
     await openReviewItem(tx, {
       kind,
       subjectKey,
@@ -190,6 +213,7 @@ export async function openUnknownNameItems(
         sourceId: item.sourceId,
         sport: item.sport,
         raw: item.raw,
+        competition: item.competition,
         normalized: normalizeName(item.raw),
         candidates: item.resolution.status === 'ambiguous' ? item.resolution.ids : [],
         suggestions,
@@ -248,6 +272,10 @@ async function execute(
           rules: ['S1'],
           reasons: ['invalid_config'],
           sourceId: source.id,
+          runId: run.id,
+          reason: 'invalid_config',
+          recordsAccepted: 0,
+          baseline: null,
           errors: built.errors,
         },
         now: ctx.clock(),
@@ -385,7 +413,7 @@ async function execute(
           context: { url: result.url, accepted: shape.accepted, baseline: shape.baseline },
         });
         await ctx.db.transaction(async (tx) => {
-          const review = sourceBrokenReview(source.id, result.url, shape);
+          const review = sourceBrokenReview(source.id, result.url, shape, run.id);
           await openReviewItem(tx, {
             kind: review.kind,
             subjectKey: review.subjectKey,

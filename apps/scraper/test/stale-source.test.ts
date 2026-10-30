@@ -1,3 +1,4 @@
+import { parseReviewPayload } from '@vamos/contracts';
 import { resolveReviewItem, setSourceEnabled } from '@vamos/db';
 import { MIN_MATCH_DURATION_MS, SOURCE_STALE_AFTER_MS } from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -90,6 +91,9 @@ describe('source_stale (F-02)', () => {
         title: 'openfootball test: nothing new for 6 days',
       });
       expect(b).toMatchObject({ subject_key: 'source|src-b' });
+      // The back office reads the item only if the contract does.
+      expect(parseReviewPayload('source_stale', a!.payload)).not.toBeNull();
+      expect(parseReviewPayload('source_stale', b!.payload)).not.toBeNull();
       expect(a!.payload).toMatchObject({
         sourceId: 'src-a',
         sourceName: 'openfootball test',

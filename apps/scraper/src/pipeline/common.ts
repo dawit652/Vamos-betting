@@ -11,7 +11,7 @@ import {
   type DbTransaction,
   type ScrapeObservationRow,
 } from '@vamos/db';
-import { teams as teamsTable } from '@vamos/db/schema';
+import { competitions as competitionsTable, teams as teamsTable } from '@vamos/db/schema';
 import { inArray } from 'drizzle-orm';
 import {
   CLUSTER_WINDOW_MS,
@@ -156,6 +156,21 @@ export async function teamNames(
     .from(teamsTable)
     .where(inArray(teamsTable.id, [...ids]));
   return new Map(rows.map((row) => [row.id, row.name.en || row.shortName]));
+}
+
+export async function competitionNames(
+  tx: DbTransaction,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const rows = await tx
+    .select({
+      id: competitionsTable.id,
+      name: competitionsTable.name,
+      slug: competitionsTable.slug,
+    })
+    .from(competitionsTable)
+    .where(inArray(competitionsTable.id, [...ids]));
+  return new Map(rows.map((row) => [row.id, row.name.en || row.slug]));
 }
 
 /** Most current observations one promotion pass reads (`listCurrentObservations` is ordered by kickoff). */

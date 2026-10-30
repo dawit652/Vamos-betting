@@ -25,6 +25,7 @@ import {
   canonicalEntries,
   eventProblem,
   iso,
+  isoOrNull,
   listOf,
   observationProblem,
   observationSummary,
@@ -167,6 +168,8 @@ export function decideResult(input: ResultGateInput): ResultDecision {
       feedRef: typeof event?.feedRef === 'string' ? event.feedRef : null,
       ...(EXPOSURE_KINDS.has(kind) ? { exposure } : {}),
       observations: canonicalEntries(observations.map(observationSummary)),
+      // A dispute item always says what the event was resulted with (nothing yet for a conflict).
+      ...(kind === 'result_conflict' ? { appliedScore: null } : {}),
       ...extra,
     }));
 
@@ -338,7 +341,12 @@ export function decideResult(input: ResultGateInput): ResultDecision {
           ? 'policy_requires_person'
           : 'confirmed_by_sources',
     });
-    return hold(findings, mine, { score: scoreJson(agreed), upstreams, sources, confirmMs });
+    return hold(findings, mine, {
+      score: scoreJson(agreed),
+      upstreams,
+      sources: votesJson(voters),
+      confirmMs,
+    });
   }
 
   if (regular.length > 0) {
@@ -353,6 +361,7 @@ export function decideResult(input: ResultGateInput): ResultDecision {
         upstreams: upstreamsOf(
           regular.map((o) => ({ sourceId: o.obs.sourceId, upstream: o.upstream })),
         ),
+        sources: votesJson(regular),
       });
     }
     if (findings.length > 0) return hold(findings, mine);
@@ -423,6 +432,17 @@ function agreedScore(voters: readonly ResultObs[]): Score | null {
 function eventSubjectKey(event: ExistingEvent): string {
   if (typeof event?.feedRef === 'string' && event.feedRef.trim().length > 0) return event.feedRef;
   return `event|${String(event?.eventId)}`;
+}
+
+/** The sources behind a proposed score, as the back office reads them (`SourceVote`): who, and since when. */
+function votesJson(voters: readonly ResultObs[]): GateJson {
+  return canonicalEntries(
+    voters.map((o) => ({
+      sourceId: o.obs.sourceId,
+      upstream: o.upstream,
+      changedAt: isoOrNull(o.changedAt),
+    })),
+  );
 }
 
 function scoreJson(score: Score): GateJson {

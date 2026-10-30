@@ -1,3 +1,4 @@
+import { parseReviewPayload } from '@vamos/contracts';
 import { resolveReviewItem, setCompetitionPolicy } from '@vamos/db';
 import { MIN_MATCH_DURATION_MS, UNVERIFIED_AFTER_MS } from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -85,6 +86,8 @@ describe('result_overdue (F-04)', () => {
         subject_key: feedRef,
         title: 'No result yet: Arsenal v Chelsea',
       });
+      // The back office reads the item only if the contract does.
+      expect(parseReviewPayload('result_overdue', item!.payload)).not.toBeNull();
       expect(item!.payload).toMatchObject({
         eventId,
         home: 'Arsenal',
