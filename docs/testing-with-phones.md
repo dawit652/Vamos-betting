@@ -75,6 +75,13 @@ not become usable when opened by a network address in our test.
 The first time, your computer may ask whether Node.js may accept connections from the network (Windows
 Firewall, macOS). Say **yes**, for private networks.
 
+**The games you see are made up.** In this default mode (`FEED_PROVIDER=mock` in `.env`) the system plays
+simulated games, and some of them carry real club names (a "Premier League" list with pairings such as
+Chelsea v Liverpool on days when they do not play each other). That is the demo simulator, not the scraper.
+For the real fixtures, with the real kickoff times, use section 7. If you switched to real data and still see
+made-up games, they were created earlier and stay in the database: start from an empty one
+(`docker compose -f infra/docker-compose.yml down -v`, then `up -d`, `pnpm db:migrate`, `pnpm db:seed`).
+
 Match speed: by default the demo matches are fast. A new match kicks off every minute and is over in seconds,
 so bets settle within about two minutes. For slower, watchable matches (about two minutes each), start with:
 
