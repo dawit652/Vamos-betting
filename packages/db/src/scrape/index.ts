@@ -68,6 +68,20 @@ export {
   type UpsertObservationResult,
 } from './observations';
 export {
+  findScrapedEventId,
+  latestMarketOdds,
+  linkMarketOddsToEvents,
+  listUnresolvedMarketOddsNames,
+  pruneMarketOdds,
+  setMarketOddsResolution,
+  touchMarketOddsOfRaw,
+  upsertMarketOdds,
+  type LatestMarketOdd,
+  type LatestMarketOddsQuery,
+  type MarketOddsInput,
+  type UnresolvedMarketOddsNames,
+} from './market-odds';
+export {
   addCompetitionAlias,
   addTeamAlias,
   listAliases,
