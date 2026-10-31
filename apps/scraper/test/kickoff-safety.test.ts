@@ -88,8 +88,12 @@ async function createdEvent(docA: OfMatch[] = [ARSENAL_CHELSEA_OF]): Promise<str
   h.serve(URL_A, ofDoc(docA));
   await h.run('src-a');
   await runPromotion(h.ctx);
-  return (await rows<{ id: string }>(`SELECT id FROM events WHERE feed_provider = 'scraped'`))[0]!
-    .id;
+  return (
+    await rows<{ id: string }>(
+      `SELECT id FROM events WHERE feed_provider = 'scraped' AND home_team_id = $1`,
+      [h.team('Arsenal')],
+    )
+  )[0]!.id;
 }
 
 const eventRow = async (id: string) =>
@@ -284,7 +288,10 @@ describe('K2 at creation (F7)', () => {
 
       // K1 runs whatever the basis: the second source now says the match starts 5 hours earlier.
       h.advance(HOUR);
-      h.serve(URL_B, jsonDoc([OLD_JSON, { ...ARSENAL_CHELSEA_JSON, kick: '2026-11-02T10:00:00Z' }]));
+      h.serve(
+        URL_B,
+        jsonDoc([OLD_JSON, { ...ARSENAL_CHELSEA_JSON, kick: '2026-11-02T10:00:00Z' }]),
+      );
       await h.run('src-a');
       await h.run('src-b');
       expect(await closeBettingOnEarlierKickoff(h.ctx)).toMatchObject({ checked: 1, closed: 1 });
@@ -541,15 +548,18 @@ describe('K1: an earlier kickoff closes betting', () => {
       const eventId = await createdEvent();
       await openByPerson(eventId);
       h.advance(HOUR);
-      h.serve(URL_B, jsonDoc([{ ...ARSENAL_CHELSEA_JSON, kick: '2026-11-02T10:00:00Z', st: 'PST' }]));
+      h.serve(
+        URL_B,
+        jsonDoc([{ ...ARSENAL_CHELSEA_JSON, kick: '2026-11-02T10:00:00Z', st: 'PST' }]),
+      );
       await h.run('src-b');
       expect(await closeBettingOnEarlierKickoff(h.ctx)).toMatchObject({ checked: 1, closed: 0 });
       expect((await eventRow(eventId)).betting_open).toBe(true);
-      expect(await assessNow(eventId)).toMatchObject({
-        confirmed: true,
-        basis: 'C3',
-        earlier: [],
-      });
+      // It only dissents: the kickoff is no longer confirmed (K5), nothing else happens.
+      const assessment = await assessNow(eventId);
+      expect(assessment).toMatchObject({ confirmed: false, earlier: [] });
+      expect(assessment.reasons).toContain('void_status_reported');
+      expect(await closedAudits()).toHaveLength(0);
       // No status change, nothing voided.
       expect((await eventRow(eventId)).status).toBe('scheduled');
     },
@@ -580,10 +590,7 @@ describe('K1: an earlier kickoff closes betting', () => {
       // The first event gets an unrepresentable start (RangeError in the rules); the second a report.
       await h.pool.query(`UPDATE events SET start_time = 'infinity' WHERE id = $1`, [first]);
       h.advance(HOUR);
-      h.serve(
-        URL_A,
-        ofDoc([ARSENAL_CHELSEA_OF, { ...second, date: '2026-11-02', time: '20:00' }]),
-      );
+      h.serve(URL_A, ofDoc([ARSENAL_CHELSEA_OF, { ...second, date: '2026-11-02', time: '20:00' }]));
       await h.run('src-a');
       const summary = await closeBettingOnEarlierKickoff(h.ctx);
       expect(summary).toMatchObject({ checked: 2, closed: 1, failed: 1 });
@@ -601,10 +608,6 @@ describe('K2/K4 through the pipeline', () => {
       await start();
       // A source that has shown a past result is known; nothing waits on it: fresh.
       const eventId = await createdEvent([OLD_OF, ARSENAL_CHELSEA_OF]);
-      // 71 hours before kickoff, the statement has been unchanged for more than a day.
-      h.at(new Date(KICKOFF.getTime() - 71 * HOUR));
-      await h.run('src-a');
-      expect(await assessNow(eventId)).toMatchObject({ confirmed: true, basis: 'C2', reasons: [] });
       // 73 hours before kickoff the lead window has not started.
       h.at(new Date(KICKOFF.getTime() - 73 * HOUR));
       await h.run('src-a');
@@ -613,6 +616,10 @@ describe('K2/K4 through the pipeline', () => {
         basis: null,
         reasons: ['too_early_for_single_source'],
       });
+      // 71 hours before kickoff, the statement has been unchanged for more than a day.
+      h.at(new Date(KICKOFF.getTime() - 71 * HOUR));
+      await h.run('src-a');
+      expect(await assessNow(eventId)).toMatchObject({ confirmed: true, basis: 'C2', reasons: [] });
     },
     TEST_TIMEOUT,
   );
@@ -629,7 +636,7 @@ describe('K2/K4 through the pipeline', () => {
         team2: 'Everton FC',
       };
       const eventId = await createdEvent([stuck, ARSENAL_CHELSEA_OF]);
-      h.at(new Date(KICKOFF.getTime() - 67 * HOUR));
+      h.at(new Date(KICKOFF.getTime() - 40 * HOUR));
       await h.run('src-a');
       expect(await assessNow(eventId)).toMatchObject({
         confirmed: false,

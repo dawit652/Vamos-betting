@@ -1,4 +1,4 @@
-import { addTeamAlias, setSourceEnabled } from '@vamos/db';
+import { addTeamAlias, setCompetitionPolicy, setSourceEnabled } from '@vamos/db';
 import { normalizeName } from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
@@ -27,11 +27,31 @@ import {
 
 let h: Harness;
 afterEach(async () => {
+  // Kickoff safety (K1, K2): whatever fault the test caused, the scraper opened no event. Nobody in
+  // this file opens betting by hand, and `auto_open` is on, so an open event can only be the scraper's.
+  if (h !== undefined) {
+    expect(
+      await h.count(
+        `SELECT count(*) AS n FROM events WHERE betting_open AND feed_provider = 'scraped'`,
+      ),
+    ).toBe(0);
+    expect(
+      await h.count(
+        `SELECT count(*) AS n FROM audit_log
+          WHERE (action = 'scrape.fixture.created' AND metadata->>'bettingOpen' = 'true')
+             OR action IN ('catalog.event.betting_opened', 'scrape.fixture.kickoff_confirmed')`,
+      ),
+    ).toBe(0);
+  }
   await h?.close();
 }, SETUP_TIMEOUT);
 
+/** The harness, with `auto_open` on: the only thing that stops the scraper opening an event is K2. */
 async function start(options?: HarnessOptions): Promise<void> {
   h = await createHarness(options);
+  await h.ctx.db.transaction((tx) =>
+    setCompetitionPolicy(tx, h.premier, { autoOpen: true }, { system: 'test' }),
+  );
 }
 
 /** Both sources list the sample fixture and the event is created. */
