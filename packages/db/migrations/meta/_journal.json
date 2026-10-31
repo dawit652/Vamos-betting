@@ -267,6 +267,13 @@
       "when": 1793334627571,
       "tag": "0037_scrape_review_source_stale",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793475565009,
+      "tag": "0038_scrape_market_odds",
+      "breakpoints": true
     }
   ]
 }

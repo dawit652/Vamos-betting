@@ -1,6 +1,8 @@
 import {
   SCRAPE_ADAPTERS,
   SCRAPE_FIXTURE_STATUSES,
+  SCRAPE_ODDS_MARKETS,
+  SCRAPE_ODDS_SELECTIONS,
   SCRAPE_RESULT_STATUSES,
   SCRAPE_REVIEW_KINDS,
   SCRAPE_REVIEW_STATUSES,
@@ -460,3 +462,94 @@ export const scrapeEventPricing = pgTable('scrape_event_pricing', {
   heldKey: text('held_key'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Bookmaker prices a licensed market feed reported (data class `market_odds`, docs/scraper.md
+ * 3.1). Never shown to players and never a price of ours: the pricing step reads them to check
+ * and weight our own prices.
+ *
+ * ONE ROW PER (source, the source's key for the match, bookmaker, market, line, selection): the
+ * state as of the latest fetch that listed it, rewritten by every sighting (`observed_at` moves,
+ * the price and `price_updated_at` follow). The history of every page is in the raw archive and
+ * can be re-parsed; this table is not evidence for anything. `observed_at` is when WE last saw the
+ * price listed (the freshness the pricing step trusts); `price_updated_at` is when the bookmaker
+ * last moved it. A book a later fetch no longer lists keeps its old `observed_at`, which is how
+ * `latestMarketOdds` knows to leave it out.
+ *
+ * `event_id` is the catalogue event the match resolved to (null until it does); the resolved ids
+ * next to it are what the re-link pass matches on. Rows older than the retention are pruned
+ * (apps/scraper tasks/prune.ts).
+ */
+export const scrapeMarketOdds = pgTable(
+  'scrape_market_odds',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => scrapeSources.id, { onDelete: 'restrict' }),
+    /** The run that last saw the row. */
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => scrapeRuns.id, { onDelete: 'restrict' }),
+    /** The snapshot it was last read from (no foreign key: snapshots are pruned). */
+    rawId: uuid('raw_id'),
+    /** The source's own id for the match (its event id), else competition, teams and day. */
+    sourceKey: text('source_key').notNull(),
+    sport: text('sport').notNull(),
+    competitionRaw: text('competition_raw').notNull(),
+    homeRaw: text('home_raw').notNull(),
+    awayRaw: text('away_raw').notNull(),
+    kickoff: timestamp('kickoff', { withTimezone: true }).notNull(),
+    competitionId: uuid('competition_id').references(() => competitions.id, {
+      onDelete: 'restrict',
+    }),
+    homeTeamId: uuid('home_team_id').references(() => teams.id, { onDelete: 'restrict' }),
+    awayTeamId: uuid('away_team_id').references(() => teams.id, { onDelete: 'restrict' }),
+    /** The event of the catalogue this match resolved to; null until it does. */
+    eventId: uuid('event_id').references(() => events.id, { onDelete: 'set null' }),
+    /** '1x2' | 'ou'. */
+    market: text('market').notNull(),
+    /** Null for the 1x2; the total as text for 'ou' ('2.5'). */
+    line: text('line'),
+    /** The line as a key: '' for the 1x2 (a unique index cannot hold a null). */
+    lineKey: text('line_key').generatedAlwaysAs(sql`coalesce(line, '')`),
+    /** '1' | 'X' | '2' | 'over' | 'under'. */
+    selection: text('selection').notNull(),
+    /** The bookmaker as the feed names it (an affiliate id). */
+    bookmaker: text('bookmaker').notNull(),
+    /** Decimal odds times 1000, rounded down. */
+    priceMilli: integer('price_milli').notNull(),
+    /** When the bookmaker last moved the price (the feed's own timestamp). */
+    priceUpdatedAt: timestamp('price_updated_at', { withTimezone: true }).notNull(),
+    /** When a fetch last listed this price. */
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('scrape_market_odds_key_uq').on(
+      t.sourceId,
+      t.sourceKey,
+      t.bookmaker,
+      t.market,
+      t.lineKey,
+      t.selection,
+    ),
+    index('scrape_market_odds_event_idx').on(t.eventId, t.market, t.line, t.observedAt),
+    index('scrape_market_odds_observed_idx').on(t.observedAt),
+    index('scrape_market_odds_unlinked_idx')
+      .on(t.observedAt)
+      .where(sql`${t.eventId} IS NULL`),
+    index('scrape_market_odds_raw_idx').on(t.sourceId, t.rawId),
+    check('scrape_market_odds_sport', oneOf(t.sport, SCRAPE_SPORTS)),
+    check('scrape_market_odds_market', oneOf(t.market, SCRAPE_ODDS_MARKETS)),
+    check('scrape_market_odds_selection', oneOf(t.selection, SCRAPE_ODDS_SELECTIONS)),
+    check(
+      'scrape_market_odds_market_selection',
+      sql`(${t.market} = '1x2' AND ${t.selection} IN ('1', 'X', '2') AND ${t.line} IS NULL) OR (${t.market} = 'ou' AND ${t.selection} IN ('over', 'under') AND ${t.line} ~ '^[0-9]{1,2}(\\.[0-9]{1,2})?$')`,
+    ),
+    check('scrape_market_odds_price', sql`${t.priceMilli} BETWEEN 1010 AND 1000000`),
+    check(
+      'scrape_market_odds_teams_differ',
+      sql`${t.homeTeamId} IS NULL OR ${t.awayTeamId} IS NULL OR ${t.homeTeamId} <> ${t.awayTeamId}`,
+    ),
+  ],
+);

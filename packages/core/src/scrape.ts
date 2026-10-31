@@ -9,8 +9,24 @@ export const SCRAPE_SPORTS = ['football'] as const;
 export type ScrapeSport = (typeof SCRAPE_SPORTS)[number];
 
 /** Adapter implementations a source row can name (scrape_sources.adapter). */
-export const SCRAPE_ADAPTERS = ['openfootball', 'generic-json', 'generic-html'] as const;
+export const SCRAPE_ADAPTERS = [
+  'openfootball',
+  'generic-json',
+  'generic-html',
+  'therundown',
+] as const;
 export type ScrapeAdapterName = (typeof SCRAPE_ADAPTERS)[number];
+
+/**
+ * Bookmaker markets a `market_odds` observation can carry: the football 1X2 and the
+ * over/under total (the line is a separate field).
+ */
+export const SCRAPE_ODDS_MARKETS = ['1x2', 'ou'] as const;
+export type ScrapeOddsMarket = (typeof SCRAPE_ODDS_MARKETS)[number];
+
+/** Selections of those markets: 1 / X / 2 for the 1X2, over / under for the total. */
+export const SCRAPE_ODDS_SELECTIONS = ['1', 'X', '2', 'over', 'under'] as const;
+export type ScrapeOddsSelection = (typeof SCRAPE_ODDS_SELECTIONS)[number];
 
 /** What a source row is for (scrape_runs.data_class, scheduling). */
 export const SCRAPE_DATA_CLASSES = ['fixtures', 'results'] as const;

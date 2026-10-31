@@ -3,8 +3,10 @@ import type { ScrapeFixtureStatus, ScrapeResultStatus, ScrapeScoreBasis } from '
 import { z } from 'zod';
 import {
   FixtureObservationSchema,
+  MarketOddsObservationSchema,
   ResultObservationSchema,
   type FixtureObservation,
+  type MarketOddsObservation,
   type ParseIssue,
   type ParseOutcome,
   type RawDocument,
@@ -72,6 +74,7 @@ function clipContextValue(value: unknown): unknown {
 export type FixtureDraft = Omit<FixtureObservation, 'sourceId' | 'observedAt'>;
 export type ResultDraft = Omit<ResultObservation, 'sourceId' | 'observedAt'>;
 export type ObservationDraft = FixtureDraft | ResultDraft;
+export type MarketOddsDraft = Omit<MarketOddsObservation, 'sourceId' | 'observedAt'>;
 
 /**
  * Collects what one `parse` call finds. It owns the counters (so
@@ -82,6 +85,7 @@ export type ObservationDraft = FixtureDraft | ResultDraft;
 export class ParseCollector {
   private readonly fixtures: FixtureObservation[] = [];
   private readonly results: ResultObservation[] = [];
+  private readonly marketOdds: MarketOddsObservation[] = [];
   private readonly issues: ParseIssue[] = [];
   private fatalIssue: ParseIssue | null = null;
   private suppressed = 0;
@@ -183,6 +187,33 @@ export class ParseCollector {
     return true;
   }
 
+  /**
+   * Validates the price rows of the open record (all of them: a book is kept whole or not at all)
+   * with the schema of types.ts. A row that is invalid drops the whole batch with a precise issue;
+   * returns whether they were accepted. Does not count as a record: `accept` does that.
+   */
+  acceptMarketOdds(drafts: MarketOddsDraft[], context: Record<string, unknown>): boolean {
+    const rows: MarketOddsObservation[] = [];
+    for (const draft of drafts) {
+      const parsed = MarketOddsObservationSchema.safeParse({
+        ...draft,
+        sourceId: this.sourceId,
+        observedAt: this.observedAt,
+      });
+      if (!parsed.success) {
+        const detail = parsed.error.issues
+          .slice(0, 3)
+          .map((i) => `${i.path.join('.') || 'record'}: ${i.message}`)
+          .join('; ');
+        this.issue('error', 'invalid_market_odds', `prices dropped: ${detail}`, context);
+        return false;
+      }
+      rows.push(parsed.data);
+    }
+    this.marketOdds.push(...rows);
+    return true;
+  }
+
   private reject(error: z.ZodError, context: Record<string, unknown>): false {
     const detail = error.issues
       .slice(0, 3)
@@ -218,6 +249,7 @@ export class ParseCollector {
     return {
       fixtures: dead ? [] : this.fixtures,
       results: dead ? [] : this.results,
+      marketOdds: dead ? [] : this.marketOdds,
       issues,
       stats: { recordsSeen: this.seen, recordsAccepted: dead ? 0 : this.accepted },
     };

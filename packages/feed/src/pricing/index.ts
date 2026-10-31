@@ -18,6 +18,7 @@ export {
   priceProbability,
 } from './book';
 export * from './football';
+export * from './market';
 export * from './basketball';
 export * from './tennis';
 export * from './ratings';

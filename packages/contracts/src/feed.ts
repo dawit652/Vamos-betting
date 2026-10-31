@@ -38,7 +38,12 @@ export type FeedRoute = keyof typeof FEED_ROUTE_PERMISSIONS;
 // depend on @vamos/core); a drift test in the API package compares them.
 
 export const FEED_SPORTS = ['football'] as const;
-export const FEED_ADAPTERS = ['openfootball', 'generic-json', 'generic-html'] as const;
+export const FEED_ADAPTERS = [
+  'openfootball',
+  'generic-json',
+  'generic-html',
+  'therundown',
+] as const;
 export const FEED_DATA_CLASSES = ['fixtures', 'results'] as const;
 export const FEED_FIXTURE_STATUSES = ['scheduled', 'postponed', 'cancelled'] as const;
 export const FEED_RESULT_STATUSES = ['finished', 'cancelled', 'abandoned', 'postponed'] as const;

@@ -1,4 +1,4 @@
-import { parseLine } from '@vamos/core';
+import { type MarketTypeCode, parseLine } from '@vamos/core';
 import type { FeedMarket, LiveScoreState } from '../types';
 import {
   buildMarket,
@@ -173,12 +173,34 @@ export function priceFootball(
   lambdaAway: number,
   opts: FootballPricingOptions = {},
 ): FeedMarket[] {
+  const books = footballBooks(lambdaHome, lambdaAway, opts);
+  const live = opts.state !== undefined;
+  const margin = checkedMarginBps(opts.marginBps ?? defaultMarginBps('1x2', live));
+  const csMargin = checkedMarginBps(opts.correctScoreMarginBps ?? defaultMarginBps('cs', live));
+  return buildFootballMarkets(books, margin, csMargin);
+}
+
+/** One football market before pricing: its type, line and fair selection probabilities. */
+export interface FootballBook {
+  type: MarketTypeCode;
+  line: string | null;
+  probabilities: Record<string, number>;
+}
+
+/**
+ * The fair probabilities of every football market priceFootball offers, in
+ * the same order, before margins are applied and before markets that cannot
+ * be priced are dropped (those are dropped by buildFootballMarkets). Shared
+ * with the market-priced path (market.ts), which replaces some of them.
+ */
+export function footballBooks(
+  lambdaHome: number,
+  lambdaAway: number,
+  opts: Pick<FootballPricingOptions, 'lines' | 'state'> = {},
+): FootballBook[] {
   checkLambda(lambdaHome, 'lambdaHome');
   checkLambda(lambdaAway, 'lambdaAway');
   const state = opts.state === undefined ? null : checkedLiveState(opts.state);
-  const live = state !== null;
-  const margin = checkedMarginBps(opts.marginBps ?? defaultMarginBps('1x2', live));
-  const csMargin = checkedMarginBps(opts.correctScoreMarginBps ?? defaultMarginBps('cs', live));
   const lines = canonicalLines(opts.lines ?? DEFAULT_GOAL_LINES);
 
   const home0 = state?.home ?? 0;
@@ -187,25 +209,22 @@ export function priceFootball(
   const playing = remainingPlayingTime(state?.minute ?? 0, firstHalfOver);
   const grid = mixedScoreMatrix(lambdaHome, lambdaAway, playing.fullTime);
 
-  const markets: FeedMarket[] = [];
-  const offer = (market: FeedMarket | null): void => {
-    if (market !== null) markets.push(market);
+  const books: FootballBook[] = [];
+  const offer = (
+    type: MarketTypeCode,
+    line: string | null,
+    probabilities: Record<string, number>,
+  ) => {
+    books.push({ type, line, probabilities });
   };
 
   const result = outcomes(grid, home0, away0);
-  offer(buildMarket('1x2', null, { '1': result.home, X: result.draw, '2': result.away }, margin));
-  offer(
-    buildMarket(
-      'dc',
-      null,
-      {
-        '1X': result.home + result.draw,
-        '12': result.home + result.away,
-        X2: result.draw + result.away,
-      },
-      margin,
-    ),
-  );
+  offer('1x2', null, { '1': result.home, X: result.draw, '2': result.away });
+  offer('dc', null, {
+    '1X': result.home + result.draw,
+    '12': result.home + result.away,
+    X2: result.draw + result.away,
+  });
 
   const goalsSoFar = home0 + away0;
   const remainingTotals = totalGoalsDistribution(grid);
@@ -218,7 +237,7 @@ export function priceFootball(
       if (goalsSoFar + extra > value) over += p;
       else under += p;
     });
-    offer(buildMarket('ou', line, { over, under }, margin));
+    offer('ou', line, { over, under });
   }
 
   if (!(home0 > 0 && away0 > 0)) {
@@ -228,29 +247,43 @@ export function priceFootball(
       if (home0 + h > 0 && away0 + a > 0) yes += p;
       else no += p;
     });
-    offer(buildMarket('btts', null, { yes, no }, margin));
+    offer('btts', null, { yes, no });
   }
 
   const decisive = result.home + result.away;
   if (decisive > 1e-12) {
-    offer(
-      buildMarket(
-        'dnb',
-        null,
-        { '1': result.home / decisive, '2': result.away / decisive },
-        margin,
-      ),
-    );
+    offer('dnb', null, { '1': result.home / decisive, '2': result.away / decisive });
   }
 
   if (playing.firstHalf !== null) {
     const halfGrid = mixedScoreMatrix(lambdaHome, lambdaAway, playing.firstHalf);
     const half = outcomes(halfGrid, home0, away0);
-    offer(buildMarket('ht_1x2', null, { '1': half.home, X: half.draw, '2': half.away }, margin));
+    offer('ht_1x2', null, { '1': half.home, X: half.draw, '2': half.away });
   }
 
-  offer(buildMarket('cs', null, correctScoreProbabilities(grid, home0, away0), csMargin));
-  return markets;
+  offer('cs', null, correctScoreProbabilities(grid, home0, away0));
+  return books;
+}
+
+/**
+ * Prices football books in order with `marginBps` (correct score with
+ * `correctScoreMarginBps`), leaving out any market that cannot be offered
+ * (see buildMarket).
+ */
+export function buildFootballMarkets(
+  books: readonly FootballBook[],
+  marginBps: number,
+  correctScoreMarginBps: number,
+): FeedMarket[] {
+  return books.flatMap((book) => {
+    const market = buildMarket(
+      book.type,
+      book.line,
+      book.probabilities,
+      book.type === 'cs' ? correctScoreMarginBps : marginBps,
+    );
+    return market === null ? [] : [market];
+  });
 }
 
 /** Possible playing times (minutes) with their probabilities, summing to 1. */

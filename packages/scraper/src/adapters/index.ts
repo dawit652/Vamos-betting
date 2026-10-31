@@ -11,3 +11,15 @@ export {
 export type { GenericJsonConfig, PathSegment } from './generic-json';
 export { createGenericHtmlAdapter, GenericHtmlConfigSchema } from './generic-html';
 export type { GenericHtmlConfig } from './generic-html';
+export {
+  createTheRundownAdapter,
+  TheRundownConfigSchema,
+  THERUNDOWN_AUTH_HEADER,
+  THERUNDOWN_HOST,
+  THERUNDOWN_MAX_REQUESTS,
+  RETIRED_AFFILIATE_ID,
+  therundownUrls,
+} from './therundown';
+export type { TheRundownConfig } from './therundown';
+export { americanToMilli, decimalToMilli, exactDecimal, priceToMilli } from './odds-price';
+export type { PriceFormat, PriceProblem, PriceResult } from './odds-price';

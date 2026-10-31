@@ -5,6 +5,7 @@ import { zodErrors } from './common';
 import { createGenericHtmlAdapter, GenericHtmlConfigSchema } from './generic-html';
 import { createGenericJsonAdapter, GenericJsonConfigSchema } from './generic-json';
 import { createOpenFootballAdapter, OpenFootballConfigSchema } from './openfootball';
+import { createTheRundownAdapter, TheRundownConfigSchema } from './therundown';
 
 export interface SourceRow {
   id: string;
@@ -48,6 +49,8 @@ export function createAdapter(row: SourceRow): CreateAdapterResult {
         return build(GenericJsonConfigSchema, row, 'json_api', createGenericJsonAdapter);
       case 'generic-html':
         return build(GenericHtmlConfigSchema, row, 'html', createGenericHtmlAdapter);
+      case 'therundown':
+        return build(TheRundownConfigSchema, row, 'licensed_api', createTheRundownAdapter);
       default:
         return { ok: false, errors: [`adapter: unknown adapter "${String(row.adapter)}"`] };
     }

@@ -1,5 +1,7 @@
 import {
   SCRAPE_FIXTURE_STATUSES,
+  SCRAPE_ODDS_MARKETS,
+  SCRAPE_ODDS_SELECTIONS,
   SCRAPE_RESULT_STATUSES,
   SCRAPE_SCORE_BASES,
   SCRAPE_SPORTS,
@@ -128,6 +130,60 @@ export type ResultObservation = z.infer<typeof ResultObservationSchema>;
 
 export type Observation = FixtureObservation | ResultObservation;
 
+/** Decimal odds in integer milli (1.85 is 1850) the market feed may carry: 1.010 to 1000. */
+export const MARKET_ODDS_MIN_MILLI = 1010;
+export const MARKET_ODDS_MAX_MILLI = 1_000_000;
+
+const bookmakerSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine((value) => !CONTROL_CHARS.test(value), 'control characters in a bookmaker id');
+
+/**
+ * What ONE bookmaker offered for ONE selection of ONE match, as a licensed market feed said it
+ * (data class `market_odds`). Never shown to players and never a price of ours: the pricing step
+ * reads these to check and weight our own prices. `priceMilli` is the decimal price times 1000,
+ * rounded DOWN; `priceUpdatedAt` is when the bookmaker last moved the price (a fetch time is not
+ * freshness; `observedAt` is the fetch time).
+ */
+export const MarketOddsObservationSchema = z
+  .object({
+    kind: z.literal('market_odds'),
+    ...observationBase,
+    market: z.enum(SCRAPE_ODDS_MARKETS),
+    /** Null for the 1X2; the total as a decimal text for 'ou' ('2.5'). */
+    line: z
+      .string()
+      .regex(/^[0-9]{1,2}(\.[0-9]{1,2})?$/, 'line must be a plain decimal such as 2.5')
+      .nullable(),
+    selection: z.enum(SCRAPE_ODDS_SELECTIONS),
+    /** The bookmaker as the feed names it (an affiliate id as text). */
+    bookmaker: bookmakerSchema,
+    priceMilli: z.number().int().min(MARKET_ODDS_MIN_MILLI).max(MARKET_ODDS_MAX_MILLI),
+    priceUpdatedAt: z.date(),
+  })
+  .superRefine(plausible)
+  .superRefine((o, ctx) => {
+    const onePair = o.market === '1x2' ? ['1', 'X', '2'] : ['over', 'under'];
+    if (!onePair.includes(o.selection)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `selection ${o.selection} does not belong to ${o.market}`,
+        path: ['selection'],
+      });
+    }
+    if ((o.market === '1x2') !== (o.line === null)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'the 1x2 has no line and the over/under needs one',
+        path: ['line'],
+      });
+    }
+  });
+export type MarketOddsObservation = z.infer<typeof MarketOddsObservationSchema>;
+
 // ---------------------------------------------------------------------------
 // Fetched documents and parsing
 
@@ -167,6 +223,8 @@ export interface ParseStats {
 export interface ParseOutcome {
   fixtures: FixtureObservation[];
   results: ResultObservation[];
+  /** Bookmaker prices (data class `market_odds`); empty for every adapter but a market feed. */
+  marketOdds: MarketOddsObservation[];
   issues: ParseIssue[];
   stats: ParseStats;
 }
