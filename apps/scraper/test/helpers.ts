@@ -62,6 +62,8 @@ export interface HarnessOptions {
   autoResults?: boolean;
   /** Upstream of the generic-json source (default 'example-api'). */
   upstreamB?: string;
+  /** Secrets the fetcher may read by name (SCRAPER_SECRET_*), for sources that need a key. */
+  secrets?: Record<string, string>;
 }
 
 // --- documents -----------------------------------------------------------------
@@ -163,6 +165,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     maxAttempts: 1,
     now: () => clock.getTime(),
     sleep: () => Promise.resolve(),
+    ...(options.secrets === undefined ? {} : { secrets: (name) => options.secrets?.[name] }),
     fetchImpl: (input, init) => {
       const hit = responses.get(input) ?? { status: 404, body: 'not found' };
       // Like a real server: a conditional request for the page's current ETag gets a 304.

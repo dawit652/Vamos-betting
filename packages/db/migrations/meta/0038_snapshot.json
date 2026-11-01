@@ -7077,7 +7077,7 @@
         },
         "scrape_market_odds_market_selection": {
           "name": "scrape_market_odds_market_selection",
-          "value": "(\"scrape_market_odds\".\"market\" = '1x2' AND \"scrape_market_odds\".\"selection\" IN ('1', 'X', '2') AND \"scrape_market_odds\".\"line\" IS NULL) OR (\"scrape_market_odds\".\"market\" = 'ou' AND \"scrape_market_odds\".\"selection\" IN ('over', 'under') AND \"scrape_market_odds\".\"line\" ~ '^[0-9]{1,2}(\\.[0-9]{1,2})?$')"
+          "value": "(\"scrape_market_odds\".\"market\" = '1x2' AND \"scrape_market_odds\".\"selection\" IN ('1', 'X', '2') AND \"scrape_market_odds\".\"line\" IS NULL) OR (\"scrape_market_odds\".\"market\" = 'ou' AND \"scrape_market_odds\".\"selection\" IN ('over', 'under') AND \"scrape_market_odds\".\"line\" IS NOT NULL AND \"scrape_market_odds\".\"line\" ~ '^[0-9]{1,2}(\\.[0-9]{1,2})?$')"
         },
         "scrape_market_odds_price": {
           "name": "scrape_market_odds_price",

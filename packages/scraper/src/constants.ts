@@ -70,3 +70,13 @@ export const OVERROUND_MIN = 1.01;
 export const OVERROUND_MAX = 1.3;
 /** A re-price may move a selection by at most this factor (either way) without a person. */
 export const MAX_PRICE_MOVE_RATIO = 1.25;
+
+// --- Market odds (docs/scraper.md 3.1, rule O4) ---------------------------------
+
+/**
+ * O4: bookmaker prices last listed by a fetch longer ago than this are not used to price (the
+ * licensed feed is fetched far more often; an older price means the feed has stopped).
+ */
+export const MARKET_ODDS_MAX_AGE_MS = 3 * HOUR_MS;
+/** A price row is linked to the event of the same competition and teams that starts within this of its kickoff. */
+export const MARKET_ODDS_LINK_WINDOW_MS = 6 * HOUR_MS;

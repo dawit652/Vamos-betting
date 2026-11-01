@@ -544,7 +544,7 @@ export const scrapeMarketOdds = pgTable(
     check('scrape_market_odds_selection', oneOf(t.selection, SCRAPE_ODDS_SELECTIONS)),
     check(
       'scrape_market_odds_market_selection',
-      sql`(${t.market} = '1x2' AND ${t.selection} IN ('1', 'X', '2') AND ${t.line} IS NULL) OR (${t.market} = 'ou' AND ${t.selection} IN ('over', 'under') AND ${t.line} ~ '^[0-9]{1,2}(\\.[0-9]{1,2})?$')`,
+      sql`(${t.market} = '1x2' AND ${t.selection} IN ('1', 'X', '2') AND ${t.line} IS NULL) OR (${t.market} = 'ou' AND ${t.selection} IN ('over', 'under') AND ${t.line} IS NOT NULL AND ${t.line} ~ '^[0-9]{1,2}(\\.[0-9]{1,2})?$')`,
     ),
     check('scrape_market_odds_price', sql`${t.priceMilli} BETWEEN 1010 AND 1000000`),
     check(

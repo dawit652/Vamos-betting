@@ -1,18 +1,25 @@
 import {
   closeReviewItemsBySubject,
   finishRun,
+  findScrapedEventId,
   latestAcceptedRaw,
+  linkMarketOddsToEvents,
+  listUnresolvedMarketOddsNames,
   loadAliasInputs,
   openReviewItem,
   recentAcceptedCounts,
   recordRaw,
+  setMarketOddsResolution,
   setObservationResolution,
   listCurrentObservations,
   listUnresolvedObservations,
   startRun,
+  touchMarketOddsOfRaw,
   touchObservationsOfRaw,
+  upsertMarketOdds,
   upsertObservation,
   type DbTransaction,
+  type MarketOddsInput,
   type ScrapeRunIssueJson,
   type ScrapeRunTrigger,
   type ScrapeSource,
@@ -31,9 +38,12 @@ import {
   suggestCompetitions,
   suggestTeams,
   toRawDocument,
+  MARKET_ODDS_LINK_WINDOW_MS,
+  MARKET_ODDS_MAX_AGE_MS,
   SHAPE_BASELINE_RUNS,
   type AliasIndex,
   type FetchResult,
+  type MarketOddsObservation,
   type Observation,
   type ParseOutcome,
   type Resolution,
@@ -61,7 +71,9 @@ export function sourceLockKey(sourceId: string): string {
 }
 
 /** The source's own key for a match: its id for it, else competition, teams and kickoff day. */
-export function sourceKeyOf(obs: Observation): string {
+export function sourceKeyOf(
+  obs: Pick<Observation, 'externalRef' | 'competition' | 'home' | 'away' | 'kickoff'>,
+): string {
   if (obs.externalRef !== null) return obs.externalRef;
   return `${obs.competition}|${obs.home}|${obs.away}|${obs.kickoff.toISOString().slice(0, 10)}`;
 }
@@ -515,6 +527,14 @@ async function recordNotModified(
       runId,
       seenAt: fetchedAt,
     });
+    // The prices of the unchanged page are listed again too (their freshness is `observed_at`).
+    await touchMarketOddsOfRaw(tx, {
+      sourceId,
+      fromRawId: previous.id,
+      toRawId: raw.id,
+      runId,
+      seenAt: fetchedAt,
+    });
     return {
       recordsSeen: previous.recordsSeen ?? 0,
       recordsAccepted: previous.recordsAccepted ?? 0,
@@ -531,6 +551,38 @@ function toIssueJson(issue: ParseOutcome['issues'][number]): ScrapeRunIssueJson 
     ...(issue.fatal === true ? { fatal: true } : {}),
     ...(issue.context === undefined ? {} : { context: issue.context }),
   };
+}
+
+/**
+ * The price rows of a document, one per (match, bookmaker, market, line, selection): a second row
+ * with the same key would overwrite the first inside one statement, so the first wins and the
+ * rest are reported once.
+ */
+function dedupeMarketOdds(
+  rows: readonly MarketOddsObservation[],
+  issues: ScrapeRunIssueJson[],
+): Array<{ obs: MarketOddsObservation; sourceKey: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ obs: MarketOddsObservation; sourceKey: string }> = [];
+  let duplicates = 0;
+  for (const obs of rows) {
+    const sourceKey = sourceKeyOf(obs);
+    const id = [sourceKey, obs.bookmaker, obs.market, obs.line ?? '', obs.selection].join('\u0000');
+    if (seen.has(id)) {
+      duplicates += 1;
+      continue;
+    }
+    seen.add(id);
+    out.push({ obs, sourceKey });
+  }
+  if (duplicates > 0) {
+    issues.push({
+      severity: 'warning',
+      code: 'duplicate_market_odds',
+      message: `${duplicates} price rows repeated a bookmaker's price for the same selection; the first was kept`,
+    });
+  }
+  return out;
 }
 
 /** Stores one document's observations in a single transaction, in a stable order (no deadlocks). */
@@ -584,6 +636,27 @@ async function storeObservations(
     );
   }
 
+  // Bookmaker prices (data class market_odds): one resolution per match of the document.
+  const prices = dedupeMarketOdds(parsed.marketOdds, issues);
+  const priceIds = new Map<string, ResolvedIds>();
+  for (const { obs, sourceKey } of prices) {
+    if (priceIds.has(sourceKey)) continue;
+    priceIds.set(
+      sourceKey,
+      resolveNames(
+        await indexes.get(obs.sport),
+        {
+          sport: obs.sport,
+          sourceId: source.id,
+          competition: obs.competition,
+          home: obs.home,
+          away: obs.away,
+        },
+        unknown,
+      ),
+    );
+  }
+
   const now = ctx.clock();
   await ctx.db.transaction(async (tx) => {
     for (const { obs, sourceKey } of drafts) {
@@ -606,6 +679,49 @@ async function storeObservations(
         rawId,
         ...ids,
       });
+    }
+    if (prices.length > 0) {
+      // The event of each match, found once per match; none or several: no link (nothing is guessed).
+      const eventOf = new Map<string, string | null>();
+      const rows: MarketOddsInput[] = [];
+      for (const { obs, sourceKey } of prices) {
+        const ids = priceIds.get(sourceKey)!;
+        if (!eventOf.has(sourceKey)) {
+          eventOf.set(
+            sourceKey,
+            ids.competitionId !== null && ids.homeTeamId !== null && ids.awayTeamId !== null
+              ? await findScrapedEventId(
+                  tx,
+                  {
+                    competitionId: ids.competitionId,
+                    homeTeamId: ids.homeTeamId,
+                    awayTeamId: ids.awayTeamId,
+                    kickoff: obs.kickoff,
+                  },
+                  MARKET_ODDS_LINK_WINDOW_MS,
+                )
+              : null,
+          );
+        }
+        rows.push({
+          sourceKey,
+          sport: obs.sport,
+          competitionRaw: obs.competition,
+          homeRaw: obs.home,
+          awayRaw: obs.away,
+          kickoff: obs.kickoff,
+          market: obs.market,
+          line: obs.line,
+          selection: obs.selection,
+          bookmaker: obs.bookmaker,
+          priceMilli: obs.priceMilli,
+          priceUpdatedAt: obs.priceUpdatedAt,
+          observedAt: obs.observedAt,
+          eventId: eventOf.get(sourceKey) ?? null,
+          ...ids,
+        });
+      }
+      await upsertMarketOdds(tx, { sourceId: source.id, runId, rawId, rows });
     }
     // One fixed order across runs: sport by sport (the sport is the prefix of every subject key), each sorted.
     for (const sport of [...new Set(unknown.map((u) => u.sport))].sort(compareText)) {
@@ -630,6 +746,51 @@ async function storeObservations(
  * observations that gained an id.
  */
 export async function reresolveUnresolved(ctx: ScraperContext): Promise<number> {
+  const updated = await reresolveUnresolvedObservations(ctx);
+  // Bookmaker prices follow: names that resolve now, and prices whose event exists now.
+  return updated + (await reresolveMarketOdds(ctx));
+}
+
+/**
+ * The bookmaker prices that are still current (read within MARKET_ODDS_MAX_AGE_MS) and have an
+ * unresolved name are resolved again; then every current price without an event is linked to the
+ * event it belongs to, if one exists now (an event created after the prices were read). Returns
+ * the number of price rows that gained an id or an event.
+ */
+export async function reresolveMarketOdds(ctx: ScraperContext): Promise<number> {
+  const now = ctx.clock();
+  const since = new Date(now.getTime() - MARKET_ODDS_MAX_AGE_MS);
+  let changed = 0;
+  const names = await listUnresolvedMarketOddsNames(ctx.db, { since, limit: 5000 });
+  if (names.length > 0) {
+    const indexes = aliasIndexCache(ctx);
+    for (const row of names) {
+      const ids = resolveNames(
+        await indexes.get(row.sport),
+        {
+          sport: row.sport,
+          sourceId: row.sourceId,
+          competition: row.competitionRaw,
+          home: row.homeRaw,
+          away: row.awayRaw,
+        },
+        [],
+      );
+      const gained =
+        (ids.competitionId !== null && row.competitionId === null) ||
+        (ids.homeTeamId !== null && row.homeTeamId === null) ||
+        (ids.awayTeamId !== null && row.awayTeamId === null);
+      if (!gained) continue;
+      changed += await ctx.db.transaction((tx) => setMarketOddsResolution(tx, row, ids));
+    }
+  }
+  changed += await ctx.db.transaction((tx) =>
+    linkMarketOddsToEvents(tx, { since, windowMs: MARKET_ODDS_LINK_WINDOW_MS }),
+  );
+  return changed;
+}
+
+async function reresolveUnresolvedObservations(ctx: ScraperContext): Promise<number> {
   const rows = await listUnresolvedObservations(ctx.db, { limit: 5000 });
   if (rows.length === 0) return 0;
   const indexes = aliasIndexCache(ctx);

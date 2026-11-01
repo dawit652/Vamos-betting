@@ -24,7 +24,7 @@ CREATE TABLE "scrape_market_odds" (
 	CONSTRAINT "scrape_market_odds_sport" CHECK ("scrape_market_odds"."sport" IN ('football')),
 	CONSTRAINT "scrape_market_odds_market" CHECK ("scrape_market_odds"."market" IN ('1x2', 'ou')),
 	CONSTRAINT "scrape_market_odds_selection" CHECK ("scrape_market_odds"."selection" IN ('1', 'X', '2', 'over', 'under')),
-	CONSTRAINT "scrape_market_odds_market_selection" CHECK (("scrape_market_odds"."market" = '1x2' AND "scrape_market_odds"."selection" IN ('1', 'X', '2') AND "scrape_market_odds"."line" IS NULL) OR ("scrape_market_odds"."market" = 'ou' AND "scrape_market_odds"."selection" IN ('over', 'under') AND "scrape_market_odds"."line" ~ '^[0-9]{1,2}(\.[0-9]{1,2})?$')),
+	CONSTRAINT "scrape_market_odds_market_selection" CHECK (("scrape_market_odds"."market" = '1x2' AND "scrape_market_odds"."selection" IN ('1', 'X', '2') AND "scrape_market_odds"."line" IS NULL) OR ("scrape_market_odds"."market" = 'ou' AND "scrape_market_odds"."selection" IN ('over', 'under') AND "scrape_market_odds"."line" IS NOT NULL AND "scrape_market_odds"."line" ~ '^[0-9]{1,2}(\.[0-9]{1,2})?$')),
 	CONSTRAINT "scrape_market_odds_price" CHECK ("scrape_market_odds"."price_milli" BETWEEN 1010 AND 1000000),
 	CONSTRAINT "scrape_market_odds_teams_differ" CHECK ("scrape_market_odds"."home_team_id" IS NULL OR "scrape_market_odds"."away_team_id" IS NULL OR "scrape_market_odds"."home_team_id" <> "scrape_market_odds"."away_team_id")
 );
