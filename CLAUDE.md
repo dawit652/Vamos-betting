@@ -27,3 +27,17 @@ Mobile-first sportsbook for Costa Rica, modelled on Betika. TypeScript pnpm mono
 - **Scraper.** Scraped results reach `resultEvent` only through the gates (`applyConfirmedResult` in
   `apps/scraper`); no code path may cancel, void or abandon an event from scraped data. See `docs/scraper.md`.
 - Excluded by policy: casino/crash/virtual games, crypto, payouts to third-party wallets.
+
+## Working with Claude Code (save tokens)
+
+The account is on the Pro plan with a tight 5-hour limit, so always match the model and effort to the task:
+
+- **Mechanical steps** (installs, running typecheck/lint/tests and reporting, listing or searching files,
+  one-line edits): the `quick-task` agent (Haiku, low effort).
+- **Routine, well-specified coding** (fixing reported type errors or failing tests, small features,
+  straightforward refactors, docs): the `routine-coder` agent (Sonnet, medium effort).
+- **Hard work** (design, migrations, the bet-placement / ledger / settlement money path, security, merge
+  conflicts, reviewing agents' work): the main session on Opus, high effort.
+- Run a single short command yourself when that is cheaper than starting an agent.
+- At most two agents at a time; check usage between waves and stop starting new work near the 5-hour limit.
+- Agents never commit; the main session verifies (typecheck, lint, tests) and commits only when asked.
