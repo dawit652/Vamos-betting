@@ -530,6 +530,41 @@ describe('settings and withdrawals', () => {
     ).toBe(403);
   });
 
+  it('edits the house liability caps: validated, audited, and no cap by default', async () => {
+    const view = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.finance, 'GET', '/admin/settings')),
+    );
+    expect(view.settings.riskLimits).toEqual({
+      maxSelectionLiability: null,
+      maxEventLiability: null,
+    });
+    const caps = { maxSelectionLiability: '50000000', maxEventLiability: '250000000' };
+    const updated = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.admin, 'PUT', '/admin/settings/risk_limits', { value: caps })),
+    );
+    expect(updated.settings.riskLimits).toEqual(caps);
+    expect(await staffAudit(s.admin, 'risk_limits')).toEqual(['settings.updated']);
+
+    for (const value of [
+      { maxSelectionLiability: '0', maxEventLiability: null },
+      { maxSelectionLiability: '300', maxEventLiability: '200' },
+    ]) {
+      const refused = await asStaff(ctx, s.admin, 'PUT', '/admin/settings/risk_limits', { value });
+      expect(refused.statusCode).toBe(422);
+    }
+    expect(
+      (await asStaff(ctx, s.finance, 'PUT', '/admin/settings/risk_limits', { value: caps }))
+        .statusCode,
+    ).toBe(403);
+
+    // Back to no caps, so the rest of this file is unaffected.
+    const none = { maxSelectionLiability: null, maxEventLiability: null };
+    const cleared = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.admin, 'PUT', '/admin/settings/risk_limits', { value: none })),
+    );
+    expect(cleared.settings.riskLimits).toEqual(none);
+  });
+
   it('lets finance approve and reject withdrawals', async () => {
     player = await registerAndLogin(ctx);
     await db.insert(kycProfiles).values({

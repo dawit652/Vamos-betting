@@ -8,8 +8,8 @@ sportsbooks, starting on the cheapest paid plan (**Starter**).
 > for pricing. Built from this plan on top of it: the prematch **close lead** (`events.close_lead_ms`, migration
 > 0040: betting on a market-priced event closes `MARKET_CLOSE_LEAD_MS`, 5 minutes, before kickoff, because the
 > feed is a minute or more late). Still to build from this plan: closing betting when the feed reports a match
-> started (P/M1 kickoff rule), the data-point budget alarms (A3), liability caps (L1) and stake factors (L2). The
-> licence findings in section 3 still apply: market-first use needs TheRundown's Supplemental Agreement.
+> started (P/M1 kickoff rule), the data-point budget alarms (A3) and stake factors (L2). **Liability caps (L1) are
+> built** (2026-11-01, as described under L1 below). The licence findings in section 3 still apply: market-first use needs TheRundown's Supplemental Agreement.
 
 Written 2026-10-31 on branch `claude/busy-rubin-1shjt6` (head `2513194`). The facts about TheRundown come from
 [docs.therundown.io](https://docs.therundown.io) and [its pricing page](https://therundown.io/pricing/api), read on
@@ -288,14 +288,26 @@ What can go wrong with prices, and the rule that stops it.
 
 ### 5.6 Risk management (L)
 
-- **L1 Liability caps (any feed).** A new setting `risk_limits` (back office, `settings.edit`): the largest
-  liability per selection and per event, with overrides per competition. Bet placement checks every leg's
-  selection in its own transaction with a guarded `UPDATE selection_exposure … WHERE liability + $payout <= $cap`
-  (the ledger's pattern), so two bets at the same moment cannot both pass. Over the cap: 422 `liability_limit` with
-  the largest stake that fits. A multiple counts its whole potential payout on each of its selections, as the Risk
-  page does today (`listSelectionLiabilities`). Settlement, void, cash-out and a rejected live bet release it. A
-  reconciliation job compares the counters with the open bets and alerts on any difference. At 80% of a cap the
-  selection is highlighted on the Risk page.
+- **L1 Liability caps (any feed). Built 2026-11-01.** The setting `risk_limits` (back office, `settings.edit`):
+  `maxSelectionLiability` and `maxEventLiability`, each a positive amount or null for no cap (the default: no
+  caps, so nothing changes until staff set them). `placeBet` adds the new bet's potential gross payout to the open
+  liability of each of its selections and matches, and refuses a bet that passes a cap: 422 `liability_limit`, with
+  `details.maxStake`, the largest stake that fits (null when not even the minimum does). The caps themselves and
+  the open liability stay private. Liability is what the Risk page shows (`listSelectionLiabilities`): open and
+  pending bets, through their open legs, at their potential gross payout. A multiple counts its whole payout on
+  each of its selections and matches, and a match adds up all its markets, so the figure is deliberately cautious.
+  - **Built as a live sum, not as counters.** The first design kept a `selection_exposure` counter with a
+    guarded `UPDATE`. Every route that closes a bet (settlement, void, cash-out, a rejected live bet, a staff
+    void) would have had to release it, and any route missed would leave the counter wrong, so it also needed a
+    reconciliation job. Summing the open bets instead cannot drift: a bet that stops being open stops counting.
+    The price is one indexed sum per placement, only when a cap is set. If load testing shows it matters,
+    counters can replace the sum without changing the rule.
+  - **Concurrency.** Placement takes one transaction-scoped advisory lock per match, in the order of the lock
+    keys (so accumulators on the same matches in opposite orders cannot deadlock), and sums under the lock.
+    Without it 20 concurrent bets all got in (the test `betting-risk.test.ts` fails without the lock).
+  - **Live bets.** A bet waiting for acceptance counts. If it is accepted at a better price and its payout rises,
+    the rise is checked against the caps; if it no longer fits, the bet is rejected as `odds_changed` and refunded.
+  - **Not built:** overrides per competition, and the 80% highlight on the Risk page.
 - **L2 Stake limits.** On a market checked or priced from TheRundown, the largest stake is `betRules.maxStake` × a
   factor: 20% at high confidence, 10% normal, 5% low, halved in the last 3 h (when line-ups and late news move the
   market faster than a 60 s feed shows).

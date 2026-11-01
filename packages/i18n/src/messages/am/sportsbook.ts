@@ -123,6 +123,7 @@ export const sportsbook: Messages['sportsbook'] = {
       stakeAboveMaximum: 'የውርርድ መጠኑ ከከፍተኛው በላይ ነው።',
       totalOddsAboveMaximum: 'ጠቅላላ ዕድሉ ከከፍተኛው በላይ ነው።',
       stakeLimit: 'ይህ ውርርድ የውርርድ ገደብዎን ያልፋል።',
+      liabilityLimit: 'ይህ ውርርድ ለዚህ ጨዋታ በአሁኑ ጊዜ በጣም ትልቅ ነው። አነስ ያለ መጠን ይሞክሩ።',
       lossLimit: 'ይህ ውርርድ የኪሳራ ገደብዎን ያልፋል።',
       excluded: 'መለያዎ አሁን መወራረድ አይችልም።',
       earlierPlaced: 'ያለፈው ሙከራዎ ተቀምጧል። የእኔ ውርርዶችን ይመልከቱ።',

@@ -129,6 +129,7 @@ export const sportsbook = {
       stakeAboveMaximum: 'The stake is above the maximum.',
       totalOddsAboveMaximum: 'The total odds are above the maximum.',
       stakeLimit: 'This bet goes over your stake limit.',
+      liabilityLimit: 'This bet is too large for this match right now. Try a smaller stake.',
       lossLimit: 'This bet goes over your loss limit.',
       excluded: 'Your account cannot place bets right now.',
       earlierPlaced: 'Your earlier attempt was placed. Check My Bets.',

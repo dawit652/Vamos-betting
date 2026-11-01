@@ -6,6 +6,7 @@ import {
   DEFAULT_MULTI_BONUS,
   DEFAULT_PAYMENT_RULES,
   DEFAULT_RESPONSIBLE_GAMBLING,
+  DEFAULT_RISK_LIMITS,
   DEFAULT_TAX,
   MAX_ODDS_MILLI,
   MIN_ODDS_MILLI,
@@ -15,6 +16,7 @@ import {
   type MultiBonusConfig,
   type PaymentRules,
   type ResponsibleGamblingRules,
+  type RiskLimits,
   type TaxConfig,
 } from '@vamos/core';
 import { inArray, sql } from 'drizzle-orm';
@@ -43,6 +45,8 @@ export interface GameSettings {
   jackpots: JackpotTemplates;
   /** Deposit and withdrawal limits, auto-approval and wagering (Phase 6). */
   payments: PaymentRules;
+  /** House liability caps checked when a bet is placed (rule L1); no caps by default. */
+  riskLimits: RiskLimits;
 }
 
 /** `settings.key` of each game setting. */
@@ -55,6 +59,7 @@ export const GAME_SETTING_KEYS = {
   responsibleGambling: 'responsible_gambling',
   jackpots: 'jackpots',
   payments: 'payments',
+  riskLimits: 'risk_limits',
 } as const satisfies Record<keyof GameSettings, string>;
 
 export type GameSettingKey = (typeof GAME_SETTING_KEYS)[keyof typeof GAME_SETTING_KEYS];
@@ -68,6 +73,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   responsibleGambling: DEFAULT_RESPONSIBLE_GAMBLING,
   jackpots: DEFAULT_JACKPOTS,
   payments: DEFAULT_PAYMENT_RULES,
+  riskLimits: DEFAULT_RISK_LIMITS,
 };
 
 /** A stored setting does not match its schema. */
@@ -203,6 +209,24 @@ export const PaymentRulesSchema = z
     'minWithdrawal must not exceed dailyWithdrawalCap',
   );
 
+/** A cap is a positive amount or null (no cap): zero would refuse every bet, which is not a cap. */
+const capOrNull = z.union([positiveSantim, z.null()]);
+
+export const RiskLimitsSchema = z
+  .object({
+    maxSelectionLiability: capOrNull,
+    maxEventLiability: capOrNull,
+  })
+  .refine(
+    (limits) =>
+      limits.maxSelectionLiability === null ||
+      limits.maxEventLiability === null ||
+      limits.maxSelectionLiability <= limits.maxEventLiability,
+    // A match's liability is at least that of any one of its selections, so a selection cap above
+    // the match cap could never bind: more likely the two figures were swapped.
+    'maxSelectionLiability must not exceed maxEventLiability',
+  );
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -272,6 +296,11 @@ export function parseGameSettings(raw: Partial<Record<GameSettingKey, unknown>>)
       PaymentRulesSchema,
       k.payments,
       overDefault(defaults.payments, raw[k.payments]),
+    ),
+    riskLimits: parseWith(
+      RiskLimitsSchema,
+      k.riskLimits,
+      overDefault(defaults.riskLimits, raw[k.riskLimits]),
     ),
   };
 }

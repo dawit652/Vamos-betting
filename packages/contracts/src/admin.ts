@@ -1064,6 +1064,24 @@ export const PaymentRulesView = z.object({
 });
 export type PaymentRulesView = z.infer<typeof PaymentRulesView>;
 
+/**
+ * House liability caps (rule L1), checked when a bet is placed. A cap is a positive amount of
+ * santim, or null for no cap. The selection cap cannot exceed the match cap.
+ */
+export const RiskLimitsView = z
+  .object({
+    maxSelectionLiability: PositiveSantimText.nullable(),
+    maxEventLiability: PositiveSantimText.nullable(),
+  })
+  .refine(
+    (limits) =>
+      limits.maxSelectionLiability === null ||
+      limits.maxEventLiability === null ||
+      BigInt(limits.maxSelectionLiability) <= BigInt(limits.maxEventLiability),
+    { message: 'maxSelectionLiability must not exceed maxEventLiability' },
+  );
+export type RiskLimitsView = z.infer<typeof RiskLimitsView>;
+
 /** Every business setting in force (santim as strings). */
 export const GameSettingsView = z.object({
   betRules: BetRulesView,
@@ -1074,6 +1092,7 @@ export const GameSettingsView = z.object({
   responsibleGambling: ResponsibleGamblingView,
   jackpots: z.object({ daily9: JackpotTemplateView, weekly13: JackpotTemplateView }),
   payments: PaymentRulesView,
+  riskLimits: RiskLimitsView,
 });
 export type GameSettingsView = z.infer<typeof GameSettingsView>;
 
@@ -1094,6 +1113,7 @@ export const StaffSettingKeySchema = z.enum([
   'live_bet_delay_ms',
   'responsible_gambling',
   'payments',
+  'risk_limits',
   'multi_bonus',
   'jackpot_template',
 ]);
@@ -1111,6 +1131,7 @@ export const STAFF_SETTING_VALUE_SCHEMAS = {
   live_bet_delay_ms: z.number().int().min(0).max(60_000),
   responsible_gambling: ResponsibleGamblingView,
   payments: PaymentRulesView,
+  risk_limits: RiskLimitsView,
   multi_bonus: MultiBonusView,
   jackpot_template: JackpotTemplateView,
 } as const satisfies Record<StaffSettingKey, z.ZodType>;

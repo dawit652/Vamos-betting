@@ -194,6 +194,8 @@ export type ChannelRefusal =
   | { code: 'loss_limit_exceeded'; period: LossLimitPeriod; limit: Santim }
   | { code: 'stake_below_minimum'; min: Santim }
   | { code: 'stake_above_maximum'; max: Santim }
+  /** The house's liability cap (rule L1); `max` is the largest stake that fits, null when none does. */
+  | { code: 'liability_limit'; max: Santim | null }
   | { code: 'too_many_legs'; max: number }
   | { code: 'odds_below_minimum'; minOddsMilli: number }
   | { code: 'total_odds_above_maximum' }
@@ -296,6 +298,18 @@ export function refusalBody(refusal: ChannelRefusal, locale: ChannelLocale): str
         en: `The maximum stake is ${money(refusal.max)}. ${noBet}`,
         am: `ከፍተኛው መጠን ${money(refusal.max)} ነው። ${noBet}`,
       };
+      break;
+    case 'liability_limit':
+      text =
+        refusal.max === null
+          ? {
+              en: `This bet is too large for this game right now. ${noBet}`,
+              am: `ይህ ውርርድ ለዚህ ጨዋታ በአሁኑ ጊዜ በጣም ትልቅ ነው። ${noBet}`,
+            }
+          : {
+              en: `This bet is too large for this game right now. Try a stake up to ${money(refusal.max)}. ${noBet}`,
+              am: `ይህ ውርርድ ለዚህ ጨዋታ በአሁኑ ጊዜ በጣም ትልቅ ነው። እስከ ${money(refusal.max)} ይሞክሩ። ${noBet}`,
+            };
       break;
     case 'too_many_legs':
       text = {

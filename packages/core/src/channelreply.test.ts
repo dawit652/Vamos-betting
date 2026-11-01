@@ -52,6 +52,8 @@ const REFUSALS: ChannelRefusal[] = [
   { code: 'loss_limit_exceeded', period: 'month', limit: 10_000_000n },
   { code: 'stake_below_minimum', min: 500n },
   { code: 'stake_above_maximum', max: 10_000_000n },
+  { code: 'liability_limit', max: 15_100n },
+  { code: 'liability_limit', max: null },
   { code: 'too_many_legs', max: 40 },
   { code: 'odds_below_minimum', minOddsMilli: 1100 },
   { code: 'total_odds_above_maximum' },
@@ -220,6 +222,13 @@ describe('refusals', () => {
     ).toBe('This bet could take you over your 7-day loss limit of ETB 10,000.00. No bet placed.');
     expect(refusalBody({ code: 'odds_changed', oddsMilli: 1850 }, 'en')).toBe(
       'The odds have changed to 1.85. No bet placed.',
+    );
+    // The house cap (rule L1): names the stake that fits, and never the cap itself.
+    expect(refusalBody({ code: 'liability_limit', max: 15_100n }, 'en')).toBe(
+      'This bet is too large for this game right now. Try a stake up to ETB 151.00. No bet placed.',
+    );
+    expect(refusalBody({ code: 'liability_limit', max: null }, 'en')).toBe(
+      'This bet is too large for this game right now. No bet placed.',
     );
   });
 });

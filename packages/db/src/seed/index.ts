@@ -6,6 +6,7 @@ import {
   DEFAULT_MULTI_BONUS,
   DEFAULT_PAYMENT_RULES,
   DEFAULT_RESPONSIBLE_GAMBLING,
+  DEFAULT_RISK_LIMITS,
   DEFAULT_TAX,
 } from '@vamos/core';
 import type { Database } from '../client';
@@ -55,6 +56,7 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, unknown>> = {
   responsible_gambling: DEFAULT_RESPONSIBLE_GAMBLING,
   jackpots: DEFAULT_JACKPOTS,
   payments: DEFAULT_PAYMENT_RULES,
+  risk_limits: DEFAULT_RISK_LIMITS,
 };
 
 /** `settings.updated_by` for rows written by the seed. */

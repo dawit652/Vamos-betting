@@ -1,13 +1,21 @@
-import { applyOddsChangePolicy, quoteBet, type SlipLeg } from '@vamos/core';
+import {
+  applyOddsChangePolicy,
+  hasRiskLimits,
+  liabilityBreach,
+  quoteBet,
+  type SlipLeg,
+} from '@vamos/core';
 import { and, asc, eq, lte } from 'drizzle-orm';
 import { postTransaction } from '../ledger/post';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { enqueueOutbox } from '../platform/outbox';
 import { betLegs, bets } from '../schema/betting';
+import { loadGameSettings } from '../settings/index';
 import { BET_ACCEPTED, BET_REJECTED } from './events';
 import { potentialOf } from './place';
 import { refundEntries, rejectionLedgerKey } from './postings';
 import { getBetById } from './queries';
+import { lockEventsForRisk, openLiabilities } from './risk';
 import { loadSelectionSnapshots, unavailableReason } from './selections';
 import { settlePlacedBet } from './settle';
 import { parseTerms, type UserBet } from './types';
@@ -141,6 +149,26 @@ export async function acceptPendingBet(
       tax: terms.tax,
     });
     if (quote.errors.length > 0) return rejectPendingBet(tx, betId, now, 'slip_invalid');
+    // A price taken at acceptance can raise the payout, which adds liability that placement did
+    // not check (rule L1). Only the increase is new: the bet's old payout is already in the sums.
+    // Refused as `odds_changed`: at the new price the bet no longer fits.
+    const increase = quote.grossPayout - bet.potentialGrossPayout;
+    if (increase > 0n) {
+      const limits = (await loadGameSettings(tx)).riskLimits;
+      if (hasRiskLimits(limits)) {
+        await lockEventsForRisk(
+          tx,
+          legs.map((leg) => leg.eventId),
+        );
+        const open = await openLiabilities(tx, {
+          selectionIds: legs.map((leg) => leg.selectionId),
+          eventIds: legs.map((leg) => leg.eventId),
+        });
+        if (liabilityBreach({ payout: increase, ...open, limits }) !== null) {
+          return rejectPendingBet(tx, betId, now, 'odds_changed');
+        }
+      }
+    }
     for (const [selectionId, oddsMilli] of newOdds) {
       await tx
         .update(betLegs)

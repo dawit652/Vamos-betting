@@ -66,6 +66,25 @@ describe('parseGameSettings', () => {
     expect(DEFAULT_GAME_SETTINGS.payments.wageringMultiplierBps).toBe(10_000);
   });
 
+  it('has no liability caps by default, and parses stored caps (santim strings) over that', () => {
+    expect(DEFAULT_GAME_SETTINGS.riskLimits).toEqual({
+      maxSelectionLiability: null,
+      maxEventLiability: null,
+    });
+    const parsed = parseGameSettings({
+      risk_limits: { maxSelectionLiability: '100000000', maxEventLiability: null },
+    });
+    expect(parsed.riskLimits).toEqual({
+      maxSelectionLiability: 100_000_000n,
+      maxEventLiability: null,
+    });
+    // A missing field keeps its default (no cap).
+    expect(parseGameSettings({ risk_limits: { maxEventLiability: '5' } }).riskLimits).toEqual({
+      maxSelectionLiability: null,
+      maxEventLiability: 5n,
+    });
+  });
+
   it('merges jackpot templates one by one', () => {
     const parsed = parseGameSettings({ jackpots: { daily9: { costPerCombination: '2000' } } });
     expect(parsed.jackpots.daily9).toEqual({
@@ -105,6 +124,13 @@ describe('parseGameSettings', () => {
     ['payments', { wageringMultiplierBps: -1 }],
     ['payments', { depositIntentTtlMinutes: 0 }],
     ['payments', { payoutMaxAttempts: 0 }],
+    // A cap is a positive amount or null: zero would refuse every bet.
+    ['risk_limits', { maxSelectionLiability: '0' }],
+    ['risk_limits', { maxEventLiability: '-5' }],
+    ['risk_limits', { maxEventLiability: '12.5' }],
+    ['risk_limits', { maxEventLiability: 'lots' }],
+    // The selection cap cannot exceed the match cap (probably swapped).
+    ['risk_limits', { maxSelectionLiability: '2000', maxEventLiability: '1000' }],
   ] as const)('rejects an invalid %s (%j), naming the key', (key, value) => {
     let error: unknown;
     try {

@@ -3,6 +3,10 @@ import {
   applyOddsChangePolicy,
   BET_SHORT_ID_LENGTH,
   encodeCode,
+  formatBirr,
+  hasRiskLimits,
+  largestStakeWithin,
+  liabilityBreach,
   quoteBet,
   toWire,
   validateSlip,
@@ -25,6 +29,7 @@ import type { GameSettings } from '../settings/index';
 import { BET_PLACED } from './events';
 import { stakeEntries, stakeLedgerKey } from './postings';
 import { getBetById, type BetRow } from './queries';
+import { lockEventsForRisk, openLiabilities } from './risk';
 import {
   loadSelectionSnapshots,
   snapshotOf,
@@ -39,7 +44,7 @@ const MAX_SHORT_ID_ATTEMPTS = 8;
 
 export type GameSettingsForBets = Pick<
   GameSettings,
-  'betRules' | 'multiBonus' | 'tax' | 'liveBetDelayMs'
+  'betRules' | 'multiBonus' | 'tax' | 'liveBetDelayMs' | 'riskLimits'
 >;
 
 export interface SlipLegInput {
@@ -97,6 +102,22 @@ export function oddsChangedError(policy: OddsChangePolicy, changes: LegOddsChang
       ? 'The odds of a selection on your betslip have changed.'
       : `The odds of ${changes.length} selections on your betslip have changed.`,
     { policy, changes },
+  );
+}
+
+/**
+ * 422 `liability_limit`, details `{ maxStake }`: the bet would take the house past a liability cap
+ * (rule L1). `maxStake` is the largest stake that still fits (wire santim), or null when even the
+ * minimum stake does not. The caps and the open liability stay private: they are the house's
+ * position.
+ */
+export function liabilityLimitError(maxStake: bigint | null): DomainError {
+  return domainUnprocessable(
+    'liability_limit',
+    maxStake === null
+      ? 'This bet is too large for this match right now.'
+      : `This bet is too large for this match right now. The largest stake that fits is ${formatBirr(maxStake, { currency: true })}.`,
+    { maxStake: maxStake === null ? null : toWire(maxStake) },
   );
 }
 
@@ -195,10 +216,13 @@ async function insertBetRow(
  * 5. the odds-change policy compares the current odds with the client's
  *    (409 `odds_changed`); an accepted bet is priced at the current odds;
  * 6. core validateSlip / quoteBet with the given settings (422 `slip_invalid`);
- * 7. the bet and its legs are inserted: `pending_acceptance` until
+ * 7. the house liability caps (assertWithinRiskLimits, 422 `liability_limit`);
+ *    only when a cap is set, under a lock per match so that bets at the same
+ *    moment cannot both fit in room that only one of them fits in;
+ * 8. the bet and its legs are inserted: `pending_acceptance` until
  *    now + liveBetDelayMs when any leg's event is live, else `open`;
- * 8. the `bet.placed` outbox event and the audit record;
- * 9. postTransaction(bet_stake) (422 `insufficient_funds`, which rolls back
+ * 9. the `bet.placed` outbox event and the audit record;
+ * 10. postTransaction(bet_stake) (422 `insufficient_funds`, which rolls back
  *    7 and 8 with the caller's transaction). It is last because it holds the
  *    shared house_stakes row lock until commit.
  * Request-level slip errors (no legs, duplicates, invalid odds or stake) are
@@ -279,6 +303,13 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
     tax: settings.tax,
   });
   if (quote.errors.length > 0) throw slipInvalidError(quote.errors);
+
+  await assertWithinRiskLimits(tx, {
+    legs: slipLegs,
+    stake,
+    quote,
+    settings,
+  });
 
   const betId = randomUUID();
   const live = resolved.some(({ snapshot }) => snapshot.eventStatus === 'live');
@@ -395,6 +426,45 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
   }
 
   return { bet, replayed: false };
+}
+
+/**
+ * Rule L1: the new bet's potential gross payout, added to the open liability of each of its
+ * selections and matches, must stay within the caps (`settings.riskLimits`; null = no cap).
+ * Does nothing, and takes no lock, when no cap is set. Otherwise it locks the matches of the bet
+ * (lockEventsForRisk) and sums the open bets under that lock (openLiabilities), so the answer
+ * holds when this transaction commits. Over a cap: 422 `liability_limit` with the largest stake
+ * that fits. The lock is held until the caller's transaction ends.
+ */
+async function assertWithinRiskLimits(
+  tx: DbTransaction,
+  input: {
+    legs: readonly SlipLeg[];
+    stake: bigint;
+    quote: BetQuote;
+    settings: Pick<GameSettingsForBets, 'betRules' | 'multiBonus' | 'tax' | 'riskLimits'>;
+  },
+): Promise<void> {
+  const { legs, stake, quote, settings } = input;
+  const limits = settings.riskLimits;
+  if (!hasRiskLimits(limits)) return;
+  const eventIds = legs.map((leg) => leg.eventId);
+  await lockEventsForRisk(tx, eventIds);
+  const open = await openLiabilities(tx, {
+    selectionIds: legs.map((leg) => leg.selectionId),
+    eventIds,
+  });
+  const breach = liabilityBreach({ payout: quote.grossPayout, ...open, limits });
+  if (breach === null) return;
+  const { betRules, multiBonus, tax } = settings;
+  const maxStake = largestStakeWithin({
+    headroom: breach.headroom,
+    minStake: betRules.minStake,
+    // The stake asked for already pays too much, so the answer is below it.
+    maxStake: stake - 1n,
+    payoutOf: (s) => quoteBet({ stake: s, legs, rules: betRules, multiBonus, tax }).grossPayout,
+  });
+  throw liabilityLimitError(maxStake);
 }
 
 /** The potential_* columns of a quote. */

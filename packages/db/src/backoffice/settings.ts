@@ -15,6 +15,7 @@ import {
   loadGameSettings,
   PaymentRulesSchema,
   ResponsibleGamblingSchema,
+  RiskLimitsSchema,
   TaxSchema,
   type GameSettings,
 } from '../settings/index';
@@ -38,6 +39,7 @@ export type StaffSettingKey =
   | 'live_bet_delay_ms'
   | 'responsible_gambling'
   | 'payments'
+  | 'risk_limits'
   | 'multi_bonus'
   | 'jackpot_template';
 
@@ -48,6 +50,7 @@ export const STAFF_SETTING_KEYS: readonly StaffSettingKey[] = [
   'live_bet_delay_ms',
   'responsible_gambling',
   'payments',
+  'risk_limits',
   'multi_bonus',
   'jackpot_template',
 ];
@@ -90,6 +93,7 @@ const PLAIN_SETTINGS = {
     schema: ResponsibleGamblingUpdateSchema,
   },
   payments: { key: GAME_SETTING_KEYS.payments, schema: PaymentRulesSchema },
+  risk_limits: { key: GAME_SETTING_KEYS.riskLimits, schema: RiskLimitsSchema },
 } as const satisfies Record<
   Exclude<StaffSettingKey, 'multi_bonus' | 'jackpot_template'>,
   { key: string; schema: z.ZodType }

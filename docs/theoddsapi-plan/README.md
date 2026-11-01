@@ -589,6 +589,9 @@ The shadow run (P5) passes when, over two weeks, all of these hold:
 6. A search of the database, the archive and the logs for the key finds nothing (the key travels only in the header;
    K6 as well if P1 was ever done).
 7. For real money only: the written licence answer (L1) and `SCRAPER_THEODDSAPI_LICENCE=confirmed`.
+8. For real money only: the house liability caps are set (back office, Settings, "House liability caps"). They
+   default to no cap. The owner decides the amounts from the bankroll: the most the house can afford to owe if one
+   outcome, or one match, goes against it.
 
 Then the Premier League goes to `market` for one week, while a trader watches re-prices and held proposals. After
 that, the other four leagues. If anything looks wrong, set the league back to `model` in the same select.

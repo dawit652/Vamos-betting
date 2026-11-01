@@ -16,6 +16,7 @@ export {
 export {
   oddsChangedError,
   placeBet,
+  liabilityLimitError,
   potentialOf,
   quoteSlip,
   selectionUnavailableError,
@@ -106,6 +107,7 @@ export {
   type SettlementAmounts,
   type SettlementPosting,
 } from './postings';
+export { lockEventsForRisk, openLiabilities, type OpenLiabilities } from './risk';
 export {
   isUuid,
   loadSelectionSnapshots,

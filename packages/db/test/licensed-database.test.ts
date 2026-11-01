@@ -31,7 +31,7 @@ describe('a licensed database', () => {
 
     expect(await seed(handle.db, { mode: 'licensed' })).toEqual({
       houseAccounts: 6,
-      settingsCreated: 8,
+      settingsCreated: 9,
     });
     expect(await getDatabaseOperatingMode(handle.db)).toBe('licensed');
     // Without a mode the seed follows the recorded one.

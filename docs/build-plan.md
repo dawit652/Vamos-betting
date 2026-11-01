@@ -308,7 +308,9 @@ payload})`, `claimOutboxBatch(tx, limit, {maxAttempts})` (FOR UPDATE SKIP LOCKED
     `markOutboxPublished`, `markOutboxFailed`, `writeAudit(...)`, and `getSetting` / `setSetting`.
     `getSetting` returns raw JSON, so santim values come back as strings.
   - **Settings keys:** `bet_rules`, `multi_bonus`, `tax`, `cash_out`, `live_bet_delay_ms`,
-    `responsible_gambling` and `jackpots`.
+    `responsible_gambling`, `jackpots`, `payments` and `risk_limits` (the house liability caps: the largest
+    liability on one selection and on one match, each a positive amount or null for no cap; checked in
+    `placeBet`, see `docs/therundown-plan/README.md` rule L1).
   - **Catalogue.** `isSelectionBettable(event, marketStatus, selectionStatus, now)`.
     `resultEvent(tx, eventId, input)` sets `selections.result` and the market status, then writes the
     outbox event `event.resulted` or `event.result_corrected`. The payload is `{eventId, status,
