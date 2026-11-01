@@ -474,7 +474,7 @@ describe('review payloads', () => {
         proposal: [{ type: '1x2', line: null, selections: [{ code: '1', oddsMilli: 900 }] }],
       }),
     ).toBeNull();
-    // Where the prices come from (rule O4): optional, and only the two sources.
+    // Where the prices come from (rule O5): optional, and only the two sources.
     for (const pricing of [
       { source: 'model' },
       { source: 'market', books: 6, residual: 0.012 },

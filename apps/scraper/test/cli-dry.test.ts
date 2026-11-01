@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { cliHarness, JSON_SOURCE, OPENFOOTBALL_SOURCE } from './cli-helpers';
 import {
@@ -47,6 +47,44 @@ describe('dry-parse (no database, no network)', () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('2 fixtures, 0 results');
     expect(result.stdout).toContain('... 1 more fixtures (use --limit)');
+  });
+
+  it('prints the bookmaker prices of a licensed odds feed as decimal odds, for comparing with the provider', async () => {
+    const source = {
+      id: 'rundown',
+      name: 'therundown',
+      adapter: 'therundown',
+      upstream: 'therundown',
+      config: {
+        allowedHosts: ['therundown.io'],
+        secret: 'SCRAPER_SECRET_THERUNDOWN',
+        sports: [{ sportId: 11, competition: 'Premier League' }],
+      },
+    };
+    cli.files.set('rundown.json', JSON.stringify(source));
+    cli.files.set(
+      'rundown-page.json',
+      readFileSync(
+        new URL(
+          '../../../packages/scraper/src/adapters/__fixtures__/therundown-epl.json',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    );
+    const result = await cli.run(
+      ...['dry-parse', '--source-file', 'rundown.json', '--document', 'rundown-page.json'],
+      ...[
+        '--url',
+        'https://therundown.io/api/v2/sports/11/events/2026-11-07?market_ids=1,3',
+        ...['--at', '2026-11-01T10:00:00Z', '--limit', '0'],
+      ],
+    );
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain('16 prices');
+    expect(result.stdout).toContain(
+      'Arsenal v Chelsea  book 19: 1 2.500, X 3.500, 2 2.800, over 2.5 1.909, under 2.5 1.909; book 23: 1 2.450',
+    );
   });
 
   it('writes the observations as JSON with --json', async () => {

@@ -1,6 +1,20 @@
 # 10. A licensed market odds feed (plan)
 
-Status: **plan, not built**. Owner of the decision to buy: the person running Vamos. Related fix-plan items: F-05
+Status (2026-11-01): **the owner reversed "check only" to "market first"; built, unverified against the real
+provider.** The plan below (M1 to M5, steps 1 to 8: a check that only closes) is **not** what was built. By the
+owner's decision, bookmaker odds from the licensed feed now get priority over our team-rating model when pricing a
+competition that is switched to it (`docs/scraper.md` section 1 and rule O5; default is still the model).
+Built: the adapter `therundown` (american or decimal prices to integer milli, golden file synthetic), the table
+`scrape_market_odds` with its queries and pruning (migration 0038), the consensus (`marketConsensus` in
+`packages/core`, median of margin-free books, at least 2 books), the pricing from it (`packages/feed/src/pricing/market.ts`:
+1X2, double chance, draw no bet and the 2.5 line from the consensus, the rest from a goals model fitted to it, fit
+residual at most 0.03), the per-competition flag `pricing_source` (migration 0039, a select on the back office
+`/feed` page), the shared `priceEvent` and the re-pricing and hand-over changes (`apps/scraper/src/pipeline`).
+Every price change still goes through the O3 bounds, O2 and a trader. **Not built:** M2 out-of-line check, M3, M4,
+the review kind `odds_out_of_line`, M5 (the feed's fixtures and results as a second upstream), the replay
+acceptance of step 6 and the request budget alarms. **Not done and needed first:** the written licence (G2), one
+real response to replace the synthetic golden file and confirm `priceFormat`, the sport id, `periodId` and the
+market ids (see `docs/scraper-operations.md` section 8). Original status: plan, not built. Owner of the decision to buy: the person running Vamos. Related fix-plan items: F-05
 (exposure policy, high), F-06 (a second upstream, high), F-17 (draw pricing).
 
 ## Why, in one paragraph

@@ -16,7 +16,7 @@ export interface CompetitionPolicy {
   autoResults: boolean;
   /** Knockout competition: a score is never applied automatically, a person confirms it. */
   extraTime: boolean;
-  /** Where prices come from: the team-rating model (default) or a licensed bookmaker-odds feed first (rule O4). */
+  /** Where prices come from: the team-rating model (default) or a licensed bookmaker-odds feed first (rule O5). */
   pricingSource: ScrapePricingSource;
 }
 

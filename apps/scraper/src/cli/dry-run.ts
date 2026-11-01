@@ -40,11 +40,44 @@ function score(s: { home: number; away: number; htHome: number | null; htAway: n
   return `${s.home}-${s.away}${s.htHome === null ? '' : ` (ht ${s.htHome}-${s.htAway})`}`;
 }
 
+const decimal = (milli: number): string => (milli / 1000).toFixed(3);
+
+/**
+ * One line per match that has bookmaker prices: for each bookmaker its 1X2 and over/under, as decimal odds,
+ * so a person can compare them with the provider's own site (is the price format right?).
+ */
+function priceLines(outcome: ParseOutcome): string[] {
+  const matches = new Map<string, { head: string; books: Map<string, string[]> }>();
+  for (const row of outcome.marketOdds) {
+    const key =
+      row.externalRef ?? `${row.competition}|${row.home}|${row.away}|${row.kickoff.toISOString()}`;
+    let match = matches.get(key);
+    if (match === undefined) {
+      match = {
+        head: `${row.kickoff.toISOString()}  ${row.competition}: ${row.home} v ${row.away}`,
+        books: new Map(),
+      };
+      matches.set(key, match);
+    }
+    const parts = match.books.get(row.bookmaker) ?? [];
+    parts.push(
+      `${row.market === 'ou' ? `${row.selection} ${row.line}` : row.selection} ${decimal(row.priceMilli)}`,
+    );
+    match.books.set(row.bookmaker, parts);
+  }
+  return [...matches.values()].map(
+    (m) =>
+      `${m.head}  ` +
+      [...m.books].map(([book, parts]) => `book ${book}: ${parts.join(', ')}`).join('; '),
+  );
+}
+
 /** Text lines for one parse outcome: counts, the first `limit` observations, every issue. */
 export function describeOutcome(outcome: ParseOutcome, limit: number): string[] {
   const lines = [
     `records seen ${outcome.stats.recordsSeen}, accepted ${outcome.stats.recordsAccepted}; ` +
       `${outcome.fixtures.length} fixtures, ${outcome.results.length} results, ` +
+      (outcome.marketOdds.length === 0 ? '' : `${outcome.marketOdds.length} prices, `) +
       `${outcome.issues.length} issues`,
   ];
   const shown = (kind: string, items: string[]) => {
@@ -68,6 +101,7 @@ export function describeOutcome(outcome: ParseOutcome, limit: number): string[] 
         (r.externalRef === null ? '' : `  ref ${r.externalRef}`),
     ),
   );
+  shown('prices', priceLines(outcome));
   for (const issue of outcome.issues) {
     lines.push(
       `${issue.severity}${issue.fatal === true ? ' (fatal)' : ''}  ${issue.code}: ${issue.message}` +

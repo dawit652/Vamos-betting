@@ -445,7 +445,7 @@ const OddsReviewPayload = z.object({
   proposal: RepriceProposal.optional(),
   ratingsKey: z.string().optional(),
   /**
-   * Where the prices of the proposal or the hand-over come from (rule O4): the
+   * Where the prices of the proposal or the hand-over come from (rule O5): the
    * team-rating model, or the consensus of `books` bookmakers of a licensed feed
    * (`residual`: how well the goals model fits it). `fallback` says why the
    * market could not be used when the competition asked for it.

@@ -110,8 +110,10 @@ Everything else is in [known-limits.md](scraper-plan/known-limits.md).
 ## Decisions already taken (from the plan)
 
 - TypeScript on Node 22, inside the monorepo.
-- Odds are priced in-house from team ratings; scraped bookmaker odds are never
-  published.
+- Odds are priced in-house from team ratings by default. Since 2026-10-31, by
+  the owner's decision, a competition may be set to take its prices from a
+  licensed odds feed first (TheRundown), with the model as fallback (rule O5);
+  scraped (unlicensed) bookmaker odds are still never published.
 - Version 1: football, fixtures and final results, one competition at a time.
 - New events start with betting closed; results need two independent upstreams,
   a waiting period and, until a competition is switched to automatic, a person's

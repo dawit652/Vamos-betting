@@ -32,7 +32,7 @@ import {
 } from './helpers';
 
 /**
- * Rule O4: a competition set to take its prices from the licensed bookmaker feed is re-priced from the
+ * Rule O5: a competition set to take its prices from the licensed bookmaker feed is re-priced from the
  * feed's consensus when at least two books list the event and the fit is good; otherwise from the
  * model, exactly as before. Every safety of re-pricing stays: bounds, O2, trader approval, betting
  * never opened, events too close to kickoff, resulted or switched-off competitions untouched.

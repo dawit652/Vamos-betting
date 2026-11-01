@@ -71,7 +71,7 @@ const current = (): Outcome => ({ kind: 'current', messages: [] });
 const skipped = (): Outcome => ({ kind: 'skipped', messages: [] });
 
 /**
- * Rule O3, re-pricing after ratings change (and rule O4, after the bookmaker market changes
+ * Rule O3, re-pricing after ratings change (and rule O5, after the bookmaker market changes
  * for a competition whose policy takes its prices from the licensed feed: see event-pricing.ts;
  * the stamp then holds a market key, the same bounds, O2, trader hold and lead time apply, and a
  * market-priced event whose market goes stale keeps its prices). Every applied result moves two
@@ -273,7 +273,7 @@ async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): 
     const rated = await getTeamRatings(tx, [row.homeTeamId, row.awayTeamId]);
     const home = rated.get(row.homeTeamId)?.ratings ?? null;
     const away = rated.get(row.awayTeamId)?.ratings ?? null;
-    // O4: where the prices come from (the market when the policy says so and a fresh consensus exists).
+    // O5: where the prices come from (the market when the policy says so and a fresh consensus exists).
     const price = await priceEvent(tx, pricingInput(ctx, policy, event.eventId, home, away, now));
     const key = price.key;
     const held = heldKeyOf(key, enabled);

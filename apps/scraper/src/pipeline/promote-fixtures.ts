@@ -431,7 +431,7 @@ async function assessCreation(
 
 /**
  * O1 and O2 for a fixture that has no event yet. A new event is always created with the model's
- * prices (rule O4: the market has nothing to be read for before the event exists); the next
+ * prices (rule O5: the market has nothing to be read for before the event exists); the next
  * re-pricing pass moves it to the market prices when its competition takes them from the feed.
  */
 export async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTeamId: string) {

@@ -129,7 +129,7 @@ once, and its current observations stop voting straight away (they are hidden fr
 What it already stored stays in the archive. Enabling it again resumes polling. Disabling needs `trading.status`
 (admin, trader). `sources upsert` never changes the flag of an existing source (see [adding a new feed source](runbooks/feed-new-source.md)).
 
-**Competition flags (the four columns on the competitions table).** Each competition has a policy row; a
+**Competition flags (the four columns on the competitions table, and the "Prices from" select).** Each competition has a policy row; a
 competition with no row shows all flags off (`configured: false`).
 
 | Flag         | Off means                                                                                                                                                          | On means                                                                                         |
@@ -141,6 +141,11 @@ competition with no row shows all flags off (`configured: false`).
 
 Who can change them: turning **Enabled**, **Auto open** or **Auto results** off needs `trading.status` (admin,
 trader). Turning any of them on, or changing **Extra time**, needs `settings.edit` (admin only).
+
+**Prices from (select).** `Team ratings (model)` is the default and what every competition uses until a
+person changes it; `Bookmaker feed first` is section 8. Switching to the feed needs `settings.edit` (admin
+only); switching back to the model needs only `trading.status`. Neither changes an existing price at once: the
+next re-pricing pass looks at each event (a big change waits as an `odds_approval` item for a trader).
 
 **Stop the whole scraper.** `docker compose stop scraper` stops fetching and promotion. Nothing is changed in
 the catalogue by stopping it, and what was stored stays. Betting on events that are already open carries on
@@ -256,3 +261,36 @@ A source with a licensed API (API-Football, `x-apisports-key`) names an environm
 - **Where the value never goes.** Logs, run issues, review items, the audit trail, `scrape_sources`, the raw archive
   and the CLI output. A key that was pasted into a source file by mistake is refused by `sources upsert`; if one
   ever reached a ticket, chat or git, treat it as leaked and rotate it.
+
+## 8. Pricing from a licensed odds feed
+
+A competition can take its prices from the licensed odds feed (TheRundown) instead of the team-rating
+model ([scraper.md](scraper.md) rule O5). The default is the model. Before the first switch, in this order:
+
+1. **The licence.** The provider has confirmed **in writing** that an operator may use its prices to set its own
+   prices (plan gate G2 in [scraper-plan/10-market-odds-feed.md](scraper-plan/10-market-odds-feed.md)). Without
+   it, do not enable the source: the feed's prices must not be used, even for a check.
+2. **A real response.** The adapter was written from the documented shape; its test file is synthetic. Put the
+   key in `SCRAPER_SECRET_THERUNDOWN` (section 7), write the source file (`adapter: therundown`, `secret`,
+   `sports: [{ sportId, competition }]`), and run `dry-fetch --source-file ...` with the same environment. Read the
+   output (a `prices` line per match, with each bookmaker's 1X2 and over/under as decimal odds) against one real match on the provider's own site: the **price format** (`priceFormat`, american or
+   decimal: a wrong choice makes the page fail, never gives wrong prices silently), the **sport id** of the
+   league, the **period** of the full match (`periodId`), the market ids (`moneylineMarketId`, `totalsMarketId`),
+   and the draw name. Fix the source file, not the code; if the real shape differs, stop and ask a developer.
+3. **Enable the source** (`sources upsert`, then Enable on `/feed`) and let it run for a day. Check that runs are
+   `ok`, that the fixtures resolve (no new unknown-name items), and that prices arrive:
+   `SELECT count(*), max(observed_at) FROM scrape_market_odds WHERE event_id IS NOT NULL;` (rows with a null
+   `event_id` are matches we have no event for yet).
+4. **Switch one competition** on `/feed`: "Prices from" to `Bookmaker feed first`. One competition first, a
+   quiet one. Within a minute or two its events with at least two bookmakers get new prices (small changes
+   apply by themselves; a big one waits as an `odds_approval` item named `<match>|reprice` with a `pricing`
+   line "market: N books, fit residual x"). Compare a few prices with the provider's site before widening.
+
+Running it: the feed is read on the source's usual schedule; prices last listed more than 3 hours ago are not used. If the
+feed stops, events already priced from it **keep their prices** (nothing jumps back to the model); events not yet
+priced from it stay on the model. To stop using the feed for a competition, set "Prices from" back to
+`Team ratings (model)`: the next pass prices its events from ratings again, through the same bounds. To stop
+everything at once, disable the feed's source (Enable / Disable): its prices stop counting immediately.
+
+Never in this flow: scraped (unlicensed) bookmaker prices, opening betting by itself (a trader still opens
+betting), anything cancelling, voiding or settling from prices.

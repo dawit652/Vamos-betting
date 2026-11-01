@@ -18,7 +18,7 @@ export const SCRAPE_ADAPTERS = [
 export type ScrapeAdapterName = (typeof SCRAPE_ADAPTERS)[number];
 
 /**
- * Where a competition's prices come from (scrape_competition_policy.pricing_source, rule O4):
+ * Where a competition's prices come from (scrape_competition_policy.pricing_source, rule O5):
  * 'model' is the team-rating model (the default); 'market' takes them from the consensus of a
  * licensed bookmaker-odds feed when one is fresh enough, and falls back to the model otherwise.
  */

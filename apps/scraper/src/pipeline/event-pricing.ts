@@ -18,7 +18,7 @@ import {
 import { checkMarkets, isCalibrated, MARKET_ODDS_MAX_AGE_MS, ratingsKey } from '@vamos/scraper';
 
 /**
- * Rule O4, where an event's prices come from. One function for every place that prices a scraped
+ * Rule O5, where an event's prices come from. One function for every place that prices a scraped
  * football event (creation, re-pricing, the hand-over to a trader), so they cannot disagree.
  *
  * - The competition's policy says 'market' AND the event exists AND the licensed bookmaker feed

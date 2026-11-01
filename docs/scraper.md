@@ -5,8 +5,9 @@ turned into catalogue changes without letting a bad read reach money.
 
 **Status:** version 1 is football only: upcoming fixtures and final results.
 Live scores and other sports come later. Odds are priced in-house from team
-ratings (`packages/feed/src/pricing`); scraped bookmaker odds are never
-published.
+ratings (`packages/feed/src/pricing`); a competition can be set to take its
+prices from a licensed odds feed first (section 1, rule O5). Scraped
+(unlicensed) bookmaker odds are never published.
 
 **Promise.** A scraper cannot promise zero errors: sites change their markup,
 publish wrong scores and correct them later. What this design promises is
@@ -37,6 +38,16 @@ existing platform: markets → bets → settlement → ledger
 
 The scraper never writes to the catalogue directly. It can stall the staging
 area; it cannot corrupt betting.
+
+**Decision change, 2026-10-31.** Until then every price came from our own team-rating
+model and bookmaker odds were only ever a check. By the owner's decision, a competition
+may now be set to take its prices from a **licensed** odds feed (a paid API with a
+written licence for operator use; today TheRundown): when the feed has a fresh consensus
+for an event, our prices follow it, with our own margin. The model stays the fallback and
+the default: nothing changes for a competition until a person switches it. What did not
+change: scraped (unlicensed) bookmaker odds are still never published, bookmaker prices
+never settle, void or cancel anything, and every price change still passes the same
+bounds, sanity checks and trader approval (rule O5).
 
 ## 2. Where the code lives
 
@@ -77,6 +88,24 @@ An adapter turns one document into `FixtureObservation`s and
 - `parse` never throws. A page it cannot understand at all yields a `fatal`
   issue and zero records.
 
+### 3.1 Bookmaker prices (`market_odds`)
+
+A licensed odds feed (adapter `therundown`, kind `licensed_api`) also produces
+`MarketOddsObservation`s: what ONE bookmaker offered for ONE selection of ONE match
+(football 1X2, and the over/under total on a half-point line), as integer milli rounded
+down, with the feed's own `priceUpdatedAt`. They are stored in `scrape_market_odds` (one
+row per source, match, bookmaker, market, line and selection: the state as of the last
+fetch that listed it; a `304` counts as listing it again; rows not listed for 7 days are
+deleted). Names are resolved with the same aliases as fixtures; a row is linked to the
+event of the same competition and teams that starts within `MARKET_ODDS_LINK_WINDOW_MS`
+of its kickoff, when there is exactly one (the promotion pass links the rows of events
+created after the prices were read). Freshness is when WE last saw the price listed
+(`observed_at`), not the price's own time: a price that has not moved for 12 hours is
+current if the latest fetch lists it. A bookmaker the latest fetch no longer lists, and
+an event the latest successful run no longer lists, drop out; a disabled source never
+counts. Prices are used only by rule O5; they are never shown, never copied into a
+market, and never an input to results.
+
 ## 4. Data model
 
 All tables are in `packages/db/src/schema/scrape.ts`; names are normative,
@@ -87,7 +116,8 @@ Text columns with a closed set get a CHECK constraint built from
 | Table                                 | Purpose                                                                                                                                                                                                                                                                                            |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scrape_sources`                      | `id` text PK, `name`, `adapter` (`SCRAPE_ADAPTERS`), `upstream`, `config` jsonb (adapter config incl. `allowedHosts`, requests, `timeZone`, competition label, `scoreBasis`), `enabled` (default **false**), timestamps, `updated_by`                                                              |
-| `scrape_competition_policy`           | `competition_id` PK → competitions, `enabled` (default false), `auto_open` (default false), `auto_results` (default false), `extra_time` (default false), `updated_at`, `updated_by`                                                                                                               |
+| `scrape_competition_policy`           | `competition_id` PK → competitions, `enabled` (default false), `auto_open` (default false), `auto_results` (default false), `extra_time` (default false), `pricing_source` (`model` default, or `market`, rule O5), `updated_at`, `updated_by`                                                     |
+| `scrape_market_odds`                  | bookmaker prices of a licensed feed (section 3.1): `source_id`, `source_key`, `bookmaker`, `market`, `line`, `selection`, `price_milli`, `price_updated_at`, `observed_at`, resolved ids and `event_id` (nullable until linked), `run_id`, `raw_id`                                                |
 | `scrape_runs`                         | one fetch+parse cycle of a source: `id`, `source_id`, `started_at`, `finished_at`, `status` (`SCRAPE_RUN_STATUSES`), `trigger` (`schedule`/`manual`), `requests`, `bytes`, `records_seen`, `records_accepted`, `fixtures`, `results`, `issues` jsonb (capped), `error`                             |
 | `scrape_raw`                          | a stored snapshot: `id`, `run_id`, `url`, `status`, `content_type`, `content_hash` (SHA-256 hex), `bytes`, `fetched_at`, `keep` (result evidence is never pruned)                                                                                                                                  |
 | `scrape_observations`                 | current state per `(source_id, kind, source_key)`: raw names, resolved `competition_id` / `home_team_id` / `away_team_id` (nullable until resolved), `sport`, `kickoff`, `status`, `score` jsonb, `score_basis`, `payload_hash`, `first_seen_at`, `last_seen_at`, `changed_at`, `run_id`, `raw_id` |
@@ -435,6 +465,43 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   or starts within `MIN_LEAD_MS`, or the book no longer fits the event's markets
   or fails O2 (422 `proposal_not_applicable`), and applies it in one
   transaction like the automatic path; only the size of the move is waived.
+- **O5 Pricing source (bookmaker odds first, model as fallback).** Where an event's prices come
+  from is decided by one function (`priceEvent`, `apps/scraper/src/pipeline/event-pricing.ts`),
+  used by creation, re-pricing and the hand-over to a trader. For a competition whose policy
+  `pricing_source` is `market`, an event that already exists is priced from the licensed feed
+  when ALL of these hold: the 1X2 consensus (`marketConsensus`: per bookmaker, the margin
+  removed proportionally, then the median) comes from at least `CONSENSUS_MIN_BOOKS` (2)
+  complete, sane books, counted once per (upstream, bookmaker); every price used was last
+  listed at most `MARKET_ODDS_MAX_AGE_MS` (3 hours) ago (see 3.1); and the goals model fitted to
+  the consensus (`fitGoalsToMarket`) explains it, with a fit residual of at most
+  `MAX_MARKET_FIT_RESIDUAL` (0.03). Then the 1X2, double chance and draw no bet are priced from
+  the consensus probabilities, the 2.5 goals line too when the consensus has it, and every other
+  market from the goals model fitted to it (`priceFootballFromMarket`), all with our own margin
+  and O2. The stamp key is `marketPricingKey` (prefix `mkt1`, probabilities rounded to half a
+  percentage point, so a market that only wiggles does not re-price), and the event counts as
+  calibrated: O1 is about team ratings and market prices do not use them. In every other case
+  (policy `model`, no event yet, fewer books, stale, poor fit) the prices are the model's, with
+  `ratingsKey` and O1, exactly as in O3.
+  - A **new** event is always created with the model's prices; the next re-pricing pass moves it
+    to the market prices.
+  - Re-pricing is O3 with the other key: an event whose stamp differs from the key it would get
+    now is priced again, checked with `checkReprice` (including the switch from model to market,
+    which is a big move if the two disagree: it is held as the `odds_approval` item
+    `<feedRef>|reprice` for a trader), O2 on every market, and applied only inside the bounds.
+    It looks at market-policy events whose teams are not calibrated too. It never opens betting,
+    never touches an event within `MIN_LEAD_MS`, not scheduled or resulted, and a competition
+    whose policy is not `enabled` only gets held proposals (S4).
+  - A market-priced event whose market is no longer usable **keeps its prices**: it does not fall
+    back to the model by itself (a person switches the competition back to `model` if wanted).
+  - An event priced from the market counts as ready for the trader's "Open betting" item; a
+    trader still opens betting (the scraper never does).
+  - The `odds_approval` payload says where the prices came from (`pricing`: `source`, `books`,
+    `residual`, or the `fallback` reason); the audit of `scrape.fixture.repriced` and
+    `scrape.fixture.calibrated` records the same. A trader applies a held market proposal with
+    `apply_reprice` while it is the proposal the scraper last raised (else 409 `proposal_stale`).
+  - Constants (`packages/scraper/src/constants.ts` and the pricing packages): `CONSENSUS_MIN_BOOKS` 2,
+    `MARKET_ODDS_MAX_AGE_MS` 3 h, `MARKET_ODDS_LINK_WINDOW_MS` 6 h, `MAX_MARKET_FIT_RESIDUAL` 0.03,
+    `MAX_PRICE_MOVE_RATIO` 1.25 (unchanged).
 - **O4 Ratings update.** A confirmed result updates both teams' ratings once
   (`scrape_rating_applied`), in the same transaction as the result. In the same
   transaction the competition's home advantage is re-derived from its finished
@@ -519,15 +586,15 @@ Routes under `/admin/feed/*`, contracts in `packages/contracts/src/feed.ts`, wit
 the same table-of-routes-and-permissions pattern as `COMPLIANCE_ROUTE_PERMISSIONS`.
 Existing permissions are reused (no new ones):
 
-| Route                                                                       | Permission                                                                              |
-| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `GET /admin/feed/health` (sources, last runs, queue counts)                 | `trading.view`                                                                          |
-| `GET /admin/feed/review`, `GET /admin/feed/review/:id`                      | `trading.view`                                                                          |
-| `POST /admin/feed/review/:id/resolve` – open betting, dismiss, map alias    | `trading.status`                                                                        |
-| … same route applying a **result** (`result_ready`, `result_unverified`)    | `trading.result`                                                                        |
-| `GET /admin/feed/aliases`, `POST` and `DELETE /admin/feed/aliases/:id`      | `trading.view` / `trading.status`                                                       |
-| `PUT /admin/feed/sources/:id` – enable or disable (kill switch)             | `trading.status`                                                                        |
-| `GET /admin/feed/competitions`, `PUT /admin/feed/competitions/:id` – policy | `trading.view` / `settings.edit` (turning a policy **off** needs only `trading.status`) |
+| Route                                                                       | Permission                                                                                                                           |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /admin/feed/health` (sources, last runs, queue counts)                 | `trading.view`                                                                                                                       |
+| `GET /admin/feed/review`, `GET /admin/feed/review/:id`                      | `trading.view`                                                                                                                       |
+| `POST /admin/feed/review/:id/resolve` – open betting, dismiss, map alias    | `trading.status`                                                                                                                     |
+| … same route applying a **result** (`result_ready`, `result_unverified`)    | `trading.result`                                                                                                                     |
+| `GET /admin/feed/aliases`, `POST` and `DELETE /admin/feed/aliases/:id`      | `trading.view` / `trading.status`                                                                                                    |
+| `PUT /admin/feed/sources/:id` – enable or disable (kill switch)             | `trading.status`                                                                                                                     |
+| `GET /admin/feed/competitions`, `PUT /admin/feed/competitions/:id` – policy | `trading.view` / `settings.edit` (turning a policy **off**, or setting `pricingSource` back to `model`, needs only `trading.status`) |
 
 Every mutation is audited with the staff actor. Resolving a result applies it
 through the same function as automatic promotion, so the rules R1, R8–R11 hold
