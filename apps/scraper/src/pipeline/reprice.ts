@@ -388,6 +388,7 @@ const pricingAudit = (price: EventPrice) => ({
   pricingSource: price.source,
   ...(price.books === undefined ? {} : { books: price.books }),
   ...(price.residual === undefined ? {} : { fitResidual: price.residual }),
+  ...(price.totalsLine === undefined ? {} : { totalsLine: price.totalsLine }),
   ...(price.fallback === undefined ? {} : { marketFallback: price.fallback }),
 });
 

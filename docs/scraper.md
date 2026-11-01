@@ -472,15 +472,19 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   when ALL of these hold: the 1X2 consensus (`marketConsensus`: per bookmaker, the margin
   removed proportionally, then the median) comes from at least `CONSENSUS_MIN_BOOKS` (2)
   complete, sane books, counted once per (upstream, bookmaker); every price used was last
-  listed at most `MARKET_ODDS_MAX_AGE_MS` (3 hours) ago (see 3.1); and the goals model fitted to
-  the consensus (`fitGoalsToMarket`) explains it, with a fit residual of at most
-  `MAX_MARKET_FIT_RESIDUAL` (0.03). Then the 1X2, double chance and draw no bet are priced from
+  listed at most `MARKET_ODDS_MAX_AGE_MS` (3 hours) ago (see 3.1); the consensus has an
+  over/under line to fit the goals to: 2.5, or when 2.5 has none the x.5 line from 1.5 to 4.5
+  with the most books (then the nearest to 2.5, then the lower), because fitted to the 1X2 alone
+  the goals model prices over 2.5 five to nine points short (`docs/theoddsapi-plan/README.md`,
+  10.3); and the goals model fitted to the 1X2 and that line (`fitGoalsToMarket`) explains them,
+  with a fit residual of at most `MAX_MARKET_FIT_RESIDUAL` (0.03). Then the 1X2, double chance and draw no bet are priced from
   the consensus probabilities, the 2.5 goals line too when the consensus has it, and every other
   market from the goals model fitted to it (`priceFootballFromMarket`), all with our own margin
   and O2. The stamp key is `marketPricingKey` (prefix `mkt1`, probabilities rounded to half a
   percentage point, so a market that only wiggles does not re-price), and the event counts as
   calibrated: O1 is about team ratings and market prices do not use them. In every other case
-  (policy `model`, no event yet, fewer books, stale, poor fit) the prices are the model's, with
+  (policy `model`, no event yet, fewer books, stale, no over/under line, poor fit) the prices are
+  the model's, with
   `ratingsKey` and O1, exactly as in O3.
   - A **new** event is always created with the model's prices; the next re-pricing pass moves it
     to the market prices.
@@ -496,7 +500,8 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   - An event priced from the market counts as ready for the trader's "Open betting" item; a
     trader still opens betting (the scraper never does).
   - The `odds_approval` payload says where the prices came from (`pricing`: `source`, `books`,
-    `residual`, or the `fallback` reason); the audit of `scrape.fixture.repriced` and
+    `residual`, or the `fallback` reason: `no_consensus`, `no_totals` or `poor_fit`); the audit
+    of `scrape.fixture.repriced` and
     `scrape.fixture.calibrated` records the same. A trader applies a held market proposal with
     `apply_reprice` while it is the proposal the scraper last raised (else 409 `proposal_stale`).
   - Constants (`packages/scraper/src/constants.ts` and the pricing packages): `CONSENSUS_MIN_BOOKS` 2,

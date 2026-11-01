@@ -4,7 +4,8 @@ How Vamos takes bookmaker odds for its market-priced football competitions from
 [The Odds API](https://the-odds-api.com) on the **20K plan (30 USD a month)**, as cheaply, reliably and accurately as
 that plan allows.
 
-> **Status 2026-11-01: Phase 0 done (P0b and P0c, results in section 10); nothing else built.** The Odds API replaces TheRundown as the market feed: TheRundown's
+> **Status 2026-11-01: Phase 0 done (P0b and P0c, results in section 10), and the over/under fix P2b is in. The
+> adapter and everything after it are not built.** The Odds API replaces TheRundown as the market feed: TheRundown's
 > cheap plans do not allow use by a betting operator (`docs/therundown-plan/README.md`, section 3). Most of what is
 > needed already exists from the TheRundown work: the `scrape_market_odds` table, `marketConsensus`, the market
 > pricing (`packages/feed/src/pricing/market.ts`), the per-competition `pricing_source` switch and the 5-minute close
@@ -35,7 +36,7 @@ its pages read that day (section 9). It has changed credit allocations before, s
   - Over/under was the weak spot. `totals` gives one main line per book, and five of the first ten books gave none:
     only 18% of Bundesliga matches (77 to 81% elsewhere) had the 2.5 line from 2 books.
   - Without a 2.5 consensus, today's pricing fits goals to the 1X2 alone and prices over 2.5 about 5 to 9 points
-    too low (10.3). P2b closes that before any league goes to market prices.
+    too low (10.3). P2b, now done, closes that hole.
   - The discovery run (P0c) chose a new ten (4.2): three books that gave no totals make way for `betsson`,
     `unibet_se` and `tipico_de`, which quote 2.5. In the Bundesliga only `williamhill` and `betsson` quote 2.5; the
     others give 3.5, which P2b's rule T1 uses.
@@ -46,7 +47,7 @@ its pages read that day (section 9). It has changed credit allocations before, s
   1. Free key and probe (done). Licence email: not sent (owner's decision, section 8).
   2. Book discovery (P0c, done).
   3. Adapter, with the key in a header.
-  4. Over/under fix in the pricing (P2b).
+  4. Over/under fix in the pricing (P2b, done).
   5. Reading schedule and credit guard.
   6. Alarms.
   7. Two weeks of shadow on the paid plan.
@@ -426,19 +427,25 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
 ### P2b: no goal lines from a 1X2-only fit (rules T)
 
 - Who: the main session, Opus high (money path: pricing).
-- Size: M.
+- Size: M. **Done 2026-11-01.**
 - Needs: nothing. It is a hole in today's pricing, whatever the feed.
 - Why: with a 1X2 consensus and no 2.5 consensus, `fitGoalsToMarket` fits both expected goals to the 1X2 alone. Two
   targets, two unknowns: the fit is exact, so the event passes the residual check and is priced from the market. But
   the independent Poisson can only reach the market's draw (F-17) by lowering the goals, so over 2.5 comes out 5 to
   9 points low (10.3), and every over/under, BTTS and correct-score price inherits it.
 - Rules:
-  - **T1** The fit uses every x.5 over/under consensus (at least `CONSENSUS_MIN_BOOKS` books), not only 2.5, and
-    `marketPricingKey` includes every line it fits. The 2.5 line is still priced straight from its consensus when it
-    has one.
+  - **T1** The fit uses one goal line with the 1X2: 2.5 when it has a consensus (exactly as before, so nothing
+    changes for those matches), otherwise the x.5 line from 1.5 to 4.5 with the most books, then the nearest to 2.5,
+    then the lower. `marketPricingKey` shows the line it fitted (`ou3.5:310/5`). The 2.5 line is still priced
+    straight from its consensus when it has one.
+    - One line, not all of them: a second line would change the prices of matches that have 2.5, and the independent
+      Poisson matches several lines less closely, so more matches would be held as `poor_fit`.
+    - On the cases of 10.3, a 3.5 or 1.5 line puts the fitted goals within 0.02 of the truth and over 2.5 within half
+      a point, with a fit residual of about 0.8%.
   - **T2** With no over/under consensus on any x.5 line, the event is not priced from the market: new fallback
     reason `no_totals`, and the team-rating model prices the whole match (decision 7.4).
-  - **T3** The shadow report counts events per fallback reason.
+  - **T3** Moved to P5, because there is no shadow report yet. The reason is already recorded in the audit
+    (`marketFallback`) and in the `odds_approval` payload (`pricing.fallback`).
 - Tests:
   - the cases of 10.3: a 1X2 alone gives `no_totals`;
   - a 3.5-only consensus moves the fitted goals to it;
@@ -477,6 +484,7 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
 - Work:
   - Buy the 20K plan.
   - Enable the five sources while every league stays on `model`.
+  - The report counts events per fallback reason: `no_consensus`, `no_totals`, `poor_fit` (rule T3).
   - Run for two weeks.
 
 ### P6: switching on
@@ -507,7 +515,8 @@ plus:
 - **P0b:** the report exists for all five leagues, and each odds call cost 2 credits. Done 2026-11-01 (section 10).
 - **P0c (done 2026-11-01):** the report exists for the Premier League and the Bundesliga, and 4.2 lists the new ten with the reason for
   each change.
-- **P2b:** rules T1 to T3 with the tests listed in P2b; every existing pricing and event-pricing test still passes.
+- **P2b (done 2026-11-01):** rules T1 and T2 with the tests listed in P2b; every existing pricing and event-pricing
+  test still passes. T3 is part of P5.
 - **P1:**
   - K6 passes;
   - every existing auth and fetcher test still passes;
@@ -548,7 +557,7 @@ Each prompt also says: "read `docs/theoddsapi-plan/README.md` first; do not comm
 - **P2:** "Write `packages/scraper/src/adapters/theoddsapi.ts` (rules A1 to A9), registered like `therundown`. Add
   its tests on a synthetic fixture shaped like the probe's Premier League response, the five disabled source files
   and the alias CSV built from the probe's participants."
-- **P2b:** "Implement rules T1 to T3 (task P2b) in `packages/feed/src/pricing/market.ts` and
+- **P2b (done 2026-11-01):** "Implement rules T1 to T3 (task P2b) in `packages/feed/src/pricing/market.ts` and
   `apps/scraper/src/pipeline/event-pricing.ts` (and the fallback enum in `packages/contracts/src/feed.ts`), with the
   tests listed in P2b. The 2.5 price of an event that has a 2.5 consensus must not change."
 - **P3:** "Add migration 0041 (rule G2) and usage recording in `apps/scraper/src/pipeline/run-source.ts`. Write

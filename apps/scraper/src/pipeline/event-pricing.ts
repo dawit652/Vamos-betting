@@ -22,8 +22,11 @@ import { checkMarkets, isCalibrated, MARKET_ODDS_MAX_AGE_MS, ratingsKey } from '
  * football event (creation, re-pricing, the hand-over to a trader), so they cannot disagree.
  *
  * - The competition's policy says 'market' AND the event exists AND the licensed bookmaker feed
- *   has a fresh 1X2 consensus from at least CONSENSUS_MIN_BOOKS books AND the model fitted to it
- *   explains it (fit residual at most MAX_MARKET_FIT_RESIDUAL): prices come from the market
+ *   has a fresh 1X2 consensus from at least CONSENSUS_MIN_BOOKS books AND an over/under consensus
+ *   on a goal line to fit the goals to (2.5, or an x.5 line from 1.5 to 4.5 in its place: rules T1
+ *   and T2 of docs/theoddsapi-plan/README.md; fitted to the 1X2 alone, over 2.5 comes out five to
+ *   nine points short) AND the model fitted to them explains them (fit residual at most
+ *   MAX_MARKET_FIT_RESIDUAL): prices come from the market
  *   (priceFootballFromMarket), the key is marketPricingKey, and the event counts as calibrated
  *   (O1 is about team ratings; a market-priced event does not need them).
  * - Anything else: the team-rating model, exactly as before (ratingsKey, O1).
@@ -33,6 +36,12 @@ import { checkMarkets, isCalibrated, MARKET_ODDS_MAX_AGE_MS, ratingsKey } from '
  */
 
 export type EventPriceSource = 'market' | 'model';
+
+/**
+ * Why a competition that asked for market prices got the model for an event: no 1X2 consensus, no
+ * over/under consensus on any goal line the fit can use (`no_totals`), or a fit too poor to trust.
+ */
+export type MarketFallback = 'no_consensus' | 'no_totals' | 'poor_fit';
 
 export interface EventPriceInput {
   competitionPricingSource: ScrapePricingSource;
@@ -60,8 +69,10 @@ export interface EventPrice {
   books?: number;
   /** Market only: books behind the over/under 2.5 consensus (0 when it has none). */
   booksOu25?: number;
+  /** Market only: the goal line the expected goals were fitted to ('2.5', or the line in its place). */
+  totalsLine?: string;
   /** Model only, and only when the policy asked for the market: why it could not be used. */
-  fallback?: 'no_consensus' | 'poor_fit';
+  fallback?: MarketFallback;
 }
 
 /** True for a pricing key that comes from the market (the stamp column holds either form). */
@@ -97,9 +108,7 @@ async function marketPrice(
   exec: DbExecutor,
   eventId: string,
   now: Date,
-): Promise<
-  { kind: 'priced'; price: EventPrice } | { kind: 'none'; reason: 'no_consensus' | 'poor_fit' }
-> {
+): Promise<{ kind: 'priced'; price: EventPrice } | { kind: 'none'; reason: MarketFallback }> {
   const rows = await latestMarketOdds(exec, {
     eventIds: [eventId],
     now,
@@ -110,6 +119,7 @@ async function marketPrice(
   if (x12 === undefined) return { kind: 'none', reason: 'no_consensus' };
   const fit = fitGoalsToMarket(consensus);
   if (fit === null) return { kind: 'none', reason: 'no_consensus' };
+  if (fit.totalsLine === null) return { kind: 'none', reason: 'no_totals' };
   if (!(fit.residual <= MAX_MARKET_FIT_RESIDUAL)) return { kind: 'none', reason: 'poor_fit' };
   const priced = priceFootballFromMarket(consensus);
   if (priced === null) return { kind: 'none', reason: 'no_consensus' };
@@ -124,6 +134,7 @@ async function marketPrice(
       residual: priced.residual,
       books: priced.source.books1x2,
       booksOu25: priced.source.booksOu25,
+      totalsLine: priced.totalsLine,
     },
   };
 }

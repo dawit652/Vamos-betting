@@ -448,14 +448,15 @@ const OddsReviewPayload = z.object({
    * Where the prices of the proposal or the hand-over come from (rule O5): the
    * team-rating model, or the consensus of `books` bookmakers of a licensed feed
    * (`residual`: how well the goals model fits it). `fallback` says why the
-   * market could not be used when the competition asked for it.
+   * market could not be used when the competition asked for it: no consensus,
+   * no over/under line to fit the goals to (`no_totals`), or a poor fit.
    */
   pricing: z
     .object({
       source: z.enum(['market', 'model']),
       books: Count.optional(),
       residual: z.number().min(0).max(1).optional(),
-      fallback: z.enum(['no_consensus', 'poor_fit']).optional(),
+      fallback: z.enum(['no_consensus', 'no_totals', 'poor_fit']).optional(),
     })
     .optional(),
 });

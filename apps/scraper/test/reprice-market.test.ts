@@ -81,6 +81,18 @@ async function storedOneXTwo(eventId: string): Promise<[number, number, number]>
   const by = Object.fromEntries(found.map((r) => [r.code, r.odds_milli]));
   return [by['1']!, by['X']!, by['2']!];
 }
+/** The stored over/under of the event at `line` in milli: [over, under]. */
+async function storedOverUnder(eventId: string, line = '2.5'): Promise<[number, number]> {
+  const found = await rows<{ code: string; odds_milli: number }>(
+    `SELECT s.code, s.odds_milli FROM selections s JOIN markets m ON m.id = s.market_id
+      WHERE m.event_id = $1 AND m.key = $2`,
+    [eventId, `ou:${line}`],
+  );
+  const by = Object.fromEntries(found.map((r) => [r.code, r.odds_milli]));
+  return [by['over']!, by['under']!];
+}
+/** The 2.5 line every book lists by default: the event's first stored (model) prices, fixed. */
+const defaultOu25 = new Map<string, [number, number]>();
 const storedBook = async (eventId: string) =>
   JSON.stringify(
     await rows(
@@ -125,13 +137,19 @@ async function addFeed(sourceId: string, upstream = sourceId): Promise<void> {
 type Prices = [number, number, number];
 /**
  * One fetch of the feed: the source's run starts at `observedAt`, and each bookmaker lists the 1X2
- * (and the over/under 2.5 when given) of the event.
+ * and an over/under line of the event. By default every book lists the 2.5 line at the event's
+ * stored (model) prices, so the goals have a line to be fitted to (rule T2); `ou25` gives each
+ * book's prices instead (`{}`: no line at all), at `ouLine` (default 2.5).
  */
 async function listEvent(
   eventId: string,
   sourceId: string,
   books: Record<string, Prices>,
-  options: { observedAt?: Date; ou25?: Record<string, [number, number]> } = {},
+  options: {
+    observedAt?: Date;
+    ou25?: Record<string, [number, number]>;
+    ouLine?: string;
+  } = {},
 ): Promise<void> {
   const observedAt = options.observedAt ?? h.now();
   const run = await startRun(h.ctx.db, { sourceId, startedAt: observedAt });
@@ -163,12 +181,19 @@ async function listEvent(
       priceMilli: prices[i]!,
     })),
   );
-  for (const [bookmaker, [over, under]] of Object.entries(options.ou25 ?? {})) {
+  let ou25 = options.ou25;
+  if (ou25 === undefined) {
+    if (!defaultOu25.has(eventId)) defaultOu25.set(eventId, await storedOverUnder(eventId));
+    const line = defaultOu25.get(eventId)!;
+    ou25 = Object.fromEntries(Object.keys(books).map((bookmaker) => [bookmaker, line]));
+  }
+  const ouLine = options.ouLine ?? '2.5';
+  for (const [bookmaker, [over, under]] of Object.entries(ou25)) {
     out.push(
       {
         ...common,
         market: 'ou' as never,
-        line: '2.5' as never,
+        line: ouLine as never,
         selection: 'over' as never,
         bookmaker,
         priceMilli: over,
@@ -176,7 +201,7 @@ async function listEvent(
       {
         ...common,
         market: 'ou' as never,
-        line: '2.5' as never,
+        line: ouLine as never,
         selection: 'under' as never,
         bookmaker,
         priceMilli: under,
@@ -276,6 +301,46 @@ describe('priceEvent', () => {
         books: 2,
       });
       expect(priced.key.startsWith(`${MARKET_PRICING_KEY_PREFIX}|`)).toBe(true);
+      expect(priced.residual!).toBeLessThanOrEqual(0.03);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'without an over/under line the market is not used (no_totals); a 3.5 line in place of 2.5 is enough',
+    async () => {
+      const { eventId } = await createdEvent();
+      await addFeed('feed-a');
+      const books = booksNear(await storedOneXTwo(eventId));
+      const input = {
+        competitionPricingSource: 'market' as const,
+        eventId,
+        homeRatings: null,
+        awayRatings: null,
+        minRatingMatches: 8,
+        now: h.now(),
+      };
+      // Rule T2: fitted to the 1X2 alone the goals would come out too low.
+      await listEvent(eventId, 'feed-a', books, { ou25: {} });
+      expect(await priceEvent(h.ctx.db, input)).toMatchObject({
+        source: 'model',
+        fallback: 'no_totals',
+      });
+      // Rule T1: a 3.5 consensus (a book's main line is often 3.5) gives the goals their line.
+      const ou35 = await storedOverUnder(eventId, '3.5');
+      await listEvent(eventId, 'feed-a', books, {
+        ou25: { '19': ou35, '23': ou35 },
+        ouLine: '3.5',
+      });
+      const priced = await priceEvent(h.ctx.db, input);
+      expect(priced).toMatchObject({
+        source: 'market',
+        books: 2,
+        booksOu25: 0,
+        totalsLine: '3.5',
+      });
+      expect(priced.fallback).toBeUndefined();
+      expect(priced.key).toMatch(/^mkt1\|1x2:\d+,\d+,\d+\/2\|ou3\.5:\d+\/2$/);
       expect(priced.residual!).toBeLessThanOrEqual(0.03);
     },
     TEST_TIMEOUT,

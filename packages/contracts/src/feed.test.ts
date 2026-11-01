@@ -479,13 +479,19 @@ describe('review payloads', () => {
       { source: 'model' },
       { source: 'market', books: 6, residual: 0.012 },
       { source: 'model', fallback: 'poor_fit' },
+      { source: 'model', fallback: 'no_totals' },
     ]) {
       expect(parseReviewPayload('odds_approval', { ...reprice, pricing })).toEqual({
         ...reprice,
         pricing,
       });
     }
-    for (const pricing of [{ source: 'crowd' }, { source: 'market', books: -1 }, {}]) {
+    for (const pricing of [
+      { source: 'crowd' },
+      { source: 'market', books: -1 },
+      { source: 'model', fallback: 'no_ou' },
+      {},
+    ]) {
       expect(parseReviewPayload('odds_approval', { ...reprice, pricing })).toBeNull();
     }
     expect(isRepriceItem({ kind: 'odds_approval', subjectKey: 'fx|a|reprice' })).toBe(true);
