@@ -4,7 +4,7 @@ How Vamos takes bookmaker odds for its market-priced football competitions from
 [The Odds API](https://the-odds-api.com) on the **20K plan (30 USD a month)**, as cheaply, reliably and accurately as
 that plan allows.
 
-> **Status 2026-11-01: Phase 0 probe done (P0b, results in section 10); nothing else built.** The Odds API replaces TheRundown as the market feed: TheRundown's
+> **Status 2026-11-01: Phase 0 done (P0b and P0c, results in section 10); nothing else built.** The Odds API replaces TheRundown as the market feed: TheRundown's
 > cheap plans do not allow use by a betting operator (`docs/therundown-plan/README.md`, section 3). Most of what is
 > needed already exists from the TheRundown work: the `scrape_market_odds` table, `marketConsensus`, the market
 > pricing (`packages/feed/src/pricing/market.ts`), the per-competition `pricing_source` switch and the 5-minute close
@@ -32,15 +32,19 @@ its pages read that day (section 9). It has changed credit allocations before, s
   - The `x-api-key` header works, so the key never has to be in a URL: P1 is skipped.
   - The 1X2 is well covered: a median of 8 to 10 of the ten books per match, never fewer than 5.
   - `last_update` looks like "last seen": every book's median age was 0 to 2 minutes, even for matches days away.
-  - Over/under is the weak spot. `totals` gives one main line per book, and five of the ten books give none. In the
-    Bundesliga most matches have the 2.5 line from only 1 book; elsewhere the median is 3 or 4, with some matches
-    on 1.
+  - Over/under was the weak spot. `totals` gives one main line per book, and five of the first ten books gave none:
+    only 18% of Bundesliga matches (77 to 81% elsewhere) had the 2.5 line from 2 books.
   - Without a 2.5 consensus, today's pricing fits goals to the 1X2 alone and prices over 2.5 about 5 to 9 points
-    too low (10.3). P2b closes that before any league goes to market prices; P0c looks for books that quote 2.5.
+    too low (10.3). P2b closes that before any league goes to market prices.
+  - The discovery run (P0c) chose a new ten (4.2): three books that gave no totals make way for `betsson`,
+    `unibet_se` and `tipico_de`, which quote 2.5. In the Bundesliga only `williamhill` and `betsson` quote 2.5; the
+    others give 3.5, which P2b's rule T1 uses.
+  - `alternate_totals` on the per-event endpoint gives the 2.5 line from 15 to 16 books, Pinnacle and Betfair
+    included, for 1 credit per match: an optional accuracy step (P7).
 
 - **Order:**
   1. Free key and probe (done), licence email.
-  2. Book discovery (P0c).
+  2. Book discovery (P0c, done).
   3. Adapter, with the key in a header.
   4. Over/under fix in the pricing (P2b).
   5. Reading schedule and credit guard.
@@ -50,21 +54,21 @@ its pages read that day (section 9). It has changed credit allocations before, s
 
 ## 2. The plan, in facts
 
-| Item                      | 20K plan                                                                                                                                                                                                                                                                |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Price                     | 30 USD a month, cancel any time                                                                                                                                                                                                                                         |
-| Credits                   | 20,000 a month, reset on the 1st                                                                                                                                                                                                                                        |
-| `/v4/sports/{sport}/odds` | costs markets × regions; up to 10 named `bookmakers` count as one region; costs nothing when no event is returned                                                                                                                                                       |
-| Free endpoints            | `/v4/sports`, `/v4/sports/{sport}/events`                                                                                                                                                                                                                               |
-| Other costs               | `/participants` 1; `/scores` 1 (2 with `daysFrom`); historical odds 10 × markets × regions (paid plans only)                                                                                                                                                            |
-| Freshness                 | pre-match odds refreshed every 60 s, faster in the last 6 h, up to 2 min late; exchanges every 20 s                                                                                                                                                                     |
-| Rate limit                | 30 requests a second (`EXCEEDED_FREQ_LIMIT`, HTTP 429)                                                                                                                                                                                                                  |
-| Usage headers             | `x-requests-remaining`, `x-requests-used`, `x-requests-last` on every response                                                                                                                                                                                          |
-| Errors that matter        | `INVALID_KEY`, `DEACTIVATED_KEY`, `OUT_OF_USAGE_CREDITS`, `EXCEEDED_FREQ_LIMIT`, `INVALID_BOOKMAKERS`, `INVALID_MARKET`                                                                                                                                                 |
-| Key                       | the docs show only the `apiKey` query parameter; **the `x-api-key` header is accepted** (probe 2026-11-01; undocumented, so asked in section 8)                                                                                                                         |
-| Football markets          | `h2h` (home, away and `Draw`); `totals`: **one main line per book**, and Betfair, Smarkets, Paddy Power, BetVictor and Ladbrokes return none (probe); other lines may exist as `alternate_totals` on the per-event endpoint (P0c checks); `last_update` per book market |
-| Sport keys                | `soccer_epl`, `soccer_spain_la_liga`, `soccer_italy_serie_a`, `soccer_germany_bundesliga`, `soccer_france_ligue_one`                                                                                                                                                    |
-| Licence                   | allowed: commercial use in your own apps. Forbidden: reselling or redistributing the data as a data product. Not mentioned: a betting operator setting its prices from it, so ask in writing (section 8)                                                                |
+| Item                      | 20K plan                                                                                                                                                                                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Price                     | 30 USD a month, cancel any time                                                                                                                                                                                                          |
+| Credits                   | 20,000 a month, reset on the 1st                                                                                                                                                                                                         |
+| `/v4/sports/{sport}/odds` | costs markets × regions; up to 10 named `bookmakers` count as one region; costs nothing when no event is returned                                                                                                                        |
+| Free endpoints            | `/v4/sports`, `/v4/sports/{sport}/events`                                                                                                                                                                                                |
+| Other costs               | `/participants` 1; `/scores` 1 (2 with `daysFrom`); historical odds 10 × markets × regions (paid plans only)                                                                                                                             |
+| Freshness                 | pre-match odds refreshed every 60 s, faster in the last 6 h, up to 2 min late; exchanges every 20 s                                                                                                                                      |
+| Rate limit                | 30 requests a second (`EXCEEDED_FREQ_LIMIT`, HTTP 429)                                                                                                                                                                                   |
+| Usage headers             | `x-requests-remaining`, `x-requests-used`, `x-requests-last` on every response                                                                                                                                                           |
+| Errors that matter        | `INVALID_KEY`, `DEACTIVATED_KEY`, `OUT_OF_USAGE_CREDITS`, `EXCEEDED_FREQ_LIMIT`, `INVALID_BOOKMAKERS`, `INVALID_MARKET`                                                                                                                  |
+| Key                       | the docs show only the `apiKey` query parameter; **the `x-api-key` header is accepted** (probe 2026-11-01; undocumented, so asked in section 8)                                                                                          |
+| Football markets          | `h2h` (home, away and `Draw`); `totals`: **one main line per book**, and many books return none (10.4); every line as `alternate_totals`, on the per-event endpoint only (15 to 16 books with 2.5 in P0c); `last_update` per book market |
+| Sport keys                | `soccer_epl`, `soccer_spain_la_liga`, `soccer_italy_serie_a`, `soccer_germany_bundesliga`, `soccer_france_ligue_one`                                                                                                                     |
+| Licence                   | allowed: commercial use in your own apps. Forbidden: reselling or redistributing the data as a data product. Not mentioned: a betting operator setting its prices from it, so ask in writing (section 8)                                 |
 
 ## 3. What the code already expects
 
@@ -92,9 +96,9 @@ One request per league per run, always with explicit filters:
 
 ```
 GET https://api.the-odds-api.com/v4/sports/{sportKey}/odds
-    ?bookmakers=pinnacle,betfair_ex_uk,matchbook,smarkets,williamhill,paddypower,ladbrokes_uk,betvictor,marathonbet,onexbet
+    ?bookmakers=pinnacle,betfair_ex_uk,matchbook,smarkets,williamhill,betsson,unibet_se,tipico_de,marathonbet,onexbet
     &markets=h2h,totals&oddsFormat=decimal&dateFormat=iso
-    (apiKey is added by the fetcher only, section 4.4)
+    (the key goes in the x-api-key header, added by the fetcher only)
 ```
 
 - **Cost: 2 credits** (2 markets × 1 region).
@@ -102,33 +106,42 @@ GET https://api.the-odds-api.com/v4/sports/{sportKey}/odds
 - **No time filters.** The cost is the same either way, and a stable URL keeps the run history comparable. The
   adapter drops what it cannot use (A4).
 - **Never these:**
-  - the per-event endpoint (`/events/{id}/odds`), which is charged per event;
+  - the per-event endpoint (`/events/{id}/odds`), which is charged per event (only the optional P7 step reads
+    `alternate_totals` there);
   - `/scores`, because openfootball already gives the results;
   - extra markets.
 
 ### 4.2 The ten bookmakers
 
-| Key                                                      | Why                                                                      |
-| -------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `pinnacle`                                               | the sharpest book, with a low margin                                     |
-| `betfair_ex_uk`, `matchbook`, `smarkets`                 | exchanges: prices made by bettors, margin about 1%, refreshed every 20 s |
-| `williamhill`, `paddypower`, `ladbrokes_uk`, `betvictor` | large UK books with their own traders                                    |
-| `marathonbet`, `onexbet`                                 | low-margin international books                                           |
+| Key                                      | Why                                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `pinnacle`                               | the sharpest book, with a low margin; its main totals are Asian lines (2.75, 3), so it rarely counts for over/under |
+| `betfair_ex_uk`, `matchbook`, `smarkets` | exchanges: prices made by bettors, margin about 1%, refreshed every 20 s; Betfair and Smarkets give no totals       |
+| `williamhill`                            | large UK book with its own traders; its main total is always 2.5                                                    |
+| `betsson`                                | own traders; its main total is always 2.5, the only other such book in the Bundesliga                               |
+| `unibet_se`                              | Kambi, the supplier behind the Unibet sites, BetRivers and others; margin 2.5 to 3.3%; main total usually 2.5       |
+| `tipico_de`                              | large German book with its own traders; main total usually 2.5                                                      |
+| `marathonbet`, `onexbet`                 | low-margin international books; main total usually 2.5 (3.5 in the Bundesliga)                                      |
 
 Each of these sets its prices on its own. Left out on purpose, because they copy a listed book (same owner or same
 supplier):
 
-- Sky Bet and Betfair Sportsbook: Paddy Power's group.
-- Coral: Ladbrokes' group.
+- Sky Bet, Betfair Sportsbook and FanDuel: Paddy Power's group (Flutter).
+- Coral and BetMGM: Ladbrokes' group (Entain).
 - 888sport: William Hill's group.
-- The four Unibet sites: one supplier, Kambi.
+- NordicBet: Betsson's group.
+- The other Unibet sites, BetRivers and Casumo: Kambi, already in through `unibet_se` (Casumo and BetRivers had
+  identical prices in the probe).
+- `betfair_ex_eu`: the same exchange as `betfair_ex_uk` (identical prices).
 - The two Winamax sites.
 
-Spares if Phase 0 shows a listed book missing: `unibet_uk`, `betclic_fr`, `winamax_fr`, `tipico_de`, `betsson`,
-`betway`. Eleven books or more would double the cost, so the config refuses it.
+Spares for the 1X2 if a listed book drops out (none of them gives totals): `paddypower`, `draftkings`, `betfred_uk`,
+`betvictor`. Never the French books (`winamax_fr`, `unibet_fr`, `betclic_fr`, `pmu_fr`): margins of 11 to 17%.
+Eleven books or more would double the cost, so the config refuses it.
 
-**Phase 0 (section 10.2):** five of these ten return no totals at all. P0c picks replacements that quote 2.5 for the
-weakest of them (`ladbrokes_uk`, `betvictor`, `paddypower`).
+**Chosen after Phase 0 (10.4):** the first list had `paddypower`, `ladbrokes_uk` and `betvictor`, which gave no
+totals (and Ladbrokes covered only 2 to 6 matches in four leagues). `betsson`, `unibet_se` and `tipico_de` replaced
+them: they quote 2.5, cover nearly every match and set their own prices.
 
 ### 4.3 Adapter `theoddsapi` (rules A)
 
@@ -330,7 +343,7 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
 | A 429                                         | wait for Retry-After, or back off (we send about five requests per ten minutes)                                                                                    |
 | A book is missing, stale or wrong             | that book does not count. The checks that remain: the median of the other books, the overround check, a fit residual of at most 0.03, the O3 bounds and the trader |
 | Fewer than 2 books                            | no consensus: new events keep model prices, and market-priced events keep theirs                                                                                   |
-| No 2.5 line                                   | the goals model is fitted to the 1X2 alone (today's behaviour); P7 can improve this                                                                                |
+| No 2.5 line                                   | P2b: the fit uses the other x.5 lines (T1); with none, the match gets no market price (T2, decision 7.4)                                                           |
 | A team name is unknown                        | the existing alias review; the event stays on the model until the name resolves                                                                                    |
 | A match is moved                              | the rows carry the new kickoff and link through the existing window; this source never moves a kickoff                                                             |
 | A live game is in the response                | skipped (A4)                                                                                                                                                       |
@@ -372,7 +385,7 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
 ### P0c: book discovery and the over/under check
 
 - Who: the owner runs it; the main session reads the report.
-- Size: S, about 18 of the free credits.
+- Size: S, about 18 of the free credits. **Done 2026-11-01** (10.4), 18 credits.
 - Needs: P0b.
 - Command:
 
@@ -481,7 +494,9 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
   - never offer more than the best book's price, so no bettor gets a better price from us than from a listed book;
   - raise `CONSENSUS_MIN_BOOKS` to 3;
   - bucket the book counts in the pricing key;
-  - fit to the 1.5 or 3.5 line when 2.5 is missing;
+  - read `alternate_totals` for each match on the per-event endpoint, for a 2.5 line from Pinnacle, Betfair and the
+    large UK and US books (10.4): 1 credit per match and read with up to 10 named books, about 550 credits a month
+    at 3 reads per match;
   - a historical replay of at most 3,000 credits a month.
 
 ### When each task is done
@@ -490,7 +505,7 @@ Each task is done when `pnpm typecheck`, `pnpm lint`, `pnpm format` and the test
 plus:
 
 - **P0b:** the report exists for all five leagues, and each odds call cost 2 credits. Done 2026-11-01 (section 10).
-- **P0c:** the report exists for the Premier League and the Bundesliga, and 4.2 lists the new ten with the reason for
+- **P0c (done 2026-11-01):** the report exists for the Premier League and the Bundesliga, and 4.2 lists the new ten with the reason for
   each change.
 - **P2b:** rules T1 to T3 with the tests listed in P2b; every existing pricing and event-pricing test still passes.
 - **P1:**
@@ -597,8 +612,8 @@ To team@the-odds-api.com, from the account's address:
 >    example, our price against the market when a bet was taken)?
 > 4. Your API accepts the key in an `x-api-key` header. May we rely on that, and would you tell us before it changes?
 > 5. When the monthly credits run out, are requests refused until the 1st, with no overage charge?
-> 6. Soccer `totals` gives each bookmaker's main line, and some books (Betfair, Smarkets, Paddy Power) give none.
->    Can we get each book's 2.5 line from `/odds`, or only through `alternate_totals` per event?
+> 6. Soccer `totals` gives one main line per bookmaker. Is `alternate_totals` on the per-event endpoint the supported
+>    way to get every book's 2.5 line, and is it available on the 20K plan?
 > 7. Is `last_update` the time you last saw the price, or the time it last changed?
 > 8. Do you publish an uptime figure or a status page?
 
@@ -620,20 +635,24 @@ To team@the-odds-api.com, from the account's address:
 ### 10.1 Auth, cost and freshness
 
 - `/v4/sports` answered 200 with the key only in an `x-api-key` header, and the usage headers showed the account's
-  500 credits, so the header identified the account. P0c also checks that a request with no key is refused.
+  500 credits, so the header identified the account. In P0c a request with no key got 401, so the header is proven;
+  every charged P0c call used it.
 - Each `/odds` call cost 2 credits and each `/participants` call 1, as section 2 says. The run cost 15 credits.
 - Every book's median `last_update` age was 0 to 2 minutes, even for matches more than a week away whose prices
   rarely move. So `last_update` is most likely when their scraper last saw the price, which is what A7 needs.
 
 ### 10.2 Coverage (prematch events)
 
-| League         | Events | Books with a complete 1X2 (min / median / max) | Books on the 2.5 line (min / median / max) |
-| -------------- | -----: | ---------------------------------------------- | ------------------------------------------ |
-| Premier League |     13 | 5 / 9 / 10                                     | 1 / 3 / 5                                  |
-| LaLiga         |     14 | 8 / 9 / 10                                     | 1 / 4 / 5                                  |
-| Serie A        |     16 | 6 / 8 / 10                                     | 1 / 4 / 5                                  |
-| Bundesliga     |     11 | 8 / 10 / 10                                    | 1 / 1 / 4                                  |
-| Ligue 1        |     14 | 7 / 8 / 9                                      | 1 / 3 / 4                                  |
+| League         | Events | Books with a complete 1X2 (min / median / max) | Books on 2.5 (min / median / max) | Matches with a 2.5 consensus | Matches with 2 books on one x.5 line |
+| -------------- | -----: | ---------------------------------------------- | --------------------------------- | ---------------------------: | -----------------------------------: |
+| Premier League |     13 | 5 / 9 / 10                                     | 1 / 3 / 5                         |                     10 (77%) |                             12 (92%) |
+| LaLiga         |     14 | 8 / 9 / 10                                     | 1 / 4 / 5                         |                     11 (79%) |                            14 (100%) |
+| Serie A        |     16 | 6 / 8 / 10                                     | 1 / 4 / 5                         |                     13 (81%) |                            16 (100%) |
+| Bundesliga     |     11 | 8 / 10 / 10                                    | 1 / 1 / 4                         |                      2 (18%) |                            11 (100%) |
+| Ligue 1        |     14 | 7 / 8 / 9                                      | 1 / 3 / 4                         |                     11 (79%) |                            14 (100%) |
+
+With the first ten books. The last two columns come from re-reading the saved bodies (`--from-dir`): with rule T1, 92
+to 100% of matches already had a totals line the fit can use.
 
 Per book:
 
@@ -665,3 +684,25 @@ Measured with today's `fitGoalsToMarket`, on markets generated by the model with
 With a draw premium of 2.5 points the errors are 7.6 to 12.4 points. In the first row we would sell over 2.5 at about
 2.11 (44.7% plus the 6% margin) against a fair 1.93: an edge of about 9% for the bettor. The fit's residual is 0, so
 nothing holds such a match today. Task P2b.
+
+### 10.4 Book discovery (P0c, 18 credits)
+
+Every UK, EU and US book for the Premier League and the Bundesliga (`--regions uk,eu,us`, 6 credits per league):
+
+- 50 books; 39 to 50 per match (17 for a match three weeks away).
+- **Main total:** in the Premier League most books with totals give 2.5. In the Bundesliga only `williamhill`,
+  `betsson` and `nordicbet` give 2.5; the others give 3.5 (4.5 for Bayern's match), and `pinnacle` and `bovada`
+  quarter or whole lines.
+- **No totals at all,** besides the five of 10.2: `betano_uk`, `betclic_fr`, `betfair_sb_uk`, `betfred_uk`, `betway`,
+  `boylesports`, `coral`, `draftkings`, `everygame`, `fanduel`, `livescorebet`, `skybet`, `sport888`, `unibet_fr`,
+  `unibet_uk`, `virginbet`, `winamax_de`, `winamax_fr`.
+- **Copies seen in the prices:** `betfair_ex_eu` equals `betfair_ex_uk`; `casumo` equals `betrivers`.
+- **French books** carry 1X2 margins of 11 to 17% (`winamax_fr` 16.7%, `unibet_fr` 13.9%, `betclic_fr` 12.1%,
+  `pmu_fr` 11.0%).
+- **`alternate_totals`, per event:** 15 books (Liverpool v Arsenal) and 16 (Union Berlin v Köln) gave both sides of
+  2.5, among them `pinnacle`, `betfair_ex_uk`, `draftkings`, `fanduel`, `paddypower`, `williamhill` and `betrivers`.
+  Cost: markets × regions, so 3 credits with three regions and 1 with up to 10 named books. A book can leave its main
+  line out of this market (`bovada` had no 2.5 there).
+- **The new ten on these bodies:** `--from-dir <folder> --books <the ten>` re-reads them with only those books.
+  Expected from the per-book counts: a 2.5 consensus on every match of both leagues, made of exactly `williamhill`
+  and `betsson` on most Bundesliga matches, plus a 3.5 consensus of about five books there.

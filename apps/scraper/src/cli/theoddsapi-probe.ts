@@ -21,7 +21,8 @@ import { loadDotEnv } from '@vamos/config';
  *   --epl-repeat <n>     extra Premier League /odds reads (default 0)
  *   --interval-min <m>   minutes between those reads (default 20)
  *   --max-credits <n>    never start a call that could pass this many credits in total (default 40)
- *   --from-dir <dir>     no network and no key: re-read the odds-*.json bodies an earlier run saved
+ *   --from-dir <dir>     no network and no key: re-read the odds-*.json bodies an earlier run saved;
+ *                        with --books, only those books (to try a book list on a discovery run)
  *
  * Reads the key from SCRAPER_SECRET_THEODDSAPI. Never prints the key or a URL that holds it: every
  * printed URL is the keyless one, errors pass through `redact`, redirects are refused, and a body
@@ -44,9 +45,9 @@ export const BOOKMAKERS = [
   'matchbook',
   'smarkets',
   'williamhill',
-  'paddypower',
-  'ladbrokes_uk',
-  'betvictor',
+  'betsson',
+  'unibet_se',
+  'tipico_de',
   'marathonbet',
   'onexbet',
 ] as const;
@@ -418,8 +419,15 @@ function printLeague(league: string, r: LeagueReport, showEvents: boolean): void
   }
 }
 
+/** The events with only the given books; every book when none are given. */
+export function onlyBooks(events: OddsEvent[], books: readonly string[] | undefined): OddsEvent[] {
+  if (books === undefined) return events;
+  const keep = new Set(books);
+  return events.map((e) => ({ ...e, bookmakers: e.bookmakers.filter((b) => keep.has(b.key)) }));
+}
+
 /** --from-dir: the saved /odds bodies again, each judged at its file's time. No network, no key. */
-function reanalyse(dir: string, showEvents: boolean): number {
+function reanalyse(dir: string, showEvents: boolean, books?: readonly string[]): number {
   const files = readdirSync(dir)
     .filter((f) => /^odds-.+\.json$/.test(f))
     .sort();
@@ -442,7 +450,7 @@ function reanalyse(dir: string, showEvents: boolean): number {
     }
     printLeague(
       f.replace(/^odds-|\.json$/g, ''),
-      analyseOdds(body as OddsEvent[], statSync(path).mtime, []),
+      analyseOdds(onlyBooks(body as OddsEvent[], books), statSync(path).mtime, books ?? []),
       showEvents,
     );
   }
@@ -452,7 +460,7 @@ function reanalyse(dir: string, showEvents: boolean): number {
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const showEvents = argv.includes('--events');
   const fromDir = arg(argv, '--from-dir');
-  if (fromDir !== undefined) return reanalyse(fromDir, showEvents);
+  if (fromDir !== undefined) return reanalyse(fromDir, showEvents, list(arg(argv, '--books')));
 
   loadDotEnv();
   const key = process.env[KEY_VAR];

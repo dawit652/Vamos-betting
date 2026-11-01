@@ -4,6 +4,7 @@ import {
   analyseOdds,
   isHalfLine,
   isUsableKey,
+  onlyBooks,
   redact,
   type OddsEvent,
 } from '../src/cli/theoddsapi-probe';
@@ -133,5 +134,22 @@ describe('theoddsapi probe: lines the pricing can use', () => {
       ]),
     );
     expect(a).toEqual({ books: { pinnacle: [1.5, 2.5] }, with25: 1 });
+  });
+});
+
+describe('theoddsapi probe: trying a book list offline', () => {
+  it('keeps only the listed books, or every book without a list', () => {
+    const events = [
+      event('e', '2026-11-07T15:00:00Z', [
+        { key: 'pinnacle', markets: [h2h(2, 3.5, 4)] },
+        { key: 'nordicbet', markets: [h2h(2, 3.5, 4), totals(2.5)] },
+      ]),
+    ];
+    expect(onlyBooks(events, ['pinnacle'])[0]?.bookmakers.map((b) => b.key)).toEqual(['pinnacle']);
+    expect(onlyBooks(events, undefined)).toBe(events);
+    expect(
+      analyseOdds(onlyBooks(events, ['pinnacle', 'betsson']), NOW, ['pinnacle', 'betsson'])
+        .missingBooks,
+    ).toEqual(['betsson']);
   });
 });
