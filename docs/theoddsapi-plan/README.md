@@ -43,7 +43,7 @@ its pages read that day (section 9). It has changed credit allocations before, s
     included, for 1 credit per match: an optional accuracy step (P7).
 
 - **Order:**
-  1. Free key and probe (done), licence email.
+  1. Free key and probe (done). Licence email: not sent (owner's decision, section 8).
   2. Book discovery (P0c, done).
   3. Adapter, with the key in a header.
   4. Over/under fix in the pricing (P2b).
@@ -360,7 +360,7 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
 - Work:
   - Open a free account.
   - Put the key in `.env` as `SCRAPER_SECRET_THEODDSAPI`.
-  - Send the email in section 8.
+  - Send the email in section 8. Not sent: the owner's decision (section 8).
 
 ### P0b: probe script
 
@@ -437,7 +437,7 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
     `marketPricingKey` includes every line it fits. The 2.5 line is still priced straight from its consensus when it
     has one.
   - **T2** With no over/under consensus on any x.5 line, the event is not priced from the market: new fallback
-    reason `no_totals`, then what decision 7.4 chooses.
+    reason `no_totals`, and the team-rating model prices the whole match (decision 7.4).
   - **T3** The shadow report counts events per fallback reason.
 - Tests:
   - the cases of 10.3: a 1X2 alone gives `no_totals`;
@@ -575,7 +575,7 @@ The shadow run (P5) passes when, over two weeks, all of these hold:
    books.
 3. At most 2% of priced events fail the fit (`poor_fit`).
 4. P2b is in, and from 48 h before kickoff at least 90% of each league's events have 2 books on one x.5 over/under
-   line (the rest fall back as decision 7.4 says).
+   line (the rest go to the team-rating model, decision 7.4).
 5. No team name has been unresolved for the last 7 days.
 6. A search of the database, the archive and the logs for the key finds nothing (the key travels only in the header;
    K6 as well if P1 was ever done).
@@ -593,13 +593,17 @@ that, the other four leagues. If anything looks wrong, set the league back to `m
      real money, together with the liability caps of `docs/therundown-plan/README.md` (task T6).
 2. Which P7 steps to take, once the shadow numbers are in.
 3. Stay on 30 USD unless the guard leaves `normal` two months running; then move to the 59 USD plan.
-4. **A match with a 1X2 consensus but no over/under consensus (P2b, rule T2).** Two options:
+4. **A match with a 1X2 consensus but no over/under consensus (P2b, rule T2).** Decided 2026-11-01: the first
+   option, the team-rating model. The options were:
    - Price the whole match from the team-rating model, as for a match with no consensus at all. Recommended: simple,
      and what already happens to every match the feed does not cover.
    - Keep 1X2, double chance and draw no bet from the market and take the goal markets off for that match. Better
      prices where we have them, but a second pricing mode to build and test.
 
 ## 8. Email to The Odds API (P0)
+
+> **Owner's decision 2026-11-01: not sent.** The owner accepts that The Odds API may close the account; the demo
+> goes ahead without an answer. Gate 7 (section 6) brings the question back before real money.
 
 To team@the-odds-api.com, from the account's address:
 
