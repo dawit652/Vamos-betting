@@ -38,6 +38,8 @@ function runWorker(
         QUEUE_PREFIX,
         // No health server unless a test asks for one (port 4100 may be the dev stack's).
         WORKER_HEALTH_PORT: '0',
+        // The tests wait for info lines ('starting worker'); CI runs with LOG_LEVEL=warn.
+        LOG_LEVEL: 'info',
         ...env,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
