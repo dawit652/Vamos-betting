@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { analyseOdds, isUsableKey, redact, type OddsEvent } from '../src/cli/theoddsapi-probe';
+import {
+  analyseAltTotals,
+  analyseOdds,
+  isHalfLine,
+  isUsableKey,
+  redact,
+  type OddsEvent,
+} from '../src/cli/theoddsapi-probe';
 
 const NOW = new Date('2026-11-07T12:00:00Z');
 
@@ -71,5 +78,60 @@ describe('theoddsapi probe', () => {
     expect(r.perBook.williamhill).toMatchObject({ h2hComplete: 0, line25: 0 });
     expect(r.missingBooks).toContain('betfair_ex_uk');
     expect(r.missingBooks).not.toContain('pinnacle');
+  });
+});
+
+describe('theoddsapi probe: lines the pricing can use', () => {
+  it('counts events with a 2.5 consensus and with two books on any x.5 line', () => {
+    const r = analyseOdds(
+      [
+        event('two-on-2.5', '2026-11-07T15:00:00Z', [
+          { key: 'williamhill', markets: [h2h(2, 3.5, 4), totals(2.5)] },
+          { key: 'onexbet', markets: [h2h(2, 3.5, 4), totals(2.5)] },
+        ]),
+        event('two-on-3.5', '2026-11-07T17:30:00Z', [
+          { key: 'marathonbet', markets: [h2h(2, 3.5, 4), totals(3.5)] },
+          { key: 'onexbet', markets: [h2h(2, 3.5, 4), totals(3.5)] },
+          { key: 'pinnacle', markets: [h2h(2, 3.5, 4), totals(2.75)] },
+        ]),
+      ],
+      NOW,
+    );
+    expect(r.with25).toBe(1);
+    expect(r.withAnyHalf).toBe(2);
+    expect(r.books25).toEqual([2, 0]);
+    expect(r.perBook.onexbet?.lines).toEqual({ '2.5': 1, '3.5': 1 });
+    // A quarter line is listed but never counts as an x.5 line.
+    expect(r.perBook.pinnacle?.lines).toEqual({ '2.75': 1 });
+    expect(r.detail[1]?.halfLines).toEqual({ '3.5': 2 });
+  });
+
+  it('tells x.5 lines from whole and quarter lines', () => {
+    expect([0.5, 2.5, 3.5].every(isHalfLine)).toBe(true);
+    expect([2, 2.25, 2.75, 3].some(isHalfLine)).toBe(false);
+  });
+
+  it('reads per-event alternate_totals', () => {
+    const a = analyseAltTotals(
+      event('e', '2026-11-07T15:00:00Z', [
+        {
+          key: 'pinnacle',
+          markets: [
+            {
+              key: 'alternate_totals',
+              outcomes: [
+                { name: 'Over', price: 1.5, point: 1.5 },
+                { name: 'Under', price: 2.6, point: 1.5 },
+                { name: 'Over', price: 2.0, point: 2.5 },
+                { name: 'Under', price: 1.85, point: 2.5 },
+                { name: 'Over', price: 3.4, point: 3.5 },
+              ],
+            },
+          ],
+        },
+        { key: 'smarkets', markets: [] },
+      ]),
+    );
+    expect(a).toEqual({ books: { pinnacle: [1.5, 2.5] }, with25: 1 });
   });
 });
