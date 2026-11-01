@@ -703,3 +703,120 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
     ).toHaveLength(3);
   });
 });
+
+describe('TheRundown settings (docs/therundown-plan/README.md)', () => {
+  const OPERATOR_LICENSED = {
+    ...LICENSED_ENV,
+    THERUNDOWN_ENABLED: 'true',
+    THERUNDOWN_LICENCE: 'operator',
+  };
+
+  it('has safe defaults', () => {
+    expect(loadConfig({}).therundown).toEqual({
+      enabled: false,
+      plan: 'starter',
+      licence: 'internal',
+      oddsUse: 'reference',
+      retentionHours: 24,
+      baseUrl: 'https://therundown.io',
+      monthlyBudget: 25_000_000,
+      planDelaySeconds: 60,
+      requestsPerSecond: 2,
+    });
+  });
+
+  it('reads every setting, strips the trailing slash and takes the plan limits', () => {
+    const config = loadConfig({
+      THERUNDOWN_ENABLED: 'true',
+      THERUNDOWN_PLAN: 'ultra',
+      THERUNDOWN_LICENCE: 'operator',
+      THERUNDOWN_ODDS_USE: 'publish',
+      THERUNDOWN_RETENTION_HOURS: '72',
+      THERUNDOWN_BASE_URL: 'https://api.example.com/',
+      THERUNDOWN_MONTHLY_BUDGET: '1000',
+    });
+    expect(config.therundown).toEqual({
+      enabled: true,
+      plan: 'ultra',
+      licence: 'operator',
+      oddsUse: 'publish',
+      retentionHours: 72,
+      baseUrl: 'https://api.example.com',
+      monthlyBudget: 1000,
+      planDelaySeconds: 0,
+      requestsPerSecond: 10,
+    });
+  });
+
+  it('refuses out-of-range or unknown values', () => {
+    expect(problemsOf({ THERUNDOWN_RETENTION_HOURS: '0' })).not.toEqual([]);
+    expect(problemsOf({ THERUNDOWN_RETENTION_HOURS: '8761' })).not.toEqual([]);
+    expect(problemsOf({ THERUNDOWN_PLAN: 'gold' })).not.toEqual([]);
+    expect(problemsOf({ THERUNDOWN_MONTHLY_BUDGET: '-1' })).not.toEqual([]);
+  });
+
+  it('refuses publishing odds without the operator licence, in every mode', () => {
+    expect(problemsOf({ THERUNDOWN_ODDS_USE: 'publish' }).join('\n')).toContain(
+      'Supplemental Agreement',
+    );
+    expect(problemsOf({ THERUNDOWN_ODDS_USE: 'publish', THERUNDOWN_LICENCE: 'operator' })).toEqual(
+      [],
+    );
+  });
+
+  it('refuses retention above 24 hours without the operator licence', () => {
+    expect(problemsOf({ THERUNDOWN_RETENTION_HOURS: '25' }).join('\n')).toContain('24 hours');
+    expect(problemsOf({ THERUNDOWN_RETENTION_HOURS: '24' })).toEqual([]);
+    expect(
+      problemsOf({ THERUNDOWN_RETENTION_HOURS: '25', THERUNDOWN_LICENCE: 'operator' }),
+    ).toEqual([]);
+  });
+
+  it('needs a monthly budget on the enterprise plan', () => {
+    expect(problemsOf({ THERUNDOWN_PLAN: 'enterprise' }).join('\n')).toContain(
+      'THERUNDOWN_MONTHLY_BUDGET',
+    );
+    const config = loadConfig({ THERUNDOWN_PLAN: 'enterprise', THERUNDOWN_MONTHLY_BUDGET: '5' });
+    expect(config.therundown.monthlyBudget).toBe(5);
+  });
+
+  it('is not checked in licensed mode while disabled', () => {
+    expect(problemsOf(LICENSED_ENV)).toEqual([]);
+  });
+
+  it('accepts an enabled, operator-licensed, paid, https setup in licensed mode', () => {
+    expect(problemsOf(OPERATOR_LICENSED)).toEqual([]);
+  });
+
+  it('requires the operator licence when enabled in licensed mode', () => {
+    expect(
+      problemsOf({ ...OPERATOR_LICENSED, THERUNDOWN_LICENCE: 'internal' }).join('\n'),
+    ).toContain('THERUNDOWN_LICENCE');
+  });
+
+  it('refuses the free plan when enabled in licensed mode', () => {
+    expect(problemsOf({ ...OPERATOR_LICENSED, THERUNDOWN_PLAN: 'free' }).join('\n')).toContain(
+      'THERUNDOWN_PLAN',
+    );
+  });
+
+  it('requires an https base URL when enabled in licensed mode', () => {
+    expect(
+      problemsOf({ ...OPERATOR_LICENSED, THERUNDOWN_BASE_URL: 'http://therundown.io' }).join('\n'),
+    ).toContain('THERUNDOWN_BASE_URL');
+  });
+
+  it('never removes an existing licensed-mode violation', () => {
+    const base = loadConfig({});
+    const violations = licensedModeViolations({
+      ...base,
+      therundown: { ...base.therundown, enabled: true, licence: 'operator' },
+    });
+    expect(violations.join('\n')).toContain('FEED_PROVIDER "mock"');
+    const without = licensedModeViolations(base);
+    for (const problem of without) expect(violations).toContain(problem);
+    expect(problemsOf({ ...OPERATOR_LICENSED, FEED_PROVIDER: 'mock' }).join('\n')).toContain(
+      'FEED_PROVIDER "mock"',
+    );
+  });
+});

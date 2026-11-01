@@ -12,11 +12,14 @@ export {
   parseAdminTotpKey,
   parseTrustProxy,
   scraperUserAgent,
+  THERUNDOWN_PLANS,
   type AppConfig,
   type ChannelsConfig,
   type OperatingMode,
   type PaymentProvidersConfig,
   type ScraperConfig,
+  type TherundownConfig,
+  type TherundownPlan,
   type TrustProxySetting,
 } from './config';
 export { loadDotEnv } from './dotenv';

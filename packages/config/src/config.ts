@@ -78,6 +78,26 @@ const csv = z.string().transform((value) =>
 
 const bool = z.stringbool();
 
+export type TherundownPlan =
+  'free' | 'starter' | 'pro' | 'ultra' | 'super' | 'mega' | 'max' | 'enterprise';
+
+/** What each TheRundown plan gives: data delay, request rate and monthly data-point quota (null: by contract). */
+export const THERUNDOWN_PLANS: Readonly<
+  Record<
+    TherundownPlan,
+    { delaySeconds: number; requestsPerSecond: number; monthlyQuota: number | null }
+  >
+> = {
+  free: { delaySeconds: 300, requestsPerSecond: 1, monthlyQuota: 200_000 },
+  starter: { delaySeconds: 60, requestsPerSecond: 2, monthlyQuota: 25_000_000 },
+  pro: { delaySeconds: 30, requestsPerSecond: 5, monthlyQuota: 125_000_000 },
+  ultra: { delaySeconds: 0, requestsPerSecond: 10, monthlyQuota: 500_000_000 },
+  super: { delaySeconds: 0, requestsPerSecond: 15, monthlyQuota: 1_250_000_000 },
+  mega: { delaySeconds: 0, requestsPerSecond: 20, monthlyQuota: 2_500_000_000 },
+  max: { delaySeconds: 0, requestsPerSecond: 50, monthlyQuota: 12_500_000_000 },
+  enterprise: { delaySeconds: 0, requestsPerSecond: 10, monthlyQuota: null },
+};
+
 /** Fastify `trustProxy`: false, or the addresses / CIDRs of the trusted proxies. */
 export type TrustProxySetting = false | string[];
 
@@ -252,6 +272,28 @@ const envSchema = z.object({
   /** Rated matches a team needs before real bets are priced from its ratings (rule O1). */
   SCRAPER_MIN_RATING_MATCHES: z.coerce.number().int().min(1).max(10_000).default(8),
 
+  /**
+   * TheRundown (docs/therundown-plan/README.md). The API key is not a setting: it is
+   * SCRAPER_SECRET_THERUNDOWN, read by the scraper's fetcher (docs/scraper.md 6.7).
+   */
+  THERUNDOWN_ENABLED: bool.default(false),
+  /** The subscription plan: sets the data delay, request rate and monthly quota. */
+  THERUNDOWN_PLAN: z
+    .enum(['free', 'starter', 'pro', 'ultra', 'super', 'mega', 'max', 'enterprise'])
+    .default('starter'),
+  /** `operator`: we hold TheRundown's signed Supplemental Agreement covering betting-operator use, display and retention. */
+  THERUNDOWN_LICENCE: z.enum(['internal', 'operator']).default('internal'),
+  /** What TheRundown odds may be used for: nothing, our own reference, or the prices players see. */
+  THERUNDOWN_ODDS_USE: z.enum(['off', 'reference', 'publish']).default('reference'),
+  /** How long TheRundown data may be kept, in hours (above 24 needs the operator licence). */
+  THERUNDOWN_RETENTION_HOURS: z.coerce.number().int().min(1).max(8760).default(24),
+  THERUNDOWN_BASE_URL: z.url().default('https://therundown.io'),
+  /** Data points per month we allow ourselves to spend; unset = the plan's quota. */
+  THERUNDOWN_MONTHLY_BUDGET: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.coerce.number().int().min(0).optional(),
+  ),
+
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
    * Public base URL of the API that payment providers call back (webhooks,
@@ -348,6 +390,7 @@ export interface AppConfig {
   };
   /** The data scraper (SCRAPER_*, docs/scraper.md section 7). */
   scraper: ScraperConfig;
+  therundown: TherundownConfig;
   providers: { payments: string[]; kyc: 'mock' | 'fayda'; sms: 'mock' | 'http' };
   /**
    * Payment provider settings (PAYMENT_*, MOCK_PAYMENT_*, CHAPA_*, TELEBIRR_*).
@@ -390,6 +433,21 @@ export function scraperUserAgent(scraper: Pick<ScraperConfig, 'userAgent' | 'con
   return scraper.contact === undefined
     ? scraper.userAgent
     : `${scraper.userAgent} (+${scraper.contact})`;
+}
+
+export interface TherundownConfig {
+  enabled: boolean;
+  plan: TherundownPlan;
+  /** `operator`: the Supplemental Agreement for betting-operator use is signed. */
+  licence: 'internal' | 'operator';
+  oddsUse: 'off' | 'reference' | 'publish';
+  retentionHours: number;
+  /** Without a trailing slash. */
+  baseUrl: string;
+  /** Data points per month (THERUNDOWN_MONTHLY_BUDGET, else the plan's quota). */
+  monthlyBudget: number;
+  planDelaySeconds: number;
+  requestsPerSecond: number;
 }
 
 export interface ChannelsConfig {
@@ -491,6 +549,23 @@ export function licensedModeViolations(config: AppConfig): string[] {
     if (config.scraper.robots !== 'enforce') {
       problems.push(
         'SCRAPER_ROBOTS must be "enforce" in licensed mode (robots.txt is always obeyed)',
+      );
+    }
+  }
+  if (config.therundown.enabled) {
+    if (config.therundown.licence !== 'operator') {
+      problems.push(
+        'THERUNDOWN_LICENCE must be "operator" in licensed mode when TheRundown is enabled (betting-operator use of TheRundown data needs its Supplemental Agreement)',
+      );
+    }
+    if (config.therundown.plan === 'free') {
+      problems.push(
+        'THERUNDOWN_PLAN must not be "free" in licensed mode when TheRundown is enabled',
+      );
+    }
+    if (!isHttpsUrl(config.therundown.baseUrl)) {
+      problems.push(
+        `THERUNDOWN_BASE_URL must be an https URL in licensed mode (got ${config.therundown.baseUrl})`,
       );
     }
   }
@@ -606,6 +681,18 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       resultConfirmMinutes: e.SCRAPER_RESULT_CONFIRM_MINUTES,
       minRatingMatches: e.SCRAPER_MIN_RATING_MATCHES,
     },
+    therundown: {
+      enabled: e.THERUNDOWN_ENABLED,
+      plan: e.THERUNDOWN_PLAN,
+      licence: e.THERUNDOWN_LICENCE,
+      oddsUse: e.THERUNDOWN_ODDS_USE,
+      retentionHours: e.THERUNDOWN_RETENTION_HOURS,
+      baseUrl: e.THERUNDOWN_BASE_URL.replace(/\/+$/, ''),
+      monthlyBudget:
+        e.THERUNDOWN_MONTHLY_BUDGET ?? THERUNDOWN_PLANS[e.THERUNDOWN_PLAN].monthlyQuota ?? 0,
+      planDelaySeconds: THERUNDOWN_PLANS[e.THERUNDOWN_PLAN].delaySeconds,
+      requestsPerSecond: THERUNDOWN_PLANS[e.THERUNDOWN_PLAN].requestsPerSecond,
+    },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {
       callbackBaseUrl: e.PAYMENT_CALLBACK_BASE_URL ?? e.PUBLIC_API_URL,
@@ -650,6 +737,21 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
 
   const problems: string[] = [];
+  if (config.therundown.oddsUse === 'publish' && config.therundown.licence !== 'operator') {
+    problems.push(
+      'THERUNDOWN_ODDS_USE=publish needs THERUNDOWN_LICENCE=operator (prices made from TheRundown odds need its Supplemental Agreement)',
+    );
+  }
+  if (config.therundown.retentionHours > 24 && config.therundown.licence !== 'operator') {
+    problems.push(
+      'THERUNDOWN_RETENTION_HOURS above 24 needs THERUNDOWN_LICENCE=operator (their terms allow at most 24 hours of caching without the agreement)',
+    );
+  }
+  if (e.THERUNDOWN_PLAN === 'enterprise' && e.THERUNDOWN_MONTHLY_BUDGET === undefined) {
+    problems.push(
+      'THERUNDOWN_PLAN=enterprise needs THERUNDOWN_MONTHLY_BUDGET (the quota is set by contract)',
+    );
+  }
   if (new URL(config.web.adminUrl).origin === new URL(config.web.publicUrl).origin) {
     // CORS gives the back office origin /admin/* and the player origin the rest, so a script on
     // the player site cannot drive the staff API. One shared origin would undo that.
