@@ -38,7 +38,12 @@ export type FeedRoute = keyof typeof FEED_ROUTE_PERMISSIONS;
 // depend on @vamos/core); a drift test in the API package compares them.
 
 export const FEED_SPORTS = ['football'] as const;
-export const FEED_ADAPTERS = ['openfootball', 'generic-json', 'generic-html'] as const;
+export const FEED_ADAPTERS = [
+  'openfootball',
+  'generic-json',
+  'generic-html',
+  'therundown',
+] as const;
 export const FEED_DATA_CLASSES = ['fixtures', 'results'] as const;
 export const FEED_FIXTURE_STATUSES = ['scheduled', 'postponed', 'cancelled'] as const;
 export const FEED_RESULT_STATUSES = ['finished', 'cancelled', 'abandoned', 'postponed'] as const;
@@ -385,6 +390,24 @@ export const FEED_REPRICE_SUBJECT_SUFFIX = '|reprice';
 /** True for the `odds_approval` items that propose a re-price (`apply_reprice` applies them). */
 export function isRepriceItem(item: { kind: string; subjectKey: string }): boolean {
   return item.kind === 'odds_approval' && item.subjectKey.endsWith(FEED_REPRICE_SUBJECT_SUFFIX);
+}
+
+/**
+ * The subject of an odds-error guard item (rule P6) ends in this mark or has it followed by `|`
+ * (`<feedRef>|reference|<marketKey>`): the guard suspended a market because our prices are far
+ * from the market's. A trader re-prices and re-opens the market in Trading; the review item never
+ * offers `open_betting` (nor `apply_reprice`). A drift test in the API compares it with the
+ * scraper's own constant.
+ */
+export const FEED_REFERENCE_SUBJECT_MARK = '|reference';
+
+/** True for the `odds_approval` items of the odds-error guard: only `dismiss` applies to them. */
+export function isReferenceItem(item: { kind: string; subjectKey: string }): boolean {
+  return (
+    item.kind === 'odds_approval' &&
+    (item.subjectKey.endsWith(FEED_REFERENCE_SUBJECT_MARK) ||
+      item.subjectKey.includes(`${FEED_REFERENCE_SUBJECT_MARK}|`))
+  );
 }
 
 /** A priced book as the scraper stores it in a re-price item: markets by type and line, selections by code. */

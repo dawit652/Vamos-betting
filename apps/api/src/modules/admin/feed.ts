@@ -9,6 +9,7 @@ import {
   FeedCompetitionsResponse,
   FeedHealthResponse,
   hasPermission,
+  isReferenceItem,
   isRepriceItem,
   parseReviewPayload,
   competitionPolicyPermission,
@@ -469,11 +470,13 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             { decision: input.decision, kind: item.kind },
           );
         }
-        // An odds_approval item is either the F7 request to open betting or a re-price
-        // (subject `<feedRef>|reprice`): each takes only its own decision.
+        // An odds_approval item is the F7 request to open betting, a re-price (subject
+        // `<feedRef>|reprice`) or an odds-error guard stop (`<feedRef>|reference|<market>`, rule
+        // P6): each takes only its own decision, and the guard's takes none but dismiss, because
+        // its market is re-priced and re-opened in Trading by a person.
         if (
           (input.decision === 'apply_reprice' && !isRepriceItem(item)) ||
-          (input.decision === 'open_betting' && isRepriceItem(item))
+          (input.decision === 'open_betting' && (isRepriceItem(item) || isReferenceItem(item)))
         ) {
           throw unprocessable(
             'decision_not_allowed',

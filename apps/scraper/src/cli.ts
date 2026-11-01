@@ -22,6 +22,7 @@ import {
 import { envSecretReader } from './lib/secrets';
 import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
 import { sourcesList, sourcesUpsert } from './cli/sources';
+import { therundownBudget, therundownCheck } from './cli/therundown';
 
 /**
  * The source and ratings command line (docs/scraper-plan/07-sources-ratings-and-shadow-mode.md).
@@ -59,6 +60,13 @@ commands:
       between 0.35 and 3. Refuses unknown or ambiguous team names. Prints before and after.
   ratings list [--team text]
       Football teams that have ratings: attack, defence, matches, manual.
+  therundown check [--source-file source.json]
+      One day request per configured sport for today (UTC) through the polite fetcher, with the key
+      of SCRAPER_SECRET_THERUNDOWN (never printed). Prints the HTTP status, the delay and rate headers,
+      the data points it cost and what is left, events, prices kept and issue counts. Writes nothing
+      (the source comes from the file, else from the database).
+  therundown budget
+      The budget row: the data points TheRundown last reported, today's spend and the level.
 
 every command accepts --json (machine-readable output).
 exit codes: 0 success, 1 failed or refused, 2 wrong command line.`;
@@ -76,10 +84,12 @@ const COMMANDS: Record<string, Command> = {
   'ratings backfill': ratingsBackfill,
   'ratings set': ratingsSet,
   'ratings list': ratingsList,
+  'therundown check': therundownCheck,
+  'therundown budget': therundownBudget,
 };
 
 /** Words that take a sub-command; the rest are commands on their own. */
-const GROUPS = new Set(['sources', 'aliases', 'ratings']);
+const GROUPS = new Set(['sources', 'aliases', 'ratings', 'therundown']);
 
 /** Runs one command line and returns the exit code; never throws and never exits. */
 export async function runCli(argv: readonly string[], env: CliEnv): Promise<number> {
@@ -148,6 +158,7 @@ function realEnv(): { env: CliEnv; close: () => Promise<void> } {
     err: (line) => process.stderr.write(`${line}\n`),
     readFile: defaultReadFile,
     clock: () => new Date(),
+    therundownBaseUrl: () => getConfig().therundown.baseUrl,
     actor: { system: 'cli' },
     database: async (): Promise<Database> => {
       if (handle === null) {

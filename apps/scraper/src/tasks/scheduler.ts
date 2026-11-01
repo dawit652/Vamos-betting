@@ -71,7 +71,8 @@ async function retryAtOf(ctx: ScraperContext, sourceId: string, now: Date): Prom
 /**
  * Decides which enabled sources are due (cadence per data class, failure
  * backoff, the retry time a site asked for) and runs them: one source at a
- * time per host, at most `scraper.maxConcurrency` hosts in parallel.
+ * time per host, at most `scraper.maxConcurrency` hosts in parallel. Sources
+ * whose adapter is `therundown` are skipped: the TheRundown task polls them.
  */
 export async function runDueSources(
   ctx: ScraperContext,
@@ -79,7 +80,10 @@ export async function runDueSources(
 ): Promise<SchedulerSummary> {
   const now = ctx.clock();
   const random = options.random ?? (() => Math.random() * 0.1);
-  const sources = (await listSources(ctx.db)).filter((source) => source.enabled);
+  // A TheRundown source is polled by its own task (budget and cadence tiers), never from here.
+  const sources = (await listSources(ctx.db)).filter(
+    (source) => source.enabled && source.adapter !== 'therundown',
+  );
   const summary: SchedulerSummary = { due: 0, ran: 0, locked: 0 };
   if (sources.length === 0) return summary;
 

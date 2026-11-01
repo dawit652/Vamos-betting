@@ -6,6 +6,7 @@ import {
   FEED_ADAPTERS,
   FEED_DATA_CLASSES,
   FEED_FIXTURE_STATUSES,
+  FEED_REFERENCE_SUBJECT_MARK,
   FEED_REPRICE_SUBJECT_SUFFIX,
   FEED_REVIEW_KINDS,
   FEED_REVIEW_STATUSES,
@@ -52,6 +53,7 @@ import {
   decideFixture,
   normalizeName,
   ratingsKey,
+  REFERENCE_SUBJECT_MARK,
   REPRICE_SUBJECT_SUFFIX,
   type FixtureObservation,
   type ResolvedObservation,
@@ -249,6 +251,7 @@ describe('contract drift', () => {
     expect(FEED_REVIEW_STATUSES).toEqual(SCRAPE_REVIEW_STATUSES);
     expect(FEED_SEVERITIES).toEqual(SCRAPE_SEVERITIES);
     expect(FEED_REPRICE_SUBJECT_SUFFIX).toBe(REPRICE_SUBJECT_SUFFIX);
+    expect(FEED_REFERENCE_SUBJECT_MARK).toBe(REFERENCE_SUBJECT_MARK);
   });
 });
 
@@ -540,6 +543,16 @@ describe('POST /admin/feed/review/:id/resolve', () => {
       { ...eventRef(ABSENT_ID, ctx.clock.now), reason: null, markets: [] },
       'fx|some-event|reprice',
     );
+    const guard = await openItem(
+      'odds_approval',
+      { ...eventRef(ABSENT_ID, ctx.clock.now), reason: 'market_divergence', markets: [] },
+      'fx|some-event|reference|1x2',
+    );
+    const guardBare = await openItem(
+      'odds_approval',
+      { ...eventRef(ABSENT_ID, ctx.clock.now), reason: 'market_divergence', markets: [] },
+      'fx|some-event|reference',
+    );
     const attempts: Array<[string, unknown]> = [
       [broken, { decision: 'map_alias', targetId: ids.home }],
       [broken, { decision: 'open_betting' }],
@@ -552,6 +565,10 @@ describe('POST /admin/feed/review/:id/resolve', () => {
       [odds, { decision: 'apply_reprice' }],
       [broken, { decision: 'apply_reprice' }],
       [reprice, { decision: 'open_betting' }],
+      // The odds-error guard's item (rule P6) takes only dismiss: never "Open betting", never a re-price.
+      [guard, { decision: 'open_betting' }],
+      [guard, { decision: 'apply_reprice' }],
+      [guardBare, { decision: 'open_betting' }],
     ];
     for (const [id, body] of attempts) {
       const response = await resolve('admin', id, body);
@@ -561,6 +578,16 @@ describe('POST /admin/feed/review/:id/resolve', () => {
     expect((await itemRow(broken)).status).toBe('open');
     expect((await itemRow(odds)).status).toBe('open');
     expect((await itemRow(reprice)).status).toBe('open');
+    expect((await itemRow(guard)).status).toBe('open');
+    expect((await itemRow(guardBare)).status).toBe('open');
+
+    // It can still be dismissed, with a note.
+    const dismissed = await resolve('trader', guard, {
+      decision: 'dismiss',
+      note: 'repriced by hand',
+    });
+    expect(dismissed.statusCode, dismissed.body).toBe(200);
+    expect((await itemRow(guard)).status).toBe('dismissed');
   });
 
   it('map_alias adds the normalised alias (all sources or one), closes the item, audits; the same name for another target is 409', async () => {

@@ -36,6 +36,8 @@ export interface CliEnv {
   /** Likewise: only dry-fetch needs the network. */
   fetcher(): PoliteFetcher;
   clock(): Date;
+  /** TheRundown's base URL (THERUNDOWN_BASE_URL); `therundown check` uses https://therundown.io without it. */
+  therundownBaseUrl?(): string;
   /** The audit actor of every change the CLI makes. */
   actor: ScrapeActor;
 }

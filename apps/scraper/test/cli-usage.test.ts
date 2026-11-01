@@ -45,6 +45,8 @@ describe('command line', () => {
       'dry-fetch',
       'aliases import',
       'ratings backfill',
+      'therundown check',
+      'therundown budget',
     ]) {
       expect(USAGE).toContain(name);
     }

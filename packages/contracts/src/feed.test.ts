@@ -21,7 +21,9 @@ import {
   FEED_SPORTS,
   FeedHealthResponse,
   RemoveAliasResponse,
+  FEED_REFERENCE_SUBJECT_MARK,
   FEED_REPRICE_SUBJECT_SUFFIX,
+  isReferenceItem,
   isRepriceItem,
   parseReviewPayload,
   REVIEW_PAYLOAD_SCHEMAS,
@@ -463,6 +465,20 @@ describe('review payloads', () => {
     expect(isRepriceItem({ kind: 'odds_approval', subjectKey: 'fx|a' })).toBe(false);
     expect(isRepriceItem({ kind: 'ratings_uncalibrated', subjectKey: 'fx|a|reprice' })).toBe(false);
     expect(FEED_REPRICE_SUBJECT_SUFFIX).toBe('|reprice');
+
+    // The odds-error guard's items (rule P6): `<feedRef>|reference|<marketKey>`.
+    expect(isReferenceItem({ kind: 'odds_approval', subjectKey: 'fx|a|reference|1x2' })).toBe(true);
+    expect(isReferenceItem({ kind: 'odds_approval', subjectKey: 'fx|a|reference|ou:2.5' })).toBe(
+      true,
+    );
+    expect(isReferenceItem({ kind: 'odds_approval', subjectKey: 'fx|a|reference' })).toBe(true);
+    expect(isReferenceItem({ kind: 'odds_approval', subjectKey: 'fx|a' })).toBe(false);
+    expect(isReferenceItem({ kind: 'odds_approval', subjectKey: 'fx|a|reprice' })).toBe(false);
+    expect(isReferenceItem({ kind: 'odds_approval', subjectKey: 'fx|a|referenced' })).toBe(false);
+    expect(isReferenceItem({ kind: 'kickoff_change', subjectKey: 'fx|a|reference|1x2' })).toBe(
+      false,
+    );
+    expect(FEED_REFERENCE_SUBJECT_MARK).toBe('|reference');
 
     for (const kind of ['odds_approval', 'ratings_uncalibrated'] as const) {
       expect(parseReviewPayload(kind, odds), kind).toEqual(odds);
