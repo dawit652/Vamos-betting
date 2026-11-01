@@ -281,6 +281,13 @@
       "when": 1793514217983,
       "tag": "0039_scrape_pricing_source",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793524901306,
+      "tag": "0040_events_close_lead",
+      "breakpoints": true
     }
   ]
 }

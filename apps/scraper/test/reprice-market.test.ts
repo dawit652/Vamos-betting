@@ -9,7 +9,7 @@ import {
   upsertMarketOdds,
   upsertSource,
 } from '@vamos/db';
-import { MARKET_ODDS_MAX_AGE_MS, MIN_LEAD_MS } from '@vamos/scraper';
+import { MARKET_CLOSE_LEAD_MS, MARKET_ODDS_MAX_AGE_MS, MIN_LEAD_MS } from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
 import { priceEvent } from '../src/pipeline/event-pricing';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
@@ -312,6 +312,33 @@ describe('priceEvent', () => {
 });
 
 describe('re-pricing from the market', () => {
+  it(
+    'a market-priced competition closes prematch betting MARKET_CLOSE_LEAD_MS before kickoff; the model does not',
+    async () => {
+      const { eventId } = await createdEvent();
+      const leadOf = async () =>
+        (
+          await rows<{ close_lead_ms: number }>('SELECT close_lead_ms FROM events WHERE id = $1', [
+            eventId,
+          ])
+        )[0]!.close_lead_ms;
+      // The model's own prices are not late: no lead.
+      await repriceScheduledEvents(h.ctx);
+      expect(await leadOf()).toBe(0);
+
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      await listEvent(eventId, 'feed-a', booksNear(await storedOneXTwo(eventId), 0.93));
+      await repriceScheduledEvents(h.ctx);
+      expect(await leadOf()).toBe(MARKET_CLOSE_LEAD_MS);
+      // Never lowered: switching back to the model keeps the lead.
+      await setPolicy({ pricingSource: 'model' });
+      await repriceScheduledEvents(h.ctx);
+      expect(await leadOf()).toBe(MARKET_CLOSE_LEAD_MS);
+    },
+    TEST_TIMEOUT,
+  );
+
   it(
     'market policy and a fresh two-book consensus: the event is re-priced from the market',
     async () => {

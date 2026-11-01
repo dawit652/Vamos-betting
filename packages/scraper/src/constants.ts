@@ -78,5 +78,12 @@ export const MAX_PRICE_MOVE_RATIO = 1.25;
  * licensed feed is fetched far more often; an older price means the feed has stopped).
  */
 export const MARKET_ODDS_MAX_AGE_MS = 3 * HOUR_MS;
+/**
+ * Prematch betting on an event of a market-priced competition closes at least this long before its
+ * start time (events.close_lead_ms). The licensed feed's prices and statuses arrive a minute or
+ * more late (TheRundown Starter: 60 s, plus the time between polls), so no bet may be struck up to a
+ * kick-off the feed has not reported yet. Only ever raised, never lowered.
+ */
+export const MARKET_CLOSE_LEAD_MS = 5 * MINUTE_MS;
 /** A price row is linked to the event of the same competition and teams that starts within this of its kickoff. */
 export const MARKET_ODDS_LINK_WINDOW_MS = 6 * HOUR_MS;

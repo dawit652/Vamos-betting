@@ -37,6 +37,7 @@ export {
   type OddsDeltaData,
   type SelectionStatus,
 } from './live';
+export { raiseCloseLead } from './close-lead';
 export {
   MANUAL_ODDS_SOURCE,
   oddsProvenance,

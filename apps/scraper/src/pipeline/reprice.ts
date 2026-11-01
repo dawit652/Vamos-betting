@@ -14,6 +14,7 @@ import {
   listScrapedEvents,
   lockEvent,
   marketsWithSelections,
+  raiseCloseLead,
   recordEventHeld,
   recordEventPriced,
   upsertFixture,
@@ -26,6 +27,7 @@ import {
   buildReviews,
   checkReprice,
   heldKeyOf,
+  MARKET_CLOSE_LEAD_MS,
   MIN_LEAD_MS,
   ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
@@ -275,6 +277,10 @@ async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): 
     const away = rated.get(row.awayTeamId)?.ratings ?? null;
     // O5: where the prices come from (the market when the policy says so and a fresh consensus exists).
     const price = await priceEvent(tx, pricingInput(ctx, policy, event.eventId, home, away, now));
+    // The market's data is late: an event of a market-priced competition closes betting early.
+    if (policy.pricingSource === 'market') {
+      await raiseCloseLead(tx, event.eventId, MARKET_CLOSE_LEAD_MS);
+    }
     const key = price.key;
     const held = heldKeyOf(key, enabled);
     const stamp = (await listEventPricing(tx, [event.eventId])).get(event.eventId);
