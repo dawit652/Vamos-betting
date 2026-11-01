@@ -1,0 +1,411 @@
+{
+  "meta": {
+    "delta_last_id": "193500000"
+  },
+  "events": [
+    {
+      "event_id": "816efd1e5767d7133b5bc70c77173a18",
+      "sport_id": 11,
+      "event_date": "2026-11-01T15:00:00Z",
+      "score": {
+        "event_status": "STATUS_SCHEDULED",
+        "score_home": 0,
+        "score_away": 0,
+        "team_id_home": 7,
+        "team_id_away": 9,
+        "score_home_by_period": [],
+        "score_away_by_period": [],
+        "updated_at": "2026-10-31T10:00:00Z"
+      },
+      "teams": [
+        {
+          "team_id": 9,
+          "name": "Chelsea",
+          "mascot": "",
+          "abbreviation": "CHE",
+          "is_away": true,
+          "is_home": false
+        },
+        {
+          "team_id": 7,
+          "name": "Arsenal",
+          "mascot": "",
+          "abbreviation": "ARS",
+          "is_home": true,
+          "is_away": false
+        }
+      ],
+      "markets": [
+        {
+          "market_id": 1,
+          "period_id": 0,
+          "name": "moneyline",
+          "participants": [
+            {
+              "id": 7,
+              "type": "TYPE_TEAM",
+              "name": "Arsenal",
+              "lines": [
+                {
+                  "value": "",
+                  "prices": {
+                    "3": {
+                      "price": -120,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z",
+                      "liquidity_usd": 5000
+                    },
+                    "7": {
+                      "price": -118,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    },
+                    "32": {
+                      "price": -125,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 9,
+              "type": "TYPE_TEAM",
+              "name": "Chelsea",
+              "lines": [
+                {
+                  "value": "",
+                  "prices": {
+                    "3": {
+                      "price": 320,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z",
+                      "liquidity_usd": 5000
+                    },
+                    "7": {
+                      "price": 330,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    },
+                    "32": {
+                      "price": 310,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 3001,
+              "type": "TYPE_RESULT",
+              "name": "Draw",
+              "lines": [
+                {
+                  "value": "",
+                  "prices": {
+                    "3": {
+                      "price": 290,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z",
+                      "liquidity_usd": 5000
+                    },
+                    "7": {
+                      "price": 295,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    },
+                    "32": {
+                      "price": 285,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": 3,
+          "period_id": 0,
+          "name": "totals",
+          "participants": [
+            {
+              "id": 4001,
+              "type": "TYPE_RESULT",
+              "name": "Over",
+              "lines": [
+                {
+                  "value": "2.5",
+                  "prices": {
+                    "3": {
+                      "price": -105,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z",
+                      "liquidity_usd": 5000
+                    },
+                    "7": {
+                      "price": -102,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    },
+                    "32": {
+                      "price": -108,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 4002,
+              "type": "TYPE_RESULT",
+              "name": "Under",
+              "lines": [
+                {
+                  "value": "2.5",
+                  "prices": {
+                    "3": {
+                      "price": -115,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z",
+                      "liquidity_usd": 5000
+                    },
+                    "7": {
+                      "price": -118,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    },
+                    "32": {
+                      "price": -112,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "event_id": "b2c4d6e8f0a1b3c5d7e9f1a2b4c6d8e0",
+      "sport_id": 11,
+      "event_date": "2026-11-01T17:30:00Z",
+      "score": {
+        "event_status": "STATUS_SCHEDULED",
+        "score_home": 0,
+        "score_away": 0,
+        "team_id_home": 21,
+        "team_id_away": 22,
+        "score_home_by_period": [],
+        "score_away_by_period": [],
+        "updated_at": "2026-10-31T10:00:00Z"
+      },
+      "teams": [
+        {
+          "team_id": 22,
+          "name": "Fulham",
+          "mascot": "",
+          "abbreviation": "FUL",
+          "is_away": true,
+          "is_home": false
+        },
+        {
+          "team_id": 21,
+          "name": "Everton",
+          "mascot": "",
+          "abbreviation": "EVE",
+          "is_home": true,
+          "is_away": false
+        }
+      ],
+      "markets": [
+        {
+          "market_id": 1,
+          "period_id": 0,
+          "name": "moneyline",
+          "participants": [
+            {
+              "id": 21,
+              "type": "TYPE_TEAM",
+              "name": "Everton",
+              "lines": [
+                {
+                  "value": "",
+                  "prices": {
+                    "3": {
+                      "price": "-110",
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    },
+                    "7": {
+                      "price": -105,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z",
+                      "closed_at": "2026-10-31T10:00:00Z"
+                    },
+                    "32": {
+                      "price": 0.0001,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                },
+                {
+                  "value": "",
+                  "prices": {
+                    "3": {
+                      "price": -115,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:05:00Z"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 22,
+              "type": "TYPE_TEAM",
+              "name": "Fulham",
+              "lines": [
+                {
+                  "value": "",
+                  "prices": {
+                    "3": {
+                      "price": 50,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    },
+                    "32": {
+                      "price": 150,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 3001,
+              "type": "TYPE_RESULT",
+              "name": "Draw",
+              "lines": [
+                {
+                  "value": "",
+                  "prices": {
+                    "3": {
+                      "price": 250,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 9999,
+              "type": "TYPE_RESULT",
+              "name": "Mystery",
+              "lines": [
+                {
+                  "value": "",
+                  "prices": {
+                    "3": {
+                      "price": 500,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": 41,
+          "period_id": 0,
+          "name": "live moneyline",
+          "participants": []
+        },
+        {
+          "market_id": 2,
+          "period_id": 0,
+          "name": "spread",
+          "participants": []
+        },
+        {
+          "market_id": 1,
+          "period_id": 1,
+          "name": "first half moneyline",
+          "participants": []
+        },
+        {
+          "market_id": 3,
+          "period_id": 0,
+          "name": "totals",
+          "participants": [
+            {
+              "id": 4001,
+              "type": "TYPE_RESULT",
+              "name": "Over",
+              "lines": [
+                {
+                  "value": "2.25",
+                  "prices": {
+                    "3": {
+                      "price": -105,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                },
+                {
+                  "value": "3",
+                  "prices": {
+                    "3": {
+                      "price": -105,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                },
+                {
+                  "value": "+2.50",
+                  "prices": {
+                    "3": {
+                      "price": -105,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 4002,
+              "type": "TYPE_RESULT",
+              "name": "Under",
+              "lines": [
+                {
+                  "value": "2.5",
+                  "prices": {
+                    "3": {
+                      "price": -115,
+                      "is_main_line": true,
+                      "updated_at": "2026-10-31T10:00:00Z"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

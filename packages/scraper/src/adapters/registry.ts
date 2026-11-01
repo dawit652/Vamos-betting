@@ -4,6 +4,7 @@ import type { SourceAdapter, SourceDescriptor, SourceKind } from '../types';
 import { zodErrors } from './common';
 import { createGenericHtmlAdapter, GenericHtmlConfigSchema } from './generic-html';
 import { createGenericJsonAdapter, GenericJsonConfigSchema } from './generic-json';
+import { createTherundownAdapter, TherundownConfigSchema } from './therundown';
 import { createOpenFootballAdapter, OpenFootballConfigSchema } from './openfootball';
 
 export interface SourceRow {
@@ -44,6 +45,8 @@ export function createAdapter(row: SourceRow): CreateAdapterResult {
     switch (row.adapter) {
       case 'openfootball':
         return build(OpenFootballConfigSchema, row, 'json_api', createOpenFootballAdapter);
+      case 'therundown':
+        return build(TherundownConfigSchema, row, 'json_api', createTherundownAdapter);
       case 'generic-json':
         return build(GenericJsonConfigSchema, row, 'json_api', createGenericJsonAdapter);
       case 'generic-html':

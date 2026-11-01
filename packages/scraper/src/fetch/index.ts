@@ -8,4 +8,5 @@ export * from './circuit-breaker';
 export * from './conditional';
 export * from './rate-limiter';
 export * from './cadence';
+export * from './budget';
 export * from './polite-fetcher';

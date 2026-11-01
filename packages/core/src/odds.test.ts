@@ -2,6 +2,9 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   MAX_ODDS_MILLI,
+  americanToOddsMilli,
+  americanToProbability,
+  isValidAmericanOdds,
   formatOdds,
   grossReturn,
   impliedProbability,
@@ -160,6 +163,72 @@ describe('oddsFromProbability', () => {
         fc.integer({ min: 0, max: 2000 }),
         (p, margin) => oddsFromProbability(p, margin) <= oddsFromProbability(p),
       ),
+    );
+  });
+});
+
+describe('American odds', () => {
+  it('converts examples', () => {
+    expect(americanToOddsMilli(-110)).toBe(1909);
+    expect(americanToProbability(-110)).toBeCloseTo(110 / 210, 12);
+    expect(americanToOddsMilli(150)).toBe(2500);
+    expect(americanToProbability(150)).toBeCloseTo(0.4, 12);
+    for (const x of [-100, 100]) {
+      expect(americanToOddsMilli(x)).toBe(2000);
+      expect(americanToProbability(x)).toBe(0.5);
+    }
+    expect(americanToOddsMilli(-100000)).toBe(1001);
+    expect(americanToOddsMilli(99900)).toBe(1_000_000);
+  });
+
+  it('rejects invalid prices', () => {
+    for (const x of [99901, -100001, 50, -50, 0, 1.5, Number.NaN, Infinity, -Infinity, 99]) {
+      expect(isValidAmericanOdds(x)).toBe(false);
+      expect(() => americanToOddsMilli(x)).toThrow(RangeError);
+      expect(() => americanToProbability(x)).toThrow(RangeError);
+    }
+  });
+
+  const negative = fc.integer({ min: -100_000, max: -100 });
+  const positive = fc.integer({ min: 100, max: 99_900 });
+  const anyPrice = fc.oneof(negative, positive);
+
+  it('odds rise with the price on each side of the scale', () => {
+    fc.assert(
+      fc.property(negative, negative, (a, b) => {
+        if (a <= b) expect(americanToOddsMilli(a)).toBeLessThanOrEqual(americanToOddsMilli(b));
+      }),
+    );
+    fc.assert(
+      fc.property(positive, positive, (a, b) => {
+        if (a <= b) expect(americanToOddsMilli(a)).toBeLessThanOrEqual(americanToOddsMilli(b));
+      }),
+    );
+  });
+
+  it('negatives give at most 2.000 and positives at least 2.000', () => {
+    fc.assert(fc.property(negative, (x) => americanToOddsMilli(x) <= 2000));
+    fc.assert(fc.property(positive, (x) => americanToOddsMilli(x) >= 2000));
+  });
+
+  it('rounding down never pays more than the exact price', () => {
+    fc.assert(
+      fc.property(anyPrice, (x) => {
+        const exact = x > 0 ? 1 + x / 100 : 1 + 100 / -x;
+        const milli = americanToOddsMilli(x);
+        expect(milli).toBeLessThanOrEqual(exact * 1000 + 1e-6);
+        expect(1 / americanToProbability(x)).toBeGreaterThanOrEqual(milli / 1000 - 1e-9);
+      }),
+    );
+  });
+
+  it('the two sides of the same price sum to one', () => {
+    fc.assert(
+      fc.property(positive, (x) => {
+        expect(Math.abs(americanToProbability(x) + americanToProbability(-x) - 1)).toBeLessThan(
+          1e-12,
+        );
+      }),
     );
   });
 });

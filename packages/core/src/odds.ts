@@ -83,3 +83,42 @@ export function oddsFromProbability(probability: number, marginBps = 0): OddsMil
   const hundredths = Math.floor(raw / 10 + 1e-9) * 10;
   return Math.min(MAX_ODDS_MILLI, Math.max(1010, hundredths));
 }
+
+const MAX_AMERICAN_POSITIVE = (MAX_ODDS_MILLI - 1000) / 10;
+const MAX_AMERICAN_NEGATIVE = 100_000;
+
+/**
+ * True for an American price this system accepts: a safe integer with |x| ≥ 100
+ * (−100 and +100 both mean 2.00) whose decimal odds lie in 1.001 – 1000.000,
+ * i.e. −100000 … −100 and 100 … 99900.
+ */
+export function isValidAmericanOdds(american: number): boolean {
+  if (!Number.isSafeInteger(american)) return false;
+  if (american >= 100) return american <= MAX_AMERICAN_POSITIVE;
+  if (american <= -100) return american >= -MAX_AMERICAN_NEGATIVE;
+  return false;
+}
+
+function assertValidAmerican(american: number): void {
+  if (!isValidAmericanOdds(american)) throw new RangeError(`invalid American odds: ${american}`);
+}
+
+/**
+ * American price → decimal odds in milli, integer arithmetic, rounded DOWN
+ * (never in the player's favour): +x → 1000 + 10x; −x → 1000 + ⌊100000 ÷ x⌋.
+ * Throws RangeError outside −100000 … −100 and 100 … 99900.
+ */
+export function americanToOddsMilli(american: number): OddsMilli {
+  assertValidAmerican(american);
+  return american >= 100 ? 1000 + 10 * american : 1000 + Math.floor(100_000 / -american);
+}
+
+/**
+ * American price → implied probability (0–1), including the book's margin:
+ * +x → 100 ÷ (x + 100); −x → x ÷ (x + 100). Float, for pricing only, never money.
+ * Throws RangeError for an invalid price.
+ */
+export function americanToProbability(american: number): number {
+  assertValidAmerican(american);
+  return american >= 100 ? 100 / (american + 100) : -american / (-american + 100);
+}

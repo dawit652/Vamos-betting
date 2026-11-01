@@ -11,3 +11,4 @@ export {
 export type { GenericJsonConfig, PathSegment } from './generic-json';
 export { createGenericHtmlAdapter, GenericHtmlConfigSchema } from './generic-html';
 export type { GenericHtmlConfig } from './generic-html';
+export * from './therundown';

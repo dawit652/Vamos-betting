@@ -9,3 +9,4 @@
 - `generic-json-league.json`, `generic-html-league.html`: made-up documents for the configurable adapters.
 - `openfootball-en1-2025-26-goalless.json`: two real records (Aston Villa v Newcastle, Chelsea v Crystal Palace, Matchday 1)
   of the 2025/26 English Premier League file, unchanged. The dataset writes a goalless draw as a bare pair `"score": [0, 0]`.
+- `therundown-*.json`: SYNTHETIC documents written by hand in the documented TheRundown v2 shape, not real TheRundown data (their licence forbids keeping real responses beyond 24 hours).

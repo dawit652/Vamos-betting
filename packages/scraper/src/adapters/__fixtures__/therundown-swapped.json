@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "delta_last_id": "193500001"
+  },
+  "events": [
+    {
+      "event_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+      "sport_id": 11,
+      "event_date": "2026-11-02T19:00:00Z",
+      "score": {
+        "event_status": "STATUS_SCHEDULED",
+        "score_home": 0,
+        "score_away": 0,
+        "team_id_home": 9,
+        "team_id_away": 7,
+        "score_home_by_period": [],
+        "score_away_by_period": [],
+        "updated_at": "2026-10-31T10:00:00Z"
+      },
+      "teams": [
+        {
+          "team_id": 9,
+          "name": "Chelsea",
+          "mascot": "",
+          "abbreviation": "CHE",
+          "is_away": true,
+          "is_home": false
+        },
+        {
+          "team_id": 7,
+          "name": "Arsenal",
+          "mascot": "",
+          "abbreviation": "ARS",
+          "is_home": true,
+          "is_away": false
+        }
+      ],
+      "markets": []
+    }
+  ]
+}
