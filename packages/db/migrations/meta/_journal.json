@@ -267,6 +267,20 @@
       "when": 1793334627571,
       "tag": "0037_scrape_review_source_stale",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793478675496,
+      "tag": "0038_therundown_close_lead",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793478848008,
+      "tag": "0039_therundown_reference",
+      "breakpoints": true
     }
   ]
 }

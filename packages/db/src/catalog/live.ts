@@ -56,18 +56,41 @@ export interface MatchDeltaSource {
   scoreAway: number | null;
 }
 
+/** Largest events.close_lead_ms (6 hours; the column's CHECK constraint). */
+export const MAX_CLOSE_LEAD_MS = 6 * 60 * 60 * 1000;
+
 /** The event fields that decide whether its selections can be bet on. */
 export interface BettableEvent {
   status: EventStatus;
   bettingOpen: boolean;
   startTime: Date;
+  /**
+   * events.close_lead_ms: prematch betting closes this long before the start
+   * time. Required, so that no caller can forget it and keep betting open up
+   * to a kick-off a late feed has not reported yet.
+   */
+  closeLeadMs: number;
+}
+
+/**
+ * The moment prematch betting on an event closes: `closeLeadMs` before its
+ * start time. Null when the lead is not a whole number in
+ * 0..MAX_CLOSE_LEAD_MS, which closes betting (fail closed).
+ */
+export function prematchClosesAt(
+  event: Pick<BettableEvent, 'startTime' | 'closeLeadMs'>,
+): Date | null {
+  const lead = event.closeLeadMs;
+  if (!Number.isSafeInteger(lead) || lead < 0 || lead > MAX_CLOSE_LEAD_MS) return null;
+  return new Date(event.startTime.getTime() - lead);
 }
 
 /**
  * Whether a selection can be put on a bet slip at `now`: the selection and
  * its market are open, betting on the event is open, and the event is live,
- * or scheduled and not started yet (prematch betting closes at the start
- * time, even when the kick-off has not been recorded yet). The read API
+ * or scheduled and its prematch betting has not closed yet. Prematch betting
+ * closes at the start time minus the event's close lead (prematchClosesAt),
+ * even when the kick-off has not been recorded yet. The read API
  * (`isSelectionOpen` in apps/api) uses this same rule, so an `odds` delta and
  * a fresh GET agree; bet placement must use it too.
  */
@@ -79,7 +102,9 @@ export function isSelectionBettable(
 ): boolean {
   if (selectionStatus !== 'open' || marketStatus !== 'open' || !event.bettingOpen) return false;
   if (event.status === 'live') return true;
-  return event.status === 'scheduled' && event.startTime.getTime() > now.getTime();
+  if (event.status !== 'scheduled') return false;
+  const closesAt = prematchClosesAt(event);
+  return closesAt !== null && closesAt.getTime() > now.getTime();
 }
 
 export function matchMessage(event: MatchDeltaSource): LiveMessage {

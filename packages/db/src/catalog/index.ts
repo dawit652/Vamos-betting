@@ -22,6 +22,8 @@ export {
 export {
   isSelectionBettable,
   LIVE_CHANNEL,
+  MAX_CLOSE_LEAD_MS,
+  prematchClosesAt,
   type BettableEvent,
   marketMessage,
   matchMessage,

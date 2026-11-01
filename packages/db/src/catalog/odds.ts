@@ -96,6 +96,7 @@ export async function setSelectionOdds(
       eventStatus: events.status,
       bettingOpen: events.bettingOpen,
       startTime: events.startTime,
+      closeLeadMs: events.closeLeadMs,
     })
     .from(selections)
     .innerJoin(markets, eq(markets.id, selections.marketId))
@@ -139,7 +140,12 @@ export async function setSelectionOdds(
         row.id,
         change.oddsMilli,
         isSelectionBettable(
-          { status: row.eventStatus, bettingOpen: row.bettingOpen, startTime: row.startTime },
+          {
+            status: row.eventStatus,
+            bettingOpen: row.bettingOpen,
+            startTime: row.startTime,
+            closeLeadMs: row.closeLeadMs,
+          },
           row.marketStatus,
           row.status,
           now,

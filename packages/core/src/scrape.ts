@@ -8,8 +8,16 @@
 export const SCRAPE_SPORTS = ['football'] as const;
 export type ScrapeSport = (typeof SCRAPE_SPORTS)[number];
 
-/** Adapter implementations a source row can name (scrape_sources.adapter). */
-export const SCRAPE_ADAPTERS = ['openfootball', 'generic-json', 'generic-html'] as const;
+/**
+ * Adapter implementations a source row can name (scrape_sources.adapter).
+ * `therundown` is a licensed odds API polled by its own task (docs/therundown-plan).
+ */
+export const SCRAPE_ADAPTERS = [
+  'openfootball',
+  'generic-json',
+  'generic-html',
+  'therundown',
+] as const;
 export type ScrapeAdapterName = (typeof SCRAPE_ADAPTERS)[number];
 
 /** What a source row is for (scrape_runs.data_class, scheduling). */
