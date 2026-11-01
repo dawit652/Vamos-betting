@@ -41,6 +41,7 @@ import {
 import {
   finishRun,
   openReviewItem,
+  recordEventHeld,
   schema,
   setSourceEnabled,
   setTeamRatings,
@@ -50,6 +51,7 @@ import {
 } from '@vamos/db';
 import {
   decideFixture,
+  heldKeyOf,
   normalizeName,
   ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
@@ -1144,6 +1146,39 @@ describe('POST /admin/feed/review/:id/resolve', () => {
       const again = await resolve('trader', item, { decision: 'apply_reprice' });
       expect(again.statusCode).toBe(409);
       expect(errorOf(again).code).toBe('review_closed');
+    });
+
+    describe('a proposal priced from the bookmaker market', () => {
+      const MARKET_KEY = 'mkt1|1x2:455,270,275/6|ou2.5:530/5';
+
+      it('applies while it is the proposal the scraper last raised, and stamps the market key', async () => {
+        for (const enabled of [true, false]) {
+          const { event, market, item } = await repriceCase(3 * HOUR, { ratingsKey: MARKET_KEY });
+          await db.transaction((tx) =>
+            recordEventHeld(tx, event.id, heldKeyOf(MARKET_KEY, enabled), ctx.clock.now),
+          );
+          const response = await resolve('trader', item, { decision: 'apply_reprice' });
+          expect(response.statusCode, response.body).toBe(200);
+          expect(await pricesOf(market.id)).toEqual({ '1': 2400, X: 3400, '2': 3000 });
+          const stamp = await stampOf(event.id);
+          expect(stamp).toMatchObject({ ratingsKey: MARKET_KEY, heldKey: null });
+          const [audit] = await auditActions('scrape.fixture.repriced', event.id);
+          expect(audit!.metadata).toMatchObject({ via: 'staff', ratingsKey: MARKET_KEY });
+        }
+      });
+
+      it('is refused when the scraper has not raised it, or has raised a newer one', async () => {
+        for (const held of [null, 'mkt1|1x2:400,300,300/6|ou2.5:-']) {
+          const { event, market, item } = await repriceCase(3 * HOUR, { ratingsKey: MARKET_KEY });
+          if (held !== null) {
+            await db.transaction((tx) => recordEventHeld(tx, event.id, held, ctx.clock.now));
+          }
+          const response = await resolve('trader', item, { decision: 'apply_reprice' });
+          expect(response.statusCode, response.body).toBe(409);
+          expect(errorOf(response).code).toBe('proposal_stale');
+          expect(await pricesOf(market.id)).toEqual({ '1': 1850, X: 3400, '2': 4200 });
+        }
+      });
     });
 
     it('is refused, with nothing changed, for a stale proposal, a live, resulted, missing or too close event', async () => {

@@ -1,4 +1,4 @@
-import type { MarketConsensus } from '@vamos/core';
+import { MARKET_PRICING_KEY_PREFIX, type MarketConsensus } from '@vamos/core';
 import type { FeedMarket } from '../types';
 import { checkedMarginBps, clamp, defaultMarginBps } from './book';
 import {
@@ -43,8 +43,8 @@ import {
 export const MAX_MARKET_FIT_RESIDUAL = 0.03;
 /** Probabilities in marketPricingKey are rounded to this step (half a percentage point). */
 export const MARKET_PRICING_KEY_STEP = 0.005;
-/** Prefix of marketPricingKey, so a market-priced key never equals a ratings key. */
-export const MARKET_PRICING_KEY_PREFIX = 'mkt1';
+/** Prefix of marketPricingKey (defined in @vamos/core so the API can tell the two key forms apart). */
+export { MARKET_PRICING_KEY_PREFIX };
 
 const GOAL_LINE = '2.5';
 /** Fixed start of the fit (log expected goals): an ordinary match. */

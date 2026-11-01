@@ -1,6 +1,12 @@
-import { marketKey, SCRAPED_FEED_PROVIDER, type MarketTypeCode } from '@vamos/core';
+import {
+  marketKey,
+  SCRAPED_FEED_PROVIDER,
+  type MarketTypeCode,
+  type ScrapePricingSource,
+} from '@vamos/core';
 import {
   closeReviewItemsBySubject,
+  getCompetitionPolicy,
   getTeamRatings,
   listCompetitionPolicies,
   listEventPricing,
@@ -15,12 +21,11 @@ import {
   type ScrapedEvent,
 } from '@vamos/db';
 import { events as eventsTable } from '@vamos/db/schema';
-import { priceFixture } from '@vamos/feed';
+import type { TeamRatings } from '@vamos/feed';
 import {
   buildReviews,
-  checkMarkets,
   checkReprice,
-  isCalibrated,
+  heldKeyOf,
   MIN_LEAD_MS,
   ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
@@ -35,6 +40,7 @@ import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { LOOK_AHEAD_MS } from './promote-fixtures';
 import { auditScraper, display, openGateReviews, teamNames } from './common';
+import { isMarketKey, priceEvent, type EventPrice } from './event-pricing';
 
 export interface RepriceSummary {
   /** Scheduled events whose ratings changed since they were priced. */
@@ -51,8 +57,11 @@ export interface RepriceSummary {
   published: number;
 }
 
-/** Added to a held key while the policy is off, so switching it on again looks at the event anew. */
-const POLICY_OFF = '#policy_off';
+/** What the pricing step reads of a competition's policy. */
+interface PricingPolicy {
+  enabled: boolean;
+  pricingSource: ScrapePricingSource;
+}
 
 type Outcome =
   | { kind: 'repriced' | 'held'; messages: LiveMessage[] }
@@ -108,10 +117,15 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     published: 0,
   };
   const policyRows = await listCompetitionPolicies(ctx.db, { sportId: 'football' });
-  const enabledOf = new Map(
-    policyRows.filter((row) => row.configured).map((row) => [row.competitionId, row.enabled]),
+  const policyOf = new Map<string, PricingPolicy>(
+    policyRows
+      .filter((row) => row.configured)
+      .map((row) => [
+        row.competitionId,
+        { enabled: row.enabled, pricingSource: row.pricingSource },
+      ]),
   );
-  if (enabledOf.size === 0) return summary;
+  if (policyOf.size === 0) return summary;
 
   const scheduled = (
     await listScrapedEvents(ctx.db, {
@@ -123,7 +137,7 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
       event.status === 'scheduled' &&
       event.resultedAt === null &&
       event.score === null &&
-      enabledOf.has(event.competitionId),
+      policyOf.has(event.competitionId),
   );
   if (scheduled.length === 0) return summary;
 
@@ -137,20 +151,20 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     scheduled.map((event) => event.eventId),
   );
   for (const event of scheduled) {
-    const key = ratingsKey(
-      ratings.get(event.homeTeamId)?.ratings,
-      ratings.get(event.awayTeamId)?.ratings,
-    );
-    const stamp = stamps.get(event.eventId);
-    if (
-      stamp?.ratingsKey === key ||
-      stamp?.heldKey === heldKeyOf(key, enabledOf.get(event.competitionId)!)
-    ) {
+    const policy = policyOf.get(event.competitionId)!;
+    const home = ratings.get(event.homeTeamId)?.ratings ?? null;
+    const away = ratings.get(event.awayTeamId)?.ratings ?? null;
+    // Only a competition that takes market prices needs the market read; the others look at the ratings alone.
+    const price =
+      policy.pricingSource === 'market'
+        ? await priceEvent(ctx.db, pricingInput(ctx, policy, event.eventId, home, away, now))
+        : null;
+    const key = price?.key ?? ratingsKey(home, away);
+    if (settled(stamps.get(event.eventId), key, price?.source ?? 'model', policy) !== 'go')
       continue;
-    }
     summary.events += 1;
     try {
-      const outcome = await repriceOne(ctx, event, enabledOf.get(event.competitionId)!, now);
+      const outcome = await repriceOne(ctx, event, now);
       if (outcome.kind === 'repriced') summary.repriced += 1;
       else if (outcome.kind === 'held') summary.held += 1;
       else if (outcome.kind === 'skipped') summary.skipped += 1;
@@ -165,15 +179,51 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
       ctx.logger.error({ err: error, eventId: event.eventId }, 're-pricing failed');
     }
   }
-  await handOverCalibrated(ctx, scheduled, enabledOf, now, summary);
+  await handOverCalibrated(ctx, scheduled, policyOf, now, summary);
   ctx.logger[
     summary.repriced + summary.held + summary.calibrated + summary.failed > 0 ? 'info' : 'debug'
   ]({ ...summary }, 'repricing run');
   return summary;
 }
 
-const heldKeyOf = (key: string, enabled: boolean): string =>
-  enabled ? key : `${key}${POLICY_OFF}`;
+const pricingInput = (
+  ctx: ScraperContext,
+  policy: PricingPolicy,
+  eventId: string,
+  home: TeamRatings | null,
+  away: TeamRatings | null,
+  now: Date,
+) => ({
+  competitionPricingSource: policy.pricingSource,
+  eventId,
+  homeRatings: home,
+  awayRatings: away,
+  minRatingMatches: ctx.config.scraper.minRatingMatches,
+  now,
+});
+
+/**
+ * Whether an event's stamp already covers the prices it would get now:
+ * - 'current': the stamp (or the held proposal) is this very key;
+ * - 'keep': a competition on market prices whose event was priced from the market, and the market
+ *   is not usable now (stale, one book, poor fit): the prices stay as they are; they never fall
+ *   back to the model by themselves;
+ * - 'go': the event needs a new price (or a proposal) from `key`.
+ */
+function settled(
+  stamp: { ratingsKey: string | null; heldKey: string | null } | undefined,
+  key: string,
+  source: 'market' | 'model',
+  policy: PricingPolicy,
+): 'current' | 'keep' | 'go' {
+  if (stamp?.ratingsKey === key || stamp?.heldKey === heldKeyOf(key, policy.enabled)) {
+    return 'current';
+  }
+  if (policy.pricingSource === 'market' && source === 'model' && isMarketKey(stamp?.ratingsKey)) {
+    return 'keep';
+  }
+  return 'go';
+}
 
 const asGate = (
   type: string,
@@ -190,12 +240,7 @@ const asGate = (
  * said is read again (status, kickoff, ratings, stamp, prices) so a result, a
  * trader or a second worker in between cannot make the decision stale.
  */
-async function repriceOne(
-  ctx: ScraperContext,
-  event: ScrapedEvent,
-  enabled: boolean,
-  now: Date,
-): Promise<Outcome> {
+async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): Promise<Outcome> {
   return ctx.db.transaction(async (tx): Promise<Outcome> => {
     const locked = await lockEvent(tx, event.eventId);
     const [row] = await tx
@@ -219,25 +264,31 @@ async function repriceOne(
       return skipped();
     }
 
+    // The policy as it is now (it may have been switched since the snapshot).
+    const policy = await getCompetitionPolicy(tx, row.competitionId);
+    const enabled = policy.enabled;
     const rated = await getTeamRatings(tx, [row.homeTeamId, row.awayTeamId]);
     const home = rated.get(row.homeTeamId)?.ratings ?? null;
     const away = rated.get(row.awayTeamId)?.ratings ?? null;
-    const key = ratingsKey(home, away);
+    // O4: where the prices come from (the market when the policy says so and a fresh consensus exists).
+    const price = await priceEvent(tx, pricingInput(ctx, policy, event.eventId, home, away, now));
+    const key = price.key;
     const held = heldKeyOf(key, enabled);
     const stamp = (await listEventPricing(tx, [event.eventId])).get(event.eventId);
-    if (stamp?.ratingsKey === key || stamp?.heldKey === held) return current();
-    const min = ctx.config.scraper.minRatingMatches;
-    // O1: teams that stopped being calibrated are not priced from (nothing to compare either).
-    if (!isCalibrated(home, min) || !isCalibrated(away, min)) return skipped();
+    const state = settled(stamp, key, price.source, policy);
+    if (state === 'current') return current();
+    // A market-priced event whose market is not usable now keeps its prices.
+    if (state === 'keep') return skipped();
+    // O1: teams that stopped being calibrated are not priced from (nothing to compare either);
+    // market prices do not use the ratings, so they do not need them.
+    if (!price.calibrated) return skipped();
 
     // Only markets the upsert may touch take part: a closed market keeps its price.
     const stored = await marketsWithSelections(tx, event.eventId);
     const open = stored.filter((m) => m.status === 'open' || m.status === 'suspended');
     const frozen = new Set(stored.filter((m) => !open.includes(m)).map((m) => m.key));
     const previous = open.map((m) => asGate(m.type, m.line, m.selections));
-    const next = priceFixture('football', home, away).filter(
-      (m) => !frozen.has(marketKey(m.type, m.line)),
-    );
+    const next = price.markets.filter((m) => !frozen.has(marketKey(m.type, m.line)));
     const check = checkReprice(previous, next);
 
     if (check.ok && enabled) {
@@ -272,6 +323,7 @@ async function repriceOne(
             ratingsKey: key,
             previousRatingsKey: stamp?.ratingsKey ?? null,
             oddsChanged: result.oddsChanged,
+            ...pricingAudit(price),
           },
         });
       }
@@ -313,6 +365,7 @@ async function repriceOne(
           .join('; '),
         markets: display(previous, next),
         ratingsKey: key,
+        pricing: pricingNote(price),
       },
     );
     await openGateReviews(tx, [review], now);
@@ -320,6 +373,22 @@ async function repriceOne(
     return { kind: 'held', messages: [] };
   });
 }
+
+/** How the prices were made, for the audit trail. */
+const pricingAudit = (price: EventPrice) => ({
+  pricingSource: price.source,
+  ...(price.books === undefined ? {} : { books: price.books }),
+  ...(price.residual === undefined ? {} : { fitResidual: price.residual }),
+  ...(price.fallback === undefined ? {} : { marketFallback: price.fallback }),
+});
+
+/** How the prices were made, as the review payload shows it (contract: OddsReviewPayload.pricing). */
+const pricingNote = (price: EventPrice) => ({
+  source: price.source,
+  ...(price.books === undefined ? {} : { books: price.books }),
+  ...(price.residual === undefined ? {} : { residual: price.residual }),
+  ...(price.fallback === undefined ? {} : { fallback: price.fallback }),
+});
 
 /** True when some selection of `next` has another price than the same one of `previous`. */
 function differs(previous: readonly GateMarket[], next: readonly GateMarket[]): boolean {
@@ -367,14 +436,15 @@ async function openUncalibratedSubjects(ctx: ScraperContext): Promise<Set<string
 async function handOverCalibrated(
   ctx: ScraperContext,
   scheduled: readonly ScrapedEvent[],
-  enabledOf: ReadonlyMap<string, boolean>,
+  policyOf: ReadonlyMap<string, PricingPolicy>,
   now: Date,
   summary: RepriceSummary,
 ): Promise<void> {
   const waiting = await openUncalibratedSubjects(ctx);
   if (waiting.size === 0) return;
   for (const event of scheduled) {
-    if (!waiting.has(event.feedRef) || enabledOf.get(event.competitionId) !== true) continue;
+    if (!waiting.has(event.feedRef) || policyOf.get(event.competitionId)?.enabled !== true)
+      continue;
     try {
       if (await handOverOne(ctx, event, now)) summary.calibrated += 1;
     } catch (error) {
@@ -394,6 +464,7 @@ async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date):
       .select({
         gameId: eventsTable.gameId,
         feedRef: eventsTable.feedRef,
+        competitionId: eventsTable.competitionId,
         homeTeamId: eventsTable.homeTeamId,
         awayTeamId: eventsTable.awayTeamId,
         startTime: eventsTable.startTime,
@@ -410,14 +481,17 @@ async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date):
     ) {
       return false;
     }
+    const policy = await getCompetitionPolicy(tx, row.competitionId);
     const rated = await getTeamRatings(tx, [row.homeTeamId, row.awayTeamId]);
     const home = rated.get(row.homeTeamId)?.ratings ?? null;
     const away = rated.get(row.awayTeamId)?.ratings ?? null;
-    const min = ctx.config.scraper.minRatingMatches;
-    if (!isCalibrated(home, min) || !isCalibrated(away, min)) return false;
-    const key = ratingsKey(home, away);
+    // Ready: calibrated teams, or market prices (which do not use the ratings), and ...
+    const price = await priceEvent(tx, pricingInput(ctx, policy, event.eventId, home, away, now));
+    if (!price.calibrated) return false;
+    const key = price.key;
     const stamp = (await listEventPricing(tx, [event.eventId])).get(event.eventId);
-    // The stored prices must come from these ratings (not an older book, nor a held proposal).
+    // ... the stored prices come from what the prices are now (not an older book, nor a held
+    // proposal; a market-priced event whose market has gone stale waits for a fresh one).
     if (stamp?.ratingsKey !== key) return false;
 
     const closed = await closeReviewItemsBySubject(tx, row.feedRef, {
@@ -434,9 +508,13 @@ async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date):
       const book = stored
         .filter((m) => m.status === 'open' || m.status === 'suspended')
         .map((m) => asGate(m.type, m.line, m.selections));
-      const pricesSane = checkMarkets(priceFixture('football', home, away)).ok;
+      const pricesSane = price.pricesSane;
       const names = await teamNames(tx, [row.homeTeamId, row.awayTeamId]);
-      const reason = pricesSane ? 'ratings_calibrated' : 'prices_not_sane';
+      const reason = !pricesSane
+        ? 'prices_not_sane'
+        : price.source === 'market'
+          ? 'market_priced'
+          : 'ratings_calibrated';
       const [review] = buildReviews(
         row.feedRef,
         [{ kind: 'odds_approval', rule: 'F7', reason }],
@@ -459,6 +537,7 @@ async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date):
           away: names.get(row.awayTeamId) ?? row.awayTeamId,
           reason,
           markets: display([], book),
+          pricing: pricingNote(price),
         },
       };
       await openGateReviews(tx, [approval], now);
@@ -468,7 +547,12 @@ async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date):
       action: 'scrape.fixture.calibrated',
       targetType: 'event',
       targetId: event.eventId,
-      metadata: { feedRef: row.feedRef, ratingsKey: key, approvalOpened: asked },
+      metadata: {
+        feedRef: row.feedRef,
+        ratingsKey: key,
+        approvalOpened: asked,
+        ...pricingAudit(price),
+      },
     });
     return true;
   });

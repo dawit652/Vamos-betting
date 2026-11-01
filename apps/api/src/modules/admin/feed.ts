@@ -28,7 +28,12 @@ import {
   type FeedSourceState,
   type SourceHealthView,
 } from '@vamos/contracts';
-import { marketKey, type MarketTypeCode, type SportCode } from '@vamos/core';
+import {
+  MARKET_PRICING_KEY_PREFIX,
+  marketKey,
+  type MarketTypeCode,
+  type SportCode,
+} from '@vamos/core';
 import {
   addCompetitionAlias,
   addTeamAlias,
@@ -39,6 +44,7 @@ import {
   getTeamRatings,
   listAliases,
   listCompetitionPolicies,
+  listEventPricing,
   listRecentRuns,
   listReviewItems,
   listSources,
@@ -66,6 +72,7 @@ import {
 import { competitions, events, teams } from '@vamos/db/schema';
 import {
   checkReprice,
+  heldKeyOf,
   MIN_LEAD_MS,
   normalizeName,
   ratingsKey,
@@ -614,16 +621,34 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             // The proposal is the book of the ratings it was priced from; if they moved, a
             // newer proposal replaces it (the scraper refreshes the open item).
             const rated = await getTeamRatings(tx, [event!.homeTeamId, event!.awayTeamId]);
-            const currentKey = ratingsKey(
-              rated.get(event!.homeTeamId)?.ratings,
-              rated.get(event!.awayTeamId)?.ratings,
-            );
-            if (currentKey !== payload.ratingsKey) {
-              throw conflict(
-                'proposal_stale',
-                'The team ratings changed since this proposal was made',
-                { id },
+            let currentKey: string;
+            if (payload.ratingsKey.startsWith(`${MARKET_PRICING_KEY_PREFIX}|`)) {
+              // A market proposal is current while it is the one the scraper last raised for the
+              // event (a newer proposal replaces it; applying or auto re-pricing clears it).
+              const held = (await listEventPricing(tx, [event!.id])).get(event!.id)?.heldKey;
+              if (
+                held !== heldKeyOf(payload.ratingsKey, true) &&
+                held !== heldKeyOf(payload.ratingsKey, false)
+              ) {
+                throw conflict(
+                  'proposal_stale',
+                  'The bookmaker prices changed since this proposal was made',
+                  { id },
+                );
+              }
+              currentKey = payload.ratingsKey;
+            } else {
+              currentKey = ratingsKey(
+                rated.get(event!.homeTeamId)?.ratings,
+                rated.get(event!.awayTeamId)?.ratings,
               );
+              if (currentKey !== payload.ratingsKey) {
+                throw conflict(
+                  'proposal_stale',
+                  'The team ratings changed since this proposal was made',
+                  { id },
+                );
+              }
             }
             // Only prices change: the markets the upsert may touch must be exactly those of the
             // proposal and the book must pass the sanity rules; the size of the move is what the

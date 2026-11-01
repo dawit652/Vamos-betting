@@ -16,19 +16,16 @@ import { priceFixture } from '@vamos/feed';
 import {
   assessKickoff,
   buildReviews,
-  checkMarkets,
   clusterObservations,
   decideFixture,
   DAY_MS,
   findMissingFixtures,
   FIXTURE_HORIZON_MS,
   holdSeveralClusters,
-  isCalibrated,
   KICKOFF_EVIDENCE_WINDOW_MS,
   matchEvent,
   MATCH_WINDOW_MS,
   MIN_MATCH_DURATION_MS,
-  ratingsKey,
   reviewsOf,
   SOURCE_STALE_AFTER_MS,
   type CompetitionPolicy,
@@ -45,6 +42,7 @@ import { betLegs, events as eventsTable } from '@vamos/db/schema';
 import { and, eq } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
+import { priceEvent } from './event-pricing';
 import {
   auditScraper,
   display,
@@ -431,19 +429,26 @@ async function assessCreation(
   return assessKickoff({ start, now, statements, person: null });
 }
 
-/** O1 and O2 for a fixture that has no event yet. */
+/**
+ * O1 and O2 for a fixture that has no event yet. A new event is always created with the model's
+ * prices (rule O4: the market has nothing to be read for before the event exists); the next
+ * re-pricing pass moves it to the market prices when its competition takes them from the feed.
+ */
 export async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTeamId: string) {
   const ratings = await getTeamRatings(ctx.db, [homeTeamId, awayTeamId]);
-  const home = ratings.get(homeTeamId)?.ratings ?? null;
-  const away = ratings.get(awayTeamId)?.ratings ?? null;
-  const min = ctx.config.scraper.minRatingMatches;
-  const calibrated = isCalibrated(home, min) && isCalibrated(away, min);
-  const markets = priceFixture('football', home, away);
+  const price = await priceEvent(ctx.db, {
+    competitionPricingSource: 'model',
+    eventId: null,
+    homeRatings: ratings.get(homeTeamId)?.ratings ?? null,
+    awayRatings: ratings.get(awayTeamId)?.ratings ?? null,
+    minRatingMatches: ctx.config.scraper.minRatingMatches,
+    now: ctx.clock(),
+  });
   return {
-    calibrated,
-    markets,
-    ratingsKey: ratingsKey(home, away),
-    pricesSane: checkMarkets(markets).ok,
+    calibrated: price.calibrated,
+    markets: price.markets,
+    ratingsKey: price.key,
+    pricesSane: price.pricesSane,
   };
 }
 

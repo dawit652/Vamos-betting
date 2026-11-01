@@ -56,6 +56,11 @@ export interface MarketConsensusOptions {
 }
 
 export const CONSENSUS_MIN_BOOKS = 2;
+/**
+ * Prefix of the key an event priced from the market is stamped with (marketPricingKey in
+ * @vamos/feed), so a market key never equals a ratings key (which starts with "[").
+ */
+export const MARKET_PRICING_KEY_PREFIX = 'mkt1';
 /** A book whose overround is below this is an arbitrage or a feed error and is dropped. */
 export const CONSENSUS_MIN_OVERROUND = 1;
 /** A book whose overround is above this is not a real market price and is dropped. */

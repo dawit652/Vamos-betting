@@ -332,6 +332,14 @@ export function ratingsKey(
   return `${side(home)}|${side(away)}`;
 }
 
+/** Added to a held key while the competition's policy is off, so switching it on again looks at the event anew. */
+export const HELD_POLICY_OFF_SUFFIX = '#policy_off';
+
+/** The key a held proposal is remembered by: the pricing key, marked while the policy is not enabled. */
+export function heldKeyOf(key: string, enabled: boolean): string {
+  return enabled ? key : `${key}${HELD_POLICY_OFF_SUFFIX}`;
+}
+
 /**
  * The `odds_approval` item for a refused re-price (O3: the old prices stay).
  * Its subject is the event's feedRef suffixed with '|reprice', so it never

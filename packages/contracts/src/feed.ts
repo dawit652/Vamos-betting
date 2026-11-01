@@ -437,11 +437,27 @@ const OddsReviewPayload = z.object({
   ),
   /**
    * Re-price items only (subject ends in FEED_REPRICE_SUBJECT_SUFFIX): the
-   * exact book `apply_reprice` applies, and the fingerprint of the ratings it
-   * was priced from (the decision is refused when the ratings moved since).
+   * exact book `apply_reprice` applies, and the fingerprint it was priced from:
+   * the team ratings, or for market prices the bookmaker consensus (its key
+   * starts with "mkt1"). The decision is refused when that moved since (for a
+   * market proposal: when the scraper has made or applied a newer one).
    */
   proposal: RepriceProposal.optional(),
   ratingsKey: z.string().optional(),
+  /**
+   * Where the prices of the proposal or the hand-over come from (rule O4): the
+   * team-rating model, or the consensus of `books` bookmakers of a licensed feed
+   * (`residual`: how well the goals model fits it). `fallback` says why the
+   * market could not be used when the competition asked for it.
+   */
+  pricing: z
+    .object({
+      source: z.enum(['market', 'model']),
+      books: Count.optional(),
+      residual: z.number().min(0).max(1).optional(),
+      fallback: z.enum(['no_consensus', 'poor_fit']).optional(),
+    })
+    .optional(),
 });
 
 const ResultReviewPayload = z.object({
