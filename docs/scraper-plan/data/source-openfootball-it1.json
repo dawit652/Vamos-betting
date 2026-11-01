@@ -1,0 +1,17 @@
+{
+  "id": "openfootball-it1",
+  "name": "openfootball: Italian Serie A (football.json)",
+  "adapter": "openfootball",
+  "upstream": "openfootball community (github.com/openfootball/football.json, CC0)",
+  "config": {
+    "allowedHosts": ["raw.githubusercontent.com"],
+    "requests": [
+      {
+        "url": "https://raw.githubusercontent.com/openfootball/football.json/master/2026-27/it.1.json",
+        "competition": "Italian Serie A"
+      }
+    ],
+    "timeZone": "Europe/Rome",
+    "sport": "football"
+  }
+}

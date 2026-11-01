@@ -1,0 +1,17 @@
+{
+  "id": "openfootball-fr1",
+  "name": "openfootball: French Ligue 1 (football.json)",
+  "adapter": "openfootball",
+  "upstream": "openfootball community (github.com/openfootball/football.json, CC0)",
+  "config": {
+    "allowedHosts": ["raw.githubusercontent.com"],
+    "requests": [
+      {
+        "url": "https://raw.githubusercontent.com/openfootball/football.json/master/2026-27/fr.1.json",
+        "competition": "French Ligue 1"
+      }
+    ],
+    "timeZone": "Europe/Paris",
+    "sport": "football"
+  }
+}

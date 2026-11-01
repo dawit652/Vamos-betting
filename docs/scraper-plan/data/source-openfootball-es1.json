@@ -1,0 +1,17 @@
+{
+  "id": "openfootball-es1",
+  "name": "openfootball: Spanish LaLiga (football.json)",
+  "adapter": "openfootball",
+  "upstream": "openfootball community (github.com/openfootball/football.json, CC0)",
+  "config": {
+    "allowedHosts": ["raw.githubusercontent.com"],
+    "requests": [
+      {
+        "url": "https://raw.githubusercontent.com/openfootball/football.json/master/2026-27/es.1.json",
+        "competition": "Spanish LaLiga"
+      }
+    ],
+    "timeZone": "Europe/Madrid",
+    "sport": "football"
+  }
+}

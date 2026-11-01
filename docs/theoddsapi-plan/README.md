@@ -1,0 +1,544 @@
+# The Odds API on the 30 USD plan: plan
+
+How Vamos takes bookmaker odds for its market-priced football competitions from
+[The Odds API](https://the-odds-api.com) on the **20K plan (30 USD a month)**, as cheaply, reliably and accurately as
+that plan allows.
+
+> **Status 2026-11-01: plan, nothing built.** The Odds API replaces TheRundown as the market feed: TheRundown's
+> cheap plans do not allow use by a betting operator (`docs/therundown-plan/README.md`, section 3). Most of what is
+> needed already exists from the TheRundown work: the `scrape_market_odds` table, `marketConsensus`, the market
+> pricing (`packages/feed/src/pricing/market.ts`), the per-competition `pricing_source` switch and the 5-minute close
+> lead. Costa Rica's Primera División is out of scope: the owner does not need it, and The Odds API does not cover it.
+
+Written 2026-11-01 on branch `claude/reconcile-therundown` (head `a1d2935`). The facts about The Odds API come from
+its pages read that day (section 9). It has changed credit allocations before, so check them again at signup.
+
+## 1. In short
+
+- **One request per league costs 2 credits** (`h2h` and `totals`, up to 10 bookmakers), however many matches it
+  returns. A response with no events is free.
+- **Scope: the five leagues that already get fixtures from openfootball:** Premier League, LaLiga, Serie A,
+  Bundesliga and Ligue 1. Each league is its own source, read more often as its next kickoff gets closer.
+- **Budget: about 13,500 of the 20,000 credits in a normal month (68%), about 16,000 in a heavy month (80%).** A
+  credit guard slows reading before the quota can run out, and never lets it reach zero.
+- **Accuracy: ten bookmakers that set their prices independently,** including Pinnacle and three betting exchanges.
+  Stale books are dropped, and the consensus is the median of what is left.
+- **Reliability:**
+  - The key never lands in a URL that we store.
+  - Each league has exactly one market feed.
+  - Alarms fire for low credits and for stale prices.
+  - One switch in the back office puts a league back on the model straight away.
+- **Two things stay unknown until a free test:**
+  - How many books give the 2.5 goals line. Their docs say totals are "mainly" for US sports.
+  - Whether `last_update` means "last seen" or "last changed".
+
+  Phase 0 measures both for about 40 of the free plan's 500 credits.
+
+- **Order:**
+  1. Free key and licence email.
+  2. Key in the query string.
+  3. Adapter.
+  4. Reading schedule and credit guard.
+  5. Alarms.
+  6. Two weeks of shadow on the paid plan.
+  7. Premier League on market prices, then the other four leagues.
+
+## 2. The plan, in facts
+
+| Item                      | 20K plan                                                                                                                                                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Price                     | 30 USD a month, cancel any time                                                                                                                                                                          |
+| Credits                   | 20,000 a month, reset on the 1st                                                                                                                                                                         |
+| `/v4/sports/{sport}/odds` | costs markets × regions; up to 10 named `bookmakers` count as one region; costs nothing when no event is returned                                                                                        |
+| Free endpoints            | `/v4/sports`, `/v4/sports/{sport}/events`                                                                                                                                                                |
+| Other costs               | `/participants` 1; `/scores` 1 (2 with `daysFrom`); historical odds 10 × markets × regions (paid plans only)                                                                                             |
+| Freshness                 | pre-match odds refreshed every 60 s, faster in the last 6 h, up to 2 min late; exchanges every 20 s                                                                                                      |
+| Rate limit                | 30 requests a second (`EXCEEDED_FREQ_LIMIT`, HTTP 429)                                                                                                                                                   |
+| Usage headers             | `x-requests-remaining`, `x-requests-used`, `x-requests-last` on every response                                                                                                                           |
+| Errors that matter        | `INVALID_KEY`, `DEACTIVATED_KEY`, `OUT_OF_USAGE_CREDITS`, `EXCEEDED_FREQ_LIMIT`, `INVALID_BOOKMAKERS`, `INVALID_MARKET`                                                                                  |
+| Key                       | **only the `apiKey` query parameter** in the docs                                                                                                                                                        |
+| Football markets          | `h2h` (home, away and `Draw`); `totals` (each book's main line, with a `point` per outcome); `last_update` per book market                                                                               |
+| Sport keys                | `soccer_epl`, `soccer_spain_la_liga`, `soccer_italy_serie_a`, `soccer_germany_bundesliga`, `soccer_france_ligue_one`                                                                                     |
+| Licence                   | allowed: commercial use in your own apps. Forbidden: reselling or redistributing the data as a data product. Not mentioned: a betting operator setting its prices from it, so ask in writing (section 8) |
+
+## 3. What the code already expects
+
+| Fact                                                                                                                                                         | Where                                                                               | What it means here                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| A 1X2 consensus needs at least 2 books (`CONSENSUS_MIN_BOOKS`)                                                                                               | `packages/core/src/market-consensus.ts:58`                                          | ten books leave room to lose some                         |
+| A book is dropped when its overround is outside 1 to 1.25                                                                                                    | `market-consensus.ts:65`                                                            | an exchange book just under 1.00 drops out; harmless      |
+| Only the over/under **2.5** line prices; whole and quarter lines are dropped                                                                                 | `packages/feed/src/pricing/market.ts:49`, `adapters/therundown.ts:331`              | a book whose main line is 3.5 or 2.75 adds no goals price |
+| Each price row needs its own timestamp (`price_updated_at NOT NULL`)                                                                                         | migration 0038                                                                      | taken from `last_update`                                  |
+| A price counts for 3 h after **we** last saw it (`MARKET_ODDS_MAX_AGE_MS`). It must also come from the source's newest sighting and from its latest `ok` run | `packages/scraper/src/constants.ts:80`, `packages/db/src/scrape/market-odds.ts:361` | read each league at least every 2.5 h                     |
+| A bookmaker is one voice per upstream (`upstream:bookmaker`)                                                                                                 | `apps/scraper/src/pipeline/event-pricing.ts:136`                                    | two feeds on one league would count Pinnacle twice        |
+| A market-priced event whose market goes stale keeps its prices. It never falls back to the model by itself                                                   | `apps/scraper/src/pipeline/reprice.ts:227`                                          | an outage freezes prices, so an alarm is needed           |
+| A new pricing key means a re-price, and the key includes the book counts                                                                                     | `market.ts:166`                                                                     | a book that blinks in and out re-prices (measured in P5)  |
+| Prices stop moving 10 min before kickoff (`MIN_LEAD_MS`); betting closes 5 min before (`MARKET_CLOSE_LEAD_MS`)                                               | `constants.ts:16`, `constants.ts:87`                                                | no read helps in the last 10 min                          |
+| Events are created up to 14 days ahead (`FIXTURE_HORIZON_MS`)                                                                                                | `constants.ts:14`                                                                   | prices are wanted that far out                            |
+| The shape check S1 counts accepted fixture records                                                                                                           | `packages/scraper/src/gates/shape.ts:52`                                            | it does not watch a source that only yields prices        |
+| A key travels only in a header                                                                                                                               | `packages/scraper/src/adapters/common.ts:602`, `fetch/auth.ts`                      | the query string needs new, careful code (4.4)            |
+| No credit budget exists. The scheduler reads a source every 15 min (fixtures) or 5–60 min (results), up to 10% early                                         | `apps/scraper/src/tasks/scheduler.ts:34`, `fetch/cadence.ts`                        | an odds schedule and a guard are new                      |
+
+## 4. Design
+
+### 4.1 The request
+
+One request per league per run, always with explicit filters:
+
+```
+GET https://api.the-odds-api.com/v4/sports/{sportKey}/odds
+    ?bookmakers=pinnacle,betfair_ex_uk,matchbook,smarkets,williamhill,paddypower,ladbrokes_uk,betvictor,marathonbet,onexbet
+    &markets=h2h,totals&oddsFormat=decimal&dateFormat=iso
+    (apiKey is added by the fetcher only, section 4.4)
+```
+
+- **Cost: 2 credits** (2 markets × 1 region).
+- **Never `regions=`.** It would give 28 EU books for the same price, but several of them copy one price (4.2).
+- **No time filters.** The cost is the same either way, and a stable URL keeps the run history comparable. The
+  adapter drops what it cannot use (A4).
+- **Never these:**
+  - the per-event endpoint (`/events/{id}/odds`), which is charged per event;
+  - `/scores`, because openfootball already gives the results;
+  - extra markets.
+
+### 4.2 The ten bookmakers
+
+| Key                                                      | Why                                                                      |
+| -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `pinnacle`                                               | the sharpest book, with a low margin                                     |
+| `betfair_ex_uk`, `matchbook`, `smarkets`                 | exchanges: prices made by bettors, margin about 1%, refreshed every 20 s |
+| `williamhill`, `paddypower`, `ladbrokes_uk`, `betvictor` | large UK books with their own traders                                    |
+| `marathonbet`, `onexbet`                                 | low-margin international books                                           |
+
+Each of these sets its prices on its own. Left out on purpose, because they copy a listed book (same owner or same
+supplier):
+
+- Sky Bet and Betfair Sportsbook: Paddy Power's group.
+- Coral: Ladbrokes' group.
+- 888sport: William Hill's group.
+- The four Unibet sites: one supplier, Kambi.
+- The two Winamax sites.
+
+Spares if Phase 0 shows a listed book missing: `unibet_uk`, `betclic_fr`, `winamax_fr`, `tipico_de`, `betsson`,
+`betway`. Eleven books or more would double the cost, so the config refuses it.
+
+### 4.3 Adapter `theoddsapi` (rules A)
+
+- **A1 Config.**
+  - One `sportKey` per source, with its `competition` label (resolved through competition aliases).
+  - `bookmakers`: 2 to 10 distinct keys.
+  - `markets`: a subset of `h2h` and `totals` (default both).
+  - `horizonDays`: 15.
+  - `maxBookAgeMinutes`: null until Phase 0, then 20.
+  - `allowedHosts`: must cover `api.the-odds-api.com`.
+  - `secret`: the name `SCRAPER_SECRET_THEODDSAPI`.
+- **A2 Plan.** The request of 4.1, with a new purpose `odds` and auth `{ query: 'apiKey', secret }`. One request per
+  run. Until P3 lands, the scheduler reads an `odds` source as it reads fixtures (every 15 min); the sources stay
+  disabled until P5.
+- **A3 Shape.**
+  - The body must be a JSON array. Anything else is fatal, and nothing is stored.
+  - An event needs:
+    - `id`;
+    - `sport_key` equal to the config's;
+    - `commence_time` as an ISO instant;
+    - `home_team` and `away_team`.
+
+    A bad event is dropped with an issue.
+- **A4 Time.** These events are skipped:
+  - events that have started (`commence_time` ≤ fetch time; the endpoint also returns live games);
+  - events that start beyond the horizon.
+- **A5 Books.**
+  - Only configured bookmakers are read.
+  - `h2h` → `1x2`: the outcome named exactly `home_team` is `1`, `away_team` is `2`, and `Draw` is `X`. All three
+    must be there, or the book is dropped.
+  - `totals` → `ou`, grouped by `point`. Only x.5 lines that have both Over and Under are kept.
+  - The same book listed twice with different prices is dropped, as in `therundown`.
+- **A6 Prices.**
+  - Conversion uses `decimalToMilli` (`adapters/odds-price.ts`): exact, rounds down, accepts 1.01 to 1000.
+  - A failure drops that book's market.
+  - When most prices fail, the page is fatal (`wrong_price_format`), as in `therundown`.
+- **A7 Timestamps.**
+  - A market's `last_update` becomes `price_updated_at` (required).
+  - With `maxBookAgeMinutes` set, a market older than that at fetch time is dropped: their scraper has stopped
+    seeing that book.
+  - A `last_update` more than 5 min in the future is dropped.
+- **A8 Output.**
+  - Price rows only:
+    - bookmaker = the key (`pinnacle`);
+    - external ref = the event `id`;
+    - upstream `TheOddsAPI`;
+    - rows sorted;
+    - the parser never throws.
+  - No fixtures and no results: the openfootball sources keep those roles. Making The Odds API a fixture upstream
+    for the kickoff rules is a separate, later decision.
+- **A9 Usage.** A new optional `SourceAdapter.readUsage(headers)` returns `x-requests-last`, `x-requests-used` and
+  `x-requests-remaining`. The expected cost per request is markets × ⌈books ÷ 10⌉, which is 2.
+
+S1 counts fixture records, so it does not watch this source. A3's fatal checks, the alarms (4.8) and the shadow
+report (P5) stand in for it.
+
+### 4.4 The key in the query string (rules K)
+
+The docs show the key only as `?apiKey=`. Phase 0 tests on the free `/v4/sports` whether a header is accepted. If one
+is, skip rules K and use the header.
+
+- **K1** `requestAuthSchema` and `RequestAuthRef` become either `{ header, secret }` or `{ query, secret }`. The
+  `query` name must match `^[A-Za-z][A-Za-z0-9_]{0,31}$`.
+- **K2** The fetcher refuses a plan item whose URL already has a parameter with that name (`secret_invalid`), so an
+  adapter can never put a key in a URL.
+- **K3** The parameter is added only to the copy of the URL passed to `fetch()` inside `#exchange`. Every URL the
+  fetcher returns or remembers is the plan URL without the key:
+  - `FetchOk.url`;
+  - `not_modified`;
+  - validators;
+  - robots;
+  - the rate limiter;
+  - error messages.
+
+  So `scrape_raw.url`, run issues and archive names never hold the key.
+
+- **K4** A request with a query key never follows a redirect (it is refused), because a `Location` header can carry
+  the query string onwards.
+- **K5** What exists stays: error messages pass through `redactSecret`, and a body that echoes the key is refused
+  (`secret_echoed`).
+- **K6** Test on a local HTTP server:
+  1. The key arrives exactly once, in the query.
+  2. Search for the key's value in each of these, and find no hit:
+     - `scrape_raw`;
+     - `scrape_runs.issues`;
+     - archive file names;
+     - captured logs;
+     - `FetchOk`;
+     - the errors of a forced network failure.
+
+  `docs/scraper.md` 6.7 then says:
+  - a query key is allowed only when the provider has no header;
+  - `therundown` keeps its header (rule A4 of its plan).
+
+### 4.5 Reading schedule
+
+Each source is read according to the next kickoff in **its own price rows** that is more than `MIN_LEAD_MS` (10 min)
+ahead:
+
+| Next kickoff   | Read every | Why                                                                       |
+| -------------- | ---------- | ------------------------------------------------------------------------- |
+| within 3 h     | 10 min     | team news and line-ups (about 75 min before kickoff) move prices the most |
+| within 24 h    | 30 min     |                                                                           |
+| within 14 days | 2 h        | under the 3 h price age, so prices never lapse between reads              |
+| none           | 6 h        | international breaks and summer; a new round is picked up within 6 h      |
+
+- A source's first run is due at once, as today.
+- The scheduler's 10% early jitter and its failure backoff (doubling, at most 6 h) apply as for every source.
+- It is built as a new pure function `marketOddsPollIntervalMs(now, nextKickoff, mode)` in `fetch/cadence.ts`, with
+  its constants in `constants.ts`.
+- The scheduler uses it for every source whose plan has purpose `odds`.
+
+### 4.6 Credit budget
+
+Per league, in a normal month (four rounds, Friday to Monday):
+
+| Next kickoff   | Hours     | Reads | Credits                             |
+| -------------- | --------- | ----- | ----------------------------------- |
+| within 3 h     | about 88  | 528   | 1,056                               |
+| within 24 h    | about 296 | 592   | 1,184                               |
+| further        | about 336 | 168   | 336                                 |
+| **One league** | 720       | 1,288 | **2,576 (about 2,700 with jitter)** |
+
+| Use                                                                | Credits               | Share of 20,000 |
+| ------------------------------------------------------------------ | --------------------- | --------------- |
+| Five leagues, normal month                                         | about 13,500          | 68%             |
+| Five leagues, heavy month (Premier League six rounds, others five) | about 16,000          | 80%             |
+| Busiest day (Saturday, all five leagues)                           | about 900             | 4.5%            |
+| Phase 0 probe (free plan)                                          | about 40 of 500       | –               |
+| Optional historical replay (P7)                                    | at most 3,000 a month | –               |
+
+Adding the Champions League later (it needs a fixture source first) would cost about 800 a month. If heavy months
+keep triggering the guard, the 100K plan (59 USD) gives five times the room.
+
+### 4.7 Credit guard (rules G)
+
+The guard is a pure function, `creditGuardMode({ quota, remaining, spentLast24h, daysLeftInMonth })`, in
+`packages/scraper/src/fetch/credit-guard.ts`. The quota is `x-requests-used` + `x-requests-remaining` from the latest
+response, so the free key and the paid key need no setting.
+
+| Mode    | When                                                                                                      | Reads                                                     |
+| ------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| normal  | none of the conditions below                                                                              | the schedule of 4.5                                       |
+| economy | remaining under 20% of the quota with more than 7 days left, or more than 7.5% of the quota spent in 24 h | 15 min / 60 min / 2.5 h / 6 h                             |
+| minimal | remaining under 10%                                                                                       | only leagues with a kickoff within 3 h, every 30 min      |
+| stop    | remaining under 1%, or an answer that refuses the key (401)                                               | nothing until the 1st (UTC), or until a person re-enables |
+
+- **G1** There is one guard per key, shared by every `theoddsapi` source.
+- **G2** Usage is stored per run. Migration `0041` adds two nullable columns, both ≥ 0:
+  - `scrape_runs.api_credits_spent`: the sum of `x-requests-last`;
+  - `api_credits_remaining`: from the run's last response.
+
+  The scheduler reads the latest remaining and the spend of the last 24 h.
+
+- **G3** A response that costs more than the expected 2 credits opens an alarm (`unexpected_cost`). It means a book
+  list over 10, or a default that changed.
+- **G4** Every mode change is logged, and opens or resolves its alarm (4.8).
+- **G5** Development and staging use a free-plan key (a second account) and run by hand. Only production holds the
+  paid key, so tests cannot use up the production month.
+
+A normal month never leaves `normal`. The guard is there for bugs and heavy months.
+
+### 4.8 Alarms
+
+The review kind `source_broken` accepts any `reason` (contract `packages/contracts/src/feed.ts:521`), so no new
+review kind and no migration are needed:
+
+| Reason             | Opens when                                                                                                                     | Resolves when              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
+| `budget_low`       | the guard is in economy or minimal                                                                                             | the guard is normal again  |
+| `budget_exhausted` | the guard stops                                                                                                                | credits are back (the 1st) |
+| `unexpected_cost`  | rule G3 fires                                                                                                                  | a person dismisses it      |
+| `unauthorized`     | a 401 (bad or deactivated key, or no credits left)                                                                             | a read succeeds            |
+| `market_stale`     | a market-priced league has an event within 24 h of kickoff whose prices are older than 3 h (the re-pricing pass's `keep` case) | fresh prices arrive        |
+
+The back-office `/feed` page also shows the credits remaining, the guard's mode and the last read per league.
+
+### 4.9 Licence and licensed mode
+
+- **L1** The owner emails The Odds API (section 8) before paying. The written answer goes in
+  `docs/theoddsapi-plan/answers.md`.
+- **L2** Players never see a bookmaker's raw price. They see ours, made from the consensus with our margin (rule
+  O5).
+- **L3** In licensed (real-money) mode, the scheduler does not run a `theoddsapi` source unless
+  `SCRAPER_THEODDSAPI_LICENCE=confirmed`. A person sets it after a written yes. This only adds a condition: the
+  licensed-mode guard in `packages/config/src/config.ts` is not weakened.
+
+### 4.10 What happens when …
+
+| Situation                                     | What the system does                                                                                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The Odds API is down or returns 5xx           | retries, backoff and the circuit breaker; prices stay; `market_stale` after 3 h                                                                                    |
+| Credits run low                               | economy, then minimal; `budget_low`                                                                                                                                |
+| Credits run out (`OUT_OF_USAGE_CREDITS`)      | the read fails; stop until the 1st; `budget_exhausted`                                                                                                             |
+| A 429                                         | wait for Retry-After, or back off (we send about five requests per ten minutes)                                                                                    |
+| A book is missing, stale or wrong             | that book does not count. The checks that remain: the median of the other books, the overround check, a fit residual of at most 0.03, the O3 bounds and the trader |
+| Fewer than 2 books                            | no consensus: new events keep model prices, and market-priced events keep theirs                                                                                   |
+| No 2.5 line                                   | the goals model is fitted to the 1X2 alone (today's behaviour); P7 can improve this                                                                                |
+| A team name is unknown                        | the existing alias review; the event stays on the model until the name resolves                                                                                    |
+| A match is moved                              | the rows carry the new kickoff and link through the existing window; this source never moves a kickoff                                                             |
+| A live game is in the response                | skipped (A4)                                                                                                                                                       |
+| The key leaks                                 | rotate it in the account; we never stored it                                                                                                                       |
+| Someone enables TheRundown on the same league | not allowed (books would count twice); `therundown-free` stays disabled                                                                                            |
+
+## 5. Phases and tasks
+
+### P0: free account and licence email
+
+- Who: the owner.
+- Size: an hour, then the wait for the reply.
+- Needs: nothing.
+- Work:
+  - Open a free account.
+  - Put the key in `.env` as `SCRAPER_SECRET_THEODDSAPI`.
+  - Send the email in section 8.
+
+### P0b: probe script
+
+- Who: routine-coder (Sonnet medium) writes it; the main session runs it and reads the report.
+- Size: S.
+- Needs: P0.
+- File: `apps/scraper/src/cli/theoddsapi-probe.ts`.
+- Calls (about 31 credits):
+  - a header test on `/v4/sports` (free);
+  - `/participants` for each league (5 credits);
+  - `/odds` for each league (10 credits);
+  - eight Premier League reads in a match day's last 3 h (16 credits).
+- Report, per league:
+  - events;
+  - books per event with a complete 1X2;
+  - books per event with a 2.5 line;
+  - `last_update` age;
+  - overround per book;
+  - credits per call.
+- It saves bodies to the OS temp folder, outside the repository, and never prints the key or a URL that contains it.
+
+### P1: key in the query string
+
+- Who: the main session, Opus high (security work).
+- Size: M.
+- Needs: nothing. Skip it if P0b finds that a header works.
+- Work: rules K1 to K6 (4.4).
+
+### P2: the adapter
+
+- Who: routine-coder (Sonnet medium), with an Opus high review.
+- Size: M.
+- Needs: P0b and P1.
+- Work:
+  - Rules A1 to A9, with unit tests on a synthetic fixture shaped like P0b's response.
+  - Five sources, disabled: `docs/scraper-plan/data/source-theoddsapi-{en1,es1,it1,de1,fr1}.json`.
+  - Team and competition aliases from `/participants`, in `docs/theoddsapi-plan/aliases-theoddsapi.csv`, checked
+    by a person.
+
+### P3: storage, reading schedule and guard
+
+- Who: the main session, Opus high (migration and scheduler).
+- Size: M.
+- Needs: P2.
+- Work:
+  - Migration 0041.
+  - Usage recording in `run-source`.
+  - The reading schedule (4.5).
+  - The guard (4.7).
+  - The scheduler wiring.
+  - Rule L3.
+
+### P4: alarms and operations
+
+- Who: routine-coder (Sonnet medium).
+- Size: S to M.
+- Needs: P3.
+- Work:
+  - The alarms (4.8).
+  - The credits panel on `/feed`.
+  - This source's rules in `docs/scraper.md`.
+  - A runbook, `docs/runbooks/odds-credits-low.md`.
+
+### P5: shadow run
+
+- Who: the owner buys the plan; routine-coder writes the report; quick-task (Haiku low) runs it each week.
+- Size: two weeks.
+- Needs: P4.
+- Work:
+  - Buy the 20K plan.
+  - Enable the five sources while every league stays on `model`.
+  - Run for two weeks.
+
+### P6: switching on
+
+- Who: the owner or a trader.
+- Size: two weeks.
+- Needs: the gates of section 6.
+- Work: switch the Premier League to `market` (back office `/feed`) for one week, then the other four leagues.
+
+### P7: optional accuracy steps
+
+- Who: the main session, Opus high (money path).
+- Size: M each.
+- Needs: P5's data. Each step is decided on that data:
+  - never offer more than the best book's price, so no bettor gets a better price from us than from a listed book;
+  - raise `CONSENSUS_MIN_BOOKS` to 3;
+  - bucket the book counts in the pricing key;
+  - fit to the 1.5 or 3.5 line when 2.5 is missing;
+  - a historical replay of at most 3,000 credits a month.
+
+### When each task is done
+
+Each task is done when `pnpm typecheck`, `pnpm lint`, `pnpm format` and the tests of the packages it touched pass,
+plus:
+
+- **P0b:** the report exists for all five leagues, and each odds call cost 2 credits.
+- **P1:**
+  - K6 passes;
+  - every existing auth and fetcher test still passes;
+  - a header source behaves exactly as before.
+- **P2:**
+  - The parser never throws.
+  - Tests cover:
+    - the draw found by name;
+    - outcomes in another order;
+    - a missing draw;
+    - a 2.75 and a 3.5 line;
+    - a game that has started;
+    - a game beyond the horizon;
+    - an eleventh book;
+    - the same book with two prices;
+    - a stale and a future `last_update`;
+    - prices such as 2.07 and 1.952, converted exactly (2070, 1952).
+  - An integration test on `createTestDatabase` stores rows, then prices an event of a market-priced league from them.
+- **P3:**
+  - Property tests:
+    - the interval never drops below 10 min;
+    - the interval never grows as kickoff gets closer;
+    - fewer credits remaining never gives a faster mode;
+    - `stop` never reads.
+  - On a real Postgres: the usage columns are written, and the guard reads them.
+- **P4:** each alarm opens once and resolves (idempotent), on a real Postgres.
+
+### Prompts for a fresh session
+
+Each prompt also says: "read `docs/theoddsapi-plan/README.md` first; do not commit".
+
+- **P0b:** "Write `apps/scraper/src/cli/theoddsapi-probe.ts` (task P0b): read the key from
+  `SCRAPER_SECRET_THEODDSAPI`, never print it or a URL that contains it, make the listed calls, save the bodies
+  under the OS temp folder, and print the report and the credits from `x-requests-last`. Do not run it."
+- **P1:** "Implement rules K1 to K6 (section 4.4) in `packages/scraper/src/fetch/{auth,polite-fetcher}.ts`,
+  `adapters/common.ts` and `types.ts`, with the leak test K6 on a local HTTP server. Header auth must behave exactly
+  as before."
+- **P2:** "Write `packages/scraper/src/adapters/theoddsapi.ts` (rules A1 to A9), registered like `therundown`. Add
+  its tests on a synthetic fixture shaped like the probe's Premier League response, the five disabled source files
+  and the alias CSV built from the probe's participants."
+- **P3:** "Add migration 0041 (rule G2) and usage recording in `apps/scraper/src/pipeline/run-source.ts`. Write
+  `marketOddsPollIntervalMs` (4.5) and `creditGuardMode` (4.7) as pure functions with unit and property tests. Wire
+  them into the scheduler for purpose `odds`, and add rule L3."
+- **P4:** "Add the alarms of section 4.8 (reasons on `source_broken`), the credits panel on `/feed`, this source's
+  rules in `docs/scraper.md`, and `docs/runbooks/odds-credits-low.md`."
+- **P5 report:** "Write `apps/scraper/src/cli/market-shadow-report.ts`. For the five leagues over the last 7 days,
+  report:
+  - credits per day against the plan;
+  - the share of events with a fresh consensus from at least 2 and at least 3 books, by hours to kickoff;
+  - the share with a 2.5 consensus;
+  - fit residuals;
+  - unresolved names;
+  - pricing-key changes that come only from a book count;
+  - the gap between the model's and the market's 1X2."
+
+## 6. Switching a league on
+
+The shadow run (P5) passes when, over two weeks, all of these hold:
+
+1. Credits stay at or under 70% of the month's pace, with no guard alarm.
+2. From 48 h before kickoff, at least 95% of the five leagues' events have a fresh 1X2 consensus from at least 3
+   books.
+3. At most 2% of priced events fail the fit (`poor_fit`).
+4. No team name has been unresolved for the last 7 days.
+5. The K6 test passes in CI, and a search of the database and the archive for the key finds nothing.
+6. For real money only: the written licence answer (L1) and `SCRAPER_THEODDSAPI_LICENCE=confirmed`.
+
+Then the Premier League goes to `market` for one week, while a trader watches re-prices and held proposals. After
+that, the other four leagues. If anything looks wrong, set the league back to `model` in the same select.
+
+## 7. Decisions for the owner
+
+1. **Stale market near kickoff.** Two options:
+   - Keep the last prices (what happens today). A frozen market price still knows more than the model, which never
+     reacts to news.
+   - Stop betting on an event whose prices are older than X within 3 h of kickoff (fail closed). Recommended before
+     real money, together with the liability caps of `docs/therundown-plan/README.md` (task T6).
+2. Which P7 steps to take, once the shadow numbers are in.
+3. Stay on 30 USD unless the guard leaves `normal` two months running; then move to the 59 USD plan.
+
+## 8. Email to The Odds API (P0)
+
+To team@the-odds-api.com, from the account's address:
+
+> We are building a sportsbook: a play-money demo now, and a licensed real-money operation in Costa Rica later.
+>
+> 1. May we use your odds internally to set our own prices? We add our own margin, players never see your prices,
+>    and we never pass your data on. Is this allowed on the 20K plan?
+> 2. Does the same answer hold for the play-money demo?
+> 3. May we keep raw responses for 7 days? May we keep numbers we derive from them for longer, as evidence (for
+>    example, our price against the market when a bet was taken)?
+> 4. Can the API key be sent in a request header instead of the URL?
+> 5. When the monthly credits run out, are requests refused until the 1st, with no overage charge?
+> 6. For soccer `totals`, which line do you return for each bookmaker: always 2.5, or that book's main line?
+> 7. Is `last_update` the time you last saw the price, or the time it last changed?
+> 8. Do you publish an uptime figure or a status page?
+
+## 9. Sources
+
+- Plans and prices: https://the-odds-api.com/
+- Endpoints, credit costs, parameters and usage headers: https://the-odds-api.com/liveapi/guides/v4/
+- Error codes: https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html
+- Markets: https://the-odds-api.com/sports-odds-data/betting-markets.html
+- Bookmakers by region: https://the-odds-api.com/sports-odds-data/bookmaker-apis.html
+- Sports and sport keys: https://the-odds-api.com/sports-odds-data/sports-apis.html
+- Update intervals and latency: https://the-odds-api.com/sports-odds-data/update-intervals.html
+- Rate limit: https://the-odds-api.com/guide/rate-limit.html
+- FAQ (credit reset, cancelling): https://the-odds-api.com/manage/faqs.html
+- Terms: https://the-odds-api.com/terms-and-conditions
