@@ -816,9 +816,21 @@ describe('GET /events/:id and /events/by-game-id/:gameId', () => {
 });
 
 describe('selection open flag', () => {
-  const event = { status: 'scheduled', bettingOpen: true, startTime: hours(1) } as const;
+  const event = {
+    status: 'scheduled',
+    bettingOpen: true,
+    startTime: hours(1),
+    closeLeadMs: 0,
+  } as const;
   const market = { status: 'open' } as const;
   const selection = { status: 'open' } as const;
+
+  it('closes the close lead before the start time (a late feed cannot leave betting open)', () => {
+    const late = { ...event, closeLeadMs: 5 * 60_000 };
+    expect(isSelectionOpen(late, market, selection, minutes(54))).toBe(true);
+    expect(isSelectionOpen(late, market, selection, minutes(55))).toBe(false);
+    expect(isSelectionOpen(late, market, selection, minutes(59))).toBe(false);
+  });
 
   it('is open only when selection, market and event all allow betting', () => {
     expect(isSelectionOpen(event, market, selection, NOW)).toBe(true);

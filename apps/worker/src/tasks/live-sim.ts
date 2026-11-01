@@ -516,8 +516,14 @@ function restatedOdds(
     if (status === undefined) continue;
     for (const selection of market.selections) {
       if (selection.status !== 'open' || written.has(selection.id)) continue;
+      // A live event's close lead does not apply (it closes prematch betting only).
       const bettable = isSelectionBettable(
-        { status: 'live', bettingOpen: event.bettingOpen, startTime: event.startTime },
+        {
+          status: 'live',
+          bettingOpen: event.bettingOpen,
+          startTime: event.startTime,
+          closeLeadMs: 0,
+        },
         status,
         selection.status,
         now,

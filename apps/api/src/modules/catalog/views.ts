@@ -44,6 +44,8 @@ export interface EventRow {
   startTime: Date;
   status: EventStatus;
   bettingOpen: boolean;
+  /** events.close_lead_ms: prematch betting closes this long before startTime. */
+  closeLeadMs: number;
   liveMinute: number | null;
   period: string | null;
   scoreHome: number | null;
@@ -99,10 +101,11 @@ export function localized(name: LocalizedNameValue): LocalizedNameValue {
 /**
  * Whether a selection can be put on a bet slip at `now`: the shared rule of
  * isSelectionBettable (@vamos/db), which the odds deltas use too. Prematch
- * betting closes at the start time even before the kick-off is recorded.
+ * betting closes at the start time (minus the event's close lead) even before
+ * the kick-off is recorded.
  */
 export function isSelectionOpen(
-  event: Pick<EventRow, 'status' | 'bettingOpen' | 'startTime'>,
+  event: Pick<EventRow, 'status' | 'bettingOpen' | 'startTime' | 'closeLeadMs'>,
   market: Pick<MarketRow, 'status'>,
   selection: Pick<SelectionRow, 'status'>,
   now: Date,

@@ -35,6 +35,8 @@ import {
   loadCatalogIds,
   lockEventForSimulation,
   marketsWithSelections,
+  MAX_CLOSE_LEAD_MS,
+  prematchClosesAt,
   resultEvent,
   resumeEvent,
   setEventBettingOpen,
@@ -763,9 +765,40 @@ describe('market and event state', () => {
     ).rejects.toSatisfy((error: unknown) => pgCode(error) === '23514');
   });
 
+  it('closes prematch betting the close lead before the start time, and fails closed on a bad lead', () => {
+    const start = new Date('2026-10-08T11:30:00Z');
+    const lead = 5 * 60_000;
+    const event = {
+      status: 'scheduled',
+      bettingOpen: true,
+      startTime: start,
+      closeLeadMs: lead,
+    } as const;
+    const closesAt = new Date(start.getTime() - lead);
+    expect(prematchClosesAt(event)).toEqual(closesAt);
+    expect(isSelectionBettable(event, 'open', 'open', new Date(closesAt.getTime() - 1))).toBe(true);
+    expect(isSelectionBettable(event, 'open', 'open', closesAt)).toBe(false);
+    expect(isSelectionBettable(event, 'open', 'open', new Date(start.getTime() - 1))).toBe(false);
+    // The lead closes prematch betting only: a live event stays bettable.
+    expect(isSelectionBettable({ ...event, status: 'live' }, 'open', 'open', start)).toBe(true);
+    // A lead that is not a whole number in 0..MAX_CLOSE_LEAD_MS refuses bets instead of ignoring it.
+    for (const bad of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, MAX_CLOSE_LEAD_MS + 1]) {
+      const broken = { ...event, closeLeadMs: bad };
+      expect(prematchClosesAt(broken)).toBeNull();
+      expect(isSelectionBettable(broken, 'open', 'open', new Date('2026-10-01T00:00:00Z'))).toBe(
+        false,
+      );
+    }
+  });
+
   it('closes prematch betting at the start time, in odds deltas too (regression)', async () => {
     const start = new Date('2026-10-08T11:30:00Z');
-    const event = { status: 'scheduled', bettingOpen: true, startTime: start } as const;
+    const event = {
+      status: 'scheduled',
+      bettingOpen: true,
+      startTime: start,
+      closeLeadMs: 0,
+    } as const;
     const before = new Date(start.getTime() - 1);
     expect(isSelectionBettable(event, 'open', 'open', before)).toBe(true);
     expect(isSelectionBettable(event, 'open', 'open', start)).toBe(false);
