@@ -12,7 +12,7 @@ import {
   type LiveMessage,
   type ScrapedEvent,
 } from '@vamos/db';
-import { priceFixture } from '@vamos/feed';
+import type { priceFixture } from '@vamos/feed';
 import {
   assessKickoff,
   buildReviews,

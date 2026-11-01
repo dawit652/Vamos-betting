@@ -71,7 +71,10 @@ const current = (): Outcome => ({ kind: 'current', messages: [] });
 const skipped = (): Outcome => ({ kind: 'skipped', messages: [] });
 
 /**
- * Rule O3, re-pricing after ratings change. Every applied result moves two
+ * Rule O3, re-pricing after ratings change (and rule O4, after the bookmaker market changes
+ * for a competition whose policy takes its prices from the licensed feed: see event-pricing.ts;
+ * the stamp then holds a market key, the same bounds, O2, trader hold and lead time apply, and a
+ * market-priced event whose market goes stale keeps its prices). Every applied result moves two
  * teams' ratings; events already created for those teams keep the prices they
  * were created with. This step prices the book again for the scheduled events
  * whose teams' ratings differ from the ratings their prices were computed from

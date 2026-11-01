@@ -474,6 +474,20 @@ describe('review payloads', () => {
         proposal: [{ type: '1x2', line: null, selections: [{ code: '1', oddsMilli: 900 }] }],
       }),
     ).toBeNull();
+    // Where the prices come from (rule O4): optional, and only the two sources.
+    for (const pricing of [
+      { source: 'model' },
+      { source: 'market', books: 6, residual: 0.012 },
+      { source: 'model', fallback: 'poor_fit' },
+    ]) {
+      expect(parseReviewPayload('odds_approval', { ...reprice, pricing })).toEqual({
+        ...reprice,
+        pricing,
+      });
+    }
+    for (const pricing of [{ source: 'crowd' }, { source: 'market', books: -1 }, {}]) {
+      expect(parseReviewPayload('odds_approval', { ...reprice, pricing })).toBeNull();
+    }
     expect(isRepriceItem({ kind: 'odds_approval', subjectKey: 'fx|a|reprice' })).toBe(true);
     expect(isRepriceItem({ kind: 'odds_approval', subjectKey: 'fx|a' })).toBe(false);
     expect(isRepriceItem({ kind: 'ratings_uncalibrated', subjectKey: 'fx|a|reprice' })).toBe(false);
