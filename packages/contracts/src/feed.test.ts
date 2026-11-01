@@ -285,6 +285,20 @@ describe('feed requests', () => {
     expect(permission({ enabled: false, autoOpen: true })).toBe('settings.edit');
     expect(permission({ extraTime: false })).toBe('settings.edit');
     expect(permission({ extraTime: true })).toBe('settings.edit');
+    // The market feed is switched on with settings access; back to the model is a safety action.
+    expect(permission({ pricingSource: 'market' })).toBe('settings.edit');
+    expect(permission({ pricingSource: 'model' })).toBe('trading.status');
+    expect(permission({ enabled: false, pricingSource: 'model' })).toBe('trading.status');
+    expect(permission({ enabled: false, pricingSource: 'market' })).toBe('settings.edit');
+  });
+
+  it('accepts only the two pricing sources', () => {
+    for (const pricingSource of ['model', 'market']) {
+      expect(UpdateCompetitionPolicyRequest.safeParse({ pricingSource }).success).toBe(true);
+    }
+    for (const pricingSource of ['Market', 'crowd', '', true, null]) {
+      expect(UpdateCompetitionPolicyRequest.safeParse({ pricingSource }).success).toBe(false);
+    }
   });
 });
 
@@ -344,6 +358,7 @@ describe('feed views', () => {
         autoOpen: false,
         autoResults: false,
         extraTime: false,
+        pricingSource: 'model',
         updatedAt: null,
         updatedBy: null,
       }).success,

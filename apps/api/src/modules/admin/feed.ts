@@ -179,6 +179,7 @@ function policyView(row: CompetitionPolicyRow): CompetitionPolicyView {
     autoOpen: row.autoOpen,
     autoResults: row.autoResults,
     extraTime: row.extraTime,
+    pricingSource: row.pricingSource,
     updatedAt: row.updatedAt?.toISOString() ?? null,
     updatedBy: row.updatedBy,
   };
@@ -860,6 +861,7 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             ...opt('autoOpen', input.autoOpen),
             ...opt('autoResults', input.autoResults),
             ...opt('extraTime', input.extraTime),
+            ...opt('pricingSource', input.pricingSource),
           },
           actor,
         );

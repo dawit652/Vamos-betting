@@ -106,6 +106,21 @@ export function flagPermission(
   return flag !== 'extraTime' && !next ? 'trading.status' : 'settings.edit';
 }
 
+/**
+ * The permission a change of where a competition's prices come from needs: back to the model is
+ * a safety action (`trading.status`); switching to the market feed needs `settings.edit`.
+ */
+export function pricingSourcePermission(
+  next: 'model' | 'market',
+): 'trading.status' | 'settings.edit' {
+  return next === 'model' ? 'trading.status' : 'settings.edit';
+}
+
+export const PRICING_SOURCES = [
+  ['model', 'Team ratings (model)'],
+  ['market', 'Bookmaker feed first'],
+] as const;
+
 export const POLICY_FLAGS = [
   ['enabled', 'Enabled'],
   ['autoOpen', 'Auto open'],

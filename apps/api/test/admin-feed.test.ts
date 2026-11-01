@@ -1577,6 +1577,7 @@ describe('competition policy', () => {
       autoOpen: false,
       autoResults: false,
       extraTime: false,
+      pricingSource: 'model',
       updatedAt: null,
       updatedBy: null,
     });
@@ -1637,5 +1638,28 @@ describe('competition policy', () => {
     expect((await put(ids.cup, { enabled: 'on' }, 'admin')).statusCode).toBe(400);
     // Nothing was written for the competition.
     expect(await auditActions('scrape.policy.updated', ids.cup)).toHaveLength(0);
+  });
+
+  it('switches the pricing source: settings.edit to market, a trader may only go back to the model', async () => {
+    const market = await put(ids.cup, { pricingSource: 'market' }, 'admin');
+    expect(market.statusCode, market.body).toBe(200);
+    expect(UpdateCompetitionPolicyResponse.parse(market.json()).competition).toMatchObject({
+      pricingSource: 'market',
+      enabled: false,
+    });
+    const audit = await auditActions('scrape.policy.updated', ids.cup);
+    expect(audit.at(-1)!.metadata).toMatchObject({
+      before: { pricingSource: 'model' },
+      after: { pricingSource: 'market' },
+    });
+    const refused = await put(ids.cup, { pricingSource: 'market' }, 'trader');
+    expect(refused.statusCode).toBe(403);
+    expect(errorOf(refused).details).toEqual({ permission: 'settings.edit' });
+    expect((await put(ids.cup, { pricingSource: 'crowd' }, 'admin')).statusCode).toBe(400);
+    const back = await put(ids.cup, { pricingSource: 'model' }, 'trader');
+    expect(back.statusCode, back.body).toBe(200);
+    expect(UpdateCompetitionPolicyResponse.parse(back.json()).competition.pricingSource).toBe(
+      'model',
+    );
   });
 });

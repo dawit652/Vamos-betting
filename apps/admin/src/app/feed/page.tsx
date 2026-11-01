@@ -21,6 +21,8 @@ import {
   flagPermission,
   POLICY_FLAGS,
   policyFlag,
+  PRICING_SOURCES,
+  pricingSourcePermission,
   runStatusTone,
   SOURCE_STATE_LABELS,
   sourceStateTone,
@@ -127,6 +129,58 @@ function FlagCell({
   );
 }
 
+function PricingSourceCell({
+  policy,
+  onChanged,
+}: {
+  policy: CompetitionPolicyView;
+  onChanged: () => void;
+}) {
+  const { can } = useSession();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const change = async (next: 'model' | 'market') => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api<UpdateCompetitionPolicyResponse>(
+        `/admin/feed/competitions/${policy.competitionId}`,
+        { method: 'PUT', body: { pricingSource: next } },
+      );
+      onChanged();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <td>
+      <select
+        aria-label={`Prices for ${policy.name} come from`}
+        value={policy.pricingSource}
+        disabled={busy || !(can('settings.edit') || can('trading.status'))}
+        onChange={(event) => {
+          const next = event.target.value === 'market' ? 'market' : 'model';
+          if (next === policy.pricingSource) return;
+          if (!can(pricingSourcePermission(next))) {
+            setError('Your role may not make this change');
+            return;
+          }
+          void change(next);
+        }}
+      >
+        {PRICING_SOURCES.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+      {error !== null && <Notice>{error}</Notice>}
+    </td>
+  );
+}
+
 export default function FeedOverviewPage() {
   const health = useFetch<FeedHealthResponse>('/admin/feed/health');
   const competitions = useFetch<FeedCompetitionsResponse>('/admin/feed/competitions');
@@ -209,6 +263,7 @@ export default function FeedOverviewPage() {
                 {POLICY_FLAGS.map(([flag, label]) => (
                   <th key={flag}>{label}</th>
                 ))}
+                <th>Prices from</th>
                 <th>Changed</th>
               </tr>
             </thead>
@@ -219,6 +274,7 @@ export default function FeedOverviewPage() {
                   {POLICY_FLAGS.map(([flag]) => (
                     <FlagCell key={flag} policy={c} flag={flag} onChanged={reloadAll} />
                   ))}
+                  <PricingSourceCell policy={c} onChanged={reloadAll} />
                   <td className="muted small">
                     {c.updatedAt === null
                       ? 'never'
@@ -232,7 +288,9 @@ export default function FeedOverviewPage() {
       )}
       <p className="muted small">
         Turning a flag off needs trading access; turning one on, or changing extra time, needs
-        settings access.
+        settings access. Prices come from the team-rating model unless a competition is set to take
+        them from the licensed bookmaker feed first; setting it back to the model needs trading
+        access.
       </p>
     </>
   );

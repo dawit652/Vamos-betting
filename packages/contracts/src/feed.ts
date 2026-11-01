@@ -224,6 +224,11 @@ export type SetSourceEnabledResponse = z.infer<typeof SetSourceEnabledResponse>;
 // ---------------------------------------------------------------------------
 // Competition policy (GET /admin/feed/competitions, PUT /admin/feed/competitions/:id).
 
+/** Where a competition's prices come from: the team-rating model (default) or a licensed bookmaker-odds feed first. */
+export const FEED_PRICING_SOURCES = ['model', 'market'] as const;
+export const FeedPricingSourceSchema = z.enum(FEED_PRICING_SOURCES);
+export type FeedPricingSource = z.infer<typeof FeedPricingSourceSchema>;
+
 export const CompetitionPolicyView = z.object({
   competitionId: z.string(),
   name: z.string(),
@@ -236,6 +241,11 @@ export const CompetitionPolicyView = z.object({
   autoResults: z.boolean(),
   /** Matches can go to extra time or penalties (knockouts). */
   extraTime: z.boolean(),
+  /**
+   * Where prices come from: 'model' (team ratings, the default) or 'market' (a licensed
+   * bookmaker-odds feed first, the model as fallback).
+   */
+  pricingSource: FeedPricingSourceSchema,
   /** Null while the competition has no policy row yet (everything off). */
   updatedAt: IsoDateTime.nullable(),
   updatedBy: z.string().nullable(),
@@ -245,7 +255,7 @@ export type CompetitionPolicyView = z.infer<typeof CompetitionPolicyView>;
 export const FeedCompetitionsResponse = z.object({ items: z.array(CompetitionPolicyView) });
 export type FeedCompetitionsResponse = z.infer<typeof FeedCompetitionsResponse>;
 
-const POLICY_FLAGS = ['enabled', 'autoOpen', 'autoResults', 'extraTime'] as const;
+const POLICY_FLAGS = ['enabled', 'autoOpen', 'autoResults', 'extraTime', 'pricingSource'] as const;
 /** The flags whose switching off is a safety action (it only makes the scraper do less). */
 const POLICY_SAFETY_FLAGS = ['enabled', 'autoOpen', 'autoResults'] as const;
 
@@ -256,6 +266,7 @@ export const UpdateCompetitionPolicyRequest = z
     autoOpen: z.boolean().optional(),
     autoResults: z.boolean().optional(),
     extraTime: z.boolean().optional(),
+    pricingSource: FeedPricingSourceSchema.optional(),
   })
   .refine((request) => POLICY_FLAGS.some((flag) => request[flag] !== undefined), {
     message: 'at least one flag must be given',
@@ -267,15 +278,19 @@ export type UpdateCompetitionPolicyResponse = z.infer<typeof UpdateCompetitionPo
 
 /**
  * The permission a policy change needs: `trading.status` when it only turns
- * `enabled`, `autoOpen` or `autoResults` off (a traders' safety action),
- * `settings.edit` for anything else (turning something on, or `extraTime`).
+ * `enabled`, `autoOpen` or `autoResults` off, or sets `pricingSource` back to
+ * 'model' (traders' safety actions: the scraper does less, or falls back to the
+ * model), `settings.edit` for anything else (turning something on, `extraTime`,
+ * or switching to 'market').
  */
 export function competitionPolicyPermission(
   request: UpdateCompetitionPolicyRequest,
 ): 'trading.status' | 'settings.edit' {
   const givenFlags = POLICY_FLAGS.filter((flag) => request[flag] !== undefined);
-  const onlyTurnsOff = givenFlags.every(
-    (flag) => (POLICY_SAFETY_FLAGS as readonly string[]).includes(flag) && request[flag] === false,
+  const onlyTurnsOff = givenFlags.every((flag) =>
+    flag === 'pricingSource'
+      ? request.pricingSource === 'model'
+      : (POLICY_SAFETY_FLAGS as readonly string[]).includes(flag) && request[flag] === false,
   );
   return givenFlags.length > 0 && onlyTurnsOff ? 'trading.status' : 'settings.edit';
 }

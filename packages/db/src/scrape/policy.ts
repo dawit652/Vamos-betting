@@ -1,3 +1,4 @@
+import type { ScrapePricingSource } from '@vamos/core';
 import { asc, eq, sql } from 'drizzle-orm';
 import { domainNotFound } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
@@ -15,6 +16,8 @@ export interface CompetitionPolicy {
   autoResults: boolean;
   /** Knockout competition: a score is never applied automatically, a person confirms it. */
   extraTime: boolean;
+  /** Where prices come from: the team-rating model (default) or a licensed bookmaker-odds feed first (rule O4). */
+  pricingSource: ScrapePricingSource;
 }
 
 export type CompetitionPolicyFlags = Omit<CompetitionPolicy, 'competitionId'>;
@@ -34,7 +37,13 @@ const OFF: CompetitionPolicyFlags = {
   autoOpen: false,
   autoResults: false,
   extraTime: false,
+  pricingSource: 'model',
 };
+
+/** The stored text as a pricing source; anything but 'market' is the model (fail closed to the default). */
+function pricingSourceOf(value: string | null | undefined): ScrapePricingSource {
+  return value === 'market' ? 'market' : 'model';
+}
 
 /** The policy of a competition; a competition without a row is entirely off (fail closed). */
 export async function getCompetitionPolicy(
@@ -47,10 +56,14 @@ export async function getCompetitionPolicy(
       autoOpen: scrapeCompetitionPolicy.autoOpen,
       autoResults: scrapeCompetitionPolicy.autoResults,
       extraTime: scrapeCompetitionPolicy.extraTime,
+      pricingSource: scrapeCompetitionPolicy.pricingSource,
     })
     .from(scrapeCompetitionPolicy)
     .where(eq(scrapeCompetitionPolicy.competitionId, competitionId));
-  return { competitionId, ...(row ?? OFF) };
+  return {
+    competitionId,
+    ...(row === undefined ? OFF : { ...row, pricingSource: pricingSourceOf(row.pricingSource) }),
+  };
 }
 
 /** Every competition (of the scraper's sports if `sportId` is given) with its policy, for the back office. */
@@ -80,6 +93,7 @@ export async function listCompetitionPolicies(
     autoOpen: row.policy?.autoOpen ?? false,
     autoResults: row.policy?.autoResults ?? false,
     extraTime: row.policy?.extraTime ?? false,
+    pricingSource: pricingSourceOf(row.policy?.pricingSource),
     updatedAt: row.policy?.updatedAt ?? null,
     updatedBy: row.policy?.updatedBy ?? null,
   }));
@@ -116,12 +130,14 @@ export async function setCompetitionPolicy(
     autoOpen: current!.autoOpen,
     autoResults: current!.autoResults,
     extraTime: current!.extraTime,
+    pricingSource: pricingSourceOf(current!.pricingSource),
   };
   const after: CompetitionPolicyFlags = {
     enabled: patch.enabled ?? before.enabled,
     autoOpen: patch.autoOpen ?? before.autoOpen,
     autoResults: patch.autoResults ?? before.autoResults,
     extraTime: patch.extraTime ?? before.extraTime,
+    pricingSource: patch.pricingSource ?? before.pricingSource,
   };
   if (JSON.stringify(before) !== JSON.stringify(after)) {
     await tx

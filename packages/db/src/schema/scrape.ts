@@ -3,6 +3,7 @@ import {
   SCRAPE_FIXTURE_STATUSES,
   SCRAPE_ODDS_MARKETS,
   SCRAPE_ODDS_SELECTIONS,
+  SCRAPE_PRICING_SOURCES,
   SCRAPE_RESULT_STATUSES,
   SCRAPE_REVIEW_KINDS,
   SCRAPE_REVIEW_STATUSES,
@@ -96,21 +97,32 @@ export const scrapeSources = pgTable(
  * What the scraper may do per competition. No row = everything off. Every
  * flag defaults to false (shadow mode: observe, never create or open).
  */
-export const scrapeCompetitionPolicy = pgTable('scrape_competition_policy', {
-  competitionId: uuid('competition_id')
-    .primaryKey()
-    .references(() => competitions.id, { onDelete: 'restrict' }),
-  /** The scraper may create fixtures here. */
-  enabled: boolean('enabled').notNull().default(false),
-  /** Open betting by itself for new fixtures whose teams are calibrated. */
-  autoOpen: boolean('auto_open').notNull().default(false),
-  /** Apply confirmed final scores without a person. */
-  autoResults: boolean('auto_results').notNull().default(false),
-  /** Matches can go to extra time / penalties (knockouts). */
-  extraTime: boolean('extra_time').notNull().default(false),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedBy: text('updated_by'),
-});
+export const scrapeCompetitionPolicy = pgTable(
+  'scrape_competition_policy',
+  {
+    competitionId: uuid('competition_id')
+      .primaryKey()
+      .references(() => competitions.id, { onDelete: 'restrict' }),
+    /** The scraper may create fixtures here. */
+    enabled: boolean('enabled').notNull().default(false),
+    /** Open betting by itself for new fixtures whose teams are calibrated. */
+    autoOpen: boolean('auto_open').notNull().default(false),
+    /** Apply confirmed final scores without a person. */
+    autoResults: boolean('auto_results').notNull().default(false),
+    /** Matches can go to extra time / penalties (knockouts). */
+    extraTime: boolean('extra_time').notNull().default(false),
+    /** 'model' (team ratings, default) or 'market' (licensed bookmaker odds first, model as fallback). */
+    pricingSource: text('pricing_source').notNull().default('model'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: text('updated_by'),
+  },
+  (t) => [
+    check(
+      'scrape_competition_policy_pricing_source',
+      oneOf(t.pricingSource, SCRAPE_PRICING_SOURCES),
+    ),
+  ],
+);
 
 /**
  * One fetch + parse cycle of a source. `running` has no `finished_at`; every

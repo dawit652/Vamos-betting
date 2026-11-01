@@ -131,6 +131,7 @@ describe('competition policy', () => {
       autoOpen: false,
       autoResults: false,
       extraTime: false,
+      pricingSource: 'model',
     });
     const on = await tx((t) =>
       setCompetitionPolicy(t, ctx.competitionId, { enabled: true }, STAFF),
@@ -150,13 +151,57 @@ describe('competition policy', () => {
     expect(await getCompetitionPolicy(db, ctx.competitionId)).toMatchObject({ autoResults: true });
   });
 
+  it('pricing source: model by default, switched and switched back, audited, nothing else changes', async () => {
+    const db = ctx.handle.db;
+    const other = [...ctx.ids.competitions.values()].find((id) => id !== ctx.competitionId)!;
+    expect(await getCompetitionPolicy(db, other)).toMatchObject({ pricingSource: 'model' });
+    const market = await tx((t) =>
+      setCompetitionPolicy(t, other, { pricingSource: 'market' }, STAFF),
+    );
+    expect(market).toMatchObject({ pricingSource: 'market', enabled: false });
+    expect(await getCompetitionPolicy(db, other)).toMatchObject({ pricingSource: 'market' });
+    expect(
+      (await listCompetitionPolicies(db, { sportId: 'football' })).find(
+        (r) => r.competitionId === other,
+      ),
+    ).toMatchObject({ pricingSource: 'market', configured: true });
+    // Another flag keeps it; no change writes nothing.
+    await tx((t) => setCompetitionPolicy(t, other, { autoOpen: true }, STAFF));
+    await tx((t) => setCompetitionPolicy(t, other, { pricingSource: 'market' }, STAFF));
+    expect(await getCompetitionPolicy(db, other)).toMatchObject({
+      pricingSource: 'market',
+      autoOpen: true,
+    });
+    await tx((t) => setCompetitionPolicy(t, other, { pricingSource: 'model' }, STAFF));
+    expect(await getCompetitionPolicy(db, other)).toMatchObject({ pricingSource: 'model' });
+    const logged = (await audits('scrape.policy.updated', other)).filter(
+      (a) =>
+        (a.metadata as { before: { pricingSource: string } }).before.pricingSource !== undefined,
+    );
+    expect(
+      logged.map((a) => (a.metadata as { after: { pricingSource: string } }).after.pricingSource),
+    ).toEqual(['market', 'market', 'model']);
+    // The database refuses any other value.
+    await expect(
+      ctx.handle.pool.query(
+        `UPDATE scrape_competition_policy SET pricing_source = 'crowd' WHERE competition_id = $1`,
+        [other],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
   it('lists every competition with slug and name; unconfigured ones are off', async () => {
     const rows = await listCompetitionPolicies(ctx.handle.db, { sportId: 'football' });
     const pl = rows.find((r) => r.competitionId === ctx.competitionId);
     expect(pl).toMatchObject({ slug: 'premier-league', configured: true, enabled: true });
     expect(pl?.name.en).toBeTruthy();
     const other = rows.find((r) => r.competitionId !== ctx.competitionId);
-    expect(other).toMatchObject({ configured: false, enabled: false, autoOpen: false });
+    expect(other).toMatchObject({
+      configured: false,
+      enabled: false,
+      autoOpen: false,
+      pricingSource: 'model',
+    });
   });
 
   it('refuses an unknown competition and concurrent patches keep each other flags', async () => {
