@@ -280,7 +280,10 @@ Per league, in a normal month (four rounds, Friday to Monday):
 | Phase 0 probe (free plan)                                          | about 40 of 500       | –               |
 | Optional historical replay (P7)                                    | at most 3,000 a month | –               |
 
-Adding the Champions League later (it needs a fixture source first) would cost about 800 a month. If heavy months
+Adding the Champions League later (it needs a fixture source first) would cost about 800 a month. The Odds API
+covers it: its `/v4/sports` list (saved by the probe, 2026-11-01) has `soccer_uefa_champs_league`,
+`soccer_uefa_europa_league` and `soccer_uefa_europa_conference_league`, among 47 soccer keys in season (also the
+FA Cup, EFL Cup, Championship, Eredivisie, Primeira Liga, MLS, Liga MX and the Copa Libertadores). If heavy months
 keep triggering the guard, the 100K plan (59 USD) gives five times the room.
 
 ### 4.7 Credit guard (rules G)
