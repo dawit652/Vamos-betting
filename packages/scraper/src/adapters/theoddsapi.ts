@@ -1,0 +1,509 @@
+import { z } from 'zod';
+import type {
+  FetchPlanItem,
+  ParseOutcome,
+  RawDocument,
+  SourceAdapter,
+  SourceDescriptor,
+} from '../types';
+import {
+  allowedHostsSchema,
+  cleanName,
+  parseIsoInstant,
+  requestAuthSchema,
+  sportSchema,
+  startParse,
+  urlProblem,
+  type MarketOddsDraft,
+  type ParseCollector,
+} from './common';
+import { decimalToMilli, type PriceProblem } from './odds-price';
+
+/**
+ * Adapter for The Odds API (https://the-odds-api.com, a paid bookmaker-odds API), rules A1 to A8
+ * of docs/theoddsapi-plan/README.md. One source is one league: one request per run to
+ * `/v4/sports/{sportKey}/odds` for the 1X2 (`h2h`) and the over/under (`totals`) of up to ten
+ * named bookmakers, which costs 2 credits however many matches come back.
+ *
+ * It yields price rows only (`market_odds`): no fixtures and no results, which the openfootball
+ * sources keep. The key travels in the `x-api-key` header (proven in Phase 0; the docs show only
+ * the query parameter, which this adapter never uses). Live matches and matches beyond the
+ * horizon are skipped; a market whose `last_update` is stale or in the future is dropped. Scraped
+ * data never cancels, voids or abandons anything; this adapter cannot even say a match exists.
+ */
+
+export const THEODDSAPI_HOST = 'api.the-odds-api.com';
+export const THEODDSAPI_AUTH_HEADER = 'x-api-key';
+/** Up to ten named bookmakers count as one region; an eleventh doubles the cost of every request. */
+export const THEODDSAPI_MAX_BOOKMAKERS = 10;
+/** The name The Odds API gives the draw in `h2h`. */
+const DRAW = 'Draw';
+/** A `last_update` this far in the future is a clock or feed error. */
+const FUTURE_TOLERANCE_MS = 5 * 60_000;
+
+const keySchema = (what: string) =>
+  z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9_]{2,60}$/, `${what}: lower-case letters, digits and _ only`);
+
+export const TheOddsApiConfigSchema = z
+  .strictObject({
+    /** Must cover api.the-odds-api.com (rule S3). */
+    allowedHosts: allowedHostsSchema,
+    /** The NAME of the environment variable that holds the key (SCRAPER_SECRET_*), never the key. */
+    secret: requestAuthSchema.shape.secret,
+    sport: sportSchema,
+    /** The Odds API's sport key: one league, e.g. soccer_epl. */
+    sportKey: keySchema('sportKey'),
+    /** What we call this competition (resolved through competition aliases). */
+    competition: z.string().trim().min(1).max(120),
+    /** The bookmakers read, each setting its own prices (plan 4.2). */
+    bookmakers: z.array(keySchema('bookmaker')).min(2).max(THEODDSAPI_MAX_BOOKMAKERS),
+    /** Markets requested: each one costs a credit per request. */
+    markets: z
+      .array(z.enum(['h2h', 'totals']))
+      .min(1)
+      .max(2)
+      .default(['h2h', 'totals']),
+    /** Matches further ahead than this are skipped. */
+    horizonDays: z.number().int().min(1).max(30).default(15),
+    /**
+     * A market whose `last_update` is older than this at fetch time is dropped: their scraper has
+     * stopped seeing that book (Phase 0: every book's median age was 0 to 2 minutes). Null: keep all.
+     */
+    maxBookAgeMinutes: z.number().int().min(1).max(1440).nullable().default(20),
+  })
+  .superRefine((c, ctx) => {
+    if (urlProblem(`https://${THEODDSAPI_HOST}/`, c.allowedHosts)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `allowedHosts must cover ${THEODDSAPI_HOST}`,
+        path: ['allowedHosts'],
+      });
+    }
+    if (new Set(c.bookmakers).size !== c.bookmakers.length) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a bookmaker is listed twice',
+        path: ['bookmakers'],
+      });
+    }
+    if (new Set(c.markets).size !== c.markets.length) {
+      ctx.addIssue({ code: 'custom', message: 'a market is listed twice', path: ['markets'] });
+    }
+  });
+export type TheOddsApiConfig = z.infer<typeof TheOddsApiConfigSchema>;
+
+/** The one request URL of a run (the key is added by the fetcher, in a header). */
+export function theOddsApiUrl(config: TheOddsApiConfig): string {
+  const query = new URLSearchParams({
+    bookmakers: config.bookmakers.join(','),
+    markets: config.markets.join(','),
+    oddsFormat: 'decimal',
+    dateFormat: 'iso',
+  });
+  return `https://${THEODDSAPI_HOST}/v4/sports/${config.sportKey}/odds?${query.toString()}`;
+}
+
+/** Credits one request costs: markets × regions, ten named books making one region (A9). */
+export function theOddsApiCost(config: TheOddsApiConfig): number {
+  return config.markets.length * Math.ceil(config.bookmakers.length / THEODDSAPI_MAX_BOOKMAKERS);
+}
+
+// ---------------------------------------------------------------------------
+// Reading the document
+
+type Json = Record<string, unknown>;
+const isObject = (v: unknown): v is Json =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
+type Selection = '1' | 'X' | '2' | 'over' | 'under';
+const SELECTION_ORDER: readonly Selection[] = ['1', 'X', '2', 'over', 'under'];
+
+interface Candidate {
+  market: '1x2' | 'ou';
+  line: string | null;
+  selection: Selection;
+  bookmaker: string;
+  milli: number;
+  updatedAt: Date;
+}
+
+/** What was left out of one document, for one summary issue. */
+interface Tally {
+  checked: number;
+  failed: number;
+  failures: Partial<Record<PriceProblem, number>>;
+  firstFailure: { problem: PriceProblem; value: unknown } | null;
+  live: number;
+  beyondHorizon: number;
+  bookNotListed: number;
+  noSelection: number;
+  notHalfLine: number;
+  badUpdatedAt: number;
+  staleMarkets: number;
+  futureMarkets: number;
+  incompleteBooks: number;
+  conflictingBooks: number;
+  examples: string[];
+}
+
+const newTally = (): Tally => ({
+  checked: 0,
+  failed: 0,
+  failures: {},
+  firstFailure: null,
+  live: 0,
+  beyondHorizon: 0,
+  bookNotListed: 0,
+  noSelection: 0,
+  notHalfLine: 0,
+  badUpdatedAt: 0,
+  staleMarkets: 0,
+  futureMarkets: 0,
+  incompleteBooks: 0,
+  conflictingBooks: 0,
+  examples: [],
+});
+
+/**
+ * An over/under `point` as canonical text when it is an x.5 line ('2.5'), else null. Whole and
+ * quarter lines (Pinnacle's 2.75, 3) can push or split the stake: not comparable to our lines.
+ */
+function halfLine(point: unknown): string | null {
+  if (typeof point !== 'number' || !Number.isFinite(point) || point < 0 || point >= 100) {
+    return null;
+  }
+  const doubled = point * 2;
+  if (!Number.isInteger(doubled) || doubled % 2 === 0) return null;
+  return `${(doubled - 1) / 2}.5`;
+}
+
+/** The event's sport key from the request path, or null. */
+function sportKeyOfUrl(url: string): string | null {
+  try {
+    const m = /^\/v4\/sports\/([a-z0-9_]{2,60})\/odds\/?$/.exec(new URL(url).pathname);
+    return m ? (m[1] ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function createTheOddsApiAdapter(
+  descriptor: SourceDescriptor,
+  config: TheOddsApiConfig,
+): SourceAdapter {
+  const listed = new Set(config.bookmakers);
+  const wantH2h = config.markets.includes('h2h');
+  const wantTotals = config.markets.includes('totals');
+
+  /** One market's `last_update` (or the book's), checked against the fetch time (A7). */
+  function updatedAtOf(market: Json, book: Json, fetchedAt: Date, tally: Tally): Date | null {
+    const raw = typeof market.last_update === 'string' ? market.last_update : book.last_update;
+    const at = typeof raw === 'string' ? parseIsoInstant(raw) : null;
+    if (at === null) {
+      tally.badUpdatedAt += 1;
+      return null;
+    }
+    if (at.getTime() > fetchedAt.getTime() + FUTURE_TOLERANCE_MS) {
+      tally.futureMarkets += 1;
+      return null;
+    }
+    if (
+      config.maxBookAgeMinutes !== null &&
+      fetchedAt.getTime() - at.getTime() > config.maxBookAgeMinutes * 60_000
+    ) {
+      tally.staleMarkets += 1;
+      return null;
+    }
+    return at;
+  }
+
+  /** Converts a price, counting failures for the wrong-format check. */
+  function milliOf(value: unknown, tally: Tally): number | null {
+    tally.checked += 1;
+    const converted = decimalToMilli(value);
+    if (converted.ok) return converted.milli;
+    tally.failed += 1;
+    tally.failures[converted.problem] = (tally.failures[converted.problem] ?? 0) + 1;
+    tally.firstFailure ??= { problem: converted.problem, value };
+    return null;
+  }
+
+  /** The candidates of one bookmaker of one event (A5 to A7). */
+  function readBook(
+    book: Json,
+    teams: { home: string; away: string },
+    fetchedAt: Date,
+    tally: Tally,
+    out: Candidate[],
+  ): void {
+    const bookmaker = typeof book.key === 'string' ? book.key : '';
+    if (!listed.has(bookmaker)) {
+      tally.bookNotListed += 1;
+      return;
+    }
+    for (const market of asArray(book.markets).filter(isObject)) {
+      const kind =
+        market.key === 'h2h' && wantH2h
+          ? '1x2'
+          : market.key === 'totals' && wantTotals
+            ? 'ou'
+            : null;
+      if (kind === null) continue;
+      const updatedAt = updatedAtOf(market, book, fetchedAt, tally);
+      if (updatedAt === null) continue;
+      for (const outcome of asArray(market.outcomes).filter(isObject)) {
+        let selection: Selection | null = null;
+        let line: string | null = null;
+        if (kind === '1x2') {
+          // Matched by exact name: the event's home_team and away_team, and "Draw".
+          if (outcome.name === teams.home) selection = '1';
+          else if (outcome.name === teams.away) selection = '2';
+          else if (outcome.name === DRAW) selection = 'X';
+        } else {
+          if (outcome.name === 'Over') selection = 'over';
+          else if (outcome.name === 'Under') selection = 'under';
+          line = halfLine(outcome.point);
+          if (selection !== null && line === null) {
+            tally.notHalfLine += 1;
+            continue;
+          }
+        }
+        if (selection === null) {
+          tally.noSelection += 1;
+          continue;
+        }
+        const milli = milliOf(outcome.price, tally);
+        if (milli === null) continue;
+        out.push({ market: kind, line, selection, bookmaker, milli, updatedAt });
+      }
+    }
+  }
+
+  /** Candidates to whole books: a bookmaker's complete 1X2, or both sides of one line. */
+  function completeBooks(
+    candidates: Candidate[],
+    base: Pick<
+      MarketOddsDraft,
+      'externalRef' | 'sport' | 'competition' | 'home' | 'away' | 'kickoff'
+    >,
+    tally: Tally,
+    eventId: string,
+  ): MarketOddsDraft[] {
+    const books = new Map<string, Candidate[]>();
+    for (const c of candidates) {
+      const key = `${c.market}\u0000${c.line ?? ''}\u0000${c.bookmaker}`;
+      const list = books.get(key);
+      if (list) list.push(c);
+      else books.set(key, [c]);
+    }
+    const rows: MarketOddsDraft[] = [];
+    for (const list of books.values()) {
+      const first = list[0] as Candidate;
+      const needed: readonly Selection[] =
+        first.market === '1x2' ? ['1', 'X', '2'] : ['over', 'under'];
+      const picked: Candidate[] = [];
+      let conflict = false;
+      for (const selection of needed) {
+        const same = list.filter((c) => c.selection === selection);
+        if (same.length === 0) break;
+        if (same.some((c) => c.milli !== (same[0] as Candidate).milli)) {
+          conflict = true;
+          break;
+        }
+        picked.push(same.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)));
+      }
+      const note = (what: string) => {
+        if (tally.examples.length < 3) tally.examples.push(`${eventId}:${first.bookmaker}:${what}`);
+      };
+      if (conflict) {
+        tally.conflictingBooks += 1;
+        note('conflict');
+        continue;
+      }
+      if (picked.length !== needed.length) {
+        tally.incompleteBooks += 1;
+        note('incomplete');
+        continue;
+      }
+      for (const c of picked) {
+        rows.push({
+          kind: 'market_odds',
+          ...base,
+          market: c.market,
+          line: c.line,
+          selection: c.selection,
+          bookmaker: c.bookmaker,
+          priceMilli: c.milli,
+          priceUpdatedAt: c.updatedAt,
+        });
+      }
+    }
+    const rank = (r: MarketOddsDraft) => SELECTION_ORDER.indexOf(r.selection);
+    return rows.sort(
+      (a, b) =>
+        a.market.localeCompare(b.market) ||
+        (a.line ?? '').localeCompare(b.line ?? '', 'en', { numeric: true }) ||
+        a.bookmaker.localeCompare(b.bookmaker) ||
+        rank(a) - rank(b),
+    );
+  }
+
+  function summarize(collector: ParseCollector, tally: Tally): void {
+    const counts = {
+      live: tally.live,
+      beyondHorizon: tally.beyondHorizon,
+      bookNotListed: tally.bookNotListed,
+      noSelection: tally.noSelection,
+      notHalfLine: tally.notHalfLine,
+      badUpdatedAt: tally.badUpdatedAt,
+      staleMarkets: tally.staleMarkets,
+      futureMarkets: tally.futureMarkets,
+      incompleteBooks: tally.incompleteBooks,
+      conflictingBooks: tally.conflictingBooks,
+      formatFailures: tally.failed,
+    };
+    // Skipping live matches and Pinnacle's quarter lines is routine: not worth a warning alone.
+    const routine = new Set(['live', 'beyondHorizon', 'notHalfLine']);
+    const notable = Object.entries(counts).some(([k, n]) => n > 0 && !routine.has(k));
+    if (!notable) return;
+    collector.issue(
+      'warning',
+      'prices_dropped',
+      'some prices or books were left out (see context for the counts)',
+      { ...counts, examples: tally.examples },
+    );
+  }
+
+  return {
+    descriptor,
+    allowedHosts: config.allowedHosts,
+    plan(): FetchPlanItem[] {
+      return [
+        {
+          url: theOddsApiUrl(config),
+          // Read at the fixtures cadence until the reading schedule (task P3) gives odds their own.
+          purpose: 'fixtures',
+          // A reference only: the fetcher reads the value when it fetches.
+          auth: { header: THEODDSAPI_AUTH_HEADER, secret: config.secret },
+        },
+      ];
+    },
+    parse(doc: RawDocument): ParseOutcome {
+      const { collector, usable } = startParse(descriptor.id, doc);
+      if (!usable) return collector.outcome();
+      if (sportKeyOfUrl(doc.url) !== config.sportKey) {
+        collector.fatal('unknown_request', 'the document URL is not this source’s request', {
+          url: doc.url.split('?')[0],
+        });
+        return collector.outcome();
+      }
+      let json: unknown;
+      try {
+        json = JSON.parse(doc.body);
+      } catch {
+        collector.fatal('bad_json', 'the document is not JSON');
+        return collector.outcome();
+      }
+      // An error answer ({ message, error_code }) or anything but a list: nothing is stored (A3).
+      if (!Array.isArray(json)) {
+        collector.fatal('bad_shape', 'expected a JSON array of events', {
+          errorCode: isObject(json) && typeof json.error_code === 'string' ? json.error_code : null,
+        });
+        return collector.outcome();
+      }
+      const fetchedAt = doc.fetchedAt;
+      const horizon = fetchedAt.getTime() + config.horizonDays * 86_400_000;
+      const tally = newTally();
+      json.forEach((raw: unknown, index) => {
+        if (!collector.beginRecord()) return;
+        const ctx: Record<string, unknown> = { index };
+        if (!isObject(raw)) {
+          collector.issue('error', 'bad_record', 'an event must be an object', ctx);
+          return;
+        }
+        const eventId = typeof raw.id === 'string' && raw.id.trim() !== '' ? raw.id.trim() : null;
+        if (eventId === null) {
+          collector.issue('error', 'bad_record', 'an event needs an id', ctx);
+          return;
+        }
+        ctx.eventId = eventId;
+        if (raw.sport_key !== config.sportKey) {
+          collector.issue('error', 'sport_mismatch', 'the event belongs to another sport key', {
+            ...ctx,
+            sportKey: raw.sport_key,
+          });
+          return;
+        }
+        // Kept exactly as sent: h2h outcomes are matched against these names.
+        const homeRaw = typeof raw.home_team === 'string' ? raw.home_team : null;
+        const awayRaw = typeof raw.away_team === 'string' ? raw.away_team : null;
+        const home = cleanName(homeRaw);
+        const away = cleanName(awayRaw);
+        if (homeRaw === null || awayRaw === null || home === null || away === null) {
+          collector.issue('error', 'bad_name', 'an event needs a home_team and an away_team', ctx);
+          return;
+        }
+        const named = { ...ctx, home, away };
+        const kickoff =
+          typeof raw.commence_time === 'string' ? parseIsoInstant(raw.commence_time) : null;
+        if (kickoff === null) {
+          collector.issue('error', 'bad_time', 'commence_time must be an ISO instant', {
+            ...named,
+            value: raw.commence_time,
+          });
+          return;
+        }
+        // A4: the endpoint also returns matches being played; their prices are never read.
+        if (kickoff.getTime() <= fetchedAt.getTime()) {
+          tally.live += 1;
+          return;
+        }
+        if (kickoff.getTime() > horizon) {
+          tally.beyondHorizon += 1;
+          return;
+        }
+        const candidates: Candidate[] = [];
+        for (const book of asArray(raw.bookmakers).filter(isObject)) {
+          readBook(book, { home: homeRaw, away: awayRaw }, fetchedAt, tally, candidates);
+        }
+        const rows = completeBooks(
+          candidates,
+          {
+            externalRef: eventId.slice(0, 200),
+            sport: config.sport,
+            competition: config.competition,
+            home,
+            away,
+            kickoff,
+          },
+          tally,
+          eventId,
+        );
+        if (rows.length > 0) collector.acceptMarketOdds(rows, named);
+      });
+      // Every price failed, or about half of many did: the format is not what we asked for.
+      // Nothing from this page is stored: a wrong format is never worth garbage prices (A6).
+      if (
+        tally.failed > 0 &&
+        (tally.failed === tally.checked ||
+          (tally.checked >= 10 && tally.failed * 2 >= tally.checked))
+      ) {
+        collector.fatal(
+          'wrong_price_format',
+          `${tally.failed} of ${tally.checked} prices are not valid decimal prices`,
+          {
+            failures: tally.failures,
+            firstProblem: tally.firstFailure?.problem ?? null,
+            firstValue: tally.firstFailure?.value ?? null,
+          },
+        );
+      }
+      summarize(collector, tally);
+      return collector.outcome();
+    },
+  };
+}

@@ -288,6 +288,13 @@
       "when": 1793524901306,
       "tag": "0040_events_close_lead",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793585083472,
+      "tag": "0041_scrape_adapter_theoddsapi",
+      "breakpoints": true
     }
   ]
 }

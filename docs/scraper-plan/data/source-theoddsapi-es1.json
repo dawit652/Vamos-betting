@@ -1,0 +1,28 @@
+{
+  "id": "theoddsapi-es1",
+  "name": "The Odds API: LaLiga prices",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "sportKey": "soccer_spain_la_liga",
+    "competition": "Spanish LaLiga",
+    "bookmakers": [
+      "pinnacle",
+      "betfair_ex_uk",
+      "matchbook",
+      "smarkets",
+      "williamhill",
+      "betsson",
+      "unibet_se",
+      "tipico_de",
+      "marathonbet",
+      "onexbet"
+    ],
+    "markets": ["h2h", "totals"],
+    "horizonDays": 15,
+    "maxBookAgeMinutes": 20
+  }
+}

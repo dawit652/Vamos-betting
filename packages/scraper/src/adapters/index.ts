@@ -21,5 +21,15 @@ export {
   therundownUrls,
 } from './therundown';
 export type { TheRundownConfig } from './therundown';
+export {
+  createTheOddsApiAdapter,
+  TheOddsApiConfigSchema,
+  THEODDSAPI_AUTH_HEADER,
+  THEODDSAPI_HOST,
+  THEODDSAPI_MAX_BOOKMAKERS,
+  theOddsApiCost,
+  theOddsApiUrl,
+} from './theoddsapi';
+export type { TheOddsApiConfig } from './theoddsapi';
 export { americanToMilli, decimalToMilli, exactDecimal, priceToMilli } from './odds-price';
 export type { PriceFormat, PriceProblem, PriceResult } from './odds-price';

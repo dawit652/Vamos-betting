@@ -50,6 +50,8 @@ export interface Harness {
   now(): Date;
   /** What the fake network answers for a URL (default 404). */
   serve(url: string, hit: Hit | string): void;
+  /** Every request the fetcher sent: the URL and its headers, oldest first. */
+  requests: Array<{ url: string; headers: Record<string, string> }>;
   source(id: string): Promise<ScrapeSource>;
   run(id: string): Promise<RunSourceResult>;
   count(sql: string, params?: unknown[]): Promise<number>;
@@ -157,6 +159,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 
   let clock = new Date(T0);
   const responses = new Map<string, Hit>();
+  const requests: Array<{ url: string; headers: Record<string, string> }> = [];
   const fetcher = new PoliteFetcher({
     userAgent: 'VamosTest/1.0',
     robots: 'off',
@@ -167,6 +170,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     sleep: () => Promise.resolve(),
     ...(options.secrets === undefined ? {} : { secrets: (name) => options.secrets?.[name] }),
     fetchImpl: (input, init) => {
+      requests.push({ url: input, headers: { ...(init?.headers as Record<string, string>) } });
       const hit = responses.get(input) ?? { status: 404, body: 'not found' };
       // Like a real server: a conditional request for the page's current ETag gets a 304.
       const sent = (init?.headers as Record<string, string> | undefined)?.['if-none-match'];
@@ -270,6 +274,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       clock = new Date(clock.getTime() + ms);
     },
     now: () => new Date(clock.getTime()),
+    requests,
     serve: (url, hit) => {
       responses.set(url, typeof hit === 'string' ? { status: 200, body: hit } : hit);
     },
