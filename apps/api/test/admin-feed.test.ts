@@ -371,6 +371,65 @@ describe('GET /admin/feed/health', () => {
   });
 });
 
+describe('GET /admin/feed/health: bookmaker odds credits', () => {
+  it('shows each key of a metered feed with its guard, credits and sources', async () => {
+    const before = FeedHealthResponse.parse(
+      (await asStaff(ctx, as('trader'), 'GET', '/admin/feed/health')).json(),
+    );
+    expect(before.credits).toEqual([]);
+    await db.transaction(async (tx) => {
+      await upsertSource(
+        tx,
+        {
+          id: 'src-odds',
+          name: 'Odds: Premier League',
+          adapter: 'theoddsapi',
+          upstream: 'TheOddsAPI',
+          config: {
+            allowedHosts: ['api.the-odds-api.com'],
+            secret: 'SCRAPER_SECRET_THEODDSAPI',
+            sport: 'football',
+            sportKey: 'soccer_epl',
+            competition: 'Premier League',
+            bookmakers: ['pinnacle', 'williamhill'],
+          },
+        },
+        { system: 'test' },
+      );
+    });
+    const startedAt = new Date(ctx.clock.now.getTime() - 10 * MINUTE);
+    const run = await startRun(db, { sourceId: 'src-odds', startedAt });
+    await finishRun(db, run.id, {
+      status: 'ok',
+      finishedAt: new Date(startedAt.getTime() + 1000),
+      apiCredits: { spent: 2, used: 18_500, remaining: 1_500 },
+    });
+    const body = FeedHealthResponse.parse(
+      (await asStaff(ctx, as('trader'), 'GET', '/admin/feed/health')).json(),
+    );
+    expect(body.credits).toEqual([
+      {
+        key: 'SCRAPER_SECRET_THEODDSAPI',
+        mode: 'minimal', // 7.5% left
+        keyRefused: false,
+        remaining: 1_500,
+        quota: 20_000,
+        spentLast24h: 2,
+        lastReadAt: startedAt.toISOString(),
+        sources: [
+          {
+            id: 'src-odds',
+            name: 'Odds: Premier League',
+            enabled: false,
+            lastRunAt: startedAt.toISOString(),
+            nextKickoff: null,
+          },
+        ],
+      },
+    ]);
+  });
+});
+
 describe('review queue', () => {
   it('lists newest first, filters by status and kind (lists too) and pages with an opaque cursor', async () => {
     const first = await openItem('fixture_missing', { detail: 'one' });

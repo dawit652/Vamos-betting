@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CREDIT_MODE_LABELS,
+  creditModeTone,
+  creditsText,
   ageText,
   canApplyResult,
   confirmApplyText,
@@ -147,5 +150,18 @@ describe('resolution and closer text', () => {
     });
     expect(text).not.toContain('T19');
     expect(text.endsWith('to –')).toBe(true);
+  });
+});
+
+describe('credit guard display', () => {
+  it('labels and colours each mode, and shows credits with the share left', () => {
+    expect(creditModeTone('normal')).toBe('good');
+    expect(creditModeTone('economy')).toBe('warn');
+    expect(creditModeTone('minimal')).toBe('warn');
+    expect(creditModeTone('stop')).toBe('bad');
+    expect(CREDIT_MODE_LABELS.stop).toBe('Stopped');
+    expect(creditsText(1_234, 20_000)).toBe('1,234 of 20,000 (6%)');
+    expect(creditsText(485, null)).toBe('485');
+    expect(creditsText(null, null)).toBe('–');
   });
 });

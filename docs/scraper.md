@@ -106,6 +106,21 @@ an event the latest successful run no longer lists, drop out; a disabled source 
 counts. Prices are used only by rule O5; they are never shown, never copied into a
 market, and never an input to results.
 
+**The Odds API (adapter `theoddsapi`, `docs/theoddsapi-plan/README.md`).** One source per
+league; it yields price rows only (no fixtures, no results: the openfootball sources keep
+those). One request per run to `/v4/sports/{sportKey}/odds` for `h2h` and `totals` of up to
+ten named bookmakers costs 2 credits; the key travels only in the `x-api-key` header. Live
+matches and matches beyond `horizonDays` are skipped, outcomes are matched by exact name,
+only x.5 lines with both sides are kept, and a market whose `last_update` is over
+`maxBookAgeMinutes` (20) old or in the future is dropped. Its requests have purpose `odds`:
+they are read by the next kickoff in the source's own price rows (every 10 min within 3 h,
+30 min within 24 h, 2 h within 14 days, else 6 h), slowed by the **credit guard** of its key
+(economy, minimal, stop: computed each scheduler pass from the `api_credits_*` columns of the
+key's runs this month). Its alarms are `source_broken` items with the reasons `budget_low`,
+`budget_exhausted`, `unauthorized`, `unexpected_cost` and `market_stale` (runbook
+`docs/runbooks/odds-credits-low.md`); the back-office `/feed` page shows each key's credits
+and mode. The licensed-mode switch it once had (rule L3) was removed on the owner's decision.
+
 ## 4. Data model
 
 All tables are in `packages/db/src/schema/scrape.ts`; names are normative,

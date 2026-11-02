@@ -335,13 +335,39 @@ describe('feed views', () => {
 
   it('counts the queue for every review kind', () => {
     const byKind = Object.fromEntries(FEED_REVIEW_KINDS.map((kind) => [kind, 0]));
+    const credit = {
+      key: 'SCRAPER_SECRET_THEODDSAPI',
+      mode: 'normal',
+      keyRefused: false,
+      remaining: 15_000,
+      quota: 20_000,
+      spentLast24h: 420,
+      lastReadAt: NOW,
+      sources: [
+        {
+          id: 'odds-en1',
+          name: 'Odds: Premier League',
+          enabled: true,
+          lastRunAt: NOW,
+          nextKickoff: null,
+        },
+      ],
+    };
     const health = {
       sources: [source],
+      credits: [credit],
       queue: { open: 0, byKind },
       competitions: { total: 3, enabled: 1, autoOpen: 0, autoResults: 0 },
       generatedAt: NOW,
     };
     expect(FeedHealthResponse.safeParse(health).success).toBe(true);
+    // The credit guard's four modes only, and counts that are not negative.
+    expect(
+      FeedHealthResponse.safeParse({ ...health, credits: [{ ...credit, mode: 'panic' }] }).success,
+    ).toBe(false);
+    expect(
+      FeedHealthResponse.safeParse({ ...health, credits: [{ ...credit, remaining: -1 }] }).success,
+    ).toBe(false);
     const { unknown_team: _omit, ...partial } = byKind;
     expect(
       FeedHealthResponse.safeParse({ ...health, queue: { open: 0, byKind: partial } }).success,

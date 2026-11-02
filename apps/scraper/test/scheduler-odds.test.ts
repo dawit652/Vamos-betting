@@ -2,6 +2,7 @@ import { finishRun, setSourceEnabled, startRun, upsertSource } from '@vamos/db';
 import { theOddsApiUrl, TheOddsApiConfigSchema } from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runDueSources } from '../src/tasks/scheduler';
+import { creditAlarmSubject } from '../src/pipeline/credit-alarms';
 import { createHarness, HOUR, MINUTE, SETUP_TIMEOUT, TEST_TIMEOUT, type Harness } from './helpers';
 
 /**
@@ -250,6 +251,86 @@ describe('licensed mode', () => {
       } finally {
         ctx.config = demo;
       }
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+/** The source_broken items of one alarm subject: [status, reason] each, oldest first. */
+const alarms = async (subject: string) =>
+  (
+    await h.pool.query<{ status: string; reason: string }>(
+      `SELECT status, payload->>'reason' AS reason FROM scrape_review_items
+        WHERE kind = 'source_broken' AND subject_key = $1 ORDER BY created_at`,
+      [subject],
+    )
+  ).rows.map((r) => [r.status, r.reason]);
+
+describe('alarms (4.8)', () => {
+  const budget = creditAlarmSubject(SECRET, 'budget');
+
+  it(
+    'budget_low while the guard is in minimal, once, resolved when normal; budget_exhausted at stop',
+    async () => {
+      await oddsHarness();
+      serveOdds(2 * HOUR);
+      const at = (minutes: number) => new Date(h.now().getTime() - minutes * MINUTE);
+      await recordedRun(at(60), { credits: { spent: 2, used: 18_500, remaining: 1_500 } }); // 7.5%
+      await runDueSources(h.ctx, options);
+      await runDueSources(h.ctx, options);
+      expect(await alarms(budget)).toEqual([['open', 'budget_low']]);
+
+      await recordedRun(at(1), { credits: { spent: 2, used: 5_000, remaining: 15_000 } });
+      await runDueSources(h.ctx, options);
+      expect(await alarms(budget)).toEqual([['resolved', 'budget_low']]);
+
+      h.advance(MINUTE);
+      await recordedRun(h.now(), { credits: { spent: 2, used: 19_900, remaining: 100 } }); // 0.5%
+      h.advance(MINUTE);
+      await runDueSources(h.ctx, options);
+      expect(await alarms(budget)).toEqual([
+        ['resolved', 'budget_low'],
+        ['open', 'budget_exhausted'],
+      ]);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'unauthorized on a refused key, once however often, resolved by a successful read',
+    async () => {
+      await oddsHarness();
+      const unauthorized = creditAlarmSubject(SECRET, 'unauthorized');
+      h.serve(URL, {
+        status: 401,
+        body: '{"message":"API key is not valid","error_code":"INVALID_KEY"}',
+      });
+      await h.run('src-odds');
+      await h.run('src-odds');
+      expect(await alarms(unauthorized)).toEqual([['open', 'unauthorized']]);
+      // The budget alarm is not raised for a refused key: that stop is this alarm's.
+      await runDueSources(h.ctx, options);
+      expect(await alarms(budget)).toEqual([]);
+
+      serveOdds(2 * HOUR);
+      expect((await h.run('src-odds')).status).toBe('ok');
+      expect(await alarms(unauthorized)).toEqual([['resolved', 'unauthorized']]);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'unexpected_cost when a request costs more than expected, open until a person dismisses it',
+    async () => {
+      await oddsHarness();
+      const subject = creditAlarmSubject(SECRET, 'unexpected_cost');
+      serveOdds(2 * HOUR, { last: '4', used: '21', remaining: '479' });
+      await h.run('src-odds');
+      await h.run('src-odds');
+      expect(await alarms(subject)).toEqual([['open', 'unexpected_cost']]);
+      serveOdds(2 * HOUR); // back to 2 credits: still open, a person decides
+      await h.run('src-odds');
+      expect(await alarms(subject)).toEqual([['open', 'unexpected_cost']]);
     },
     TEST_TIMEOUT,
   );

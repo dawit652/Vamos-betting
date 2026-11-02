@@ -277,7 +277,7 @@ export async function sourceHealth(exec: DbExecutor, now: Date): Promise<SourceH
 /** What the credit guard knows about one API key (rules G1, G2): the runs of the sources sharing it. */
 export interface ApiCreditUsage {
   /** The latest reading this month (UTC), or null before any. */
-  latest: { used: number | null; remaining: number; at: Date } | null;
+  latest: { used: number | null; remaining: number; at: Date; runId: string } | null;
   /** Credits spent by these sources' runs started since `since`. */
   spentSince: number;
   /** When an answer this month last refused the key (HTTP 401), or null. */
@@ -300,6 +300,7 @@ export async function apiCreditUsage(
       used: scrapeRuns.apiCreditsUsed,
       remaining: scrapeRuns.apiCreditsRemaining,
       at: scrapeRuns.startedAt,
+      runId: scrapeRuns.id,
     })
     .from(scrapeRuns)
     .where(
@@ -331,7 +332,7 @@ export async function apiCreditUsage(
     latest:
       latest === undefined || latest.remaining === null
         ? null
-        : { used: latest.used, remaining: latest.remaining, at: latest.at },
+        : { used: latest.used, remaining: latest.remaining, at: latest.at, runId: latest.runId },
     spentSince: Number(spent?.n ?? 0),
     refusedAt: refused?.at ?? null,
   };

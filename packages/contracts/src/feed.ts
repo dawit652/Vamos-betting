@@ -194,9 +194,40 @@ export const SourceHealthView = z.object({
 });
 export type SourceHealthView = z.infer<typeof SourceHealthView>;
 
+/**
+ * One API key of a metered bookmaker-odds feed and its credit guard (docs/theoddsapi-plan
+ * README.md, 4.7 and 4.8): the credits left this month, the guard's mode and each source's reads.
+ */
+export const CreditKeyView = z.object({
+  /** The name of the environment variable that holds the key (never the key). */
+  key: z.string(),
+  mode: z.enum(['normal', 'economy', 'minimal', 'stop']),
+  /** The latest answer refused the key (HTTP 401) and nothing has cleared it. */
+  keyRefused: z.boolean(),
+  /** From the latest reading this month; null before any. */
+  remaining: Count.nullable(),
+  quota: Count.nullable(),
+  spentLast24h: Count,
+  lastReadAt: IsoDateTime.nullable(),
+  sources: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      enabled: z.boolean(),
+      /** When the source last ran. */
+      lastRunAt: IsoDateTime.nullable(),
+      /** The next kickoff in its price rows (it sets how often it is read). */
+      nextKickoff: IsoDateTime.nullable(),
+    }),
+  ),
+});
+export type CreditKeyView = z.infer<typeof CreditKeyView>;
+
 /** GET /admin/feed/health. `queue.byKind` has a count (0 or more) for every review kind. */
 export const FeedHealthResponse = z.object({
   sources: z.array(SourceHealthView),
+  /** The keys of metered odds feeds (empty when there is none). */
+  credits: z.array(CreditKeyView),
   queue: z.object({
     /** Open review items in total. */
     open: Count,

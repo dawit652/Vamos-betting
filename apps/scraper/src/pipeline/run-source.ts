@@ -29,6 +29,7 @@ import { createHash } from 'node:crypto';
 import {
   buildAliasIndex,
   checkShape,
+  creditKeyOf,
   createAdapter,
   normalizeName,
   resolveCompetition,
@@ -48,6 +49,7 @@ import {
   type ParseOutcome,
   type Resolution,
 } from '@vamos/scraper';
+import { raiseUnauthorized, raiseUnexpectedCost, resolveUnauthorized } from './credit-alarms';
 import { scrapeObservations } from '@vamos/db/schema';
 import { tryLock } from '../lib/lock';
 import { secretProblemMessage } from '../lib/secrets';
@@ -324,8 +326,11 @@ async function execute(
           remaining: null as number | null,
         };
 
+  const plan = adapter.plan(ctx.clock());
+  /** The key whose guard and alarms this source shares (rule G1); only for metered APIs. */
+  const creditKey = adapter.usage === undefined ? null : creditKeyOf(source.id, plan);
   try {
-    for (const item of adapter.plan(ctx.clock())) {
+    for (const item of plan) {
       counts.requests += 1;
       const result: FetchResult = await ctx.fetcher.fetch(item, {
         allowedHosts: adapter.allowedHosts,
@@ -400,11 +405,25 @@ async function execute(
               : {}),
           },
         });
+        // A metered API that refuses the key: alarm (4.8); the guard stops the key's reads.
+        if (creditKey !== null && result.kind === 'error' && result.status === 401) {
+          await ctx.db.transaction((tx) =>
+            raiseUnauthorized(tx, {
+              creditKey,
+              sourceId: source.id,
+              runId: run.id,
+              now: ctx.clock(),
+            }),
+          );
+        }
         continue;
       }
       if (credits !== null && adapter.usage !== undefined) {
         const usage = adapter.usage.read(result.headers);
         if (usage !== null) {
+          if (creditKey !== null) {
+            await ctx.db.transaction((tx) => resolveUnauthorized(tx, creditKey, ctx.clock()));
+          }
           if (usage.last !== null) credits.spent = (credits.spent ?? 0) + usage.last;
           if (usage.used !== null) credits.used = usage.used;
           if (usage.remaining !== null) credits.remaining = usage.remaining;
@@ -416,6 +435,16 @@ async function execute(
               message: `the request cost ${usage.last} credits; ${adapter.usage.expectedCost} expected`,
               context: { url: item.url, cost: usage.last, expected: adapter.usage.expectedCost },
             });
+            if (creditKey !== null) {
+              const cost = { cost: usage.last, expected: adapter.usage.expectedCost };
+              await ctx.db.transaction((tx) =>
+                raiseUnexpectedCost(
+                  tx,
+                  { creditKey, sourceId: source.id, runId: run.id, now: ctx.clock() },
+                  cost,
+                ),
+              );
+            }
           }
         }
       }

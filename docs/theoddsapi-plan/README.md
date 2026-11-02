@@ -5,8 +5,9 @@ How Vamos takes bookmaker odds for its market-priced football competitions from
 that plan allows.
 
 > **Status 2026-11-02: Phase 0 done (P0b and P0c, results in section 10), the over/under fix P2b and the adapter
-> P2 are in, the reading schedule and credit guard P3 are in, and the house liability caps (TheRundown plan, rule
-> L1) are built. The alarms (P4) are not built, so the five sources stay disabled.** The Odds API replaces TheRundown as the market feed: TheRundown's
+> P2, the reading schedule and credit guard P3 and the alarms P4 are in, and the house liability caps (TheRundown
+> plan, rule L1) are built. Next: the shadow run (P5), which needs the paid plan; the five sources are still
+> disabled.** The Odds API replaces TheRundown as the market feed: TheRundown's
 > cheap plans do not allow use by a betting operator (`docs/therundown-plan/README.md`, section 3). Most of what is
 > needed already exists from the TheRundown work: the `scrape_market_odds` table, `marketConsensus`, the market
 > pricing (`packages/feed/src/pricing/market.ts`), the per-competition `pricing_source` switch and the 5-minute close
@@ -498,6 +499,18 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
 - Who: routine-coder (Sonnet medium).
 - Size: S to M.
 - Needs: P3.
+- **Done 2026-11-02** (main session; no routine-coder agent in that session):
+  - `apps/scraper/src/pipeline/credit-alarms.ts`: the five reasons on `source_broken`, each with its own subject
+    (`credits|<key>|budget`, `|unauthorized`, `|unexpected_cost`, and `market_stale|<eventId>`), so one item per
+    cause, refreshed while it lasts. The scheduler syncs the budget alarm per key; `run-source` raises
+    `unauthorized` on a 401 (resolved by the next successful read) and `unexpected_cost` (a person dismisses it);
+    the re-pricing pass raises `market_stale` for a match within 24 h kept on old prices for want of a fresh
+    consensus.
+  - The credit status is one pure function (`creditStatus` in `fetch/credit-guard.ts`) used by the scheduler and
+    the API, so `/feed` shows exactly what the scheduler acts on.
+  - `/admin/feed/health` returns `credits` (contract `CreditKeyView`); the `/feed` page shows a "Bookmaker odds
+    credits" panel. Runbook `docs/runbooks/odds-credits-low.md`; the source's rules in `docs/scraper.md` 3.1.
+  - Tests on a real Postgres: each alarm opens once (twice raised, one item) and resolves.
 - Work:
   - The alarms (4.8).
   - The credits panel on `/feed`.
@@ -570,7 +583,7 @@ plus:
     - fewer credits remaining never gives a faster mode;
     - `stop` never reads.
   - On a real Postgres: the usage columns are written, and the guard reads them.
-- **P4:** each alarm opens once and resolves (idempotent), on a real Postgres.
+- **P4 (done 2026-11-02):** each alarm opens once and resolves (idempotent), on a real Postgres.
 
 ### Prompts for a fresh session
 

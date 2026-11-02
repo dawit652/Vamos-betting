@@ -1,6 +1,7 @@
 import {
   AliasListQuery,
   AliasListResponse,
+  type CreditKeyView,
   CreateAliasRequest,
   CreateAliasResponse,
   RemoveAliasResponse,
@@ -37,6 +38,7 @@ import {
 import {
   addCompetitionAlias,
   addTeamAlias,
+  apiCreditUsage,
   countReviewItemsByKind,
   DomainError,
   getReviewItem,
@@ -49,6 +51,7 @@ import {
   listReviewItems,
   listSources,
   marketsWithSelections,
+  nextMarketOddsKickoffs,
   recentAcceptedCounts,
   recordEventPriced,
   removeAlias,
@@ -72,6 +75,11 @@ import {
 import { competitions, events, teams } from '@vamos/db/schema';
 import {
   checkReprice,
+  createAdapter,
+  creditKeyOf,
+  creditStatus,
+  DAY_MS,
+  utcMonthStart,
   heldKeyOf,
   MIN_LEAD_MS,
   normalizeName,
@@ -342,6 +350,62 @@ function aliasView(row: AliasListRow): AliasView {
  * an event: applying a result only records the decision, and the scraper
  * applies the score of the item's payload after re-validating it.
  */
+/**
+ * The keys of metered odds feeds, each with its credit guard as the scheduler sees it (the same
+ * pure creditStatus over the same runs), and its sources' reads.
+ */
+async function creditViews(exec: DbExecutor, now: Date): Promise<CreditKeyView[]> {
+  const [sources, health] = await Promise.all([listSources(exec), sourceHealth(exec, now)]);
+  const lastRun = new Map(health.map((h) => [h.sourceId, h.lastRun?.startedAt ?? null]));
+  const groups = new Map<string, typeof sources>();
+  for (const source of sources) {
+    const built = createAdapter({
+      id: source.id,
+      adapter: source.adapter,
+      upstream: source.upstream,
+      config: source.config,
+    });
+    if (!built.ok || built.adapter.usage === undefined) continue;
+    const key = creditKeyOf(source.id, built.adapter.plan(now));
+    groups.set(key, [...(groups.get(key) ?? []), source]);
+  }
+  if (groups.size === 0) return [];
+  const next = await nextMarketOddsKickoffs(exec, {
+    sourceIds: [...groups.values()].flat().map((s) => s.id),
+    after: new Date(now.getTime() + MIN_LEAD_MS),
+  });
+  const views: CreditKeyView[] = [];
+  for (const [key, members] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
+    const usage = await apiCreditUsage(exec, {
+      sourceIds: members.map((s) => s.id),
+      monthStart: utcMonthStart(now),
+      since: new Date(now.getTime() - DAY_MS),
+    });
+    const status = creditStatus(
+      usage,
+      members.map((s) => s.updatedAt),
+      now,
+    );
+    views.push({
+      key,
+      mode: status.mode,
+      keyRefused: status.keyRefused,
+      remaining: status.remaining,
+      quota: status.quota,
+      spentLast24h: status.spentLast24h,
+      lastReadAt: status.lastReadAt?.toISOString() ?? null,
+      sources: members.map((s) => ({
+        id: s.id,
+        name: s.name,
+        enabled: s.enabled,
+        lastRunAt: lastRun.get(s.id)?.toISOString() ?? null,
+        nextKickoff: next.get(s.id)?.toISOString() ?? null,
+      })),
+    });
+  }
+  return views;
+}
+
 export default async function adminFeedRoutes(app: FastifyInstance): Promise<void> {
   const { deps } = app;
 
@@ -350,13 +414,15 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
 
   app.get('/admin/feed/health', { config: { staff: 'trading.view' } }, async () => {
     const now = deps.clock();
-    const [sources, byKind, policies] = await Promise.all([
+    const [sources, byKind, policies, credits] = await Promise.all([
       sourceViews(deps.db, now),
       countReviewItemsByKind(deps.db),
       listCompetitionPolicies(deps.db),
+      creditViews(deps.db, now),
     ]);
     return wire(FeedHealthResponse, {
       sources,
+      credits,
       queue: {
         open: Object.values(byKind).reduce((sum, count) => sum + count, 0),
         byKind,

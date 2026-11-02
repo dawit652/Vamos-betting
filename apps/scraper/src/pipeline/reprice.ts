@@ -1,3 +1,4 @@
+import { syncMarketStaleAlarm } from './credit-alarms';
 import {
   marketKey,
   SCRAPED_FEED_PROVIDER,
@@ -68,6 +69,9 @@ interface PricingPolicy {
 type Outcome =
   | { kind: 'repriced' | 'held'; messages: LiveMessage[] }
   | { kind: 'current' | 'skipped'; messages: [] };
+
+/** market_stale is raised for matches this close to kickoff (docs/theoddsapi-plan/README.md 4.8). */
+const MARKET_STALE_ALARM_LEAD_MS = 24 * 60 * 60_000;
 
 const current = (): Outcome => ({ kind: 'current', messages: [] });
 const skipped = (): Outcome => ({ kind: 'skipped', messages: [] });
@@ -165,8 +169,22 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
         ? await priceEvent(ctx.db, pricingInput(ctx, policy, event.eventId, home, away, now))
         : null;
     const key = price?.key ?? ratingsKey(home, away);
-    if (settled(stamps.get(event.eventId), key, price?.source ?? 'model', policy) !== 'go')
-      continue;
+    const state = settled(stamps.get(event.eventId), key, price?.source ?? 'model', policy);
+    // 4.8 market_stale: a market-priced match within 24 h keeps prices the market no longer backs.
+    if (price !== null) {
+      await ctx.db.transaction((tx) =>
+        syncMarketStaleAlarm(tx, {
+          eventId: event.eventId,
+          kickoff: event.startTime,
+          stale:
+            state === 'keep' &&
+            price.fallback === 'no_consensus' &&
+            event.startTime.getTime() - now.getTime() <= MARKET_STALE_ALARM_LEAD_MS,
+          now,
+        }),
+      );
+    }
+    if (state !== 'go') continue;
     summary.events += 1;
     try {
       const outcome = await repriceOne(ctx, event, now);

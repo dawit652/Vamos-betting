@@ -2,9 +2,9 @@ import {
   isDue,
   backoffAfterFailures,
   createAdapter,
-  creditGuardMode,
+  creditKeyOf,
+  creditStatus,
   DAY_MS,
-  daysLeftInMonthUtc,
   fixturesPollIntervalMs,
   marketOddsPollIntervalMs,
   MIN_LEAD_MS,
@@ -24,6 +24,7 @@ import {
 } from '@vamos/db';
 import type { ScraperContext } from '../context';
 import { intervalTask, type IntervalTask } from '../lib/interval';
+import { syncBudgetAlarm } from '../pipeline/credit-alarms';
 import { runSource } from '../pipeline/run-source';
 
 export const SCHEDULER_INTERVAL_MS = 30_000;
@@ -54,22 +55,12 @@ function readsOdds(adapter: SourceAdapter | null, now: Date): boolean {
   return adapter !== null && adapter.plan(now).some((item) => item.purpose === 'odds');
 }
 
-/**
- * The credit key of an odds source: the name of the environment variable its requests use, so
- * every source on one key shares one guard (rule G1). A source without a key is its own group.
- */
-function creditKeyOf(source: ScrapeSource, adapter: SourceAdapter | null, now: Date): string {
-  const secret = adapter?.plan(now).find((item) => item.auth !== undefined)?.auth?.secret;
-  return secret ?? `source:${source.id}`;
-}
-
 /** The guard mode each key was in at the last pass, to log changes (rule G4). Per process. */
 const lastModes = new Map<string, CreditGuardMode>();
 
 /**
- * The credit guard of each key used by these odds sources (rules G1, G2, 4.7): the latest reading
- * this month, the spend of the last 24 h, and a refused key (a 401 this month that no later
- * reading, and no change to a source of the key, has cleared).
+ * The credit guard of each key used by these odds sources (rules G1, G2, 4.7), from this month's
+ * runs, with its alarm kept in step (budget_low, budget_exhausted: 4.8) and every change logged.
  */
 async function guardModes(
   ctx: ScraperContext,
@@ -83,38 +74,41 @@ async function guardModes(
       monthStart: utcMonthStart(now),
       since: new Date(now.getTime() - DAY_MS),
     });
-    const refusedAt = usage.refusedAt;
-    const keyRefused =
-      refusedAt !== null &&
-      (usage.latest === null || usage.latest.at.getTime() <= refusedAt.getTime()) &&
-      // A person re-enabling (or editing) a source of the key gives it another try.
-      !sources.some((s) => s.updatedAt.getTime() > refusedAt.getTime());
-    const latest = usage.latest;
-    const mode = creditGuardMode({
-      quota: latest !== null && latest.used !== null ? latest.used + latest.remaining : null,
-      remaining: latest?.remaining ?? null,
-      spentLast24h: usage.spentSince,
-      daysLeftInMonth: daysLeftInMonthUtc(now),
-      keyRefused,
-    });
+    const status = creditStatus(
+      usage,
+      sources.map((s) => s.updatedAt),
+      now,
+    );
     const before = lastModes.get(key);
-    if (before !== mode && (before !== undefined || mode !== 'normal')) {
-      const log =
-        mode === 'normal' ? ctx.logger.info.bind(ctx.logger) : ctx.logger.warn.bind(ctx.logger);
-      log(
-        {
-          creditKey: key,
-          from: before ?? null,
-          to: mode,
-          remaining: latest?.remaining ?? null,
-          spentLast24h: usage.spentSince,
-          keyRefused,
-        },
-        'credit guard mode changed',
+    if (before !== status.mode && (before !== undefined || status.mode !== 'normal')) {
+      const fields = {
+        creditKey: key,
+        from: before ?? null,
+        to: status.mode,
+        remaining: status.remaining,
+        spentLast24h: status.spentLast24h,
+        keyRefused: status.keyRefused,
+      };
+      if (status.mode === 'normal') ctx.logger.info(fields, 'credit guard mode changed');
+      else ctx.logger.warn(fields, 'credit guard mode changed');
+    }
+    lastModes.set(key, status.mode);
+    modes.set(key, status.mode);
+    const firstSource = sources[0];
+    if (firstSource !== undefined) {
+      await ctx.db.transaction((tx) =>
+        syncBudgetAlarm(
+          tx,
+          {
+            creditKey: key,
+            sourceId: firstSource.id,
+            runId: usage.latest?.runId ?? null,
+            now,
+          },
+          status,
+        ),
       );
     }
-    lastModes.set(key, mode);
-    modes.set(key, mode);
   }
   return modes;
 }
@@ -176,7 +170,7 @@ export async function runDueSources(
   const oddsSources = sources.filter((source) => readsOdds(adapters.get(source.id) ?? null, now));
   const groups = new Map<string, ScrapeSource[]>();
   for (const source of oddsSources) {
-    const key = creditKeyOf(source, adapters.get(source.id) ?? null, now);
+    const key = creditKeyOf(source.id, adapters.get(source.id)?.plan(now) ?? []);
     groups.set(key, [...(groups.get(key) ?? []), source]);
   }
   const modes = await guardModes(ctx, groups, now);
@@ -192,7 +186,7 @@ export async function runDueSources(
     const adapter = adapters.get(source.id) ?? null;
     let base: number;
     if (readsOdds(adapter, now)) {
-      const mode = modes.get(creditKeyOf(source, adapter, now)) ?? 'normal';
+      const mode = modes.get(creditKeyOf(source.id, adapter?.plan(now) ?? [])) ?? 'normal';
       // Null: not read at all for now (stop, or minimal with no kickoff within 3 h) - not even a first run.
       const interval = marketOddsPollIntervalMs(now, nextKickoffs.get(source.id) ?? null, mode);
       if (interval === null) continue;

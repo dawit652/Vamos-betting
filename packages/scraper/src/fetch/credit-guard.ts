@@ -1,4 +1,5 @@
 import { DAY_MS } from '../constants';
+import type { FetchPlanItem } from '../types';
 
 /**
  * The credit guard of a metered odds API (rules G of docs/theoddsapi-plan/README.md, section 4.7):
@@ -58,4 +59,65 @@ export function utcMonthStart(now: Date): Date {
 export function daysLeftInMonthUtc(now: Date): number {
   const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
   return Math.max(0, (next - now.getTime()) / DAY_MS);
+}
+
+/**
+ * The credit key of a source: the name of the environment variable its requests use, so every
+ * source on one key shares one guard (rule G1). A source without a key is its own group.
+ */
+export function creditKeyOf(sourceId: string, plan: readonly FetchPlanItem[]): string {
+  return plan.find((item) => item.auth !== undefined)?.auth?.secret ?? `source:${sourceId}`;
+}
+
+/** What the runs of one key's sources say (apiCreditUsage in @vamos/db has this shape). */
+export interface CreditUsageReading {
+  /** The latest reading this month (UTC), or null before any. */
+  latest: { used: number | null; remaining: number; at: Date; runId: string } | null;
+  /** Credits spent in the last 24 hours. */
+  spentSince: number;
+  /** When an answer this month last refused the key (HTTP 401), or null. */
+  refusedAt: Date | null;
+}
+
+export interface CreditStatus {
+  mode: CreditGuardMode;
+  /** A 401 this month that no later reading, and no change to a source of the key, has cleared. */
+  keyRefused: boolean;
+  quota: number | null;
+  remaining: number | null;
+  spentLast24h: number;
+  lastReadAt: Date | null;
+}
+
+/**
+ * The guard's view of one key: its mode and the figures behind it. `sourcesUpdatedAt` are the
+ * key's sources' last changes: a person re-enabling (or editing) one after a refusal gives the
+ * key another try.
+ */
+export function creditStatus(
+  usage: CreditUsageReading,
+  sourcesUpdatedAt: readonly Date[],
+  now: Date,
+): CreditStatus {
+  const { latest, refusedAt } = usage;
+  const keyRefused =
+    refusedAt !== null &&
+    (latest === null || latest.at.getTime() <= refusedAt.getTime()) &&
+    !sourcesUpdatedAt.some((at) => at.getTime() > refusedAt.getTime());
+  const quota = latest !== null && latest.used !== null ? latest.used + latest.remaining : null;
+  const remaining = latest?.remaining ?? null;
+  return {
+    mode: creditGuardMode({
+      quota,
+      remaining,
+      spentLast24h: usage.spentSince,
+      daysLeftInMonth: daysLeftInMonthUtc(now),
+      keyRefused,
+    }),
+    keyRefused,
+    quota,
+    remaining,
+    spentLast24h: usage.spentSince,
+    lastReadAt: latest?.at ?? null,
+  };
 }

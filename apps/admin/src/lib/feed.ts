@@ -248,3 +248,25 @@ export function closedByText(resolvedBy: string | null | undefined): string {
   if (resolvedBy === null || resolvedBy === undefined || resolvedBy === '') return '–';
   return UUID.test(resolvedBy) ? `staff ${resolvedBy.slice(0, 8)}` : resolvedBy;
 }
+
+/** The credit guard's mode as staff read it (docs/theoddsapi-plan/README.md 4.7). */
+export const CREDIT_MODE_LABELS: Readonly<Record<string, string>> = {
+  normal: 'Normal',
+  economy: 'Economy (reading less often)',
+  minimal: 'Minimal (only matches within 3 h)',
+  stop: 'Stopped',
+};
+
+export function creditModeTone(mode: string): Tone {
+  if (mode === 'normal') return 'good';
+  if (mode === 'economy' || mode === 'minimal') return 'warn';
+  return 'bad';
+}
+
+/** "1,234 of 20,000 (6%)", or "–" before any reading. */
+export function creditsText(remaining: number | null, quota: number | null): string {
+  if (remaining === null) return '–';
+  if (quota === null || quota <= 0) return remaining.toLocaleString('en-US');
+  const percent = Math.floor((remaining * 100) / quota);
+  return `${remaining.toLocaleString('en-US')} of ${quota.toLocaleString('en-US')} (${percent}%)`;
+}

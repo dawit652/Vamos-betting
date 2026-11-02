@@ -663,6 +663,60 @@ describe('re-pricing from the market', () => {
   );
 });
 
+describe('market_stale alarm (docs/theoddsapi-plan 4.8)', () => {
+  const staleItems = async (eventId: string) =>
+    (
+      await rows<{ status: string; reason: string }>(
+        `SELECT status, payload->>'reason' AS reason FROM scrape_review_items
+          WHERE kind = 'source_broken' AND subject_key = $1 ORDER BY created_at`,
+        [`market_stale|${eventId}`],
+      )
+    ).map((r) => [r.status, r.reason]);
+
+  it(
+    'opens once when a market-priced match within 24 h keeps stale prices, and resolves on fresh prices',
+    async () => {
+      const { eventId } = await createdEvent();
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      // A day and a half before kickoff the market prices the match.
+      h.at(new Date(KICKOFF.getTime() - 36 * HOUR));
+      const books = booksNear(await storedOneXTwo(eventId), 0.93);
+      await listEvent(eventId, 'feed-a', books);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1 });
+      expect(await staleItems(eventId)).toEqual([]);
+
+      // 20 h before kickoff those prices are 16 h old: the match keeps them, and the alarm opens.
+      h.at(new Date(KICKOFF.getTime() - 20 * HOUR));
+      await repriceScheduledEvents(h.ctx);
+      await repriceScheduledEvents(h.ctx);
+      expect(await staleItems(eventId)).toEqual([['open', 'market_stale']]);
+
+      // Fresh prices: the alarm resolves.
+      await listEvent(eventId, 'feed-a', books);
+      await repriceScheduledEvents(h.ctx);
+      expect(await staleItems(eventId)).toEqual([['resolved', 'market_stale']]);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'stays quiet for stale prices more than 24 h before kickoff',
+    async () => {
+      const { eventId } = await createdEvent();
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      h.at(new Date(KICKOFF.getTime() - 72 * HOUR));
+      await listEvent(eventId, 'feed-a', booksNear(await storedOneXTwo(eventId), 0.93));
+      await repriceScheduledEvents(h.ctx);
+      h.at(new Date(KICKOFF.getTime() - 48 * HOUR));
+      await repriceScheduledEvents(h.ctx);
+      expect(await staleItems(eventId)).toEqual([]);
+    },
+    TEST_TIMEOUT,
+  );
+});
+
 describe('uncalibrated teams and the market', () => {
   it(
     'an event created for uncalibrated teams is priced from the market and handed to a trader, betting stays closed',

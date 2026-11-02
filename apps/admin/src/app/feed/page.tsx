@@ -2,6 +2,7 @@
 
 import type {
   CompetitionPolicyView,
+  CreditKeyView,
   FeedCompetitionsResponse,
   FeedHealthResponse,
   FeedReviewKind,
@@ -18,6 +19,9 @@ import { api } from '@/lib/api';
 import { describeError } from '@/lib/errors';
 import {
   ageText,
+  CREDIT_MODE_LABELS,
+  creditModeTone,
+  creditsText,
   flagPermission,
   POLICY_FLAGS,
   policyFlag,
@@ -181,6 +185,49 @@ function PricingSourceCell({
   );
 }
 
+/** One key of a metered odds feed: credits left, the guard's mode and each league's reads. */
+function CreditPanel({ credit }: { credit: CreditKeyView }) {
+  return (
+    <section className="panel" aria-label={`Credits of ${credit.key}`} style={{ marginBottom: 12 }}>
+      <p>
+        <strong>{credit.key}</strong>{' '}
+        <Badge
+          value={CREDIT_MODE_LABELS[credit.mode] ?? humanize(credit.mode)}
+          tone={creditModeTone(credit.mode)}
+        />
+        {credit.keyRefused && <Badge value="Key refused (HTTP 401)" tone="bad" />}
+      </p>
+      <p>
+        Credits left this month: {creditsText(credit.remaining, credit.quota)}. Spent in the last 24
+        h: {credit.spentLast24h.toLocaleString('en-US')}. Last reading: {ageText(credit.lastReadAt)}
+        .
+      </p>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>League source</th>
+              <th>Enabled</th>
+              <th>Last read</th>
+              <th>Next kickoff</th>
+            </tr>
+          </thead>
+          <tbody>
+            {credit.sources.map((s) => (
+              <tr key={s.id}>
+                <td>{s.name}</td>
+                <td>{s.enabled ? 'yes' : 'no'}</td>
+                <td>{ageText(s.lastRunAt)}</td>
+                <td>{s.nextKickoff === null ? '–' : formatDateTime(s.nextKickoff)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export default function FeedOverviewPage() {
   const health = useFetch<FeedHealthResponse>('/admin/feed/health');
   const competitions = useFetch<FeedCompetitionsResponse>('/admin/feed/competitions');
@@ -221,6 +268,15 @@ export default function FeedOverviewPage() {
             </table>
           </div>
           {data.sources.length === 0 && <p className="muted">No sources.</p>}
+
+          {data.credits.length > 0 && (
+            <>
+              <h2>Bookmaker odds credits</h2>
+              {data.credits.map((credit) => (
+                <CreditPanel key={credit.key} credit={credit} />
+              ))}
+            </>
+          )}
 
           <h2>Review queue ({data.queue.open} open)</h2>
           <div className="table-wrap">
