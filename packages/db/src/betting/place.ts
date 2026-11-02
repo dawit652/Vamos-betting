@@ -108,8 +108,8 @@ export function oddsChangedError(policy: OddsChangePolicy, changes: LegOddsChang
 /**
  * 422 `liability_limit`, details `{ maxStake }`: the bet would take the house past a liability cap
  * (rule L1). `maxStake` is the largest stake that still fits (wire santim), or null when even the
- * minimum stake does not. The caps and the open liability stay private: they are the house's
- * position.
+ * minimum stake does not. The caps and the open liability are not shown, though `maxStake` times
+ * the odds reveals roughly how much room is left: the price of telling a player what they can bet.
  */
 export function liabilityLimitError(maxStake: bigint | null): DomainError {
   return domainUnprocessable(
@@ -223,7 +223,7 @@ async function insertBetRow(
  *    now + liveBetDelayMs when any leg's event is live, else `open`;
  * 9. the `bet.placed` outbox event and the audit record;
  * 10. postTransaction(bet_stake) (422 `insufficient_funds`, which rolls back
- *    7 and 8 with the caller's transaction). It is last because it holds the
+ *    8 and 9 with the caller's transaction). It is last because it holds the
  *    shared house_stakes row lock until commit.
  * Request-level slip errors (no legs, duplicates, invalid odds or stake) are
  * refused before anything is locked; too many legs (which depends on the

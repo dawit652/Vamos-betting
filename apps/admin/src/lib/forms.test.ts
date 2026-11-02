@@ -192,7 +192,13 @@ describe('house liability caps form', () => {
     ).toBe(true);
     expect(
       contract.safeParse({ maxSelectionLiability: '0', maxEventLiability: null }).success,
+    ).toBe(false); // A malformed amount is a validation issue, never an exception from the cross-field check.
+    expect(
+      contract.safeParse({ maxSelectionLiability: '1.5', maxEventLiability: '5' }).success,
     ).toBe(false);
+    expect(contract.safeParse({ maxSelectionLiability: '5', maxEventLiability: 'x' }).success).toBe(
+      false,
+    );
   });
 });
 

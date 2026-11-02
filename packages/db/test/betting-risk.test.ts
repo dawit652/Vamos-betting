@@ -440,6 +440,30 @@ describe('live bets accepted at a better price', () => {
     expect((await liabilityOf(live)).selection).toBe(birr(880));
   });
 
+  it('reads only the caps: a broken unrelated setting does not stop acceptance', async () => {
+    const live = await createEvent(handle.db, ids);
+    await goLive(handle.db, live.eventId);
+    await store({ maxSelectionLiability: birr(10_000) });
+    const now = new Date();
+    const { bet } = await place(handle.db, await player(), {
+      stake: birr(100),
+      legs: [{ selectionId: live.home, oddsMilli: 2000 }],
+      policy: 'higher',
+      settings: await loadGameSettings(handle.db),
+      now,
+    });
+    await reprice(handle.db, live.home, 2500);
+    await handle.db.transaction((tx) => setSetting(tx, 'tax', { rateBps: 'broken' }, 'test'));
+    try {
+      const result = await handle.db.transaction((tx) =>
+        acceptPendingBet(tx, bet.id, new Date(now.getTime() + defaults.liveBetDelayMs)),
+      );
+      expect(result.outcome).toBe('accepted');
+    } finally {
+      await handle.db.transaction((tx) => setSetting(tx, 'tax', defaults.tax, 'test'));
+    }
+  });
+
   it('is unaffected when no cap is set', async () => {
     const live = await createEvent(handle.db, ids);
     await goLive(handle.db, live.eventId);

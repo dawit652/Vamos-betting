@@ -10,7 +10,7 @@ import { postTransaction } from '../ledger/post';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { enqueueOutbox } from '../platform/outbox';
 import { betLegs, bets } from '../schema/betting';
-import { loadGameSettings } from '../settings/index';
+import { loadRiskLimits } from '../settings/index';
 import { BET_ACCEPTED, BET_REJECTED } from './events';
 import { potentialOf } from './place';
 import { refundEntries, rejectionLedgerKey } from './postings';
@@ -154,7 +154,7 @@ export async function acceptPendingBet(
     // Refused as `odds_changed`: at the new price the bet no longer fits.
     const increase = quote.grossPayout - bet.potentialGrossPayout;
     if (increase > 0n) {
-      const limits = (await loadGameSettings(tx)).riskLimits;
+      const limits = await loadRiskLimits(tx);
       if (hasRiskLimits(limits)) {
         await lockEventsForRisk(
           tx,

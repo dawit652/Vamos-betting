@@ -1075,8 +1075,11 @@ export const RiskLimitsView = z
   })
   .refine(
     (limits) =>
-      limits.maxSelectionLiability === null ||
-      limits.maxEventLiability === null ||
+      // Zod runs this even when a field failed its own check: compare only clean digits.
+      typeof limits.maxSelectionLiability !== 'string' ||
+      typeof limits.maxEventLiability !== 'string' ||
+      !/^\d+$/.test(limits.maxSelectionLiability) ||
+      !/^\d+$/.test(limits.maxEventLiability) ||
       BigInt(limits.maxSelectionLiability) <= BigInt(limits.maxEventLiability),
     { message: 'maxSelectionLiability must not exceed maxEventLiability' },
   );

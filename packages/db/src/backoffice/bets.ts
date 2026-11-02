@@ -2,7 +2,7 @@ import { birr, normalizeEthiopianMsisdn } from '@vamos/core';
 import { and, desc, eq, gte, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { getBetById } from '../betting/queries';
-import type { BetStatus, UserBet } from '../betting/types';
+import { OPEN_BET_STATUSES, type BetStatus, type UserBet } from '../betting/types';
 import type { DbExecutor } from '../ledger/types';
 import { users } from '../schema/accounts';
 import { betLegs, bets } from '../schema/betting';
@@ -25,7 +25,8 @@ import {
  * (bonus included, before tax): what the house pays out if every leg wins.
  */
 
-const OPEN_STATUSES = ['open', 'pending_acceptance'] as const;
+// The same statuses the liability caps sum (betting/risk.ts), so the Risk page shows what is enforced.
+const OPEN_STATUSES = OPEN_BET_STATUSES;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface StaffBetSummary {

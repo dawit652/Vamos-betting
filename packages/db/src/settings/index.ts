@@ -306,6 +306,21 @@ export function parseGameSettings(raw: Partial<Record<GameSettingKey, unknown>>)
 }
 
 /**
+ * Only the house liability caps (rule L1), parsed like parseGameSettings does: for paths that
+ * need nothing else (live bet acceptance), so an invalid unrelated setting cannot stop them.
+ */
+export async function loadRiskLimits(exec: DbExecutor): Promise<RiskLimits> {
+  const key = GAME_SETTING_KEYS.riskLimits;
+  const [row] = await exec
+    .select({ value: sql<string>`${settings.value}::text` })
+    .from(settings)
+    .where(inArray(settings.key, [key]))
+    .limit(1);
+  const stored: unknown = row === undefined ? undefined : JSON.parse(row.value);
+  return parseWith(RiskLimitsSchema, key, overDefault(DEFAULT_GAME_SETTINGS.riskLimits, stored));
+}
+
+/**
  * Loads every game setting in one query (values read as text, like
  * `getSetting`, so santim strings stay strings) and parses them with
  * `parseGameSettings`. Callers may cache the result briefly; bet placement
