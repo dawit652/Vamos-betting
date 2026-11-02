@@ -331,9 +331,11 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
   `docs/theoddsapi-plan/answers.md`.
 - **L2** Players never see a bookmaker's raw price. They see ours, made from the consensus with our margin (rule
   O5).
-- **L3** In licensed (real-money) mode, the scheduler does not run a `theoddsapi` source unless
-  `SCRAPER_THEODDSAPI_LICENCE=confirmed`. A person sets it after a written yes. This only adds a condition: the
-  licensed-mode guard in `packages/config/src/config.ts` is not weakened.
+- **L3 Removed (owner's decision, 2026-11-02).** It kept `theoddsapi` sources off in licensed mode until
+  `SCRAPER_THEODDSAPI_LICENCE=confirmed`. The owner treats the paid plan as the licence and accepts the risk that
+  the terms do not cover an operator setting prices (section 2, "Licence"; section 8 not sent). The sources run in
+  licensed mode like any other. The licensed-mode guard in `packages/config/src/config.ts` was never part of L3
+  and is unchanged.
 
 ### 4.10 What happens when …
 
@@ -481,7 +483,7 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
     from this month's runs. A 401 stops the key until a later reading clears it, a person changes a source of
     the key, or the month ends. In minimal mode a league with no stored kickoff is not read. Mode changes are
     logged (G4); the alarms are P4.
-  - Rule L3: `SCRAPER_THEODDSAPI_LICENCE=confirmed` (config), checked in licensed mode only.
+  - Rule L3 was built, then removed on the owner's decision (4.9).
   - Tests: `credit-guard.test.ts` and `apps/scraper/test/scheduler-odds.test.ts` on a real Postgres.
 - Work:
   - Migration 0041.
@@ -614,7 +616,7 @@ The shadow run (P5) passes when, over two weeks, all of these hold:
 5. No team name has been unresolved for the last 7 days.
 6. A search of the database, the archive and the logs for the key finds nothing (the key travels only in the header;
    K6 as well if P1 was ever done).
-7. For real money only: the written licence answer (L1) and `SCRAPER_THEODDSAPI_LICENCE=confirmed`.
+7. For real money only: the paid plan is active (the owner's decision replaces the written licence answer, 4.9).
 8. For real money only: the house liability caps are set (back office, Settings, "House liability caps"). They
    default to no cap. The owner decides the amounts from the bankroll: the most the house can afford to owe if one
    outcome, or one match, goes against it.

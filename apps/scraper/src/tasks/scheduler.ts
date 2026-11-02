@@ -174,12 +174,8 @@ export async function runDueSources(
 
   const adapters = new Map(sources.map((source) => [source.id, adapterOf(source)]));
   const oddsSources = sources.filter((source) => readsOdds(adapters.get(source.id) ?? null, now));
-  // Rule L3: no The Odds API source in licensed mode without the written licence answer.
-  const unlicensed =
-    ctx.config.mode === 'licensed' && !ctx.config.scraper.theOddsApiLicenceConfirmed;
   const groups = new Map<string, ScrapeSource[]>();
   for (const source of oddsSources) {
-    if (unlicensed && source.adapter === 'theoddsapi') continue;
     const key = creditKeyOf(source, adapters.get(source.id) ?? null, now);
     groups.set(key, [...(groups.get(key) ?? []), source]);
   }
@@ -196,7 +192,6 @@ export async function runDueSources(
     const adapter = adapters.get(source.id) ?? null;
     let base: number;
     if (readsOdds(adapter, now)) {
-      if (unlicensed && source.adapter === 'theoddsapi') continue;
       const mode = modes.get(creditKeyOf(source, adapter, now)) ?? 'normal';
       // Null: not read at all for now (stop, or minimal with no kickoff within 3 h) - not even a first run.
       const interval = marketOddsPollIntervalMs(now, nextKickoffs.get(source.id) ?? null, mode);

@@ -7,7 +7,7 @@ import { createHarness, HOUR, MINUTE, SETUP_TIMEOUT, TEST_TIMEOUT, type Harness 
 /**
  * The reading schedule of a bookmaker-odds source and its credit guard (docs/theoddsapi-plan
  * README.md, 4.5 and 4.7): read by the next kickoff in its own price rows, slowed or stopped by
- * the usage its runs recorded, and never run in licensed mode without the licence (rule L3).
+ * the usage its runs recorded. No licence switch: the owner chose the paid plan as the licence.
  */
 
 const SECRET = 'SCRAPER_SECRET_THEODDSAPI';
@@ -236,27 +236,20 @@ describe('credit guard (4.7)', () => {
   );
 });
 
-describe('licence (rule L3)', () => {
+describe('licensed mode', () => {
   it(
-    'does not run in licensed mode without SCRAPER_THEODDSAPI_LICENCE=confirmed',
+    'runs in licensed mode with no extra switch (owner decision 2026-11-02: rule L3 removed)',
     async () => {
       await oddsHarness();
       serveOdds(2 * HOUR);
       const demo = h.ctx.config;
       const ctx = h.ctx as { config: typeof demo };
-      ctx.config = {
-        ...demo,
-        mode: 'licensed',
-        scraper: { ...demo.scraper, theOddsApiLicenceConfirmed: false },
-      };
-      expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 0 });
-      ctx.config = {
-        ...demo,
-        mode: 'licensed',
-        scraper: { ...demo.scraper, theOddsApiLicenceConfirmed: true },
-      };
-      expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 1, ran: 1 });
-      ctx.config = demo;
+      ctx.config = { ...demo, mode: 'licensed' };
+      try {
+        expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 1, ran: 1 });
+      } finally {
+        ctx.config = demo;
+      }
     },
     TEST_TIMEOUT,
   );

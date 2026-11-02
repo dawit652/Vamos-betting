@@ -560,7 +560,6 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       maxConcurrency: 4,
       resultConfirmMinutes: 15,
       minRatingMatches: 8,
-      theOddsApiLicenceConfirmed: false,
     });
     // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
     expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
@@ -576,7 +575,6 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       SCRAPER_MAX_CONCURRENCY: '8',
       SCRAPER_RESULT_CONFIRM_MINUTES: '5',
       SCRAPER_MIN_RATING_MATCHES: '1',
-      SCRAPER_THEODDSAPI_LICENCE: 'confirmed',
     });
     expect(config.scraper).toEqual({
       archiveDir: '/data/scraper',
@@ -587,10 +585,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       maxConcurrency: 8,
       resultConfirmMinutes: 5,
       minRatingMatches: 1,
-      theOddsApiLicenceConfirmed: true,
     });
-    // Only the exact word confirms the licence (rule L3).
-    expect(() => loadConfig({ SCRAPER_THEODDSAPI_LICENCE: 'yes' })).toThrow();
     // A blank contact (as in an env file) is "not set".
     expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();
   });

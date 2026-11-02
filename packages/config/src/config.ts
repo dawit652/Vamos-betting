@@ -251,12 +251,6 @@ const envSchema = z.object({
   SCRAPER_RESULT_CONFIRM_MINUTES: z.coerce.number().int().min(5).max(1440).default(15),
   /** Rated matches a team needs before real bets are priced from its ratings (rule O1). */
   SCRAPER_MIN_RATING_MATCHES: z.coerce.number().int().min(1).max(10_000).default(8),
-  /**
-   * Rule L3 of docs/theoddsapi-plan/README.md: in licensed mode the scheduler runs no The Odds API
-   * source unless this is `confirmed`, set by a person after The Odds API's written yes. Only an
-   * extra condition: it relaxes nothing.
-   */
-  SCRAPER_THEODDSAPI_LICENCE: z.enum(['confirmed']).optional(),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -389,8 +383,6 @@ export interface ScraperConfig {
   resultConfirmMinutes: number;
   /** SCRAPER_MIN_RATING_MATCHES (at least 1): rule O1. */
   minRatingMatches: number;
-  /** SCRAPER_THEODDSAPI_LICENCE=confirmed: The Odds API's written licence answer is in (rule L3). */
-  theOddsApiLicenceConfirmed: boolean;
 }
 
 /** The User-Agent header sent to sources: `VamosBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -613,7 +605,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       maxConcurrency: e.SCRAPER_MAX_CONCURRENCY,
       resultConfirmMinutes: e.SCRAPER_RESULT_CONFIRM_MINUTES,
       minRatingMatches: e.SCRAPER_MIN_RATING_MATCHES,
-      theOddsApiLicenceConfirmed: e.SCRAPER_THEODDSAPI_LICENCE === 'confirmed',
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {
