@@ -4,8 +4,9 @@ How Vamos takes bookmaker odds for its market-priced football competitions from
 [The Odds API](https://the-odds-api.com) on the **20K plan (30 USD a month)**, as cheaply, reliably and accurately as
 that plan allows.
 
-> **Status 2026-11-01: Phase 0 done (P0b and P0c, results in section 10), and the over/under fix P2b is in. The
-> adapter and everything after it are not built.** The Odds API replaces TheRundown as the market feed: TheRundown's
+> **Status 2026-11-02: Phase 0 done (P0b and P0c, results in section 10), the over/under fix P2b and the adapter
+> P2 are in, and the house liability caps (TheRundown plan, rule L1) are built. The reading schedule, credit guard
+> and alarms (P3, P4) are not built, so the five sources stay disabled.** The Odds API replaces TheRundown as the market feed: TheRundown's
 > cheap plans do not allow use by a betting operator (`docs/therundown-plan/README.md`, section 3). Most of what is
 > needed already exists from the TheRundown work: the `scrape_market_odds` table, `marketConsensus`, the market
 > pricing (`packages/feed/src/pricing/market.ts`), the per-competition `pricing_source` switch and the 5-minute close
@@ -418,6 +419,17 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
 - Who: routine-coder (Sonnet medium), with an Opus high review.
 - Size: M.
 - Needs: P0b and P0c (the book list).
+- **Done 2026-11-02:** `packages/scraper/src/adapters/theoddsapi.ts`, migration 0041 (the adapter name), the five
+  disabled source files with the new ten books, unit tests (`theoddsapi.test.ts`) and a run on a real Postgres
+  (`apps/scraper/test/theoddsapi-run.test.ts`: the key only in the `x-api-key` header, the prices stored and
+  linked, the match priced from the market). What differs from the rules below:
+  - A1/A2: the key goes in the `x-api-key` header (Phase 0), never the query; `maxBookAgeMinutes` defaults to 20.
+    The plan item's purpose is `fixtures` (read at the fixtures cadence) until P3 gives odds their own schedule.
+  - A9 (reading the usage headers) moved to P3, which stores them: it needs the fetcher to pass headers on.
+    `theOddsApiCost(config)` gives the expected cost (2).
+  - The competition labels are the openfootball ones, so the existing competition aliases resolve them. Team
+    aliases: no CSV yet. Unknown names go to the alias review as usual; the CSV can be built from the probe's
+    `/participants` bodies (`--participants`) when they are at hand.
 - Work:
   - Rules A1 to A9, with unit tests on a synthetic fixture shaped like P0b's response.
   - Five sources, disabled: `docs/scraper-plan/data/source-theoddsapi-{en1,es1,it1,de1,fr1}.json`.
@@ -521,7 +533,7 @@ plus:
   - K6 passes;
   - every existing auth and fetcher test still passes;
   - a header source behaves exactly as before.
-- **P2:**
+- **P2 (done 2026-11-02):**
   - The parser never throws.
   - Tests cover:
     - the draw found by name;
