@@ -29,6 +29,7 @@ export {
   THEODDSAPI_MAX_BOOKMAKERS,
   theOddsApiCost,
   theOddsApiUrl,
+  readTheOddsApiUsage,
 } from './theoddsapi';
 export type { TheOddsApiConfig } from './theoddsapi';
 export { americanToMilli, decimalToMilli, exactDecimal, priceToMilli } from './odds-price';

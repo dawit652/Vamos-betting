@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { MarketOddsObservation, RawDocument, SourceAdapter } from '../types';
 import {
   createAdapter,
+  readTheOddsApiUsage,
   safeParse,
   THEODDSAPI_AUTH_HEADER,
   theOddsApiCost,
@@ -101,13 +102,36 @@ const codes = (outcome: ReturnType<typeof parse>) => outcome.issues.map((i) => i
 
 // --- config -----------------------------------------------------------------------------------
 
+describe('theoddsapi usage (A9)', () => {
+  it('reads the three usage headers, and expects 2 credits a request', () => {
+    expect(build().usage?.expectedCost).toBe(2);
+    expect(
+      readTheOddsApiUsage({
+        'x-requests-last': '2',
+        'x-requests-used': '17',
+        'x-requests-remaining': '483',
+      }),
+    ).toEqual({ last: 2, used: 17, remaining: 483 });
+    // The API sometimes sends a float form.
+    expect(readTheOddsApiUsage({ 'x-requests-remaining': '483.0' })).toEqual({
+      last: null,
+      used: null,
+      remaining: 483,
+    });
+    expect(
+      readTheOddsApiUsage({ 'x-requests-remaining': '-1', 'x-requests-last': 'two' }),
+    ).toBeNull();
+    expect(readTheOddsApiUsage({})).toBeNull();
+  });
+});
+
 describe('theoddsapi config (A1, A2)', () => {
   it('asks once per run for the listed books and markets, the key in a header', () => {
     const plan = build().plan(FETCHED_AT);
     expect(plan).toEqual([
       {
         url: 'https://api.the-odds-api.com/v4/sports/soccer_epl/odds?bookmakers=pinnacle%2Cwilliamhill%2Cbetsson&markets=h2h%2Ctotals&oddsFormat=decimal&dateFormat=iso',
-        purpose: 'fixtures',
+        purpose: 'odds',
         auth: { header: THEODDSAPI_AUTH_HEADER, secret: 'SCRAPER_SECRET_THEODDSAPI' },
       },
     ]);

@@ -295,6 +295,13 @@
       "when": 1793585083472,
       "tag": "0041_scrape_adapter_theoddsapi",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793606802873,
+      "tag": "0042_scrape_runs_api_credits",
+      "breakpoints": true
     }
   ]
 }

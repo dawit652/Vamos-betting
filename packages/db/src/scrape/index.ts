@@ -28,6 +28,7 @@ export {
   type CompetitionPolicyRow,
 } from './policy';
 export {
+  apiCreditUsage,
   capIssues,
   finishRun,
   listRecentRuns,
@@ -36,6 +37,7 @@ export {
   recentAcceptedCounts,
   sourceHealth,
   startRun,
+  type ApiCreditUsage,
   type FinishRunInput,
   type ScrapeRun,
   type ScrapeRunIssueJson,
@@ -72,6 +74,7 @@ export {
   latestMarketOdds,
   linkMarketOddsToEvents,
   listUnresolvedMarketOddsNames,
+  nextMarketOddsKickoffs,
   pruneMarketOdds,
   setMarketOddsResolution,
   touchMarketOddsOfRaw,

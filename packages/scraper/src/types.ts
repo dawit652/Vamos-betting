@@ -241,7 +241,8 @@ export interface RequestAuthRef {
 
 export interface FetchPlanItem {
   url: string;
-  purpose: 'fixtures' | 'results' | 'both';
+  /** `odds`: bookmaker prices, read on their own schedule (marketOddsPollIntervalMs). */
+  purpose: 'fixtures' | 'results' | 'both' | 'odds';
   headers?: Record<string, string>;
   /** Sent only to the origin of `url`; a redirect to another origin drops it. */
   auth?: RequestAuthRef;
@@ -258,6 +259,25 @@ export interface SourceAdapter {
   /** The requests of one run. */
   plan(now: Date): FetchPlanItem[];
   parse(doc: RawDocument): ParseOutcome;
+  /** A metered API: what it says each response cost, and what one request should cost. */
+  readonly usage?: ApiUsageReader;
+}
+
+/** What a metered API reports about its credits in a response's headers. */
+export interface ApiUsage {
+  /** Credits this request cost. */
+  last: number | null;
+  /** Credits used this period, this request included. */
+  used: number | null;
+  /** Credits left this period. */
+  remaining: number | null;
+}
+
+export interface ApiUsageReader {
+  /** Credits one request of this source should cost; a response that costs more is flagged. */
+  expectedCost: number;
+  /** The usage in a response's headers (lower-case names), or null when it reports none. */
+  read(headers: Readonly<Record<string, string>>): ApiUsage | null;
 }
 
 // ---------------------------------------------------------------------------

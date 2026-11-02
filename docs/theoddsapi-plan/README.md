@@ -5,8 +5,8 @@ How Vamos takes bookmaker odds for its market-priced football competitions from
 that plan allows.
 
 > **Status 2026-11-02: Phase 0 done (P0b and P0c, results in section 10), the over/under fix P2b and the adapter
-> P2 are in, and the house liability caps (TheRundown plan, rule L1) are built. The reading schedule, credit guard
-> and alarms (P3, P4) are not built, so the five sources stay disabled.** The Odds API replaces TheRundown as the market feed: TheRundown's
+> P2 are in, the reading schedule and credit guard P3 are in, and the house liability caps (TheRundown plan, rule
+> L1) are built. The alarms (P4) are not built, so the five sources stay disabled.** The Odds API replaces TheRundown as the market feed: TheRundown's
 > cheap plans do not allow use by a betting operator (`docs/therundown-plan/README.md`, section 3). Most of what is
 > needed already exists from the TheRundown work: the `scrape_market_odds` table, `marketConsensus`, the market
 > pricing (`packages/feed/src/pricing/market.ts`), the per-competition `pricing_source` switch and the 5-minute close
@@ -469,6 +469,20 @@ The back-office `/feed` page also shows the credits remaining, the guard's mode 
 - Who: the main session, Opus high (migration and scheduler).
 - Size: M.
 - Needs: P2.
+- **Done 2026-11-02.** What was built, and where it differs:
+  - Migration **0042** (0041 went to the adapter name): `scrape_runs.api_credits_spent`, `api_credits_used` and
+    `api_credits_remaining`, nullable, ≥ 0. `used` is stored too, because the quota is used + remaining.
+  - `run-source` reads each response's usage through the adapter (`usage.read`, rule A9), stores it on the run,
+    and adds the issue `unexpected_cost` when a response costs more than expected (G3). A failed fetch keeps its
+    HTTP status in the issue, so the guard can tell a refused key (401).
+  - `marketOddsPollIntervalMs` (`fetch/cadence.ts`) and `creditGuardMode` (`fetch/credit-guard.ts`), pure, with
+    property tests. The adapter's requests have purpose `odds`.
+  - The scheduler groups odds sources by key (the secret's name, G1) and works out each key's mode on every pass
+    from this month's runs. A 401 stops the key until a later reading clears it, a person changes a source of
+    the key, or the month ends. In minimal mode a league with no stored kickoff is not read. Mode changes are
+    logged (G4); the alarms are P4.
+  - Rule L3: `SCRAPER_THEODDSAPI_LICENCE=confirmed` (config), checked in licensed mode only.
+  - Tests: `credit-guard.test.ts` and `apps/scraper/test/scheduler-odds.test.ts` on a real Postgres.
 - Work:
   - Migration 0041.
   - Usage recording in `run-source`.
@@ -547,7 +561,7 @@ plus:
     - a stale and a future `last_update`;
     - prices such as 2.07 and 1.952, converted exactly (2070, 1952).
   - An integration test on `createTestDatabase` stores rows, then prices an event of a market-priced league from them.
-- **P3:**
+- **P3 (done 2026-11-02):**
   - Property tests:
     - the interval never drops below 10 min;
     - the interval never grows as kickoff gets closer;

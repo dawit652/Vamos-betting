@@ -87,3 +87,15 @@ export const MARKET_ODDS_MAX_AGE_MS = 3 * HOUR_MS;
 export const MARKET_CLOSE_LEAD_MS = 5 * MINUTE_MS;
 /** A price row is linked to the event of the same competition and teams that starts within this of its kickoff. */
 export const MARKET_ODDS_LINK_WINDOW_MS = 6 * HOUR_MS;
+
+/**
+ * How often a bookmaker-odds source is read, by its next kickoff (docs/theoddsapi-plan/README.md,
+ * section 4.5): within 3 h, within 24 h, within 14 days, none. Each read of The Odds API is metered.
+ */
+export const MARKET_ODDS_TIER_LIMITS_MS = [3 * HOUR_MS, 24 * HOUR_MS, 14 * DAY_MS] as const;
+export const MARKET_ODDS_INTERVALS_MS = {
+  normal: [10 * MINUTE_MS, 30 * MINUTE_MS, 2 * HOUR_MS, 6 * HOUR_MS],
+  economy: [15 * MINUTE_MS, 60 * MINUTE_MS, 150 * MINUTE_MS, 6 * HOUR_MS],
+} as const;
+/** Minimal mode reads only leagues with a kickoff within 3 h, this often. */
+export const MARKET_ODDS_MINIMAL_INTERVAL_MS = 30 * MINUTE_MS;

@@ -2,14 +2,23 @@ import {
   isDue,
   backoffAfterFailures,
   createAdapter,
+  creditGuardMode,
   DAY_MS,
+  daysLeftInMonthUtc,
   fixturesPollIntervalMs,
+  marketOddsPollIntervalMs,
+  MIN_LEAD_MS,
   resultsPollIntervalMs,
+  utcMonthStart,
+  type CreditGuardMode,
+  type SourceAdapter,
 } from '@vamos/scraper';
 import {
+  apiCreditUsage,
   listRecentRuns,
   listScrapedEvents,
   listSources,
+  nextMarketOddsKickoffs,
   sourceHealth,
   type ScrapeSource,
 } from '@vamos/db';
@@ -30,15 +39,93 @@ export interface SchedulerSummary {
   locked: number;
 }
 
-/** How often a source should be polled: the fastest of the data classes its requests serve. */
-function pollIntervalMs(source: ScrapeSource, now: Date, pending: readonly Date[]): number {
+function adapterOf(source: ScrapeSource): SourceAdapter | null {
   const built = createAdapter({
     id: source.id,
     adapter: source.adapter,
     upstream: source.upstream,
     config: source.config,
   });
-  const purposes = built.ok ? built.adapter.plan(now).map((item) => item.purpose) : ['fixtures'];
+  return built.ok ? built.adapter : null;
+}
+
+/** True for a source whose requests are bookmaker prices (purpose `odds`), read on their own schedule. */
+function readsOdds(adapter: SourceAdapter | null, now: Date): boolean {
+  return adapter !== null && adapter.plan(now).some((item) => item.purpose === 'odds');
+}
+
+/**
+ * The credit key of an odds source: the name of the environment variable its requests use, so
+ * every source on one key shares one guard (rule G1). A source without a key is its own group.
+ */
+function creditKeyOf(source: ScrapeSource, adapter: SourceAdapter | null, now: Date): string {
+  const secret = adapter?.plan(now).find((item) => item.auth !== undefined)?.auth?.secret;
+  return secret ?? `source:${source.id}`;
+}
+
+/** The guard mode each key was in at the last pass, to log changes (rule G4). Per process. */
+const lastModes = new Map<string, CreditGuardMode>();
+
+/**
+ * The credit guard of each key used by these odds sources (rules G1, G2, 4.7): the latest reading
+ * this month, the spend of the last 24 h, and a refused key (a 401 this month that no later
+ * reading, and no change to a source of the key, has cleared).
+ */
+async function guardModes(
+  ctx: ScraperContext,
+  groups: ReadonlyMap<string, ScrapeSource[]>,
+  now: Date,
+): Promise<Map<string, CreditGuardMode>> {
+  const modes = new Map<string, CreditGuardMode>();
+  for (const [key, sources] of groups) {
+    const usage = await apiCreditUsage(ctx.db, {
+      sourceIds: sources.map((s) => s.id),
+      monthStart: utcMonthStart(now),
+      since: new Date(now.getTime() - DAY_MS),
+    });
+    const refusedAt = usage.refusedAt;
+    const keyRefused =
+      refusedAt !== null &&
+      (usage.latest === null || usage.latest.at.getTime() <= refusedAt.getTime()) &&
+      // A person re-enabling (or editing) a source of the key gives it another try.
+      !sources.some((s) => s.updatedAt.getTime() > refusedAt.getTime());
+    const latest = usage.latest;
+    const mode = creditGuardMode({
+      quota: latest !== null && latest.used !== null ? latest.used + latest.remaining : null,
+      remaining: latest?.remaining ?? null,
+      spentLast24h: usage.spentSince,
+      daysLeftInMonth: daysLeftInMonthUtc(now),
+      keyRefused,
+    });
+    const before = lastModes.get(key);
+    if (before !== mode && (before !== undefined || mode !== 'normal')) {
+      const log =
+        mode === 'normal' ? ctx.logger.info.bind(ctx.logger) : ctx.logger.warn.bind(ctx.logger);
+      log(
+        {
+          creditKey: key,
+          from: before ?? null,
+          to: mode,
+          remaining: latest?.remaining ?? null,
+          spentLast24h: usage.spentSince,
+          keyRefused,
+        },
+        'credit guard mode changed',
+      );
+    }
+    lastModes.set(key, mode);
+    modes.set(key, mode);
+  }
+  return modes;
+}
+
+/** How often a source should be polled: the fastest of the data classes its requests serve. */
+function pollIntervalMs(
+  adapter: SourceAdapter | null,
+  now: Date,
+  pending: readonly Date[],
+): number {
+  const purposes = adapter !== null ? adapter.plan(now).map((item) => item.purpose) : ['fixtures'];
   const wants = (kind: 'fixtures' | 'results') =>
     purposes.some((purpose) => purpose === kind || purpose === 'both');
   const intervals: number[] = [];
@@ -48,13 +135,7 @@ function pollIntervalMs(source: ScrapeSource, now: Date, pending: readonly Date[
 }
 
 function hostOf(source: ScrapeSource): string {
-  const built = createAdapter({
-    id: source.id,
-    adapter: source.adapter,
-    upstream: source.upstream,
-    config: source.config,
-  });
-  return built.ok ? (built.adapter.allowedHosts[0] ?? source.id) : source.id;
+  return adapterOf(source)?.allowedHosts[0] ?? source.id;
 }
 
 /** The earliest time a blocked or circuit-open source asked us to wait for, if it is still ahead. */
@@ -91,11 +172,39 @@ export async function runDueSources(
     })
   ).map((event) => event.startTime);
 
+  const adapters = new Map(sources.map((source) => [source.id, adapterOf(source)]));
+  const oddsSources = sources.filter((source) => readsOdds(adapters.get(source.id) ?? null, now));
+  // Rule L3: no The Odds API source in licensed mode without the written licence answer.
+  const unlicensed =
+    ctx.config.mode === 'licensed' && !ctx.config.scraper.theOddsApiLicenceConfirmed;
+  const groups = new Map<string, ScrapeSource[]>();
+  for (const source of oddsSources) {
+    if (unlicensed && source.adapter === 'theoddsapi') continue;
+    const key = creditKeyOf(source, adapters.get(source.id) ?? null, now);
+    groups.set(key, [...(groups.get(key) ?? []), source]);
+  }
+  const modes = await guardModes(ctx, groups, now);
+  const nextKickoffs = await nextMarketOddsKickoffs(ctx.db, {
+    sourceIds: oddsSources.map((s) => s.id),
+    after: new Date(now.getTime() + MIN_LEAD_MS),
+  });
+
   const due: ScrapeSource[] = [];
   for (const source of sources) {
     const h = health.get(source.id);
     const failures = h?.consecutiveFailures ?? 0;
-    const base = pollIntervalMs(source, now, pending);
+    const adapter = adapters.get(source.id) ?? null;
+    let base: number;
+    if (readsOdds(adapter, now)) {
+      if (unlicensed && source.adapter === 'theoddsapi') continue;
+      const mode = modes.get(creditKeyOf(source, adapter, now)) ?? 'normal';
+      // Null: not read at all for now (stop, or minimal with no kickoff within 3 h) - not even a first run.
+      const interval = marketOddsPollIntervalMs(now, nextKickoffs.get(source.id) ?? null, mode);
+      if (interval === null) continue;
+      base = interval;
+    } else {
+      base = pollIntervalMs(adapter, now, pending);
+    }
     const intervalMs = failures > 0 ? backoffAfterFailures(failures, base) : base;
     const lastRunAt = h?.lastRun?.startedAt ?? null;
     if (!isDue({ lastRunAt, intervalMs, now, jitterFraction: random() })) continue;

@@ -149,6 +149,14 @@ export const scrapeRuns = pgTable(
     results: integer('results').notNull().default(0),
     issues: jsonb('issues').$type<ScrapeRunIssueJson[]>().notNull().default([]),
     error: text('error'),
+    /**
+     * A metered API's credits (docs/theoddsapi-plan/README.md, rule G2; null for other sources):
+     * the sum of what this run's responses cost, and the period's used and remaining credits as
+     * the run's last response reported them. The credit guard reads these.
+     */
+    apiCreditsSpent: integer('api_credits_spent'),
+    apiCreditsUsed: integer('api_credits_used'),
+    apiCreditsRemaining: integer('api_credits_remaining'),
   },
   (t) => [
     index('scrape_runs_source_started_idx').on(t.sourceId, t.startedAt.desc(), t.id),
@@ -160,6 +168,10 @@ export const scrapeRuns = pgTable(
       sql`${t.requests} >= 0 AND ${t.bytes} >= 0 AND ${t.recordsSeen} >= 0 AND ${t.recordsAccepted} >= 0 AND ${t.fixtures} >= 0 AND ${t.results} >= 0`,
     ),
     check('scrape_runs_issues_array', sql`jsonb_typeof(${t.issues}) = 'array'`),
+    check(
+      'scrape_runs_api_credits',
+      sql`(${t.apiCreditsSpent} IS NULL OR ${t.apiCreditsSpent} >= 0) AND (${t.apiCreditsUsed} IS NULL OR ${t.apiCreditsUsed} >= 0) AND (${t.apiCreditsRemaining} IS NULL OR ${t.apiCreditsRemaining} >= 0)`,
+    ),
   ],
 );
 

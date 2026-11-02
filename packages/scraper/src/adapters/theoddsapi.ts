@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type {
+  ApiUsage,
   FetchPlanItem,
   ParseOutcome,
   RawDocument,
@@ -109,6 +110,25 @@ export function theOddsApiUrl(config: TheOddsApiConfig): string {
 /** Credits one request costs: markets × regions, ten named books making one region (A9). */
 export function theOddsApiCost(config: TheOddsApiConfig): number {
   return config.markets.length * Math.ceil(config.bookmakers.length / THEODDSAPI_MAX_BOOKMAKERS);
+}
+
+/** A credit count from a usage header: a whole number ≥ 0, else null. */
+function creditCount(value: string | undefined): number | null {
+  if (value === undefined || !/^\s*\d{1,12}(\.0+)?\s*$/.test(value)) return null;
+  return Math.trunc(Number(value));
+}
+
+/**
+ * The usage The Odds API reports on every response (A9): `x-requests-last` (this request),
+ * `x-requests-used` and `x-requests-remaining` (this month). Null when none of them is readable.
+ */
+export function readTheOddsApiUsage(headers: Readonly<Record<string, string>>): ApiUsage | null {
+  const usage = {
+    last: creditCount(headers['x-requests-last']),
+    used: creditCount(headers['x-requests-used']),
+    remaining: creditCount(headers['x-requests-remaining']),
+  };
+  return usage.last === null && usage.used === null && usage.remaining === null ? null : usage;
 }
 
 // ---------------------------------------------------------------------------
@@ -381,12 +401,13 @@ export function createTheOddsApiAdapter(
   return {
     descriptor,
     allowedHosts: config.allowedHosts,
+    usage: { expectedCost: theOddsApiCost(config), read: readTheOddsApiUsage },
     plan(): FetchPlanItem[] {
       return [
         {
           url: theOddsApiUrl(config),
-          // Read at the fixtures cadence until the reading schedule (task P3) gives odds their own.
-          purpose: 'fixtures',
+          // Read on the odds schedule: by the next kickoff, slowed by the credit guard (task P3).
+          purpose: 'odds',
           // A reference only: the fetcher reads the value when it fetches.
           auth: { header: THEODDSAPI_AUTH_HEADER, secret: config.secret },
         },

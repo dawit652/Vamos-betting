@@ -314,6 +314,15 @@ async function execute(
   let pagesParsed = 0;
   /** The URL being processed, to forget its validators if the run crashes on it. */
   let currentUrl: string | null = null;
+  /** A metered API's credits as its responses reported them (rule G2); null for other sources. */
+  const credits =
+    adapter.usage === undefined
+      ? null
+      : {
+          spent: null as number | null,
+          used: null as number | null,
+          remaining: null as number | null,
+        };
 
   try {
     for (const item of adapter.plan(ctx.clock())) {
@@ -383,9 +392,32 @@ async function execute(
           severity: 'error',
           code: result.kind === 'refused' ? `refused_${result.reason}` : `fetch_${result.code}`,
           message: result.kind === 'refused' ? `refused: ${result.reason}` : result.message,
-          context: { url: item.url },
+          // The status tells the credit guard a refused key (401) from other failures.
+          context: {
+            url: item.url,
+            ...(result.kind === 'error' && result.status !== undefined
+              ? { status: result.status }
+              : {}),
+          },
         });
         continue;
+      }
+      if (credits !== null && adapter.usage !== undefined) {
+        const usage = adapter.usage.read(result.headers);
+        if (usage !== null) {
+          if (usage.last !== null) credits.spent = (credits.spent ?? 0) + usage.last;
+          if (usage.used !== null) credits.used = usage.used;
+          if (usage.remaining !== null) credits.remaining = usage.remaining;
+          // G3: a request that costs more than it should (a book list over 10, a changed default).
+          if (usage.last !== null && usage.last > adapter.usage.expectedCost) {
+            issues.push({
+              severity: 'warning',
+              code: 'unexpected_cost',
+              message: `the request cost ${usage.last} credits; ${adapter.usage.expectedCost} expected`,
+              context: { url: item.url, cost: usage.last, expected: adapter.usage.expectedCost },
+            });
+          }
+        }
       }
       currentUrl = result.url;
       counts.bytes += result.body.length;
@@ -475,6 +507,7 @@ async function execute(
       issues,
       error: status === 'ok' ? null : errorText,
       finishedAt: ctx.clock(),
+      ...(credits === null ? {} : { apiCredits: credits }),
     });
   });
   ctx.logger.info({ sourceId: source.id, runId: run.id, status, ...counts }, 'source run finished');

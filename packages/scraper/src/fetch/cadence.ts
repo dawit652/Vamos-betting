@@ -1,4 +1,11 @@
-import { HOUR_MS, MINUTE_MS } from '../constants';
+import {
+  HOUR_MS,
+  MARKET_ODDS_INTERVALS_MS,
+  MARKET_ODDS_MINIMAL_INTERVAL_MS,
+  MARKET_ODDS_TIER_LIMITS_MS,
+  MINUTE_MS,
+} from '../constants';
+import type { CreditGuardMode } from './credit-guard';
 
 /** How often sources are polled (docs/scraper.md section 5). Pure functions: the clock is an argument. */
 
@@ -64,4 +71,28 @@ export function backoffAfterFailures(
     ? Math.min(30, Math.max(0, Math.floor(consecutiveFailures)))
     : 0;
   return Math.max(normalIntervalMs, Math.min(MAX_FAILURE_BACKOFF_MS, normalIntervalMs * 2 ** n));
+}
+
+/**
+ * How often a bookmaker-odds source is read (docs/theoddsapi-plan/README.md, 4.5 and 4.7), or null
+ * when it is not read at all for now. `nextKickoff` is the next kickoff in the source's own price
+ * rows that is more than MIN_LEAD_MS ahead (null: none). The closer the kickoff, the more often:
+ * within 3 h every 10 min, within 24 h every 30 min, within 14 days every 2 h, else every 6 h.
+ * The guard's mode stretches that: economy reads less often, minimal reads only leagues with a
+ * kickoff within 3 h (every 30 min), stop reads nothing. Invalid dates count as no kickoff.
+ */
+export function marketOddsPollIntervalMs(
+  now: Date,
+  nextKickoff: Date | null,
+  mode: CreditGuardMode,
+): number | null {
+  if (mode === 'stop') return null;
+  const until =
+    nextKickoff === null || Number.isNaN(nextKickoff.getTime()) || Number.isNaN(now.getTime())
+      ? Number.POSITIVE_INFINITY
+      : nextKickoff.getTime() - now.getTime();
+  let tier = MARKET_ODDS_TIER_LIMITS_MS.findIndex((limit) => until <= limit);
+  if (tier === -1) tier = MARKET_ODDS_TIER_LIMITS_MS.length;
+  if (mode === 'minimal') return tier === 0 ? MARKET_ODDS_MINIMAL_INTERVAL_MS : null;
+  return MARKET_ODDS_INTERVALS_MS[mode][tier] ?? null;
 }

@@ -3,7 +3,7 @@ import {
   type ScrapeOddsMarket,
   type ScrapeOddsSelection,
 } from '@vamos/core';
-import { and, asc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { events } from '../schema/catalog';
 import { scrapeMarketOdds, scrapeSources } from '../schema/scrape';
@@ -440,4 +440,29 @@ export async function pruneMarketOdds(
     )
     .returning({ id: scrapeMarketOdds.id });
   return rows.length;
+}
+
+/**
+ * Per source, the next kickoff in its own price rows after `after` (the odds reading schedule,
+ * docs/theoddsapi-plan/README.md 4.5). A source with no such row is absent from the map.
+ */
+export async function nextMarketOddsKickoffs(
+  exec: DbExecutor,
+  input: { sourceIds: readonly string[]; after: Date },
+): Promise<Map<string, Date>> {
+  if (input.sourceIds.length === 0) return new Map();
+  const rows = await exec
+    .select({
+      sourceId: scrapeMarketOdds.sourceId,
+      kickoff: sql<Date>`min(${scrapeMarketOdds.kickoff})`.mapWith(scrapeMarketOdds.kickoff),
+    })
+    .from(scrapeMarketOdds)
+    .where(
+      and(
+        inArray(scrapeMarketOdds.sourceId, [...input.sourceIds]),
+        gt(scrapeMarketOdds.kickoff, input.after),
+      ),
+    )
+    .groupBy(scrapeMarketOdds.sourceId);
+  return new Map(rows.map((row) => [row.sourceId, row.kickoff]));
 }

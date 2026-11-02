@@ -1,0 +1,4 @@
+ALTER TABLE "scrape_runs" ADD COLUMN "api_credits_spent" integer;--> statement-breakpoint
+ALTER TABLE "scrape_runs" ADD COLUMN "api_credits_used" integer;--> statement-breakpoint
+ALTER TABLE "scrape_runs" ADD COLUMN "api_credits_remaining" integer;--> statement-breakpoint
+ALTER TABLE "scrape_runs" ADD CONSTRAINT "scrape_runs_api_credits" CHECK (("scrape_runs"."api_credits_spent" IS NULL OR "scrape_runs"."api_credits_spent" >= 0) AND ("scrape_runs"."api_credits_used" IS NULL OR "scrape_runs"."api_credits_used" >= 0) AND ("scrape_runs"."api_credits_remaining" IS NULL OR "scrape_runs"."api_credits_remaining" >= 0));

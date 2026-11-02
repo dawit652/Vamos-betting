@@ -1,5 +1,5 @@
 import type { ScrapeRunStatus } from '@vamos/core';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
 import { domainNotFound } from '../errors';
 import type { DbExecutor } from '../ledger/types';
 import { scrapeRuns, type ScrapeRunIssueJson } from '../schema/scrape';
@@ -30,6 +30,10 @@ export interface ScrapeRun {
   results: number;
   issues: ScrapeRunIssueJson[];
   error: string | null;
+  /** A metered API's credits: spent by this run, and used / remaining after it (else null). */
+  apiCreditsSpent: number | null;
+  apiCreditsUsed: number | null;
+  apiCreditsRemaining: number | null;
 }
 
 export interface FinishRunInput {
@@ -44,6 +48,8 @@ export interface FinishRunInput {
   issues?: ScrapeRunIssueJson[];
   error?: string | null;
   finishedAt?: Date;
+  /** A metered API's credits as its responses reported them (rule G2); omitted for other sources. */
+  apiCredits?: { spent: number | null; used: number | null; remaining: number | null };
 }
 
 function toRun(row: typeof scrapeRuns.$inferSelect): ScrapeRun {
@@ -109,6 +115,13 @@ export async function finishRun(
       ...(input.recordsAccepted === undefined ? {} : { recordsAccepted: input.recordsAccepted }),
       ...(input.fixtures === undefined ? {} : { fixtures: input.fixtures }),
       ...(input.results === undefined ? {} : { results: input.results }),
+      ...(input.apiCredits === undefined
+        ? {}
+        : {
+            apiCreditsSpent: input.apiCredits.spent,
+            apiCreditsUsed: input.apiCredits.used,
+            apiCreditsRemaining: input.apiCredits.remaining,
+          }),
       issues: capIssues(input.issues ?? []),
       error:
         input.error === null || input.error === undefined
@@ -259,4 +272,67 @@ export async function sourceHealth(exec: DbExecutor, now: Date): Promise<SourceH
       openReviewItems: Number(row.open_items),
     };
   });
+}
+
+/** What the credit guard knows about one API key (rules G1, G2): the runs of the sources sharing it. */
+export interface ApiCreditUsage {
+  /** The latest reading this month (UTC), or null before any. */
+  latest: { used: number | null; remaining: number; at: Date } | null;
+  /** Credits spent by these sources' runs started since `since`. */
+  spentSince: number;
+  /** When an answer this month last refused the key (HTTP 401), or null. */
+  refusedAt: Date | null;
+}
+
+/**
+ * The credit usage of the sources sharing one key: the latest remaining (and used) this month,
+ * the credits spent since `since`, and the last key refusal this month. Runs before `monthStart`
+ * are ignored: the quota resets on the 1st.
+ */
+export async function apiCreditUsage(
+  exec: DbExecutor,
+  input: { sourceIds: readonly string[]; monthStart: Date; since: Date },
+): Promise<ApiCreditUsage> {
+  const ids = [...input.sourceIds];
+  if (ids.length === 0) return { latest: null, spentSince: 0, refusedAt: null };
+  const [latest] = await exec
+    .select({
+      used: scrapeRuns.apiCreditsUsed,
+      remaining: scrapeRuns.apiCreditsRemaining,
+      at: scrapeRuns.startedAt,
+    })
+    .from(scrapeRuns)
+    .where(
+      and(
+        inArray(scrapeRuns.sourceId, ids),
+        gte(scrapeRuns.startedAt, input.monthStart),
+        isNotNull(scrapeRuns.apiCreditsRemaining),
+      ),
+    )
+    .orderBy(desc(scrapeRuns.startedAt), desc(scrapeRuns.id))
+    .limit(1);
+  const [spent] = await exec
+    .select({ n: sql<string>`COALESCE(sum(${scrapeRuns.apiCreditsSpent}), 0)::text` })
+    .from(scrapeRuns)
+    .where(and(inArray(scrapeRuns.sourceId, ids), gte(scrapeRuns.startedAt, input.since)));
+  const [refused] = await exec
+    .select({ at: scrapeRuns.startedAt })
+    .from(scrapeRuns)
+    .where(
+      and(
+        inArray(scrapeRuns.sourceId, ids),
+        gte(scrapeRuns.startedAt, input.monthStart),
+        sql`${scrapeRuns.issues} @> ${JSON.stringify([{ code: 'fetch_http_error', context: { status: 401 } }])}::jsonb`,
+      ),
+    )
+    .orderBy(desc(scrapeRuns.startedAt))
+    .limit(1);
+  return {
+    latest:
+      latest === undefined || latest.remaining === null
+        ? null
+        : { used: latest.used, remaining: latest.remaining, at: latest.at },
+    spentSince: Number(spent?.n ?? 0),
+    refusedAt: refused?.at ?? null,
+  };
 }
