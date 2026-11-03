@@ -24,6 +24,8 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Extra hosts allowed to load the dev server (e.g. a phone on the LAN), comma-separated.
+  allowedDevOrigins: process.env.DEV_ALLOWED_ORIGINS?.split(',').filter(Boolean) ?? [],
   // server.mjs (the production server) compresses with brotli itself; plain
   // `next start` (e.g. behind a CDN) keeps Next's gzip.
   compress: process.env.VAMOS_WEB_COMPRESSION !== 'server',
@@ -31,6 +33,13 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@vamos/contracts', '@vamos/i18n', '@vamos/core'],
   env: {
     NEXT_PUBLIC_API_URL: publicApiUrl,
+  },
+  // Demo sharing through a single public tunnel: with API_PROXY_TARGET set (e.g.
+  // http://127.0.0.1:4000), the browser calls the API through this origin at /_api, so the
+  // session cookie stays same-site. Off by default.
+  async rewrites() {
+    const target = process.env.API_PROXY_TARGET;
+    return target ? [{ source: '/_api/:path*', destination: `${target}/:path*` }] : [];
   },
   async headers() {
     return [
