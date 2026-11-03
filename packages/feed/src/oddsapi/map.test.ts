@@ -70,7 +70,7 @@ describe('leagueFor', () => {
   it('derives a place for unknown keys and leaves them off', () => {
     const sweden = leagueFor(sport('soccer_sweden_allsvenskan', 'Soccer', 'Allsvenskan - Sweden'));
     expect(sweden).toMatchObject({
-      category: { slug: 'sweden', name: { en: 'Sweden' } },
+      category: { slug: 'sweden', name: { en: 'Sweden' }, countryCode: 'SE' },
       competition: { slug: 'sweden-allsvenskan', name: { en: 'Allsvenskan' } },
       tier: 3,
       cup: false,

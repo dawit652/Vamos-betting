@@ -1,0 +1,18 @@
+[
+  {
+    "id": "586bec023ee8ac2f0645d963bd2c9d25",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "2026-11-06T20:00:00Z",
+    "home_team": "Everton",
+    "away_team": "Coventry City"
+  },
+  {
+    "id": "5c87852253fd11eea5d34ad723356607",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "2026-11-07T12:30:00Z",
+    "home_team": "Leeds United",
+    "away_team": "Tottenham Hotspur"
+  }
+]

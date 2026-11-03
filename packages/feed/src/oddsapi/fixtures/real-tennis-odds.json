@@ -1,0 +1,446 @@
+[
+  {
+    "id": "18d9ea3abcfe85f9ae47dc0433ac57c7",
+    "sport_key": "tennis_atp_paris_masters",
+    "sport_title": "ATP Paris Masters",
+    "commence_time": "2026-11-03T13:17:00Z",
+    "home_team": "Brandon Nakashima",
+    "away_team": "Matteo Berrettini",
+    "bookmakers": [
+      {
+        "key": "sport888",
+        "title": "888sport",
+        "last_update": "2026-11-03T15:12:37Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:37Z",
+            "outcomes": [
+              {
+                "name": "Brandon Nakashima",
+                "price": 1.91
+              },
+              {
+                "name": "Matteo Berrettini",
+                "price": 1.8
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "pmu_fr",
+        "title": "PMU (FR)",
+        "last_update": "2026-11-03T15:12:38Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:38Z",
+            "outcomes": [
+              {
+                "name": "Brandon Nakashima",
+                "price": 1.78
+              },
+              {
+                "name": "Matteo Berrettini",
+                "price": 1.78
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "leovegas_se",
+        "title": "LeoVegas (SE)",
+        "last_update": "2026-11-03T15:13:03Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:13:03Z",
+            "outcomes": [
+              {
+                "name": "Brandon Nakashima",
+                "price": 1.83
+              },
+              {
+                "name": "Matteo Berrettini",
+                "price": 1.83
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:13:03Z",
+            "outcomes": [
+              {
+                "name": "Brandon Nakashima",
+                "price": 1.81,
+                "point": -0.5
+              },
+              {
+                "name": "Matteo Berrettini",
+                "price": 1.81,
+                "point": 0.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_nl",
+        "title": "Unibet (NL)",
+        "last_update": "2026-11-03T15:12:59Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:59Z",
+            "outcomes": [
+              {
+                "name": "Brandon Nakashima",
+                "price": 1.88
+              },
+              {
+                "name": "Matteo Berrettini",
+                "price": 1.88
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:59Z",
+            "outcomes": [
+              {
+                "name": "Brandon Nakashima",
+                "price": 1.87,
+                "point": -0.5
+              },
+              {
+                "name": "Matteo Berrettini",
+                "price": 1.87,
+                "point": 0.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_se",
+        "title": "Unibet (SE)",
+        "last_update": "2026-11-03T15:12:38Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:38Z",
+            "outcomes": [
+              {
+                "name": "Brandon Nakashima",
+                "price": 1.88
+              },
+              {
+                "name": "Matteo Berrettini",
+                "price": 1.88
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_fr",
+        "title": "Unibet (FR)",
+        "last_update": "2026-11-03T15:13:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:13:00Z",
+            "outcomes": [
+              {
+                "name": "Brandon Nakashima",
+                "price": 1.75
+              },
+              {
+                "name": "Matteo Berrettini",
+                "price": 1.7
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "dcf8effd6f985422ab07f5c909334937",
+    "sport_key": "tennis_atp_paris_masters",
+    "sport_title": "ATP Paris Masters",
+    "commence_time": "2026-11-03T15:45:00Z",
+    "home_team": "Benjamin Bonzi",
+    "away_team": "Taylor Fritz",
+    "bookmakers": [
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-11-03T15:09:39Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:09:39Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 4.15
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.2
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betsson",
+        "title": "Betsson",
+        "last_update": "2026-11-03T15:12:38Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:38Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 4.1
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.24
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:38Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.77,
+                "point": 22.5
+              },
+              {
+                "name": "Under",
+                "price": 1.94,
+                "point": 22.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "coolbet",
+        "title": "Coolbet",
+        "last_update": "2026-11-03T15:13:01Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:13:01Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 4.35
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.25
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:13:01Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 1.87,
+                "point": 3.5
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.98,
+                "point": -3.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:13:01Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 2.1,
+                "point": 23.5
+              },
+              {
+                "name": "Under",
+                "price": 1.77,
+                "point": 23.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betfair_ex_eu",
+        "title": "Betfair",
+        "last_update": "2026-11-03T15:13:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:59Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 4.8
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.25
+              }
+            ]
+          },
+          {
+            "key": "h2h_lay",
+            "last_update": "2026-11-03T15:12:59Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 4.9
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.26
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "gtbets",
+        "title": "GTbets",
+        "last_update": "2026-11-03T15:13:01Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:13:01Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 4.21
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.22
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:13:01Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 1.9,
+                "point": 3.5
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.99,
+                "point": -3.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:13:01Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.76,
+                "point": 22.5
+              },
+              {
+                "name": "Under",
+                "price": 1.93,
+                "point": 22.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "matchbook",
+        "title": "Matchbook",
+        "last_update": "2026-11-03T15:12:59Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:59Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 4.7
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.26
+              }
+            ]
+          },
+          {
+            "key": "h2h_lay",
+            "last_update": "2026-11-03T15:12:59Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 4.9
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 1.27
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:59Z",
+            "outcomes": [
+              {
+                "name": "Benjamin Bonzi",
+                "price": 1.83,
+                "point": 3.5
+              },
+              {
+                "name": "Taylor Fritz",
+                "price": 2.02,
+                "point": -3.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:59Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.89,
+                "point": 23.0
+              },
+              {
+                "name": "Under",
+                "price": 1.96,
+                "point": 23.0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

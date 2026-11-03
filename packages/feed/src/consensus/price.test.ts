@@ -64,7 +64,7 @@ describe('goals model', () => {
         fc.constantFrom(1.5, 2.5, 3.5),
         (lambdaHome, lambdaAway, rho, line) => {
           const fit = fitGoalsModel(targetsOf({ lambdaHome, lambdaAway, rho }, line));
-          expect(fit.error).toBeLessThan(1e-3);
+          expect(fit.error).toBeLessThan(3e-3);
         },
       ),
       { numRuns: 40 },

@@ -111,15 +111,30 @@ describe('parseEvents', () => {
     expect(result.dropped).toBe(1);
   });
 
-  it('drops a market whole for a price of 0.95, a non-numeric price or no outcomes', () => {
+  it('drops malformed outcomes one by one, skips dead 1.00 prices and drops empty markets', () => {
     const cheap = market([...good, { name: 'Draw', price: 0.95 }]);
     const text = market([{ name: 'A', price: '1.9' }, good[1]]);
     const empty = market([]);
     const badPoint = market([{ name: 'A', price: 1.9, point: 'x' }]);
+    const dead = {
+      ...market([
+        { name: 'Over', price: 1, point: 0.5 },
+        { name: 'Under', price: 11.6, point: 0.5 },
+      ]),
+      key: 'alternate_totals',
+    };
+    const onlyBad = { ...market([{ name: 'A', price: 0.5 }]), key: 'only_bad' };
     const kept = { ...market(good), key: 'totals' };
-    const result = parseEvents([event([book([cheap, text, empty, badPoint, kept])])]);
-    expect(result.items[0]!.bookmakers[0]!.markets.map((m) => m.key)).toEqual(['totals']);
-    expect(result.dropped).toBe(4);
+    const result = parseEvents([
+      event([book([cheap, text, empty, badPoint, dead, onlyBad, kept])]),
+    ]);
+    const markets = result.items[0]!.bookmakers[0]!.markets;
+    expect(markets.map((m) => m.key)).toEqual(['h2h', 'h2h', 'alternate_totals', 'totals']);
+    expect(markets[0]!.outcomes.map((o) => o.name)).toEqual(['A', 'B']);
+    expect(markets[1]!.outcomes.map((o) => o.name)).toEqual(['B']);
+    expect(markets[2]!.outcomes).toHaveLength(1);
+    // 0.95, '1.9', the empty market, the bad point, and the market left with only a bad outcome.
+    expect(result.dropped).toBe(5);
   });
 
   it('counts a non-array bookmakers value as one drop and ignores unknown fields', () => {

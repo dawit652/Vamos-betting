@@ -1,0 +1,546 @@
+[
+  {
+    "id": "91df86557819598ca270ba35410cfcfa",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-11-05T00:10:00Z",
+    "home_team": "Detroit Pistons",
+    "away_team": "Philadelphia 76ers",
+    "bookmakers": [
+      {
+        "key": "coolbet",
+        "title": "Coolbet",
+        "last_update": "2026-11-03T15:12:24Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:24Z",
+            "outcomes": [
+              {
+                "name": "Detroit Pistons",
+                "price": 1.83
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 2.02
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:24Z",
+            "outcomes": [
+              {
+                "name": "Detroit Pistons",
+                "price": 1.95,
+                "point": -2.0
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 1.9,
+                "point": 2.0
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:24Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.95,
+                "point": 219.0
+              },
+              {
+                "name": "Under",
+                "price": 1.9,
+                "point": 219.0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "nordicbet",
+        "title": "Nordic Bet",
+        "last_update": "2026-11-03T15:12:03Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:03Z",
+            "outcomes": [
+              {
+                "name": "Detroit Pistons",
+                "price": 1.82
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 1.98
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:03Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.86,
+                "point": 218.5
+              },
+              {
+                "name": "Under",
+                "price": 1.9,
+                "point": 218.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betsson",
+        "title": "Betsson",
+        "last_update": "2026-11-03T15:12:02Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:02Z",
+            "outcomes": [
+              {
+                "name": "Detroit Pistons",
+                "price": 1.82
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 1.98
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:02Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.86,
+                "point": 218.5
+              },
+              {
+                "name": "Under",
+                "price": 1.9,
+                "point": 218.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "onexbet",
+        "title": "1xBet",
+        "last_update": "2026-11-03T15:12:27Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:26Z",
+            "outcomes": [
+              {
+                "name": "Detroit Pistons",
+                "price": 1.84
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 2.03
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:26Z",
+            "outcomes": [
+              {
+                "name": "Detroit Pistons",
+                "price": 1.91,
+                "point": -1.5
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 1.95,
+                "point": 1.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:26Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.92,
+                "point": 218.5
+              },
+              {
+                "name": "Under",
+                "price": 1.94,
+                "point": 218.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "pmu_fr",
+        "title": "PMU (FR)",
+        "last_update": "2026-11-03T15:12:03Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:03Z",
+            "outcomes": [
+              {
+                "name": "Detroit Pistons",
+                "price": 1.72
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 1.92
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:03Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.71,
+                "point": 218.5
+              },
+              {
+                "name": "Under",
+                "price": 1.73,
+                "point": 218.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_se",
+        "title": "Unibet (SE)",
+        "last_update": "2026-11-03T15:12:03Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:03Z",
+            "outcomes": [
+              {
+                "name": "Detroit Pistons",
+                "price": 1.81
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 2.02
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:03Z",
+            "outcomes": [
+              {
+                "name": "Detroit Pistons",
+                "price": 1.92,
+                "point": -1.5
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 1.89,
+                "point": 1.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "6b33f8632d4dd100cba8453db82213fa",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-11-05T00:40:00Z",
+    "home_team": "Brooklyn Nets",
+    "away_team": "Charlotte Hornets",
+    "bookmakers": [
+      {
+        "key": "onexbet",
+        "title": "1xBet",
+        "last_update": "2026-11-03T15:12:27Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:26Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 2.17
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.74
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:26Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 1.93,
+                "point": 2.5
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.93,
+                "point": -2.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:26Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.95,
+                "point": 214.5
+              },
+              {
+                "name": "Under",
+                "price": 1.91,
+                "point": 214.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_fr",
+        "title": "Unibet (FR)",
+        "last_update": "2026-11-03T15:12:45Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:45Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 1.97
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.61
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "sport888",
+        "title": "888sport",
+        "last_update": "2026-11-03T15:12:44Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:44Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 2.15
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.7
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:44Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 1.85,
+                "point": 2.5
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.85,
+                "point": -2.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:44Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.85,
+                "point": 214.5
+              },
+              {
+                "name": "Under",
+                "price": 1.85,
+                "point": 214.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "coolbet",
+        "title": "Coolbet",
+        "last_update": "2026-11-03T15:12:24Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:24Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 2.18
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.72
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:24Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 1.92,
+                "point": 2.5
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.92,
+                "point": -2.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:24Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.9,
+                "point": 214.0
+              },
+              {
+                "name": "Under",
+                "price": 1.95,
+                "point": 214.0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "williamhill",
+        "title": "William Hill",
+        "last_update": "2026-11-03T15:12:03Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:03Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 2.15
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.7
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:03Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 1.85,
+                "point": 2.5
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.85,
+                "point": -2.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:03Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.85,
+                "point": 214.5
+              },
+              {
+                "name": "Under",
+                "price": 1.85,
+                "point": 214.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "codere_it",
+        "title": "Codere (IT)",
+        "last_update": "2026-11-03T15:12:23Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:23Z",
+            "outcomes": [
+              {
+                "name": "Brooklyn Nets",
+                "price": 2.03
+              },
+              {
+                "name": "Charlotte Hornets",
+                "price": 1.65
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:23Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.83,
+                "point": 214.5
+              },
+              {
+                "name": "Under",
+                "price": 1.81,
+                "point": 214.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

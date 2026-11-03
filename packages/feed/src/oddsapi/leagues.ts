@@ -402,6 +402,57 @@ const REGISTRY: ReadonlyMap<string, LeagueEntry> = new Map(
   ]),
 );
 
+/**
+ * Countries and regions recognised in a sport key's words (`soccer_germany_dfb_pokal`,
+ * `soccer_league_of_ireland`) or in a title's "- Country" suffix. Football and basketball
+ * share it; the seeded categories keep their slugs and names.
+ */
+const COUNTRIES: Readonly<Record<string, LeagueCategory>> = Object.freeze({
+  england: FOOTBALL.england,
+  spain: FOOTBALL.spain,
+  italy: FOOTBALL.italy,
+  germany: FOOTBALL.germany,
+  france: FOOTBALL.france,
+  netherlands: FOOTBALL.netherlands,
+  portugal: FOOTBALL.portugal,
+  turkey: FOOTBALL.turkey,
+  belgium: FOOTBALL.belgium,
+  scotland: FOOTBALL.scotland,
+  saudi: FOOTBALL.saudi,
+  usa: FOOTBALL.usa,
+  brazil: FOOTBALL.brazil,
+  argentina: FOOTBALL.argentina,
+  australia: category('australia', 'Australia', undefined, 'AU', 500),
+  austria: category('austria', 'Austria', undefined, 'AT', 500),
+  chile: category('chile', 'Chile', undefined, 'CL', 500),
+  china: category('china', 'China', undefined, 'CN', 500),
+  denmark: category('denmark', 'Denmark', undefined, 'DK', 500),
+  finland: category('finland', 'Finland', undefined, 'FI', 500),
+  greece: category('greece', 'Greece', undefined, 'GR', 500),
+  ireland: category('ireland', 'Ireland', undefined, 'IE', 500),
+  japan: category('japan', 'Japan', undefined, 'JP', 500),
+  korea: category('korea', 'South Korea', undefined, 'KR', 500),
+  mexico: category('mexico', 'Mexico', undefined, 'MX', 500),
+  norway: category('norway', 'Norway', undefined, 'NO', 500),
+  poland: category('poland', 'Poland', undefined, 'PL', 500),
+  russia: category('russia', 'Russia', undefined, 'RU', 500),
+  sweden: category('sweden', 'Sweden', undefined, 'SE', 500),
+  switzerland: category('switzerland', 'Switzerland', undefined, 'CH', 500),
+  // US basketball keys name the competition, not the country.
+  nba: BASKETBALL.usa,
+  wnba: BASKETBALL.usa,
+  ncaab: BASKETBALL.usa,
+  wncaab: BASKETBALL.usa,
+});
+
+/** Titles that name a country differently from its key ("Turkey Super League" → turkey). */
+const COUNTRY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
+  'south korea': 'korea',
+  'saudi arabia': 'saudi',
+  'united states': 'usa',
+  'united kingdom': 'england',
+});
+
 /** Grand slams are featured; every tennis tournament is on (it only exists while it runs). */
 const GRAND_SLAMS = ['aus_open', 'french_open', 'wimbledon', 'us_open'];
 
@@ -418,12 +469,15 @@ export function leagueFor(sport: OddsApiSport): LeagueEntry | null {
   return derivedLeague(sport, ours);
 }
 
-/** Whether a league is switched on before staff choose: tier 1, or listed in ODDS_API_SPORTS. */
+/**
+ * Whether a league starts switched on (staff change it afterwards): the keys listed in
+ * ODDS_API_SPORTS when that list is set, else every tier 1 league.
+ */
 export function enabledByDefault(
   entry: LeagueEntry,
-  extraSportKeys: readonly string[] = [],
+  listedSportKeys: readonly string[] = [],
 ): boolean {
-  return entry.tier === 1 || extraSportKeys.includes(entry.sportKey);
+  return listedSportKeys.length > 0 ? listedSportKeys.includes(entry.sportKey) : entry.tier === 1;
 }
 
 /** The registry's known keys (for tests and the back office). */
@@ -449,21 +503,23 @@ function tennisLeague(sport: OddsApiSport): LeagueEntry {
   };
 }
 
-/** "La Liga - Spain" → category Spain, competition "La Liga"; no suffix → the sport's region. */
+/**
+ * A place for a key the registry does not know: the country from the key's words, else from
+ * the title's "- Country" suffix, else the sport's "International" category.
+ */
 function derivedLeague(sport: OddsApiSport, ours: SportCode): LeagueEntry {
   const match = /^(.*\S)\s+-\s+(\S.*)$/.exec(sport.title);
   const competitionName = match?.[1] ?? sport.title;
-  const country = match?.[2];
-  const fallback = ours === 'basketball' ? BASKETBALL.europe : FOOTBALL.international;
-  const known = country === undefined ? undefined : knownCategory(ours, country);
+  const found =
+    countryOf(sport.key) ?? (match?.[2] === undefined ? null : countryOfTitle(match[2]));
   return {
     sportKey: sport.key,
     sport: ours,
     category:
-      known ??
-      (country === undefined
-        ? fallback
-        : category(slugify(country), country, undefined, null, 500)),
+      found ??
+      (match?.[2] === undefined
+        ? INTERNATIONAL
+        : category(slugify(match[2]), match[2], undefined, null, 500)),
     competition: {
       slug: slugify(sport.key.replace(/^[a-z]+_/, '')),
       name: { en: competitionName },
@@ -475,12 +531,21 @@ function derivedLeague(sport: OddsApiSport, ours: SportCode): LeagueEntry {
   };
 }
 
-function knownCategory(sport: SportCode, country: string): LeagueCategory | undefined {
-  const pool: readonly LeagueCategory[] = Object.values(
-    sport === 'basketball' ? BASKETBALL : FOOTBALL,
-  );
-  const wanted = country.trim().toLowerCase();
-  return pool.find((entry) => entry.name.en.toLowerCase() === wanted);
+const INTERNATIONAL = FOOTBALL.international;
+
+/** The country named by a word of the sport key (after the sport prefix), if any. */
+function countryOf(sportKey: string): LeagueCategory | null {
+  for (const word of sportKey.split('_').slice(1)) {
+    if (Object.hasOwn(COUNTRIES, word)) return COUNTRIES[word] ?? null;
+  }
+  return null;
+}
+
+function countryOfTitle(text: string): LeagueCategory | null {
+  const wanted = text.trim().toLowerCase();
+  const word = Object.hasOwn(COUNTRY_ALIASES, wanted) ? COUNTRY_ALIASES[wanted] : wanted;
+  if (word !== undefined && Object.hasOwn(COUNTRIES, word)) return COUNTRIES[word] ?? null;
+  return Object.values(COUNTRIES).find((entry) => entry.name.en.toLowerCase() === wanted) ?? null;
 }
 
 /** Lower-case kebab slug of letters and digits. */

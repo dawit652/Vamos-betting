@@ -106,13 +106,14 @@ const outcomeSchema = z.object({
 const marketSchema = z.object({
   key: z.string().min(1),
   last_update: time.optional(),
-  outcomes: z.array(outcomeSchema).min(1),
+  outcomes: z.array(z.unknown()),
 });
 
 const bookmakerShellSchema = z.object({
   key: z.string().min(1),
   title: z.string(),
-  last_update: time,
+  // Absent from the per-event odds endpoint, which stamps each market instead.
+  last_update: time.optional(),
   markets: z.array(z.unknown()),
 });
 
@@ -186,11 +187,17 @@ export function parseSports(raw: unknown): Parsed<OddsApiSport> {
   }));
 }
 
+/** An outcome priced at exactly 1.00: bookmakers keep dead alternate lines at that price. */
+function isDeadPrice(raw: unknown): boolean {
+  return typeof raw === 'object' && raw !== null && (raw as { price?: unknown }).price === 1;
+}
+
 function parseBookmaker(raw: unknown): { bookmaker: OddsApiBookmaker | null; dropped: number } {
   const shell = bookmakerShellSchema.safeParse(raw);
   if (!shell.success) return { bookmaker: null, dropped: 1 };
-  const { key, title, last_update: lastUpdate, markets: rawMarkets } = shell.data;
-  const markets: OddsApiMarket[] = [];
+  const { key, title, markets: rawMarkets } = shell.data;
+  const parsed: Array<{ key: string; last_update: Date | undefined; outcomes: OddsApiOutcome[] }> =
+    [];
   let dropped = 0;
   for (const rawMarket of rawMarkets) {
     const market = marketSchema.safeParse(rawMarket);
@@ -198,12 +205,32 @@ function parseBookmaker(raw: unknown): { bookmaker: OddsApiBookmaker | null; dro
       dropped += 1;
       continue;
     }
-    markets.push({
-      key: market.data.key,
-      lastUpdate: market.data.last_update ?? lastUpdate,
-      outcomes: market.data.outcomes,
-    });
+    // Outcomes are judged one by one: a line quoted at exactly 1.00 (a dead alternate
+    // line) is skipped silently, a malformed one is dropped and counted. Whoever reads
+    // the market checks it still has the outcomes it needs.
+    const outcomes: OddsApiOutcome[] = [];
+    for (const rawOutcome of market.data.outcomes) {
+      const outcome = outcomeSchema.safeParse(rawOutcome);
+      if (outcome.success) outcomes.push(outcome.data);
+      else if (!isDeadPrice(rawOutcome)) dropped += 1;
+    }
+    if (outcomes.length === 0) {
+      if (market.data.outcomes.length === 0) dropped += 1;
+      continue;
+    }
+    parsed.push({ key: market.data.key, last_update: market.data.last_update, outcomes });
   }
+  // The bookmaker's own stamp, else the newest of its markets'.
+  const stamps = parsed.flatMap((m) => (m.last_update === undefined ? [] : [m.last_update]));
+  const lastUpdate =
+    shell.data.last_update ??
+    (stamps.length === 0 ? null : new Date(Math.max(...stamps.map((d) => d.getTime()))));
+  if (lastUpdate === null) return { bookmaker: null, dropped: dropped + 1 };
+  const markets: OddsApiMarket[] = parsed.map((m) => ({
+    key: m.key,
+    lastUpdate: m.last_update ?? lastUpdate,
+    outcomes: m.outcomes,
+  }));
   return { bookmaker: { key, title, lastUpdate, markets }, dropped };
 }
 

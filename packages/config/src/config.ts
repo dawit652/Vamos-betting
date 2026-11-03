@@ -231,7 +231,7 @@ const envSchema = z.object({
   ODDS_API_REGIONS: csvOf(ODDS_API_KEY_RE, 'region').default(['eu']),
   /** Explicit bookmakers instead of regions (every 10 cost as much as one region). */
   ODDS_API_BOOKMAKERS: csvOf(ODDS_API_KEY_RE, 'bookmaker').default([]),
-  /** Sport keys enabled on top of the league registry's defaults. */
+  /** Exactly these sport keys start enabled (empty: the registry's tier 1 leagues). */
   ODDS_API_SPORTS: csvOf(ODDS_API_KEY_RE, 'sport key').default([]),
   /** Credits per month the poller plans to spend (the plan's quota). */
   ODDS_API_MONTHLY_CREDITS: z.coerce.number().int().min(1).max(1_000_000_000).default(20_000),
@@ -404,7 +404,7 @@ export interface OddsApiConfig {
   regions: string[];
   /** When set, read instead of `regions`. */
   bookmakers: string[];
-  /** Sport keys enabled on top of the registry's defaults. */
+  /** Exactly these sport keys start enabled (empty: the registry's tier 1 leagues). */
   sports: string[];
   monthlyCredits: number;
   reservePercent: number;

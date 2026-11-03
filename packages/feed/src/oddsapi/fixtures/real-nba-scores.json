@@ -1,0 +1,73 @@
+[
+  {
+    "id": "0a12a55607db0bd7eeafee050c45988e",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-11-03T00:12:00Z",
+    "completed": true,
+    "home_team": "Cleveland Cavaliers",
+    "away_team": "Oklahoma City Thunder",
+    "scores": [
+      {
+        "name": "Cleveland Cavaliers",
+        "score": "112"
+      },
+      {
+        "name": "Oklahoma City Thunder",
+        "score": "117"
+      }
+    ],
+    "last_update": "2026-11-03T10:56:18Z"
+  },
+  {
+    "id": "53ad3f78c949e79381b5e90a70293ac6",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-11-03T00:40:39Z",
+    "completed": true,
+    "home_team": "Indiana Pacers",
+    "away_team": "Atlanta Hawks",
+    "scores": [
+      {
+        "name": "Indiana Pacers",
+        "score": "104"
+      },
+      {
+        "name": "Atlanta Hawks",
+        "score": "108"
+      }
+    ],
+    "last_update": "2026-11-03T10:56:18Z"
+  },
+  {
+    "id": "0a808d8f7afab3c0e249ca284c470806",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-11-03T00:40:50Z",
+    "completed": true,
+    "home_team": "Philadelphia 76ers",
+    "away_team": "Chicago Bulls",
+    "scores": [
+      {
+        "name": "Philadelphia 76ers",
+        "score": "126"
+      },
+      {
+        "name": "Chicago Bulls",
+        "score": "107"
+      }
+    ],
+    "last_update": "2026-11-03T10:56:18Z"
+  },
+  {
+    "id": "91df86557819598ca270ba35410cfcfa",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-11-05T00:10:00Z",
+    "completed": false,
+    "home_team": "Detroit Pistons",
+    "away_team": "Philadelphia 76ers",
+    "scores": null,
+    "last_update": null
+  }
+]

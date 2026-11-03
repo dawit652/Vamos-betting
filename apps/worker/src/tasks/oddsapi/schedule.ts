@@ -103,12 +103,13 @@ export function nextScoresPollAt(input: {
 }
 
 /**
- * The oldest bookmaker quote used for a prematch price: 45 minutes in the
- * last 3 hours before the start, 3 hours before that. (To calibrate against
- * real `last_update` values.)
+ * The oldest bookmaker quote used for a prematch price: 30 minutes in the last 3 hours before
+ * the start, 90 minutes before that. The first real capture (3 Nov 2026) showed every bookmaker
+ * stamp within about 5 minutes of the call, so these leave room for slower leagues without
+ * letting a stuck price count.
  */
 export function prematchQuoteMaxAgeMs(untilStartMs: number): number {
-  return untilStartMs <= 3 * HOUR_MS ? 45 * MINUTE_MS : 3 * HOUR_MS;
+  return untilStartMs <= 3 * HOUR_MS ? 30 * MINUTE_MS : 90 * MINUTE_MS;
 }
 
 /** The oldest bookmaker quote used for an in-play price. */

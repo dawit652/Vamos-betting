@@ -20,16 +20,16 @@ make the same integration usable in licensed mode behind stricter checks.
 
 ## 2. The Odds API in brief
 
-| Endpoint                                   | Gives                                                                                                             | Credits                    |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `GET /v4/sports`                           | every sport key: `group`, `title`, `description`, `active`, `has_outrights`                                       | free                       |
-| `GET /v4/sports/{key}/events`              | upcoming and live events (id, teams, `commence_time`), no odds                                                    | free                       |
-| `GET /v4/sports/{key}/odds`                | every event of a league with each bookmaker's featured markets (`h2h`, `spreads`, `totals`, `outrights`, `*_lay`) | markets × regions          |
-| `GET /v4/sports/{key}/events/{id}/odds`    | one event, any market (`btts`, `draw_no_bet`, `alternate_totals`, period markets…)                                | markets returned × regions |
-| `GET /v4/sports/{key}/events/{id}/markets` | the markets each bookmaker has for an event                                                                       | 1                          |
-| `GET /v4/sports/{key}/scores`              | live scores; with `daysFrom=1..3` also completed results                                                          | 1, or 2 with `daysFrom`    |
-| `GET /v4/sports/{key}/participants`        | team or player names of a league                                                                                  | 1                          |
-| `GET /v4/historical/…`                     | past odds snapshots (paid plans)                                                                                  | 10 × markets × regions     |
+| Endpoint                                   | Gives                                                                                                             | Credits                     |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `GET /v4/sports`                           | every sport key: `group`, `title`, `description`, `active`, `has_outrights`                                       | free                        |
+| `GET /v4/sports/{key}/events`              | upcoming and live events (id, teams, `commence_time`), no odds                                                    | free                        |
+| `GET /v4/sports/{key}/odds`                | every event of a league with each bookmaker's featured markets (`h2h`, `spreads`, `totals`, `outrights`, `*_lay`) | markets × regions           |
+| `GET /v4/sports/{key}/events/{id}/odds`    | one event, any market (`btts`, `draw_no_bet`, `alternate_totals`, period markets…)                                | markets requested × regions |
+| `GET /v4/sports/{key}/events/{id}/markets` | the markets each bookmaker has for an event                                                                       | 1                           |
+| `GET /v4/sports/{key}/scores`              | live scores; with `daysFrom=1..3` also completed results                                                          | 1, or 2 with `daysFrom`     |
+| `GET /v4/sports/{key}/participants`        | team or player names of a league                                                                                  | 1                           |
+| `GET /v4/historical/…`                     | past odds snapshots (paid plans)                                                                                  | 10 × markets × regions      |
 
 - One `/odds` call returns every event of a league, so the cost grows with leagues × markets × regions, not
   with the number of events.
@@ -150,7 +150,7 @@ budget, only for featured matches to check the model's derived prices against th
   category from the title's "– Country" suffix or the group. Tennis gets ATP / WTA categories with one
   competition per tournament.
 - **Which leagues are on:** football, basketball and tennis keys in the registry's tier 1 by default (top
-  European leagues, UEFA competitions, NBA, Euroleague, ATP/WTA), plus anything in `ODDS_API_SPORTS`. Staff
+  European leagues, UEFA competitions, NBA, Euroleague, ATP/WTA), or exactly the keys in `ODDS_API_SPORTS` when it is set. Staff
   switch leagues on and off in the back office. Politics and other non-sport keys are never enabled.
 - **Teams** are created on first sight by exact name; `feed_team_aliases` (provider, sport, external name →
   team) lets staff merge a name into an existing team and keep its Amharic name.
@@ -318,6 +318,43 @@ weights; the registry's sport keys; and whether tennis scores can be read.
 **Not built yet** from §8: the 48-hour postponement rule (a start time that moves far after bets were taken
 still moves the bets with it, as with the mock feed).
 
+### First real capture (3 Nov 2026, 15:13 UTC, region `eu`)
+
+Run with `scripts/odds-api/capture-samples.ps1`; the responses are in
+`packages/feed/src/oddsapi/fixtures/real-*.json` and pinned by `real-samples.test.ts`.
+
+**Confirmed**
+
+- Credits are **markets requested × regions** (7 requested event markets cost 7), `/sports`, `/events` cost 0, `/scores?daysFrom` costs 2,
+  `/events/{id}/markets` costs 1. The free plan has 500 credits a month.
+- `/sports?all=true` lists 184 keys; the registry's keys all exist. Football, basketball and tennis
+  keys all map to a place in the catalogue; every `has_outrights` key is skipped.
+- Every bookmaker stamp was within about 5 minutes of the call. The 24 bookmakers of the `eu` region
+  include Pinnacle (on some events), Betfair and Matchbook exchanges, 1xBet, Marathonbet and William Hill.
+- Books agree closely: on the 8 sample events the consensus had 5 to 8 books, 0.3 to 2.3 points of
+  disagreement and no outliers. Exchanges price at about 1% overround, retail books at 5 to 14%.
+- The goals model matches a real bookmaker: against 1xBet's alternate totals and BTTS for
+  Everton v Coventry it was within 1 point on the main lines and BTTS and within 2.5 points at over 4.5.
+- Error bodies are `{message, error_code, details_url}`: `INVALID_KEY` (401), `INVALID_MARKET` (422,
+  BTTS is not allowed on `/odds`), `UNKNOWN_SPORT` (404).
+- Football totals come from only 2 to 4 books, and some books quote whole or quarter lines that we skip.
+  Licensed mode (3 books, one sharp) will therefore price fewer football totals and model markets.
+
+**Corrections it forced** (now fixed): a bookmaker from the per-event endpoint has no `last_update`
+(markets carry it), and dead alternate lines are quoted at exactly 1.00. Prematch quote age limits went
+from 3 hours to 30 minutes (90 before the last 3 hours).
+
+**Not available from the API**
+
+- No Ethiopian or CAF competitions and no volleyball.
+- Tennis scores stayed empty for a match already under way, so tennis never goes live from scores: it is
+  closed at its start time and resulted when completed. No completed tennis score has been seen yet
+  (expected: sets won).
+- A completed score's `last_update` can be hours after the match, so it says nothing about the result time.
+
+**Free plan:** with 409 credits left, set `ODDS_API_MONTHLY_CREDITS=500`, `ODDS_API_SPORTS=soccer_epl`
+and `ODDS_API_INPLAY=false`. One in-play league costs about 120 credits an hour.
+
 ## 14. Risks and open questions
 
 | Risk                                   | Mitigation                                                                   |
@@ -343,7 +380,7 @@ format, and whether `/odds` charges for markets requested or returned.
 | `ODDS_API_BASE_URL`               | `https://api.the-odds-api.com/v4` | https required in licensed mode                          |
 | `ODDS_API_REGIONS`                | `eu`                              | regions to read                                          |
 | `ODDS_API_BOOKMAKERS`             | —                                 | explicit bookmakers instead of regions (10 = one region) |
-| `ODDS_API_SPORTS`                 | registry tier 1                   | extra sport keys to enable                               |
+| `ODDS_API_SPORTS`                 | registry tier 1                   | exactly the sport keys that start enabled                |
 | `ODDS_API_MONTHLY_CREDITS`        | `20000`                           | the governor's monthly target                            |
 | `ODDS_API_RESERVE_PERCENT`        | `10`                              | credits kept for in-play and results                     |
 | `ODDS_API_MIN_BOOKS`              | 2 demo, 3 licensed                | quorum per market; licensed mode refuses less than 3     |

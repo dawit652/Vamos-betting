@@ -1,0 +1,256 @@
+{
+  "id": "586bec023ee8ac2f0645d963bd2c9d25",
+  "sport_key": "soccer_epl",
+  "sport_title": "EPL",
+  "commence_time": "2026-11-06T20:00:00Z",
+  "home_team": "Everton",
+  "away_team": "Coventry City",
+  "bookmakers": [
+    {
+      "key": "winamax_fr",
+      "title": "Winamax (FR)",
+      "markets": [
+        {
+          "key": "h2h_3_way",
+          "last_update": "2026-11-03T15:13:08Z",
+          "outcomes": [
+            {
+              "name": "Coventry City",
+              "price": 4.3
+            },
+            {
+              "name": "Everton",
+              "price": 1.64
+            },
+            {
+              "name": "Draw",
+              "price": 3.8
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "onexbet",
+      "title": "1xBet",
+      "markets": [
+        {
+          "key": "btts",
+          "last_update": "2026-11-03T15:12:24Z",
+          "outcomes": [
+            {
+              "name": "Yes",
+              "price": 1.71
+            },
+            {
+              "name": "No",
+              "price": 2.04
+            }
+          ]
+        },
+        {
+          "key": "h2h_3_way",
+          "last_update": "2026-11-03T15:12:24Z",
+          "outcomes": [
+            {
+              "name": "Coventry City",
+              "price": 4.93
+            },
+            {
+              "name": "Everton",
+              "price": 1.75
+            },
+            {
+              "name": "Draw",
+              "price": 4.16
+            }
+          ]
+        },
+        {
+          "key": "alternate_totals",
+          "last_update": "2026-11-03T15:12:49Z",
+          "outcomes": [
+            {
+              "name": "Over",
+              "price": 1.0,
+              "point": 0.5
+            },
+            {
+              "name": "Over",
+              "price": 1.02,
+              "point": 1.0
+            },
+            {
+              "name": "Over",
+              "price": 1.22,
+              "point": 1.5
+            },
+            {
+              "name": "Over",
+              "price": 1.36,
+              "point": 2.0
+            },
+            {
+              "name": "Over",
+              "price": 1.81,
+              "point": 2.5
+            },
+            {
+              "name": "Over",
+              "price": 2.3,
+              "point": 3.0
+            },
+            {
+              "name": "Over",
+              "price": 2.9,
+              "point": 3.5
+            },
+            {
+              "name": "Over",
+              "price": 4.66,
+              "point": 4.0
+            },
+            {
+              "name": "Over",
+              "price": 5.38,
+              "point": 4.5
+            },
+            {
+              "name": "Over",
+              "price": 8.0,
+              "point": 5.0
+            },
+            {
+              "name": "Over",
+              "price": 8.55,
+              "point": 5.5
+            },
+            {
+              "name": "Over",
+              "price": 9.8,
+              "point": 6.5
+            },
+            {
+              "name": "Over",
+              "price": 11.6,
+              "point": 7.5
+            },
+            {
+              "name": "Under",
+              "price": 11.6,
+              "point": 0.5
+            },
+            {
+              "name": "Under",
+              "price": 10.4,
+              "point": 1.0
+            },
+            {
+              "name": "Under",
+              "price": 4.07,
+              "point": 1.5
+            },
+            {
+              "name": "Under",
+              "price": 3.23,
+              "point": 2.0
+            },
+            {
+              "name": "Under",
+              "price": 2.15,
+              "point": 2.5
+            },
+            {
+              "name": "Under",
+              "price": 1.66,
+              "point": 3.0
+            },
+            {
+              "name": "Under",
+              "price": 1.42,
+              "point": 3.5
+            },
+            {
+              "name": "Under",
+              "price": 1.18,
+              "point": 4.0
+            },
+            {
+              "name": "Under",
+              "price": 1.14,
+              "point": 4.5
+            },
+            {
+              "name": "Under",
+              "price": 1.05,
+              "point": 5.0
+            },
+            {
+              "name": "Under",
+              "price": 1.04,
+              "point": 5.5
+            },
+            {
+              "name": "Under",
+              "price": 1.02,
+              "point": 6.5
+            },
+            {
+              "name": "Under",
+              "price": 1.0,
+              "point": 7.5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "winamax_de",
+      "title": "Winamax (DE)",
+      "markets": [
+        {
+          "key": "h2h_3_way",
+          "last_update": "2026-11-03T15:12:07Z",
+          "outcomes": [
+            {
+              "name": "Coventry City",
+              "price": 4.4
+            },
+            {
+              "name": "Everton",
+              "price": 1.66
+            },
+            {
+              "name": "Draw",
+              "price": 3.95
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "unibet_fr",
+      "title": "Unibet (FR)",
+      "markets": [
+        {
+          "key": "h2h_3_way",
+          "last_update": "2026-11-03T15:12:24Z",
+          "outcomes": [
+            {
+              "name": "Coventry City",
+              "price": 4.2
+            },
+            {
+              "name": "Everton",
+              "price": 1.6
+            },
+            {
+              "name": "Draw",
+              "price": 3.6
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
