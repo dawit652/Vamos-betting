@@ -1,6 +1,7 @@
 # The Odds API integration plan
 
-_Plan date: 3 Nov 2026. Branch `claude/cool-albattani-kldl81`. Companion to [build-plan.md](./build-plan.md)._
+_Plan date: 3 Nov 2026, status updated the same day. Branch `claude/cool-albattani-kldl81`. Companion to
+[build-plan.md](./build-plan.md)._
 
 Status of each phase is in §13. Repo rules are in `CLAUDE.md`; they all apply (bigint santim, integer milli
 odds, double-entry ledger, zod at the edges, never weaken the licensed-mode guard).
@@ -274,28 +275,46 @@ Excluded by policy, whatever competitors do: casino, crash and virtual games, cr
 "Lead" work stays in the main session at full reasoning depth (money, settlement, pricing math, guards).
 Mechanical work goes to cheaper sub-agents with low or medium effort and a precise brief, to save tokens.
 
-| #   | Phase              | Scope                                                                                                                                                                             | Complexity       | Built by           | Status  |
-| --- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ------------------ | ------- |
-| 0   | Plan               | this document, `scripts/odds-api/capture-samples.ps1`                                                                                                                             | low              | lead               | done    |
-| 1   | Config and guard   | `FEED_PROVIDER=theoddsapi`, `ODDS_API_*` settings, licensed checks, tests                                                                                                         | medium, safety   | lead               | planned |
-| 2   | Client and schemas | client, zod schemas, fake-fetch tests, fixtures recorded from real responses                                                                                                      | medium           | sub-agent (medium) | planned |
-| 3   | Consensus engine   | de-vig, consensus, outliers, quorum, lines, Dixon–Coles fit, pricing, property tests                                                                                              | high, money      | lead               | planned |
-| 4   | League registry    | sport key → sport, country, league, flags, Amharic names (pending review)                                                                                                         | low              | sub-agent (low)    | planned |
-| 5   | Database           | migration: `feed_leagues`, `feed_team_aliases`, `feed_api_calls`, `feed_results`, `events.odds_updated_at`; catalogue functions; suspend-missing; live refresh; integration tests | high             | lead               | planned |
-| 6   | Worker             | catalogue sync, odds poller with scheduler and governor, scores and results, stale and overdue sweeps, retiring mock events                                                       | high             | lead               | planned |
-| 7   | API and contracts  | `oddsUpdatedAt` and `simulated` on events; admin feed endpoints                                                                                                                   | medium           | sub-agent (medium) | planned |
-| 8   | Web                | odds arrows, freshness, flags and league browser, live score without clock, search                                                                                                | medium           | sub-agent (medium) | planned |
-| 9   | Admin              | feed page: credits, leagues on/off and margins, results review, aliases                                                                                                           | medium           | sub-agent (medium) | planned |
-| 10  | i18n and docs      | en/am/om/ti strings; architecture, deployment and runbook updates                                                                                                                 | low              | sub-agent (low)    | planned |
-| 11  | Handicap           | core `hcp` market (signed half-point lines), settlement, spreads mapping                                                                                                          | high, settlement | lead               | planned |
-| 12  | More sports        | ice hockey, American football, baseball, cricket, rugby, MMA, boxing, Aussie rules                                                                                                | high             | lead + sub-agent   | planned |
-| 13  | Outrights          | outright events and markets, staff settlement                                                                                                                                     | high             | lead               | planned |
-| 14  | Growth features    | boosts, accumulator of the day, early payout, bet builder, favourites                                                                                                             | medium–high      | mixed              | planned |
-| 15  | Review             | adversarial review (money, security, reliability), e2e against a stub Odds API                                                                                                    | high             | reviewers          | planned |
+| #   | Phase              | Scope                                                                                                                                                                             | Complexity       | Built by           | Status      |
+| --- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ------------------ | ----------- |
+| 0   | Plan               | this document, `scripts/odds-api/capture-samples.ps1`                                                                                                                             | low              | lead               | done        |
+| 1   | Config and guard   | `FEED_PROVIDER=theoddsapi`, `ODDS_API_*` settings, licensed checks, tests                                                                                                         | medium, safety   | lead               | done        |
+| 2   | Client and schemas | client, zod schemas, fake-fetch tests, fixtures recorded from real responses                                                                                                      | medium           | sub-agent (medium) | done        |
+| 3   | Consensus engine   | de-vig, consensus, outliers, quorum, lines, Dixon–Coles fit, pricing, property tests                                                                                              | high, money      | lead               | done        |
+| 4   | League registry    | sport key → sport, country, league, flags, Amharic names (pending review)                                                                                                         | low              | sub-agent (low)    | done        |
+| 5   | Database           | migration: `feed_leagues`, `feed_team_aliases`, `feed_api_calls`, `feed_results`, `events.odds_updated_at`; catalogue functions; suspend-missing; live refresh; integration tests | high             | lead               | done        |
+| 6   | Worker             | catalogue sync, odds poller with scheduler and governor, scores and results, stale and overdue sweeps, retiring mock events                                                       | high             | lead               | done        |
+| 7   | API and contracts  | `oddsUpdatedAt` and `simulated` on events; admin feed endpoints                                                                                                                   | medium           | sub-agent (medium) | in progress |
+| 8   | Web                | odds arrows, freshness, flags and league browser, live score without clock, search                                                                                                | medium           | sub-agent (medium) | in progress |
+| 9   | Admin              | feed page: credits, leagues on/off and margins, results review, aliases                                                                                                           | medium           | sub-agent (medium) | in progress |
+| 10  | i18n and docs      | en/am/om/ti strings; architecture, deployment and runbook updates                                                                                                                 | low              | sub-agent (low)    | in progress |
+| 11  | Handicap           | core `hcp` market (signed half-point lines), settlement, spreads mapping                                                                                                          | high, settlement | lead               | planned     |
+| 12  | More sports        | ice hockey, American football, baseball, cricket, rugby, MMA, boxing, Aussie rules                                                                                                | high             | lead + sub-agent   | planned     |
+| 13  | Outrights          | outright events and markets, staff settlement                                                                                                                                     | high             | lead               | planned     |
+| 14  | Growth features    | boosts, accumulator of the day, early payout, bet builder, favourites                                                                                                             | medium–high      | mixed              | planned     |
+| 15  | Review             | adversarial review (money, security, reliability), e2e against a stub Odds API                                                                                                    | high             | reviewers          | planned     |
 
 **Done means:** with `ODDS_API_KEY` set and the host reachable, `pnpm dev` shows real matches with consensus
 prices; prices follow the market; matches settle from scores; nothing simulated is shown; credit use stays
 inside the budget. Format, lint, typecheck, unit, integration and e2e tests all pass.
+
+### Where the code is (phases 1–6)
+
+| Part                         | Code                                                                                     |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| Settings and licensed checks | `packages/config/src/config.ts` (`ODDS_API_*`, `licensedModeViolations`)                 |
+| Client, schemas, fixtures    | `packages/feed/src/oddsapi/{client,schema}.ts`, `fixtures/`                              |
+| League registry, mapping     | `packages/feed/src/oddsapi/{leagues,map}.ts`                                             |
+| Consensus and pricing        | `packages/feed/src/consensus/{devig,consensus,lines,goals-model,price}.ts`               |
+| Database                     | migration `0032_odds_api_feed`, `packages/db/src/feed/index.ts`, `upsertFixture` options |
+| Worker tasks and schedule    | `apps/worker/src/tasks/oddsapi/{index,schedule}.ts`                                      |
+
+**Still to calibrate with real responses:** the bookmaker quote age limits (`prematchQuoteMaxAgeMs`,
+`IN_PLAY_QUOTE_MAX_AGE_MS` in `schedule.ts`) depend on how The Odds API sets `last_update`; the sharp-book
+weights; the registry's sport keys; and whether tennis scores can be read.
+
+**Not built yet** from §8: the 48-hour postponement rule (a start time that moves far after bets were taken
+still moves the bets with it, as with the mock feed).
 
 ## 14. Risks and open questions
 

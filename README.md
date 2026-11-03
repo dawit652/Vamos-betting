@@ -51,6 +51,14 @@ pnpm db:seed
 pnpm dev          # api :4000, worker, web :3000
 ```
 
+### Real odds (The Odds API)
+
+Demo mode can show real bookmaker odds instead of simulated ones: set `FEED_PROVIDER=theoddsapi` and
+`ODDS_API_KEY` in `.env`, and make sure the worker can reach `api.the-odds-api.com`. Prices are a consensus of
+many bookmakers with our margin on top; matches settle from the API's scores. See
+[docs/odds-api-integration-plan.md](docs/odds-api-integration-plan.md) for the design, the credit budget and
+the licensed-mode rules.
+
 ## Quality checks
 
 ```bash

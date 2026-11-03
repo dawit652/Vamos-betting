@@ -31,12 +31,13 @@ Vamos is modelled on **Betika**, the East African sportsbook that operated in Et
 
 ## Operating modes
 
-|                       | `demo` (default)      | `licensed`                                          |
-| --------------------- | --------------------- | --------------------------------------------------- |
-| Money                 | Demo ETB (play money) | Real ETB                                            |
-| Payments              | `mock` only           | Real providers (telebirr, CBE Birr, M-Pesa, Chapa…) |
-| KYC / SMS / odds feed | mock                  | Real providers                                      |
-| Startup               | Always allowed        | Refused unless all the conditions below are met     |
+|           | `demo` (default)      | `licensed`                                          |
+| --------- | --------------------- | --------------------------------------------------- |
+| Money     | Demo ETB (play money) | Real ETB                                            |
+| Payments  | `mock` only           | Real providers (telebirr, CBE Birr, M-Pesa, Chapa…) |
+| KYC / SMS | mock                  | Real providers                                      |
+| Odds feed | mock or The Odds API  | The Odds API (real bookmaker odds) or manual        |
+| Startup   | Always allowed        | Refused unless all the conditions below are met     |
 
 **Licensed-mode startup conditions:**
 
@@ -68,7 +69,7 @@ The guard is `licensedModeViolations()` in `packages/config/src/config.ts`. Both
                 │               │
           ┌─────┴───────────────┴──────────────┐
           │ apps/worker (BullMQ)               │
-          │ feed ingest · live simulator ·     │
+          │ feed ingest / Odds API · live sim  │
           │ settlement · payouts · SMS ·       │
           │ ELS reporting · reconciliation     │
           └────────────────────────────────────┘
