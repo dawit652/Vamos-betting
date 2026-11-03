@@ -14,6 +14,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/users', label: 'Players', permission: 'users.view' },
   { href: '/kyc', label: 'KYC queue', permission: 'kyc.review' },
   { href: '/trading', label: 'Trading', permission: 'trading.view' },
+  { href: '/feed', label: 'Feed', permission: 'trading.view' },
   { href: '/risk', label: 'Risk', permission: 'risk.view' },
   { href: '/bets', label: 'Bets', permission: 'bets.view' },
   { href: '/withdrawals', label: 'Withdrawals', permission: 'withdrawals.view' },

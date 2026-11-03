@@ -17,13 +17,13 @@ describe('navigation by role', () => {
     const support = labels('support');
     expect(support).toContain('Players');
     expect(support).toContain('Bets');
-    for (const hidden of ['Trading', 'Risk', 'KYC queue', 'Withdrawals', 'Audit log']) {
+    for (const hidden of ['Trading', 'Feed', 'Risk', 'KYC queue', 'Withdrawals', 'Audit log']) {
       expect(support).not.toContain(hidden);
     }
   });
 
   it('trader sees trading and risk, finance sees withdrawals, kyc sees the queue', () => {
-    expect(labels('trader')).toEqual(expect.arrayContaining(['Trading', 'Risk']));
+    expect(labels('trader')).toEqual(expect.arrayContaining(['Trading', 'Feed', 'Risk']));
     expect(labels('finance')).toContain('Withdrawals');
     expect(labels('kyc')).toContain('KYC queue');
     expect(labels('compliance')).toContain('Audit log');
@@ -53,6 +53,7 @@ describe('path permissions', () => {
   it('maps nested paths to the nav entry', () => {
     expect(permissionForPath('/')).toBe('dashboard.view');
     expect(permissionForPath('/trading/abc')).toBe('trading.view');
+    expect(permissionForPath('/feed')).toBe('trading.view');
     expect(permissionForPath('/users/1')).toBe('users.view');
     expect(permissionForPath('/login')).toBeNull();
   });
