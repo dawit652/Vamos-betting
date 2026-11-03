@@ -2,7 +2,6 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { APP_ROLE, setAppRolePassword } from '../src/app-role';
-import { createDb } from '../src/client';
 import { createTestDatabase } from '../src/testing';
 import { dropTestDatabase } from './helpers';
 
@@ -121,10 +120,7 @@ describe('the app role', () => {
     await expect(setAppRolePassword(handle.db, 'short')).rejects.toThrow(/16 to 200/);
     const password = `${randomBytes(12).toString('hex')}'x`;
     await setAppRolePassword(handle.db, password);
-    const url = new URL(handle.url);
-    url.username = APP_ROLE;
-    url.password = password;
-    const app = createDb(url.toString(), { max: 1 });
+    const app = handle.openPool({ max: 1, user: APP_ROLE, password });
     try {
       const result = await app.db.execute(sql`SELECT current_user AS user`);
       expect(result.rows[0]).toEqual({ user: APP_ROLE });

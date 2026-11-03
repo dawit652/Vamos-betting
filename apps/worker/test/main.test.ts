@@ -82,7 +82,6 @@ describe('worker main', () => {
 
   afterAll(async () => {
     for (const handle of [demo, licensed]) {
-      handle?.pool.on('error', () => undefined);
       await handle?.drop();
     }
     await deleteQueueKeys(QUEUE_PREFIX);

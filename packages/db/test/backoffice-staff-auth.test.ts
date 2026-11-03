@@ -7,7 +7,6 @@ import {
   PEPPERED_HASH_PREFIX,
 } from '../src/backoffice/argon2';
 import { DomainError } from '../src/errors';
-import { createDb } from '../src/client';
 import {
   authenticateStaffSession,
   base32Decode,
@@ -555,7 +554,7 @@ describe('staff sign-in', () => {
   it('verifies the password and code outside any database transaction', async () => {
     // One connection only: a sign-in holding it in a transaction while argon2 runs would
     // block every other query until the hash is done.
-    const single = createDb(handle.url, { max: 1 });
+    const single = handle.openPool({ max: 1 });
     try {
       const staff = await newStaff();
       const probed: string[] = [];

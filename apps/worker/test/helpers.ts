@@ -136,7 +136,6 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
       if (keys.length > 0) await redis.del(...keys.map((key) => key.slice(prefix.length)));
       await redis.quit();
       await deleteQueueKeys(queuePrefix);
-      db.pool.on('error', () => undefined);
       await db.drop();
     },
   };

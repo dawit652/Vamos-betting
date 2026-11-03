@@ -1,5 +1,4 @@
 import { randomInt } from 'node:crypto';
-import type { Pool } from 'pg';
 import type { Database } from '../src/client';
 import { postTransaction, type AccountRef, type PostingResult } from '../src/ledger/index';
 import { users } from '../src/schema/index';
@@ -71,15 +70,9 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Drops a test database. `pool.end()` resolves before its idle clients have
- * finished disconnecting, so `DROP DATABASE … WITH (FORCE)` can terminate a
- * client mid-shutdown and its idle error listener re-emits that FATAL on the
- * pool; with no pool 'error' listener that becomes an uncaught exception.
+ * Drops a test database, if beforeAll got as far as creating it. `drop` waits
+ * until every connection of its pools has closed (see createTestDatabase).
  */
-export async function dropTestDatabase(
-  handle: { pool: Pool; drop: () => Promise<void> } | undefined,
-) {
-  if (!handle) return;
-  handle.pool.on('error', () => undefined);
-  await handle.drop();
+export async function dropTestDatabase(handle: { drop: () => Promise<void> } | undefined) {
+  await handle?.drop();
 }
