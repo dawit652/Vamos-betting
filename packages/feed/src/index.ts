@@ -20,4 +20,5 @@ export * from './consensus/lines';
 export * from './consensus/goals-model';
 export * from './consensus/price';
 export * from './oddsapi/leagues';
+export * from './oddsapi/coverage';
 export * from './oddsapi/map';

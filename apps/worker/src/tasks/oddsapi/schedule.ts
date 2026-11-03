@@ -31,6 +31,11 @@ const MAX_FACTOR = 24;
  * The budget for the next polls: intervals stretch by the ratio of the last
  * 24 hours' spend to a thirtieth of the monthly credits, and the mode drops to
  * reserve or critical as the remaining quota runs low.
+ *
+ * The monthly credits are the configured target, capped by the plan the API
+ * reports (`x-requests-used` + `x-requests-remaining` is the plan's quota):
+ * a 500-credit plan with the default 20 000 target would otherwise sit in
+ * reserve mode from the first call and never read prematch odds.
  */
 export function planBudget(input: {
   spentLast24h: number;
@@ -38,15 +43,29 @@ export function planBudget(input: {
   reservePercent: number;
   /** The quota left as last reported; null before the first call. */
   remaining: number | null;
+  /** The quota used this period as last reported, when known. */
+  used?: number | null;
 }): Budget {
-  const daily = input.monthlyCredits / 30;
-  const factor = Math.min(MAX_FACTOR, Math.max(1, input.spentLast24h / daily));
-  const reserve = (input.monthlyCredits * input.reservePercent) / 100;
-  const critical = input.monthlyCredits * CRITICAL_SHARE;
+  const monthly = effectiveMonthlyCredits(input.monthlyCredits, input.used, input.remaining);
+  const daily = monthly / 30;
+  const factor =
+    daily > 0 ? Math.min(MAX_FACTOR, Math.max(1, input.spentLast24h / daily)) : MAX_FACTOR;
+  const reserve = (monthly * input.reservePercent) / 100;
+  const critical = monthly * CRITICAL_SHARE;
   let mode: BudgetMode = 'normal';
   if (input.remaining !== null && input.remaining <= critical) mode = 'critical';
   else if (input.remaining !== null && input.remaining <= reserve) mode = 'reserve';
   return { factor, mode };
+}
+
+/** The configured monthly target, capped by the plan's quota once the API has reported it. */
+export function effectiveMonthlyCredits(
+  configured: number,
+  used: number | null | undefined,
+  remaining: number | null,
+): number {
+  if (used === null || used === undefined || remaining === null) return configured;
+  return Math.min(configured, used + remaining);
 }
 
 /** Base odds poll interval by the time left to the league's next start. */
@@ -88,17 +107,29 @@ export function nextOddsPollAt(input: {
 
 /**
  * When a league's scores are read next: every 2 minutes with a match in
- * play, every 10 while finished matches await their result, else every 30
- * (the governor stretches scores at most twofold: results settle bets).
+ * play when in-play betting is on (a goal must suspend the live markets at
+ * once), every 10 while a match is live without in-play betting or finished
+ * matches await their result, else every 30.
+ *
+ * Each call costs 2 credits, so without in-play betting the governor may
+ * stretch scores up to sixfold (results then settle a little later); with
+ * live markets open, at most twofold.
  */
 export function nextScoresPollAt(input: {
   now: Date;
   live: boolean;
   awaitingResults: boolean;
   budget: Budget;
+  /** In-play betting is on (default true: the strictest schedule). */
+  inPlay?: boolean;
 }): Date {
-  const factor = Math.min(2, input.budget.factor);
-  const base = input.live ? 2 * MINUTE_MS : input.awaitingResults ? 10 * MINUTE_MS : 30 * MINUTE_MS;
+  const liveMarkets = input.live && input.inPlay !== false;
+  const factor = Math.min(liveMarkets ? 2 : 6, input.budget.factor);
+  const base = liveMarkets
+    ? 2 * MINUTE_MS
+    : input.live || input.awaitingResults
+      ? 10 * MINUTE_MS
+      : 30 * MINUTE_MS;
   return new Date(input.now.getTime() + base * factor);
 }
 
@@ -115,9 +146,19 @@ export function prematchQuoteMaxAgeMs(untilStartMs: number): number {
 export const IN_PLAY_QUOTE_MAX_AGE_MS = 90_000;
 
 /**
+ * How far the budget may stretch the freshness limits: twofold in licensed
+ * mode, sixfold in demo. Past that, a league polled less often (the governor
+ * saving credits) shows suspended markets between polls instead of old prices.
+ */
+export function freshnessFactor(budgetFactor: number, licensed: boolean): number {
+  return Math.max(1, Math.min(licensed ? 2 : 6, budgetFactor));
+}
+
+/**
  * Freshness limits of the stale-odds sweep: an event whose last consensus is
  * older than about two and a half poll intervals of its bucket is suspended
  * until the next fresh poll. `startsWithinMs` null is the catch-all bucket.
+ * Pass the factor through freshnessFactor.
  */
 export function staleBuckets(
   factor: number,

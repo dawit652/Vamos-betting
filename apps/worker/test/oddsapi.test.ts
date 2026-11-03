@@ -26,6 +26,8 @@ import {
   type OddsApiTaskDeps,
 } from '../src/tasks/oddsapi/index';
 import {
+  effectiveMonthlyCredits,
+  freshnessFactor,
   HOUR_MS,
   MINUTE_MS,
   nextOddsPollAt,
@@ -232,6 +234,58 @@ describe('schedule', () => {
       planBudget({ spentLast24h: 0, monthlyCredits: 30_000, reservePercent: 10, remaining: 200 })
         .mode,
     ).toBe('critical');
+  });
+
+  it('caps the monthly target by the plan the API reports (used + remaining)', () => {
+    // The real free plan: x-requests-used 63, x-requests-remaining 437 (fixtures/real/quota.json).
+    expect(effectiveMonthlyCredits(20_000, 63, 437)).toBe(500);
+    expect(effectiveMonthlyCredits(300, 63, 437)).toBe(300);
+    expect(effectiveMonthlyCredits(20_000, null, 437)).toBe(20_000);
+    expect(effectiveMonthlyCredits(20_000, undefined, null)).toBe(20_000);
+    const free = { monthlyCredits: 20_000, reservePercent: 10 };
+    // Without the cap, 437 left of a 20 000 target is inside the 2 000 reserve: no prematch odds.
+    expect(planBudget({ ...free, spentLast24h: 0, remaining: 437 }).mode).toBe('reserve');
+    expect(planBudget({ ...free, spentLast24h: 0, remaining: 437, used: 63 })).toEqual({
+      factor: 1,
+      mode: 'normal',
+    });
+    // 500 a month is about 16.7 a day: 50 spent in a day stretches polls threefold.
+    expect(planBudget({ ...free, spentLast24h: 50, remaining: 437, used: 63 }).factor).toBeCloseTo(
+      3,
+    );
+    expect(planBudget({ ...free, spentLast24h: 0, remaining: 40, used: 460 }).mode).toBe('reserve');
+    expect(planBudget({ ...free, spentLast24h: 0, remaining: 4, used: 496 }).mode).toBe('critical');
+    // A plan reported as empty: the longest stretch and only scores, never NaN.
+    expect(planBudget({ ...free, spentLast24h: 0, remaining: 0, used: 0 })).toEqual({
+      factor: 24,
+      mode: 'critical',
+    });
+  });
+
+  it('reads scores less often without live markets, and stretches freshness only so far', () => {
+    const at = (input: Partial<Parameters<typeof nextScoresPollAt>[0]>) =>
+      nextScoresPollAt({
+        now: T0,
+        live: false,
+        awaitingResults: false,
+        budget: { factor: 1, mode: 'normal' },
+        ...input,
+      }).getTime() - T0.getTime();
+    expect(at({ live: true })).toBe(2 * MINUTE_MS);
+    expect(at({ live: true, inPlay: false })).toBe(10 * MINUTE_MS);
+    expect(at({ awaitingResults: true })).toBe(10 * MINUTE_MS);
+    expect(at({})).toBe(30 * MINUTE_MS);
+    const tight = { factor: 10, mode: 'normal' as const };
+    expect(at({ live: true, budget: tight })).toBe(4 * MINUTE_MS);
+    expect(at({ live: true, inPlay: false, budget: tight })).toBe(60 * MINUTE_MS);
+    expect(at({ awaitingResults: true, budget: tight })).toBe(60 * MINUTE_MS);
+
+    expect(freshnessFactor(24, true)).toBe(2);
+    expect(freshnessFactor(24, false)).toBe(6);
+    expect(freshnessFactor(1.5, true)).toBe(1.5);
+    expect(freshnessFactor(0.5, false)).toBe(1);
+    // Licensed: a match within the hour is suspended after 30 minutes without a fresh price.
+    expect(staleBuckets(freshnessFactor(24, true))[0]?.maxAgeMs).toBe(30 * MINUTE_MS);
   });
 
   it('polls more often near kick-off and every minute in play', () => {
@@ -557,6 +611,66 @@ describe('the real feed, end to end', () => {
       );
       expect(names).not.toContain('feed-ingest');
       expect(names).not.toContain('live-sim');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'never reads tennis scores (the API has none) and sends a match to staff once it should be over',
+    async () => {
+      const key = 'tennis_atp_paris_masters';
+      const start = new Date(t.clock.now.getTime() + 2 * HOUR_MS);
+      const players = { homeTeam: 'Brandon Nakashima', awayTeam: 'Matteo Berrettini' };
+      const twoWay = (bookmaker: string, home: number, away: number): OddsApiBookmaker => ({
+        key: bookmaker,
+        title: bookmaker,
+        lastUpdate: t.clock.now,
+        markets: [
+          {
+            key: 'h2h',
+            lastUpdate: t.clock.now,
+            outcomes: [
+              { name: players.homeTeam, price: home, point: null, description: null },
+              { name: players.awayTeam, price: away, point: null, description: null },
+            ],
+          },
+        ],
+      });
+      const tennisMatch: OddsApiEvent = {
+        id: 'tn1',
+        sportKey: key,
+        sportTitle: 'ATP Paris Masters',
+        commenceTime: start,
+        ...players,
+        bookmakers: [twoWay('pinnacle', 1.91, 1.95), twoWay('onexbet', 1.9, 1.96)],
+      };
+      fake.sportsData = [...fake.sportsData, sport(key, 'Tennis', 'ATP Paris Masters')];
+      fake.eventsData.set(key, [{ ...tennisMatch, bookmakers: [] }]);
+      fake.oddsData.set(key, [tennisMatch]);
+      await runOddsApiCatalogSync(t.ctx, deps);
+      await runOddsApiOddsPoll(t.ctx, deps);
+      const tn1 = await eventByRef('tn1');
+
+      t.clock.set(new Date(start.getTime() + 3 * HOUR_MS));
+      await t.db.db
+        .update(feedLeagues)
+        .set({ nextScoresAt: null })
+        .where(eq(feedLeagues.sportKey, key));
+      const calls = fake.calls.length;
+      await runOddsApiScoresPoll(t.ctx, deps);
+      expect(fake.calls.slice(calls)).not.toContain(`scores:${key}`);
+      expect((await runOddsApiSweeps(t.ctx, deps)).toStaff).toBe(0);
+
+      t.clock.set(new Date(start.getTime() + 6 * HOUR_MS + MINUTE_MS));
+      expect((await runOddsApiSweeps(t.ctx, deps)).toStaff).toBe(1);
+      const [review] = await t.db.db
+        .select()
+        .from(feedResults)
+        .where(eq(feedResults.eventId, tn1.id));
+      expect(review).toMatchObject({ reviewReason: 'tennis', scoreHome: null, appliedAt: null });
+      expect((await marketRows(tn1.id)).every((row) => row.status !== 'open')).toBe(true);
+      // Sent once: the next sweep leaves it with staff.
+      expect((await runOddsApiSweeps(t.ctx, deps)).toStaff).toBe(0);
     },
     TEST_TIMEOUT,
   );

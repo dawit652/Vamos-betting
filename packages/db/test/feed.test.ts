@@ -308,6 +308,21 @@ describe('upsertFixture for a real feed', () => {
       (await overdueFeedEvents(handle.db, PROVIDER, at(24 * 60 + 1))).map((e) => e.id),
     ).toEqual([eventId]);
     expect(await overdueFeedEvents(handle.db, PROVIDER, at(24 * 60 - 1))).toEqual([]);
+    // Only the given competitions (the sports without feed scores), none for an empty list.
+    const late = at(24 * 60 + 1);
+    expect(
+      await overdueFeedEvents(handle.db, PROVIDER, late, {
+        competitionIds: [fixture.competitionId],
+      }),
+    ).toEqual([
+      { id: eventId, startTime: fixture.startTime, competitionId: fixture.competitionId },
+    ]);
+    expect(
+      await overdueFeedEvents(handle.db, PROVIDER, late, {
+        competitionIds: ['00000000-0000-4000-8000-000000000000'],
+      }),
+    ).toEqual([]);
+    expect(await overdueFeedEvents(handle.db, PROVIDER, late, { competitionIds: [] })).toEqual([]);
   });
 });
 

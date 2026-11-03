@@ -491,20 +491,28 @@ export async function staleFeedEvents(
   return rows.map((row) => row.id);
 }
 
-/** The provider's scheduled or live events that started before `startedBefore` without a result. */
+/**
+ * The provider's scheduled or live events that started before `startedBefore`
+ * without a result; only those of `competitionIds` when given (none for []).
+ */
 export async function overdueFeedEvents(
   exec: DbExecutor,
   provider: string,
   startedBefore: Date,
-): Promise<Array<{ id: string; startTime: Date }>> {
+  filter: { competitionIds?: readonly string[] } = {},
+): Promise<Array<{ id: string; startTime: Date; competitionId: string }>> {
+  if (filter.competitionIds?.length === 0) return [];
   return exec
-    .select({ id: events.id, startTime: events.startTime })
+    .select({ id: events.id, startTime: events.startTime, competitionId: events.competitionId })
     .from(events)
     .where(
       and(
         eq(events.feedProvider, provider),
         inArray(events.status, ['scheduled', 'live']),
         lt(events.startTime, startedBefore),
+        filter.competitionIds === undefined
+          ? undefined
+          : inArray(events.competitionId, [...filter.competitionIds]),
       ),
     )
     .orderBy(asc(events.startTime));

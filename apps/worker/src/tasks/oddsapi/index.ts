@@ -36,7 +36,9 @@ import {
   estimateScoresCost,
   eventConsensus,
   FEATURED_MARKETS,
+  hasFeedScores,
   leagueFor,
+  NO_FEED_SCORES_REVIEW_AFTER_MS,
   MOCK_PROVIDER_NAME,
   OddsApiError,
   priceEvent,
@@ -60,6 +62,7 @@ import {
   IN_PLAY_STALE_MS,
   MINUTE_MS,
   nextOddsPollAt,
+  freshnessFactor,
   nextScoresPollAt,
   ODDS_HORIZON_MS,
   planBudget,
@@ -205,6 +208,7 @@ export async function currentBudget(ctx: TaskContext, config: OddsApiConfig): Pr
     monthlyCredits: config.monthlyCredits,
     reservePercent: config.reservePercent,
     remaining: quota?.remaining ?? null,
+    used: quota?.used ?? null,
   });
 }
 
@@ -575,9 +579,17 @@ export async function runOddsApiScoresPoll(
   for (const league of due.slice(0, deps.leaguesPerTick ?? 6)) {
     const entry = entryOf(league);
     const idle = {
-      nextScoresAt: nextScoresPollAt({ now, live: false, awaitingResults: false, budget }),
+      nextScoresAt: nextScoresPollAt({
+        now,
+        live: false,
+        awaitingResults: false,
+        budget,
+        inPlay: deps.config.inPlay,
+      }),
     };
-    if (entry === null || league.competitionId === null) {
+    if (entry === null || league.competitionId === null || !hasFeedScores(entry.sport)) {
+      // Nothing to read: unsupported, or a sport the API has no scores for (tennis),
+      // whose results staff enter (see the sweeps).
       await updateFeedLeaguePoll(ctx.db, ODDS_API_PROVIDER, league.sportKey, idle);
       continue;
     }
@@ -664,7 +676,13 @@ export async function runOddsApiScoresPoll(
     }
     await updateFeedLeaguePoll(ctx.db, ODDS_API_PROVIDER, league.sportKey, {
       lastScoresAt: now,
-      nextScoresAt: nextScoresPollAt({ now, live, awaitingResults: awaiting, budget }),
+      nextScoresAt: nextScoresPollAt({
+        now,
+        live,
+        awaitingResults: awaiting,
+        budget,
+        inPlay: deps.config.inPlay,
+      }),
       lastError: null,
       lastErrorAt: null,
     });
@@ -725,6 +743,8 @@ async function applyDueResults(
 
 export interface SweepSummary {
   stale: number;
+  /** Matches of a sport without feed scores (tennis) sent to staff for their result. */
+  toStaff: number;
   overdue: number;
   voided: number;
   pruned: number;
@@ -739,6 +759,7 @@ export async function runOddsApiSweeps(
 ): Promise<SweepSummary> {
   const summary: SweepSummary = {
     stale: 0,
+    toStaff: 0,
     overdue: 0,
     voided: 0,
     pruned: 0,
@@ -748,7 +769,7 @@ export async function runOddsApiSweeps(
   const now = ctx.clock();
   const budget = await currentBudget(ctx, deps.config);
   const stale = new Set<string>();
-  for (const bucket of staleBuckets(budget.factor)) {
+  for (const bucket of staleBuckets(freshnessFactor(budget.factor, deps.mode === 'licensed'))) {
     const ids = await staleFeedEvents(ctx.db, ODDS_API_PROVIDER, {
       now,
       prematchBefore: new Date(now.getTime() - bucket.maxAgeMs),
@@ -776,6 +797,43 @@ export async function runOddsApiSweeps(
   }
 
   const pending = await pendingFeedResultIds(ctx.db, ODDS_API_PROVIDER);
+  // The API reports no scores for these sports: once the match should be
+  // over, staff enter the result (in both modes; demo still voids at 72 h).
+  const scoreless = new Map<string, SportCode>();
+  for (const league of await listFeedLeagues(ctx.db, ODDS_API_PROVIDER)) {
+    const entry = entryOf(league);
+    if (league.competitionId !== null && entry !== null && !hasFeedScores(entry.sport)) {
+      scoreless.set(league.competitionId, entry.sport);
+    }
+  }
+  for (const event of await overdueFeedEvents(
+    ctx.db,
+    ODDS_API_PROVIDER,
+    new Date(now.getTime() - NO_FEED_SCORES_REVIEW_AFTER_MS),
+    { competitionIds: [...scoreless.keys()] },
+  )) {
+    if (pending.has(event.id)) continue;
+    const reviewReason = scoreless.get(event.competitionId) === 'tennis' ? 'tennis' : 'overdue';
+    try {
+      const messages = await ctx.db.transaction(async (tx) => {
+        const change = await suspendEvent(tx, event.id);
+        await recordFeedResult(tx, {
+          eventId: event.id,
+          provider: ODDS_API_PROVIDER,
+          score: null,
+          seenAt: now,
+          reviewReason,
+        });
+        return change.messages;
+      });
+      pending.add(event.id);
+      summary.toStaff++;
+      summary.published += await publishAfterCommit(ctx.redis, messages, ctx.channel, ctx.logger);
+    } catch (error) {
+      summary.failed++;
+      ctx.logger.error({ err: error, eventId: event.id }, 'sending an event to staff failed');
+    }
+  }
   for (const event of await overdueFeedEvents(
     ctx.db,
     ODDS_API_PROVIDER,
@@ -818,7 +876,7 @@ export async function runOddsApiSweeps(
     ODDS_API_PROVIDER,
     new Date(now.getTime() - CALL_RETENTION_MS),
   );
-  if (summary.stale + summary.overdue + summary.voided + summary.failed > 0) {
+  if (summary.stale + summary.toStaff + summary.overdue + summary.voided + summary.failed > 0) {
     ctx.logger.info({ ...summary }, 'odds api sweeps');
   }
   return summary;
