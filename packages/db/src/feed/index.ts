@@ -355,6 +355,23 @@ export async function feedCreditsSpent(
   return Number(row?.total ?? 0);
 }
 
+/** Credits spent since `since`, per sport key (null for calls not tied to a league). */
+export async function feedCreditsSpentBySportKey(
+  exec: DbExecutor,
+  provider: string,
+  since: Date,
+): Promise<Map<string | null, number>> {
+  const rows = await exec
+    .select({
+      sportKey: feedApiCalls.sportKey,
+      total: sql<string>`coalesce(sum(${feedApiCalls.cost}), 0)`,
+    })
+    .from(feedApiCalls)
+    .where(and(eq(feedApiCalls.provider, provider), gte(feedApiCalls.calledAt, since)))
+    .groupBy(feedApiCalls.sportKey);
+  return new Map(rows.map((row) => [row.sportKey, Number(row.total)]));
+}
+
 /** The most recent quota the provider reported, or null before any call reported one. */
 export async function latestFeedQuota(
   exec: DbExecutor,
@@ -463,14 +480,25 @@ export async function startedFeedEvents(
 export async function staleFeedEvents(
   exec: DbExecutor,
   provider: string,
-  limits: { now: Date; prematchBefore: Date; liveBefore: Date; startsBefore?: Date },
+  limits: {
+    now: Date;
+    prematchBefore: Date;
+    liveBefore: Date;
+    startsBefore?: Date;
+    /** Only events of these competitions (one sport's leagues); none for []. */
+    competitionIds?: readonly string[];
+  },
 ): Promise<string[]> {
+  if (limits.competitionIds?.length === 0) return [];
   const rows = await exec
     .select({ id: events.id })
     .from(events)
     .where(
       and(
         eq(events.feedProvider, provider),
+        limits.competitionIds === undefined
+          ? undefined
+          : inArray(events.competitionId, [...limits.competitionIds]),
         or(
           and(
             eq(events.status, 'scheduled'),

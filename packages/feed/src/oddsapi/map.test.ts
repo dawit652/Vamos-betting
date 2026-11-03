@@ -57,8 +57,10 @@ describe('leagueFor', () => {
         name: { en: 'ATP Paris Masters' },
         featured: false,
       },
-      tier: 1,
+      // Off by default: the credits go to football; grand slams stay on.
+      tier: 2,
     });
+    expect(leagueFor(sport('tennis_atp_us_open', 'Tennis', 'ATP US Open'))?.tier).toBe(1);
     expect(
       leagueFor(sport('tennis_wta_wimbledon', 'Tennis', 'WTA Wimbledon'))?.competition,
     ).toMatchObject({

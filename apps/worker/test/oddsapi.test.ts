@@ -17,8 +17,11 @@ import {
   ODDS_API_PROVIDER,
   readScore,
   retireSimulatedEvents,
+  activeShares,
   reviewReasonFor,
   runOddsApiCatalogSync,
+  scoresDaysFrom,
+  shareOf,
   runOddsApiOddsPoll,
   runOddsApiScoresPoll,
   runOddsApiSweeps,
@@ -32,6 +35,7 @@ import {
   MINUTE_MS,
   nextOddsPollAt,
   nextScoresPollAt,
+  nothingToPrice,
   planBudget,
   staleBuckets,
 } from '../src/tasks/oddsapi/schedule';
@@ -177,7 +181,12 @@ beforeAll(async () => {
   t.clock.set(T0);
   deps = {
     client: fake,
-    config: loadConfig({ FEED_PROVIDER: 'theoddsapi', ODDS_API_KEY: 'test-key' }).feed.oddsApi,
+    // In-play is off by default (its credits); these tests cover it too.
+    config: loadConfig({
+      FEED_PROVIDER: 'theoddsapi',
+      ODDS_API_KEY: 'test-key',
+      ODDS_API_INPLAY: 'true',
+    }).feed.oddsApi,
     mode: 'demo',
   };
 }, SETUP_TIMEOUT);
@@ -206,34 +215,30 @@ const homePrice = async (eventId: string): Promise<number> => {
 };
 
 describe('schedule', () => {
-  it('stretches intervals with the spend and drops to reserve and critical', () => {
-    expect(
-      planBudget({
-        spentLast24h: 100,
-        monthlyCredits: 30_000,
-        reservePercent: 10,
-        remaining: null,
-      }),
-    ).toEqual({
+  it('paces each sport on its share over a week, and drops to reserve and critical', () => {
+    // The 20 000-credit plan, football's 90%: 600 a day, 4 200 a week.
+    const plan = { monthlyCredits: 20_000, reservePercent: 10, remaining: null, share: 0.9 };
+    const factor = (spentLast24h: number, spentLast7d: number, share = 0.9) =>
+      planBudget({ ...plan, spentLast24h, spentLast7d, share }).factor;
+    // A match day may spend up to three days' worth while the week is on plan.
+    expect(factor(1500, 4200)).toBe(1);
+    expect(factor(1800, 4200)).toBe(1);
+    // A week at twice the pace, or a single day of six days' worth: polls twice as far apart.
+    expect(factor(600, 8400)).toBeCloseTo(2);
+    expect(factor(3600, 4200)).toBeCloseTo(2);
+    // Basketball's 5% (about 233 a week) is paced on its own.
+    expect(factor(0, 466, 0.05)).toBeCloseTo(2);
+    // No share: the slowest schedule.
+    expect(factor(0, 0, 0)).toBe(24);
+    expect(planBudget({ ...plan, spentLast24h: 0, spentLast7d: 0 })).toEqual({
       factor: 1,
       mode: 'normal',
     });
-    expect(
-      planBudget({
-        spentLast24h: 3000,
-        monthlyCredits: 30_000,
-        reservePercent: 10,
-        remaining: 20_000,
-      }).factor,
-    ).toBe(3);
-    expect(
-      planBudget({ spentLast24h: 0, monthlyCredits: 30_000, reservePercent: 10, remaining: 2500 })
-        .mode,
-    ).toBe('reserve');
-    expect(
-      planBudget({ spentLast24h: 0, monthlyCredits: 30_000, reservePercent: 10, remaining: 200 })
-        .mode,
-    ).toBe('critical');
+    const left = (remaining: number) =>
+      planBudget({ ...plan, spentLast24h: 0, spentLast7d: 0, remaining }).mode;
+    expect(left(2500)).toBe('normal');
+    expect(left(2000)).toBe('reserve');
+    expect(left(200)).toBe('critical');
   });
 
   it('caps the monthly target by the plan the API reports (used + remaining)', () => {
@@ -242,17 +247,17 @@ describe('schedule', () => {
     expect(effectiveMonthlyCredits(300, 63, 437)).toBe(300);
     expect(effectiveMonthlyCredits(20_000, null, 437)).toBe(20_000);
     expect(effectiveMonthlyCredits(20_000, undefined, null)).toBe(20_000);
-    const free = { monthlyCredits: 20_000, reservePercent: 10 };
+    const free = { monthlyCredits: 20_000, reservePercent: 10, spentLast7d: 0 };
     // Without the cap, 437 left of a 20 000 target is inside the 2 000 reserve: no prematch odds.
     expect(planBudget({ ...free, spentLast24h: 0, remaining: 437 }).mode).toBe('reserve');
     expect(planBudget({ ...free, spentLast24h: 0, remaining: 437, used: 63 })).toEqual({
       factor: 1,
       mode: 'normal',
     });
-    // 500 a month is about 16.7 a day: 50 spent in a day stretches polls threefold.
-    expect(planBudget({ ...free, spentLast24h: 50, remaining: 437, used: 63 }).factor).toBeCloseTo(
-      3,
-    );
+    // 500 a month is about 117 a week: 350 spent in the last 7 days stretches polls threefold.
+    expect(
+      planBudget({ ...free, spentLast24h: 0, spentLast7d: 350, remaining: 437, used: 63 }).factor,
+    ).toBeCloseTo(3);
     expect(planBudget({ ...free, spentLast24h: 0, remaining: 40, used: 460 }).mode).toBe('reserve');
     expect(planBudget({ ...free, spentLast24h: 0, remaining: 4, used: 496 }).mode).toBe('critical');
     // A plan reported as empty: the longest stretch and only scores, never NaN.
@@ -286,6 +291,64 @@ describe('schedule', () => {
     expect(freshnessFactor(0.5, false)).toBe(1);
     // Licensed: a match within the hour is suspended after 30 minutes without a fresh price.
     expect(staleBuckets(freshnessFactor(24, true))[0]?.maxAgeMs).toBe(30 * MINUTE_MS);
+  });
+
+  it('takes credits from polls days ahead before the last hours, and skips idle leagues', () => {
+    const tight = { factor: 4, mode: 'normal' as const };
+    const next = (startsIn: number) =>
+      nextOddsPollAt({
+        now: T0,
+        nextStartAt: new Date(T0.getTime() + startsIn),
+        liveCount: 0,
+        inPlay: false,
+        budget: tight,
+      }).getTime() - T0.getTime();
+    // Within 6 hours of the start: stretched by √4 = 2. Further out: by 4.
+    expect(next(30 * MINUTE_MS)).toBe(10 * MINUTE_MS);
+    expect(next(5 * HOUR_MS)).toBe(30 * MINUTE_MS);
+    expect(next(20 * HOUR_MS)).toBe(4 * HOUR_MS);
+    expect(next(48 * HOUR_MS)).toBe(12 * HOUR_MS);
+
+    const idle = (startsIn: number | null, live = 0, inPlay = false) =>
+      nothingToPrice({
+        now: T0,
+        nextStartAt: startsIn === null ? null : new Date(T0.getTime() + startsIn),
+        liveCount: live,
+        inPlay,
+      });
+    expect(idle(null)).toBe(true);
+    expect(idle(80 * HOUR_MS)).toBe(true);
+    expect(idle(70 * HOUR_MS)).toBe(false);
+    expect(idle(-HOUR_MS)).toBe(false);
+    expect(idle(null, 1, true)).toBe(false);
+    expect(idle(null, 1, false)).toBe(true);
+  });
+
+  it('reads live scores without daysFrom until a match should be over', () => {
+    const start = T0;
+    const after = (minutes: number, sport: 'football' | 'basketball' = 'football') =>
+      scoresDaysFrom(new Date(start.getTime() + minutes * MINUTE_MS), start, sport);
+    expect(after(60)).toBeUndefined();
+    expect(after(114)).toBeUndefined();
+    expect(after(115)).toBe(1);
+    expect(after(130, 'basketball')).toBeUndefined();
+    expect(after(150, 'basketball')).toBe(1);
+    expect(after(30 * 60)).toBe(2);
+    expect(after(5 * 24 * 60)).toBe(3);
+  });
+
+  it('gives each sport its share of the credits', () => {
+    const config = loadConfig({}).feed.oddsApi;
+    expect(shareOf(config, 'football')).toBe(0.9);
+    expect(shareOf(config, 'basketball')).toBe(0.05);
+    expect(shareOf(config, 'tennis')).toBe(0.05);
+    expect(shareOf(config, 'volleyball')).toBe(0);
+    // No tennis tournament running: its 5% goes to football and basketball.
+    const share = activeShares(config, new Set(['football', 'basketball'] as const));
+    expect(share('football')).toBeCloseTo(0.9 / 0.95);
+    expect(share('basketball')).toBeCloseTo(0.05 / 0.95);
+    expect(activeShares(config, new Set(['football'] as const))('football')).toBe(1);
+    expect(activeShares(config, new Set())('football')).toBe(0.9);
   });
 
   it('polls more often near kick-off and every minute in play', () => {
@@ -648,6 +711,9 @@ describe('the real feed, end to end', () => {
       fake.eventsData.set(key, [{ ...tennisMatch, bookmakers: [] }]);
       fake.oddsData.set(key, [tennisMatch]);
       await runOddsApiCatalogSync(t.ctx, deps);
+      // Off by default (only grand slams are on): staff switch it on, the next sync plans it.
+      await t.db.db.update(feedLeagues).set({ enabled: true }).where(eq(feedLeagues.sportKey, key));
+      await runOddsApiCatalogSync(t.ctx, deps);
       await runOddsApiOddsPoll(t.ctx, deps);
       const tn1 = await eventByRef('tn1');
 
@@ -671,6 +737,32 @@ describe('the real feed, end to end', () => {
       expect((await marketRows(tn1.id)).every((row) => row.status !== 'open')).toBe(true);
       // Sent once: the next sweep leaves it with staff.
       expect((await runOddsApiSweeps(t.ctx, deps)).toStaff).toBe(0);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'does not call the API for a league with nothing inside the horizon',
+    async () => {
+      const now = t.clock.now;
+      await t.db.db
+        .update(feedLeagues)
+        .set({
+          nextStartAt: new Date(now.getTime() + 5 * 24 * HOUR_MS),
+          liveCount: 0,
+          nextOddsAt: null,
+        })
+        .where(eq(feedLeagues.sportKey, 'soccer_epl'));
+      const calls = fake.calls.length;
+      const summary = await runOddsApiOddsPoll(t.ctx, deps);
+      expect(summary.skipped).toBeGreaterThanOrEqual(1);
+      expect(fake.calls.slice(calls)).not.toContain('odds:soccer_epl');
+      const [league] = await t.db.db
+        .select()
+        .from(feedLeagues)
+        .where(eq(feedLeagues.sportKey, 'soccer_epl'));
+      // Looked at again within 6 hours; the free /events read keeps the next start current.
+      expect(league?.nextOddsAt).toEqual(new Date(now.getTime() + 6 * HOUR_MS));
     },
     TEST_TIMEOUT,
   );

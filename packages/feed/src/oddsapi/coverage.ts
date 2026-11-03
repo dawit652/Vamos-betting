@@ -22,3 +22,33 @@ export function hasFeedScores(sport: SportCode): boolean {
  * this errs late; staff can result an event earlier from the back office.
  */
 export const NO_FEED_SCORES_REVIEW_AFTER_MS = 6 * 60 * 60 * 1000;
+
+const MINUTE_MS = 60 * 1000;
+
+const KEY_PREFIXES: ReadonlyArray<readonly [string, SportCode]> = [
+  ['soccer_', 'football'],
+  ['basketball_', 'basketball'],
+  ['tennis_', 'tennis'],
+];
+
+/** The sport of an Odds API sport key by its prefix ('soccer_epl' → football); null for others. */
+export function sportOfKey(sportKey: string): SportCode | null {
+  return KEY_PREFIXES.find(([prefix]) => sportKey.startsWith(prefix))?.[1] ?? null;
+}
+
+/**
+ * How long after its start a match is normally over, so its final score can
+ * be asked for: football 90 minutes, half-time and stoppage time; an NBA game
+ * about two and a half hours. Before that, live scores are read without
+ * `daysFrom` (1 credit instead of 2).
+ */
+export function expectedMatchMs(sport: SportCode): number {
+  switch (sport) {
+    case 'football':
+      return 115 * MINUTE_MS;
+    case 'basketball':
+      return 150 * MINUTE_MS;
+    default:
+      return NO_FEED_SCORES_REVIEW_AFTER_MS;
+  }
+}

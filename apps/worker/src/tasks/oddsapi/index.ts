@@ -1,11 +1,11 @@
-import type { OddsApiConfig, OperatingMode } from '@vamos/config';
+import type { OddsApiConfig, OddsApiShareSport, OperatingMode } from '@vamos/config';
 import type { SportCode } from '@vamos/core';
 import {
   applyLiveState,
   deactivateMissingLeagues,
   dueFeedResults,
   ensureLeagueCompetition,
-  feedCreditsSpent,
+  feedCreditsSpentBySportKey,
   feedEventsByRef,
   latestFeedQuota,
   listDueLeagues,
@@ -35,6 +35,7 @@ import {
   estimateOddsCost,
   estimateScoresCost,
   eventConsensus,
+  expectedMatchMs,
   FEATURED_MARKETS,
   hasFeedScores,
   leagueFor,
@@ -44,6 +45,7 @@ import {
   priceEvent,
   pricingMargins,
   shouldWritePrice,
+  sportOfKey,
   type LeagueEntry,
   type OddsApiClient,
   type OddsApiEvent,
@@ -61,14 +63,16 @@ import {
   IN_PLAY_QUOTE_MAX_AGE_MS,
   IN_PLAY_STALE_MS,
   MINUTE_MS,
-  nextOddsPollAt,
   freshnessFactor,
+  nextOddsPollAt,
   nextScoresPollAt,
+  nothingToPrice,
   ODDS_HORIZON_MS,
   planBudget,
   prematchQuoteMaxAgeMs,
   staleBuckets,
   type Budget,
+  type BudgetMode,
 } from './schedule';
 
 /**
@@ -194,22 +198,84 @@ async function exclusive<T>(
   }
 }
 
-/** The governor's budget from the credit log. */
-export async function currentBudget(ctx: TaskContext, config: OddsApiConfig): Promise<Budget> {
+/** The governor's budgets: one per sport, paced on its share of the credits. */
+export interface Budgets {
+  /** The plan-wide mode (the same in every sport's budget). */
+  mode: BudgetMode;
+  forSport(sport: SportCode): Budget;
+}
+
+/** A sport's share of the monthly credits (ODDS_API_SPORT_SHARES), 0–1. */
+export function shareOf(config: Pick<OddsApiConfig, 'sportShares'>, sport: SportCode): number {
+  const shares: Readonly<Record<string, number>> = config.sportShares;
+  return (Object.hasOwn(shares, sport) ? (shares[sport as OddsApiShareSport] ?? 0) : 0) / 100;
+}
+
+/**
+ * Each sport's share among the sports with an enabled, active league: the
+ * share of a sport with nothing running (tennis between grand slams) goes to
+ * the others in proportion, instead of lying unused.
+ */
+export function activeShares(
+  config: Pick<OddsApiConfig, 'sportShares'>,
+  inUse: ReadonlySet<SportCode>,
+): (sport: SportCode) => number {
+  const total = [...inUse].reduce((sum, sport) => sum + shareOf(config, sport), 0);
+  return (sport) =>
+    total > 0 && inUse.has(sport) ? shareOf(config, sport) / total : shareOf(config, sport);
+}
+
+/** The governor's budgets from the credit log. */
+export async function currentBudgets(ctx: TaskContext, config: OddsApiConfig): Promise<Budgets> {
   const now = ctx.clock();
-  const spentLast24h = await feedCreditsSpent(
-    ctx.db,
-    ODDS_API_PROVIDER,
-    new Date(now.getTime() - DAY_MS),
+  const bySport = (spent: Map<string | null, number>): Map<SportCode, number> => {
+    const totals = new Map<SportCode, number>();
+    for (const [sportKey, total] of spent) {
+      const sport = sportKey === null ? null : sportOfKey(sportKey);
+      if (sport !== null) totals.set(sport, (totals.get(sport) ?? 0) + total);
+    }
+    return totals;
+  };
+  const day = bySport(
+    await feedCreditsSpentBySportKey(ctx.db, ODDS_API_PROVIDER, new Date(now.getTime() - DAY_MS)),
+  );
+  const week = bySport(
+    await feedCreditsSpentBySportKey(
+      ctx.db,
+      ODDS_API_PROVIDER,
+      new Date(now.getTime() - 7 * DAY_MS),
+    ),
   );
   const quota = await latestFeedQuota(ctx.db, ODDS_API_PROVIDER);
-  return planBudget({
-    spentLast24h,
-    monthlyCredits: config.monthlyCredits,
-    reservePercent: config.reservePercent,
-    remaining: quota?.remaining ?? null,
-    used: quota?.used ?? null,
-  });
+  const inUse = new Set<SportCode>();
+  for (const league of await listFeedLeagues(ctx.db, ODDS_API_PROVIDER, { enabled: true })) {
+    const sport = league.active ? entryOf(league)?.sport : undefined;
+    if (sport !== undefined) inUse.add(sport);
+  }
+  const share = activeShares(config, inUse);
+  const budgets = new Map<SportCode, Budget>();
+  const forSport = (sport: SportCode): Budget => {
+    let budget = budgets.get(sport);
+    if (budget === undefined) {
+      budget = planBudget({
+        spentLast24h: day.get(sport) ?? 0,
+        spentLast7d: week.get(sport) ?? 0,
+        monthlyCredits: config.monthlyCredits,
+        share: share(sport),
+        reservePercent: config.reservePercent,
+        remaining: quota?.remaining ?? null,
+        used: quota?.used ?? null,
+      });
+      budgets.set(sport, budget);
+    }
+    return budget;
+  };
+  return { mode: forSport('football').mode, forSport };
+}
+
+/** The budget of a league's sport (football's when the league is not supported). */
+function budgetOf(budgets: Budgets, league: FeedLeagueRow): Budget {
+  return budgets.forSport(entryOf(league)?.sport ?? 'football');
 }
 
 function entryOf(league: FeedLeagueRow): LeagueEntry | null {
@@ -286,9 +352,10 @@ export async function runOddsApiCatalogSync(
   summary.supported = supported.length;
   summary.deactivated = await deactivateMissingLeagues(ctx.db, ODDS_API_PROVIDER, supported);
 
-  const budget = await currentBudget(ctx, deps.config);
+  const budgets = await currentBudgets(ctx, deps.config);
   for (const league of await listFeedLeagues(ctx.db, ODDS_API_PROVIDER, { enabled: true })) {
     if (!league.active) continue;
+    const budget = budgetOf(budgets, league);
     const events = await call(ctx, 'events', league.sportKey, 0, () =>
       deps.client.events(league.sportKey),
     );
@@ -329,6 +396,8 @@ export async function runOddsApiCatalogSync(
 
 export interface OddsPollSummary {
   leagues: number;
+  /** Due leagues not called: nothing to price inside the horizon, or the budget's reserve. */
+  skipped: number;
   created: number;
   updated: number;
   /** Events seen without a priceable market (not created). */
@@ -344,6 +413,7 @@ export async function runOddsApiOddsPoll(
 ): Promise<OddsPollSummary> {
   const summary: OddsPollSummary = {
     leagues: 0,
+    skipped: 0,
     created: 0,
     updated: 0,
     unpriced: 0,
@@ -352,11 +422,22 @@ export async function runOddsApiOddsPoll(
   };
   if (await isPaused(ctx)) return summary;
   const now = ctx.clock();
-  const budget = await currentBudget(ctx, deps.config);
-  if (budget.mode === 'critical') return summary;
+  const budgets = await currentBudgets(ctx, deps.config);
+  if (budgets.mode === 'critical') return summary;
   const due = await listDueLeagues(ctx.db, ODDS_API_PROVIDER, 'odds', now);
   for (const league of due.slice(0, deps.leaguesPerTick ?? 6)) {
-    if (budget.mode === 'reserve' && !(deps.config.inPlay && league.liveCount > 0)) {
+    const budget = budgetOf(budgets, league);
+    const reserved = budget.mode === 'reserve' && !(deps.config.inPlay && league.liveCount > 0);
+    // Nothing starts inside the horizon (the free /events read tells): a call
+    // would cost credits and return nothing to price.
+    const idle = nothingToPrice({
+      now,
+      nextStartAt: league.nextStartAt,
+      liveCount: league.liveCount,
+      inPlay: deps.config.inPlay,
+    });
+    if (reserved || idle) {
+      summary.skipped++;
       await updateFeedLeaguePoll(ctx.db, ODDS_API_PROVIDER, league.sportKey, {
         nextOddsAt: nextOddsPollAt({
           now,
@@ -539,6 +620,21 @@ export function readScore(score: OddsApiScore): { home: number; away: number } |
     : { home, away };
 }
 
+/**
+ * The `daysFrom` of a scores read: none until the oldest unresulted match
+ * should be over (live scores only, 1 credit), then enough days to reach it
+ * (completed results too, 2 credits).
+ */
+export function scoresDaysFrom(
+  now: Date,
+  oldestStart: Date,
+  sport: SportCode,
+): 1 | 2 | 3 | undefined {
+  const elapsed = now.getTime() - oldestStart.getTime();
+  if (elapsed < expectedMatchMs(sport)) return undefined;
+  return Math.min(3, Math.max(1, Math.ceil(elapsed / DAY_MS))) as 1 | 2 | 3;
+}
+
 /** Why staff must confirm a final score in this mode, or null to apply it automatically. */
 export function reviewReasonFor(
   league: Pick<FeedLeagueRow, 'cup'>,
@@ -574,10 +670,11 @@ export async function runOddsApiScoresPoll(
   };
   if (await isPaused(ctx)) return summary;
   const now = ctx.clock();
-  const budget = await currentBudget(ctx, deps.config);
+  const budgets = await currentBudgets(ctx, deps.config);
   const due = await listDueLeagues(ctx.db, ODDS_API_PROVIDER, 'scores', now);
   for (const league of due.slice(0, deps.leaguesPerTick ?? 6)) {
     const entry = entryOf(league);
+    const budget = budgetOf(budgets, league);
     const idle = {
       nextScoresAt: nextScoresPollAt({
         now,
@@ -605,13 +702,9 @@ export async function runOddsApiScoresPoll(
       continue;
     }
     summary.leagues++;
-    const oldest = started[0]?.startTime ?? now;
-    const daysFrom = Math.min(
-      3,
-      Math.max(1, Math.ceil((now.getTime() - oldest.getTime()) / DAY_MS)),
-    ) as 1 | 2 | 3;
+    const daysFrom = scoresDaysFrom(now, started[0]?.startTime ?? now, entry.sport);
     const response = await call(ctx, 'scores', league.sportKey, estimateScoresCost(daysFrom), () =>
-      deps.client.scores(league.sportKey, { daysFrom }),
+      deps.client.scores(league.sportKey, daysFrom === undefined ? {} : { daysFrom }),
     );
     if (!response.ok) {
       summary.failed++;
@@ -767,18 +860,33 @@ export async function runOddsApiSweeps(
     failed: 0,
   };
   const now = ctx.clock();
-  const budget = await currentBudget(ctx, deps.config);
+  const budgets = await currentBudgets(ctx, deps.config);
+  const leagues = await listFeedLeagues(ctx.db, ODDS_API_PROVIDER);
+  const competitionsBySport = new Map<SportCode, string[]>();
+  for (const league of leagues) {
+    const sport = entryOf(league)?.sport;
+    if (sport === undefined || league.competitionId === null) continue;
+    competitionsBySport.set(sport, [
+      ...(competitionsBySport.get(sport) ?? []),
+      league.competitionId,
+    ]);
+  }
   const stale = new Set<string>();
-  for (const bucket of staleBuckets(freshnessFactor(budget.factor, deps.mode === 'licensed'))) {
-    const ids = await staleFeedEvents(ctx.db, ODDS_API_PROVIDER, {
-      now,
-      prematchBefore: new Date(now.getTime() - bucket.maxAgeMs),
-      liveBefore: new Date(now.getTime() - IN_PLAY_STALE_MS),
-      ...(bucket.startsWithinMs === null
-        ? {}
-        : { startsBefore: new Date(now.getTime() + bucket.startsWithinMs) }),
-    });
-    for (const id of ids) stale.add(id);
+  // Each sport's freshness limits follow its own budget.
+  for (const [sport, competitionIds] of competitionsBySport) {
+    const factor = freshnessFactor(budgets.forSport(sport).factor, deps.mode === 'licensed');
+    for (const bucket of staleBuckets(factor)) {
+      const ids = await staleFeedEvents(ctx.db, ODDS_API_PROVIDER, {
+        now,
+        prematchBefore: new Date(now.getTime() - bucket.maxAgeMs),
+        liveBefore: new Date(now.getTime() - IN_PLAY_STALE_MS),
+        competitionIds,
+        ...(bucket.startsWithinMs === null
+          ? {}
+          : { startsBefore: new Date(now.getTime() + bucket.startsWithinMs) }),
+      });
+      for (const id of ids) stale.add(id);
+    }
   }
   for (const id of stale) {
     try {
@@ -800,7 +908,7 @@ export async function runOddsApiSweeps(
   // The API reports no scores for these sports: once the match should be
   // over, staff enter the result (in both modes; demo still voids at 72 h).
   const scoreless = new Map<string, SportCode>();
-  for (const league of await listFeedLeagues(ctx.db, ODDS_API_PROVIDER)) {
+  for (const league of leagues) {
     const entry = entryOf(league);
     if (league.competitionId !== null && entry !== null && !hasFeedScores(entry.sport)) {
       scoreless.set(league.competitionId, entry.sport);

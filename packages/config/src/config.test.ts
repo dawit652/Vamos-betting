@@ -611,12 +611,29 @@ describe('The Odds API feed (FEED_PROVIDER=theoddsapi)', () => {
       sports: [],
       monthlyCredits: 20_000,
       reservePercent: 10,
+      sportShares: { football: 90, basketball: 5, tennis: 5 },
       minBooks: 2,
       marginBps: 600,
       derivedMarkets: true,
-      inPlay: true,
+      inPlay: false,
       resultConfirmMinutes: 10,
     });
+  });
+
+  it('reads the share of the credits per sport, and refuses a bad one', () => {
+    const base = { FEED_PROVIDER: 'theoddsapi', ODDS_API_KEY: ODDS_KEY };
+    expect(
+      loadConfig({ ...base, ODDS_API_SPORT_SHARES: ' football : 95 , tennis:5' }).feed.oddsApi
+        .sportShares,
+    ).toEqual({ football: 95, basketball: 0, tennis: 5 });
+    expect(
+      loadConfig({ ...base, ODDS_API_SPORT_SHARES: 'football:100' }).feed.oddsApi.sportShares,
+    ).toEqual({ football: 100, basketball: 0, tennis: 0 });
+    for (const bad of ['football:90,tennis:20', 'cricket:10', 'football', 'football:90,football:5']) {
+      expect(problemsOf({ ...base, ODDS_API_SPORT_SHARES: bad }).join('\n')).toMatch(
+        /ODDS_API_SPORT_SHARES/,
+      );
+    }
   });
 
   it('requires a key, in any mode', () => {

@@ -97,6 +97,43 @@ function csvOf(pattern: RegExp, what: string) {
 /** Region, bookmaker and sport keys of The Odds API ('eu', 'pinnacle', 'soccer_epl'). */
 const ODDS_API_KEY_RE = /^[a-z0-9_]{2,80}$/;
 
+/** The sports The Odds API feed prices, each with its own share of the credits. */
+export const ODDS_API_SHARE_SPORTS = ['football', 'basketball', 'tennis'] as const;
+export type OddsApiShareSport = (typeof ODDS_API_SHARE_SPORTS)[number];
+
+/**
+ * Default ODDS_API_SPORT_SHARES: football first (the 20 000-credit plan spent
+ * almost entirely on football), a little for basketball and tennis.
+ */
+export const DEFAULT_ODDS_API_SPORT_SHARES: Readonly<Record<OddsApiShareSport, number>> =
+  Object.freeze({ football: 90, basketball: 5, tennis: 5 });
+
+/** "football:90,basketball:5,tennis:5": percent per sport, unlisted sports 0, total at most 100. */
+const sportShares = csv.transform((items, ctx) => {
+  const shares: Record<OddsApiShareSport, number> = { football: 0, basketball: 0, tennis: 0 };
+  const seen = new Set<string>();
+  for (const item of items) {
+    const match = /^([a-z]+)\s*:\s*(\d{1,3})$/.exec(item);
+    const sport = ODDS_API_SHARE_SPORTS.find((name) => name === match?.[1]);
+    const percent = Number(match?.[2]);
+    if (match === null || sport === undefined || percent > 100 || seen.has(sport)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `each entry must be sport:percent with a sport of ${ODDS_API_SHARE_SPORTS.join(', ')} named once (got "${item}")`,
+      });
+      return z.NEVER;
+    }
+    seen.add(sport);
+    shares[sport] = percent;
+  }
+  const total = Object.values(shares).reduce((sum, percent) => sum + percent, 0);
+  if (total > 100) {
+    ctx.addIssue({ code: 'custom', message: `the shares add up to ${total}%, more than 100%` });
+    return z.NEVER;
+  }
+  return shares;
+});
+
 const bool = z.stringbool();
 
 /** Fastify `trustProxy`: false, or the addresses / CIDRs of the trusted proxies. */
@@ -237,13 +274,19 @@ const envSchema = z.object({
   ODDS_API_MONTHLY_CREDITS: z.coerce.number().int().min(1).max(1_000_000_000).default(20_000),
   /** Share of the quota kept for in-play prices and results. */
   ODDS_API_RESERVE_PERCENT: z.coerce.number().int().min(0).max(90).default(10),
+  /** Share of the monthly credits per sport (percent): "football:90,basketball:5,tennis:5". */
+  ODDS_API_SPORT_SHARES: sportShares.default({ ...DEFAULT_ODDS_API_SPORT_SHARES }),
   /** Fewest bookmakers behind a price (default 2 in demo mode, LICENSED_MIN_ODDS_BOOKS in licensed). */
   ODDS_API_MIN_BOOKS: z.coerce.number().int().min(1).max(30).optional(),
   /** Our margin on the main markets, in basis points (600 = 6%). */
   ODDS_API_MARGIN_BPS: z.coerce.number().int().min(0).max(3000).default(600),
   /** BTTS, correct score and extra goal lines from the market-implied goals model. */
   ODDS_API_DERIVED_MARKETS: bool.default(true),
-  /** In-play pricing (default: on in demo mode, off in licensed mode). */
+  /**
+   * In-play pricing (default off in both modes): a league with a match in play
+   * is read every minute, about 120 credits an hour, more than a 20 000-credit
+   * plan can pay for beside prematch.
+   */
   ODDS_API_INPLAY: bool.optional(),
   /** How long a completed score must stand before the event is resulted. */
   ODDS_API_RESULT_CONFIRM_MINUTES: z.coerce.number().int().min(0).max(1440).default(10),
@@ -408,10 +451,12 @@ export interface OddsApiConfig {
   sports: string[];
   monthlyCredits: number;
   reservePercent: number;
+  /** ODDS_API_SPORT_SHARES: percent of the monthly credits per sport. */
+  sportShares: Record<OddsApiShareSport, number>;
   minBooks: number;
   marginBps: number;
   derivedMarkets: boolean;
-  /** ODDS_API_INPLAY, else on in demo mode and off in licensed mode. */
+  /** ODDS_API_INPLAY, else off (in either mode). */
   inPlay: boolean;
   resultConfirmMinutes: number;
 }
@@ -661,12 +706,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         sports: e.ODDS_API_SPORTS,
         monthlyCredits: e.ODDS_API_MONTHLY_CREDITS,
         reservePercent: e.ODDS_API_RESERVE_PERCENT,
+        sportShares: e.ODDS_API_SPORT_SHARES,
         minBooks:
           e.ODDS_API_MIN_BOOKS ??
           (e.OPERATING_MODE === 'licensed' ? LICENSED_MIN_ODDS_BOOKS : DEMO_MIN_ODDS_BOOKS),
         marginBps: e.ODDS_API_MARGIN_BPS,
         derivedMarkets: e.ODDS_API_DERIVED_MARKETS,
-        inPlay: e.ODDS_API_INPLAY ?? e.OPERATING_MODE === 'demo',
+        inPlay: e.ODDS_API_INPLAY ?? false,
         resultConfirmMinutes: e.ODDS_API_RESULT_CONFIRM_MINUTES,
       },
     },

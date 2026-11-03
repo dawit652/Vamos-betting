@@ -467,7 +467,11 @@ const REGISTRY: ReadonlyMap<string, LeagueEntry> = new Map(
   ]),
 );
 
-/** Grand slams are featured; every tennis tournament is on (it only exists while it runs). */
+/**
+ * Grand slams are featured and on by default; other tournaments (a key only
+ * exists while one runs) are off until staff switch them on, to keep the
+ * credits for football (ODDS_API_SPORT_SHARES).
+ */
 const GRAND_SLAMS = ['aus_open', 'french_open', 'wimbledon', 'us_open'];
 
 /**
@@ -499,6 +503,7 @@ export function knownSportKeys(): string[] {
 function tennisLeague(sport: OddsApiSport): LeagueEntry {
   const tour = sport.key.startsWith('tennis_wta_') ? TENNIS.wta : TENNIS.atp;
   const event = sport.key.replace(/^tennis_(atp|wta)_/, '');
+  const slam = GRAND_SLAMS.some((name) => event.startsWith(name));
   return {
     sportKey: sport.key,
     sport: 'tennis',
@@ -506,11 +511,11 @@ function tennisLeague(sport: OddsApiSport): LeagueEntry {
     competition: {
       slug: `${tour.slug}-${slugify(event)}`,
       name: { en: sport.title },
-      featured: GRAND_SLAMS.some((slam) => event.startsWith(slam)),
+      featured: slam,
       sortOrder: 100,
     },
     cup: false,
-    tier: 1,
+    tier: slam ? 1 : 2,
   };
 }
 
