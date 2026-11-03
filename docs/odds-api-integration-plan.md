@@ -341,7 +341,8 @@ Excluded by policy, whatever competitors do: casino, crash and virtual games, cr
 2. **Cover Ethiopia.** The Ethiopian Premier League and CAF competitions are the product's core and the API
    lacks them. Add a second source for them (API-Football covers Ethiopian fixtures and results; its odds
    coverage must be checked), or have traders price them with the existing model, clearly marked.
-3. **Start narrow:** 15–20 leagues and in-play on the top 5. Measure credits and accuracy for a week, then widen.
+3. **Start narrow:** the 13 default football leagues, in-play off (§9). Measure credits and accuracy for a
+   week, then widen to about 20 leagues; in-play needs a larger plan.
 4. **Publish margins** per market type in the help pages; it builds the trust local competitors lacked.
 5. **Never show a stale price.** Every freshness limit errs towards suspending.
 6. **Risk:** lower stake limits on thin markets and far from kick-off, and alert on players with consistently
