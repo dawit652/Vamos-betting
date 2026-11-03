@@ -85,7 +85,72 @@ const FOOTBALL = {
   brazil: category('brazil', 'Brazil', 'ብራዚል', 'BR', 170),
   argentina: category('argentina', 'Argentina', 'አርጀንቲና', 'AR', 180),
   southAmerica: category('south-america', 'South America', 'ደቡብ አሜሪካ', null, 190),
+  // Added for derived (off by default) leagues; nothing seeded yet.
+  northCentralAmerica: category(
+    'north-central-america',
+    'North & Central America',
+    'ሰሜንና መካከለኛው አሜሪካ',
+    null,
+    200,
+  ),
+  austria: category('austria', 'Austria', 'ኦስትሪያ', 'AT', 210),
+  australia: category('australia', 'Australia', 'አውስትራሊያ', 'AU', 220),
+  chile: category('chile', 'Chile', 'ቺሊ', 'CL', 230),
+  china: category('china', 'China', 'ቻይና', 'CN', 240),
+  denmark: category('denmark', 'Denmark', 'ዴንማርክ', 'DK', 250),
+  finland: category('finland', 'Finland', 'ፊንላንድ', 'FI', 260),
+  greece: category('greece', 'Greece', 'ግሪክ', 'GR', 270),
+  ireland: category('ireland', 'Ireland', 'አየርላንድ', 'IE', 280),
+  japan: category('japan', 'Japan', 'ጃፓን', 'JP', 290),
+  korea: category('south-korea', 'South Korea', 'ደቡብ ኮሪያ', 'KR', 300),
+  mexico: category('mexico', 'Mexico', 'ሜክሲኮ', 'MX', 310),
+  norway: category('norway', 'Norway', 'ኖርዌይ', 'NO', 320),
+  poland: category('poland', 'Poland', 'ፖላንድ', 'PL', 330),
+  russia: category('russia', 'Russia', 'ሩሲያ', 'RU', 340),
+  sweden: category('sweden', 'Sweden', 'ስዊድን', 'SE', 350),
+  switzerland: category('switzerland', 'Switzerland', 'ስዊዘርላንድ', 'CH', 360),
 } as const;
+
+/**
+ * Football country by the key token after `soccer_` (`soccer_japan_j_league` →
+ * `japan`). Multi-word tokens work too; the longest match wins.
+ */
+const FOOTBALL_COUNTRIES: Readonly<Record<string, LeagueCategory>> = Object.freeze({
+  england: FOOTBALL.england,
+  efl: FOOTBALL.england,
+  fa: FOOTBALL.england,
+  ethiopia: FOOTBALL.ethiopia,
+  spain: FOOTBALL.spain,
+  italy: FOOTBALL.italy,
+  germany: FOOTBALL.germany,
+  france: FOOTBALL.france,
+  netherlands: FOOTBALL.netherlands,
+  portugal: FOOTBALL.portugal,
+  turkey: FOOTBALL.turkey,
+  belgium: FOOTBALL.belgium,
+  scotland: FOOTBALL.scotland,
+  spl: FOOTBALL.scotland,
+  saudi_arabia: FOOTBALL.saudi,
+  usa: FOOTBALL.usa,
+  brazil: FOOTBALL.brazil,
+  argentina: FOOTBALL.argentina,
+  austria: FOOTBALL.austria,
+  australia: FOOTBALL.australia,
+  chile: FOOTBALL.chile,
+  china: FOOTBALL.china,
+  denmark: FOOTBALL.denmark,
+  finland: FOOTBALL.finland,
+  greece: FOOTBALL.greece,
+  league_of_ireland: FOOTBALL.ireland,
+  japan: FOOTBALL.japan,
+  korea: FOOTBALL.korea,
+  mexico: FOOTBALL.mexico,
+  norway: FOOTBALL.norway,
+  poland: FOOTBALL.poland,
+  russia: FOOTBALL.russia,
+  sweden: FOOTBALL.sweden,
+  switzerland: FOOTBALL.switzerland,
+});
 
 const BASKETBALL = {
   usa: category('usa', 'USA', 'አሜሪካ', 'US', 10),
@@ -449,30 +514,77 @@ function tennisLeague(sport: OddsApiSport): LeagueEntry {
   };
 }
 
-/** "La Liga - Spain" → category Spain, competition "La Liga"; no suffix → the sport's region. */
+/** Key fragments of knockout competitions (a tie can go to extra time and penalties). */
+const CUP_KEY =
+  /cup|pokal|copa|coppa|coupe|champs_league|europa|conference|libertadores|sudamericana|nations_league|world_cup|european_championship/;
+
+/**
+ * Place for a key we do not list. Football category, first match wins: the
+ * key's country token, the title's " - Country" suffix (known countries only),
+ * a region by key prefix, an unknown suffix as a new category, "International".
+ * Basketball: the US leagues and Australia by key, else the suffix, else Europe.
+ */
 function derivedLeague(sport: OddsApiSport, ours: SportCode): LeagueEntry {
   const match = /^(.*\S)\s+-\s+(\S.*)$/.exec(sport.title);
   const competitionName = match?.[1] ?? sport.title;
-  const country = match?.[2];
-  const fallback = ours === 'basketball' ? BASKETBALL.europe : FOOTBALL.international;
-  const known = country === undefined ? undefined : knownCategory(ours, country);
+  const suffix = match?.[2];
+  const fromTitle = suffix === undefined ? undefined : knownCategory(ours, suffix);
+  const newCategory =
+    suffix === undefined ? undefined : category(slugify(suffix), suffix, undefined, null, 500);
+  const picked =
+    ours === 'basketball'
+      ? (basketballCountry(sport.key) ?? fromTitle ?? newCategory ?? BASKETBALL.europe)
+      : (footballCountry(sport.key) ??
+        fromTitle ??
+        footballRegion(sport.key) ??
+        newCategory ??
+        FOOTBALL.international);
   return {
     sportKey: sport.key,
     sport: ours,
-    category:
-      known ??
-      (country === undefined
-        ? fallback
-        : category(slugify(country), country, undefined, null, 500)),
+    category: picked,
     competition: {
       slug: slugify(sport.key.replace(/^[a-z]+_/, '')),
       name: { en: competitionName },
       featured: false,
       sortOrder: 500,
     },
-    cup: /\bcup\b|copa|pokal|coupe|coppa|trophy/i.test(sport.title),
+    cup:
+      !sport.key.includes('qualifiers') &&
+      (CUP_KEY.test(sport.key) || /\bcup\b|copa|pokal|coupe|coppa|trophy/i.test(sport.title)),
     tier: 3,
   };
+}
+
+function footballCountry(key: string): LeagueCategory | undefined {
+  const rest = key.replace(/^soccer_/, '');
+  let best: string | undefined;
+  for (const token of Object.keys(FOOTBALL_COUNTRIES)) {
+    if (
+      (rest === token || rest.startsWith(`${token}_`)) &&
+      (best === undefined || token.length > best.length)
+    ) {
+      best = token;
+    }
+  }
+  return best === undefined ? undefined : FOOTBALL_COUNTRIES[best];
+}
+
+function footballRegion(key: string): LeagueCategory | undefined {
+  if (/^soccer_uefa_(champs_league|europa)/.test(key)) return FOOTBALL.clubs;
+  if (/^soccer_(uefa|fifa)_/.test(key)) return FOOTBALL.international;
+  if (/^soccer_conmebol_copa_(libertadores|sudamericana)/.test(key)) return FOOTBALL.southAmerica;
+  if (key.startsWith('soccer_conmebol_')) return FOOTBALL.international;
+  if (key.startsWith('soccer_concacaf_')) return FOOTBALL.northCentralAmerica;
+  if (/^soccer_(africa|caf)_/.test(key)) return FOOTBALL.africa;
+  return undefined;
+}
+
+function basketballCountry(key: string): LeagueCategory | undefined {
+  if (/^basketball_(w?nba|w?ncaab)(_|$)/.test(key)) return BASKETBALL.usa;
+  if (key.startsWith('basketball_nbl')) return BASKETBALL.australia;
+  if (key.startsWith('basketball_euroleague')) return BASKETBALL.europe;
+  return undefined;
 }
 
 function knownCategory(sport: SportCode, country: string): LeagueCategory | undefined {
