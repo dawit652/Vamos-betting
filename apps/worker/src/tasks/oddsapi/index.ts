@@ -437,7 +437,9 @@ async function pollLeagueOdds(
       });
       const priced = priceEvent(detail.consensus, {
         margins: pricingMargins(league.marginBps ?? deps.config.marginBps, live),
-        derived: deps.config.derivedMarkets,
+        // The goals model describes a whole match from 0-0: in play it would
+        // misprice correct score and BTTS, so only the bookmakers' markets run.
+        derived: deps.config.derivedMarkets && !live,
       });
       if (current === undefined && priced.markets.length === 0) {
         summary.unpriced++;

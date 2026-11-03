@@ -389,9 +389,9 @@ describe('the real feed, end to end', () => {
       const now = t.clock.now;
       fake.oddsData.set('soccer_epl', [
         match('ev1', KICKOFF, [
-          book('pinnacle', now, [1.3, 5, 11]),
-          book('betfair_ex_eu', now, [1.31, 5.1, 10.5]),
-          book('williamhill', now, [1.28, 4.8, 10]),
+          book('pinnacle', now, [1.3, 5, 11], [1.6, 2.3]),
+          book('betfair_ex_eu', now, [1.31, 5.1, 10.5], [1.62, 2.35]),
+          book('williamhill', now, [1.28, 4.8, 10], [1.58, 2.25]),
         ]),
       ]);
       await t.db.db
@@ -403,6 +403,12 @@ describe('the real feed, end to end', () => {
       const ev1 = await eventByRef('ev1');
       expect((await marketRows(ev1.id)).find((row) => row.key === '1x2')?.status).toBe('open');
       expect(await homePrice(ev1.id)).toBeLessThan(1300);
+      // The bookmakers' in-play total re-opens; the model's markets stay off in play.
+      const rows = await marketRows(ev1.id);
+      expect(rows.find((row) => row.key === 'ou:2.5')?.status).toBe('open');
+      for (const key of ['btts', 'cs', 'ou:3.5']) {
+        expect(rows.find((row) => row.key === key)?.status).toBe('suspended');
+      }
     },
     TEST_TIMEOUT,
   );
