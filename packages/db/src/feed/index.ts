@@ -622,7 +622,10 @@ export async function markFeedResultApplied(
 }
 
 /** Events of the provider with a feed result not applied yet (waiting or under review). */
-export async function pendingFeedResultIds(exec: DbExecutor, provider: string): Promise<Set<string>> {
+export async function pendingFeedResultIds(
+  exec: DbExecutor,
+  provider: string,
+): Promise<Set<string>> {
   const rows = await exec
     .select({ eventId: feedResults.eventId })
     .from(feedResults)
