@@ -8,6 +8,11 @@ import { z } from 'zod';
  * validated on its own and dropped (and counted) when invalid. Nothing here
  * throws. Prices are decimal floats from the provider; they are converted to
  * integer milli odds later, not here.
+ *
+ * Checked against real responses (fixtures/real): the per-event odds endpoint
+ * gives bookmakers no `last_update` of their own (only their markets have
+ * one), and some books quote a line at exactly 1.0 to mean "no price" (1xBet's
+ * alternate totals). Such an outcome is left out; its market stays.
  */
 
 /** A sport (league or competition) the API covers. */
@@ -28,14 +33,21 @@ export interface OddsApiOutcome {
   description: string | null;
 }
 
-/** A bookmaker's market. `lastUpdate` falls back to the bookmaker's when absent. */
+/**
+ * A bookmaker's market. `lastUpdate` falls back to the bookmaker's when absent.
+ * Outcomes quoted at exactly 1.0 (no price) are left out, so a line can lose
+ * one side; consumers pair outcomes before using them.
+ */
 export interface OddsApiMarket {
   key: string;
   lastUpdate: Date;
   outcomes: OddsApiOutcome[];
 }
 
-/** One bookmaker's prices for an event. */
+/**
+ * One bookmaker's prices for an event. `lastUpdate` is the bookmaker's own,
+ * or its newest market's when the response has none (the per-event endpoint).
+ */
 export interface OddsApiBookmaker {
   key: string;
   title: string;
@@ -93,9 +105,13 @@ const sportSchema = z.object({
   has_outrights: z.boolean(),
 });
 
+/** A decimal price of exactly 1.0 returns nothing: the book's way of quoting no price. */
+const NO_PRICE = 1;
+
 const outcomeSchema = z.object({
   name: z.string(),
-  price: z.number().gt(1),
+  // 1.0 passes here and is left out by parseBookmaker; below 1 is malformed.
+  price: z.number().gte(NO_PRICE),
   point: z
     .number()
     .nullish()
@@ -112,7 +128,7 @@ const marketSchema = z.object({
 const bookmakerShellSchema = z.object({
   key: z.string().min(1),
   title: z.string(),
-  last_update: time,
+  last_update: time.optional(),
   markets: z.array(z.unknown()),
 });
 
@@ -189,22 +205,33 @@ export function parseSports(raw: unknown): Parsed<OddsApiSport> {
 function parseBookmaker(raw: unknown): { bookmaker: OddsApiBookmaker | null; dropped: number } {
   const shell = bookmakerShellSchema.safeParse(raw);
   if (!shell.success) return { bookmaker: null, dropped: 1 };
-  const { key, title, last_update: lastUpdate, markets: rawMarkets } = shell.data;
+  const { key, title, last_update: bookUpdate, markets: rawMarkets } = shell.data;
   const markets: OddsApiMarket[] = [];
   let dropped = 0;
   for (const rawMarket of rawMarkets) {
     const market = marketSchema.safeParse(rawMarket);
-    if (!market.success) {
+    const lastUpdate = market.success ? (market.data.last_update ?? bookUpdate) : undefined;
+    if (!market.success || lastUpdate === undefined) {
+      // Malformed, or no time at all: a price of unknown age is never used.
       dropped += 1;
       continue;
     }
-    markets.push({
-      key: market.data.key,
-      lastUpdate: market.data.last_update ?? lastUpdate,
-      outcomes: market.data.outcomes,
-    });
+    const outcomes = market.data.outcomes.filter((outcome) => outcome.price > NO_PRICE);
+    if (outcomes.length === 0) continue;
+    markets.push({ key: market.data.key, lastUpdate, outcomes });
   }
+  const lastUpdate = bookUpdate ?? newest(markets);
+  // No time of its own and no usable market: nothing to keep.
+  if (lastUpdate === null) return { bookmaker: null, dropped };
   return { bookmaker: { key, title, lastUpdate, markets }, dropped };
+}
+
+function newest(markets: readonly OddsApiMarket[]): Date | null {
+  let best: Date | null = null;
+  for (const market of markets) {
+    if (best === null || market.lastUpdate.getTime() > best.getTime()) best = market.lastUpdate;
+  }
+  return best;
 }
 
 /** Parses one event object. Bookmakers and markets inside it are dropped individually. */

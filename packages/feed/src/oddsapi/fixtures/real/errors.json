@@ -1,0 +1,18 @@
+{
+  "invalidMarket": {
+    "status": 422,
+    "body": {
+      "message": "Markets not supported by this endpoint: btts",
+      "error_code": "INVALID_MARKET",
+      "details_url": "https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html#invalid-market"
+    }
+  },
+  "unknownSport": {
+    "status": 404,
+    "body": {
+      "message": "Unknown sport",
+      "error_code": "UNKNOWN_SPORT",
+      "details_url": "https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html#unknown-sport"
+    }
+  }
+}

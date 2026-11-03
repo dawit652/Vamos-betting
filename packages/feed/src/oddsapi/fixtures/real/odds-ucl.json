@@ -1,0 +1,434 @@
+[
+  {
+    "id": "55e0f74a61f7d72defa7ea0c83532ea5",
+    "sport_key": "soccer_uefa_champs_league",
+    "sport_title": "UEFA Champions League",
+    "commence_time": "2026-11-03T17:45:00Z",
+    "home_team": "Shakhtar Donetsk",
+    "away_team": "Sporting Lisbon",
+    "bookmakers": [
+      {
+        "key": "winamax_de",
+        "title": "Winamax (DE)",
+        "last_update": "2026-11-03T15:12:08Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:08Z",
+            "outcomes": [
+              {
+                "name": "Shakhtar Donetsk",
+                "price": 3.35
+              },
+              {
+                "name": "Sporting Lisbon",
+                "price": 1.96
+              },
+              {
+                "name": "Draw",
+                "price": 3.75
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_fr",
+        "title": "Unibet (FR)",
+        "last_update": "2026-11-03T15:11:49Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:11:48Z",
+            "outcomes": [
+              {
+                "name": "Shakhtar Donetsk",
+                "price": 3.2
+              },
+              {
+                "name": "Sporting Lisbon",
+                "price": 1.88
+              },
+              {
+                "name": "Draw",
+                "price": 3.4
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "codere_it",
+        "title": "Codere (IT)",
+        "last_update": "2026-11-03T15:12:30Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:30Z",
+            "outcomes": [
+              {
+                "name": "Shakhtar Donetsk",
+                "price": 3.45
+              },
+              {
+                "name": "Sporting Lisbon",
+                "price": 2.07
+              },
+              {
+                "name": "Draw",
+                "price": 3.6
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:30Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.63,
+                "point": 2.5
+              },
+              {
+                "name": "Under",
+                "price": 2.09,
+                "point": 2.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-11-03T15:12:09Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:09Z",
+            "outcomes": [
+              {
+                "name": "Shakhtar Donetsk",
+                "price": 3.25
+              },
+              {
+                "name": "Sporting Lisbon",
+                "price": 1.9
+              },
+              {
+                "name": "Draw",
+                "price": 3.65
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "coolbet",
+        "title": "Coolbet",
+        "last_update": "2026-11-03T15:12:51Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:51Z",
+            "outcomes": [
+              {
+                "name": "Shakhtar Donetsk",
+                "price": 3.6
+              },
+              {
+                "name": "Sporting Lisbon",
+                "price": 2.07
+              },
+              {
+                "name": "Draw",
+                "price": 3.82
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:51Z",
+            "outcomes": [
+              {
+                "name": "Shakhtar Donetsk",
+                "price": 1.44,
+                "point": 1
+              },
+              {
+                "name": "Sporting Lisbon",
+                "price": 2.9,
+                "point": -1
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:51Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 2.15,
+                "point": 3
+              },
+              {
+                "name": "Under",
+                "price": 1.75,
+                "point": 3
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-11-03T15:12:20Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:20Z",
+            "outcomes": [
+              {
+                "name": "Shakhtar Donetsk",
+                "price": 3.3
+              },
+              {
+                "name": "Sporting Lisbon",
+                "price": 1.92
+              },
+              {
+                "name": "Draw",
+                "price": 3.75
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "9b8076d3ffa027df6f6cb3189de46706",
+    "sport_key": "soccer_uefa_champs_league",
+    "sport_title": "UEFA Champions League",
+    "commence_time": "2026-11-03T17:45:00Z",
+    "home_team": "Galatasaray",
+    "away_team": "VfB Stuttgart",
+    "bookmakers": [
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-11-03T15:12:09Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:09Z",
+            "outcomes": [
+              {
+                "name": "Galatasaray",
+                "price": 1.9
+              },
+              {
+                "name": "VfB Stuttgart",
+                "price": 2.95
+              },
+              {
+                "name": "Draw",
+                "price": 4.1
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "onexbet",
+        "title": "1xBet",
+        "last_update": "2026-11-03T15:12:49Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:49Z",
+            "outcomes": [
+              {
+                "name": "Galatasaray",
+                "price": 2.05
+              },
+              {
+                "name": "VfB Stuttgart",
+                "price": 3.33
+              },
+              {
+                "name": "Draw",
+                "price": 4.37
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:49Z",
+            "outcomes": [
+              {
+                "name": "Galatasaray",
+                "price": 1.6,
+                "point": 0
+              },
+              {
+                "name": "VfB Stuttgart",
+                "price": 2.57,
+                "point": 0
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:49Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.77,
+                "point": 3.5
+              },
+              {
+                "name": "Under",
+                "price": 2.22,
+                "point": 3.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "winamax_de",
+        "title": "Winamax (DE)",
+        "last_update": "2026-11-03T15:12:08Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:08Z",
+            "outcomes": [
+              {
+                "name": "Galatasaray",
+                "price": 1.96
+              },
+              {
+                "name": "VfB Stuttgart",
+                "price": 3.05
+              },
+              {
+                "name": "Draw",
+                "price": 4.3
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "marathonbet",
+        "title": "Marathon Bet",
+        "last_update": "2026-11-03T15:12:34Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:34Z",
+            "outcomes": [
+              {
+                "name": "Galatasaray",
+                "price": 2.02
+              },
+              {
+                "name": "VfB Stuttgart",
+                "price": 3.28
+              },
+              {
+                "name": "Draw",
+                "price": 4.3
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T15:12:34Z",
+            "outcomes": [
+              {
+                "name": "Galatasaray",
+                "price": 1.54,
+                "point": 0
+              },
+              {
+                "name": "VfB Stuttgart",
+                "price": 2.48,
+                "point": 0
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T15:12:34Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.72,
+                "point": 3.5
+              },
+              {
+                "name": "Under",
+                "price": 2.15,
+                "point": 3.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-11-03T15:12:20Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:12:20Z",
+            "outcomes": [
+              {
+                "name": "Galatasaray",
+                "price": 1.91
+              },
+              {
+                "name": "VfB Stuttgart",
+                "price": 3
+              },
+              {
+                "name": "Draw",
+                "price": 4.3
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_fr",
+        "title": "Unibet (FR)",
+        "last_update": "2026-11-03T15:11:49Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T15:11:48Z",
+            "outcomes": [
+              {
+                "name": "Galatasaray",
+                "price": 1.88
+              },
+              {
+                "name": "VfB Stuttgart",
+                "price": 2.85
+              },
+              {
+                "name": "Draw",
+                "price": 3.9
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

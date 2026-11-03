@@ -1,0 +1,13 @@
+[
+  {
+    "id": "9b8076d3ffa027df6f6cb3189de46706",
+    "sport_key": "soccer_uefa_champs_league",
+    "sport_title": "UEFA Champions League",
+    "commence_time": "2026-11-03T17:45:00Z",
+    "completed": false,
+    "home_team": "Galatasaray",
+    "away_team": "VfB Stuttgart",
+    "scores": null,
+    "last_update": null
+  }
+]

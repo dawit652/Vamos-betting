@@ -1,0 +1,80 @@
+{
+  "sports": {
+    "path": "/sports",
+    "remaining": 437,
+    "used": 63,
+    "last": 0
+  },
+  "epl-events": {
+    "path": "/sports/soccer_epl/events",
+    "remaining": 437,
+    "used": 63,
+    "last": 0
+  },
+  "epl-odds": {
+    "path": "/sports/soccer_epl/odds",
+    "remaining": 435,
+    "used": 65,
+    "last": 2
+  },
+  "ucl-odds": {
+    "path": "/sports/soccer_uefa_champs_league/odds",
+    "remaining": 432,
+    "used": 68,
+    "last": 3
+  },
+  "nba-odds": {
+    "path": "/sports/basketball_nba/odds",
+    "remaining": 429,
+    "used": 71,
+    "last": 3
+  },
+  "tennis-odds": {
+    "path": "/sports/tennis_atp_paris_masters/odds",
+    "remaining": 426,
+    "used": 74,
+    "last": 3
+  },
+  "epl-scores": {
+    "path": "/sports/soccer_epl/scores",
+    "remaining": 424,
+    "used": 76,
+    "last": 2
+  },
+  "ucl-scores": {
+    "path": "/sports/soccer_uefa_champs_league/scores",
+    "remaining": 422,
+    "used": 78,
+    "last": 2
+  },
+  "nba-scores": {
+    "path": "/sports/basketball_nba/scores",
+    "remaining": 420,
+    "used": 80,
+    "last": 2
+  },
+  "tennis-scores": {
+    "path": "/sports/tennis_atp_paris_masters/scores",
+    "remaining": 418,
+    "used": 82,
+    "last": 2
+  },
+  "epl-event-markets": {
+    "path": "/sports/soccer_epl/events/586bec023ee8ac2f0645d963bd2c9d25/markets",
+    "remaining": 417,
+    "used": 83,
+    "last": 1
+  },
+  "epl-event-odds": {
+    "path": "/sports/soccer_epl/events/586bec023ee8ac2f0645d963bd2c9d25/odds",
+    "remaining": 410,
+    "used": 90,
+    "last": 7
+  },
+  "epl-participants": {
+    "path": "/sports/soccer_epl/participants",
+    "remaining": 409,
+    "used": 91,
+    "last": 1
+  }
+}
