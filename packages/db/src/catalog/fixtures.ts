@@ -15,6 +15,7 @@ import { isUniqueViolation } from './errors';
 import { allocateGameId, GAME_ID_CONSTRAINT, type AllocateGameIdOptions } from './game-id';
 import { marketMessage, type EventStatus, type LiveMessage, type MarketStatus } from './live';
 import { oddsProvenance, setSelectionOdds, type OddsChange } from './odds';
+import { setMarketStatus } from './status';
 
 /** odds_history.source of prematch prices from the feed. */
 export const FEED_ODDS_SOURCE = 'feed';
@@ -46,6 +47,26 @@ export interface UpsertFixtureOptions {
   now?: Date;
   /** Random source for the Game ID (tests). */
   randomInt?: AllocateGameIdOptions['randomInt'];
+  /**
+   * Also reprice a live event (a real feed's in-play prices). Its start time
+   * is left alone.
+   */
+  allowLive?: boolean;
+  /**
+   * Treat the given markets as the event's whole priced book: open markets
+   * missing from it are suspended (as the feed), and markets the feed had
+   * suspended are re-opened when they are back. A real feed passes what has
+   * a fresh consensus, so nothing stale stays open.
+   */
+  suspendMissing?: boolean;
+  /**
+   * Whether a selection's feed price moved enough to be written, given the
+   * reference (the feed's previous price) and the new price. Default: any
+   * change.
+   */
+  shouldWrite?: (reference: number, next: number) => boolean;
+  /** When the feed priced the event (events.odds_updated_at); unset leaves it. */
+  pricedAt?: Date;
 }
 
 export interface UpsertFixtureResult {
@@ -57,6 +78,9 @@ export interface UpsertFixtureResult {
   status: EventStatus;
   marketsAdded: number;
   oddsChanged: number;
+  /** Markets suspended or re-opened by `suspendMissing`. */
+  marketsSuspended: number;
+  marketsReopened: number;
   /** Deltas for an existing event (new markets, odds changes); publish after COMMIT. */
   messages: LiveMessage[];
 }
@@ -84,7 +108,11 @@ const UPDATABLE_MARKETS: ReadonlySet<MarketStatus> = new Set(['open', 'suspended
  *   for that selection (odds_history with the same source). A price set since
  *   by a trader or the demo drift therefore stays until the feed itself
  *   moves. odds_history rows are written only for odds that change.
- * - Live, finished or otherwise resulted events are left untouched.
+ * - Live events are left untouched unless `allowLive` (a real feed's in-play
+ *   prices); finished or otherwise resulted events always are.
+ * - With `suspendMissing` (real feeds), the given markets are the whole priced
+ *   book: open markets missing from it are suspended as the feed, and the
+ *   ones the feed suspended are re-opened once they are back.
  *
  * Markets are validated first (RangeError): a type the sport offers, a valid
  * line, exactly the selections of the type and odds within 1001..1000000.
@@ -103,6 +131,10 @@ export async function upsertFixture(
 
   let existing = await lockByRef(tx, fixture);
   if (existing === null) {
+    // A real feed (suspendMissing) never creates an event players cannot bet on.
+    if (planned.length === 0 && options.suspendMissing === true) {
+      throw new RangeError(`fixture ${fixture.feedRef}: a new event needs at least one market`);
+    }
     const inserted = await insertEvent(tx, fixture, options);
     if (inserted !== null) {
       await insertMarkets(tx, inserted.id, planned, source);
@@ -113,6 +145,8 @@ export async function upsertFixture(
         status: 'scheduled',
         marketsAdded: planned.length,
         oddsChanged: 0,
+        marketsSuspended: 0,
+        marketsReopened: 0,
         messages: [],
       };
     }
@@ -130,19 +164,33 @@ export async function upsertFixture(
     status: existing.status,
     marketsAdded: 0,
     oddsChanged: 0,
+    marketsSuspended: 0,
+    marketsReopened: 0,
     messages: [],
   };
-  if (existing.status !== 'scheduled') return unchanged;
+  const live = existing.status === 'live' && options.allowLive === true;
+  if (existing.status !== 'scheduled' && !live) return unchanged;
 
-  if (existing.startTime.getTime() !== fixture.startTime.getTime()) {
+  if (!live && existing.startTime.getTime() !== fixture.startTime.getTime()) {
     await tx
       .update(events)
       .set({ startTime: fixture.startTime, updatedAt: sql`now()` })
       .where(eq(events.id, existing.id));
   }
+  if (options.pricedAt !== undefined) {
+    await tx
+      .update(events)
+      .set({ oddsUpdatedAt: options.pricedAt })
+      .where(eq(events.id, existing.id));
+  }
 
   const marketRows = await tx
-    .select({ id: markets.id, key: markets.key, status: markets.status })
+    .select({
+      id: markets.id,
+      key: markets.key,
+      status: markets.status,
+      suspendedBy: markets.suspendedBy,
+    })
     .from(markets)
     .where(eq(markets.eventId, existing.id))
     .orderBy(asc(markets.id));
@@ -172,6 +220,7 @@ export async function upsertFixture(
   );
 
   const messages: LiveMessage[] = [];
+  const write = options.shouldWrite ?? ((reference: number, next: number) => reference !== next);
   const missingMarkets: PlannedMarket[] = [];
   const missingSelections: Array<typeof selections.$inferInsert> = [];
   const changes: OddsChange[] = [];
@@ -196,9 +245,30 @@ export async function upsertFixture(
       if (current.status !== 'open') continue;
       const previousFeedPrice = provenance.get(current.id)?.bySource.get(source);
       const reference = previousFeedPrice ?? current.oddsMilli;
-      if (selection.oddsMilli !== reference) {
+      if (write(reference, selection.oddsMilli)) {
         changes.push({ selectionId: current.id, oddsMilli: selection.oddsMilli, source });
       }
+    }
+  }
+
+  // Statuses change before prices, so each odds delta carries the committed bettability.
+  let marketsSuspended = 0;
+  let marketsReopened = 0;
+  if (options.suspendMissing === true) {
+    const offered = new Set(planned.map((market) => market.key));
+    for (const row of marketRows) {
+      const target =
+        row.status === 'open' && !offered.has(row.key)
+          ? 'suspended'
+          : row.status === 'suspended' && row.suspendedBy === 'feed' && offered.has(row.key)
+            ? 'open'
+            : null;
+      if (target === null) continue;
+      const change = await setMarketStatus(tx, row.id, target);
+      if (!change.changed) continue;
+      messages.push(...change.messages);
+      if (target === 'open') marketsReopened++;
+      else marketsSuspended++;
     }
   }
 
@@ -227,6 +297,8 @@ export async function upsertFixture(
     ...unchanged,
     marketsAdded: added.length,
     oddsChanged: repriced.changed.length,
+    marketsSuspended,
+    marketsReopened,
     messages,
   };
 }
@@ -278,6 +350,7 @@ async function insertEvent(
             status: 'scheduled',
             feedProvider: fixture.feedProvider,
             feedRef: fixture.feedRef,
+            oddsUpdatedAt: options.pricedAt ?? null,
           })
           .onConflictDoNothing({ target: [events.feedProvider, events.feedRef] })
           .returning({ id: events.id, gameId: events.gameId }),

@@ -141,6 +141,11 @@ export const events = pgTable(
     simSeed: text('sim_seed'),
     resultedAt: timestamp('resulted_at', { withTimezone: true }),
     /**
+     * When a real feed last priced the event from a fresh market consensus
+     * (null for the mock feed): the freshness of what players see.
+     */
+    oddsUpdatedAt: timestamp('odds_updated_at', { withTimezone: true }),
+    /**
      * When the status, the betting switch or the score last changed (not the
      * match clock, which moves every tick): an in-play cash-out refuses when
      * it moved during the live delay (see prepareCashOut).

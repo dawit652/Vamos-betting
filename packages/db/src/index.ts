@@ -15,6 +15,7 @@ export * from './promotions/index';
 export * from './backoffice/index';
 export * from './compliance/index';
 export * from './channels/index';
+export * from './feed/index';
 export {
   isRetryableTxError,
   pgCode,

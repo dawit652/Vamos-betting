@@ -346,6 +346,8 @@ describe('upsertFixture', () => {
       status: 'scheduled',
       marketsAdded: 0,
       oddsChanged: 0,
+      marketsSuspended: 0,
+      marketsReopened: 0,
       messages: [],
     });
     expect(await historyCount(first.eventId)).toBe(before);
