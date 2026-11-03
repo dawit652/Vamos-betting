@@ -4,7 +4,7 @@ import { z } from 'zod';
 /**
  * Runtime configuration shared by the API and the worker.
  *
- * Vamos runs in `demo` (play-money) mode by default. `licensed` mode handles
+ * Nahubet runs in `demo` (play-money) mode by default. `licensed` mode handles
  * real money and is refused at startup unless every compliance prerequisite
  * is configured.
  */
@@ -236,7 +236,7 @@ const envSchema = z.object({
     .min(1)
     .max(200)
     .regex(HEADER_TEXT_RE, 'printable ASCII only')
-    .default('VamosBot/1.0'),
+    .default('NahubetBot/1.0'),
   /** URL or email appended to the user agent; required for FEED_PROVIDER=scraped in licensed mode. */
   SCRAPER_CONTACT: secret.refine((value) => value === undefined || isScraperContact(value), {
     message: 'must be an http(s) URL or an email address',
@@ -385,7 +385,7 @@ export interface ScraperConfig {
   minRatingMatches: number;
 }
 
-/** The User-Agent header sent to sources: `VamosBot/1.0 (+ops@example.com)` when a contact is set. */
+/** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
 export function scraperUserAgent(scraper: Pick<ScraperConfig, 'userAgent' | 'contact'>): string {
   return scraper.contact === undefined
     ? scraper.userAgent

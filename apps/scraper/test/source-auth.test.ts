@@ -77,7 +77,7 @@ const ok: Answer = (url) =>
 function fetcherFor(answer: Answer, env: Record<string, string | undefined>) {
   const calls: Call[] = [];
   const fetcher = new PoliteFetcher({
-    userAgent: 'VamosTest/1.0',
+    userAgent: 'NahubetTest/1.0',
     robots: 'enforce',
     minIntervalMs: 0,
     jitterFraction: 0,

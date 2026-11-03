@@ -1,6 +1,6 @@
 # The Odds API on the 30 USD plan: plan
 
-How Vamos takes bookmaker odds for its market-priced football competitions from
+How Nahubet takes bookmaker odds for its market-priced football competitions from
 [The Odds API](https://the-odds-api.com) on the **20K plan (30 USD a month)**, as cheaply, reliably and accurately as
 that plan allows.
 

@@ -4,7 +4,7 @@ import { InMemoryConditionalStore } from './conditional';
 import { PoliteFetcher, type PoliteFetcherOptions } from './polite-fetcher';
 import { START, fakeFetch, makeClock, res, type Handler } from './test-helpers';
 
-const UA = 'VamosBot/1.0 (+mailto:ops@example.com)';
+const UA = 'NahubetBot/1.0 (+mailto:ops@example.com)';
 const H = 'data.example';
 const CTX = { allowedHosts: [H], sourceKey: 'src' };
 const item = (path = '/fixtures.json', host = H) => ({
@@ -214,7 +214,7 @@ describe('robots.txt (6.6)', () => {
 
   it('uses the group for our product token', async () => {
     const { fetcher } = setup(
-      robotsText('User-agent: *\nDisallow: /\n\nUser-agent: vamosbot\nAllow: /'),
+      robotsText('User-agent: *\nDisallow: /\n\nUser-agent: nahubetbot\nAllow: /'),
       { robots: 'enforce' },
     );
     expect((await fetcher.fetch(item('/x'), CTX)).kind).toBe('ok');

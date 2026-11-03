@@ -331,7 +331,7 @@ export class TelebirrProvider implements PaymentProvider {
       merch_code: this.options.shortCode,
       merch_order_id: orderId,
       trade_type: 'Checkout',
-      title: 'Vamos deposit',
+      title: 'Nahubet deposit',
       total_amount: toBirrAmount(input.amount),
       trans_currency: 'ETB',
       timeout_express: `${this.orderTimeoutMinutes(input.expiresAt)}m`,

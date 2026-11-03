@@ -179,7 +179,7 @@ export async function registerUser(
     throw badRequest('invalid_date_of_birth', 'Enter a real date of birth (YYYY-MM-DD).');
   }
   if (!isOfAge(input.dateOfBirth, minAge, now)) {
-    throw unprocessable('underage', `You must be at least ${minAge} years old to use Vamos.`, {
+    throw unprocessable('underage', `You must be at least ${minAge} years old to use Nahubet.`, {
       minAge,
     });
   }

@@ -183,7 +183,7 @@ const check = (token: string, csrfToken?: string | null, checkCsrf = false) =>
 describe('staff accounts', () => {
   it('creates an account with a lowercased email, argon2id hash and encrypted TOTP secret', async () => {
     const created = await createStaffUser(deps(), {
-      email: '  New.Trader@Vamos.Test ',
+      email: '  New.Trader@Nahubet.Test ',
       displayName: ' New Trader ',
       role: 'trader',
       password: PASSWORD,
@@ -193,7 +193,7 @@ describe('staff accounts', () => {
     expect(created.user.displayName).toBe('New Trader');
     expect(created.generatedPassword).toBeNull();
     expect(created.totp.uri).toMatch(
-      /^otpauth:\/\/totp\/Vamos%20Back%20Office:new\.trader%40vamos\.test\?secret=/,
+      /^otpauth:\/\/totp\/Nahubet%20Back%20Office:new\.trader%40vamos\.test\?secret=/,
     );
     const row = await userRow(created.user.id);
     expect(row.passwordHash).toMatch(/^\$argon2id\$/);

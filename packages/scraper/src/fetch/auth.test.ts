@@ -4,7 +4,7 @@ import { PoliteFetcher, type PoliteFetcherOptions } from './polite-fetcher';
 import { fakeFetch, makeClock, res, ROBOTS_OK, type Handler } from './test-helpers';
 import type { FetchPlanItem } from '../types';
 
-const UA = 'VamosBot/1.0 (+mailto:ops@example.com)';
+const UA = 'NahubetBot/1.0 (+mailto:ops@example.com)';
 const API = 'v3.football.api-sports.io';
 const CDN = 'cdn.api-sports.io';
 const SECRET = 's3cr3t-K3Y-0123456789abcdef';

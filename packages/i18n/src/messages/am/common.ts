@@ -3,7 +3,7 @@ import type { Messages } from '../en';
 // Amharic. Pending native-speaker review before a licensed launch.
 export const common: Messages['common'] = {
   app: {
-    name: 'ቫሞስ',
+    name: 'ናሁቤት',
     tagline: 'ቀላል የስፖርት ውርርድ',
   },
   demo: {

@@ -1,6 +1,6 @@
 # TheRundown adapter: plan
 
-How Vamos connects to [TheRundown](https://therundown.io), an API for odds, schedules and scores from many
+How Nahubet connects to [TheRundown](https://therundown.io), an API for odds, schedules and scores from many
 sportsbooks, starting on the cheapest paid plan (**Starter**).
 
 > **Status 2026-11-01.** The owner chose **market first** (bookmaker odds price a competition switched to it;

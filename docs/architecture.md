@@ -1,8 +1,8 @@
-# Vamos Betting – architecture
+# Nahubet – architecture
 
 ## Model and product scope
 
-Vamos is modelled on **Betika**, the East African sportsbook that operated in Ethiopia through Addis Telco. It was designed for mobile-money markets and low-bandwidth phones.
+Nahubet is modelled on **Betika**, the East African sportsbook that operated in Ethiopia through Addis Telco. It was designed for mobile-money markets and low-bandwidth phones.
 
 **What we take from Betika:**
 
@@ -14,7 +14,7 @@ Vamos is modelled on **Betika**, the East African sportsbook that operated in Et
 - cash-out
 - shareable booking codes
 
-**What Vamos adds:**
+**What Nahubet adds:**
 
 - its accumulator bonus ladder, with transparent terms
 - Amharic and English, with Afaan Oromo and Tigrinya prepared

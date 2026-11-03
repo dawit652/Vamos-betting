@@ -37,7 +37,7 @@ export default function LoginPage() {
   return (
     <main className="login">
       <form onSubmit={submit} className="card" autoComplete="off">
-        <h1>Vamos Back Office</h1>
+        <h1>Nahubet Back Office</h1>
         <p className="muted">Staff sign-in</p>
         <Field label="Email">
           <input

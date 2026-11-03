@@ -1,4 +1,4 @@
-# Vamos Betting – contributor notes
+# Nahubet – contributor notes
 
 Mobile-first sportsbook for Costa Rica, modelled on Betika. TypeScript pnpm monorepo.
 

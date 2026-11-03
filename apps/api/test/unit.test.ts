@@ -66,10 +66,10 @@ describe('OTP codes', () => {
 
   it('are sent in Amharic and English', () => {
     expect(otpSmsBody('123456', 'am')).toBe(
-      'Vamos: የማረጋገጫ ኮድዎ 123456 ነው። Your code is 123456. Valid 5 min. Never share it.',
+      'Nahubet: የማረጋገጫ ኮድዎ 123456 ነው። Your code is 123456. Valid 5 min. Never share it.',
     );
     expect(otpSmsBody('654321', 'en')).toBe(
-      'Vamos: Your code is 654321. Valid 5 min. Never share it. የማረጋገጫ ኮድዎ 654321 ነው።',
+      'Nahubet: Your code is 654321. Valid 5 min. Never share it. የማረጋገጫ ኮድዎ 654321 ነው።',
     );
   });
 });

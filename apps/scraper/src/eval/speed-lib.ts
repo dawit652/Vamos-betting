@@ -182,7 +182,7 @@ export async function openEval(options: OpenOptions): Promise<EvalHarness> {
     },
   };
   const fetcher = new PoliteFetcher({
-    userAgent: 'VamosEval/1.0',
+    userAgent: 'NahubetEval/1.0',
     robots: 'off',
     ...options.fetcher,
     now: () => clock.getTime(),

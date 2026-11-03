@@ -53,7 +53,7 @@ describe('USSD callbacks', () => {
   });
 
   it('answers with CON or END within 182 characters', () => {
-    expect(UssdResponseText.safeParse('CON Vamos\n1 Place bet').success).toBe(true);
+    expect(UssdResponseText.safeParse('CON Nahubet\n1 Place bet').success).toBe(true);
     expect(UssdResponseText.safeParse('END Bye').success).toBe(true);
     expect(UssdResponseText.safeParse('Bye').success).toBe(false);
     expect(UssdResponseText.safeParse(`END ${'x'.repeat(179)}`).success).toBe(false);

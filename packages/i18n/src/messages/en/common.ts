@@ -5,7 +5,7 @@
  */
 export const common = {
   app: {
-    name: 'Vamos',
+    name: 'Nahubet',
     tagline: 'Sports betting made simple',
   },
   demo: {

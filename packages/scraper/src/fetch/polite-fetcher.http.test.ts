@@ -61,7 +61,7 @@ afterAll(async () => {
 
 function make(options: Partial<ConstructorParameters<typeof PoliteFetcher>[0]> = {}) {
   return new PoliteFetcher({
-    userAgent: 'VamosBot/1.0 (+mailto:ops@example.com)',
+    userAgent: 'NahubetBot/1.0 (+mailto:ops@example.com)',
     allowInsecure: true,
     robots: 'off',
     minIntervalMs: 0,

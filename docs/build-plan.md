@@ -1,6 +1,6 @@
-# Vamos Betting build plan and handoff
+# Nahubet build plan and handoff
 
-This is the working plan for building Vamos Betting, a mobile-first sportsbook for Ethiopia modelled on
+This is the working plan for building Nahubet, a mobile-first sportsbook for Ethiopia modelled on
 **Betika**. It holds the current status, what the next session does first, the conventions learned so far,
 and the scope and acceptance checks for every remaining phase. Repo rules are in `CLAUDE.md`. Market
 research is in `docs/research/`.

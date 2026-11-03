@@ -545,6 +545,8 @@ describe('security page helpers', () => {
   });
 
   it('names the data export file by its UTC date', () => {
-    expect(exportFileName(new Date('2026-10-27T21:30:00Z'))).toBe('vamos-my-data-2026-10-27.json');
+    expect(exportFileName(new Date('2026-10-27T21:30:00Z'))).toBe(
+      'nahubet-my-data-2026-10-27.json',
+    );
   });
 });

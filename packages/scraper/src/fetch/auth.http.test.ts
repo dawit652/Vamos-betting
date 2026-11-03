@@ -39,7 +39,7 @@ afterAll(async () => {
 
 const fetcher = () =>
   new PoliteFetcher({
-    userAgent: 'VamosBot/1.0 (+mailto:ops@example.com)',
+    userAgent: 'NahubetBot/1.0 (+mailto:ops@example.com)',
     allowInsecure: true,
     robots: 'off',
     minIntervalMs: 0,
@@ -80,7 +80,7 @@ describe('request authentication over real sockets', () => {
   it('sends nothing when the key is missing', async () => {
     seen.length = 0;
     const bare = new PoliteFetcher({
-      userAgent: 'VamosBot/1.0 (+mailto:ops@example.com)',
+      userAgent: 'NahubetBot/1.0 (+mailto:ops@example.com)',
       allowInsecure: true,
       robots: 'enforce',
       minIntervalMs: 0,

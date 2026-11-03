@@ -1,5 +1,5 @@
 /*
- * Vamos service worker: caches STATIC assets only.
+ * Nahubet service worker: caches STATIC assets only.
  * - /_next/static/* (content-hashed JS/CSS/fonts) and /icons/*: cache first.
  * - Page navigations: always the network (pages show balances and live odds);
  *   when offline, the static /offline.html.

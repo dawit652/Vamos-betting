@@ -333,7 +333,7 @@ describe('account security', () => {
       });
       expect(exported.statusCode).toBe(200);
       expect(exported.headers['content-disposition']).toBe(
-        'attachment; filename="vamos-my-data.json"',
+        'attachment; filename="nahubet-my-data.json"',
       );
       expect(exported.headers['cache-control']).toBe('no-store');
       const body = exported.json<{

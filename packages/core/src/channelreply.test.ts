@@ -119,8 +119,8 @@ describe('locale and formatting', () => {
   });
 
   it('prefixes replies, with DEMO in play-money mode', () => {
-    expect(smsText('Balance ETB 5.00.', { demo: true })).toBe('Vamos DEMO: Balance ETB 5.00.');
-    expect(smsText('Balance ETB 5.00.', { demo: false })).toBe('Vamos: Balance ETB 5.00.');
+    expect(smsText('Balance ETB 5.00.', { demo: true })).toBe('Nahubet DEMO: Balance ETB 5.00.');
+    expect(smsText('Balance ETB 5.00.', { demo: false })).toBe('Nahubet: Balance ETB 5.00.');
   });
 });
 
@@ -399,7 +399,9 @@ describe('information replies', () => {
     expect(optOutBody(true, 'en')).toBe(
       'You will no longer get offers by SMS. Send START to get them again.',
     );
-    expect(optOutBody(false, 'en')).toBe('You will get Vamos offers by SMS. Send STOP to opt out.');
+    expect(optOutBody(false, 'en')).toBe(
+      'You will get Nahubet offers by SMS. Send STOP to opt out.',
+    );
     for (const optedOut of [true, false]) {
       sentWhole(optOutBody(optedOut, 'en'), 1);
       sentWhole(optOutBody(optedOut, 'am'));

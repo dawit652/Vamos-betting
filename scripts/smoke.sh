@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test for a running Vamos deployment: health and readiness endpoints, the public catalogue
+# Smoke test for a running Nahubet deployment: health and readiness endpoints, the public catalogue
 # API, the player home page (and one of its static assets) and the back-office login page.
 # It only reads: no accounts, bets or other state are created. Works against any deployment URL.
 #

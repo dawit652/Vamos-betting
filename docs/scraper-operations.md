@@ -50,17 +50,17 @@ The scraper reads these from the environment (`packages/config/src/config.ts`; e
 [`.env.example`](../.env.example)). In licensed mode, `FEED_PROVIDER=scraped` also needs an absolute
 `SCRAPER_ARCHIVE_DIR`, a `SCRAPER_CONTACT` and `SCRAPER_ROBOTS=enforce`; the guard refuses to start otherwise.
 
-| Variable                         | Default         | Meaning                                                                                             |
-| -------------------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
-| `FEED_PROVIDER`                  | `mock`          | adds the value `scraped`                                                                            |
-| `SCRAPER_ARCHIVE_DIR`            | `./var/scraper` | raw snapshot store; absolute in licensed mode                                                       |
-| `SCRAPER_USER_AGENT`             | `VamosBot/1.0`  | identifies us to sources                                                                            |
-| `SCRAPER_CONTACT`                | unset           | URL or email appended to the user agent; **required** when `FEED_PROVIDER=scraped` in licensed mode |
-| `SCRAPER_ROBOTS`                 | `enforce`       | `enforce` or `off`; `off` is refused in licensed mode                                               |
-| `SCRAPER_PORT`                   | `4200`          | health server (0 = off)                                                                             |
-| `SCRAPER_MAX_CONCURRENCY`        | `4`             | parallel hosts                                                                                      |
-| `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`            | R4 wait, minimum 5                                                                                  |
-| `SCRAPER_MIN_RATING_MATCHES`     | `8`             | O1                                                                                                  |
+| Variable                         | Default          | Meaning                                                                                             |
+| -------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| `FEED_PROVIDER`                  | `mock`           | adds the value `scraped`                                                                            |
+| `SCRAPER_ARCHIVE_DIR`            | `./var/scraper`  | raw snapshot store; absolute in licensed mode                                                       |
+| `SCRAPER_USER_AGENT`             | `NahubetBot/1.0` | identifies us to sources                                                                            |
+| `SCRAPER_CONTACT`                | unset            | URL or email appended to the user agent; **required** when `FEED_PROVIDER=scraped` in licensed mode |
+| `SCRAPER_ROBOTS`                 | `enforce`        | `enforce` or `off`; `off` is refused in licensed mode                                               |
+| `SCRAPER_PORT`                   | `4200`           | health server (0 = off)                                                                             |
+| `SCRAPER_MAX_CONCURRENCY`        | `4`              | parallel hosts                                                                                      |
+| `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`             | R4 wait, minimum 5                                                                                  |
+| `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
 
 These are code constants, not settings: the number of independent upstreams a result needs (`MIN_INDEPENDENT_SOURCES = 2`),
 the kickoff tolerance, the shape threshold (`SHAPE_MIN_RATIO = 0.5`) and the other rule thresholds in

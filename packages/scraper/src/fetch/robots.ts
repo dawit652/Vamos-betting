@@ -149,7 +149,7 @@ export function parseRobots(text: string): RobotsRules {
 
 /**
  * The product token of a user agent: the part before the first '/', space or
- * '(' ("VamosBot/1.0 (+mailto:x)" -> "vamosbot"), lower-cased.
+ * '(' ("NahubetBot/1.0 (+mailto:x)" -> "nahubetbot"), lower-cased.
  */
 export function productToken(userAgent: string): string {
   const match = /^[^\s/(;,]+/.exec(userAgent.trim());

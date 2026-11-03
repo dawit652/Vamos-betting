@@ -29,7 +29,7 @@ export const account = {
     passwordMismatch: 'The two passwords do not match.',
     dateOfBirthRequired: 'Enter your date of birth.',
     dateOfBirth: 'Enter a real date of birth.',
-    underage: 'You must be 21 or older to use Vamos.',
+    underage: 'You must be 21 or older to use Nahubet.',
     terms: 'Accept the terms and confirm that you are 21 or older.',
     otp: 'Enter the 6-digit code.',
     otpExpired: 'This code has expired or was already used. Request a new code.',
@@ -70,7 +70,7 @@ export const account = {
     title: 'Log in',
     submit: 'Log in',
     forgot: 'Forgot password?',
-    noAccount: 'New to Vamos?',
+    noAccount: 'New to Nahubet?',
     register: 'Create an account',
     passwordChanged: 'Your password was changed. Log in with the new password.',
     signedIn: 'You are logged in.',
@@ -80,7 +80,7 @@ export const account = {
     intro: 'Register with your mobile number. We will send you a code by SMS.',
     submit: 'Register',
     ageNotice:
-      'Vamos is for people aged 21 and over. We may check your age with your Fayda ID; under-21 accounts are closed.',
+      'Nahubet is for people aged 21 and over. We may check your age with your Fayda ID; under-21 accounts are closed.',
     dobHint: 'You must be born on or before {date}.',
     acceptTerms: 'I am 21 or older and I accept the terms and conditions and the privacy notice.',
     readTerms: 'Read the terms',
@@ -170,7 +170,7 @@ export const account = {
     none: 'You are not logged in on any other device.',
     dataTitle: 'Your data',
     dataIntro:
-      'Download a copy of what Vamos keeps about you: profile, identity check, limits and breaks, sign-ins, transactions and bets.',
+      'Download a copy of what Nahubet keeps about you: profile, identity check, limits and breaks, sign-ins, transactions and bets.',
     dataDownload: 'Download my data',
     privacyLink: 'How we use your data (privacy notice)',
   },
@@ -194,7 +194,7 @@ export const account = {
     rejectedRetry: 'Check your details and try again.',
     alreadyVerified: 'Your identity is already verified.',
     idAlreadyUsed:
-      'This ID is already linked to another Vamos account. Contact support if this is a mistake.',
+      'This ID is already linked to another Nahubet account. Contact support if this is a mistake.',
     unavailable: 'Identity verification is temporarily unavailable. Please try again later.',
     underage:
       'The ID check shows that you are under 21. Your account has been suspended; contact support if this is a mistake.',
@@ -683,7 +683,7 @@ export const account = {
   pages: {
     help: {
       title: 'Help',
-      intro: 'Quick answers about Vamos. Vamos is a demo: all money is play money.',
+      intro: 'Quick answers about Nahubet. Nahubet is a demo: all money is play money.',
       items: {
         bet: {
           q: 'How do I place a bet?',
@@ -691,7 +691,7 @@ export const account = {
         },
         money: {
           q: 'Is this real money?',
-          a: 'No. Vamos is a demo. Your balance is play money with no value. You can add more from your wallet at any time.',
+          a: 'No. Nahubet is a demo. Your balance is play money with no value. You can add more from your wallet at any time.',
         },
         bets: {
           q: 'Where can I see my bets?',
@@ -714,7 +714,7 @@ export const account = {
     privacy: {
       title: 'Privacy notice',
       intro:
-        'What personal data Vamos keeps, why, who receives it and for how long. Demo version: counsel reviews the final notice before Vamos takes real money.',
+        'What personal data Nahubet keeps, why, who receives it and for how long. Demo version: counsel reviews the final notice before Nahubet takes real money.',
       sections: {
         collect: {
           title: 'What we collect',
@@ -744,11 +744,11 @@ export const account = {
     },
     terms: {
       title: 'Terms and conditions',
-      intro: 'Short demo terms. The full terms will be published before Vamos takes real money.',
+      intro: 'Short demo terms. The full terms will be published before Nahubet takes real money.',
       sections: {
         demo: {
           title: 'Demo and play money',
-          body: 'Vamos is a demonstration. All balances, stakes and winnings are play money: they have no value, cannot be deposited or withdrawn and cannot be exchanged for anything.',
+          body: 'Nahubet is a demonstration. All balances, stakes and winnings are play money: they have no value, cannot be deposited or withdrawn and cannot be exchanged for anything.',
         },
         age: {
           title: '21 and over',
@@ -778,7 +778,7 @@ export const account = {
       sections: {
         age: {
           title: '21+ only',
-          body: 'Vamos is only for adults aged 21 and over. Never let a child use your account.',
+          body: 'Nahubet is only for adults aged 21 and over. Never let a child use your account.',
         },
         playMoney: {
           title: 'Play money',

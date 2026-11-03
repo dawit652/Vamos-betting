@@ -92,7 +92,7 @@ export const STAFF_PASSWORD_MAX_LENGTH = 128;
 export const STAFF_EMAIL_MAX_LENGTH = 254;
 export const STAFF_DISPLAY_NAME_MAX_LENGTH = 100;
 /** Issuer shown by authenticator apps. */
-export const STAFF_TOTP_ISSUER = 'Vamos Back Office';
+export const STAFF_TOTP_ISSUER = 'Nahubet Back Office';
 
 /** Hashes and checks passwords (argon2id with the pepper; see @vamos/db/passwords). */
 export interface PasswordHasher {

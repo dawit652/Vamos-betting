@@ -15,7 +15,7 @@ export async function Header() {
           className="text-xl font-black tracking-tight"
           aria-label={t('common.nav.home')}
         >
-          Vamos<span className="text-accent">.</span>
+          Nahubet<span className="text-accent">.</span>
         </Link>
         <span className="rounded-sm bg-accent px-1 text-xxs font-bold text-accent-ink">
           {t('common.demo.badge')}

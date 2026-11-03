@@ -15,8 +15,8 @@ import { AppProviders } from '@/providers/AppProviders';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: { default: 'Vamos', template: '%s · Vamos' },
-  description: 'Vamos – simple, fast sports betting for Ethiopia (demo, play money only)',
+  title: { default: 'Nahubet', template: '%s · Nahubet' },
+  description: 'Nahubet – simple, fast sports betting for Ethiopia (demo, play money only)',
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     ],
     apple: '/icons/apple-touch-icon.png',
   },
-  appleWebApp: { capable: true, title: 'Vamos', statusBarStyle: 'default' },
+  appleWebApp: { capable: true, title: 'Nahubet', statusBarStyle: 'default' },
   formatDetection: { telephone: false },
 };
 

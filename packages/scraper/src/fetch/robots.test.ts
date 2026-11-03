@@ -9,7 +9,7 @@ import {
   robotsCrawlDelayMs,
 } from './robots';
 
-const UA = 'VamosBot';
+const UA = 'NahubetBot';
 
 describe('parseRobots / isAllowed (RFC 9309)', () => {
   it('allows everything without rules and disallows everything for ROBOTS_DISALLOW_ALL', () => {
@@ -62,14 +62,14 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
       'User-agent: OtherBot',
       'Disallow: /other',
       '',
-      'User-agent: VAMOSBOT',
+      'User-agent: NAHUBETBOT',
       'User-agent: AltBot',
       'Allow: /',
       'Disallow: /private',
     ].join('\n');
     const r = parseRobots(text);
-    expect(isAllowed(r, 'vamosbot', '/fixtures')).toBe(true);
-    expect(isAllowed(r, 'VamosBot/1.0 (+mailto:a@b.c)', '/private/x')).toBe(false);
+    expect(isAllowed(r, 'nahubetbot', '/fixtures')).toBe(true);
+    expect(isAllowed(r, 'NahubetBot/1.0 (+mailto:a@b.c)', '/private/x')).toBe(false);
     expect(isAllowed(r, 'altbot', '/fixtures')).toBe(true);
     expect(isAllowed(r, 'randombot', '/fixtures')).toBe(false); // falls back to *
     expect(isAllowed(r, 'otherbot', '/fixtures')).toBe(true);
@@ -77,7 +77,7 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
 
   it('merges several groups naming the same agent', () => {
     const r = parseRobots(
-      'User-agent: vamosbot\nDisallow: /a\n\nUser-agent: vamosbot\nDisallow: /b',
+      'User-agent: nahubetbot\nDisallow: /a\n\nUser-agent: nahubetbot\nDisallow: /b',
     );
     expect(isAllowed(r, UA, '/a')).toBe(false);
     expect(isAllowed(r, UA, '/b')).toBe(false);
@@ -122,7 +122,7 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
     expect(robotsCrawlDelayMs(parseRobots('User-agent: *\nCrawl-delay: soon'), UA)).toBe(0);
     expect(
       robotsCrawlDelayMs(
-        parseRobots('User-agent: vamosbot\nCrawl-delay: 7\nUser-agent: *\nCrawl-delay: 1'),
+        parseRobots('User-agent: nahubetbot\nCrawl-delay: 7\nUser-agent: *\nCrawl-delay: 1'),
         UA,
       ),
     ).toBe(7000);
@@ -136,7 +136,7 @@ describe('parseRobots / isAllowed (RFC 9309)', () => {
   });
 
   it('derives product tokens', () => {
-    expect(productToken('VamosBot/1.0 (+https://x.example)')).toBe('vamosbot');
+    expect(productToken('NahubetBot/1.0 (+https://x.example)')).toBe('nahubetbot');
     expect(productToken('  Foo-Bar ')).toBe('foo-bar');
   });
 });
@@ -162,7 +162,7 @@ describe('robots properties', () => {
     const line = fc.oneof(
       fc.constantFrom(
         'User-agent: *',
-        'User-agent: vamosbot',
+        'User-agent: nahubetbot',
         'Disallow: /',
         'Allow: /a',
         'Disallow: /*.x$',
@@ -177,8 +177,8 @@ describe('robots properties', () => {
         fc.string({ maxLength: 40 }),
         (lines, path) => {
           const rules = parseRobots(lines.join('\r\n'));
-          expect(typeof isAllowed(rules, 'vamosbot', path)).toBe('boolean');
-          expect(robotsCrawlDelayMs(rules, 'vamosbot')).toBeLessThanOrEqual(60_000);
+          expect(typeof isAllowed(rules, 'nahubetbot', path)).toBe('boolean');
+          expect(robotsCrawlDelayMs(rules, 'nahubetbot')).toBeLessThanOrEqual(60_000);
         },
       ),
     );

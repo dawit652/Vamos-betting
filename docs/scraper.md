@@ -581,17 +581,17 @@ A licensed API such as API-Football authenticates with a request header
 Added to `packages/config` (all optional unless noted; env names are
 normative):
 
-| Variable                         | Default         | Meaning                                                                                             |
-| -------------------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
-| `FEED_PROVIDER`                  | `mock`          | adds the value `scraped`                                                                            |
-| `SCRAPER_ARCHIVE_DIR`            | `./var/scraper` | raw snapshot store; absolute in licensed mode                                                       |
-| `SCRAPER_USER_AGENT`             | `VamosBot/1.0`  | identifies us to sources                                                                            |
-| `SCRAPER_CONTACT`                | unset           | URL or email appended to the user agent; **required** when `FEED_PROVIDER=scraped` in licensed mode |
-| `SCRAPER_ROBOTS`                 | `enforce`       | `enforce` or `off`; `off` is refused in licensed mode                                               |
-| `SCRAPER_PORT`                   | `4200`          | health server (0 = off)                                                                             |
-| `SCRAPER_MAX_CONCURRENCY`        | `4`             | parallel hosts                                                                                      |
-| `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`            | R4 wait, minimum 5                                                                                  |
-| `SCRAPER_MIN_RATING_MATCHES`     | `8`             | O1                                                                                                  |
+| Variable                         | Default          | Meaning                                                                                             |
+| -------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| `FEED_PROVIDER`                  | `mock`           | adds the value `scraped`                                                                            |
+| `SCRAPER_ARCHIVE_DIR`            | `./var/scraper`  | raw snapshot store; absolute in licensed mode                                                       |
+| `SCRAPER_USER_AGENT`             | `NahubetBot/1.0` | identifies us to sources                                                                            |
+| `SCRAPER_CONTACT`                | unset            | URL or email appended to the user agent; **required** when `FEED_PROVIDER=scraped` in licensed mode |
+| `SCRAPER_ROBOTS`                 | `enforce`        | `enforce` or `off`; `off` is refused in licensed mode                                               |
+| `SCRAPER_PORT`                   | `4200`           | health server (0 = off)                                                                             |
+| `SCRAPER_MAX_CONCURRENCY`        | `4`              | parallel hosts                                                                                      |
+| `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`             | R4 wait, minimum 5                                                                                  |
+| `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
 
 There is **no** setting for the number of sources a result needs: it is the
 constant `MIN_INDEPENDENT_SOURCES = 2`.

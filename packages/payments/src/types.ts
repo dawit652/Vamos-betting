@@ -80,7 +80,7 @@ export interface VerifiedWebhookEvent {
   status: ProviderPaymentStatus;
   /** Santim, when the notification states the amount. */
   amount: Santim | null;
-  /** ISO 4217 code as sent by the provider (Vamos only accepts 'ETB'). */
+  /** ISO 4217 code as sent by the provider (Nahubet only accepts 'ETB'). */
   currency: string | null;
   /** The parsed payload, for the payment_events audit row. */
   raw: unknown;

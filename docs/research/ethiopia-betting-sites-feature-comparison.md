@@ -2,7 +2,7 @@
 
 _Research snapshot: 7 October 2026. Companion to [ethiopia-sports-betting-market.md](./ethiopia-sports-betting-market.md), which covers regulation and payments in depth._
 
-> **Context:** every Ethiopian sports betting licence was revoked on 15 Dec 2025, and no operator is licensed today. This document describes the features operators offered **before** the shutdown, plus what offshore sites still advertise, so the Vamos product can be benchmarked ahead of a relaunch. It is not a recommendation to use any of these sites.
+> **Context:** every Ethiopian sports betting licence was revoked on 15 Dec 2025, and no operator is licensed today. This document describes the features operators offered **before** the shutdown, plus what offshore sites still advertise, so the Nahubet product can be benchmarked ahead of a relaunch. It is not a recommendation to use any of these sites.
 
 ---
 
@@ -27,7 +27,7 @@ _Research snapshot: 7 October 2026. Companion to [ethiopia-sports-betting-market
 |---|---|---|---|
 | Local | **Hulusport** | Hulegeb Online Solution / Hulu Gaming (NLA) | Revoked. Won a High Court ruling, which is stayed on appeal. |
 | Local | **Betika** | Addis Telco Services S.C. + Betika Sport Lottery (NLA) | Suspended, then revoked |
-| Local | **Vamos** | Vamos Entertainment PLC (NLA) | Suspended, then revoked |
+| Local | **Nahubet** | Nahubet Entertainment PLC (NLA) | Suspended, then revoked |
 | Local | **Dash Bet** | Dash Bet Single Member PLC (NLA, claimed lic. S/W/Blo/51/2016) | Suspended, then revoked. Largest debtor in the audit (~Birr 8.64 bn). |
 | Local | **Winner Ethiopia** | NLA (claimed) | Revoked (all licences) |
 | Local | **Telebet**, **EthioBet**, **Abyssinia Bet**, **Walia**, **Habtam** | NLA (claimed) | Revoked (all licences) |
@@ -40,7 +40,7 @@ _Research snapshot: 7 October 2026. Companion to [ethiopia-sports-betting-market
 
 ## 3. Feature matrix: local operators
 
-| Feature | Hulusport | Betika | Vamos | Dash Bet | Winner ET |
+| Feature | Hulusport | Betika | Nahubet | Dash Bet | Winner ET |
 |---|---|---|---|---|---|
 | **Min. stake (sports)** | ◐ 5–25 ETB | ◐ 5 ETB | ◐ 5–10 ETB (casino 1 ETB) | ◐ ~10 ETB | — |
 | **Max win** | ◐ 100k–300k ETB | ◐ 2 m ETB/day payout cap | ◐ multi-bonus capped ~52.5k | — | — |
@@ -104,7 +104,7 @@ _Research snapshot: 7 October 2026. Companion to [ethiopia-sports-betting-market
 | **Entry price** | 5–10 ETB stakes, 10–50 ETB deposits | 20–130 ETB minimum deposits | **Local.** Low stakes were key to mass adoption. |
 | **Football & local leagues** | Strong on EPL plus the **Ethiopian Premier League** | Huge catalogue, but EPL live stats lag (seen on Dash) and local leagues are weaker | **Local** for relevance, **international** for depth |
 | **Market depth / bet types** | 1X2, O/U, handicap, accumulators | 100+ markets per event, bet builders, multi-live, esports | **International** |
-| **Accumulator promotions** | Very aggressive multi-bonus ladders (Vamos up to 200–1000%), acca boosts (Winner) | Standard acca insurance and boosts | **Local**. This is the Ethiopian player's favourite product. |
+| **Accumulator promotions** | Very aggressive multi-bonus ladders (Nahubet up to 200–1000%), acca boosts (Winner) | Standard acca insurance and boosts | **Local**. This is the Ethiopian player's favourite product. |
 | **Jackpots** | Signature product: 9–15 fixture pools, 10–50 ETB entry, 0.1–1.5 m ETB prizes | Present but not central | **Local** |
 | **Cash-out** | Present at leaders, often limited to main markets | Broad | **International** (slightly) |
 | **Live streaming** | Rare (Winner, Habtam claimed) | Partial | Gap on both sides |
@@ -160,13 +160,13 @@ _Research snapshot: 7 October 2026. Companion to [ethiopia-sports-betting-market
 
 ---
 
-## 7. Gap analysis: what Vamos should offer at relaunch
+## 7. Gap analysis: what Nahubet should offer at relaunch
 
 ### Must have (features every local leader offered)
 1. Minimum stake around **5 ETB**. Low minimum deposit.
 2. **telebirr + CBE Birr + M-Pesa** deposits and withdrawals to the registered wallet.
 3. Football first, including the **Ethiopian Premier League** and **CAF Champions League / Confederation Cup**. Pre-match and **live** betting.
-4. **Accumulator multi-bonus ladder.** This is Vamos's historic strength; keep it with **clear, published terms**.
+4. **Accumulator multi-bonus ladder.** This is Nahubet's historic strength; keep it with **clear, published terms**.
 5. **Weekly and daily jackpot** (13- and 9-fixture style).
 6. **Cash-out** on main markets.
 7. Fast **mobile web that works on 3G** plus a small Android APK.
@@ -224,7 +224,7 @@ An outside summary of the market was produced with Gemini. Each claim was checke
 - **GG.BET, Stake, Thunderpick:** no evidence of any Ethiopian presence.
 
 ### Disagreement on crypto
-The Gemini review presents crypto as a way to "bypass traditional banking delays". In Ethiopia today this means getting around a **government order to block betting payments**. NISS has named crypto and hawala as the channels used for the alleged ETB 100 bn illicit outflows. For Vamos, crypto deposits and withdrawals are a **licensing and criminal risk, not a feature**, and stay excluded (see §7).
+The Gemini review presents crypto as a way to "bypass traditional banking delays". In Ethiopia today this means getting around a **government order to block betting payments**. NISS has named crypto and hawala as the channels used for the alleged ETB 100 bn illicit outflows. For Nahubet, crypto deposits and withdrawals are a **licensing and criminal risk, not a feature**, and stay excluded (see §7).
 
 ### Missing from the Gemini review
 - The Ethiopian product signatures: jackpot pools, multi-bonus ladders, 5 ETB stakes.
@@ -239,7 +239,7 @@ The Gemini review presents crypto as a way to "bypass traditional banking delays
 **Local operators**
 - Hulusport: [Ghanasoccernet review](https://ghanasoccernet.com/et/review/hulusport-ethiopia-bookmaker-review-rules-support-sign-up/) · [Ghanasoccernet app review](https://ghanasoccernet.com/et/app-reviews/hulusport-ethiopia/) · [Betting Dog](https://bettingdog.com/hulusport-ethiopia-review/) · [Ethiopiabetting](https://ethiopiabetting.com/hulusport/) · [Ethiopiabetting.online](https://ethiopiabetting.online/review/hulusport/) · [Paris-sportifs.africa](https://paris-sportifs.africa/en/hulusport/) · [hulusport.et](https://www.hulusport.et/) · [Bet24](https://bet24.et/casino/hulusport/)
 - Betika: [Ghanasoccernet](https://ghanasoccernet.com/en-et/review/betika-ethiopia-bookmaker-review-rules-support-sign-up-free-bets-site/) · [BCA](https://bettingcompanies.africa/review/betika-ethiopia/) · [Ethiopiabetting](https://ethiopiabetting.com/betika-ethiopia/) · [Ethiopiabetting jackpot](https://ethiopiabetting.com/betika-ethiopia-jackpot-prediction/) · [EaglePredict](https://eaglepredict.com/betting-sites/betika-ethiopia/) · [HowAfrica](https://howafrica.africa/how-to-register-and-bet-on-betika-ethiopia-step-by-step-guide/) · [Takebet](https://takebet.com/betting-sites/review/betika) · [MightyTips](https://www.mightytips.com/bookmakers/betika/)
-- Vamos: [Ghanasoccernet bonuses](https://ghanasoccernet.com/et/bonusy-bukmeker/vamos-ethiopia/) · [Ghanasoccernet app](https://ghanasoccernet.com/et/app-reviews/vamos-bet-ethiopia/) · [EaglePredict](https://eaglepredict.com/betting-sites/vamos-ethiopia/) · [Ethiopiabettingsites](https://ethiopiabettingsites.com/review/vamos-bet/) · [Betguarant](https://betguarant.com/vamos-bet/) · [Bet-eth promo](https://bet-eth.com/best-bonuses/vamosbet) · [Bet-et](https://bet-et.com/vamosbet/) · [Capital Ethiopia – multi-bet bonuses](https://capitalethiopia.com/2024/02/14/top-multi-bet-bonuses-for-ethiopian-punters/)
+- Nahubet: [Ghanasoccernet bonuses](https://ghanasoccernet.com/et/bonusy-bukmeker/vamos-ethiopia/) · [Ghanasoccernet app](https://ghanasoccernet.com/et/app-reviews/vamos-bet-ethiopia/) · [EaglePredict](https://eaglepredict.com/betting-sites/vamos-ethiopia/) · [Ethiopiabettingsites](https://ethiopiabettingsites.com/review/vamos-bet/) · [Betguarant](https://betguarant.com/vamos-bet/) · [Bet-eth promo](https://bet-eth.com/best-bonuses/vamosbet) · [Bet-et](https://bet-et.com/vamosbet/) · [Capital Ethiopia – multi-bet bonuses](https://capitalethiopia.com/2024/02/14/top-multi-bet-bonuses-for-ethiopian-punters/)
 - Dash Bet: [iGaming Express](https://igamingexpress.com/dashbet-review-ethiopia/) · [Ghanasoccernet](https://ghanasoccernet.com/en-et/review/dashbet-ethiopia/) · [African Gambit](https://africangambit.com/dash-bet-review/) · [MightyTips](https://www.mightytips.com/bookmakers/dashbet-ethiopia/) · [Africasoccer](https://africasoccer.com/sports-betting/dash-bet/) · [Dash Bet payments](https://dashbets.net/payment-withdrawal)
 - Winner, Telebet, EthioBet: [BCA – Winner Ethiopia](https://bettingcompanies.africa/review/winner-ethiopia/) · [winneret.com](https://winneret.com/) · [Ethiopiabetting – Telebet](https://ethiopiabetting.com/telebet/) · [Paris-sportifs-africa – EthioBet](https://paris-sportifs-africa.net/en/ethiobet/)
 - Abyssinia Bet: [Addis Fortune – Online betting service joins the fray](https://addisfortune.news/online-betting-service-joins-the-fray)

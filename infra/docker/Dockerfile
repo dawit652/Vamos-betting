@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Production images for Vamos Betting: api, worker, scraper, web (apps/web/server.mjs) and admin.
+# Production images for Nahubet: api, worker, scraper, web (apps/web/server.mjs) and admin.
 # One Dockerfile, one target per service. Build from the repository root:
 #
 #   docker build -f infra/docker/Dockerfile --target api    -t vamos-api .

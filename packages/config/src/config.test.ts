@@ -105,7 +105,7 @@ describe('loadConfig', () => {
 
   it('refuses plain-http provider and callback URLs in licensed mode (review I4)', () => {
     for (const [name, url] of [
-      ['PAYMENT_CALLBACK_BASE_URL', 'http://api.vamos.example'],
+      ['PAYMENT_CALLBACK_BASE_URL', 'http://api.nahubet.example'],
       ['CHAPA_BASE_URL', 'http://api.chapa.co/v1'],
       ['TELEBIRR_BASE_URL', 'http://telebirr.example/apiaccess'],
       ['TELEBIRR_CHECKOUT_URL', 'http://telebirr.example/checkout'],
@@ -118,7 +118,7 @@ describe('loadConfig', () => {
     expect(
       problemsOf({
         ...LICENSED_ENV,
-        PAYMENT_CALLBACK_BASE_URL: 'https://api.vamos.example',
+        PAYMENT_CALLBACK_BASE_URL: 'https://api.nahubet.example',
         CHAPA_BASE_URL: 'https://api.chapa.co/v1',
         TELEBIRR_BASE_URL: 'https://telebirr.example/apiaccess',
         TELEBIRR_CHECKOUT_URL: 'https://telebirr.example/checkout',
@@ -138,12 +138,15 @@ describe('loadConfig', () => {
     // CORS lets each origin reach only its own routes (/admin or the rest).
     expect(
       problemsOf({
-        PUBLIC_WEB_URL: 'https://vamos.et',
-        ADMIN_WEB_URL: 'https://vamos.et/backoffice',
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://nahubet.com/backoffice',
       }).join('\n'),
     ).toMatch(/ADMIN_WEB_URL/);
     expect(
-      problemsOf({ PUBLIC_WEB_URL: 'https://vamos.et', ADMIN_WEB_URL: 'https://admin.vamos.et' }),
+      problemsOf({
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://admin.nahubet.com',
+      }),
     ).toEqual([]);
   });
 
@@ -520,22 +523,22 @@ describe('operations settings (Phase 12)', () => {
     expect(
       problemsOf({
         ...production,
-        PUBLIC_WEB_URL: 'https://vamos.et',
-        ADMIN_WEB_URL: 'https://admin.vamos.et',
-        PUBLIC_API_URL: 'https://api.vamos.et',
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://admin.nahubet.com',
+        PUBLIC_API_URL: 'https://api.nahubet.com',
       }),
     ).toEqual([]);
     expect(
       problemsOf({
         ...production,
-        PUBLIC_WEB_URL: 'http://vamos.et',
-        ADMIN_WEB_URL: 'http://admin.vamos.et',
-        PUBLIC_API_URL: 'http://api.vamos.et',
+        PUBLIC_WEB_URL: 'http://nahubet.com',
+        ADMIN_WEB_URL: 'http://admin.nahubet.com',
+        PUBLIC_API_URL: 'http://api.nahubet.com',
       }),
     ).toEqual([
-      'PUBLIC_WEB_URL must be an https URL in production (got http://vamos.et)',
-      'ADMIN_WEB_URL must be an https URL in production (got http://admin.vamos.et)',
-      'PUBLIC_API_URL must be an https URL in production (got http://api.vamos.et)',
+      'PUBLIC_WEB_URL must be an https URL in production (got http://nahubet.com)',
+      'ADMIN_WEB_URL must be an https URL in production (got http://admin.nahubet.com)',
+      'PUBLIC_API_URL must be an https URL in production (got http://api.nahubet.com)',
     ]);
     // Development keeps plain http.
     expect(problemsOf({ PUBLIC_WEB_URL: 'http://vamos.lan:3000' })).toEqual([]);
@@ -547,13 +550,13 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
     ...LICENSED_ENV,
     FEED_PROVIDER: 'scraped',
     SCRAPER_ARCHIVE_DIR: '/var/lib/vamos/scraper',
-    SCRAPER_CONTACT: 'https://vamos.et/bot',
+    SCRAPER_CONTACT: 'https://nahubet.com/bot',
   };
 
   it('has safe defaults and exposes them on config.scraper', () => {
     expect(loadConfig({}).scraper).toEqual({
       archiveDir: './var/scraper',
-      userAgent: 'VamosBot/1.0',
+      userAgent: 'NahubetBot/1.0',
       contact: undefined,
       robots: 'enforce',
       port: 4200,
@@ -568,8 +571,8 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
   it('reads every setting', () => {
     const config = loadConfig({
       SCRAPER_ARCHIVE_DIR: ' /data/scraper ',
-      SCRAPER_USER_AGENT: 'VamosBot/2.0',
-      SCRAPER_CONTACT: ' ops@vamos.et ',
+      SCRAPER_USER_AGENT: 'NahubetBot/2.0',
+      SCRAPER_CONTACT: ' ops@nahubet.com ',
       SCRAPER_ROBOTS: 'off',
       SCRAPER_PORT: '0',
       SCRAPER_MAX_CONCURRENCY: '8',
@@ -578,8 +581,8 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
     });
     expect(config.scraper).toEqual({
       archiveDir: '/data/scraper',
-      userAgent: 'VamosBot/2.0',
-      contact: 'ops@vamos.et',
+      userAgent: 'NahubetBot/2.0',
+      contact: 'ops@nahubet.com',
       robots: 'off',
       port: 0,
       maxConcurrency: 8,
@@ -599,7 +602,10 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       ['SCRAPER_ROBOTS', ['maybe', 'ON', 'false']],
       ['SCRAPER_ARCHIVE_DIR', ['   ']],
       ['SCRAPER_USER_AGENT', ['   ', 'Bot\r\nX-Evil: 1', 'Bøt/1.0']],
-      ['SCRAPER_CONTACT', ['not a contact', 'ftp://vamos.et', 'a@b', 'ops@vamos.et)\r\nX: y']],
+      [
+        'SCRAPER_CONTACT',
+        ['not a contact', 'ftp://nahubet.com', 'a@b', 'ops@nahubet.com)\r\nX: y'],
+      ],
     ] as const) {
       for (const value of values) {
         expect(problemsOf({ [name]: value }).join('\n'), `${name}=${value}`).toMatch(
@@ -610,13 +616,13 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
   });
 
   it('builds the User-Agent with the contact when there is one', () => {
-    expect(scraperUserAgent(loadConfig({}).scraper)).toBe('VamosBot/1.0');
-    expect(scraperUserAgent(loadConfig({ SCRAPER_CONTACT: 'ops@vamos.et' }).scraper)).toBe(
-      'VamosBot/1.0 (+ops@vamos.et)',
+    expect(scraperUserAgent(loadConfig({}).scraper)).toBe('NahubetBot/1.0');
+    expect(scraperUserAgent(loadConfig({ SCRAPER_CONTACT: 'ops@nahubet.com' }).scraper)).toBe(
+      'NahubetBot/1.0 (+ops@nahubet.com)',
     );
-    expect(scraperUserAgent({ userAgent: 'VamosBot/2.0', contact: 'https://vamos.et/bot' })).toBe(
-      'VamosBot/2.0 (+https://vamos.et/bot)',
-    );
+    expect(
+      scraperUserAgent({ userAgent: 'NahubetBot/2.0', contact: 'https://nahubet.com/bot' }),
+    ).toBe('NahubetBot/2.0 (+https://nahubet.com/bot)');
   });
 
   it('accepts FEED_PROVIDER=scraped on its own in demo mode, whatever the scraper settings', () => {

@@ -58,7 +58,7 @@ const alreadyVerified = () =>
 const idAlreadyUsed = () =>
   conflict(
     'id_already_used',
-    'This ID is already linked to another Vamos account. Contact support if this is a mistake.',
+    'This ID is already linked to another Nahubet account. Contact support if this is a mistake.',
   );
 
 const providerUnavailable = () =>
@@ -331,7 +331,7 @@ export async function submitKyc(
     const { minAge } = DEFAULT_RESPONSIBLE_GAMBLING;
     throw unprocessable(
       'underage',
-      `You must be at least ${minAge} years old to use Vamos. ` +
+      `You must be at least ${minAge} years old to use Nahubet. ` +
         'Your account has been suspended; contact support if this is a mistake.',
       { minAge, accountSuspended: true },
     );

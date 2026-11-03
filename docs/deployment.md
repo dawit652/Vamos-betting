@@ -1,6 +1,6 @@
 # Deployment guide
 
-How to run Vamos Betting in production: the images, the compose stack, configuration, the licensed-mode
+How to run Nahubet in production: the images, the compose stack, configuration, the licensed-mode
 checklist and operations. Day-to-day procedures are in [`runbooks/`](runbooks/README.md), backups in
 [`backups.md`](backups.md). Nothing here is legal advice; items marked **to confirm** need counsel or the
 regulator.
@@ -129,6 +129,28 @@ restrict **both** halves of it: the admin host and the staff API, which is the `
 leaves the staff API open). With the Caddy profile set `STAFF_ALLOWLIST` (space-separated IPs/CIDRs): Caddy
 answers 403 to everyone else on `ADMIN_DOMAIN` and on `API_DOMAIN/admin*`. With your own balancer, apply the
 same rule to both.
+
+**The nahubet.com domain.** The domain is registered at Porkbun. On a server with the Caddy profile:
+
+| Porkbun DNS record             | Points to                   | Setting                                                                     |
+| ------------------------------ | --------------------------- | --------------------------------------------------------------------------- |
+| `A` (host empty) `nahubet.com` | the server's public IPv4    | `WEB_DOMAIN=nahubet.com`, `PUBLIC_WEB_URL=https://nahubet.com`              |
+| `A` `api.nahubet.com`          | the same IPv4               | `API_DOMAIN=api.nahubet.com`, `PUBLIC_API_URL=https://api.nahubet.com`      |
+| `A` `admin.nahubet.com`        | the same IPv4               | `ADMIN_DOMAIN=admin.nahubet.com`, `ADMIN_WEB_URL=https://admin.nahubet.com` |
+| URL forward `www.nahubet.com`  | `https://nahubet.com` (301) | none (Porkbun's URL forwarding, so Caddy needs no fourth name)              |
+
+Delete Porkbun's default parking records (`ALIAS`/`CNAME` to `pixie.porkbun.com`) first, set `ACME_EMAIL`, and
+rebuild the web and admin images after changing `PUBLIC_API_URL` (it is inlined at build time). Commented
+examples are in [`infra/env.prod.example`](../infra/env.prod.example).
+
+**Sharing the demo through a tunnel** (one public name for a stack running on a PC, no open ports): point the
+tunnel's public name (for example `nahubet.com`) at the web app on `http://localhost:3000` and set, in `.env`,
+`PUBLIC_WEB_URL=https://nahubet.com`, `PUBLIC_API_URL=https://nahubet.com/_api`,
+`API_PROXY_TARGET=http://127.0.0.1:4000` and `DEV_ALLOWED_ORIGINS=nahubet.com`. The browser then reaches the
+API through the site's own origin (`/_api`), so the session cookie stays same-site. The back office stays on
+`http://localhost:3001` on that PC. With a Cloudflare tunnel the domain's nameservers must be Cloudflare's
+(change them at Porkbun under Authoritative Nameservers), then
+`cloudflared tunnel route dns <tunnel> nahubet.com`.
 
 **Scaling.**
 

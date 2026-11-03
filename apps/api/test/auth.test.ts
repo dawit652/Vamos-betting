@@ -883,7 +883,7 @@ describe('auth', () => {
       expect(blocked.statusCode).toBe(403);
       expect(apiError(blocked)).toMatchObject({
         code: 'self_excluded',
-        message: 'You have permanently self-excluded from Vamos.',
+        message: 'You have permanently self-excluded from Nahubet.',
       });
     });
 
@@ -1047,7 +1047,7 @@ describe('auth', () => {
       expect(secureCookies({ ...config, nodeEnv: 'production' })).toBe(true);
       expect(secureCookies({ ...config, mode: 'licensed' })).toBe(true);
       expect(
-        secureCookies({ ...config, api: { ...config.api, publicUrl: 'https://api.vamos.et' } }),
+        secureCookies({ ...config, api: { ...config.api, publicUrl: 'https://api.nahubet.com' } }),
       ).toBe(true);
 
       const licensed = buildApp(

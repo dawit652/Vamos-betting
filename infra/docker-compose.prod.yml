@@ -87,7 +87,7 @@ x-app-env: &app-env
   # FEED_PROVIDER=scraped needs a contact, robots enforced and an absolute archive directory); only
   # the scraper service writes the archive, at the path of its `scraper_archive` volume.
   SCRAPER_ARCHIVE_DIR: '/var/lib/vamos/scraper'
-  SCRAPER_USER_AGENT: '${SCRAPER_USER_AGENT:-VamosBot/1.0}'
+  SCRAPER_USER_AGENT: '${SCRAPER_USER_AGENT:-NahubetBot/1.0}'
   SCRAPER_CONTACT: '${SCRAPER_CONTACT:-}'
   SCRAPER_ROBOTS: '${SCRAPER_ROBOTS:-enforce}'
   SCRAPER_PORT: '4200'

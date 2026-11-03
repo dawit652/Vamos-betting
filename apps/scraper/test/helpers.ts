@@ -161,7 +161,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
   const responses = new Map<string, Hit>();
   const requests: Array<{ url: string; headers: Record<string, string> }> = [];
   const fetcher = new PoliteFetcher({
-    userAgent: 'VamosTest/1.0',
+    userAgent: 'NahubetTest/1.0',
     robots: 'off',
     minIntervalMs: 0,
     jitterFraction: 0,

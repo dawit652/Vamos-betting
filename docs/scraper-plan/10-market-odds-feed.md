@@ -14,7 +14,7 @@ Every price change still goes through the O3 bounds, O2 and a trader. **Not buil
 the review kind `odds_out_of_line`, M5 (the feed's fixtures and results as a second upstream), the replay
 acceptance of step 6 and the request budget alarms. **Not done and needed first:** the written licence (G2), one
 real response to replace the synthetic golden file and confirm `priceFormat`, the sport id, `periodId` and the
-market ids (see `docs/scraper-operations.md` section 8). Original status: plan, not built. Owner of the decision to buy: the person running Vamos. Related fix-plan items: F-05
+market ids (see `docs/scraper-operations.md` section 8). Original status: plan, not built. Owner of the decision to buy: the person running Nahubet. Related fix-plan items: F-05
 (exposure policy, high), F-06 (a second upstream, high), F-17 (draw pricing).
 
 ## Why, in one paragraph

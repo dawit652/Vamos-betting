@@ -89,7 +89,7 @@ describe('USSD betting', () => {
     const player = await channelPlayer(handle.db, { funds: birr(1_000) });
     const run = await session(player.phone, ['1', String(gameId), '1', '50']);
     expect(run.responses[0]).toBe(
-      'CON Vamos DEMO\n1 Place bet\n2 Balance\n3 My bets\n4 Jackpot\n5 Help\n0 Exit',
+      'CON Nahubet DEMO\n1 Place bet\n2 Balance\n3 My bets\n4 Jackpot\n5 Help\n0 Exit',
     );
     expect(run.responses[1]).toBe('CON Enter Game ID:\n00 Main menu');
     expect(run.responses[2]).toContain('1 Arsenal 2.00\n2 Draw 3.20\n3 Chelsea 3.50');
@@ -251,7 +251,7 @@ describe('USSD betting', () => {
       phone: player.phone,
       text: `${run.text}*00`,
     });
-    expect(back.response.startsWith('CON Vamos DEMO\n1 Place bet')).toBe(true);
+    expect(back.response.startsWith('CON Nahubet DEMO\n1 Place bet')).toBe(true);
     expect(await betsOf(player.userId)).toEqual([]);
   });
 
@@ -261,7 +261,7 @@ describe('USSD betting', () => {
     expect((await session(player.phone, ['3'])).last).toContain('END You have no bets yet.');
     expect((await session(player.phone, ['4'])).last.startsWith('END ')).toBe(true);
     expect((await session(player.phone, ['5'])).last).toContain('GAMEID#PICK#STAKE');
-    expect((await session(player.phone, ['0'])).last).toBe('END Thank you for using Vamos.');
+    expect((await session(player.phone, ['0'])).last).toBe('END Thank you for using Nahubet.');
     const amharic = await channelPlayer(handle.db, { funds: birr(5), locale: 'am' });
     const am = await session(amharic.phone, ['2']);
     expect(am.responses[0]).toContain('1 ውርርድ');
@@ -283,7 +283,7 @@ describe('USSD sessions', () => {
       responses.add(result.response);
     }
     expect(responses.size).toBe(1);
-    expect([...responses][0]).toContain('Register and verify it on the Vamos website.');
+    expect([...responses][0]).toContain('Register and verify it on the Nahubet website.');
   });
 
   it('never acts on a session it did not start, nor after it expired', async () => {
@@ -429,7 +429,7 @@ describe('USSD sessions', () => {
       phone: player.phone,
       text: `${run.text}*1`,
     });
-    expect(result.response).toContain('Register and verify it on the Vamos website.');
+    expect(result.response).toContain('Register and verify it on the Nahubet website.');
     expect(await betsOf(player.userId)).toEqual([]);
   });
 });
