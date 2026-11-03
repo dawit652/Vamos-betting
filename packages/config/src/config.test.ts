@@ -629,7 +629,12 @@ describe('The Odds API feed (FEED_PROVIDER=theoddsapi)', () => {
     expect(
       loadConfig({ ...base, ODDS_API_SPORT_SHARES: 'football:100' }).feed.oddsApi.sportShares,
     ).toEqual({ football: 100, basketball: 0, tennis: 0 });
-    for (const bad of ['football:90,tennis:20', 'cricket:10', 'football', 'football:90,football:5']) {
+    for (const bad of [
+      'football:90,tennis:20',
+      'cricket:10',
+      'football',
+      'football:90,football:5',
+    ]) {
       expect(problemsOf({ ...base, ODDS_API_SPORT_SHARES: bad }).join('\n')).toMatch(
         /ODDS_API_SPORT_SHARES/,
       );
