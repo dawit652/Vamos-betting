@@ -1,6 +1,7 @@
 import type { EventDetail } from '@vamos/contracts';
 import { getLocale, getT } from '@/i18n/server';
 import { localName } from '@/lib/localized';
+import { minutesAgo } from '@/lib/relative-time';
 import { eventRef, groupMarkets, oddsMarket } from './events';
 import { MarketOdds } from './MarketOdds';
 
@@ -20,8 +21,21 @@ export async function EventMarkets({ event }: { event: EventDetail }) {
   if (groups.length === 0) {
     return <p className="card m-3 text-center text-muted">{t('sportsbook.markets.none')}</p>;
   }
+  const updatedMinutes =
+    !event.simulated && event.oddsUpdatedAt !== null
+      ? minutesAgo(event.oddsUpdatedAt, Date.now())
+      : null;
   return (
     <div className="space-y-px">
+      {event.simulated || updatedMinutes !== null ? (
+        <p className="px-3 py-1 text-xxs text-muted">
+          {event.simulated
+            ? t('sportsbook.match.simulated')
+            : updatedMinutes === 0
+              ? t('sportsbook.match.oddsUpdatedNow')
+              : t('sportsbook.match.oddsUpdated', { minutes: updatedMinutes ?? 0 })}
+        </p>
+      ) : null}
       {groups.map((group, index) => (
         <details key={group.type} open={index < OPEN_GROUPS} className="group bg-surface">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 font-semibold [&::-webkit-details-marker]:hidden">

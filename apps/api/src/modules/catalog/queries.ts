@@ -174,6 +174,7 @@ export async function listCompetitions(
     .select({
       categorySlug: categories.slug,
       categoryName: categories.name,
+      categoryCountryCode: categories.countryCode,
       slug: competitions.slug,
       name: competitions.name,
       eventCount: sql<number>`coalesce(${counts.eventCount}, 0)`.mapWith(Number),
@@ -193,7 +194,11 @@ export async function listCompetitions(
     items: [...groupBy(rows, (row) => row.categorySlug).values()].map((group) => {
       const [first] = group as [(typeof rows)[number], ...typeof rows];
       return {
-        category: { slug: first.categorySlug, name: localized(first.categoryName) },
+        category: {
+          slug: first.categorySlug,
+          name: localized(first.categoryName),
+          countryCode: first.categoryCountryCode,
+        },
         competitions: group.map((row) => ({
           slug: row.slug,
           name: localized(row.name),
@@ -228,6 +233,9 @@ function selectEvents(db: DbExecutor) {
       competitionSlug: competitions.slug,
       competitionName: competitions.name,
       categoryName: categories.name,
+      categoryCountryCode: categories.countryCode,
+      oddsUpdatedAt: events.oddsUpdatedAt,
+      feedProvider: events.feedProvider,
       homeId: homeTeam.id,
       homeName: homeTeam.name,
       homeShortName: homeTeam.shortName,
@@ -254,6 +262,9 @@ function toEventRow(row: SelectedEvent): EventRow | null {
     competitionSlug: row.competitionSlug,
     competitionName: row.competitionName,
     categoryName: row.categoryName,
+    categoryCountryCode: row.categoryCountryCode,
+    oddsUpdatedAt: row.oddsUpdatedAt,
+    feedProvider: row.feedProvider,
     home: { id: row.homeId, name: row.homeName, shortName: row.homeShortName },
     away: { id: row.awayId, name: row.awayName, shortName: row.awayShortName },
     startTime: row.startTime,

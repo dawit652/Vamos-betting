@@ -47,6 +47,7 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  * - trading.status: suspend / resume / open / close markets and events, betting on/off
  * - trading.result: result an event or correct its result
  * - trading.void: void a market or a selection
+ * - feed.manage: switch real-odds feed leagues on or off and set their margin [PATCH /admin/feed/leagues/:sportKey]
  * - risk.view: liability per selection and big bets [GET /admin/risk/*]
  * - bets.view: bet search and detail [GET /admin/bets*]
  * - withdrawals.view: withdrawal queues and flagged payments [GET /admin/withdrawals*, /admin/deposits/flagged]
@@ -73,6 +74,7 @@ export const STAFF_PERMISSIONS = [
   'trading.status',
   'trading.result',
   'trading.void',
+  'feed.manage',
   'risk.view',
   'bets.view',
   'withdrawals.view',
@@ -100,6 +102,7 @@ export const PERMISSION_ROLES: Readonly<Record<StaffPermission, readonly StaffRo
   'trading.status': ['admin', 'trader'],
   'trading.result': ['admin', 'trader'],
   'trading.void': ['admin', 'trader'],
+  'feed.manage': ['admin', 'trader'],
   'risk.view': ['admin', 'trader', 'compliance'],
   'bets.view': ['admin', 'support', 'trader', 'compliance', 'finance'],
   'withdrawals.view': ['admin', 'finance', 'compliance'],
@@ -1212,3 +1215,91 @@ export type UpdateStaffRequest = z.infer<typeof UpdateStaffRequest>;
 /** POST /admin/staff/:id/reset-password (ends the account's sessions). */
 export const ResetStaffPasswordRequest = z.object({ password: z.string().min(12).max(128) });
 export type ResetStaffPasswordRequest = z.infer<typeof ResetStaffPasswordRequest>;
+
+// Feed (real bookmaker odds): trading.view reads, feed.manage changes leagues, trading.result applies results.
+
+/** One feed league with its polling state (dates are ISO strings). */
+export const FeedLeagueView = z.object({
+  sportKey: z.string(),
+  sportId: z.string(),
+  title: z.string(),
+  sportGroup: z.string(),
+  /** The provider currently has events for it. */
+  active: z.boolean(),
+  /** We poll it and show its events. */
+  enabled: z.boolean(),
+  cup: z.boolean(),
+  tier: z.number().int(),
+  /** Our margin in basis points; null: the default. */
+  marginBps: z.number().int().nullable(),
+  eventCount: z.number().int(),
+  liveCount: z.number().int(),
+  nextStartAt: z.string().nullable(),
+  lastOddsAt: z.string().nullable(),
+  lastScoresAt: z.string().nullable(),
+  nextOddsAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+  lastErrorAt: z.string().nullable(),
+});
+export type FeedLeagueView = z.infer<typeof FeedLeagueView>;
+
+/** GET /admin/feed (trading.view): the provider's credits and leagues. */
+export const FeedStatusResponse = z.object({
+  provider: z.string(),
+  /** The last quota the provider reported; null before any call did. */
+  quota: z
+    .object({ remaining: z.number().int(), used: z.number().int().nullable(), at: z.string() })
+    .nullable(),
+  creditsLast24h: z.number().int(),
+  creditsLast30d: z.number().int(),
+  leagues: z.array(FeedLeagueView),
+});
+export type FeedStatusResponse = z.infer<typeof FeedStatusResponse>;
+
+/** The margin range of a league, in basis points (0..30%). */
+export const FEED_MARGIN_MAX_BPS = 3000;
+
+/** PATCH /admin/feed/leagues/:sportKey (feed.manage): at least one field; a null margin is the default. */
+export const UpdateFeedLeagueRequest = z
+  .object({
+    enabled: z.boolean().optional(),
+    marginBps: z.number().int().min(0).max(FEED_MARGIN_MAX_BPS).nullable().optional(),
+  })
+  .refine((body) => body.enabled !== undefined || body.marginBps !== undefined, {
+    message: 'Give enabled or marginBps',
+  });
+export type UpdateFeedLeagueRequest = z.infer<typeof UpdateFeedLeagueRequest>;
+
+export const FeedResultReviewReasonSchema = z.enum(['cup', 'tennis', 'overdue', 'unreadable']);
+export type FeedResultReviewReason = z.infer<typeof FeedResultReviewReasonSchema>;
+
+/** A result the feed reported that waits for staff. */
+export const FeedReviewItemView = z.object({
+  eventId: z.string(),
+  gameId: z.number().int(),
+  sportId: z.string(),
+  competition: LocalizedNameSchema,
+  homeTeam: LocalizedNameSchema,
+  awayTeam: LocalizedNameSchema,
+  startTime: z.string(),
+  eventStatus: EventStatusSchema,
+  /** The feed's score; null when it gave none (overdue / unreadable). */
+  scoreHome: z.number().int().nullable(),
+  scoreAway: z.number().int().nullable(),
+  reviewReason: FeedResultReviewReasonSchema,
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+});
+export type FeedReviewItemView = z.infer<typeof FeedReviewItemView>;
+
+/** GET /admin/feed/results (trading.view). */
+export const FeedReviewListResponse = z.object({ items: z.array(FeedReviewItemView) });
+export type FeedReviewListResponse = z.infer<typeof FeedReviewListResponse>;
+
+/** POST /admin/feed/results/:eventId/accept and …/void (trading.result). */
+export const FeedResultActionRequest = z.object({ reason: OptionalAuditText });
+export type FeedResultActionRequest = z.infer<typeof FeedResultActionRequest>;
+
+/** The league after PATCH /admin/feed/leagues/:sportKey. */
+export const UpdateFeedLeagueResponse = z.object({ league: FeedLeagueView });
+export type UpdateFeedLeagueResponse = z.infer<typeof UpdateFeedLeagueResponse>;

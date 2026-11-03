@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FeedResultActionRequest,
+  FeedStatusResponse,
   hasPermission,
   KycReviewRequest,
   PERMISSION_ROLES,
@@ -13,6 +15,7 @@ import {
   StaffLoginRequest,
   StaffWithdrawalQuery,
   TradingEventQuery,
+  UpdateFeedLeagueRequest,
   VoidRequest,
 } from './admin';
 
@@ -42,6 +45,7 @@ describe('the staff permission matrix', () => {
     ] as const) {
       expect(holders(permission), permission).toEqual(['admin', 'trader']);
     }
+    expect(holders('feed.manage')).toEqual(['admin', 'trader']);
     expect(holders('risk.view')).toEqual(['admin', 'compliance', 'trader']);
     expect(holders('bets.view')).toEqual(['admin', 'compliance', 'finance', 'support', 'trader']);
     expect(holders('withdrawals.approve')).toEqual(['admin', 'finance']);
@@ -132,5 +136,49 @@ describe('admin request contracts', () => {
         exemptBelow: '-1',
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('the feed contracts', () => {
+  it('accepts a league change with an enabled flag and/or a margin of 0..3000 (null: the default)', () => {
+    for (const body of [
+      { enabled: true },
+      { marginBps: 0 },
+      { marginBps: 3000 },
+      { marginBps: null },
+      { enabled: false, marginBps: 650 },
+    ]) {
+      expect(UpdateFeedLeagueRequest.safeParse(body).success, JSON.stringify(body)).toBe(true);
+    }
+  });
+
+  it('refuses an empty change, a margin out of range or fractional, and a non-boolean flag', () => {
+    for (const body of [
+      {},
+      { marginBps: 3001 },
+      { marginBps: -1 },
+      { marginBps: 1.5 },
+      { enabled: 'yes' },
+    ]) {
+      expect(UpdateFeedLeagueRequest.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+  });
+
+  it('trims the optional reason of accept / void and caps it at 500 characters', () => {
+    expect(FeedResultActionRequest.parse({ reason: '  checked  ' })).toEqual({ reason: 'checked' });
+    expect(FeedResultActionRequest.parse({})).toEqual({});
+    expect(FeedResultActionRequest.safeParse({ reason: 'x'.repeat(501) }).success).toBe(false);
+  });
+
+  it('parses a status with no quota yet', () => {
+    expect(
+      FeedStatusResponse.safeParse({
+        provider: 'theoddsapi',
+        quota: null,
+        creditsLast24h: 0,
+        creditsLast30d: 0,
+        leagues: [],
+      }).success,
+    ).toBe(true);
   });
 });

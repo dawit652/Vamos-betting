@@ -7,7 +7,7 @@ import {
   type EventSummary,
 } from '@vamos/contracts';
 import type { Database } from '@vamos/db';
-import { events, sports } from '@vamos/db/schema';
+import { categories, events, sports } from '@vamos/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -426,7 +426,7 @@ describe('GET /sports/:sport/competitions', () => {
     const body = CompetitionsResponse.parse(response.json());
     expect(body.items).toEqual([
       {
-        category: { slug: 'england', name: { en: 'England' } },
+        category: { slug: 'england', name: { en: 'England' }, countryCode: null },
         competitions: [
           {
             slug: 'premier-league',
@@ -436,7 +436,7 @@ describe('GET /sports/:sport/competitions', () => {
         ],
       },
       {
-        category: { slug: 'ethiopia', name: { en: 'Ethiopia', am: 'ኢትዮጵያ' } },
+        category: { slug: 'ethiopia', name: { en: 'Ethiopia', am: 'ኢትዮጵያ' }, countryCode: null },
         competitions: [
           {
             slug: 'ethiopian-premier-league',
@@ -446,7 +446,7 @@ describe('GET /sports/:sport/competitions', () => {
         ],
       },
       {
-        category: { slug: 'africa', name: { en: 'Africa' } },
+        category: { slug: 'africa', name: { en: 'Africa' }, countryCode: null },
         competitions: [
           { slug: 'caf-champions-league', name: { en: 'CAF Champions League' }, eventCount: 1 },
           { slug: 'caf-confederation-cup', name: { en: 'CAF Confederation Cup' }, eventCount: 0 },
@@ -778,6 +778,41 @@ describe('GET /events/:id and /events/by-game-id/:gameId', () => {
     expect(body.htScore).toEqual({ home: 1, away: 0 });
     expect(body.marketCount).toBe(0);
     expect(body.markets.flatMap((m) => m.selections).every((s) => !s.open)).toBe(true);
+  });
+
+  it('flags simulated odds by feed provider and exposes odds_updated_at and the country code', async () => {
+    const updatedAt = new Date('2026-10-08T11:57:00.000Z');
+    await db
+      .update(events)
+      .set({ feedProvider: 'theoddsapi', oddsUpdatedAt: updatedAt })
+      .where(eq(events.id, ev.soon.id));
+    await db.update(events).set({ feedProvider: 'mock' }).where(eq(events.id, ev.tomorrow.id));
+    await db
+      .update(categories)
+      .set({ countryCode: 'GB-ENG' })
+      .where(eq(categories.slug, 'england'));
+    try {
+      const real = EventDetail.parse((await get(`/events/${ev.soon.id}`)).json());
+      expect(real.simulated).toBe(false);
+      expect(real.oddsUpdatedAt).toBe(updatedAt.toISOString());
+      const mock = EventDetail.parse((await get(`/events/${ev.tomorrow.id}`)).json());
+      expect(mock.simulated).toBe(true);
+      expect(mock.oddsUpdatedAt).toBeNull();
+      expect(mock.competition.countryCode).toBe('GB-ENG');
+      const list = EventListResponse.parse((await get('/events?filter=upcoming')).json());
+      expect(list.items.find((item) => item.id === ev.tomorrow.id)?.simulated).toBe(true);
+      const competitions = CompetitionsResponse.parse(
+        (await get('/sports/football/competitions')).json(),
+      );
+      expect(competitions.items[0]?.category.countryCode).toBe('GB-ENG');
+    } finally {
+      await db.update(categories).set({ countryCode: null }).where(eq(categories.slug, 'england'));
+      await db
+        .update(events)
+        .set({ feedProvider: 'test', oddsUpdatedAt: null })
+        .where(eq(events.id, ev.soon.id));
+      await db.update(events).set({ feedProvider: 'test' }).where(eq(events.id, ev.tomorrow.id));
+    }
   });
 
   it('is 404 for events of an inactive competition or sport, like every list (regression)', async () => {

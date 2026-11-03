@@ -115,6 +115,16 @@ export {
   type TradingSelection,
 } from './trading';
 export {
+  FEED_PROVIDER,
+  listFeedReviewQueue,
+  STAFF_FEED_LEAGUE_UPDATED,
+  STAFF_FEED_RESULT_REVIEWED,
+  staffAcceptFeedResult,
+  staffUpdateFeedLeague,
+  staffVoidFeedResult,
+  type FeedReviewItem,
+} from './feed';
+export {
   getPlayerDetail,
   KYC_APPROVED_BY_STAFF,
   KYC_REJECTED_BY_STAFF,

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { getLocale, getT } from '@/i18n/server';
 import { localName } from '@/lib/localized';
+import { flagEmoji } from '@/lib/flags';
 import { routes, type Sport } from '@/lib/routes';
 import { MatchList } from './MatchList';
 import { LIST_TABS, listHref, parseCursor, parseTab, type ListTab } from './tabs';
@@ -154,6 +155,7 @@ async function Leagues({ sport }: { sport: Sport }) {
             id={`cat-${category.category.slug}`}
             className="px-3 py-1 text-xxs font-bold text-muted uppercase"
           >
+            <span aria-hidden="true">{flagEmoji(category.category.countryCode)}</span>{' '}
             {localName(category.category.name, locale)}
           </h2>
           <ul>

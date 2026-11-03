@@ -7,7 +7,16 @@ import { MAX_SLIP_LEGS } from '@/lib/betslip/state';
 import { formatOddsMilli } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { useBetslip } from '@/providers/BetslipProvider';
-import { isBettable, shortLabel, slipLeg, type EventRef, type OddsMarket } from './events';
+import {
+  isBettable,
+  PRICE_MOVE_MS,
+  priceMove,
+  shortLabel,
+  slipLeg,
+  type EventRef,
+  type OddsMarket,
+  type PriceMove,
+} from './events';
 import { useLiveMarketStatus, useLiveMatch, useLiveOdds } from './LiveProvider';
 import styles from './odds.module.css';
 
@@ -154,14 +163,17 @@ function LockIcon() {
   );
 }
 
-/** Direction of the last live price change (the arrow fades out by itself). */
-function usePriceMove(oddsMilli: number): 'up' | 'down' | null {
+/** Direction of the last live price change; resets to null after PRICE_MOVE_MS. */
+function usePriceMove(oddsMilli: number): PriceMove | null {
   const previous = useRef(oddsMilli);
-  const [move, setMove] = useState<'up' | 'down' | null>(null);
+  const [move, setMove] = useState<PriceMove | null>(null);
   useEffect(() => {
-    if (oddsMilli === previous.current) return;
-    setMove(oddsMilli > previous.current ? 'up' : 'down');
+    const direction = priceMove(previous.current, oddsMilli);
     previous.current = oddsMilli;
+    if (direction === null) return;
+    setMove(direction);
+    const timer = setTimeout(() => setMove(null), PRICE_MOVE_MS);
+    return () => clearTimeout(timer);
   }, [oddsMilli]);
   return move;
 }

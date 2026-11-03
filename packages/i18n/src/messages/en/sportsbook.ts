@@ -53,6 +53,9 @@ export const sportsbook = {
       abandoned: 'Abandoned',
     },
     bettingClosed: 'Betting is closed for this match.',
+    oddsUpdated: 'Odds updated {minutes} min ago',
+    oddsUpdatedNow: 'Odds updated just now',
+    simulated: 'Simulated odds',
   },
   markets: {
     more: '+{count} markets',

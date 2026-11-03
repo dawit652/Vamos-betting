@@ -54,6 +54,8 @@ export const EventSummary = z.object({
     slug: z.string(),
     name: LocalizedNameSchema,
     category: LocalizedNameSchema,
+    /** ISO 3166 code of the category's country ('ES', 'GB-ENG'); null for a region. */
+    countryCode: z.string().nullable(),
   }),
   home: TeamView,
   away: TeamView,
@@ -66,6 +68,10 @@ export const EventSummary = z.object({
   mainMarket: MarketView.nullable(),
   /** Number of other open markets ("+N markets"). */
   marketCount: z.number().int(),
+  /** ISO time a real feed last priced the event from a fresh consensus; null for the mock feed. */
+  oddsUpdatedAt: z.string().nullable(),
+  /** true when the odds come from the simulated (mock) feed. */
+  simulated: z.boolean(),
 });
 export type EventSummary = z.infer<typeof EventSummary>;
 
@@ -107,7 +113,11 @@ export type SportsResponse = z.infer<typeof SportsResponse>;
 export const CompetitionsResponse = z.object({
   items: z.array(
     z.object({
-      category: z.object({ slug: z.string(), name: LocalizedNameSchema }),
+      category: z.object({
+        slug: z.string(),
+        name: LocalizedNameSchema,
+        countryCode: z.string().nullable(),
+      }),
       competitions: z.array(
         z.object({ slug: z.string(), name: LocalizedNameSchema, eventCount: z.number().int() }),
       ),

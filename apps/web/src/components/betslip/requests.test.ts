@@ -197,7 +197,12 @@ describe('booking codes → slip', () => {
     id: 'e1',
     gameId: '1234',
     sport: 'football',
-    competition: { slug: 'epl', name: { en: 'EPL' }, category: { en: 'England' } },
+    competition: {
+      slug: 'epl',
+      name: { en: 'EPL' },
+      category: { en: 'England' },
+      countryCode: 'GB-ENG',
+    },
     home: { id: 'h', name: { en: 'Home FC', am: 'ሆም' }, shortName: 'HOM' },
     away: { id: 'a', name: { en: 'Away FC' }, shortName: 'AWA' },
     startTime: '2026-10-10T15:00:00.000Z',
@@ -208,6 +213,8 @@ describe('booking codes → slip', () => {
     htScore: null,
     mainMarket: null,
     marketCount: 1,
+    oddsUpdatedAt: null,
+    simulated: true,
     markets: [
       {
         id: 'm1',

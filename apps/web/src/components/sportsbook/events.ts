@@ -114,6 +114,17 @@ export function shortLabel(code: string): string {
   return code.length <= 3 ? code.toUpperCase() : code;
 }
 
+export type PriceMove = 'up' | 'down';
+
+/** Direction of a price change; null when the price did not change. */
+export function priceMove(previous: number, next: number): PriceMove | null {
+  if (next === previous) return null;
+  return next > previous ? 'up' : 'down';
+}
+
+/** How long the up/down marker of a moved price stays (the CSS fade matches it). */
+export const PRICE_MOVE_MS = 3000;
+
 export type MatchClock =
   | { kind: 'minute'; minute: number }
   | { kind: 'halfTime' }
@@ -130,6 +141,8 @@ export function matchClock(input: {
   if (input.sport === 'football' && input.minute !== null && input.minute >= 0) {
     return { kind: 'minute', minute: input.minute };
   }
+  // A real feed has no football clock (minute null): show "LIVE", not a half label.
+  if (input.sport === 'football' && input.minute === null) return { kind: 'none' };
   if (input.period !== null && input.period !== '' && input.period !== 'NS') {
     return { kind: 'period', period: input.period };
   }

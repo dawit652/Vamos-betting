@@ -6,6 +6,7 @@ import {
   isBettable,
   isListedMarket,
   matchClock,
+  priceMove,
   periodMessageKey,
   shortLabel,
   slipLeg,
@@ -32,7 +33,12 @@ const event: EventSummary = {
   id: 'e1',
   gameId: '1234',
   sport: 'football',
-  competition: { slug: 'epl', name: { en: 'Premier League' }, category: { en: 'England' } },
+  competition: {
+    slug: 'epl',
+    name: { en: 'Premier League' },
+    category: { en: 'England' },
+    countryCode: 'GB-ENG',
+  },
   home: { id: 'h', name: { en: 'Home FC' }, shortName: 'HOM' },
   away: { id: 'a', name: { en: 'Away FC' }, shortName: 'AWA' },
   startTime: '2026-10-10T15:00:00.000Z',
@@ -42,6 +48,8 @@ const event: EventSummary = {
   score: { home: 0, away: 0 },
   mainMarket: market(),
   marketCount: 12,
+  oddsUpdatedAt: null,
+  simulated: true,
 };
 
 describe('slip legs from the catalogue', () => {
@@ -128,6 +136,22 @@ describe('match clock', () => {
     });
     expect(matchClock({ sport: 'tennis', minute: null, period: 'NS' })).toEqual({ kind: 'none' });
     expect(matchClock({ sport: 'tennis', minute: null, period: null })).toEqual({ kind: 'none' });
+  });
+
+  it('has no clock for a live football match of a real feed (minute null)', () => {
+    expect(matchClock({ sport: 'football', minute: null, period: null })).toEqual({ kind: 'none' });
+    expect(matchClock({ sport: 'football', minute: null, period: '1H' })).toEqual({ kind: 'none' });
+    expect(matchClock({ sport: 'football', minute: null, period: 'HT' })).toEqual({
+      kind: 'halfTime',
+    });
+  });
+});
+
+describe('price move', () => {
+  it('points up for a longer price, down for a shorter one, none for no change', () => {
+    expect(priceMove(1850, 1900)).toBe('up');
+    expect(priceMove(1850, 1800)).toBe('down');
+    expect(priceMove(1850, 1850)).toBeNull();
   });
 });
 

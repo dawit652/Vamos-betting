@@ -48,6 +48,9 @@ export const sportsbook: Messages['sportsbook'] = {
       abandoned: 'ተቋርጧል',
     },
     bettingClosed: 'ለዚህ ጨዋታ ውርርድ ተዘግቷል።',
+    oddsUpdated: 'ዕድሎች ከ{minutes} ደቂቃ በፊት ተዘምነዋል',
+    oddsUpdatedNow: 'ዕድሎች አሁን ተዘምነዋል',
+    simulated: 'የማስመሰያ ዕድሎች',
   },
   markets: {
     more: '+{count} ገበያዎች',

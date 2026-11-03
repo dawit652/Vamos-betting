@@ -39,6 +39,7 @@ export interface EventRow {
   competitionSlug: string;
   competitionName: LocalizedNameValue;
   categoryName: LocalizedNameValue;
+  categoryCountryCode: string | null;
   home: TeamRow;
   away: TeamRow;
   startTime: Date;
@@ -50,6 +51,9 @@ export interface EventRow {
   scoreAway: number | null;
   htScoreHome: number | null;
   htScoreAway: number | null;
+  oddsUpdatedAt: Date | null;
+  /** events.feed_provider: 'mock' is the simulated feed. */
+  feedProvider: string;
 }
 
 export interface MarketRow {
@@ -216,6 +220,7 @@ function summaryFields(event: EventRow): Omit<EventSummary, 'mainMarket' | 'mark
       slug: event.competitionSlug,
       name: localized(event.competitionName),
       category: localized(event.categoryName),
+      countryCode: event.categoryCountryCode,
     },
     home: teamView(event.home),
     away: teamView(event.away),
@@ -224,6 +229,8 @@ function summaryFields(event: EventRow): Omit<EventSummary, 'mainMarket' | 'mark
     liveMinute: event.liveMinute,
     period: event.period,
     score: scoreOf(event.status, event.scoreHome, event.scoreAway),
+    oddsUpdatedAt: event.oddsUpdatedAt === null ? null : event.oddsUpdatedAt.toISOString(),
+    simulated: event.feedProvider === 'mock',
   };
 }
 
