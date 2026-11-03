@@ -126,8 +126,10 @@ export function correctScoreProbabilities(
 
 /**
  * Fits λ home, λ away and ρ to the consensus 1X2 and total by least squares:
- * a coarse grid over the two rates, then a pattern search over all three.
- * The result reports the largest remaining miss; callers withhold the
+ * a coarse grid over the two rates, a pattern search over all three, then a
+ * Levenberg–Marquardt polish (the pattern search alone can stall in the curved
+ * valley where ρ trades off against the rates, a 0.1 pp miss on a low-scoring
+ * match). The result reports the largest remaining miss; callers withhold the
  * derived markets when it is too large (the inputs then disagree with any
  * sensible goals model). Throws a RangeError for invalid targets.
  */
@@ -177,10 +179,94 @@ export function fitGoalsModel(targets: GoalsTargets): GoalsFit {
       if (steps.lambdaHome < 1e-7) break;
     }
   }
+  best = polish(best, (model) => misses(model, targets));
   const rho = feasibleRho(best.rho, best.lambdaHome, best.lambdaAway);
   const fitted = { ...best, rho };
   const error = Math.max(...misses(fitted, targets).map(Math.abs));
   return { ...fitted, error };
+}
+
+const MODEL_KEYS = ['lambdaHome', 'lambdaAway', 'rho'] as const;
+
+/**
+ * Levenberg–Marquardt steps from `start` on the residuals (Jacobian by
+ * forward differences). Only a step that lowers the sum of squares is taken,
+ * so the result is never worse than the start.
+ */
+function polish(start: GoalsModel, residualsOf: (model: GoalsModel) => number[]): GoalsModel {
+  const squares = (r: readonly number[]): number => r.reduce((sum, v) => sum + v * v, 0);
+  let model = start;
+  let residuals = residualsOf(model);
+  let value = squares(residuals);
+  let damping = 1e-3;
+  for (let iteration = 0; iteration < 50 && value > 1e-24; iteration++) {
+    const columns = MODEL_KEYS.map((key) => {
+      const h = 1e-7 * Math.max(1, Math.abs(model[key]));
+      const shifted = residualsOf({ ...model, [key]: model[key] + h });
+      return shifted.map((v, i) => (v - (residuals[i] ?? 0)) / h);
+    });
+    const normal = columns.map((a) => columns.map((b) => dot(a, b)));
+    const gradient = columns.map((column) => -dot(column, residuals));
+    let improved = false;
+    for (let attempt = 0; attempt < 12 && !improved; attempt++) {
+      const step = solve3(
+        normal.map((row, i) => row.map((v, j) => (i === j ? v + damping : v))),
+        gradient,
+      );
+      if (step !== null) {
+        const candidate: GoalsModel = {
+          lambdaHome: bounded('lambdaHome', model.lambdaHome + (step[0] ?? 0)),
+          lambdaAway: bounded('lambdaAway', model.lambdaAway + (step[1] ?? 0)),
+          rho: bounded('rho', model.rho + (step[2] ?? 0)),
+        };
+        const next = residualsOf(candidate);
+        const nextValue = squares(next);
+        if (nextValue < value) {
+          model = candidate;
+          residuals = next;
+          value = nextValue;
+          damping = Math.max(1e-12, damping / 10);
+          improved = true;
+          continue;
+        }
+      }
+      damping *= 10;
+    }
+    if (!improved) break;
+  }
+  return model;
+}
+
+function dot(a: readonly number[], b: readonly number[]): number {
+  return a.reduce((sum, v, i) => sum + v * (b[i] ?? 0), 0);
+}
+
+/** Solves the 3×3 system A·x = b by Gaussian elimination with partial pivoting; null when singular. */
+function solve3(a: number[][], b: number[]): number[] | null {
+  const m = a.map((row, i) => [...row, b[i] ?? 0]);
+  for (let col = 0; col < 3; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < 3; row++) {
+      if (Math.abs(m[row]?.[col] ?? 0) > Math.abs(m[pivot]?.[col] ?? 0)) pivot = row;
+    }
+    const pivotRow = m[pivot];
+    const p = pivotRow?.[col] ?? 0;
+    if (pivotRow === undefined || !Number.isFinite(p) || Math.abs(p) < 1e-300) return null;
+    [m[col], m[pivot]] = [pivotRow, m[col] as number[]];
+    for (let row = col + 1; row < 3; row++) {
+      const target = m[row] as number[];
+      const factor = (target[col] ?? 0) / p;
+      for (let k = col; k < 4; k++) target[k] = (target[k] ?? 0) - factor * (pivotRow[k] ?? 0);
+    }
+  }
+  const x = [0, 0, 0];
+  for (let row = 2; row >= 0; row--) {
+    const r = m[row] as number[];
+    let sum = r[3] ?? 0;
+    for (let k = row + 1; k < 3; k++) sum -= (r[k] ?? 0) * (x[k] ?? 0);
+    x[row] = sum / (r[row] ?? 1);
+  }
+  return x.every(Number.isFinite) ? x : null;
 }
 
 function misses(model: GoalsModel, targets: GoalsTargets): number[] {

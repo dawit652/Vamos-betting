@@ -71,6 +71,16 @@ describe('goals model', () => {
     );
   });
 
+  it('fits a very low-scoring match on the 3.5 line exactly (the pattern search alone missed by 0.1 pp)', () => {
+    for (const model of [
+      { lambdaHome: 0.4, lambdaAway: 0.4, rho: 0 },
+      { lambdaHome: 0.4, lambdaAway: 0.4, rho: -0.15 },
+      { lambdaHome: 3, lambdaAway: 0.4, rho: -0.15 },
+    ]) {
+      expect(fitGoalsModel(targetsOf(model, 3.5)).error).toBeLessThan(1e-9);
+    }
+  });
+
   it('refuses invalid targets', () => {
     const total = { line: 2.5, over: 0.5 };
     expect(() => fitGoalsModel({ home: 0.5, draw: 0.3, away: 0.3, total })).toThrow(RangeError);
