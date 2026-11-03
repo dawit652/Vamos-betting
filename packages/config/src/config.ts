@@ -250,7 +250,23 @@ const envSchema = z.object({
    * `theoddsapi`: real bookmaker odds from The Odds API, priced by consensus
    * (docs/odds-api-integration-plan.md).
    */
-  FEED_PROVIDER: z.enum(['mock', 'manual', 'theoddsapi']).default('mock'),
+  FEED_PROVIDER: z
+    .preprocess(
+      // Forgiving of case, spaces and quotes (Windows scripts and editors add them).
+      (value) =>
+        typeof value === 'string'
+          ? value
+              .trim()
+              .replace(/^["']|["']$/g, '')
+              .trim()
+              .toLowerCase()
+          : value,
+      z.enum(['mock', 'manual', 'theoddsapi'], {
+        error: (issue) =>
+          `must be one of mock, manual, theoddsapi (got ${JSON.stringify(issue.input)})`,
+      }),
+    )
+    .default('mock'),
   /** Simulated match minutes per real second for the mock live simulator. */
   SIM_SPEED: z.coerce.number().positive().default(1),
   /**

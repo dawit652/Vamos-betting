@@ -641,6 +641,17 @@ describe('The Odds API feed (FEED_PROVIDER=theoddsapi)', () => {
     }
   });
 
+  it('accepts FEED_PROVIDER in any case, with spaces or quotes, and names a bad value', () => {
+    for (const value of ['TheOddsApi', ' theoddsapi ', '"theoddsapi"', "'THEODDSAPI'"]) {
+      expect(loadConfig({ FEED_PROVIDER: value, ODDS_API_KEY: ODDS_KEY }).feed.provider).toBe(
+        'theoddsapi',
+      );
+    }
+    expect(problemsOf({ FEED_PROVIDER: 'the-odds-api' }).join('\n')).toMatch(
+      /FEED_PROVIDER.*got "the-odds-api"/,
+    );
+  });
+
   it('requires a key, in any mode', () => {
     expect(problemsOf({ FEED_PROVIDER: 'theoddsapi' }).join('\n')).toMatch(
       /ODDS_API_KEY is required when FEED_PROVIDER=theoddsapi/,
