@@ -54,7 +54,7 @@ describe('staff sign-in', () => {
   it('signs in with email, password and TOTP code and sets a strict staff cookie', async () => {
     ctx.clock.advance(30_000);
     const response = await staffLoginRequest(ctx, {
-      email: '  Trader@Demo.Nahubet.Test ',
+      email: '  Trader@Demo.Vamos.Test ',
       password: DEMO_STAFF_PASSWORD,
       code: demoCode(ctx),
     });

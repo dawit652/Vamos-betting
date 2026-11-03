@@ -183,7 +183,7 @@ const check = (token: string, csrfToken?: string | null, checkCsrf = false) =>
 describe('staff accounts', () => {
   it('creates an account with a lowercased email, argon2id hash and encrypted TOTP secret', async () => {
     const created = await createStaffUser(deps(), {
-      email: '  New.Trader@Nahubet.Test ',
+      email: '  New.Trader@Vamos.Test ',
       displayName: ' New Trader ',
       role: 'trader',
       password: PASSWORD,
