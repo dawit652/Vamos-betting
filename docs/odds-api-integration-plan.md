@@ -217,17 +217,16 @@ adjust. Check the current plans on the API's pricing page.
 
 ## 10. Demo and licensed mode
 
-|                                       | demo                                            | licensed                                                    |
-| ------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------- |
-| `FEED_PROVIDER=theoddsapi`            | allowed                                         | allowed only with every check below                         |
-| `ODDS_API_KEY`                        | required                                        | required                                                    |
-| `ODDS_API_BASE_URL`                   | any                                             | https only                                                  |
-| `ODDS_API_COMMERCIAL_USE_CONFIRMED`   | —                                               | must be `true` (the data licence covers real-money pricing) |
-| minimum books                         | 2                                               | 3, at least one sharp                                       |
-| in-play                               | on                                              | off unless `ODDS_API_INPLAY=true`                           |
-| results                               | automatic after the confirmation wait           | cups and tennis reviewed by staff, others automatic         |
-| overdue events                        | void after 72 h                                 | staff review                                                |
-| leagues the API lacks (Ethiopia, CAF) | optional simulated fallback, marked "Simulated" | refused (simulated odds are never allowed)                  |
+|                                       | demo                                            | licensed                                            |
+| ------------------------------------- | ----------------------------------------------- | --------------------------------------------------- |
+| `FEED_PROVIDER=theoddsapi`            | allowed                                         | allowed only with every check below                 |
+| `ODDS_API_KEY`                        | required                                        | required                                            |
+| `ODDS_API_BASE_URL`                   | any                                             | https only                                          |
+| minimum books                         | 2                                               | 3, at least one sharp                               |
+| in-play                               | on                                              | off unless `ODDS_API_INPLAY=true`                   |
+| results                               | automatic after the confirmation wait           | cups and tennis reviewed by staff, others automatic |
+| overdue events                        | void after 72 h                                 | staff review                                        |
+| leagues the API lacks (Ethiopia, CAF) | optional simulated fallback, marked "Simulated" | refused (simulated odds are never allowed)          |
 
 The licensed-mode guard only gains checks; nothing in it is relaxed. `FEED_PROVIDER=mock` stays refused there.
 
@@ -258,9 +257,9 @@ Excluded by policy, whatever competitors do: casino, crash and virtual games, cr
 
 ## 12. Recommendations beyond the request
 
-1. **Real money needs an official feed.** For a licensed launch, contract an official B2B feed (Sportradar,
-   Genius Sports, BetConstruct or similar) and keep The Odds API as an independent price monitor that flags our
-   prices when they drift from the market. The provider interface takes both.
+1. **Faster in-play data later.** The Odds API covers prematch well. If real-money in-play grows, a low-latency
+   official feed (Sportradar, Genius Sports or similar) can be added for in-play while The Odds API keeps
+   pricing prematch and acts as an independent price monitor. The provider interface takes both.
 2. **Cover Ethiopia.** The Ethiopian Premier League and CAF competitions are the product's core and the API
    lacks them. Add a second source for them (API-Football covers Ethiopian fixtures and results; its odds
    coverage must be checked), or have traders price them with the existing model, clearly marked.
@@ -300,16 +299,15 @@ inside the budget. Format, lint, typecheck, unit, integration and e2e tests all 
 
 ## 14. Risks and open questions
 
-| Risk                                              | Mitigation                                                                     |
-| ------------------------------------------------- | ------------------------------------------------------------------------------ |
-| The data licence may not cover real-money pricing | `ODDS_API_COMMERCIAL_USE_CONFIRMED` gate; confirm in writing with the provider |
-| In-play prices lag                                | in-play off in licensed mode; freshness and score-change guards                |
-| Extra time and penalties in cup scores            | staff review in licensed mode                                                  |
-| Tennis retirements                                | staff review in licensed mode                                                  |
-| Two teams with the same name                      | alias table, staff merge                                                       |
-| Response format changes                           | zod schemas drop bad items; alert when more than 5% of a response is dropped   |
-| Running out of credits                            | governor and reserve; 401 pauses polling and alerts                            |
-| No Ethiopian or CAF coverage                      | second source or trader pricing (§12)                                          |
+| Risk                                   | Mitigation                                                                   |
+| -------------------------------------- | ---------------------------------------------------------------------------- |
+| In-play prices lag                     | in-play off in licensed mode; freshness and score-change guards              |
+| Extra time and penalties in cup scores | staff review in licensed mode                                                |
+| Tennis retirements                     | staff review in licensed mode                                                |
+| Two teams with the same name           | alias table, staff merge                                                     |
+| Response format changes                | zod schemas drop bad items; alert when more than 5% of a response is dropped |
+| Running out of credits                 | governor and reserve; 401 pauses polling and alerts                          |
+| No Ethiopian or CAF coverage           | second source or trader pricing (§12)                                        |
 
 **To confirm with real responses** (run `scripts/odds-api/capture-samples.ps1`): the full sport key list,
 which bookmakers the `eu` region returns, whether tennis has scores, how scores look in play, the error body
@@ -317,19 +315,18 @@ format, and whether `/odds` charges for markets requested or returned.
 
 ## 15. Configuration
 
-| Variable                            | Default                           | Meaning                                                  |
-| ----------------------------------- | --------------------------------- | -------------------------------------------------------- |
-| `FEED_PROVIDER`                     | `mock`                            | `theoddsapi` turns this integration on                   |
-| `ODDS_API_KEY`                      | —                                 | secret; required with `theoddsapi`; never logged         |
-| `ODDS_API_BASE_URL`                 | `https://api.the-odds-api.com/v4` | https required in licensed mode                          |
-| `ODDS_API_REGIONS`                  | `eu`                              | regions to read                                          |
-| `ODDS_API_BOOKMAKERS`               | —                                 | explicit bookmakers instead of regions (10 = one region) |
-| `ODDS_API_SPORTS`                   | registry tier 1                   | extra sport keys to enable                               |
-| `ODDS_API_MONTHLY_CREDITS`          | `20000`                           | the governor's monthly target                            |
-| `ODDS_API_RESERVE_PERCENT`          | `10`                              | credits kept for in-play and results                     |
-| `ODDS_API_MIN_BOOKS`                | `2`                               | quorum per market; licensed mode needs 3 or more         |
-| `ODDS_API_MARGIN_BPS`               | `600`                             | our margin on main markets (basis points)                |
-| `ODDS_API_DERIVED_MARKETS`          | `true`                            | BTTS, correct score and extra lines from the goals model |
-| `ODDS_API_INPLAY`                   | on in demo, off in licensed       | in-play pricing                                          |
-| `ODDS_API_RESULT_CONFIRM_MINUTES`   | `10`                              | wait before a feed result is applied                     |
-| `ODDS_API_COMMERCIAL_USE_CONFIRMED` | `false`                           | required `true` in licensed mode                         |
+| Variable                          | Default                           | Meaning                                                  |
+| --------------------------------- | --------------------------------- | -------------------------------------------------------- |
+| `FEED_PROVIDER`                   | `mock`                            | `theoddsapi` turns this integration on                   |
+| `ODDS_API_KEY`                    | —                                 | secret; required with `theoddsapi`; never logged         |
+| `ODDS_API_BASE_URL`               | `https://api.the-odds-api.com/v4` | https required in licensed mode                          |
+| `ODDS_API_REGIONS`                | `eu`                              | regions to read                                          |
+| `ODDS_API_BOOKMAKERS`             | —                                 | explicit bookmakers instead of regions (10 = one region) |
+| `ODDS_API_SPORTS`                 | registry tier 1                   | extra sport keys to enable                               |
+| `ODDS_API_MONTHLY_CREDITS`        | `20000`                           | the governor's monthly target                            |
+| `ODDS_API_RESERVE_PERCENT`        | `10`                              | credits kept for in-play and results                     |
+| `ODDS_API_MIN_BOOKS`              | 2 demo, 3 licensed                | quorum per market; licensed mode refuses less than 3     |
+| `ODDS_API_MARGIN_BPS`             | `600`                             | our margin on main markets (basis points)                |
+| `ODDS_API_DERIVED_MARKETS`        | `true`                            | BTTS, correct score and extra lines from the goals model |
+| `ODDS_API_INPLAY`                 | on in demo, off in licensed       | in-play pricing                                          |
+| `ODDS_API_RESULT_CONFIRM_MINUTES` | `10`                              | wait before a feed result is applied                     |

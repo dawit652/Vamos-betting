@@ -40,6 +40,17 @@ export const DEV_SMS_WEBHOOK_SECRET = 'dev-only-sms-aggregator-webhook-secret-01
  */
 export const DEV_USSD_SHARED_SECRET = 'dev-only-ussd-aggregator-shared-secret-0123456789';
 
+/** Base URL of The Odds API (v4), FEED_PROVIDER=theoddsapi. */
+export const DEFAULT_ODDS_API_BASE_URL = 'https://api.the-odds-api.com/v4';
+
+/**
+ * Fewest bookmakers behind a price in licensed mode (ODDS_API_MIN_BOOKS): one
+ * or two books can be stale or wrong together without anything noticing.
+ */
+export const LICENSED_MIN_ODDS_BOOKS = 3;
+/** Default ODDS_API_MIN_BOOKS in demo mode. */
+export const DEMO_MIN_ODDS_BOOKS = 2;
+
 const HEX_KEY_RE = /^[0-9a-fA-F]{64}$/;
 /** 32 bytes in base64 (standard or URL-safe alphabet, padding optional). */
 const BASE64_KEY_RE = /^[A-Za-z0-9+/_-]{43}=?$/;
@@ -77,6 +88,14 @@ const csv = z.string().transform((value) =>
     .map((item) => item.trim())
     .filter((item) => item.length > 0),
 );
+
+/** A comma-separated list whose items must all match `pattern`. */
+function csvOf(pattern: RegExp, what: string) {
+  return csv.pipe(z.array(z.string().regex(pattern, `each ${what} must match ${String(pattern)}`)));
+}
+
+/** Region, bookmaker and sport keys of The Odds API ('eu', 'pinnacle', 'soccer_epl'). */
+const ODDS_API_KEY_RE = /^[a-z0-9_]{2,80}$/;
 
 const bool = z.stringbool();
 
@@ -189,7 +208,12 @@ const envSchema = z.object({
     })
     .default(DEV_ADMIN_TOTP_KEY),
 
-  FEED_PROVIDER: z.enum(['mock', 'manual']).default('mock'),
+  /**
+   * `mock`: simulated odds (demo only). `manual`: traders only.
+   * `theoddsapi`: real bookmaker odds from The Odds API, priced by consensus
+   * (docs/odds-api-integration-plan.md).
+   */
+  FEED_PROVIDER: z.enum(['mock', 'manual', 'theoddsapi']).default('mock'),
   /** Simulated match minutes per real second for the mock live simulator. */
   SIM_SPEED: z.coerce.number().positive().default(1),
   /**
@@ -199,6 +223,30 @@ const envSchema = z.object({
    */
   FEED_ROLLING_EVERY_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
   FEED_ROLLING_HORIZON_MINUTES: z.coerce.number().int().min(0).max(4320).default(120),
+
+  /** The Odds API key (secret, never logged). Required with FEED_PROVIDER=theoddsapi. */
+  ODDS_API_KEY: secret,
+  ODDS_API_BASE_URL: z.url().default(DEFAULT_ODDS_API_BASE_URL),
+  /** Bookmaker regions read (each one multiplies the credit cost of a call). */
+  ODDS_API_REGIONS: csvOf(ODDS_API_KEY_RE, 'region').default(['eu']),
+  /** Explicit bookmakers instead of regions (every 10 cost as much as one region). */
+  ODDS_API_BOOKMAKERS: csvOf(ODDS_API_KEY_RE, 'bookmaker').default([]),
+  /** Sport keys enabled on top of the league registry's defaults. */
+  ODDS_API_SPORTS: csvOf(ODDS_API_KEY_RE, 'sport key').default([]),
+  /** Credits per month the poller plans to spend (the plan's quota). */
+  ODDS_API_MONTHLY_CREDITS: z.coerce.number().int().min(1).max(1_000_000_000).default(20_000),
+  /** Share of the quota kept for in-play prices and results. */
+  ODDS_API_RESERVE_PERCENT: z.coerce.number().int().min(0).max(90).default(10),
+  /** Fewest bookmakers behind a price (default 2 in demo mode, LICENSED_MIN_ODDS_BOOKS in licensed). */
+  ODDS_API_MIN_BOOKS: z.coerce.number().int().min(1).max(30).optional(),
+  /** Our margin on the main markets, in basis points (600 = 6%). */
+  ODDS_API_MARGIN_BPS: z.coerce.number().int().min(0).max(3000).default(600),
+  /** BTTS, correct score and extra goal lines from the market-implied goals model. */
+  ODDS_API_DERIVED_MARKETS: bool.default(true),
+  /** In-play pricing (default: on in demo mode, off in licensed mode). */
+  ODDS_API_INPLAY: bool.optional(),
+  /** How long a completed score must stand before the event is resulted. */
+  ODDS_API_RESULT_CONFIRM_MINUTES: z.coerce.number().int().min(0).max(1440).default(10),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -306,10 +354,12 @@ export interface AppConfig {
     totpKey: Buffer;
   };
   feed: {
-    provider: 'mock' | 'manual';
+    provider: FeedProvider;
     simSpeed: number;
     /** Rolling demo fixtures of the mock feed (FEED_ROLLING_*). */
     rolling: { everyMinutes: number; horizonMinutes: number };
+    /** The Odds API (ODDS_API_*), used with FEED_PROVIDER=theoddsapi. */
+    oddsApi: OddsApiConfig;
   };
   providers: { payments: string[]; kyc: 'mock' | 'fayda'; sms: 'mock' | 'http' };
   /**
@@ -342,6 +392,28 @@ export interface AppConfig {
    * answers 404 and nothing else changes.
    */
   channels: ChannelsConfig;
+}
+
+export type FeedProvider = 'mock' | 'manual' | 'theoddsapi';
+
+/** The Odds API settings (docs/odds-api-integration-plan.md §15). */
+export interface OddsApiConfig {
+  /** ODDS_API_KEY: secret, never logged; required with FEED_PROVIDER=theoddsapi. */
+  apiKey: string | undefined;
+  baseUrl: string;
+  regions: string[];
+  /** When set, read instead of `regions`. */
+  bookmakers: string[];
+  /** Sport keys enabled on top of the registry's defaults. */
+  sports: string[];
+  monthlyCredits: number;
+  reservePercent: number;
+  minBooks: number;
+  marginBps: number;
+  derivedMarkets: boolean;
+  /** ODDS_API_INPLAY, else on in demo mode and off in licensed mode. */
+  inPlay: boolean;
+  resultConfirmMinutes: number;
 }
 
 export interface ChannelsConfig {
@@ -454,6 +526,14 @@ export function licensedModeViolations(config: AppConfig): string[] {
   if (config.feed.provider === 'mock') {
     problems.push('FEED_PROVIDER "mock" (simulated odds) is not allowed in licensed mode');
   }
+  if (config.feed.provider === 'theoddsapi') {
+    const odds = config.feed.oddsApi;
+    if (odds.minBooks < LICENSED_MIN_ODDS_BOOKS) {
+      problems.push(
+        `ODDS_API_MIN_BOOKS must be at least ${LICENSED_MIN_ODDS_BOOKS} in licensed mode (got ${odds.minBooks}): every real-money price needs several bookmakers behind it`,
+      );
+    }
+  }
   // The mock aggregators' webhook schemes are demo-only (no replay protection
   // or IP allowlist for USSD): a channel needs a contracted aggregator first.
   if (config.channels.sms.enabled && config.channels.sms.aggregator === 'mock') {
@@ -488,6 +568,11 @@ export function licensedModeViolations(config: AppConfig): string[] {
     ['TELEBIRR_BASE_URL', payments.telebirr.baseUrl],
     ['TELEBIRR_CHECKOUT_URL', payments.telebirr.checkoutUrl],
     ['ELS_REPORT_URL', config.els.reportUrl],
+    // The key travels in the query string of every call.
+    [
+      'ODDS_API_BASE_URL',
+      config.feed.provider === 'theoddsapi' ? config.feed.oddsApi.baseUrl : undefined,
+    ],
   ] as const) {
     if (url !== undefined && !isHttpsUrl(url)) {
       problems.push(`${name} must be an https URL in licensed mode (got ${url})`);
@@ -568,6 +653,22 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         everyMinutes: e.FEED_ROLLING_EVERY_MINUTES,
         horizonMinutes: e.FEED_ROLLING_HORIZON_MINUTES,
       },
+      oddsApi: {
+        apiKey: e.ODDS_API_KEY,
+        baseUrl: e.ODDS_API_BASE_URL.replace(/\/+$/, ''),
+        regions: e.ODDS_API_REGIONS,
+        bookmakers: e.ODDS_API_BOOKMAKERS,
+        sports: e.ODDS_API_SPORTS,
+        monthlyCredits: e.ODDS_API_MONTHLY_CREDITS,
+        reservePercent: e.ODDS_API_RESERVE_PERCENT,
+        minBooks:
+          e.ODDS_API_MIN_BOOKS ??
+          (e.OPERATING_MODE === 'licensed' ? LICENSED_MIN_ODDS_BOOKS : DEMO_MIN_ODDS_BOOKS),
+        marginBps: e.ODDS_API_MARGIN_BPS,
+        derivedMarkets: e.ODDS_API_DERIVED_MARKETS,
+        inPlay: e.ODDS_API_INPLAY ?? e.OPERATING_MODE === 'demo',
+        resultConfirmMinutes: e.ODDS_API_RESULT_CONFIRM_MINUTES,
+      },
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {
@@ -620,6 +721,17 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
 
   const problems: string[] = [];
+  if (config.feed.provider === 'theoddsapi') {
+    const odds = config.feed.oddsApi;
+    if (odds.apiKey === undefined) {
+      problems.push('ODDS_API_KEY is required when FEED_PROVIDER=theoddsapi');
+    }
+    if (odds.regions.length === 0 && odds.bookmakers.length === 0) {
+      problems.push(
+        'ODDS_API_REGIONS or ODDS_API_BOOKMAKERS must name at least one region or bookmaker',
+      );
+    }
+  }
   if (new URL(config.web.adminUrl).origin === new URL(config.web.publicUrl).origin) {
     // CORS gives the back office origin /admin/* and the player origin the rest, so a script on
     // the player site cannot drive the staff API. One shared origin would undo that.

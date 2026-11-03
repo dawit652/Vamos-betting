@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ConfigError,
+  DEFAULT_ODDS_API_BASE_URL,
   DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
   DEV_SESSION_SECRET,
@@ -366,7 +367,7 @@ describe('loadConfig', () => {
   });
 
   it('reads the simulator speed and the rolling-fixture knobs', () => {
-    expect(loadConfig({}).feed).toEqual({
+    expect(loadConfig({}).feed).toMatchObject({
       provider: 'mock',
       simSpeed: 1,
       rolling: { everyMinutes: 5, horizonMinutes: 120 },
@@ -593,5 +594,113 @@ describe('operations settings (Phase 12)', () => {
     ]);
     // Development keeps plain http.
     expect(problemsOf({ PUBLIC_WEB_URL: 'http://vamos.lan:3000' })).toEqual([]);
+  });
+});
+
+describe('The Odds API feed (FEED_PROVIDER=theoddsapi)', () => {
+  const ODDS_KEY = 'a-test-odds-api-key';
+
+  it('has demo defaults that stay off until the provider is chosen', () => {
+    const { feed } = loadConfig({});
+    expect(feed.provider).toBe('mock');
+    expect(feed.oddsApi).toEqual({
+      apiKey: undefined,
+      baseUrl: DEFAULT_ODDS_API_BASE_URL,
+      regions: ['eu'],
+      bookmakers: [],
+      sports: [],
+      monthlyCredits: 20_000,
+      reservePercent: 10,
+      minBooks: 2,
+      marginBps: 600,
+      derivedMarkets: true,
+      inPlay: true,
+      resultConfirmMinutes: 10,
+    });
+  });
+
+  it('requires a key, in any mode', () => {
+    expect(problemsOf({ FEED_PROVIDER: 'theoddsapi' }).join('\n')).toMatch(
+      /ODDS_API_KEY is required when FEED_PROVIDER=theoddsapi/,
+    );
+    expect(problemsOf({ FEED_PROVIDER: 'theoddsapi', ODDS_API_KEY: '   ' }).join('\n')).toMatch(
+      /ODDS_API_KEY is required/,
+    );
+  });
+
+  it('reads the demo settings', () => {
+    const { feed } = loadConfig({
+      FEED_PROVIDER: 'theoddsapi',
+      ODDS_API_KEY: ` ${ODDS_KEY} `,
+      ODDS_API_BASE_URL: 'https://odds.example.test/v4/',
+      ODDS_API_REGIONS: 'eu, uk',
+      ODDS_API_BOOKMAKERS: 'pinnacle,betfair_ex_eu',
+      ODDS_API_SPORTS: 'soccer_epl,basketball_nba',
+      ODDS_API_MONTHLY_CREDITS: '100000',
+      ODDS_API_MIN_BOOKS: '4',
+      ODDS_API_INPLAY: 'false',
+      ODDS_API_DERIVED_MARKETS: 'false',
+    });
+    expect(feed.provider).toBe('theoddsapi');
+    expect(feed.oddsApi).toMatchObject({
+      apiKey: ODDS_KEY,
+      baseUrl: 'https://odds.example.test/v4',
+      regions: ['eu', 'uk'],
+      bookmakers: ['pinnacle', 'betfair_ex_eu'],
+      sports: ['soccer_epl', 'basketball_nba'],
+      monthlyCredits: 100_000,
+      minBooks: 4,
+      inPlay: false,
+      derivedMarkets: false,
+    });
+  });
+
+  it('refuses malformed keys and an empty source list', () => {
+    const malformed = problemsOf({
+      FEED_PROVIDER: 'theoddsapi',
+      ODDS_API_KEY: ODDS_KEY,
+      ODDS_API_REGIONS: 'EU!',
+      ODDS_API_SPORTS: 'soccer epl',
+    }).join('\n');
+    expect(malformed).toMatch(/ODDS_API_REGIONS/);
+    expect(malformed).toMatch(/ODDS_API_SPORTS/);
+    expect(
+      problemsOf({
+        FEED_PROVIDER: 'theoddsapi',
+        ODDS_API_KEY: ODDS_KEY,
+        ODDS_API_REGIONS: '',
+      }).join('\n'),
+    ).toMatch(/ODDS_API_REGIONS or ODDS_API_BOOKMAKERS/);
+  });
+
+  it('runs in licensed mode with in-play off and 3 books by default', () => {
+    const config = loadConfig({
+      ...LICENSED_ENV,
+      FEED_PROVIDER: 'theoddsapi',
+      ODDS_API_KEY: ODDS_KEY,
+    });
+    expect(config.feed.oddsApi.inPlay).toBe(false);
+    expect(config.feed.oddsApi.minBooks).toBe(3);
+    const inPlay = loadConfig({
+      ...LICENSED_ENV,
+      FEED_PROVIDER: 'theoddsapi',
+      ODDS_API_KEY: ODDS_KEY,
+      ODDS_API_INPLAY: 'true',
+    });
+    expect(inPlay.feed.oddsApi.inPlay).toBe(true);
+  });
+
+  it('refuses fewer than 3 books or a plain-http API in licensed mode', () => {
+    const problems = problemsOf({
+      ...LICENSED_ENV,
+      FEED_PROVIDER: 'theoddsapi',
+      ODDS_API_KEY: ODDS_KEY,
+      ODDS_API_MIN_BOOKS: '2',
+      ODDS_API_BASE_URL: 'http://api.the-odds-api.com/v4',
+    }).join('\n');
+    expect(problems).toMatch(/ODDS_API_MIN_BOOKS must be at least 3/);
+    expect(problems).toMatch(/ODDS_API_BASE_URL must be an https URL/);
+    // Without the provider chosen, its settings are not checked.
+    expect(problemsOf({ ...LICENSED_ENV, ODDS_API_MIN_BOOKS: '1' })).toEqual([]);
   });
 });
