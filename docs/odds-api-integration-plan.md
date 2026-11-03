@@ -230,15 +230,52 @@ region). Scores with `daysFrom` = 2.
 | ≤ 72 h                      | 3 h                            |
 | later or none               | not polled (`/events` is free) |
 
-Rough cost of one league's match day: ~100 credits prematch, ~480 for 4 h of in-play polling, ~250 for
-scores. Fifteen leagues with ten match days a month come to about 50K credits a month without in-play and
-about 125K with it on every league.
+### The 20 000-credit plan, football first
+
+The plan in use is The Odds API's 20 000 credits a month (about 667 a day). The defaults spend it almost all
+on football:
+
+- **Shares per sport** (`ODDS_API_SPORT_SHARES`, default `football:90,basketball:5,tennis:5`). Each sport is
+  paced on its own share, so the NBA or a tennis tournament never slows football down. A sport with no
+  league running passes its share to the others (tennis between grand slams gives its 5% to football).
+- **Paced over the week, not the day.** Intervals stretch by the last 7 days' spend against a week of the
+  share, or by the last 24 hours' against three days of it, whichever is larger. A football weekend runs at
+  full speed on what Tuesday and Wednesday left.
+- **Credits go where bets happen.** When the budget is tight, polls days ahead stretch by the full factor,
+  the last 6 hours before a start only by its square root.
+- **No call without something to price.** A league whose next start is beyond the 72-hour horizon is not
+  read (the free `/events` read keeps its next start current): no credits during international breaks or
+  between rounds.
+- **Live scores for 1 credit.** Scores are read without `daysFrom` (1 credit) until a match should be over
+  (football 115 minutes, NBA 150), then with it (2 credits) for the result.
+- **In-play is off by default** in both modes: one league in play costs about 120 credits an hour, more than
+  this plan can give beside prematch. Turn it on (`ODDS_API_INPLAY=true`) only with a larger plan.
+- Tennis tournaments other than the grand slams are off by default; staff can switch any league on.
+
+What the schedule costs, from `apps/worker/src/tasks/oddsapi/estimate.ts` (four weeks of typical fixtures,
+the same functions the worker runs; `apps/worker/test/estimate.test.ts`):
+
+| League                                                     | Credits a month at full speed   |
+| ---------------------------------------------------------- | ------------------------------- |
+| a weekly league (Saturday, Sunday and Monday kick-offs)    | ~2 050 (odds 1 730, scores 320) |
+| Champions League (every other week, Tuesday and Wednesday) | ~700                            |
+| Europa or Conference League (every other Thursday)         | ~400                            |
+| NBA (games every night)                                    | ~6 000                          |
+
+- The **13 football leagues on by default** (nine weekly leagues, the FA Cup and three European cups) need
+  about 20 000 at full speed; inside football's 18 000 they run at a factor of about 1.1, practically full
+  speed: every 5 minutes in the last hour, every 15 minutes up to 6 hours before, hourly up to a day.
+- **Twenty weekly leagues and the European cups** still fit, at a factor of about 3.3: every 9 minutes in
+  the last hour, every 27 minutes up to 6 hours before, every 3 hours up to a day, every 10 hours further.
+- Basketball's 5% (about 1 000) keeps the NBA at roughly a tenth of full speed far from tip-off and a third
+  in the last hours; give basketball a larger share if it matters more.
 
 The **governor** keeps spending inside `ODDS_API_MONTHLY_CREDITS`, capped by the plan's real quota
 (`x-requests-used` + `x-requests-remaining`) once a response has reported it:
 
 - every call is logged in `feed_api_calls` (endpoint, league, cost, status, remaining);
-- when the trailing 24 h spend runs ahead of monthly ÷ 30, every interval stretches by the same factor;
+- each sport's intervals stretch when its spend runs ahead of its share (paced over 7 days, a single day up
+  to three days' worth), polls days ahead more than the last 6 hours (see above);
 - below `ODDS_API_RESERVE_PERCENT` of the quota, only in-play and scores run; below 1%, only scores of events
   with open bets;
 - 401 (bad key or no credits left) pauses the provider for an hour and raises an alert; 429 backs off;
@@ -252,8 +289,9 @@ governor stretches every interval. On the back office feed page, switch off all 
 that refresh every few hours far from kick-off and every 15–30 minutes close to it. Markets are suspended
 between polls rather than shown stale.
 
-Recommendation: the 100K-credit plan for the demo with in-play on the top leagues only; measure one week and
-adjust. Check the current plans on the API's pricing page.
+Recommendation: the 20 000-credit plan with football first, as above, for prematch odds on 13–20 football
+leagues. In-play needs a larger plan (one league in play costs about 120 credits an hour); measure a week of
+`feed_api_calls` before changing plans. Check the current plans on the API's pricing page.
 
 ## 10. Demo and licensed mode
 
@@ -263,7 +301,7 @@ adjust. Check the current plans on the API's pricing page.
 | `ODDS_API_KEY`                        | required                                        | required                                            |
 | `ODDS_API_BASE_URL`                   | any                                             | https only                                          |
 | minimum books                         | 2                                               | 3, at least one sharp                               |
-| in-play                               | on                                              | off unless `ODDS_API_INPLAY=true`                   |
+| in-play                               | off unless `ODDS_API_INPLAY=true` (its credits) | off unless `ODDS_API_INPLAY=true`                   |
 | results                               | automatic after the confirmation wait           | cups and tennis reviewed by staff, others automatic |
 | overdue events                        | void after 72 h                                 | staff review                                        |
 | leagues the API lacks (Ethiopia, CAF) | optional simulated fallback, marked "Simulated" | refused (simulated odds are never allowed)          |
@@ -379,18 +417,19 @@ match to settle both.
 
 ## 15. Configuration
 
-| Variable                          | Default                           | Meaning                                                  |
-| --------------------------------- | --------------------------------- | -------------------------------------------------------- |
-| `FEED_PROVIDER`                   | `mock`                            | `theoddsapi` turns this integration on                   |
-| `ODDS_API_KEY`                    | —                                 | secret; required with `theoddsapi`; never logged         |
-| `ODDS_API_BASE_URL`               | `https://api.the-odds-api.com/v4` | https required in licensed mode                          |
-| `ODDS_API_REGIONS`                | `eu`                              | regions to read                                          |
-| `ODDS_API_BOOKMAKERS`             | —                                 | explicit bookmakers instead of regions (10 = one region) |
-| `ODDS_API_SPORTS`                 | registry tier 1                   | extra sport keys to enable                               |
-| `ODDS_API_MONTHLY_CREDITS`        | `20000`                           | the governor's monthly target                            |
-| `ODDS_API_RESERVE_PERCENT`        | `10`                              | credits kept for in-play and results                     |
-| `ODDS_API_MIN_BOOKS`              | 2 demo, 3 licensed                | quorum per market; licensed mode refuses less than 3     |
-| `ODDS_API_MARGIN_BPS`             | `600`                             | our margin on main markets (basis points)                |
-| `ODDS_API_DERIVED_MARKETS`        | `true`                            | BTTS, correct score and extra lines from the goals model |
-| `ODDS_API_INPLAY`                 | on in demo, off in licensed       | in-play pricing                                          |
-| `ODDS_API_RESULT_CONFIRM_MINUTES` | `10`                              | wait before a feed result is applied                     |
+| Variable                          | Default                             | Meaning                                                  |
+| --------------------------------- | ----------------------------------- | -------------------------------------------------------- |
+| `FEED_PROVIDER`                   | `mock`                              | `theoddsapi` turns this integration on                   |
+| `ODDS_API_KEY`                    | —                                   | secret; required with `theoddsapi`; never logged         |
+| `ODDS_API_BASE_URL`               | `https://api.the-odds-api.com/v4`   | https required in licensed mode                          |
+| `ODDS_API_REGIONS`                | `eu`                                | regions to read                                          |
+| `ODDS_API_BOOKMAKERS`             | —                                   | explicit bookmakers instead of regions (10 = one region) |
+| `ODDS_API_SPORTS`                 | registry tier 1                     | extra sport keys to enable                               |
+| `ODDS_API_MONTHLY_CREDITS`        | `20000`                             | the governor's monthly target                            |
+| `ODDS_API_RESERVE_PERCENT`        | `10`                                | credits kept for in-play and results                     |
+| `ODDS_API_SPORT_SHARES`           | `football:90,basketball:5,tennis:5` | percent of the credits per sport (§9)                    |
+| `ODDS_API_MIN_BOOKS`              | 2 demo, 3 licensed                  | quorum per market; licensed mode refuses less than 3     |
+| `ODDS_API_MARGIN_BPS`             | `600`                               | our margin on main markets (basis points)                |
+| `ODDS_API_DERIVED_MARKETS`        | `true`                              | BTTS, correct score and extra lines from the goals model |
+| `ODDS_API_INPLAY`                 | off                                 | in-play pricing (about 120 credits an hour per league)   |
+| `ODDS_API_RESULT_CONFIRM_MINUTES` | `10`                                | wait before a feed result is applied                     |
