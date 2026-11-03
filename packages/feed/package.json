@@ -2,7 +2,7 @@
   "name": "@vamos/feed",
   "version": "0.1.0",
   "private": true,
-  "description": "Odds feed provider interface and the mock Poisson pricing / live match simulator",
+  "description": "Odds feed providers: the mock Poisson pricing / live match simulator and The Odds API client with consensus pricing",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -12,6 +12,10 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vamos/core": "workspace:*"
+    "@vamos/core": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "fast-check": "4.10.2"
   }
 }

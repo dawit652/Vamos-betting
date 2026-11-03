@@ -1,0 +1,171 @@
+[
+  {
+    "id": "c3d4e5f60718293a4b5c6d7e8f901234",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-11-05T00:30:00Z",
+    "home_team": "Boston Celtics",
+    "away_team": "Los Angeles Lakers",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-11-03T10:01:40Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T10:01:40Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.57
+              },
+              {
+                "name": "Los Angeles Lakers",
+                "price": 2.45
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T10:01:40Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.93,
+                "point": 224.5
+              },
+              {
+                "name": "Under",
+                "price": 1.95,
+                "point": 224.5
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T10:01:40Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.95,
+                "point": -4.5
+              },
+              {
+                "name": "Los Angeles Lakers",
+                "price": 1.93,
+                "point": 4.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "draftkings",
+        "title": "DraftKings",
+        "last_update": "2026-11-03T10:01:40Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T10:01:40Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.59
+              },
+              {
+                "name": "Los Angeles Lakers",
+                "price": 2.4
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T10:01:40Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.91,
+                "point": 224.5
+              },
+              {
+                "name": "Under",
+                "price": 1.91,
+                "point": 224.5
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T10:01:40Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.91,
+                "point": -4.5
+              },
+              {
+                "name": "Los Angeles Lakers",
+                "price": 1.91,
+                "point": 4.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "fanduel",
+        "title": "FanDuel",
+        "last_update": "2026-11-03T10:01:40Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-11-03T10:01:40Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.57
+              },
+              {
+                "name": "Los Angeles Lakers",
+                "price": 2.42
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-11-03T10:01:40Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.91,
+                "point": 224.5
+              },
+              {
+                "name": "Under",
+                "price": 1.91,
+                "point": 224.5
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-11-03T10:01:40Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.93,
+                "point": -4.5
+              },
+              {
+                "name": "Los Angeles Lakers",
+                "price": 1.89,
+                "point": 4.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
