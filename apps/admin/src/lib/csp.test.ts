@@ -32,6 +32,12 @@ describe('content security policy (ASVS 14.4.3)', () => {
     expect(local).not.toContain('upgrade-insecure-requests');
   });
 
+  it('allows only its own origin when the API is forwarded through the back office', () => {
+    const policy = contentSecurityPolicy({ nonce: 'n', apiUrl: '/_api', dev: false });
+    expect(policy).toContain("connect-src 'self';");
+    expect(policy).not.toContain('upgrade-insecure-requests');
+  });
+
   it('makes a fresh 128-bit nonce each time', () => {
     const nonces = new Set(Array.from({ length: 50 }, () => newNonce()));
     expect(nonces.size).toBe(50);

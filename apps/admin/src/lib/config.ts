@@ -1,8 +1,13 @@
-/** Browser-visible API base URL, inlined at build time (see next.config.ts). */
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(
-  /\/$/,
-  '',
-);
+/**
+ * Browser-visible API base URL, inlined at build time (see next.config.ts): `/_api` (this
+ * origin, forwarded to the API) when the back office is shared through a tunnel, otherwise
+ * the API's own URL.
+ */
+export const API_URL = (
+  process.env.NEXT_PUBLIC_ADMIN_API_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://localhost:4000'
+).replace(/\/$/, '');
 
 export type QueryValue = string | number | boolean | null | undefined;
 export type Query = Readonly<Record<string, QueryValue>>;

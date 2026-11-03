@@ -147,10 +147,20 @@ examples are in [`infra/env.prod.example`](../infra/env.prod.example).
 tunnel's public name (for example `nahubet.com`) at the web app on `http://localhost:3000` and set, in `.env`,
 `PUBLIC_WEB_URL=https://nahubet.com`, `PUBLIC_API_URL=https://nahubet.com/_api`,
 `API_PROXY_TARGET=http://127.0.0.1:4000` and `DEV_ALLOWED_ORIGINS=nahubet.com`. The browser then reaches the
-API through the site's own origin (`/_api`), so the session cookie stays same-site. The back office stays on
-`http://localhost:3001` on that PC. With a Cloudflare tunnel the domain's nameservers must be Cloudflare's
-(change them at Porkbun under Authoritative Nameservers), then
+API through the site's own origin (`/_api`), so the session cookie stays same-site. With a Cloudflare tunnel
+the domain's nameservers must be Cloudflare's (change them at Porkbun under Authoritative Nameservers), then
 `cloudflared tunnel route dns <tunnel> nahubet.com`.
+
+**The back office through the tunnel** (staff on other computers and phones): the back office forwards `/_api`
+to the API too when it runs with `API_PROXY_TARGET`, so it works from any address it is opened at. Add a
+second public name (`admin.nahubet.com`) pointing at `http://localhost:3001`, set
+`ADMIN_WEB_URL=https://admin.nahubet.com`, and add `admin.nahubet.com` to `DEV_ALLOWED_ORIGINS` (under
+`next dev`, a host that is not listed gets no live-reload connection and the page never starts). The public
+API URL must be `https` so the staff cookie is `__Host-` with path `/` and reaches `/_api/admin`. Before
+publishing it, put it behind **Cloudflare Access** (Zero Trust, free for up to 50 users: a self-hosted
+application for `admin.nahubet.com`, allowing only the staff's email addresses), and block the staff API on
+the player name with a WAF custom rule (`http.host eq "nahubet.com" and starts_with(http.request.uri.path,
+"/_api/admin")` → Block): the player site's `/_api` forwards every path, `/admin` included.
 
 **Scaling.**
 
