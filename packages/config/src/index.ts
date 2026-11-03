@@ -1,6 +1,9 @@
 export {
   ConfigError,
   DEFAULT_ELS_REPORT_DIR,
+  DEFAULT_ODDS_API_BASE_URL,
+  DEMO_MIN_ODDS_BOOKS,
+  LICENSED_MIN_ODDS_BOOKS,
   DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
   DEV_SESSION_SECRET,
@@ -15,6 +18,8 @@ export {
   type AppConfig,
   type ChannelsConfig,
   type ElsReportingMode,
+  type FeedProvider,
+  type OddsApiConfig,
   type OperatingMode,
   type PaymentProvidersConfig,
   type TrustProxySetting,

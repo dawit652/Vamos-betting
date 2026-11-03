@@ -1,5 +1,6 @@
 import type { AppConfig } from '@vamos/config';
 import { createElsReporter } from '@vamos/db';
+import { OddsApiClient } from '@vamos/feed';
 import type { WorkerTask } from '../worker';
 import {
   betAcceptanceSweepTask,
@@ -34,6 +35,7 @@ import {
   type JackpotSettlementSweepOptions,
 } from './jackpots';
 import { liveSimTask, type LiveSimOptions } from './live-sim';
+import { oddsApiTasks, type OddsApiTaskOptions } from './oddsapi/index';
 import { outboxDispatchTask, type OutboxDispatchOptions } from './outbox-dispatch';
 import {
   payoutSweepTask,
@@ -57,6 +59,8 @@ export type { TaskContext } from './context';
 
 export interface TaskOptions {
   feedIngest?: FeedIngestOptions;
+  /** FEED_PROVIDER=theoddsapi (tests pass a fake client). */
+  oddsApi?: OddsApiTaskOptions;
   liveSim?: Partial<LiveSimOptions>;
   prematchDrift?: PrematchDriftOptions;
   settlement?: SettlementOptions;
@@ -87,6 +91,8 @@ export interface TaskOptions {
  * simulator, prematch drift) runs only with FEED_PROVIDER=mock, which
  * loadConfig() already refuses outside demo mode; the mode is checked here
  * again so simulated odds can never reach a licensed (real-money) database.
+ * FEED_PROVIDER=theoddsapi runs the real feed instead (./oddsapi), in either
+ * mode.
  *
  * Settlement (and its sweep), the jackpot rounds, their settlement (and its
  * sweep), live bet acceptance, the payout worker (and
@@ -116,6 +122,13 @@ export function createTasks(
       }),
       prematchDriftTask(ctx, options.prematchDrift),
     );
+  }
+  if (config.feed.provider === 'theoddsapi') {
+    const odds = config.feed.oddsApi;
+    const client =
+      options.oddsApi?.client ??
+      new OddsApiClient({ apiKey: odds.apiKey ?? '', baseUrl: odds.baseUrl });
+    tasks.push(...oddsApiTasks(ctx, { client, config: odds, mode: config.mode }, options.oddsApi));
   }
   tasks.push(
     settlementTask(ctx, options.settlement),

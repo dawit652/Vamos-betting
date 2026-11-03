@@ -456,13 +456,14 @@ export async function startedFeedEvents(
 
 /**
  * The provider's events that still show open markets on prices older than
- * their limit: scheduled ones not started yet priced before `prematchBefore`
- * (or never), and live ones priced before `liveBefore`.
+ * their limit: scheduled ones not started yet (and starting before
+ * `startsBefore`, when given) priced before `prematchBefore` (or never), and
+ * live ones priced before `liveBefore`.
  */
 export async function staleFeedEvents(
   exec: DbExecutor,
   provider: string,
-  limits: { now: Date; prematchBefore: Date; liveBefore: Date },
+  limits: { now: Date; prematchBefore: Date; liveBefore: Date; startsBefore?: Date },
 ): Promise<string[]> {
   const rows = await exec
     .select({ id: events.id })
@@ -474,6 +475,9 @@ export async function staleFeedEvents(
           and(
             eq(events.status, 'scheduled'),
             sql`${events.startTime} > ${limits.now}`,
+            limits.startsBefore === undefined
+              ? undefined
+              : sql`${events.startTime} < ${limits.startsBefore}`,
             or(isNull(events.oddsUpdatedAt), lt(events.oddsUpdatedAt, limits.prematchBefore)),
           ),
           and(
@@ -615,4 +619,13 @@ export async function markFeedResultApplied(
     .update(feedResults)
     .set({ appliedAt: at, updatedAt: sql`now()` })
     .where(and(eq(feedResults.eventId, eventId), isNull(feedResults.appliedAt)));
+}
+
+/** Events of the provider with a feed result not applied yet (waiting or under review). */
+export async function pendingFeedResultIds(exec: DbExecutor, provider: string): Promise<Set<string>> {
+  const rows = await exec
+    .select({ eventId: feedResults.eventId })
+    .from(feedResults)
+    .where(and(eq(feedResults.provider, provider), isNull(feedResults.appliedAt)));
+  return new Set(rows.map((row) => row.eventId));
 }
