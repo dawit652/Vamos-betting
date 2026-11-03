@@ -20,16 +20,16 @@ make the same integration usable in licensed mode behind stricter checks.
 
 ## 2. The Odds API in brief
 
-| Endpoint                                   | Gives                                                                                                             | Credits                    |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `GET /v4/sports`                           | every sport key: `group`, `title`, `description`, `active`, `has_outrights`                                       | free                       |
-| `GET /v4/sports/{key}/events`              | upcoming and live events (id, teams, `commence_time`), no odds                                                    | free                       |
-| `GET /v4/sports/{key}/odds`                | every event of a league with each bookmaker's featured markets (`h2h`, `spreads`, `totals`, `outrights`, `*_lay`) | markets × regions          |
-| `GET /v4/sports/{key}/events/{id}/odds`    | one event, any market (`btts`, `draw_no_bet`, `alternate_totals`, period markets…)                                | markets returned × regions |
-| `GET /v4/sports/{key}/events/{id}/markets` | the markets each bookmaker has for an event                                                                       | 1                          |
-| `GET /v4/sports/{key}/scores`              | live scores; with `daysFrom=1..3` also completed results                                                          | 1, or 2 with `daysFrom`    |
-| `GET /v4/sports/{key}/participants`        | team or player names of a league                                                                                  | 1                          |
-| `GET /v4/historical/…`                     | past odds snapshots (paid plans)                                                                                  | 10 × markets × regions     |
+| Endpoint                                   | Gives                                                                                                             | Credits                 |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `GET /v4/sports`                           | every sport key: `group`, `title`, `description`, `active`, `has_outrights`                                       | free                    |
+| `GET /v4/sports/{key}/events`              | upcoming and live events (id, teams, `commence_time`), no odds                                                    | free                    |
+| `GET /v4/sports/{key}/odds`                | every event of a league with each bookmaker's featured markets (`h2h`, `spreads`, `totals`, `outrights`, `*_lay`) | markets × regions       |
+| `GET /v4/sports/{key}/events/{id}/odds`    | one event, any market (`btts`, `draw_no_bet`, `alternate_totals`, period markets…)                                | markets × regions       |
+| `GET /v4/sports/{key}/events/{id}/markets` | the markets each bookmaker has for an event                                                                       | 1                       |
+| `GET /v4/sports/{key}/scores`              | live scores; with `daysFrom=1..3` also completed results                                                          | 1, or 2 with `daysFrom` |
+| `GET /v4/sports/{key}/participants`        | team or player names of a league                                                                                  | 1                       |
+| `GET /v4/historical/…`                     | past odds snapshots (paid plans)                                                                                  | 10 × markets × regions  |
 
 - One `/odds` call returns every event of a league, so the cost grows with leagues × markets × regions, not
   with the number of events.
@@ -40,19 +40,43 @@ make the same integration usable in licensed mode behind stricter checks.
 - Scores update about every 30 s in play. They give the total score only (strings): no match minute, no
   half-time score, no periods.
 
-**Gaps that shape the design** (to confirm against real responses, see §14):
+**Gaps that shape the design:**
 
-- No Ethiopian Premier League and, as far as known, no CAF club competitions. AFCON appears only while it runs.
+- No Ethiopian Premier League and no CAF club competitions. AFCON appears only while it runs.
 - No volleyball.
 - Tennis keys are per tournament (`tennis_atp_paris_masters`, …) and exist only while the tournament runs.
+- **Tennis has no scores** (confirmed below): tennis results always come from staff.
 - Outright keys (`*_winner`) have no home/away teams and are never resulted by the API.
 - No half-time scores, so half-time markets cannot be settled from it.
 - It aggregates bookmakers' public prices; it is not an official data feed. In-play prices lag the action by
   tens of seconds.
 
-**Network:** this cloud environment cannot reach `the-odds-api.com` yet. Add `api.the-odds-api.com` to the
-environment's allowed domains (or run the capture script on a machine that can reach it).
-`scripts/odds-api/capture-samples.ps1` records real responses for the tests without exposing the key.
+### Confirmed with real responses (2026-11-03)
+
+`scripts/odds-api/capture-samples.ps1` was run on a machine that can reach the API (this cloud environment
+cannot). The responses are in `packages/feed/src/oddsapi/fixtures/real/` (no key stored) and
+`real-samples.test.ts` checks the integration against them.
+
+- **184 sport keys** in 16 groups (80 active, 12 outright-only): American football, Aussie rules, baseball,
+  basketball, boxing, cricket, golf (outrights), handball, ice hockey, lacrosse, MMA, politics (outrights),
+  rugby league, rugby union, soccer (67 keys) and tennis (51 tournament keys). Every key of our registry exists.
+- **The `eu` region returned 24 bookmakers**, including Pinnacle, Betfair Exchange and Matchbook (football and
+  tennis). For the NBA it had Betfair but not Pinnacle. Exchanges add an `h2h_lay` market, which we ignore.
+- `last_update` values are all within about five minutes of the request: the API refreshes each book every
+  few minutes, so the quote-age limits mainly catch a book that stopped being refreshed.
+- **The per-event odds endpoint gives bookmakers no `last_update`** (only their markets have one); a price of
+  exactly **1.0** means "no price" (1xBet's alternate totals). The parser handles both; before this, every
+  bookmaker of a per-event response was dropped.
+- **Whole lines exist** (totals 3.0, 219.0; spreads ±1.0) and football `spreads` are Asian handicaps, including
+  0.0 (draw no bet). Only half-point lines are used (§4.9).
+- **Scores:** strings per team; `last_update` and `scores` are null before the start. Football and basketball
+  return results; **tennis returned none** (no completed match in three days of a running tournament).
+- **Costs:** `/odds` = markets × regions (2 for `h2h,totals`, 3 with `spreads`); the per-event call cost one per
+  requested market (7); `/scores` with `daysFrom` = 2; `/sports` and `/events` are free;
+  `/participants` and `/events/{id}/markets` = 1.
+- **`x-requests-used` + `x-requests-remaining` = the plan's quota** (500 on the free plan); the governor reads it.
+- Errors: `{"message", "error_code", "details_url"}`, e.g. 422 `INVALID_MARKET` (`btts` on `/odds`: extra
+  markets need the per-event endpoint) and 404 `UNKNOWN_SPORT`.
 
 ## 3. Architecture
 
@@ -110,9 +134,11 @@ Each market is priced from scratch on every poll:
 9. **Lines.** Only half-point lines are offered (whole and quarter lines can push or split). The main line is
    the one most books quote; ties go to the line closest to 50/50.
 10. **Market-implied goals model.** For football, a Dixon–Coles model (λ home, λ away, ρ) is fitted to the
-    consensus 1X2 and the main total. It prices BTTS, correct score and the other goal lines consistently with
-    the real market. Used only when the fit error is ≤ 1.5 pp on every input; otherwise those markets stay
-    suspended. Double chance and draw-no-bet are exact transforms of the consensus 1X2 (no model).
+    consensus 1X2 and the main total (grid start, pattern search, then a Levenberg–Marquardt polish: targets
+    generated from any typical model are recovered to within 1e-12). It prices BTTS, correct score and the
+    other goal lines consistently with the real market. Used only when the fit error is ≤ 1.5 pp on every
+    input; otherwise those markets stay suspended. Double chance and draw-no-bet are exact transforms of the
+    consensus 1X2 (no model).
 11. **Freshness guard.** A sweep suspends (as `feed`) every market of an event whose consensus is older than
     its limit; the next fresh poll re-opens them. Suspended is better than wrong.
 12. **Measure it.** The last pre-kick-off consensus (the closing line) is kept per selection. The back office
@@ -172,13 +198,16 @@ budget, only for featured matches to check the model's derived prices against th
 
 ## 8. Results and settlement
 
-- The scores poller asks for `daysFrom=1` while a league has live or unresulted matches (every 2 min in play,
-  every 10 min after the expected end).
+- The scores poller asks for `daysFrom=1` while a league has live or unresulted matches: every 2 min in play
+  when in-play betting is on, else every 10 min (the governor may stretch it up to sixfold when no live
+  markets are open, twofold when they are).
+- **Sports without feed scores (tennis)** are never polled for scores. Six hours after the scheduled start the
+  match is suspended and sent to staff for its result, in both modes.
 - `completed: true` with both scores → a `feed_results` row. After `ODDS_API_RESULT_CONFIRM_MINUTES` (default 10) with the same score on a later poll, the event is resulted with `resultEvent` and settlement runs through
   the outbox exactly as today. A changed score restarts the wait.
 - **Needs staff review instead** (back office queue, one click to accept the feed score):
   - cup competitions in licensed mode (90-minute markets; the API score may include extra time or penalties)
-  - tennis in licensed mode (retirements and walkovers)
+  - tennis, always: the API has no tennis scores (retirements and walkovers need a person anyway)
   - any score the mapping cannot read
 - **Overdue:** no result 48 h after kick-off → markets suspended and the event goes to the review queue. Demo
   mode voids it after 72 h so play-money bets do not hang.
@@ -205,13 +234,23 @@ Rough cost of one league's match day: ~100 credits prematch, ~480 for 4 h of in-
 scores. Fifteen leagues with ten match days a month come to about 50K credits a month without in-play and
 about 125K with it on every league.
 
-The **governor** keeps spending inside `ODDS_API_MONTHLY_CREDITS`:
+The **governor** keeps spending inside `ODDS_API_MONTHLY_CREDITS`, capped by the plan's real quota
+(`x-requests-used` + `x-requests-remaining`) once a response has reported it:
 
 - every call is logged in `feed_api_calls` (endpoint, league, cost, status, remaining);
 - when the trailing 24 h spend runs ahead of monthly ÷ 30, every interval stretches by the same factor;
 - below `ODDS_API_RESERVE_PERCENT` of the quota, only in-play and scores run; below 1%, only scores of events
   with open bets;
-- 401 (bad key or no credits left) pauses the provider for an hour and raises an alert; 429 backs off.
+- 401 (bad key or no credits left) pauses the provider for an hour and raises an alert; 429 backs off;
+- the stale-price limits stretch with the budget at most twofold in licensed mode (sixfold in demo): a league
+  polled less often shows suspended markets between polls, never old prices.
+
+**Free plan (500 credits a month, about 16 a day).** Enough for a demo of two or three leagues, not for a
+sportsbook: one football league polled on the base schedule costs about that much on its own, so the
+governor stretches every interval. On the back office feed page, switch off all but two or three leagues
+(for example the Premier League, the Champions League and the NBA), leave in-play off, and expect prices
+that refresh every few hours far from kick-off and every 15–30 minutes close to it. Markets are suspended
+between polls rather than shown stale.
 
 Recommendation: the 100K-credit plan for the demo with in-play on the top leagues only; measure one week and
 adjust. Check the current plans on the API's pricing page.
@@ -275,24 +314,25 @@ Excluded by policy, whatever competitors do: casino, crash and virtual games, cr
 "Lead" work stays in the main session at full reasoning depth (money, settlement, pricing math, guards).
 Mechanical work goes to cheaper sub-agents with low or medium effort and a precise brief, to save tokens.
 
-| #   | Phase              | Scope                                                                                                                                                                             | Complexity       | Built by           | Status  |
-| --- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ------------------ | ------- |
-| 0   | Plan               | this document, `scripts/odds-api/capture-samples.ps1`                                                                                                                             | low              | lead               | done    |
-| 1   | Config and guard   | `FEED_PROVIDER=theoddsapi`, `ODDS_API_*` settings, licensed checks, tests                                                                                                         | medium, safety   | lead               | done    |
-| 2   | Client and schemas | client, zod schemas, fake-fetch tests, fixtures recorded from real responses                                                                                                      | medium           | sub-agent (medium) | done    |
-| 3   | Consensus engine   | de-vig, consensus, outliers, quorum, lines, Dixon–Coles fit, pricing, property tests                                                                                              | high, money      | lead               | done    |
-| 4   | League registry    | sport key → sport, country, league, flags, Amharic names (pending review)                                                                                                         | low              | sub-agent (low)    | done    |
-| 5   | Database           | migration: `feed_leagues`, `feed_team_aliases`, `feed_api_calls`, `feed_results`, `events.odds_updated_at`; catalogue functions; suspend-missing; live refresh; integration tests | high             | lead               | done    |
-| 6   | Worker             | catalogue sync, odds poller with scheduler and governor, scores and results, stale and overdue sweeps, retiring mock events                                                       | high             | lead               | done    |
-| 7   | API and contracts  | `oddsUpdatedAt` and `simulated` on events; admin feed endpoints                                                                                                                   | medium           | sub-agent (medium) | done    |
-| 8   | Web                | odds arrows, freshness, flags and league browser, live score without clock, search                                                                                                | medium           | sub-agent (medium) | done    |
-| 9   | Admin              | feed page: credits, leagues on/off and margins, results review, aliases                                                                                                           | medium           | sub-agent (medium) | done    |
-| 10  | i18n and docs      | en/am/om/ti strings; architecture, deployment and runbook updates                                                                                                                 | low              | sub-agent (low)    | done    |
-| 11  | Handicap           | core `hcp` market (signed half-point lines), settlement, spreads mapping                                                                                                          | high, settlement | lead               | planned |
-| 12  | More sports        | ice hockey, American football, baseball, cricket, rugby, MMA, boxing, Aussie rules                                                                                                | high             | lead + sub-agent   | planned |
-| 13  | Outrights          | outright events and markets, staff settlement                                                                                                                                     | high             | lead               | planned |
-| 14  | Growth features    | boosts, accumulator of the day, early payout, bet builder, favourites                                                                                                             | medium–high      | mixed              | planned |
-| 15  | Review             | adversarial review (money, security, reliability), e2e against a stub Odds API                                                                                                    | high             | reviewers          | planned |
+| #   | Phase              | Scope                                                                                                                                                                             | Complexity       | Built by                   | Status  |
+| --- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | -------------------------- | ------- |
+| 0   | Plan               | this document, `scripts/odds-api/capture-samples.ps1`                                                                                                                             | low              | lead                       | done    |
+| 1   | Config and guard   | `FEED_PROVIDER=theoddsapi`, `ODDS_API_*` settings, licensed checks, tests                                                                                                         | medium, safety   | lead                       | done    |
+| 2   | Client and schemas | client, zod schemas, fake-fetch tests, fixtures recorded from real responses                                                                                                      | medium           | sub-agent (medium)         | done    |
+| 3   | Consensus engine   | de-vig, consensus, outliers, quorum, lines, Dixon–Coles fit, pricing, property tests                                                                                              | high, money      | lead                       | done    |
+| 4   | League registry    | sport key → sport, country, league, flags, Amharic names (pending review)                                                                                                         | low              | sub-agent (low)            | done    |
+| 5   | Database           | migration: `feed_leagues`, `feed_team_aliases`, `feed_api_calls`, `feed_results`, `events.odds_updated_at`; catalogue functions; suspend-missing; live refresh; integration tests | high             | lead                       | done    |
+| 6   | Worker             | catalogue sync, odds poller with scheduler and governor, scores and results, stale and overdue sweeps, retiring mock events                                                       | high             | lead                       | done    |
+| 7   | API and contracts  | `oddsUpdatedAt` and `simulated` on events; admin feed endpoints                                                                                                                   | medium           | sub-agent (medium)         | done    |
+| 8   | Web                | odds arrows, freshness, flags and league browser, live score without clock, search                                                                                                | medium           | sub-agent (medium)         | done    |
+| 9   | Admin              | feed page: credits, leagues on/off and margins, results review, aliases                                                                                                           | medium           | sub-agent (medium)         | done    |
+| 10  | i18n and docs      | en/am/om/ti strings; architecture, deployment and runbook updates                                                                                                                 | low              | sub-agent (low)            | done    |
+| 10b | Calibration        | real capture: fixtures and tests, per-event parser fixes, governor plan size, tennis without scores, country categories, goals-model polish                                       | medium           | lead + sub-agents (sonnet) | done    |
+| 11  | Handicap           | core `hcp` market (signed half-point lines), settlement, spreads mapping                                                                                                          | high, settlement | lead                       | planned |
+| 12  | More sports        | ice hockey, American football, baseball, cricket, rugby, MMA, boxing, Aussie rules                                                                                                | high             | lead + sub-agent           | planned |
+| 13  | Outrights          | outright events and markets, staff settlement                                                                                                                                     | high             | lead                       | planned |
+| 14  | Growth features    | boosts, accumulator of the day, early payout, bet builder, favourites                                                                                                             | medium–high      | mixed                      | planned |
+| 15  | Review             | adversarial review (money, security, reliability), e2e against a stub Odds API                                                                                                    | high             | reviewers                  | planned |
 
 **Done means:** with `ODDS_API_KEY` set and the host reachable, `pnpm dev` shows real matches with consensus
 prices; prices follow the market; matches settle from scores; nothing simulated is shown; credit use stays
@@ -311,9 +351,11 @@ inside the budget. Format, lint, typecheck, unit, integration and e2e tests all 
 | Player display               | `apps/web/src/components/sportsbook/*`, `apps/web/src/lib/{flags,relative-time}.ts`                    |
 | Back office                  | `apps/api/src/modules/admin/feed.ts`, `packages/db/src/backoffice/feed.ts`, `apps/admin/src/app/feed/` |
 
-**Still to calibrate with real responses:** the bookmaker quote age limits (`prematchQuoteMaxAgeMs`,
-`IN_PLAY_QUOTE_MAX_AGE_MS` in `schedule.ts`) depend on how The Odds API sets `last_update`; the sharp-book
-weights; the registry's sport keys; and whether tennis scores can be read.
+**Calibrated with real responses (§2):** the quote-age limits stay as they are (books are refreshed every few
+minutes, so the limits only catch a book that dropped out); every registry key exists and 54 football
+leagues now get their country and flag from the key (`soccer_austria_…` → Austria), with a North & Central
+America region for CONCACAF; tennis has no scores, so it is never polled for them and goes to staff; the
+governor reads the plan's real quota. Sharp-book weights stay at the defaults until closing-line data is in.
 
 **Not built yet** from §8: the 48-hour postponement rule (a start time that moves far after bets were taken
 still moves the bets with it, as with the mock feed).
@@ -330,9 +372,10 @@ still moves the bets with it, as with the mock feed).
 | Running out of credits                 | governor and reserve; 401 pauses polling and alerts                          |
 | No Ethiopian or CAF coverage           | second source or trader pricing (§12)                                        |
 
-**To confirm with real responses** (run `scripts/odds-api/capture-samples.ps1`): the full sport key list,
-which bookmakers the `eu` region returns, whether tennis has scores, how scores look in play, the error body
-format, and whether `/odds` charges for markets requested or returned.
+Confirmed with real responses in §2. **Still open:** how scores look while a match is in play (no match was
+live during the capture), and whether the per-event endpoint charges for markets requested or only for those
+returned (the one call charged one credit per requested market). Re-run the capture script during a live
+match to settle both.
 
 ## 15. Configuration
 
