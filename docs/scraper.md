@@ -76,7 +76,12 @@ An adapter turns one document into `FixtureObservation`s and
 - `kickoff` is a UTC instant. The adapter converts from the source's local time
   using an explicit IANA zone from its config; it never guesses (rule T1).
 - A result carries `scoreBasis`. Only `regular_time` (90 minutes plus
-  stoppage, excluding extra time and penalties) can ever settle a bet.
+  stoppage, excluding extra time and penalties) can ever settle a bet. A
+  `generic-json` config states it for the whole source (`scoreBasis`) and may
+  read it per record (`fields.scoreBasis`: a `path` and a `map` of the record's
+  values to a basis, e.g. football-data.org's `score.duration` with `REGULAR`,
+  `EXTRA_TIME`, `PENALTY_SHOOTOUT`); a value outside the map gives `unknown`
+  with a warning, a missing value the source's `scoreBasis`.
 - Everything is validated with the zod schemas in `types.ts` before it leaves
   the adapter. Invalid records are dropped with an issue; they are never
   repaired.

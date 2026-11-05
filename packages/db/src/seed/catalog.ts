@@ -380,6 +380,34 @@ const VOLLEYBALL_NATIONS = mixedCountry(
   ],
 );
 
+/**
+ * 2026-27 UEFA Champions League clubs from leagues the catalogue does not offer. Their ratings
+ * are hand-set on the scale of the five top leagues (a club's ratings elsewhere are relative to
+ * its own league's average, so a dominant club of a weaker league would look too strong);
+ * infra/scripts/add-champions-league.sh marks them as reviewed (manual).
+ */
+const EUROPEAN_CLUBS = mixedCountry(
+  'football',
+  ['attack', 'defence'],
+  [
+    ['NL', 'PSV', 'PSV Eindhoven', 1.15, 0.95],
+    ['NL', 'Feyenoord', 'Feyenoord Rotterdam', 1.08, 0.98],
+    ['PT', 'Porto', 'FC Porto', 1.12, 0.92],
+    ['PT', 'Sporting CP', 'Sporting Clube de Portugal', 1.15, 0.92],
+    ['NO', 'Bodo/Glimt', 'FK Bodø/Glimt', 0.95, 1.08],
+    ['NO', 'Viking', 'Viking FK', 0.82, 1.18],
+    ['TR', 'Fenerbahce', 'Fenerbahçe SK', 1.02, 1.0],
+    ['TR', 'Galatasaray', 'Galatasaray SK', 1.05, 1.0],
+    ['BE', 'Club Brugge', 'Club Brugge KV', 1.0, 1.0],
+    ['CZ', 'Slavia Prague', 'SK Slavia Praha', 0.92, 1.05],
+    ['GR', 'AEK Athens', 'AEK Athens FC', 0.88, 1.08],
+    ['UA', 'Shakhtar Donetsk', 'FC Shakhtar Donetsk', 0.92, 1.08],
+    ['AT', 'LASK', 'LASK', 0.82, 1.15],
+    ['SK', 'Slovan Bratislava', 'ŠK Slovan Bratislava', 0.8, 1.2],
+    ['AZ', 'Sabah', 'Sabah FK', 0.75, 1.25],
+  ],
+);
+
 export const CATALOG_TEAMS: readonly CatalogTeam[] = [
   ...PREMIER_LEAGUE,
   ...LALIGA,
@@ -389,6 +417,7 @@ export const CATALOG_TEAMS: readonly CatalogTeam[] = [
   ...COSTA_RICAN_PRIMERA,
   ...ETHIOPIAN_PREMIER_LEAGUE,
   ...CAF_CLUBS,
+  ...EUROPEAN_CLUBS,
   ...NBA,
   ...ATP_PLAYERS,
   ...VOLLEYBALL_NATIONS,

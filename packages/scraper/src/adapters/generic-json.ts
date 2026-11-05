@@ -140,6 +140,21 @@ const recordsPathSchema = z
     }
   });
 
+const scoreBasisSchema = z.enum(['regular_time', 'includes_extra_time', 'unknown']);
+
+/** Keys of a per-record score basis map, compared like status values (trimmed, lower case). */
+const scoreBasisMapSchema = z.record(z.string().max(80), scoreBasisSchema).refine((m) => {
+  const keys = Object.keys(m);
+  if (keys.length === 0 || keys.length > 20) return false;
+  const seen = new Map<string, string>();
+  for (const [key, value] of Object.entries(m)) {
+    const k = statusKey(key);
+    if (k === '' || (seen.has(k) && seen.get(k) !== value)) return false;
+    seen.set(k, value);
+  }
+  return true;
+}, 'score basis map invalid (1 to 20 entries, no empty or duplicate keys)');
+
 const statusMapSchema = z.record(z.string().max(80), statusValueSchema).refine((m) => {
   return Object.keys(m).length <= 100 && compileStatusMap(m).ok;
 }, 'status map invalid (more than 100 entries, empty or duplicate keys)');
@@ -187,9 +202,16 @@ export const GenericJsonConfigSchema = z
           htAwayPath: pathSchema.optional(),
         })
         .optional(),
+      /**
+       * The basis of each record's score read from the record itself, for sources whose matches
+       * can end after extra time (football-data.org's `score.duration`: REGULAR, EXTRA_TIME,
+       * PENALTY_SHOOTOUT). A value in `map` gives that basis; a value outside it gives 'unknown'
+       * (a person decides) with a warning; a missing or blank value gives `scoreBasis`.
+       */
+      scoreBasis: z.strictObject({ path: pathSchema, map: scoreBasisMapSchema }).optional(),
     }),
     /** What the source's score means. The operator must say; we never assume. */
-    scoreBasis: z.enum(['regular_time', 'includes_extra_time', 'unknown']).optional(),
+    scoreBasis: scoreBasisSchema.optional(),
   })
   .superRefine((c, ctx) => {
     checkRequests(c, ctx);
@@ -203,6 +225,13 @@ export const GenericJsonConfigSchema = z
     }
     if (!c.fields.score && c.scoreBasis) {
       ctx.addIssue({ code: 'custom', message: 'scoreBasis without a score', path: ['scoreBasis'] });
+    }
+    if (!c.fields.score && c.fields.scoreBasis) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'fields.scoreBasis without a score',
+        path: ['fields', 'scoreBasis'],
+      });
     }
     const s = c.fields.score;
     if (s && (s.htHomePath === undefined) !== (s.htAwayPath === undefined)) {
@@ -230,6 +259,9 @@ export function createGenericJsonAdapter(
 ): SourceAdapter {
   const f = config.fields;
   const statusLookup = f.status ? compileStatusMap(f.status.map) : null;
+  const basisLookup = f.scoreBasis
+    ? new Map(Object.entries(f.scoreBasis.map).map(([key, value]) => [statusKey(key), value]))
+    : null;
   return {
     descriptor,
     allowedHosts: config.allowedHosts,
@@ -397,6 +429,23 @@ export function createGenericJsonAdapter(
         const refRaw = f.externalRef ? one(rec, f.externalRef) : null;
         const ref = text(refRaw)?.trim().slice(0, 200) || null;
         const roundRaw = f.round ? text(one(rec, f.round)) : null;
+        // Per-record basis (fields.scoreBasis); only a record with a score has one to state.
+        let scoreBasis = config.scoreBasis ?? null;
+        if (score && f.scoreBasis && basisLookup) {
+          const raw = text(one(rec, f.scoreBasis.path))?.trim() ?? '';
+          if (raw !== '') {
+            const mapped = basisLookup.get(statusKey(raw));
+            if (mapped === undefined) {
+              collector.issue(
+                'warning',
+                'unknown_score_basis',
+                'score basis value is not in the map; the score counts as unknown basis',
+                { ...named, value: raw.slice(0, 80) },
+              );
+            }
+            scoreBasis = mapped ?? 'unknown';
+          }
+        }
         const drafts = draftsFor({
           home,
           away,
@@ -406,7 +455,7 @@ export function createGenericJsonAdapter(
           round: roundRaw ? (cleanName(roundRaw)?.slice(0, 80) ?? null) : null,
           status,
           score,
-          scoreBasis: config.scoreBasis ?? null,
+          scoreBasis,
         });
         if (!Array.isArray(drafts)) {
           collector.issue('error', drafts.code, drafts.message, named);

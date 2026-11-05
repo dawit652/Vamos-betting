@@ -278,6 +278,15 @@ A source with a licensed API (API-Football, `x-apisports-key`) names an environm
   source (disabled) and learns the clubs' ratings from this season's finished matches (`ratings backfill`, which
   resolves names through global aliases too). The token reaches curl on stdin, never on a command line. A new
   season's promoted clubs are a catalogue change (`packages/db/src/seed/catalog.ts`) plus, where needed, an alias.
+- **UEFA Champions League.** `source-footballdata-cl.json` (code CL, the catalogue's own competition name) reads the
+  score basis per match from `score.duration`: a knockout score after extra time or penalties is
+  `includes_extra_time` and never settles a bet (R10, `score_basis_unknown`: enter the 90-minute score in Trading).
+  The catalogue holds the 2026-27 league phase's 15 clubs from leagues it does not offer (`EUROPEAN_CLUBS`), with
+  hand-set ratings on the top leagues' scale: ratings learned in a weaker league would overrate its champion.
+  `infra/scripts/add-champions-league.sh` rebuilds migrate and scraper, seeds them, imports the spellings
+  (`aliases-footballdata-champions-league.csv`), runs `dry-fetch`, adds the source (disabled) and marks the
+  newcomers' ratings as reviewed. In the back office switch the competition's **extra time** on (no result is
+  applied without a person) and leave **auto open** off: prices between leagues deserve a look.
 
 ## 8. Pricing from a licensed odds feed
 
