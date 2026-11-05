@@ -209,6 +209,37 @@ describe('ratings backfill', () => {
     expect(unknown.stderr).toContain('no competition with slug "no-such"');
     expect((await cli.run('ratings', 'backfill', '--file', FILE)).code).toBe(2);
   });
+
+  it('resolves a global team alias, as the scraper does, so a file can use a source spelling', async () => {
+    const backfill = (file: string) =>
+      cli.run('ratings', 'backfill', '--file', file, '--competition', 'serie-a', '--dry-run');
+    cli.files.set(
+      'source-spelling.json',
+      JSON.stringify([
+        {
+          date: '2026-09-20',
+          home: 'FC Internazionale Milano',
+          away: 'SSC Napoli',
+          homeGoals: 2,
+          awayGoals: 1,
+        },
+      ]),
+    );
+    // Before the alias: the source spelling is not a catalogue name.
+    const before = await backfill('source-spelling.json');
+    expect(before.code).toBe(1);
+    expect(before.stderr).toContain('unknown team "FC Internazionale Milano"');
+
+    cli.files.set(
+      'aliases.csv',
+      'kind,sport,alias,target,source\nteam,football,FC Internazionale Milano,Inter,\n',
+    );
+    expect((await cli.run('aliases', 'import', '--file', 'aliases.csv')).code).toBe(0);
+    const after = await backfill('source-spelling.json');
+    expect(after.code).toBe(0);
+    expect(after.stdout).toContain('1 results for serie-a, 2 teams');
+    expect(after.stdout).toMatch(/Inter\s+attack/);
+  });
 });
 
 describe('ratings set and list', () => {

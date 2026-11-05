@@ -173,6 +173,14 @@ const LALIGA = football('ES', [
   ['Osasuna', 'CA Osasuna', 0.92, 1.02],
   ['Rayo Vallecano', 'Rayo Vallecano', 0.92, 1.02],
   ['Getafe', 'Getafe CF', 0.82, 0.98],
+  // 2026-27 clubs added for the football-data.org source (starting values; `ratings backfill` learns them).
+  ['Alaves', 'Deportivo Alavés', 0.9, 1.05],
+  ['Elche', 'Elche CF', 0.85, 1.12],
+  ['Levante', 'Levante UD', 0.85, 1.12],
+  ['Malaga', 'Málaga CF', 0.85, 1.12],
+  ['Deportivo', 'Deportivo La Coruña', 0.85, 1.12],
+  ['Espanyol', 'RCD Espanyol', 0.9, 1.05],
+  ['Racing Santander', 'Racing Santander', 0.85, 1.12],
 ]);
 
 const SERIE_A = football('IT', [
@@ -189,6 +197,14 @@ const SERIE_A = football('IT', [
   ['Torino', 'Torino FC', 0.92, 1.0],
   ['Udinese', 'Udinese Calcio', 0.9, 1.05],
   ['Genoa', 'Genoa CFC', 0.88, 1.05],
+  // 2026-27 clubs added for the football-data.org source (starting values; `ratings backfill` learns them).
+  ['Monza', 'AC Monza', 0.85, 1.12],
+  ['Cagliari', 'Cagliari Calcio', 0.9, 1.08],
+  ['Frosinone', 'Frosinone Calcio', 0.85, 1.15],
+  ['Parma', 'Parma Calcio 1913', 0.92, 1.08],
+  ['Lecce', 'US Lecce', 0.85, 1.12],
+  ['Sassuolo', 'US Sassuolo Calcio', 0.92, 1.1],
+  ['Venezia', 'Venezia FC', 0.85, 1.12],
 ]);
 
 const BUNDESLIGA = football('DE', [
@@ -205,6 +221,13 @@ const BUNDESLIGA = football('DE', [
   ['Werder Bremen', 'SV Werder Bremen', 1.02, 1.1],
   ['Union Berlin', '1. FC Union Berlin', 0.9, 1.02],
   ['Hoffenheim', 'TSG Hoffenheim', 1.08, 1.1],
+  // 2026-27 clubs added for the football-data.org source (starting values; `ratings backfill` learns them).
+  ['Koln', '1. FC Köln', 0.95, 1.08],
+  ['Augsburg', 'FC Augsburg', 0.95, 1.1],
+  ['Schalke', 'FC Schalke 04', 0.92, 1.1],
+  ['Hamburg', 'Hamburger SV', 0.95, 1.08],
+  ['Paderborn', 'SC Paderborn 07', 0.85, 1.18],
+  ['Elversberg', 'SV 07 Elversberg', 0.85, 1.18],
 ]);
 
 const LIGUE_1 = football('FR', [
@@ -221,6 +244,13 @@ const LIGUE_1 = football('FR', [
   ['Toulouse', 'Toulouse FC', 0.95, 1.02],
   ['Brest', 'Stade Brestois 29', 0.98, 1.1],
   ['Auxerre', 'AJ Auxerre', 0.9, 1.1],
+  // 2026-27 clubs added for the football-data.org source (starting values; `ratings backfill` learns them).
+  ['Angers', 'Angers SCO', 0.85, 1.1],
+  ['Troyes', 'ES Troyes AC', 0.85, 1.12],
+  ['Lorient', 'FC Lorient', 0.9, 1.1],
+  ['Le Havre', 'Le Havre AC', 0.85, 1.1],
+  ['Le Mans', 'Le Mans FC', 0.82, 1.15],
+  ['Paris FC', 'Paris FC', 0.9, 1.05],
 ]);
 
 /**

@@ -72,6 +72,66 @@ describe('football-data.org source file', () => {
   });
 });
 
+describe('football-data.org league source files', () => {
+  const data = new URL('../../../../docs/scraper-plan/data/', import.meta.url);
+  const read = (name: string) => readFileSync(new URL(name, data), 'utf8');
+  // Competition names that a global alias maps to a catalogue competition.
+  const competitionAliases = new Map(
+    ['aliases-openfootball-en1.csv', 'aliases-openfootball-top-leagues.csv'].flatMap((file) =>
+      read(file)
+        .trim()
+        .split('\n')
+        .slice(1)
+        .map((line) => line.split(','))
+        .filter(([kind, , , , scope]) => kind === 'competition' && scope === '')
+        .map(([, , alias, target]) => [alias!, target!] as const),
+    ),
+  );
+  const leagues = [
+    ['en1', 'PL', 'premier-league'],
+    ['de1', 'BL1', 'bundesliga'],
+    ['es1', 'PD', 'laliga'],
+    ['it1', 'SA', 'serie-a'],
+    ['fr1', 'FL1', 'ligue-1'],
+  ] as const;
+
+  it.each(leagues)('footballdata-%s reads competition %s and lands in %s', (key, code, slug) => {
+    const file = JSON.parse(read(`source-footballdata-${key}.json`)) as typeof source & {
+      config: { fields: { competition: { fixed: string } } };
+    };
+    expect(file.id).toBe(`footballdata-${key}`);
+    expect(file.upstream).toBe('football-data.org');
+    expect(file.config.requests).toEqual([
+      { url: `https://api.football-data.org/v4/competitions/${code}/matches`, purpose: 'both' },
+    ]);
+    // Everything but the id, name, URL and competition is the Premier League file's config.
+    const {
+      requests: _r,
+      fields: f,
+      ...rest
+    } = file.config as Record<string, unknown> & {
+      fields: Record<string, unknown>;
+    };
+    const {
+      requests: _s,
+      fields: g,
+      ...base
+    } = source.config as Record<string, unknown> & {
+      fields: Record<string, unknown>;
+    };
+    expect(rest).toEqual(base);
+    expect({ ...f, competition: null }).toEqual({ ...g, competition: null });
+    expect(competitionAliases.get(file.config.fields.competition.fixed)).toBe(slug);
+    const r = createAdapter({
+      id: file.id,
+      adapter: file.adapter,
+      upstream: file.upstream,
+      config: file.config,
+    });
+    expect(r.ok).toBe(true);
+  });
+});
+
 describe('football-data.org sample', () => {
   const out = adapter().parse(doc(body));
   const fixture = (ref: string) => out.fixtures.find((f) => f.externalRef === ref);

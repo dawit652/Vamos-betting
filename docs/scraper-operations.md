@@ -270,6 +270,14 @@ A source with a licensed API (API-Football, `x-apisports-key`) names an environm
   In the back office, enable it and disable `openfootball-en1` (a disabled source's observations stop counting at
   once), then apply the `kickoff_change` items. The golden file of its test is synthetic in the v4 shape; replace it
   with a captured response. Check football-data.org's terms before any use beyond a private demo.
+- **Bundesliga, LaLiga, Serie A, Ligue 1 from the same token.** `source-footballdata-{de1,es1,it1,fr1}.json` are the
+  same config for the codes BL1, PD, SA and FL1. The catalogue holds every 2026-27 club of the five leagues;
+  `aliases-footballdata-top-leagues.csv` maps football-data.org's spellings that are not catalogue names (TSG 1899
+  Hoffenheim, FC Internazionale Milano, Real Betis Balompié…). `infra/scripts/add-top-leagues.sh` rebuilds the
+  migrate and scraper images, seeds the new clubs, imports the aliases and, per league, runs `dry-fetch`, adds the
+  source (disabled) and learns the clubs' ratings from this season's finished matches (`ratings backfill`, which
+  resolves names through global aliases too). The token reaches curl on stdin, never on a command line. A new
+  season's promoted clubs are a catalogue change (`packages/db/src/seed/catalog.ts`) plus, where needed, an alias.
 
 ## 8. Pricing from a licensed odds feed
 

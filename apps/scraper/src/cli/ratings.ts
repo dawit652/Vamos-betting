@@ -1,8 +1,8 @@
 import { MAX_TEAM_RATING, MIN_TEAM_RATING, replayRatings, type FootballResult } from '@vamos/feed';
 import { getTeamRatings, localizedNames, setTeamRatings, type Database } from '@vamos/db';
-import { competitions, teams } from '@vamos/db/schema';
+import { competitions, teamAliases, teams } from '@vamos/db/schema';
 import { normalizeName } from '@vamos/scraper';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   CliFailure,
@@ -99,7 +99,8 @@ const fmt = (s: Snapshot): string =>
  *    were applied since, a replay would throw them away), or
  *  - was last backfilled through a later date than the file reaches.
  * `--dry-run` computes and prints everything, including the refusals, and
- * writes nothing. Team names are catalogue short names (or any catalogue name).
+ * writes nothing. Team names are catalogue short names (or any catalogue name), or global
+ * team aliases (`aliases import` with an empty source).
  */
 export async function ratingsBackfill(args: string[], env: CliEnv): Promise<number> {
   const parsed = parseCommandArgs(args, {
@@ -158,6 +159,19 @@ export async function ratingsBackfill(args: string[], env: CliEnv): Promise<numb
         if (key === '') continue;
         (byName.get(key) ?? byName.set(key, new Set()).get(key)!).add(row.id);
       }
+    }
+    // Aliases that apply to every source (source_id null), as the scraper resolves names: a
+    // results file written with a source's own spelling ("FC Internazionale Milano") then
+    // learns the same team. A source-scoped alias is not used: the file names no source.
+    const aliasRows = await tx
+      .select({ aliasNorm: teamAliases.aliasNorm, teamId: teamAliases.teamId })
+      .from(teamAliases)
+      .where(and(eq(teamAliases.sportId, sportId), isNull(teamAliases.sourceId)));
+    for (const alias of aliasRows) {
+      if (alias.aliasNorm === '') continue;
+      (
+        byName.get(alias.aliasNorm) ?? byName.set(alias.aliasNorm, new Set()).get(alias.aliasNorm)!
+      ).add(alias.teamId);
     }
     const problems: string[] = [];
     const resolve = (name: string, where: string): string => {
