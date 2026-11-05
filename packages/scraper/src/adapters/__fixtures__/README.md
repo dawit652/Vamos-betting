@@ -9,3 +9,8 @@
 - `generic-json-league.json`, `generic-html-league.html`: made-up documents for the configurable adapters.
 - `openfootball-en1-2025-26-goalless.json`: two real records (Aston Villa v Newcastle, Chelsea v Crystal Palace, Matchday 1)
   of the 2025/26 English Premier League file, unchanged. The dataset writes a goalless draw as a bare pair `"score": [0, 0]`.
+- `footballdata-en1-sample.json`: a made-up document in the shape of football-data.org's v4
+  `GET /v4/competitions/PL/matches` response (`matches[*]` with `utcDate`, `status`, `homeTeam.name`,
+  `score.fullTime` / `score.halfTime`), for `docs/scraper-plan/data/source-footballdata-en1.json`. The fixtures
+  and kickoffs of 6-8 November 2026 are the real ones (official Premier League schedule); every other value is
+  invented. Replace it with a real response once one has been captured (`dry-fetch` on the server).

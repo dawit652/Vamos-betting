@@ -1,0 +1,49 @@
+{
+  "id": "footballdata-en1",
+  "name": "football-data.org: English Premier League (v4 matches)",
+  "adapter": "generic-json",
+  "upstream": "football-data.org",
+  "config": {
+    "allowedHosts": ["api.football-data.org"],
+    "requests": [
+      {
+        "url": "https://api.football-data.org/v4/competitions/PL/matches",
+        "purpose": "both"
+      }
+    ],
+    "auth": { "header": "X-Auth-Token", "secret": "SCRAPER_SECRET_FOOTBALL_DATA" },
+    "sport": "football",
+    "recordsPath": "matches",
+    "fields": {
+      "home": "homeTeam.name",
+      "away": "awayTeam.name",
+      "competition": { "fixed": "English Premier League" },
+      "kickoff": { "path": "utcDate", "format": "iso" },
+      "externalRef": "id",
+      "round": "matchday",
+      "status": {
+        "path": "status",
+        "map": {
+          "SCHEDULED": "scheduled",
+          "TIMED": "scheduled",
+          "IN_PLAY": "scheduled",
+          "PAUSED": "scheduled",
+          "EXTRA_TIME": "scheduled",
+          "PENALTY_SHOOTOUT": "scheduled",
+          "FINISHED": "finished",
+          "POSTPONED": "postponed",
+          "CANCELLED": "cancelled",
+          "SUSPENDED": "abandoned",
+          "AWARDED": "abandoned"
+        }
+      },
+      "score": {
+        "homePath": "score.fullTime.home",
+        "awayPath": "score.fullTime.away",
+        "htHomePath": "score.halfTime.home",
+        "htAwayPath": "score.halfTime.away"
+      }
+    },
+    "scoreBasis": "regular_time"
+  }
+}

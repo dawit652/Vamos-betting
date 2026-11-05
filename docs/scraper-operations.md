@@ -261,6 +261,15 @@ A source with a licensed API (API-Football, `x-apisports-key`) names an environm
 - **Where the value never goes.** Logs, run issues, review items, the audit trail, `scrape_sources`, the raw archive
   and the CLI output. A key that was pasted into a source file by mistake is refused by `sources upsert`; if one
   ever reached a ticket, chat or git, treat it as leaked and rotate it.
+- **football-data.org (Premier League kickoffs and results).** `docs/scraper-plan/data/source-footballdata-en1.json`
+  reads the v4 matches of the Premier League with the free plan's token (`X-Auth-Token`,
+  `SCRAPER_SECRET_FOOTBALL_DATA`). Its kickoffs carry the TV moves that the openfootball file leaves on the Saturday
+  15:00 placeholder (rule K1 then closes betting on a match that really starts earlier), and its scores arrive
+  minutes after the final whistle. On a compose deployment `infra/scripts/use-football-data.sh` asks for the token
+  (hidden), runs `dry-fetch` against the real API and only then restarts the scraper and adds the source, disabled.
+  In the back office, enable it and disable `openfootball-en1` (a disabled source's observations stop counting at
+  once), then apply the `kickoff_change` items. The golden file of its test is synthetic in the v4 shape; replace it
+  with a captured response. Check football-data.org's terms before any use beyond a private demo.
 
 ## 8. Pricing from a licensed odds feed
 
