@@ -24,6 +24,7 @@ SOURCE=/in/source-footballdata-en1.json
   exit 1
 }
 
+entered=false
 if ! grep -q "^${VAR}=." "$ENV_FILE"; then
   [[ -t 0 ]] || {
     echo "no $VAR in $ENV_FILE and no terminal to ask for it (run with ssh -t)" >&2
@@ -37,10 +38,16 @@ if ! grep -q "^${VAR}=." "$ENV_FILE"; then
     echo "that does not look like a football-data.org token (letters and digits only)" >&2
     exit 1
   }
+  # The input is hidden, so say how much arrived: a token copied short is the usual mistake.
+  echo "Read ${#token} characters."
+  if ((${#token} != 32)); then
+    echo "Note: football-data.org tokens are normally 32 characters; check you copied all of it."
+  fi
   sed -i "/^#\? \?${VAR}=/d" "$ENV_FILE"
   printf '%s=%s\n' "$VAR" "$token" >>"$ENV_FILE"
   chmod 600 "$ENV_FILE"
   unset token
+  entered=true
   echo "Stored $VAR in $ENV_FILE."
 fi
 
@@ -52,8 +59,15 @@ cli() {
 echo "==> Reading the real API once (nothing is written)"
 if ! cli dry-fetch --source-file "$SOURCE" --limit 12; then
   echo >&2
-  echo "dry-fetch failed: nothing was changed. The lines above say why (key, robots.txt or" >&2
-  echo "response). A wrong key: delete the $VAR line from $ENV_FILE and run this again." >&2
+  echo "dry-fetch failed: nothing was changed. The lines above say why; football-data.org" >&2
+  echo "answers HTTP 400 to a token it does not accept, and HTTP 403 to one without access." >&2
+  if $entered; then
+    # Do not keep a token the API refused: the next run asks again.
+    sed -i "/^${VAR}=/d" "$ENV_FILE"
+    echo "The token you entered was not kept: run this again and paste the whole token." >&2
+  else
+    echo "To enter another token: sed -i '/^${VAR}=/d' $ENV_FILE, then run this again." >&2
+  fi
   exit 1
 fi
 
