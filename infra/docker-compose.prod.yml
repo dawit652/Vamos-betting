@@ -275,6 +275,7 @@ services:
       # SCRAPER_SECRET_<NAME>; unset (empty) makes a source that needs it fail without a request.
       SCRAPER_SECRET_API_FOOTBALL: '${SCRAPER_SECRET_API_FOOTBALL:-}'
       SCRAPER_SECRET_FOOTBALL_DATA: '${SCRAPER_SECRET_FOOTBALL_DATA:-}'
+      SCRAPER_SECRET_THEODDSAPI: '${SCRAPER_SECRET_THEODDSAPI:-}'
     volumes:
       - scraper_archive:/var/lib/vamos/scraper
     # /health and /ready are not published (nothing outside the stack needs them): scripts/smoke.sh
