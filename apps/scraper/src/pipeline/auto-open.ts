@@ -16,6 +16,7 @@ import {
   checkMarkets,
   isCalibrated,
   MIN_LEAD_MS,
+  REPRICE_SUBJECT_SUFFIX,
   type GateMarket,
   type KickoffAssessment,
 } from '@vamos/scraper';
@@ -64,12 +65,13 @@ const CHUNK = 200;
  * - no person decided on its betting: the latest betting change in the audit is none, or K1's
  *   automatic closure (a trader's close, or a dismissed item, keeps it closed);
  * - no open F4 `kickoff_change` item for it (sources disagree about the kickoff);
+ * - no re-price of it held for a person (`<feedRef>|reprice`, O3): its stored prices are not the
+ *   current ones;
  * - its kickoff is confirmed (K2: C1, C2 or C3), so K1's earlier report, if any, is gone;
  * - O1 (both teams calibrated) and O2 (the open and suspended markets pass the price checks).
  *
- * Under the locks of the waiting items and the event row, everything is read again. The writes:
- * (`setEventBettingOpen` locks the row again within the same transaction.)
- * `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened` and the waiting items
+ * Under the event row lock, then the locks of its review items, everything is read again. The
+ * writes: `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened` and the waiting items
  * resolved by the scraper; the live delta is published after the COMMIT. Nothing else changes:
  * no market, price, start time, status or bet. Idempotent: it acts only on closed betting.
  */
@@ -188,9 +190,10 @@ async function waitingEvents(
 }
 
 /**
- * F7b for one event, in one transaction: the waiting items are locked first, then the event row (the
- * order of the review actions), and every condition is read again. Returns the live deltas, or null
- * when a condition no longer holds.
+ * F7b for one event, in one transaction: the event row is locked first, then its review items (the
+ * order of K1, the re-price step and the review actions, which all lock the event before they write
+ * an item; the reverse order could deadlock with a trader's `open_betting`), and every condition is
+ * read again. Returns the live deltas, or null when a condition no longer holds.
  */
 async function openOne(
   ctx: ScraperContext,
@@ -198,37 +201,6 @@ async function openOne(
   now: Date,
 ): Promise<LiveMessage[] | null> {
   return ctx.db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({ feedRef: eventsTable.feedRef })
-      .from(eventsTable)
-      .where(eq(eventsTable.id, eventId));
-    const feedRef = row?.feedRef ?? null;
-    if (feedRef === null) return null;
-    const earlierSubject = `${feedRef}${EARLIER_SUBJECT_SUFFIX}`;
-
-    const items = await tx
-      .select({ kind: scrapeReviewItems.kind, subjectKey: scrapeReviewItems.subjectKey })
-      .from(scrapeReviewItems)
-      .where(
-        and(
-          eq(scrapeReviewItems.status, 'open'),
-          inArray(scrapeReviewItems.subjectKey, [feedRef, earlierSubject]),
-          inArray(scrapeReviewItems.kind, ['odds_approval', 'kickoff_change']),
-        ),
-      )
-      .orderBy(asc(scrapeReviewItems.id))
-      .for('update');
-    const waitsForPerson = items.some(
-      (item) =>
-        (item.kind === 'odds_approval' && item.subjectKey === feedRef) ||
-        (item.kind === 'kickoff_change' && item.subjectKey === earlierSubject),
-    );
-    // An open F4 item: the sources disagree about the kickoff, a person decides.
-    const kickoffQuestion = items.some(
-      (item) => item.kind === 'kickoff_change' && item.subjectKey === feedRef,
-    );
-    if (!waitsForPerson || kickoffQuestion) return null;
-
     const [event] = await tx
       .select({
         feedProvider: eventsTable.feedProvider,
@@ -247,7 +219,7 @@ async function openOne(
     if (
       event === undefined ||
       event.feedProvider !== SCRAPED_FEED_PROVIDER ||
-      event.feedRef !== feedRef ||
+      event.feedRef === null ||
       event.status !== 'scheduled' ||
       event.bettingOpen ||
       event.resultedAt !== null ||
@@ -255,6 +227,36 @@ async function openOne(
     ) {
       return null;
     }
+    const feedRef = event.feedRef;
+    const earlierSubject = `${feedRef}${EARLIER_SUBJECT_SUFFIX}`;
+    const repriceSubject = `${feedRef}${REPRICE_SUBJECT_SUFFIX}`;
+
+    const items = await tx
+      .select({ kind: scrapeReviewItems.kind, subjectKey: scrapeReviewItems.subjectKey })
+      .from(scrapeReviewItems)
+      .where(
+        and(
+          eq(scrapeReviewItems.status, 'open'),
+          inArray(scrapeReviewItems.subjectKey, [feedRef, earlierSubject, repriceSubject]),
+          inArray(scrapeReviewItems.kind, ['odds_approval', 'kickoff_change']),
+        ),
+      )
+      .orderBy(asc(scrapeReviewItems.id))
+      .for('update');
+    const waitsForPerson = items.some(
+      (item) =>
+        (item.kind === 'odds_approval' && item.subjectKey === feedRef) ||
+        (item.kind === 'kickoff_change' && item.subjectKey === earlierSubject),
+    );
+    // An open F4 item: the sources disagree about the kickoff, a person decides.
+    const kickoffQuestion = items.some(
+      (item) => item.kind === 'kickoff_change' && item.subjectKey === feedRef,
+    );
+    // An O3 hold: a re-price waits for a person, so the stored prices are not the current ones.
+    const repriceHeld = items.some(
+      (item) => item.kind === 'odds_approval' && item.subjectKey === repriceSubject,
+    );
+    if (!waitsForPerson || kickoffQuestion || repriceHeld) return null;
     if (!(await autoOpenCompetitions(tx)).has(event.competitionId)) return null;
 
     // No person decided on its betting: the latest change is none, or K1's automatic closure.

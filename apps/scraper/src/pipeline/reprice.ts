@@ -108,8 +108,9 @@ const skipped = (): Outcome => ({ kind: 'skipped', messages: [] });
  *
  * Betting stays as it is: a closed event is re-priced and stays closed. This
  * step never opens betting, not even for a competition with `auto_open` on:
- * `auto_open` is read only when an event is created (F7); an event that was
- * created uncalibrated is opened by a person from the feed screen. Bets
+ * F7 opens at creation, and later F7b (the last step of the promotion pass,
+ * `auto-open.ts`) once the kickoff is confirmed; a held proposal keeps F7b
+ * from opening until a person applies or dismisses it. Bets
  * already placed keep their odds (a leg stores the odds it was accepted at).
  * Idempotent: a stamped event is not looked at again until its ratings change,
  * and a held proposal is not raised again for the same ratings.
@@ -551,7 +552,8 @@ async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date):
           kickoff: row.startTime.toISOString(),
           calibrated: true,
           pricesSane,
-          // auto_open is read at creation only; this event waits for a person.
+          // F7 did not open it at creation; this event waits for a person, or for F7b once
+          // its kickoff is confirmed in a competition with auto_open.
           autoOpen: false,
         }),
       );

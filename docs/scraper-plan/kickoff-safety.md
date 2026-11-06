@@ -5,6 +5,11 @@ Scope: the rules K1 to K6 below, the code and tests that enforce them, the opera
 changes results, statuses, prices or bets. Constants live in `packages/scraper/src/constants.ts` like every
 other scraper threshold; rule ids are cited in test names.
 
+> 2026-11: open question 3 and decision 3 below ("`auto_open` stays creation-only") were reversed. Events
+> created from one source stayed closed until a trader opened them, so rule F7b (`docs/scraper.md` 6.1) now opens
+> betting once the kickoff is confirmed, where the competition has `auto_open` and nobody decided on its betting.
+> K3 in `docs/scraper.md` is the current rule.
+
 ## 1. Problem and evidence
 
 ### 1.1 Mechanism

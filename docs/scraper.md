@@ -242,7 +242,8 @@ Every rule has an id; tests cite the id in their names. Constants are in
   trader opens betting. When the teams of an
   event created uncalibrated become calibrated and its prices follow their
   ratings, the re-price step (O3) resolves `ratings_uncalibrated` itself
-  (`{"decision":"calibrated"}`) and opens `odds_approval`; it never opens betting.
+  (`{"decision":"calibrated"}`) and opens `odds_approval`; the re-price step itself never opens
+  betting (F7b may, once the kickoff is confirmed).
 - **F7b Automatic opening later.** An event created 14 days ahead from one source cannot have a
   confirmed kickoff at creation (K2: C1 needs two independent fresh upstreams, C2 the last
   `KICKOFF_CONFIRM_LEAD_MS`), so F7 is applied again on every promotion pass (last step). Betting
@@ -252,12 +253,14 @@ Every rule has an id; tests cite the id in their names. Constants are in
   person decided on its betting (the latest of the audits `catalog.event.betting_opened`,
   `catalog.event.betting_closed`, `scrape.fixture.betting_closed` and
   `scrape.fixture.betting_opened` is none, or K1's automatic closure); no F4 `kickoff_change` is
-  open for it; its kickoff is confirmed (K2), so an earlier report K1 acted on is gone; and O1 and
-  O2 pass. Under the locks of the waiting items and the event row everything is read again; the
+  open for it; no re-price of it is held for a person (`<feedRef>|reprice`, O3: its stored prices
+  are not the current ones); its kickoff is confirmed (K2), so an earlier report K1 acted on is
+  gone; and O1 and O2 pass. Under the event row lock, then the locks of its review items (the order
+  of K1, the re-price step and the review actions), everything is read again; the
   writes are `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened`
   (`rule: 'F7b'`, the basis, the evidence key, `afterK1`) and the waiting items resolved by the
-  scraper; the live delta is published after the COMMIT. A trader's close, a dismissed item or
-  `auto_open` off keeps the event closed.
+  scraper; the live delta is published after the COMMIT. A trader's close, a dismissed item, a
+  held re-price or `auto_open` off keeps the event closed.
 
 ### 6.1a Kickoff safety (K1 to K6)
 
