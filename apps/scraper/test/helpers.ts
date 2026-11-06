@@ -25,7 +25,7 @@ export const SETUP_TIMEOUT = 120_000;
 export const TEST_TIMEOUT = 60_000;
 export const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
-/** "Now" of most tests: kickoff is 3 days and 3 hours ahead. */
+/** "Now" of most tests: kickoff is 4 days and 3 hours (99 hours) ahead. */
 export const T0 = new Date('2026-10-29T12:00:00Z');
 export const KICKOFF = new Date('2026-11-02T15:00:00Z');
 export const MINUTE = 60_000;
