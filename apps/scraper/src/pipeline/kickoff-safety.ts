@@ -41,14 +41,14 @@ const CHUNK = 200;
 /** Subject of the K1 item: separate from the F4 item (`<feedRef>`), which the gate rewrites every pass. */
 export const EARLIER_SUBJECT_SUFFIX = '|earlier';
 
-const loaderOptions = (now: Date) => ({
+export const loaderOptions = (now: Date) => ({
   now,
   minMatchDurationMs: MIN_MATCH_DURATION_MS,
   staleAfterMs: SOURCE_STALE_AFTER_MS,
   evidenceWindowMs: KICKOFF_EVIDENCE_WINDOW_MS,
 });
 
-const asStatements = (evidence: KickoffEvidence): KickoffStatement[] =>
+export const asStatements = (evidence: KickoffEvidence): KickoffStatement[] =>
   evidence.statements.map((s) => ({ ...s }));
 
 /** The event as `earlierKickoffAction` reads it. */

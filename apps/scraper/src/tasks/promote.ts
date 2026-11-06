@@ -1,6 +1,7 @@
 import type { ScraperContext } from '../context';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import { tryLock } from '../lib/lock';
+import { openConfirmedEvents } from '../pipeline/auto-open';
 import { closeBettingOnEarlierKickoff } from '../pipeline/kickoff-safety';
 import { promoteFixtures } from '../pipeline/promote-fixtures';
 import {
@@ -18,7 +19,8 @@ const PROMOTE_LOCK_TTL_MS = 5 * 60_000;
 /**
  * One promotion pass: re-resolve names, close betting on earlier kickoffs (K1), promote fixtures, apply what staff
  * confirmed, promote results, raise the matches no source has a result for,
- * then re-price the events whose teams' ratings moved. Each step is independent: one failing does not stop the others.
+ * then re-price the events whose teams' ratings moved, and open betting where auto_open allows it once the
+ * kickoff is confirmed (F7b). Each step is independent: one failing does not stop the others.
  * Under a Redis lock so two instances do not both promote.
  */
 export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
@@ -41,6 +43,8 @@ export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
       ['stale sources', () => flagStaleSources(ctx)],
       // After results: they move the ratings the prices depend on (rule O3).
       ['reprice', () => repriceScheduledEvents(ctx)],
+      // Last: with the kickoff confirmed and the prices current, open what auto_open allows (F7b).
+      ['auto open', () => openConfirmedEvents(ctx)],
     ];
     for (const [name, step] of steps) {
       try {

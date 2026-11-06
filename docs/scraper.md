@@ -239,10 +239,25 @@ Every rule has an id; tests cite the id in their names. Constants are in
   (K2). Otherwise it opens
   `odds_approval` (teams calibrated; reason `kickoff_unconfirmed` when only the
   kickoff stopped an `auto_open` event) or `ratings_uncalibrated` (not), and a
-  trader opens betting. `auto_open` is read only at creation: when the teams of an
+  trader opens betting. When the teams of an
   event created uncalibrated become calibrated and its prices follow their
   ratings, the re-price step (O3) resolves `ratings_uncalibrated` itself
   (`{"decision":"calibrated"}`) and opens `odds_approval`; it never opens betting.
+- **F7b Automatic opening later.** An event created 14 days ahead from one source cannot have a
+  confirmed kickoff at creation (K2: C1 needs two independent fresh upstreams, C2 the last
+  `KICKOFF_CONFIRM_LEAD_MS`), so F7 is applied again on every promotion pass (last step). Betting
+  opens on a scraped, `scheduled`, unresulted event with betting closed that starts after
+  `now + MIN_LEAD_MS` when, at that moment: its competition policy is enabled with `auto_open`; it
+  waits for a person (its `odds_approval` item, or K1's `<feedRef>|earlier` item, is open); no
+  person decided on its betting (the latest of the audits `catalog.event.betting_opened`,
+  `catalog.event.betting_closed`, `scrape.fixture.betting_closed` and
+  `scrape.fixture.betting_opened` is none, or K1's automatic closure); no F4 `kickoff_change` is
+  open for it; its kickoff is confirmed (K2), so an earlier report K1 acted on is gone; and O1 and
+  O2 pass. Under the locks of the waiting items and the event row everything is read again; the
+  writes are `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened`
+  (`rule: 'F7b'`, the basis, the evidence key, `afterK1`) and the waiting items resolved by the
+  scraper; the live delta is published after the COMMIT. A trader's close, a dismissed item or
+  `auto_open` off keeps the event closed.
 
 ### 6.1a Kickoff safety (K1 to K6)
 
@@ -308,9 +323,11 @@ Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_M
   by sending the key they were shown, C3). Closing betting is never checked; events of other feeds are not
   affected. Reasons: `no_statement`, `earlier_kickoff_reported`, `sources_disagree`, `void_status_reported`,
   `result_reported`, `source_not_fresh`, `too_early_for_single_source`, `not_stable`.
-- **K3 Confirmation never opens betting.** Confirmation is computed when someone tries to open (and by F7 at
-  creation) and is not stored. When a kickoff becomes confirmed later nothing happens by itself: a trader
-  opens the event. `auto_open` stays creation-only. A confirmation does not survive a kickoff move.
+- **K3 Confirmation opens betting only through F7.** Confirmation is computed when someone tries to open, by
+  F7 at creation and by F7b on every pass, and is not stored. When a kickoff becomes confirmed later, F7b
+  opens an event that waits for a person only while its competition has `auto_open` and nobody decided on
+  its betting (2026-11: `auto_open` was creation-only, so every event created from one source stayed
+  closed until a trader opened it). A confirmation does not survive a kickoff move.
 - **K4 Later kickoffs.** F4 is kept with one tightening: F4b (one source, later, at most `SMALL_SHIFT_MS`, no
   bets) also needs betting **closed**; with betting open it is a `kickoff_change` with reason `betting_open`
   (warning). F4a (independent upstreams agree) still applies with betting open.

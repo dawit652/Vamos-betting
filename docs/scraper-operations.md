@@ -281,7 +281,9 @@ A source with a licensed API (API-Football, `x-apisports-key`) names an environm
 - **The Odds API as the second upstream (fixtures, results, prices).** The 20K plan is paid. The five
   `source-theoddsapi-<league>.json` read prices and, with `"fixtures": true`, report every upcoming match at the
   bookmakers' `commence_time`: with football-data.org that is two independent upstreams, so a kickoff both agree on
-  moves without a person (F4a) and K2 confirms kickoffs for auto open. The five `source-theoddsapi-scores-<league>.json`
+  moves without a person (F4a). It lists no finished match, so it is never a fresh source for K2: a kickoff is
+  confirmed by football-data.org alone from 72 hours before the start (C2), and F7b then opens betting by itself in
+  a competition with **auto open** on. The five `source-theoddsapi-scores-<league>.json`
   (`mode: "scores"`, `/scores?daysFrom=1`, 2 credits a read) report final scores: with football-data.org a result
   both agree on settles by itself in a competition with **auto results** on (R2; the half time, needed only by
   `ht_1x2`, comes from football-data.org). A scores source is read only from kickoff + 110 minutes to kickoff + 4 h
