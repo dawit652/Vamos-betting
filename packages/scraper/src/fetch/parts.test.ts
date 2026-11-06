@@ -1,12 +1,19 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { HOUR_MS, MINUTE_MS } from '../constants';
+import {
+  HOUR_MS,
+  METERED_RESULTS_INTERVALS_MS,
+  METERED_RESULTS_WINDOW_END_MS,
+  METERED_RESULTS_WINDOW_START_MS,
+  MINUTE_MS,
+} from '../constants';
 import { backoffCeilingMs, backoffDelayMs, parseRetryAfter } from './backoff';
 import { detectBlockPage } from './blockpage';
 import {
   backoffAfterFailures,
   fixturesPollIntervalMs,
   isDue,
+  meteredResultsPollIntervalMs,
   resultsPollIntervalMs,
 } from './cadence';
 import { CircuitBreaker } from './circuit-breaker';
@@ -369,6 +376,69 @@ describe('cadence', () => {
           expect(backoffAfterFailures(f + 1, normal)).toBeGreaterThanOrEqual(a);
           expect(a).toBeGreaterThanOrEqual(normal);
           expect(a).toBeLessThanOrEqual(Math.max(normal, 6 * HOUR_MS));
+        },
+      ),
+    );
+  });
+});
+
+describe('meteredResultsPollIntervalMs', () => {
+  const kickoff = new Date(START);
+  const after = (ms: number) => new Date(START + ms);
+  const START_MS = METERED_RESULTS_WINDOW_START_MS;
+  const END_MS = METERED_RESULTS_WINDOW_END_MS;
+
+  it('is null one ms before the window start, the interval exactly at start and at end', () => {
+    expect(meteredResultsPollIntervalMs(after(START_MS - 1), [kickoff], 'normal')).toBeNull();
+    expect(meteredResultsPollIntervalMs(after(START_MS), [kickoff], 'normal')).toBe(20 * MINUTE_MS);
+    expect(meteredResultsPollIntervalMs(after(END_MS), [kickoff], 'normal')).toBe(20 * MINUTE_MS);
+    expect(meteredResultsPollIntervalMs(after(END_MS + 1), [kickoff], 'normal')).toBeNull();
+  });
+
+  it('uses the interval of each mode, and never reads in stop', () => {
+    const now = after(2 * HOUR_MS);
+    expect(meteredResultsPollIntervalMs(now, [kickoff], 'normal')).toBe(20 * MINUTE_MS);
+    expect(meteredResultsPollIntervalMs(now, [kickoff], 'economy')).toBe(30 * MINUTE_MS);
+    expect(meteredResultsPollIntervalMs(now, [kickoff], 'minimal')).toBe(60 * MINUTE_MS);
+    expect(meteredResultsPollIntervalMs(now, [kickoff], 'stop')).toBeNull();
+    expect(meteredResultsPollIntervalMs(after(START_MS), [kickoff], 'stop')).toBeNull();
+  });
+
+  it('reads when any one of several kickoffs is in the window', () => {
+    const now = after(2 * HOUR_MS);
+    const future = new Date(START + 10 * HOUR_MS);
+    const old = new Date(START - 10 * HOUR_MS);
+    expect(meteredResultsPollIntervalMs(now, [future, old, kickoff], 'normal')).toBe(
+      20 * MINUTE_MS,
+    );
+    expect(meteredResultsPollIntervalMs(now, [future, old], 'normal')).toBeNull();
+  });
+
+  it('is null for an invalid now and for no kickoffs', () => {
+    expect(meteredResultsPollIntervalMs(new Date('x'), [kickoff], 'normal')).toBeNull();
+    expect(meteredResultsPollIntervalMs(after(2 * HOUR_MS), [], 'normal')).toBeNull();
+  });
+
+  it('property: null or a known interval, and null whenever no kickoff is in the window', () => {
+    const intervals: number[] = Object.values(METERED_RESULTS_INTERVALS_MS);
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 12 * HOUR_MS }),
+        fc.array(fc.integer({ min: -12 * HOUR_MS, max: 12 * HOUR_MS }), { maxLength: 6 }),
+        fc.constantFrom('normal', 'economy', 'minimal', 'stop'),
+        (nowOffset, kickoffOffsets, mode) => {
+          const now = after(nowOffset);
+          const result = meteredResultsPollIntervalMs(
+            now,
+            kickoffOffsets.map((o) => after(o)),
+            mode,
+          );
+          const inWindow = kickoffOffsets.some(
+            (o) => nowOffset - o >= START_MS && nowOffset - o <= END_MS,
+          );
+          if (result !== null) expect(intervals).toContain(result);
+          if (!inWindow || mode === 'stop') expect(result).toBeNull();
+          else expect(result).toBe(METERED_RESULTS_INTERVALS_MS[mode]);
         },
       ),
     );

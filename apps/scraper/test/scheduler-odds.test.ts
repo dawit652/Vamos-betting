@@ -335,3 +335,121 @@ describe('alarms (4.8)', () => {
     TEST_TIMEOUT,
   );
 });
+
+describe('metered result source (scores) schedule', () => {
+  const SCORES_CONFIG = {
+    allowedHosts: ['api.the-odds-api.com'],
+    secret: SECRET,
+    sport: 'football',
+    sportKey: 'soccer_epl',
+    competition: 'Premier League',
+    mode: 'scores',
+    scoreBasis: 'regular_time',
+  };
+  const SCORES_URL = theOddsApiUrl(TheOddsApiConfigSchema.parse(SCORES_CONFIG));
+  const scoreRuns = () =>
+    h.count(`SELECT count(*) AS n FROM scrape_runs WHERE source_id = 'src-scores'`);
+
+  async function scoresHarness(): Promise<void> {
+    h = await createHarness({ secrets: { [SECRET]: 'odds-test-key' } });
+    await h.ctx.db.transaction(async (tx) => {
+      await setSourceEnabled(tx, 'src-a', false, actor);
+      await setSourceEnabled(tx, 'src-b', false, actor);
+      await upsertSource(
+        tx,
+        {
+          id: 'src-scores',
+          name: 'scores',
+          adapter: 'theoddsapi',
+          upstream: 'TheOddsAPI',
+          config: SCORES_CONFIG,
+        },
+        actor,
+      );
+      await setSourceEnabled(tx, 'src-scores', true, actor);
+    });
+    await h.pool.query(`UPDATE scrape_sources SET updated_at = $1 WHERE id = 'src-scores'`, [
+      new Date(h.now().getTime() - 24 * HOUR),
+    ]);
+    h.serve(SCORES_URL, { status: 200, body: '[]' });
+  }
+
+  /** An unresulted scraped event of `competitionId` that kicked off `agoMs` ago. */
+  const addEvent = (competitionId: string, agoMs: number, gameId: number) =>
+    h.pool.query(
+      `INSERT INTO events (game_id, sport_id, competition_id, home_team_id, away_team_id, start_time,
+                           status, feed_provider, feed_ref)
+       VALUES ($1, 'football', $2, $3, $4, $5, 'live', 'scraped', $6)`,
+      [
+        gameId,
+        competitionId,
+        h.team('Arsenal'),
+        h.team('Chelsea'),
+        new Date(h.now().getTime() - agoMs),
+        `scores-test-${gameId}`,
+      ],
+    );
+
+  it(
+    'is not run when its league has no unresulted match in the window',
+    async () => {
+      await scoresHarness();
+      expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 0, ran: 0 });
+      // A match that only just kicked off is not in the window yet either.
+      await addEvent(h.premier, HOUR, 800001);
+      expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 0, ran: 0 });
+      expect(await scoreRuns()).toBe(0);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'is run when a match of its own league kicked off 2 hours ago and is not resulted',
+    async () => {
+      await scoresHarness();
+      await addEvent(h.premier, 2 * HOUR, 800002);
+      expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 1, ran: 1 });
+      expect(await scoreRuns()).toBe(1);
+      // Normal mode reads every 20 minutes.
+      h.advance(19 * MINUTE);
+      expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 0 });
+      h.advance(MINUTE);
+      expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 1, ran: 1 });
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'is not run when only a match of another competition is in the window',
+    async () => {
+      await scoresHarness();
+      const other = h.ids.competitions.get('football/ethiopian-premier-league');
+      expect(other).toBeDefined();
+      expect(other).not.toBe(h.premier);
+      await addEvent(other!, 2 * HOUR, 800003);
+      expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 0, ran: 0 });
+      expect(await scoreRuns()).toBe(0);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'is not run when the credit guard of its key is in stop',
+    async () => {
+      await scoresHarness();
+      await addEvent(h.premier, 2 * HOUR, 800004);
+      await h.ctx.db.transaction(async (tx) => {
+        const startedAt = new Date(h.now().getTime() - 7 * HOUR);
+        const run = await startRun(tx, { sourceId: 'src-scores', startedAt });
+        await finishRun(tx, run.id, {
+          status: 'ok',
+          finishedAt: new Date(startedAt.getTime() + 1000),
+          issues: [],
+          apiCredits: { spent: 2, used: 496, remaining: 4 }, // under 1% left
+        });
+      });
+      expect(await runDueSources(h.ctx, options)).toMatchObject({ due: 0, ran: 0 });
+    },
+    TEST_TIMEOUT,
+  );
+});

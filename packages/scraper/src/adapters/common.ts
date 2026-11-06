@@ -188,6 +188,33 @@ export class ParseCollector {
   }
 
   /**
+   * Like `accept` for a metered market feed's own fixtures and results (The Odds API): the same
+   * validation, all or nothing, but the record is neither counted nor closed. Such a page keeps
+   * `recordsAccepted` at 0, as its prices do, so the S1 shape check does not watch it (a quiet
+   * week between rounds is not a broken page); its fatal checks and alarms do.
+   */
+  acceptCompanion(drafts: ObservationDraft[], context: Record<string, unknown>): boolean {
+    if (!this.recordOpen) return false;
+    const fixtures: FixtureObservation[] = [];
+    const results: ResultObservation[] = [];
+    for (const draft of drafts) {
+      const full = { ...draft, sourceId: this.sourceId, observedAt: this.observedAt };
+      if (draft.kind === 'fixture') {
+        const parsed = FixtureObservationSchema.safeParse(full);
+        if (!parsed.success) return this.rejectCompanion(parsed.error, context);
+        fixtures.push(parsed.data);
+      } else {
+        const parsed = ResultObservationSchema.safeParse(full);
+        if (!parsed.success) return this.rejectCompanion(parsed.error, context);
+        results.push(parsed.data);
+      }
+    }
+    this.fixtures.push(...fixtures);
+    this.results.push(...results);
+    return true;
+  }
+
+  /**
    * Validates the price rows of the open record (all of them: a book is kept whole or not at all)
    * with the schema of types.ts. A row that is invalid drops the whole batch with a precise issue;
    * returns whether they were accepted. Does not count as a record: `accept` does that.
@@ -212,6 +239,16 @@ export class ParseCollector {
     }
     this.marketOdds.push(...rows);
     return true;
+  }
+
+  /** A companion draft that fails its schema: reported, the record stays open for its prices. */
+  private rejectCompanion(error: z.ZodError, context: Record<string, unknown>): false {
+    const detail = error.issues
+      .slice(0, 3)
+      .map((i) => `${i.path.join('.') || 'record'}: ${i.message}`)
+      .join('; ');
+    this.issue('error', 'invalid_record', `observation dropped: ${detail}`, context);
+    return false;
   }
 
   private reject(error: z.ZodError, context: Record<string, unknown>): false {

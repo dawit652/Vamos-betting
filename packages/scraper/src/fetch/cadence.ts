@@ -1,5 +1,8 @@
 import {
   HOUR_MS,
+  METERED_RESULTS_INTERVALS_MS,
+  METERED_RESULTS_WINDOW_END_MS,
+  METERED_RESULTS_WINDOW_START_MS,
   MARKET_ODDS_INTERVALS_MS,
   MARKET_ODDS_MINIMAL_INTERVAL_MS,
   MARKET_ODDS_TIER_LIMITS_MS,
@@ -95,4 +98,25 @@ export function marketOddsPollIntervalMs(
   if (tier === -1) tier = MARKET_ODDS_TIER_LIMITS_MS.length;
   if (mode === 'minimal') return tier === 0 ? MARKET_ODDS_MINIMAL_INTERVAL_MS : null;
   return MARKET_ODDS_INTERVALS_MS[mode][tier] ?? null;
+}
+
+/**
+ * How often a metered result source (The Odds API's scores) is read, or null when it is not read
+ * at all: only while one of its league's unresulted matches (`kickoffs`) is between kickoff +
+ * METERED_RESULTS_WINDOW_START_MS and kickoff + METERED_RESULTS_WINDOW_END_MS, so no credit goes
+ * on a league with nothing to settle. The credit guard slows it down and stops it.
+ */
+export function meteredResultsPollIntervalMs(
+  now: Date,
+  kickoffs: readonly Date[],
+  mode: CreditGuardMode,
+): number | null {
+  if (mode === 'stop') return null;
+  const t = now.getTime();
+  if (Number.isNaN(t)) return null;
+  const hot = kickoffs.some((k) => {
+    const elapsed = t - k.getTime();
+    return elapsed >= METERED_RESULTS_WINDOW_START_MS && elapsed <= METERED_RESULTS_WINDOW_END_MS;
+  });
+  return hot ? METERED_RESULTS_INTERVALS_MS[mode] : null;
 }

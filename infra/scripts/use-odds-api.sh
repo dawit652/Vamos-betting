@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# Adds The Odds API (docs/theoddsapi-plan/README.md) as the bookmaker-price source of the five
-# top leagues on a compose deployment that already has their fixtures from football-data.org:
+# Sets up The Odds API (docs/theoddsapi-plan/README.md) for the five top leagues on a compose
+# deployment that already has their fixtures from football-data.org. Safe to run again: it
+# updates what exists and keeps every source's enabled flag.
 #
 #   infra/scripts/use-odds-api.sh
 #
 # 1. Asks for the API key (hidden) unless infra/.env.prod has SCRAPER_SECRET_THEODDSAPI, and
 #    stores it there (mode 600, never printed).
-# 2. Per league: dry-fetch of the real API once (2 credits each; nothing is written). A league
-#    that fails is skipped. A key the API refuses is removed again when it was typed in this run.
-# 3. Restarts the scraper with the key and adds the five sources, DISABLED.
-# The leagues stay priced by the team-rating model: enable the sources for the shadow run first
-# (the plan's P5), and switch a league to market pricing only after it (section 6).
+# 2. Rebuilds the migrate (api) and scraper images and restarts the stack.
+# 3. Imports The Odds API's club spellings (aliases-theoddsapi.csv).
+# 4. Per league, after one dry-fetch each (2 credits each; nothing is written):
+#    - theoddsapi-<league>: bookmaker prices, and the matches as fixtures (a second kickoff
+#      upstream: a kickoff both sources agree on moves without a person, rule F4a);
+#    - theoddsapi-scores-<league>: final scores (a second result upstream: rule R2), read only
+#      after the league's own matches.
+#    New sources start DISABLED; a league whose dry-fetch fails is skipped.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.prod
@@ -54,16 +58,26 @@ cli() {
     node dist/cli.js "$@" </dev/null
 }
 
+echo "==> Building the api and the scraper (a few minutes)"
+docker compose build migrate scraper
+docker compose up -d --wait
+
+echo "==> The Odds API's club spellings"
+cli aliases import --file /in/aliases-theoddsapi.csv
+
 ok=()
 failed=()
-for key in "${LEAGUES[@]}"; do
-  echo
-  echo "==> theoddsapi-$key: reading the real API once (nothing is written)"
-  if cli dry-fetch --source-file "/in/source-theoddsapi-$key.json" --limit 4; then
-    ok+=("$key")
-  else
-    failed+=("$key")
-  fi
+for league in "${LEAGUES[@]}"; do
+  for source in "theoddsapi-$league" "theoddsapi-scores-$league"; do
+    echo
+    echo "==> $source: reading the real API once (nothing is written)"
+    if cli dry-fetch --source-file "/in/source-$source.json" --limit 3; then
+      cli sources upsert --file "/in/source-$source.json"
+      ok+=("$source")
+    else
+      failed+=("$source")
+    fi
+  done
 done
 
 if ((${#ok[@]} == 0)); then
@@ -78,24 +92,19 @@ if ((${#ok[@]} == 0)); then
 fi
 
 echo
-echo "==> Restarting the scraper with the key"
-docker compose up -d --wait scraper
-
-for key in "${ok[@]}"; do
-  cli sources upsert --file "/in/source-theoddsapi-$key.json"
-done
-
-echo
-echo "Added (disabled): ${ok[*]/#/theoddsapi-}"
+echo "Added or updated: ${ok[*]}"
 if ((${#failed[@]} > 0)); then
-  echo "Skipped, see above: ${failed[*]/#/theoddsapi-}"
+  echo "Skipped, see above: ${failed[*]}"
 fi
 cat <<'EOF'
 
-Shadow run (two weeks), in the back office:
- 1. Feed: Enable the theoddsapi-* sources. Leave every competition's pricing on "model".
- 2. Feed -> Review, kind "unknown team": map each club spelling to the catalogue club (once).
- 3. Watch the Feed page: the credit use and any alarm. The odds feed every match's
-    bookmaker comparison but players still see the model's prices.
-Switch a league's pricing to "market" only after the two weeks (docs/theoddsapi-plan, section 6).
+In the back office:
+ 1. Feed: Enable every theoddsapi-* and theoddsapi-scores-* source (sources already enabled
+    stay enabled).
+ 2. Feed, Competitions: for Premier League, Bundesliga, LaLiga, Serie A and Ligue 1 set
+    pricing to "market" (bookmaker prices; the model fills in where the market is thin),
+    and switch "auto results" on. Leave "extra time" off for these leagues.
+ 3. From then on a kickoff both sources agree on moves by itself, and a result both agree on
+    settles about 15 minutes after the second one reports it. Review shows only real
+    disagreements.
 EOF

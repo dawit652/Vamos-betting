@@ -9,6 +9,7 @@
     "sport": "football",
     "sportKey": "soccer_spain_la_liga",
     "competition": "Spanish LaLiga",
+    "fixtures": true,
     "bookmakers": [
       "pinnacle",
       "betfair_ex_uk",

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { MarketOddsObservation, RawDocument, SourceAdapter } from '../types';
@@ -377,4 +378,209 @@ describe('theoddsapi parse (A3 to A8)', () => {
       { numRuns: 300 },
     );
   });
+});
+
+describe('fixtures from the odds response (a second kickoff upstream)', () => {
+  const withFixtures = { ...config, fixtures: true };
+  const books = [book('pinnacle', [h2h(2.1, 3.4, 3.6)]), book('williamhill', [h2h(2.0, 3.3, 3.5)])];
+
+  it('reports each upcoming match once, at its commence_time, without counting records', () => {
+    const out = parse(
+      [
+        event(books),
+        event(books, { id: 'e2', commence_time: '2026-11-08T14:00:00Z', home_team: 'Fulham' }),
+        event(books, { id: 'live', commence_time: '2026-11-07T09:00:00Z' }),
+        event(books, { id: 'far', commence_time: '2026-12-30T15:00:00Z' }),
+      ],
+      withFixtures,
+    );
+    expect(
+      out.fixtures.map((f) => [f.externalRef, f.home, f.away, f.kickoff.toISOString()]),
+    ).toEqual([
+      ['e1a2b3', 'Arsenal', 'Chelsea', '2026-11-07T15:00:00.000Z'],
+      ['e2', 'Fulham', 'Chelsea', '2026-11-08T14:00:00.000Z'],
+    ]);
+    expect(
+      out.fixtures.every((f) => f.status === 'scheduled' && f.competition === 'Premier League'),
+    ).toBe(true);
+    expect(out.results).toEqual([]);
+    // S1 does not watch these pages: neither prices nor companion fixtures count.
+    expect(out.stats).toEqual({ recordsSeen: 4, recordsAccepted: 0 });
+    expect(out.marketOdds.length).toBeGreaterThan(0);
+  });
+
+  it('a match without usable prices is still a fixture; without the flag nothing changes', () => {
+    expect(parse([event([])], withFixtures).fixtures).toHaveLength(1);
+    const plain = parse([event(books)]);
+    expect(plain.fixtures).toEqual([]);
+    expect(plain.stats.recordsAccepted).toBe(0);
+  });
+});
+
+describe('scores mode (a second result upstream)', () => {
+  const scoresConfig = {
+    allowedHosts: ['api.the-odds-api.com'],
+    secret: 'SCRAPER_SECRET_THEODDSAPI',
+    sport: 'football',
+    sportKey: 'soccer_epl',
+    competition: 'Premier League',
+    mode: 'scores',
+    scoreBasis: 'regular_time',
+  };
+  const SCORES_URL = theOddsApiUrl(TheOddsApiConfigSchema.parse(scoresConfig));
+  const game = (over: Record<string, unknown> = {}) => ({
+    id: 'g1',
+    sport_key: 'soccer_epl',
+    sport_title: 'EPL',
+    commence_time: '2026-11-06T20:00:00Z',
+    completed: true,
+    home_team: 'Arsenal',
+    away_team: 'Chelsea',
+    scores: [
+      { name: 'Arsenal', score: '2' },
+      { name: 'Chelsea', score: '1' },
+    ],
+    last_update: '2026-11-06T21:55:00Z',
+    ...over,
+  });
+  const parseScores = (body: unknown) => parse(body, scoresConfig, SCORES_URL);
+
+  it('reads /scores with daysFrom, for the results schedule, at 2 credits', () => {
+    const adapter = build(scoresConfig);
+    expect(adapter.plan(FETCHED_AT)).toEqual([
+      {
+        url: 'https://api.the-odds-api.com/v4/sports/soccer_epl/scores?daysFrom=1&dateFormat=iso',
+        purpose: 'results',
+        auth: { header: THEODDSAPI_AUTH_HEADER, secret: 'SCRAPER_SECRET_THEODDSAPI' },
+      },
+    ]);
+    expect(theOddsApiCost(TheOddsApiConfigSchema.parse(scoresConfig))).toBe(2);
+  });
+
+  it('yields a finished full-time score per completed match, without counting records', () => {
+    const out = parseScores([
+      game(),
+      game({ id: 'g2', completed: false, scores: null }),
+      game({
+        id: 'g3',
+        home_team: 'Fulham',
+        scores: [
+          { name: 'Fulham', score: '0' },
+          { name: 'Chelsea', score: '0' },
+        ],
+      }),
+    ]);
+    expect(
+      out.results.map((r) => [r.externalRef, r.home, r.away, r.status, r.score, r.scoreBasis]),
+    ).toEqual([
+      [
+        'g1',
+        'Arsenal',
+        'Chelsea',
+        'finished',
+        { home: 2, away: 1, htHome: null, htAway: null },
+        'regular_time',
+      ],
+      [
+        'g3',
+        'Fulham',
+        'Chelsea',
+        'finished',
+        { home: 0, away: 0, htHome: null, htAway: null },
+        'regular_time',
+      ],
+    ]);
+    expect(out.fixtures).toEqual([]);
+    expect(out.marketOdds).toEqual([]);
+    expect(out.issues).toEqual([]);
+    expect(out.stats).toEqual({ recordsSeen: 3, recordsAccepted: 0 });
+  });
+
+  it('skips a completed match whose scores are missing, unnamed, doubled or not whole numbers', () => {
+    const bad = [
+      game({ id: 'a', scores: null }),
+      game({ id: 'b', scores: [{ name: 'Arsenal', score: '2' }] }),
+      game({
+        id: 'c',
+        scores: [
+          { name: 'Arsenal', score: '2' },
+          { name: 'Arsenal', score: '1' },
+          { name: 'Chelsea', score: '1' },
+        ],
+      }),
+      game({
+        id: 'd',
+        scores: [
+          { name: 'Arsenal', score: '2.5' },
+          { name: 'Chelsea', score: '1' },
+        ],
+      }),
+      game({
+        id: 'e',
+        scores: [
+          { name: 'Arsenal FC', score: '2' },
+          { name: 'Chelsea', score: '1' },
+        ],
+      }),
+    ];
+    const out = parseScores(bad);
+    expect(out.results).toEqual([]);
+    expect(out.issues.filter((i) => i.code === 'bad_score')).toHaveLength(5);
+  });
+
+  it('refuses a completed match that starts in the future and a page of the other endpoint', () => {
+    const future = parseScores([game({ commence_time: '2026-11-07T12:00:00Z' })]);
+    expect(future.results).toEqual([]);
+    expect(future.issues.map((i) => i.code)).toEqual(['bad_time']);
+    const wrong = parse([game()], scoresConfig, URL);
+    expect(wrong.issues[0]).toMatchObject({ code: 'unknown_request', fatal: true });
+    const oddsOnScores = parse([event([])], config, SCORES_URL);
+    expect(oddsOnScores.issues[0]).toMatchObject({ code: 'unknown_request', fatal: true });
+  });
+
+  it('needs a score basis, takes no bookmakers requirement, and refuses fixtures', () => {
+    expect(refused({ ...scoresConfig, scoreBasis: undefined }).join()).toContain('scoreBasis');
+    expect(refused({ ...scoresConfig, fixtures: true }).join()).toContain('fixtures');
+    expect(refused({ ...config, bookmakers: undefined }).join()).toContain('bookmakers');
+    expect(() => build(scoresConfig)).not.toThrow();
+  });
+});
+
+describe('the repository source files (docs/scraper-plan/data)', () => {
+  // `URL` is this file's request URL; the constructor is the global one.
+  const data = new globalThis.URL('../../../../docs/scraper-plan/data/', import.meta.url);
+  const read = (name: string) =>
+    JSON.parse(readFileSync(new globalThis.URL(name, data), 'utf8')) as {
+      id: string;
+      adapter: string;
+      upstream: string;
+      config: Record<string, unknown>;
+    };
+  it.each(['en1', 'de1', 'es1', 'it1', 'fr1'])(
+    'theoddsapi-%s reports fixtures; its scores source reads the same league',
+    (key) => {
+      const odds = read(`source-theoddsapi-${key}.json`);
+      const scores = read(`source-theoddsapi-scores-${key}.json`);
+      for (const file of [odds, scores]) {
+        expect(file.adapter).toBe('theoddsapi');
+        expect(file.upstream).toBe('TheOddsAPI');
+        const r = createAdapter({
+          id: file.id,
+          adapter: 'theoddsapi',
+          upstream: file.upstream,
+          config: file.config,
+        });
+        expect(r.ok).toBe(true);
+      }
+      expect(odds.config.fixtures).toBe(true);
+      expect(scores.config).toMatchObject({
+        mode: 'scores',
+        scoreBasis: 'regular_time',
+        daysFrom: 1,
+      });
+      for (const field of ['sportKey', 'competition', 'secret', 'sport', 'allowedHosts']) {
+        expect(scores.config[field]).toEqual(odds.config[field]);
+      }
+    },
+  );
 });

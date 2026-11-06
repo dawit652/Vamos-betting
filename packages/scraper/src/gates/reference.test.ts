@@ -99,13 +99,14 @@ function referenceResult(
     }
   }
   const basisDoubt = mine.some((o) => o.obs.scoreBasis !== 'regular_time');
-  const voters = mine.filter(
-    (o) => o.obs.scoreBasis === 'regular_time' && (!needsHt || o.obs.score?.htHome !== null),
-  );
+  // R2: every regular-time score votes on the full time; a needed half time comes from the
+  // voters that give one (at least one; dissent between them was ruled out above).
+  const voters = mine.filter((o) => o.obs.scoreBasis === 'regular_time');
   const independent = naiveIndependent(
     voters.map((o) => ({ source: o.obs.sourceId, upstream: o.upstream })),
   );
-  if (independent >= 2) {
+  const htWitness = voters.find((v) => v.obs.score?.htHome !== null)?.obs.score;
+  if (independent >= 2 && (!needsHt || htWitness !== undefined)) {
     // R4: never below five minutes; every observation unchanged that long.
     const confirm = configuredConfirm < 5 * 60 * 1000 ? 5 * 60 * 1000 : configuredConfirm;
     let lastChange = 0;
@@ -120,6 +121,12 @@ function referenceResult(
     if (basisDoubt || !autoResults) return { action: 'hold', kind: 'result_ready' };
     const first = voters[0]?.obs.score;
     if (!first) throw new Error('reference: no voter');
+    if (needsHt && htWitness) {
+      return {
+        action: 'apply',
+        score: text({ ...first, htHome: htWitness.htHome, htAway: htWitness.htAway }),
+      };
+    }
     const sameHt = voters.every(
       (v) => v.obs.score?.htHome === first.htHome && v.obs.score?.htAway === first.htAway,
     );

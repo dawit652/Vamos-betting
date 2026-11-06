@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-es1",
+  "name": "The Odds API: LaLiga final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_spain_la_liga",
+    "competition": "Spanish LaLiga",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

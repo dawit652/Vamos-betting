@@ -214,7 +214,12 @@ Every rule has an id; tests cite the id in their names. Constants are in
   and the next pass decides again. Every `kickoff_change` the gate writes carries the
   contract's fields (`eventId`, `currentKickoff`, `proposedKickoff`, `sources` as
   `{sourceId, upstream, changedAt}` sorted by source id, `hasBets`) next to its own, so
-  "Apply new kickoff" can read it.
+  "Apply new kickoff" can read it. The gate's open `kickoff_change` of an event (subject
+  `<feedRef>`) closes by itself, resolved by the scraper and audited, once its cause is gone: on
+  the next pass in which every source agrees with the event's kickoff again, in the transaction
+  of a move (F4a, F4b), or once the event has a result or is live or over. A postponed or
+  cancelled event keeps its item, and K1's `<feedRef>|earlier` item is another subject, never
+  closed here. A stale proposal is not left open for a person to apply.
 - **F4c Several clusters, one fixture.** Sources that differ by more than
   `CLUSTER_WINDOW_MS` form several clusters (F1). If they match the same open
   event (F3), or the same pairing is unknown and the clusters lie within
@@ -323,9 +328,12 @@ Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_M
 - **R2 Agreement.** A result is confirmed only if at least
   `MIN_INDEPENDENT_SOURCES` distinct **upstreams** each have a current
   `finished` observation for the fixture, with `scoreBasis = regular_time`, and
-  identical full-time scores. If the event `needsHalfTimeScore`, the half-time
-  score must also be present and identical in those observations. Sources that
-  share an upstream count once.
+  identical full-time scores. If the event `needsHalfTimeScore`, at least one of
+  those observations must give the half-time score, and every observation that
+  gives one must give the same (R3); an observation without a half time is
+  silence on it, so a full-time-only upstream (The Odds API's scores) still
+  counts for the full time. The half time then rests on the upstreams that give
+  it: it settles only `ht_1x2`. Sources that share an upstream count once.
 - **R3 Dissent blocks.** Any current observation from any source with status
   `finished` and a different score, or with status `cancelled` / `abandoned` /
   `postponed`, blocks the result and opens `result_conflict`. A source that has

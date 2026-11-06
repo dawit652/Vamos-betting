@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-en1",
+  "name": "The Odds API: Premier League final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_epl",
+    "competition": "English Premier League",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

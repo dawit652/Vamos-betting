@@ -7,6 +7,9 @@ import {
   DAY_MS,
   fixturesPollIntervalMs,
   marketOddsPollIntervalMs,
+  meteredResultsPollIntervalMs,
+  buildAliasIndex,
+  resolveCompetition,
   MIN_LEAD_MS,
   resultsPollIntervalMs,
   utcMonthStart,
@@ -18,6 +21,7 @@ import {
   listRecentRuns,
   listScrapedEvents,
   listSources,
+  loadAliasInputs,
   nextMarketOddsKickoffs,
   sourceHealth,
   type ScrapeSource,
@@ -53,6 +57,36 @@ function adapterOf(source: ScrapeSource): SourceAdapter | null {
 /** True for a source whose requests are bookmaker prices (purpose `odds`), read on their own schedule. */
 function readsOdds(adapter: SourceAdapter | null, now: Date): boolean {
   return adapter !== null && adapter.plan(now).some((item) => item.purpose === 'odds');
+}
+
+/**
+ * True for a metered source that reads results (The Odds API's scores): read only in the result
+ * window of its own league's matches, under the same credit guard as the odds of its key.
+ */
+function readsMeteredResults(adapter: SourceAdapter | null, now: Date): boolean {
+  return (
+    adapter !== null &&
+    adapter.usage !== undefined &&
+    adapter.plan(now).some((item) => item.purpose === 'results')
+  );
+}
+
+/** The catalogue competition of each metered result source, by its configured label (or null). */
+async function competitionsOf(
+  ctx: ScraperContext,
+  sources: readonly ScrapeSource[],
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (sources.length === 0) return out;
+  const index = buildAliasIndex(await loadAliasInputs(ctx.db, 'football'));
+  for (const source of sources) {
+    const config = source.config ?? {};
+    const raw = typeof config.competition === 'string' ? config.competition : '';
+    const sportId = typeof config.sport === 'string' ? config.sport : 'football';
+    const resolution = resolveCompetition(index, { sportId, sourceId: source.id, raw });
+    out.set(source.id, resolution.status === 'resolved' ? resolution.id : null);
+  }
+  return out;
 }
 
 /** The guard mode each key was in at the last pass, to log changes (rule G4). Per process. */
@@ -159,17 +193,21 @@ export async function runDueSources(
   if (sources.length === 0) return summary;
 
   const health = new Map((await sourceHealth(ctx.db, now)).map((h) => [h.sourceId, h]));
-  const pending = (
-    await listScrapedEvents(ctx.db, {
-      from: new Date(now.getTime() - 7 * DAY_MS),
-      to: now,
-    })
-  ).map((event) => event.startTime);
+  // Unresulted scraped events that started in the last 7 days (scheduled or live).
+  const pendingEvents = await listScrapedEvents(ctx.db, {
+    from: new Date(now.getTime() - 7 * DAY_MS),
+    to: now,
+  });
+  const pending = pendingEvents.map((event) => event.startTime);
 
   const adapters = new Map(sources.map((source) => [source.id, adapterOf(source)]));
   const oddsSources = sources.filter((source) => readsOdds(adapters.get(source.id) ?? null, now));
+  const scoresSources = sources.filter((source) =>
+    readsMeteredResults(adapters.get(source.id) ?? null, now),
+  );
+  const scoresCompetitions = await competitionsOf(ctx, scoresSources);
   const groups = new Map<string, ScrapeSource[]>();
-  for (const source of oddsSources) {
+  for (const source of [...oddsSources, ...scoresSources]) {
     const key = creditKeyOf(source.id, adapters.get(source.id)?.plan(now) ?? []);
     groups.set(key, [...(groups.get(key) ?? []), source]);
   }
@@ -189,6 +227,17 @@ export async function runDueSources(
       const mode = modes.get(creditKeyOf(source.id, adapter?.plan(now) ?? [])) ?? 'normal';
       // Null: not read at all for now (stop, or minimal with no kickoff within 3 h) - not even a first run.
       const interval = marketOddsPollIntervalMs(now, nextKickoffs.get(source.id) ?? null, mode);
+      if (interval === null) continue;
+      base = interval;
+    } else if (readsMeteredResults(adapter, now)) {
+      const mode = modes.get(creditKeyOf(source.id, adapter?.plan(now) ?? [])) ?? 'normal';
+      const competitionId = scoresCompetitions.get(source.id) ?? null;
+      const kickoffs =
+        competitionId === null
+          ? []
+          : pendingEvents.filter((e) => e.competitionId === competitionId).map((e) => e.startTime);
+      // Null: none of its league's matches is in the result window (or the guard says stop).
+      const interval = meteredResultsPollIntervalMs(now, kickoffs, mode);
       if (interval === null) continue;
       base = interval;
     } else {

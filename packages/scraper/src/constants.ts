@@ -99,3 +99,17 @@ export const MARKET_ODDS_INTERVALS_MS = {
 } as const;
 /** Minimal mode reads only leagues with a kickoff within 3 h, this often. */
 export const MARKET_ODDS_MINIMAL_INTERVAL_MS = 30 * MINUTE_MS;
+
+/**
+ * A metered result source (The Odds API's /scores, 2 credits a read) reads its league only from
+ * kickoff + METERED_RESULTS_WINDOW_START_MS to kickoff + METERED_RESULTS_WINDOW_END_MS of one of
+ * the league's unresulted matches, this often per credit-guard mode; never otherwise (stop: never).
+ * A match ends about 110 minutes after kickoff; once resulted it leaves the window at once.
+ */
+export const METERED_RESULTS_WINDOW_START_MS = 110 * MINUTE_MS;
+export const METERED_RESULTS_WINDOW_END_MS = 4 * HOUR_MS;
+export const METERED_RESULTS_INTERVALS_MS = {
+  normal: 20 * MINUTE_MS,
+  economy: 30 * MINUTE_MS,
+  minimal: 60 * MINUTE_MS,
+} as const;

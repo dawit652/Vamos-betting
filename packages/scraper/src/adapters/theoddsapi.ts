@@ -10,7 +10,9 @@ import type {
 import {
   allowedHostsSchema,
   cleanName,
+  draftsFor,
   parseIsoInstant,
+  parseScoreInt,
   requestAuthSchema,
   sportSchema,
   startParse,
@@ -26,11 +28,16 @@ import { decimalToMilli, type PriceProblem } from './odds-price';
  * `/v4/sports/{sportKey}/odds` for the 1X2 (`h2h`) and the over/under (`totals`) of up to ten
  * named bookmakers, which costs 2 credits however many matches come back.
  *
- * It yields price rows only (`market_odds`): no fixtures and no results, which the openfootball
- * sources keep. The key travels in the `x-api-key` header (proven in Phase 0; the docs show only
- * the query parameter, which this adapter never uses). Live matches and matches beyond the
- * horizon are skipped; a market whose `last_update` is stale or in the future is dropped. Scraped
- * data never cancels, voids or abandons anything; this adapter cannot even say a match exists.
+ * It yields price rows (`market_odds`) and, with `fixtures`, each upcoming match as a fixture
+ * (its kickoff is the bookmakers' `commence_time`): a second upstream next to the fixture source,
+ * so a kickoff both agree on moves by itself (rule F4a) and only a disagreement needs a person.
+ * In `scores` mode it reads `/scores` instead and yields the final scores of finished matches: a
+ * second upstream for results (rule R2). The key travels in the `x-api-key` header (proven in
+ * Phase 0; the docs show only the query parameter, which this adapter never uses). Live matches
+ * and matches beyond the horizon are skipped; a market whose `last_update` is stale or in the
+ * future is dropped. Its fixtures and results do not count as records (`acceptCompanion`), so the
+ * S1 shape check does not watch these pages. Scraped data never cancels, voids or abandons
+ * anything; this adapter only ever says a match is scheduled or finished with a score.
  */
 
 export const THEODDSAPI_HOST = 'api.the-odds-api.com';
@@ -59,8 +66,19 @@ export const TheOddsApiConfigSchema = z
     sportKey: keySchema('sportKey'),
     /** What we call this competition (resolved through competition aliases). */
     competition: z.string().trim().min(1).max(120),
-    /** The bookmakers read, each setting its own prices (plan 4.2). */
-    bookmakers: z.array(keySchema('bookmaker')).min(2).max(THEODDSAPI_MAX_BOOKMAKERS),
+    /**
+     * `odds` (default): the bookmakers' prices of upcoming matches. `scores`: the final scores of
+     * the last `daysFrom` days, read only after matches (apps/scraper scheduler).
+     */
+    mode: z.enum(['odds', 'scores']).default('odds'),
+    /** Odds mode: also report each upcoming match as a fixture (kickoff = commence_time). */
+    fixtures: z.boolean().default(false),
+    /** Scores mode: days back (1 to 3); with it a request costs 2 credits. */
+    daysFrom: z.number().int().min(1).max(3).default(1),
+    /** Scores mode: what the scores mean; the operator must say (league matches: regular_time). */
+    scoreBasis: z.enum(['regular_time', 'includes_extra_time', 'unknown']).optional(),
+    /** Odds mode: the bookmakers read, each setting its own prices (plan 4.2). */
+    bookmakers: z.array(keySchema('bookmaker')).min(2).max(THEODDSAPI_MAX_BOOKMAKERS).optional(),
     /** Markets requested: each one costs a credit per request. */
     markets: z
       .array(z.enum(['h2h', 'totals']))
@@ -83,7 +101,24 @@ export const TheOddsApiConfigSchema = z
         path: ['allowedHosts'],
       });
     }
-    if (new Set(c.bookmakers).size !== c.bookmakers.length) {
+    if (c.mode === 'odds' && c.bookmakers === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'bookmakers are required in odds mode',
+        path: ['bookmakers'],
+      });
+    }
+    if (c.mode === 'scores' && c.scoreBasis === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'scoreBasis is required in scores mode',
+        path: ['scoreBasis'],
+      });
+    }
+    if (c.mode === 'scores' && c.fixtures) {
+      ctx.addIssue({ code: 'custom', message: 'fixtures is for odds mode', path: ['fixtures'] });
+    }
+    if (c.bookmakers !== undefined && new Set(c.bookmakers).size !== c.bookmakers.length) {
       ctx.addIssue({
         code: 'custom',
         message: 'a bookmaker is listed twice',
@@ -98,8 +133,12 @@ export type TheOddsApiConfig = z.infer<typeof TheOddsApiConfigSchema>;
 
 /** The one request URL of a run (the key is added by the fetcher, in a header). */
 export function theOddsApiUrl(config: TheOddsApiConfig): string {
+  if (config.mode === 'scores') {
+    const query = new URLSearchParams({ daysFrom: String(config.daysFrom), dateFormat: 'iso' });
+    return `https://${THEODDSAPI_HOST}/v4/sports/${config.sportKey}/scores?${query.toString()}`;
+  }
   const query = new URLSearchParams({
-    bookmakers: config.bookmakers.join(','),
+    bookmakers: (config.bookmakers ?? []).join(','),
     markets: config.markets.join(','),
     oddsFormat: 'decimal',
     dateFormat: 'iso',
@@ -109,7 +148,11 @@ export function theOddsApiUrl(config: TheOddsApiConfig): string {
 
 /** Credits one request costs: markets × regions, ten named books making one region (A9). */
 export function theOddsApiCost(config: TheOddsApiConfig): number {
-  return config.markets.length * Math.ceil(config.bookmakers.length / THEODDSAPI_MAX_BOOKMAKERS);
+  // Scores: 1 credit, 2 with daysFrom (always set here).
+  if (config.mode === 'scores') return 2;
+  return (
+    config.markets.length * Math.ceil((config.bookmakers ?? []).length / THEODDSAPI_MAX_BOOKMAKERS)
+  );
 }
 
 /** A credit count from a usage header: a whole number ≥ 0, else null. */
@@ -202,10 +245,11 @@ function halfLine(point: unknown): string | null {
 }
 
 /** The event's sport key from the request path, or null. */
-function sportKeyOfUrl(url: string): string | null {
+/** The sport key and the endpoint (`odds` or `scores`) of a request URL, or null. */
+function requestOfUrl(url: string): { sportKey: string; endpoint: 'odds' | 'scores' } | null {
   try {
-    const m = /^\/v4\/sports\/([a-z0-9_]{2,60})\/odds\/?$/.exec(new URL(url).pathname);
-    return m ? (m[1] ?? null) : null;
+    const m = /^\/v4\/sports\/([a-z0-9_]{2,60})\/(odds|scores)\/?$/.exec(new URL(url).pathname);
+    return m ? { sportKey: m[1] as string, endpoint: m[2] as 'odds' | 'scores' } : null;
   } catch {
     return null;
   }
@@ -215,7 +259,7 @@ export function createTheOddsApiAdapter(
   descriptor: SourceDescriptor,
   config: TheOddsApiConfig,
 ): SourceAdapter {
-  const listed = new Set(config.bookmakers);
+  const listed = new Set(config.bookmakers ?? []);
   const wantH2h = config.markets.includes('h2h');
   const wantTotals = config.markets.includes('totals');
 
@@ -372,6 +416,88 @@ export function createTheOddsApiAdapter(
     );
   }
 
+  /**
+   * Scores mode: a finished result for every completed match that gives one whole-number score
+   * per team (named exactly as home_team and away_team). No half time: R2 takes it from the
+   * sources that give one. A match not completed yet says nothing; a completed one without a
+   * usable score is reported and skipped.
+   */
+  function parseScores(json: readonly unknown[], collector: ParseCollector, fetchedAt: Date): void {
+    json.forEach((raw: unknown, index) => {
+      if (!collector.beginRecord()) return;
+      const ctx: Record<string, unknown> = { index };
+      if (!isObject(raw)) {
+        collector.issue('error', 'bad_record', 'an event must be an object', ctx);
+        return;
+      }
+      const eventId = typeof raw.id === 'string' && raw.id.trim() !== '' ? raw.id.trim() : null;
+      if (eventId === null) {
+        collector.issue('error', 'bad_record', 'an event needs an id', ctx);
+        return;
+      }
+      ctx.eventId = eventId;
+      if (raw.sport_key !== config.sportKey) {
+        collector.issue('error', 'sport_mismatch', 'the event belongs to another sport key', {
+          ...ctx,
+          sportKey: raw.sport_key,
+        });
+        return;
+      }
+      const homeRaw = typeof raw.home_team === 'string' ? raw.home_team : null;
+      const awayRaw = typeof raw.away_team === 'string' ? raw.away_team : null;
+      const home = cleanName(homeRaw);
+      const away = cleanName(awayRaw);
+      if (homeRaw === null || awayRaw === null || home === null || away === null) {
+        collector.issue('error', 'bad_name', 'an event needs a home_team and an away_team', ctx);
+        return;
+      }
+      const named = { ...ctx, home, away };
+      const kickoff =
+        typeof raw.commence_time === 'string' ? parseIsoInstant(raw.commence_time) : null;
+      if (kickoff === null) {
+        collector.issue('error', 'bad_time', 'commence_time must be an ISO instant', {
+          ...named,
+          value: raw.commence_time,
+        });
+        return;
+      }
+      if (raw.completed !== true) return;
+      if (kickoff.getTime() >= fetchedAt.getTime()) {
+        collector.issue('error', 'bad_time', 'a completed match cannot start in the future', named);
+        return;
+      }
+      const scores = asArray(raw.scores).filter(isObject);
+      const goalsOf = (team: string): number | null => {
+        const rows = scores.filter((row) => row.name === team);
+        return rows.length === 1 ? parseScoreInt(rows[0]?.score) : null;
+      };
+      const homeGoals = goalsOf(homeRaw);
+      const awayGoals = goalsOf(awayRaw);
+      if (homeGoals === null || awayGoals === null) {
+        collector.issue(
+          'warning',
+          'bad_score',
+          'a completed match needs one whole-number score per team',
+          named,
+        );
+        return;
+      }
+      const drafts = draftsFor({
+        home,
+        away,
+        competition: config.competition,
+        kickoff,
+        externalRef: eventId.slice(0, 200),
+        round: null,
+        status: 'finished',
+        score: { home: homeGoals, away: awayGoals, htHome: null, htAway: null },
+        scoreBasis: config.scoreBasis ?? null,
+      });
+      if (Array.isArray(drafts)) collector.acceptCompanion(drafts, named);
+      else collector.issue('error', drafts.code, drafts.message, named);
+    });
+  }
+
   function summarize(collector: ParseCollector, tally: Tally): void {
     const counts = {
       live: tally.live,
@@ -406,8 +532,9 @@ export function createTheOddsApiAdapter(
       return [
         {
           url: theOddsApiUrl(config),
-          // Read on the odds schedule: by the next kickoff, slowed by the credit guard (task P3).
-          purpose: 'odds',
+          // Odds: read on the odds schedule, by the next kickoff, slowed by the credit guard (P3).
+          // Scores: read only in the result window of the league's own matches (scheduler).
+          purpose: config.mode === 'scores' ? 'results' : 'odds',
           // A reference only: the fetcher reads the value when it fetches.
           auth: { header: THEODDSAPI_AUTH_HEADER, secret: config.secret },
         },
@@ -416,7 +543,8 @@ export function createTheOddsApiAdapter(
     parse(doc: RawDocument): ParseOutcome {
       const { collector, usable } = startParse(descriptor.id, doc);
       if (!usable) return collector.outcome();
-      if (sportKeyOfUrl(doc.url) !== config.sportKey) {
+      const request = requestOfUrl(doc.url);
+      if (request?.sportKey !== config.sportKey || request.endpoint !== config.mode) {
         collector.fatal('unknown_request', 'the document URL is not this source’s request', {
           url: doc.url.split('?')[0],
         });
@@ -437,6 +565,10 @@ export function createTheOddsApiAdapter(
         return collector.outcome();
       }
       const fetchedAt = doc.fetchedAt;
+      if (config.mode === 'scores') {
+        parseScores(json, collector, fetchedAt);
+        return collector.outcome();
+      }
       const horizon = fetchedAt.getTime() + config.horizonDays * 86_400_000;
       const tally = newTally();
       json.forEach((raw: unknown, index) => {
@@ -486,6 +618,21 @@ export function createTheOddsApiAdapter(
         if (kickoff.getTime() > horizon) {
           tally.beyondHorizon += 1;
           return;
+        }
+        if (config.fixtures) {
+          const drafts = draftsFor({
+            home,
+            away,
+            competition: config.competition,
+            kickoff,
+            externalRef: eventId.slice(0, 200),
+            round: null,
+            status: 'scheduled',
+            score: null,
+            scoreBasis: null,
+          });
+          if (Array.isArray(drafts)) collector.acceptCompanion(drafts, named);
+          else collector.issue('error', drafts.code, drafts.message, named);
         }
         const candidates: Candidate[] = [];
         for (const book of asArray(raw.bookmakers).filter(isObject)) {

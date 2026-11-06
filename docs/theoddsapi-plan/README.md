@@ -4,6 +4,12 @@ How Nahubet takes bookmaker odds for its market-priced football competitions fro
 [The Odds API](https://the-odds-api.com) on the **20K plan (30 USD a month)**, as cheaply, reliably and accurately as
 that plan allows.
 
+> **Status 2026-11-06: the 20K plan is paid and the five price sources are set up. Built since: M5 of
+> `docs/scraper-plan/10-market-odds-feed.md` for this feed: the price sources also report fixtures
+> (`"fixtures": true`) and five scores sources (`mode: "scores"`) report final scores, so The Odds API is the
+> second independent upstream for kickoffs (F4a, K2) and results (R2, half time from football-data.org); see
+> `docs/scraper-operations.md` section 7. The owner chose market pricing without waiting for the full shadow run.**
+>
 > **Status 2026-11-02: Phase 0 done (P0b and P0c, results in section 10), the over/under fix P2b and the adapter
 > P2, the reading schedule and credit guard P3 and the alarms P4 are in, and the house liability caps (TheRundown
 > plan, rule L1) are built. Next: the shadow run (P5), which needs the paid plan; the five sources are still

@@ -278,6 +278,19 @@ A source with a licensed API (API-Football, `x-apisports-key`) names an environm
   source (disabled) and learns the clubs' ratings from this season's finished matches (`ratings backfill`, which
   resolves names through global aliases too). The token reaches curl on stdin, never on a command line. A new
   season's promoted clubs are a catalogue change (`packages/db/src/seed/catalog.ts`) plus, where needed, an alias.
+- **The Odds API as the second upstream (fixtures, results, prices).** The 20K plan is paid. The five
+  `source-theoddsapi-<league>.json` read prices and, with `"fixtures": true`, report every upcoming match at the
+  bookmakers' `commence_time`: with football-data.org that is two independent upstreams, so a kickoff both agree on
+  moves without a person (F4a) and K2 confirms kickoffs for auto open. The five `source-theoddsapi-scores-<league>.json`
+  (`mode: "scores"`, `/scores?daysFrom=1`, 2 credits a read) report final scores: with football-data.org a result
+  both agree on settles by itself in a competition with **auto results** on (R2; the half time, needed only by
+  `ht_1x2`, comes from football-data.org). A scores source is read only from kickoff + 110 minutes to kickoff + 4 h
+  of one of its own league's unresulted matches (20/30/60 minutes by credit-guard mode, never in stop): about
+  1,500 to 2,000 credits a month on top of the prices. Neither kind counts as records for S1 (`acceptCompanion`).
+  `aliases-theoddsapi.csv` holds the five club spellings that are not catalogue names. `infra/scripts/use-odds-api.sh`
+  rebuilds migrate and scraper, imports the spellings and adds or updates the ten sources (new ones disabled).
+  Market pricing (`pricing: market` per competition) prices from the bookmakers' consensus and falls back to the
+  model where the market is thin.
 - **UEFA Champions League.** `source-footballdata-cl.json` (code CL, the catalogue's own competition name) reads the
   score basis per match from `score.duration`: a knockout score after extra time or penalties is
   `includes_extra_time` and never settles a bet (R10, `score_basis_unknown`: enter the 90-minute score in Trading).

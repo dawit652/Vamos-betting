@@ -298,16 +298,18 @@ export function decideResult(input: ResultGateInput): ResultDecision {
   basisFinding();
   if (findings.some((f) => f.kind === 'result_conflict')) return hold(findings, mine);
 
-  // R2: votes come only from finished, regular-time scores (with half time when needed).
+  // R2: votes come only from finished, regular-time scores. The full time needs
+  // MIN_INDEPENDENT_SOURCES independent upstreams; when the event needs the half time, at least
+  // one of those voters must give it, and every voter that gives it agrees (R3 above). A source
+  // without a half time is silence on it, as it is for dissent (scoreContradicts).
   const regular = finished.filter((o) => o.obs.scoreBasis === 'regular_time');
-  const voters = regular.filter(
-    (o) => !needsHalfTime || halfTimeKey(o.obs.score as Score) !== null,
-  );
+  const voters = regular;
   const voices = voters.map((o) => ({ sourceId: o.obs.sourceId, upstream: o.upstream }));
   const independent = countIndependent(voices);
-  const agreed = agreedScore(voters);
+  const agreed = agreedScore(voters, needsHalfTime);
+  const halfTimeReady = !needsHalfTime || (agreed !== null && agreed.htHome !== null);
 
-  if (independent >= MIN_INDEPENDENT_SOURCES && agreed !== null) {
+  if (independent >= MIN_INDEPENDENT_SOURCES && agreed !== null && halfTimeReady) {
     // R4: every observation of the fixture unchanged for the delay.
     const latestChangeMs = Math.max(...mine.map(stableSinceMs));
     if (latestChangeMs + confirmMs > nowMs) {
@@ -352,10 +354,10 @@ export function decideResult(input: ResultGateInput): ResultDecision {
   if (regular.length > 0) {
     // R6: one upstream (or no usable half time) after the waiting time goes to a person.
     const unverifiedAtMs = earliestEndMs + UNVERIFIED_AFTER_MS;
-    const reason: ResultWaitReason = voters.length > 0 ? 'single_source' : 'half_time_missing';
+    const reason: ResultWaitReason = halfTimeReady ? 'single_source' : 'half_time_missing';
     if (nowMs >= unverifiedAtMs) {
       findings.push({ kind: 'result_unverified', rule: 'R6', reason });
-      const candidate = agreedScore(voters) ?? agreedScore(regular);
+      const candidate = agreedScore(voters, needsHalfTime);
       return hold(findings, mine, {
         score: candidate === null ? null : scoreJson(candidate),
         upstreams: upstreamsOf(
@@ -411,21 +413,27 @@ function decideCorrection(
 
 /**
  * The score to apply: the voters' full time (identical once dissent is ruled
- * out) and their half time when they all give the same one (always the case
- * when the event needs it), else no half time.
+ * out) and the half time of the voters that give one, when those all give the
+ * same (always the case once dissent is ruled out, R3), else no half time.
  */
-function agreedScore(voters: readonly ResultObs[]): Score | null {
+function agreedScore(voters: readonly ResultObs[], needsHalfTime: boolean): Score | null {
   const first = voters[0]?.obs.score;
   if (first === undefined || first === null) return null;
   const fullTimes = new Set(voters.map((o) => fullTimeKey(o.obs.score as Score)));
   if (fullTimes.size !== 1) return null;
-  const halfTimes = new Set(voters.map((o) => halfTimeKey(o.obs.score as Score)));
-  const sameHalfTime = halfTimes.size === 1 && first.htHome !== null;
+  const scores = voters.map((o) => o.obs.score as Score);
+  // Needed: the half time of the voters that give one (a voter without one is silent on it).
+  // Not needed: kept only when every voter gives the same one, as nothing is settled on it.
+  const withHalfTime = needsHalfTime ? scores.filter((sc) => halfTimeKey(sc) !== null) : scores;
+  const halfTimes = new Set(withHalfTime.map((sc) => halfTimeKey(sc)));
+  const only = withHalfTime[0];
+  const witness =
+    halfTimes.size === 1 && only !== undefined && halfTimeKey(only) !== null ? only : undefined;
   return {
     home: first.home,
     away: first.away,
-    htHome: sameHalfTime ? first.htHome : null,
-    htAway: sameHalfTime ? first.htAway : null,
+    htHome: witness ? witness.htHome : null,
+    htAway: witness ? witness.htAway : null,
   };
 }
 

@@ -155,8 +155,14 @@ describe('R2 agreement', () => {
         action: 'apply',
         score: score(2, 1, [1, 0]),
       });
+      // The full time has two upstreams; the half time comes from the one that gives it.
       const bare = resultObs({ source: 's2', score: score(2, 1) });
-      expect(decide([s1, bare], needs)).toMatchObject({ action: 'wait', reason: 'single_source' });
+      expect(decide([s1, bare], needs)).toMatchObject({
+        action: 'apply',
+        score: score(2, 1, [1, 0]),
+      });
+      // One upstream alone is still one vote, half time or not.
+      expect(decide([s1], needs)).toMatchObject({ action: 'wait', reason: 'single_source' });
       const other = resultObs({ source: 's2', score: score(2, 1, [0, 0]) });
       const d = decide([s1, other], needs);
       expect(d.action === 'hold' && d.review.kind).toBe('result_conflict');
@@ -743,8 +749,9 @@ describe('properties', () => {
         expect(KICKOFF + MIN_MATCH_DURATION_MS).toBeLessThanOrEqual(nowMs);
         expect([s.autoResults, s.enabled, s.extraTime]).toEqual([true, true, false]);
         const mine = observations.filter(belongs);
-        // With half time needed, only rows that give it vote (a missing one is silence).
-        const voters = s.needsHalfTime ? mine.filter((o) => o.obs.score?.htHome !== null) : mine;
+        // R2: the full time has two upstreams among all finished scores; a needed half time
+        // comes from at least one of them (checked below against every score that gives one).
+        const voters = mine;
         const upstreams = new Set(voters.map((o) => o.upstream.trim().toLowerCase()));
         expect(upstreams.size).toBeGreaterThanOrEqual(2);
         if (s.needsHalfTime) expect(decision.score.htHome).not.toBeNull();

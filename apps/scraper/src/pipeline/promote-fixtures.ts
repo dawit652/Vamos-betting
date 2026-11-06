@@ -1,5 +1,6 @@
 import { SCRAPED_FEED_PROVIDER } from '@vamos/core';
 import {
+  closeReviewItemsBySubject,
   getTeamRatings,
   listCompetitionPolicies,
   listCurrentObservations,
@@ -38,7 +39,7 @@ import {
   type KickoffStatement,
   type ResolvedObservation,
 } from '@vamos/scraper';
-import { betLegs, events as eventsTable } from '@vamos/db/schema';
+import { betLegs, events as eventsTable, scrapeReviewItems } from '@vamos/db/schema';
 import { and, eq } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
@@ -63,9 +64,16 @@ export interface PromoteFixturesSummary {
   deferred: number;
   /** fixture_missing items opened or refreshed. */
   missing: number;
+  /** Open kickoff_change items closed because their cause went away (F4), moves not counted. */
+  kickoffItemsClosed: number;
   failed: number;
   published: number;
 }
+
+/** Resolutions of the gate's kickoff_change items that close by themselves (F4). */
+const KICKOFF_ITEM_AGREED = 'every source agrees with the kickoff of the event again';
+const KICKOFF_ITEM_MOVED = 'the sources moved the kickoff';
+const KICKOFF_ITEM_CLOSED = 'the event has a result or is no longer scheduled';
 
 /** Fixture observations are read from this far back (clusters straddle the start) ... */
 const LOOK_BACK_MS = 2 * DAY_MS;
@@ -91,6 +99,7 @@ export async function promoteFixtures(
     held: 0,
     deferred: 0,
     missing: 0,
+    kickoffItemsClosed: 0,
     failed: 0,
     published: 0,
   };
@@ -131,6 +140,15 @@ export async function promoteFixtures(
       : [];
   });
   const events = await scrapedEvents(ctx, now);
+  const openKickoffItems = await openKickoffSubjects(ctx);
+  /** F4: closes the event's open kickoff_change item, once its cause went away. */
+  const closeKickoffItem = async (feedRef: string, resolution: string): Promise<void> => {
+    if (!openKickoffItems.delete(feedRef)) return;
+    const closed = await ctx.db.transaction((tx) =>
+      closeReviewItemsBySubject(tx, feedRef, { kinds: ['kickoff_change'], resolution, now }),
+    );
+    summary.kickoffItemsClosed += closed.length;
+  };
 
   const clusters = clusterObservations(observations).filter((c) => policies.has(c.competitionId));
   const plan = planClusters(clusters, events);
@@ -206,7 +224,10 @@ export async function promoteFixtures(
             now,
           );
           messages = moved.messages;
-          if (moved.moved) summary.kickoffMoved += 1;
+          if (moved.moved) {
+            summary.kickoffMoved += 1;
+            openKickoffItems.delete(decision.feedRef);
+          }
           break;
         }
         case 'hold':
@@ -214,6 +235,11 @@ export async function promoteFixtures(
           summary.held += 1;
           break;
         case 'none':
+          // F4: every source agrees with the event's kickoff, so a proposal to move it is stale.
+          // (A closed event's item is closed after the loop, a postponed one's is kept.)
+          if (match.kind === 'existing' && decision.reason === 'unchanged') {
+            await closeKickoffItem(match.event.feedRef, KICKOFF_ITEM_AGREED);
+          }
           break;
       }
       summary.published += await publishAfterCommit(ctx.redis, messages, ctx.channel, ctx.logger);
@@ -226,11 +252,50 @@ export async function promoteFixtures(
     }
   }
 
+  // F4: an event that has a result, or is live or over, has no kickoff left to move, whether or
+  // not a source still lists it. Such an event is never held for its kickoff (`movable`, F4c, and
+  // the gate's `event_closed`), so this cannot close an item the loop just opened.
+  for (const event of events) {
+    if (!openKickoffItems.has(event.feedRef) || !kickoffSettled(event)) continue;
+    try {
+      await closeKickoffItem(event.feedRef, KICKOFF_ITEM_CLOSED);
+    } catch (error) {
+      summary.failed += 1;
+      ctx.logger.error({ err: error, eventId: event.eventId }, 'closing a kickoff item failed');
+    }
+  }
+
   summary.missing = await flagMissing(ctx, events, now);
-  ctx.logger[
-    summary.created + summary.kickoffMoved + summary.held + summary.missing > 0 ? 'info' : 'debug'
-  ]({ ...summary }, 'fixture promotion run');
+  const changes =
+    summary.created +
+    summary.kickoffMoved +
+    summary.held +
+    summary.missing +
+    summary.kickoffItemsClosed;
+  ctx.logger[changes > 0 ? 'info' : 'debug']({ ...summary }, 'fixture promotion run');
   return summary;
+}
+
+/**
+ * The subjects of the open kickoff_change items: the gate's (rule F4) use the event's feed_ref.
+ * K1's items (`<feedRef>|earlier`) have another subject, so nothing here ever closes them.
+ */
+async function openKickoffSubjects(ctx: ScraperContext): Promise<Set<string>> {
+  const rows = await ctx.db
+    .select({ subjectKey: scrapeReviewItems.subjectKey })
+    .from(scrapeReviewItems)
+    .where(and(eq(scrapeReviewItems.status, 'open'), eq(scrapeReviewItems.kind, 'kickoff_change')));
+  return new Set(rows.map((row) => row.subjectKey));
+}
+
+/**
+ * The event has a result, or is live or over (the gate's `event_closed`, F4, read from the event
+ * alone). A postponed or cancelled event is left out: a source listing a new date for it keeps its
+ * item (`event_not_scheduled`) open for a person, even while another source has no new date.
+ */
+function kickoffSettled(event: ScrapedEvent): boolean {
+  if (event.resultedAt !== null || event.score !== null) return true;
+  return !['scheduled', 'postponed', 'cancelled'].includes(event.status);
 }
 
 type ClusterOf = ReturnType<typeof clusterObservations>[number];
@@ -646,6 +711,12 @@ export async function applyKickoff(
         rule: decision.rule,
         upstreams: [...decision.upstreams],
       },
+    });
+    // F4: the move answers the gate's open proposal for the event, if there is one.
+    await closeReviewItemsBySubject(tx, decision.feedRef, {
+      kinds: ['kickoff_change'],
+      resolution: `${KICKOFF_ITEM_MOVED} (${decision.rule})`,
+      now,
     });
     return { moved: true, messages: result.messages };
   });
