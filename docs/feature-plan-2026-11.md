@@ -14,33 +14,36 @@ is), without the verticals our policy excludes.
 - **melbet-et.mobi** redirects to melbet.org, which resets the connection from our (non-Ethiopian)
   servers. **hulusport.com** answers "Only available in Ethiopia … Turn off your VPN". Geo-blocks
   were not bypassed. Public reviews are thin and promotional.
-- So the competitor column below is **general knowledge, not observed**, and marked _verify_.
-  Melbet runs a platform of the 1xBet family, whose features are well known; Hulusport is a local
-  operator (Hulegeb Online Solution) and iGaming Business reported a deal with Kiron Interactive, a
-  virtual-sports supplier. **Next step: screenshots from a phone in Ethiopia** (section 5).
+- **Hulusport was then observed** through the owner's browser in Ethiopia (2026-11-07): details in
+  [competitor-notes.md](competitor-notes.md). **Melbet is still pending**: its column is general
+  knowledge (it runs a platform of the 1xBet family) and stays marked _verify_.
 
 Rule for everything below: take **features and UX patterns**, never their code, images, logos,
 colours or text.
 
 ## 1. Where Nahubet stands
 
-| Area             | Nahubet today (verified in code)                                                                                                      | Market leaders (_verify_)                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Leagues          | 13 seeded; matches only where a source exists (top 5 + Champions League, Costa Rica)                                                  | Hundreds of leagues, Ethiopian Premier League prominent                                    |
-| Football markets | 1X2, double chance, over/under, BTTS, correct score, draw no bet, half-time 1X2 (~10 per match)                                       | Melbet: handicaps (Asian and 3-way), HT/FT, odd/even, team totals, corners, cards, scorers |
-| Live             | Live list and live match with score and clock                                                                                         | Match tracker, statistics; streaming on some                                               |
-| Betslip          | Drawer, booking code, odds-change policy, multi bonus, tax                                                                            | One-click bet, accumulator of the day, bet builder (Melbet)                                |
-| Cash out         | Yes (`CashOut.tsx`)                                                                                                                   | Yes; partial on some                                                                       |
-| Jackpot          | Yes                                                                                                                                   | Common in Ethiopia                                                                         |
-| Payments         | telebirr, Chapa                                                                                                                       | telebirr, CBE Birr, M-Pesa, bank transfer (per site)                                       |
-| Channels         | USSD and SMS betting (`core/ussd.ts`, `core/smstext.ts`)                                                                              | Varies                                                                                     |
-| Languages        | Amharic, English, Afaan Oromo, Tigrinya                                                                                               | Mostly Amharic and English                                                                 |
-| Account          | KYC, limits, self-exclusion, sessions, PWA                                                                                            | Similar; app download (APK)                                                                |
-| **Missing**      | **Search, favourites, results page, form/H2H, top-league shortcuts, promotions page, odds-movement arrows, referral, lite data mode** | Present on most                                                                            |
-| Not doing        | —                                                                                                                                     | Casino, crash games (Aviator), virtual sports, crypto: excluded by policy (CLAUDE.md)      |
+| Area             | Nahubet today (verified in code)                                                                | Hulusport (observed 2026-11-07)                                                                                     | Melbet (_verify_)                                  |
+| ---------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Leagues          | 13 seeded; matches only where a source exists (top 5 + Champions League, Costa Rica)            | 947 football events; 12 top leagues; African leagues (Morocco, Egypt, Kenya…); no Ethiopian league that day         | Hundreds of leagues                                |
+| Other sports     | Basketball, tennis, volleyball                                                                  | 13 sports; table tennis 248, ice hockey 200 events                                                                  | 40+ sports                                         |
+| Football markets | 1X2, double chance, over/under, BTTS, correct score, draw no bet, half-time 1X2 (~10 per match) | ~125: handicaps, HT/FT, exact goals, odd/even, team totals, corners, goalscorers, 1X2+O/U and 1X2+BTTS combinations | Similar depth or more                              |
+| Match page       | Market list                                                                                     | Filter chips (Main, Total, Combination, Half, Handicap), market search, favourite markets                           | _verify_                                           |
+| Match list       | Tabs Highlights / Today / Upcoming / Leagues                                                    | Day tabs + calendar, country filter, 1X2 / double chance switch, league headers with star and count, side drawer    | _verify_                                           |
+| Live             | Live list and live match with score and clock                                                   | **None found**                                                                                                      | Match tracker, statistics                          |
+| Betslip          | Drawer, booking code, odds-change policy, multi bonus, tax                                      | Three parallel slips, floating mini slip bar, max win and net pay, default stake 100 ETB                            | One-click bet, accumulator of the day, bet builder |
+| Cash out         | Yes (`CashOut.tsx`)                                                                             | **None found**                                                                                                      | Yes                                                |
+| Jackpot          | Yes                                                                                             | **None found**                                                                                                      | _verify_                                           |
+| Promotions       | Multi bonus                                                                                     | 100% first deposit up to 1,000 ETB (6+ picks at 1.50+, total 12+, 5x), referral 10 ETB, fantasy EPL                 | Welcome bonus, cashback (_verify_)                 |
+| Payments         | telebirr, Chapa                                                                                 | Not shown before a deposit (wallet page not opened)                                                                 | telebirr, banks, crypto (crypto excluded for us)   |
+| Channels         | USSD and SMS betting (`core/ussd.ts`, `core/smstext.ts`)                                        | Web and installable app                                                                                             | App                                                |
+| Languages        | Amharic, English, Afaan Oromo, Tigrinya                                                         | English, Amharic, French                                                                                            | _verify_                                           |
+| **Missing**      | **Search, favourites, results page, form/H2H, filters on the list, market search, multi-slips** | —                                                                                                                   | —                                                  |
+| Not doing        | —                                                                                               | Casino tabs lead the home page (Aviator, JetX, Keno, slots, Chicken): excluded by policy                            | Casino, virtual sports, crypto: excluded           |
 
-The biggest gap is not the front end: it is **how many matches there are to bet on**. Phase 1
-comes first for that reason.
+The biggest gap is not the front end: it is **how many matches and markets there are**. Phase 1
+comes first for that reason. Nahubet is **already ahead** on live betting, jackpot, cash out,
+USSD/SMS and two more Ethiopian languages: keep them visible in the bottom bar and in marketing.
 
 ## 2. Leagues
 
@@ -56,6 +59,8 @@ The Odds API keys below were checked against its published sports list on 2026-1
 | L3  | UEFA Europa League, Conference League                                             | `soccer_uefa_europa_league`, `soccer_uefa_europa_conference_league`                                                                                                                                            | One upstream: kickoffs confirm from 72 h (C2); results go to a person until a 2nd source |
 | L3  | FA Cup, EFL Cup, Copa del Rey, DFB-Pokal, Coppa Italia, Coupe de France           | `soccer_fa_cup`, `soccer_england_efl_cup`, `soccer_spain_copa_del_rey`, `soccer_germany_dfb_pokal`, `soccer_italy_coppa_italia`, `soccer_france_coupe_de_france`                                               | Same as L3; extra time on (knockouts)                                                    |
 | L4  | Saudi Pro League, Turkish Süper Lig, Scottish Premiership, League One, League Two | `soccer_saudi_arabia_pro_league`, `soccer_turkey_super_league`, `soccer_spl`, `soccer_england_league1`, `soccer_england_league2`                                                                               | Same as L3                                                                               |
+| L4  | Belgian Pro League, Swiss Super League (in Hulusport's top leagues)               | `soccer_belgium_first_div`, `soccer_switzerland_superleague`                                                                                                                                                   | Same as L3                                                                               |
+| L4  | Moroccan Botola Pro, Kenyan Premier League, Algerian Ligue 1 (seen on Hulusport)  | Not on The Odds API; same API-Football check as L1                                                                                                                                                             | Same as L1                                                                               |
 | L4  | Egyptian Premier League, South African Premiership                                | Not on The Odds API; same API-Football check as L1                                                                                                                                                             | Same as L1                                                                               |
 | L5  | Africa Cup of Nations (next edition 2027)                                         | `soccer_africa_cup_of_nations`                                                                                                                                                                                 | Add a month before it starts                                                             |
 
@@ -88,27 +93,32 @@ money path, review).
 
 ### Phase 2: deeper markets (weeks 3–4)
 
-| Task | What                                                                                       | Where                                                                                                                          | Who     |
-| ---- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ------- |
-| 2.1  | Asian handicap and 3-way handicap                                                          | `packages/core/src/markets.ts`, pricing in `packages/feed/src/pricing`, settlement rules, O2 cover in `packages/scraper` gates | main    |
-| 2.2  | HT/FT, odd/even goals, home/away team totals, win to nil                                   | same                                                                                                                           | main    |
-| 2.3  | Market groups on the event page (Main, Goals, Halves, Handicap, Correct score), 1X2 pinned | `EventMarkets.tsx`                                                                                                             | routine |
+| Task | What                                                                                                                    | Where                                                                                                                          | Who     |
+| ---- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| 2.1  | Asian handicap and 3-way handicap                                                                                       | `packages/core/src/markets.ts`, pricing in `packages/feed/src/pricing`, settlement rules, O2 cover in `packages/scraper` gates | main    |
+| 2.2  | HT/FT, odd/even goals, home/away team totals, win to nil                                                                | same                                                                                                                           | main    |
+| 2.3  | Market groups on the event page with filter chips (Main, Total, Combination, Half, Handicap), market search, 1X2 pinned | `EventMarkets.tsx`                                                                                                             | routine |
+| 2.4  | Combinations 1X2 + over/under and 1X2 + BTTS, exact goals, goal range                                                   | same as 2.1 (correlated outcomes priced from one score model)                                                                  | main    |
 
 Settlement is money logic: unit and property tests in `packages/core`, payouts rounded down.
 Corners and cards wait for a source that reports them.
 
 ### Phase 3: front end (weeks 5–6)
 
-| Task | What                                                                                                | Where                                           | Who                        |
-| ---- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------- |
-| F1   | Home: top-league chips, live-now count, sticky sport bar                                            | `SportHome.tsx`, shell                          | routine                    |
-| F2   | Search teams and leagues (Amharic and English, aliases included)                                    | catalog API route + contract, header component  | routine                    |
-| F3   | Favourites (leagues, teams): table + migration, guests in local storage                             | `packages/db` schema, `me` module, star buttons | main (migration) + routine |
-| F4   | Odds movement arrows and flash on change                                                            | `MarketOdds.tsx`, `live-store.ts`               | routine                    |
-| F5   | Results page (finished matches, scores) and simple form (last 5)                                    | new `(sportsbook)/results`, catalog API         | routine                    |
-| F6   | One-tap bet mode (setting) next to the existing odds-change policy                                  | `BetslipDrawer.tsx`                             | main (betting path)        |
-| F7   | Lite mode for cheap phones and slow networks: performance budget, no images, Lighthouse check in CI | `apps/web`, `e2e`                               | routine                    |
-| F8   | Promotions page: multi-bonus table, jackpot rules                                                   | new page, settings                              | routine                    |
+| Task | What                                                                                                                                                                 | Where                                           | Who                        |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------- |
+| F1   | Home: top-league chips, live-now count, sticky sport bar                                                                                                             | `SportHome.tsx`, shell                          | routine                    |
+| F2   | Search teams and leagues (Amharic and English, aliases included)                                                                                                     | catalog API route + contract, header component  | routine                    |
+| F3   | Favourites (leagues, teams): table + migration, guests in local storage                                                                                              | `packages/db` schema, `me` module, star buttons | main (migration) + routine |
+| F4   | Odds movement arrows and flash on change                                                                                                                             | `MarketOdds.tsx`, `live-store.ts`               | routine                    |
+| F5   | Results page (finished matches, scores) and simple form (last 5)                                                                                                     | new `(sportsbook)/results`, catalog API         | routine                    |
+| F6   | One-tap bet mode (setting) next to the existing odds-change policy                                                                                                   | `BetslipDrawer.tsx`                             | main (betting path)        |
+| F7   | Lite mode for cheap phones and slow networks: performance budget, no images, Lighthouse check in CI                                                                  | `apps/web`, `e2e`                               | routine                    |
+| F8   | Promotions page: multi-bonus table, jackpot rules                                                                                                                    | new page, settings                              | routine                    |
+| F9   | Match list controls: day tabs (Today, Tomorrow, next day) + calendar, country filter, 1X2 / double chance switch, league headers with flag, count, star and collapse | `SportHome.tsx`, `MatchList.tsx`, catalog API   | routine                    |
+| F10  | Floating mini slip bar (picks, total odds, net pay) above the bottom bar; max win and net pay in the slip                                                            | `BetslipButton.tsx`, `BetslipDrawer.tsx`        | routine                    |
+| F11  | Up to three parallel slips                                                                                                                                           | betslip state, `BetslipDrawer.tsx`              | main (betting path)        |
+| F12  | Side drawer for sports and top leagues                                                                                                                               | shell                                           | routine                    |
 
 ### Phase 4: payments and engagement (later)
 
@@ -122,12 +132,12 @@ Corners and cards wait for a source that reports them.
 
 ## 4. Order of work
 
-1.1 → 1.2 → 1.5 → 1.3 → 2.1 → 2.3 → F2 → F4 → F5 → 1.4 waves → 2.2 → F1 → F3 → F6 → F7 → F8 → Phase 4.
+1.1 → 1.2 → 1.5 → 1.3 → F9 → F10 → 2.1 → 2.3 → F2 → F4 → F5 → 1.4 waves → 2.2 → 2.4 → F1 → F12 → F3 → F11 → F6 → F7 → F8 → Phase 4.
 At most two agents at a time; the main session reviews every agent's change before it is committed.
 
 ## 5. Needed from the owner
 
-1. **Screenshots** from a phone in Ethiopia, for both sites: home, a league page, one match with
+1. **Melbet review** (Hulusport is done) from the owner's browser, or screenshots: home, a league page, one match with
    all markets open, the betslip with three selections, live, jackpot, deposit methods,
    promotions. They replace the _verify_ column.
 2. **An API-Football key** (free plan is enough for task 1.1), saved through the session's
