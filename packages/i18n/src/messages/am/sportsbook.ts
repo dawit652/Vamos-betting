@@ -17,6 +17,17 @@ export const sportsbook: Messages['sportsbook'] = {
     firstPage: 'ወደ መጀመሪያው ተመለስ',
     gameId: 'መለያ {id}',
   },
+  controls: {
+    days: 'የጨዋታ ቀን',
+    countries: 'ሀገር',
+    market: 'ገበያ',
+    all: 'ሁሉም',
+    today: 'ዛሬ',
+    tomorrow: 'ነገ',
+    market1x2: '1X2',
+    marketDc: 'ድርብ ዕድል',
+    league: '{count} ጨዋታዎች በ{name}',
+  },
   match: {
     live: 'ቀጥታ',
     minute: "{minute}'",

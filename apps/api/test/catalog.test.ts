@@ -579,6 +579,91 @@ describe('GET /events', () => {
     expect(await listIds('/events?filter=live&competition=nba')).toEqual([]);
   });
 
+  it('filters by Addis Ababa day: today, a later day, and up to today + 14', async () => {
+    // Today's tab: live or scheduled today; upcoming never lists what has started.
+    expect(await listIds('/events?filter=today&day=2026-10-08')).toEqual(
+      await listIds('/events?filter=today'),
+    );
+    expect(await listIds('/events?filter=upcoming&day=2026-10-08')).toEqual([
+      ev.soon.id,
+      ev.caf.id,
+      ev.closedBetting.id,
+    ]);
+    // 21:00 Addis on the 9th; the 11th is outside the 72h upcoming window's own reach.
+    expect(await listIds('/events?filter=upcoming&day=2026-10-09')).toEqual([ev.tomorrow.id]);
+    expect(await listIds('/events?filter=today&day=2026-10-09')).toEqual([ev.tomorrow.id]);
+    expect(await listIds('/events?filter=upcoming&day=2026-10-11')).toEqual([ev.far.id]);
+    expect(await listIds('/events?filter=upcoming&day=2026-10-12')).toEqual([]);
+    expect(await listIds('/events?filter=upcoming&day=2026-10-22')).toEqual([]); // today + 14
+    // Midnight Addis is 21:00 UTC: the day boundaries follow the Addis calendar.
+    const lateOnNinth = await insertEvent(db, {
+      sportId: 'football',
+      competitionId: ids.caf,
+      homeTeamId: ids.wydad,
+      awayTeamId: ids.ahly,
+      startTime: new Date('2026-10-09T20:59:59.999Z'),
+    });
+    const earlyOnTenth = await insertEvent(db, {
+      sportId: 'football',
+      competitionId: ids.caf,
+      homeTeamId: ids.ahly,
+      awayTeamId: ids.wydad,
+      startTime: new Date('2026-10-09T21:00:00.000Z'),
+    });
+    try {
+      expect(await listIds('/events?filter=upcoming&day=2026-10-09')).toEqual([
+        ev.tomorrow.id,
+        lateOnNinth.id,
+      ]);
+      expect(await listIds('/events?filter=upcoming&day=2026-10-10')).toEqual([earlyOnTenth.id]);
+    } finally {
+      await db.delete(events).where(eq(events.id, lateOnNinth.id));
+      await db.delete(events).where(eq(events.id, earlyOnTenth.id));
+    }
+  });
+
+  it('filters by country (category slug)', async () => {
+    expect(await listIds('/events?filter=highlights&country=ethiopia')).toEqual([ev.soon.id]);
+    expect(await listIds('/events?filter=today&country=africa')).toEqual([ev.caf.id]);
+    expect(await listIds('/events?filter=highlights&country=england')).toEqual([
+      ev.live.id,
+      ev.closedBetting.id,
+    ]);
+    expect(await listIds('/events?filter=today&country=nope')).toEqual([]);
+    // A category of another sport matches nothing.
+    expect(await listIds('/events?filter=live&country=usa')).toEqual([]);
+    // Combines with day.
+    expect(await listIds('/events?filter=upcoming&country=england&day=2026-10-09')).toEqual([
+      ev.tomorrow.id,
+    ]);
+  });
+
+  it('returns the double chance market as mainMarket with market=dc', async () => {
+    const body = EventListResponse.parse((await get('/events?filter=highlights&market=dc')).json());
+    const byId = new Map(body.items.map((item) => [item.id, item]));
+    expect(byId.get(ev.soon.id)?.mainMarket).toMatchObject({
+      type: 'dc',
+      selections: [
+        { code: '1X', oddsMilli: 1250, label: { en: 'Saint George or Draw' } },
+        { code: '12', oddsMilli: 1300 },
+        { code: 'X2', oddsMilli: 1900 },
+      ],
+    });
+    // No double chance market: null, the event is still listed.
+    expect(byId.get(ev.live.id)?.mainMarket).toBeNull();
+    expect(byId.size).toBe(3);
+    // The default and '1x2' are the 1X2.
+    for (const url of ['/events?filter=highlights', '/events?filter=highlights&market=1x2']) {
+      const items = EventListResponse.parse((await get(url)).json()).items;
+      expect(items.find((item) => item.id === ev.soon.id)?.mainMarket?.type).toBe('1x2');
+    }
+    // Other sports offer no double chance.
+    const nba = EventListResponse.parse(
+      (await get('/events?sport=basketball&filter=live&market=dc')).json(),
+    );
+    expect(nba.items.map((item) => item.mainMarket)).toEqual([null]);
+  });
+
   it('filters today by the Addis Ababa calendar date (midnight is 21:00 UTC)', async () => {
     // 15:00 in Addis: today runs from 2026-10-07T21:00Z to 2026-10-08T21:00Z.
     expect(addisAbabaDay(NOW)).toEqual({
@@ -707,7 +792,27 @@ describe('GET /events', () => {
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({ error: { code: 'invalid_cursor' } });
     }
-    for (const query of ['filter=soon', 'sport=cricket', 'limit=0', 'limit=101']) {
+    const days = [
+      '2026-10-07', // yesterday (Addis)
+      '2026-10-23', // today + 15
+      '2026-02-30', // not a calendar date
+      '2026-1-9',
+      '20261009',
+      'tomorrow',
+    ];
+    for (const day of days) {
+      const response = await get(`/events?filter=upcoming&day=${day}`);
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: { code: 'validation_error' } });
+    }
+    for (const query of [
+      'filter=soon',
+      'sport=cricket',
+      'limit=0',
+      'limit=101',
+      'market=ou',
+      'country=',
+    ]) {
       const response = await get(`/events?${query}`);
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({ error: { code: 'validation_error' } });

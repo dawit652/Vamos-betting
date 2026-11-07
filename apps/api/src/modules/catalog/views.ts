@@ -230,13 +230,16 @@ function summaryFields(event: EventRow): Omit<EventSummary, 'mainMarket' | 'mark
   };
 }
 
-function isMainMarket(event: EventRow, market: MarketRow): boolean {
-  return market.type === mainMarketType(event.sport) && market.line === null;
-}
-
-/** The main (line-less) market of the event's sport among `markets`, if any. */
-export function findMainMarket(event: EventRow, markets: readonly MarketRow[]): MarketRow | null {
-  return markets.find((market) => isMainMarket(event, market)) ?? null;
+/**
+ * The main (line-less) market among `markets`, if any: the sport's first
+ * market type, or `type` when given (double chance on a list row).
+ */
+export function findMainMarket(
+  event: EventRow,
+  markets: readonly MarketRow[],
+  type: MarketTypeCode = mainMarketType(event.sport),
+): MarketRow | null {
+  return markets.find((market) => market.type === type && market.line === null) ?? null;
 }
 
 /**
@@ -249,8 +252,9 @@ export function eventSummaryView(
   markets: readonly MarketRow[],
   mainSelections: readonly SelectionRow[],
   now: Date,
+  mainType?: MarketTypeCode,
 ): EventSummary {
-  const main = findMainMarket(event, markets);
+  const main = findMainMarket(event, markets, mainType);
   const marketCount = markets.filter(
     (market) =>
       market !== main &&

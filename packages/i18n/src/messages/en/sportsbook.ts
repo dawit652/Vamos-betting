@@ -21,6 +21,17 @@ export const sportsbook = {
     firstPage: 'Back to the start',
     gameId: 'ID {id}',
   },
+  controls: {
+    days: 'Match day',
+    countries: 'Country',
+    market: 'Market',
+    all: 'All',
+    today: 'Today',
+    tomorrow: 'Tomorrow',
+    market1x2: '1X2',
+    marketDc: 'Double chance',
+    league: '{count} matches in {name}',
+  },
   match: {
     live: 'LIVE',
     minute: "{minute}'",

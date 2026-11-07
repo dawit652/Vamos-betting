@@ -1,9 +1,11 @@
 import type { EventSummary } from '@vamos/contracts';
 import Link from 'next/link';
 import { getLocale, getT } from '@/i18n/server';
+import { flagEmoji } from '@/lib/flag';
 import { formatDayMonth, formatTime } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes } from '@/lib/routes';
+import { groupByCompetition } from './groups';
 import { eventRef, oddsMarket } from './events';
 import { LiveClock, LiveScore } from './LiveMatch';
 import { MarketOdds } from './MarketOdds';
@@ -17,14 +19,20 @@ import { MarketOdds } from './MarketOdds';
 export async function MatchList({
   events,
   showCompetition = true,
+  grouped = false,
+  flags = {},
 }: {
   events: readonly EventSummary[];
   showCompetition?: boolean;
+  /** Collapsible league headers (flag, name, count) over runs of the same competition. */
+  grouped?: boolean;
+  /** Country code by competition slug, for the group headers' flags. */
+  flags?: Readonly<Record<string, string | null>>;
 }) {
   const [t, locale] = await Promise.all([getT(), getLocale()]);
-  return (
+  const rows = (list: readonly EventSummary[], withCompetition: boolean) => (
     <ul>
-      {events.map((event) => {
+      {list.map((event) => {
         const href = routes.event(event.id);
         const live = event.status === 'live';
         const home = localName(event.home.name, locale);
@@ -49,7 +57,7 @@ export async function MatchList({
               <span className="tabular-nums">
                 {t('sportsbook.list.gameId', { id: event.gameId })}
               </span>
-              {showCompetition ? (
+              {withCompetition ? (
                 <>
                   <span aria-hidden="true">·</span>
                   <span className="min-w-0 truncate">
@@ -98,5 +106,36 @@ export async function MatchList({
         );
       })}
     </ul>
+  );
+  if (!grouped) return rows(events, showCompetition);
+  return (
+    <div>
+      {groupByCompetition(events).map((group, index) => {
+        const name = localName(group.name, locale);
+        return (
+          <details key={`${group.slug}-${index}`} open className="group">
+            <summary
+              aria-label={t('sportsbook.controls.league', { count: group.events.length, name })}
+              className="flex min-h-11 cursor-pointer list-none items-center gap-2 border-b border-line bg-page px-3 text-xs font-bold [&::-webkit-details-marker]:hidden"
+            >
+              <span aria-hidden="true">{flagEmoji(flags[group.slug])}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {localName(group.category, locale)} · {name}
+              </span>
+              <span className="flex-none text-xxs font-normal text-muted tabular-nums">
+                {group.events.length}
+              </span>
+              <span
+                aria-hidden="true"
+                className="flex-none text-muted transition-transform group-open:rotate-90"
+              >
+                ›
+              </span>
+            </summary>
+            {rows(group.events, false)}
+          </details>
+        );
+      })}
+    </div>
   );
 }

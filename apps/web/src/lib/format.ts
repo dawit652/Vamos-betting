@@ -66,3 +66,11 @@ export function formatDayMonth(iso: string): string {
   const month = parts.find((p) => p.type === 'month')?.value ?? '';
   return `${day}/${month}`;
 }
+
+/** Weekday name of an Addis Ababa calendar date (YYYY-MM-DD), e.g. "Mon" or "ሰኞ". */
+export function formatWeekday(date: string, locale: Locale): string {
+  return new Intl.DateTimeFormat(INTL_LOCALE[locale], {
+    weekday: 'short',
+    timeZone: 'Africa/Addis_Ababa',
+  }).format(new Date(`${date}T12:00:00+03:00`));
+}

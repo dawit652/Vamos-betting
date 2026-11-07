@@ -12,7 +12,15 @@ import {
   streamEventIds,
 } from './events';
 import { LiveStore, parseLiveFrame } from './live-store';
-import { DEFAULT_TAB, listHref, parseCursor, parseTab } from './tabs';
+import {
+  DEFAULT_TAB,
+  listHref,
+  parseCountry,
+  parseCursor,
+  parseDay,
+  parseMarket,
+  parseTab,
+} from './tabs';
 
 const market = (over: Partial<MarketView> = {}): MarketView => ({
   id: 'm1',
@@ -270,5 +278,40 @@ describe('live stream frames', () => {
     store.dropUpTo(store.mark());
     store.flush();
     expect(calls).toBe(2); // nothing dropped, nobody notified
+  });
+});
+
+describe('list controls parameters', () => {
+  const now = new Date('2026-10-08T12:00:00.000Z');
+
+  it('parseDay accepts today to today + 14 only', () => {
+    expect(parseDay('2026-10-08', now)).toBe('2026-10-08');
+    expect(parseDay('2026-10-22', now)).toBe('2026-10-22');
+    expect(parseDay('2026-10-07', now)).toBeUndefined();
+    expect(parseDay('2026-10-23', now)).toBeUndefined();
+    expect(parseDay('2026-02-30', now)).toBeUndefined();
+    expect(parseDay('2026-13-01', now)).toBeUndefined();
+    expect(parseDay('nope', now)).toBeUndefined();
+    expect(parseDay(['2026-10-09', 'x'], now)).toBe('2026-10-09');
+    expect(parseDay(undefined, now)).toBeUndefined();
+  });
+
+  it('parseCountry and parseMarket', () => {
+    expect(parseCountry('england')).toBe('england');
+    expect(parseCountry('Bad Slug')).toBeUndefined();
+    expect(parseMarket('dc')).toBe('dc');
+    expect(parseMarket('1x2')).toBe('1x2');
+    expect(parseMarket('ou')).toBe('1x2');
+    expect(parseMarket(undefined)).toBe('1x2');
+  });
+
+  it('listHref keeps day, country and market and drops defaults', () => {
+    expect(listHref('/', 'today', undefined, { market: '1x2' })).toBe('/?tab=today');
+    expect(
+      listHref('/', 'upcoming', undefined, { day: '2026-10-09', country: 'england', market: 'dc' }),
+    ).toBe('/?tab=upcoming&day=2026-10-09&country=england&market=dc');
+    expect(listHref('/', 'today', 'abc', { country: 'england' })).toBe(
+      '/?tab=today&country=england&cursor=abc',
+    );
   });
 });

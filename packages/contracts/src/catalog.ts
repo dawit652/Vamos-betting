@@ -77,14 +77,66 @@ export type EventDetail = z.infer<typeof EventDetail>;
 
 export const EventListFilter = z.enum(['highlights', 'today', 'upcoming', 'live']);
 
+/** The market a list row shows: the 1X2 (football; ML / winner for the other sports) or double chance. */
+export const EventListMarket = z.enum(['1x2', 'dc']);
+export type EventListMarket = z.infer<typeof EventListMarket>;
+
+const HOUR_MS = 60 * 60_000;
+/** Africa/Addis_Ababa is UTC+3 all year (no daylight saving). */
+const ADDIS_ABABA_OFFSET_MS = 3 * HOUR_MS;
+/** The list's `day` may be today or up to this many days ahead (Addis Ababa calendar). */
+export const EVENT_DAY_MAX_AHEAD = 14;
+
+/** The Addis Ababa calendar date (YYYY-MM-DD) that is `daysAhead` days after the one containing `now`. */
+export function addisAbabaDate(now: Date, daysAhead = 0): string {
+  const local = new Date(now.getTime() + ADDIS_ABABA_OFFSET_MS + daysAhead * 24 * HOUR_MS);
+  return local.toISOString().slice(0, 10);
+}
+
+/** Whether `day` (already shaped YYYY-MM-DD) is a real date from today to today + 14 in Addis Ababa. */
+export function isEventDayInRange(day: string, now: Date): boolean {
+  return day >= addisAbabaDate(now) && day <= addisAbabaDate(now, EVENT_DAY_MAX_AHEAD);
+}
+
+/** Whether `day` (YYYY-MM-DD) is a real calendar date. */
+export function isCalendarDate(day: string): boolean {
+  const time = Date.parse(`${day}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === day;
+}
+
+const EventDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+  .refine(isCalendarDate, { message: 'Not a calendar date' });
+
 export const EventListQuery = z.object({
   sport: SportCodeSchema.default('football'),
   filter: EventListFilter.default('highlights'),
   competition: z.string().optional(),
+  /** Only events starting on this Addis Ababa calendar day (see `eventListQueryAt` for the range). */
+  day: EventDay.optional(),
+  /** Category (country) slug. */
+  country: z.string().min(1).max(100).optional(),
+  /** Market returned as each event's `mainMarket`; default '1x2'. */
+  market: EventListMarket.default('1x2'),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   cursor: z.string().optional(),
 });
 export type EventListQuery = z.infer<typeof EventListQuery>;
+
+/**
+ * EventListQuery that also checks `day` against the clock: today up to
+ * today + 14 days in Addis Ababa. The API parses with this (its own clock).
+ */
+export function eventListQueryAt(now: Date) {
+  return EventListQuery.refine(
+    (query) => query.day === undefined || isEventDayInRange(query.day, now),
+    {
+      message: `day must be today or up to ${EVENT_DAY_MAX_AHEAD} days ahead (Africa/Addis_Ababa)`,
+      path: ['day'],
+    },
+  );
+}
 
 export const EventListResponse = z.object({
   items: z.array(EventSummary),

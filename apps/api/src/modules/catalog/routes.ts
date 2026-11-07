@@ -1,5 +1,5 @@
 import {
-  EventListQuery,
+  eventListQueryAt,
   type CompetitionsResponse,
   type EventDetail,
   type EventListResponse,
@@ -49,8 +49,9 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
   );
 
   app.get('/events', async (request, reply): Promise<EventListResponse> => {
-    const query = parseInput(EventListQuery, request.query);
-    const body = await listEvents(deps.db, query, deps.clock());
+    const now = deps.clock();
+    const query = parseInput(eventListQueryAt(now), request.query);
+    const body = await listEvents(deps.db, query, now);
     cache(reply, LIST_CACHE_CONTROL);
     return body;
   });

@@ -308,7 +308,28 @@ async function loadSelections(
     .where(inArray(selections.marketId, [...marketIds]));
 }
 
+/** [start, end) of an Addis Ababa calendar day given as YYYY-MM-DD. */
+function addisAbabaDayOf(day: string): { start: Date; end: Date } {
+  const start = Date.parse(`${day}T00:00:00Z`) - ADDIS_ABABA_OFFSET_MS;
+  return { start: new Date(start), end: new Date(start + 24 * HOUR_MS) };
+}
+
 function filterCondition(query: EventListQuery, now: Date): SQL {
+  if (query.day !== undefined && (query.filter === 'today' || query.filter === 'upcoming')) {
+    // An explicit day replaces the tab's own window; upcoming never lists what has started.
+    const { start, end } = addisAbabaDayOf(query.day);
+    return query.filter === 'today'
+      ? and(
+          inArray(events.status, ['scheduled', 'live']),
+          gte(events.startTime, start),
+          lt(events.startTime, end),
+        )!
+      : and(
+          eq(events.status, 'scheduled'),
+          gte(events.startTime, now > start ? now : start),
+          lt(events.startTime, end),
+        )!;
+  }
   switch (query.filter) {
     case 'highlights':
       return and(
@@ -362,6 +383,11 @@ export async function listEvents(
     filterCondition(query, now),
   ];
   if (query.competition !== undefined) conditions.push(eq(competitions.slug, query.competition));
+  if (query.country !== undefined) conditions.push(eq(categories.slug, query.country));
+  if (query.day !== undefined && (query.filter === 'highlights' || query.filter === 'live')) {
+    const { start, end } = addisAbabaDayOf(query.day);
+    conditions.push(gte(events.startTime, start), lt(events.startTime, end));
+  }
   if (cursor !== undefined) {
     conditions.push(
       sql`(${events.startTime}, ${events.id}) > (${cursor.startTime}::timestamptz, ${cursor.id}::uuid)`,
@@ -385,8 +411,9 @@ export async function listEvents(
     eventRows.map((event) => event.id),
   );
   const marketsByEvent = groupBy(marketRows, (market) => market.eventId);
+  const mainType = query.market === 'dc' ? 'dc' : undefined;
   const mainMarketIds = eventRows.flatMap((event) => {
-    const main = findMainMarket(event, marketsByEvent.get(event.id) ?? []);
+    const main = findMainMarket(event, marketsByEvent.get(event.id) ?? [], mainType);
     return main === null ? [] : [main.id];
   });
   const selectionsByMarket = groupBy(
@@ -397,12 +424,13 @@ export async function listEvents(
   return {
     items: eventRows.map((event) => {
       const eventMarkets = marketsByEvent.get(event.id) ?? [];
-      const main = findMainMarket(event, eventMarkets);
+      const main = findMainMarket(event, eventMarkets, mainType);
       return eventSummaryView(
         event,
         eventMarkets,
         main === null ? [] : (selectionsByMarket.get(main.id) ?? []),
         now,
+        mainType,
       );
     }),
     nextCursor,
