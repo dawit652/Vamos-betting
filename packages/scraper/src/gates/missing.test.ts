@@ -51,6 +51,14 @@ describe('F5 absence never cancels', () => {
     }
   });
 
+  it('a match that has kicked off is never missing: it is listed by its result, not as a fixture', () => {
+    const old = KICKOFF - 10 * MISSING_AFTER_MS;
+    expect(findMissingFixtures([item(old)], new Date(KICKOFF))).toEqual([]);
+    expect(findMissingFixtures([item(null)], new Date(KICKOFF + 3 * MISSING_AFTER_MS))).toEqual([]);
+    // One millisecond before the kickoff it still is.
+    expect(findMissingFixtures([item(old)], new Date(KICKOFF - 1))).toHaveLength(1);
+  });
+
   it('an event given twice uses its latest listing', () => {
     const items = [item(NOW - 10 * MISSING_AFTER_MS), item(NOW - HOUR_MS), item(null)];
     expect(findMissingFixtures(items, new Date(NOW))).toEqual([]);

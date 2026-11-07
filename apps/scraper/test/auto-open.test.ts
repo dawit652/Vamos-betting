@@ -350,6 +350,36 @@ describe('F7b: automatic opening of a closed event whose kickoff is confirmed', 
   );
 
   it(
+    'an open re-price proposal blocks the opening until a person decides on the prices',
+    async () => {
+      await start();
+      const eventId = await createdEvent();
+      const [eventRow] = await rows<{ feed_ref: string }>(
+        `SELECT feed_ref FROM events WHERE id = $1`,
+        [eventId],
+      );
+      const subject = `${eventRow!.feed_ref}|reprice`;
+      await h.pool.query(
+        `INSERT INTO scrape_review_items (kind, subject_key, severity, title, payload)
+         VALUES ('odds_approval', $1, 'warning', 'prices moved too far', '{}'::jsonb)`,
+        [subject],
+      );
+      await confirmByC2();
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ opened: 0, failed: 0 });
+      expect(await bettingOpen(eventId)).toBe(false);
+
+      await h.pool.query(
+        `UPDATE scrape_review_items SET status = 'dismissed', resolved_at = now()
+          WHERE kind = 'odds_approval' AND subject_key = $1`,
+        [subject],
+      );
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ opened: 1 });
+      expect(await bettingOpen(eventId)).toBe(true);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
     'a team that is no longer calibrated blocks the opening (O1)',
     async () => {
       await start();

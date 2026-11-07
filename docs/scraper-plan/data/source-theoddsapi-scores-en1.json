@@ -10,7 +10,7 @@
     "mode": "scores",
     "sportKey": "soccer_epl",
     "competition": "English Premier League",
-    "daysFrom": 1,
+    "daysFrom": 3,
     "scoreBasis": "regular_time"
   }
 }

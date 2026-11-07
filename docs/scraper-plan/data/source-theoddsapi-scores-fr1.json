@@ -10,7 +10,7 @@
     "mode": "scores",
     "sportKey": "soccer_france_ligue_one",
     "competition": "French Ligue 1",
-    "daysFrom": 1,
+    "daysFrom": 3,
     "scoreBasis": "regular_time"
   }
 }

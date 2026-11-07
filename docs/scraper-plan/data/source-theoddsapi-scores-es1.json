@@ -10,7 +10,7 @@
     "mode": "scores",
     "sportKey": "soccer_spain_la_liga",
     "competition": "Spanish LaLiga",
-    "daysFrom": 1,
+    "daysFrom": 3,
     "scoreBasis": "regular_time"
   }
 }

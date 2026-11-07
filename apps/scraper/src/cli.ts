@@ -21,6 +21,7 @@ import {
 } from './cli/io';
 import { envSecretReader } from './lib/secrets';
 import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
+import { feedReport } from './cli/feed';
 import { sourcesList, sourcesUpsert } from './cli/sources';
 
 /**
@@ -59,6 +60,9 @@ commands:
       between 0.35 and 3. Refuses unknown or ambiguous team names. Prints before and after.
   ratings list [--team text]
       Football teams that have ratings: attack, defence, matches, manual.
+  feed report [--days <n>]
+      Read-only. Why upcoming matches have betting closed (odds locked), in plain English, with the
+      competition policies, the sources and the open review queue. --days is 1 to 30 (default 7).
 
 every command accepts --json (machine-readable output).
 exit codes: 0 success, 1 failed or refused, 2 wrong command line.`;
@@ -76,10 +80,11 @@ const COMMANDS: Record<string, Command> = {
   'ratings backfill': ratingsBackfill,
   'ratings set': ratingsSet,
   'ratings list': ratingsList,
+  'feed report': feedReport,
 };
 
 /** Words that take a sub-command; the rest are commands on their own. */
-const GROUPS = new Set(['sources', 'aliases', 'ratings']);
+const GROUPS = new Set(['sources', 'aliases', 'ratings', 'feed']);
 
 /** Runs one command line and returns the exit code; never throws and never exits. */
 export async function runCli(argv: readonly string[], env: CliEnv): Promise<number> {
@@ -148,6 +153,7 @@ function realEnv(): { env: CliEnv; close: () => Promise<void> } {
     err: (line) => process.stderr.write(`${line}\n`),
     readFile: defaultReadFile,
     clock: () => new Date(),
+    config: getConfig,
     actor: { system: 'cli' },
     database: async (): Promise<Database> => {
       if (handle === null) {

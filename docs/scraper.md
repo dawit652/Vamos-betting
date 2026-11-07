@@ -199,7 +199,12 @@ Every rule has an id; tests cite the id in their names. Constants are in
   new; more than one → `fixture_conflict` (ambiguous), nothing applied. Creating is
   insert-only: if an event with the new fixture's `feed_ref` exists after all
   (rescheduled further than `MATCH_WINDOW_MS` away), nothing is changed and a
-  `fixture_conflict` (`feed_ref_exists`) opens.
+  `fixture_conflict` (`feed_ref_exists`) opens. Every `fixture_conflict` (F1 to F3)
+  is raised again on each pass while its cause lasts; at the end of a pass that
+  decided every cluster (none deferred by the row limit, none failed), an open
+  `fixture_conflict` the pass did not raise again closes by itself, resolved by the
+  scraper and audited: the sources agree now, the event exists, or the pairing
+  left the window.
 - **F4 Kickoff change.** For a `scheduled` event whose cluster kickoff differs by
   more than `KICKOFF_TOLERANCE_MS`: apply if (a) at least
   `MIN_INDEPENDENT_SOURCES` independent upstreams agree on the new time, or (b)
@@ -228,9 +233,14 @@ Every rule has an id; tests cite the id in their names. Constants are in
   created. A cluster decided alone would flip the kickoff on every pass or
   create the fixture twice.
 - **F5 Absence never cancels.** A fixture missing from a source changes
-  nothing. An event no enabled source has listed in a successful run for
-  `MISSING_AFTER_MS` opens `fixture_missing`. Nothing is cancelled because a
-  page did not contain it.
+  nothing. An event that has not kicked off and that no enabled source has listed
+  in a successful run for `MISSING_AFTER_MS` opens `fixture_missing`. Nothing is
+  cancelled because a page did not contain it. A match that has kicked off is
+  listed by its result, not as a fixture, so it is never missing: the result rules
+  (R6, and F-04 for a match no source has a score for) speak for it. The item
+  closes by itself, resolved by the scraper and audited, once a source lists the
+  match again, at kickoff, or once the event has a result or is no longer
+  scheduled.
 - **F6 Postponed / cancelled** statuses are never applied automatically: they
   void bets. They open `cancellation_proposed` with the sources that said so.
 - **F7 Betting stays closed.** A new event is created with betting **closed**.
@@ -252,8 +262,8 @@ Every rule has an id; tests cite the id in their names. Constants are in
   person decided on its betting (the latest of the audits `catalog.event.betting_opened`,
   `catalog.event.betting_closed`, `scrape.fixture.betting_closed` and
   `scrape.fixture.betting_opened` is none, or K1's automatic closure); no F4 `kickoff_change` is
-  open for it; its kickoff is confirmed (K2), so an earlier report K1 acted on is gone; and O1 and
-  O2 pass. Under the locks of the waiting items and the event row everything is read again; the
+  open for it; no re-price proposal (`<feedRef>|reprice`) waits for a person; its kickoff is
+  confirmed (K2), so an earlier report K1 acted on is gone; and O1 and O2 pass. Under the locks of the waiting items and the event row everything is read again; the
   writes are `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened`
   (`rule: 'F7b'`, the basis, the evidence key, `afterK1`) and the waiting items resolved by the
   scraper; the live delta is published after the COMMIT. A trader's close, a dismissed item or

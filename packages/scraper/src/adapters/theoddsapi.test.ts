@@ -576,7 +576,8 @@ describe('the repository source files (docs/scraper-plan/data)', () => {
       expect(scores.config).toMatchObject({
         mode: 'scores',
         scoreBasis: 'regular_time',
-        daysFrom: 1,
+        // Same 2 credits as daysFrom 1; a match missed for up to three days is still read.
+        daysFrom: 3,
       });
       for (const field of ['sportKey', 'competition', 'secret', 'sport', 'allowedHosts']) {
         expect(scores.config[field]).toEqual(odds.config[field]);

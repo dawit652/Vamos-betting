@@ -40,7 +40,7 @@ import {
   type ResolvedObservation,
 } from '@vamos/scraper';
 import { betLegs, events as eventsTable, scrapeReviewItems } from '@vamos/db/schema';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { priceEvent } from './event-pricing';
@@ -66,6 +66,10 @@ export interface PromoteFixturesSummary {
   missing: number;
   /** Open kickoff_change items closed because their cause went away (F4), moves not counted. */
   kickoffItemsClosed: number;
+  /** Open fixture_missing items closed: the match is listed again, has kicked off or is over (F5). */
+  missingClosed: number;
+  /** Open fixture_conflict items closed because this pass no longer raises them (F1 to F3). */
+  conflictsClosed: number;
   failed: number;
   published: number;
 }
@@ -74,6 +78,8 @@ export interface PromoteFixturesSummary {
 const KICKOFF_ITEM_AGREED = 'every source agrees with the kickoff of the event again';
 const KICKOFF_ITEM_MOVED = 'the sources moved the kickoff';
 const KICKOFF_ITEM_CLOSED = 'the event has a result or is no longer scheduled';
+/** Resolution of a fixture_conflict item the fixture pass no longer raises (F1 to F3). */
+const CONFLICT_GONE = 'the sources no longer conflict: the fixture pass does not raise it again';
 
 /** Fixture observations are read from this far back (clusters straddle the start) ... */
 const LOOK_BACK_MS = 2 * DAY_MS;
@@ -100,6 +106,8 @@ export async function promoteFixtures(
     deferred: 0,
     missing: 0,
     kickoffItemsClosed: 0,
+    missingClosed: 0,
+    conflictsClosed: 0,
     failed: 0,
     published: 0,
   };
@@ -265,13 +273,23 @@ export async function promoteFixtures(
     }
   }
 
-  summary.missing = await flagMissing(ctx, events, now);
+  const missing = await flagMissing(ctx, events, now);
+  summary.missing = missing.flagged;
+  summary.missingClosed = missing.closed;
+  // F1 to F3: every cluster was decided this pass, so a conflict it did not raise again is gone (the
+  // sources agree now, the event exists, or the pairing left the window). After a deferred cluster
+  // or a failure some were not decided, and nothing is closed.
+  if (summary.deferred === 0 && summary.failed === 0) {
+    summary.conflictsClosed = await closeStaleConflicts(ctx, now);
+  }
   const changes =
     summary.created +
     summary.kickoffMoved +
     summary.held +
     summary.missing +
-    summary.kickoffItemsClosed;
+    summary.kickoffItemsClosed +
+    summary.missingClosed +
+    summary.conflictsClosed;
   ctx.logger[changes > 0 ? 'info' : 'debug']({ ...summary }, 'fixture promotion run');
   return summary;
 }
@@ -281,11 +299,49 @@ export async function promoteFixtures(
  * K1's items (`<feedRef>|earlier`) have another subject, so nothing here ever closes them.
  */
 async function openKickoffSubjects(ctx: ScraperContext): Promise<Set<string>> {
+  return openSubjects(ctx, 'kickoff_change');
+}
+
+/** The subjects of the open review items of one kind. */
+async function openSubjects(
+  ctx: ScraperContext,
+  kind: 'kickoff_change' | 'fixture_missing',
+): Promise<Set<string>> {
   const rows = await ctx.db
     .select({ subjectKey: scrapeReviewItems.subjectKey })
     .from(scrapeReviewItems)
-    .where(and(eq(scrapeReviewItems.status, 'open'), eq(scrapeReviewItems.kind, 'kickoff_change')));
+    .where(and(eq(scrapeReviewItems.status, 'open'), eq(scrapeReviewItems.kind, kind)));
   return new Set(rows.map((row) => row.subjectKey));
+}
+
+/**
+ * Closes the open fixture_conflict items this pass did not raise or refresh: every item the fixture
+ * gate raises is written with the pass's `now` as `updated_at` (`openReviewItem`), so an older one is
+ * a conflict the gate no longer finds. Only the promotion pass writes this kind, under its lock.
+ */
+async function closeStaleConflicts(ctx: ScraperContext, now: Date): Promise<number> {
+  const stale = await ctx.db
+    .select({ subjectKey: scrapeReviewItems.subjectKey })
+    .from(scrapeReviewItems)
+    .where(
+      and(
+        eq(scrapeReviewItems.status, 'open'),
+        eq(scrapeReviewItems.kind, 'fixture_conflict'),
+        lt(scrapeReviewItems.updatedAt, now),
+      ),
+    );
+  let closed = 0;
+  for (const { subjectKey } of stale) {
+    const rows = await ctx.db.transaction((tx) =>
+      closeReviewItemsBySubject(tx, subjectKey, {
+        kinds: ['fixture_conflict'],
+        resolution: CONFLICT_GONE,
+        now,
+      }),
+    );
+    closed += rows.length;
+  }
+  return closed;
 }
 
 /**
@@ -722,11 +778,16 @@ export async function applyKickoff(
   });
 }
 
+/**
+ * F5: opens or refreshes `fixture_missing` for the events no source lists, and closes the open
+ * items whose cause is gone: the match is listed again, has kicked off (its result decides from
+ * then on), has a result or is no longer scheduled.
+ */
 async function flagMissing(
   ctx: ScraperContext,
   events: readonly ScrapedEvent[],
   now: Date,
-): Promise<number> {
+): Promise<{ flagged: number; closed: number }> {
   const missing = findMissingFixtures(
     events.map((event) => ({ event, lastListedAt: event.lastListedAt })),
     now,
@@ -734,5 +795,30 @@ async function flagMissing(
   for (const item of missing) {
     await ctx.db.transaction((tx) => openGateReviews(tx, [item.review], now));
   }
-  return missing.length;
+  const flagged = new Set(missing.map((item) => item.feedRef));
+  const open = await openSubjects(ctx, 'fixture_missing');
+  let closed = 0;
+  for (const event of events) {
+    if (!open.has(event.feedRef) || flagged.has(event.feedRef)) continue;
+    const rows = await ctx.db.transaction((tx) =>
+      closeReviewItemsBySubject(tx, event.feedRef, {
+        kinds: ['fixture_missing'],
+        resolution: missingResolution(event, now),
+        now,
+      }),
+    );
+    closed += rows.length;
+  }
+  return { flagged: missing.length, closed };
+}
+
+/** Why an event's fixture_missing item closes (F5). */
+function missingResolution(event: ScrapedEvent, now: Date): string {
+  if (event.resultedAt !== null || event.score !== null || event.status !== 'scheduled') {
+    return KICKOFF_ITEM_CLOSED;
+  }
+  if (event.startTime.getTime() <= now.getTime()) {
+    return 'the match has kicked off: its result decides from here';
+  }
+  return 'a source lists the match again';
 }

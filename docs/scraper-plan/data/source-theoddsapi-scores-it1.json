@@ -10,7 +10,7 @@
     "mode": "scores",
     "sportKey": "soccer_italy_serie_a",
     "competition": "Italian Serie A",
-    "daysFrom": 1,
+    "daysFrom": 3,
     "scoreBasis": "regular_time"
   }
 }

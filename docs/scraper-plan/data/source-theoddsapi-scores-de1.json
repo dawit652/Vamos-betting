@@ -10,7 +10,7 @@
     "mode": "scores",
     "sportKey": "soccer_germany_bundesliga",
     "competition": "German Bundesliga",
-    "daysFrom": 1,
+    "daysFrom": 3,
     "scoreBasis": "regular_time"
   }
 }

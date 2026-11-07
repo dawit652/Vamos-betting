@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { parseArgs, type ParseArgsConfig } from 'node:util';
+import type { AppConfig } from '@vamos/config';
 import type { Database, ScrapeActor } from '@vamos/db';
 import type { PoliteFetcher } from '@vamos/scraper';
 
@@ -36,6 +37,8 @@ export interface CliEnv {
   /** Likewise: only dry-fetch needs the network. */
   fetcher(): PoliteFetcher;
   clock(): Date;
+  /** The loaded configuration (read-only commands such as feed report need its thresholds). */
+  config(): AppConfig;
   /** The audit actor of every change the CLI makes. */
   actor: ScrapeActor;
 }

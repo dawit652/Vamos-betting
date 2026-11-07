@@ -1,3 +1,4 @@
+import { loadConfig } from '@vamos/config';
 import type { Database } from '@vamos/db';
 import { createTestDatabase } from '@vamos/db/testing';
 import type { PoliteFetcher } from '@vamos/scraper';
@@ -48,6 +49,7 @@ export function cliHarness(deps: { db?: Database; fetcher?: PoliteFetcher } = {}
           return deps.fetcher;
         },
         clock: () => new Date(T0),
+        config: () => loadConfig({ LOG_LEVEL: 'silent', FEED_PROVIDER: 'scraped' }),
         actor: { system: 'cli-test' },
       };
       const code = await runCli(argv, env);

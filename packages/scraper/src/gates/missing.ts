@@ -14,7 +14,7 @@ import { buildReviews, type GateReview } from './review';
  */
 
 export interface MissingCheckInput {
-  /** A scraped event; only scheduled, unresulted ones can be missing. */
+  /** A scraped event; only scheduled, unresulted ones that have not kicked off can be missing. */
   readonly event: ExistingEvent;
   /**
    * The last time any ENABLED source listed the fixture in a successful run,
@@ -30,9 +30,10 @@ export interface MissingFixture {
 }
 
 /**
- * The events to flag `fixture_missing`: not listed for MISSING_AFTER_MS or more
- * (exactly MISSING_AFTER_MS flags). An event given twice uses its latest
- * listing. Sorted by feedRef. Pure; throws only for an invalid `now`.
+ * The events to flag `fixture_missing`: scheduled, unresulted events that have
+ * not kicked off and were not listed for MISSING_AFTER_MS or more (exactly
+ * MISSING_AFTER_MS flags). An event given twice uses its latest listing.
+ * Sorted by feedRef. Pure; throws only for an invalid `now`.
  */
 export function findMissingFixtures(
   items: readonly MissingCheckInput[],
@@ -47,6 +48,9 @@ export function findMissingFixtures(
     const event = item?.event;
     if (eventProblem(event) !== null) continue;
     if (event.status !== 'scheduled' || event.resultedAt !== null || event.score !== null) continue;
+    // A match that has kicked off is listed by its result, not as a fixture: the result rules (R6,
+    // and F-04 for a match no source has a score for) speak for it from then on.
+    if (event.startTime.getTime() <= nowMs) continue;
     const listed = item.lastListedAt;
     const listedMs = listed === null ? null : instant(listed);
     const invalid = listed !== null && listedMs === null;

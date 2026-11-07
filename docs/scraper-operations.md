@@ -214,6 +214,12 @@ is stored and which teams are manual.
 `docker compose run --rm --no-deps scraper node dist/cli.js <command>`, with files mounted read-only (`-v
 "$PWD/file:/in/file:ro"`). Details and an example are in [scraper.md](scraper.md#production).
 
+**Why is betting closed?** `feed report [--days <n>] [--json]` is read-only (it never writes): it lists the
+competition policies, the sources, the open review queue by kind and reason, and each upcoming scraped match whose
+betting is closed with the reasons in plain English. Run it with
+`docker compose run --rm -T --no-deps scraper node dist/cli.js feed report`, or on a compose deployment with
+`infra/scripts/feed-report.sh` (same options), which sets the compose files itself.
+
 ## 6. Evidence and retention
 
 The scraper's evidence is what makes a result explainable after the fact. Three stores:
@@ -284,7 +290,7 @@ A source with a licensed API (API-Football, `x-apisports-key`) names an environm
   moves without a person (F4a). It lists no finished match, so it is never a fresh source for K2: a kickoff is
   confirmed by football-data.org alone from 72 hours before the start (C2), and F7b then opens betting by itself in
   a competition with **auto open** on. The five `source-theoddsapi-scores-<league>.json`
-  (`mode: "scores"`, `/scores?daysFrom=1`, 2 credits a read) report final scores: with football-data.org a result
+  (`mode: "scores"`, `/scores?daysFrom=3`, 2 credits a read, so a match missed for up to three days is still read) report final scores: with football-data.org a result
   both agree on settles by itself in a competition with **auto results** on (R2; the half time, needed only by
   `ht_1x2`, comes from football-data.org). A scores source is read only from kickoff + 110 minutes to kickoff + 4 h
   of one of its own league's unresulted matches (20/30/60 minutes by credit-guard mode, never in stop): about
