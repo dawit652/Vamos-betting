@@ -56,6 +56,8 @@ export const common: Messages['common'] = {
     button: 'የውርርድ ወረቀት',
     count: '{count} ምርጫዎች',
     limitReached: 'አንድ የውርርድ ወረቀት ቢበዛ {max} ምርጫዎች ብቻ ይይዛል።',
+    odds: 'ኦድስ',
+    netPay: 'የተጣራ ክፍያ',
   },
   language: {
     label: 'ቋንቋ',

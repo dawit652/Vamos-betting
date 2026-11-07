@@ -58,6 +58,8 @@ export const common = {
     button: 'Betslip',
     count: '{count} selections',
     limitReached: 'A betslip can hold at most {max} selections.',
+    odds: 'Odds',
+    netPay: 'Net pay',
   },
   language: {
     label: 'Language',
