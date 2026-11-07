@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { addisAbabaDate, EventListQuery, eventListQueryAt, isEventDayInRange } from './catalog';
+import {
+  addisAbabaDate,
+  EventListQuery,
+  eventListQueryAt,
+  isEventDayInRange,
+  SearchQuery,
+} from './catalog';
 
 // 23:30 UTC on 2026-10-08 is already 02:30 on the 9th in Addis Ababa.
 const NOW = new Date('2026-10-08T23:30:00.000Z');
@@ -57,5 +63,22 @@ describe('eventListQueryAt', () => {
       expect(result.success, day).toBe(false);
       expect(result.error?.issues[0]?.path).toEqual(['day']);
     }
+  });
+});
+
+describe('SearchQuery', () => {
+  it('trims the text and accepts 2 to 60 characters, with an optional sport', () => {
+    expect(SearchQuery.parse({ q: '  arsenal ' })).toEqual({ q: 'arsenal' });
+    expect(SearchQuery.parse({ q: 'ሊግ', sport: 'tennis' })).toEqual({ q: 'ሊግ', sport: 'tennis' });
+    expect(SearchQuery.safeParse({ q: 'a'.repeat(60) }).success).toBe(true);
+  });
+
+  it('rejects missing, too short (after trimming), too long and unknown-sport queries', () => {
+    expect(SearchQuery.safeParse({}).success).toBe(false);
+    expect(SearchQuery.safeParse({ q: 'a' }).success).toBe(false);
+    expect(SearchQuery.safeParse({ q: '  a  ' }).success).toBe(false);
+    expect(SearchQuery.safeParse({ q: '   ' }).success).toBe(false);
+    expect(SearchQuery.safeParse({ q: 'a'.repeat(61) }).success).toBe(false);
+    expect(SearchQuery.safeParse({ q: 'ab', sport: 'golf' }).success).toBe(false);
   });
 });

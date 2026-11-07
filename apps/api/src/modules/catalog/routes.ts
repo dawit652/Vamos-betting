@@ -3,6 +3,8 @@ import {
   type CompetitionsResponse,
   type EventDetail,
   type EventListResponse,
+  SearchQuery,
+  type SearchResponse,
   type SportsResponse,
 } from '@vamos/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -14,6 +16,7 @@ import {
   listCompetitions,
   listEvents,
   listSports,
+  searchCatalog,
 } from './queries';
 
 /** Lists change with every odds tick; a few seconds of caching absorbs refresh storms. */
@@ -52,6 +55,13 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
     const now = deps.clock();
     const query = parseInput(eventListQueryAt(now), request.query);
     const body = await listEvents(deps.db, query, now);
+    cache(reply, LIST_CACHE_CONTROL);
+    return body;
+  });
+
+  app.get('/search', async (request, reply): Promise<SearchResponse> => {
+    const query = parseInput(SearchQuery, request.query);
+    const body = await searchCatalog(deps.db, query, deps.clock());
     cache(reply, LIST_CACHE_CONTROL);
     return body;
   });

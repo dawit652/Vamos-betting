@@ -83,6 +83,17 @@ export const sportsbook = {
     matches: '{count} matches',
     topLeagues: 'Top leagues',
   },
+  search: {
+    title: 'Search',
+    open: 'Search teams and leagues',
+    label: 'Team or league',
+    placeholder: 'e.g. Arsenal or Premier League',
+    submit: 'Search',
+    tooShort: 'Type at least 2 letters to search.',
+    leagues: 'Leagues',
+    matches: 'Matches',
+    empty: 'Nothing found for "{q}". Try another spelling.',
+  },
   competition: {
     live: 'Live now',
     upcoming: 'Upcoming',

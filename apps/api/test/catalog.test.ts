@@ -3,12 +3,14 @@ import {
   CompetitionsResponse,
   EventDetail,
   EventListResponse,
+  SearchResponse,
   SportsResponse,
   type EventSummary,
 } from '@vamos/contracts';
 import type { Database } from '@vamos/db';
-import { events, sports } from '@vamos/db/schema';
+import { competitionAliases, events, sports, teamAliases } from '@vamos/db/schema';
 import { eq, sql } from 'drizzle-orm';
+import { normalizeName } from '@vamos/scraper';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   decodeEventCursor,
@@ -1018,6 +1020,107 @@ describe('selection open flag', () => {
       expect(postponed.score).toBeNull();
     } finally {
       await db.update(events).set({ status: 'scheduled' }).where(eq(events.id, ev.tomorrow.id));
+    }
+  });
+});
+
+describe('GET /search', () => {
+  async function search(q: string, extra = '') {
+    const response = await get(`/search?q=${encodeURIComponent(q)}${extra}`);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('public, max-age=5');
+    return SearchResponse.parse(response.json());
+  }
+
+  it('finds matches by team name, case-insensitively, with odds, in start order', async () => {
+    const body = await search('ARSEN');
+    // Live, then closed-betting (+4h), then tomorrow (+30h); not finished, cancelled or inactive.
+    expect(body.events.map((e) => e.id)).toEqual([ev.live.id, ev.closedBetting.id, ev.tomorrow.id]);
+    expect(body.events[2]?.mainMarket?.selections).toHaveLength(3);
+    expect(body.competitions).toEqual([]);
+  });
+
+  it('matches the short name and the Amharic name as typed', async () => {
+    expect((await search('St George')).events.map((e) => e.id)).toEqual([ev.soon.id]);
+    expect((await search('ጊዮርጊስ')).events.map((e) => e.id)).toEqual([ev.soon.id]);
+    expect((await search('ፋሲል')).events.map((e) => e.id)).toEqual([ev.soon.id]);
+  });
+
+  it('finds competitions by English and Amharic name, with category and event count', async () => {
+    const body = await search('premier league');
+    expect(body.competitions.map((c) => c.slug)).toEqual([
+      'premier-league',
+      'ethiopian-premier-league',
+    ]);
+    expect(body.competitions[0]).toEqual({
+      slug: 'premier-league',
+      sport: 'football',
+      name: { en: 'Premier League', am: 'ፕሪሚየር ሊግ' },
+      category: { slug: 'england', name: { en: 'England' }, countryCode: 'GB' },
+      eventCount: 3,
+    });
+    const amharic = await search('ፕሪምየር');
+    expect(amharic.competitions.map((c) => c.slug)).toEqual(['ethiopian-premier-league']);
+    expect(body.events).toEqual([]);
+  });
+
+  it('matches team and competition aliases (stored normalised)', async () => {
+    const [teamAlias] = await db
+      .insert(teamAliases)
+      .values({
+        sportId: 'football',
+        aliasNorm: normalizeName('Wydad Casablanca'),
+        teamId: ids.wydad,
+      })
+      .returning({ id: teamAliases.id });
+    const [competitionAlias] = await db
+      .insert(competitionAliases)
+      .values({ sportId: 'football', aliasNorm: normalizeName('EPL'), competitionId: ids.premier })
+      .returning({ id: competitionAliases.id });
+    try {
+      expect((await search('Wydad  CASABLANCA!')).events.map((e) => e.id)).toEqual([ev.caf.id]);
+      expect((await search('epl')).competitions.map((c) => c.slug)).toEqual(['premier-league']);
+    } finally {
+      await db.delete(teamAliases).where(eq(teamAliases.id, teamAlias!.id));
+      await db.delete(competitionAliases).where(eq(competitionAliases.id, competitionAlias!.id));
+    }
+    expect((await search('Casablanca')).events).toEqual([]);
+  });
+
+  it('limits to active sports, the 14-day window and an optional sport', async () => {
+    expect((await search('celtics')).events.every((e) => e.sport === 'basketball')).toBe(true);
+    expect((await search('celtics', '&sport=football')).events).toEqual([]);
+    expect((await search('arsenal', '&sport=tennis')).events).toEqual([]);
+    expect((await search('NBA')).competitions.map((c) => c.sport)).toEqual(['basketball']);
+    expect((await search('NBA', '&sport=football')).competitions).toEqual([]);
+    expect((await search('closed cup')).competitions).toEqual([]);
+    const late = await insertEvent(db, {
+      sportId: 'football',
+      competitionId: ids.premier,
+      homeTeamId: ids.wydad,
+      awayTeamId: ids.ahly,
+      startTime: hours(15 * 24),
+    });
+    try {
+      expect((await search('wydad ac')).events.map((e) => e.id)).toEqual([ev.caf.id]);
+    } finally {
+      await db.delete(events).where(eq(events.id, late.id));
+    }
+  });
+
+  it('refuses a query shorter than 2 characters or longer than 60', async () => {
+    for (const q of ['', 'a', '  a ', 'x'.repeat(61)]) {
+      const response = await get(`/search?q=${encodeURIComponent(q)}`);
+      expect(response.statusCode, q).toBe(400);
+    }
+    expect((await get('/search')).statusCode).toBe(400);
+  });
+
+  it('treats LIKE wildcards in the query literally', async () => {
+    for (const q of ['%%', '__', 'ars_nal', 'Ars%', '%senal', 'a\\r']) {
+      const body = await search(q);
+      expect(body.events, q).toEqual([]);
+      expect(body.competitions, q).toEqual([]);
     }
   });
 });

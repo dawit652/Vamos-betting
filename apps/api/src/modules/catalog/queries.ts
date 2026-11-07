@@ -3,20 +3,26 @@ import type {
   EventDetail,
   EventListQuery,
   EventListResponse,
+  EventSummary,
+  SearchQuery,
+  SearchResponse,
   SportsResponse,
 } from '@vamos/contracts';
 import { parseGameId } from '@vamos/core';
 import type { DbExecutor } from '@vamos/db';
+import { normalizeName } from '@vamos/scraper';
 import {
   categories,
+  competitionAliases,
   competitions,
   events,
   markets,
   selections,
   sports,
+  teamAliases,
   teams,
 } from '@vamos/db/schema';
-import { and, asc, eq, gte, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { badRequest } from '../../lib/errors';
 import {
@@ -406,12 +412,24 @@ export async function listEvents(
       : null;
 
   const eventRows = page.map(toEventRow).filter((row): row is EventRow => row !== null);
+  return {
+    items: await summarizeEvents(db, eventRows, query.market === 'dc' ? 'dc' : undefined, now),
+    nextCursor,
+  };
+}
+
+/** List rows (with their main market's odds) for already selected events, in the given order. */
+async function summarizeEvents(
+  db: DbExecutor,
+  eventRows: readonly EventRow[],
+  mainType: 'dc' | undefined,
+  now: Date,
+): Promise<EventSummary[]> {
   const marketRows = await loadMarkets(
     db,
     eventRows.map((event) => event.id),
   );
   const marketsByEvent = groupBy(marketRows, (market) => market.eventId);
-  const mainType = query.market === 'dc' ? 'dc' : undefined;
   const mainMarketIds = eventRows.flatMap((event) => {
     const main = findMainMarket(event, marketsByEvent.get(event.id) ?? [], mainType);
     return main === null ? [] : [main.id];
@@ -420,20 +438,155 @@ export async function listEvents(
     await loadSelections(db, mainMarketIds),
     (selection) => selection.marketId,
   );
+  return eventRows.map((event) => {
+    const eventMarkets = marketsByEvent.get(event.id) ?? [];
+    const main = findMainMarket(event, eventMarkets, mainType);
+    return eventSummaryView(
+      event,
+      eventMarkets,
+      main === null ? [] : (selectionsByMarket.get(main.id) ?? []),
+      now,
+      mainType,
+    );
+  });
+}
 
+/** Search looks this far ahead for matches. */
+export const SEARCH_WINDOW_MS = 14 * 24 * HOUR_MS;
+export const SEARCH_MAX_EVENTS = 30;
+export const SEARCH_MAX_COMPETITIONS = 20;
+
+/** Escapes LIKE wildcards (and the escape character) so user text matches literally. */
+export function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/g, '\\$&');
+}
+
+/**
+ * GET /search: teams and competitions whose name matches `query.q`.
+ *
+ * Names (English, Amharic, short name) are compared as raw text with a
+ * case-insensitive substring match (ILIKE; Ethiopic has no case, so Amharic is
+ * matched as typed). Aliases are stored in normalised form (normalizeName), so
+ * they are matched against the normalised query, and also against the raw
+ * lower-cased text, which covers a query that normalises to nothing. LIKE
+ * wildcards in the query are escaped; every value is a bound parameter.
+ * Events: live or starting within 14 days, by start time, at most 30, of
+ * teams that match. Competitions: at most 20. Active sports and competitions only.
+ */
+export async function searchCatalog(
+  db: DbExecutor,
+  query: SearchQuery,
+  now: Date,
+): Promise<SearchResponse> {
+  const raw = `%${escapeLike(query.q)}%`;
+  const normalized = normalizeName(query.q);
+  const norm = normalized === '' ? undefined : `%${escapeLike(normalized)}%`;
+  const aliasMatch = (column: AnyColumn): SQL =>
+    or(sql`${column} ILIKE ${raw}`, norm === undefined ? undefined : sql`${column} LIKE ${norm}`)!;
+  const nameMatch = (name: AnyColumn): SQL =>
+    or(sql`${name}->>'en' ILIKE ${raw}`, sql`${name}->>'am' ILIKE ${raw}`)!;
+
+  const matchingTeams = db
+    .select({ id: teams.id })
+    .from(teams)
+    .where(
+      or(
+        nameMatch(teams.name),
+        sql`${teams.shortName} ILIKE ${raw}`,
+        inArray(
+          teams.id,
+          db
+            .select({ id: teamAliases.teamId })
+            .from(teamAliases)
+            .where(aliasMatch(teamAliases.aliasNorm)),
+        ),
+      ),
+    );
+  const sportFilter = (column: AnyColumn): SQL[] =>
+    query.sport === undefined ? [] : [eq(column, query.sport)];
+
+  const counts = db
+    .select({
+      competitionId: events.competitionId,
+      eventCount: sql<number>`count(*)::int`.as('event_count'),
+    })
+    .from(events)
+    .where(liveOrStartingBetween(now, new Date(now.getTime() + UPCOMING_WINDOW_MS)))
+    .groupBy(events.competitionId)
+    .as('counts');
+  const [competitionRows, eventSelected] = await Promise.all([
+    db
+      .select({
+        sport: competitions.sportId,
+        slug: competitions.slug,
+        name: competitions.name,
+        categorySlug: categories.slug,
+        categoryName: categories.name,
+        categoryCountryCode: categories.countryCode,
+        eventCount: sql<number>`coalesce(${counts.eventCount}, 0)`.mapWith(Number),
+      })
+      .from(competitions)
+      .innerJoin(categories, eq(categories.id, competitions.categoryId))
+      .innerJoin(sports, eq(sports.id, competitions.sportId))
+      .leftJoin(counts, eq(counts.competitionId, competitions.id))
+      .where(
+        and(
+          eq(competitions.active, true),
+          eq(sports.active, true),
+          ...sportFilter(competitions.sportId),
+          or(
+            nameMatch(competitions.name),
+            inArray(
+              competitions.id,
+              db
+                .select({ id: competitionAliases.competitionId })
+                .from(competitionAliases)
+                .where(aliasMatch(competitionAliases.aliasNorm)),
+            ),
+          ),
+        ),
+      )
+      .orderBy(
+        asc(sports.sortOrder),
+        asc(categories.sortOrder),
+        asc(competitions.sortOrder),
+        asc(competitions.slug),
+      )
+      .limit(SEARCH_MAX_COMPETITIONS),
+    selectEvents(db)
+      .where(
+        and(
+          eq(sports.active, true),
+          eq(competitions.active, true),
+          ...sportFilter(events.sportId),
+          liveOrStartingBetween(now, new Date(now.getTime() + SEARCH_WINDOW_MS)),
+          or(inArray(events.homeTeamId, matchingTeams), inArray(events.awayTeamId, matchingTeams)),
+        ),
+      )
+      .orderBy(asc(events.startTime), asc(events.id))
+      .limit(SEARCH_MAX_EVENTS),
+  ]);
+
+  const eventRows = eventSelected.map(toEventRow).filter((row): row is EventRow => row !== null);
   return {
-    items: eventRows.map((event) => {
-      const eventMarkets = marketsByEvent.get(event.id) ?? [];
-      const main = findMainMarket(event, eventMarkets, mainType);
-      return eventSummaryView(
-        event,
-        eventMarkets,
-        main === null ? [] : (selectionsByMarket.get(main.id) ?? []),
-        now,
-        mainType,
-      );
-    }),
-    nextCursor,
+    competitions: competitionRows.flatMap((row) =>
+      isSportCode(row.sport)
+        ? [
+            {
+              slug: row.slug,
+              sport: row.sport,
+              name: localized(row.name),
+              category: {
+                slug: row.categorySlug,
+                name: localized(row.categoryName),
+                countryCode: row.categoryCountryCode,
+              },
+              eventCount: row.eventCount,
+            },
+          ]
+        : [],
+    ),
+    events: await summarizeEvents(db, eventRows, undefined, now),
   };
 }
 

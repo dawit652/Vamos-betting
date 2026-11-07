@@ -212,3 +212,33 @@ export const LiveMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('market'), eventId: z.string(), data: MarketDelta }),
 ]);
 export type LiveMessage = z.infer<typeof LiveMessage>;
+
+/** GET /search: team and competition name search (the query is trimmed first). */
+export const SEARCH_MIN_LENGTH = 2;
+export const SEARCH_MAX_LENGTH = 60;
+
+export const SearchQuery = z.object({
+  q: z.string().trim().min(SEARCH_MIN_LENGTH).max(SEARCH_MAX_LENGTH),
+  sport: SportCodeSchema.optional(),
+});
+export type SearchQuery = z.infer<typeof SearchQuery>;
+
+export const SearchCompetition = z.object({
+  slug: z.string(),
+  sport: SportCodeSchema,
+  name: LocalizedNameSchema,
+  category: z.object({
+    slug: z.string(),
+    name: LocalizedNameSchema,
+    countryCode: z.string().nullable(),
+  }),
+  /** Live plus scheduled events in the next 72 hours (as on the leagues list). */
+  eventCount: z.number().int(),
+});
+export type SearchCompetition = z.infer<typeof SearchCompetition>;
+
+export const SearchResponse = z.object({
+  competitions: z.array(SearchCompetition),
+  events: z.array(EventSummary),
+});
+export type SearchResponse = z.infer<typeof SearchResponse>;

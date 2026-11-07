@@ -21,6 +21,26 @@ export async function Header() {
           {t('common.demo.badge')}
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <Link
+            href={routes.search}
+            prefetch={false}
+            aria-label={t('sportsbook.search.open')}
+            className="flex size-11 items-center justify-center rounded-full"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+          </Link>
           <LocaleToggle />
           <HeaderAccount />
         </div>

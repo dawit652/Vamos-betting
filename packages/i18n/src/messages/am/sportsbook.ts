@@ -78,6 +78,17 @@ export const sportsbook: Messages['sportsbook'] = {
     matches: '{count} ጨዋታዎች',
     topLeagues: 'ምርጥ ሊጎች',
   },
+  search: {
+    title: 'ፍለጋ',
+    open: 'ቡድኖችንና ሊጎችን ይፈልጉ',
+    label: 'ቡድን ወይም ሊግ',
+    placeholder: 'ለምሳሌ አርሰናል ወይም ፕሪሚየር ሊግ',
+    submit: 'ፈልግ',
+    tooShort: 'ለመፈለግ ቢያንስ 2 ፊደላት ይጻፉ።',
+    leagues: 'ሊጎች',
+    matches: 'ጨዋታዎች',
+    empty: 'ለ"{q}" ምንም አልተገኘም። ሌላ አጻጻፍ ይሞክሩ።',
+  },
   competition: {
     live: 'አሁን በቀጥታ',
     upcoming: 'መጪ',

@@ -4,6 +4,7 @@ import type {
   EventDetail,
   EventListQuery,
   EventListResponse,
+  SearchResponse,
   SportsResponse,
 } from '@vamos/contracts';
 import { cache } from 'react';
@@ -33,4 +34,8 @@ export function getEvent(eventId: string): Promise<EventDetail | null> {
 
 export function getEventByGameId(gameId: string): Promise<EventDetail | null> {
   return serverGetOrNull<EventDetail>(`/events/by-game-id/${encodeURIComponent(gameId)}`);
+}
+
+export function searchCatalog(q: string): Promise<SearchResponse> {
+  return serverGet<SearchResponse>('/search', { query: { q } });
 }
