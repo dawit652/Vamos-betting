@@ -41,6 +41,21 @@ export const DEFAULT_GOAL_LINES: readonly string[] = Object.freeze([
   '3.5',
   '4.5',
 ]);
+/**
+ * Asian handicap lines of the home side offered by default. Half lines never
+ * push; whole lines refund on a level adjusted score, so their fair
+ * probabilities are taken given no push. 0 is not offered: it is draw no bet.
+ */
+export const DEFAULT_ASIAN_HANDICAP_LINES: readonly string[] = Object.freeze([
+  '-1.5',
+  '-1',
+  '-0.5',
+  '0.5',
+  '1',
+  '1.5',
+]);
+/** Three-way handicap lines of the home side offered by default. */
+export const DEFAULT_THREE_WAY_HANDICAP_LINES: readonly string[] = Object.freeze(['-1', '1']);
 export const DEFAULT_MAX_GOALS = 10;
 
 /** Added time of each half: whole minutes, each value equally likely. */
@@ -163,8 +178,8 @@ export interface FootballPricingOptions {
 }
 
 /**
- * Prices the football markets ('1x2', 'dc', one 'ou' per line, 'btts', 'dnb',
- * 'ht_1x2', 'cs') in display order. In play, markets with a certain outcome
+ * Prices the football markets ('1x2', 'dc', one 'ou' per line, one 'ah' and one
+ * 'eh' per handicap line, 'btts', 'dnb', 'ht_1x2', 'cs') in display order. In play, markets with a certain outcome
  * are omitted: 'ou' lines already exceeded, 'btts' once both teams scored and
  * 'ht_1x2' once the first half is over.
  */
@@ -238,6 +253,33 @@ export function footballBooks(
       else under += p;
     });
     offer('ou', line, { over, under });
+  }
+
+  // Handicaps on the final score: the goals so far plus those still to come.
+  for (const line of DEFAULT_ASIAN_HANDICAP_LINES) {
+    const value = Number(line);
+    let home = 0;
+    let away = 0;
+    eachCell(grid, (h, a, p) => {
+      const margin = home0 + h - (away0 + a) + value;
+      if (margin > 0) home += p;
+      else if (margin < 0) away += p;
+    });
+    const decisive = home + away;
+    if (decisive > 1e-12) offer('ah', line, { '1': home / decisive, '2': away / decisive });
+  }
+  for (const line of DEFAULT_THREE_WAY_HANDICAP_LINES) {
+    const value = Number(line);
+    let home = 0;
+    let draw = 0;
+    let away = 0;
+    eachCell(grid, (h, a, p) => {
+      const margin = home0 + h - (away0 + a) + value;
+      if (margin > 0) home += p;
+      else if (margin === 0) draw += p;
+      else away += p;
+    });
+    offer('eh', line, { '1': home, X: draw, '2': away });
   }
 
   if (!(home0 > 0 && away0 > 0)) {

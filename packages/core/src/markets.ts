@@ -155,13 +155,19 @@ export const MARKET_TYPES: Readonly<Record<MarketTypeCode, MarketTypeDefinition>
   }),
 });
 
-/**
- * Markets offered per sport, in display order. The handicaps ('ah', 'eh') are
- * defined and settle, but are offered only once they are priced and every
- * consumer of lines accepts handicap lines (plan task 2.1, step B).
- */
+/** Markets offered per sport, in display order. */
 export const SPORT_MARKETS: Readonly<Record<SportCode, readonly MarketTypeCode[]>> = Object.freeze({
-  football: frozenList<MarketTypeCode>('1x2', 'dc', 'ou', 'btts', 'dnb', 'ht_1x2', 'cs'),
+  football: frozenList<MarketTypeCode>(
+    '1x2',
+    'dc',
+    'ou',
+    'ah',
+    'eh',
+    'btts',
+    'dnb',
+    'ht_1x2',
+    'cs',
+  ),
   basketball: frozenList<MarketTypeCode>('ml', 'total'),
   tennis: frozenList<MarketTypeCode>('winner'),
   volleyball: frozenList<MarketTypeCode>('winner'),
@@ -267,6 +273,26 @@ export function formatHandicap(value: number): string {
 export function marketKey(type: MarketTypeCode, line?: string | null): string {
   const canonical = checkedLine(type, line);
   return canonical === null ? type : `${type}:${canonical}`;
+}
+
+/**
+ * The canonical text of a market's line ("2.5", "-1.5", "1"), or null for a
+ * market type without lines. Validates like marketKey: a line market without a
+ * line, a line on a market without lines or a malformed line throws a RangeError.
+ */
+export function canonicalLine(type: MarketTypeCode, line?: string | null): string | null {
+  return checkedLine(type, line);
+}
+
+/**
+ * The numeric value of a market's line, validated against its type: a
+ * half-point total for 'ou' and 'total', a handicap for 'ah' and 'eh'. Throws
+ * a RangeError for a malformed line or a market type without lines.
+ */
+export function marketLineValue(type: MarketTypeCode, line: string): number {
+  const canonical = checkedLine(type, line);
+  if (canonical === null) throw new RangeError(`market "${type}" does not take a line`);
+  return Number(canonical);
 }
 
 /** The valid selection codes of a market type, in display order. */

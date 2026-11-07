@@ -212,9 +212,9 @@ describe('O3 re-pricing', () => {
       );
     });
 
-    it('the market and selection sets must still match for every market', () => {
+    it('no market may be removed and every selection set must still match; a market may be added', () => {
       expect(heldBy([main, ouBook('1.5', 1300)], [main])).toEqual(['market_set_changed']);
-      expect(heldBy([main], [main, ouBook('1.5', 1300)])).toEqual(['market_set_changed']);
+      expect(heldBy([main], [main, ouBook('1.5', 1300)])).toEqual([]);
       const renamed: GateMarket = {
         type: 'ou',
         line: '1.5',
@@ -246,10 +246,14 @@ describe('O3 re-pricing', () => {
     });
   });
 
-  it('markets and selections must match, and the new book must pass O2', () => {
-    expect(codes(checkReprice(book(2000), [...book(2000), twoWay('btts', 1800, 1800)]))).toEqual([
-      'market_set_changed',
-    ]);
+  it('no market may be removed, selections must match, an added market passes, and the new book must pass O2', () => {
+    expect(codes(checkReprice(book(2000), [...book(2000), twoWay('btts', 1800, 1800)]))).toEqual(
+      [],
+    );
+    // An added market is still checked by O2.
+    expect(codes(checkReprice(book(2000), [...book(2000), twoWay('btts', 3000, 3000)]))).toContain(
+      'overround_low',
+    );
     expect(codes(checkReprice([...book(2000), twoWay('btts', 1800, 1800)], book(2000)))).toEqual([
       'market_set_changed',
     ]);

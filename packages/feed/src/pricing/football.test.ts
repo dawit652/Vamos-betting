@@ -10,7 +10,9 @@ import { type Rng, createRng } from '../random';
 import type { FeedMarket, LiveScoreState } from '../types';
 import { bookOverround } from './book';
 import {
+  DEFAULT_ASIAN_HANDICAP_LINES,
   DEFAULT_GOAL_LINES,
+  DEFAULT_THREE_WAY_HANDICAP_LINES,
   FIRST_HALF_ADDED_TIME,
   FOOTBALL_BASE_GOALS,
   FOOTBALL_HOME_ADVANTAGE,
@@ -196,9 +198,15 @@ describe('priceFootball prematch', () => {
   const markets = priceFootball(home, away);
 
   it('offers every football market in display order, one O/U market per line', () => {
-    const expected = SPORT_MARKETS.football.flatMap((type) =>
-      type === 'ou' ? DEFAULT_GOAL_LINES.map((line) => `ou:${line}`) : [type],
-    );
+    const linesOf: Partial<Record<string, readonly string[]>> = {
+      ou: DEFAULT_GOAL_LINES,
+      ah: DEFAULT_ASIAN_HANDICAP_LINES,
+      eh: DEFAULT_THREE_WAY_HANDICAP_LINES,
+    };
+    const expected = SPORT_MARKETS.football.flatMap((type) => {
+      const lines = linesOf[type];
+      return lines === undefined ? [type] : lines.map((line) => `${type}:${line}`);
+    });
     expect(markets.map((m) => (m.line === null ? m.type : `${m.type}:${m.line}`))).toEqual(
       expected,
     );

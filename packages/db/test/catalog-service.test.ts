@@ -81,6 +81,9 @@ afterAll(async () => {
 });
 
 const FOOTBALL_LINES = ['0.5', '1.5', '2.5', '3.5', '4.5'];
+/** Handicap lines of the home side: a half and a whole Asian line, a three-way line. */
+const AH_LINES = ['-1.5', '1'];
+const EH_LINES = ['-1'];
 
 const TEAMS: Record<SportCode, { competition: string; home: string; away: string }> = {
   football: { competition: 'premier-league', home: 'Arsenal', away: 'Chelsea' },
@@ -112,11 +115,15 @@ function fixture(sport: SportCode = 'football', overrides: Partial<UpsertFixture
 /** Every market of the sport with distinct, valid prices. */
 function marketsFor(sport: SportCode, lines: readonly string[] = FOOTBALL_LINES) {
   return SPORT_MARKETS[sport].flatMap((type): FixtureMarketInput[] => {
-    const typeLines: Array<string | null> = MARKET_TYPES[type].hasLine
-      ? type === 'total'
+    const typeLines: Array<string | null> = !MARKET_TYPES[type].hasLine
+      ? [null]
+      : type === 'total'
         ? ['215.5']
-        : [...lines]
-      : [null];
+        : type === 'ah'
+          ? [...AH_LINES]
+          : type === 'eh'
+            ? [...EH_LINES]
+            : [...lines];
     return typeLines.map((line) => ({
       type,
       line,
@@ -314,7 +321,17 @@ describe('upsertFixture', () => {
 
     const stored = await marketsWithSelections(handle.db, result.eventId);
     expect(stored.map((m) => m.key).sort()).toEqual(
-      ['1x2', 'dc', 'btts', 'dnb', 'ht_1x2', 'cs', ...FOOTBALL_LINES.map((l) => `ou:${l}`)].sort(),
+      [
+        '1x2',
+        'dc',
+        'btts',
+        'dnb',
+        'ht_1x2',
+        'cs',
+        ...FOOTBALL_LINES.map((l) => `ou:${l}`),
+        ...AH_LINES.map((l) => `ah:${l}`),
+        ...EH_LINES.map((l) => `eh:${l}`),
+      ].sort(),
     );
     for (const market of stored) {
       expect(market.status).toBe('open');
@@ -953,6 +970,10 @@ describe('resultEvent', () => {
         'dnb/1',
         'ht_1x2/1',
         'cs/2-1',
+        // Home -1.5: 2-1 is short by half a goal; home +1 covers; three-way -1 is the handicap draw.
+        'ah:-1.5/2',
+        'ah:1/1',
+        'eh:-1/X',
       ].sort(),
     );
 

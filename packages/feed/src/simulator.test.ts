@@ -254,6 +254,9 @@ describe('football simulation', () => {
         const outcomes = market.selections.map((s) => resolveSelection(market, s.code, result));
         if (market.type === 'dnb' && state.home === state.away) {
           expect(outcomes).toEqual(['void', 'void']);
+        } else if (market.type === 'ah' && state.home + Number(market.line) === state.away) {
+          // A whole-line Asian handicap push refunds both sides.
+          expect(outcomes).toEqual(['void', 'void']);
         } else if (market.type === 'dc') {
           expect(outcomes.filter((o) => o === 'won')).toHaveLength(2);
         } else {

@@ -485,8 +485,11 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
 - **O3 Re-pricing.** After ratings change, scheduled events are re-priced only if
   no selection of the 1X2 or the 2.5 goals line moves by more than `MAX_PRICE_MOVE_RATIO` in
   either direction (`PRICE_MOVE_LIMITED_MARKETS`; the other markets follow them and their own
-  moves do not hold the event, but they must keep the same markets and selections and pass O2,
-  which applies to every market); otherwise the old prices stay and `odds_approval` opens with the proposal.
+  moves do not hold the event, but no market may disappear, every market keeps its selections, and
+  O2 applies to every market); otherwise the old prices stay and `odds_approval` opens with the
+  proposal. A market the stored book does not have may be added (it has no price to move from and
+  O2 checks it): a market type offered since the event was priced, such as the handicaps (2026-11),
+  reaches existing events at their next re-price without holding them.
   How it is done (`repriceScheduledEvents`, the last step of the promotion pass):
   `scrape_event_pricing` stamps, per event, a fingerprint of both teams' ratings
   (`ratingsKey`) that the stored prices were computed from, set when the event

@@ -1,8 +1,8 @@
 import {
+  canonicalLine,
   isValidOddsMilli,
   MARKET_TYPES,
   marketKey,
-  parseLine,
   selectionsFor,
   SPORT_MARKETS,
   type MarketTypeCode,
@@ -391,7 +391,7 @@ function planMarkets(
     const definition = MARKET_TYPES[market.type];
     return {
       type: market.type,
-      line: definition.hasLine && market.line !== null ? String(parseLine(market.line)) : null,
+      line: canonicalLine(market.type, market.line),
       key,
       sortOrder: definition.sortOrder,
       selections: codes.map((code, index) => ({

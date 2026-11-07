@@ -239,12 +239,14 @@ export const PRICE_MOVE_LIMITED_MARKETS: ReadonlySet<string> = new Set(['1x2', '
 
 /**
  * O3: a re-price may replace `previous` by `next` without a person only if
- * both books have the same markets and selections, `next` passes O2 (every
- * market, whichever its move), and every selection of the markets in
- * PRICE_MOVE_LIMITED_MARKETS stays within [previous / MAX_PRICE_MOVE_RATIO,
- * previous × MAX_PRICE_MOVE_RATIO] (exactly on a bound passes). The other
- * markets' prices may move by any factor, but they must still be valid odds
- * and the market and selection sets must be unchanged.
+ * no market of `previous` is missing from `next`, the markets of both have the
+ * same selections, `next` passes O2 (every market, whichever its move), and
+ * every selection of the markets in PRICE_MOVE_LIMITED_MARKETS stays within
+ * [previous / MAX_PRICE_MOVE_RATIO, previous × MAX_PRICE_MOVE_RATIO] (exactly
+ * on a bound passes). The other markets' prices may move by any factor, but
+ * must still be valid odds. A market only `next` has may be added: it has no
+ * price to move from and O2 checks it (e.g. a market type offered since the
+ * event was priced).
  */
 export function checkReprice(
   previous: readonly GateMarket[],
@@ -270,15 +272,9 @@ export function checkReprice(
   for (const key of new Set([...before.keys(), ...after.keys()])) {
     const old = before.get(key);
     const now = after.get(key);
-    if (old === undefined || now === undefined) {
-      issues.push(
-        issue(
-          'market_set_changed',
-          key,
-          null,
-          old === undefined ? 'market added' : 'market removed',
-        ),
-      );
+    if (old === undefined) continue; // added: no price to move from; O2 checked it above
+    if (now === undefined) {
+      issues.push(issue('market_set_changed', key, null, 'market removed'));
       continue;
     }
     for (const code of new Set([...old.keys(), ...now.keys()])) {

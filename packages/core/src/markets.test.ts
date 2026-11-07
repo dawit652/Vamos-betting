@@ -10,9 +10,11 @@ import {
   type SelectionResult,
   type SportCode,
   MAX_HANDICAP,
+  canonicalLine,
   certainMarketResult,
   formatHandicap,
   marketKey,
+  marketLineValue,
   parseHandicap,
   parseLine,
   resolveSelection,
@@ -166,7 +168,7 @@ describe('MARKET_TYPES', () => {
 describe('SPORT_MARKETS', () => {
   it('lists the markets of each sport', () => {
     expect(SPORT_MARKETS).toEqual({
-      football: ['1x2', 'dc', 'ou', 'btts', 'dnb', 'ht_1x2', 'cs'],
+      football: ['1x2', 'dc', 'ou', 'ah', 'eh', 'btts', 'dnb', 'ht_1x2', 'cs'],
       basketball: ['ml', 'total'],
       tennis: ['winner'],
       volleyball: ['winner'],
@@ -183,9 +185,7 @@ describe('SPORT_MARKETS', () => {
 
   it('lists every market type, each under its own sport (winner is shared)', () => {
     const listed = new Set(Object.values(SPORT_MARKETS).flat());
-    // The handicaps are defined but not offered yet (plan task 2.1, step B).
-    const notOffered: readonly MarketTypeCode[] = ['ah', 'eh'];
-    expect([...listed].sort()).toEqual(ALL_TYPES.filter((t) => !notOffered.includes(t)).sort());
+    expect([...listed].sort()).toEqual([...ALL_TYPES].sort());
     for (const [sport, codes] of Object.entries(SPORT_MARKETS) as [
       SportCode,
       readonly MarketTypeCode[],
@@ -945,5 +945,24 @@ describe('handicap markets', () => {
         expect(certainMarketResult({ type: 'eh', line: eh }, { home, away })).toBeNull();
       }),
     );
+  });
+});
+
+describe('canonicalLine and marketLineValue', () => {
+  it('canonicalise and value totals and handicaps by market type', () => {
+    expect(canonicalLine('ou', '02.5')).toBe('2.5');
+    expect(canonicalLine('ah', '+1.5')).toBe('1.5');
+    expect(canonicalLine('eh', '-1')).toBe('-1');
+    expect(canonicalLine('1x2', null)).toBeNull();
+    expect(marketLineValue('ah', '-1.5')).toBe(-1.5);
+    expect(marketLineValue('total', '215.5')).toBe(215.5);
+  });
+
+  it('throw like marketKey on a missing, misplaced or malformed line', () => {
+    expect(() => canonicalLine('ou')).toThrow(RangeError);
+    expect(() => canonicalLine('1x2', '2.5')).toThrow(RangeError);
+    expect(() => canonicalLine('eh', '0')).toThrow(RangeError);
+    expect(() => marketLineValue('btts', '1')).toThrow(RangeError);
+    expect(() => marketLineValue('ah', '-0.25')).toThrow(RangeError);
   });
 });

@@ -8,7 +8,7 @@ import type {
 import {
   formatGameId,
   MARKET_TYPES,
-  parseLine,
+  marketLineValue,
   selectionLabel,
   selectionsFor,
   SPORT_MARKETS,
@@ -113,10 +113,10 @@ export function isSelectionOpen(
   return isSelectionBettable(event, market.status, selection.status, now);
 }
 
-/** The numeric value of a half-point line, or null when it is malformed. */
-function lineValue(line: string): number | null {
+/** The numeric value of a market's line (a total or a handicap), or null when it is malformed. */
+function lineValue(type: MarketTypeCode, line: string): number | null {
   try {
-    return parseLine(line);
+    return marketLineValue(type, line);
   } catch {
     return null;
   }
@@ -132,18 +132,20 @@ export function isDisplayableMarket(
 ): boolean {
   if (!isMarketTypeCode(market.type) || !SPORT_MARKETS[sport].includes(market.type)) return false;
   if (!MARKET_TYPES[market.type].hasLine) return market.line === null;
-  return market.line !== null && lineValue(market.line) !== null;
+  return market.line !== null && lineValue(market.type, market.line) !== null;
 }
 
 /** MARKET_TYPES sortOrder, then line (line-less first), then id. Unknown types go last. */
 export function compareMarkets(a: Pick<MarketRow, 'type' | 'line' | 'id'>, b: typeof a): number {
   const typeOrder = (type: string) =>
     isMarketTypeCode(type) ? MARKET_TYPES[type].sortOrder : Number.MAX_SAFE_INTEGER;
-  const lineOrder = (line: string | null) =>
-    line === null ? -1 : (lineValue(line) ?? Number.MAX_SAFE_INTEGER);
+  const lineOrder = (type: string, line: string | null) =>
+    line === null
+      ? -1
+      : ((isMarketTypeCode(type) ? lineValue(type, line) : null) ?? Number.MAX_SAFE_INTEGER);
   return (
     typeOrder(a.type) - typeOrder(b.type) ||
-    lineOrder(a.line) - lineOrder(b.line) ||
+    lineOrder(a.type, a.line) - lineOrder(b.type, b.line) ||
     (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   );
 }

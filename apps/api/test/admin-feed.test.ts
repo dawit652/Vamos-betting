@@ -1366,25 +1366,6 @@ describe('POST /admin/feed/review/:id/resolve', () => {
         'proposal_not_applicable',
       ]);
       cases.push([
-        'a market the event does not have',
-        () =>
-          repriceCase(3 * HOUR, {
-            proposal: [
-              ...PROPOSAL,
-              {
-                type: 'btts',
-                line: null,
-                selections: [
-                  { code: 'yes', oddsMilli: 1800 },
-                  { code: 'no', oddsMilli: 2100 },
-                ],
-              },
-            ],
-          }),
-        422,
-        'proposal_not_applicable',
-      ]);
-      cases.push([
         'a market the proposal lacks',
         () =>
           repriceCase(3 * HOUR, {
@@ -1413,6 +1394,30 @@ describe('POST /admin/feed/review/:id/resolve', () => {
         expect(await pricesOf(market.id), label).toEqual(before);
       }
       expect(await auditActions('scrape.fixture.repriced')).toHaveLength(audited);
+    });
+
+    it('adds a market the event does not have yet (O3: an added market has no price to move from)', async () => {
+      const { event, item } = await repriceCase(3 * HOUR, {
+        proposal: [
+          ...PROPOSAL,
+          {
+            type: 'btts',
+            line: null,
+            selections: [
+              { code: 'yes', oddsMilli: 1800 },
+              { code: 'no', oddsMilli: 2100 },
+            ],
+          },
+        ],
+      });
+      const response = await resolve('trader', item, { decision: 'apply_reprice' });
+      expect(response.statusCode, response.body).toBe(200);
+      expect((await itemRow(item)).status).toBe('resolved');
+      const added = (
+        await db.select().from(schema.markets).where(eq(schema.markets.eventId, event.id))
+      ).filter((row) => row.type === 'btts');
+      expect(added).toHaveLength(1);
+      expect(await pricesOf(added[0]!.id)).toEqual({ yes: 1800, no: 2100 });
     });
 
     it('leaves a closed market alone and still applies the rest', async () => {
