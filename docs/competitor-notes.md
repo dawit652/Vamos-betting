@@ -65,6 +65,63 @@ market search; back-to-top and help buttons; pages opened in about two seconds.
 **Where Nahubet is already ahead:** live betting, jackpot, cash out, USSD and SMS betting, Afaan
 Oromo and Tigrinya.
 
-## Melbet Ethiopia (melbet-et.mobi)
+## Melbet Ethiopia (melbet-et.mobi, 2026-11-07, not logged in)
 
-Pending: same review from the owner's browser.
+**Not seen:** cash out (may need a placed bet), jackpot prize rules, the deposit list (behind
+login). One tap opened the login screen by accident; nothing was entered.
+
+**Navigation**
+
+- Bottom bar: Casino, Live, Sports, Esports, Log in, Menu.
+- Sports page: sport tabs (football, tennis, basketball, ice hockey), search box, "Top Sports"
+  strip; search, favourites and filter icons.
+- Menu: main page, sports, live, top events, esports, national-team and big-tournament pages,
+  favourites, results, casino, fast games, promotions, Toto and Lotto, information, support,
+  Android app.
+
+**Leagues and sports**
+
+- Football 1,964, table tennis 557, basketball 414, ice hockey 248, volleyball 175, tennis 161,
+  esports 94, cricket 69 (plus lottery, horse racing, UFC).
+- African: AFCON qualifiers (45 events), CAF Champions League, Confederation Cup, Super Cup, CAF
+  women's; national leagues of Algeria, Cameroon, Egypt (cup), Ghana, Kenya, Morocco, Nigeria,
+  Senegal, Sierra Leone, South Africa, Tunisia, Rwanda.
+- Ethiopia: only a women's league (2 matches); no men's Premier League.
+
+**Markets** (Valencia v Real Madrid)
+
+- Tabs: regular time, 1st half, 2nd half, corners, cards, shots on target, offsides, fouls,
+  substitutions, player stats, specials.
+- 1X2, 1X2 (2 up), double chance, BTTS, over/under (half and whole lines), 1X2 + BTTS, DC + BTTS,
+  each team 2+, next goal, how the goal is scored, correct score.
+- "Search by market" box; Bet Builder and Betting on players tabs.
+
+**Betslip**
+
+- Quick slip bar at the bottom, or a full page.
+- Single, accumulator, system, singles, constructor; one pick per match (a second pick replaces it).
+- Overall odds and potential win; promo code; quick stakes (+2.5, +100, +250).
+- Accumulator booster (more picks at 1.20+); a one-click slip generator. Betting needs a login.
+
+**Live:** Top Live cards with minute, half, score, 1X2 and "+N"; live accumulators of the day;
+sport tabs, search, favourites, filter.
+
+**Jackpot (Toto-15):** 1/X/2 on 15 matches with auto-complete; draw number, countdown, total pool
+(1,658,667 ETB) and minimum jackpot (3,492,749 ETB) shown; share of players per pick; other
+variants (correct score, other sports). Prize tiers and stakes were not shown.
+
+**Promotions:** 200% first deposit up to 37,000 ETB; weekly top-league free bet; Monday deposit
+bonus; weekly NHL and NBA free bets; CAF Confederation Cup bonus; safe bet; 20% cashback with a
+bank; friends bonus. Casino bonuses and Lucky Seven: excluded for us.
+
+**Payments:** behind login. Crypto deposit pages (excluded for us), a bank promotion, cash agents.
+
+**Languages:** Amharic and English flags seen.
+
+**Front-end patterns worth taking:** fixed bottom bar; slide-up quick slip; odds cards in a
+horizontal swipe strip; market tabs with search and collapsible groups; slip count and odds always
+visible; selected odds highlighted; back arrow on every page; favourites and a notification bell
+per match; small dismissable tips.
+
+**Where Nahubet is ahead:** USSD and SMS betting, Afaan Oromo and Tigrinya, and the Ethiopian
+Premier League once task 1.3 lands.
