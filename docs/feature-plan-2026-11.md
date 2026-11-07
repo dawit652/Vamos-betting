@@ -150,3 +150,26 @@ At most two agents at a time; the main session reviews every agent's change befo
    credential form, never in chat.
 2. **Decisions:** Ethiopian Premier League first (recommended); the Odds API credit budget per
    month for new leagues.
+
+## 6. Execution: models and effort
+
+The main session cannot change its own model (the owner does, with `/model`); delegated work
+runs on cheaper models. `quick-task` and `routine-coder` from CLAUDE.md are not defined in the
+cloud environment, so the same settings are passed to general agents.
+
+| Kind of work                                                 | Runs on                                       | Tasks                                                               |
+| ------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------- |
+| Mechanical: checks, coverage requests, test runs             | Haiku, low effort, or one command in the main | 1.1, verification runs                                              |
+| Routine and well specified                                   | Sonnet, medium effort                         | 1.2, 1.4, 1.5, 2.3, F1, F2, F4, F5, F7, F8, F9, F10, F12, F13, F14  |
+| Hard: money path, migrations, design, reviewing agents' work | Main session on Opus                          | 1.3, 2.1, 2.2, 2.4, F3 (migration), F6, F11, F15, bonuses, payments |
+
+Waves (at most two agents at a time; the main session reviews each change, runs typecheck, lint
+and tests, then commits):
+
+1. **Wave 1:** 1.2 and 1.5 (Sonnet); 1.1 in the main session once the API-Football key is saved.
+2. **Wave 2:** 1.3 (Opus) with F9 and F10 (Sonnet).
+3. **Wave 3:** F13 and F2 (Sonnet); design of 2.1 (Opus).
+4. **Wave 4:** 2.1 and 2.4 (Opus) with 2.3 (Sonnet).
+5. Then F4, F5, the 1.4 waves, 2.2, F1, F12, F3, F11, F14, F6, F15, F7, F8 and Phase 4.
+
+Usage is checked between waves, and no new wave starts near the 5-hour limit.
