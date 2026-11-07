@@ -105,6 +105,16 @@ money path, review).
 Settlement is money logic: unit and property tests in `packages/core`, payouts rounded down.
 Corners and cards wait for a source that reports them.
 
+**2.1 in two steps.** Step A (done): `ah` (half and whole lines; a level adjusted score on a whole
+line is void) and `eh` (non-zero whole lines) are defined and settle in `packages/core/src/markets.ts`,
+with property tests, but are not in `SPORT_MARKETS`, so nothing can store them yet. Step B offers
+them, all together: prices from the score model (`packages/feed/src/pricing`); line handling in
+`packages/db/src/catalog/fixtures.ts` (it canonicalises every line with the half-point
+`parseLine`) and `apps/api/src/modules/catalog/views.ts` (`lineValue`: display and order); the
+selection labels on the web; the db test helper `marketsFor`; and an O3 rule for existing events:
+a book that gains markets is today `market_set_changed`, which would hold every re-price for a
+person and, through the hold, stop F7b. New markets must be added without holding the others.
+
 ### Phase 3: front end (weeks 5–6)
 
 | Task | What                                                                                                                                                                 | Where                                           | Who                              |

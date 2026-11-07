@@ -37,8 +37,10 @@ export interface GateMarket {
  * overround (Σ implied probability) is divided by it before the
  * [OVERROUND_MIN, OVERROUND_MAX] check. 1 = the selections partition the
  * outcomes: '1x2', 'ht_1x2', 'btts', 'ou'/'total' (half-point lines), 'dnb'
- * (void on a draw, a partition of the other outcomes), 'ml'/'winner' (no ties)
- * and 'cs' (the 4×4 grid plus 'other' covers every score). 'dc' covers every
+ * (void on a draw, a partition of the other outcomes), 'ah' (likewise: a level
+ * adjusted score on a whole line refunds), 'eh' (1/X/2 on the adjusted score),
+ * 'ml'/'winner' (no ties) and 'cs' (the 4×4 grid plus 'other' covers every
+ * score). 'dc' covers every
  * outcome exactly twice. A book under the bound is a guaranteed win for a
  * bettor backing every selection, so every market is checked.
  */
@@ -46,6 +48,8 @@ export const MARKET_OUTCOME_COVER: Readonly<Record<MarketTypeCode, number>> = Ob
   '1x2': 1,
   dc: 2,
   ou: 1,
+  ah: 1,
+  eh: 1,
   btts: 1,
   dnb: 1,
   ht_1x2: 1,
