@@ -254,6 +254,104 @@ const LIGUE_1 = football('FR', [
 ]);
 
 /**
+ * EFL Championship, the 24 clubs of 2026-27 (openfootball en.2.json). Burnley, West Ham and
+ * Wolves are relegated Premier League clubs and stay the teams of PREMIER_LEAGUE (a club is one
+ * team that can appear in several competitions), so they are not repeated here. The Welsh clubs
+ * carry GB-WLS. Starting values; `ratings backfill` learns them from finished matches.
+ */
+const CHAMPIONSHIP = mixedCountry(
+  'football',
+  ['attack', 'defence'],
+  [
+    ['GB-ENG', 'Southampton', 'Southampton', 1.0, 1.05],
+    ['GB-ENG', 'Sheffield United', 'Sheffield United', 0.95, 1.08],
+    ['GB-ENG', 'Norwich', 'Norwich City', 0.95, 1.08],
+    ['GB-ENG', 'Watford', 'Watford', 0.9, 1.1],
+    ['GB-ENG', 'Middlesbrough', 'Middlesbrough', 0.92, 1.05],
+    ['GB-ENG', 'Stoke', 'Stoke City', 0.85, 1.05],
+    ['GB-ENG', 'Millwall', 'Millwall', 0.82, 1.05],
+    ['GB-ENG', 'West Brom', 'West Bromwich Albion', 0.88, 1.08],
+    ['GB-ENG', 'Birmingham', 'Birmingham City', 0.88, 1.08],
+    ['GB-ENG', 'Blackburn', 'Blackburn Rovers', 0.85, 1.1],
+    ['GB-ENG', 'Bristol City', 'Bristol City', 0.88, 1.1],
+    ['GB-ENG', 'Derby', 'Derby County', 0.85, 1.1],
+    ['GB-ENG', 'Preston', 'Preston North End', 0.82, 1.08],
+    ['GB-ENG', 'Portsmouth', 'Portsmouth', 0.85, 1.12],
+    ['GB-ENG', 'QPR', 'Queens Park Rangers', 0.82, 1.12],
+    ['GB-ENG', 'Charlton', 'Charlton Athletic', 0.82, 1.12],
+    ['GB-ENG', 'Bolton', 'Bolton Wanderers', 0.8, 1.15],
+    ['GB-ENG', 'Lincoln', 'Lincoln City', 0.8, 1.15],
+    ['GB-WLS', 'Cardiff', 'Cardiff City', 0.8, 1.12],
+    ['GB-WLS', 'Swansea', 'Swansea City', 0.85, 1.1],
+    ['GB-WLS', 'Wrexham', 'Wrexham', 0.88, 1.12],
+  ],
+);
+
+/** The Eredivisie, 18 clubs of 2026-27 (openfootball nl.1.json); PSV and Feyenoord are in EUROPEAN_CLUBS. */
+const EREDIVISIE = football('NL', [
+  ['Ajax', 'Ajax', 1.2, 0.95],
+  ['AZ', 'AZ Alkmaar', 1.05, 1.0],
+  ['Twente', 'FC Twente', 1.05, 1.0],
+  ['Utrecht', 'FC Utrecht', 1.0, 1.02],
+  ['Heerenveen', 'SC Heerenveen', 0.95, 1.08],
+  ['Sparta Rotterdam', 'Sparta Rotterdam', 0.95, 1.08],
+  ['Go Ahead Eagles', 'Go Ahead Eagles', 0.95, 1.08],
+  ['NEC', 'NEC Nijmegen', 1.0, 1.05],
+  ['Groningen', 'FC Groningen', 0.92, 1.1],
+  ['Fortuna Sittard', 'Fortuna Sittard', 0.88, 1.12],
+  ['PEC Zwolle', 'PEC Zwolle', 0.88, 1.12],
+  ['Excelsior', 'Excelsior', 0.85, 1.12],
+  ['Willem II', 'Willem II', 0.88, 1.12],
+  ['Cambuur', 'SC Cambuur', 0.85, 1.15],
+  ['ADO Den Haag', 'ADO Den Haag', 0.85, 1.15],
+  ['Telstar', 'Telstar', 0.82, 1.15],
+]);
+
+/** The Primeira Liga, 18 clubs of 2026-27 (openfootball pt.1.json); Porto and Sporting CP are in EUROPEAN_CLUBS. */
+const PRIMEIRA_LIGA = football('PT', [
+  ['Benfica', 'Benfica', 1.2, 0.9],
+  ['Braga', 'Braga', 1.08, 0.98],
+  ['Vitoria Guimaraes', 'Vitória Guimarães', 0.98, 1.02],
+  ['Famalicao', 'Famalicão', 0.95, 1.05],
+  ['Gil Vicente', 'Gil Vicente', 0.92, 1.05],
+  ['Estoril', 'Estoril Praia', 0.92, 1.08],
+  ['Moreirense', 'Moreirense', 0.88, 1.08],
+  ['Rio Ave', 'Rio Ave', 0.88, 1.1],
+  ['Casa Pia', 'Casa Pia', 0.85, 1.1],
+  ['Arouca', 'Arouca', 0.85, 1.1],
+  ['Santa Clara', 'Santa Clara', 0.88, 1.08],
+  ['Nacional', 'Nacional', 0.85, 1.1],
+  ['Estrela Amadora', 'Estrela da Amadora', 0.82, 1.12],
+  ['Alverca', 'Alverca', 0.8, 1.15],
+  ['Maritimo', 'Marítimo', 0.82, 1.12],
+  ['Academico Viseu', 'Académico de Viseu', 0.8, 1.15],
+]);
+
+/** The Brasileirão Série A, 20 clubs of 2026 (openfootball br.1.json). */
+const BRASILEIRAO = football('BR', [
+  ['Palmeiras', 'Palmeiras', 1.25, 0.85],
+  ['Flamengo', 'Flamengo', 1.3, 0.88],
+  ['Botafogo', 'Botafogo', 1.1, 0.95],
+  ['Cruzeiro', 'Cruzeiro', 1.05, 0.95],
+  ['Atletico Mineiro', 'Atlético Mineiro', 1.08, 0.98],
+  ['Fluminense', 'Fluminense', 1.02, 1.0],
+  ['Corinthians', 'Corinthians', 0.98, 0.98],
+  ['Sao Paulo', 'São Paulo', 1.0, 0.98],
+  ['Internacional', 'Internacional', 1.0, 0.98],
+  ['Gremio', 'Grêmio', 1.0, 1.0],
+  ['Bahia', 'Bahia', 1.0, 1.0],
+  ['Vasco', 'Vasco da Gama', 0.98, 1.02],
+  ['Santos', 'Santos', 0.95, 1.05],
+  ['Athletico Paranaense', 'Athletico Paranaense', 0.95, 1.02],
+  ['Bragantino', 'RB Bragantino', 0.95, 1.02],
+  ['Vitoria', 'Vitória', 0.88, 1.08],
+  ['Coritiba', 'Coritiba', 0.85, 1.08],
+  ['Mirassol', 'Mirassol', 0.92, 1.05],
+  ['Chapecoense', 'Chapecoense', 0.82, 1.12],
+  ['Remo', 'Remo', 0.82, 1.12],
+]);
+
+/**
  * Liga de Fútbol de Primera División (Liga FPD), the 10 clubs of Apertura 2026
  * (docs/scraper-plan/sources-costa-rica.md). Ratings are deliberately neutral
  * and carry neither `matches` nor `manual`, so rule O1 treats every club as
@@ -418,6 +516,10 @@ export const CATALOG_TEAMS: readonly CatalogTeam[] = [
   ...ETHIOPIAN_PREMIER_LEAGUE,
   ...CAF_CLUBS,
   ...EUROPEAN_CLUBS,
+  ...CHAMPIONSHIP,
+  ...EREDIVISIE,
+  ...PRIMEIRA_LIGA,
+  ...BRASILEIRAO,
   ...NBA,
   ...ATP_PLAYERS,
   ...VOLLEYBALL_NATIONS,
@@ -457,6 +559,14 @@ export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
         featured: true,
         sortOrder: 10,
         teams: shortNames(PREMIER_LEAGUE),
+      },
+      {
+        slug: 'championship',
+        name: { en: 'EFL Championship', am: 'ኢኤፍኤል ቻምፒዮንሺፕ' },
+        featured: false,
+        sortOrder: 20,
+        // Relegated Premier League clubs are the same teams as in the Premier League above.
+        teams: ['Burnley', 'West Ham', 'Wolves', ...shortNames(CHAMPIONSHIP)],
       },
     ],
   },
@@ -537,6 +647,54 @@ export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
         featured: false,
         sortOrder: 10,
         teams: shortNames(LIGUE_1),
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'netherlands',
+    name: { en: 'Netherlands', am: 'ኔዘርላንድስ' },
+    countryCode: 'NL',
+    sortOrder: 62,
+    competitions: [
+      {
+        slug: 'eredivisie',
+        name: { en: 'Eredivisie', am: 'ኤርዴቪዚ' },
+        featured: false,
+        sortOrder: 10,
+        teams: ['PSV', 'Feyenoord', ...shortNames(EREDIVISIE)],
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'portugal',
+    name: { en: 'Portugal', am: 'ፖርቱጋል' },
+    countryCode: 'PT',
+    sortOrder: 64,
+    competitions: [
+      {
+        slug: 'primeira-liga',
+        name: { en: 'Primeira Liga', am: 'ፕሪሜይራ ሊጋ' },
+        featured: false,
+        sortOrder: 10,
+        teams: ['Porto', 'Sporting CP', ...shortNames(PRIMEIRA_LIGA)],
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'brazil',
+    name: { en: 'Brazil', am: 'ብራዚል' },
+    countryCode: 'BR',
+    sortOrder: 66,
+    competitions: [
+      {
+        slug: 'brasileirao-serie-a',
+        name: { en: 'Brasileirão Série A', am: 'ብራዚሌይራኦ ሴሪ አ' },
+        featured: false,
+        sortOrder: 10,
+        teams: shortNames(BRASILEIRAO),
       },
     ],
   },

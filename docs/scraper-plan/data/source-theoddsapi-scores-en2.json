@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-en2",
+  "name": "The Odds API: Championship final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_efl_champ",
+    "competition": "EFL Championship",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

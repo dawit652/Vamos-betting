@@ -1,0 +1,17 @@
+{
+  "id": "openfootball-br1",
+  "name": "openfootball: Brasileirão Série A (football.json)",
+  "adapter": "openfootball",
+  "upstream": "openfootball community (github.com/openfootball/football.json, CC0)",
+  "config": {
+    "allowedHosts": ["raw.githubusercontent.com"],
+    "requests": [
+      {
+        "url": "https://raw.githubusercontent.com/openfootball/football.json/master/2026/br.1.json",
+        "competition": "Brasileirão Série A"
+      }
+    ],
+    "timeZone": "America/Sao_Paulo",
+    "sport": "football"
+  }
+}

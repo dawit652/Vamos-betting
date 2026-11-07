@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { normalizeName } from '@vamos/scraper';
 import { describe, expect, it } from 'vitest';
-import { CATALOG_TEAMS } from '../../../packages/db/src/seed/catalog';
+import { CATALOG_CATEGORIES, CATALOG_TEAMS } from '../../../packages/db/src/seed/catalog';
 
 const DATA_DIR = resolve(__dirname, '../../../docs/scraper-plan/data');
 const ALIAS_FILES = [
@@ -163,9 +163,17 @@ describe('The Odds API club spellings', () => {
 
   it('covers every football club of the five leagues', () => {
     const covered = new Set(SPELLINGS.map(([, target]) => target));
-    const fiveLeagues = FOOTBALL.filter((t) =>
-      ['GB-ENG', 'ES', 'IT', 'DE', 'FR'].includes(t.countryCode ?? ''),
+    // The clubs seeded for the five competitions (not by country: the EFL Championship clubs are
+    // English too, and their Odds API spellings are learned from the back office's review queue).
+    const pool = new Set(
+      CATALOG_CATEGORIES.flatMap((c) => c.competitions)
+        .filter((k) =>
+          ['premier-league', 'laliga', 'serie-a', 'bundesliga', 'ligue-1'].includes(k.slug),
+        )
+        .flatMap((k) => k.teams),
     );
+    const fiveLeagues = FOOTBALL.filter((t) => pool.has(t.shortName));
+    expect(fiveLeagues).toHaveLength(pool.size);
     expect(fiveLeagues.map((t) => t.shortName).filter((s) => !covered.has(s))).toEqual([]);
   });
 
