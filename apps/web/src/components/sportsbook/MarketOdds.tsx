@@ -9,6 +9,7 @@ import { localName } from '@/lib/localized';
 import { useBetslip } from '@/providers/BetslipProvider';
 import { isBettable, shortLabel, slipLeg, type EventRef, type OddsMarket } from './events';
 import { useLiveMarketStatus, useLiveMatch, useLiveOdds } from './LiveProvider';
+import { MOVE_MS, activeMove, advanceMove, initialMove, type OddsMove } from './odds-move';
 import styles from './odds.module.css';
 
 /**
@@ -89,6 +90,7 @@ function OddsButton({
   const name = localName(selection.label, locale);
   const label = layout === 'row' ? shortLabel(selection.code) : name;
   const move = usePriceMove(live.oddsMilli);
+  const showMove = enabled ? move : null;
   // The visible "1 / 1.68" says nothing to a screen reader on a list of 20
   // rows: name the selection, the market and the match, and the price or that it is suspended.
   const described = {
@@ -99,8 +101,11 @@ function OddsButton({
       away: localName(event.away, locale),
     }),
   };
+  // aria-label replaces the button's content as its name, so the move is part of it.
   const ariaLabel = enabled
-    ? t('sportsbook.markets.oddsLabel', { ...described, odds: formatOddsMilli(live.oddsMilli) })
+    ? `${t('sportsbook.markets.oddsLabel', { ...described, odds: formatOddsMilli(live.oddsMilli) })}${
+        showMove === null ? '' : `, ${t(`common.oddsMove.${showMove}`)}`
+      }`
     : t('sportsbook.markets.oddsLabelSuspended', described);
 
   return (
@@ -123,16 +128,22 @@ function OddsButton({
         {label}
       </span>
       {enabled ? <span aria-hidden="true">{formatOddsMilli(live.oddsMilli)}</span> : <LockIcon />}
-      {enabled && move !== null ? (
-        <span
-          key={live.oddsMilli}
-          aria-hidden="true"
-          className={`${styles.move} absolute top-0.5 right-0.5 text-[0.5rem] leading-none ${
-            move === 'up' ? 'text-up' : 'text-down'
-          }`}
-        >
-          {move === 'up' ? '▲' : '▼'}
-        </span>
+      {showMove !== null ? (
+        <>
+          <span
+            key={live.oddsMilli}
+            aria-hidden="true"
+            className={`${styles.flash} ${showMove === 'up' ? styles.flashUp : styles.flashDown}`}
+          />
+          <span
+            aria-hidden="true"
+            className={`absolute top-0.5 right-0.5 text-[0.5rem] leading-none ${
+              showMove === 'up' ? 'text-up' : 'text-down'
+            }`}
+          >
+            {showMove === 'up' ? '▲' : '▼'}
+          </span>
+        </>
       ) : null}
     </button>
   );
@@ -154,14 +165,21 @@ function LockIcon() {
   );
 }
 
-/** Direction of the last live price change (the arrow fades out by itself). */
-function usePriceMove(oddsMilli: number): 'up' | 'down' | null {
-  const previous = useRef(oddsMilli);
-  const [move, setMove] = useState<'up' | 'down' | null>(null);
+/**
+ * Direction of the last price change, for MOVE_MS. The first value is a
+ * baseline; each button keeps its own state, so only the button whose price
+ * moved re-renders when the arrow appears or expires.
+ */
+function usePriceMove(oddsMilli: number): OddsMove | null {
+  const state = useRef(initialMove(oddsMilli));
+  const [move, setMove] = useState<OddsMove | null>(null);
   useEffect(() => {
-    if (oddsMilli === previous.current) return;
-    setMove(oddsMilli > previous.current ? 'up' : 'down');
-    previous.current = oddsMilli;
+    if (oddsMilli === state.current.oddsMilli) return;
+    const now = Date.now();
+    state.current = advanceMove(state.current, oddsMilli, now);
+    setMove(activeMove(state.current, now));
+    const timer = setTimeout(() => setMove(activeMove(state.current, Date.now())), MOVE_MS);
+    return () => clearTimeout(timer);
   }, [oddsMilli]);
   return move;
 }

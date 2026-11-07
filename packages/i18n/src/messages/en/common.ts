@@ -61,6 +61,10 @@ export const common = {
     odds: 'Odds',
     netPay: 'Net pay',
   },
+  oddsMove: {
+    up: 'odds up',
+    down: 'odds down',
+  },
   language: {
     label: 'Language',
     switchTo: 'Switch to {language}',

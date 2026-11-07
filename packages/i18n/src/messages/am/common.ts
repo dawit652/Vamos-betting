@@ -59,6 +59,10 @@ export const common: Messages['common'] = {
     odds: 'ኦድስ',
     netPay: 'የተጣራ ክፍያ',
   },
+  oddsMove: {
+    up: 'ኦድስ ጨምሯል',
+    down: 'ኦድስ ቀንሷል',
+  },
   language: {
     label: 'ቋንቋ',
     switchTo: 'ወደ {language} ቀይር',
