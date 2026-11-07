@@ -65,6 +65,7 @@ export const sportsbook: Messages['sportsbook'] = {
     title: 'ሊጎች',
     empty: 'አሁን ጨዋታ ያለው ሊግ የለም።',
     matches: '{count} ጨዋታዎች',
+    topLeagues: 'ምርጥ ሊጎች',
   },
   competition: {
     live: 'አሁን በቀጥታ',

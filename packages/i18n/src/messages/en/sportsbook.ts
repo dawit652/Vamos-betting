@@ -70,6 +70,7 @@ export const sportsbook = {
     title: 'Leagues',
     empty: 'No leagues with matches right now.',
     matches: '{count} matches',
+    topLeagues: 'Top leagues',
   },
   competition: {
     live: 'Live now',

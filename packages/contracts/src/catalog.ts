@@ -107,9 +107,19 @@ export type SportsResponse = z.infer<typeof SportsResponse>;
 export const CompetitionsResponse = z.object({
   items: z.array(
     z.object({
-      category: z.object({ slug: z.string(), name: LocalizedNameSchema }),
+      category: z.object({
+        slug: z.string(),
+        name: LocalizedNameSchema,
+        /** ISO 3166-1 alpha-2 code, or null for international groupings. */
+        countryCode: z.string().nullable(),
+      }),
       competitions: z.array(
-        z.object({ slug: z.string(), name: LocalizedNameSchema, eventCount: z.number().int() }),
+        z.object({
+          slug: z.string(),
+          name: LocalizedNameSchema,
+          eventCount: z.number().int(),
+          featured: z.boolean(),
+        }),
       ),
     }),
   ),

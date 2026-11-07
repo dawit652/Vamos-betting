@@ -6,6 +6,7 @@ import type {
   EventListResponse,
   SportsResponse,
 } from '@vamos/contracts';
+import { cache } from 'react';
 import { serverGet, serverGetOrNull } from './server';
 
 /**
@@ -17,9 +18,10 @@ export function getSports(): Promise<SportsResponse> {
   return serverGet<SportsResponse>('/sports');
 }
 
-export function getCompetitions(sport: string): Promise<CompetitionsResponse | null> {
-  return serverGetOrNull<CompetitionsResponse>(`/sports/${encodeURIComponent(sport)}/competitions`);
-}
+/** Once per request: the home page's league shortcuts and its Leagues tab share the result. */
+export const getCompetitions = cache((sport: string): Promise<CompetitionsResponse | null> =>
+  serverGetOrNull<CompetitionsResponse>(`/sports/${encodeURIComponent(sport)}/competitions`),
+);
 
 export function getEvents(query: Partial<EventListQuery> = {}): Promise<EventListResponse> {
   return serverGet<EventListResponse>('/events', { query });

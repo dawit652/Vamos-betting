@@ -2,7 +2,9 @@ import Link from 'next/link';
 import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { getLocale, getT } from '@/i18n/server';
 import { localName } from '@/lib/localized';
+import { flagEmoji } from '@/lib/flag';
 import { routes, type Sport } from '@/lib/routes';
+import { featuredCompetitions } from './leagues';
 import { MatchList } from './MatchList';
 import { LIST_TABS, listHref, parseCursor, parseTab, type ListTab } from './tabs';
 
@@ -31,6 +33,7 @@ export async function SportHome({
       <h1 className="sr-only">
         {t(`common.sports.${sport}`)} · {t(`sportsbook.tabs.${tab}`)}
       </h1>
+      <TopLeagues sport={sport} />
       <ListTabs path={path} current={tab} />
       {tab === 'leagues' ? (
         <Leagues sport={sport} />
@@ -38,6 +41,31 @@ export async function SportHome({
         <EventsTab sport={sport} tab={tab} cursor={cursor} path={path} />
       )}
     </>
+  );
+}
+
+/** Horizontally scrolling shortcuts to the featured competitions that have matches. */
+async function TopLeagues({ sport }: { sport: Sport }) {
+  const [t, locale, data] = await Promise.all([getT(), getLocale(), getCompetitions(sport)]);
+  const featured = featuredCompetitions(data);
+  if (featured.length === 0) return null;
+  return (
+    <nav
+      aria-label={t('sportsbook.leagues.topLeagues')}
+      className="flex gap-2 overflow-x-auto border-b border-line bg-surface px-3 py-2 text-sm"
+    >
+      {featured.map((competition) => (
+        <Link
+          key={competition.slug}
+          href={routes.competition(sport, competition.slug)}
+          prefetch={false}
+          className="flex min-h-11 flex-none items-center gap-1.5 rounded-full border border-line px-3 font-semibold whitespace-nowrap"
+        >
+          <span>{localName(competition.name, locale)}</span>
+          <span className="text-xxs font-normal text-muted">{competition.eventCount}</span>
+        </Link>
+      ))}
+    </nav>
   );
 }
 
@@ -154,6 +182,7 @@ async function Leagues({ sport }: { sport: Sport }) {
             id={`cat-${category.category.slug}`}
             className="px-3 py-1 text-xxs font-bold text-muted uppercase"
           >
+            <span aria-hidden="true">{flagEmoji(category.category.countryCode)}</span>{' '}
             {localName(category.category.name, locale)}
           </h2>
           <ul>

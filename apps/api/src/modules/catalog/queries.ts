@@ -174,8 +174,10 @@ export async function listCompetitions(
     .select({
       categorySlug: categories.slug,
       categoryName: categories.name,
+      categoryCountryCode: categories.countryCode,
       slug: competitions.slug,
       name: competitions.name,
+      featured: competitions.featured,
       eventCount: sql<number>`coalesce(${counts.eventCount}, 0)`.mapWith(Number),
     })
     .from(competitions)
@@ -193,11 +195,16 @@ export async function listCompetitions(
     items: [...groupBy(rows, (row) => row.categorySlug).values()].map((group) => {
       const [first] = group as [(typeof rows)[number], ...typeof rows];
       return {
-        category: { slug: first.categorySlug, name: localized(first.categoryName) },
+        category: {
+          slug: first.categorySlug,
+          name: localized(first.categoryName),
+          countryCode: first.categoryCountryCode,
+        },
         competitions: group.map((row) => ({
           slug: row.slug,
           name: localized(row.name),
           eventCount: row.eventCount,
+          featured: row.featured,
         })),
       };
     }),

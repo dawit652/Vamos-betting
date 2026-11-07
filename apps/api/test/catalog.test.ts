@@ -84,7 +84,7 @@ beforeAll(async () => {
   await insertSport(db, 'tennis', { en: 'Tennis', am: 'ቴኒስ' }, 30);
   await insertSport(db, 'volleyball', { en: 'Volleyball' }, 40, false);
 
-  const england = await insertCategory(db, 'football', 'england', { en: 'England' }, 10);
+  const england = await insertCategory(db, 'football', 'england', { en: 'England' }, 10, 'GB');
   const ethiopia = await insertCategory(
     db,
     'football',
@@ -426,30 +426,46 @@ describe('GET /sports/:sport/competitions', () => {
     const body = CompetitionsResponse.parse(response.json());
     expect(body.items).toEqual([
       {
-        category: { slug: 'england', name: { en: 'England' } },
+        category: { slug: 'england', name: { en: 'England' }, countryCode: 'GB' },
         competitions: [
           {
             slug: 'premier-league',
             name: { en: 'Premier League', am: 'ፕሪሚየር ሊግ' },
             eventCount: 3, // live, tomorrow, closedBetting
+            featured: true,
           },
         ],
       },
       {
-        category: { slug: 'ethiopia', name: { en: 'Ethiopia', am: 'ኢትዮጵያ' } },
+        category: {
+          slug: 'ethiopia',
+          name: { en: 'Ethiopia', am: 'ኢትዮጵያ' },
+          countryCode: null,
+        },
         competitions: [
           {
             slug: 'ethiopian-premier-league',
             name: { en: 'Ethiopian Premier League', am: 'የኢትዮጵያ ፕሪምየር ሊግ' },
             eventCount: 1,
+            featured: true,
           },
         ],
       },
       {
-        category: { slug: 'africa', name: { en: 'Africa' } },
+        category: { slug: 'africa', name: { en: 'Africa' }, countryCode: null },
         competitions: [
-          { slug: 'caf-champions-league', name: { en: 'CAF Champions League' }, eventCount: 1 },
-          { slug: 'caf-confederation-cup', name: { en: 'CAF Confederation Cup' }, eventCount: 0 },
+          {
+            slug: 'caf-champions-league',
+            name: { en: 'CAF Champions League' },
+            eventCount: 1,
+            featured: false,
+          },
+          {
+            slug: 'caf-confederation-cup',
+            name: { en: 'CAF Confederation Cup' },
+            eventCount: 0,
+            featured: false,
+          },
         ],
       },
     ]);
