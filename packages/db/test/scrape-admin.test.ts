@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   addCompetitionAlias,
   addTeamAlias,
+  addTeamWithAlias,
   closeReviewItemsBySubject,
   countReviewItemsByKind,
   getCompetitionPolicy,
@@ -574,6 +575,100 @@ describe('review items', () => {
         );
       expect(pgCode(error), JSON.stringify(values)).toBe('23514');
     }
+  });
+});
+
+describe('addTeamWithAlias', () => {
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  const base = {
+    sportId: 'football',
+    countryCode: 'IT',
+    sourceId: null,
+    normalize: norm,
+  };
+
+  it('creates a team without ratings and its alias, audited; a short name clash gets a suffix', async () => {
+    const made = await tx((t) =>
+      addTeamWithAlias(
+        t,
+        { ...base, name: { en: 'Newtown United' }, shortName: 'NTU', aliasNorm: 'newtown utd' },
+        STAFF,
+      ),
+    );
+    const [row] = await ctx.handle.db.select().from(teams).where(eq(teams.id, made.teamId));
+    expect(row).toMatchObject({
+      sportId: 'football',
+      name: { en: 'Newtown United' },
+      shortName: 'NTU',
+      countryCode: 'IT',
+      ratings: null,
+    });
+    const [alias] = await ctx.handle.db
+      .select()
+      .from(teamAliases)
+      .where(eq(teamAliases.id, made.aliasId));
+    expect(alias).toMatchObject({ teamId: made.teamId, aliasNorm: 'newtown utd', sourceId: null });
+    expect(await audits('scrape.team.added', made.teamId)).toHaveLength(1);
+    expect(await audits('scrape.alias.added', made.aliasId)).toHaveLength(1);
+    expect((await tx((t) => getTeamRatings(t, [made.teamId]))).get(made.teamId)).toEqual({
+      ratings: null,
+      matches: 0,
+      manual: false,
+    });
+
+    const second = await tx((t) =>
+      addTeamWithAlias(
+        t,
+        { ...base, name: { en: 'Nottown Utd Reserves' }, shortName: 'NTU', aliasNorm: 'nottown' },
+        STAFF,
+      ),
+    );
+    expect(second.shortName).toBe('NTU 2');
+    const third = await tx((t) =>
+      addTeamWithAlias(
+        t,
+        { ...base, name: { en: 'Nutown FC' }, shortName: 'NTU', aliasNorm: 'nutown' },
+        STAFF,
+      ),
+    );
+    expect(third.shortName).toBe('NTU 3');
+  });
+
+  it('refuses a name or alias the sport already has (409 team_exists) and creates nothing', async () => {
+    const before = await ctx.handle.db.select().from(teams);
+    const dupName = await tx((t) =>
+      addTeamWithAlias(
+        t,
+        { ...base, name: { en: ' ARSENAL ' }, shortName: 'ARS2', aliasNorm: 'arsenal london' },
+        STAFF,
+      ),
+    ).catch((e: unknown) => e);
+    expect(dupName).toMatchObject({ status: 409, code: 'team_exists' });
+    await tx((t) =>
+      addTeamAlias(
+        t,
+        {
+          sportId: 'football',
+          aliasNorm: 'the blues',
+          sourceId: null,
+          teamId: ctx.team('Chelsea'),
+        },
+        STAFF,
+      ),
+    );
+    const dupAlias = await tx((t) =>
+      addTeamWithAlias(
+        t,
+        { ...base, name: { en: 'Blues Town' }, shortName: 'BLT', aliasNorm: 'the blues' },
+        STAFF,
+      ),
+    ).catch((e: unknown) => e);
+    expect(dupAlias).toMatchObject({ status: 409, code: 'team_exists' });
+    expect(await ctx.handle.db.select().from(teams)).toHaveLength(before.length);
   });
 });
 

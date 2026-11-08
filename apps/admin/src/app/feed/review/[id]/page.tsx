@@ -146,6 +146,66 @@ function MapAlias({
   );
 }
 
+const COUNTRY_CODE = /^[A-Z]{2}(-[A-Z0-9]{2,3})?$/;
+
+/** "Add as a new club": creates the team and maps the raw name to it in one step. */
+function AddTeam({ raw, resolve }: { raw: string; resolve: Resolve }) {
+  const [en, setEn] = useState(raw.trim());
+  const [am, setAm] = useState('');
+  const [shortName, setShortName] = useState('');
+  const [country, setCountry] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div>
+      <h3>Add as a new club</h3>
+      <p className="muted small">
+        Creates the club with no ratings, so its matches stay closed until its ratings are learned
+        or reviewed. If the club is already in the catalogue, map the name to it instead.
+      </p>
+      <Field label="English name">
+        <input value={en} onChange={(e) => setEn(e.target.value)} maxLength={60} />
+      </Field>
+      <Field label="Amharic name (optional)">
+        <input value={am} onChange={(e) => setAm(e.target.value)} maxLength={60} />
+      </Field>
+      <Field label="Short name">
+        <input value={shortName} onChange={(e) => setShortName(e.target.value)} maxLength={40} />
+      </Field>
+      <Field label="Country code (optional, e.g. ES or GB-ENG)">
+        <input
+          value={country}
+          onChange={(e) => setCountry(e.target.value.toUpperCase())}
+          maxLength={6}
+        />
+      </Field>
+      <ActionButton
+        label="Add club"
+        onAction={async () => {
+          const name = en.trim();
+          const short = shortName.trim();
+          const code = country.trim();
+          if (name.length < 2 || short.length < 2) {
+            setError('Enter an English name and a short name of at least two characters.');
+            return;
+          }
+          if (code !== '' && !COUNTRY_CODE.test(code)) {
+            setError('The country code looks like ES or GB-ENG.');
+            return;
+          }
+          setError(null);
+          await resolve({
+            decision: 'add_team',
+            name: am.trim() === '' ? { en: name } : { en: name, am: am.trim() },
+            shortName: short,
+            ...(code === '' ? {} : { countryCode: code }),
+          });
+        }}
+      />
+      {error !== null && <Notice>{error}</Notice>}
+    </div>
+  );
+}
+
 function Observations({
   observations,
 }: {
@@ -354,6 +414,9 @@ function Body({
               suggestions={p.suggestions}
               resolve={resolve}
             />
+          )}
+          {kind === 'unknown_team' && allow('add_team') && (
+            <AddTeam raw={p.raw} resolve={resolve} />
           )}
         </>
       );

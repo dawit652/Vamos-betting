@@ -1,5 +1,5 @@
 import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
-import { domainNotFound, domainUnprocessable } from '../errors';
+import { domainConflict, domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { competitions, teams, type LocalizedName } from '../schema/catalog';
 import { competitionAliases, teamAliases } from '../schema/scrape';
@@ -119,6 +119,97 @@ export async function addTeamAlias(
   }
   return { alias: teamRecord(existing), created: false };
 }
+
+export interface NewTeamInput {
+  sportId: string;
+  name: LocalizedName;
+  shortName: string;
+  countryCode: string | null;
+  /** The raw name of the review item, normalised by the caller (it becomes the alias). */
+  aliasNorm: string;
+  sourceId: string | null;
+  /** The scraper's normalizeName: names and aliases are compared through it. */
+  normalize: (name: string) => string;
+}
+
+/**
+ * Creates a catalogue team from an unknown-team review item and maps the raw name to
+ * it, audited. The team has no ratings: O1 keeps its matches closed until they are
+ * learned or reviewed. `shortName` is the per-sport unique key (the team's slug): a clash
+ * gets a numeric suffix. Refused with 409 `team_exists` when a team of the sport already
+ * has the new name or the raw name as its name, short name or alias (map the item instead).
+ */
+export async function addTeamWithAlias(
+  tx: DbTransaction,
+  input: NewTeamInput,
+  actor: ScrapeActor,
+): Promise<{ teamId: string; shortName: string; aliasId: string }> {
+  assertAliasText(input.aliasNorm);
+  const wanted = new Set(
+    [input.aliasNorm, ...localizedNames(input.name)]
+      .map((n) => input.normalize(n))
+      .filter((n) => n !== ''),
+  );
+  const existing = await tx
+    .select({ id: teams.id, shortName: teams.shortName, name: teams.name })
+    .from(teams)
+    .where(eq(teams.sportId, input.sportId));
+  for (const team of existing) {
+    const known = [team.shortName, ...localizedNames(team.name)].map((n) => input.normalize(n));
+    if (known.some((n) => wanted.has(n))) throw teamExists(team.id);
+  }
+  const aliases = await tx
+    .select({ teamId: teamAliases.teamId, aliasNorm: teamAliases.aliasNorm })
+    .from(teamAliases)
+    .where(eq(teamAliases.sportId, input.sportId));
+  for (const alias of aliases) {
+    if (wanted.has(alias.aliasNorm)) throw teamExists(alias.teamId);
+  }
+
+  const taken = new Set(existing.map((t) => t.shortName));
+  let shortName = input.shortName;
+  for (let n = 2; taken.has(shortName); n += 1) {
+    const suffix = ` ${n}`;
+    shortName = input.shortName.slice(0, 40 - suffix.length) + suffix;
+  }
+  const [team] = await tx
+    .insert(teams)
+    .values({
+      sportId: input.sportId,
+      name: input.name,
+      shortName,
+      countryCode: input.countryCode,
+      ratings: null,
+    })
+    .returning({ id: teams.id });
+  if (team === undefined) throw new Error('team insert returned no row');
+  await auditScrape(tx, actor, {
+    action: 'scrape.team.added',
+    targetType: 'team',
+    targetId: team.id,
+    metadata: { sportId: input.sportId, name: input.name, shortName, aliasNorm: input.aliasNorm },
+  });
+  const { alias } = await addTeamAlias(
+    tx,
+    {
+      sportId: input.sportId,
+      aliasNorm: input.aliasNorm,
+      sourceId: input.sourceId,
+      teamId: team.id,
+    },
+    actor,
+  );
+  return { teamId: team.id, shortName, aliasId: alias.id };
+}
+
+const teamExists = (existingTeamId: string) =>
+  domainConflict(
+    'team_exists',
+    'A team with this name already exists: map the name to it instead',
+    {
+      existingTeamId,
+    },
+  );
 
 /** The same for competition labels. */
 export async function addCompetitionAlias(

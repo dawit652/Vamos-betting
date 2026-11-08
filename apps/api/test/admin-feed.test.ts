@@ -40,6 +40,7 @@ import {
 } from '@vamos/core';
 import {
   finishRun,
+  loadAliasInputs,
   openReviewItem,
   recordEventHeld,
   schema,
@@ -50,11 +51,13 @@ import {
   type Database,
 } from '@vamos/db';
 import {
+  buildAliasIndex,
   decideFixture,
   heldKeyOf,
   normalizeName,
   ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
+  resolveTeam,
   type FixtureObservation,
   type ResolvedObservation,
 } from '@vamos/scraper';
@@ -622,6 +625,115 @@ describe('POST /admin/feed/review/:id/resolve', () => {
     expect((await itemRow(broken)).status).toBe('open');
     expect((await itemRow(odds)).status).toBe('open');
     expect((await itemRow(reprice)).status).toBe('open');
+  });
+
+  it('add_team creates the club and its alias, resolves the item; another spelling then resolves through the alias', async () => {
+    const raw = '  Nova  Gebeya F.C. ';
+    const item = await openItem('unknown_team', {
+      sport: 'football',
+      raw,
+      competition: 'Cup',
+      sourceId: 'src-ok',
+      suggestions: [],
+    });
+    const body = {
+      decision: 'add_team',
+      name: { en: 'Nova Gebeya', am: 'ኖቫ ገበያ' },
+      shortName: 'NOV',
+      countryCode: 'ET',
+    };
+    const response = await resolve('trader', item, body);
+    expect(response.statusCode, response.body).toBe(200);
+    const result = ResolveReviewResponse.parse(response.json());
+    const teamId = result.item.resolution!.teamId as string;
+    expect(result.item).toMatchObject({
+      status: 'resolved',
+      resolvedBy: as('trader').id,
+      resolution: { decision: 'add_team', teamId, by: as('trader').id },
+    });
+    const [team] = await db.select().from(schema.teams).where(eq(schema.teams.id, teamId));
+    expect(team).toMatchObject({
+      sportId: 'football',
+      name: { en: 'Nova Gebeya', am: 'ኖቫ ገበያ' },
+      shortName: 'NOV',
+      countryCode: 'ET',
+      ratings: null,
+    });
+    const [alias] = await db
+      .select()
+      .from(schema.teamAliases)
+      .where(eq(schema.teamAliases.aliasNorm, normalizeName(raw)));
+    expect(alias).toMatchObject({ teamId, sourceId: null, createdBy: as('trader').id });
+    expect(await auditActions('scrape.team.added', teamId)).toHaveLength(1);
+    expect(await auditActions('scrape.alias.added', alias!.id)).toHaveLength(1);
+    expect(await auditActions('scrape.review.resolved', item)).toHaveLength(1);
+
+    // Another source spells the club the same way (case, dots, spacing): the alias resolves it,
+    // so no new item is needed; a second item with that name is not a new club (409).
+    const index = buildAliasIndex(await db.transaction((tx) => loadAliasInputs(tx, 'football')));
+    for (const spelling of [raw, 'nova gebeya f.c.', 'Nova Gebeya']) {
+      expect(
+        resolveTeam(index, { sportId: 'football', sourceId: 'src-off', raw: spelling }),
+        spelling,
+      ).toMatchObject({ status: 'resolved', id: teamId });
+    }
+    const again = await openItem('unknown_team', {
+      sport: 'football',
+      raw: 'NOVA GEBEYA F.C.',
+      competition: 'Cup',
+      sourceId: 'src-off',
+      suggestions: [],
+    });
+    const dup = await resolve('trader', again, { ...body, shortName: 'NOV2' });
+    expect(dup.statusCode, dup.body).toBe(409);
+    expect(errorOf(dup).code).toBe('team_exists');
+  });
+
+  it('add_team: a name the sport already has is 409 team_exists, nothing is created; a wrong kind is 422; a role without trading.status is 403', async () => {
+    const teamsBefore = (await db.select().from(schema.teams)).length;
+    const payload = (raw: string) => ({
+      sport: 'football',
+      raw,
+      competition: 'Cup',
+      sourceId: 'src-ok',
+      suggestions: [],
+    });
+    const exists = await openItem('unknown_team', payload('Saint George SC'));
+    const clash = await resolve('trader', exists, {
+      decision: 'add_team',
+      name: { en: 'Saint George' },
+      shortName: 'SGE',
+    });
+    expect(clash.statusCode, clash.body).toBe(409);
+    expect(errorOf(clash).code).toBe('team_exists');
+    expect((await itemRow(exists)).status).toBe('open');
+    expect((await db.select().from(schema.teams)).length).toBe(teamsBefore);
+
+    const competition = await openItem('unknown_competition', {
+      sport: 'football',
+      raw: 'Some Cup',
+      sourceId: 'src-ok',
+      suggestions: [],
+    });
+    const wrong = await resolve('admin', competition, {
+      decision: 'add_team',
+      name: { en: 'Some Cup' },
+      shortName: 'SCP',
+    });
+    expect(wrong.statusCode).toBe(422);
+    expect(errorOf(wrong).code).toBe('decision_not_allowed');
+
+    const fresh = await openItem('unknown_team', payload('Quiet Town'));
+    for (const role of STAFF_ROLES.filter((r) => r !== 'admin' && r !== 'trader')) {
+      const refused = await resolve(role, fresh, {
+        decision: 'add_team',
+        name: { en: 'Quiet Town' },
+        shortName: 'QTN',
+      });
+      expect(refused.statusCode, role).toBe(403);
+    }
+    expect((await itemRow(fresh)).status).toBe('open');
+    expect((await db.select().from(schema.teams)).length).toBe(teamsBefore);
   });
 
   it('map_alias adds the normalised alias (all sources or one), closes the item, audits; the same name for another target is 409', async () => {

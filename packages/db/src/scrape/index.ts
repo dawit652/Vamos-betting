@@ -87,6 +87,7 @@ export {
 export {
   addCompetitionAlias,
   addTeamAlias,
+  addTeamWithAlias,
   listAliases,
   loadAliasInputs,
   localizedNames,
@@ -96,6 +97,7 @@ export {
   type AliasListRow,
   type AliasRecord,
   type CompetitionAliasInput,
+  type NewTeamInput,
   type TeamAliasInput,
 } from './aliases';
 export {

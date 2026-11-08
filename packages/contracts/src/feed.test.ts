@@ -112,6 +112,13 @@ describe('feed closed sets', () => {
     }
   });
 
+  it('allows add_team on unknown_team items only, with the permission of map_alias', () => {
+    expect(FEED_RESOLVE_DECISION_KINDS.add_team).toEqual(['unknown_team']);
+    expect(resolveReviewPermission({ decision: 'add_team' })).toBe(
+      resolveReviewPermission({ decision: 'map_alias' }),
+    );
+  });
+
   it('keep regular time as the only score basis a result may be confirmed on', () => {
     expect(FEED_SCORE_BASES).toEqual(['regular_time', 'includes_extra_time', 'unknown']);
   });
@@ -123,6 +130,14 @@ describe('feed requests', () => {
       { decision: 'dismiss', note: 'duplicate of another item' },
       { decision: 'map_alias', targetId: 'team_1' },
       { decision: 'map_alias', targetId: 'team_1', sourceId: 'openfootball-en1' },
+      { decision: 'add_team', name: { en: 'Roma' }, shortName: 'ROM' },
+      {
+        decision: 'add_team',
+        name: { en: 'Brighton & Hove Albion', am: 'ብራይተን' },
+        shortName: 'BHA',
+        countryCode: 'GB-ENG',
+        sourceId: 'openfootball-en1',
+      },
       { decision: 'open_betting' },
       { decision: 'apply_result' },
       { decision: 'apply_result', note: 'checked on the league site' },
@@ -142,6 +157,18 @@ describe('feed requests', () => {
       { decision: 'dismiss', note: '   ' },
       { decision: 'dismiss', note: 'x'.repeat(2001) },
       { decision: 'apply_result', note: ' ' },
+      { decision: 'add_team' },
+      { decision: 'add_team', shortName: 'ROM' },
+      { decision: 'add_team', name: { en: 'Roma' } },
+      { decision: 'add_team', name: { en: 'R' }, shortName: 'ROM' },
+      { decision: 'add_team', name: { en: 'x'.repeat(61) }, shortName: 'ROM' },
+      { decision: 'add_team', name: { en: 'Roma', fr: 'Rome' }, shortName: 'ROM' },
+      { decision: 'add_team', name: { en: 'Roma' }, shortName: 'R' },
+      { decision: 'add_team', name: { en: 'Roma' }, shortName: 'x'.repeat(41) },
+      { decision: 'add_team', name: { en: 'Roma' }, shortName: 'ROM', countryCode: 'it' },
+      { decision: 'add_team', name: { en: 'Roma' }, shortName: 'ROM', countryCode: 'ITA' },
+      { decision: 'add_team', name: { en: 'Roma' }, shortName: 'ROM', sourceId: '' },
+      { decision: 'add_team', name: { en: 'Roma' }, shortName: 'ROM', targetId: 'team_1' },
       { decision: 'map_alias' },
       { decision: 'map_alias', targetId: '' },
       { decision: 'map_alias', targetId: 'x'.repeat(65) },

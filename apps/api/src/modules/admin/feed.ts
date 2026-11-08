@@ -38,6 +38,7 @@ import {
 import {
   addCompetitionAlias,
   addTeamAlias,
+  addTeamWithAlias,
   apiCreditUsage,
   countReviewItemsByKind,
   DomainError,
@@ -593,6 +594,35 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             if (kind === 'team') await addTeamAlias(tx, { ...alias, teamId: targetId }, actor);
             else await addCompetitionAlias(tx, { ...alias, competitionId: targetId }, actor);
             resolution = { decision: 'map_alias', targetId, sourceId, by: actor.adminId };
+            break;
+          }
+          case 'add_team': {
+            const payload = parseReviewPayload('unknown_team', item.payload);
+            if (payload === null) throw badPayload();
+            const sourceId = input.sourceId ?? null;
+            if (sourceId !== null && (await getSource(tx, sourceId)) === null) {
+              throw notFound('Source');
+            }
+            const name = input.name.am === undefined ? { en: input.name.en } : input.name;
+            const created = await addTeamWithAlias(
+              tx,
+              {
+                sportId: payload.sport,
+                name,
+                shortName: input.shortName,
+                countryCode: input.countryCode ?? null,
+                aliasNorm: normalizeName(payload.raw),
+                sourceId,
+                normalize: normalizeName,
+              },
+              actor,
+            );
+            resolution = {
+              decision: 'add_team',
+              teamId: created.teamId,
+              sourceId,
+              by: actor.adminId,
+            };
             break;
           }
           case 'open_betting': {

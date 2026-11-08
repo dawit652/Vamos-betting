@@ -119,6 +119,11 @@ const RawName = z
   .max(120)
   .regex(NO_CONTROL_CHARS, 'control characters are not allowed');
 
+/** The country code of a catalogue team: `ES`, or with a subdivision `GB-ENG`. */
+export const TeamCountryCode = z
+  .string()
+  .regex(/^[A-Z]{2}(-[A-Z0-9]{2,3})?$/, 'not a country code');
+
 function page<T extends z.ZodType>(item: T) {
   return z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 }
@@ -636,6 +641,9 @@ export type ReviewDetailResponse = z.infer<typeof ReviewDetailResponse>;
  * - dismiss: close without acting; any kind; the note says why.
  * - map_alias: unknown_team / unknown_competition: map the raw name to
  *   `targetId` (for `sourceId` only, or every source).
+ * - add_team: unknown_team only: create the club (no ratings, so its matches stay
+ *   closed until O1 is met) and map the item's raw name to it, in one step. 409
+ *   `team_exists` when the sport already has a team or alias with that name.
  * - open_betting: odds_approval: open betting on the event at the prices it proposes.
  * - apply_result: result_ready / result_unverified: apply the score the item
  *   proposes. The request carries no score: the server applies the one in the
@@ -650,6 +658,33 @@ export type ReviewDetailResponse = z.infer<typeof ReviewDetailResponse>;
 export const ResolveReviewRequest = z.discriminatedUnion('decision', [
   z.strictObject({ decision: z.literal('dismiss'), note: Note }),
   z.strictObject({ decision: z.literal('map_alias'), targetId: Id, sourceId: Id.optional() }),
+  z.strictObject({
+    decision: z.literal('add_team'),
+    name: z.strictObject({
+      en: z
+        .string()
+        .trim()
+        .min(2)
+        .max(60)
+        .regex(NO_CONTROL_CHARS, 'control characters are not allowed'),
+      am: z
+        .string()
+        .trim()
+        .min(1)
+        .max(60)
+        .regex(NO_CONTROL_CHARS, 'control characters are not allowed')
+        .optional(),
+    }),
+    shortName: z
+      .string()
+      .trim()
+      .min(2)
+      .max(40)
+      .regex(NO_CONTROL_CHARS, 'control characters are not allowed'),
+    /** ISO 3166-1 alpha-2, or with a subdivision as the catalogue has it (GB-ENG). */
+    countryCode: TeamCountryCode.optional(),
+    sourceId: Id.optional(),
+  }),
   z.strictObject({ decision: z.literal('open_betting') }),
   z.strictObject({ decision: z.literal('apply_result'), note: Note.optional() }),
   z.strictObject({ decision: z.literal('apply_kickoff') }),
@@ -660,6 +695,7 @@ export type ResolveReviewRequest = z.infer<typeof ResolveReviewRequest>;
 export const FEED_RESOLVE_DECISIONS = [
   'dismiss',
   'map_alias',
+  'add_team',
   'open_betting',
   'apply_result',
   'apply_kickoff',
@@ -671,6 +707,7 @@ export type FeedResolveDecision = (typeof FEED_RESOLVE_DECISIONS)[number];
 export const FEED_RESOLVE_DECISION_KINDS = {
   dismiss: FEED_REVIEW_KINDS,
   map_alias: ['unknown_team', 'unknown_competition'],
+  add_team: ['unknown_team'],
   open_betting: ['odds_approval'],
   apply_result: ['result_ready', 'result_unverified'],
   apply_kickoff: ['kickoff_change'],
@@ -685,6 +722,7 @@ export const FEED_RESOLVE_DECISION_KINDS = {
 export const FEED_RESOLVE_DECISION_PERMISSIONS = {
   dismiss: 'trading.status',
   map_alias: 'trading.status',
+  add_team: 'trading.status',
   open_betting: 'trading.status',
   apply_result: 'trading.result',
   apply_kickoff: 'trading.status',
