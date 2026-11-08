@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-cdr",
+  "name": "The Odds API: Copa del Rey final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_spain_copa_del_rey",
+    "competition": "Copa del Rey",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

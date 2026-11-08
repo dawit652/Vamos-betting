@@ -375,7 +375,11 @@ describe('loadFeedTeams', () => {
     expect(feed.competitions.map((c) => `${c.sport}/${c.slug}`)).toEqual(
       CATALOG_SPORTS.flatMap((sport) =>
         CATALOG_CATEGORIES.filter((category) => category.sport === sport.id).flatMap((category) =>
-          category.competitions.map((competition) => `${sport.id}/${competition.slug}`),
+          // Cups and the competitions without a club list (pool of fewer than two) have no
+          // fixtures to draw: the mock feed leaves them out.
+          category.competitions
+            .filter((competition) => competition.teams.length >= 2)
+            .map((competition) => `${sport.id}/${competition.slug}`),
         ),
       ),
     );
@@ -417,8 +421,8 @@ describe('loadFeedTeams', () => {
       {
         sportId: 'football',
         categoryId: england[0]!.id,
-        slug: 'fa-cup',
-        name: { en: 'FA Cup' },
+        slug: 'community-shield',
+        name: { en: 'Community Shield' },
       },
       // No country on the category and no seeded pool: nothing to draw fixtures from.
       {
@@ -438,13 +442,13 @@ describe('loadFeedTeams', () => {
     expect(premier.find((t) => t.shortName === 'Arsenal')?.ratings).toEqual(
       DEFAULT_TEAM_RATINGS.football,
     );
-    expect(feed.teams['fa-cup']?.map((t) => t.shortName).sort()).toEqual(
+    expect(feed.teams['community-shield']?.map((t) => t.shortName).sort()).toEqual(
       CATALOG_TEAMS.filter((t) => t.countryCode === 'GB-ENG')
         .map((t) => t.shortName)
         .sort(),
     );
-    expect(feed.competitions.find((c) => c.slug === 'fa-cup')).toEqual({
-      slug: 'fa-cup',
+    expect(feed.competitions.find((c) => c.slug === 'community-shield')).toEqual({
+      slug: 'community-shield',
       sport: 'football',
       featured: false,
     });

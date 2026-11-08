@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-be1",
+  "name": "The Odds API: Belgian Pro League final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_belgium_first_div",
+    "competition": "Belgian Pro League",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

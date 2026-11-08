@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-en4",
+  "name": "The Odds API: League Two final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_england_league2",
+    "competition": "EFL League Two",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

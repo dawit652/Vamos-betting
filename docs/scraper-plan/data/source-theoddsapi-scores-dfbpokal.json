@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-dfbpokal",
+  "name": "The Odds API: DFB-Pokal final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_germany_dfb_pokal",
+    "competition": "DFB-Pokal",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}
