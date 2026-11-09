@@ -117,7 +117,8 @@ test('KYC, deposit, wager, withdraw, approve and see it paid', async ({
 
   const options = await paymentOptions(request);
   expect(options.demo).toBe(true);
-  expect(options.providers.map((p) => p.name)).toEqual(['mock']);
+  // The mock provider comes first, so it is the default (the stack also runs the simulated SMS rail).
+  expect(options.providers[0]?.name).toBe('mock');
   const { minDeposit, minWithdrawal, autoApproveBelow } = options.limits;
   // S: the stake on each outcome, and the withdrawal. Not below auto-approval, so it is reviewed.
   const stake =
@@ -155,7 +156,7 @@ test('KYC, deposit, wager, withdraw, approve and see it paid', async ({
 
   await test.step('a deposit declined on the simulated phone adds nothing', async () => {
     await page.goto('/wallet/deposit');
-    await expect(page.getByText('Mock mobile money (play money)')).toBeVisible();
+    await expect(page.locator('#deposit-provider')).toHaveValue('mock');
     await page.locator('#deposit-amount').fill(typedBirr(minDeposit));
     await page.getByRole('button', { name: `Deposit ETB ${birr(minDeposit)}` }).click();
     await expect(page.getByText('Waiting for approval')).toBeVisible();

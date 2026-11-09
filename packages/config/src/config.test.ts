@@ -275,6 +275,20 @@ describe('loadConfig', () => {
     const config = loadConfig({});
     expect(config.payments).toEqual({
       callbackBaseUrl: 'http://localhost:4000',
+      sms: {
+        mode: 'simulated',
+        gatewaySecret: undefined,
+        gatewayAllowlist: [],
+        collectionAccounts: [
+          { institution: 'telebirr', account: '0900000000', name: 'Vamos Demo' },
+          { institution: 'cbe', account: '1000000000000', name: 'Vamos Demo' },
+        ],
+        operatorLegalName: undefined,
+        receiptVerify: 'audit',
+        receiptVerifyTimeoutMs: 6000,
+        requirePayoutProof: false,
+        payoutProofWaived: false,
+      },
       mock: { webhookSecret: DEV_MOCK_PAYMENT_WEBHOOK_SECRET },
       chapa: { baseUrl: 'https://api.chapa.co/v1', secretKey: undefined, webhookSecret: undefined },
       telebirr: {
@@ -707,5 +721,101 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
         scraper: { ...config.scraper, archiveDir: 'x', contact: undefined, robots: 'off' },
       }),
     ).toHaveLength(3);
+  });
+});
+
+describe('the SMS deposit rail', () => {
+  const LIVE_ACCOUNTS = JSON.stringify([
+    { institution: 'telebirr', account: '0911000000', name: 'Vamos Betting PLC' },
+    { institution: 'cbe', account: '1000123456789', name: 'VAMOS BETTING P.L.C.' },
+  ]);
+  const LIVE_SMS = {
+    PAYMENT_PROVIDERS: 'sms',
+    SMS_RAIL_MODE: 'live',
+    SMS_GATEWAY_SECRET: 'g'.repeat(40),
+    SMS_COLLECTION_ACCOUNTS: LIVE_ACCOUNTS,
+    OPERATOR_LEGAL_NAME: 'Vamos Betting P.L.C',
+    PAYOUT_REQUIRE_PROOF: 'true',
+  };
+
+  it('runs simulated in demo mode, on the demo collection accounts', () => {
+    const config = loadConfig({ PAYMENT_PROVIDERS: 'mock,sms' });
+    expect(config.payments.sms.mode).toBe('simulated');
+    expect(config.payments.sms.collectionAccounts.map((a) => a.institution)).toEqual([
+      'telebirr',
+      'cbe',
+    ]);
+  });
+
+  it('refuses the live rail and real collection accounts in demo mode', () => {
+    expect(problemsOf({ PAYMENT_PROVIDERS: 'sms', SMS_RAIL_MODE: 'live' }).join('\n')).toMatch(
+      /demo mode only allows the "mock" payment provider and the simulated SMS rail \(got: sms\)/,
+    );
+    expect(
+      problemsOf({ PAYMENT_PROVIDERS: 'sms', SMS_COLLECTION_ACCOUNTS: LIVE_ACCOUNTS }).join('\n'),
+    ).toMatch(/SMS_COLLECTION_ACCOUNTS is for the live SMS rail/);
+  });
+
+  it('accepts a fully configured live rail in licensed mode', () => {
+    const config = loadConfig({ ...LICENSED_ENV, ...LIVE_SMS });
+    expect(config.payments.sms).toMatchObject({
+      mode: 'live',
+      receiptVerify: 'audit',
+      requirePayoutProof: true,
+    });
+    expect(config.payments.sms.collectionAccounts).toHaveLength(2);
+  });
+
+  it('refuses the simulated rail, a weak or reused secret and personal accounts in licensed mode', () => {
+    const simulated = problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_RAIL_MODE: 'simulated' }).join(
+      '\n',
+    );
+    expect(simulated).toMatch(/SMS_RAIL_MODE=live is required/);
+    expect(
+      problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_GATEWAY_SECRET: 'short' }).join('\n'),
+    ).toMatch(/SMS_GATEWAY_SECRET must be set \(32\+ characters\)/);
+    expect(
+      problemsOf({
+        ...LICENSED_ENV,
+        ...LIVE_SMS,
+        SMS_GATEWAY_SECRET: LICENSED_ENV.SESSION_SECRET,
+      }).join('\n'),
+    ).toMatch(/SMS_GATEWAY_SECRET must be its own secret/);
+    const personal = JSON.stringify([
+      { institution: 'telebirr', account: '0911000000', name: 'Abebe Kebede' },
+    ]);
+    expect(
+      problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: personal }).join('\n'),
+    ).toMatch(/not in OPERATOR_LEGAL_NAME \(personal accounts are not allowed\)/);
+    const { OPERATOR_LEGAL_NAME: _name, ...noName } = LIVE_SMS;
+    expect(problemsOf({ ...LICENSED_ENV, ...noName }).join('\n')).toMatch(
+      /OPERATOR_LEGAL_NAME is required/,
+    );
+  });
+
+  it('refuses the live rail without receipt audit or payout proof unless waived', () => {
+    expect(problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, RECEIPT_VERIFY: 'off' }).join('\n')).toMatch(
+      /RECEIPT_VERIFY must be "audit"/,
+    );
+    const { PAYOUT_REQUIRE_PROOF: _proof, ...noProof } = LIVE_SMS;
+    expect(problemsOf({ ...LICENSED_ENV, ...noProof }).join('\n')).toMatch(
+      /PAYOUT_REQUIRE_PROOF=true is required/,
+    );
+    expect(problemsOf({ ...LICENSED_ENV, ...noProof, PAYOUT_PROOF_WAIVED: 'true' })).toEqual([]);
+  });
+
+  it('rejects malformed collection accounts', () => {
+    expect(
+      problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: 'not json' }).join('\n'),
+    ).toMatch(/SMS_COLLECTION_ACCOUNTS: must be a JSON array/);
+    expect(
+      problemsOf({
+        ...LICENSED_ENV,
+        ...LIVE_SMS,
+        SMS_COLLECTION_ACCOUNTS: JSON.stringify([
+          { institution: 'Tele Birr', account: '1', name: 'x' },
+        ]),
+      }).join('\n'),
+    ).toMatch(/SMS_COLLECTION_ACCOUNTS\.0\.institution/);
   });
 });

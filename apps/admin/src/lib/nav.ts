@@ -18,6 +18,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/risk', label: 'Risk', permission: 'risk.view' },
   { href: '/bets', label: 'Bets', permission: 'bets.view' },
   { href: '/withdrawals', label: 'Withdrawals', permission: 'withdrawals.view' },
+  { href: '/manual-payouts', label: 'Manual payouts', permission: 'payouts.settle_manual' },
+  { href: '/sms', label: 'SMS rail', permission: 'sms.review' },
   { href: '/jackpots', label: 'Jackpots', permission: 'jackpots.view' },
   { href: '/compliance/reconciliation', label: 'Reconciliation', permission: 'reports.view' },
   { href: '/compliance/aml', label: 'AML flags', permission: 'aml.review' },

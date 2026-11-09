@@ -370,6 +370,10 @@ importers:
       '@vamos/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      fast-check:
+        specifier: 4.10.2
+        version: 4.10.2
 
   packages/scraper:
     dependencies:

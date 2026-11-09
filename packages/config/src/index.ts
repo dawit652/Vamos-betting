@@ -1,5 +1,6 @@
 export {
   ConfigError,
+  DEMO_COLLECTION_ACCOUNTS,
   DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
   DEV_SESSION_SECRET,
@@ -14,9 +15,11 @@ export {
   scraperUserAgent,
   type AppConfig,
   type ChannelsConfig,
+  type CollectionAccount,
   type OperatingMode,
   type PaymentProvidersConfig,
   type ScraperConfig,
+  type SmsRailConfig,
   type TrustProxySetting,
 } from './config';
 export { loadDotEnv } from './dotenv';

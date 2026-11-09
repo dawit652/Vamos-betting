@@ -13,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * Demo-only simulated phone. The page always exists, but the panel renders the
  * phone only when GET /payments/options reports `demo: true` (the API serves
- * its dev routes only in demo mode, outside production).
+ * the simulator only in demo mode with the mock provider, production demos included).
  */
 export default async function DevPhonePage() {
   const t = await getT();

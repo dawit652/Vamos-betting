@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
+  boolean,
   check,
   index,
   integer,
@@ -12,8 +13,10 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { users } from './accounts';
+import { payoutAccounts, receivedSms } from './smsrail';
 
 /**
  * Deposit intent lifecycle:
@@ -63,6 +66,7 @@ export const depositInitiationKind = pgEnum('deposit_initiation_kind', [
   'push',
   'redirect',
   'ussd',
+  'transfer',
 ]);
 
 export const paymentEventKind = pgEnum('payment_event_kind', ['deposit', 'payout']);
@@ -78,6 +82,13 @@ export const paymentIntents = pgTable(
     provider: text('provider').notNull(),
     amount: bigint('amount', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull().default('ETB'),
+    /**
+     * SMS rail: the amount the player asked to deposit. `amount` is then the
+     * exact amount they were told to send (requested + 1–50 santim, unique
+     * among open SMS deposits: the santim are the payment reference). Null
+     * for other providers.
+     */
+    requestedAmount: bigint('requested_amount', { mode: 'bigint' }),
     /** The paying number (E.164): the player's registered phone. */
     phone: text('phone').notNull(),
     status: paymentIntentStatus('status').notNull().default('created'),
@@ -128,7 +139,20 @@ export const paymentIntents = pgTable(
       .where(
         sql`${t.status} IN ('pending', 'expired') AND ${t.flaggedAt} IS NULL AND ${t.providerRef} IS NOT NULL`,
       ),
+    // SMS rail: the exact amount is the payment reference, so no two open
+    // SMS deposits may share one (allocateSmsAmount also keeps it reserved
+    // for a while after expiry; this is the backstop).
+    uniqueIndex('payment_intents_sms_amount_open_uq')
+      .on(t.amount)
+      .where(sql`${t.provider} = 'sms' AND ${t.status} IN ('created', 'pending')`),
+    index('payment_intents_sms_open_idx')
+      .on(t.amount)
+      .where(sql`${t.provider} = 'sms' AND ${t.status} IN ('created', 'pending', 'expired')`),
     check('payment_intents_amount_positive', sql`${t.amount} > 0`),
+    check(
+      'payment_intents_requested_amount',
+      sql`${t.requestedAmount} IS NULL OR (${t.requestedAmount} > 0 AND ${t.requestedAmount} <= ${t.amount})`,
+    ),
     check('payment_intents_provider_name', sql`${t.provider} ~ '^[a-z0-9_-]{2,32}$'`),
     check(
       'payment_intents_succeeded_ledger',
@@ -198,6 +222,38 @@ export const payouts = pgTable(
     /** The client's idempotency key, unique per player. */
     idempotencyKey: text('idempotency_key').notNull(),
     holdLedgerTransactionId: uuid('hold_ledger_transaction_id').notNull(),
+    /**
+     * Paid by hand by an operator (SMS rail) rather than by a provider API:
+     * the payout worker never takes it, staff claim and settle it
+     * (claimManualPayout / settleManualPayout) under the four-eyes rule.
+     */
+    manual: boolean('manual').notNull().default(false),
+    /** Manual payouts: the saved payout account it goes to. */
+    payoutAccountId: uuid('payout_account_id').references((): AnyPgColumn => payoutAccounts.id, {
+      onDelete: 'restrict',
+    }),
+    /**
+     * Manual payouts: the destination as the player authorised it, copied at
+     * request time so a later edit of the account cannot redirect it.
+     */
+    destinationInstitution: text('destination_institution'),
+    destinationAccount: text('destination_account'),
+    destinationName: text('destination_name'),
+    /** Manual payouts: the operator who claimed it to send the money (processing). */
+    payingBy: text('paying_by'),
+    /** Manual payouts: the operator who recorded it as paid (never the approver). */
+    settledBy: text('settled_by'),
+    /** Manual payouts: the institution's reference of the transfer that paid it. */
+    settlementReference: text('settlement_reference'),
+    /** Manual payouts: the outgoing confirmation SMS that evidences it, when there is one. */
+    settlementSmsId: uuid('settlement_sms_id').references((): AnyPgColumn => receivedSms.id, {
+      onDelete: 'restrict',
+    }),
+    /**
+     * Manual bank payouts: the settler confirmed the bank showed the player's
+     * own name as the account holder before sending.
+     */
+    holderNameConfirmed: boolean('holder_name_confirmed').notNull().default(false),
     /** paid: the posting that moved the hold to the provider's clearing account. */
     paidLedgerTransactionId: uuid('paid_ledger_transaction_id'),
     /** failed / rejected / cancelled: the posting that returned the hold. */
@@ -243,6 +299,30 @@ export const payouts = pgTable(
       sql`${t.status} IN ('requested', 'rejected', 'cancelled') OR ${t.approvedAt} IS NOT NULL`,
     ),
     check('payouts_flag', sql`(${t.flagReason} IS NULL) = (${t.flaggedAt} IS NULL)`),
+    // Manual payouts: the person who approved it never pays it.
+    check(
+      'payouts_manual_four_eyes',
+      sql`(${t.payingBy} IS NULL OR ${t.approvedBy} IS NULL OR ${t.payingBy} <> ${t.approvedBy}) AND (${t.settledBy} IS NULL OR ${t.approvedBy} IS NULL OR ${t.settledBy} <> ${t.approvedBy})`,
+    ),
+    check(
+      'payouts_manual_destination',
+      sql`NOT ${t.manual} OR (${t.destinationInstitution} IS NOT NULL AND ${t.destinationAccount} IS NOT NULL AND ${t.payoutAccountId} IS NOT NULL)`,
+    ),
+    check(
+      'payouts_manual_paid',
+      sql`NOT ${t.manual} OR ${t.status} <> 'paid' OR (${t.settledBy} IS NOT NULL AND ${t.settlementReference} IS NOT NULL)`,
+    ),
+    check(
+      'payouts_manual_processing',
+      sql`NOT ${t.manual} OR (${t.status} = 'processing') = (${t.payingBy} IS NOT NULL)`,
+    ),
+    // One transfer reference settles one payout.
+    uniqueIndex('payouts_settlement_reference_uq')
+      .on(t.settlementReference)
+      .where(sql`${t.settlementReference} IS NOT NULL`),
+    index('payouts_manual_queue_idx')
+      .on(t.approvedAt)
+      .where(sql`${t.manual} AND ${t.status} IN ('approved', 'processing')`),
   ],
 );
 

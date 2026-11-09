@@ -26,7 +26,14 @@ function Row({ w, reload }: { w: StaffWithdrawalView; reload: () => void }) {
     <tr data-testid={`withdrawal-${w.id}`}>
       <td>{w.player.phone}</td>
       <td className="num">{formatEtb(w.amount)}</td>
-      <td>{w.provider}</td>
+      <td>
+        {w.provider}
+        {w.destination !== null && (
+          <div className="muted small">
+            by hand to {w.destination.institutionName} · {w.destination.account}
+          </div>
+        )}
+      </td>
       <td>
         <Badge value={w.status} />
         {w.flagReason !== null && (
@@ -52,9 +59,15 @@ function Row({ w, reload }: { w: StaffWithdrawalView; reload: () => void }) {
                 />
               </>
             )}
-            {w.flagReason === null && ['approved', 'processing'].includes(w.status) && (
-              <ReasonAction label="Flag" prompt="Note" onSubmit={(note) => act('flag', { note })} />
-            )}
+            {!w.manual &&
+              w.flagReason === null &&
+              ['approved', 'processing'].includes(w.status) && (
+                <ReasonAction
+                  label="Flag"
+                  prompt="Note"
+                  onSubmit={(note) => act('flag', { note })}
+                />
+              )}
             {w.flagReason !== null && (
               <>
                 <ReasonAction

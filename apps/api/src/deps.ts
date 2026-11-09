@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import type { AppConfig } from '@vamos/config';
 import { createDb, type Database } from '@vamos/db';
-import { createPaymentProviders, type PaymentProviderRegistry } from '@vamos/payments';
+import {
+  createPaymentProviders,
+  createReceiptVerifier,
+  type PaymentProviderRegistry,
+  type ReceiptVerifier,
+} from '@vamos/payments';
 import { Redis } from 'ioredis';
 import { MockKycVerifier, type KycVerifier } from './providers/kyc';
 import { MockSmsProvider, type SmsProvider } from './providers/sms';
@@ -24,6 +29,12 @@ export interface AppDeps {
    * the mock outside demo mode).
    */
   payments: PaymentProviderRegistry;
+  /**
+   * The receipt verifier of the live SMS rail (RECEIPT_VERIFY=audit): the
+   * player's deposit check asks the institution's receipt page when the
+   * collection handset never forwarded a payment. Absent otherwise.
+   */
+  receipts?: ReceiptVerifier;
   /** Cryptographically secure random bytes (session and CSRF tokens). */
   randomBytes: (size: number) => Buffer;
   /**
@@ -88,6 +99,23 @@ export function createPaymentRegistry(config: AppConfig): PaymentProviderRegistr
   });
 }
 
+/** The receipt verifier when the live SMS rail audits receipts, else undefined. */
+export function createReceiptVerifierFor(config: AppConfig): ReceiptVerifier | undefined {
+  const sms = config.payments.sms;
+  if (
+    !config.providers.payments.includes('sms') ||
+    sms.mode !== 'live' ||
+    sms.receiptVerify === 'off'
+  ) {
+    return undefined;
+  }
+  return createReceiptVerifier({
+    fetch: globalThis.fetch,
+    clock: () => new Date(),
+    timeoutMs: sms.receiptVerifyTimeoutMs,
+  });
+}
+
 /**
  * Production wiring used by `server.ts`. Throws on a provider that has no
  * adapter yet, and on a payment provider that is not configured.
@@ -105,7 +133,9 @@ export function createDefaultDeps(config: AppConfig): DefaultDeps {
     throw error;
   }
   const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 3 });
+  const receipts = createReceiptVerifierFor(config);
   return {
+    ...(receipts === undefined ? {} : { receipts }),
     config,
     db: handle.db,
     redis,

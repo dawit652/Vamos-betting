@@ -12,6 +12,7 @@ export const otpPurpose = pgEnum('otp_purpose', [
   'login',
   'password_reset',
   'phone_change',
+  'payout_account',
 ]);
 
 export const kycStatus = pgEnum('kyc_status', ['unverified', 'pending', 'verified', 'rejected']);

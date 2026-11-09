@@ -32,7 +32,7 @@ export interface ProviderEventInput {
 
 /** DepositInitiation in @vamos/payments. */
 export interface DepositInitiationInput {
-  kind: 'push' | 'redirect' | 'ussd';
+  kind: 'push' | 'redirect' | 'ussd' | 'transfer';
   providerRef: string;
   redirectUrl?: string;
   instructions?: string;
