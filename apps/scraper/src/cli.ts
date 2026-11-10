@@ -25,7 +25,7 @@ import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
 import { sourcesBudget } from './cli/budget';
 import { sourcesCoverage } from './cli/coverage';
 import { reviewGaps } from './cli/gaps';
-import { reviewCounts } from './cli/review';
+import { reviewCounts, reviewResultsAudit } from './cli/review';
 import { sourcesList, sourcesUpsert } from './cli/sources';
 
 /**
@@ -79,6 +79,13 @@ commands:
       Clubs sources use that the catalogue lacks (open unknown_team items), per competition and
       normalised spelling, with sources, rows and first seen. --csv prints
       competition,spelling,sources,rows,first_seen for "add club" review. Read-only.
+  review results-audit [--days N]
+      Results applied in the last N days (default 7, 1 to 90) and at least 48 h ago: the applied
+      score (and half-time score) against the latest observation of every enabled source
+      (football-data.org included), flagging any source whose full-time or half-time score differs;
+      latency from the assumed final whistle (kickoff + 105 min) to the moment the result was
+      applied, per competition (count, mismatches, median, p90) against the targets (median 20 min,
+      p90 30 min). Read-only.
   eval scorecard [--days N | --from <iso> --to <iso>]
       Prices at betting close against the results (last 7 days by default, N from 1 to 90):
       sample, 1X2 and over/under scores of ours, the consensus and Pinnacle, calibration, overround,
@@ -104,6 +111,7 @@ const COMMANDS: Record<string, Command> = {
   'ratings list': ratingsList,
   'review counts': reviewCounts,
   'review gaps': reviewGaps,
+  'review results-audit': reviewResultsAudit,
   'eval scorecard': evalScorecard,
 };
 
