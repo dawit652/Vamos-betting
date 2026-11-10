@@ -155,7 +155,8 @@ over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET 
 ## 4. Licensed-mode checklist
 
 `OPERATING_MODE=licensed` is refused unless **all** of these hold (the exact messages come from
-`licensedModeViolations` in `packages/config/src/config.ts` plus the api's own checks):
+`licensedModeViolations` in `packages/config/src/config.ts` plus the api's own checks).
+Start from `infra/env.licensed.example`, which lists every variable below with its licensed-mode value:
 
 - [ ] An ELS licence exists and `ELS_LICENSE_NUMBER` is set.
 - [ ] `NODE_ENV=production`; `PUBLIC_WEB_URL`, `ADMIN_WEB_URL`, `PUBLIC_API_URL` are https and the admin
