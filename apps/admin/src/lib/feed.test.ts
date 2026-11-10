@@ -16,6 +16,8 @@ import {
   uncalibratedTeamRows,
   flagPermission,
   payloadSummary,
+  dismissalsText,
+  readDismissals,
   pricingSourcePermission,
   closedByText,
   priceText,
@@ -397,5 +399,34 @@ describe('pricing facts and price comparison', () => {
       { name: 'Lions', matches: 3, needed: 8 },
       { name: 'Bears', matches: null, needed: null },
     ]);
+  });
+});
+
+describe('re-raised dismissals (Q-3)', () => {
+  const dismissals = { count: 2, lastNote: 'not ours', lastAt: '2031-01-04T00:00:00.000Z' };
+  it('reads defensively', () => {
+    expect(readDismissals(undefined)).toBeNull();
+    expect(readDismissals({})).toBeNull();
+    expect(readDismissals({ dismissals: 'x' })).toBeNull();
+    expect(readDismissals({ dismissals: { count: 0 } })).toBeNull();
+    expect(readDismissals({ dismissals: { count: 'a' } })).toBeNull();
+    expect(readDismissals({ dismissals: { count: 1 } })).toEqual({
+      count: 1,
+      lastNote: null,
+      lastAt: null,
+    });
+  });
+  it('words the count and the last note', () => {
+    expect(dismissalsText({})).toBeNull();
+    expect(dismissalsText({ dismissals })).toBe(
+      `dismissed 2 times (last ${formatDateTime(dismissals.lastAt)}), last note: not ours`,
+    );
+    expect(dismissalsText({ dismissals: { count: 1 } })).toBe('dismissed 1 time');
+  });
+  it('is appended to the list summary', () => {
+    expect(payloadSummary('unknown_team', { raw: 'Man Utd', dismissals })).toBe(
+      `Man Utd [${dismissalsText({ dismissals })}]`,
+    );
+    expect(payloadSummary('unknown_team', { raw: 'Man Utd' })).toBe('Man Utd');
   });
 });

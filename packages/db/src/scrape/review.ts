@@ -49,20 +49,87 @@ const toItem = (row: typeof scrapeReviewItems.$inferSelect): ScrapeReviewItem =>
   severity: row.severity as ScrapeSeverity,
 });
 
+/** What earlier dismissals of the same (kind, subject) said, stored in the payload as `dismissals`. */
+export interface ReviewDismissals {
+  count: number;
+  /** The last dismissal's note (the `note` of a JSON resolution, else its plain text); null if none. */
+  lastNote: string | null;
+  /** When the last dismissal happened (ISO 8601). */
+  lastAt: string;
+}
+
+/** The note of a dismissal resolution: `{decision:'dismiss', note}` JSON from a person, else plain text. */
+function dismissalNote(resolution: string | null): string | null {
+  if (resolution === null || resolution === '') return null;
+  try {
+    const parsed: unknown = JSON.parse(resolution);
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      const note = (parsed as Record<string, unknown>).note;
+      return typeof note === 'string' && note !== '' ? note : null;
+    }
+  } catch {
+    // plain text
+  }
+  return resolution;
+}
+
+/** How often, and last how, a subject was dismissed (Q-3); null when never. */
+async function priorDismissals(
+  tx: DbTransaction,
+  kind: ScrapeReviewKind,
+  subjectKey: string,
+): Promise<ReviewDismissals | null> {
+  const [count] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(scrapeReviewItems)
+    .where(
+      and(
+        eq(scrapeReviewItems.kind, kind),
+        eq(scrapeReviewItems.subjectKey, subjectKey),
+        eq(scrapeReviewItems.status, 'dismissed'),
+      ),
+    );
+  if (count === undefined || count.n === 0) return null;
+  const [last] = await tx
+    .select({ resolution: scrapeReviewItems.resolution, resolvedAt: scrapeReviewItems.resolvedAt })
+    .from(scrapeReviewItems)
+    .where(
+      and(
+        eq(scrapeReviewItems.kind, kind),
+        eq(scrapeReviewItems.subjectKey, subjectKey),
+        eq(scrapeReviewItems.status, 'dismissed'),
+      ),
+    )
+    .orderBy(desc(scrapeReviewItems.resolvedAt), desc(scrapeReviewItems.id))
+    .limit(1);
+  return {
+    count: count.n,
+    lastNote: dismissalNote(last?.resolution ?? null),
+    lastAt: (last?.resolvedAt ?? new Date(0)).toISOString(),
+  };
+}
+
 /**
  * Opens a review item, or refreshes the one already open for the same
  * (kind, subject_key): at most one open item exists per pair (a partial
  * unique index), so concurrent callers converge on one row. Refreshing
  * replaces payload, title and severity and moves updated_at; created_at,
  * and the person's view of the item, stay. After the item is resolved or
- * dismissed, calling this again opens a NEW item.
+ * dismissed, calling this again opens a NEW item; when earlier items for the
+ * subject were dismissed, the item carries `payload.dismissals` (count, last
+ * note, last date) so a re-raise reads as "dismissed n times". The same value is
+ * written on a refresh (nothing can be dismissed while an item is open), so a
+ * refresh keeps it.
  */
 export async function openReviewItem(
   tx: DbTransaction,
   input: OpenReviewItemInput,
 ): Promise<{ item: ScrapeReviewItem; created: boolean }> {
   const now = input.now ?? new Date();
-  const payload = toJsonSafe(input.payload) as Record<string, unknown>;
+  const dismissals = await priorDismissals(tx, input.kind, input.subjectKey);
+  const payload = toJsonSafe(
+    dismissals === null ? input.payload : { ...input.payload, dismissals },
+  ) as Record<string, unknown>;
   const [row] = await tx
     .insert(scrapeReviewItems)
     .values({

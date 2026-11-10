@@ -159,8 +159,39 @@ function str(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
+export interface DismissalsView {
+  count: number;
+  lastNote: string | null;
+  lastAt: string | null;
+}
+
+/** Q-3: what earlier dismissals of a re-raised item said; null when none or the payload is odd. */
+export function readDismissals(payload: unknown): DismissalsView | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const d = (payload as Record<string, unknown>).dismissals;
+  if (typeof d !== 'object' || d === null) return null;
+  const { count, lastNote, lastAt } = d as Record<string, unknown>;
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 1) return null;
+  return { count, lastNote: str(lastNote), lastAt: str(lastAt) };
+}
+
+/** "dismissed 2 times, last: the note" for a list row or detail; null when never dismissed. */
+export function dismissalsText(payload: unknown): string | null {
+  const d = readDismissals(payload);
+  if (d === null) return null;
+  const head = `dismissed ${d.count} ${d.count === 1 ? 'time' : 'times'}`;
+  const when = d.lastAt === null ? '' : ` (last ${formatDateTime(d.lastAt)})`;
+  return d.lastNote === null ? `${head}${when}` : `${head}${when}, last note: ${d.lastNote}`;
+}
+
 /** A one-line summary of a review payload for the list, read defensively (never throws). */
 export function payloadSummary(kind: string, payload: Record<string, unknown>): string {
+  const base = payloadBaseSummary(kind, payload);
+  const dismissed = dismissalsText(payload);
+  return dismissed === null ? base : `${base} [${dismissed}]`;
+}
+
+function payloadBaseSummary(kind: string, payload: Record<string, unknown>): string {
   const match =
     str(payload.home) !== null && str(payload.away) !== null
       ? `${String(payload.home)} v ${String(payload.away)}`

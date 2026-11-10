@@ -29,6 +29,7 @@ import {
   canApplyResult,
   closedByText,
   confirmApplyText,
+  dismissalsText,
   decisionPermission,
   exposureText,
   fixtureDisagreement,
@@ -718,6 +719,9 @@ export default function ReviewItemPage() {
                   ] as [string, ReactNode][])),
             ]}
           />
+          {dismissalsText(item.payload) !== null && (
+            <Notice>Raised again: {dismissalsText(item.payload)}.</Notice>
+          )}
           <Body item={item} resolve={resolve} can={can} comparison={data?.comparison} />
           {isOpen(item) && can('trading.status') && (
             <div className="actions">
