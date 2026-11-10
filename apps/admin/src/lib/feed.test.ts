@@ -104,6 +104,18 @@ describe('feed helpers', () => {
     );
     expect(payloadSummary('result_overdue', {})).toBe('–: no result');
     expect(
+      payloadSummary('ratings_uncalibrated', {
+        home: 'York City',
+        away: 'Rochdale',
+        uncalibratedTeams: [
+          { name: 'York City', matches: 3, needed: 8 },
+          { name: 'Rochdale', matches: 0, needed: 8 },
+          'junk',
+        ],
+      }),
+    ).toBe('York City v Rochdale: unrated York City 3/8, Rochdale 0/8');
+    expect(payloadSummary('ratings_uncalibrated', { home: 'A', away: 'B' })).toBe('A v B');
+    expect(
       payloadSummary('source_stale', {
         sourceName: 'Volunteer data',
         hoursUnchanged: 60,

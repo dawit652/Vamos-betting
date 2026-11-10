@@ -23,10 +23,12 @@ import {
   findMissingFixtures,
   FIXTURE_HORIZON_MS,
   holdSeveralClusters,
+  isCalibrated,
   KICKOFF_EVIDENCE_WINDOW_MS,
   matchEvent,
   MATCH_WINDOW_MS,
   MIN_MATCH_DURATION_MS,
+  MIN_RATING_MATCHES,
   reviewsOf,
   SOURCE_STALE_AFTER_MS,
   type CompetitionPolicy,
@@ -523,6 +525,45 @@ function reviewReason(payload: GateReview['payload']): string | null {
   return Array.isArray(reasons) && reasons.length > 0 ? reasons.join('; ') : null;
 }
 
+/** A team that keeps a match from opening on the model (O1), as a `ratings_uncalibrated` item names it. */
+// A type, not an interface, so it is assignable to the gate's JSON payload.
+export type UncalibratedTeam = {
+  teamId: string;
+  name: string;
+  /** Matches its ratings learned from (0 without ratings). */
+  matches: number;
+  /** Matches O1 asks for (config scraper.minRatingMatches, never below MIN_RATING_MATCHES). */
+  needed: number;
+};
+
+/**
+ * R-2: the teams of a pairing whose ratings are not calibrated (O1), with their match counts, so
+ * the review item says which team needs a backfill or a hand-set rating, and how far it is.
+ */
+export async function uncalibratedTeams(
+  exec: Parameters<typeof getTeamRatings>[0],
+  teamIds: readonly string[],
+  names: ReadonlyMap<string, string>,
+  minMatches: number,
+): Promise<UncalibratedTeam[]> {
+  const rated = await getTeamRatings(exec, teamIds);
+  // isCalibrated never takes the bar below MIN_RATING_MATCHES.
+  const needed = Math.max(minMatches, MIN_RATING_MATCHES);
+  const out: UncalibratedTeam[] = [];
+  for (const teamId of teamIds) {
+    const ratings = rated.get(teamId)?.ratings ?? null;
+    if (isCalibrated(ratings, minMatches)) continue;
+    const matches = ratings !== null && Number.isFinite(ratings.matches) ? ratings.matches! : 0;
+    out.push({ teamId, name: names.get(teamId) ?? teamId, matches, needed });
+  }
+  return out;
+}
+
+/** "Rochdale 0 of 8 rated matches; York City 3 of 8 rated matches". */
+export function uncalibratedReason(teams: readonly UncalibratedTeam[]): string {
+  return teams.map((t) => `${t.name} ${t.matches} of ${t.needed} rated matches`).join('; ');
+}
+
 /** The feed_ref of a create decision is already taken (review finding 2). */
 class FeedRefTaken extends Error {}
 
@@ -587,19 +628,35 @@ export async function applyCreate(
           selections: m.selections.map((s) => ({ code: s.code, oddsMilli: s.oddsMilli })),
         })),
       );
-      const reviews = reviewsOf(decision).map((review): GateReview => ({
-        ...review,
-        payload: {
-          ...review.payload,
-          eventId: result.eventId,
-          gameId: String(result.gameId),
-          home: names.get(decision.homeTeamId) ?? decision.homeTeamId,
-          away: names.get(decision.awayTeamId) ?? decision.awayTeamId,
-          kickoff: decision.kickoff.toISOString(),
-          reason: reviewReason(review.payload),
-          markets: proposed,
-        },
-      }));
+      // R-2: a ratings item names the teams O1 waits for, with their match counts.
+      const unrated = reviewsOf(decision).some((r) => r.kind === 'ratings_uncalibrated')
+        ? await uncalibratedTeams(
+            tx,
+            [decision.homeTeamId, decision.awayTeamId],
+            names,
+            ctx.config.scraper.minRatingMatches,
+          )
+        : [];
+      const reviews = reviewsOf(decision).map((review): GateReview => {
+        const ratingsItem = review.kind === 'ratings_uncalibrated' && unrated.length > 0;
+        const gateReason = reviewReason(review.payload);
+        return {
+          ...review,
+          payload: {
+            ...review.payload,
+            eventId: result.eventId,
+            gameId: String(result.gameId),
+            home: names.get(decision.homeTeamId) ?? decision.homeTeamId,
+            away: names.get(decision.awayTeamId) ?? decision.awayTeamId,
+            kickoff: decision.kickoff.toISOString(),
+            reason: ratingsItem
+              ? `${gateReason ?? 'ratings_uncalibrated'}: ${uncalibratedReason(unrated)}`
+              : gateReason,
+            markets: proposed,
+            ...(ratingsItem ? { uncalibratedTeams: unrated } : {}),
+          },
+        };
+      });
       await openGateReviews(tx, reviews, now);
       await auditScraper(tx, {
         action: 'scrape.fixture.created',

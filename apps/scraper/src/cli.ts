@@ -59,8 +59,9 @@ commands:
       Sets a football team's ratings by hand (sets manual = 1, audited). Attack and defence
       are multipliers of the league average (1 = average, a higher defence concedes more),
       between 0.35 and 3. Refuses unknown or ambiguous team names. Prints before and after.
-  ratings list [--team text]
-      Football teams that have ratings: attack, defence, matches, manual.
+  ratings list [--team text] [--unrated [--min-matches n]]
+      Football teams that have ratings: attack, defence, matches, manual. --unrated lists the
+      teams of upcoming matches whose ratings are not calibrated (rule O1), most matches first.
   review counts
       Open review items per kind (zeros included) with the date of the oldest, and a total.
   eval scorecard [--days N | --from <iso> --to <iso>]

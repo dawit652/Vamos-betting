@@ -1,9 +1,9 @@
-import { setTeamRatings } from '@vamos/db';
+import { setTeamRatings, upsertFixture } from '@vamos/db';
 import { replayRatings } from '@vamos/feed';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BACKFILL_KEY } from '../src/cli/ratings';
 import { catalogDatabase, cliHarness } from './cli-helpers';
-import { SETUP_TIMEOUT } from './helpers';
+import { SETUP_TIMEOUT, T0 } from './helpers';
 
 const teamIds = new Map<string, string>();
 const teamId = (shortName: string): string => teamIds.get(shortName)!;
@@ -418,5 +418,85 @@ describe('ratings set and list', () => {
     expect(parsed.teams).toMatchObject([{ team: 'Everton', manual: true, matches: 12 }]);
     const none = await rcli.run('ratings', 'list', '--team', 'zzz');
     expect(none.stdout).toContain('0 team(s) with ratings');
+  });
+});
+
+describe('ratings list --unrated (R-2)', () => {
+  let udb: Awaited<ReturnType<typeof catalogDatabase>>;
+  let ucli: ReturnType<typeof cliHarness>;
+  const H = 3_600_000;
+  beforeAll(async () => {
+    udb = await catalogDatabase();
+    ucli = cliHarness({ db: udb.db });
+  }, SETUP_TIMEOUT);
+  afterAll(async () => {
+    await udb?.drop();
+  }, SETUP_TIMEOUT);
+
+  const idOf = async (table: 'teams' | 'competitions', column: string, value: string) =>
+    (await udb.pool.query<{ id: string }>(`SELECT id FROM ${table} WHERE ${column} = $1`, [value]))
+      .rows[0]!.id;
+
+  async function event(home: string, away: string, start: Date, provider = 'scraped') {
+    const competitionId = await idOf('competitions', 'slug', 'premier-league');
+    const homeTeamId = await idOf('teams', 'short_name', home);
+    const awayTeamId = await idOf('teams', 'short_name', away);
+    await udb.db.transaction((tx) =>
+      upsertFixture(
+        tx,
+        {
+          feedProvider: provider,
+          feedRef: `${provider}|${home}|${away}|${start.toISOString()}`,
+          sport: 'football',
+          competitionId,
+          homeTeamId,
+          awayTeamId,
+          startTime: start,
+        },
+        [],
+      ),
+    );
+  }
+
+  it('lists the uncalibrated teams of upcoming scraped matches, most matches first', async () => {
+    const actor = { system: 'test' };
+    const rate = async (name: string, ratings: Record<string, number>) => {
+      const id = await idOf('teams', 'short_name', name);
+      await udb.db.transaction((tx) => setTeamRatings(tx, id, ratings, actor));
+    };
+    // Calibrated: by matches, and by hand. Arsenal and Chelsea keep the seed (no matches).
+    await rate('Tottenham', { attack: 1.2, defence: 1, matches: 20 });
+    await rate('Everton', { attack: 1, defence: 1, matches: 0, manual: 1 });
+    await rate('Liverpool', { attack: 1.4, defence: 0.9, matches: 9 });
+    const t0 = new Date(T0);
+    await event('Arsenal', 'Chelsea', new Date(t0.getTime() + 48 * H));
+    await event('Chelsea', 'Tottenham', new Date(t0.getTime() + 24 * H));
+    await event('Everton', 'Liverpool', new Date(t0.getTime() + 72 * H));
+    // Past, or another provider's: not listed.
+    await event('Man City', 'Arsenal', new Date(t0.getTime() - 24 * H));
+    await event('Newcastle', 'Brighton', new Date(t0.getTime() + 24 * H), 'demo');
+
+    const result = await ucli.run('ratings', 'list', '--unrated', '--min-matches', '10', '--json');
+    expect(result.code).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      minMatches: number;
+      teams: Array<{ team: string; matches: number; needed: number; upcoming: number }>;
+    };
+    expect(parsed.minMatches).toBe(10);
+    expect(parsed.teams.map((t) => [t.team, t.matches, t.upcoming])).toEqual([
+      ['Chelsea', 0, 2],
+      ['Arsenal', 0, 1],
+      ['Liverpool', 9, 1],
+    ]);
+
+    // The bar never goes below 8: at 5, Liverpool's 9 matches count; the table names the rule.
+    const text = await ucli.run('ratings', 'list', '--unrated', '--min-matches', '5');
+    expect(text.stdout).toMatch(/^team\s+matches\s+needed\s+ratings\s+upcoming/);
+    expect(text.stdout).not.toContain('Liverpool');
+    expect(text.stdout).toMatch(/Chelsea\s+0\s+8\s+yes\s+2/);
+    expect(text.stdout).toContain('2 team(s) of upcoming matches without calibrated ratings');
+
+    expect((await ucli.run('ratings', 'list', '--min-matches', '3')).code).toBe(2);
+    expect((await ucli.run('ratings', 'list', '--unrated', '--min-matches', '0')).code).toBe(2);
   });
 });

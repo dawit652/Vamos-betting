@@ -1,8 +1,9 @@
 import { MAX_TEAM_RATING, MIN_TEAM_RATING, replayRatings, type FootballResult } from '@vamos/feed';
 import { getTeamRatings, localizedNames, setTeamRatings, type Database } from '@vamos/db';
-import { competitions, teamAliases, teams } from '@vamos/db/schema';
-import { normalizeName } from '@vamos/scraper';
-import { and, eq, isNull } from 'drizzle-orm';
+import { SCRAPED_FEED_PROVIDER } from '@vamos/core';
+import { competitions, events, teamAliases, teams } from '@vamos/db/schema';
+import { isCalibrated, MIN_RATING_MATCHES, normalizeName } from '@vamos/scraper';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   CliFailure,
@@ -459,16 +460,30 @@ export async function ratingsSet(args: string[], env: CliEnv): Promise<number> {
 }
 
 /**
- * `ratings list [--team text] [--json]`: football teams that have ratings
- * (learned or set by hand), by name. `--team` keeps the teams whose name
- * contains the text (normalised).
+ * `ratings list [--team text] [--unrated [--min-matches n]] [--json]`: football teams that have
+ * ratings (learned or set by hand), by name. `--team` keeps the teams whose name contains the
+ * text (normalised).
+ *
+ * `--unrated` lists instead the teams that keep a match from opening on the model (rule O1): every
+ * football team of a scheduled scraped match still to come whose ratings are not calibrated (fewer
+ * than `--min-matches` learned matches, default SCRAPER_MIN_RATING_MATCHES, never below 8, and not
+ * set by hand), with its match count and its upcoming matches, most matches first. These are the teams
+ * behind the `ratings_uncalibrated` review items: backfill them, or set them by hand.
  */
 export async function ratingsList(args: string[], env: CliEnv): Promise<number> {
-  const parsed = parseCommandArgs(args, { team: { type: 'string' } });
+  const parsed = parseCommandArgs(args, {
+    team: { type: 'string' },
+    unrated: { type: 'boolean' },
+    'min-matches': { type: 'string' },
+  });
   noPositionals(parsed);
   const text = optionalString(parsed, 'team');
   const key = text === undefined ? '' : normalizeName(text);
   if (text !== undefined && key === '') throw new UsageError('--team is empty');
+  if (parsed.values.unrated === true) return ratingsUnrated(parsed, key, env);
+  if (parsed.values['min-matches'] !== undefined) {
+    throw new UsageError('--min-matches goes with --unrated');
+  }
 
   const db: Database = await env.database();
   const candidates = (await footballTeams(db)).filter(
@@ -501,6 +516,102 @@ export async function ratingsList(args: string[], env: CliEnv): Promise<number> 
       ]),
     ),
     `${rows.length} team(s) with ratings`,
+  ]);
+  return EXIT_OK;
+}
+
+/** O1's threshold for `--unrated`: `--min-matches`, else SCRAPER_MIN_RATING_MATCHES, else 8. */
+function minMatchesOf(parsed: Parameters<typeof requiredString>[0]): number {
+  const given = optionalString(parsed, 'min-matches');
+  const fromEnv = process.env.SCRAPER_MIN_RATING_MATCHES;
+  const text = given ?? (fromEnv !== undefined && fromEnv.trim() !== '' ? fromEnv : undefined);
+  if (text === undefined) return MIN_RATING_MATCHES;
+  const value = /^\d+$/.test(text.trim()) ? Number(text.trim()) : NaN;
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new UsageError(
+      `${given !== undefined ? '--min-matches' : 'SCRAPER_MIN_RATING_MATCHES'} must be a whole number of at least 1, got "${text}"`,
+    );
+  }
+  return value;
+}
+
+async function ratingsUnrated(
+  parsed: Parameters<typeof requiredString>[0],
+  key: string,
+  env: CliEnv,
+): Promise<number> {
+  // O1 never takes the bar below MIN_RATING_MATCHES (isCalibrated), so neither does the list.
+  const minMatches = Math.max(minMatchesOf(parsed), MIN_RATING_MATCHES);
+  const db: Database = await env.database();
+  const now = env.clock();
+  const upcoming = await db
+    .select({
+      homeTeamId: events.homeTeamId,
+      awayTeamId: events.awayTeamId,
+      startTime: events.startTime,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.feedProvider, SCRAPED_FEED_PROVIDER),
+        eq(events.status, 'scheduled'),
+        isNull(events.resultedAt),
+        gt(events.startTime, now),
+      ),
+    );
+  const playing = new Map<string, { count: number; next: Date }>();
+  for (const event of upcoming) {
+    for (const id of [event.homeTeamId, event.awayTeamId]) {
+      if (id === null) continue;
+      const seen = playing.get(id);
+      if (seen === undefined) playing.set(id, { count: 1, next: event.startTime });
+      else {
+        seen.count += 1;
+        if (event.startTime.getTime() < seen.next.getTime()) seen.next = event.startTime;
+      }
+    }
+  }
+  const candidates = (await footballTeams(db)).filter(
+    (t) => playing.has(t.id) && (key === '' || t.names.some((n) => normalizeName(n).includes(key))),
+  );
+  const current = await getTeamRatings(
+    db,
+    candidates.map((t) => t.id),
+  );
+  const rows = candidates
+    .filter((t) => !isCalibrated(current.get(t.id)?.ratings ?? null, minMatches))
+    .map((t) => {
+      const ratings = current.get(t.id)?.ratings ?? null;
+      const plays = playing.get(t.id)!;
+      return {
+        teamId: t.id,
+        team: t.shortName,
+        matches: snapshot(ratings).matches,
+        needed: minMatches,
+        hasRatings: ratings !== null,
+        upcoming: plays.count,
+        nextKickoff: plays.next.toISOString(),
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.upcoming - a.upcoming ||
+        a.nextKickoff.localeCompare(b.nextKickoff) ||
+        a.team.localeCompare(b.team),
+    );
+  emit(env, parsed, { minMatches, teams: rows }, [
+    ...table(
+      ['team', 'matches', 'needed', 'ratings', 'upcoming', 'next kickoff (UTC)'],
+      rows.map((r) => [
+        r.team,
+        String(r.matches),
+        String(r.needed),
+        r.hasRatings ? 'yes' : 'none',
+        String(r.upcoming),
+        r.nextKickoff.slice(0, 16).replace('T', ' '),
+      ]),
+    ),
+    `${rows.length} team(s) of upcoming matches without calibrated ratings (O1: ${minMatches} matches, or set by hand)`,
   ]);
   return EXIT_OK;
 }

@@ -31,6 +31,11 @@ let settings: GameSettings;
 const H = 3_600_000;
 const FROM = new Date(KICKOFF.getTime() - 30 * 24 * H);
 const TO = new Date(KICKOFF.getTime() + 30 * 24 * H);
+// Bets are refused after kickoff, so the tests that place one use a kickoff a week from now
+// (KICKOFF is a fixed date that is already past), and a window around it.
+const FUTURE = new Date(Math.floor((Date.now() + 7 * 24 * H) / 60_000) * 60_000);
+const FUTURE_FROM = new Date(FUTURE.getTime() - 30 * 24 * H);
+const FUTURE_TO = new Date(FUTURE.getTime() + 30 * 24 * H);
 
 beforeAll(async () => {
   ctx = await createScrapeDatabase();
@@ -69,20 +74,27 @@ async function bet(eventIds: string[], stake: bigint): Promise<void> {
 
 describe('listScrapedEvents', () => {
   it('only lists scraped events in range with hasBets, needsHalfTimeScore and score', async () => {
-    const plain = await createScrapedEvent(ctx, { home: 'Arsenal', away: 'Chelsea' });
+    const plain = await createScrapedEvent(ctx, {
+      home: 'Arsenal',
+      away: 'Chelsea',
+      startTime: FUTURE,
+    });
     const withHt = await createScrapedEvent(ctx, {
       home: 'Chelsea',
       away: 'Arsenal',
       halfTime: true,
+      startTime: FUTURE,
     });
-    const outside = await createScrapedEvent(ctx, { startTime: new Date(TO.getTime() + 24 * H) });
+    const outside = await createScrapedEvent(ctx, {
+      startTime: new Date(FUTURE_TO.getTime() + 24 * H),
+    });
     // A catalogue event of another provider is never listed.
     const { createEvent } = await import('./betting-fixtures');
-    const foreign = await createEvent(ctx.handle.db, ctx.ids, { startTime: KICKOFF });
+    const foreign = await createEvent(ctx.handle.db, ctx.ids, { startTime: FUTURE });
 
     await bet([plain.eventId], birr(50));
 
-    const listed = await listScrapedEvents(ctx.handle.db, { from: FROM, to: TO });
+    const listed = await listScrapedEvents(ctx.handle.db, { from: FUTURE_FROM, to: FUTURE_TO });
     const ids = listed.map((e) => e.eventId);
     expect(ids).toContain(plain.eventId);
     expect(ids).toContain(withHt.eventId);
@@ -95,7 +107,7 @@ describe('listScrapedEvents', () => {
       competitionId: ctx.competitionId,
       homeTeamId: plain.homeTeamId,
       awayTeamId: plain.awayTeamId,
-      startTime: KICKOFF,
+      startTime: FUTURE,
       status: 'scheduled',
       bettingOpen: true,
       hasBets: true,
@@ -209,9 +221,21 @@ describe('listScrapedEvents', () => {
 
 describe('getEventExposure', () => {
   it('counts unsettled bets once (a multi counts on each of its events) with the stake as a decimal string', async () => {
-    const a = await createScrapedEvent(ctx, { home: 'Arsenal', away: 'Liverpool' });
-    const b = await createScrapedEvent(ctx, { home: 'Liverpool', away: 'Chelsea' });
-    const none = await createScrapedEvent(ctx, { home: 'Chelsea', away: 'Liverpool' });
+    const a = await createScrapedEvent(ctx, {
+      home: 'Arsenal',
+      away: 'Liverpool',
+      startTime: FUTURE,
+    });
+    const b = await createScrapedEvent(ctx, {
+      home: 'Liverpool',
+      away: 'Chelsea',
+      startTime: FUTURE,
+    });
+    const none = await createScrapedEvent(ctx, {
+      home: 'Chelsea',
+      away: 'Liverpool',
+      startTime: FUTURE,
+    });
     expect(await getEventExposure(ctx.handle.db, none.eventId)).toEqual({
       openBets: 0,
       totalStake: '0',

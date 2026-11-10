@@ -177,8 +177,23 @@ export function payloadSummary(kind: string, payload: Record<string, unknown>): 
     case 'result_conflict':
     case 'result_correction':
     case 'odds_approval':
-    case 'ratings_uncalibrated':
       return match ?? '–';
+    case 'ratings_uncalibrated': {
+      // R-2: the teams O1 waits for and their rated matches (items raised before R-2 have none).
+      const teams = Array.isArray(payload.uncalibratedTeams) ? payload.uncalibratedTeams : [];
+      const named = teams
+        .map((t: unknown) => {
+          if (typeof t !== 'object' || t === null) return null;
+          const team = t as Record<string, unknown>;
+          const name = str(team.name);
+          if (name === null) return null;
+          return typeof team.matches === 'number' && typeof team.needed === 'number'
+            ? `${name} ${team.matches}/${team.needed}`
+            : name;
+        })
+        .filter((t): t is string => t !== null);
+      return named.length > 0 ? `${match ?? '–'}: unrated ${named.join(', ')}` : (match ?? '–');
+    }
     case 'result_overdue': {
       const hours = payload.hoursSinceKickoff;
       return `${match ?? '–'}: ${typeof hours === 'number' ? `${hours} h after kickoff` : 'no result'}`;

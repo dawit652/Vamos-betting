@@ -77,7 +77,9 @@ describe('F7 review payload', () => {
       expect(item.kind).toBe('ratings_uncalibrated');
       const payload = parseReviewPayload('ratings_uncalibrated', item.payload);
       expect(payload).not.toBeNull();
-      expect(payload).toMatchObject({ eventId: event.id, reason: 'ratings_uncalibrated' });
+      expect(payload).toMatchObject({ eventId: event.id });
+      // R-2: the gate's reason, then the teams O1 waits for.
+      expect(payload!.reason).toMatch(/^ratings_uncalibrated: Arsenal 0 of \d+ rated matches; /);
     },
     TEST_TIMEOUT,
   );

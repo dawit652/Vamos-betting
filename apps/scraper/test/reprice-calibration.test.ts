@@ -10,7 +10,7 @@ import { events } from '@vamos/db/schema';
 import { priceFixture } from '@vamos/feed';
 import { eq } from 'drizzle-orm';
 import { SCRAPED_FEED_PROVIDER } from '@vamos/core';
-import { ratingsKey } from '@vamos/scraper';
+import { MIN_RATING_MATCHES, ratingsKey } from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { repriceScheduledEvents } from '../src/pipeline/reprice';
@@ -100,6 +100,26 @@ const bettingOpen = async () =>
   (await rows<{ betting_open: boolean }>(`SELECT betting_open FROM events`))[0]!.betting_open;
 
 describe('uncalibrated to calibrated: the re-price step hands the event to a trader', () => {
+  it(
+    'R-2: the ratings item names each team O1 waits for, with its rated matches',
+    async () => {
+      await uncalibratedEvent();
+      const needed = Math.max(h.ctx.config.scraper.minRatingMatches, MIN_RATING_MATCHES);
+      const [item] = await items('ratings_uncalibrated', 'open');
+      const teams = item!.payload.uncalibratedTeams as { name: string; matches: number }[];
+      expect(teams).toEqual([
+        { teamId: h.team('Arsenal'), name: 'Arsenal', matches: 0, needed },
+        { teamId: h.team('Chelsea'), name: 'Chelsea', matches: 0, needed },
+      ]);
+      expect(item!.payload.reason).toBe(
+        `ratings_uncalibrated: Arsenal 0 of ${needed} rated matches; Chelsea 0 of ${needed} rated matches`,
+      );
+      // The payload still reads as the contract's odds payload.
+      expect(parseReviewPayload('ratings_uncalibrated', item!.payload)).not.toBeNull();
+    },
+    TEST_TIMEOUT,
+  );
+
   it(
     'O1/O3: prices follow the new ratings within the ratio: the uncalibrated item closes, odds_approval opens, betting stays closed',
     async () => {
