@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useLocale, useT } from '@/i18n/client';
 import { authApi } from '@/lib/api/account';
+import { IS_DEMO } from '@/lib/mode';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { formatBirthDate } from './dates';
@@ -231,7 +232,9 @@ export function RegisterForm({ next }: { next: string }) {
       <button type="submit" className="btn btn-accent w-full" disabled={busy || cooldown > 0}>
         {busy ? t('common.actions.loading') : t('account.register.submit')}
       </button>
-      <p className="text-center text-xs text-muted">{t('account.register.playMoney')}</p>
+      {IS_DEMO ? (
+        <p className="text-center text-xs text-muted">{t('account.register.playMoney')}</p>
+      ) : null}
       <p className="border-t border-line pt-3 text-center text-xs">
         {t('account.register.haveAccount')}{' '}
         <Link href={loginHref(next)} className="font-bold text-brand">

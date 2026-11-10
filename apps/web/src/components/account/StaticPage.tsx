@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { getT } from '@/i18n/server';
+import { IS_DEMO } from '@/lib/mode';
 
 /**
  * Layout of the short static pages (help, terms, responsible gambling): server
@@ -24,7 +25,7 @@ export async function StaticPage({
       {children}
       <aside className="card space-y-1 border-l-4 border-accent-strong text-xs font-semibold">
         <p>{t('common.rg.ageNotice')}</p>
-        <p>{t('common.demo.banner')}</p>
+        {IS_DEMO ? <p>{t('common.demo.banner')}</p> : null}
       </aside>
     </article>
   );

@@ -6,6 +6,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useT } from '@/i18n/client';
 import { accountApi } from '@/lib/api/account';
 import { errorMessageKey } from '@/lib/api/errors';
+import { IS_DEMO } from '@/lib/mode';
 import { useSession } from '@/providers/SessionProvider';
 import { KYC_LABEL, KYC_TONE } from './kyc';
 import { formErrors } from './errors';
@@ -191,7 +192,7 @@ export function KycView() {
         {canSubmit ? (
           <>
             <p className="text-sm">{t('account.kyc.intro')}</p>
-            <Alert tone="demo">{t('account.kyc.demoNote')}</Alert>
+            {IS_DEMO ? <Alert tone="demo">{t('account.kyc.demoNote')}</Alert> : null}
             <KycForm onResult={setKyc} />
           </>
         ) : null}

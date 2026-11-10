@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getT } from '@/i18n/server';
+import { IS_DEMO } from '@/lib/mode';
 import { routes } from '@/lib/routes';
 import { HeaderAccount } from './HeaderAccount';
 import { LocaleToggle } from './LocaleSwitcher';
@@ -17,9 +18,11 @@ export async function Header() {
         >
           Nahubet<span className="text-accent">.</span>
         </Link>
-        <span className="rounded-sm bg-accent px-1 text-xxs font-bold text-accent-ink">
-          {t('common.demo.badge')}
-        </span>
+        {IS_DEMO ? (
+          <span className="rounded-sm bg-accent px-1 text-xxs font-bold text-accent-ink">
+            {t('common.demo.badge')}
+          </span>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
           <Link
             href={routes.search}

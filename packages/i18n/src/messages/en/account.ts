@@ -282,6 +282,7 @@ export const account = {
     balanceAfter: 'Balance {amount}',
     loadMore: 'Load more',
     welcome: 'Your account is ready. Add play money to start betting.',
+    welcomeReal: 'Your account is ready. Make a deposit to start betting.',
     tx: {
       demo_topup: 'Play money top-up',
       deposit: 'Deposit',

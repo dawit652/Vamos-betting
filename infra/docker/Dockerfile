@@ -112,10 +112,15 @@ FROM build AS build-scraper
 RUN pnpm --filter @vamos/scraper-app build
 
 FROM build AS build-web
-# Inlined into the browser bundle at build time: the public URL of the API.
+# Inlined into the browser bundle at build time: the public URL of the API, and the operating mode
+# (`licensed` hides the demo banner, badge and play-money notes; anything else shows them).
 ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ARG NEXT_PUBLIC_OPERATING_MODE=demo
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_PUBLIC_OPERATING_MODE=${NEXT_PUBLIC_OPERATING_MODE}
 RUN test -n "$NEXT_PUBLIC_API_URL" || { echo "build-arg NEXT_PUBLIC_API_URL is required (https://api.example.et)" >&2; exit 1; }
+# The manifest and the offline page are static: a licensed build rewrites them without the demo wording.
+RUN if [ "$NEXT_PUBLIC_OPERATING_MODE" = "licensed" ]; then node apps/web/scripts/licensed-static.mjs; fi
 RUN pnpm --filter @vamos/web build
 
 FROM build AS build-admin

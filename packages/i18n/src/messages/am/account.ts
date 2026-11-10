@@ -268,6 +268,7 @@ export const account: Messages['account'] = {
     balanceAfter: 'ቀሪ {amount}',
     loadMore: 'ተጨማሪ አሳይ',
     welcome: 'መለያዎ ዝግጁ ነው። መወራረድ ለመጀመር የጨዋታ ገንዘብ ይጨምሩ።',
+    welcomeReal: 'መለያዎ ዝግጁ ነው። መወራረድ ለመጀመር ገንዘብ ያስገቡ።',
     tx: {
       demo_topup: 'የጨዋታ ገንዘብ ተጨምሯል',
       deposit: 'ገንዘብ ገቢ',

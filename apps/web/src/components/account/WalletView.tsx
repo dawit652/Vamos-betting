@@ -216,7 +216,11 @@ export function WalletView({ welcome }: { welcome: boolean }) {
   return (
     <div className="space-y-3">
       <div className="space-y-3 px-3">
-        {welcome ? <Alert tone="success">{t('account.wallet.welcome')}</Alert> : null}
+        {welcome ? (
+          <Alert tone="success">
+            {t(wallet?.demo === false ? 'account.wallet.welcomeReal' : 'account.wallet.welcome')}
+          </Alert>
+        ) : null}
         <section className="card space-y-2 bg-brand text-brand-ink">
           <p className="text-xs opacity-80">{t('account.wallet.balance')}</p>
           <p className="text-2xl font-bold tabular-nums">

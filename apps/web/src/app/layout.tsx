@@ -11,12 +11,15 @@ import { SportChips } from '@/components/shell/SportChips';
 import { pickNamespaces } from '@/i18n/ClientMessages';
 import { getLocale, getMessages } from '@/i18n/server';
 import { CSRF_COOKIE } from '@/lib/cookies';
+import { IS_DEMO } from '@/lib/mode';
 import { AppProviders } from '@/providers/AppProviders';
 import './globals.css';
 
 export const metadata: Metadata = {
   title: { default: 'Nahubet', template: '%s · Nahubet' },
-  description: 'Nahubet – simple, fast sports betting for Ethiopia (demo, play money only)',
+  description: IS_DEMO
+    ? 'Nahubet – simple, fast sports betting for Ethiopia (demo, play money only)'
+    : 'Nahubet – simple, fast sports betting for Ethiopia',
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [
