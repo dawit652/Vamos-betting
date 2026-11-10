@@ -275,10 +275,25 @@ Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" 
 | F-2        | Fixture conflicts close once sources agree (2 passes)   | ✅     | rule F6c; streak in the item payload, no migration; unit 13/13, scraper 4/4      |
 | S-4        | Cup scores of The Odds API wait for a person            | ✅     | rules A10, R10a; cup basis `unknown`; result 74/74, adapter 55/55, scraper 2/2   |
 | S-2        | Half-time markets only where a source gives half time   | ✅     | rule O6; `SCRAPER_HALF_TIME_MARKETS` (default `all`); unit 8/8, scraper 4/4      |
+| R-2        | Ratings items name the teams; `ratings list --unrated`  | ✅     | `uncalibratedTeams` in the payload; bar never below 8; cli 1/1, scraper 1/1      |
+| C-3        | Alarm when the credit projection overruns the month     | ✅     | reason `budget_projection` (guard normal only); unit 14/14, scheduler 15/15      |
+| F-1, A-3   | Review page: disagreements, pricing facts, vs market    | ✅     | read-only `comparison` on the detail route; admin 68/68, api 40/40               |
+| S-1        | `sources coverage` matrix                               | ✅     | flags `single-result-upstream`; cli 3/3                                          |
+| C-1        | `sources budget` estimate                               | ✅     | replays the read schedule; cli 3/3                                               |
+| U-6        | `review gaps [--csv]` catalogue gap report              | ✅     | open unknown_team spellings by competition; cli 4/4                              |
+| Q-3        | Re-raised dismissals show "dismissed n times"           | ✅     | `payload.dismissals`, no migration; db 3/3, admin 3/3                            |
+| S-6        | `review results-audit` (48 h after applied results)     | ✅     | mismatches per source, latency vs targets; unit 9/9, cli 3/3                     |
+| U-2        | Known Odds API spellings (first part)                   | 🟡     | 2 aliases (Twente, PEC Zwolle); 8 clubs missing from the catalogue (U-6 lists)   |
 | all others | see sections 5–8                                        | ⬜     |                                                                                  |
 
-**Next session, in order:** deploy (migrations 0045 and 0046 run in the `migrate` job at start); after a week of matches, M-3 (`eval scorecard --days 7`, compared with section 2); U-2 (aliases such as FC Twente Enschede) once the server report lists the unknown names; then P-items only where the scorecard shows a gain (measure
-before tuning prices).
+**Session 2 (2026-11-10 evening):** full check at 21ea98a: typecheck, lint and prettier clean; db 730, scraper 866,
+core 803, contracts 73, api 464, admin 71, scraper app 510 tests, all passing (Linux).
+
+**Next, in order:** deploy (migrations 0045 and 0046 run in the `migrate` job at start); add the 8 missing clubs
+(`review gaps --csv`) and finish U-2 from the server's unknown list; after a week of matches, M-3
+(`eval scorecard --days 7`) and S-6 (`review results-audit --days 7`), compared with section 2; switch
+`SCRAPER_HALF_TIME_MARKETS=covered` together with S-3 (a second results upstream); then P-items only where the
+scorecard shows a gain (measure before tuning prices). Owner decisions still open: P-6 (margins), S-3 (budget), A-5.
 
 **Environment (2026-11-10):** the owner's PC had 4–5 GB free on C:. Docker started later in the day, and the
 integration tests ran. The owner will free disk space; Docker's reclaimable space is about 4 GB of build cache and
