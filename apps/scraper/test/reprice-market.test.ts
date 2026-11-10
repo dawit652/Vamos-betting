@@ -25,6 +25,7 @@ import {
 } from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openConfirmedEvents } from '../src/pipeline/auto-open';
+import { captureClosePrices } from '../src/pipeline/close-prices';
 import { backedByMarket, priceEvent } from '../src/pipeline/event-pricing';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { repriceScheduledEvents } from '../src/pipeline/reprice';
@@ -1248,6 +1249,92 @@ describe('A-1: the first market price of uncalibrated teams', () => {
       await listEvent(eventId, 'feed-a', { pinnacle: far, betsson: far, unibet_se: far });
       expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 0, held: 0 });
       expect(await storedBook(eventId)).toBe(book);
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+describe('M1: prices at betting close', () => {
+  const STAFF = { adminId: '6a5b4c3d-2e1f-4a0b-9c8d-7e6f5a4b3c2d' };
+  const openBetting = (eventId: string) =>
+    h.ctx.db.transaction((tx) => setEventBettingOpen(tx, eventId, true, STAFF));
+  interface Row {
+    market: string;
+    line: string;
+    selection: string;
+    pricing_source: string;
+    our_odds_milli: number | null;
+    consensus_ppm: number | null;
+    pinnacle_ppm: number | null;
+    best_odds_milli: number | null;
+    best_bookmaker: string | null;
+    books: number;
+  }
+  const captured = (eventId: string) =>
+    rows<Row>(
+      `SELECT market, line, selection, pricing_source, our_odds_milli, consensus_ppm, pinnacle_ppm,
+              best_odds_milli, best_bookmaker, books
+         FROM scrape_close_prices WHERE event_id = $1 ORDER BY market, line, selection`,
+      [eventId],
+    );
+
+  it(
+    'captures ours and the market once, shortly before betting closes',
+    async () => {
+      const { eventId } = await createdEvent();
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      h.at(new Date(KICKOFF.getTime() - 4 * HOUR));
+      const books = strongBooksNear(await storedOneXTwo(eventId), 0.95);
+      await listEvent(eventId, 'feed-a', books);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1 });
+      await openBetting(eventId);
+
+      // Betting closes 5 minutes before kickoff (a market-priced competition): 20 minutes before, not yet.
+      h.at(new Date(KICKOFF.getTime() - 20 * MINUTE));
+      expect(await captureClosePrices(h.ctx)).toEqual({ checked: 0, captured: 0, failed: 0 });
+      h.at(new Date(KICKOFF.getTime() - 14 * MINUTE));
+      await listEvent(eventId, 'feed-a', books);
+      expect(await captureClosePrices(h.ctx)).toEqual({ checked: 1, captured: 1, failed: 0 });
+
+      const all = await captured(eventId);
+      const x12 = all.filter((r) => r.market === '1x2');
+      expect(x12.map((r) => r.selection).sort()).toEqual(['1', '2', 'X']);
+      for (const r of x12) {
+        expect(r).toMatchObject({ line: '', pricing_source: 'market', books: 3 });
+        expect(r.our_odds_milli).not.toBeNull();
+        expect(r.pinnacle_ppm).not.toBeNull();
+      }
+      const total = x12.reduce((sum, r) => sum + r.consensus_ppm!, 0);
+      expect(Math.abs(total - 1_000_000)).toBeLessThanOrEqual(2);
+      const home = x12.find((r) => r.selection === '1')!;
+      expect(home.best_odds_milli).toBe(Math.max(...Object.values(books).map((p) => p[0])));
+      expect(home.best_bookmaker).toMatch(/^feed-a:/);
+      const ou = all.filter((r) => r.market === 'ou' && r.line === '2.5');
+      expect(ou.map((r) => r.selection)).toEqual(['over', 'under']);
+      expect(ou.every((r) => r.our_odds_milli !== null && r.consensus_ppm !== null)).toBe(true);
+
+      // Once only.
+      expect(await captureClosePrices(h.ctx)).toEqual({ checked: 0, captured: 0, failed: 0 });
+      expect(await captured(eventId)).toEqual(all);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'skips an event whose betting is closed; captures a model-priced one without the market',
+    async () => {
+      const { eventId } = await createdEvent();
+      h.at(new Date(KICKOFF.getTime() - 5 * MINUTE));
+      expect(await captureClosePrices(h.ctx)).toEqual({ checked: 0, captured: 0, failed: 0 });
+      await openBetting(eventId);
+      expect(await captureClosePrices(h.ctx)).toEqual({ checked: 1, captured: 1, failed: 0 });
+      const x12 = (await captured(eventId)).filter((r) => r.market === '1x2');
+      expect(x12).toHaveLength(3);
+      for (const r of x12) {
+        expect(r).toMatchObject({ pricing_source: 'model', consensus_ppm: null, books: 0 });
+        expect(r.our_odds_milli).not.toBeNull();
+      }
     },
     TEST_TIMEOUT,
   );

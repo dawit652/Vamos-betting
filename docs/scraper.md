@@ -638,6 +638,16 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   closed in one transaction that locks the event row, then its items, and checks the conditions
   again. Nothing else changes (no event, market, price, bet or `scrape_event_pricing`), and a second
   pass closes nothing.
+- **M1 Prices at betting close (2026-11, M-1 of `docs/feed-quality-plan.md`; measurement only).** The
+  promotion pass (`captureClosePrices`, after F7b) records once, for every scraped, scheduled,
+  unresulted event with betting open whose betting closes within `CLOSE_CAPTURE_WINDOW_MS` (10 min;
+  close = start minus `close_lead_ms`) or has closed before kickoff, what we and the market priced
+  (`scrape_close_prices`, one row per selection of the 1X2 and every over/under line): our offered
+  price (open or suspended markets), the books' no-vig consensus from prices listed in the last
+  `MARKET_LAPSE_MAX_AGE_MS` (one voice per upstream and bookmaker), Pinnacle's no-vig probability, the
+  best price among the books and which book, the consensus' books and overround, and where our prices
+  came from (`model` or `market`). Probabilities are stored in parts per million. Nothing prices,
+  opens, suspends or settles from it: the scorecard (M-2) compares it with the results.
 
 ### 6.6 Scraping manners
 

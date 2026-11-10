@@ -2,6 +2,7 @@ import type { ScraperContext } from '../context';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import { tryLock } from '../lib/lock';
 import { openConfirmedEvents } from '../pipeline/auto-open';
+import { captureClosePrices } from '../pipeline/close-prices';
 import { closeBettingOnEarlierKickoff } from '../pipeline/kickoff-safety';
 import { promoteFixtures } from '../pipeline/promote-fixtures';
 import {
@@ -49,6 +50,8 @@ export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
       ['reprice', () => repriceScheduledEvents(ctx)],
       // Last: with the kickoff confirmed and the prices current, open what auto_open allows (F7b).
       ['auto open', () => openConfirmedEvents(ctx)],
+      // What we and the market priced at betting close, for the scorecard (M1, measurement only).
+      ['close prices', () => captureClosePrices(ctx)],
       // After auto open (it may open betting): close the items nobody needs any more (Q1).
       ['review sweep', () => sweepReviewQueue(ctx)],
     ];

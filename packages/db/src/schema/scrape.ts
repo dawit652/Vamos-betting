@@ -22,6 +22,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -499,6 +500,50 @@ export const scrapeEventPricing = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [check('scrape_event_pricing_suspended_for', oneOf(t.suspendedFor, SCRAPE_SUSPENSIONS))],
+);
+
+/**
+ * Our prices and the market's at betting close (rule M1, measurement): one row per (event, market,
+ * line, selection) of the 1X2 and the over/under lines, written once, shortly before betting on the
+ * event closes. `our_odds_milli` is the price we offered (null: we did not offer that market);
+ * `consensus_ppm` the books' no-vig consensus probability in parts per million (null: no consensus),
+ * `pinnacle_ppm` Pinnacle's no-vig probability (null: Pinnacle did not list it), `best_odds_milli` and
+ * `best_bookmaker` the best price among the books (`<upstream>:<bookmaker>`); `books` and
+ * `overround_ppm` describe the consensus. Nothing prices or settles from it: it is the evidence the
+ * scorecard (M-2) compares with the results.
+ */
+export const scrapeClosePrices = pgTable(
+  'scrape_close_prices',
+  {
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    market: text('market').notNull(),
+    /** Half-point line for 'ou', '' for '1x2'. */
+    line: text('line').notNull().default(''),
+    selection: text('selection').notNull(),
+    /** Where the event's stored prices came from at capture (rule O5). */
+    pricingSource: text('pricing_source').notNull(),
+    ourOddsMilli: integer('our_odds_milli'),
+    consensusPpm: integer('consensus_ppm'),
+    pinnaclePpm: integer('pinnacle_ppm'),
+    bestOddsMilli: integer('best_odds_milli'),
+    bestBookmaker: text('best_bookmaker'),
+    books: integer('books').notNull().default(0),
+    overroundPpm: integer('overround_ppm'),
+    capturedAt: timestamp('captured_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.market, t.line, t.selection] }),
+    check('scrape_close_prices_market', oneOf(t.market, SCRAPE_ODDS_MARKETS)),
+    check('scrape_close_prices_selection', oneOf(t.selection, SCRAPE_ODDS_SELECTIONS)),
+    check('scrape_close_prices_pricing_source', oneOf(t.pricingSource, SCRAPE_PRICING_SOURCES)),
+    check(
+      'scrape_close_prices_ppm_range',
+      sql`(${t.consensusPpm} IS NULL OR ${t.consensusPpm} BETWEEN 0 AND 1000000) AND (${t.pinnaclePpm} IS NULL OR ${t.pinnaclePpm} BETWEEN 0 AND 1000000)`,
+    ),
+    index('scrape_close_prices_captured_idx').on(t.capturedAt),
+  ],
 );
 
 /**
