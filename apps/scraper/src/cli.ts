@@ -22,6 +22,7 @@ import {
 } from './cli/io';
 import { envSecretReader } from './lib/secrets';
 import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
+import { sourcesCoverage } from './cli/coverage';
 import { reviewCounts } from './cli/review';
 import { sourcesList, sourcesUpsert } from './cli/sources';
 
@@ -35,6 +36,10 @@ export const USAGE = `usage: pnpm --filter @vamos/scraper-app cli <command> [opt
 commands:
   sources list [--json]
       Every source with its state (enabled or disabled, last run, failures, open review items).
+  sources coverage
+      Per competition: which enabled upstreams give fixtures, full-time scores, half-time scores and
+      a stated score basis (extra time), from the source configs; flags competitions with fewer than
+      two full-time upstreams (single-result-upstream: rule R2 needs two). Read-only.
   sources upsert --file source.json
       Validates the config (createAdapter), then creates or updates the source.
       A new source starts DISABLED; an existing one keeps its enabled flag.
@@ -76,6 +81,7 @@ type Command = (args: string[], env: CliEnv) => Promise<number>;
 
 const COMMANDS: Record<string, Command> = {
   'sources list': sourcesList,
+  'sources coverage': sourcesCoverage,
   'sources upsert': sourcesUpsert,
   'dry-parse': dryParse,
   'dry-fetch': dryFetch,
