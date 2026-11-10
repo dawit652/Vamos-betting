@@ -11,6 +11,6 @@
     "sportKey": "soccer_spain_copa_del_rey",
     "competition": "Copa del Rey",
     "daysFrom": 1,
-    "scoreBasis": "regular_time"
+    "scoreBasis": "unknown"
   }
 }

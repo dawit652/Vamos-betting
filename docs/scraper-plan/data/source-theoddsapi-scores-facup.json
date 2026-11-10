@@ -11,6 +11,6 @@
     "sportKey": "soccer_fa_cup",
     "competition": "FA Cup",
     "daysFrom": 1,
-    "scoreBasis": "regular_time"
+    "scoreBasis": "unknown"
   }
 }

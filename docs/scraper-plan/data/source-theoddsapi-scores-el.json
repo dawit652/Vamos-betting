@@ -11,6 +11,6 @@
     "sportKey": "soccer_uefa_europa_league",
     "competition": "UEFA Europa League",
     "daysFrom": 1,
-    "scoreBasis": "regular_time"
+    "scoreBasis": "unknown"
   }
 }

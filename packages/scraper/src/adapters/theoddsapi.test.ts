@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { MarketOddsObservation, RawDocument, SourceAdapter } from '../types';
@@ -8,6 +8,8 @@ import {
   safeParse,
   THEODDSAPI_AUTH_HEADER,
   theOddsApiCost,
+  theOddsApiMayGoToExtraTime,
+  theOddsApiScoreBasis,
   theOddsApiUrl,
   TheOddsApiConfigSchema,
 } from './index';
@@ -538,6 +540,118 @@ describe('scores mode (a second result upstream)', () => {
     expect(oddsOnScores.issues[0]).toMatchObject({ code: 'unknown_request', fatal: true });
   });
 
+  describe('A10: a knockout competition’s scores have an unknown basis (S-4)', () => {
+    const cupConfig = {
+      ...scoresConfig,
+      sportKey: 'soccer_fa_cup',
+      competition: 'FA Cup',
+      // What the repository files said before S-4: the adapter must not believe it.
+      scoreBasis: 'regular_time',
+    };
+    const CUP_URL = theOddsApiUrl(TheOddsApiConfigSchema.parse(cupConfig));
+    const cupGame = (over: Record<string, unknown> = {}) =>
+      game({ sport_key: 'soccer_fa_cup', sport_title: 'FA Cup', ...over });
+
+    it('marks a cup score unknown even when the config says regular_time', () => {
+      // 2-1 could be 1-1 after 90 minutes and a goal in extra time: /scores does not say.
+      const out = parse([cupGame()], cupConfig, CUP_URL);
+      expect(out.issues).toEqual([]);
+      expect(out.results.map((r) => [r.status, r.score, r.scoreBasis])).toEqual([
+        ['finished', { home: 2, away: 1, htHome: null, htAway: null }, 'unknown'],
+      ]);
+    });
+
+    it('keeps a basis that is already not regular time, and a league’s regular_time', () => {
+      for (const basis of ['unknown', 'includes_extra_time'] as const) {
+        const out = parse([cupGame()], { ...cupConfig, scoreBasis: basis }, CUP_URL);
+        expect(out.results.map((r) => r.scoreBasis)).toEqual([basis]);
+      }
+      expect(parseScores([game()]).results.map((r) => r.scoreBasis)).toEqual(['regular_time']);
+    });
+
+    it.each([
+      'soccer_fa_cup',
+      'soccer_england_efl_cup',
+      'soccer_spain_copa_del_rey',
+      'soccer_germany_dfb_pokal',
+      'soccer_italy_coppa_italia',
+      'soccer_france_coupe_de_france',
+      'soccer_uefa_champs_league',
+      'soccer_uefa_europa_league',
+      'soccer_uefa_europa_conference_league',
+      'soccer_conmebol_copa_libertadores',
+      'soccer_fifa_world_cup',
+      'soccer_uefa_european_championship',
+      'soccer_uefa_nations_league',
+    ])('%s can go to extra time', (key) => {
+      expect(theOddsApiMayGoToExtraTime(key)).toBe(true);
+      const parsed = TheOddsApiConfigSchema.parse({ ...scoresConfig, sportKey: key });
+      expect(theOddsApiScoreBasis(parsed)).toBe('unknown');
+    });
+
+    it.each([
+      'soccer_epl',
+      'soccer_efl_champ',
+      'soccer_england_league1',
+      'soccer_germany_bundesliga',
+      'soccer_spain_la_liga',
+      'soccer_turkey_super_league',
+      'soccer_switzerland_superleague',
+      'soccer_saudi_arabia_pro_league',
+      'soccer_spl',
+      'soccer_brazil_campeonato',
+    ])('%s is a league: the configured basis stands', (key) => {
+      expect(theOddsApiMayGoToExtraTime(key)).toBe(false);
+      const parsed = TheOddsApiConfigSchema.parse({ ...scoresConfig, sportKey: key });
+      expect(theOddsApiScoreBasis(parsed)).toBe('regular_time');
+    });
+
+    it('never reports a regular-time score for a key with a knockout word (property)', () => {
+      const word = fc.stringMatching(/^[a-z0-9]{1,8}$/);
+      const knockout = fc.constantFrom(
+        'cup',
+        'pokal',
+        'copa',
+        'coupe',
+        'coppa',
+        'champs',
+        'europa',
+      );
+      const basis = fc.constantFrom('regular_time', 'includes_extra_time', 'unknown');
+      fc.assert(
+        fc.property(
+          fc.array(word, { maxLength: 3 }),
+          knockout,
+          fc.array(word, { maxLength: 3 }),
+          basis,
+          fc.nat({ max: 9 }),
+          fc.nat({ max: 9 }),
+          (before, cup, after, configured, home, away) => {
+            const sportKey = ['soccer', ...before, cup, ...after].join('_').slice(0, 60);
+            if (!sportKey.split('_').includes(cup)) return; // cut by the 60-character limit
+            const cfg = { ...scoresConfig, sportKey, scoreBasis: configured };
+            const out = parse(
+              [
+                game({
+                  sport_key: sportKey,
+                  scores: [
+                    { name: 'Arsenal', score: String(home) },
+                    { name: 'Chelsea', score: String(away) },
+                  ],
+                }),
+              ],
+              cfg,
+              theOddsApiUrl(TheOddsApiConfigSchema.parse(cfg)),
+            );
+            expect(out.results).toHaveLength(1);
+            expect(out.results[0]?.scoreBasis).not.toBe('regular_time');
+          },
+        ),
+        { numRuns: 300 },
+      );
+    });
+  });
+
   it('needs a score basis, takes no bookmakers requirement, and refuses fixtures', () => {
     expect(refused({ ...scoresConfig, scoreBasis: undefined }).join()).toContain('scoreBasis');
     expect(refused({ ...scoresConfig, fixtures: true }).join()).toContain('fixtures');
@@ -583,4 +697,28 @@ describe('the repository source files (docs/scraper-plan/data)', () => {
       }
     },
   );
+
+  it('every scores source says unknown for a knockout competition, regular_time for a league (S-4)', () => {
+    const files = readdirSync(data).filter((f) => /^source-theoddsapi-scores-.+\.json$/.test(f));
+    expect(files.length).toBeGreaterThanOrEqual(24);
+    const cups: string[] = [];
+    for (const name of files) {
+      const file = read(name);
+      const config = TheOddsApiConfigSchema.parse(file.config);
+      const cup = theOddsApiMayGoToExtraTime(config.sportKey);
+      if (cup) cups.push(config.competition);
+      expect(config.scoreBasis, name).toBe(cup ? 'unknown' : 'regular_time');
+      expect(theOddsApiScoreBasis(config), name).toBe(config.scoreBasis);
+    }
+    expect(cups.sort()).toEqual([
+      'Copa del Rey',
+      'Coppa Italia',
+      'Coupe de France',
+      'DFB-Pokal',
+      'EFL Cup',
+      'FA Cup',
+      'UEFA Conference League',
+      'UEFA Europa League',
+    ]);
+  });
 });

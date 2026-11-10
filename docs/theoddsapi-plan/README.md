@@ -205,6 +205,21 @@ them: they quote 2.5, cover nearly every match and set their own prices.
 - **A9 Usage.** A new optional `SourceAdapter.readUsage(headers)` returns `x-requests-last`, `x-requests-used` and
   `x-requests-remaining`. The expected cost per request is markets × ⌈books ÷ 10⌉, which is 2.
 
+- **A10 Score basis (S-4).** In `scores` mode `scoreBasis` is required and is what the operator says the scores
+  mean. `/scores` returns only `scores: [{ name, score }]`, `completed` and `last_update`: no period, no duration
+  and no penalties, so it never says whether a match went to extra time or penalties.
+  - For a league, `regular_time` is right: league matches have no extra time.
+  - For a knockout competition, a configured `regular_time` is read as `unknown`
+    (`theOddsApiScoreBasis`). This covers domestic cups, the UEFA and CONMEBOL club cups and international
+    tournaments: any sport key with a cup word (`theOddsApiMayGoToExtraTime`, list in `docs/scraper.md` R10a).
+  - Such a score never settles a bet (R10). A cup match with only this upstream opens `score_basis_unknown`, and
+    a person enters the 90-minute score in Trading.
+  - `unknown` and `includes_extra_time` are kept as configured.
+  - The repository's cup files (`el`, `ecl`, `facup`, `eflcup`, `cdr`, `dfbpokal`, `coppaitalia`, `cdf`) say
+    `unknown`. Sources stored with `regular_time` before S-4 are read as `unknown` all the same.
+  - A league's play-offs (EFL, Eredivisie, MLS) can go to extra time, and `/scores` cannot tell them apart. Set the
+    scores source to `unknown` for those weeks, or switch the competition's **extra time** on.
+
 S1 counts fixture records, so it does not watch this source. A3's fatal checks, the alarms (4.8) and the shadow
 report (P5) stand in for it.
 

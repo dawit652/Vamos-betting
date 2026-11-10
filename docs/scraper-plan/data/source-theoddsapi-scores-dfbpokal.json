@@ -11,6 +11,6 @@
     "sportKey": "soccer_germany_dfb_pokal",
     "competition": "DFB-Pokal",
     "daysFrom": 1,
-    "scoreBasis": "regular_time"
+    "scoreBasis": "unknown"
   }
 }

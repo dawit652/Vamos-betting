@@ -11,6 +11,6 @@
     "sportKey": "soccer_england_efl_cup",
     "competition": "EFL Cup",
     "daysFrom": 1,
-    "scoreBasis": "regular_time"
+    "scoreBasis": "unknown"
   }
 }

@@ -81,7 +81,8 @@ An adapter turns one document into `FixtureObservation`s and
   read it per record (`fields.scoreBasis`: a `path` and a `map` of the record's
   values to a basis, e.g. football-data.org's `score.duration` with `REGULAR`,
   `EXTRA_TIME`, `PENALTY_SHOOTOUT`); a value outside the map gives `unknown`
-  with a warning, a missing value the source's `scoreBasis`.
+  with a warning, a missing value the source's `scoreBasis`. A source that cannot know the basis
+  says `unknown`: The Odds API's scores of a knockout competition are always `unknown` (R10a).
 - Everything is validated with the zod schemas in `types.ts` before it leaves
   the adapter. Invalid records are dropped with an issue; they are never
   repaired.
@@ -372,8 +373,8 @@ Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_M
   identical full-time scores. If the event `needsHalfTimeScore`, at least one of
   those observations must give the half-time score, and every observation that
   gives one must give the same (R3); an observation without a half time is
-  silence on it, so a full-time-only upstream (The Odds API's scores) still
-  counts for the full time. The half time then rests on the upstreams that give
+  silence on it, so a full-time-only upstream (The Odds API's scores of a
+  league) still counts for the full time. The half time then rests on the upstreams that give
   it: it settles only `ht_1x2`. Sources that share an upstream count once.
 - **R3 Dissent blocks.** Any current observation from any source with status
   `finished` and a different score, or with status `cancelled` / `abandoned` /
@@ -403,6 +404,31 @@ Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_M
 - **R10 Basis.** A `finished` observation whose `scoreBasis` is not
   `regular_time` never counts towards R2; it opens `score_basis_unknown`
   once per fixture.
+  - While such an observation stands, nothing is applied without a person, in any competition.
+    It still counts for dissent (R3): a different score is `result_conflict`.
+  - It is never the second upstream, not even when its score equals a regular-time score of
+    another upstream (S-4, decided conservatively). The gate sees a basis, not where it came from:
+    a per-match `REGULAR` from football-data.org and a wrongly configured source-wide
+    `regular_time` look the same. If an unknown score could complete R2, one wrong config plus
+    one honest `unknown` source would settle a score after extra time.
+  - So football-data.org `REGULAR` plus an agreeing unknown score gives `score_basis_unknown` at
+    once. After R6's waiting time it also gives `result_unverified`, carrying football-data.org's
+    score and upstream only. A person can confirm it: the staff check needs a current
+    regular-time observation showing that score.
+- **R10a Cup basis (S-4).** The Odds API's `/scores` gives each team's score and `completed`,
+  nothing about extra time or penalties. A knockout competition's score may include both.
+  - The adapter reads the basis as `unknown` whatever the source config says (rule A10 of
+    [theoddsapi-plan](theoddsapi-plan/README.md)). Knockout means a sport key with a cup word:
+    `cup`, `pokal`, `copa`, `coupe`, `coppa`, `beker`, `taca`, `trophy`, `shield`, `champs`,
+    `europa`, `conference`, `libertadores`, `sudamericana`, `championship`, `nations`, `playoff(s)`.
+  - Such a score never settles a bet (R10). A cup match with only The Odds API's score opens
+    `score_basis_unknown`, and a person enters the 90-minute score in Trading.
+  - The league phase of a European cup cannot go to extra time, but `/scores` does not say the
+    phase, so the whole competition counts. Those matches had one upstream and went to a person
+    under R6 anyway.
+  - League sport keys keep the configured `regular_time`. A league's play-offs (EFL, Eredivisie,
+    MLS) can go to extra time. Where The Odds API is the only score upstream, set the scores
+    source to `unknown` for the play-off weeks, or switch the competition's **extra time** on.
 - **R11 Idempotent.** Applying a result again changes nothing.
 - **R12 Overdue.** An event of an enabled competition that is still scheduled and unresulted
   `MIN_MATCH_DURATION_MS + UNVERIFIED_AFTER_MS` after kickoff (7 h 45 min), with no open result item about

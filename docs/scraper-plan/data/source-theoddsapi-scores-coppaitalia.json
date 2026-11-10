@@ -11,6 +11,6 @@
     "sportKey": "soccer_italy_coppa_italia",
     "competition": "Coppa Italia",
     "daysFrom": 1,
-    "scoreBasis": "regular_time"
+    "scoreBasis": "unknown"
   }
 }

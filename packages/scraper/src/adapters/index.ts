@@ -28,6 +28,8 @@ export {
   THEODDSAPI_HOST,
   THEODDSAPI_MAX_BOOKMAKERS,
   theOddsApiCost,
+  theOddsApiMayGoToExtraTime,
+  theOddsApiScoreBasis,
   theOddsApiUrl,
   readTheOddsApiUsage,
 } from './theoddsapi';

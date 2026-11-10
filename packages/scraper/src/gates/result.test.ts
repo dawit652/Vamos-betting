@@ -478,6 +478,138 @@ describe('R10 basis', () => {
   });
 });
 
+/**
+ * S-4 (docs/feed-quality-plan.md section 7): a cup score of The Odds API has basis `unknown`
+ * (adapter rule A10), because /scores never says whether extra time or penalties were played.
+ * Such a score never votes, is never the second upstream, and never lets the gate apply by itself,
+ * whatever the competition's flags (the worst case below: auto results on, extra time off).
+ */
+describe('S-4 cup scores of unknown basis (R10)', () => {
+  const careless = { policy: { autoResults: true, enabled: true, extraTime: false } };
+  const oddsApi = (over: Partial<Parameters<typeof resultObs>[0]> = {}) =>
+    resultObs({ source: 'odds-cup', upstream: 'TheOddsAPI', basis: 'unknown', ...over });
+  const footballData = (over: Partial<Parameters<typeof resultObs>[0]> = {}) =>
+    resultObs({ source: 'fd-cup', upstream: 'football-data.org', ...over });
+
+  it('a cup score from The Odds API alone is never applied, however long it stands', () => {
+    for (const now of [END, NOW, END + UNVERIFIED_AFTER_MS, END + 3 * UNVERIFIED_AFTER_MS]) {
+      const d = decide([oddsApi()], { ...careless, now });
+      expect(d.action).toBe('hold');
+      expect(kinds(d)).toEqual(['score_basis_unknown']);
+      expect(reasons(d)).toEqual(['score_basis_not_regular_time']);
+      if (d.action === 'hold') {
+        expect(d.review.payload.details).toEqual({
+          score_basis_not_regular_time: ['odds-cup:unknown'],
+        });
+      }
+    }
+  });
+
+  it('a regular-time score plus an agreeing unknown one is one upstream, not two', () => {
+    const obs = [footballData(), oddsApi()];
+    // Before R6's waiting time: only the basis notice, no result to confirm.
+    const early = decide(obs, careless);
+    expect(early.action).toBe('hold');
+    expect(kinds(early)).toEqual(['score_basis_unknown']);
+    // After it: a person may confirm the regular-time score, which rests on football-data.org only.
+    const late = decide(obs, { ...careless, now: END + UNVERIFIED_AFTER_MS });
+    expect(kinds(late)).toEqual(['result_unverified', 'score_basis_unknown']);
+    if (late.action !== 'hold') return;
+    expect(late.review.payload).toMatchObject({
+      score: { home: 2, away: 1 },
+      upstreams: ['football-data.org'],
+    });
+    expect(
+      (late.review.payload.sources as Array<{ sourceId: string }>).map((v) => v.sourceId),
+    ).toEqual(['fd-cup']);
+  });
+
+  it('two regular-time upstreams still go to a person while an unknown score stands beside them', () => {
+    const obs = [footballData(), resultObs({ source: 's2' }), oddsApi()];
+    const d = decide(obs, careless);
+    expect(d.action).toBe('hold');
+    expect(kinds(d)).toEqual(['result_ready', 'score_basis_unknown']);
+    // Without the unknown score the same two upstreams apply (a league match, unchanged).
+    expect(decide([footballData(), resultObs({ source: 's2' })], careless).action).toBe('apply');
+  });
+
+  it('a score after extra time that differs from the regular-time one is a conflict', () => {
+    // football-data.org: 1-1 in regular time; The Odds API: 2-1, perhaps after extra time. The
+    // scores disagree (R3), so a person looks; nothing is applied.
+    const d = decide([footballData({ score: score(1, 1) }), oddsApi()], careless);
+    expect(d.action).toBe('hold');
+    expect(kinds(d)).toEqual(['result_conflict', 'score_basis_unknown']);
+  });
+
+  it('football-data.org marking extra time leaves nothing to vote: the basis notice only', () => {
+    const d = decide([footballData({ basis: 'includes_extra_time' }), oddsApi()], careless);
+    expect(kinds(d)).toEqual(['score_basis_unknown']);
+    expect(d.action === 'hold' && d.review.payload.details).toEqual({
+      score_basis_not_regular_time: ['fd-cup:includes_extra_time', 'odds-cup:unknown'],
+    });
+  });
+
+  it('adding a score that is not known to be regular time never yields apply (property)', () => {
+    let applyBefore = 0;
+    fc.assert(
+      fc.property(
+        anyScenario,
+        fc.constantFrom<'unknown' | 'includes_extra_time'>('unknown', 'includes_extra_time'),
+        fc.constantFrom('s1', 's2', 's5', 'odds-cup'),
+        fc.integer({ min: 0, max: FULL_TIMES.length - 1 }),
+        fc.integer({ min: -HOUR_MS, max: 0 }),
+        (s, basis, source, ft, changedOff) => {
+          const observations = s.specs.map(build);
+          if (run(s, observations).action === 'apply') applyBefore++;
+          const [home, away] = FULL_TIMES[ft] ?? [2, 1];
+          const extra = resultObs({
+            source,
+            upstream: source === 'odds-cup' ? 'TheOddsAPI' : undefined,
+            score: score(home, away),
+            basis,
+            changedAt: END + changedOff,
+          });
+          expect(run(s, [...observations, extra]).action).not.toBe('apply');
+        },
+      ),
+      { numRuns: 500 },
+    );
+    // The property is not vacuous: without the extra score some scenarios do apply.
+    expect(applyBefore).toBeGreaterThan(20);
+  });
+
+  it('marking one source’s scores unknown never turns a non-apply into apply (property)', () => {
+    fc.assert(
+      fc.property(anyScenario, fc.nat(), (s, pick) => {
+        const observations = s.specs.map(build);
+        const ids = [...new Set(observations.map((o) => o.obs.sourceId))];
+        const target = ids[pick % Math.max(ids.length, 1)];
+        if (target === undefined) return;
+        const relabelled = observations.map((o) =>
+          o.obs.sourceId === target
+            ? { ...o, obs: { ...o.obs, scoreBasis: 'unknown' as const } }
+            : o,
+        );
+        const before = run(s, observations).action;
+        const after = run(s, relabelled).action;
+        if (before !== 'apply') expect(after).not.toBe('apply');
+        // A finished score of the relabelled source now blocks automatic application.
+        if (
+          relabelled.some(
+            (o) =>
+              o.obs.sourceId === target &&
+              o.obs.status === 'finished' &&
+              o.names.homeTeamId === NAMES.homeTeamId,
+          )
+        ) {
+          expect(after).not.toBe('apply');
+        }
+      }),
+      { numRuns: 500 },
+    );
+  });
+});
+
 describe('R11 idempotent', () => {
   it('the same input gives the same decision, and the applied result is not applied again', () => {
     expect(decide([A, B])).toEqual(decide([A, B]));

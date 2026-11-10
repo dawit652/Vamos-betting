@@ -300,7 +300,10 @@ A source with a licensed API (API-Football, `x-apisports-key`) names an environm
   both agree on settles by itself in a competition with **auto results** on (R2; the half time, needed only by
   `ht_1x2`, comes from football-data.org). A scores source is read only from kickoff + 110 minutes to kickoff + 4 h
   of one of its own league's unresulted matches (20/30/60 minutes by credit-guard mode, never in stop): about
-  1,500 to 2,000 credits a month on top of the prices. Neither kind counts as records for S1 (`acceptCompanion`).
+  1,500 to 2,000 credits a month on top of the prices. A cup's scores (Europa and Conference League, the domestic
+  cups) never settle by themselves: `/scores` does not say whether extra time or penalties were played, so their
+  basis is `unknown` (R10a) and each result opens `score_basis_unknown`; enter the 90-minute score in Trading.
+  Neither kind counts as records for S1 (`acceptCompanion`).
   `aliases-theoddsapi.csv` holds the five club spellings that are not catalogue names. `infra/scripts/use-odds-api.sh`
   rebuilds migrate and scraper, imports the spellings and adds or updates the ten sources (new ones disabled).
   Market pricing (`pricing: market` per competition) prices from the bookmakers' consensus and falls back to the

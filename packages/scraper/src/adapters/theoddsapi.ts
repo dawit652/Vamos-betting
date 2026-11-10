@@ -1,3 +1,4 @@
+import type { ScrapeScoreBasis } from '@vamos/core';
 import { z } from 'zod';
 import type {
   ApiUsage,
@@ -32,7 +33,8 @@ import { decimalToMilli, type PriceProblem } from './odds-price';
  * (its kickoff is the bookmakers' `commence_time`): a second upstream next to the fixture source,
  * so a kickoff both agree on moves by itself (rule F4a) and only a disagreement needs a person.
  * In `scores` mode it reads `/scores` instead and yields the final scores of finished matches: a
- * second upstream for results (rule R2). The key travels in the `x-api-key` header (proven in
+ * second upstream for results (rule R2) in a league; a cup's scores have basis `unknown` and never
+ * settle anything by themselves (rule A10, `theOddsApiScoreBasis`). The key travels in the `x-api-key` header (proven in
  * Phase 0; the docs show only the query parameter, which this adapter never uses). Live matches
  * and matches beyond the horizon are skipped; a market whose `last_update` is stale or in the
  * future is dropped. Its fixtures and results do not count as records (`acceptCompanion`), so the
@@ -75,7 +77,11 @@ export const TheOddsApiConfigSchema = z
     fixtures: z.boolean().default(false),
     /** Scores mode: days back (1 to 3); with it a request costs 2 credits. */
     daysFrom: z.number().int().min(1).max(3).default(1),
-    /** Scores mode: what the scores mean; the operator must say (league matches: regular_time). */
+    /**
+     * Scores mode: what the scores mean; the operator must say (league matches: regular_time).
+     * For a knockout sport key (`theOddsApiMayGoToExtraTime`) `regular_time` is read as `unknown`
+     * (rule A10, S-4): /scores never says whether a match went to extra time or penalties.
+     */
     scoreBasis: z.enum(['regular_time', 'includes_extra_time', 'unknown']).optional(),
     /** Odds mode: the bookmakers read, each setting its own prices (plan 4.2). */
     bookmakers: z.array(keySchema('bookmaker')).min(2).max(THEODDSAPI_MAX_BOOKMAKERS).optional(),
@@ -130,6 +136,62 @@ export const TheOddsApiConfigSchema = z
     }
   });
 export type TheOddsApiConfig = z.infer<typeof TheOddsApiConfigSchema>;
+
+/**
+ * Words of a sport key that name a competition whose matches can go to extra time and penalties:
+ * domestic cups (FA Cup, EFL Cup, Copa del Rey, DFB-Pokal, Coppa Italia, Coupe de France, KNVB
+ * Beker, Taça), club cups (Champions, Europa and Conference League, Libertadores, Sudamericana) and
+ * tournaments (World Cup, European Championship, Nations League). Matched against the key's
+ * `_`-separated words, so `soccer_turkey_super_league` and `soccer_efl_champ` are leagues.
+ */
+const KNOCKOUT_WORDS: ReadonlySet<string> = new Set([
+  'cup',
+  'pokal',
+  'copa',
+  'coupe',
+  'coppa',
+  'beker',
+  'taca',
+  'trophy',
+  'shield',
+  'champs',
+  'europa',
+  'conference',
+  'libertadores',
+  'sudamericana',
+  'championship',
+  'nations',
+  'playoff',
+  'playoffs',
+]);
+
+/**
+ * Rule A10 (S-4): true when a sport key's matches can end after extra time or penalties. The
+ * league phase of a European cup cannot, but /scores does not say which phase a match is in, so
+ * the whole key counts. Leans to true: an unknown word in a cup's key costs a person a look, a
+ * cup taken for a league could settle bets on a score after extra time.
+ */
+export function theOddsApiMayGoToExtraTime(sportKey: string): boolean {
+  return sportKey
+    .trim()
+    .toLowerCase()
+    .split('_')
+    .some((word) => KNOCKOUT_WORDS.has(word));
+}
+
+/**
+ * Rule A10 (S-4): the basis of the scores a scores source reports. The Odds API's /scores gives
+ * each team's score and `completed`, nothing about extra time or penalties, so `regular_time` is
+ * only what the operator says of a league. For a knockout key (`theOddsApiMayGoToExtraTime`) it is
+ * `unknown` whatever the config says: such a score never votes for a result (R10), it opens
+ * `score_basis_unknown` and a person enters the 90-minute score. A config of `unknown` or
+ * `includes_extra_time` is kept as it is (the safe direction).
+ */
+export function theOddsApiScoreBasis(config: TheOddsApiConfig): ScrapeScoreBasis | null {
+  const basis = config.scoreBasis ?? null;
+  if (basis === 'regular_time' && theOddsApiMayGoToExtraTime(config.sportKey)) return 'unknown';
+  return basis;
+}
 
 /** The one request URL of a run (the key is added by the fetcher, in a header). */
 export function theOddsApiUrl(config: TheOddsApiConfig): string {
@@ -423,6 +485,7 @@ export function createTheOddsApiAdapter(
    * usable score is reported and skipped.
    */
   function parseScores(json: readonly unknown[], collector: ParseCollector, fetchedAt: Date): void {
+    const scoreBasis = theOddsApiScoreBasis(config);
     json.forEach((raw: unknown, index) => {
       if (!collector.beginRecord()) return;
       const ctx: Record<string, unknown> = { index };
@@ -491,7 +554,8 @@ export function createTheOddsApiAdapter(
         round: null,
         status: 'finished',
         score: { home: homeGoals, away: awayGoals, htHome: null, htAway: null },
-        scoreBasis: config.scoreBasis ?? null,
+        // A10 (S-4): a cup's score may include extra time; /scores does not say.
+        scoreBasis,
       });
       if (Array.isArray(drafts)) collector.acceptCompanion(drafts, named);
       else collector.issue('error', drafts.code, drafts.message, named);
