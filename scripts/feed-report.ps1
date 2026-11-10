@@ -63,6 +63,34 @@ from teams, jsonb_object_keys(coalesce(ratings, '{}'::jsonb)) k group by 1 order
 \echo ===== 13. Aliases (source spellings mapped to catalogue names)
 select 'team aliases' as what, count(*) from team_aliases
 union all select 'competition aliases', count(*) from competition_aliases;
+\echo ===== 16. Why odds approvals and calibration items wait (stage, rules, reasons)
+select kind,
+  case when subject_key like '%|reprice' then 'reprice hold'
+       when position('|' in subject_key) > 0 then split_part(subject_key, '|', 2)
+       else 'at creation' end as stage,
+  coalesce(payload->>'rules', '') as rules, coalesce(payload->>'reasons', '') as reasons,
+  coalesce(payload->>'kickoffConfirmed', '') as kickoff_ok, coalesce(payload->>'pricesSane', '') as prices_ok,
+  count(*)
+from scrape_review_items where status = 'open' and kind in ('odds_approval', 'ratings_uncalibrated')
+group by 1, 2, 3, 4, 5, 6 order by count(*) desc;
+\echo ===== 17. Re-price holds: the top reasons
+select left(payload->>'reason', 110) as reason, count(*) from scrape_review_items
+where status = 'open' and kind = 'odds_approval' and payload ? 'reason' group by 1 order by 2 desc limit 12;
+\echo ===== 18. Every open unknown name, with its source
+select kind, coalesce(payload->>'sourceId', '') as source, left(title, 90) as title from scrape_review_items
+where status = 'open' and kind in ('unknown_team', 'unknown_competition') order by 1, 2, 3;
+\echo ===== 19. Fixture conflicts: what the sources disagree about
+select coalesce(payload->>'reasons', '') as reasons, left(coalesce(payload->>'detail', ''), 150) as detail
+from scrape_review_items where status = 'open' and kind = 'fixture_conflict';
+\echo ===== 20. Teams in matches of the next 14 days whose ratings are not calibrated (fewer than 8 matches, not manual)
+select distinct t.short_name, c.slug as competition, coalesce(t.ratings->>'matches', '-') as matches,
+  coalesce(t.ratings->>'manual', '-') as manual
+from events e join competitions c on c.id = e.competition_id
+join teams t on t.id in (e.home_team_id, e.away_team_id)
+where e.start_time between now() and now() + interval '14 days'
+  and coalesce(t.ratings->>'manual', '0') <> '1'
+  and coalesce((t.ratings->>'matches')::numeric, 0) < 8
+order by 2, 1;
 \echo ===== 14. Results
 select count(*) filter (where resulted_at is not null) as resulted,
   count(*) filter (where resulted_at is null and start_time < now() - interval '3 hours') as past_kickoff_no_result
@@ -75,7 +103,11 @@ docker compose logs --since 24h --no-color scraper worker 2>&1 | grep -E '"level
 # Strip Windows line endings before sending: bash on the server cannot read them.
 $bytes = [Text.Encoding]::UTF8.GetBytes(($remote -replace "`r", ''))
 $encoded = [Convert]::ToBase64String($bytes)
+# The server sends UTF-8 (Turkish and Amharic names): read it as UTF-8, not the console default code page.
+$previousEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 Write-Host "Connecting to $Server (type the server password when asked)..."
 ssh $Server "echo $encoded | base64 -d | bash" 2>&1 | Tee-Object -FilePath $Out
+[Console]::OutputEncoding = $previousEncoding
 Write-Host ""
 Write-Host "Saved to $Out"
