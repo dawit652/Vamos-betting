@@ -3,7 +3,10 @@ import { marketConsensus, MARKET_PRICING_KEY_PREFIX, type MarketPriceRow } from 
 import {
   finishRun,
   loadKickoffEvidence,
+  resolveReviewItem,
+  resumeEvent,
   setCompetitionPolicy,
+  setMarketStatus,
   setSourceEnabled,
   setTeamRatings,
   startRun,
@@ -728,6 +731,199 @@ describe('market_stale alarm (docs/theoddsapi-plan 4.8)', () => {
       h.at(new Date(KICKOFF.getTime() - 48 * HOUR));
       await repriceScheduledEvents(h.ctx);
       expect(await staleItems(eventId)).toEqual([]);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'P-7: opens too when fresh books can no longer be fitted (no over/under line)',
+    async () => {
+      const { eventId } = await createdEvent();
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      h.at(new Date(KICKOFF.getTime() - 20 * HOUR));
+      const books = booksNear(await storedOneXTwo(eventId), 0.93);
+      await listEvent(eventId, 'feed-a', books);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1 });
+      // The books stop listing an over/under line: a fresh 1X2 with nothing to fit the goals to.
+      h.advance(MINUTE);
+      await listEvent(eventId, 'feed-a', books, { ou25: {} });
+      await repriceScheduledEvents(h.ctx);
+      expect(await staleItems(eventId)).toEqual([['open', 'market_stale']]);
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+describe('A2: markets suspended while the prices cannot be trusted', () => {
+  const STAFF = { adminId: '6a5b4c3d-2e1f-4a0b-9c8d-7e6f5a4b3c2d' };
+  /** The event's markets as `status/suspended_by` (distinct). */
+  const statuses = async (eventId: string) =>
+    new Set(
+      (
+        await rows<{ status: string; suspended_by: string | null }>(
+          `SELECT status, suspended_by FROM markets WHERE event_id = $1`,
+          [eventId],
+        )
+      ).map((r) => `${r.status}/${r.suspended_by ?? '-'}`),
+    );
+  const marketStatus = async (eventId: string, key: string) =>
+    (
+      await rows<{ status: string; suspended_by: string | null }>(
+        `SELECT status, suspended_by FROM markets WHERE event_id = $1 AND key = $2`,
+        [eventId, key],
+      )
+    ).map((r) => `${r.status}/${r.suspended_by ?? '-'}`)[0];
+  const suspendedFor = async (eventId: string) =>
+    (
+      await rows<{ suspended_for: string | null }>(
+        `SELECT suspended_for FROM scrape_event_pricing WHERE event_id = $1`,
+        [eventId],
+      )
+    )[0]?.suspended_for ?? null;
+  const audits = (action: string) =>
+    rows<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM audit_log WHERE action = $1 ORDER BY id`,
+      [action],
+    );
+
+  /** The market flips the favourite: the re-price is held for a trader (O3). */
+  async function heldEvent(): Promise<Created> {
+    const created = await createdEvent();
+    await setPolicy({ pricingSource: 'market' });
+    await addFeed('feed-a');
+    const [home, draw, away] = await storedOneXTwo(created.eventId);
+    const flipped: Prices = [away, draw, home];
+    await listEvent(created.eventId, 'feed-a', {
+      '19': flipped,
+      '23': flipped.map((o) => Math.floor(o * 1.02)) as Prices,
+    });
+    return created;
+  }
+  /** A person dismisses the held proposal: the old prices stand. */
+  async function dismissHold(feedRef: string): Promise<void> {
+    const [item] = await rows<{ id: string }>(
+      `SELECT id FROM scrape_review_items WHERE subject_key = $1 AND status = 'open'`,
+      [`${feedRef}|reprice`],
+    );
+    await h.ctx.db.transaction((tx) =>
+      resolveReviewItem(tx, item!.id, { status: 'dismissed', resolution: 'test', actor: STAFF }),
+    );
+  }
+
+  it(
+    'a held re-price suspends every market; the prices stay; once dismissed the markets re-open',
+    async () => {
+      const { eventId, feedRef } = await heldEvent();
+      const book = await storedBook(eventId);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({
+        held: 1,
+        suspended: 1,
+        resumed: 0,
+        failed: 0,
+      });
+      expect(await statuses(eventId)).toEqual(new Set(['suspended/feed']));
+      expect(await suspendedFor(eventId)).toBe('reprice_held');
+      expect(await storedBook(eventId)).toBe(book);
+      const [suspended] = await audits('scrape.fixture.suspended');
+      expect(suspended!.metadata).toMatchObject({ feedRef, rule: 'A2', reason: 'reprice_held' });
+      expect(suspended!.metadata.markets).toBeGreaterThan(0);
+      // Nothing more while the cause stays.
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ suspended: 0, resumed: 0 });
+
+      await dismissHold(feedRef);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ resumed: 1, failed: 0 });
+      expect(await statuses(eventId)).toEqual(new Set(['open/-']));
+      expect(await suspendedFor(eventId)).toBeNull();
+      expect((await audits('scrape.fixture.resumed'))[0]!.metadata).toMatchObject({
+        reason: 'reprice_held',
+      });
+      expect(await storedBook(eventId)).toBe(book);
+      expect(await bettingOpen()).toBe(false);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    "never lifts a trader's suspension",
+    async () => {
+      const { eventId, feedRef } = await heldEvent();
+      const [market] = await rows<{ id: string }>(
+        `SELECT id FROM markets WHERE event_id = $1 AND key = '1x2'`,
+        [eventId],
+      );
+      await h.ctx.db.transaction((tx) => setMarketStatus(tx, market!.id, 'suspended', STAFF));
+      await repriceScheduledEvents(h.ctx);
+      expect(await marketStatus(eventId, '1x2')).toBe('suspended/trader');
+      await dismissHold(feedRef);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ resumed: 1 });
+      expect(await marketStatus(eventId, '1x2')).toBe('suspended/trader');
+      expect(await marketStatus(eventId, 'btts')).toBe('open/-');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'a trader who re-opens the markets during a hold is not overruled',
+    async () => {
+      const { eventId } = await heldEvent();
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ suspended: 1 });
+      await h.ctx.db.transaction((tx) => resumeEvent(tx, eventId, STAFF));
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ suspended: 0, resumed: 0 });
+      expect(await statuses(eventId)).toEqual(new Set(['open/-']));
+      expect(await suspendedFor(eventId)).toBe('reprice_held');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'within 3 h of kickoff a market-priced match with no fresh prices for 30 minutes is suspended; fresh prices re-open it',
+    async () => {
+      const { eventId } = await createdEvent();
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      h.at(new Date(KICKOFF.getTime() - 4 * HOUR));
+      const books = booksNear(await storedOneXTwo(eventId), 0.93);
+      await listEvent(eventId, 'feed-a', books);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1, suspended: 0 });
+
+      // 50 minutes old but more than 3 h before kickoff: still bettable.
+      h.at(new Date(KICKOFF.getTime() - 190 * MINUTE));
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ suspended: 0 });
+      // 70 minutes old within 3 h of kickoff: usable for pricing, not fresh enough to bet on.
+      h.at(new Date(KICKOFF.getTime() - 170 * MINUTE));
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ suspended: 1, repriced: 0 });
+      expect(await suspendedFor(eventId)).toBe('market_lapsed');
+      expect(await statuses(eventId)).toEqual(new Set(['suspended/feed']));
+
+      await listEvent(eventId, 'feed-a', books);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ resumed: 1, failed: 0 });
+      expect(await statuses(eventId)).toEqual(new Set(['open/-']));
+      expect(await suspendedFor(eventId)).toBeNull();
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'a model-priced match is never suspended for a lapsed market',
+    async () => {
+      const { eventId } = await createdEvent();
+      await setPolicy({ pricingSource: 'market' });
+      // No feed at all: the prices are the model's, so there is no market to lapse.
+      h.at(new Date(KICKOFF.getTime() - HOUR));
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ suspended: 0 });
+      expect(await statuses(eventId)).toEqual(new Set(['open/-']));
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'a switched-off competition holds the proposal but suspends nothing (S4)',
+    async () => {
+      const { eventId } = await heldEvent();
+      await setPolicy({ enabled: false });
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ held: 1, suspended: 0 });
+      expect(await statuses(eventId)).toEqual(new Set(['open/-']));
     },
     TEST_TIMEOUT,
   );

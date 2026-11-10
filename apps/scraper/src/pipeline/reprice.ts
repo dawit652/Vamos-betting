@@ -18,11 +18,15 @@ import {
   raiseCloseLead,
   recordEventHeld,
   recordEventPriced,
+  recordEventSuspension,
+  resumeEvent,
+  suspendEvent,
   upsertFixture,
+  type DbExecutor,
   type LiveMessage,
   type ScrapedEvent,
 } from '@vamos/db';
-import { events as eventsTable } from '@vamos/db/schema';
+import { events as eventsTable, scrapeReviewItems, type ScrapeSuspension } from '@vamos/db/schema';
 import type { TeamRatings } from '@vamos/feed';
 import {
   buildReviews,
@@ -30,6 +34,8 @@ import {
   heldKeyOf,
   isCalibrated,
   MARKET_CLOSE_LEAD_MS,
+  MARKET_LAPSE_LEAD_MS,
+  MARKET_LAPSE_MAX_AGE_MS,
   MIN_LEAD_MS,
   ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
@@ -39,7 +45,7 @@ import {
   type OddsCheck,
   type OddsIssue,
 } from '@vamos/scraper';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { LOOK_AHEAD_MS } from './promote-fixtures';
@@ -57,6 +63,10 @@ export interface RepriceSummary {
   skipped: number;
   /** Events whose `ratings_uncalibrated` item was closed and handed to a trader (`odds_approval`). */
   calibrated: number;
+  /** Events whose markets were suspended for a new cause (rule A2). */
+  suspended: number;
+  /** Events whose markets were re-opened once no cause remained (rule A2). */
+  resumed: number;
   failed: number;
   published: number;
 }
@@ -103,6 +113,9 @@ const skipped = (): Outcome => ({ kind: 'skipped', messages: [] });
  * - hands an event over once its teams are calibrated and its prices follow the
  *   ratings (`handOverCalibrated`): the `ratings_uncalibrated` item closes
  *   and an `odds_approval` item asks a trader to open betting;
+ * - suspends the markets of an event while a re-price is held for a person or
+ *   its market has lapsed close to kickoff, and re-opens them once neither holds
+ *   (`syncSuspensions`, rule A2);
  * - never touches an event that is not scheduled, has a result, starts within
  *   MIN_LEAD_MS, belongs to a competition without a policy row, or whose
  *   teams are not calibrated (O1).
@@ -124,6 +137,8 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     held: 0,
     skipped: 0,
     calibrated: 0,
+    suspended: 0,
+    resumed: 0,
     failed: 0,
     published: 0,
   };
@@ -172,7 +187,8 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
         : null;
     const key = price?.key ?? ratingsKey(home, away);
     const state = settled(stamps.get(event.eventId), key, price?.source ?? 'model', policy);
-    // 4.8 market_stale: a market-priced match within 24 h keeps prices the market no longer backs.
+    // 4.8 market_stale: a market-priced match within 24 h keeps prices the market no longer backs,
+    // whatever the reason (no consensus, no over/under line, a poor fit: P-7).
     if (price !== null) {
       await ctx.db.transaction((tx) =>
         syncMarketStaleAlarm(tx, {
@@ -180,7 +196,6 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
           kickoff: event.startTime,
           stale:
             state === 'keep' &&
-            price.fallback === 'no_consensus' &&
             event.startTime.getTime() - now.getTime() <= MARKET_STALE_ALARM_LEAD_MS,
           now,
         }),
@@ -205,8 +220,18 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     }
   }
   await handOverCalibrated(ctx, scheduled, policyOf, now, summary);
+  // Last: with the holds of this pass raised and the stamps current (rule A2).
+  await syncSuspensions(ctx, scheduled, policyOf, now, summary);
   ctx.logger[
-    summary.repriced + summary.held + summary.calibrated + summary.failed > 0 ? 'info' : 'debug'
+    summary.repriced +
+      summary.held +
+      summary.calibrated +
+      summary.suspended +
+      summary.resumed +
+      summary.failed >
+    0
+      ? 'info'
+      : 'debug'
   ]({ ...summary }, 'repricing run');
   return summary;
 }
@@ -591,5 +616,191 @@ async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date):
       },
     });
     return true;
+  });
+}
+
+/**
+ * Rule A2: an event's markets are suspended while its stored prices cannot be trusted, and re-opened
+ * once they can. For each scheduled event of an enabled competition the cause is, in this order:
+ *
+ * - `reprice_held`: a re-price waits for a person (the open `odds_approval` item `<feedRef>|reprice`,
+ *   O3): the stored prices are not the current ones;
+ * - `market_lapsed`: the stored prices came from the market (O5), the competition still takes market
+ *   prices, the event starts within MARKET_LAPSE_LEAD_MS, and the market cannot price it from prices
+ *   listed in the last MARKET_LAPSE_MAX_AGE_MS (no consensus, no over/under line, or a poor fit);
+ * - none.
+ *
+ * Only a change of cause acts (`scrape_event_pricing.suspended_for` remembers the last one). A new
+ * cause suspends every open market of the event (suspendEvent without an actor: `suspended_by =
+ * 'feed'`) and audits `scrape.fixture.suspended`; no cause any more re-opens the markets the feed
+ * suspended (resumeEvent without an actor: never a trader's suspension) and audits
+ * `scrape.fixture.resumed`. A trader who re-opens the markets in between is not overruled for the
+ * same cause. Nothing else changes: no price, no betting switch, no review item. Events that start
+ * within MIN_LEAD_MS, are not scheduled or are resulted are not looked at (a suspension stays; the
+ * result settles suspended markets like open ones), nor are competitions whose policy is not
+ * enabled (S4).
+ */
+async function syncSuspensions(
+  ctx: ScraperContext,
+  scheduled: readonly ScrapedEvent[],
+  policyOf: ReadonlyMap<string, PricingPolicy>,
+  now: Date,
+  summary: RepriceSummary,
+): Promise<void> {
+  const candidates = scheduled.filter(
+    (event) => policyOf.get(event.competitionId)?.enabled === true,
+  );
+  if (candidates.length === 0) return;
+  const held = await heldRepriceSubjects(ctx.db);
+  const stamps = await listEventPricing(
+    ctx.db,
+    candidates.map((event) => event.eventId),
+  );
+  for (const event of candidates) {
+    try {
+      const stamp = stamps.get(event.eventId);
+      const cause = await suspensionCause(ctx, ctx.db, {
+        eventId: event.eventId,
+        startTime: event.startTime,
+        policy: policyOf.get(event.competitionId)!,
+        ratingsKey: stamp?.ratingsKey ?? null,
+        held: held.has(`${event.feedRef}${REPRICE_SUBJECT_SUFFIX}`),
+        now,
+      });
+      if (cause === (stamp?.suspendedFor ?? null)) continue;
+      const change = await changeSuspension(ctx, event.eventId, now);
+      if (change === null) continue;
+      if (change.cause === null) summary.resumed += 1;
+      else summary.suspended += 1;
+      summary.published += await publishAfterCommit(
+        ctx.redis,
+        change.messages,
+        ctx.channel,
+        ctx.logger,
+      );
+    } catch (error) {
+      summary.failed += 1;
+      ctx.logger.error(
+        { err: error, eventId: event.eventId },
+        'suspending or re-opening markets failed',
+      );
+    }
+  }
+}
+
+/** The subject keys of the open held re-prices (`odds_approval` items `<feedRef>|reprice`). */
+async function heldRepriceSubjects(exec: DbExecutor): Promise<Set<string>> {
+  const rows = await exec
+    .select({ subjectKey: scrapeReviewItems.subjectKey })
+    .from(scrapeReviewItems)
+    .where(and(eq(scrapeReviewItems.status, 'open'), eq(scrapeReviewItems.kind, 'odds_approval')));
+  return new Set(
+    rows.map((row) => row.subjectKey).filter((key) => key.endsWith(REPRICE_SUBJECT_SUFFIX)),
+  );
+}
+
+/** Rule A2's cause for one event, read with `exec` (the snapshot, or under the event's lock). */
+async function suspensionCause(
+  ctx: ScraperContext,
+  exec: DbExecutor,
+  input: {
+    eventId: string;
+    startTime: Date;
+    policy: PricingPolicy;
+    /** The event's pricing stamp: what its stored prices were made from. */
+    ratingsKey: string | null;
+    held: boolean;
+    now: Date;
+  },
+): Promise<ScrapeSuspension | null> {
+  if (input.held) return 'reprice_held';
+  const { policy, now } = input;
+  if (
+    policy.pricingSource !== 'market' ||
+    !isMarketKey(input.ratingsKey) ||
+    input.startTime.getTime() - now.getTime() > MARKET_LAPSE_LEAD_MS
+  ) {
+    return null;
+  }
+  // The market as it is now, from prices listed in the last MARKET_LAPSE_MAX_AGE_MS only.
+  const fresh = await priceEvent(exec, {
+    ...pricingInput(ctx, policy, input.eventId, null, null, now),
+    maxAgeMs: MARKET_LAPSE_MAX_AGE_MS,
+  });
+  return fresh.source === 'market' ? null : 'market_lapsed';
+}
+
+/**
+ * Rule A2 for one event, in one transaction with its row locked: everything is read again. Returns
+ * the new cause and the live deltas, or null when nothing changes (the cause is the one recorded,
+ * or the event is no longer one the pass looks at).
+ */
+async function changeSuspension(
+  ctx: ScraperContext,
+  eventId: string,
+  now: Date,
+): Promise<{ cause: ScrapeSuspension | null; messages: LiveMessage[] } | null> {
+  return ctx.db.transaction(async (tx) => {
+    const locked = await lockEvent(tx, eventId);
+    const [row] = await tx
+      .select({
+        feedRef: eventsTable.feedRef,
+        competitionId: eventsTable.competitionId,
+        startTime: eventsTable.startTime,
+        resultedAt: eventsTable.resultedAt,
+      })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, eventId));
+    if (
+      row === undefined ||
+      row.feedRef === null ||
+      locked.status !== 'scheduled' ||
+      row.resultedAt !== null ||
+      row.startTime.getTime() < now.getTime() + MIN_LEAD_MS
+    ) {
+      return null;
+    }
+    const feedRef = row.feedRef;
+    const policy = await getCompetitionPolicy(tx, row.competitionId);
+    if (!policy.enabled) return null;
+    const stamp = (await listEventPricing(tx, [eventId])).get(eventId);
+    const recorded = stamp?.suspendedFor ?? null;
+    const [hold] = await tx
+      .select({ id: scrapeReviewItems.id })
+      .from(scrapeReviewItems)
+      .where(
+        and(
+          eq(scrapeReviewItems.status, 'open'),
+          eq(scrapeReviewItems.kind, 'odds_approval'),
+          eq(scrapeReviewItems.subjectKey, `${feedRef}${REPRICE_SUBJECT_SUFFIX}`),
+        ),
+      )
+      .limit(1);
+    const cause = await suspensionCause(ctx, tx, {
+      eventId,
+      startTime: row.startTime,
+      policy,
+      ratingsKey: stamp?.ratingsKey ?? null,
+      held: hold !== undefined,
+      now,
+    });
+    if (cause === recorded) return null;
+
+    const change =
+      cause === null ? await resumeEvent(tx, eventId) : await suspendEvent(tx, eventId);
+    await recordEventSuspension(tx, eventId, cause, now);
+    await auditScraper(tx, {
+      action: cause === null ? 'scrape.fixture.resumed' : 'scrape.fixture.suspended',
+      targetType: 'event',
+      targetId: eventId,
+      metadata: {
+        feedRef,
+        rule: 'A2',
+        reason: cause ?? recorded,
+        ...(cause !== null && recorded !== null ? { previous: recorded } : {}),
+        markets: change.messages.length,
+      },
+    });
+    return { cause, messages: change.messages };
   });
 }

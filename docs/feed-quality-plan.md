@@ -262,15 +262,15 @@ Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" 
 | —          | `scripts/feed-report.ps1` (20 read-only sections)       | ✅     | tested against a migrated database                                             |
 | U-1        | Premier League alias imported by `use-football-data.sh` | ✅     | commit b8d7eb4; syntax checked                                                 |
 | O-1        | Import the Premier League alias on the server           | ⬜     | owner, section 8                                                               |
-| Q-2        | `cli review counts`                                     | ⬜     |                                                                                |
+| Q-2        | `cli review counts`                                     | ✅     | `review counts`; db 2/2, cli 3/3                                               |
 | R-1        | Market-priced events count as calibrated                | ✅     | rule O1m; scraper 427/428 (cli-usage: Windows only), api 53/53; deploy pending |
-| Q-1        | Review queue sweeper                                    | ⬜     |                                                                                |
-| A-2        | Suspend on held re-price or lapsed market               | ⬜     |                                                                                |
-| P-7        | `market_stale` for no_totals and poor_fit               | ⬜     |                                                                                |
+| Q-1        | Review queue sweeper                                    | ✅     | rule Q1; sweeper 8/8, auto-open 14/14                                          |
+| A-2        | Suspend on held re-price or lapsed market               | ✅     | rule A2; migration 0045 (`suspended_for`)                                      |
+| P-7        | `market_stale` for no_totals and poor_fit               | ✅     | with A-2                                                                       |
 | S-5        | Manual result updates ratings, 105-minute floor         | ⬜     |                                                                                |
 | all others | see sections 5–8                                        | ⬜     |                                                                                |
 
-**Next session, in order:** R-1 (Opus), Q-1 and Q-2 (routine-coder), A-2 (Opus), P-7, S-5, then M-1 and M-2 (measure
+**Next session, in order:** S-5 (Opus); A-1 (Opus: start market-priced events on market prices, so the held model-to-market switches R-1 leaves stop waiting); then M-1 and M-2 (measure
 before tuning prices).
 
 **Environment (2026-11-10):** the owner's PC had 4–5 GB free on C:. Docker started later in the day, and the

@@ -10,6 +10,7 @@ import {
   promoteResults,
 } from '../pipeline/promote-results';
 import { repriceScheduledEvents } from '../pipeline/reprice';
+import { sweepReviewQueue } from '../pipeline/review-sweep';
 import { flagStaleSources } from '../pipeline/stale-sources';
 import { reresolveChangedAliases, reresolveUnresolved } from '../pipeline/run-source';
 
@@ -20,7 +21,7 @@ const PROMOTE_LOCK_TTL_MS = 5 * 60_000;
  * One promotion pass: re-resolve names, close betting on earlier kickoffs (K1), promote fixtures, apply what staff
  * confirmed, promote results, raise the matches no source has a result for,
  * then re-price the events whose teams' ratings moved, and open betting where auto_open allows it once the
- * kickoff is confirmed (F7b). Each step is independent: one failing does not stop the others.
+ * kickoff is confirmed (F7b), and last close the review items that became pointless (Q1). Each step is independent: one failing does not stop the others.
  * Under a Redis lock so two instances do not both promote.
  */
 export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
@@ -45,6 +46,8 @@ export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
       ['reprice', () => repriceScheduledEvents(ctx)],
       // Last: with the kickoff confirmed and the prices current, open what auto_open allows (F7b).
       ['auto open', () => openConfirmedEvents(ctx)],
+      // After auto open (it may open betting): close the items nobody needs any more (Q1).
+      ['review sweep', () => sweepReviewQueue(ctx)],
     ];
     for (const [name, step] of steps) {
       try {

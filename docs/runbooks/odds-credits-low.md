@@ -59,10 +59,13 @@ Nothing is read until the 1st (UTC). Decide with the owner:
 
 ## 5. `market_stale`
 
-The match keeps its last prices because the market cannot back new ones (stale data, or fewer than two books).
-If the credits are fine and the league source is healthy, it usually clears at the next read. If kickoff is near
-and the match has open bets, switch the competition back to `model` on `/feed` (Competitions, pricing source):
-the next re-pricing pass prices it from the team ratings, through the usual bounds and trader approval.
+The match keeps its last prices because the market cannot back new ones (stale data, fewer than two books, no
+over/under line, or a fit too poor to trust). If the credits are fine and the league source is healthy, it usually
+clears at the next read. Within 3 hours of kickoff the scraper suspends the match's markets by itself when no
+bookmaker price is younger than 30 minutes (rule A2), and re-opens them when fresh prices arrive; a trader can
+re-open them earlier on Trading. If kickoff is near and the match has open bets, switch the competition back to
+`model` on `/feed` (Competitions, pricing source): the next re-pricing pass prices it from the team ratings,
+through the usual bounds and trader approval.
 
 ## Record
 

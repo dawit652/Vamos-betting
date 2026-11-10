@@ -325,13 +325,13 @@ A normal month never leaves `normal`. The guard is there for bugs and heavy mont
 The review kind `source_broken` accepts any `reason` (contract `packages/contracts/src/feed.ts:521`), so no new
 review kind and no migration are needed:
 
-| Reason             | Opens when                                                                                                                     | Resolves when              |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
-| `budget_low`       | the guard is in economy or minimal                                                                                             | the guard is normal again  |
-| `budget_exhausted` | the guard stops                                                                                                                | credits are back (the 1st) |
-| `unexpected_cost`  | rule G3 fires                                                                                                                  | a person dismisses it      |
-| `unauthorized`     | a 401 (bad or deactivated key, or no credits left)                                                                             | a read succeeds            |
-| `market_stale`     | a market-priced league has an event within 24 h of kickoff whose prices are older than 3 h (the re-pricing pass's `keep` case) | fresh prices arrive        |
+| Reason             | Opens when                                                                                                                                                                                  | Resolves when              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `budget_low`       | the guard is in economy or minimal                                                                                                                                                          | the guard is normal again  |
+| `budget_exhausted` | the guard stops                                                                                                                                                                             | credits are back (the 1st) |
+| `unexpected_cost`  | rule G3 fires                                                                                                                                                                               | a person dismisses it      |
+| `unauthorized`     | a 401 (bad or deactivated key, or no credits left)                                                                                                                                          | a read succeeds            |
+| `market_stale`     | a market-priced league has an event within 24 h of kickoff that the market can no longer price: prices older than 3 h, no over/under line or a poor fit (the re-pricing pass's `keep` case) | fresh prices arrive        |
 
 The back-office `/feed` page also shows the credits remaining, the guard's mode and the last read per league.
 

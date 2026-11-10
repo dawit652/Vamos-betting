@@ -58,6 +58,8 @@ export interface EventPriceInput {
   /** Matches a team's ratings need behind them (O1); config scraper.minRatingMatches. */
   minRatingMatches: number;
   now: Date;
+  /** Bookmaker prices last listed longer ago than this are not used (default MARKET_ODDS_MAX_AGE_MS). */
+  maxAgeMs?: number;
 }
 
 export interface EventPrice {
@@ -95,7 +97,12 @@ export const isMarketKey = (key: string | null | undefined): boolean =>
 export async function priceEvent(exec: DbExecutor, input: EventPriceInput): Promise<EventPrice> {
   let fallback: EventPrice['fallback'];
   if (input.competitionPricingSource === 'market' && input.eventId !== null) {
-    const market = await marketPrice(exec, input.eventId, input.now);
+    const market = await marketPrice(
+      exec,
+      input.eventId,
+      input.now,
+      input.maxAgeMs ?? MARKET_ODDS_MAX_AGE_MS,
+    );
     if (market.kind === 'priced') return market.price;
     fallback = market.reason;
   }
@@ -131,19 +138,16 @@ export async function backedByMarket(exec: DbExecutor, input: EventPriceInput): 
 
 /**
  * The market prices of an event, or why there are none. The fresh rows come from latestMarketOdds
- * (maxAge MARKET_ODDS_MAX_AGE_MS); a bookmaker counts once even when two sources of one upstream
- * list it (one voice, as for results), the newest sighting winning.
+ * (maxAge MARKET_ODDS_MAX_AGE_MS unless the caller asks for fresher); a bookmaker counts once even
+ * when two sources of one upstream list it (one voice, as for results), the newest sighting winning.
  */
 async function marketPrice(
   exec: DbExecutor,
   eventId: string,
   now: Date,
+  maxAgeMs: number,
 ): Promise<{ kind: 'priced'; price: EventPrice } | { kind: 'none'; reason: MarketFallback }> {
-  const rows = await latestMarketOdds(exec, {
-    eventIds: [eventId],
-    now,
-    maxAgeMs: MARKET_ODDS_MAX_AGE_MS,
-  });
+  const rows = await latestMarketOdds(exec, { eventIds: [eventId], now, maxAgeMs });
   const consensus = marketConsensus(consensusRows(rows), { minBooks: CONSENSUS_MIN_BOOKS });
   const x12 = consensus.find((c) => c.market === '1x2');
   if (x12 === undefined) return { kind: 'none', reason: 'no_consensus' };

@@ -1,6 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { listEventPricing, recordEventHeld, recordEventPriced } from '../src/index';
+import {
+  listEventPricing,
+  recordEventHeld,
+  recordEventPriced,
+  recordEventSuspension,
+} from '../src/index';
 import { events } from '../src/schema/index';
 import { dropTestDatabase } from './helpers';
 import {
@@ -46,6 +51,38 @@ describe('scrape_event_pricing (rule O3 stamps)', () => {
       heldKey: 'k3',
     });
     expect((await listEventPricing(db, [])).size).toBe(0);
+  });
+
+  it('records the cause of the scraper suspension apart from the price stamp (rule A2)', async () => {
+    const { db } = ctx.handle;
+    const { eventId } = await createScrapedEvent(ctx);
+    await db.transaction((tx) => recordEventPriced(tx, eventId, 'k1', T0));
+    expect((await listEventPricing(db, [eventId])).get(eventId)).toMatchObject({
+      suspendedFor: null,
+    });
+
+    await db.transaction((tx) => recordEventSuspension(tx, eventId, 'reprice_held', T0));
+    expect((await listEventPricing(db, [eventId])).get(eventId)).toMatchObject({
+      ratingsKey: 'k1',
+      suspendedFor: 'reprice_held',
+    });
+    // A new price stamp leaves the suspension to its own pass.
+    await db.transaction((tx) => recordEventPriced(tx, eventId, 'k2', T0));
+    expect((await listEventPricing(db, [eventId])).get(eventId)).toMatchObject({
+      ratingsKey: 'k2',
+      suspendedFor: 'reprice_held',
+    });
+    await db.transaction((tx) => recordEventSuspension(tx, eventId, null, T0));
+    expect((await listEventPricing(db, [eventId])).get(eventId)).toMatchObject({
+      suspendedFor: null,
+    });
+
+    // Any other cause is refused by the database.
+    await expect(
+      db.transaction((tx) =>
+        recordEventSuspension(tx, eventId, 'trader_said_so' as 'reprice_held', T0),
+      ),
+    ).rejects.toThrow();
   });
 
   it('is removed with its event', async () => {

@@ -210,6 +210,9 @@ that no longer resolve reappear as `unknown_team` or `unknown_competition` items
 --defence <n>` (section 12 of [scraper.md](scraper.md)); there is no screen for ratings. `ratings list` shows what
 is stored and which teams are manual.
 
+**Queue at a glance.** `review counts` prints the open review items per kind (every kind, zeros included) with the
+creation time of the oldest open item, and the total; `--json` gives the same as JSON.
+
 **Command line in production.** The database is not published, so the commands run in the scraper image:
 `docker compose run --rm --no-deps scraper node dist/cli.js <command>`, with files mounted read-only (`-v
 "$PWD/file:/in/file:ro"`). Details and an example are in [scraper.md](scraper.md#production).

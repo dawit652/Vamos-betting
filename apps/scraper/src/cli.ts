@@ -21,6 +21,7 @@ import {
 } from './cli/io';
 import { envSecretReader } from './lib/secrets';
 import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
+import { reviewCounts } from './cli/review';
 import { sourcesList, sourcesUpsert } from './cli/sources';
 
 /**
@@ -59,6 +60,8 @@ commands:
       between 0.35 and 3. Refuses unknown or ambiguous team names. Prints before and after.
   ratings list [--team text]
       Football teams that have ratings: attack, defence, matches, manual.
+  review counts
+      Open review items per kind (zeros included) with the date of the oldest, and a total.
 
 every command accepts --json (machine-readable output).
 exit codes: 0 success, 1 failed or refused, 2 wrong command line.`;
@@ -76,10 +79,11 @@ const COMMANDS: Record<string, Command> = {
   'ratings backfill': ratingsBackfill,
   'ratings set': ratingsSet,
   'ratings list': ratingsList,
+  'review counts': reviewCounts,
 };
 
 /** Words that take a sub-command; the rest are commands on their own. */
-const GROUPS = new Set(['sources', 'aliases', 'ratings']);
+const GROUPS = new Set(['sources', 'aliases', 'ratings', 'review']);
 
 /** Runs one command line and returns the exit code; never throws and never exits. */
 export async function runCli(argv: readonly string[], env: CliEnv): Promise<number> {

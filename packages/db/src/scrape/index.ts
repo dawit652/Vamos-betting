@@ -108,11 +108,19 @@ export {
   listReviewItems,
   openReviewItem,
   resolveReviewItem,
+  reviewQueueSummary,
   type ListReviewItemsQuery,
   type OpenReviewItemInput,
+  type ReviewQueueKindSummary,
   type ScrapeReviewItem,
 } from './review';
-export { listEventPricing, recordEventHeld, recordEventPriced, type EventPricing } from './pricing';
+export {
+  listEventPricing,
+  recordEventHeld,
+  recordEventPriced,
+  recordEventSuspension,
+  type EventPricing,
+} from './pricing';
 export { listSourceContentFacts, type SourceContentFacts } from './staleness';
 export {
   KICKOFF_CONFIRMED_AUDIT_ACTION,

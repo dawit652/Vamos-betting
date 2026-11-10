@@ -239,3 +239,34 @@ export async function countReviewItemsByKind(
   for (const row of rows) counts[row.kind as ScrapeReviewKind] = row.n;
   return counts;
 }
+
+export interface ReviewQueueKindSummary {
+  kind: ScrapeReviewKind;
+  count: number;
+  /** created_at of the oldest item with that status; null when there is none. */
+  oldestCreatedAt: Date | null;
+}
+
+/**
+ * Per kind, for one status (default open): how many items and when the oldest
+ * was raised, in SCRAPE_REVIEW_KINDS order; every kind is present. One grouped query.
+ */
+export async function reviewQueueSummary(
+  exec: DbExecutor,
+  status: ScrapeReviewStatus = 'open',
+): Promise<ReviewQueueKindSummary[]> {
+  const rows = await exec
+    .select({
+      kind: scrapeReviewItems.kind,
+      n: sql<number>`count(*)::int`,
+      oldest: sql<Date>`min(${scrapeReviewItems.createdAt})`.mapWith(scrapeReviewItems.createdAt),
+    })
+    .from(scrapeReviewItems)
+    .where(eq(scrapeReviewItems.status, status))
+    .groupBy(scrapeReviewItems.kind);
+  const byKind = new Map(rows.map((row) => [row.kind, row]));
+  return SCRAPE_REVIEW_KINDS.map((kind) => {
+    const row = byKind.get(kind);
+    return { kind, count: row?.n ?? 0, oldestCreatedAt: row?.oldest ?? null };
+  });
+}

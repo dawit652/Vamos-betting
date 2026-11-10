@@ -1,6 +1,6 @@
 import { inArray, sql } from 'drizzle-orm';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
-import { scrapeEventPricing } from '../schema/scrape';
+import { scrapeEventPricing, type ScrapeSuspension } from '../schema/scrape';
 
 /** What is known about the ratings behind an event's stored prices (rule O3). */
 export interface EventPricing {
@@ -10,6 +10,8 @@ export interface EventPricing {
   pricedAt: Date | null;
   /** Fingerprint of the last proposal a person was asked about. */
   heldKey: string | null;
+  /** Why the scraper keeps the event's markets suspended (rule A2); null when it does not. */
+  suspendedFor: ScrapeSuspension | null;
 }
 
 /** The pricing stamps of some events (events without a stamp are absent). */
@@ -30,9 +32,29 @@ export async function listEventPricing(
         ratingsKey: row.ratingsKey,
         pricedAt: row.pricedAt,
         heldKey: row.heldKey,
+        suspendedFor: row.suspendedFor ?? null,
       },
     ]),
   );
+}
+
+/**
+ * Records the cause of the scraper's suspension of an event's markets (rule A2), or null once it
+ * re-opened them. Call it in the transaction that suspended or re-opened the markets.
+ */
+export async function recordEventSuspension(
+  tx: DbTransaction,
+  eventId: string,
+  suspendedFor: ScrapeSuspension | null,
+  now: Date,
+): Promise<void> {
+  await tx
+    .insert(scrapeEventPricing)
+    .values({ eventId, suspendedFor, updatedAt: now })
+    .onConflictDoUpdate({
+      target: scrapeEventPricing.eventId,
+      set: { suspendedFor, updatedAt: sql`${now.toISOString()}::timestamptz` },
+    });
 }
 
 /**

@@ -470,22 +470,36 @@ export const scrapeRatingApplied = pgTable('scrape_rating_applied', {
 });
 
 /**
+ * Why the scraper keeps an event's markets suspended (rule A2): a re-price is held for a person, or
+ * the market that priced the event has lapsed close to kickoff.
+ */
+export const SCRAPE_SUSPENSIONS = ['reprice_held', 'market_lapsed'] as const;
+export type ScrapeSuspension = (typeof SCRAPE_SUSPENSIONS)[number];
+
+/**
  * Which ratings an event's prices were computed from (rule O3, re-pricing).
  * `ratings_key` is the fingerprint of both teams' ratings behind the stored
  * prices (null: not known, an event created before this table existed);
  * `held_key` is the fingerprint of the last proposal a person was asked about,
  * so a held or dismissed proposal is not raised again until the ratings change.
+ * `suspended_for` is the cause of the scraper's suspension of the event's markets (rule A2), null
+ * when it has none: the scraper suspends once when a cause starts and re-opens once when it ends.
  * Existing bets are unaffected: a bet leg keeps the odds it was accepted at.
  */
-export const scrapeEventPricing = pgTable('scrape_event_pricing', {
-  eventId: uuid('event_id')
-    .primaryKey()
-    .references(() => events.id, { onDelete: 'cascade' }),
-  ratingsKey: text('ratings_key'),
-  pricedAt: timestamp('priced_at', { withTimezone: true }),
-  heldKey: text('held_key'),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const scrapeEventPricing = pgTable(
+  'scrape_event_pricing',
+  {
+    eventId: uuid('event_id')
+      .primaryKey()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    ratingsKey: text('ratings_key'),
+    pricedAt: timestamp('priced_at', { withTimezone: true }),
+    heldKey: text('held_key'),
+    suspendedFor: text('suspended_for').$type<ScrapeSuspension>(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('scrape_event_pricing_suspended_for', oneOf(t.suspendedFor, SCRAPE_SUSPENSIONS))],
+);
 
 /**
  * Bookmaker prices a licensed market feed reported (data class `market_odds`, docs/scraper.md

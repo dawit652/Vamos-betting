@@ -88,6 +88,13 @@ export const MARKET_CLOSE_LEAD_MS = 5 * MINUTE_MS;
 /** A price row is linked to the event of the same competition and teams that starts within this of its kickoff. */
 export const MARKET_ODDS_LINK_WINDOW_MS = 6 * HOUR_MS;
 /**
+ * A2: an event priced from the market that starts within MARKET_LAPSE_LEAD_MS stays bettable only
+ * while the market prices it from prices listed in the last MARKET_LAPSE_MAX_AGE_MS; otherwise the
+ * re-pricing pass suspends its markets (`market_lapsed`) until a fresh market prices it again.
+ */
+export const MARKET_LAPSE_LEAD_MS = 3 * HOUR_MS;
+export const MARKET_LAPSE_MAX_AGE_MS = 30 * MINUTE_MS;
+/**
  * O1m: a market-priced event may open betting without calibrated team ratings only when its 1X2
  * consensus has at least this many distinct bookmakers, one of them in SHARP_BOOKMAKERS.
  */

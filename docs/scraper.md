@@ -560,6 +560,8 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
     whose policy is not `enabled` only gets held proposals (S4).
   - A market-priced event whose market is no longer usable **keeps its prices**: it does not fall
     back to the model by itself (a person switches the competition back to `model` if wanted).
+    Within `MARKET_LAPSE_LEAD_MS` of kickoff its markets are suspended until a fresh market prices
+    it again (A2); a `market_stale` alarm opens within 24 h, whatever the reason (P-7).
   - An event priced from the market whose teams are not calibrated is handed to a trader's "Open
     betting" item only when O1m holds (3 distinct books, one sharp); with auto_open on, F7b then
     opens it once the kickoff is confirmed (K2). Re-pricing itself never opens betting.
@@ -584,6 +586,36 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   through the O3 re-price like any other. Open bets keep their odds. Seasons
   of results that were only backfilled (`ratings backfill`) are not events and do
   not count as evidence. Evaluated out of sample (odds evaluation, F-07).
+- **A2 Suspension while the prices cannot be trusted (2026-11, A-2 of `docs/feed-quality-plan.md`).**
+  The last step of the re-pricing pass (`syncSuspensions`) decides, for every scheduled event of an
+  enabled competition that starts after `now + MIN_LEAD_MS`, a cause, in this order:
+  `reprice_held` (an O3 re-price waits for a person: the open `odds_approval` item
+  `<feedRef>|reprice`, so the stored prices are not the current ones); `market_lapsed` (the stored
+  prices came from the market, the competition still takes market prices, the event starts within
+  `MARKET_LAPSE_LEAD_MS` (3 h) and the market cannot price it from prices listed in the last
+  `MARKET_LAPSE_MAX_AGE_MS` (30 min): no consensus, no over/under line or a poor fit); or none. Only a
+  change of cause acts, remembered in `scrape_event_pricing.suspended_for`: a new cause suspends every
+  open market of the event (`suspendEvent` without an actor, so `suspended_by = 'feed'`; audit
+  `scrape.fixture.suspended`), and no cause any more re-opens the markets the feed suspended
+  (`resumeEvent` without an actor, never a trader's suspension; audit `scrape.fixture.resumed`). A
+  trader who re-opens the markets in between is not overruled for the same cause. Prices, betting
+  and review items are not touched; a trader's `apply_reprice` or a dismissed proposal re-opens the
+  markets at the next pass (within a minute). An event within `MIN_LEAD_MS`, started, resulted or of a
+  switched-off competition (S4) is left as it is: a suspension stays, and the result settles suspended
+  markets like open ones.
+- **Q1 Review queue sweeper.** Open review items that became pointless are closed by the
+  scraper (`sweepReviewQueue`, the last step of the promotion pass). In scope: the requests to open
+  betting (`odds_approval` on the event's `feed_ref`, F7, and `ratings_uncalibrated`) and the held
+  re-prices (`odds_approval` on `<feedRef>|reprice`, O3); no other kind or subject is touched. The
+  first reason that holds closes them, with the resolution `auto: <reason>` (resolved by the scraper,
+  audit `scrape.review.swept` per item): `event_missing` (no scraped event with that `feed_ref`),
+  `event_resulted` (`resulted_at` set), `event_started` (live, finished, or scheduled with a start
+  time in the past), `event_cancelled` (cancelled or abandoned) and, for the requests only,
+  `betting_open` (a held re-price stays open while betting is open: a trader still decides on it).
+  A postponed event, or a scheduled one that has not started, keeps its items. Each subject is
+  closed in one transaction that locks the event row, then its items, and checks the conditions
+  again. Nothing else changes (no event, market, price, bet or `scrape_event_pricing`), and a second
+  pass closes nothing.
 
 ### 6.6 Scraping manners
 
