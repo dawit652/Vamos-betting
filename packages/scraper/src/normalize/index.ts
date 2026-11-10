@@ -1,4 +1,11 @@
-export { NAME_AFFIX_TOKENS, nameTokens, normalizeName } from './name';
+export {
+  LEGAL_FORM_TOKENS,
+  legalFormStripped,
+  NAME_AFFIX_TOKENS,
+  nameTokens,
+  normalizeName,
+  SPONSOR_PREFIX_TOKENS,
+} from './name';
 export {
   SUGGESTION_MIN_SCORE,
   buildAliasIndex,

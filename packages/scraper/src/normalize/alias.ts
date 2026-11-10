@@ -1,4 +1,4 @@
-import { nameTokens, normalizeName } from './name';
+import { legalFormStripped, nameTokens, normalizeName } from './name';
 
 /**
  * Rules N2 and N3 (docs/scraper.md section 6.4): resolving a raw team or
@@ -45,7 +45,7 @@ export interface AliasIndexInput {
 }
 
 export type Resolution =
-  | { status: 'resolved'; id: string; via: 'source_alias' | 'alias' | 'name' }
+  | { status: 'resolved'; id: string; via: 'source_alias' | 'alias' | 'name' | 'name_relaxed' }
   | { status: 'unknown' }
   | { status: 'ambiguous'; ids: string[] };
 
@@ -76,6 +76,8 @@ interface EntityIndex {
   byAlias: ReadonlyMap<string, readonly string[]>;
   /** Source-specific aliases: `sport SEP source SEP norm` -> ids. */
   bySourceAlias: ReadonlyMap<string, readonly string[]>;
+  /** Catalogue names with the legal form taken off (N1b): `sport SEP relaxed` -> ids. */
+  byRelaxedName: ReadonlyMap<string, readonly string[]>;
   /** Per sport, for suggestions only (linear scan, review UI). */
   catalogue: ReadonlyMap<string, readonly CatalogueEntry[]>;
 }
@@ -129,6 +131,7 @@ function buildEntityIndex(
   const byName = new Map<string, Set<string>>();
   const byAlias = new Map<string, Set<string>>();
   const bySourceAlias = new Map<string, Set<string>>();
+  const byRelaxedName = new Map<string, Set<string>>();
   const sportOf = new Map<string, string>();
   const catalogue = new Map<string, CatalogueEntry[]>();
 
@@ -139,6 +142,7 @@ function buildEntityIndex(
       const norm = normalizeName(raw);
       if (norm === '') continue;
       addTo(byName, entity.sportId + SEP + norm, entity.id);
+      addTo(byRelaxedName, entity.sportId + SEP + legalFormStripped(norm), entity.id);
       if (!seen.has(norm)) seen.set(norm, nameTokens(norm));
     }
     const list = catalogue.get(entity.sportId) ?? [];
@@ -169,6 +173,7 @@ function buildEntityIndex(
     byName: freeze(byName),
     byAlias: freeze(byAlias),
     bySourceAlias: freeze(bySourceAlias),
+    byRelaxedName: freeze(byRelaxedName),
     catalogue,
   };
 }
@@ -204,7 +209,7 @@ function fromLevel(
   return { status: 'ambiguous', ids: [...ids] };
 }
 
-function resolve(index: EntityIndex, query: ResolveQuery): Resolution {
+function resolve(index: EntityIndex, query: ResolveQuery, relaxed: boolean): Resolution {
   const norm = normalizeName(query.raw);
   if (norm === '') return { status: 'unknown' };
   // The first level that knows the name decides, even if it is ambiguous:
@@ -215,18 +220,33 @@ function resolve(index: EntityIndex, query: ResolveQuery): Resolution {
       'source_alias',
     ) ??
     fromLevel(index.byAlias.get(query.sportId + SEP + norm), 'alias') ??
-    fromLevel(index.byName.get(query.sportId + SEP + norm), 'name') ?? { status: 'unknown' }
+    fromLevel(index.byName.get(query.sportId + SEP + norm), 'name') ??
+    (relaxed ? relaxedName(index, query.sportId, norm) : null) ?? { status: 'unknown' }
   );
 }
 
-/** Rule N2 for teams: source alias, then global alias, then catalogue name; exact only. */
+/**
+ * Rule N2b: a name no level knows is compared once more with the legal form taken off both sides
+ * (N1b: "Besiktas JK" and "Beşiktaş", "Falkirk F.C." and "Falkirk FC"). It resolves only when
+ * exactly one catalogue entity matches; anything else stays unknown, as without the rule.
+ */
+function relaxedName(index: EntityIndex, sportId: string, norm: string): Resolution | null {
+  const ids = index.byRelaxedName.get(sportId + SEP + legalFormStripped(norm));
+  if (ids === undefined || ids.length !== 1) return null;
+  return { status: 'resolved', id: ids[0] as string, via: 'name_relaxed' };
+}
+
+/**
+ * Rule N2 for teams: source alias, then global alias, then catalogue name, exactly; then, for a
+ * name none of them knows, the catalogue name without the legal form (N2b).
+ */
 export function resolveTeam(index: AliasIndex, query: ResolveQuery): Resolution {
-  return resolve(index.teams, query);
+  return resolve(index.teams, query, true);
 }
 
 /** Rule N2 for competitions. */
 export function resolveCompetition(index: AliasIndex, query: ResolveQuery): Resolution {
-  return resolve(index.competitions, query);
+  return resolve(index.competitions, query, false);
 }
 
 // ---------------------------------------------------------------------------

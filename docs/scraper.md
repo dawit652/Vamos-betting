@@ -448,6 +448,14 @@ Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_M
   an alias (source-specific alias first, then global) or a catalogue name /
   short name of the sport. Never fuzzy. If it maps to more than one team it is
   ambiguous and unresolved.
+- **N2b Legal form (2026-11, U-3 of `docs/feed-quality-plan.md`).** A TEAM name no level of N2 knows is
+  compared once more with the legal form taken off both sides (`legalFormStripped`, rule N1b: runs of
+  single letters at either end joined, so "F.C." is "fc"; then `LEGAL_FORM_TOKENS` (N1's tokens and `fk sk
+jk bb as ac ca cd ud sv fsv vfb vfl tsg ssc`, with a number just before one at the start) dropped at
+  either end and `SPONSOR_PREFIX_TOKENS` (`torku gazisehir`) at the start, never the last token). It
+  resolves only when exactly one catalogue team of the sport matches (`via: name_relaxed`); otherwise
+  the name stays unknown, as before. Competitions are never relaxed. A test on the seeded catalogue
+  checks that no team name with a legal form added resolves to another team.
 - **N2a Aliases act on stored data.** Removing or changing an alias (or a
   catalogue name) changes what is already stored: the promotion pass re-resolves
   the current observations of the sport when the names/aliases changed, un-maps

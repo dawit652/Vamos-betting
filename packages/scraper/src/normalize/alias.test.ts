@@ -272,3 +272,58 @@ describe('N3 suggestions', () => {
     );
   });
 });
+
+describe('N2b resolveTeam falls back to the name without its legal form', () => {
+  const relaxed = buildAliasIndex({
+    teams: [
+      { id: 't-bjk', sportId: 'football', shortName: 'Beşiktaş', names: ['Beşiktaş JK'] },
+      { id: 't-fal', sportId: 'football', shortName: 'Falkirk', names: ['Falkirk FC'] },
+      { id: 't-kon', sportId: 'football', shortName: 'Konyaspor', names: ['Konyaspor'] },
+      { id: 't-oli1', sportId: 'football', shortName: 'Olimpia', names: ['Olimpia'] },
+      { id: 't-oli2', sportId: 'football', shortName: 'Olimpia SK', names: ['Olimpia SK'] },
+      { id: 't-bas', sportId: 'basketball', shortName: 'Roma', names: ['Roma'] },
+    ],
+    teamAliases: [],
+    competitions: [{ id: 'c-sl', slug: 'super-lig', sportId: 'football', names: ['Super Lig'] }],
+    competitionAliases: [],
+  });
+  const resolve = (raw: string, sportId = 'football') =>
+    resolveTeam(relaxed, { sportId, sourceId: 'src-x', raw });
+
+  it('resolves a name that differs only in its legal form or a sponsor prefix', () => {
+    expect(resolve('Besiktas JK')).toEqual({ status: 'resolved', id: 't-bjk', via: 'name' });
+    expect(resolve('Beşiktaş A.Ş.')).toEqual({
+      status: 'resolved',
+      id: 't-bjk',
+      via: 'name_relaxed',
+    });
+    expect(resolve('Falkirk F.C.')).toEqual({
+      status: 'resolved',
+      id: 't-fal',
+      via: 'name_relaxed',
+    });
+    expect(resolve('Torku Konyaspor')).toEqual({
+      status: 'resolved',
+      id: 't-kon',
+      via: 'name_relaxed',
+    });
+  });
+
+  it('exact names still win, and a relaxed name shared by two teams stays unknown', () => {
+    expect(resolve('Olimpia SK')).toEqual({ status: 'resolved', id: 't-oli2', via: 'name' });
+    expect(resolve('Olimpia')).toEqual({ status: 'resolved', id: 't-oli1', via: 'name' });
+    expect(resolve('Olimpia FK')).toEqual({ status: 'unknown' });
+  });
+
+  it('keeps sports apart and never relaxes competitions', () => {
+    expect(resolve('AS Roma')).toEqual({ status: 'unknown' });
+    expect(resolve('AS Roma', 'basketball')).toEqual({
+      status: 'resolved',
+      id: 't-bas',
+      via: 'name_relaxed',
+    });
+    expect(
+      resolveCompetition(relaxed, { sportId: 'football', sourceId: 'src-x', raw: 'Super Lig AS' }),
+    ).toEqual({ status: 'unknown' });
+  });
+});

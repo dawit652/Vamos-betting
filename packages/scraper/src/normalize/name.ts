@@ -113,3 +113,75 @@ export function normalizeName(raw: string): string {
 export function nameTokens(normalized: string): string[] {
   return normalized === '' ? [] : normalized.split(' ');
 }
+
+/**
+ * Rule N1b (docs/scraper.md 6.4): the legal-form tokens legalFormStripped drops at either end, on top
+ * of N1's (Beşiktaş JK, Çorum FK, Gençlerbirliği SK, Erzurum BB, AS Roma, VfB Stuttgart, SSC Napoli,
+ * CD Tenerife, UD Las Palmas). Never part of N1 itself: folding them always would merge names the
+ * catalogue keeps apart, so team resolution only falls back to them (N2b).
+ */
+export const LEGAL_FORM_TOKENS: ReadonlySet<string> = new Set([
+  ...NAME_AFFIX_TOKENS,
+  'fk',
+  'sk',
+  'jk',
+  'bb',
+  'as',
+  'ac',
+  'ca',
+  'cd',
+  'ud',
+  'sv',
+  'fsv',
+  'vfb',
+  'vfl',
+  'tsg',
+  'ssc',
+]);
+
+/** Rule N1b: sponsor or municipal prefixes some sources put before a club's name (Torku Konyaspor). */
+export const SPONSOR_PREFIX_TOKENS: ReadonlySet<string> = new Set(['torku', 'gazisehir']);
+
+const isLetter = (token: string): boolean => /^\p{L}$/u.test(token);
+const isNumber = (token: string): boolean => /^\p{N}+$/u.test(token);
+
+/**
+ * Rule N1b: an N1 normal form with the club's legal form taken off, for the fallback of team
+ * resolution (N2b). Runs of single letters at either end are joined first ("falkirk f c" →
+ * "falkirk fc", "a s roma" → "as roma"); then, until nothing changes, a LEGAL_FORM_TOKENS token is
+ * dropped at either end (at the start together with a number just before it: "1 fsv mainz 05" →
+ * "mainz 05") and a SPONSOR_PREFIX_TOKENS token at the start. The last remaining token is never
+ * dropped. Total and idempotent; '' stays ''.
+ */
+export function legalFormStripped(normalized: string): string {
+  // Every step that changes the tokens removes at least one, so this ends; it stops only when a
+  // step changes nothing, which makes the result idempotent.
+  const tokens = nameTokens(normalized);
+  for (;;) {
+    const before = tokens.length;
+    joinLetterRuns(tokens);
+    if (tokens.length > 2 && isNumber(tokens[0]!) && LEGAL_FORM_TOKENS.has(tokens[1]!)) {
+      tokens.splice(0, 2);
+    } else if (
+      tokens.length > 1 &&
+      (LEGAL_FORM_TOKENS.has(tokens[0]!) || SPONSOR_PREFIX_TOKENS.has(tokens[0]!))
+    ) {
+      tokens.shift();
+    } else if (tokens.length > 1 && LEGAL_FORM_TOKENS.has(tokens[tokens.length - 1]!)) {
+      tokens.pop();
+    }
+    if (tokens.length === before) return tokens.join(' ');
+  }
+}
+
+/** Joins a run of two or more single letters at either end ("f c" → "fc"), unless it is the whole name. */
+function joinLetterRuns(tokens: string[]): void {
+  let run = 0;
+  while (run < tokens.length && isLetter(tokens[run]!)) run += 1;
+  if (run >= 2 && run < tokens.length) tokens.splice(0, run, tokens.slice(0, run).join(''));
+  run = 0;
+  while (run < tokens.length && isLetter(tokens[tokens.length - 1 - run]!)) run += 1;
+  if (run >= 2 && run < tokens.length) {
+    tokens.splice(tokens.length - run, run, tokens.slice(tokens.length - run).join(''));
+  }
+}

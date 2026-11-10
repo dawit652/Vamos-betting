@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { nameTokens, normalizeName } from './name';
+import { legalFormStripped, nameTokens, normalizeName } from './name';
 
 describe('N1 normalizeName', () => {
   it.each([
@@ -158,6 +158,59 @@ describe('N1 normalizeName', () => {
         const base = normalizeName(name);
         expect(normalizeName(name.toUpperCase())).toBe(base);
         expect(normalizeName(`  ${name.replace(/ /g, '   ')} . `)).toBe(base);
+      }),
+    );
+  });
+});
+
+describe('N1b legalFormStripped', () => {
+  it('takes the legal form off at either end, and a sponsor prefix at the start', () => {
+    for (const [raw, stripped] of [
+      ['Beşiktaş JK', 'besiktas'],
+      ['Falkirk F.C.', 'falkirk'],
+      ['A.S. Roma', 'roma'],
+      ['1. FSV Mainz 05', 'mainz 05'],
+      ['VfB Stuttgart', 'stuttgart'],
+      ['Çorum FK', 'corum'],
+      ['Erzurum BB', 'erzurum'],
+      ['Torku Konyaspor', 'konyaspor'],
+      ['Gazişehir Gaziantep', 'gaziantep'],
+      // Nothing to take off, or only in the middle.
+      ['Atletico Madrid', 'atletico madrid'],
+      ['Sporting CP', 'sporting cp'],
+      ['Real Sociedad B', 'real sociedad b'],
+      // The last remaining token stays.
+      ['FK', 'fk'],
+      ['JK SK', 'sk'],
+    ] as const) {
+      expect(legalFormStripped(normalizeName(raw)), raw).toBe(stripped);
+    }
+    expect(legalFormStripped('')).toBe('');
+  });
+
+  it('is idempotent, keeps a token of a non-empty name, and only removes tokens (property)', () => {
+    const token = fc.constantFrom(
+      'a',
+      'b',
+      'c',
+      'fk',
+      'sk',
+      'as',
+      '1',
+      'torku',
+      'roma',
+      'real',
+      '05',
+    );
+    fc.assert(
+      fc.property(fc.array(token, { maxLength: 8 }), (tokens) => {
+        const norm = normalizeName(tokens.join(' '));
+        const once = legalFormStripped(norm);
+        expect(legalFormStripped(once)).toBe(once);
+        if (norm !== '') expect(once).not.toBe('');
+        expect(once.replaceAll(' ', '').length).toBeLessThanOrEqual(
+          norm.replaceAll(' ', '').length,
+        );
       }),
     );
   });

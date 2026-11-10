@@ -270,6 +270,7 @@ Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" 
 | S-5        | Manual result updates ratings, 105-minute floor         | ✅     | rules R1 (person) and O4 (hand results); scraper 4/4, api 4/4                  |
 | A-1        | First market price of uncalibrated teams not held       | ✅     | rule A1 (switch at the next pass, not at creation); scraper 4/4                |
 | M-1        | Prices at betting close                                 | ✅     | rule M1; migration 0046 (`scrape_close_prices`); scraper 2/2, db 2/2           |
+| U-3        | Legal-form fallback for team names                      | ✅     | rule N2b; unit 68/68, seeded-catalogue check 1/1                               |
 | all others | see sections 5–8                                        | ⬜     |                                                                                |
 
 **Next session, in order:** deploy (migrations 0045 and 0046 run in the `migrate` job at start), then M-2 (the scorecard over `listClosePrices` and the results; measure
