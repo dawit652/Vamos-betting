@@ -37,6 +37,7 @@ import {
   startOwnStaffTotpEnrolment,
   totpCode,
   unlockStaffUser,
+  findStaffUserByEmail,
   unlockStaffUserByEmail,
   updateStaffUser,
   type PasswordHasher,
@@ -550,6 +551,12 @@ describe('staff sign-in', () => {
         now,
       }),
     ).toBeNull();
+  });
+
+  it('finds a staff account by email (the CLI lookup of `pnpm admin:reset`)', async () => {
+    const staff = await newStaff();
+    expect((await findStaffUserByEmail(handle.db, staff.email.toUpperCase()))?.id).toBe(staff.id);
+    expect(await findStaffUserByEmail(handle.db, 'nobody@vamos.test')).toBeNull();
   });
 
   it('verifies the password and code outside any database transaction', async () => {

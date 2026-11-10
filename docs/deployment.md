@@ -97,6 +97,16 @@ Validated on 2026-10-19 with Docker Engine 29.8 (all four images built, stack bo
 --production --worker http://localhost:4100` passed 13 checks, `/ready` on the API skipped as 404 at that
 time). The Caddy proxy profile and a restore from the dumps were not exercised in that run.
 
+**Lost password or authenticator, or retiring an account.** The back office has no staff screen, and the
+password reset by SMS needs a real SMS gateway, so recover a staff account from the server with `admin-reset`
+(audited, refused for the only enabled admin when disabling):
+
+```bash
+docker compose run --rm -e ADMIN_PASSWORD='<12+ chars>' migrate node dist/ops/admin-reset.js --email you@example.et --action password
+docker compose run --rm migrate node dist/ops/admin-reset.js --email you@example.et --action totp      # new authenticator key, shown once
+docker compose run --rm migrate node dist/ops/admin-reset.js --email you@example.et --action disable   # or enable
+```
+
 `admin-create` prints the TOTP enrolment (scan the `otpauth://` URI); without `ADMIN_PASSWORD` it generates a
 password that must be changed at first sign-in, within 72 hours (it stops working after that). The demo staff accounts (`<role>@demo.vamos.test`) exist only
 in demo mode and only when `NODE_ENV` is not `production`.

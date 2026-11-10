@@ -773,6 +773,19 @@ export async function unlockStaffUserByEmail(
   });
 }
 
+/** The staff account with this email, or null (the CLI's lookup). */
+export async function findStaffUserByEmail(
+  db: Database,
+  email: string,
+): Promise<StaffUserView | null> {
+  const [row] = await db
+    .select({ id: adminUsers.id })
+    .from(adminUsers)
+    .where(eq(adminUsers.email, normalizeStaffEmail(email)))
+    .limit(1);
+  return row === undefined ? null : getStaffUser(db, row.id);
+}
+
 type LoginFailureReason =
   | 'unknown_email'
   | 'disabled'

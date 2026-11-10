@@ -20,6 +20,7 @@
     "seed": "tsx src/scripts/seed.ts",
     "admin:create": "tsx src/scripts/admin-create.ts",
     "admin:unlock": "tsx src/scripts/admin-unlock.ts",
+    "admin:reset": "tsx src/scripts/admin-reset.ts",
     "admin:totp-rekey": "tsx src/scripts/totp-rekey.ts"
   },
   "dependencies": {

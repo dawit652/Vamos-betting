@@ -29,6 +29,7 @@
     "db:seed": "pnpm --filter @vamos/db seed",
     "admin:create": "pnpm --filter @vamos/db admin:create",
     "admin:unlock": "pnpm --filter @vamos/db admin:unlock",
+    "admin:reset": "pnpm --filter @vamos/db admin:reset",
     "admin:totp-rekey": "pnpm --filter @vamos/db admin:totp-rekey",
     "lan": "node scripts/lan.mjs",
     "phones:build": "bash e2e/scripts/stack.sh build",
