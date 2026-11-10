@@ -102,6 +102,7 @@ import {
 import { requireStaff, staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, publishLive, wire } from './common';
 import { assertScrapedEventMayOpen } from './open-betting';
+import { reviewMarketComparison } from './review-market';
 
 type IdParams = { Params: { id: string } };
 
@@ -506,7 +507,10 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
       const id = parseUuid(request.params.id, 'Review item');
       const item = await getReviewItem(deps.db, id);
       if (item === null) throw notFound('Review item');
-      return wire(ReviewDetailResponse, { item: reviewView(item) });
+      return wire(ReviewDetailResponse, {
+        item: reviewView(item),
+        comparison: await reviewMarketComparison(deps.db, item, deps.clock()),
+      });
     },
   );
 

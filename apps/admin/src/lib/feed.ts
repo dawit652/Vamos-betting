@@ -285,3 +285,322 @@ export function creditsText(remaining: number | null, quota: number | null): str
   const percent = Math.floor((remaining * 100) / quota);
   return `${remaining.toLocaleString('en-US')} of ${quota.toLocaleString('en-US')} (${percent}%)`;
 }
+
+// ---------------------------------------------------------------------------
+// Review page: fixture disagreements (F-1) and pricing facts (A-3). Payloads are read as
+// plain unknown values, never through a schema that could reject or strip them: older items
+// lack the newer fields, and none of these helpers throws.
+
+function rec(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+export interface DisagreementReason {
+  code: string;
+  /** The gate rule that raised it (F1 ... F6), when the payload names one. */
+  rule: string | null;
+  label: string;
+  /** What the gate recorded for this reason, as a sentence; null when it recorded nothing. */
+  text: string | null;
+}
+
+export interface DisagreementObservation {
+  source: string;
+  status: string;
+  kickoff: string;
+  since: string;
+}
+
+export interface DisagreementCluster {
+  sources: string;
+  kickoffs: string;
+  statuses: string;
+}
+
+export interface FixtureDisagreement {
+  reasons: DisagreementReason[];
+  /** Label and value pairs: the event's own kickoff and status, the kickoff the sources show, the sources. */
+  facts: [string, string][];
+  /** One row per source observation in the cluster (when the gate stored them). */
+  observations: DisagreementObservation[];
+  /** One row per cluster of sources that disagree with each other (rule F1). */
+  clusters: DisagreementCluster[];
+}
+
+const REASON_LABELS: Readonly<Record<string, string>> = {
+  mixed_cluster: 'Sources name different pairings',
+  invalid_observation: 'A source row is not usable',
+  candidate_mismatch: 'A matching event does not fit',
+  ambiguous_match: 'More than one event matches',
+  status_disagreement: 'Sources disagree on the status',
+  kickoff_disagreement: 'Sources disagree on the kickoff',
+  sources_disagree: 'Sources disagree on the kickoff',
+  feed_ref_exists: 'The fixture already exists as an event',
+};
+
+function reasonText(code: string, detail: unknown): string | null {
+  if (detail === undefined || detail === null) return null;
+  switch (code) {
+    case 'status_disagreement': {
+      const parts = strings(detail).map((entry) => {
+        const at = entry.lastIndexOf(':');
+        return at <= 0
+          ? entry
+          : `${entry.slice(0, at)}: ${humanize(entry.slice(at + 1)).toLowerCase()}`;
+      });
+      return parts.length > 0 ? parts.join('; ') : null;
+    }
+    case 'kickoff_disagreement': {
+      const d = rec(detail);
+      const earliest = str(d?.earliest);
+      const latest = str(d?.latest);
+      return earliest === null || latest === null
+        ? null
+        : `earliest ${formatDateTime(earliest)}, latest ${formatDateTime(latest)}`;
+    }
+    case 'mixed_cluster': {
+      const names = strings(detail);
+      return names.length > 0 ? names.join('; ') : null;
+    }
+    case 'candidate_mismatch':
+    case 'ambiguous_match': {
+      const ids = strings(detail);
+      return ids.length > 0 ? `events ${ids.join(', ')}` : null;
+    }
+    case 'invalid_observation': {
+      if (!Array.isArray(detail)) return null;
+      const parts = detail
+        .map((e: unknown) => {
+          const entry = rec(e);
+          const problem = str(entry?.problem);
+          const source = str(rec(entry?.observation)?.sourceId);
+          return problem === null ? null : source === null ? problem : `${source}: ${problem}`;
+        })
+        .filter((t): t is string => t !== null);
+      return parts.length > 0 ? parts.join('; ') : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** The disagreement a fixture_conflict item records, ready to show. Never throws. */
+export function fixtureDisagreement(payload: unknown): FixtureDisagreement {
+  const p = rec(payload) ?? {};
+  const details = rec(p.details) ?? {};
+  const rules = strings(p.rules);
+  const codes = strings(p.reasons);
+  const reasons = codes.map((code, i): DisagreementReason => ({
+    code,
+    // Rules and reasons are separate sorted lists: pair them only when that is unambiguous.
+    rule:
+      rules.length === codes.length ? (rules[i] ?? null) : rules.length === 1 ? rules[0]! : null,
+    label: REASON_LABELS[code] ?? humanize(code),
+    text: reasonText(code, details[code]),
+  }));
+
+  const facts: [string, string][] = [];
+  const eventStatus = str(p.eventStatus);
+  if (eventStatus !== null) facts.push(['Event status', humanize(eventStatus)]);
+  const eventStart = str(p.eventStart);
+  if (eventStart !== null) facts.push(['Event kickoff', formatDateTime(eventStart)]);
+  const observed = str(p.observedKickoff);
+  if (observed !== null) facts.push(['Kickoff the sources show', formatDateTime(observed)]);
+  const sources = strings(p.sources);
+  if (sources.length > 0) facts.push(['Sources', sources.join(', ')]);
+  const eventId = str(p.eventId);
+  if (eventId !== null) facts.push(['Event id', eventId]);
+
+  const observations = (Array.isArray(p.observations) ? p.observations : []).flatMap(
+    (o: unknown): DisagreementObservation[] => {
+      const obs = rec(o);
+      const source = str(obs?.sourceId);
+      if (obs === null || source === null) return [];
+      const upstream = str(obs.upstream);
+      const status = str(obs.status);
+      return [
+        {
+          source: upstream === null ? source : `${source} (upstream ${upstream})`,
+          status: status === null ? '–' : humanize(status),
+          kickoff: formatDateTime(str(obs.kickoff)),
+          since: formatDateTime(str(obs.changedAt)),
+        },
+      ];
+    },
+  );
+
+  const clusters = (Array.isArray(p.clusters) ? p.clusters : []).flatMap(
+    (c: unknown): DisagreementCluster[] => {
+      const cluster = rec(c);
+      if (cluster === null) return [];
+      const earliest = str(cluster.earliest);
+      const latest = str(cluster.latest);
+      const kickoffs =
+        earliest === null
+          ? '–'
+          : latest === null || latest === earliest
+            ? formatDateTime(earliest)
+            : `${formatDateTime(earliest)} to ${formatDateTime(latest)}`;
+      return [
+        {
+          sources: strings(cluster.sources).join(', ') || '–',
+          kickoffs,
+          statuses: strings(cluster.statuses).map(humanize).join(', ') || '–',
+        },
+      ];
+    },
+  );
+  return { reasons, facts, observations, clusters };
+}
+
+export interface UncalibratedTeamRow {
+  name: string;
+  matches: number | null;
+  needed: number | null;
+}
+
+/** The teams a ratings_uncalibrated item waits for (items raised before R-2 have none). */
+export function uncalibratedTeamRows(payload: unknown): UncalibratedTeamRow[] {
+  const teams = rec(payload)?.uncalibratedTeams;
+  if (!Array.isArray(teams)) return [];
+  return teams.flatMap((t: unknown): UncalibratedTeamRow[] => {
+    const team = rec(t);
+    const name = str(team?.name);
+    if (team === null || name === null) return [];
+    return [
+      {
+        name,
+        matches: typeof team.matches === 'number' ? team.matches : null,
+        needed: typeof team.needed === 'number' ? team.needed : null,
+      },
+    ];
+  });
+}
+
+const MARKET_KEY_PREFIX = 'mkt1';
+
+const FALLBACK_TEXT: Readonly<Record<string, string>> = {
+  no_consensus: 'no bookmaker consensus',
+  no_totals: 'no over/under line to fit the goals to',
+  poor_fit: 'the goals model fits the market poorly',
+};
+
+/**
+ * The pricing and kickoff facts of an odds_approval or ratings_uncalibrated payload as label and
+ * value pairs: how the prices were made (source, books, fit residual, why the market was not
+ * used) and the checks the gate recorded. Only what the payload holds is listed.
+ */
+export function pricingFacts(payload: unknown): [string, string][] {
+  const p = rec(payload) ?? {};
+  const facts: [string, string][] = [];
+  const pricing = rec(p.pricing);
+  const source = str(pricing?.source);
+  const ratingsKey = str(p.ratingsKey);
+  if (source !== null) {
+    facts.push(['Pricing source', source === 'market' ? 'Bookmaker market' : 'Team-rating model']);
+  } else if (ratingsKey !== null) {
+    facts.push([
+      'Pricing source',
+      ratingsKey.startsWith(`${MARKET_KEY_PREFIX}|`) ? 'Bookmaker market' : 'Team-rating model',
+    ]);
+  }
+  if (typeof pricing?.books === 'number') facts.push(['Books used', String(pricing.books)]);
+  if (typeof pricing?.residual === 'number') {
+    facts.push(['Fit residual', pricing.residual.toFixed(3)]);
+  }
+  const fallback = str(pricing?.fallback);
+  if (fallback !== null) {
+    facts.push(['Market not used', FALLBACK_TEXT[fallback] ?? humanize(fallback)]);
+  }
+  const yesNo = (v: unknown): string | null => (typeof v === 'boolean' ? (v ? 'yes' : 'no') : null);
+  const checks: [string, unknown][] = [
+    ['Ratings calibrated', p.calibrated],
+    ['Prices pass the sanity checks', p.pricesSane],
+    ['Kickoff confirmed by sources', p.kickoffConfirmed],
+    ['Competition opens automatically', p.autoOpen],
+  ];
+  for (const [label, value] of checks) {
+    const text = yesNo(value);
+    if (text !== null) facts.push([label, text]);
+  }
+  return facts;
+}
+
+export interface PriceCompareRow {
+  market: string;
+  selection: string;
+  /** Our proposed price, as text ("2.10"). */
+  ours: string;
+  /** The price stored today, when a re-price is proposed; "–" otherwise. */
+  previous: string;
+  /** The no-margin bookmaker consensus price; "–" without one. */
+  consensus: string;
+  /** Pinnacle's own price (it includes its margin); "–" when it does not list it. */
+  pinnacle: string;
+  /** Ours against the consensus, e.g. "+3.2%"; "–" without a consensus. */
+  versus: string;
+}
+
+interface CompareInput {
+  prices: readonly {
+    market: string;
+    selection: string;
+    consensusOddsMilli: number;
+    pinnacleOddsMilli: number | null;
+  }[];
+}
+
+/** "+3.2%" / "-1.0%": how far a price is from a reference. Display only. */
+export function percentVersus(oddsMilli: number, referenceMilli: number): string {
+  if (!(referenceMilli > 0)) return '–';
+  const tenths = Math.round(((oddsMilli - referenceMilli) * 1000) / referenceMilli);
+  return `${tenths > 0 ? '+' : tenths < 0 ? '-' : ''}${(Math.abs(tenths) / 10).toFixed(1)}%`;
+}
+
+/**
+ * One row per proposed selection with the consensus and Pinnacle beside it, read from the
+ * payload's `markets` and the API's comparison. Rows without a consensus still show our price.
+ */
+export function priceCompareRows(
+  markets: unknown,
+  comparison: CompareInput | null | undefined,
+): PriceCompareRow[] {
+  if (!Array.isArray(markets)) return [];
+  const index = new Map<string, CompareInput['prices'][number]>();
+  for (const price of comparison?.prices ?? []) {
+    index.set(`${price.market}|${price.selection.toLowerCase()}`, price);
+  }
+  return markets.flatMap((m: unknown): PriceCompareRow[] => {
+    const market = rec(m);
+    const key = str(market?.market);
+    if (market === null || key === null || !Array.isArray(market.selections)) return [];
+    return market.selections.flatMap((s: unknown): PriceCompareRow[] => {
+      const sel = rec(s);
+      const name = str(sel?.name);
+      if (sel === null || name === null || typeof sel.oddsMilli !== 'number') return [];
+      const found = index.get(`${key}|${name.toLowerCase()}`);
+      return [
+        {
+          market: humanize(key),
+          selection: name,
+          ours: formatOdds(sel.oddsMilli),
+          previous:
+            typeof sel.previousOddsMilli === 'number' ? formatOdds(sel.previousOddsMilli) : '–',
+          consensus: found === undefined ? '–' : formatOdds(found.consensusOddsMilli),
+          pinnacle:
+            found?.pinnacleOddsMilli === null || found?.pinnacleOddsMilli === undefined
+              ? '–'
+              : formatOdds(found.pinnacleOddsMilli),
+          versus:
+            found === undefined ? '–' : percentVersus(sel.oddsMilli, found.consensusOddsMilli),
+        },
+      ];
+    });
+  });
+}

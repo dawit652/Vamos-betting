@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formatDateTime } from './format';
 import {
   CREDIT_MODE_LABELS,
   creditModeTone,
@@ -8,6 +9,11 @@ import {
   confirmApplyText,
   decisionPermission,
   exposureText,
+  fixtureDisagreement,
+  percentVersus,
+  priceCompareRows,
+  pricingFacts,
+  uncalibratedTeamRows,
   flagPermission,
   payloadSummary,
   pricingSourcePermission,
@@ -175,5 +181,221 @@ describe('credit guard display', () => {
     expect(creditsText(1_234, 20_000)).toBe('1,234 of 20,000 (6%)');
     expect(creditsText(485, null)).toBe('485');
     expect(creditsText(null, null)).toBe('–');
+  });
+});
+
+describe('fixtureDisagreement', () => {
+  it('reads a status disagreement', () => {
+    const d = fixtureDisagreement({
+      rules: ['F6'],
+      reasons: ['status_disagreement'],
+      details: { status_disagreement: ['a:postponed', 'b:scheduled'] },
+      observations: [
+        {
+          sourceId: 'a',
+          upstream: 'u1',
+          status: 'postponed',
+          kickoff: '2026-11-10T15:00:00.000Z',
+          changedAt: null,
+        },
+        { sourceId: 'b', status: 'scheduled', kickoff: '2026-11-10T15:00:00.000Z' },
+      ],
+    });
+    expect(d.reasons).toEqual([
+      {
+        code: 'status_disagreement',
+        rule: 'F6',
+        label: 'Sources disagree on the status',
+        text: 'a: postponed; b: scheduled',
+      },
+    ]);
+    expect(d.observations.map((o) => [o.source, o.status])).toEqual([
+      ['a (upstream u1)', 'postponed'],
+      ['b', 'scheduled'],
+    ]);
+    expect(d.observations[0]!.kickoff).toBe(formatDateTime('2026-11-10T15:00:00.000Z'));
+    expect(d.observations[0]!.since).toBe('–');
+  });
+
+  it('reads a kickoff disagreement and the groups of sources', () => {
+    const d = fixtureDisagreement({
+      rules: ['F2'],
+      reasons: ['kickoff_disagreement'],
+      details: {
+        kickoff_disagreement: { earliest: '2026-11-10T15:00:00Z', latest: '2026-11-10T17:00:00Z' },
+      },
+      clusters: [
+        {
+          earliest: '2026-11-10T15:00:00Z',
+          latest: '2026-11-10T15:00:00Z',
+          sources: ['a'],
+          statuses: ['scheduled'],
+        },
+        {
+          earliest: '2026-11-10T17:00:00Z',
+          latest: '2026-11-10T17:30:00Z',
+          sources: ['b', 'c'],
+          statuses: ['scheduled'],
+        },
+      ],
+    });
+    expect(d.reasons[0]!.text).toBe(
+      `earliest ${formatDateTime('2026-11-10T15:00:00Z')}, latest ${formatDateTime('2026-11-10T17:00:00Z')}`,
+    );
+    expect(d.clusters).toEqual([
+      { sources: 'a', kickoffs: formatDateTime('2026-11-10T15:00:00Z'), statuses: 'scheduled' },
+      {
+        sources: 'b, c',
+        kickoffs: `${formatDateTime('2026-11-10T17:00:00Z')} to ${formatDateTime('2026-11-10T17:30:00Z')}`,
+        statuses: 'scheduled',
+      },
+    ]);
+  });
+
+  it('reads feed_ref_exists facts', () => {
+    const d = fixtureDisagreement({
+      rules: ['F3'],
+      reasons: ['feed_ref_exists'],
+      details: {},
+      eventId: 'e1',
+      eventStatus: 'postponed',
+      eventStart: '2026-11-10T15:00:00Z',
+      observedKickoff: '2026-11-11T15:00:00Z',
+      sources: ['a', 'b'],
+    });
+    expect(d.facts).toEqual([
+      ['Event status', 'postponed'],
+      ['Event kickoff', formatDateTime('2026-11-10T15:00:00Z')],
+      ['Kickoff the sources show', formatDateTime('2026-11-11T15:00:00Z')],
+      ['Sources', 'a, b'],
+      ['Event id', 'e1'],
+    ]);
+    expect(d.reasons[0]!.text).toBeNull();
+  });
+
+  it('never throws on unknown shapes', () => {
+    for (const bad of [
+      null,
+      undefined,
+      3,
+      'x',
+      [],
+      { reasons: 4, details: 'x', clusters: [null, 1], observations: [{}, null] },
+    ]) {
+      const d = fixtureDisagreement(bad);
+      expect(d.reasons).toEqual([]);
+      expect(d.observations).toEqual([]);
+      expect(d.clusters).toEqual([]);
+    }
+    expect(
+      fixtureDisagreement({ reasons: ['x_y'], rules: ['A', 'B'], details: { x_y: 5 } }).reasons,
+    ).toEqual([{ code: 'x_y', rule: null, label: 'x y', text: null }]);
+  });
+});
+
+describe('pricing facts and price comparison', () => {
+  it('lists the pricing facts the payload has, and none when it has none', () => {
+    expect(pricingFacts({})).toEqual([]);
+    expect(pricingFacts(null)).toEqual([]);
+    expect(
+      pricingFacts({
+        pricing: { source: 'market', books: 5, residual: 0.0123 },
+        calibrated: true,
+        pricesSane: false,
+        kickoffConfirmed: true,
+        autoOpen: false,
+      }),
+    ).toEqual([
+      ['Pricing source', 'Bookmaker market'],
+      ['Books used', '5'],
+      ['Fit residual', '0.012'],
+      ['Ratings calibrated', 'yes'],
+      ['Prices pass the sanity checks', 'no'],
+      ['Kickoff confirmed by sources', 'yes'],
+      ['Competition opens automatically', 'no'],
+    ]);
+    expect(pricingFacts({ pricing: { source: 'model', fallback: 'poor_fit' } })).toEqual([
+      ['Pricing source', 'Team-rating model'],
+      ['Market not used', 'the goals model fits the market poorly'],
+    ]);
+    expect(pricingFacts({ ratingsKey: 'mkt1|abc' })).toEqual([
+      ['Pricing source', 'Bookmaker market'],
+    ]);
+    expect(pricingFacts({ ratingsKey: '[1,2]' })).toEqual([
+      ['Pricing source', 'Team-rating model'],
+    ]);
+  });
+
+  it('puts our price beside the consensus and Pinnacle', () => {
+    const markets = [
+      {
+        market: '1x2',
+        selections: [
+          { name: '1', oddsMilli: 2060, previousOddsMilli: 2000 },
+          { name: 'X', oddsMilli: 3300 },
+        ],
+      },
+      { market: 'ou:2.5', selections: [{ name: 'over', oddsMilli: 1900 }] },
+    ];
+    const rows = priceCompareRows(markets, {
+      prices: [
+        { market: '1x2', selection: '1', consensusOddsMilli: 2000, pinnacleOddsMilli: 1950 },
+        { market: '1x2', selection: 'X', consensusOddsMilli: 3400, pinnacleOddsMilli: null },
+      ],
+    });
+    expect(rows).toEqual([
+      {
+        market: '1x2',
+        selection: '1',
+        ours: '2.06',
+        previous: '2.00',
+        consensus: '2.00',
+        pinnacle: '1.95',
+        versus: '+3.0%',
+      },
+      {
+        market: '1x2',
+        selection: 'X',
+        ours: '3.30',
+        previous: '–',
+        consensus: '3.40',
+        pinnacle: '–',
+        versus: '-2.9%',
+      },
+      {
+        market: 'ou:2.5',
+        selection: 'over',
+        ours: '1.90',
+        previous: '–',
+        consensus: '–',
+        pinnacle: '–',
+        versus: '–',
+      },
+    ]);
+    expect(priceCompareRows(markets, null).every((r) => r.consensus === '–')).toBe(true);
+    expect(priceCompareRows('nope', null)).toEqual([]);
+    expect(
+      priceCompareRows([{ market: 1 }, null, { market: 'x', selections: [{}] }], null),
+    ).toEqual([]);
+    expect(percentVersus(2000, 2000)).toBe('0.0%');
+    expect(percentVersus(2000, 0)).toBe('–');
+  });
+
+  it('reads the unrated teams defensively', () => {
+    expect(uncalibratedTeamRows({})).toEqual([]);
+    expect(uncalibratedTeamRows({ uncalibratedTeams: 'x' })).toEqual([]);
+    expect(
+      uncalibratedTeamRows({
+        uncalibratedTeams: [
+          { teamId: 't', name: 'Lions', matches: 3, needed: 8 },
+          { name: 'Bears' },
+          null,
+          { matches: 1 },
+        ],
+      }),
+    ).toEqual([
+      { name: 'Lions', matches: 3, needed: 8 },
+      { name: 'Bears', matches: null, needed: null },
+    ]);
   });
 });

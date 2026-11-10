@@ -6,6 +6,7 @@ import {
   type ResolveReviewResponse,
   type ReviewDetailResponse,
   type ReviewItemView,
+  type ReviewMarketComparison,
 } from '@vamos/contracts';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -30,15 +31,19 @@ import {
   confirmApplyText,
   decisionPermission,
   exposureText,
+  fixtureDisagreement,
   isOpen,
   isTargetId,
   kindLabel,
+  priceCompareRows,
   priceText,
+  pricingFacts,
   resolutionText,
   reviewStatusTone,
   scorePercent,
   scoreText,
   severityTone,
+  uncalibratedTeamRows,
 } from '@/lib/feed';
 import { formatDateTime, formatEtb, humanize } from '@/lib/format';
 
@@ -248,14 +253,176 @@ function Observations({
   );
 }
 
+/** F-1: why the sources disagree, from the reasons, details and observations the gate stored. */
+function Disagreement({ payload }: { payload: unknown }) {
+  const d = fixtureDisagreement(payload);
+  return (
+    <>
+      {d.reasons.length > 0 && (
+        <ul>
+          {d.reasons.map((r) => (
+            <li key={r.code}>
+              <strong>{r.label}</strong>
+              {r.rule !== null && <span className="muted small"> (rule {r.rule})</span>}
+              {r.text !== null && <div className="small">{r.text}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {d.facts.length > 0 && <DefList rows={d.facts} />}
+      {d.clusters.length > 0 && (
+        <>
+          <h3>Groups of sources</h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Sources</th>
+                  <th>Kickoff</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.clusters.map((c, i) => (
+                  <tr key={i}>
+                    <td>{c.sources}</td>
+                    <td>{c.kickoffs}</td>
+                    <td>{c.statuses}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {d.observations.length > 0 && (
+        <>
+          <h3>What each source says</h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th>Kickoff</th>
+                  <th>Since</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.observations.map((o, i) => (
+                  <tr key={i}>
+                    <td>{o.source}</td>
+                    <td>{o.status}</td>
+                    <td>{o.kickoff}</td>
+                    <td>{o.since}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+/** A-3: our price beside the bookmaker consensus and Pinnacle, and the books behind the consensus. */
+function PriceCheck({
+  markets,
+  comparison,
+}: {
+  markets: unknown;
+  comparison: ReviewMarketComparison | null | undefined;
+}) {
+  const rows = priceCompareRows(markets, comparison);
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <h3>Our price against the market</h3>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Market</th>
+              <th>Pick</th>
+              <th>Ours</th>
+              <th>Before</th>
+              <th>Consensus</th>
+              <th>Ours v consensus</th>
+              <th>Pinnacle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td>{r.market}</td>
+                <td>{r.selection}</td>
+                <td>{r.ours}</td>
+                <td>{r.previous}</td>
+                <td>{r.consensus}</td>
+                <td>{r.versus}</td>
+                <td>{r.pinnacle}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {comparison === null || comparison === undefined ? (
+        <p className="muted small">No fresh bookmaker prices for this event to compare with.</p>
+      ) : (
+        <p className="muted small">
+          Consensus is the no-margin median of the books below, read now. Pinnacle&apos;s price
+          still includes its margin.{' '}
+          {comparison.consensus
+            .map((c) => `${humanize(c.market)}: ${c.books} books (${c.bookmakers.join(', ')})`)
+            .join('; ')}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** R-2: the teams whose ratings the item waits for, with their rated matches. */
+function UncalibratedTeams({ payload }: { payload: unknown }) {
+  const rows = uncalibratedTeamRows(payload);
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <h3>Teams without enough rated matches</h3>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Team</th>
+              <th>Rated matches</th>
+              <th>Needed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((t, i) => (
+              <tr key={i}>
+                <td>{t.name}</td>
+                <td>{t.matches ?? '–'}</td>
+                <td>{t.needed ?? '–'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 function Body({
   item,
   resolve,
   can,
+  comparison,
 }: {
   item: ReviewItemView;
   resolve: Resolve;
   can: (permission: string) => boolean;
+  comparison?: ReviewMarketComparison | null | undefined;
 }) {
   const kind = item.kind;
   const open = isOpen(item);
@@ -345,6 +512,7 @@ function Body({
             rows={[
               ['Match', <Match key="m" p={p} />],
               ['Why', p.reason ?? '–'],
+              ...pricingFacts(item.payload),
               [
                 'Prices',
                 p.markets.length === 0 ? (
@@ -364,6 +532,8 @@ function Body({
               ],
             ]}
           />
+          {kind === 'ratings_uncalibrated' && <UncalibratedTeams payload={item.payload} />}
+          <PriceCheck markets={item.payload.markets} comparison={comparison} />
           {kind === 'odds_approval' && !isRepriceItem(item) && allow('open_betting') && (
             <ActionButton
               primary
@@ -481,6 +651,15 @@ function Body({
         </>
       );
     }
+    case 'fixture_conflict': {
+      const p = parseReviewPayload(kind, item.payload);
+      return (
+        <>
+          <p>{p?.detail ?? 'The sources disagree about this fixture.'}</p>
+          <Disagreement payload={item.payload} />
+        </>
+      );
+    }
     default: {
       const p = parseReviewPayload(kind, item.payload) as { detail?: string } | null;
       if (p === null) return raw();
@@ -539,7 +718,7 @@ export default function ReviewItemPage() {
                   ] as [string, ReactNode][])),
             ]}
           />
-          <Body item={item} resolve={resolve} can={can} />
+          <Body item={item} resolve={resolve} can={can} comparison={data?.comparison} />
           {isOpen(item) && can('trading.status') && (
             <div className="actions">
               <ReasonAction label="Dismiss" prompt="Note (required)" onSubmit={dismiss} />

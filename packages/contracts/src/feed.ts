@@ -629,8 +629,40 @@ export type ReviewListQuery = z.infer<typeof ReviewListQuery>;
 export const ReviewListResponse = page(ReviewItemView);
 export type ReviewListResponse = z.infer<typeof ReviewListResponse>;
 
+/** The bookmaker consensus behind an odds item (read-only, from the fresh market prices of the event). */
+export const ReviewMarketComparison = z.object({
+  /** One entry per market with a consensus: `market` is the proposal's key ("1x2", "ou:2.5"). */
+  consensus: z.array(
+    z.object({
+      market: z.string(),
+      books: Count,
+      bookmakers: z.array(z.string()),
+      /** Median overround of those books. */
+      overround: z.number(),
+    }),
+  ),
+  /** Per selection: the no-margin consensus price, and Pinnacle's own price (with its margin) when it lists it. */
+  prices: z.array(
+    z.object({
+      market: z.string(),
+      selection: z.string(),
+      consensusOddsMilli: OddsMilli,
+      pinnacleOddsMilli: OddsMilli.nullable(),
+    }),
+  ),
+});
+export type ReviewMarketComparison = z.infer<typeof ReviewMarketComparison>;
+
 /** GET /admin/feed/review/:id. */
-export const ReviewDetailResponse = z.object({ item: ReviewItemView });
+export const ReviewDetailResponse = z.object({
+  item: ReviewItemView,
+  /**
+   * An open odds_approval or ratings_uncalibrated item: today's bookmaker
+   * consensus for the event, read when the page is opened (null: none, or
+   * another kind). Display only; no decision uses it.
+   */
+  comparison: ReviewMarketComparison.nullable().optional(),
+});
 export type ReviewDetailResponse = z.infer<typeof ReviewDetailResponse>;
 
 /**

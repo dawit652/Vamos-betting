@@ -47,6 +47,7 @@ import {
   setSourceEnabled,
   setTeamRatings,
   startRun,
+  upsertMarketOdds,
   upsertSource,
   type Database,
 } from '@vamos/db';
@@ -519,6 +520,87 @@ describe('review queue', () => {
       expect(
         (await asStaff(ctx, as('trader'), 'GET', `/admin/feed/review/${bad}`)).statusCode,
       ).toBe(404);
+    }
+  });
+
+  it('adds the bookmaker consensus and Pinnacle to an open odds item (A-3), read only', async () => {
+    const event = await newEvent(3 * 24 * HOUR);
+    const sourceId = 'src-odds-compare';
+    await db.transaction(async (tx) => {
+      await upsertSource(
+        tx,
+        { id: sourceId, name: sourceId, adapter: 'generic-json', upstream: sourceId, config: {} },
+        { system: 'test' },
+      );
+      await setSourceEnabled(tx, sourceId, true, { system: 'test' });
+    });
+    const observedAt = new Date(ctx.clock.now.getTime() - 5 * MINUTE);
+    const run = await startRun(db, { sourceId, startedAt: observedAt });
+    await finishRun(db, run.id, { status: 'ok', finishedAt: observedAt });
+    const rows = ['pinnacle', 'betsson', 'unibet_se'].flatMap((bookmaker) =>
+      (['1', 'X', '2'] as const).map((selection, i) => ({
+        sourceKey: `match-${event.id}`,
+        sport: 'football',
+        competitionRaw: 'Premier League',
+        homeRaw: 'Home',
+        awayRaw: 'Away',
+        kickoff: event.startTime,
+        priceUpdatedAt: observedAt,
+        observedAt,
+        competitionId: ids.league,
+        homeTeamId: ids.home,
+        awayTeamId: ids.away,
+        eventId: event.id,
+        market: '1x2' as const,
+        line: null,
+        selection,
+        bookmaker,
+        priceMilli: [2100, 3300, 3500][i]!,
+      })),
+    );
+    await db.transaction((tx) =>
+      upsertMarketOdds(tx, { sourceId, runId: run.id, rawId: null, rows }),
+    );
+
+    const odds = await openItem('odds_approval', {
+      ...eventRef(event.id, event.startTime),
+      reason: 'market_priced',
+      markets: [
+        {
+          market: '1x2',
+          selections: [
+            { name: '1', oddsMilli: 2000 },
+            { name: 'X', oddsMilli: 3300 },
+            { name: '2', oddsMilli: 3500 },
+          ],
+        },
+      ],
+    });
+    const detail = ReviewDetailResponse.parse(
+      (await asStaff(ctx, as('trader'), 'GET', `/admin/feed/review/${odds}`)).json(),
+    );
+    expect(detail.comparison?.consensus).toHaveLength(1);
+    expect(detail.comparison?.consensus[0]).toMatchObject({
+      market: '1x2',
+      books: 3,
+      bookmakers: [`${sourceId}:betsson`, `${sourceId}:pinnacle`, `${sourceId}:unibet_se`],
+    });
+    expect(detail.comparison?.prices.map((p) => [p.selection, p.pinnacleOddsMilli])).toEqual([
+      ['1', 2100],
+      ['X', 3300],
+      ['2', 3500],
+    ]);
+    // The fair price is the margin-free one: higher than the books' own prices.
+    expect(detail.comparison!.prices[0]!.consensusOddsMilli).toBeGreaterThan(2100);
+
+    // Other kinds, and items that name no event or an event with no prices, have none.
+    const missing = await openItem('fixture_missing', { detail: 'detail' });
+    const noPrices = await openItem('odds_approval', eventRef(ABSENT_ID, event.startTime));
+    for (const id of [missing, noPrices]) {
+      const other = ReviewDetailResponse.parse(
+        (await asStaff(ctx, as('trader'), 'GET', `/admin/feed/review/${id}`)).json(),
+      );
+      expect(other.comparison ?? null).toBeNull();
     }
   });
 });
