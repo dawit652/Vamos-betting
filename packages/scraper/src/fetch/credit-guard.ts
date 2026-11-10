@@ -121,3 +121,36 @@ export function creditStatus(
     lastReadAt: latest?.at ?? null,
   };
 }
+
+/** Where the last 24 hours of spending lead if they went on until the quota resets. */
+export interface CreditProjection {
+  /** Credits spent in the last 24 hours. */
+  dailyRate: number;
+  /** dailyRate over the days left until the 1st (UTC): what the rest of the month would cost. */
+  projectedToReset: number;
+  /** Days until the remaining credits are gone at that rate; null without a rate or a reading. */
+  daysUntilEmpty: number | null;
+  daysLeftInMonth: number;
+  /** The projection exceeds the remaining credits: the key would run dry before the reset. */
+  overruns: boolean;
+}
+
+/**
+ * The early warning behind creditStatus (plan item C-3): the guard reacts only after the spending,
+ * this says that the last day's rate would not last the month. Pure. With no reading yet
+ * (remaining null) it never overruns.
+ */
+export function creditProjection(status: CreditStatus, now: Date): CreditProjection {
+  const dailyRate = status.spentLast24h;
+  const daysLeftInMonth = daysLeftInMonthUtc(now);
+  const { remaining } = status;
+  const projectedToReset = dailyRate * daysLeftInMonth;
+  const rated = Number.isFinite(dailyRate) && dailyRate > 0;
+  return {
+    dailyRate,
+    projectedToReset,
+    daysUntilEmpty: rated && remaining !== null ? remaining / dailyRate : null,
+    daysLeftInMonth,
+    overruns: rated && remaining !== null && projectedToReset > remaining,
+  };
+}

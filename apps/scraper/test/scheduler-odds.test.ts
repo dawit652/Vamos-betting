@@ -297,6 +297,27 @@ describe('alarms (4.8)', () => {
   );
 
   it(
+    'budget_projection while the last 24 h would outrun the remaining credits, resolved when it fits',
+    async () => {
+      await oddsHarness();
+      serveOdds(2 * HOUR);
+      const projection = creditAlarmSubject(SECRET, 'projection');
+      const at = (minutes: number) => new Date(h.now().getTime() - minutes * MINUTE);
+      // 12% left (normal), 1 000 credits in the last day with 2.5 days to the 1st: 2 500 > 2 400.
+      await recordedRun(at(60), { credits: { spent: 1_000, used: 17_600, remaining: 2_400 } });
+      await runDueSources(h.ctx, options);
+      await runDueSources(h.ctx, options);
+      expect(await alarms(projection)).toEqual([['open', 'budget_projection']]);
+      expect(await alarms(creditAlarmSubject(SECRET, 'budget'))).toEqual([]);
+
+      await recordedRun(at(1), { credits: { spent: 2, used: 5_000, remaining: 15_000 } });
+      await runDueSources(h.ctx, options);
+      expect(await alarms(projection)).toEqual([['resolved', 'budget_projection']]);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
     'unauthorized on a refused key, once however often, resolved by a successful read',
     async () => {
       await oddsHarness();

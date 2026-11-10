@@ -5,9 +5,11 @@ import { marketOddsPollIntervalMs } from './cadence';
 import {
   CREDIT_GUARD_MODES,
   creditGuardMode,
+  creditProjection,
   daysLeftInMonthUtc,
   utcMonthStart,
   type CreditGuardMode,
+  type CreditStatus,
 } from './credit-guard';
 
 const base = {
@@ -137,6 +139,60 @@ describe('marketOddsPollIntervalMs (4.5)', () => {
           expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
         expect(marketOddsPollIntervalMs(now, kick(s), 'stop')).toBeNull();
       }),
+    );
+  });
+});
+
+describe('creditProjection', () => {
+  // 2026-11-10 12:00 UTC: 20.5 days to the 1st.
+  const at = new Date('2026-11-10T12:00:00Z');
+  const status = (remaining: number | null, spentLast24h: number): CreditStatus => ({
+    mode: 'normal',
+    keyRefused: false,
+    quota: remaining === null ? null : 20_000,
+    remaining,
+    spentLast24h,
+    lastReadAt: remaining === null ? null : at,
+  });
+
+  it('projects the last 24 hours over the days left', () => {
+    expect(creditProjection(status(5_000, 400), at)).toEqual({
+      dailyRate: 400,
+      projectedToReset: 8_200,
+      daysUntilEmpty: 12.5,
+      daysLeftInMonth: 20.5,
+      overruns: true,
+    });
+  });
+
+  it('fits when the remaining credits cover the rest of the month', () => {
+    expect(creditProjection(status(8_200, 400), at).overruns).toBe(false);
+    expect(creditProjection(status(8_199, 400), at).overruns).toBe(true);
+  });
+
+  it('never overruns without a rate or without a reading', () => {
+    expect(creditProjection(status(5_000, 0), at)).toMatchObject({
+      daysUntilEmpty: null,
+      overruns: false,
+    });
+    expect(creditProjection(status(null, 400), at)).toMatchObject({
+      daysUntilEmpty: null,
+      overruns: false,
+    });
+  });
+
+  it('overruns exactly when the credits run out before the reset (property)', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 20_000 }),
+        fc.integer({ min: 1, max: 5_000 }),
+        fc.date({ min: new Date('2026-01-01'), max: new Date('2030-01-01'), noInvalidDate: true }),
+        (remaining, rate, now) => {
+          const p = creditProjection(status(remaining, rate), now);
+          expect(p.daysUntilEmpty).not.toBeNull();
+          expect(p.overruns).toBe(p.daysUntilEmpty! < p.daysLeftInMonth);
+        },
+      ),
     );
   });
 });

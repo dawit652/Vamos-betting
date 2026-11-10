@@ -3,6 +3,7 @@ import {
   backoffAfterFailures,
   createAdapter,
   creditKeyOf,
+  creditProjection,
   creditStatus,
   DAY_MS,
   fixturesPollIntervalMs,
@@ -28,7 +29,7 @@ import {
 } from '@vamos/db';
 import type { ScraperContext } from '../context';
 import { intervalTask, type IntervalTask } from '../lib/interval';
-import { syncBudgetAlarm } from '../pipeline/credit-alarms';
+import { syncBudgetAlarm, syncProjectionAlarm } from '../pipeline/credit-alarms';
 import { runSource } from '../pipeline/run-source';
 
 export const SCHEDULER_INTERVAL_MS = 30_000;
@@ -130,18 +131,17 @@ async function guardModes(
     modes.set(key, status.mode);
     const firstSource = sources[0];
     if (firstSource !== undefined) {
-      await ctx.db.transaction((tx) =>
-        syncBudgetAlarm(
-          tx,
-          {
-            creditKey: key,
-            sourceId: firstSource.id,
-            runId: usage.latest?.runId ?? null,
-            now,
-          },
-          status,
-        ),
-      );
+      const ref = {
+        creditKey: key,
+        sourceId: firstSource.id,
+        runId: usage.latest?.runId ?? null,
+        now,
+      };
+      const projection = creditProjection(status, now);
+      await ctx.db.transaction(async (tx) => {
+        await syncBudgetAlarm(tx, ref, status);
+        await syncProjectionAlarm(tx, ref, status, projection);
+      });
     }
   }
   return modes;
