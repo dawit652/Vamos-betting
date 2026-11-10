@@ -1,25 +1,19 @@
-import { SCRAPER_ACTOR } from '@vamos/core';
 import {
   getEventExposure,
-  competitionGoalEvidence,
-  getTeamRatings,
   listCompetitionPolicies,
   listCurrentObservations,
   listObservationHistory,
   listReviewItems,
   listScrapedEvents,
   lockEvent,
-  markRatingApplied,
   markRawKeep,
   openReviewItem,
   closeReviewItemsBySubject,
   resultEvent,
-  setTeamRatings,
   type DbTransaction,
   type ScrapedEvent,
   type ScrapeReviewItem,
 } from '@vamos/db';
-import { learnedHomeAdvantage, updateFootballRatings, withHomeAdvantage } from '@vamos/feed';
 import {
   clusterObservations,
   decideResult,
@@ -57,6 +51,7 @@ import {
   undecidedFrom,
   type PromoteOptions,
 } from './common';
+import { updateRatingsForResult } from './result-ratings';
 
 export interface PromoteResultsSummary {
   events: number;
@@ -430,30 +425,14 @@ export async function applyConfirmedResult(
     });
     if (resulted.outcome !== 'resulted') return null;
 
-    let ratingsUpdated = false;
-    if (await markRatingApplied(tx, input.feedRef)) {
-      const ratings = await getTeamRatings(tx, [event.homeTeamId, event.awayTeamId], {
-        forUpdate: true,
-      });
-      const next = updateFootballRatings(
-        ratings.get(event.homeTeamId)?.ratings ?? null,
-        ratings.get(event.awayTeamId)?.ratings ?? null,
-        { home: input.score.home, away: input.score.away },
-      );
-      // F-07: the competition's home advantage, from its finished results (this one is
-      // already stored), is written on both teams' ratings, where pricing and the next
-      // update read it. A new league keeps the default until it has results of its own.
-      const homeAdvantage = learnedHomeAdvantage(
-        await competitionGoalEvidence(tx, event.competitionId),
-      );
-      await setTeamRatings(tx, event.homeTeamId, withHomeAdvantage(next.home, homeAdvantage), {
-        system: SCRAPER_ACTOR,
-      });
-      await setTeamRatings(tx, event.awayTeamId, withHomeAdvantage(next.away, homeAdvantage), {
-        system: SCRAPER_ACTOR,
-      });
-      ratingsUpdated = true;
-    }
+    // O4 and F-07 (this result is already stored, so it counts as home-advantage evidence).
+    const ratingsUpdated = await updateRatingsForResult(tx, {
+      feedRef: input.feedRef,
+      competitionId: event.competitionId,
+      homeTeamId: event.homeTeamId,
+      awayTeamId: event.awayTeamId,
+      score: { home: input.score.home, away: input.score.away },
+    });
 
     const hashes = await evidenceHashes(tx, input.observations, input.score);
     await markRawKeep(tx, hashes);

@@ -344,7 +344,11 @@ Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_M
 ### 6.2 Results
 
 - **R1 Eligible.** Only events with status `scheduled` (scraped events never go
-  live), not yet resulted, and `now >= kickoff + MIN_MATCH_DURATION_MS`.
+  live), not yet resulted, and `now >= kickoff + MIN_MATCH_DURATION_MS`. The same floor holds for a
+  person (S-5): a `finished` result of a scraped event entered in Trading
+  (`POST /admin/trading/events/:id/result`) before `kickoff + MIN_MATCH_DURATION_MS` is refused with
+  409 `match_not_over` (the details give the earliest moment); cancelling or postponing is never
+  delayed.
 - **R2 Agreement.** A result is confirmed only if at least
   `MIN_INDEPENDENT_SOURCES` distinct **upstreams** each have a current
   `finished` observation for the fixture, with `scoreBasis = regular_time`, and
@@ -585,7 +589,13 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   is what is priced; it is part of the ratings fingerprint, so a change goes
   through the O3 re-price like any other. Open bets keep their odds. Seasons
   of results that were only backfilled (`ratings backfill`) are not events and do
-  not count as evidence. Evaluated out of sample (odds evaluation, F-07).
+  not count as evidence. Evaluated out of sample (odds evaluation, F-07). A
+  result a person entered by hand in Trading (S-5) moves the ratings too: the
+  promotion pass (`rateHandResults`, before re-pricing) finds the scraped football
+  events resulted `finished` with a score that kicked off in the last 7 days
+  (`HAND_RESULT_RATING_WINDOW_MS`) and have no `scrape_rating_applied` row, oldest
+  kickoff first, and applies the same update once (audit `scrape.result.rated`,
+  `via: hand`). A later correction does not move the ratings again.
 - **A2 Suspension while the prices cannot be trusted (2026-11, A-2 of `docs/feed-quality-plan.md`).**
   The last step of the re-pricing pass (`syncSuspensions`) decides, for every scheduled event of an
   enabled competition that starts after `now + MIN_LEAD_MS`, a cause, in this order:

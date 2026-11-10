@@ -30,6 +30,7 @@ import { notFound, parseInput } from '../../lib/errors';
 import { staffActor } from '../../plugins/staff-session';
 import { inTx, optionalDate, parseUuid, publishLive, wire } from './common';
 import { assertScrapedEventMayOpen } from './open-betting';
+import { assertScrapedMatchOver } from './scraped-result';
 
 type IdParams = { Params: { id: string } };
 
@@ -184,15 +185,17 @@ export default async function adminTradingRoutes(app: FastifyInstance): Promise<
           : { status: input.status };
       const actor = staffActor(request);
       const now = deps.clock();
-      const outcome = await inTx(deps, (tx) =>
-        staffResultEvent(tx, {
+      const outcome = await inTx(deps, async (tx) => {
+        // A scraped match is not resulted by hand before the scraper itself could (R1, S-5).
+        await assertScrapedMatchOver(tx, eventId, result, now);
+        return staffResultEvent(tx, {
           eventId,
           result,
           ...(input.reason === undefined ? {} : { reason: input.reason }),
           actor,
           now,
-        }),
-      );
+        });
+      });
       await publishLive(app, outcome.messages);
       return wire(ResultEventResponse, outcome);
     },

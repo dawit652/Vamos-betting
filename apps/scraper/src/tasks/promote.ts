@@ -10,6 +10,7 @@ import {
   promoteResults,
 } from '../pipeline/promote-results';
 import { repriceScheduledEvents } from '../pipeline/reprice';
+import { rateHandResults } from '../pipeline/result-ratings';
 import { sweepReviewQueue } from '../pipeline/review-sweep';
 import { flagStaleSources } from '../pipeline/stale-sources';
 import { reresolveChangedAliases, reresolveUnresolved } from '../pipeline/run-source';
@@ -19,7 +20,7 @@ const PROMOTE_LOCK_TTL_MS = 5 * 60_000;
 
 /**
  * One promotion pass: re-resolve names, close betting on earlier kickoffs (K1), promote fixtures, apply what staff
- * confirmed, promote results, raise the matches no source has a result for,
+ * confirmed, promote results, raise the matches no source has a result for, move the ratings for results a person entered (S-5),
  * then re-price the events whose teams' ratings moved, and open betting where auto_open allows it once the
  * kickoff is confirmed (F7b), and last close the review items that became pointless (Q1). Each step is independent: one failing does not stop the others.
  * Under a Redis lock so two instances do not both promote.
@@ -42,6 +43,8 @@ export async function runPromotion(ctx: ScraperContext): Promise<boolean> {
       ['overdue results', () => flagOverdueResults(ctx)],
       // A source that answers but shows nothing new while matches end (S5).
       ['stale sources', () => flagStaleSources(ctx)],
+      // After results, before re-pricing: a result a person entered moves the ratings too (O4, S-5).
+      ['hand result ratings', () => rateHandResults(ctx)],
       // After results: they move the ratings the prices depend on (rule O3).
       ['reprice', () => repriceScheduledEvents(ctx)],
       // Last: with the kickoff confirmed and the prices current, open what auto_open allows (F7b).
