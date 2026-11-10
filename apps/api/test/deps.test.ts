@@ -5,7 +5,7 @@ import { createDefaultDeps, ProviderNotImplementedError } from '../src/deps';
 
 describe('createDefaultDeps', () => {
   it('wires mock providers in demo mode', async () => {
-    const deps = createDefaultDeps(loadConfig({ LOG_LEVEL: 'silent' }));
+    const deps = createDefaultDeps(loadConfig({ OPERATING_MODE: 'demo', LOG_LEVEL: 'silent' }));
     try {
       expect(deps.sms.name).toBe('mock');
       expect(deps.kyc.name).toBe('mock');
@@ -20,7 +20,7 @@ describe('createDefaultDeps', () => {
 
   it('refuses a payment provider that is not configured', () => {
     // CBE Birr is a skeleton until merchant documents exist (refused in demo mode by the config guard too).
-    const config = loadConfig({ LOG_LEVEL: 'silent' });
+    const config = loadConfig({ OPERATING_MODE: 'demo', LOG_LEVEL: 'silent' });
     expect(() =>
       createDefaultDeps({ ...config, providers: { ...config.providers, payments: ['cbebirr'] } }),
     ).toThrow(ProviderNotConfiguredError);
@@ -30,7 +30,7 @@ describe('createDefaultDeps', () => {
     [{ SMS_PROVIDER: 'http' }, /SMS_PROVIDER="http" is not implemented yet/],
     [{ KYC_PROVIDER: 'fayda' }, /KYC_PROVIDER="fayda" is not implemented yet/],
   ])('refuses providers without an adapter (%o)', (env, message) => {
-    const config = loadConfig({ LOG_LEVEL: 'silent', ...env });
+    const config = loadConfig({ OPERATING_MODE: 'demo', LOG_LEVEL: 'silent', ...env });
     expect(() => createDefaultDeps(config)).toThrow(ProviderNotImplementedError);
     expect(() => createDefaultDeps(config)).toThrow(message);
   });

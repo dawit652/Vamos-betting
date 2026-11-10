@@ -80,6 +80,7 @@ beforeAll(async () => {
   });
   dir = mkdtempSync(join(tmpdir(), 'vamos-result-demo-'));
   config = loadConfig({
+    OPERATING_MODE: 'demo',
     LOG_LEVEL: 'silent',
     FEED_PROVIDER: 'scraped',
     SCRAPER_ARCHIVE_DIR: dir,

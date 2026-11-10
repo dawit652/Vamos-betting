@@ -173,17 +173,18 @@ describe('createTasks', () => {
   ];
 
   it('runs the simulated feed only with the mock feed provider in demo mode', () => {
-    expect(createTasks(loadConfig({ FEED_PROVIDER: 'mock' }), ctx).map((t) => t.name)).toEqual([
-      'feed-ingest',
-      'live-sim',
-      'prematch-drift',
-      ...PHASE_4,
-    ]);
+    expect(
+      createTasks(loadConfig({ OPERATING_MODE: 'demo', FEED_PROVIDER: 'mock' }), ctx).map(
+        (t) => t.name,
+      ),
+    ).toEqual(['feed-ingest', 'live-sim', 'prematch-drift', ...PHASE_4]);
   });
 
   it('runs settlement, live bet acceptance, payments, SMS, player pushes and the outbox dispatcher with every feed', () => {
-    expect(createTasks(loadConfig({ FEED_PROVIDER: 'manual' }), ctx).map((t) => t.name)).toEqual(
-      PHASE_4,
-    );
+    expect(
+      createTasks(loadConfig({ OPERATING_MODE: 'demo', FEED_PROVIDER: 'manual' }), ctx).map(
+        (t) => t.name,
+      ),
+    ).toEqual(PHASE_4);
   });
 });

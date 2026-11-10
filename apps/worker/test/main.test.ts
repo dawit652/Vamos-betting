@@ -34,6 +34,15 @@ function runWorker(
       env: {
         ...process.env,
         NODE_ENV: 'test',
+        // The worker reads the workspace .env for anything not set here: pin the payment setup so a
+        // developer's own .env (real providers, live SMS rail) does not decide what these tests start.
+        PAYMENT_PROVIDERS: 'mock',
+        SMS_RAIL_MODE: 'simulated',
+        SMS_COLLECTION_ACCOUNTS: '',
+        OPERATOR_LEGAL_NAME: '',
+        SMS_PROVIDER: 'mock',
+        KYC_PROVIDER: 'mock',
+        FEED_PROVIDER: 'mock',
         REDIS_URL,
         QUEUE_PREFIX,
         // No health server unless a test asks for one (port 4100 may be the dev stack's).

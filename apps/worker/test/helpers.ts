@@ -144,7 +144,7 @@ export async function createWorkerTestContext(): Promise<WorkerTestContext> {
 
 /** The demo payment providers (the mock one only) on the given clock; no network. */
 export function testPaymentProviders(clock: () => Date): PaymentProviderRegistry {
-  return createPaymentProviders(loadConfig({ NODE_ENV: 'test' }), {
+  return createPaymentProviders(loadConfig({ OPERATING_MODE: 'demo', NODE_ENV: 'test' }), {
     fetch: () => Promise.reject(new Error('no network in tests')),
     clock,
     randomBytes: (size) => randomBytes(size),

@@ -151,6 +151,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
   const redis = new Redis(REDIS_URL, { keyPrefix: `vamos-test:${id}:`, maxRetriesPerRequest: 2 });
   const dir = mkdtempSync(join(tmpdir(), 'vamos-scraper-test-'));
   const config = loadConfig({
+    OPERATING_MODE: 'demo',
     LOG_LEVEL: 'silent',
     FEED_PROVIDER: 'scraped',
     SCRAPER_ARCHIVE_DIR: dir,
