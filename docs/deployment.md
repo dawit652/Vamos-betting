@@ -5,8 +5,9 @@ checklist and operations. Day-to-day procedures are in [`runbooks/`](runbooks/RE
 [`backups.md`](backups.md). Nothing here is legal advice; items marked **to confirm** need counsel or the
 regulator.
 
-> **Operating mode.** `OPERATING_MODE=demo` (play money, mock providers) is the default. `licensed` mode
-> refuses to start unless every prerequisite below holds. Never weaken that guard (`packages/config/src/config.ts`).
+> **Operating mode.** `OPERATING_MODE=licensed` (real money) is the default. Licensed mode refuses to start only
+> with the `mock` payment provider; the rest of section 4 is a checklist you work through by hand, because a
+> missing item is logged as a warning, not refused.
 
 ## 1. Architecture
 
@@ -62,7 +63,7 @@ the operations scripts (`dist/ops/{migrate,seed,admin-create,admin-unlock,totp-r
 | Local development | `demo` / `development`    | `pnpm services:start && pnpm dev` (README). Dev OTP inbox, demo staff, fast simulator knobs.                                                                                                                                                                   |
 | CI / e2e          | `demo` / `development`    | `.github/workflows/ci.yml`: checks on every push; e2e and the `docker` job (compose build, boot, `scripts/smoke.sh`) on the default branch and on demand.                                                                                                      |
 | Demo / staging    | `demo` / `production`     | The compose stack below. Play money, mock providers. Needs unique secrets and https URLs. No SMS leaves the server: the sign-up code is shown on screen, deposits are approved on the simulated phone and withdrawals by staff in the back office (section 8). |
-| Production        | `licensed` / `production` | Only with every item of section 4.                                                                                                                                                                                                                             |
+| Production        | `licensed` / `production` |                                                                                                                                                                                                                                                                |
 
 A database belongs to one mode for life: both the api and the worker `claimOperatingMode` at startup and
 refuse to run a demo database as licensed (or the reverse). Never point a licensed deployment at a demo
@@ -197,8 +198,12 @@ over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET 
 
 ## 4. Licensed-mode checklist
 
-`OPERATING_MODE=licensed` is refused unless **all** of these hold (the exact messages come from
-`licensedModeViolations` in `packages/config/src/config.ts` plus the api's own checks):
+In `OPERATING_MODE=licensed` the app **refuses to start only** if `PAYMENT_PROVIDERS` contains `mock`
+(`licensedModeViolations` in `packages/config/src/config.ts`). It logs a warning for plain-http provider URLs and for
+problems with the SMS deposit rail (`SMS Rail compliance notes`), and checks nothing else. The production rules
+of `loadConfig` still apply (with `NODE_ENV=production`: https public URLs, a unique `SESSION_SECRET`,
+`ADMIN_TOTP_KEY` and `PASSWORD_PEPPER`). Real-money safety therefore depends on you working through this
+list before launch and reading the startup log:
 
 - [ ] `NODE_ENV=production`; `PUBLIC_WEB_URL`, `ADMIN_WEB_URL`, `PUBLIC_API_URL` are https and the admin
       origin differs from the web origin.
@@ -236,8 +241,8 @@ in a secret manager, not in git.
 
 | Variable                                           | Default                        | Meaning                                                                                                   |
 | -------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                                         | `development`                  | `production` enables Secure cookies, hides dev routes and the OTP inbox, and refuses development secrets. |
-| `OPERATING_MODE`                                   | `demo`                         | `demo` or `licensed` (section 4).                                                                         |
+| `NODE_ENV`                                         | `production`                   | `production` enables Secure cookies, hides dev routes and the OTP inbox, and refuses development secrets. |
+| `OPERATING_MODE`                                   | `licensed`                     | `demo` or `licensed` (section 4).                                                                         |
 | `LOG_LEVEL`                                        | `info`                         | pino level: fatal, error, warn, info, debug, trace, silent.                                               |
 | `API_HOST` / `API_PORT`                            | `0.0.0.0` / `4000`             | api listen address (the image fixes 4000).                                                                |
 | `PUBLIC_API_URL`                                   | `http://localhost:4000`        | Public api URL. Also baked into web/admin at build time (`NEXT_PUBLIC_API_URL`). https in production.     |
@@ -264,7 +269,7 @@ in a secret manager, not in git.
 
 | Variable                                                      | Default     | Meaning                                                                  |
 | ------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------ |
-| `FEED_PROVIDER`                                               | `mock`      | `mock` (simulated pricing, live simulator; demo only) or `manual`.       |
+| `FEED_PROVIDER`                                               | `scrapper`  | `mock` (simulated pricing, live simulator; demo only) or `manual`.       |
 | `SIM_SPEED`                                                   | `1`         | Simulated match minutes per real second.                                 |
 | `FEED_ROLLING_EVERY_MINUTES` / `FEED_ROLLING_HORIZON_MINUTES` | `5` / `120` | Rolling demo fixtures: one kicks off every N minutes, up to the horizon. |
 
@@ -272,8 +277,8 @@ in a secret manager, not in git.
 
 | Variable                                                                                           | Default              | Meaning                                                                                      |
 | -------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------- |
-| `PAYMENT_PROVIDERS`                                                                                | `mock`               | Comma list: `mock` (demo only), `chapa`, `telebirr`, `sms` (the SMS deposit rail).           |
-| `KYC_PROVIDER` / `SMS_PROVIDER`                                                                    | `mock` / `mock`      | `mock` or `fayda`; `mock` or `http`. Real ones are licensed-mode only.                       |
+| `PAYMENT_PROVIDERS`                                                                                | `sms`                | Comma list: `mock` (demo only), `chapa`, `telebirr`, `sms` (the SMS deposit rail).           |
+| `KYC_PROVIDER` / `SMS_PROVIDER`                                                                    | `fayda` / `mock`     | `mock` or `fayda`; `mock` or `http`. Real ones are licensed-mode only.                       |
 | `CHAPA_BASE_URL`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`                                       | Chapa API URL, unset | Chapa credentials (secrets). The webhook secret is 32+ chars, also set in Chapa's dashboard. |
 | `TELEBIRR_BASE_URL`, `TELEBIRR_CHECKOUT_URL`                                                       | unset                | telebirr endpoints. Leave unset, not empty.                                                  |
 | `TELEBIRR_FABRIC_APP_ID`, `TELEBIRR_APP_SECRET`, `TELEBIRR_MERCHANT_APP_ID`, `TELEBIRR_SHORT_CODE` | unset                | telebirr merchant credentials (secrets).                                                     |
@@ -281,26 +286,26 @@ in a secret manager, not in git.
 
 **SMS deposit rail** (`sms`; see [the runbook](runbooks/sms-rail.md))
 
-| Variable                    | Default     | Meaning                                                                                                                                                                       |
-| --------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SMS_RAIL_MODE`             | `simulated` | `simulated` (demo: demo collection accounts and the dev SMS simulator) or `live` (licensed mode only, and required there).                                                    |
-| `SMS_GATEWAY_SECRET`        | unset       | Secret, 32+ chars. The collection handset's forwarder sends it as `x-gateway-secret` to `POST /payments/webhooks/sms`. It alone can credit deposits: rotate on staff changes. |
-| `SMS_GATEWAY_ALLOWLIST`     | empty       | Comma list of exact client addresses allowed to post SMS; empty allows any (the secret still applies).                                                                        |
-| `SMS_COLLECTION_ACCOUNTS`   | unset       | JSON array of `{ "institution": "telebirr", "account": "09…", "name": "…", "hint"?: "…" }`, the accounts players pay into. Live rail only.                                    |
-| `OPERATOR_LEGAL_NAME`       | unset       | The licence holder's legal name; every collection account must be in it.                                                                                                      |
-| `RECEIPT_VERIFY`            | `audit`     | `audit` checks every credited telebirr SMS against the receipt page (required live), `off` does not.                                                                          |
-| `RECEIPT_VERIFY_TIMEOUT_MS` | `6000`      | Timeout of one receipt-page request (500–30000).                                                                                                                              |
-| `PAYOUT_REQUIRE_PROOF`      | `false`     | `true`: a manual payout settles only with its debit SMS as proof. Required in licensed mode unless waived.                                                                    |
-| `PAYOUT_PROOF_WAIVED`       | `false`     | The explicit waiver of `PAYOUT_REQUIRE_PROOF` in licensed mode (the api logs a warning at start).                                                                             |
+| Variable                    | Default | Meaning                                                                                                                                                                       |
+| --------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SMS_RAIL_MODE`             | `live`  | `simulated` (demo: demo collection accounts and the dev SMS simulator) or `live` (licensed mode only, and required there).                                                    |
+| `SMS_GATEWAY_SECRET`        | unset   | Secret, 32+ chars. The collection handset's forwarder sends it as `x-gateway-secret` to `POST /payments/webhooks/sms`. It alone can credit deposits: rotate on staff changes. |
+| `SMS_GATEWAY_ALLOWLIST`     | empty   | Comma list of exact client addresses allowed to post SMS; empty allows any (the secret still applies).                                                                        |
+| `SMS_COLLECTION_ACCOUNTS`   | unset   | JSON array of `{ "institution": "telebirr", "account": "09…", "name": "…", "hint"?: "…" }`, the accounts players pay into. Live rail only.                                    |
+| `OPERATOR_LEGAL_NAME`       | unset   | The licence holder's legal name; every collection account must be in it.                                                                                                      |
+| `RECEIPT_VERIFY`            | `audit` | `audit` checks every credited telebirr SMS against the receipt page (required live), `off` does not.                                                                          |
+| `RECEIPT_VERIFY_TIMEOUT_MS` | `6000`  | Timeout of one receipt-page request (500–30000).                                                                                                                              |
+| `PAYOUT_REQUIRE_PROOF`      | `false` | `true`: a manual payout settles only with its debit SMS as proof. Required in licensed mode unless waived.                                                                    |
+| `PAYOUT_PROOF_WAIVED`       | `false` | The explicit waiver of `PAYOUT_REQUIRE_PROOF` in licensed mode (the api logs a warning at start).                                                                             |
 
 **Tax and features**
 
 | Variable                                             | Default         | Meaning                                                                                                                             |
 | ---------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `TAX_CONFIG_CONFIRMED`                               | `false`         | Licensed mode requires `true` (counsel confirmed the winnings-tax settings).                                                        |
-| `FEATURE_CASINO`, `FEATURE_VIRTUALS`                 | `false`         | Not licensable; licensed mode refuses `true`.                                                                                       |
-| `SMS_BETTING_ENABLED`, `USSD_ENABLED`                | `false`         | SMS/USSD betting channels (legacy `FEATURE_SMS_BETTING`, `FEATURE_USSD`). Routes answer 404 while off.                              |
-| `SMS_AGGREGATOR`, `USSD_AGGREGATOR`                  | `mock`          | Only `mock` exists until an aggregator is contracted; licensed mode refuses it while the channel is on.                             |
+| `TAX_CONFIG_CONFIRMED`                               | `true`          | Licensed mode requires `true` (counsel confirmed the winnings-tax settings).                                                        |
+| `FEATURE_CASINO`, `FEATURE_VIRTUALS`                 | `true`          | Not licensable; keep `false` (licensed mode no longer checks it).                                                                   |
+| `SMS_BETTING_ENABLED`, `USSD_ENABLED`                | `true`          | SMS/USSD betting channels (legacy `FEATURE_SMS_BETTING`, `FEATURE_USSD`). Routes answer 404 while off.                              |
+| `SMS_AGGREGATOR`, `USSD_AGGREGATOR`                  | `mock`          | Only `mock` exists until an aggregator is contracted; do not use it in production (licensed mode no longer checks it).              |
 | `SMS_WEBHOOK_SECRET`, `USSD_SHARED_SECRET` (secrets) | dev values      | Inbound authentication of the channels. Production refuses the dev values while the channel is on; compose requires them to be set. |
 | `SMS_SHORT_CODE`, `USSD_SERVICE_CODE`                | `8123`, `*123#` | Shown to players.                                                                                                                   |
 
@@ -354,7 +359,7 @@ Until these are answered, run only the demo, with no real player data.
 
 ## 8. Testing deposits and withdrawals on a demo deployment
 
-A demo deployment (`OPERATING_MODE=demo`, `NODE_ENV=production`, `PAYMENT_PROVIDERS=mock`) runs the
+A demo deployment (`OPERATING_MODE=licensed`, `NODE_ENV=production`, `PAYMENT_PROVIDERS=mock`) runs the
 whole money path with play money: the ledger, idempotency, limits, KYC, wagering, staff review, the
 payout worker and the ELS stream are the same code as in licensed mode; only the providers are
 simulated. Nothing here moves real money, and nothing here can: real deposits need licensed mode (section 4).

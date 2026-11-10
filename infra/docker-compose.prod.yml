@@ -36,7 +36,7 @@ x-hardening: &hardening
 # as the owner (POSTGRES_USER), and it gives vamos_app its login from APP_DB_PASSWORD.
 x-app-env: &app-env
   NODE_ENV: '${NODE_ENV:-production}'
-  OPERATING_MODE: '${OPERATING_MODE:-demo}'
+  OPERATING_MODE: '${OPERATING_MODE:-licensed}'
   LOG_LEVEL: '${LOG_LEVEL:-info}'
   API_HOST: '0.0.0.0'
   API_PORT: '4000'
@@ -71,6 +71,17 @@ x-app-env: &app-env
   TELEBIRR_PRIVATE_KEY: '${TELEBIRR_PRIVATE_KEY:-}'
   TELEBIRR_PUBLIC_KEY: '${TELEBIRR_PUBLIC_KEY:-}'
   TAX_CONFIG_CONFIRMED: '${TAX_CONFIG_CONFIRMED:-false}'
+  # SMS deposit rail (docs/runbooks/sms-rail.md), used when PAYMENT_PROVIDERS includes `sms`. Settings
+  # without a value pass through from the env file and set nothing while unset, so the config's own
+  # defaults apply (SMS_RAIL_MODE defaults to the simulated rail: set it to `live` to take real money).
+  SMS_RAIL_MODE:
+  SMS_GATEWAY_SECRET: '${SMS_GATEWAY_SECRET:-}'
+  SMS_GATEWAY_ALLOWLIST:
+  SMS_COLLECTION_ACCOUNTS: '${SMS_COLLECTION_ACCOUNTS:-}'
+  OPERATOR_LEGAL_NAME: '${OPERATOR_LEGAL_NAME:-}'
+  RECEIPT_VERIFY:
+  PAYOUT_REQUIRE_PROOF:
+  PAYOUT_PROOF_WAIVED:
   FEATURE_CASINO: '${FEATURE_CASINO:-false}'
   FEATURE_VIRTUALS: '${FEATURE_VIRTUALS:-false}'
   SMS_BETTING_ENABLED: '${SMS_BETTING_ENABLED:-false}'
@@ -97,7 +108,7 @@ x-app-env: &app-env
 
 x-build-args: &build-args
   NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL}
-  NEXT_PUBLIC_OPERATING_MODE: ${NEXT_PUBLIC_OPERATING_MODE:-demo}
+  NEXT_PUBLIC_OPERATING_MODE: ${NEXT_PUBLIC_OPERATING_MODE:-licensed}
 
 services:
   postgres:

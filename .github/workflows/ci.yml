@@ -153,8 +153,10 @@ jobs:
       COMPOSE_ENV_FILES: infra/.env.prod
     steps:
       - uses: actions/checkout@v4
-      # Throwaway secrets; the stack runs in demo mode on http://localhost URLs.
-      - run: infra/scripts/init-env.sh
+      # Throwaway secrets; the stack runs in LICENSED mode (real-money settings, the live SMS deposit rail
+      # with made-up collection accounts) on http://localhost URLs. SMS and KYC use the mock adapters, the
+      # only ones that exist. See infra/scripts/init-env-ci.sh.
+      - run: bash infra/scripts/init-env-ci.sh
       - name: Validate the Caddy configuration (proxy profile)
         run: |
           docker run --rm -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
