@@ -268,9 +268,10 @@ Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" 
 | A-2        | Suspend on held re-price or lapsed market               | ✅     | rule A2; migration 0045 (`suspended_for`)                                      |
 | P-7        | `market_stale` for no_totals and poor_fit               | ✅     | with A-2                                                                       |
 | S-5        | Manual result updates ratings, 105-minute floor         | ✅     | rules R1 (person) and O4 (hand results); scraper 4/4, api 4/4                  |
+| A-1        | First market price of uncalibrated teams not held       | ✅     | rule A1 (switch at the next pass, not at creation); scraper 4/4                |
 | all others | see sections 5–8                                        | ⬜     |                                                                                |
 
-**Next session, in order:** A-1 (Opus: start market-priced events on market prices, so the held model-to-market switches R-1 leaves stop waiting); then M-1 and M-2 (measure
+**Next session, in order:** deploy (owner: migration 0045 runs at start), then M-1 and M-2 (measure
 before tuning prices).
 
 **Environment (2026-11-10):** the owner's PC had 4–5 GB free on C:. Docker started later in the day, and the

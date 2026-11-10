@@ -558,7 +558,8 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   - Re-pricing is O3 with the other key: an event whose stamp differs from the key it would get
     now is priced again, checked with `checkReprice` (including the switch from model to market,
     which is a big move if the two disagree: it is held as the `odds_approval` item
-    `<feedRef>|reprice` for a trader), O2 on every market, and applied only inside the bounds.
+    `<feedRef>|reprice` for a trader, unless A1 waives the bound for a first market price), O2 on
+    every market, and applied only inside the bounds.
     It looks at market-policy events whose teams are not calibrated too. It never opens betting,
     never touches an event within `MIN_LEAD_MS`, not scheduled or resulted, and a competition
     whose policy is not `enabled` only gets held proposals (S4).
@@ -613,6 +614,17 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   markets at the next pass (within a minute). An event within `MIN_LEAD_MS`, started, resulted or of a
   switched-off competition (S4) is left as it is: a suspension stays, and the result settles suspended
   markets like open ones.
+- **A1 First market price (2026-11, A-1 of `docs/feed-quality-plan.md`).** The first switch of an event
+  from the model's prices to the market's is applied whatever the size of the move (only
+  `price_move_too_large` is waived: O2 and the market set still apply) when there is nothing real to
+  compare with and nobody could have bet: the stored prices are the model's for teams whose ratings are
+  not both calibrated (O1 fails), the market backs opening (O1m: 3 distinct books, one sharp), betting
+  is closed and no bet was ever placed on the event. Audit `scrape.fixture.repriced` with
+  `boundWaived: 'A-1'`. A proposal held for such a switch earlier is looked at again while it is still
+  open and applied the same way (resolution "the first market prices replaced the model's (A-1)"); a
+  dismissed one is not. Calibrated teams keep the hold: a model that disagrees with the market by more
+  than the bound is a question for a trader. (The plan said to create such events on market prices;
+  they are created on the model and switched at the next pass, within a minute, with the same effect.)
 - **Q1 Review queue sweeper.** Open review items that became pointless are closed by the
   scraper (`sweepReviewQueue`, the last step of the promotion pass). In scope: the requests to open
   betting (`odds_approval` on the event's `feed_ref`, F7, and `ratings_uncalibrated`) and the held

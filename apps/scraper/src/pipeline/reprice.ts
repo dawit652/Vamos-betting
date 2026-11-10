@@ -26,7 +26,12 @@ import {
   type LiveMessage,
   type ScrapedEvent,
 } from '@vamos/db';
-import { events as eventsTable, scrapeReviewItems, type ScrapeSuspension } from '@vamos/db/schema';
+import {
+  betLegs,
+  events as eventsTable,
+  scrapeReviewItems,
+  type ScrapeSuspension,
+} from '@vamos/db/schema';
 import type { TeamRatings } from '@vamos/feed';
 import {
   buildReviews,
@@ -45,7 +50,7 @@ import {
   type OddsCheck,
   type OddsIssue,
 } from '@vamos/scraper';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { LOOK_AHEAD_MS } from './promote-fixtures';
@@ -176,6 +181,7 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     ctx.db,
     scheduled.map((event) => event.eventId),
   );
+  const pendingHolds = await heldRepriceSubjects(ctx.db);
   for (const event of scheduled) {
     const policy = policyOf.get(event.competitionId)!;
     const home = ratings.get(event.homeTeamId)?.ratings ?? null;
@@ -186,7 +192,26 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
         ? await priceEvent(ctx.db, pricingInput(ctx, policy, event.eventId, home, away, now))
         : null;
     const key = price?.key ?? ratingsKey(home, away);
-    const state = settled(stamps.get(event.eventId), key, price?.source ?? 'model', policy);
+    const stamp = stamps.get(event.eventId);
+    let state = settled(stamp, key, price?.source ?? 'model', policy);
+    // A-1: a first market price held for a person, still pending, is looked at again once A-1 lets it through.
+    if (
+      state === 'current' &&
+      price !== null &&
+      stamp?.ratingsKey !== key &&
+      pendingHolds.has(`${event.feedRef}${REPRICE_SUBJECT_SUFFIX}`) &&
+      firstMarketPrice({
+        price,
+        storedKey: stamp?.ratingsKey,
+        home,
+        away,
+        bettingOpen: event.bettingOpen,
+        hasBets: event.hasBets,
+        minMatches: ctx.config.scraper.minRatingMatches,
+      })
+    ) {
+      state = 'go';
+    }
     // 4.8 market_stale: a market-priced match within 24 h keeps prices the market no longer backs,
     // whatever the reason (no consensus, no over/under line, a poor fit: P-7).
     if (price !== null) {
@@ -275,6 +300,65 @@ function settled(
   return 'go';
 }
 
+/** What rule A-1 looks at, from the snapshot or under the event's lock. */
+interface FirstMarketFacts {
+  price: EventPrice;
+  /** The pricing stamp's key: what the stored prices were made from. */
+  storedKey: string | null | undefined;
+  home: TeamRatings | null;
+  away: TeamRatings | null;
+  bettingOpen: boolean;
+  /** At least one bet (any status) has a leg on the event. */
+  hasBets: boolean;
+  minMatches: number;
+}
+
+/**
+ * Rule A-1: the first switch of an event to market prices is applied whatever the size of the move
+ * when there is nothing real to compare with and nobody could have bet: the stored prices are the
+ * model's (the stamp is not a market key) for teams whose ratings are not both calibrated (O1 fails,
+ * so the model priced defaults), the new prices come from a market strong enough to stand in for the
+ * ratings (O1m, `backsOpening`), betting is closed and no bet was ever placed on the event. The
+ * bound still guards every other move, and calibrated teams' model prices keep their cross-check
+ * against the market.
+ */
+function firstMarketPrice(facts: FirstMarketFacts): boolean {
+  return (
+    facts.price.source === 'market' &&
+    facts.price.backsOpening &&
+    !isMarketKey(facts.storedKey) &&
+    !(isCalibrated(facts.home, facts.minMatches) && isCalibrated(facts.away, facts.minMatches)) &&
+    !facts.bettingOpen &&
+    !facts.hasBets
+  );
+}
+
+/** At least one bet (any status) has a leg on the event. */
+async function eventHasBets(exec: DbExecutor, eventId: string): Promise<boolean> {
+  const [leg] = await exec
+    .select({ one: sql<number>`1` })
+    .from(betLegs)
+    .where(eq(betLegs.eventId, eventId))
+    .limit(1);
+  return leg !== undefined;
+}
+
+/** The held re-price of an event still waits for a person (its `odds_approval` item is open). */
+async function holdPending(exec: DbExecutor, feedRef: string): Promise<boolean> {
+  const [hold] = await exec
+    .select({ id: scrapeReviewItems.id })
+    .from(scrapeReviewItems)
+    .where(
+      and(
+        eq(scrapeReviewItems.status, 'open'),
+        eq(scrapeReviewItems.kind, 'odds_approval'),
+        eq(scrapeReviewItems.subjectKey, `${feedRef}${REPRICE_SUBJECT_SUFFIX}`),
+      ),
+    )
+    .limit(1);
+  return hold !== undefined;
+}
+
 const asGate = (
   type: string,
   line: string | null,
@@ -302,6 +386,7 @@ async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): 
         awayTeamId: eventsTable.awayTeamId,
         startTime: eventsTable.startTime,
         resultedAt: eventsTable.resultedAt,
+        bettingOpen: eventsTable.bettingOpen,
       })
       .from(eventsTable)
       .where(eq(eventsTable.id, event.eventId));
@@ -329,7 +414,27 @@ async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): 
     const key = price.key;
     const held = heldKeyOf(key, enabled);
     const stamp = (await listEventPricing(tx, [event.eventId])).get(event.eventId);
-    const state = settled(stamp, key, price.source, policy);
+    // Rule A-1's facts, read under the lock (the bets only when asked).
+    const firstMarket = async (): Promise<boolean> =>
+      firstMarketPrice({
+        price,
+        storedKey: stamp?.ratingsKey,
+        home,
+        away,
+        bettingOpen: row.bettingOpen,
+        hasBets: await eventHasBets(tx, event.eventId),
+        minMatches: ctx.config.scraper.minRatingMatches,
+      });
+    let state = settled(stamp, key, price.source, policy);
+    // A-1: a pending hold of a first market price A-1 lets through is looked at again.
+    if (
+      state === 'current' &&
+      stamp?.ratingsKey !== key &&
+      (await holdPending(tx, event.feedRef)) &&
+      (await firstMarket())
+    ) {
+      state = 'go';
+    }
     if (state === 'current') return current();
     // A market-priced event whose market is not usable now keeps its prices.
     if (state === 'keep') return skipped();
@@ -344,8 +449,14 @@ async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): 
     const previous = open.map((m) => asGate(m.type, m.line, m.selections));
     const next = price.markets.filter((m) => !frozen.has(marketKey(m.type, m.line)));
     const check = checkReprice(previous, next);
+    // A-1: only the size of the move stands in the way of a first market price A-1 lets through.
+    const waived =
+      !check.ok &&
+      enabled &&
+      check.issues.every((issue) => issue.code === 'price_move_too_large') &&
+      (await firstMarket());
 
-    if (check.ok && enabled) {
+    if ((check.ok || waived) && enabled) {
       const result = await upsertFixture(
         tx,
         {
@@ -363,7 +474,9 @@ async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): 
       await recordEventPriced(tx, event.eventId, key, now);
       await closeReviewItemsBySubject(tx, `${row.feedRef}${REPRICE_SUBJECT_SUFFIX}`, {
         kinds: ['odds_approval'],
-        resolution: 'the prices were re-priced within the bounds',
+        resolution: waived
+          ? "the first market prices replaced the model's (A-1)"
+          : 'the prices were re-priced within the bounds',
         now,
       });
       if (result.oddsChanged > 0 || result.marketsAdded > 0) {
@@ -377,6 +490,7 @@ async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): 
             ratingsKey: key,
             previousRatingsKey: stamp?.ratingsKey ?? null,
             oddsChanged: result.oddsChanged,
+            ...(waived ? { boundWaived: 'A-1' } : {}),
             ...pricingAudit(price),
           },
         });
@@ -765,23 +879,12 @@ async function changeSuspension(
     if (!policy.enabled) return null;
     const stamp = (await listEventPricing(tx, [eventId])).get(eventId);
     const recorded = stamp?.suspendedFor ?? null;
-    const [hold] = await tx
-      .select({ id: scrapeReviewItems.id })
-      .from(scrapeReviewItems)
-      .where(
-        and(
-          eq(scrapeReviewItems.status, 'open'),
-          eq(scrapeReviewItems.kind, 'odds_approval'),
-          eq(scrapeReviewItems.subjectKey, `${feedRef}${REPRICE_SUBJECT_SUFFIX}`),
-        ),
-      )
-      .limit(1);
     const cause = await suspensionCause(ctx, tx, {
       eventId,
       startTime: row.startTime,
       policy,
       ratingsKey: stamp?.ratingsKey ?? null,
-      held: hold !== undefined,
+      held: await holdPending(tx, feedRef),
       now,
     });
     if (cause === recorded) return null;
