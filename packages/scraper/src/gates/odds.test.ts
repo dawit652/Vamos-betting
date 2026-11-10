@@ -1,12 +1,13 @@
 import { CORRECT_SCORE_SELECTIONS, MAX_ODDS_MILLI, MIN_ODDS_MILLI } from '@vamos/core';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { MIN_RATING_MATCHES } from '../constants';
+import { MARKET_OPEN_MIN_BOOKS, MIN_RATING_MATCHES, SHARP_BOOKMAKERS } from '../constants';
 import {
   checkMarkets,
   checkReprice,
   type GateMarket,
   isCalibrated,
+  marketBacksOpening,
   type OddsCheck,
   PRICE_MOVE_LIMITED_MARKETS,
   ratingsKey,
@@ -67,6 +68,57 @@ describe('O1 calibrated teams', () => {
     expect(isCalibrated({ matches: 11 }, 11)).toBe(true);
     expect(() => isCalibrated({ matches: 9 }, -1)).toThrow(RangeError);
     expect(() => isCalibrated({ matches: 9 }, 1.5)).toThrow(RangeError);
+  });
+});
+
+describe('O1m market backing', () => {
+  it('needs MARKET_OPEN_MIN_BOOKS distinct books, one of them sharp', () => {
+    expect(MARKET_OPEN_MIN_BOOKS).toBe(3);
+    expect(marketBacksOpening(['pinnacle', 'betsson', 'unibet_se'])).toBe(true);
+    expect(
+      marketBacksOpening(['theoddsapi:betfair_ex_uk', 'theoddsapi:betsson', 'x:tipico_de']),
+    ).toBe(true);
+    // Too few books, or no sharp one.
+    expect(marketBacksOpening(['pinnacle', 'betsson'])).toBe(false);
+    expect(marketBacksOpening(['onexbet', 'betsson', 'unibet_se', 'williamhill'])).toBe(false);
+    // One bookmaker listed by two upstreams is one book.
+    expect(marketBacksOpening(['a:pinnacle', 'b:pinnacle', 'a:betsson'])).toBe(false);
+    expect(marketBacksOpening(['a:Pinnacle', 'b:pinnacle ', 'a:betsson', 'a:unibet_se'])).toBe(
+      true,
+    );
+  });
+
+  it('fails closed on malformed input', () => {
+    for (const input of [null, undefined, 'pinnacle', {}, [], ['', ' ', 'x:']]) {
+      expect(marketBacksOpening(input as string[])).toBe(false);
+    }
+    expect(marketBacksOpening(['pinnacle', 'betsson', 7, null] as unknown[])).toBe(false);
+  });
+
+  it('holds exactly when there are enough distinct books and a sharp one (property)', () => {
+    const name = fc.constantFrom(
+      ...SHARP_BOOKMAKERS,
+      'onexbet',
+      'marathonbet',
+      'tipico_de',
+      'betsson',
+      'unibet_se',
+      'williamhill',
+    );
+    const book = fc
+      .tuple(fc.constantFrom('', 'theoddsapi:', 'other:'), name)
+      .map(([u, n]) => u + n);
+    fc.assert(
+      fc.property(fc.array(book, { maxLength: 10 }), (books) => {
+        const names = new Set(books.map((b) => b.slice(b.indexOf(':') + 1)));
+        const expected =
+          names.size >= MARKET_OPEN_MIN_BOOKS &&
+          [...names].some((n) => SHARP_BOOKMAKERS.includes(n));
+        expect(marketBacksOpening(books)).toBe(expected);
+        // Order and repeats do not matter.
+        expect(marketBacksOpening([...books].reverse().concat(books))).toBe(expected);
+      }),
+    );
   });
 });
 

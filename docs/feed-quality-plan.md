@@ -120,13 +120,13 @@ Wednesday.
 
 ## 4. Workstream 0: immediate operations (no code, owner on the server)
 
-| ID  | Action                                                                                                                                                                                                                        | Why                                      | Who              |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------- |
-| O-1 | Import the Premier League competition alias (command in section 8).                                                                                                                                                           | Brings in the 380 Premier League matches | Owner, 1 command |
-| O-2 | **DECISION: The Odds API budget.** Either upgrade the plan (about 60–70K credits a month needed for 24 leagues), or cut the market-priced list to what 20K covers (about 6 leagues). Workstream 4 lowers the need either way. | Prevents frozen prices and lost results  | Owner            |
-| O-3 | Set up the SMS forwarder handset, or accept the `sms_gateway_silent` alarm until then.                                                                                                                                        | Deposits can't arrive without it         | Owner            |
-| O-4 | Re-run `scripts/feed-report.ps1` (now with sections 16–20: why each approval waits, every unknown name, uncalibrated teams).                                                                                                  | Exact inputs for W1                      | Owner            |
-| O-5 | In the back office, dismiss nothing in bulk yet. Items come back while their cause persists.                                                                                                                                  | Avoid churn                              | Owner            |
+| ID  | Action                                                                                                                                                                                                                         | Why                                      | Who              |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- | ---------------- |
+| O-1 | Import the Premier League competition alias (command in section 8).                                                                                                                                                            | Brings in the 380 Premier League matches | Owner, 1 command |
+| O-2 | **DECIDED 2026-11-10: upgrade to the 100K-credit plan** (about 60–70K a month needed for the 24 leagues). Keep all 24. Workstream 4 still lowers the need. After the upgrade, check the credit guard is back in `normal` mode. | Prevents frozen prices and lost results  | Owner            |
+| O-3 | Set up the SMS forwarder handset, or accept the `sms_gateway_silent` alarm until then.                                                                                                                                         | Deposits can't arrive without it         | Owner            |
+| O-4 | Re-run `scripts/feed-report.ps1` (now with sections 16–20: why each approval waits, every unknown name, uncalibrated teams).                                                                                                   | Exact inputs for W1                      | Owner            |
+| O-5 | In the back office, dismiss nothing in bulk yet. Items come back while their cause persists.                                                                                                                                   | Avoid churn                              | Owner            |
 
 ---
 
@@ -257,26 +257,27 @@ pwsh -File "C:\Users\dawit\Desktop\claude projects\vamos betting two\scripts\fee
 
 Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" = the 2026-11-10 working session.
 
-| ID         | Item                                                    | Status | Notes                              |
-| ---------- | ------------------------------------------------------- | ------ | ---------------------------------- |
-| —          | `scripts/feed-report.ps1` (20 read-only sections)       | ✅     | tested against a migrated database |
-| U-1        | Premier League alias imported by `use-football-data.sh` | ✅     | commit b8d7eb4; syntax checked     |
-| O-1        | Import the Premier League alias on the server           | ⬜     | owner, section 8                   |
-| Q-2        | `cli review counts`                                     | ⬜     |                                    |
-| R-1        | Market-priced events count as calibrated                | ⬜     |                                    |
-| Q-1        | Review queue sweeper                                    | ⬜     |                                    |
-| A-2        | Suspend on held re-price or lapsed market               | ⬜     |                                    |
-| P-7        | `market_stale` for no_totals and poor_fit               | ⬜     |                                    |
-| S-5        | Manual result updates ratings, 105-minute floor         | ⬜     |                                    |
-| all others | see sections 5–8                                        | ⬜     |                                    |
+| ID         | Item                                                    | Status | Notes                                                                          |
+| ---------- | ------------------------------------------------------- | ------ | ------------------------------------------------------------------------------ |
+| —          | `scripts/feed-report.ps1` (20 read-only sections)       | ✅     | tested against a migrated database                                             |
+| U-1        | Premier League alias imported by `use-football-data.sh` | ✅     | commit b8d7eb4; syntax checked                                                 |
+| O-1        | Import the Premier League alias on the server           | ⬜     | owner, section 8                                                               |
+| Q-2        | `cli review counts`                                     | ⬜     |                                                                                |
+| R-1        | Market-priced events count as calibrated                | ✅     | rule O1m; scraper 427/428 (cli-usage: Windows only), api 53/53; deploy pending |
+| Q-1        | Review queue sweeper                                    | ⬜     |                                                                                |
+| A-2        | Suspend on held re-price or lapsed market               | ⬜     |                                                                                |
+| P-7        | `market_stale` for no_totals and poor_fit               | ⬜     |                                                                                |
+| S-5        | Manual result updates ratings, 105-minute floor         | ⬜     |                                                                                |
+| all others | see sections 5–8                                        | ⬜     |                                                                                |
 
 **Next session, in order:** R-1 (Opus), Q-1 and Q-2 (routine-coder), A-2 (Opus), P-7, S-5, then M-1 and M-2 (measure
 before tuning prices).
 
-**Environment blocker (2026-11-10):** the owner's PC had 4 GB free on C:, so Docker Desktop couldn't start. The
-scraper's integration tests need Postgres **and** Redis. Free disk space first (Docker's disk file is 12 GB of images
-and build cache: `docker builder prune` and removing the `vamos-web-licensedtest` image once Docker runs). Keep the
-`infra_pgdata` volume.
+**Environment (2026-11-10):** the owner's PC had 4–5 GB free on C:. Docker started later in the day, and the
+integration tests ran. The owner will free disk space; Docker's reclaimable space is about 4 GB of build cache and
+2.3 GB of unused images (`docker builder prune`, `docker image prune -a`). Keep the `infra_pgdata` volume.
+Integration tests need `DATABASE_URL` pointing at the Docker Postgres (port 5433, database `vamos`) and `REDIS_URL`.
+Without it they fall back to port 5432, where another Postgres refuses the password.
 
 ---
 

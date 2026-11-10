@@ -1,4 +1,5 @@
 import {
+  type MarketPriceRow,
   SCRAPED_FEED_PROVIDER,
   type ScrapeOddsMarket,
   type ScrapeOddsSelection,
@@ -414,6 +415,37 @@ export async function latestMarketOdds(
     priceUpdatedAt: r.priceUpdatedAt,
     observedAt: r.observedAt,
   }));
+}
+
+/**
+ * The rows of latestMarketOdds as consensus input, one bookmaker per (upstream, bookmaker): if
+ * several sources of one upstream list the same bookmaker, only the source that saw it last is
+ * read (ties: the lowest source id), so one feed never counts twice. The bookmaker is named
+ * `<upstream>:<bookmaker>`.
+ */
+export function consensusRows(rows: readonly LatestMarketOdd[]): MarketPriceRow[] {
+  const winner = new Map<string, { sourceId: string; observedAt: number }>();
+  for (const row of rows) {
+    const key = `${row.upstream}\u0000${row.bookmaker}`;
+    const seen = winner.get(key);
+    const at = row.observedAt.getTime();
+    if (
+      seen === undefined ||
+      at > seen.observedAt ||
+      (at === seen.observedAt && row.sourceId < seen.sourceId)
+    ) {
+      winner.set(key, { sourceId: row.sourceId, observedAt: at });
+    }
+  }
+  return rows
+    .filter((row) => winner.get(`${row.upstream}\u0000${row.bookmaker}`)?.sourceId === row.sourceId)
+    .map((row) => ({
+      bookmaker: `${row.upstream}:${row.bookmaker}`,
+      market: row.market,
+      line: row.line,
+      selection: row.selection,
+      priceMilli: row.priceMilli,
+    }));
 }
 
 /**

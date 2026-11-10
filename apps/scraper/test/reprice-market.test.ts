@@ -2,6 +2,7 @@ import { parseReviewPayload } from '@vamos/contracts';
 import { marketConsensus, MARKET_PRICING_KEY_PREFIX, type MarketPriceRow } from '@vamos/core';
 import {
   finishRun,
+  loadKickoffEvidence,
   setCompetitionPolicy,
   setSourceEnabled,
   setTeamRatings,
@@ -9,9 +10,18 @@ import {
   upsertMarketOdds,
   upsertSource,
 } from '@vamos/db';
-import { MARKET_CLOSE_LEAD_MS, MARKET_ODDS_MAX_AGE_MS, MIN_LEAD_MS } from '@vamos/scraper';
+import {
+  assessKickoff,
+  KICKOFF_EVIDENCE_WINDOW_MS,
+  MARKET_CLOSE_LEAD_MS,
+  MARKET_ODDS_MAX_AGE_MS,
+  MIN_LEAD_MS,
+  MIN_MATCH_DURATION_MS,
+  SOURCE_STALE_AFTER_MS,
+} from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
-import { priceEvent } from '../src/pipeline/event-pricing';
+import { openConfirmedEvents } from '../src/pipeline/auto-open';
+import { backedByMarket, priceEvent } from '../src/pipeline/event-pricing';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { repriceScheduledEvents } from '../src/pipeline/reprice';
 import { runPromotion } from '../src/tasks/promote';
@@ -221,6 +231,12 @@ function booksNear(stored: Prices, homeFactor = 1): Record<string, Prices> {
     Math.floor(stored[2] * factor),
   ];
   return { '19': scale(1), '23': scale(1.03) };
+}
+
+/** Three books around the stored prices, one of them sharp (Pinnacle): enough for O1m. */
+function strongBooksNear(stored: Prices, homeFactor = 1): Record<string, Prices> {
+  const [a, b] = Object.values(booksNear(stored, homeFactor));
+  return { pinnacle: a!, betsson: b!, unibet_se: b! };
 }
 
 const rowsOf = (books: Record<string, Prices>): MarketPriceRow[] =>
@@ -719,7 +735,7 @@ describe('market_stale alarm (docs/theoddsapi-plan 4.8)', () => {
 
 describe('uncalibrated teams and the market', () => {
   it(
-    'an event created for uncalibrated teams is priced from the market and handed to a trader, betting stays closed',
+    'an event created for uncalibrated teams is priced from a strong market and handed to a trader; re-pricing does not open betting',
     async () => {
       const { eventId, feedRef } = await createdEvent({ calibrated: false });
       expect(await items('ratings_uncalibrated')).toHaveLength(1);
@@ -730,7 +746,7 @@ describe('uncalibrated teams and the market', () => {
       expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ events: 0, calibrated: 0 });
       expect(await items('ratings_uncalibrated')).toHaveLength(1);
 
-      await listEvent(eventId, 'feed-a', booksNear(await storedOneXTwo(eventId), 0.95));
+      await listEvent(eventId, 'feed-a', strongBooksNear(await storedOneXTwo(eventId), 0.95));
       const summary = await repriceScheduledEvents(h.ctx);
       expect(summary).toMatchObject({ events: 1, repriced: 1, calibrated: 1, failed: 0 });
       expect((await stamp(eventId))!.ratings_key!.startsWith(MARKET_PRICING_KEY_PREFIX)).toBe(true);
@@ -746,14 +762,150 @@ describe('uncalibrated teams and the market', () => {
       expect(payload).not.toBeNull();
       expect(payload!.eventId).toBe(eventId);
       expect(payload!.reason).toBe('market_priced');
-      expect(payload!.pricing).toMatchObject({ source: 'market', books: 2 });
+      expect(payload!.pricing).toMatchObject({ source: 'market', books: 3 });
       expect(payload!.markets.length).toBeGreaterThan(0);
       expect(await bettingOpen()).toBe(false);
+      const [audit] = await rows<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM audit_log WHERE action = 'scrape.fixture.calibrated'`,
+      );
+      expect(audit!.metadata.bookmakers).toEqual([
+        'feed-a:betsson',
+        'feed-a:pinnacle',
+        'feed-a:unibet_se',
+      ]);
+    },
+    TEST_TIMEOUT,
+  );
 
-      // Nothing further happens, and betting is still closed after a whole promotion pass.
+  /** K2 as F7b assesses it, at the harness clock. */
+  async function kickoffNow(eventId: string) {
+    const now = h.now();
+    const evidence = (
+      await loadKickoffEvidence(h.ctx.db, {
+        eventIds: [eventId],
+        now,
+        minMatchDurationMs: MIN_MATCH_DURATION_MS,
+        staleAfterMs: SOURCE_STALE_AFTER_MS,
+        evidenceWindowMs: KICKOFF_EVIDENCE_WINDOW_MS,
+      })
+    ).get(eventId)!;
+    return assessKickoff({
+      start: evidence.event.startTime,
+      now,
+      statements: evidence.statements,
+      person: evidence.person,
+    });
+  }
+
+  /**
+   * 71 h before kickoff both sources list the fixture again, source A with a finished match that
+   * shows it is fresh: the kickoff is confirmed (K2, C2), as in auto-open.test.ts.
+   */
+  async function confirmKickoff(): Promise<void> {
+    h.at(new Date(KICKOFF.getTime() - 71 * HOUR));
+    h.serve(
+      URL_A,
+      ofDoc([
+        {
+          date: '2026-10-25',
+          time: '15:00',
+          team1: 'Liverpool FC',
+          team2: 'Everton FC',
+          score: { ht: [0, 0], ft: [1, 0] },
+        },
+        ARSENAL_CHELSEA_OF,
+      ]),
+    );
+    await h.run('src-a');
+    await h.run('src-b');
+  }
+
+  it(
+    'O1m: F7b opens betting on uncalibrated teams once a strong market backs the stored prices',
+    async () => {
+      const { eventId } = await createdEvent({ calibrated: false });
+      await setPolicy({ pricingSource: 'market', autoOpen: true });
+      await addFeed('feed-a');
+      await confirmKickoff();
+      await listEvent(eventId, 'feed-a', strongBooksNear(await storedOneXTwo(eventId), 0.95));
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1, calibrated: 1 });
+      expect(await kickoffNow(eventId)).toMatchObject({ confirmed: true });
+      expect(
+        await backedByMarket(h.ctx.db, {
+          competitionPricingSource: 'market',
+          eventId,
+          homeRatings: null,
+          awayRatings: null,
+          minRatingMatches: 8,
+          now: h.now(),
+        }),
+      ).toBe(true);
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ opened: 1, failed: 0 });
+      expect(await bettingOpen()).toBe(true);
+      const [audit] = await rows<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM audit_log WHERE action = 'scrape.fixture.betting_opened'`,
+      );
+      expect(audit!.metadata).toMatchObject({ rule: 'F7b', calibration: 'market' });
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'O1m: a thin market (two books, or three without a sharp one) prices the event but never hands it over',
+    async () => {
+      const { eventId } = await createdEvent({ calibrated: false });
+      await setPolicy({ pricingSource: 'market', autoOpen: true });
+      await addFeed('feed-a');
+      await confirmKickoff();
+      const stored = await storedOneXTwo(eventId);
+      await listEvent(eventId, 'feed-a', booksNear(stored, 0.95));
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1, calibrated: 0 });
+      expect((await stamp(eventId))!.ratings_key!.startsWith(MARKET_PRICING_KEY_PREFIX)).toBe(true);
+      expect(await items('ratings_uncalibrated')).toHaveLength(1);
+      expect(await items('odds_approval')).toHaveLength(0);
+
+      const [a, b] = Object.values(booksNear(stored, 0.95));
+      h.advance(MINUTE);
+      await listEvent(eventId, 'feed-a', { onexbet: a!, betsson: b!, unibet_se: b! });
+      await repriceScheduledEvents(h.ctx);
+      expect(await items('ratings_uncalibrated')).toHaveLength(1);
+
+      // A whole pass leaves betting closed; Pinnacle joining backs the prices.
       await runPromotion(h.ctx);
       expect(await bettingOpen()).toBe(false);
-      expect(await items('odds_approval')).toHaveLength(1);
+      h.advance(MINUTE);
+      await listEvent(eventId, 'feed-a', { pinnacle: a!, betsson: b!, unibet_se: b! });
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ calibrated: 1 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ opened: 1 });
+      expect(await bettingOpen()).toBe(true);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'O1m: a handed-over event whose sharp book drops out does not open',
+    async () => {
+      const { eventId } = await createdEvent({ calibrated: false });
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      await confirmKickoff();
+      const stored = await storedOneXTwo(eventId);
+      await listEvent(eventId, 'feed-a', strongBooksNear(stored, 0.95));
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ calibrated: 1 });
+      // The latest fetch no longer lists Pinnacle: the consensus is thin again.
+      const [a, b] = Object.values(booksNear(stored, 0.95));
+      h.advance(MINUTE);
+      await listEvent(eventId, 'feed-a', { betsson: b!, unibet_se: b!, onexbet: a! });
+      await repriceScheduledEvents(h.ctx);
+      await setPolicy({ autoOpen: true });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await bettingOpen()).toBe(false);
+      // Every other condition holds: Pinnacle back in its place opens it.
+      h.advance(MINUTE);
+      await listEvent(eventId, 'feed-a', { betsson: b!, unibet_se: b!, pinnacle: a! });
+      await repriceScheduledEvents(h.ctx);
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ opened: 1 });
+      expect(await bettingOpen()).toBe(true);
     },
     TEST_TIMEOUT,
   );
@@ -764,12 +916,12 @@ describe('uncalibrated teams and the market', () => {
       const { eventId } = await createdEvent({ calibrated: false });
       await setPolicy({ pricingSource: 'market' });
       await addFeed('feed-a');
-      await listEvent(eventId, 'feed-a', booksNear(await storedOneXTwo(eventId), 0.95), {
+      await listEvent(eventId, 'feed-a', strongBooksNear(await storedOneXTwo(eventId), 0.95), {
         observedAt: new Date(h.now().getTime() - MARKET_ODDS_MAX_AGE_MS - HOUR),
       });
       expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ events: 0, calibrated: 0 });
       expect(await items('ratings_uncalibrated')).toHaveLength(1);
-      await listEvent(eventId, 'feed-a', booksNear(await storedOneXTwo(eventId), 0.95));
+      await listEvent(eventId, 'feed-a', strongBooksNear(await storedOneXTwo(eventId), 0.95));
       expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1, calibrated: 1 });
     },
     TEST_TIMEOUT,

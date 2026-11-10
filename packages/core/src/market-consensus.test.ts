@@ -149,6 +149,16 @@ describe('marketConsensus', () => {
     const consensus = marketConsensus(rows);
     expect(consensus).toHaveLength(1);
     expect(find(consensus, '1x2')!.books).toBe(2);
+    expect(find(consensus, '1x2')!.bookmakers).toEqual(['a', 'b']);
+  });
+
+  it('names the books it used, sorted, and only those', () => {
+    const rows = [
+      ...bookRows('pinnacle', '1x2', [2000, 3400, 3800]),
+      ...bookRows('betsson', '1x2', [2100, 3300, 3600]),
+      ...bookRows('unibet', '1x2', [1500, 2500, 2800]), // overround too high: dropped
+    ];
+    expect(find(marketConsensus(rows), '1x2')!.bookmakers).toEqual(['betsson', 'pinnacle']);
   });
 
   it('drops absurd books and prices', () => {
@@ -231,6 +241,9 @@ describe('marketConsensus', () => {
             expect(p).toBeLessThan(1);
           }
           expect(values.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+          expect(c.bookmakers).toHaveLength(c.books);
+          expect(new Set(c.bookmakers).size).toBe(c.books);
+          expect([...c.bookmakers].sort()).toEqual(c.bookmakers);
           expect(c.overroundMedian).toBeGreaterThanOrEqual(1);
           expect(c.overroundMedian).toBeLessThanOrEqual(CONSENSUS_MAX_OVERROUND);
         }

@@ -87,6 +87,20 @@ export const MARKET_ODDS_MAX_AGE_MS = 3 * HOUR_MS;
 export const MARKET_CLOSE_LEAD_MS = 5 * MINUTE_MS;
 /** A price row is linked to the event of the same competition and teams that starts within this of its kickoff. */
 export const MARKET_ODDS_LINK_WINDOW_MS = 6 * HOUR_MS;
+/**
+ * O1m: a market-priced event may open betting without calibrated team ratings only when its 1X2
+ * consensus has at least this many distinct bookmakers, one of them in SHARP_BOOKMAKERS.
+ */
+export const MARKET_OPEN_MIN_BOOKS = 3;
+/** Bookmakers whose prices follow the sharp money (low margin, high limits, or an exchange). */
+export const SHARP_BOOKMAKERS: readonly string[] = Object.freeze([
+  'pinnacle',
+  'betfair_ex_uk',
+  'betfair_ex_eu',
+  'betfair_ex_au',
+  'smarkets',
+  'matchbook',
+]);
 
 /**
  * How often a bookmaker-odds source is read, by its next kickoff (docs/theoddsapi-plan/README.md,

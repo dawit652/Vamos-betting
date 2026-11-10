@@ -1,6 +1,7 @@
 import { SCRAPED_FEED_PROVIDER, type MarketTypeCode } from '@vamos/core';
 import {
   closeReviewItemsBySubject,
+  getCompetitionPolicy,
   getTeamRatings,
   listCompetitionPolicies,
   loadKickoffEvidence,
@@ -24,6 +25,7 @@ import { and, asc, desc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { auditScraper } from './common';
+import { backedByMarket } from './event-pricing';
 import { asStatements, EARLIER_SUBJECT_SUFFIX, loaderOptions } from './kickoff-safety';
 
 export interface AutoOpenSummary {
@@ -68,7 +70,9 @@ const CHUNK = 200;
  * - no re-price of it held for a person (`<feedRef>|reprice`, O3): its stored prices are not the
  *   current ones;
  * - its kickoff is confirmed (K2: C1, C2 or C3), so K1's earlier report, if any, is gone;
- * - O1 (both teams calibrated) and O2 (the open and suspended markets pass the price checks).
+ * - O1 (both teams calibrated), or O1m (`backedByMarket`: the event is priced from a fresh
+ *   market whose 1X2 has at least 3 distinct books, one sharp, and the stored prices are those);
+ *   and O2 (the open and suspended markets pass the price checks).
  *
  * Under the event row lock, then the locks of its review items, everything is read again. The
  * writes: `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened` and the waiting items
@@ -283,15 +287,24 @@ async function openOne(
     const assessment = assess(evidence, now);
     if (!assessment.confirmed) return null;
 
-    // O1 and O2, as for a person who opens betting (assertScrapedEventMayOpen in the API).
+    // O1 (or O1m) and O2, as for a person who opens betting (assertScrapedEventMayOpen in the API).
     const rated = await getTeamRatings(tx, [event.homeTeamId, event.awayTeamId]);
     const minMatches = ctx.config.scraper.minRatingMatches;
-    if (
-      ![event.homeTeamId, event.awayTeamId].every((id) =>
-        isCalibrated(rated.get(id)?.ratings ?? null, minMatches),
-      )
-    ) {
-      return null;
+    const home = rated.get(event.homeTeamId)?.ratings ?? null;
+    const away = rated.get(event.awayTeamId)?.ratings ?? null;
+    let calibration: 'ratings' | 'market' = 'ratings';
+    if (!(isCalibrated(home, minMatches) && isCalibrated(away, minMatches))) {
+      const policy = await getCompetitionPolicy(tx, event.competitionId);
+      const backed = await backedByMarket(tx, {
+        competitionPricingSource: policy.pricingSource,
+        eventId,
+        homeRatings: home,
+        awayRatings: away,
+        minRatingMatches: minMatches,
+        now,
+      });
+      if (!backed) return null;
+      calibration = 'market';
     }
     const bettable: GateMarket[] = (await marketsWithSelections(tx, eventId))
       .filter((market) => market.status === 'open' || market.status === 'suspended')
@@ -315,6 +328,7 @@ async function openOne(
         basis: assessment.basis,
         evidenceKey: assessment.evidenceKey,
         afterK1: latest?.action === K1_CLOSURE,
+        calibration,
       },
     });
     await closeReviewItemsBySubject(tx, feedRef, {

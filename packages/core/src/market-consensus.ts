@@ -46,6 +46,8 @@ export interface MarketConsensus {
   probabilities: Readonly<Record<string, number>>;
   /** Complete, sane books the consensus is the median of. */
   books: number;
+  /** Those books' names, sorted (as many as `books`). */
+  bookmakers: readonly string[];
   /** Median overround (Σ 1/odds) of those books. */
   overroundMedian: number;
 }
@@ -137,12 +139,14 @@ export function marketConsensus(
     const codes = CONSENSUS_SELECTIONS[market];
     const fair: number[][] = codes.map(() => []);
     const overrounds: number[] = [];
-    for (const book of books.values()) {
+    const used: string[] = [];
+    for (const [bookmaker, book] of books) {
       const prices = codes.map((code) => book.get(code) ?? Number.NaN);
       const priced = bookFairProbabilities(prices);
       if (priced === null) continue;
       priced.probabilities.forEach((p, i) => fair[i]!.push(p));
       overrounds.push(priced.overround);
+      used.push(bookmaker);
     }
     if (overrounds.length < minBooks) continue;
     const medians = fair.map(median);
@@ -156,6 +160,7 @@ export function marketConsensus(
       line,
       probabilities,
       books: overrounds.length,
+      bookmakers: used.sort(),
       overroundMedian: median(overrounds),
     });
   }

@@ -642,7 +642,12 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             }
             // The item was raised when both checks passed; ratings and prices may have changed
             // since, so they are checked again at the moment a person opens betting (O1, O2).
-            await assertScrapedEventMayOpen(tx, event!.id, deps.config.scraper.minRatingMatches);
+            await assertScrapedEventMayOpen(
+              tx,
+              event!.id,
+              deps.config.scraper.minRatingMatches,
+              now,
+            );
             const change = await setEventBettingOpen(tx, event!.id, true, actor);
             messages.push(...change.messages);
             resolution = { decision: 'open_betting', eventId: event!.id, by: actor.adminId };

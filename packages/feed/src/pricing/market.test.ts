@@ -29,6 +29,9 @@ import {
 const GATE_OVERROUND_MIN = 1.01;
 const GATE_OVERROUND_MAX = 1.3;
 
+/** `n` book names, sorted as the consensus lists them. */
+const bookNames = (n: number): string[] => Array.from({ length: n }, (_, i) => `book${i}`).sort();
+
 function consensusOf(
   x12: readonly [number, number, number],
   over?: number,
@@ -41,6 +44,7 @@ function consensusOf(
       line: null,
       probabilities: { '1': x12[0], X: x12[1], '2': x12[2] },
       books,
+      bookmakers: bookNames(books),
       overroundMedian: 1.05,
     },
   ];
@@ -50,6 +54,7 @@ function consensusOf(
       line,
       probabilities: { over, under: 1 - over },
       books: books - 1,
+      bookmakers: bookNames(books - 1),
       overroundMedian: 1.06,
     });
   }
@@ -347,6 +352,7 @@ describe('marketPricingKey', () => {
       line: '3.5',
       probabilities: { over: 0.3, under: 0.7 },
       books: 5,
+      bookmakers: bookNames(5),
       overroundMedian: 1.05,
     };
     expect(marketPricingKey([other, ...input].reverse())).toBe(marketPricingKey(input));
@@ -359,6 +365,7 @@ describe('the goal line in place of 2.5 (rules T1 and T2)', () => {
     line,
     probabilities: { over, under: 1 - over },
     books,
+    bookmakers: bookNames(books),
     overroundMedian: 1.05,
   });
   const overOf = (lh: number, la: number, line: string): number =>

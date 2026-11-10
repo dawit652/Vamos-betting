@@ -28,6 +28,7 @@ import {
   buildReviews,
   checkReprice,
   heldKeyOf,
+  isCalibrated,
   MARKET_CLOSE_LEAD_MS,
   MIN_LEAD_MS,
   ratingsKey,
@@ -406,6 +407,7 @@ async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): 
 const pricingAudit = (price: EventPrice) => ({
   pricingSource: price.source,
   ...(price.books === undefined ? {} : { books: price.books }),
+  ...(price.bookmakers === undefined ? {} : { bookmakers: price.bookmakers }),
   ...(price.residual === undefined ? {} : { fitResidual: price.residual }),
   ...(price.totalsLine === undefined ? {} : { totalsLine: price.totalsLine }),
   ...(price.fallback === undefined ? {} : { marketFallback: price.fallback }),
@@ -454,8 +456,9 @@ async function openUncalibratedSubjects(ctx: ScraperContext): Promise<Set<string
  * calibrated ratings has betting closed and an open `ratings_uncalibrated` item
  * (F7), which the API refuses to open betting on. Nothing else closes that
  * item, so here: for every scheduled event of an enabled competition whose item
- * is open, once both teams are calibrated (O1) and the stored prices come from
- * the teams' current ratings (the stamp equals the ratings key: the re-price was
+ * is open, once both teams are calibrated (O1) or the event is priced from a market
+ * whose 1X2 books back opening without them (O1m: 3 distinct books, one sharp), and
+ * the stored prices are the current ones (the stamp equals the current key: the re-price was
  * applied just now, nothing needed changing, or a trader applied the held
  * proposal), the item is resolved by the system (`{"decision":"calibrated"}`)
  * and an `odds_approval` item in the contract's odds payload shape asks a trader
@@ -514,9 +517,12 @@ async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date):
     const rated = await getTeamRatings(tx, [row.homeTeamId, row.awayTeamId]);
     const home = rated.get(row.homeTeamId)?.ratings ?? null;
     const away = rated.get(row.awayTeamId)?.ratings ?? null;
-    // Ready: calibrated teams, or market prices (which do not use the ratings), and ...
+    // Ready: calibrated teams (O1), or market prices strong enough to open without them (O1m),
+    // the same test a person's "Open betting" applies, and ...
     const price = await priceEvent(tx, pricingInput(ctx, policy, event.eventId, home, away, now));
-    if (!price.calibrated) return false;
+    const minMatches = ctx.config.scraper.minRatingMatches;
+    const teamsCalibrated = isCalibrated(home, minMatches) && isCalibrated(away, minMatches);
+    if (!teamsCalibrated && !(price.source === 'market' && price.backsOpening)) return false;
     const key = price.key;
     const stamp = (await listEventPricing(tx, [event.eventId])).get(event.eventId);
     // ... the stored prices come from what the prices are now (not an older book, nor a held

@@ -1,5 +1,16 @@
 import { ApiErrorSchema } from '@vamos/contracts';
-import { schema, setTeamRatings, type Database } from '@vamos/db';
+import {
+  finishRun,
+  recordEventPriced,
+  schema,
+  setCompetitionPolicy,
+  setSourceEnabled,
+  setTeamRatings,
+  startRun,
+  upsertMarketOdds,
+  upsertSource,
+  type Database,
+} from '@vamos/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
@@ -246,5 +257,120 @@ describe('POST /admin/trading/events/:id/betting on a scraped event (rules O1 an
   it('answers 404 for an event that does not exist', async () => {
     const response = await setBetting('00000000-0000-4000-8000-000000000000', true);
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe('O1m: market prices stand in for uncalibrated ratings', () => {
+  const SYSTEM = { system: 'test' };
+  const HOUR = 3_600_000;
+  let feedSeq = 0;
+  const pricingSource = (source: 'market' | 'model') =>
+    db.transaction((tx) =>
+      setCompetitionPolicy(tx, competitionId, { pricingSource: source }, SYSTEM),
+    );
+
+  // The competition takes market prices (rule O5); events of the tests above do not depend on it.
+  beforeAll(async () => {
+    await pricingSource('market');
+  });
+
+  /**
+   * An event between two unreviewed teams whose 1X2 `books` list (one fresh ok run of a new
+   * source, `ageMs` ago), its prices stamped with `stamp` (a market key unless told).
+   */
+  async function marketEvent(
+    books: string[],
+    options: { ageMs?: number; stamp?: string } = {},
+  ): Promise<string> {
+    const home = await newTeam();
+    const away = await newTeam();
+    const eventId = await newEvent({ feed: 'scraped', home, away });
+    const now = ctx.clock.now;
+    const observedAt = new Date(now.getTime() - (options.ageMs ?? 0));
+    const sourceId = `odds-${feedSeq++}`;
+    await db.transaction(async (tx) => {
+      await upsertSource(
+        tx,
+        {
+          id: sourceId,
+          name: sourceId,
+          adapter: 'generic-json',
+          upstream: sourceId,
+          config: { allowedHosts: ['example.test'] },
+        },
+        SYSTEM,
+      );
+      await setSourceEnabled(tx, sourceId, true, SYSTEM);
+    });
+    const run = await startRun(db, { sourceId, startedAt: observedAt });
+    await finishRun(db, run.id, { status: 'ok', finishedAt: observedAt });
+    const rows = books.flatMap((bookmaker) =>
+      (['1', 'X', '2'] as const).map((selection, i) => ({
+        sourceKey: `match-${eventId}`,
+        sport: 'football',
+        competitionRaw: 'Premier League',
+        homeRaw: 'Home',
+        awayRaw: 'Away',
+        kickoff: new Date(now.getTime() + 3 * DAY),
+        priceUpdatedAt: observedAt,
+        observedAt,
+        competitionId,
+        homeTeamId: home,
+        awayTeamId: away,
+        eventId,
+        market: '1x2' as const,
+        line: null,
+        selection,
+        bookmaker,
+        priceMilli: [2100, 3300, 3500][i]!,
+      })),
+    );
+    await db.transaction((tx) =>
+      upsertMarketOdds(tx, { sourceId, runId: run.id, rawId: null, rows }),
+    );
+    await db.transaction((tx) => recordEventPriced(tx, eventId, options.stamp ?? 'mkt1|test', now));
+    return eventId;
+  }
+
+  it('opens betting when the market prices come from 3 books including a sharp one', async () => {
+    const eventId = await marketEvent(['pinnacle', 'betsson', 'unibet_se']);
+    const response = await setBetting(eventId, true);
+    expect(response.statusCode).toBe(200);
+    expect(await bettingOpen(eventId)).toBe(true);
+  });
+
+  it('refuses a thin market: two books, or three without a sharp one', async () => {
+    for (const books of [
+      ['pinnacle', 'betsson'],
+      ['onexbet', 'betsson', 'unibet_se'],
+    ]) {
+      const eventId = await marketEvent(books);
+      const response = await setBetting(eventId, true);
+      expect(response.statusCode).toBe(422);
+      expect(errorOf(response).code).toBe('teams_uncalibrated');
+      expect(await bettingOpen(eventId)).toBe(false);
+    }
+  });
+
+  it('refuses a stale market, and prices that did not come from the market', async () => {
+    const stale = await marketEvent(['pinnacle', 'betsson', 'unibet_se'], { ageMs: 4 * HOUR });
+    expect((await setBetting(stale, true)).statusCode).toBe(422);
+    const model = await marketEvent(['pinnacle', 'betsson', 'unibet_se'], { stamp: '[model]' });
+    expect((await setBetting(model, true)).statusCode).toBe(422);
+    expect(await bettingOpen(stale)).toBe(false);
+    expect(await bettingOpen(model)).toBe(false);
+  });
+
+  it('refuses once the competition is switched back to model prices', async () => {
+    const eventId = await marketEvent(['pinnacle', 'betsson', 'unibet_se']);
+    await pricingSource('model');
+    try {
+      const response = await setBetting(eventId, true);
+      expect(response.statusCode).toBe(422);
+      expect(errorOf(response).code).toBe('teams_uncalibrated');
+    } finally {
+      await pricingSource('market');
+    }
+    expect((await setBetting(eventId, true)).statusCode).toBe(200);
   });
 });

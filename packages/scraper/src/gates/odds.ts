@@ -6,10 +6,12 @@ import {
   selectionsFor,
 } from '@vamos/core';
 import {
+  MARKET_OPEN_MIN_BOOKS,
   MAX_PRICE_MOVE_RATIO,
   MIN_RATING_MATCHES,
   OVERROUND_MAX,
   OVERROUND_MIN,
+  SHARP_BOOKMAKERS,
 } from '../constants';
 import { listOf } from './internal';
 import { buildReviews, type GateJson, type GateReview } from './review';
@@ -81,6 +83,26 @@ export function isCalibrated(
     Number.isSafeInteger(matches) &&
     matches >= Math.max(minMatches, MIN_RATING_MATCHES)
   );
+}
+
+/**
+ * O1m: the bookmakers behind an event's 1X2 consensus back opening betting without calibrated
+ * team ratings. A name may carry its upstream (`theoddsapi:pinnacle`); a bookmaker counts once
+ * however many upstreams list it. True when at least MARKET_OPEN_MIN_BOOKS distinct bookmakers
+ * remain and one is in SHARP_BOOKMAKERS. Anything malformed counts as no book.
+ */
+export function marketBacksOpening(bookmakers: readonly unknown[] | null | undefined): boolean {
+  if (!Array.isArray(bookmakers)) return false;
+  const names = new Set<string>();
+  for (const book of bookmakers) {
+    if (typeof book !== 'string') continue;
+    const name = book
+      .slice(book.lastIndexOf(':') + 1)
+      .trim()
+      .toLowerCase();
+    if (name !== '') names.add(name);
+  }
+  return names.size >= MARKET_OPEN_MIN_BOOKS && SHARP_BOOKMAKERS.some((sharp) => names.has(sharp));
 }
 
 export type OddsIssueCode =

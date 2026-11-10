@@ -2,10 +2,9 @@ import {
   CONSENSUS_MIN_BOOKS,
   MARKET_PRICING_KEY_PREFIX,
   marketConsensus,
-  type MarketPriceRow,
   type ScrapePricingSource,
 } from '@vamos/core';
-import { latestMarketOdds, type DbExecutor, type LatestMarketOdd } from '@vamos/db';
+import { consensusRows, latestMarketOdds, listEventPricing, type DbExecutor } from '@vamos/db';
 import {
   fitGoalsToMarket,
   MAX_MARKET_FIT_RESIDUAL,
@@ -15,7 +14,13 @@ import {
   type FeedMarket,
   type TeamRatings,
 } from '@vamos/feed';
-import { checkMarkets, isCalibrated, MARKET_ODDS_MAX_AGE_MS, ratingsKey } from '@vamos/scraper';
+import {
+  checkMarkets,
+  isCalibrated,
+  MARKET_ODDS_MAX_AGE_MS,
+  marketBacksOpening,
+  ratingsKey,
+} from '@vamos/scraper';
 
 /**
  * Rule O5, where an event's prices come from. One function for every place that prices a scraped
@@ -28,7 +33,8 @@ import { checkMarkets, isCalibrated, MARKET_ODDS_MAX_AGE_MS, ratingsKey } from '
  *   nine points short) AND the model fitted to them explains them (fit residual at most
  *   MAX_MARKET_FIT_RESIDUAL): prices come from the market
  *   (priceFootballFromMarket), the key is marketPricingKey, and the event counts as calibrated
- *   (O1 is about team ratings; a market-priced event does not need them).
+ *   for re-pricing (O1 is about team ratings; market prices do not use them). Opening betting on
+ *   it without calibrated ratings needs more: O1m (`backsOpening`, `backedByMarket`).
  * - Anything else: the team-rating model, exactly as before (ratingsKey, O1).
  *
  * A new event (no id yet) is always priced by the model; the next re-pricing pass moves it to the
@@ -67,6 +73,13 @@ export interface EventPrice {
   residual?: number;
   /** Market only: books behind the 1X2 consensus. */
   books?: number;
+  /** Market only: their names (`<upstream>:<bookmaker>`, sorted). */
+  bookmakers?: readonly string[];
+  /**
+   * O1m: true for market prices whose 1X2 books back opening betting without calibrated team
+   * ratings (marketBacksOpening: 3 distinct books, one sharp); false for the model.
+   */
+  backsOpening: boolean;
   /** Market only: books behind the over/under 2.5 consensus (0 when it has none). */
   booksOu25?: number;
   /** Market only: the goal line the expected goals were fitted to ('2.5', or the line in its place). */
@@ -95,8 +108,25 @@ export async function priceEvent(exec: DbExecutor, input: EventPriceInput): Prom
       isCalibrated(input.homeRatings ?? null, input.minRatingMatches) &&
       isCalibrated(input.awayRatings ?? null, input.minRatingMatches),
     pricesSane: checkMarkets(markets).ok,
+    backsOpening: false,
     ...(fallback === undefined ? {} : { fallback }),
   };
+}
+
+/**
+ * Rule O1m: whether an event whose teams are not calibrated (O1) may still open betting because
+ * its prices come from a strong market. All of: the competition takes market prices; the event is
+ * priced from the market NOW (fresh 1X2 consensus, an over/under line, a good fit: O5); those 1X2
+ * books back opening (marketBacksOpening); and the stored prices are these very prices (the stamp
+ * equals the market key, so no held or skipped re-price stands between them). One read of the
+ * market and one of the stamp.
+ */
+export async function backedByMarket(exec: DbExecutor, input: EventPriceInput): Promise<boolean> {
+  if (input.competitionPricingSource !== 'market' || input.eventId === null) return false;
+  const price = await priceEvent(exec, input);
+  if (price.source !== 'market' || !price.backsOpening) return false;
+  const stamp = (await listEventPricing(exec, [input.eventId])).get(input.eventId);
+  return stamp?.ratingsKey === price.key;
 }
 
 /**
@@ -114,7 +144,7 @@ async function marketPrice(
     now,
     maxAgeMs: MARKET_ODDS_MAX_AGE_MS,
   });
-  const consensus = marketConsensus(oneVoicePerBook(rows), { minBooks: CONSENSUS_MIN_BOOKS });
+  const consensus = marketConsensus(consensusRows(rows), { minBooks: CONSENSUS_MIN_BOOKS });
   const x12 = consensus.find((c) => c.market === '1x2');
   if (x12 === undefined) return { kind: 'none', reason: 'no_consensus' };
   const fit = fitGoalsToMarket(consensus);
@@ -133,38 +163,10 @@ async function marketPrice(
       pricesSane: checkMarkets(priced.markets).ok,
       residual: priced.residual,
       books: priced.source.books1x2,
+      bookmakers: x12.bookmakers,
+      backsOpening: marketBacksOpening(x12.bookmakers),
       booksOu25: priced.source.booksOu25,
       totalsLine: priced.totalsLine,
     },
   };
-}
-
-/**
- * The rows as consensus input, one bookmaker per (upstream, bookmaker): if several sources of one
- * upstream list the same bookmaker, only the source that saw it last is read (ties: the lowest
- * source id), so one feed never counts twice.
- */
-function oneVoicePerBook(rows: readonly LatestMarketOdd[]): MarketPriceRow[] {
-  const winner = new Map<string, { sourceId: string; observedAt: number }>();
-  for (const row of rows) {
-    const key = `${row.upstream}\u0000${row.bookmaker}`;
-    const seen = winner.get(key);
-    const at = row.observedAt.getTime();
-    if (
-      seen === undefined ||
-      at > seen.observedAt ||
-      (at === seen.observedAt && row.sourceId < seen.sourceId)
-    ) {
-      winner.set(key, { sourceId: row.sourceId, observedAt: at });
-    }
-  }
-  return rows
-    .filter((row) => winner.get(`${row.upstream}\u0000${row.bookmaker}`)?.sourceId === row.sourceId)
-    .map((row) => ({
-      bookmaker: `${row.upstream}:${row.bookmaker}`,
-      market: row.market,
-      line: row.line,
-      selection: row.selection,
-      priceMilli: row.priceMilli,
-    }));
 }

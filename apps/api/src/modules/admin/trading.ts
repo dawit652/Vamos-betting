@@ -145,7 +145,12 @@ export default async function adminTradingRoutes(app: FastifyInstance): Promise<
       const change = await inTx(deps, async (tx) => {
         // A scraped event opens only with reviewed ratings and sane prices (rules O1, O2).
         if (input.open) {
-          await assertScrapedEventMayOpen(tx, eventId, deps.config.scraper.minRatingMatches);
+          await assertScrapedEventMayOpen(
+            tx,
+            eventId,
+            deps.config.scraper.minRatingMatches,
+            deps.clock(),
+          );
         }
         return staffSetEventBettingOpen(tx, {
           eventId,

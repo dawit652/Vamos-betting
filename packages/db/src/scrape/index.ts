@@ -70,6 +70,7 @@ export {
   type UpsertObservationResult,
 } from './observations';
 export {
+  consensusRows,
   findScrapedEventId,
   latestMarketOdds,
   linkMarketOddsToEvents,

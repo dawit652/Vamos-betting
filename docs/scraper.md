@@ -255,10 +255,10 @@ Every rule has an id; tests cite the id in their names. Constants are in
   `scrape.fixture.betting_opened` is none, or K1's automatic closure); no F4 `kickoff_change` is
   open for it; no re-price of it is held for a person (`<feedRef>|reprice`, O3: its stored prices
   are not the current ones); its kickoff is confirmed (K2), so an earlier report K1 acted on is
-  gone; and O1 and O2 pass. Under the event row lock, then the locks of its review items (the order
+  gone; and O1 (or O1m) and O2 pass. Under the event row lock, then the locks of its review items (the order
   of K1, the re-price step and the review actions), everything is read again; the
   writes are `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened`
-  (`rule: 'F7b'`, the basis, the evidence key, `afterK1`) and the waiting items resolved by the
+  (`rule: 'F7b'`, the basis, the evidence key, `afterK1`, `calibration`) and the waiting items resolved by the
   scraper; the live delta is published after the COMMIT. A trader's close, a dismissed item, a
   held re-price or `auto_open` off keeps the event closed.
 
@@ -462,6 +462,17 @@ Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_M
 - **O1 Calibrated teams.** Both teams' `ratings` must carry `matches >=
 MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   ratings are never used to price real bets.
+- **O1m Market backing (2026-11, R-1 of `docs/feed-quality-plan.md`).** Opening betting (F7b, a
+  trader's "Open betting" and the Trading switch) needs O1 **or** O1m. O1m: its competition's policy
+  takes market prices, the event's stored prices
+  come from the market (its pricing stamp is a market key, O5) and the fresh 1X2 consensus behind them
+  (`MARKET_ODDS_MAX_AGE_MS`, one voice per upstream and bookmaker) has at least
+  `MARKET_OPEN_MIN_BOOKS` (3) distinct bookmakers, one of them in `SHARP_BOOKMAKERS` (pinnacle, the
+  Betfair exchanges, smarkets, matchbook): `marketBacksOpening`. F7b also requires the market to price
+  the event now with exactly the stored prices (`backedByMarket`: same key, so nothing is held or
+  skipped in between). The hand-over of a `ratings_uncalibrated` item (O5) applies the same test, so a
+  trader is never asked to open what would be refused. Model-priced events keep O1. The audit of
+  `scrape.fixture.betting_opened` records `calibration`: `ratings` or `market`.
 - **O2 Sane prices.** Prices come from `priceMatch(matchStrengths(...))`. Before
   a market is stored or opened: every price is a valid odds value; where the
   selections partition the outcomes, the overround lies in
@@ -477,7 +488,7 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   at or below its fair price.
 - **O1 and O2 when a person opens betting.** Both controls that open betting on an event the scraper
   created (the review item's "Open betting", `POST /admin/feed/review/:id/resolve`, and the betting switch
-  in Trading, `POST /admin/trading/events/:id/betting`) apply O1 and O2 again at that moment, on the stored
+  in Trading, `POST /admin/trading/events/:id/betting`) apply O1 (or O1m) and O2 again at that moment, on the stored
   prices of the open and suspended markets: 422 `teams_uncalibrated` or `prices_failed_checks`, and a review
   item stays open. Before O1 and O2 the same two controls apply K2 (6.1a): the kickoff must be confirmed
   (C1, C2 or a person's confirmation, C3) and start later than `now + MIN_LEAD_MS`. Closing betting is never
@@ -533,7 +544,8 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   market from the goals model fitted to it (`priceFootballFromMarket`), all with our own margin
   and O2. The stamp key is `marketPricingKey` (prefix `mkt1`, probabilities rounded to half a
   percentage point, so a market that only wiggles does not re-price), and the event counts as
-  calibrated: O1 is about team ratings and market prices do not use them. In every other case
+  calibrated for re-pricing: O1 is about team ratings and market prices do not use them (opening
+  betting without calibrated ratings needs O1m). In every other case
   (policy `model`, no event yet, fewer books, stale, no over/under line, poor fit) the prices are
   the model's, with
   `ratingsKey` and O1, exactly as in O3.
@@ -548,8 +560,9 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
     whose policy is not `enabled` only gets held proposals (S4).
   - A market-priced event whose market is no longer usable **keeps its prices**: it does not fall
     back to the model by itself (a person switches the competition back to `model` if wanted).
-  - An event priced from the market counts as ready for the trader's "Open betting" item; a
-    trader still opens betting (the scraper never does).
+  - An event priced from the market whose teams are not calibrated is handed to a trader's "Open
+    betting" item only when O1m holds (3 distinct books, one sharp); with auto_open on, F7b then
+    opens it once the kickoff is confirmed (K2). Re-pricing itself never opens betting.
   - The `odds_approval` payload says where the prices came from (`pricing`: `source`, `books`,
     `residual`, or the `fallback` reason: `no_consensus`, `no_totals` or `poor_fit`); the audit
     of `scrape.fixture.repriced` and
