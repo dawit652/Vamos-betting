@@ -9,6 +9,7 @@ export * from './review';
 export * from './confirmation';
 export * from './result';
 export * from './fixture';
+export * from './conflict-close';
 export * from './kickoff';
 export * from './missing';
 export * from './shape';

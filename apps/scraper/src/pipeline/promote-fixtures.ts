@@ -15,13 +15,16 @@ import {
 } from '@vamos/db';
 import type { priceFixture } from '@vamos/feed';
 import {
+  agreementCovers,
   assessKickoff,
   buildReviews,
   clusterObservations,
+  CONFLICT_AGREED_RESOLUTION,
   decideFixture,
   DAY_MS,
   findMissingFixtures,
   FIXTURE_HORIZON_MS,
+  fixtureFeedRef,
   holdSeveralClusters,
   isCalibrated,
   KICKOFF_EVIDENCE_WINDOW_MS,
@@ -29,11 +32,15 @@ import {
   MATCH_WINDOW_MS,
   MIN_MATCH_DURATION_MS,
   MIN_RATING_MATCHES,
+  nextConflictStep,
   reviewsOf,
   SOURCE_STALE_AFTER_MS,
+  sourcesAgree,
   type CompetitionPolicy,
   type EventMatch,
+  type FixtureAgreement,
   type FixtureCreate,
+  type FixtureDecision,
   type FixtureObservation,
   type FixtureUpdateKickoff,
   type GateReview,
@@ -68,6 +75,8 @@ export interface PromoteFixturesSummary {
   missing: number;
   /** Open kickoff_change items closed because their cause went away (F4), moves not counted. */
   kickoffItemsClosed: number;
+  /** Open fixture_conflict items closed because the sources agreed again for two passes (F6c). */
+  conflictItemsClosed: number;
   failed: number;
   published: number;
 }
@@ -86,7 +95,8 @@ export const LOOK_AHEAD_MS = FIXTURE_HORIZON_MS + 14 * DAY_MS;
  * Promotes the current fixture observations (rules F1 to F7): for every
  * competition that has a policy row, cluster the resolved observations, find
  * the event each belongs to and apply what `decideFixture` returns, and
- * nothing else. Also flags events no source lists any more (F5). This code
+ * nothing else. Also flags events no source lists any more (F5) and closes the
+ * fixture conflicts whose sources agreed again for two passes (F6c). This code
  * has no way to cancel, void or result an event.
  */
 export async function promoteFixtures(
@@ -102,6 +112,7 @@ export async function promoteFixtures(
     deferred: 0,
     missing: 0,
     kickoffItemsClosed: 0,
+    conflictItemsClosed: 0,
     failed: 0,
     published: 0,
   };
@@ -151,6 +162,16 @@ export async function promoteFixtures(
     );
     summary.kickoffItemsClosed += closed.length;
   };
+  // F6c: the open fixture_conflict items, the subjects this pass raised one for again, and the
+  // clusters the gate found in agreement (read after the loop, see `stepConflictItems`).
+  const openConflicts = await openConflictItems(ctx);
+  const disagreed = new Set<string>();
+  const agreements: FixtureAgreement[] = [];
+  const noteRaised = (decision: { action: string }): void => {
+    for (const review of reviewsOf(decision)) {
+      if (review.kind === 'fixture_conflict') disagreed.add(review.subjectKey);
+    }
+  };
 
   const clusters = clusterObservations(observations).filter((c) => policies.has(c.competitionId));
   const plan = planClusters(clusters, events);
@@ -169,6 +190,7 @@ export async function promoteFixtures(
         // Review finding 1: one decision for all the clusters of a fixture, taken once.
         if (several.first === index) {
           const decision = holdSeveralClusters(several.input);
+          noteRaised(decision);
           await ctx.db.transaction((tx) => openGateReviews(tx, reviewsOf(decision), now));
           summary.held += 1;
         }
@@ -210,12 +232,18 @@ export async function promoteFixtures(
         }
       }
       let messages: LiveMessage[] = [];
+      /** The create found the feed_ref taken and raised `feed_ref_exists` (F3) instead. */
+      let feedRefTaken = false;
       switch (decision.action) {
         case 'create': {
           const created = await applyCreate(ctx, decision, pricing, now, kickoff);
           messages = created.messages;
           if (created.created) summary.created += 1;
-          else summary.held += 1;
+          else {
+            summary.held += 1;
+            feedRefTaken = true;
+            disagreed.add(decision.feedRef);
+          }
           break;
         }
         case 'update-kickoff': {
@@ -233,6 +261,7 @@ export async function promoteFixtures(
           break;
         }
         case 'hold':
+          noteRaised(decision);
           await ctx.db.transaction((tx) => openGateReviews(tx, reviewsOf(decision), now));
           summary.held += 1;
           break;
@@ -243,6 +272,10 @@ export async function promoteFixtures(
             await closeKickoffItem(match.event.feedRef, KICKOFF_ITEM_AGREED);
           }
           break;
+      }
+      // F6c: recorded only once the decision was applied (a failed cluster agrees with nothing).
+      if (sourcesAgree(decision) && !feedRefTaken) {
+        agreements.push(agreementOf(cluster, decision, match));
       }
       summary.published += await publishAfterCommit(ctx.redis, messages, ctx.channel, ctx.logger);
     } catch (error) {
@@ -267,13 +300,19 @@ export async function promoteFixtures(
     }
   }
 
+  await stepConflictItems(ctx, openConflicts, now, summary, (subjectKey) => {
+    if (disagreed.has(subjectKey)) return false;
+    return agreements.some((agreement) => agreementCovers(agreement, subjectKey));
+  });
+
   summary.missing = await flagMissing(ctx, events, now);
   const changes =
     summary.created +
     summary.kickoffMoved +
     summary.held +
     summary.missing +
-    summary.kickoffItemsClosed;
+    summary.kickoffItemsClosed +
+    summary.conflictItemsClosed;
   ctx.logger[changes > 0 ? 'info' : 'debug']({ ...summary }, 'fixture promotion run');
   return summary;
 }
@@ -288,6 +327,126 @@ async function openKickoffSubjects(ctx: ScraperContext): Promise<Set<string>> {
     .from(scrapeReviewItems)
     .where(and(eq(scrapeReviewItems.status, 'open'), eq(scrapeReviewItems.kind, 'kickoff_change')));
   return new Set(rows.map((row) => row.subjectKey));
+}
+
+interface OpenConflict {
+  id: string;
+  subjectKey: string;
+  payload: Record<string, unknown>;
+}
+
+/** The open fixture_conflict items (rule F6c reads them before the pass decides anything). */
+async function openConflictItems(ctx: ScraperContext): Promise<OpenConflict[]> {
+  return ctx.db
+    .select({
+      id: scrapeReviewItems.id,
+      subjectKey: scrapeReviewItems.subjectKey,
+      payload: scrapeReviewItems.payload,
+    })
+    .from(scrapeReviewItems)
+    .where(
+      and(eq(scrapeReviewItems.status, 'open'), eq(scrapeReviewItems.kind, 'fixture_conflict')),
+    );
+}
+
+/**
+ * What an agreeing cluster answers (F6c): its pairing and kickoffs, and the feed_ref it was
+ * decided under (the created, moved or matched event's, or the key the fixture would be created
+ * under when only the switched-off policy stopped it).
+ */
+function agreementOf(cluster: ClusterOf, decision: FixtureDecision, match: EventMatch) {
+  const feedRef =
+    decision.action === 'create' || decision.action === 'update-kickoff'
+      ? decision.feedRef
+      : match.kind === 'existing'
+        ? match.event.feedRef
+        : fixtureFeedRef(cluster, cluster.firstKickoff);
+  return {
+    competitionId: cluster.competitionId,
+    homeTeamId: cluster.homeTeamId,
+    awayTeamId: cluster.awayTeamId,
+    firstKickoff: cluster.firstKickoff,
+    lastKickoff: cluster.lastKickoff,
+    feedRefs: [feedRef],
+  } satisfies FixtureAgreement;
+}
+
+/**
+ * Rule F6c (docs/scraper.md 6.1): a fixture_conflict raised only because the sources disagreed
+ * (status_disagreement, kickoff_disagreement, sources_disagree) closes once the gate found them
+ * in agreement on CONFLICT_AGREED_PASSES consecutive passes. `agreed(subject)` says whether this
+ * pass did (an agreeing cluster covers it and no conflict was raised for it). The streak is the
+ * item's `agreedPasses`: counted on an agreeing pass, set back to 0 on any other pass, and gone
+ * when the conflict is raised again (the refresh replaces the payload). `feed_ref_exists` and the
+ * other person-only reasons are never touched (`conflictClosesOnAgreement`).
+ *
+ * Each item that needs a write gets its own transaction: the item is locked and the step decided
+ * again from its current payload, then the counter is stored, or the item is resolved by the
+ * scraper (`CONFLICT_AGREED_RESOLUTION`, audited `scrape.review.resolved` by the close and
+ * `scrape.review.agreed` here). Only the item changes: never an event, a price or betting.
+ */
+async function stepConflictItems(
+  ctx: ScraperContext,
+  items: readonly OpenConflict[],
+  now: Date,
+  summary: Pick<PromoteFixturesSummary, 'conflictItemsClosed' | 'failed'>,
+  agreed: (subjectKey: string) => boolean,
+): Promise<void> {
+  for (const item of items) {
+    const agrees = agreed(item.subjectKey);
+    if (nextConflictStep(item.payload, agrees).action === 'keep') continue;
+    try {
+      summary.conflictItemsClosed += await stepConflictItem(ctx, item.id, agrees, now);
+    } catch (error) {
+      summary.failed += 1;
+      ctx.logger.error({ err: error, subjectKey: item.subjectKey }, 'fixture conflict step failed');
+    }
+  }
+}
+
+async function stepConflictItem(
+  ctx: ScraperContext,
+  id: string,
+  agrees: boolean,
+  now: Date,
+): Promise<number> {
+  return ctx.db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ subjectKey: scrapeReviewItems.subjectKey, payload: scrapeReviewItems.payload })
+      .from(scrapeReviewItems)
+      .where(and(eq(scrapeReviewItems.id, id), eq(scrapeReviewItems.status, 'open')))
+      .for('update');
+    if (row === undefined) return 0;
+    const step = nextConflictStep(row.payload, agrees);
+    if (step.action === 'keep') return 0;
+    if (step.action !== 'close') {
+      await tx
+        .update(scrapeReviewItems)
+        .set({ payload: { ...row.payload, agreedPasses: step.agreedPasses } })
+        .where(eq(scrapeReviewItems.id, id));
+      return 0;
+    }
+    const closedItems = await closeReviewItemsBySubject(tx, row.subjectKey, {
+      kinds: ['fixture_conflict'],
+      resolution: CONFLICT_AGREED_RESOLUTION,
+      now,
+    });
+    for (const item of closedItems) {
+      await auditScraper(tx, {
+        action: 'scrape.review.agreed',
+        targetType: 'scrape_review_item',
+        targetId: item.id,
+        metadata: {
+          kind: item.kind,
+          subjectKey: row.subjectKey,
+          rule: 'F6c',
+          reasons: row.payload.reasons ?? null,
+          agreedPasses: step.agreedPasses,
+        },
+      });
+    }
+    return closedItems.length;
+  });
 }
 
 /**

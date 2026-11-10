@@ -216,3 +216,23 @@ export function fixtureFeedRef(
   const day = Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : 'unknown';
   return `fx|${pairing.competitionId}|${pairing.homeTeamId}|${pairing.awayTeamId}|${day}`;
 }
+
+/**
+ * The pairing and UTC day a `fixtureFeedRef` names, or null for any other text (an id holding
+ * `|`, an empty part, an `unknown` or invalid day). Strict: `fixtureFeedRef` of the result gives
+ * the key back.
+ */
+export function parseFixtureFeedRef(key: string): {
+  pairing: { competitionId: string; homeTeamId: string; awayTeamId: string };
+  day: Date;
+} | null {
+  if (typeof key !== 'string') return null;
+  const parts = key.split('|');
+  if (parts.length !== 5 || parts[0] !== 'fx') return null;
+  const [, competitionId = '', homeTeamId = '', awayTeamId = '', dayText = ''] = parts;
+  if (competitionId === '' || homeTeamId === '' || awayTeamId === '') return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayText)) return null;
+  const day = new Date(`${dayText}T00:00:00.000Z`);
+  if (!Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== dayText) return null;
+  return { pairing: { competitionId, homeTeamId, awayTeamId }, day };
+}

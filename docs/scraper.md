@@ -233,6 +233,23 @@ Every rule has an id; tests cite the id in their names. Constants are in
   page did not contain it.
 - **F6 Postponed / cancelled** statuses are never applied automatically: they
   void bets. They open `cancellation_proposed` with the sources that said so.
+- **F6c Fixture conflicts close when the sources agree again.** A `fixture_conflict` raised only
+  because the sources disagreed (F6 `status_disagreement`, F2 `kickoff_disagreement`, F4c
+  `sources_disagree`) closes by itself after `CONFLICT_AGREED_PASSES` (2) consecutive promotion
+  passes in which the gate found the sources of that fixture in agreement: it would create it,
+  move a kickoff every source gives, the event's kickoff is what every source says
+  (`unchanged`), or only a switched-off policy stops the creation. The agreeing cluster answers
+  the item when the subject is the created or matched event's `feed_ref`, or a fixture key of the
+  same pairing within `MATCH_WINDOW_MS` (a conflict raised under the earliest day still closes when
+  the sources settle on another day). The streak is the item's payload field `agreedPasses`:
+  counted on an agreeing pass, set back to 0 on any other pass (not decided, deferred, failed,
+  outside the window, a hold), and gone when the conflict is raised again (the refresh replaces
+  the payload). An item with any other reason never closes this way and waits for a person:
+  `feed_ref_exists` (an event already holds the ref), `ambiguous_match`, `candidate_mismatch`,
+  `mixed_cluster`, `invalid_observation`. Closing writes the resolution
+  `auto: sources agree again (2 passes)` (resolved by `system:scraper`, audited
+  `scrape.review.resolved` and `scrape.review.agreed` with the rule, reasons and passes) and
+  changes nothing else: no event, price or betting state.
 - **F7 Betting stays closed.** A new event is created with betting **closed**.
   It is opened automatically only if the competition policy has `auto_open`, both
   teams are calibrated (rule O1), the prices pass O2 and the kickoff is confirmed
