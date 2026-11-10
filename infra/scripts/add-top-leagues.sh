@@ -23,8 +23,8 @@ LEAGUES=("de1 BL1 bundesliga" "es1 PD laliga" "it1 SA serie-a" "fr1 FL1 ligue-1"
   echo "missing $ENV_FILE: run infra/scripts/init-env.sh first" >&2
   exit 1
 }
-grep -q '^OPERATING_MODE=demo$' "$ENV_FILE" || {
-  echo "refusing: $ENV_FILE is not OPERATING_MODE=demo" >&2
+grep -qE '^OPERATING_MODE=(demo|licensed)$' "$ENV_FILE" || {
+  echo "refusing: $ENV_FILE has no OPERATING_MODE=demo or OPERATING_MODE=licensed" >&2
   exit 1
 }
 token="$(grep "^${VAR}=" "$ENV_FILE" | cut -d= -f2- || true)"
