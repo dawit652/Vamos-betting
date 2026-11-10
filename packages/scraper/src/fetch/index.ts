@@ -10,3 +10,4 @@ export * from './rate-limiter';
 export * from './cadence';
 export * from './credit-guard';
 export * from './polite-fetcher';
+export * from './budget';

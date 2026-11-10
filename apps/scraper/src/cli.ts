@@ -22,6 +22,7 @@ import {
 } from './cli/io';
 import { envSecretReader } from './lib/secrets';
 import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
+import { sourcesBudget } from './cli/budget';
 import { sourcesCoverage } from './cli/coverage';
 import { reviewCounts } from './cli/review';
 import { sourcesList, sourcesUpsert } from './cli/sources';
@@ -40,6 +41,10 @@ commands:
       Per competition: which enabled upstreams give fixtures, full-time scores, half-time scores and
       a stated score basis (extra time), from the source configs; flags competitions with fewer than
       two full-time upstreams (single-result-upstream: rule R2 needs two). Read-only.
+  sources budget
+      The Odds API credits a day per source from the read schedule and the next 30 days of fixtures,
+      against the plan quota and reset date; actual spend (24 h, month to date) and credits left per
+      key; days until the credit guard leaves normal at the estimated rate. Read-only.
   sources upsert --file source.json
       Validates the config (createAdapter), then creates or updates the source.
       A new source starts DISABLED; an existing one keeps its enabled flag.
@@ -82,6 +87,7 @@ type Command = (args: string[], env: CliEnv) => Promise<number>;
 const COMMANDS: Record<string, Command> = {
   'sources list': sourcesList,
   'sources coverage': sourcesCoverage,
+  'sources budget': sourcesBudget,
   'sources upsert': sourcesUpsert,
   'dry-parse': dryParse,
   'dry-fetch': dryFetch,
