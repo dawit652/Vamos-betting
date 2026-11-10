@@ -77,6 +77,12 @@ docker compose up -d --wait scraper
 echo "==> Adding the source (it starts disabled)"
 cli sources upsert --file "$SOURCE"
 
+# The source names its competition "English Premier League". The alias that maps it to the catalogue lives
+# in aliases-openfootball-en1.csv, which only the demo script use-real-fixtures.sh imported: without it a
+# licensed install drops every Premier League row as an unknown competition. Importing it is idempotent.
+echo "==> Premier League competition alias"
+cli aliases import --file /in/aliases-openfootball-en1.csv
+
 cat <<'EOF'
 
 Done. In the back office, in this order:
