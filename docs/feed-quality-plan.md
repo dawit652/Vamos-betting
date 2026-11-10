@@ -260,7 +260,7 @@ Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" 
 | ID         | Item                                                    | Status | Notes                              |
 | ---------- | ------------------------------------------------------- | ------ | ---------------------------------- |
 | —          | `scripts/feed-report.ps1` (20 read-only sections)       | ✅     | tested against a migrated database |
-| U-1        | Premier League alias imported by `use-football-data.sh` | ⬜     |                                    |
+| U-1        | Premier League alias imported by `use-football-data.sh` | ✅     | commit b8d7eb4; syntax checked     |
 | O-1        | Import the Premier League alias on the server           | ⬜     | owner, section 8                   |
 | Q-2        | `cli review counts`                                     | ⬜     |                                    |
 | R-1        | Market-priced events count as calibrated                | ⬜     |                                    |
@@ -269,6 +269,14 @@ Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" 
 | P-7        | `market_stale` for no_totals and poor_fit               | ⬜     |                                    |
 | S-5        | Manual result updates ratings, 105-minute floor         | ⬜     |                                    |
 | all others | see sections 5–8                                        | ⬜     |                                    |
+
+**Next session, in order:** R-1 (Opus), Q-1 and Q-2 (routine-coder), A-2 (Opus), P-7, S-5, then M-1 and M-2 (measure
+before tuning prices).
+
+**Environment blocker (2026-11-10):** the owner's PC had 4 GB free on C:, so Docker Desktop couldn't start. The
+scraper's integration tests need Postgres **and** Redis. Free disk space first (Docker's disk file is 12 GB of images
+and build cache: `docker builder prune` and removing the `vamos-web-licensedtest` image once Docker runs). Keep the
+`infra_pgdata` volume.
 
 ---
 
