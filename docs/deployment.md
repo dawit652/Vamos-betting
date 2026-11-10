@@ -219,7 +219,8 @@ list before launch and reading the startup log:
       account in `SMS_COLLECTION_ACCOUNTS` in that name (no personal SIMs); `RECEIPT_VERIFY=audit`; and
       `PAYOUT_REQUIRE_PROOF=true` (or the explicit, logged waiver `PAYOUT_PROOF_WAIVED=true`). The database
       also refuses simulator SMS once it is licensed.
-- [ ] `KYC_PROVIDER` is a real identity provider (`fayda`), `SMS_PROVIDER` a real gateway (`http`).
+- [ ] `KYC_PROVIDER=mock` (the only KYC adapter: ID checks are simulated). `SMS_PROVIDER=http` has no adapter yet, so
+      the api and worker refuse to start with it; `mock` means players' codes are not texted.
 - [ ] `FEED_PROVIDER=manual` (traders only) or a licensed real feed once an adapter exists; `mock` is refused.
 - [ ] `TAX_CONFIG_CONFIRMED=true`, set only after counsel confirmed the winnings-tax rate, base and exemption.
 - [ ] `FEATURE_CASINO=false`, `FEATURE_VIRTUALS=false` (not licensable). SMS/USSD betting stays off until the
@@ -278,7 +279,7 @@ in a secret manager, not in git.
 | Variable                                                                                           | Default              | Meaning                                                                                      |
 | -------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------- |
 | `PAYMENT_PROVIDERS`                                                                                | `sms`                | Comma list: `mock` (demo only), `chapa`, `telebirr`, `sms` (the SMS deposit rail).           |
-| `KYC_PROVIDER` / `SMS_PROVIDER`                                                                    | `fayda` / `mock`     | `mock` or `fayda`; `mock` or `http`. Real ones are licensed-mode only.                       |
+| `KYC_PROVIDER` / `SMS_PROVIDER`                                                                    | `mock` / `mock`      | `mock` only; `mock` or `http` (`http` has no adapter yet: startup is refused).               |
 | `CHAPA_BASE_URL`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`                                       | Chapa API URL, unset | Chapa credentials (secrets). The webhook secret is 32+ chars, also set in Chapa's dashboard. |
 | `TELEBIRR_BASE_URL`, `TELEBIRR_CHECKOUT_URL`                                                       | unset                | telebirr endpoints. Leave unset, not empty.                                                  |
 | `TELEBIRR_FABRIC_APP_ID`, `TELEBIRR_APP_SECRET`, `TELEBIRR_MERCHANT_APP_ID`, `TELEBIRR_SHORT_CODE` | unset                | telebirr merchant credentials (secrets).                                                     |

@@ -283,7 +283,7 @@ const envSchema = z.object({
   PAYOUT_REQUIRE_PROOF: bool.default(false),
   /** Licensed mode without PAYOUT_REQUIRE_PROOF: an explicit, logged waiver. */
   PAYOUT_PROOF_WAIVED: bool.default(false),
-  KYC_PROVIDER: z.enum(['mock', 'fayda']).default('mock'),
+  KYC_PROVIDER: z.enum(['mock']).default('mock'),
   SMS_PROVIDER: z.enum(['mock', 'http']).default('mock'),
 
   TAX_CONFIG_CONFIRMED: bool.default(false),
@@ -357,7 +357,7 @@ export interface AppConfig {
   };
   /** The data scraper (SCRAPER_*, docs/scraper.md section 7). */
   scraper: ScraperConfig;
-  providers: { payments: string[]; kyc: 'mock' | 'fayda'; sms: 'mock' | 'http' };
+  providers: { payments: string[]; kyc: 'mock'; sms: 'mock' | 'http' };
   /**
    * Payment provider settings (PAYMENT_*, MOCK_PAYMENT_*, CHAPA_*, TELEBIRR_*).
    * Which providers are enabled is `providers.payments`; credentials are

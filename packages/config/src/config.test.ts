@@ -31,7 +31,7 @@ const LICENSED_ENV = {
   NODE_ENV: 'production',
   OPERATING_MODE: 'licensed',
   PAYMENT_PROVIDERS: 'telebirr,chapa',
-  KYC_PROVIDER: 'fayda',
+  KYC_PROVIDER: 'mock',
   SMS_PROVIDER: 'http',
   FEED_PROVIDER: 'manual',
   TAX_CONFIG_CONFIRMED: 'true',
@@ -94,6 +94,12 @@ describe('loadConfig', () => {
     expect(config.mode).toBe('licensed');
     expect(config.providers.payments).toEqual(['telebirr', 'chapa']);
     expect(config.taxConfigConfirmed).toBe(true);
+  });
+
+  it('no longer accepts KYC_PROVIDER=fayda: mock is the only KYC provider', () => {
+    expect(problemsOf({ KYC_PROVIDER: 'fayda' }).join('\n')).toMatch(/KYC_PROVIDER/);
+    expect(loadConfig({ KYC_PROVIDER: 'mock' }).providers.kyc).toBe('mock');
+    expect(loadConfig({}).providers.kyc).toBe('mock');
   });
 
   it('refuses only the mock payment provider in licensed mode', () => {

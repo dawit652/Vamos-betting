@@ -26,12 +26,12 @@ describe('createDefaultDeps', () => {
     ).toThrow(ProviderNotConfiguredError);
   });
 
-  it.each([
-    [{ SMS_PROVIDER: 'http' }, /SMS_PROVIDER="http" is not implemented yet/],
-    [{ KYC_PROVIDER: 'fayda' }, /KYC_PROVIDER="fayda" is not implemented yet/],
-  ])('refuses providers without an adapter (%o)', (env, message) => {
-    const config = loadConfig({ OPERATING_MODE: 'demo', LOG_LEVEL: 'silent', ...env });
-    expect(() => createDefaultDeps(config)).toThrow(ProviderNotImplementedError);
-    expect(() => createDefaultDeps(config)).toThrow(message);
-  });
+  it.each([[{ SMS_PROVIDER: 'http' }, /SMS_PROVIDER="http" is not implemented yet/]])(
+    'refuses providers without an adapter (%o)',
+    (env, message) => {
+      const config = loadConfig({ OPERATING_MODE: 'demo', LOG_LEVEL: 'silent', ...env });
+      expect(() => createDefaultDeps(config)).toThrow(ProviderNotImplementedError);
+      expect(() => createDefaultDeps(config)).toThrow(message);
+    },
+  );
 });

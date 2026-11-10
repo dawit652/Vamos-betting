@@ -210,7 +210,7 @@ describe('startup checks', () => {
       LOG_LEVEL: 'silent',
       OPERATING_MODE: 'licensed',
       PAYMENT_PROVIDERS: 'telebirr',
-      KYC_PROVIDER: 'fayda',
+      KYC_PROVIDER: 'mock',
       SMS_PROVIDER: 'http',
       FEED_PROVIDER: 'manual',
       TAX_CONFIG_CONFIRMED: 'true',

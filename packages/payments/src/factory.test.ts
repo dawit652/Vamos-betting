@@ -20,7 +20,7 @@ const WEBHOOK_SECRET = 'whsec_0123456789abcdef0123456789abcdef';
 const LICENSED = {
   NODE_ENV: 'production',
   OPERATING_MODE: 'licensed',
-  KYC_PROVIDER: 'fayda',
+  KYC_PROVIDER: 'mock',
   SMS_PROVIDER: 'http',
   FEED_PROVIDER: 'manual',
   TAX_CONFIG_CONFIRMED: 'true',
