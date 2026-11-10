@@ -42,6 +42,7 @@ set_var PAYOUT_REQUIRE_PROOF true
 set_var OPERATOR_LEGAL_NAME 'CI Test Company'
 set_var SMS_COLLECTION_ACCOUNTS '[{"institution":"telebirr","account":"0911000000","name":"CI Test Company"},{"institution":"cbe","account":"1000000000001","name":"CI Test Company"}]'
 set_var SMS_PROVIDER mock
+set_var REGISTRATION_SMS_VERIFICATION off
 set_var KYC_PROVIDER mock
 set_var FEED_PROVIDER manual
 set_var TAX_CONFIG_CONFIRMED true

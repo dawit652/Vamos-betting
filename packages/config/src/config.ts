@@ -284,6 +284,12 @@ const envSchema = z.object({
   /** Licensed mode without PAYOUT_REQUIRE_PROOF: an explicit, logged waiver. */
   PAYOUT_PROOF_WAIVED: bool.default(false),
   KYC_PROVIDER: z.enum(['mock']).default('mock'),
+  /**
+   * `off`: a new player is not sent an SMS code at registration; the API hands the code back in the
+   * response and the web app confirms it by itself, so the phone number is NOT proven to be theirs.
+   * For a deployment with no SMS gateway. Never applies to password-reset or payout-account codes.
+   */
+  REGISTRATION_SMS_VERIFICATION: z.enum(['required', 'off']).default('required'),
   SMS_PROVIDER: z.enum(['mock', 'http']).default('mock'),
 
   TAX_CONFIG_CONFIRMED: bool.default(false),
@@ -367,6 +373,8 @@ export interface AppConfig {
   taxConfigConfirmed: boolean;
   /** `smsBetting` and `ussd` mirror channels.sms.enabled and channels.ussd.enabled. */
   features: { casino: boolean; virtuals: boolean; smsBetting: boolean; ussd: boolean };
+  /** REGISTRATION_SMS_VERIFICATION: `off` registers a player without proving the phone by SMS code. */
+  registration: { smsVerification: 'required' | 'off' };
   /**
    * SMS and USSD betting (Phase 11), off by default and kept off until the
    * regulator approves the channel. While a channel is off its inbound route
@@ -721,6 +729,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       },
     },
     taxConfigConfirmed: e.TAX_CONFIG_CONFIRMED,
+    registration: { smsVerification: e.REGISTRATION_SMS_VERIFICATION },
     features: {
       casino: e.FEATURE_CASINO,
       virtuals: e.FEATURE_VIRTUALS,

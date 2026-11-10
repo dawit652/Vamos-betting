@@ -51,6 +51,8 @@ export const OtpSentResponse = z.object({
   otpSentTo: z.string(),
   otpExpiresAt: z.string(),
   demoOtp: z.string().optional(),
+  /** True when REGISTRATION_SMS_VERIFICATION=off: `demoOtp` is the code and the web app submits it itself. */
+  registrationWithoutSms: z.boolean().optional(),
 });
 export type OtpSentResponse = z.infer<typeof OtpSentResponse>;
 

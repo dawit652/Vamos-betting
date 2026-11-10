@@ -49,6 +49,35 @@ describe('OTP codes', () => {
     expect(hashOtpCode('secret', '+251911234568', 'register', '123456')).not.toBe(hash);
   });
 
+  it('hands the registration code back, and only that code, when REGISTRATION_SMS_VERIFICATION=off', () => {
+    const otp = { code: '123456', expiresAt: new Date('2026-10-08T10:05:00.000Z') };
+    const mock: SmsProvider = { name: 'mock', send: async () => ({ id: '1' }) };
+    const licensed = {
+      OPERATING_MODE: 'licensed',
+      PAYMENT_PROVIDERS: 'sms',
+      LOG_LEVEL: 'silent',
+    } as const;
+    const off = {
+      config: loadConfig({ ...licensed, REGISTRATION_SMS_VERIFICATION: 'off' }),
+      sms: mock,
+    };
+    expect(otpSentBody(off, '+251911234567', otp, 'register')).toEqual({
+      otpSentTo: expect.any(String),
+      otpExpiresAt: '2026-10-08T10:05:00.000Z',
+      demoOtp: '123456',
+      registrationWithoutSms: true,
+    });
+    // Never the codes that protect an existing account or a payout destination.
+    expect(otpSentBody(off, '+251911234567', otp, 'password_reset')).not.toHaveProperty('demoOtp');
+    expect(otpSentBody(off, '+251911234567', otp, 'payout_account')).not.toHaveProperty('demoOtp');
+    // The default (SMS required) sends the code and shows nothing, licensed mode or not.
+    const required = { config: loadConfig(licensed), sms: mock };
+    expect(otpSentBody(required, '+251911234567', otp, 'register')).toEqual({
+      otpSentTo: expect.any(String),
+      otpExpiresAt: '2026-10-08T10:05:00.000Z',
+    });
+  });
+
   it('are echoed on screen only for registration, and only in demo mode with the mock SMS', () => {
     const otp = { code: '123456', expiresAt: new Date('2026-10-08T10:05:00.000Z') };
     const gateway = (name: string): SmsProvider => ({ name, send: async () => ({ id: '1' }) });

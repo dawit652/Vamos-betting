@@ -96,6 +96,16 @@ describe('loadConfig', () => {
     expect(config.taxConfigConfirmed).toBe(true);
   });
 
+  it('sends the registration SMS code unless REGISTRATION_SMS_VERIFICATION=off', () => {
+    expect(loadConfig({}).registration.smsVerification).toBe('required');
+    expect(loadConfig({ REGISTRATION_SMS_VERIFICATION: 'off' }).registration.smsVerification).toBe(
+      'off',
+    );
+    expect(problemsOf({ REGISTRATION_SMS_VERIFICATION: 'maybe' }).join(' ')).toMatch(
+      /REGISTRATION_SMS_VERIFICATION/,
+    );
+  });
+
   it('no longer accepts KYC_PROVIDER=fayda: mock is the only KYC provider', () => {
     expect(problemsOf({ KYC_PROVIDER: 'fayda' }).join('\n')).toMatch(/KYC_PROVIDER/);
     expect(loadConfig({ KYC_PROVIDER: 'mock' }).providers.kyc).toBe('mock');

@@ -19,6 +19,11 @@ export const accountPaths = {
   withdraw: routes.withdraw,
 } as const;
 
+/** Where a new player lands: back to what they were doing, or the wallet to add funds. */
+export function afterSignUp(next: string): string {
+  return next === routes.home ? `${routes.wallet}?welcome=1` : next;
+}
+
 /**
  * A `?next=` value that is safe to navigate to after logging in: a path on this
  * site (one leading slash, no scheme, no protocol-relative `//host`, no

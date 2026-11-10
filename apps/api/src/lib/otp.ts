@@ -339,9 +339,23 @@ export async function sendOtpSms(
   }
 }
 
-/** True when codes may be echoed to the client: demo mode with the mock SMS gateway only. */
-export function exposesDemoOtp(deps: Pick<AppDeps, 'config' | 'sms'>): boolean {
-  return deps.config.mode === 'demo' && deps.sms.name === 'mock';
+/** True when registration codes are handed to the client instead of sent (REGISTRATION_SMS_VERIFICATION=off). */
+function registrationWithoutSms(deps: Pick<AppDeps, 'config'>, purpose: OtpPurpose): boolean {
+  return purpose === 'register' && deps.config.registration.smsVerification === 'off';
+}
+
+/**
+ * True when the code of `purpose` may be echoed to the client: demo mode with the mock SMS gateway, or
+ * a registration code while REGISTRATION_SMS_VERIFICATION=off. Only the purposes of ECHOED_PURPOSES
+ * ever qualify, and a password-reset or payout-account code is never echoed outside demo mode.
+ */
+export function exposesDemoOtp(
+  deps: Pick<AppDeps, 'config' | 'sms'>,
+  purpose: OtpPurpose = 'register',
+): boolean {
+  if (!ECHOED_PURPOSES.has(purpose)) return false;
+  if (deps.config.mode === 'demo' && deps.sms.name === 'mock') return true;
+  return registrationWithoutSms(deps, purpose);
 }
 
 /**
@@ -370,6 +384,7 @@ export function otpSentBody(
   return {
     otpSentTo: maskMsisdn(phone),
     otpExpiresAt: otp.expiresAt.toISOString(),
-    ...(ECHOED_PURPOSES.has(purpose) && exposesDemoOtp(deps) ? { demoOtp: otp.code } : {}),
+    ...(exposesDemoOtp(deps, purpose) ? { demoOtp: otp.code } : {}),
+    ...(registrationWithoutSms(deps, purpose) ? { registrationWithoutSms: true } : {}),
   };
 }

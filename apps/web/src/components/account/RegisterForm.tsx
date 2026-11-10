@@ -11,7 +11,7 @@ import { useSession } from '@/providers/SessionProvider';
 import { formatBirthDate } from './dates';
 import { formErrors, retryAfterSeconds } from './errors';
 import { PasswordInput, PasswordStrengthMeter, PhoneInput } from './inputs';
-import { accountPaths, loginHref } from './paths';
+import { accountPaths, afterSignUp, loginHref } from './paths';
 import { setPendingRegistration } from './pending';
 import { Alert, Field, describedBy } from './ui';
 import {
@@ -89,6 +89,18 @@ export function RegisterForm({ next }: { next: string }) {
         locale,
         acceptTerms: true,
       });
+      if (response.registrationWithoutSms && response.demoOtp) {
+        // No SMS gateway: the API handed the code back, so confirm it here (the phone is not proven).
+        await authApi.verifyOtp({
+          phone: normalized,
+          code: response.demoOtp,
+          purpose: 'register',
+          registrationToken: response.registrationToken,
+        });
+        await session.refresh();
+        router.replace(afterSignUp(next));
+        return;
+      }
       setPendingRegistration({
         phone: normalized,
         registrationToken: response.registrationToken,
