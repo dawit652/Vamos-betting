@@ -61,6 +61,7 @@ The scraper reads these from the environment (`packages/config/src/config.ts`; e
 | `SCRAPER_MAX_CONCURRENCY`        | `4`              | parallel hosts                                                                                      |
 | `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`             | R4 wait, minimum 5                                                                                  |
 | `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
+| `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                      |
 
 These are code constants, not settings: the number of independent upstreams a result needs (`MIN_INDEPENDENT_SOURCES = 2`),
 the kickoff tolerance, the shape threshold (`SHAPE_MIN_RATIO = 0.5`) and the other rule thresholds in
@@ -166,6 +167,18 @@ A result is an agreed final score from at least two independent upstreams (the r
 | `result_correction`     | an applied result is now contradicted by a source                                                                                 | nobody automatically; a correction reverses payouts (runbook)                                                                               |
 | `result_overdue`        | the match should be over (kickoff + 7 h 45 min), no source has a score and no other result item is open (rule R12)                | a person: look the score up on an official site and enter it in **Trading** (`trading.result`); the item closes by itself afterwards        |
 | `cancellation_proposed` | a source says postponed, cancelled or abandoned                                                                                   | nobody automatically; a person decides by hand in the trading screens                                                                       |
+
+**Half-time markets (rule O6).** A result of an event with a half-time market (`ht_1x2`) waits for a half-time
+score. In a competition where no source gives one (The Odds API's scores never do), it always ends with
+`result_unverified` or `result_overdue` and a person. With `SCRAPER_HALF_TIME_MARKETS=covered`, new events of a
+competition without an enabled half-time source get no half-time market, so two full-time upstreams settle them by
+themselves (auto results on). `sources coverage` shows which competitions are covered: an `HT` count of 1 or more
+(a half-time source without a fixed competition, `(per record)`, covers every competition). Events that already have
+a half-time market keep it: their results still need the half time, so enter it by hand where no source gives it.
+The setting is read at start (`docker compose up -d scraper`); which sources are enabled is read at every pass. The
+default `all` keeps the half-time market everywhere; switch to `covered` once the single-upstream competitions have
+a second full-time upstream (S-3 of [`feed-quality-plan.md`](feed-quality-plan.md)), since before that nothing
+settles faster.
 
 Corrections are never automatic. A correction is made in **Trading**, on the event, with **Enter result**
 (`trading.result`), which needs a reason. Scraped data never cancels, voids or abandons an event: a

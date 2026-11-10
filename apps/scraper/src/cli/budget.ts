@@ -16,7 +16,7 @@ import {
   type SourceAdapter,
 } from '@vamos/scraper';
 import { EXIT_OK, emit, noPositionals, parseCommandArgs, table, type CliEnv } from './io';
-import { competitionResolver } from './source-competition';
+import { competitionResolver } from '../lib/source-competition';
 
 /** The Odds API 20K plan (docs/theoddsapi-plan/README.md, section 2): credits a month, reset on the 1st (UTC). */
 export const PLAN_QUOTA = 20_000;

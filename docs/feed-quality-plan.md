@@ -274,6 +274,7 @@ Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" 
 | M-2        | `eval scorecard` command                                | ✅     | reads M1 captures and results; unit 11/11, cli 3/3 (seeded loop, not fast-check) |
 | F-2        | Fixture conflicts close once sources agree (2 passes)   | ✅     | rule F6c; streak in the item payload, no migration; unit 13/13, scraper 4/4      |
 | S-4        | Cup scores of The Odds API wait for a person            | ✅     | rules A10, R10a; cup basis `unknown`; result 74/74, adapter 55/55, scraper 2/2   |
+| S-2        | Half-time markets only where a source gives half time   | ✅     | rule O6; `SCRAPER_HALF_TIME_MARKETS` (default `all`); unit 8/8, scraper 4/4      |
 | all others | see sections 5–8                                        | ⬜     |                                                                                  |
 
 **Next session, in order:** deploy (migrations 0045 and 0046 run in the `migrate` job at start); after a week of matches, M-3 (`eval scorecard --days 7`, compared with section 2); U-2 (aliases such as FC Twente Enschede) once the server report lists the unknown names; then P-items only where the scorecard shows a gain (measure

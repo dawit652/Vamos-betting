@@ -53,6 +53,7 @@ import { and, eq } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { priceEvent } from './event-pricing';
+import { halfTimeCheck, type HalfTimeCheck } from './half-time';
 import {
   auditScraper,
   display,
@@ -174,6 +175,10 @@ export async function promoteFixtures(
   };
 
   const clusters = clusterObservations(observations).filter((c) => policies.has(c.competitionId));
+  // O6: which competitions' new events get the half-time markets (read once, when first needed).
+  let halfTime: Promise<HalfTimeCheck> | undefined;
+  const halfTimeOf = async (competitionId: string): Promise<boolean> =>
+    (await (halfTime ??= halfTimeCheck(ctx)))(competitionId);
   const plan = planClusters(clusters, events);
   const deferred = cutoff === null ? new Set<number>() : deferredClusters(clusters, plan, cutoff);
   for (const [index, cluster] of clusters.entries()) {
@@ -205,7 +210,12 @@ export async function promoteFixtures(
             : [];
       const pricing =
         candidates.length === 0
-          ? await pricingFor(ctx, cluster.homeTeamId, cluster.awayTeamId)
+          ? await pricingFor(
+              ctx,
+              cluster.homeTeamId,
+              cluster.awayTeamId,
+              await halfTimeOf(cluster.competitionId),
+            )
           : null;
       const gateInput = {
         observations: cluster.items,
@@ -659,8 +669,15 @@ async function assessCreation(
  * O1 and O2 for a fixture that has no event yet. A new event is always created with the model's
  * prices (rule O5: the market has nothing to be read for before the event exists); the next
  * re-pricing pass moves it to the market prices when its competition takes them from the feed.
+ * `halfTimeMarkets` is rule O6 for the fixture's competition (halfTimeCheck; default true: every
+ * market): false leaves the half-time markets out, as re-pricing does for the event later.
  */
-export async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTeamId: string) {
+export async function pricingFor(
+  ctx: ScraperContext,
+  homeTeamId: string,
+  awayTeamId: string,
+  halfTimeMarkets = true,
+) {
   const ratings = await getTeamRatings(ctx.db, [homeTeamId, awayTeamId]);
   const price = await priceEvent(ctx.db, {
     competitionPricingSource: 'model',
@@ -669,12 +686,14 @@ export async function pricingFor(ctx: ScraperContext, homeTeamId: string, awayTe
     awayRatings: ratings.get(awayTeamId)?.ratings ?? null,
     minRatingMatches: ctx.config.scraper.minRatingMatches,
     now: ctx.clock(),
+    halfTimeMarkets,
   });
   return {
     calibrated: price.calibrated,
     markets: price.markets,
     ratingsKey: price.key,
     pricesSane: price.pricesSane,
+    halfTimeOmitted: price.halfTimeOmitted === true,
   };
 }
 
@@ -738,7 +757,12 @@ class FeedRefTaken extends Error {}
 export async function applyCreate(
   ctx: ScraperContext,
   decision: FixtureCreate,
-  pricing: { markets: ReturnType<typeof priceFixture>; ratingsKey: string } | null,
+  pricing: {
+    markets: ReturnType<typeof priceFixture>;
+    ratingsKey: string;
+    /** Rule O6 left the half-time markets out (audited). */
+    halfTimeOmitted?: boolean;
+  } | null,
   now: Date,
   kickoff: Pick<KickoffAssessment, 'confirmed' | 'basis'> | null = null,
 ): Promise<{ created: boolean; messages: LiveMessage[] }> {
@@ -829,6 +853,7 @@ export async function applyCreate(
           kickoffConfirmed: kickoff?.confirmed ?? null,
           kickoffBasis: kickoff?.basis ?? null,
           reviews: reviewsOf(decision).map((r: GateReview) => r.kind),
+          ...(pricing?.halfTimeOmitted === true ? { halfTimeMarkets: 'omitted (O6)' } : {}),
         },
       });
       return messages;

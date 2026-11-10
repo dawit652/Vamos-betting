@@ -587,6 +587,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       maxConcurrency: 4,
       resultConfirmMinutes: 15,
       minRatingMatches: 8,
+      halfTimeMarkets: 'all',
     });
     // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
     expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
@@ -602,6 +603,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       SCRAPER_MAX_CONCURRENCY: '8',
       SCRAPER_RESULT_CONFIRM_MINUTES: '5',
       SCRAPER_MIN_RATING_MATCHES: '1',
+      SCRAPER_HALF_TIME_MARKETS: 'covered',
     });
     expect(config.scraper).toEqual({
       archiveDir: '/data/scraper',
@@ -612,6 +614,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       maxConcurrency: 8,
       resultConfirmMinutes: 5,
       minRatingMatches: 1,
+      halfTimeMarkets: 'covered',
     });
     // A blank contact (as in an env file) is "not set".
     expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();
@@ -624,6 +627,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       ['SCRAPER_MAX_CONCURRENCY', ['0', '-1', '1.5', 'x', '65']],
       ['SCRAPER_PORT', ['-1', '70000', '42.5', 'x']],
       ['SCRAPER_ROBOTS', ['maybe', 'ON', 'false']],
+      ['SCRAPER_HALF_TIME_MARKETS', ['some', 'COVERED', 'true', '']],
       ['SCRAPER_ARCHIVE_DIR', ['   ']],
       ['SCRAPER_USER_AGENT', ['   ', 'Bot\r\nX-Evil: 1', 'Bøt/1.0']],
       [

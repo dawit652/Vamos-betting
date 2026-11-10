@@ -376,6 +376,10 @@ Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_M
   silence on it, so a full-time-only upstream (The Odds API's scores of a
   league) still counts for the full time. The half time then rests on the upstreams that give
   it: it settles only `ht_1x2`. Sources that share an upstream count once.
+  `needsHalfTimeScore` is read from the event's stored markets (`listScrapedEvents`: the event has
+  a market whose type has `period: 'half_time'`, of any status), never from the competition: an
+  event without a half-time market (rule O6) needs only the full time, so two full-time upstreams
+  (for example The Odds API's scores and a second full-time source) apply it.
 - **R3 Dissent blocks.** Any current observation from any source with status
   `finished` and a different score, or with status `cancelled` / `abandoned` /
   `postponed`, blocks the result and opens `result_conflict`. A source that has
@@ -629,6 +633,37 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   - Constants (`packages/scraper/src/constants.ts` and the pricing packages): `CONSENSUS_MIN_BOOKS` 2,
     `MARKET_ODDS_MAX_AGE_MS` 3 h, `MARKET_ODDS_LINK_WINDOW_MS` 6 h, `MAX_MARKET_FIT_RESIDUAL` 0.03,
     `MAX_PRICE_MOVE_RATIO` 1.25 (unchanged).
+- **O6 Half-time markets only where a source gives half time (2026-11, S-2 of
+  `docs/feed-quality-plan.md`).** A half-time market (`ht_1x2`, the only market type with
+  `period: 'half_time'`) settles on the half-time score, so an event that has one waits for a half
+  time before R2 applies its result. Where no source gives half time, every such result waited for
+  R6 (7 h 45 min after kickoff) and a person. With `SCRAPER_HALF_TIME_MARKETS=covered`:
+  - A competition is **covered** when at least one ENABLED source gives a full-time score with a
+    half time (`sourceCapabilities`: `fullTime && halfTime`, the "HT" column of `sources coverage`)
+    and one of its configured competition labels resolves to the competition (N2, through the
+    source's aliases first). football-data.org and openfootball count; The Odds API's scores and
+    TheRundown do not (they never give a half time). A half-time source whose competition comes
+    per record (a generic adapter without a fixed competition) may cover any competition, so it
+    covers all of them. A source whose config the adapter refuses is skipped. It is read from the
+    configs once per pass (`halfTimeCheck`, `apps/scraper/src/pipeline/half-time.ts`), not from what
+    the sources delivered: openfootball counts even where its dataset has no `ht` (then results
+    still wait, as before).
+  - `priceEvent` (O5, one function for creation, re-pricing and the hand-over) leaves the half-time
+    markets out of the prices of an event in a competition that is not covered, whether the
+    prices come from the model or the market; O2 (`pricesSane`) is checked on what remains. Every
+    other market is kept unchanged (`withoutHalfTimeMarkets`). The audit of
+    `scrape.fixture.created` and `scrape.fixture.repriced` records `halfTimeMarkets: 'omitted (O6)'`.
+  - **A stored half-time market is never taken away.** An event that already has one (any status)
+    keeps being priced with it, so a re-price never removes a market (which O3 would hold for a
+    person) and nothing is voided. Its result still needs the half time: where no source gives one,
+    a person enters it (R6, R12), as before.
+  - A competition that becomes covered (a half-time source enabled) gets the half-time market on
+    its new events, and on existing events at their next re-price (O3 may add a market). Switching
+    the setting back to `all` does the same everywhere.
+  - With `all` (the default) every scraped football event gets every market, as before. The
+    default stays `all` because, until a second full-time upstream exists for the single-upstream
+    competitions (S-3), `covered` removes `ht_1x2` from their new events without making any result
+    faster; switch it on together with that upstream.
 - **O4 Ratings update.** A confirmed result updates both teams' ratings once
   (`scrape_rating_applied`), in the same transaction as the result. In the same
   transaction the competition's home advantage is re-derived from its finished
@@ -756,6 +791,7 @@ normative):
 | `SCRAPER_MAX_CONCURRENCY`        | `4`              | parallel hosts                                                                                      |
 | `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`             | R4 wait, minimum 5                                                                                  |
 | `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
+| `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                      |
 
 There is **no** setting for the number of sources a result needs: it is the
 constant `MIN_INDEPENDENT_SOURCES = 2`.

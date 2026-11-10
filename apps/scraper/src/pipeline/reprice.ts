@@ -56,6 +56,7 @@ import { publishAfterCommit } from '../lib/publish';
 import { LOOK_AHEAD_MS } from './promote-fixtures';
 import { auditScraper, display, openGateReviews, teamNames } from './common';
 import { isMarketKey, priceEvent, type EventPrice } from './event-pricing';
+import { halfTimeCheck, type HalfTimeCheck } from './half-time';
 
 export interface RepriceSummary {
   /** Scheduled events whose ratings changed since they were priced. */
@@ -123,7 +124,10 @@ const skipped = (): Outcome => ({ kind: 'skipped', messages: [] });
  *   (`syncSuspensions`, rule A2);
  * - never touches an event that is not scheduled, has a result, starts within
  *   MIN_LEAD_MS, belongs to a competition without a policy row, or whose
- *   teams are not calibrated (O1).
+ *   teams are not calibrated (O1);
+ * - prices with rule O6 (halfTimeCheck, read once per pass): no half-time market for an event of a
+ *   competition without a half-time source under SCRAPER_HALF_TIME_MARKETS=covered, but an event
+ *   that has one keeps it (priceEvent), so a re-price never removes a market.
  *
  * Betting stays as it is: a closed event is re-priced and stays closed. This
  * step never opens betting, not even for a competition with `auto_open` on:
@@ -171,6 +175,7 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
       policyOf.has(event.competitionId),
   );
   if (scheduled.length === 0) return summary;
+  const halfTime = await halfTimeCheck(ctx);
 
   // A cheap look at a snapshot decides which events deserve a transaction.
   const ratings = await getTeamRatings(
@@ -189,7 +194,18 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     // Only a competition that takes market prices needs the market read; the others look at the ratings alone.
     const price =
       policy.pricingSource === 'market'
-        ? await priceEvent(ctx.db, pricingInput(ctx, policy, event.eventId, home, away, now))
+        ? await priceEvent(
+            ctx.db,
+            pricingInput(
+              ctx,
+              policy,
+              event.eventId,
+              home,
+              away,
+              now,
+              halfTime(event.competitionId),
+            ),
+          )
         : null;
     const key = price?.key ?? ratingsKey(home, away);
     const stamp = stamps.get(event.eventId);
@@ -229,7 +245,7 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     if (state !== 'go') continue;
     summary.events += 1;
     try {
-      const outcome = await repriceOne(ctx, event, now);
+      const outcome = await repriceOne(ctx, event, now, halfTime);
       if (outcome.kind === 'repriced') summary.repriced += 1;
       else if (outcome.kind === 'held') summary.held += 1;
       else if (outcome.kind === 'skipped') summary.skipped += 1;
@@ -244,7 +260,7 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
       ctx.logger.error({ err: error, eventId: event.eventId }, 're-pricing failed');
     }
   }
-  await handOverCalibrated(ctx, scheduled, policyOf, now, summary);
+  await handOverCalibrated(ctx, scheduled, policyOf, now, summary, halfTime);
   // Last: with the holds of this pass raised and the stamps current (rule A2).
   await syncSuspensions(ctx, scheduled, policyOf, now, summary);
   ctx.logger[
@@ -268,6 +284,8 @@ const pricingInput = (
   home: TeamRatings | null,
   away: TeamRatings | null,
   now: Date,
+  /** Rule O6 for the event's competition (halfTimeCheck). */
+  halfTimeMarkets: boolean,
 ) => ({
   competitionPricingSource: policy.pricingSource,
   eventId,
@@ -275,6 +293,7 @@ const pricingInput = (
   awayRatings: away,
   minRatingMatches: ctx.config.scraper.minRatingMatches,
   now,
+  halfTimeMarkets,
 });
 
 /**
@@ -374,7 +393,12 @@ const asGate = (
  * said is read again (status, kickoff, ratings, stamp, prices) so a result, a
  * trader or a second worker in between cannot make the decision stale.
  */
-async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): Promise<Outcome> {
+async function repriceOne(
+  ctx: ScraperContext,
+  event: ScrapedEvent,
+  now: Date,
+  halfTime: HalfTimeCheck,
+): Promise<Outcome> {
   return ctx.db.transaction(async (tx): Promise<Outcome> => {
     const locked = await lockEvent(tx, event.eventId);
     const [row] = await tx
@@ -405,8 +429,12 @@ async function repriceOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): 
     const rated = await getTeamRatings(tx, [row.homeTeamId, row.awayTeamId]);
     const home = rated.get(row.homeTeamId)?.ratings ?? null;
     const away = rated.get(row.awayTeamId)?.ratings ?? null;
-    // O5: where the prices come from (the market when the policy says so and a fresh consensus exists).
-    const price = await priceEvent(tx, pricingInput(ctx, policy, event.eventId, home, away, now));
+    // O5: where the prices come from (the market when the policy says so and a fresh consensus
+    // exists); O6: which markets (an event keeps a half-time market it has).
+    const price = await priceEvent(
+      tx,
+      pricingInput(ctx, policy, event.eventId, home, away, now, halfTime(row.competitionId)),
+    );
     // The market's data is late: an event of a market-priced competition closes betting early.
     if (policy.pricingSource === 'market') {
       await raiseCloseLead(tx, event.eventId, MARKET_CLOSE_LEAD_MS);
@@ -550,6 +578,7 @@ const pricingAudit = (price: EventPrice) => ({
   ...(price.residual === undefined ? {} : { fitResidual: price.residual }),
   ...(price.totalsLine === undefined ? {} : { totalsLine: price.totalsLine }),
   ...(price.fallback === undefined ? {} : { marketFallback: price.fallback }),
+  ...(price.halfTimeOmitted === true ? { halfTimeMarkets: 'omitted (O6)' } : {}),
 });
 
 /** How the prices were made, as the review payload shows it (contract: OddsReviewPayload.pricing). */
@@ -610,6 +639,7 @@ async function handOverCalibrated(
   policyOf: ReadonlyMap<string, PricingPolicy>,
   now: Date,
   summary: RepriceSummary,
+  halfTime: HalfTimeCheck,
 ): Promise<void> {
   const waiting = await openUncalibratedSubjects(ctx);
   if (waiting.size === 0) return;
@@ -617,7 +647,7 @@ async function handOverCalibrated(
     if (!waiting.has(event.feedRef) || policyOf.get(event.competitionId)?.enabled !== true)
       continue;
     try {
-      if (await handOverOne(ctx, event, now)) summary.calibrated += 1;
+      if (await handOverOne(ctx, event, now, halfTime)) summary.calibrated += 1;
     } catch (error) {
       summary.failed += 1;
       ctx.logger.error(
@@ -628,7 +658,12 @@ async function handOverCalibrated(
   }
 }
 
-async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date): Promise<boolean> {
+async function handOverOne(
+  ctx: ScraperContext,
+  event: ScrapedEvent,
+  now: Date,
+  halfTime: HalfTimeCheck,
+): Promise<boolean> {
   return ctx.db.transaction(async (tx) => {
     const locked = await lockEvent(tx, event.eventId);
     const [row] = await tx
@@ -658,7 +693,10 @@ async function handOverOne(ctx: ScraperContext, event: ScrapedEvent, now: Date):
     const away = rated.get(row.awayTeamId)?.ratings ?? null;
     // Ready: calibrated teams (O1), or market prices strong enough to open without them (O1m),
     // the same test a person's "Open betting" applies, and ...
-    const price = await priceEvent(tx, pricingInput(ctx, policy, event.eventId, home, away, now));
+    const price = await priceEvent(
+      tx,
+      pricingInput(ctx, policy, event.eventId, home, away, now, halfTime(row.competitionId)),
+    );
     const minMatches = ctx.config.scraper.minRatingMatches;
     const teamsCalibrated = isCalibrated(home, minMatches) && isCalibrated(away, minMatches);
     if (!teamsCalibrated && !(price.source === 'market' && price.backsOpening)) return false;
@@ -836,9 +874,10 @@ async function suspensionCause(
   ) {
     return null;
   }
-  // The market as it is now, from prices listed in the last MARKET_LAPSE_MAX_AGE_MS only.
+  // The market as it is now, from prices listed in the last MARKET_LAPSE_MAX_AGE_MS only (only
+  // where the prices come from counts here, not which markets: O6 is not asked).
   const fresh = await priceEvent(exec, {
-    ...pricingInput(ctx, policy, input.eventId, null, null, now),
+    ...pricingInput(ctx, policy, input.eventId, null, null, now, true),
     maxAgeMs: MARKET_LAPSE_MAX_AGE_MS,
   });
   return fresh.source === 'market' ? null : 'market_lapsed';

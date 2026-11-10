@@ -6,7 +6,7 @@ import {
   type CoverageEntry,
 } from '@vamos/scraper';
 import { EXIT_OK, emit, noPositionals, parseCommandArgs, table, type CliEnv } from './io';
-import { competitionResolver } from './source-competition';
+import { competitionResolver } from '../lib/source-competition';
 
 const yesNo = (value: boolean): string => (value ? 'yes' : 'no');
 

@@ -66,6 +66,8 @@ export interface HarnessOptions {
   upstreamB?: string;
   /** Secrets the fetcher may read by name (SCRAPER_SECRET_*), for sources that need a key. */
   secrets?: Record<string, string>;
+  /** SCRAPER_HALF_TIME_MARKETS (rule O6); default the config's own default. */
+  halfTimeMarkets?: 'all' | 'covered';
 }
 
 // --- documents -----------------------------------------------------------------
@@ -156,6 +158,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     FEED_PROVIDER: 'scraped',
     SCRAPER_ARCHIVE_DIR: dir,
     SCRAPER_PORT: '0',
+    ...(options.halfTimeMarkets === undefined
+      ? {}
+      : { SCRAPER_HALF_TIME_MARKETS: options.halfTimeMarkets }),
   });
 
   let clock = new Date(T0);

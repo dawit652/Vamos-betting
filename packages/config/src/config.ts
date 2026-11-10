@@ -231,6 +231,13 @@ const envSchema = z.object({
   SCRAPER_RESULT_CONFIRM_MINUTES: z.coerce.number().int().min(5).max(1440).default(15),
   /** Rated matches a team needs before real bets are priced from its ratings (rule O1). */
   SCRAPER_MIN_RATING_MATCHES: z.coerce.number().int().min(1).max(10_000).default(8),
+  /**
+   * Rule O6 (docs/scraper.md 6.5, S-2 of docs/feed-quality-plan.md): `all` offers the half-time
+   * markets on every scraped football event (as before); `covered` offers them only in a
+   * competition where an enabled source gives half-time scores, so a result there needs no half
+   * time. Existing events keep the half-time markets they have either way.
+   */
+  SCRAPER_HALF_TIME_MARKETS: z.enum(['all', 'covered']).default('all'),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -400,6 +407,8 @@ export interface ScraperConfig {
   resultConfirmMinutes: number;
   /** SCRAPER_MIN_RATING_MATCHES (at least 1): rule O1. */
   minRatingMatches: number;
+  /** SCRAPER_HALF_TIME_MARKETS: rule O6, `all` (default) or `covered`. */
+  halfTimeMarkets: 'all' | 'covered';
 }
 
 /** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -692,6 +701,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       maxConcurrency: e.SCRAPER_MAX_CONCURRENCY,
       resultConfirmMinutes: e.SCRAPER_RESULT_CONFIRM_MINUTES,
       minRatingMatches: e.SCRAPER_MIN_RATING_MATCHES,
+      halfTimeMarkets: e.SCRAPER_HALF_TIME_MARKETS,
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {
