@@ -213,6 +213,13 @@ is stored and which teams are manual.
 **Queue at a glance.** `review counts` prints the open review items per kind (every kind, zeros included) with the
 creation time of the oldest open item, and the total; `--json` gives the same as JSON.
 
+**Scorecard of the prices at close.** `eval scorecard [--days N | --from <iso> --to <iso>]` (default: the last 7
+days, N from 1 to 90) compares the prices recorded at betting close (rule M1) with the results, read-only: the
+sample (settled, void, pending), the Brier score, log-loss and RPS of our 1X2 and over/under 2.5 forecasts against
+the books' consensus and Pinnacle (log-loss relative to Pinnacle, target within 1%), our calibration, our overround
+against the market's, the bettor edge against Pinnacle and the consensus, and how often our price beats the best
+book. Overall, per competition and per pricing source (`model` or `market`); `--json` gives the structured result.
+
 **Command line in production.** The database is not published, so the commands run in the scraper image:
 `docker compose run --rm --no-deps scraper node dist/cli.js <command>`, with files mounted read-only (`-v
 "$PWD/file:/in/file:ro"`). Details and an example are in [scraper.md](scraper.md#production).

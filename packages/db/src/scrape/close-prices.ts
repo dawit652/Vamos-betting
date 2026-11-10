@@ -1,6 +1,7 @@
 import type { ScrapeOddsMarket, ScrapeOddsSelection, ScrapePricingSource } from '@vamos/core';
-import { and, asc, gte, inArray, lt } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lt } from 'drizzle-orm';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
+import { competitions, events } from '../schema/catalog';
 import { scrapeClosePrices } from '../schema/scrape';
 
 /**
@@ -86,4 +87,53 @@ export async function listClosePrices(
     selection: row.selection as ScrapeOddsSelection,
     pricingSource: row.pricingSource as ScrapePricingSource,
   }));
+}
+
+/** An event with a recorded close, as M-2 scores it: where it belongs and how it ended. */
+export interface ClosePriceEvent {
+  eventId: string;
+  competitionId: string;
+  /** The competition's English name (its slug if the name is empty). */
+  competitionName: string;
+  status: string;
+  scoreHome: number | null;
+  scoreAway: number | null;
+  resultedAt: Date | null;
+}
+
+/** The competition and result of each of `eventIds` (for M-2), read in chunks of 200. */
+export async function closePriceEvents(
+  exec: DbExecutor,
+  eventIds: readonly string[],
+): Promise<ClosePriceEvent[]> {
+  const ids = [...new Set(eventIds)];
+  const result: ClosePriceEvent[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const rows = await exec
+      .select({
+        eventId: events.id,
+        competitionId: events.competitionId,
+        name: competitions.name,
+        slug: competitions.slug,
+        status: events.status,
+        scoreHome: events.scoreHome,
+        scoreAway: events.scoreAway,
+        resultedAt: events.resultedAt,
+      })
+      .from(events)
+      .innerJoin(competitions, eq(competitions.id, events.competitionId))
+      .where(inArray(events.id, ids.slice(i, i + 200)));
+    for (const row of rows) {
+      result.push({
+        eventId: row.eventId,
+        competitionId: row.competitionId,
+        competitionName: row.name.en !== '' ? row.name.en : row.slug,
+        status: row.status,
+        scoreHome: row.scoreHome,
+        scoreAway: row.scoreAway,
+        resultedAt: row.resultedAt,
+      });
+    }
+  }
+  return result;
 }

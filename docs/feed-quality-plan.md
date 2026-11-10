@@ -257,23 +257,24 @@ pwsh -File "C:\Users\dawit\Desktop\claude projects\vamos betting two\scripts\fee
 
 Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" = the 2026-11-10 working session.
 
-| ID         | Item                                                    | Status | Notes                                                                          |
-| ---------- | ------------------------------------------------------- | ------ | ------------------------------------------------------------------------------ |
-| —          | `scripts/feed-report.ps1` (20 read-only sections)       | ✅     | tested against a migrated database                                             |
-| U-1        | Premier League alias imported by `use-football-data.sh` | ✅     | commit b8d7eb4; syntax checked                                                 |
-| O-1        | Import the Premier League alias on the server           | ⬜     | owner, section 8                                                               |
-| Q-2        | `cli review counts`                                     | ✅     | `review counts`; db 2/2, cli 3/3                                               |
-| R-1        | Market-priced events count as calibrated                | ✅     | rule O1m; scraper 427/428 (cli-usage: Windows only), api 53/53; deploy pending |
-| Q-1        | Review queue sweeper                                    | ✅     | rule Q1; sweeper 8/8, auto-open 14/14                                          |
-| A-2        | Suspend on held re-price or lapsed market               | ✅     | rule A2; migration 0045 (`suspended_for`)                                      |
-| P-7        | `market_stale` for no_totals and poor_fit               | ✅     | with A-2                                                                       |
-| S-5        | Manual result updates ratings, 105-minute floor         | ✅     | rules R1 (person) and O4 (hand results); scraper 4/4, api 4/4                  |
-| A-1        | First market price of uncalibrated teams not held       | ✅     | rule A1 (switch at the next pass, not at creation); scraper 4/4                |
-| M-1        | Prices at betting close                                 | ✅     | rule M1; migration 0046 (`scrape_close_prices`); scraper 2/2, db 2/2           |
-| U-3        | Legal-form fallback for team names                      | ✅     | rule N2b; unit 68/68, seeded-catalogue check 1/1                               |
-| all others | see sections 5–8                                        | ⬜     |                                                                                |
+| ID         | Item                                                    | Status | Notes                                                                            |
+| ---------- | ------------------------------------------------------- | ------ | -------------------------------------------------------------------------------- |
+| —          | `scripts/feed-report.ps1` (20 read-only sections)       | ✅     | tested against a migrated database                                               |
+| U-1        | Premier League alias imported by `use-football-data.sh` | ✅     | commit b8d7eb4; syntax checked                                                   |
+| O-1        | Import the Premier League alias on the server           | ⬜     | owner, section 8                                                                 |
+| Q-2        | `cli review counts`                                     | ✅     | `review counts`; db 2/2, cli 3/3                                                 |
+| R-1        | Market-priced events count as calibrated                | ✅     | rule O1m; scraper 427/428 (cli-usage: Windows only), api 53/53; deploy pending   |
+| Q-1        | Review queue sweeper                                    | ✅     | rule Q1; sweeper 8/8, auto-open 14/14                                            |
+| A-2        | Suspend on held re-price or lapsed market               | ✅     | rule A2; migration 0045 (`suspended_for`)                                        |
+| P-7        | `market_stale` for no_totals and poor_fit               | ✅     | with A-2                                                                         |
+| S-5        | Manual result updates ratings, 105-minute floor         | ✅     | rules R1 (person) and O4 (hand results); scraper 4/4, api 4/4                    |
+| A-1        | First market price of uncalibrated teams not held       | ✅     | rule A1 (switch at the next pass, not at creation); scraper 4/4                  |
+| M-1        | Prices at betting close                                 | ✅     | rule M1; migration 0046 (`scrape_close_prices`); scraper 2/2, db 2/2             |
+| U-3        | Legal-form fallback for team names                      | ✅     | rule N2b; unit 68/68, seeded-catalogue check 1/1                                 |
+| M-2        | `eval scorecard` command                                | ✅     | reads M1 captures and results; unit 11/11, cli 3/3 (seeded loop, not fast-check) |
+| all others | see sections 5–8                                        | ⬜     |                                                                                  |
 
-**Next session, in order:** deploy (migrations 0045 and 0046 run in the `migrate` job at start), then M-2 (the scorecard over `listClosePrices` and the results; measure
+**Next session, in order:** deploy (migrations 0045 and 0046 run in the `migrate` job at start); after a week of matches, M-3 (`eval scorecard --days 7`, compared with section 2); U-2 (aliases such as FC Twente Enschede) once the server report lists the unknown names; then P-items only where the scorecard shows a gain (measure
 before tuning prices).
 
 **Environment (2026-11-10):** the owner's PC had 4–5 GB free on C:. Docker started later in the day, and the

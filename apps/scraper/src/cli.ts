@@ -10,6 +10,7 @@ import { claimOperatingMode, createDb, DomainError, type Database, type DbHandle
 import { PoliteFetcher } from '@vamos/scraper';
 import { aliasesImport, aliasesList, aliasesRemove } from './cli/aliases';
 import { dryFetch, dryParse } from './cli/dry-run';
+import { evalScorecard } from './cli/eval';
 import {
   CliFailure,
   defaultReadFile,
@@ -62,6 +63,10 @@ commands:
       Football teams that have ratings: attack, defence, matches, manual.
   review counts
       Open review items per kind (zeros included) with the date of the oldest, and a total.
+  eval scorecard [--days N | --from <iso> --to <iso>]
+      Prices at betting close against the results (last 7 days by default, N from 1 to 90):
+      sample, 1X2 and over/under scores of ours, the consensus and Pinnacle, calibration, overround,
+      bettor edge and best-price shares; overall, per competition and per pricing source. Read-only.
 
 every command accepts --json (machine-readable output).
 exit codes: 0 success, 1 failed or refused, 2 wrong command line.`;
@@ -80,10 +85,11 @@ const COMMANDS: Record<string, Command> = {
   'ratings set': ratingsSet,
   'ratings list': ratingsList,
   'review counts': reviewCounts,
+  'eval scorecard': evalScorecard,
 };
 
 /** Words that take a sub-command; the rest are commands on their own. */
-const GROUPS = new Set(['sources', 'aliases', 'ratings', 'review']);
+const GROUPS = new Set(['sources', 'aliases', 'ratings', 'review', 'eval']);
 
 /** Runs one command line and returns the exit code; never throws and never exits. */
 export async function runCli(argv: readonly string[], env: CliEnv): Promise<number> {

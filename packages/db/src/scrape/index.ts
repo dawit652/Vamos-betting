@@ -115,10 +115,12 @@ export {
   type ScrapeReviewItem,
 } from './review';
 export {
+  closePriceEvents,
   eventsWithClosePrices,
   listClosePrices,
   recordClosePrices,
   type ClosePrice,
+  type ClosePriceEvent,
   type StoredClosePrice,
 } from './close-prices';
 export {
