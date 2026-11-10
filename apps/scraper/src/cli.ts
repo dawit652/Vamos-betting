@@ -24,6 +24,7 @@ import { envSecretReader } from './lib/secrets';
 import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
 import { sourcesBudget } from './cli/budget';
 import { sourcesCoverage } from './cli/coverage';
+import { reviewGaps } from './cli/gaps';
 import { reviewCounts } from './cli/review';
 import { sourcesList, sourcesUpsert } from './cli/sources';
 
@@ -74,12 +75,16 @@ commands:
       teams of upcoming matches whose ratings are not calibrated (rule O1), most matches first.
   review counts
       Open review items per kind (zeros included) with the date of the oldest, and a total.
+  review gaps [--competition slug] [--csv]
+      Clubs sources use that the catalogue lacks (open unknown_team items), per competition and
+      normalised spelling, with sources, rows and first seen. --csv prints
+      competition,spelling,sources,rows,first_seen for "add club" review. Read-only.
   eval scorecard [--days N | --from <iso> --to <iso>]
       Prices at betting close against the results (last 7 days by default, N from 1 to 90):
       sample, 1X2 and over/under scores of ours, the consensus and Pinnacle, calibration, overround,
       bettor edge and best-price shares; overall, per competition and per pricing source. Read-only.
 
-every command accepts --json (machine-readable output).
+every command accepts --json (machine-readable output); review gaps also --csv.
 exit codes: 0 success, 1 failed or refused, 2 wrong command line.`;
 
 type Command = (args: string[], env: CliEnv) => Promise<number>;
@@ -98,6 +103,7 @@ const COMMANDS: Record<string, Command> = {
   'ratings set': ratingsSet,
   'ratings list': ratingsList,
   'review counts': reviewCounts,
+  'review gaps': reviewGaps,
   'eval scorecard': evalScorecard,
 };
 

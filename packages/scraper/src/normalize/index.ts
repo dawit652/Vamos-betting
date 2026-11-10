@@ -30,3 +30,5 @@ export { isValidTimeZone, localDateOf, zonedToUtc } from './time';
 export type { ZonedFailure, ZonedInput, ZonedResult } from './time';
 export { fixtureKey } from './fixture-key';
 export type { FixtureKeyInput } from './fixture-key';
+export { catalogueGaps } from './gaps';
+export type { GapObservation, GapRow } from './gaps';

@@ -1,3 +1,8 @@
+/** One CSV line (RFC 4180): a cell with a comma, quote or line break is quoted, quotes doubled. */
+export function csvLine(cells: readonly string[]): string {
+  return cells.map((c) => (/[",\r\n]/.test(c) ? `"${c.replaceAll('"', '""')}"` : c)).join(',');
+}
+
 /**
  * A small RFC 4180 reader: comma separated, double quotes for fields that hold
  * commas, quotes or line breaks ("" is a quote), CRLF or LF line ends.
