@@ -98,7 +98,7 @@ describe('SmsRailProvider', () => {
   });
 
   it('is built by the factory from the config (simulated in demo mode)', () => {
-    const config = loadConfig({ PAYMENT_PROVIDERS: 'mock,sms' });
+    const config = loadConfig({ OPERATING_MODE: 'demo', PAYMENT_PROVIDERS: 'mock,sms' });
     const registry = createPaymentProviders(config, deps);
     const sms = registry.require('sms');
     expect(sms).toBeInstanceOf(SmsRailProvider);

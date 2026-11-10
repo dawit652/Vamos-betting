@@ -30,8 +30,8 @@ const LICENSED = {
 };
 
 describe('createPaymentProviders', () => {
-  it('builds the mock provider in demo mode by default', () => {
-    const registry = createPaymentProviders(loadConfig({}), deps);
+  it('builds the mock provider in demo mode', () => {
+    const registry = createPaymentProviders(loadConfig({ OPERATING_MODE: 'demo' }), deps);
     expect(registry.names).toEqual(['mock']);
     expect(registry.require('mock')).toBeInstanceOf(MockPaymentProvider);
     expect(registry.require('mock').capabilities).toEqual({ deposits: true, payouts: true });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ConfigError,
   DEV_ADMIN_TOTP_KEY,
@@ -9,11 +9,18 @@ import {
   isDemo,
   isDevAdminTotpKey,
   licensedModeViolations,
-  loadConfig,
+  loadConfig as loadConfigRaw,
   parseAdminTotpKey,
   parseTrustProxy,
   scraperUserAgent,
 } from './config';
+
+/** OPERATING_MODE defaults to licensed, so tests of the demo defaults say so; an explicit mode in `env` wins. */
+function loadConfig(
+  env: Record<string, string | undefined> = {},
+): ReturnType<typeof loadConfigRaw> {
+  return loadConfigRaw({ OPERATING_MODE: 'demo', ...env });
+}
 
 /** A production-grade ADMIN_TOTP_KEY (any 32 bytes other than the development key). */
 const PRODUCTION_TOTP_KEY = '7f'.repeat(32);
@@ -43,7 +50,31 @@ function problemsOf(env: Record<string, string>): string[] {
   return [];
 }
 
+/** Runs loadConfig and returns what it logged with console.warn (the relaxed guard warns instead of refusing). */
+function warningsOf(env: Record<string, string>): string {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  try {
+    loadConfig(env);
+    return warn.mock.calls
+      .map((call) =>
+        call.map((part) => (Array.isArray(part) ? part.join('\n') : String(part))).join(' '),
+      )
+      .join('\n');
+  } finally {
+    warn.mockRestore();
+  }
+}
+
 describe('loadConfig', () => {
+  it('defaults to licensed mode, which refuses the mock payment provider that is the default', () => {
+    expect(() => loadConfigRaw({})).toThrow(
+      /"mock" payment provider is not allowed in licensed mode/,
+    );
+    expect(problemsOf({ OPERATING_MODE: 'licensed' })).toEqual([
+      'the "mock" payment provider is not allowed in licensed mode',
+    ]);
+  });
+
   it('defaults to demo mode with mock providers', () => {
     const config = loadConfig({});
     expect(config.mode).toBe('demo');
@@ -65,26 +96,23 @@ describe('loadConfig', () => {
     expect(config.taxConfigConfirmed).toBe(true);
   });
 
-  it('refuses licensed mode with mock payments, mock KYC, mock SMS, mock feed or unconfirmed tax', () => {
+  it('refuses only the mock payment provider in licensed mode', () => {
     const problems = problemsOf({
       ...LICENSED_ENV,
       PAYMENT_PROVIDERS: 'mock',
-      KYC_PROVIDER: 'mock',
-      SMS_PROVIDER: 'mock',
-      FEED_PROVIDER: 'mock',
-      TAX_CONFIG_CONFIRMED: 'false',
+      MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret-for-the-demo',
     }).join('\n');
-    expect(problems).toMatch(/"mock" payment provider/);
-    expect(problems).toMatch(/at least one real payment provider/);
-    expect(problems).toMatch(/KYC_PROVIDER/);
-    expect(problems).toMatch(/SMS_PROVIDER/);
-    expect(problems).toMatch(/FEED_PROVIDER/);
-    expect(problems).toMatch(/TAX_CONFIG_CONFIRMED/);
-  });
-
-  it('refuses licensed mode with casino enabled', () => {
-    const problems = problemsOf({ ...LICENSED_ENV, FEATURE_CASINO: 'true' }).join('\n');
-    expect(problems).toMatch(/casino/);
+    expect(problems).toMatch(/"mock" payment provider is not allowed in licensed mode/);
+    // The other mocks (KYC, SMS, feed) and an unconfirmed tax setup no longer block startup.
+    expect(
+      problemsOf({
+        ...LICENSED_ENV,
+        KYC_PROVIDER: 'mock',
+        SMS_PROVIDER: 'mock',
+        FEED_PROVIDER: 'mock',
+        TAX_CONFIG_CONFIRMED: 'false',
+      }),
+    ).toEqual([]);
   });
 
   it('ignores the removed ELS reporting variables', () => {
@@ -93,37 +121,32 @@ describe('loadConfig', () => {
     ).toEqual([]);
   });
 
-  it('refuses licensed mode outside production or with the development secret', () => {
-    const problems = problemsOf({
-      ...LICENSED_ENV,
-      NODE_ENV: 'development',
-      SESSION_SECRET: DEV_SESSION_SECRET,
-    }).join('\n');
-    expect(problems).toMatch(/NODE_ENV=production/);
-    expect(problems).toMatch(/SESSION_SECRET/);
+  it('does not require production settings just because the mode is licensed', () => {
+    expect(
+      problemsOf({ ...LICENSED_ENV, NODE_ENV: 'development', SESSION_SECRET: DEV_SESSION_SECRET }),
+    ).toEqual([]);
   });
 
-  it('refuses plain-http provider and callback URLs in licensed mode (review I4)', () => {
+  it('warns about plain-http provider and callback URLs in licensed mode without refusing them', () => {
     for (const [name, url] of [
       ['PAYMENT_CALLBACK_BASE_URL', 'http://api.nahubet.example'],
       ['CHAPA_BASE_URL', 'http://api.chapa.co/v1'],
       ['TELEBIRR_BASE_URL', 'http://telebirr.example/apiaccess'],
       ['TELEBIRR_CHECKOUT_URL', 'http://telebirr.example/checkout'],
-      // Not even on loopback: provider calls carry secrets and must leave the host encrypted.
-      ['CHAPA_BASE_URL', 'http://localhost:8080/v1'],
     ] as const) {
-      const problems = problemsOf({ ...LICENSED_ENV, [name]: url }).join('\n');
-      expect(problems, name).toMatch(new RegExp(`${name} must be an https URL in licensed mode`));
+      expect(warningsOf({ ...LICENSED_ENV, [name]: url }), name).toContain(
+        `Non-HTTPS URL detected for ${name}: ${url}`,
+      );
     }
     expect(
-      problemsOf({
+      warningsOf({
         ...LICENSED_ENV,
         PAYMENT_CALLBACK_BASE_URL: 'https://api.nahubet.example',
         CHAPA_BASE_URL: 'https://api.chapa.co/v1',
         TELEBIRR_BASE_URL: 'https://telebirr.example/apiaccess',
         TELEBIRR_CHECKOUT_URL: 'https://telebirr.example/checkout',
       }),
-    ).toEqual([]);
+    ).not.toContain('Non-HTTPS URL');
     // Demo mode keeps accepting local http stand-ins.
     expect(problemsOf({ CHAPA_BASE_URL: 'http://localhost:8080/v1' })).toEqual([]);
   });
@@ -150,7 +173,7 @@ describe('loadConfig', () => {
     ).toEqual([]);
   });
 
-  it('requires PASSWORD_PEPPER (32+ characters, not the session secret) in production and licensed mode', () => {
+  it('requires PASSWORD_PEPPER (32+ characters, not the session secret) in production', () => {
     const production = {
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
@@ -173,7 +196,11 @@ describe('loadConfig', () => {
     // Development and tests run without one.
     expect(loadConfig({}).passwordPepper).toBeUndefined();
     const { PASSWORD_PEPPER: _omit, ...licensed } = LICENSED_ENV;
-    expect(problemsOf(licensed).join('\n')).toMatch(/PASSWORD_PEPPER is required in licensed mode/);
+    // Licensed mode adds no rule of its own; in production the production rule applies.
+    expect(problemsOf(licensed)).toEqual([
+      'PASSWORD_PEPPER must be set in production (32+ characters)',
+    ]);
+    expect(problemsOf({ ...licensed, NODE_ENV: 'development' })).toEqual([]);
   });
 
   it('refuses the development session secret in production', () => {
@@ -237,7 +264,7 @@ describe('loadConfig', () => {
     }
   });
 
-  it('refuses the development ADMIN_TOTP_KEY in production and in licensed mode', () => {
+  it('refuses the development ADMIN_TOTP_KEY in production', () => {
     const production = {
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
@@ -257,18 +284,17 @@ describe('loadConfig', () => {
     expect(problemsOf({})).toEqual([]);
 
     const { ADMIN_TOTP_KEY: _omit, ...licensed } = LICENSED_ENV;
-    expect(problemsOf(licensed).join('\n')).toMatch(
-      /ADMIN_TOTP_KEY must be a unique key in licensed mode/,
-    );
+    expect(problemsOf(licensed)).toEqual([
+      'ADMIN_TOTP_KEY must be set to a unique key in production',
+    ]);
+    // Licensed mode adds no rule of its own.
     const config = loadConfig(LICENSED_ENV);
     expect(
       licensedModeViolations({
         ...config,
         admin: { totpKey: Buffer.from(DEV_ADMIN_TOTP_KEY, 'hex') },
       }),
-    ).toEqual([
-      'ADMIN_TOTP_KEY must be a unique key in licensed mode (it encrypts the staff TOTP secrets)',
-    ]);
+    ).toEqual([]);
   });
 
   it('reads the payment provider settings with demo-safe defaults', () => {
@@ -322,10 +348,7 @@ describe('loadConfig', () => {
     expect(licensedModeViolations(config)).toEqual([]);
     expect(
       licensedModeViolations({ ...config, providers: { ...config.providers, payments: ['mock'] } }),
-    ).toEqual([
-      'the "mock" payment provider is not allowed in licensed mode',
-      'at least one real payment provider must be configured in PAYMENT_PROVIDERS',
-    ]);
+    ).toEqual(['the "mock" payment provider is not allowed in licensed mode']);
   });
 
   it('reads the simulator speed and the rolling-fixture knobs', () => {
@@ -452,35 +475,6 @@ describe('loadConfig', () => {
     ).toEqual([]);
     // Development keeps the defaults usable.
     expect(problemsOf({ SMS_BETTING_ENABLED: 'true', USSD_ENABLED: 'true' })).toEqual([]);
-  });
-
-  it('refuses the demo "mock" aggregator in licensed mode while a channel is on', () => {
-    const secrets = {
-      SMS_WEBHOOK_SECRET: 'a-unique-production-sms-secret',
-      USSD_SHARED_SECRET: 'a-unique-production-ussd-secret',
-    };
-    const both = problemsOf({
-      ...LICENSED_ENV,
-      ...secrets,
-      SMS_BETTING_ENABLED: 'true',
-      USSD_ENABLED: 'true',
-    });
-    expect(both).toEqual([
-      'SMS_AGGREGATOR "mock" is not allowed in licensed mode (SMS betting needs a contracted aggregator)',
-      'USSD_AGGREGATOR "mock" is not allowed in licensed mode (USSD needs a contracted aggregator)',
-    ]);
-    const smsOnly = problemsOf({ ...LICENSED_ENV, ...secrets, SMS_BETTING_ENABLED: 'true' });
-    expect(smsOnly.join('\n')).toMatch(/SMS_AGGREGATOR "mock"/);
-    expect(smsOnly.join('\n')).not.toMatch(/USSD_AGGREGATOR/);
-    const ussdOnly = problemsOf({ ...LICENSED_ENV, ...secrets, FEATURE_USSD: 'true' });
-    expect(ussdOnly.join('\n')).toMatch(/USSD_AGGREGATOR "mock"/);
-    expect(ussdOnly.join('\n')).not.toMatch(/SMS_AGGREGATOR/);
-    // Channels off: the mock aggregator is never used, so nothing changes.
-    expect(licensedModeViolations(loadConfig(LICENSED_ENV))).toEqual([]);
-    // The guard still refuses what it refused before, whatever the channels say.
-    expect(
-      problemsOf({ ...LICENSED_ENV, SMS_BETTING_ENABLED: 'true', SMS_PROVIDER: 'mock' }).join('\n'),
-    ).toMatch(/SMS_PROVIDER must be a real SMS gateway/);
   });
 });
 
@@ -670,34 +664,6 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
     }
   });
 
-  it('refuses licensed scraping without an absolute archive dir, a contact or robots enforcement', () => {
-    for (const archiveDir of [
-      './var/scraper',
-      'var/scraper',
-      '../scraper',
-      'C:scraper',
-      '~/scraper',
-    ]) {
-      expect(
-        problemsOf({ ...SCRAPED_LICENSED, SCRAPER_ARCHIVE_DIR: archiveDir }),
-        archiveDir,
-      ).toEqual([expect.stringMatching(/^SCRAPER_ARCHIVE_DIR must be an absolute path/)]);
-    }
-    // The defaults are demo-friendly and therefore refused here.
-    const { SCRAPER_ARCHIVE_DIR: _dir, SCRAPER_CONTACT: _contact, ...bare } = SCRAPED_LICENSED;
-    const problems = problemsOf(bare);
-    expect(problems).toEqual([
-      expect.stringMatching(/^SCRAPER_ARCHIVE_DIR must be an absolute path/),
-      expect.stringMatching(/^SCRAPER_CONTACT is required in licensed mode/),
-    ]);
-    expect(problemsOf({ ...SCRAPED_LICENSED, SCRAPER_ROBOTS: 'off' })).toEqual([
-      expect.stringMatching(/^SCRAPER_ROBOTS must be "enforce" in licensed mode/),
-    ]);
-    expect(problemsOf({ ...SCRAPED_LICENSED, SCRAPER_CONTACT: '' }).join('\n')).toMatch(
-      /SCRAPER_CONTACT is required/,
-    );
-  });
-
   it('does not ask for scraper settings in licensed mode unless the feed is scraped', () => {
     expect(problemsOf({ ...LICENSED_ENV, SCRAPER_ROBOTS: 'off' })).toEqual([]);
     expect(problemsOf({ ...LICENSED_ENV, FEED_PROVIDER: 'manual', SCRAPER_ROBOTS: 'off' })).toEqual(
@@ -705,22 +671,15 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
     );
   });
 
-  it('still refuses the mock feed in licensed mode, scraper settings or not', () => {
-    const problems = problemsOf({ ...SCRAPED_LICENSED, FEED_PROVIDER: 'mock' });
-    expect(problems).toEqual([
-      'FEED_PROVIDER "mock" (simulated odds) is not allowed in licensed mode',
-    ]);
+  it('does not refuse the mock feed or scraper settings in licensed mode', () => {
+    expect(problemsOf({ ...SCRAPED_LICENSED, FEED_PROVIDER: 'mock' })).toEqual([]);
     const config = loadConfig(SCRAPED_LICENSED);
-    expect(
-      licensedModeViolations({ ...config, feed: { ...config.feed, provider: 'mock' } }),
-    ).toEqual(['FEED_PROVIDER "mock" (simulated odds) is not allowed in licensed mode']);
-    // Every scraper violation is reported together.
     expect(
       licensedModeViolations({
         ...config,
         scraper: { ...config.scraper, archiveDir: 'x', contact: undefined, robots: 'off' },
       }),
-    ).toHaveLength(3);
+    ).toEqual([]);
   });
 });
 
@@ -766,42 +725,39 @@ describe('the SMS deposit rail', () => {
     expect(config.payments.sms.collectionAccounts).toHaveLength(2);
   });
 
-  it('refuses the simulated rail, a weak or reused secret and personal accounts in licensed mode', () => {
-    const simulated = problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_RAIL_MODE: 'simulated' }).join(
-      '\n',
-    );
+  it('reports SMS rail problems as warnings in licensed mode, not as errors', () => {
+    const simulated = warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_RAIL_MODE: 'simulated' });
+    expect(simulated).toContain('SMS Rail compliance notes (non-blocking)');
     expect(simulated).toMatch(/SMS_RAIL_MODE=live is required/);
+    expect(warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_GATEWAY_SECRET: 'short' })).toMatch(
+      /SMS_GATEWAY_SECRET must be set \(32\+ characters\)/,
+    );
     expect(
-      problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_GATEWAY_SECRET: 'short' }).join('\n'),
-    ).toMatch(/SMS_GATEWAY_SECRET must be set \(32\+ characters\)/);
-    expect(
-      problemsOf({
-        ...LICENSED_ENV,
-        ...LIVE_SMS,
-        SMS_GATEWAY_SECRET: LICENSED_ENV.SESSION_SECRET,
-      }).join('\n'),
+      warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_GATEWAY_SECRET: LICENSED_ENV.SESSION_SECRET }),
     ).toMatch(/SMS_GATEWAY_SECRET must be its own secret/);
     const personal = JSON.stringify([
       { institution: 'telebirr', account: '0911000000', name: 'Abebe Kebede' },
     ]);
-    expect(
-      problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: personal }).join('\n'),
-    ).toMatch(/not in OPERATOR_LEGAL_NAME \(personal accounts are not allowed\)/);
-    const { OPERATOR_LEGAL_NAME: _name, ...noName } = LIVE_SMS;
-    expect(problemsOf({ ...LICENSED_ENV, ...noName }).join('\n')).toMatch(
-      /OPERATOR_LEGAL_NAME is required/,
+    expect(warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: personal })).toMatch(
+      /not in OPERATOR_LEGAL_NAME \(personal accounts are not allowed\)/,
     );
+    // None of these stop the config from loading.
+    expect(problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_RAIL_MODE: 'simulated' })).toEqual([]);
+    // A fully configured live rail has nothing to report.
+    expect(warningsOf({ ...LICENSED_ENV, ...LIVE_SMS })).not.toContain('SMS Rail compliance notes');
   });
 
-  it('refuses the live rail without receipt audit or payout proof unless waived', () => {
-    expect(problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, RECEIPT_VERIFY: 'off' }).join('\n')).toMatch(
+  it('warns when the live rail has no receipt audit or payout proof unless waived', () => {
+    expect(warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, RECEIPT_VERIFY: 'off' })).toMatch(
       /RECEIPT_VERIFY must be "audit"/,
     );
     const { PAYOUT_REQUIRE_PROOF: _proof, ...noProof } = LIVE_SMS;
-    expect(problemsOf({ ...LICENSED_ENV, ...noProof }).join('\n')).toMatch(
+    expect(warningsOf({ ...LICENSED_ENV, ...noProof })).toMatch(
       /PAYOUT_REQUIRE_PROOF=true is required/,
     );
-    expect(problemsOf({ ...LICENSED_ENV, ...noProof, PAYOUT_PROOF_WAIVED: 'true' })).toEqual([]);
+    expect(warningsOf({ ...LICENSED_ENV, ...noProof, PAYOUT_PROOF_WAIVED: 'true' })).not.toContain(
+      'SMS Rail compliance notes',
+    );
   });
 
   it('rejects malformed collection accounts', () => {
