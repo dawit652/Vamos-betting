@@ -43,7 +43,7 @@ cp .env.example .env
 
 # Services: native (no Docker)…
 pnpm services:start
-# …or with Docker
+# …or with Docker (it publishes Postgres on 5433: set DATABASE_URL in .env to localhost:5433)
 docker compose -f infra/docker-compose.yml up -d
 
 pnpm db:migrate
