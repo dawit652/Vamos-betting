@@ -1,0 +1,5 @@
+kind,sport,alias,target,source
+team,football,FC Twente Enschede,Twente,theoddsapi-nl1
+team,football,FC Twente Enschede,Twente,theoddsapi-scores-nl1
+team,football,FC Zwolle,PEC Zwolle,theoddsapi-nl1
+team,football,FC Zwolle,PEC Zwolle,theoddsapi-scores-nl1

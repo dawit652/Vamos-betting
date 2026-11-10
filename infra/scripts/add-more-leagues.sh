@@ -19,6 +19,7 @@
 # Enabling the sources and competitions and opening betting stay a person's decision.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+source infra/scripts/lib-known-aliases.sh
 export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.prod
 ENV_FILE=infra/.env.prod
 VAR=SCRAPER_SECRET_FOOTBALL_DATA
@@ -71,6 +72,7 @@ else
 fi
 
 added=()
+odds_added=()
 skipped=()
 for entry in "${LEAGUES[@]}"; do
   read -r key code slug <<<"$entry"
@@ -89,6 +91,7 @@ for entry in "${LEAGUES[@]}"; do
       echo "==> $slug: $source (reading The Odds API once, 2 credits; nothing is written)"
       if cli dry-fetch --source-file "/in/source-$source.json" --limit 3; then
         cli sources upsert --file "/in/source-$source.json"
+        odds_added+=("$source")
       else
         skipped+=("$slug: $source (dry-fetch failed, not added)")
       fi
@@ -129,6 +132,7 @@ PY
   fi
 done
 unset token
+if ((${#odds_added[@]} > 0)); then import_known_odds_aliases "${odds_added[@]}"; fi
 
 echo
 echo "Added with ratings: ${added[*]:-none}"

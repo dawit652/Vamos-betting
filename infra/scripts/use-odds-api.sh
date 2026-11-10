@@ -8,7 +8,8 @@
 # 1. Asks for the API key (hidden) unless infra/.env.prod has SCRAPER_SECRET_THEODDSAPI, and
 #    stores it there (mode 600, never printed).
 # 2. Rebuilds the migrate (api) and scraper images and restarts the stack.
-# 3. Imports The Odds API's club spellings (aliases-theoddsapi.csv).
+# 3. Imports The Odds API's club spellings (aliases-theoddsapi.csv), and, once the sources are
+#    added, the spellings of aliases-theoddsapi-known.csv for the sources it added.
 # 4. Per league, after one dry-fetch each (2 credits each; nothing is written):
 #    - theoddsapi-<league>: bookmaker prices, and the matches as fixtures (a second kickoff
 #      upstream: a kickoff both sources agree on moves without a person, rule F4a);
@@ -17,6 +18,7 @@
 #    New sources start DISABLED; a league whose dry-fetch fails is skipped.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+source infra/scripts/lib-known-aliases.sh
 export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.prod
 ENV_FILE=infra/.env.prod
 VAR=SCRAPER_SECRET_THEODDSAPI
@@ -90,6 +92,8 @@ if ((${#ok[@]} == 0)); then
   fi
   exit 1
 fi
+
+import_known_odds_aliases "${ok[@]}"
 
 echo
 echo "Added or updated: ${ok[*]}"

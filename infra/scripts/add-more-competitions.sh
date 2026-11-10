@@ -15,10 +15,11 @@
 #    and imports the openfootball spellings the name matching does not already map.
 # 3. Per competition: dry-fetch of The Odds API (a competition that fails is skipped), then its
 #    prices source and its final-scores source, both added DISABLED.
-# The Odds API's club spellings are not imported: a spelling the catalogue does not match
-# reaches the back office as an "unknown team" review item.
+# 4. Imports the spellings of aliases-theoddsapi-known.csv for the sources it added. Any other
+#    spelling the catalogue does not match reaches the back office as an "unknown team" item.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+source infra/scripts/lib-known-aliases.sh
 export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.prod
 ENV_FILE=infra/.env.prod
 ODDS_VAR=SCRAPER_SECRET_THEODDSAPI
@@ -73,6 +74,8 @@ for entry in "${COMPETITIONS[@]}"; do
     fi
   done
 done
+
+if ((${#added[@]} > 0)); then import_known_odds_aliases "${added[@]}"; fi
 
 echo
 echo "Sources added (disabled): ${added[*]:-none}"
