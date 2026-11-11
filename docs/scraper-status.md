@@ -18,7 +18,7 @@ reports [01](scraper-evaluation/01-data-accuracy.md), [02](scraper-evaluation/02
   A match that is over with no score from any source now raises a "No result yet" item 7 h 45 min after kickoff (F-04).
   A source that answers but shows nothing new 48 hours after a match it lists ended now raises a "source stale" item (F-02).
   Prices: the margin is now delivered on every market, lopsided ones included (F-08), the home advantage is learned per
-  competition from its own results (F-07), and a re-price no longer waits for a trader because of side markets (F-09).
+  competition from its own results (F-07; only league results write it, P-8), and a re-price no longer waits for a trader because of side markets (F-09).
 - **Found and fixed (F-21):** real review items did not match what the back office reads, so the page said "could
   not be read" and offered no Apply, Map or Open button for result, unknown-name and broken-source items; only
   hand-written test items had worked, including in the earlier browser check. Every kind is now written in the

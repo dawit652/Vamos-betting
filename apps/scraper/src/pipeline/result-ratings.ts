@@ -7,8 +7,13 @@ import {
   setTeamRatings,
   type DbTransaction,
 } from '@vamos/db';
-import { events as eventsTable, scrapeRatingApplied } from '@vamos/db/schema';
-import { learnedHomeAdvantage, updateFootballRatings, withHomeAdvantage } from '@vamos/feed';
+import {
+  competitions,
+  events as eventsTable,
+  scrapeCompetitionPolicy,
+  scrapeRatingApplied,
+} from '@vamos/db/schema';
+import { ratingsAfterResult, setsHomeAdvantage, type HomeAdvantageCompetition } from '@vamos/feed';
 import { DAY_MS } from '@vamos/scraper';
 import { and, asc, eq, gte, isNotNull, notExists, sql } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
@@ -26,9 +31,11 @@ export interface ResultRatingsInput {
 
 /**
  * Rule O4: a finished result moves both teams' ratings once per fixture key
- * (scrape_rating_applied), and the competition's home advantage is re-derived from its finished
- * scraped results and written on both teams' ratings (F-07: pricing and the next update read it
- * there; a new league keeps the default until it has results of its own). Call it in the result's
+ * (scrape_rating_applied), and for a league result the competition's home advantage is re-derived
+ * from its finished scraped results and written on both teams' ratings (F-07: pricing and the next
+ * update read it there; a new league keeps the default until it has results of its own). A cup or
+ * European result (P-8: setsHomeAdvantage false) moves attack and defence only and leaves the
+ * home advantage of the team's league as it is (ratingsAfterResult). Call it in the result's
  * transaction, after the event is resulted, so its score counts as evidence: everything commits or
  * rolls back together. Returns whether the ratings moved (false: this fixture already moved them).
  */
@@ -40,21 +47,37 @@ export async function updateRatingsForResult(
   const ratings = await getTeamRatings(tx, [input.homeTeamId, input.awayTeamId], {
     forUpdate: true,
   });
-  const next = updateFootballRatings(
+  const league = setsHomeAdvantage(await homeAdvantageCompetition(tx, input.competitionId));
+  const next = ratingsAfterResult(
     ratings.get(input.homeTeamId)?.ratings ?? null,
     ratings.get(input.awayTeamId)?.ratings ?? null,
     input.score,
+    {
+      league,
+      evidence: league ? await competitionGoalEvidence(tx, input.competitionId) : null,
+    },
   );
-  const homeAdvantage = learnedHomeAdvantage(
-    await competitionGoalEvidence(tx, input.competitionId),
-  );
-  await setTeamRatings(tx, input.homeTeamId, withHomeAdvantage(next.home, homeAdvantage), {
-    system: SCRAPER_ACTOR,
-  });
-  await setTeamRatings(tx, input.awayTeamId, withHomeAdvantage(next.away, homeAdvantage), {
-    system: SCRAPER_ACTOR,
-  });
+  await setTeamRatings(tx, input.homeTeamId, next.home, { system: SCRAPER_ACTOR });
+  await setTeamRatings(tx, input.awayTeamId, next.away, { system: SCRAPER_ACTOR });
   return true;
+}
+
+/**
+ * P-8: the competition's slug and policy `extraTime` (false without a policy row), which decide
+ * with setsHomeAdvantage whether its results write the home advantage. An unknown competition (it
+ * cannot be: events reference it) counts as a cup, so nothing is overwritten.
+ */
+async function homeAdvantageCompetition(
+  tx: DbTransaction,
+  competitionId: string,
+): Promise<HomeAdvantageCompetition> {
+  const [row] = await tx
+    .select({ slug: competitions.slug, extraTime: scrapeCompetitionPolicy.extraTime })
+    .from(competitions)
+    .leftJoin(scrapeCompetitionPolicy, eq(scrapeCompetitionPolicy.competitionId, competitions.id))
+    .where(eq(competitions.id, competitionId));
+  if (row === undefined) return { slug: '', extraTime: true };
+  return { slug: row.slug, extraTime: row.extraTime ?? false };
 }
 
 export interface HandResultRatingsSummary {

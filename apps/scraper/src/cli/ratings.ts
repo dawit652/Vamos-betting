@@ -1,4 +1,10 @@
-import { MAX_TEAM_RATING, MIN_TEAM_RATING, replayRatings, type FootballResult } from '@vamos/feed';
+import {
+  HOME_ADVANTAGE_KEY,
+  MAX_TEAM_RATING,
+  MIN_TEAM_RATING,
+  replayRatings,
+  type FootballResult,
+} from '@vamos/feed';
 import {
   footballTeamNames,
   getTeamRatings,
@@ -75,6 +81,8 @@ interface TeamRow {
   fileMatches: number;
   through: number;
   decision: Decision;
+  /** What an update writes. */
+  ratings: Record<string, number>;
 }
 
 const close = (a: number | null, b: number | null) =>
@@ -98,7 +106,8 @@ const fmt = (s: Snapshot): string =>
  * `ratings backfill --file results.json --competition <slug> [--dry-run]`:
  * learns team ratings from historical results (replayRatings, oldest first,
  * every team starting neutral) and stores them with setTeamRatings, `matches`
- * being the number of file results the team played.
+ * being the number of file results the team played. A stored `homeAdvantage`
+ * (F-07, written by the team's league results) is kept as it is (P-8).
  *
  * Safe to repeat: the replay always starts from neutral, so the same file
  * gives the same ratings and a second run changes (and audits) nothing. It
@@ -228,9 +237,18 @@ export async function ratingsBackfill(args: string[], env: CliEnv): Promise<numb
     const teamRows: TeamRow[] = ids
       .map((teamId): TeamRow => {
         const learned = replayed.get(teamId)!;
-        const next: Record<string, number> = { ...learned, [BACKFILL_KEY]: through.get(teamId)! };
         const now = current.get(teamId);
         const was = now?.ratings ?? null;
+        // P-8: the replay learns attack and defence only; the home advantage the team's league
+        // results wrote (F-07) is kept, not dropped back to the default.
+        const homeAdvantage = was?.[HOME_ADVANTAGE_KEY];
+        const next: Record<string, number> = {
+          ...learned,
+          ...(typeof homeAdvantage === 'number' && Number.isFinite(homeAdvantage)
+            ? { [HOME_ADVANTAGE_KEY]: homeAdvantage }
+            : {}),
+          [BACKFILL_KEY]: through.get(teamId)!,
+        };
         const fileMatches = learned.matches ?? 0;
         let decision: Decision;
         if (now?.manual === true) {
@@ -264,6 +282,7 @@ export async function ratingsBackfill(args: string[], env: CliEnv): Promise<numb
           fileMatches,
           through: through.get(teamId)!,
           decision,
+          ratings: next,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -272,12 +291,7 @@ export async function ratingsBackfill(args: string[], env: CliEnv): Promise<numb
     if (!dryRun && !refused) {
       for (const row of teamRows) {
         if (row.decision.kind !== 'update') continue;
-        await setTeamRatings(
-          tx,
-          row.teamId,
-          { ...replayed.get(row.teamId)!, [BACKFILL_KEY]: row.through },
-          env.actor,
-        );
+        await setTeamRatings(tx, row.teamId, row.ratings, env.actor);
       }
     }
     return { teamRows, refused };

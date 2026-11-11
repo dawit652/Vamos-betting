@@ -2,7 +2,12 @@ import type { SportCode } from '@vamos/core';
 import type { FeedMarket, TeamRatings } from '../types';
 import { clamp, isPositiveFinite } from './book';
 import { FOOTBALL_BASE_GOALS, expectedGoals } from './football';
-import { homeAdvantageOf } from './homeadvantage';
+import {
+  type HomeAdvantageEvidence,
+  homeAdvantageOf,
+  learnedHomeAdvantage,
+  withHomeAdvantage,
+} from './homeadvantage';
 import { RATING_KEYS, matchStrengths, priceMatch } from './index';
 
 /**
@@ -165,6 +170,39 @@ export function priceFixture(
     matchStrengths(sport, home, away),
     opts.marginBps === undefined ? {} : { marginBps: opts.marginBps },
   );
+}
+
+/** The competition a finished result belongs to, as ratingsAfterResult needs it (F-07, P-8). */
+export interface ResultCompetition {
+  /** setsHomeAdvantage of the competition: true for a league, false for a cup. */
+  league: boolean;
+  /** The competition's finished results, this one included (learnedHomeAdvantage). */
+  evidence: HomeAdvantageEvidence | null | undefined;
+}
+
+/**
+ * Rule O4 for one finished result: both teams' ratings after updateFootballRatings and, for a
+ * LEAGUE result only (P-8), the home advantage learned from the competition's results written on
+ * both (withHomeAdvantage). A cup result moves attack, defence and matches like any other but
+ * leaves the stored home advantage exactly as it was (present with its value, or absent), so the
+ * value of the league a team plays in is never overwritten by a cup or a European competition.
+ *
+ * @throws RangeError as updateFootballRatings.
+ */
+export function ratingsAfterResult(
+  home: TeamRatings | null | undefined,
+  away: TeamRatings | null | undefined,
+  score: FootballScore,
+  competition: ResultCompetition,
+  opts: RatingUpdateOptions = {},
+): { home: TeamRatings; away: TeamRatings } {
+  const next = updateFootballRatings(home, away, score, opts);
+  if (!competition.league) return next;
+  const homeAdvantage = learnedHomeAdvantage(competition.evidence);
+  return {
+    home: withHomeAdvantage(next.home, homeAdvantage),
+    away: withHomeAdvantage(next.away, homeAdvantage),
+  };
 }
 
 export interface FootballResult {

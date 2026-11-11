@@ -671,7 +671,16 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   blended with the default 1.15 by 800 pseudo-matches, kept in 1.05 to 1.35 and
   rounded to a hundredth (`learnedHomeAdvantage`), and written as `homeAdvantage` on
   both teams' ratings, only once the competition has 40 results and the value
-  differs from the default. Pricing and the next update read it from the HOME
+  differs from the default. **Only a league result writes it (P-8):** a team has
+  one stored value, so a cup or European result moves attack, defence and
+  `matches` but leaves the home advantage of the team's league exactly as it was
+  (`ratingsAfterResult`). A competition is a cup for this when its policy has
+  `extra_time` on, or its slug has a cup word (`setsHomeAdvantage`: cup, pokal,
+  copa, coupe, coppa, beker, taca, trophy, shield, super cups, champions, europa,
+  conference, libertadores, sudamericana, nations, playoff(s), friendlies,
+  qualifiers); a league taken for a cup keeps its stored value, the safe
+  direction. A cup match is priced with the home team's league value.
+  `ratings backfill` keeps a stored `homeAdvantage`. Pricing and the next update read it from the HOME
   team's ratings (`matchStrengths`, `updateFootballRatings`), so what is learned
   is what is priced; it is part of the ratings fingerprint, so a change goes
   through the O3 re-price like any other. Open bets keep their odds. Seasons

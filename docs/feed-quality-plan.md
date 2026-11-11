@@ -283,6 +283,7 @@ Legend: ✅ done and verified · 🟡 in progress · ⬜ not started. "Session" 
 | U-6        | `review gaps [--csv]` catalogue gap report              | ✅     | open unknown_team spellings by competition; cli 4/4                              |
 | Q-3        | Re-raised dismissals show "dismissed n times"           | ✅     | `payload.dismissals`, no migration; db 3/3, admin 3/3                            |
 | S-6        | `review results-audit` (48 h after applied results)     | ✅     | mismatches per source, latency vs targets; unit 9/9, cli 3/3                     |
+| P-8        | Only league results write the home advantage            | ✅     | rule O4 (`setsHomeAdvantage`); no migration; feed 6/6, scraper 3/3, cli 1/1      |
 | U-2        | Known Odds API spellings (first part)                   | 🟡     | 2 aliases (Twente, PEC Zwolle); 8 clubs missing from the catalogue (U-6 lists)   |
 | all others | see sections 5–8                                        | ⬜     |                                                                                  |
 

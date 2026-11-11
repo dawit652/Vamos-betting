@@ -18,10 +18,11 @@ import { FOOTBALL_HOME_ADVANTAGE } from './football';
  */
 
 /**
- * The teams.ratings key that carries the competition's home advantage on the
- * ratings of the teams playing in it (written by the results pipeline after
- * every applied result, read here from the HOME team's ratings by
- * matchStrengths and updateFootballRatings). Absent or invalid: the default.
+ * The teams.ratings key that carries the home advantage of a team's league on
+ * the ratings of the teams playing in it (written by the results pipeline after
+ * every applied LEAGUE result, P-8: setsHomeAdvantage; read here from the HOME
+ * team's ratings by matchStrengths and updateFootballRatings, in any
+ * competition). Absent or invalid: the default.
  */
 export const HOME_ADVANTAGE_KEY = 'homeAdvantage';
 
@@ -169,4 +170,69 @@ export function withHomeAdvantage<T extends Readonly<Record<string, number>>>(
   const stored = Object.hasOwn(ratings, HOME_ADVANTAGE_KEY);
   if (!stored && homeAdvantage === FOOTBALL_HOME_ADVANTAGE) return ratings;
   return { ...ratings, [HOME_ADVANTAGE_KEY]: homeAdvantage };
+}
+
+/**
+ * Words of a competition slug that name a cup or a tournament rather than a league: domestic cups
+ * (FA Cup, EFL Cup, Copa del Rey, Coppa Italia, DFB-Pokal, Coupe de France, KNVB Beker, Taça),
+ * super cups and shields, the club competitions of a confederation (Champions, Europa and
+ * Conference League, Libertadores, Sudamericana, CAF Confederation Cup), national-team
+ * tournaments, play-offs and friendlies. Matched against the slug's words (split on anything that
+ * is not a letter or a digit), so `championship`, `super-lig` and `swiss-super-league` are leagues.
+ */
+const CUP_SLUG_WORDS: ReadonlySet<string> = new Set([
+  'cup',
+  'pokal',
+  'copa',
+  'coupe',
+  'coppa',
+  'beker',
+  'taca',
+  'trophy',
+  'shield',
+  'supercup',
+  'supercopa',
+  'supercoppa',
+  'superpokal',
+  'champions',
+  'europa',
+  'conference',
+  'libertadores',
+  'sudamericana',
+  'nations',
+  'playoff',
+  'playoffs',
+  'friendly',
+  'friendlies',
+  'qualifiers',
+  'qualification',
+]);
+
+/** What decides whether a competition's results set the home advantage (P-8). */
+export interface HomeAdvantageCompetition {
+  /** The catalogue slug (competitions.slug). */
+  slug: string;
+  /** The competition policy's `extraTime` (knockout matches; false without a policy row). */
+  extraTime: boolean;
+}
+
+/**
+ * P-8: true when the results of `competition` may write the home advantage on its teams' ratings,
+ * i.e. it is a league. The value is one per team (read from the HOME team's ratings whatever the
+ * competition of the match) and learned from one competition's results, so a cup or a European
+ * competition must not overwrite the value of the league the team plays in every week: a cup has
+ * few results of its own (the default would be written) or neutral and mixed venues.
+ *
+ * A competition is a cup when its policy says its matches can go to extra time (`extraTime`, the
+ * operator's explicit knockout marker), or when its slug has a cup word (CUP_SLUG_WORDS: the
+ * catalogue's cups carry no flag unless an operator set one). Leans to cup: a league taken for a
+ * cup keeps the value it has (or the default, as before F-07); a cup taken for a league would
+ * overwrite the league's value.
+ */
+export function setsHomeAdvantage(competition: HomeAdvantageCompetition): boolean {
+  if (competition.extraTime) return false;
+  return !competition.slug
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .some((word) => CUP_SLUG_WORDS.has(word));
 }

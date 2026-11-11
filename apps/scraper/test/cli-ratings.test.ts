@@ -165,6 +165,32 @@ describe('ratings backfill', () => {
     expect(result.stdout).toContain('REFUSED: already backfilled through 20251101');
   });
 
+  it('keeps the home advantage the league results stored (P-8)', async () => {
+    await db.db.transaction((tx) =>
+      setTeamRatings(
+        tx,
+        teamId('Aston Villa'),
+        { attack: 1, defence: 1, matches: 0, homeAdvantage: 1.24 },
+        { system: 't' },
+      ),
+    );
+    cli.files.set(
+      FILE,
+      JSON.stringify([
+        {
+          date: '2025-08-16',
+          home: 'Aston Villa',
+          away: 'Bournemouth',
+          homeGoals: 2,
+          awayGoals: 0,
+        },
+      ]),
+    );
+    expect((await cli.run(...BACKFILL)).code).toBe(0);
+    expect(await ratingsOf('Aston Villa')).toMatchObject({ matches: 1, homeAdvantage: 1.24 });
+    expect(await ratingsOf('Bournemouth')).not.toHaveProperty('homeAdvantage');
+  });
+
   it('prints JSON with --json', async () => {
     cli.files.set(
       FILE,
