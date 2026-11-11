@@ -74,6 +74,8 @@ export interface HarnessOptions {
   priorityCompetitions?: string;
   /** SCRAPER_SKIP_REDUNDANT_SCORES=on (C-2); default off. */
   skipRedundantScores?: boolean;
+  /** SCRAPER_CAP_AT_BEST_PRICE (rule O7); default the config's own default (off). */
+  capAtBestPrice?: 'off' | 'on';
 }
 
 // --- documents -----------------------------------------------------------------
@@ -172,6 +174,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       ? {}
       : { SCRAPER_PRIORITY_COMPETITIONS: options.priorityCompetitions }),
     ...(options.skipRedundantScores === true ? { SCRAPER_SKIP_REDUNDANT_SCORES: 'on' } : {}),
+    ...(options.capAtBestPrice === undefined
+      ? {}
+      : { SCRAPER_CAP_AT_BEST_PRICE: options.capAtBestPrice }),
   });
 
   let clock = new Date(T0);

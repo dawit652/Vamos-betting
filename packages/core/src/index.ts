@@ -18,6 +18,7 @@ export * from './jackpot';
 export * from './markets';
 export * from './market-consensus';
 export * from './consensus-tolerance';
+export * from './best-price';
 export * from './phone';
 export * from './age';
 export * from './codes';

@@ -49,6 +49,7 @@ import {
   marketKey,
   type MarketTypeCode,
   type SportCode,
+  uncappedPricingKey,
 } from '@vamos/core';
 import {
   addCompetitionAlias,
@@ -827,13 +828,15 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
                 rated.get(event!.homeTeamId)?.ratings,
                 rated.get(event!.awayTeamId)?.ratings,
               );
-              if (currentKey !== payload.ratingsKey) {
+              // A proposal capped at the best book price (rule O7) carries the cap in its key.
+              if (currentKey !== uncappedPricingKey(payload.ratingsKey)) {
                 throw conflict(
                   'proposal_stale',
                   'The team ratings changed since this proposal was made',
                   { id },
                 );
               }
+              currentKey = payload.ratingsKey;
             }
             // Only prices change: the markets the upsert may touch must be exactly those of the
             // proposal and the book must pass the sanity rules; the size of the move is what the

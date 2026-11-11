@@ -1,4 +1,9 @@
-import { syncMarketStaleAlarm } from './credit-alarms';
+import {
+  OUT_OF_LINE_SUBJECT_PREFIX,
+  resolveOutOfLineAlarm,
+  syncMarketStaleAlarm,
+  syncOutOfLineAlarm,
+} from './credit-alarms';
 import {
   marketKey,
   SCRAPED_FEED_PROVIDER,
@@ -42,7 +47,6 @@ import {
   MARKET_LAPSE_LEAD_MS,
   MARKET_LAPSE_MAX_AGE_MS,
   MIN_LEAD_MS,
-  ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
   repriceReview,
   type GateMarket,
@@ -50,7 +54,7 @@ import {
   type OddsCheck,
   type OddsIssue,
 } from '@vamos/scraper';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, like, sql } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { LOOK_AHEAD_MS } from './promote-fixtures';
@@ -127,7 +131,12 @@ const skipped = (): Outcome => ({ kind: 'skipped', messages: [] });
  *   teams are not calibrated (O1);
  * - prices with rule O6 (halfTimeCheck, read once per pass): no half-time market for an event of a
  *   competition without a half-time source under SCRAPER_HALF_TIME_MARKETS=covered, but an event
- *   that has one keeps it (priceEvent), so a re-price never removes a market.
+ *   that has one keeps it (priceEvent), so a re-price never removes a market;
+ * - prices with rule O7 (priceEvent): with SCRAPER_CAP_AT_BEST_PRICE=on every quoted selection is
+ *   capped at the best fresh book price; on or off, an event whose prices (as made now, the event
+ *   not kept on old market prices) have a selection above the best book price gets the
+ *   odds_out_of_line alarm (syncOutOfLineAlarm), resolved when none is, or when the event leaves
+ *   the pass.
  *
  * Betting stays as it is: a closed event is re-priced and stays closed. This
  * step never opens betting, not even for a competition with `auto_open` on:
@@ -174,6 +183,7 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
       event.score === null &&
       policyOf.has(event.competitionId),
   );
+  await resolveOutOfLineAlarmsOutside(ctx, new Set(scheduled.map((event) => event.eventId)), now);
   if (scheduled.length === 0) return summary;
   const halfTime = await halfTimeCheck(ctx);
 
@@ -191,29 +201,17 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     const policy = policyOf.get(event.competitionId)!;
     const home = ratings.get(event.homeTeamId)?.ratings ?? null;
     const away = ratings.get(event.awayTeamId)?.ratings ?? null;
-    // Only a competition that takes market prices needs the market read; the others look at the ratings alone.
-    const price =
-      policy.pricingSource === 'market'
-        ? await priceEvent(
-            ctx.db,
-            pricingInput(
-              ctx,
-              policy,
-              event.eventId,
-              home,
-              away,
-              now,
-              halfTime(event.competitionId),
-            ),
-          )
-        : null;
-    const key = price?.key ?? ratingsKey(home, away);
+    // Every event reads the market: O5 for a competition on market prices, O7 for all.
+    const price = await priceEvent(
+      ctx.db,
+      pricingInput(ctx, policy, event.eventId, home, away, now, halfTime(event.competitionId)),
+    );
+    const key = price.key;
     const stamp = stamps.get(event.eventId);
-    let state = settled(stamp, key, price?.source ?? 'model', policy);
+    let state = settled(stamp, key, price.source, policy);
     // A-1: a first market price held for a person, still pending, is looked at again once A-1 lets it through.
     if (
       state === 'current' &&
-      price !== null &&
       stamp?.ratingsKey !== key &&
       pendingHolds.has(`${event.feedRef}${REPRICE_SUBJECT_SUFFIX}`) &&
       firstMarketPrice({
@@ -230,18 +228,30 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     }
     // 4.8 market_stale: a market-priced match within 24 h keeps prices the market no longer backs,
     // whatever the reason (no consensus, no over/under line, a poor fit: P-7).
-    if (price !== null) {
-      await ctx.db.transaction((tx) =>
-        syncMarketStaleAlarm(tx, {
+    // O7: the prices as made now against the best book prices (not while old market prices are
+    // kept: market_stale speaks then; nothing for teams not calibrated, which are not priced from).
+    await ctx.db.transaction(async (tx) => {
+      if (policy.pricingSource === 'market') {
+        await syncMarketStaleAlarm(tx, {
           eventId: event.eventId,
           kickoff: event.startTime,
           stale:
             state === 'keep' &&
             event.startTime.getTime() - now.getTime() <= MARKET_STALE_ALARM_LEAD_MS,
           now,
-        }),
-      );
-    }
+        });
+      }
+      if (state !== 'keep') {
+        await syncOutOfLineAlarm(tx, {
+          eventId: event.eventId,
+          feedRef: event.feedRef,
+          kickoff: event.startTime,
+          outOfLine: price.calibrated ? price.outOfLine : [],
+          capped: price.capped === true,
+          now,
+        });
+      }
+    });
     if (state !== 'go') continue;
     summary.events += 1;
     try {
@@ -294,7 +304,35 @@ const pricingInput = (
   minRatingMatches: ctx.config.scraper.minRatingMatches,
   now,
   halfTimeMarkets,
+  capAtBestPrice: ctx.config.scraper.capAtBestPrice,
 });
+
+/**
+ * Rule O7: an odds_out_of_line alarm whose event the pass no longer looks at (kickoff within
+ * MIN_LEAD_MS, a result, not scheduled, its competition's policy gone) is resolved: nothing will
+ * refresh or price it any more.
+ */
+async function resolveOutOfLineAlarmsOutside(
+  ctx: ScraperContext,
+  looked: ReadonlySet<string>,
+  now: Date,
+): Promise<void> {
+  const open = await ctx.db
+    .select({ subjectKey: scrapeReviewItems.subjectKey })
+    .from(scrapeReviewItems)
+    .where(
+      and(
+        eq(scrapeReviewItems.status, 'open'),
+        eq(scrapeReviewItems.kind, 'source_broken'),
+        like(scrapeReviewItems.subjectKey, `${OUT_OF_LINE_SUBJECT_PREFIX}%`),
+      ),
+    );
+  for (const { subjectKey } of open) {
+    const eventId = subjectKey.slice(OUT_OF_LINE_SUBJECT_PREFIX.length);
+    if (looked.has(eventId)) continue;
+    await ctx.db.transaction((tx) => resolveOutOfLineAlarm(tx, eventId, now));
+  }
+}
 
 /**
  * Whether an event's stamp already covers the prices it would get now:
@@ -579,6 +617,9 @@ const pricingAudit = (price: EventPrice) => ({
   ...(price.totalsLine === undefined ? {} : { totalsLine: price.totalsLine }),
   ...(price.fallback === undefined ? {} : { marketFallback: price.fallback }),
   ...(price.halfTimeOmitted === true ? { halfTimeMarkets: 'omitted (O6)' } : {}),
+  ...(price.outOfLine.length === 0
+    ? {}
+    : { outOfLine: price.outOfLine.map((o) => ({ ...o })), capped: price.capped === true }),
 });
 
 /** How the prices were made, as the review payload shows it (contract: OddsReviewPayload.pricing). */

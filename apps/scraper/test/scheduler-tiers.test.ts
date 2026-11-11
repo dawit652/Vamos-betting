@@ -15,7 +15,7 @@ import {
 
 /**
  * C-2 of docs/feed-quality-plan.md: tiered polling. Odds of a `standard` competition (not in
- * SCRAPER_PRIORITY_COMPETITIONS) read 30 min / 2 h / 6 h instead of 10 min / 30 min / 2 h; with
+ * SCRAPER_PRIORITY_COMPETITIONS) read 30 min / 2 h / 170 min instead of 10 min / 30 min / 2 h; with
  * SCRAPER_SKIP_REDUNDANT_SCORES=on a metered scores source that would be a third full-time
  * upstream is not read, and one that is needed as the second always is.
  */

@@ -1,9 +1,14 @@
 import {
+  bestBookPrices,
+  capAtBestPrice,
+  cappedPricingKey,
   CONSENSUS_MIN_BOOKS,
   MARKET_PRICING_KEY_PREFIX,
   MARKET_TYPES,
   marketConsensus,
+  type MarketPriceRow,
   type MarketTypeCode,
+  type OutOfLineSelection,
   type ScrapePricingSource,
 } from '@vamos/core';
 import { consensusRows, latestMarketOdds, listEventPricing, type DbExecutor } from '@vamos/db';
@@ -51,6 +56,16 @@ import { and, eq, inArray } from 'drizzle-orm';
  * see halfTimeCheck) the half-time markets are left out of the prices, unless the event already
  * has one (any status), which is never taken away: it keeps being priced, and its result keeps
  * needing a half time (a person settles it when no source gives one).
+ *
+ * Rule O7 (P-3) last, on the final markets of either source: every selection of the 1X2 and of the
+ * over/under lines the books quote is compared with the best price a fresh book offers for it (the
+ * same fresh rows as O5, one voice per book: bestBookPrices). The selections priced above it are
+ * always listed (`outOfLine`, for the odds_out_of_line alarm: reprice.ts); with `capAtBestPrice`
+ * (SCRAPER_CAP_AT_BEST_PRICE=on) they are lowered to it before O2 (`pricesSane`) is checked, so a
+ * book the cap pushes out of the overround bounds is handled as any other O2 failure. Markets the
+ * books do not quote are never touched. When the cap lowers a price, the key carries the capped
+ * selections (cappedPricingKey), so a move of the best book price alone re-prices the event, through
+ * the same bounds (O3) as any re-price.
  */
 
 export type EventPriceSource = 'market' | 'model';
@@ -77,6 +92,11 @@ export interface EventPriceInput {
    * market, as before); false leaves them out unless the event already has one.
    */
   halfTimeMarkets?: boolean;
+  /**
+   * Rule O7: cap every quoted selection at the best fresh book price (SCRAPER_CAP_AT_BEST_PRICE=on).
+   * Default false: the prices stay as they are and `outOfLine` only reports.
+   */
+  capAtBestPrice?: boolean;
 }
 
 export interface EventPrice {
@@ -107,6 +127,13 @@ export interface EventPrice {
   fallback?: MarketFallback;
   /** Rule O6 left the half-time markets out of these prices. */
   halfTimeOmitted?: true;
+  /**
+   * Rule O7: the selections whose price (before any cap) is above the best fresh book price, with
+   * both prices; empty without fresh book prices (always for a new event).
+   */
+  outOfLine: readonly OutOfLineSelection[];
+  /** Rule O7: the cap was on and lowered at least one price (`outOfLine` lists them). */
+  capped?: true;
 }
 
 /** True for a pricing key that comes from the market (the stamp column holds either form). */
@@ -114,13 +141,49 @@ export const isMarketKey = (key: string | null | undefined): boolean =>
   typeof key === 'string' && key.startsWith(`${MARKET_PRICING_KEY_PREFIX}|`);
 
 export async function priceEvent(exec: DbExecutor, input: EventPriceInput): Promise<EventPrice> {
-  const price = await priceBook(exec, input);
+  // The fresh bookmaker prices (one voice per book), read once for O5 and O7.
+  const rows =
+    input.eventId === null
+      ? []
+      : consensusRows(
+          await latestMarketOdds(exec, {
+            eventIds: [input.eventId],
+            now: input.now,
+            maxAgeMs: input.maxAgeMs ?? MARKET_ODDS_MAX_AGE_MS,
+          }),
+        );
+  const price = await halfTimeRule(exec, input, priceBook(input, rows));
+  return capRule(price, rows, input.capAtBestPrice === true);
+}
+
+/** Rule O6 on the prices (see priceEvent). */
+async function halfTimeRule(
+  exec: DbExecutor,
+  input: EventPriceInput,
+  price: EventPrice,
+): Promise<EventPrice> {
   if (input.halfTimeMarkets !== false) return price;
   // O6: never take a half-time market away from an event that has one.
   if (input.eventId !== null && (await hasHalfTimeMarket(exec, input.eventId))) return price;
   const markets = withoutHalfTimeMarkets(price.markets);
   if (markets.length === price.markets.length) return price;
   return { ...price, markets, pricesSane: checkMarkets(markets).ok, halfTimeOmitted: true };
+}
+
+/** Rule O7 on the final markets (see priceEvent): list, and with `cap` lower, what is out of line. */
+function capRule(price: EventPrice, rows: readonly MarketPriceRow[], cap: boolean): EventPrice {
+  if (rows.length === 0) return price;
+  const result = capAtBestPrice(price.markets, bestBookPrices(rows), { cap });
+  if (result.outOfLine.length === 0) return price;
+  if (!cap) return { ...price, outOfLine: result.outOfLine };
+  return {
+    ...price,
+    markets: result.markets,
+    pricesSane: checkMarkets(result.markets).ok,
+    outOfLine: result.outOfLine,
+    capped: true,
+    key: cappedPricingKey(price.key, result.outOfLine),
+  };
 }
 
 const HALF_TIME_TYPES = (Object.keys(MARKET_TYPES) as MarketTypeCode[]).filter(isHalfTimeMarket);
@@ -136,15 +199,10 @@ async function hasHalfTimeMarket(exec: DbExecutor, eventId: string): Promise<boo
 }
 
 /** Rule O5 (every market): the market's prices when they can be used, else the model's. */
-async function priceBook(exec: DbExecutor, input: EventPriceInput): Promise<EventPrice> {
+function priceBook(input: EventPriceInput, rows: readonly MarketPriceRow[]): EventPrice {
   let fallback: EventPrice['fallback'];
   if (input.competitionPricingSource === 'market' && input.eventId !== null) {
-    const market = await marketPrice(
-      exec,
-      input.eventId,
-      input.now,
-      input.maxAgeMs ?? MARKET_ODDS_MAX_AGE_MS,
-    );
+    const market = marketPrice(rows);
     if (market.kind === 'priced') return market.price;
     fallback = market.reason;
   }
@@ -158,6 +216,7 @@ async function priceBook(exec: DbExecutor, input: EventPriceInput): Promise<Even
       isCalibrated(input.awayRatings ?? null, input.minRatingMatches),
     pricesSane: checkMarkets(markets).ok,
     backsOpening: false,
+    outOfLine: [],
     ...(fallback === undefined ? {} : { fallback }),
   };
 }
@@ -181,16 +240,13 @@ export async function backedByMarket(exec: DbExecutor, input: EventPriceInput): 
 /**
  * The market prices of an event, or why there are none. The fresh rows come from latestMarketOdds
  * (maxAge MARKET_ODDS_MAX_AGE_MS unless the caller asks for fresher); a bookmaker counts once even
- * when two sources of one upstream list it (one voice, as for results), the newest sighting winning.
+ * when two sources of one upstream list it (one voice, as for results: consensusRows), the newest
+ * sighting winning.
  */
-async function marketPrice(
-  exec: DbExecutor,
-  eventId: string,
-  now: Date,
-  maxAgeMs: number,
-): Promise<{ kind: 'priced'; price: EventPrice } | { kind: 'none'; reason: MarketFallback }> {
-  const rows = await latestMarketOdds(exec, { eventIds: [eventId], now, maxAgeMs });
-  const consensus = marketConsensus(consensusRows(rows), { minBooks: CONSENSUS_MIN_BOOKS });
+function marketPrice(
+  rows: readonly MarketPriceRow[],
+): { kind: 'priced'; price: EventPrice } | { kind: 'none'; reason: MarketFallback } {
+  const consensus = marketConsensus(rows, { minBooks: CONSENSUS_MIN_BOOKS });
   const x12 = consensus.find((c) => c.market === '1x2');
   if (x12 === undefined) return { kind: 'none', reason: 'no_consensus' };
   const fit = fitGoalsToMarket(consensus);
@@ -213,6 +269,7 @@ async function marketPrice(
       backsOpening: marketBacksOpening(x12.bookmakers),
       booksOu25: priced.source.booksOu25,
       totalsLine: priced.totalsLine,
+      outOfLine: [],
     },
   };
 }

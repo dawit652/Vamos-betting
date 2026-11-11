@@ -248,7 +248,7 @@ const envSchema = z.object({
   /**
    * C-2 of docs/feed-quality-plan.md: catalogue slugs of the `priority` competitions, comma
    * separated (e.g. premier-league,la-liga). Their odds keep the 10 min / 30 min / 2 h / 6 h
-   * schedule; every other competition's odds read 30 min / 2 h / 6 h / 6 h. Unset or empty (the
+   * schedule; every other competition's odds read 30 min / 2 h / 170 min / 6 h. Unset or empty (the
    * default): every competition is priority, as before.
    */
   SCRAPER_PRIORITY_COMPETITIONS: csv
@@ -262,6 +262,14 @@ const envSchema = z.object({
    * (the default) reads every scores source as before.
    */
   SCRAPER_SKIP_REDUNDANT_SCORES: z.enum(['off', 'on']).default('off'),
+  /**
+   * Rule O7 (docs/scraper.md 6.5, P-3 of docs/feed-quality-plan.md): `on` caps every selection of
+   * the 1X2 and the over/under lines the books quote at the best fresh book price; `off` (default)
+   * leaves the prices as they are. Either way a selection priced above the best book price is
+   * flagged (`source_broken`, reason `odds_out_of_line`), so the setting is switched on after
+   * measurement.
+   */
+  SCRAPER_CAP_AT_BEST_PRICE: z.enum(['off', 'on']).default('off'),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -439,6 +447,8 @@ export interface ScraperConfig {
   priorityCompetitions: string[] | null;
   /** SCRAPER_SKIP_REDUNDANT_SCORES=on (C-2): skip a scores source that is a third upstream (default off). */
   skipRedundantScores: boolean;
+  /** SCRAPER_CAP_AT_BEST_PRICE: rule O7, true for `on` (default `off`: flag only). */
+  capAtBestPrice: boolean;
 }
 
 /** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -739,6 +749,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
           ? null
           : [...new Set(e.SCRAPER_PRIORITY_COMPETITIONS.map((slug) => slug.toLowerCase()))],
       skipRedundantScores: e.SCRAPER_SKIP_REDUNDANT_SCORES === 'on',
+      capAtBestPrice: e.SCRAPER_CAP_AT_BEST_PRICE === 'on',
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {

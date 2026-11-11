@@ -678,6 +678,36 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
     default stays `all` because, until a second full-time upstream exists for the single-upstream
     competitions (S-3), `covered` removes `ht_1x2` from their new events without making any result
     faster; switch it on together with that upstream.
+- **O7 Never above the best book price (2026-11, P-3 of `docs/feed-quality-plan.md`).** A price of
+  ours above the best price any bookmaker offers for the same selection is an arbitrage against the
+  books. `priceEvent` compares, last (after O5 and O6, on the final markets of either source), every
+  selection of the 1X2 and of each over/under line with the best price a fresh book offers for that
+  market, line and selection (`bestBookPrices` in `packages/core/src/best-price.ts`: the same fresh
+  rows as O5, one voice per book, any book counts, even one outside the consensus; prices outside
+  1.01 to 1000 ignored). Markets the books do not quote (handicaps, both teams to score, half time,
+  correct score, lines no book lists) are never touched.
+  - **Always (measurement):** the selections priced above it are listed (`outOfLine`, ours and the
+    best book's price and name). The re-pricing pass raises a `source_broken` item with reason
+    `odds_out_of_line`, subject `odds_out_of_line|<eventId>`, payload `selections` (each with
+    `ourOddsMilli`, `bestOddsMilli`, `bestBookmaker`), `capped`, `eventId`, `feedRef`, `kickoff`. It
+    is refreshed every pass while it holds and resolved when no selection is out of line any more,
+    or when the event leaves the pass (kickoff within `MIN_LEAD_MS`, a result, policy removed). It is
+    not looked at while a market-priced event keeps old prices (market_stale speaks then) and is
+    closed for teams that are not calibrated (they are not priced from). The audit of
+    `scrape.fixture.repriced` (and of the hand-over) carries `outOfLine` and `capped`.
+  - **`SCRAPER_CAP_AT_BEST_PRICE=off` (default):** the prices stay as they are; the item is a
+    warning ("not capped").
+  - **`SCRAPER_CAP_AT_BEST_PRICE=on`:** each listed selection is lowered to the best book price
+    (integer min, never raised, idempotent: `capAtBestPrice`) BEFORE O2 is checked, so a book the
+    cap pushes outside the overround bounds, or a cap larger than O3's bound, is held for a person
+    like any re-price. The pricing key gets the capped selections appended
+    (`<key>|cap:1x2|1=2000,…`, `cappedPricingKey`), so a move of the best book price alone re-prices
+    the event (and when the books lengthen again, the cap lifts and our own price comes back). The
+    item is info ("capped"). A trader's `apply_reprice` of a capped model proposal compares the
+    ratings without the cap part (`uncappedPricingKey`).
+  - A new event (no id yet) has no book prices: the first re-pricing pass applies O7.
+  - Switch it on after the shadow measurement (the open and resolved `odds_out_of_line` items, and
+    the scorecard's "best price" share) shows how often it binds.
 - **O4 Ratings update.** A confirmed result updates both teams' ratings once
   (`scrape_rating_applied`), in the same transaction as the result. In the same
   transaction the competition's home advantage is re-derived from its finished
@@ -815,6 +845,7 @@ normative):
 | `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`             | R4 wait, minimum 5                                                                                  |
 | `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
 | `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                      |
+| `SCRAPER_CAP_AT_BEST_PRICE`      | `off`            | O7: `off` (flag only), or `on`: cap the 1X2 and over/under prices at the best fresh book price      |
 
 There is **no** setting for the number of sources a result needs: it is the
 constant `MIN_INDEPENDENT_SOURCES = 2`.

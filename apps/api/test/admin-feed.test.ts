@@ -1401,6 +1401,15 @@ describe('POST /admin/feed/review/:id/resolve', () => {
       expect(errorOf(again).code).toBe('review_closed');
     });
 
+    it('applies a model proposal capped at the best book price (O7) and stamps its key', async () => {
+      const capped = `${ratingsKey(RATINGS, RATINGS)}|cap:1x2|1=2400`;
+      const { event, market, item } = await repriceCase(3 * HOUR, { ratingsKey: capped });
+      const response = await resolve('trader', item, { decision: 'apply_reprice' });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(await pricesOf(market.id)).toEqual({ '1': 2400, X: 3400, '2': 3000 });
+      expect((await stampOf(event.id))?.ratingsKey).toBe(capped);
+    });
+
     describe('a proposal priced from the bookmaker market', () => {
       const MARKET_KEY = 'mkt1|1x2:455,270,275/6|ou2.5:530/5';
 

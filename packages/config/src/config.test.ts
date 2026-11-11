@@ -591,6 +591,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       autoAlias: false,
       priorityCompetitions: null,
       skipRedundantScores: false,
+      capAtBestPrice: false,
     });
     // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
     expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
@@ -610,6 +611,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       SCRAPER_AUTO_ALIAS: 'on',
       SCRAPER_PRIORITY_COMPETITIONS: ' Premier-League, la-liga,,premier-league ',
       SCRAPER_SKIP_REDUNDANT_SCORES: 'on',
+      SCRAPER_CAP_AT_BEST_PRICE: 'on',
     });
     expect(config.scraper).toEqual({
       archiveDir: '/data/scraper',
@@ -624,6 +626,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       autoAlias: true,
       priorityCompetitions: ['premier-league', 'la-liga'],
       skipRedundantScores: true,
+      capAtBestPrice: true,
     });
     // A blank contact (as in an env file) is "not set".
     expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();
@@ -644,6 +647,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       ['SCRAPER_AUTO_ALIAS', ['true', 'ON', '1', '']],
       ['SCRAPER_PRIORITY_COMPETITIONS', ['premier league', 'epl;la-liga', '-x']],
       ['SCRAPER_SKIP_REDUNDANT_SCORES', ['true', 'ON', '1', '']],
+      ['SCRAPER_CAP_AT_BEST_PRICE', ['true', 'ON', '1', '']],
       ['SCRAPER_ARCHIVE_DIR', ['   ']],
       ['SCRAPER_USER_AGENT', ['   ', 'Bot\r\nX-Evil: 1', 'Bøt/1.0']],
       [

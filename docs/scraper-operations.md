@@ -63,8 +63,9 @@ The scraper reads these from the environment (`packages/config/src/config.ts`; e
 | `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
 | `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                      |
 | `SCRAPER_AUTO_ALIAS`             | `off`            | N4: `on` maps a strong fixture-context suggestion as an alias for that source only (see below)      |
-| `SCRAPER_PRIORITY_COMPETITIONS`  | unset            | C-2: slugs of priority competitions; others' odds read 30 min / 2 h / 6 h (see below)               |
+| `SCRAPER_PRIORITY_COMPETITIONS`  | unset            | C-2: slugs of priority competitions; others' odds read 30 min / 2 h / 170 min (see below)           |
 | `SCRAPER_SKIP_REDUNDANT_SCORES`  | `off`            | C-2: `on` stops reading a scores source that would be a third full-time upstream (see below)        |
+| `SCRAPER_CAP_AT_BEST_PRICE`      | `off`            | O7: `off` (flag only), or `on`: cap the 1X2 and over/under prices at the best fresh book price      |
 
 These are code constants, not settings: the number of independent upstreams a result needs (`MIN_INDEPENDENT_SOURCES = 2`),
 the kickoff tolerance, the shape threshold (`SHAPE_MIN_RATIO = 0.5`) and the other rule thresholds in
@@ -75,7 +76,7 @@ The scraper's own settings are read at start. Changing one needs `docker compose
 **`SCRAPER_PRIORITY_COMPETITIONS` and `SCRAPER_SKIP_REDUNDANT_SCORES` (C-2, tiered polling of The Odds API).**
 `SCRAPER_PRIORITY_COMPETITIONS=premier-league,la-liga,...` lists the catalogue slugs (as `sources coverage` and
 `sources budget` print them) whose odds keep the 10 min / 30 min / 2 h / 6 h schedule; every other competition's
-odds are read 30 min / 2 h / 6 h / 6 h in the same bands (within 3 h, 24 h, 14 days, none). Unset or empty: every
+odds are read 30 min / 2 h / 170 min / 6 h in the same bands (within 3 h, 24 h, 14 days, none). Unset or empty: every
 competition is priority, as before. The credit guard still applies on top (the slower wins). With
 `SCRAPER_SKIP_REDUNDANT_SCORES=on`, a scores source is not read while two other enabled, healthy full-time upstreams
 of its competition (one with half time) already meet rule R2; it is read again at once when one of them fails or is
@@ -206,6 +207,15 @@ The setting is read at start (`docker compose up -d scraper`); which sources are
 default `all` keeps the half-time market everywhere; switch to `covered` once the single-upstream competitions have
 a second full-time upstream (S-3 of [`feed-quality-plan.md`](feed-quality-plan.md)), since before that nothing
 settles faster.
+
+**Prices above the best bookmaker price (rule O7).** When one of our 1X2 or over/under prices is higher than the best
+price any fresh bookmaker offers for the same selection, the re-pricing pass opens a `source_broken` item with reason
+`odds_out_of_line` for the event; its payload lists each selection with our price and the best book's price and name.
+With `SCRAPER_CAP_AT_BEST_PRICE=off` (the default) nothing else happens: it is a measurement, a warning. With `on`
+the price is lowered to the best book price at the next re-pricing (a large cap is held for a trader like any
+re-price) and the item is info, saying it was capped. It resolves by itself when no selection is above the best book
+price any more, or when the event leaves re-pricing (near kickoff). Nothing to do per item; count them (open and
+resolved) for a week before switching the cap on. The setting is read at start (`docker compose up -d scraper`).
 
 Corrections are never automatic. A correction is made in **Trading**, on the event, with **Enter result**
 (`trading.result`), which needs a reason. Scraped data never cancels, voids or abandons an event: a

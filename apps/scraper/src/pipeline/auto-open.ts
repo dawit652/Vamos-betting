@@ -302,6 +302,8 @@ async function openOne(
         awayRatings: away,
         minRatingMatches: minMatches,
         now,
+        // O7: the stamp of capped market prices carries the cap (priceEvent), so ask the same.
+        capAtBestPrice: ctx.config.scraper.capAtBestPrice,
       });
       if (!backed) return null;
       calibration = 'market';

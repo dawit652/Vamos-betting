@@ -1,3 +1,4 @@
+import type { OutOfLineSelection } from '@vamos/core';
 import { closeReviewItemsBySubject, openReviewItem, type DbTransaction } from '@vamos/db';
 import type { CreditProjection, CreditStatus } from '@vamos/scraper';
 
@@ -13,6 +14,7 @@ import type { CreditProjection, CreditStatus } from '@vamos/scraper';
  * | unauthorized       | an answer refused the key (401)             | a read succeeds             |
  * | unexpected_cost    | a request cost more than expected (G3)      | a person dismisses it       |
  * | market_stale       | a market-priced match within 24 h kept old prices | fresh prices arrive   |
+ * | odds_out_of_line   | a selection is priced above the best book price (O7) | none is any more     |
  */
 
 export type CreditAlarmReason =
@@ -21,7 +23,8 @@ export type CreditAlarmReason =
   | 'budget_projection'
   | 'unauthorized'
   | 'unexpected_cost'
-  | 'market_stale';
+  | 'market_stale'
+  | 'odds_out_of_line';
 
 /** The key, the source and the run an alarm points at. */
 export interface AlarmRef {
@@ -38,12 +41,17 @@ export const creditAlarmSubject = (
 
 export const marketStaleSubject = (eventId: string): string => `market_stale|${eventId}`;
 
+/** The subject of an event's odds_out_of_line alarm (rule O7). */
+export const OUT_OF_LINE_SUBJECT_PREFIX = 'odds_out_of_line|';
+export const outOfLineSubject = (eventId: string): string =>
+  `${OUT_OF_LINE_SUBJECT_PREFIX}${eventId}`;
+
 async function raise(
   tx: DbTransaction,
   ref: AlarmRef,
   subjectKey: string,
   reason: CreditAlarmReason,
-  severity: 'warning' | 'critical',
+  severity: 'info' | 'warning' | 'critical',
   title: string,
   extra: Record<string, unknown>,
 ): Promise<void> {
@@ -227,4 +235,67 @@ export async function syncMarketStaleAlarm(
     'Bookmaker prices are stale for a match within 24 h: it keeps its last prices',
     { eventId: input.eventId, kickoff: input.kickoff.toISOString() },
   );
+}
+
+/**
+ * Rule O7 (P-3): the event's prices, as the re-pricing pass makes them now, have selections above
+ * the best fresh book price (`outOfLine`, with both prices). With the cap off (the default,
+ * measurement) they are offered as they are: a warning; with SCRAPER_CAP_AT_BEST_PRICE=on they were
+ * lowered to the best book price: an info item that says so. Refreshed every pass while it holds
+ * (the payload lists the selections now); resolved once no selection is out of line any more, or by
+ * resolveOutOfLineAlarm once the event leaves the pass.
+ */
+export async function syncOutOfLineAlarm(
+  tx: DbTransaction,
+  input: {
+    eventId: string;
+    feedRef: string;
+    kickoff: Date;
+    outOfLine: readonly OutOfLineSelection[];
+    capped: boolean;
+    now: Date;
+  },
+): Promise<void> {
+  const subjectKey = outOfLineSubject(input.eventId);
+  if (input.outOfLine.length === 0) {
+    await closeReviewItemsBySubject(tx, subjectKey, {
+      kinds: ['source_broken'],
+      resolution: 'no selection is priced above the best book price any more',
+      now: input.now,
+    });
+    return;
+  }
+  const n = input.outOfLine.length;
+  const what = n === 1 ? '1 selection' : `${n} selections`;
+  await raise(
+    tx,
+    { creditKey: '', sourceId: 'market', runId: input.eventId, now: input.now },
+    subjectKey,
+    'odds_out_of_line',
+    input.capped ? 'info' : 'warning',
+    input.capped
+      ? `${what} capped at the best bookmaker price (O7)`
+      : `${what} priced above the best bookmaker price, not capped (SCRAPER_CAP_AT_BEST_PRICE=off)`,
+    {
+      eventId: input.eventId,
+      feedRef: input.feedRef,
+      kickoff: input.kickoff.toISOString(),
+      capped: input.capped,
+      selections: input.outOfLine.map((o) => ({ ...o })),
+    },
+  );
+}
+
+/** Resolves an event's odds_out_of_line alarm once the re-pricing pass no longer looks at it. */
+export async function resolveOutOfLineAlarm(
+  tx: DbTransaction,
+  eventId: string,
+  now: Date,
+): Promise<number> {
+  const closed = await closeReviewItemsBySubject(tx, outOfLineSubject(eventId), {
+    kinds: ['source_broken'],
+    resolution: 'the event left the re-pricing pass (kickoff near, result, or policy removed)',
+    now,
+  });
+  return closed.length;
 }
