@@ -304,6 +304,26 @@ core 803, contracts 73, api 464, admin 71, scraper app 510 tests, all passing (L
 `SCRAPER_HALF_TIME_MARKETS=covered` together with S-3 (a second results upstream); then P-items only where the
 scorecard shows a gain (measure before tuning prices). Owner decisions still open: P-6 (margins), S-3 (budget), A-5.
 
+**Decisions (2026-11-11, delegated by the owner to the main session):**
+
+- **P-6, margins: DECIDED.** Market-priced matches of the priority leagues: 1X2 and over/under 5%. Every other 1X2
+  and over/under (other leagues, and every model-priced match): 6%, as today. Derived markets (handicap, half time,
+  BTTS, double chance): 7%. Correct score: 15%, as today. Why: the average book is at 4.9% and Pinnacle at 3.0%, so
+  5% is competitive where our prices follow a sharp consensus; the model is 2.17% worse than the closing line, so
+  model prices keep 6%; derived markets come from a fit whose residual may reach half the margin, so they get more.
+  Staging: build the margins as settings with today's values, then switch to these after the first weekly scorecard,
+  together with `SCRAPER_CAP_AT_BEST_PRICE=on` (a lower margin must never put us above the best book), unless the
+  scorecard shows a median closing-line value below zero.
+- **S-3, second results upstream: DECIDED.** API-Football (api-sports.io), a paid plan (about 19 USD a month at the
+  time of writing; check the price list), for all 24 competitions; not openfootball (volunteer data, slow, partial).
+  Why: it gives full time, half time and says extra time and penalties apart, so the 15 single-source competitions
+  can pass R2, cup results no longer wait for a person (S-4), and half-time markets are covered everywhere (S-2).
+  Automatic results in those competitions switch on only after the S-7 truth check (200 settled matches).
+- **A-5, kickoff for human opens: DECIDED.** Build the confirmation. A person may open betting on a match whose
+  kickoff only one upstream confirms, but must tick "I checked the kickoff time", recorded with their name
+  (`recordKickoffConfirmation`); the bulk open (A-4) refuses such matches. Why: a wrong kickoff means bets taken
+  after the match started; one tick is a small price.
+
 **Environment (2026-11-10):** the owner's PC had 4–5 GB free on C:. Docker started later in the day, and the
 integration tests ran. The owner will free disk space; Docker's reclaimable space is about 4 GB of build cache and
 2.3 GB of unused images (`docker builder prune`, `docker image prune -a`). Keep the `infra_pgdata` volume.
