@@ -12,6 +12,12 @@ import {
   hasPermission,
   isRepriceItem,
   MapBatchRequest,
+  OpenBatchRequest,
+  type OpenBatchResult,
+  OpenBatchResponse,
+  OpenCheckRequest,
+  OpenCheckResponse,
+  type OpenCheckResult,
   type MapBatchResult,
   MapBatchResponse,
   RATINGS_WINDOW,
@@ -117,7 +123,12 @@ import {
 import { requireStaff, staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, publishLive, wire } from './common';
 import { assertScrapedEventMayOpen } from './open-betting';
-import { reviewMarketComparison } from './review-market';
+import {
+  OPEN_MARGIN_BPS,
+  OPEN_TOLERANCE_BPS,
+  openTolerance,
+  reviewMarketComparison,
+} from './review-market';
 
 type IdParams = { Params: { id: string } };
 
@@ -361,6 +372,46 @@ function eventRefusal(event: LockedEvent | null): DomainError | null {
     return unprocessable('event_not_scheduled', `The event is ${event.status}, not scheduled`);
   }
   return null;
+}
+
+type Actor = ReturnType<typeof staffActor>;
+
+/**
+ * The `open_betting` decision of one odds_approval item, in the caller's transaction (the single
+ * resolve route and the bulk open of plan A-4 both run exactly this): event scheduled and unresulted,
+ * kickoff far enough away, betting not open, O1 and O2 again (assertScrapedEventMayOpen), then
+ * `beforeOpen` (the bulk route's tolerance check) and the change. Throws a DomainError to refuse.
+ */
+async function openBettingDecision(
+  tx: DbTransaction,
+  item: ScrapeReviewItem,
+  actor: Actor,
+  now: Date,
+  minRatingMatches: number,
+  beforeOpen?: (eventId: string) => Promise<void>,
+): Promise<{ resolution: Record<string, unknown>; messages: LiveMessage[] }> {
+  const payload = parseReviewPayload('odds_approval', item.payload);
+  if (payload === null) {
+    throw unprocessable('invalid_payload', `The ${item.kind} item has an unexpected payload`);
+  }
+  const event = await lockEvent(tx, payload.eventId);
+  const refusal = eventRefusal(event);
+  if (refusal !== null) throw refusal;
+  if (event!.startTime.getTime() < now.getTime() + MIN_LEAD_MS) {
+    throw unprocessable('kickoff_too_close', 'The event starts too soon to open betting by hand');
+  }
+  if (event!.bettingOpen) {
+    throw unprocessable('betting_already_open', 'Betting is already open on the event');
+  }
+  // The item was raised when both checks passed; ratings and prices may have changed
+  // since, so they are checked again at the moment a person opens betting (O1, O2).
+  await assertScrapedEventMayOpen(tx, event!.id, minRatingMatches, now);
+  if (beforeOpen !== undefined) await beforeOpen(event!.id);
+  const change = await setEventBettingOpen(tx, event!.id, true, actor);
+  return {
+    resolution: { decision: 'open_betting', eventId: event!.id, by: actor.adminId },
+    messages: [...change.messages],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -675,31 +726,15 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             break;
           }
           case 'open_betting': {
-            const payload = parseReviewPayload('odds_approval', item.payload);
-            if (payload === null) throw badPayload();
-            const event = await lockEvent(tx, payload.eventId);
-            const refusal = eventRefusal(event);
-            if (refusal !== null) throw refusal;
-            if (event!.startTime.getTime() < now.getTime() + MIN_LEAD_MS) {
-              throw unprocessable(
-                'kickoff_too_close',
-                'The event starts too soon to open betting by hand',
-              );
-            }
-            if (event!.bettingOpen) {
-              throw unprocessable('betting_already_open', 'Betting is already open on the event');
-            }
-            // The item was raised when both checks passed; ratings and prices may have changed
-            // since, so they are checked again at the moment a person opens betting (O1, O2).
-            await assertScrapedEventMayOpen(
+            const opened = await openBettingDecision(
               tx,
-              event!.id,
-              deps.config.scraper.minRatingMatches,
+              item,
+              actor,
               now,
+              deps.config.scraper.minRatingMatches,
             );
-            const change = await setEventBettingOpen(tx, event!.id, true, actor);
-            messages.push(...change.messages);
-            resolution = { decision: 'open_betting', eventId: event!.id, by: actor.adminId };
+            messages.push(...opened.messages);
+            resolution = opened.resolution;
             break;
           }
           case 'apply_result': {
@@ -968,6 +1003,164 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
       }
       const mapped = results.filter((r) => r.ok).length;
       return wire(MapBatchResponse, { results, mapped, failed: results.length - mapped });
+    },
+  );
+
+  /**
+   * Bulk `open_betting` for odds_approval items (plan A-4). Each item goes through exactly the
+   * single decision (openBettingDecision: event scheduled, kickoff, not open yet, O1 and O2 again)
+   * in its OWN transaction, plus the tolerance test computed here from the fresh consensus
+   * (openTolerance: every 1X2 price within OPEN_TOLERANCE_BPS of the no-vig consensus after our
+   * margin; `no_consensus` when there is none). Re-price items (subject `|reprice`) are refused
+   * (`decision_not_allowed`, as the single route does). One item failing does not undo or block
+   * the others: a result per item, in request order, and status 200 even when some failed.
+   * Needs `trading.status`, the single decision's permission. Audited as the single route is
+   * (catalog.event.betting_opened, scrape.review.resolved) with `batch: true` in the resolution
+   * and in a scrape.review.open_batch record.
+   */
+  app.post(
+    '/admin/feed/review/open-batch',
+    { config: { staff: 'trading.status' } },
+    async (request) => {
+      const input = parseInput(OpenBatchRequest, request.body);
+      const actor = staffActor(request);
+      const now = deps.clock();
+      const results: OpenBatchResult[] = [];
+      const messages: LiveMessage[] = [];
+      for (const itemId of input.itemIds) {
+        try {
+          const closed = await inTx(deps, async (tx) => {
+            const id = parseUuid(itemId, 'Review item');
+            const item = await getReviewItem(tx, id);
+            if (item === null) throw notFound('Review item');
+            if (item.kind !== 'odds_approval' || isRepriceItem(item)) {
+              throw unprocessable(
+                'decision_not_allowed',
+                `The decision open_betting does not apply to this ${item.kind} item`,
+                { decision: 'open_betting', kind: item.kind, subjectKey: item.subjectKey },
+              );
+            }
+            if (item.status !== 'open') {
+              throw conflict('review_closed', `The review item is already ${item.status}`, {
+                id,
+                status: item.status,
+              });
+            }
+            const opened = await openBettingDecision(
+              tx,
+              item,
+              actor,
+              now,
+              deps.config.scraper.minRatingMatches,
+              async (eventId) => {
+                const check = await openTolerance(tx, eventId, now);
+                if (check.reason === 'no_consensus') {
+                  throw unprocessable(
+                    'no_consensus',
+                    'There is no fresh bookmaker consensus to compare the prices with',
+                  );
+                }
+                if (!check.ok) {
+                  throw unprocessable(
+                    'out_of_tolerance',
+                    check.reason === 'no_prices'
+                      ? 'The event has no complete 1X2 prices to compare'
+                      : `A 1X2 price is more than ${OPEN_TOLERANCE_BPS / 100}% away from the consensus`,
+                    {
+                      toleranceBps: OPEN_TOLERANCE_BPS,
+                      marginBps: OPEN_MARGIN_BPS,
+                      selections: check.selections.map((s) => ({ ...s })),
+                    },
+                  );
+                }
+              },
+            );
+            const resolution = { ...opened.resolution, batch: true };
+            await writeAudit(tx, {
+              actorType: 'admin',
+              actorId: actor.adminId,
+              action: 'scrape.review.open_batch',
+              targetType: 'event',
+              targetId: String(opened.resolution.eventId),
+              metadata: {
+                reviewItemId: id,
+                batch: true,
+                toleranceBps: OPEN_TOLERANCE_BPS,
+                marginBps: OPEN_MARGIN_BPS,
+              },
+              ip: actor.ip ?? null,
+            });
+            const resolved = await resolveReviewItem(tx, id, {
+              status: 'resolved',
+              resolution: JSON.stringify(resolution),
+              actor,
+              now,
+            });
+            return { resolved, messages: opened.messages };
+          }).catch((error: unknown) => {
+            throw contractError(error);
+          });
+          messages.push(...closed.messages);
+          results.push({ itemId, ok: true, item: reviewView(closed.resolved) });
+        } catch (error) {
+          if (error instanceof DomainError) {
+            results.push({
+              itemId,
+              ok: false,
+              error: { code: error.code, message: error.message },
+            });
+          } else {
+            throw error;
+          }
+        }
+      }
+      await publishLive(app, messages);
+      const opened = results.filter((r) => r.ok).length;
+      return wire(OpenBatchResponse, { results, opened, failed: results.length - opened });
+    },
+  );
+
+  /**
+   * Read-only tolerance status of open odds_approval items (plan A-4), for the review page's
+   * checkboxes: the same openTolerance the bulk open runs. It is advice only: the bulk open checks
+   * everything again. Reasons: `not_open_item` (not an open, non-re-price odds_approval item with
+   * an event), `no_consensus`, `no_prices`, `out_of_tolerance`.
+   */
+  app.post(
+    '/admin/feed/review/open-check',
+    { config: { staff: 'trading.status' } },
+    async (request) => {
+      const input = parseInput(OpenCheckRequest, request.body);
+      const now = deps.clock();
+      const results: OpenCheckResult[] = [];
+      for (const itemId of input.itemIds) {
+        const item = Uuid.test(itemId) ? await getReviewItem(deps.db, itemId) : null;
+        const payload =
+          item !== null && item.kind === 'odds_approval' && !isRepriceItem(item)
+            ? parseReviewPayload('odds_approval', item.payload)
+            : null;
+        if (item === null || item.status !== 'open' || payload === null) {
+          results.push({
+            itemId,
+            withinTolerance: false,
+            reason: 'not_open_item',
+            selections: [],
+          });
+          continue;
+        }
+        const check = await openTolerance(deps.db, payload.eventId, now);
+        results.push({
+          itemId,
+          withinTolerance: check.ok,
+          reason: check.reason,
+          selections: check.selections,
+        });
+      }
+      return wire(OpenCheckResponse, {
+        toleranceBps: OPEN_TOLERANCE_BPS,
+        marginBps: OPEN_MARGIN_BPS,
+        results,
+      });
     },
   );
 

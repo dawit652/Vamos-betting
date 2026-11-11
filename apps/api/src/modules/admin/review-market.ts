@@ -1,6 +1,13 @@
 import type { ReviewMarketComparison } from '@vamos/contracts';
-import { CONSENSUS_SELECTIONS, marketConsensus } from '@vamos/core';
-import { consensusRows, latestMarketOdds, type DbExecutor } from '@vamos/db';
+import {
+  CONSENSUS_SELECTIONS,
+  consensusDeviation,
+  marketConsensus,
+  OPEN_TOLERANCE_BPS,
+  withinConsensusTolerance,
+} from '@vamos/core';
+import { consensusRows, latestMarketOdds, marketsWithSelections, type DbExecutor } from '@vamos/db';
+import { defaultMarginBps } from '@vamos/feed';
 import { MARKET_ODDS_MAX_AGE_MS } from '@vamos/scraper';
 
 const PINNACLE = 'pinnacle';
@@ -53,4 +60,73 @@ export async function reviewMarketComparison(
       })),
     ),
   };
+}
+
+/** Our 1X2 margin the stored prices were made with (the prematch default of the pricing engine). */
+export const OPEN_MARGIN_BPS = defaultMarginBps('1x2', false);
+export { OPEN_TOLERANCE_BPS };
+
+export interface OpenToleranceSelection {
+  selection: string;
+  oddsMilli: number;
+  consensusProbability: number;
+  deviation: number;
+  within: boolean;
+}
+
+export interface OpenTolerance {
+  ok: boolean;
+  /** `no_consensus`, `no_prices` or `out_of_tolerance`; null when ok. */
+  reason: 'no_consensus' | 'no_prices' | 'out_of_tolerance' | null;
+  selections: OpenToleranceSelection[];
+}
+
+/**
+ * The tolerance test of the bulk open (plan A-4), computed from the database, never from the
+ * client: every 1X2 selection of the event's stored (open or suspended) prices must be within
+ * OPEN_TOLERANCE_BPS of the fresh no-vig consensus after our margin (withinConsensusTolerance).
+ * No fresh 1X2 consensus (the scraper's own freshness and book-count rules), or a missing 1X2
+ * selection, is a refusal.
+ */
+export async function openTolerance(
+  exec: DbExecutor,
+  eventId: string,
+  now: Date,
+): Promise<OpenTolerance> {
+  const consensus = marketConsensus(
+    consensusRows(
+      await latestMarketOdds(exec, { eventIds: [eventId], now, maxAgeMs: MARKET_ODDS_MAX_AGE_MS }),
+    ),
+  ).find((c) => c.market === '1x2');
+  if (consensus === undefined) return { ok: false, reason: 'no_consensus', selections: [] };
+
+  const stored = (await marketsWithSelections(exec, eventId)).find(
+    (m) => m.type === '1x2' && m.line === null && (m.status === 'open' || m.status === 'suspended'),
+  );
+  const selections: OpenToleranceSelection[] = [];
+  for (const code of CONSENSUS_SELECTIONS['1x2']) {
+    const price = stored?.selections.find((s) => s.code === code)?.oddsMilli;
+    const probability = consensus.probabilities[code];
+    if (price === undefined || probability === undefined) {
+      return { ok: false, reason: 'no_prices', selections };
+    }
+    selections.push({
+      selection: code,
+      oddsMilli: price,
+      consensusProbability: probability,
+      deviation: consensusDeviation({
+        oddsMilli: price,
+        probability,
+        marginBps: OPEN_MARGIN_BPS,
+      }),
+      within: withinConsensusTolerance({
+        oddsMilli: price,
+        probability,
+        marginBps: OPEN_MARGIN_BPS,
+        toleranceBps: OPEN_TOLERANCE_BPS,
+      }),
+    });
+  }
+  const ok = selections.every((s) => s.within);
+  return { ok, reason: ok ? null : 'out_of_tolerance', selections };
 }

@@ -17,6 +17,8 @@ import { Id, IsoDateTime, OddsMilli, Santim } from './common';
  *   when it is `apply_reprice` (`resolveReviewPermission`).
  * - `POST /admin/feed/review/map-batch` is `trading.status`, the same as the single `map_alias`
  *   decision it repeats.
+ * - `POST /admin/feed/review/open-batch` is `trading.status`, the same as the single `open_betting`
+ *   decision it repeats; `open-check` (read only, for the page that opens) is `trading.status` too.
  * - `PUT /admin/feed/ratings/:teamId` is `trading.odds`: ratings are what the model prices from,
  *   so setting them is as sensitive as applying a proposed re-price.
  * - `PUT /admin/feed/competitions/:id` is listed with its strictest permission,
@@ -29,6 +31,8 @@ export const FEED_ROUTE_PERMISSIONS = {
   'GET /admin/feed/review/:id': 'trading.view',
   'POST /admin/feed/review/:id/resolve': 'trading.status',
   'POST /admin/feed/review/map-batch': 'trading.status',
+  'POST /admin/feed/review/open-batch': 'trading.status',
+  'POST /admin/feed/review/open-check': 'trading.status',
   'GET /admin/feed/ratings': 'trading.view',
   'PUT /admin/feed/ratings/:teamId': 'trading.odds',
   'GET /admin/feed/aliases': 'trading.view',
@@ -827,6 +831,72 @@ export const MapBatchResponse = z.object({
   failed: Count,
 });
 export type MapBatchResponse = z.infer<typeof MapBatchResponse>;
+
+// ---------------------------------------------------------------------------
+// Bulk open betting (POST /admin/feed/review/open-batch and open-check, plan A-4).
+
+/** Most items one bulk open (or one tolerance check) may carry. */
+export const OPEN_BATCH_MAX = 50;
+
+const OpenBatchItemIds = z
+  .array(Id)
+  .min(1)
+  .max(OPEN_BATCH_MAX)
+  .refine((ids) => new Set(ids).size === ids.length, { message: 'an item appears twice' });
+
+/**
+ * Each item is opened exactly like an `open_betting` resolve (every one of its checks), plus the
+ * consensus tolerance check of the server, in its own transaction.
+ */
+export const OpenBatchRequest = z.strictObject({ itemIds: OpenBatchItemIds });
+export type OpenBatchRequest = z.infer<typeof OpenBatchRequest>;
+
+/** One item's outcome: `item` is the resolved review item, or `error` says why it was left open. */
+export const OpenBatchResult = z.object({
+  itemId: z.string(),
+  ok: z.boolean(),
+  item: ReviewItemView.optional(),
+  error: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+export type OpenBatchResult = z.infer<typeof OpenBatchResult>;
+
+export const OpenBatchResponse = z.object({
+  results: z.array(OpenBatchResult),
+  opened: Count,
+  failed: Count,
+});
+export type OpenBatchResponse = z.infer<typeof OpenBatchResponse>;
+
+/** Read-only (trading.status): which open odds_approval items are within tolerance now (the server re-checks on open). */
+export const OpenCheckRequest = z.strictObject({ itemIds: OpenBatchItemIds });
+export type OpenCheckRequest = z.infer<typeof OpenCheckRequest>;
+
+export const OpenCheckResult = z.object({
+  itemId: z.string(),
+  /** True only when betting could open on the tolerance test (the open itself checks more). */
+  withinTolerance: z.boolean(),
+  /** Why not: `not_open_item`, `no_consensus`, `no_prices` or `out_of_tolerance`; null when within. */
+  reason: z.string().nullable(),
+  /** The 1X2 selections compared (empty when there was nothing to compare). */
+  selections: z.array(
+    z.object({
+      selection: z.string(),
+      oddsMilli: OddsMilli,
+      consensusProbability: z.number(),
+      /** Signed relative deviation from the margin-adjusted consensus (0.01 = our price is 1% short). */
+      deviation: z.number(),
+      within: z.boolean(),
+    }),
+  ),
+});
+export type OpenCheckResult = z.infer<typeof OpenCheckResult>;
+
+export const OpenCheckResponse = z.object({
+  toleranceBps: Count,
+  marginBps: Count,
+  results: z.array(OpenCheckResult),
+});
+export type OpenCheckResponse = z.infer<typeof OpenCheckResponse>;
 
 // ---------------------------------------------------------------------------
 // Team ratings (GET /admin/feed/ratings, PUT /admin/feed/ratings/:teamId, plan R-3).

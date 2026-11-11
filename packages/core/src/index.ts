@@ -17,6 +17,7 @@ export * from './cashout';
 export * from './jackpot';
 export * from './markets';
 export * from './market-consensus';
+export * from './consensus-tolerance';
 export * from './phone';
 export * from './age';
 export * from './codes';
