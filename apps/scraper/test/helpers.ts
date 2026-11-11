@@ -70,6 +70,10 @@ export interface HarnessOptions {
   halfTimeMarkets?: 'all' | 'covered';
   /** SCRAPER_AUTO_ALIAS=on (rule N4); default off. */
   autoAlias?: boolean;
+  /** SCRAPER_PRIORITY_COMPETITIONS (C-2); default unset (every competition priority). */
+  priorityCompetitions?: string;
+  /** SCRAPER_SKIP_REDUNDANT_SCORES=on (C-2); default off. */
+  skipRedundantScores?: boolean;
 }
 
 // --- documents -----------------------------------------------------------------
@@ -164,6 +168,10 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       ? {}
       : { SCRAPER_HALF_TIME_MARKETS: options.halfTimeMarkets }),
     ...(options.autoAlias === true ? { SCRAPER_AUTO_ALIAS: 'on' } : {}),
+    ...(options.priorityCompetitions === undefined
+      ? {}
+      : { SCRAPER_PRIORITY_COMPETITIONS: options.priorityCompetitions }),
+    ...(options.skipRedundantScores === true ? { SCRAPER_SKIP_REDUNDANT_SCORES: 'on' } : {}),
   });
 
   let clock = new Date(T0);

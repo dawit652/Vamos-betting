@@ -118,6 +118,19 @@ export const MARKET_ODDS_INTERVALS_MS = {
   normal: [10 * MINUTE_MS, 30 * MINUTE_MS, 2 * HOUR_MS, 6 * HOUR_MS],
   economy: [15 * MINUTE_MS, 60 * MINUTE_MS, 150 * MINUTE_MS, 6 * HOUR_MS],
 } as const;
+/**
+ * C-2 (docs/feed-quality-plan.md): the odds of a `standard` competition (not in
+ * SCRAPER_PRIORITY_COMPETITIONS) are read at least this far apart in the same bands: 30 min,
+ * 2 h, 170 min, 6 h. A floor on the guard's own interval, so the guard can only slow it further.
+ */
+export const MARKET_ODDS_STANDARD_INTERVALS_MS = [
+  30 * MINUTE_MS,
+  2 * HOUR_MS,
+  // Not 6 h: within 14 days a standard league's prices must stay younger than
+  // MARKET_ODDS_MAX_AGE_MS (3 h, rule O5), or its market-priced events fall back to the model.
+  170 * MINUTE_MS,
+  6 * HOUR_MS,
+] as const;
 /** Minimal mode reads only leagues with a kickoff within 3 h, this often. */
 export const MARKET_ODDS_MINIMAL_INTERVAL_MS = 30 * MINUTE_MS;
 

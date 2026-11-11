@@ -5,10 +5,12 @@ import {
   METERED_RESULTS_WINDOW_START_MS,
   MARKET_ODDS_INTERVALS_MS,
   MARKET_ODDS_MINIMAL_INTERVAL_MS,
+  MARKET_ODDS_STANDARD_INTERVALS_MS,
   MARKET_ODDS_TIER_LIMITS_MS,
   MINUTE_MS,
 } from '../constants';
 import type { CreditGuardMode } from './credit-guard';
+import type { CompetitionTier } from './tiering';
 
 /** How often sources are polled (docs/scraper.md section 5). Pure functions: the clock is an argument. */
 
@@ -83,21 +85,30 @@ export function backoffAfterFailures(
  * within 3 h every 10 min, within 24 h every 30 min, within 14 days every 2 h, else every 6 h.
  * The guard's mode stretches that: economy reads less often, minimal reads only leagues with a
  * kickoff within 3 h (every 30 min), stop reads nothing. Invalid dates count as no kickoff.
+ * A `standard` competition (C-2) is read no more often than MARKET_ODDS_STANDARD_INTERVALS_MS in
+ * the same band (30 min, 2 h, 6 h, 6 h), on top of the guard: the slower of the two wins.
  */
 export function marketOddsPollIntervalMs(
   now: Date,
   nextKickoff: Date | null,
   mode: CreditGuardMode,
+  tier: CompetitionTier = 'priority',
 ): number | null {
   if (mode === 'stop') return null;
   const until =
     nextKickoff === null || Number.isNaN(nextKickoff.getTime()) || Number.isNaN(now.getTime())
       ? Number.POSITIVE_INFINITY
       : nextKickoff.getTime() - now.getTime();
-  let tier = MARKET_ODDS_TIER_LIMITS_MS.findIndex((limit) => until <= limit);
-  if (tier === -1) tier = MARKET_ODDS_TIER_LIMITS_MS.length;
-  if (mode === 'minimal') return tier === 0 ? MARKET_ODDS_MINIMAL_INTERVAL_MS : null;
-  return MARKET_ODDS_INTERVALS_MS[mode][tier] ?? null;
+  let band = MARKET_ODDS_TIER_LIMITS_MS.findIndex((limit) => until <= limit);
+  if (band === -1) band = MARKET_ODDS_TIER_LIMITS_MS.length;
+  const guarded =
+    mode === 'minimal'
+      ? band === 0
+        ? MARKET_ODDS_MINIMAL_INTERVAL_MS
+        : null
+      : (MARKET_ODDS_INTERVALS_MS[mode][band] ?? null);
+  if (guarded === null || tier === 'priority') return guarded;
+  return Math.max(guarded, MARKET_ODDS_STANDARD_INTERVALS_MS[band] ?? guarded);
 }
 
 /**

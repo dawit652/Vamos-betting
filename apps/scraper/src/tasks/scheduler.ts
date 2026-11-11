@@ -9,8 +9,6 @@ import {
   fixturesPollIntervalMs,
   marketOddsPollIntervalMs,
   meteredResultsPollIntervalMs,
-  buildAliasIndex,
-  resolveCompetition,
   MIN_LEAD_MS,
   resultsPollIntervalMs,
   utcMonthStart,
@@ -22,13 +20,13 @@ import {
   listRecentRuns,
   listScrapedEvents,
   listSources,
-  loadAliasInputs,
   nextMarketOddsKickoffs,
   sourceHealth,
   type ScrapeSource,
 } from '@vamos/db';
 import type { ScraperContext } from '../context';
 import { intervalTask, type IntervalTask } from '../lib/interval';
+import { meteredPolling, type MeteredPolling } from '../lib/source-competition';
 import { syncBudgetAlarm, syncProjectionAlarm } from '../pipeline/credit-alarms';
 import { runSource } from '../pipeline/run-source';
 
@@ -72,22 +70,26 @@ function readsMeteredResults(adapter: SourceAdapter | null, now: Date): boolean 
   );
 }
 
-/** The catalogue competition of each metered result source, by its configured label (or null). */
-async function competitionsOf(
-  ctx: ScraperContext,
-  sources: readonly ScrapeSource[],
-): Promise<Map<string, string | null>> {
-  const out = new Map<string, string | null>();
-  if (sources.length === 0) return out;
-  const index = buildAliasIndex(await loadAliasInputs(ctx.db, 'football'));
-  for (const source of sources) {
-    const config = source.config ?? {};
-    const raw = typeof config.competition === 'string' ? config.competition : '';
-    const sportId = typeof config.sport === 'string' ? config.sport : 'football';
-    const resolution = resolveCompetition(index, { sportId, sourceId: source.id, raw });
-    out.set(source.id, resolution.status === 'resolved' ? resolution.id : null);
+/** Scores sources skipped as redundant at the last pass, to log each change once (C-2). Per process. */
+const skippedScores = new Set<string>();
+
+/** Logs a scores source that starts or stops being skipped as a redundant upstream, once per change. */
+function logSkips(ctx: ScraperContext, polling: ReadonlyMap<string, MeteredPolling>): void {
+  for (const [sourceId, p] of polling) {
+    if (p.skipped && !skippedScores.has(sourceId)) {
+      skippedScores.add(sourceId);
+      ctx.logger.info(
+        { sourceId, competition: p.competition, reason: 'redundant_scores_upstream' },
+        'scores source skipped: two other full-time upstreams already cover its competition',
+      );
+    } else if (!p.skipped && skippedScores.has(sourceId)) {
+      skippedScores.delete(sourceId);
+      ctx.logger.info(
+        { sourceId, competition: p.competition },
+        'scores source read again: it is needed as a full-time upstream',
+      );
+    }
   }
-  return out;
 }
 
 /** The guard mode each key was in at the last pass, to log changes (rule G4). Per process. */
@@ -202,10 +204,22 @@ export async function runDueSources(
 
   const adapters = new Map(sources.map((source) => [source.id, adapterOf(source)]));
   const oddsSources = sources.filter((source) => readsOdds(adapters.get(source.id) ?? null, now));
-  const scoresSources = sources.filter((source) =>
-    readsMeteredResults(adapters.get(source.id) ?? null, now),
-  );
-  const scoresCompetitions = await competitionsOf(ctx, scoresSources);
+  // A source that also reads odds is read on the odds schedule, never as a scores source.
+  const scoresSources = sources.filter((source) => {
+    const adapter = adapters.get(source.id) ?? null;
+    return !readsOdds(adapter, now) && readsMeteredResults(adapter, now);
+  });
+  const polling = await meteredPolling(ctx.db, {
+    enabled: sources,
+    odds: oddsSources,
+    scores: scoresSources,
+    failing: new Set(
+      [...health.values()].filter((x) => x.consecutiveFailures > 0).map((x) => x.sourceId),
+    ),
+    priorityCompetitions: ctx.config.scraper.priorityCompetitions,
+    skipRedundantScores: ctx.config.scraper.skipRedundantScores,
+  });
+  logSkips(ctx, polling);
   const groups = new Map<string, ScrapeSource[]>();
   for (const source of [...oddsSources, ...scoresSources]) {
     const key = creditKeyOf(source.id, adapters.get(source.id)?.plan(now) ?? []);
@@ -226,12 +240,21 @@ export async function runDueSources(
     if (readsOdds(adapter, now)) {
       const mode = modes.get(creditKeyOf(source.id, adapter?.plan(now) ?? [])) ?? 'normal';
       // Null: not read at all for now (stop, or minimal with no kickoff within 3 h) - not even a first run.
-      const interval = marketOddsPollIntervalMs(now, nextKickoffs.get(source.id) ?? null, mode);
+      const tier = polling.get(source.id)?.tier ?? 'priority';
+      const interval = marketOddsPollIntervalMs(
+        now,
+        nextKickoffs.get(source.id) ?? null,
+        mode,
+        tier,
+      );
       if (interval === null) continue;
       base = interval;
     } else if (readsMeteredResults(adapter, now)) {
       const mode = modes.get(creditKeyOf(source.id, adapter?.plan(now) ?? [])) ?? 'normal';
-      const competitionId = scoresCompetitions.get(source.id) ?? null;
+      const p = polling.get(source.id);
+      // C-2: a redundant (third) full-time upstream is not read (SCRAPER_SKIP_REDUNDANT_SCORES=on).
+      if (p?.skipped === true) continue;
+      const competitionId = p?.competitionId ?? null;
       const kickoffs =
         competitionId === null
           ? []

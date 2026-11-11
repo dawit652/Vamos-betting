@@ -245,6 +245,23 @@ const envSchema = z.object({
    * upstreams protect (rule R2). `off` (the default) only suggests.
    */
   SCRAPER_AUTO_ALIAS: z.enum(['off', 'on']).default('off'),
+  /**
+   * C-2 of docs/feed-quality-plan.md: catalogue slugs of the `priority` competitions, comma
+   * separated (e.g. premier-league,la-liga). Their odds keep the 10 min / 30 min / 2 h / 6 h
+   * schedule; every other competition's odds read 30 min / 2 h / 6 h / 6 h. Unset or empty (the
+   * default): every competition is priority, as before.
+   */
+  SCRAPER_PRIORITY_COMPETITIONS: csv
+    .refine((slugs) => slugs.every((slug) => /^[a-z0-9][a-z0-9-]*$/i.test(slug)), {
+      message: 'must be comma-separated competition slugs (letters, digits, hyphens)',
+    })
+    .optional(),
+  /**
+   * C-2: `on` stops reading a metered scores source (The Odds API) in a competition where two
+   * other enabled, healthy full-time upstreams (one with half time) already meet rule R2. `off`
+   * (the default) reads every scores source as before.
+   */
+  SCRAPER_SKIP_REDUNDANT_SCORES: z.enum(['off', 'on']).default('off'),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -418,6 +435,10 @@ export interface ScraperConfig {
   halfTimeMarkets: 'all' | 'covered';
   /** SCRAPER_AUTO_ALIAS=on: rule N4 auto-applies strong fixture-context suggestions (default off). */
   autoAlias: boolean;
+  /** SCRAPER_PRIORITY_COMPETITIONS (C-2), lower-cased slugs; null (unset or empty): all priority. */
+  priorityCompetitions: string[] | null;
+  /** SCRAPER_SKIP_REDUNDANT_SCORES=on (C-2): skip a scores source that is a third upstream (default off). */
+  skipRedundantScores: boolean;
 }
 
 /** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -712,6 +733,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       minRatingMatches: e.SCRAPER_MIN_RATING_MATCHES,
       halfTimeMarkets: e.SCRAPER_HALF_TIME_MARKETS,
       autoAlias: e.SCRAPER_AUTO_ALIAS === 'on',
+      priorityCompetitions:
+        e.SCRAPER_PRIORITY_COMPETITIONS === undefined ||
+        e.SCRAPER_PRIORITY_COMPETITIONS.length === 0
+          ? null
+          : [...new Set(e.SCRAPER_PRIORITY_COMPETITIONS.map((slug) => slug.toLowerCase()))],
+      skipRedundantScores: e.SCRAPER_SKIP_REDUNDANT_SCORES === 'on',
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {

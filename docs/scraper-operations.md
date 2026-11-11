@@ -63,12 +63,26 @@ The scraper reads these from the environment (`packages/config/src/config.ts`; e
 | `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
 | `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                      |
 | `SCRAPER_AUTO_ALIAS`             | `off`            | N4: `on` maps a strong fixture-context suggestion as an alias for that source only (see below)      |
+| `SCRAPER_PRIORITY_COMPETITIONS`  | unset            | C-2: slugs of priority competitions; others' odds read 30 min / 2 h / 6 h (see below)               |
+| `SCRAPER_SKIP_REDUNDANT_SCORES`  | `off`            | C-2: `on` stops reading a scores source that would be a third full-time upstream (see below)        |
 
 These are code constants, not settings: the number of independent upstreams a result needs (`MIN_INDEPENDENT_SOURCES = 2`),
 the kickoff tolerance, the shape threshold (`SHAPE_MIN_RATIO = 0.5`) and the other rule thresholds in
 `packages/scraper/src/constants.ts`. Changing one is a code change and a review, never an operational step.
 
 The scraper's own settings are read at start. Changing one needs `docker compose up -d scraper`.
+
+**`SCRAPER_PRIORITY_COMPETITIONS` and `SCRAPER_SKIP_REDUNDANT_SCORES` (C-2, tiered polling of The Odds API).**
+`SCRAPER_PRIORITY_COMPETITIONS=premier-league,la-liga,...` lists the catalogue slugs (as `sources coverage` and
+`sources budget` print them) whose odds keep the 10 min / 30 min / 2 h / 6 h schedule; every other competition's
+odds are read 30 min / 2 h / 6 h / 6 h in the same bands (within 3 h, 24 h, 14 days, none). Unset or empty: every
+competition is priority, as before. The credit guard still applies on top (the slower wins). With
+`SCRAPER_SKIP_REDUNDANT_SCORES=on`, a scores source is not read while two other enabled, healthy full-time upstreams
+of its competition (one with half time) already meet rule R2; it is read again at once when one of them fails or is
+switched off. Try values before setting them: `sources budget --priority premier-league,la-liga
+--skip-redundant-scores on` (`--priority all`: everything priority); the output lists each source's tier and
+`redundant` for a skipped one, and names priority slugs no metered source reads (a typo shows there). Details:
+docs/theoddsapi-plan/README.md 4.5.
 
 **`SCRAPER_AUTO_ALIAS` (rule N4, off by default).** With `on`, a strong fixture-context suggestion for an unknown
 team name is written as an alias for the source that showed the name, never for every source, by `system:scraper`.

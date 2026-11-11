@@ -269,12 +269,32 @@ is, skip rules K and use the header.
 Each source is read according to the next kickoff in **its own price rows** that is more than `MIN_LEAD_MS` (10 min)
 ahead:
 
-| Next kickoff   | Read every | Why                                                                       |
-| -------------- | ---------- | ------------------------------------------------------------------------- |
-| within 3 h     | 10 min     | team news and line-ups (about 75 min before kickoff) move prices the most |
-| within 24 h    | 30 min     |                                                                           |
-| within 14 days | 2 h        | under the 3 h price age, so prices never lapse between reads              |
-| none           | 6 h        | international breaks and summer; a new round is picked up within 6 h      |
+| Next kickoff   | Read every (priority) | Read every (standard, C-2) | Why                                                                       |
+| -------------- | --------------------- | -------------------------- | ------------------------------------------------------------------------- |
+| within 3 h     | 10 min                | 30 min                     | team news and line-ups (about 75 min before kickoff) move prices the most |
+| within 24 h    | 30 min                | 2 h                        |                                                                           |
+| within 14 days | 2 h                   | 170 min                    | under the 3 h price age, so prices never lapse between reads              |
+| none           | 6 h                   | 6 h                        | international breaks and summer; a new round is picked up within 6 h      |
+
+**Tiers (C-2 of docs/feed-quality-plan.md).** A competition is `priority` when its catalogue slug is in
+`SCRAPER_PRIORITY_COMPETITIONS` (comma separated, e.g. `premier-league,la-liga`), else `standard`. Unset or empty (the
+default), every competition is priority: the schedule above is unchanged until the owner opts in. A source whose
+competition label does not resolve stays priority. The standard column is a floor on top of the credit guard (4.7):
+the slower of the two wins, so economy reads a standard league 30 min / 2 h / 170 min / 6 h, minimal 30 min within 3 h
+only, stop never. `marketOddsPollIntervalMs(now, nextKickoff, mode, tier)` takes the tier (default `priority`).
+The standard 14-day band is 170 min, not 6 h: a standard league's prices must stay younger than the 3 h price age
+(`MARKET_ODDS_MAX_AGE_MS`, rule O5) between reads, or its market-priced events more than 24 h ahead would fall back to
+the model (`market_stale`) for part of each interval.
+
+**Redundant scores (C-2).** With `SCRAPER_SKIP_REDUNDANT_SCORES=on` (default `off`), a scores source (`mode:
+scores`) is **not read at all** while its competition has two other independent full-time upstreams among the
+enabled, healthy (no failure since the last ok run), non-metered-scores sources, one of them with half time (for
+example football-data.org plus openfootball): it would be a third upstream. It is always read where it is needed as
+one of the two upstreams of rule R2, and it comes back at the next pass when one of those upstreams fails or is
+switched off. Skipping (not "slowest cadence") because a third upstream adds nothing to R2 and every read costs 2
+credits. The scheduler logs `scores source skipped` (`reason: redundant_scores_upstream`) once per change, and
+`scores source read again` when it is needed again. `sources budget` shows each source's tier and whether it is
+skipped, and replays the same schedule.
 
 - A source's first run is due at once, as today.
 - The scheduler's 10% early jitter and its failure backoff (doubling, at most 6 h) apply as for every source.

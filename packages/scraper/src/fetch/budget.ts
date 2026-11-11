@@ -6,6 +6,7 @@ import {
 } from '../constants';
 import { marketOddsPollIntervalMs, meteredResultsPollIntervalMs } from './cadence';
 import { creditGuardMode, type CreditGuardMode } from './credit-guard';
+import type { CompetitionTier } from './tiering';
 
 /**
  * Credit budget estimates for a metered odds API (docs/feed-quality-plan.md C-1). Pure: the clock
@@ -36,8 +37,10 @@ export function estimateOddsReadsPerDay(input: {
   days: number;
   horizonMs: number;
   mode?: CreditGuardMode;
+  /** C-2: a `standard` competition reads on the slower schedule; default `priority`. */
+  tier?: CompetitionTier;
 }): number[] {
-  const { now, days, horizonMs, mode = 'normal' } = input;
+  const { now, days, horizonMs, mode = 'normal', tier = 'priority' } = input;
   const reads = emptyDays(days);
   const start = now.getTime();
   const end = start + reads.length * DAY_MS;
@@ -46,7 +49,12 @@ export function estimateOddsReadsPerDay(input: {
   for (let t = start; t < end;) {
     const at = new Date(t);
     const next = times.find((k) => k > t + MIN_LEAD_MS && k <= t + horizonMs);
-    const interval = marketOddsPollIntervalMs(at, next === undefined ? null : new Date(next), mode);
+    const interval = marketOddsPollIntervalMs(
+      at,
+      next === undefined ? null : new Date(next),
+      mode,
+      tier,
+    );
     if (interval === null) {
       // The guard says stop (or minimal with nothing within 3 h): nothing is read, look again later.
       if (mode === 'stop') break;

@@ -178,5 +178,142 @@ describe('sources budget', () => {
 
   it('takes no arguments', async () => {
     expect((await cli.run('sources', 'budget', 'x')).code).toBe(2);
+    expect((await cli.run('sources', 'budget', '--priority', 'premier league')).code).toBe(2);
+    expect((await cli.run('sources', 'budget', '--skip-redundant-scores', 'yes')).code).toBe(2);
   });
+});
+
+interface BudgetJson {
+  priorityCompetitions: string[] | null;
+  skipRedundantScores: boolean;
+  unmatchedPriority: string[];
+  sources: Array<{
+    sourceId: string;
+    tier: string;
+    skipped: boolean;
+    readsPerDay: number;
+    creditsPerDay: number;
+  }>;
+}
+
+const budgetOf = async (harness: ReturnType<typeof cliHarness>, ...flags: string[]) => {
+  const run = await harness.run('sources', 'budget', '--json', ...flags);
+  expect(run.code).toBe(0);
+  const json = JSON.parse(run.stdout) as BudgetJson;
+  return { json, byId: new Map(json.sources.map((s) => [s.sourceId, s])) };
+};
+
+describe('sources budget with tiered polling (C-2)', () => {
+  it(
+    'default settings: every source priority, nothing skipped (the estimate above)',
+    async () => {
+      const { json, byId } = await budgetOf(cli);
+      expect(json).toMatchObject({ priorityCompetitions: null, skipRedundantScores: false });
+      expect(byId.get('odds-epl')).toMatchObject({ tier: 'priority', readsPerDay: 96 / 5 });
+      expect(byId.get('scores-epl')).toMatchObject({ tier: 'priority', skipped: false });
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    "replays the standard schedule for a competition the scraper's priority list leaves out",
+    async () => {
+      const standard = cliHarness({
+        db: h.ctx.db,
+        polling: { priorityCompetitions: ['la-liga'], skipRedundantScores: false },
+      });
+      const { json, byId } = await budgetOf(standard);
+      expect(json.priorityCompetitions).toEqual(['la-liga']);
+      expect(json.unmatchedPriority).toEqual(['la-liga']);
+      // Every 170 min inside 14 days (27), every 2 h inside 24 h (9), every 30 min inside 3 h (6)
+      // = 42 reads.
+      expect(byId.get('odds-epl')).toMatchObject({
+        tier: 'standard',
+        readsPerDay: 42 / 5,
+        creditsPerDay: 84 / 5,
+      });
+      // The tier never changes how scores are read.
+      expect(byId.get('scores-epl')).toMatchObject({ tier: 'standard', creditsPerDay: 14 / 5 });
+      // A flag tries another value without changing the setting.
+      const all = await budgetOf(standard, '--priority', 'all');
+      expect(all.byId.get('odds-epl')).toMatchObject({ tier: 'priority', readsPerDay: 96 / 5 });
+      const listed = await budgetOf(standard, '--priority', 'Premier-League');
+      expect(listed.byId.get('odds-epl')?.tier).toBe('priority');
+      expect(listed.json.unmatchedPriority).toEqual([]);
+      const text = await standard.run('sources', 'budget');
+      expect(text.stdout).toMatch(/odds-epl .*standard\s+-/);
+      expect(text.stdout).toContain('priority slug(s) no metered source reads: la-liga');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'skips a scores source only where it would be a third full-time upstream',
+    async () => {
+      // Only metered sources are enabled: the scores source is needed, never skipped.
+      const needed = await budgetOf(cli, '--skip-redundant-scores', 'on');
+      expect(needed.json.skipRedundantScores).toBe(true);
+      expect(needed.byId.get('scores-epl')).toMatchObject({
+        skipped: false,
+        creditsPerDay: 14 / 5,
+      });
+
+      // openfootball (full time and half time) plus a football-data.org source: now redundant.
+      await h.ctx.db.transaction(async (tx) => {
+        await upsertSource(
+          tx,
+          {
+            id: 'fd-epl',
+            name: 'football-data.org',
+            adapter: 'generic-json',
+            upstream: 'football-data.org',
+            config: {
+              allowedHosts: ['api.football-data.org'],
+              requests: [
+                {
+                  url: 'https://api.football-data.org/v4/competitions/PL/matches',
+                  purpose: 'both',
+                },
+              ],
+              sport: 'football',
+              recordsPath: 'matches',
+              fields: {
+                home: 'homeTeam.name',
+                away: 'awayTeam.name',
+                competition: { fixed: 'Premier League' },
+                kickoff: { path: 'utcDate', format: 'iso' },
+                externalRef: 'id',
+                status: { path: 'status', map: { FINISHED: 'finished', TIMED: 'scheduled' } },
+                score: {
+                  homePath: 'ft.h',
+                  awayPath: 'ft.a',
+                  htHomePath: 'ht.h',
+                  htAwayPath: 'ht.a',
+                },
+              },
+              scoreBasis: 'regular_time',
+            },
+          },
+          actor,
+        );
+        await setSourceEnabled(tx, 'fd-epl', true, actor);
+        await setSourceEnabled(tx, 'src-a', true, actor);
+      });
+      const skipped = await budgetOf(cli, '--skip-redundant-scores', 'on');
+      expect(skipped.byId.get('scores-epl')).toMatchObject({
+        skipped: true,
+        readsPerDay: 0,
+        creditsPerDay: 0,
+      });
+      expect((await cli.run('sources', 'budget', '--skip-redundant-scores', 'on')).stdout).toMatch(
+        /scores-epl .*redundant/,
+      );
+      // Off (the default): read as before.
+      expect((await budgetOf(cli)).byId.get('scores-epl')).toMatchObject({
+        skipped: false,
+        creditsPerDay: 14 / 5,
+      });
+    },
+    TEST_TIMEOUT,
+  );
 });

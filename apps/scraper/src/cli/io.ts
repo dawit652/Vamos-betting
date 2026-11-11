@@ -38,6 +38,17 @@ export interface CliEnv {
   clock(): Date;
   /** The audit actor of every change the CLI makes. */
   actor: ScrapeActor;
+  /**
+   * The scraper's C-2 settings (SCRAPER_PRIORITY_COMPETITIONS, SCRAPER_SKIP_REDUNDANT_SCORES), for
+   * commands that replay the scheduler. Absent: the defaults (every competition priority, no skip).
+   */
+  pollingSettings?(): PollingSettings;
+}
+
+/** ScraperConfig's C-2 fields. */
+export interface PollingSettings {
+  priorityCompetitions: string[] | null;
+  skipRedundantScores: boolean;
 }
 
 export const defaultReadFile = (path: string): Promise<string> => readFile(path, 'utf8');

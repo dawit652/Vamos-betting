@@ -3,7 +3,7 @@ import { createTestDatabase } from '@vamos/db/testing';
 import type { PoliteFetcher } from '@vamos/scraper';
 import { seedCatalog } from '@vamos/db';
 import { runCli } from '../src/cli';
-import type { CliEnv } from '../src/cli/io';
+import type { CliEnv, PollingSettings } from '../src/cli/io';
 import { T0 } from './helpers';
 
 export interface CliRun {
@@ -23,7 +23,9 @@ export interface CliHarness {
  * Without `db` / `fetcher` a command that touches them fails loudly, which
  * is how the tests prove that dry-parse needs neither.
  */
-export function cliHarness(deps: { db?: Database; fetcher?: PoliteFetcher } = {}): CliHarness {
+export function cliHarness(
+  deps: { db?: Database; fetcher?: PoliteFetcher; polling?: PollingSettings } = {},
+): CliHarness {
   const files = new Map<string, string>();
   return {
     files,
@@ -49,6 +51,7 @@ export function cliHarness(deps: { db?: Database; fetcher?: PoliteFetcher } = {}
         },
         clock: () => new Date(T0),
         actor: { system: 'cli-test' },
+        ...(deps.polling === undefined ? {} : { pollingSettings: () => deps.polling! }),
       };
       const code = await runCli(argv, env);
       return { code, stdout: out.join('\n'), stderr: err.join('\n') };

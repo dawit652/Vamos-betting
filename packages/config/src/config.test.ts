@@ -589,6 +589,8 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       minRatingMatches: 8,
       halfTimeMarkets: 'all',
       autoAlias: false,
+      priorityCompetitions: null,
+      skipRedundantScores: false,
     });
     // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
     expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
@@ -606,6 +608,8 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       SCRAPER_MIN_RATING_MATCHES: '1',
       SCRAPER_HALF_TIME_MARKETS: 'covered',
       SCRAPER_AUTO_ALIAS: 'on',
+      SCRAPER_PRIORITY_COMPETITIONS: ' Premier-League, la-liga,,premier-league ',
+      SCRAPER_SKIP_REDUNDANT_SCORES: 'on',
     });
     expect(config.scraper).toEqual({
       archiveDir: '/data/scraper',
@@ -618,9 +622,15 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       minRatingMatches: 1,
       halfTimeMarkets: 'covered',
       autoAlias: true,
+      priorityCompetitions: ['premier-league', 'la-liga'],
+      skipRedundantScores: true,
     });
     // A blank contact (as in an env file) is "not set".
     expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();
+    // A blank priority list (as in an env file) is "not set": every competition is priority.
+    expect(
+      loadConfig({ SCRAPER_PRIORITY_COMPETITIONS: ' , ' }).scraper.priorityCompetitions,
+    ).toBeNull();
   });
 
   it('refuses values out of range or of the wrong kind', () => {
@@ -632,6 +642,8 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       ['SCRAPER_ROBOTS', ['maybe', 'ON', 'false']],
       ['SCRAPER_HALF_TIME_MARKETS', ['some', 'COVERED', 'true', '']],
       ['SCRAPER_AUTO_ALIAS', ['true', 'ON', '1', '']],
+      ['SCRAPER_PRIORITY_COMPETITIONS', ['premier league', 'epl;la-liga', '-x']],
+      ['SCRAPER_SKIP_REDUNDANT_SCORES', ['true', 'ON', '1', '']],
       ['SCRAPER_ARCHIVE_DIR', ['   ']],
       ['SCRAPER_USER_AGENT', ['   ', 'Bot\r\nX-Evil: 1', 'Bøt/1.0']],
       [

@@ -43,10 +43,13 @@ commands:
       Per competition: which enabled upstreams give fixtures, full-time scores, half-time scores and
       a stated score basis (extra time), from the source configs; flags competitions with fewer than
       two full-time upstreams (single-result-upstream: rule R2 needs two). Read-only.
-  sources budget
+  sources budget [--priority slug,slug|all] [--skip-redundant-scores on|off]
       The Odds API credits a day per source from the read schedule and the next 30 days of fixtures,
       against the plan quota and reset date; actual spend (24 h, month to date) and credits left per
-      key; days until the credit guard leaves normal at the estimated rate. Read-only.
+      key; days until the credit guard leaves normal at the estimated rate. Each source's tier
+      (priority or standard) and whether its scores are skipped as a redundant upstream come from
+      SCRAPER_PRIORITY_COMPETITIONS and SCRAPER_SKIP_REDUNDANT_SCORES; the flags try other values
+      without changing them (--priority all: every competition priority). Read-only.
   sources upsert --file source.json
       Validates the config (createAdapter), then creates or updates the source.
       A new source starts DISABLED; an existing one keeps its enabled flag.
@@ -193,6 +196,10 @@ function realEnv(): { env: CliEnv; close: () => Promise<void> } {
     readFile: defaultReadFile,
     clock: () => new Date(),
     actor: { system: 'cli' },
+    pollingSettings: () => {
+      const { priorityCompetitions, skipRedundantScores } = getConfig().scraper;
+      return { priorityCompetitions, skipRedundantScores };
+    },
     database: async (): Promise<Database> => {
       if (handle === null) {
         const cfg = getConfig();
