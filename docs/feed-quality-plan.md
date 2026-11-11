@@ -314,15 +314,43 @@ scorecard shows a gain (measure before tuning prices). Owner decisions still ope
   Staging: build the margins as settings with today's values, then switch to these after the first weekly scorecard,
   together with `SCRAPER_CAP_AT_BEST_PRICE=on` (a lower margin must never put us above the best book), unless the
   scorecard shows a median closing-line value below zero.
-- **S-3, second results upstream: DECIDED.** API-Football (api-sports.io), a paid plan (about 19 USD a month at the
-  time of writing; check the price list), for all 24 competitions; not openfootball (volunteer data, slow, partial).
-  Why: it gives full time, half time and says extra time and penalties apart, so the 15 single-source competitions
-  can pass R2, cup results no longer wait for a person (S-4), and half-time markets are covered everywhere (S-2).
-  Automatic results in those competitions switch on only after the S-7 truth check (200 settled matches).
+- **S-3, second results upstream: REVISED 2026-11-11.** The owner chose the Odds API 100K plan (59 USD a month) and
+  no paid results API, so the second upstream comes from free sources only. See "Budget (100K plan)" below.
 - **A-5, kickoff for human opens: DECIDED.** Build the confirmation. A person may open betting on a match whose
   kickoff only one upstream confirms, but must tick "I checked the kickoff time", recorded with their name
   (`recordKickoffConfirmation`); the bulk open (A-4) refuses such matches. Why: a wrong kickoff means bets taken
   after the match started; one tick is a small price.
+
+**Budget (100K plan, 59 USD a month; decided 2026-11-11).** Every Odds API read costs 2 credits (1X2 and totals,
+ten named books: one region); a scores read costs 2 (`daysFrom=1`). The `sources budget` estimator replayed over a
+typical month (16 leagues with a weekend round each week and a midweek round a month, Europa and Conference League
+every other Thursday, six domestic cups one round a month) gives:
+
+| Setting                                     | Credits a month                   | Busiest day | Fits                 |
+| ------------------------------------------- | --------------------------------- | ----------- | -------------------- |
+| Today's schedule, all 24, prices and scores | about 53K (60–70K in busy months) | about 3.3K  | yes, 30–45K to spare |
+| Plus the spreads (handicap) market          | about 75K (up to about 98K)       | about 4.7K  | too tight: not taken |
+
+The guard's economy trigger is 7.5% of the quota in 24 h (7.5K credits), never reached. So the 100K plan keeps the
+fastest schedule everywhere and the configuration aims at quality, not at saving credits:
+
+1. **All 24 competitions on the fast schedule:** `SCRAPER_PRIORITY_COMPETITIONS` unset.
+2. **Keep every Odds API scores read:** `SCRAPER_SKIP_REDUNDANT_SCORES=off`; skipping saves about 4K credits a month
+   but would make results wait for openfootball, which is slow.
+3. **Free second results upstream:** football-data.org (free tier, full and half time) and openfootball give the nine
+   leagues en1, en2, es1, de1, it1, fr1, nl1, pt1 and br1 two or three upstreams, so their results apply by
+   themselves. Enable all nine openfootball sources (free; a backup when football-data.org fails).
+4. **The other 15 competitions** (be1, tr1, sco1, ch1, sa1, en3, en4, Europa and Conference League and six cups) have
+   only the Odds API: their results go to a person (cups always, S-4). To keep that a few clicks a day, build a bulk
+   "confirm results" in the back office (item R-B below).
+5. **`SCRAPER_HALF_TIME_MARKETS=covered`:** half-time markets only in the nine leagues with a half-time source, so a
+   person never has to look up a half-time score.
+6. **No spreads market** for now; revisit when a month's real spend (`sources budget`) is known.
+7. `SCRAPER_CAP_AT_BEST_PRICE` and the P-6 margins follow the first weekly scorecard, as decided.
+
+| ID  | Change                                                                                                                                                                                                                                                                                      | Tier |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| R-B | **Bulk confirm results** for single-upstream competitions: select `result_unverified` items whose one upstream's score has been unchanged for at least 2 h, confirm them in one go; each runs the single confirm path (regular-time basis, 105-minute floor, R1/O4) in its own transaction. | Opus |
 
 **Environment (2026-11-10):** the owner's PC had 4–5 GB free on C:. Docker started later in the day, and the
 integration tests ran. The owner will free disk space; Docker's reclaimable space is about 4 GB of build cache and
