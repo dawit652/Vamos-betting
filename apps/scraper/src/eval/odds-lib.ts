@@ -465,7 +465,12 @@ export const FOOTBALL_DATA_NAME: Readonly<Record<string, string>> = {
 
 /** Minimal CSV reader (quotes, embedded commas). Returns rows keyed by header. */
 export function readCsv(path: string): Array<Record<string, string>> {
-  const text = readFileSync(path, 'utf8');
+  return parseCsv(readFileSync(path, 'utf8'));
+}
+
+/** The same reader over text already in memory. A leading BOM is dropped (football-data files have one). */
+export function parseCsv(content: string): Array<Record<string, string>> {
+  const text = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
   const rows: string[][] = [];
   let row: string[] = [];
   let field = '';

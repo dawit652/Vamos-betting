@@ -11,6 +11,7 @@ import { PoliteFetcher } from '@vamos/scraper';
 import { aliasesImport, aliasesList, aliasesRemove } from './cli/aliases';
 import { dryFetch, dryParse } from './cli/dry-run';
 import { evalScorecard } from './cli/eval';
+import { evalMarket } from './cli/eval-market';
 import {
   CliFailure,
   defaultReadFile,
@@ -90,6 +91,11 @@ commands:
       Prices at betting close against the results (last 7 days by default, N from 1 to 90):
       sample, 1X2 and over/under scores of ours, the consensus and Pinnacle, calibration, overround,
       bettor edge and best-price shares; overall, per competition and per pricing source. Read-only.
+  eval market (--file <csv> [--file ...] | --dir <folder>) [--open]
+      Offline: what priceFootballFromMarket prices from football-data.co.uk closing odds (--open: the
+      opening columns) against the results, per match from the odds of several books: 1X2, over/under
+      2.5, BTTS, Asian handicap, half-time 1X2 and correct score, with Pinnacle no-vig and the base
+      rate as references (BTTS, half time and correct score have no book odds in the files). Reads files only.
 
 every command accepts --json (machine-readable output); review gaps also --csv.
 exit codes: 0 success, 1 failed or refused, 2 wrong command line.`;
@@ -113,6 +119,7 @@ const COMMANDS: Record<string, Command> = {
   'review gaps': reviewGaps,
   'review results-audit': reviewResultsAudit,
   'eval scorecard': evalScorecard,
+  'eval market': evalMarket,
 };
 
 /** Words that take a sub-command; the rest are commands on their own. */
