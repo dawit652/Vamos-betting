@@ -241,6 +241,8 @@ export default function FeedOverviewPage() {
     <>
       <PageHeader title="Feed">
         <Link href="/feed/review">Review queue</Link>
+        <Link href="/feed/review/unknown-names">Unknown names</Link>
+        <Link href="/feed/ratings">Ratings</Link>
         <Link href="/feed/aliases">Aliases</Link>
       </PageHeader>
       <Loading loading={health.loading && data === null} error={health.error} />

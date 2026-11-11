@@ -1,9 +1,17 @@
 import { MAX_TEAM_RATING, MIN_TEAM_RATING, replayRatings, type FootballResult } from '@vamos/feed';
-import { getTeamRatings, localizedNames, setTeamRatings, type Database } from '@vamos/db';
-import { SCRAPED_FEED_PROVIDER } from '@vamos/core';
-import { competitions, events, teamAliases, teams } from '@vamos/db/schema';
+import {
+  footballTeamNames,
+  getTeamRatings,
+  listRatedTeams,
+  localizedNames,
+  listUnratedTeams,
+  setTeamRatings,
+  type Database,
+  type FootballTeamNames,
+} from '@vamos/db';
+import { competitions, teamAliases, teams } from '@vamos/db/schema';
 import { isCalibrated, MIN_RATING_MATCHES, normalizeName } from '@vamos/scraper';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   CliFailure,
@@ -318,24 +326,9 @@ export async function ratingsBackfill(args: string[], env: CliEnv): Promise<numb
 /** Most matches a hand-set rating can claim; far above any calibration threshold. */
 const MAX_MANUAL_MATCHES = 10_000;
 
-interface TeamCandidate {
-  id: string;
-  shortName: string;
-  names: string[];
-}
+type TeamCandidate = FootballTeamNames;
 
-/** Football teams of the catalogue with every name they answer to. */
-async function footballTeams(exec: Database): Promise<TeamCandidate[]> {
-  const rows = await exec
-    .select({ id: teams.id, shortName: teams.shortName, name: teams.name })
-    .from(teams)
-    .where(eq(teams.sportId, 'football'));
-  return rows.map((r) => ({
-    id: r.id,
-    shortName: r.shortName,
-    names: [r.shortName, ...localizedNames(r.name)],
-  }));
-}
+const footballTeams = (exec: Database): Promise<TeamCandidate[]> => footballTeamNames(exec);
 
 const matchesName = (team: TeamCandidate, key: string): boolean =>
   team.names.some((n) => normalizeName(n) === key);
@@ -486,24 +479,13 @@ export async function ratingsList(args: string[], env: CliEnv): Promise<number> 
   }
 
   const db: Database = await env.database();
-  const candidates = (await footballTeams(db)).filter(
-    (t) => key === '' || t.names.some((n) => normalizeName(n).includes(key)),
-  );
-  const current = await getTeamRatings(
-    db,
-    candidates.map((t) => t.id),
-  );
-  const rows = candidates
-    .map((t) => ({ team: t, ratings: current.get(t.id) }))
-    .filter((r) => r.ratings?.ratings !== null && r.ratings?.ratings !== undefined)
-    .sort((a, b) => a.team.shortName.localeCompare(b.team.shortName))
-    .map((r) => ({
-      teamId: r.team.id,
-      team: r.team.shortName,
-      ...snapshot(r.ratings!.ratings),
-      manual: r.ratings!.manual,
-      ratings: r.ratings!.ratings,
-    }));
+  const rows = (await listRatedTeams(db, { nameKey: key, normalize: normalizeName })).map((r) => ({
+    teamId: r.teamId,
+    team: r.team,
+    ...snapshot(r.ratings),
+    manual: r.manual,
+    ratings: r.ratings,
+  }));
   emit(env, parsed, { teams: rows }, [
     ...table(
       ['team', 'attack', 'defence', 'matches', 'manual'],
@@ -543,62 +525,22 @@ async function ratingsUnrated(
   // O1 never takes the bar below MIN_RATING_MATCHES (isCalibrated), so neither does the list.
   const minMatches = Math.max(minMatchesOf(parsed), MIN_RATING_MATCHES);
   const db: Database = await env.database();
-  const now = env.clock();
-  const upcoming = await db
-    .select({
-      homeTeamId: events.homeTeamId,
-      awayTeamId: events.awayTeamId,
-      startTime: events.startTime,
+  const rows = (
+    await listUnratedTeams(db, {
+      nameKey: key,
+      normalize: normalizeName,
+      now: env.clock(),
+      calibrated: (ratings) => isCalibrated(ratings, minMatches),
     })
-    .from(events)
-    .where(
-      and(
-        eq(events.feedProvider, SCRAPED_FEED_PROVIDER),
-        eq(events.status, 'scheduled'),
-        isNull(events.resultedAt),
-        gt(events.startTime, now),
-      ),
-    );
-  const playing = new Map<string, { count: number; next: Date }>();
-  for (const event of upcoming) {
-    for (const id of [event.homeTeamId, event.awayTeamId]) {
-      if (id === null) continue;
-      const seen = playing.get(id);
-      if (seen === undefined) playing.set(id, { count: 1, next: event.startTime });
-      else {
-        seen.count += 1;
-        if (event.startTime.getTime() < seen.next.getTime()) seen.next = event.startTime;
-      }
-    }
-  }
-  const candidates = (await footballTeams(db)).filter(
-    (t) => playing.has(t.id) && (key === '' || t.names.some((n) => normalizeName(n).includes(key))),
-  );
-  const current = await getTeamRatings(
-    db,
-    candidates.map((t) => t.id),
-  );
-  const rows = candidates
-    .filter((t) => !isCalibrated(current.get(t.id)?.ratings ?? null, minMatches))
-    .map((t) => {
-      const ratings = current.get(t.id)?.ratings ?? null;
-      const plays = playing.get(t.id)!;
-      return {
-        teamId: t.id,
-        team: t.shortName,
-        matches: snapshot(ratings).matches,
-        needed: minMatches,
-        hasRatings: ratings !== null,
-        upcoming: plays.count,
-        nextKickoff: plays.next.toISOString(),
-      };
-    })
-    .sort(
-      (a, b) =>
-        b.upcoming - a.upcoming ||
-        a.nextKickoff.localeCompare(b.nextKickoff) ||
-        a.team.localeCompare(b.team),
-    );
+  ).map((r) => ({
+    teamId: r.teamId,
+    team: r.team,
+    matches: r.matches,
+    needed: minMatches,
+    hasRatings: r.hasRatings,
+    upcoming: r.upcoming,
+    nextKickoff: r.nextKickoff.toISOString(),
+  }));
   emit(env, parsed, { minMatches, teams: rows }, [
     ...table(
       ['team', 'matches', 'needed', 'ratings', 'upcoming', 'next kickoff (UTC)'],

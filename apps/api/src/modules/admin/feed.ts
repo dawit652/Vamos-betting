@@ -11,6 +11,15 @@ import {
   FeedHealthResponse,
   hasPermission,
   isRepriceItem,
+  MapBatchRequest,
+  type MapBatchResult,
+  MapBatchResponse,
+  RATINGS_WINDOW,
+  type RatingRow,
+  RatingsQuery,
+  RatingsResponse,
+  SetRatingsRequest,
+  SetRatingsResponse,
   parseReviewPayload,
   competitionPolicyPermission,
   resolveReviewPermission,
@@ -48,6 +57,8 @@ import {
   listAliases,
   listCompetitionPolicies,
   listEventPricing,
+  listRatedTeams,
+  listUnratedTeams,
   listRecentRuns,
   listReviewItems,
   listSources,
@@ -62,6 +73,7 @@ import {
   setCompetitionPolicy,
   setEventBettingOpen,
   setSourceEnabled,
+  setTeamRatings,
   sourceHealth,
   upsertFixture,
   writeAudit,
@@ -82,13 +94,16 @@ import {
   DAY_MS,
   utcMonthStart,
   heldKeyOf,
+  isCalibrated,
   MIN_LEAD_MS,
+  MIN_RATING_MATCHES,
   normalizeName,
   ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
   RESULTS_SLOW_INTERVAL_MS,
   type GateMarket,
 } from '@vamos/scraper';
+import { MAX_TEAM_RATING, MIN_TEAM_RATING } from '@vamos/feed';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
@@ -257,6 +272,49 @@ function contractError(error: unknown): unknown {
     return conflict('alias_conflict', error.message, error.details);
   }
   return error;
+}
+
+/**
+ * The `map_alias` decision on an open unknown_team / unknown_competition item: validates the
+ * target and source, writes the alias (audited by the service) and returns the resolution to
+ * store. Shared by the single resolve route and the batch route, so both apply the same rules.
+ * The caller closes the item in the same transaction.
+ */
+async function applyMapAlias(
+  tx: DbTransaction,
+  item: ScrapeReviewItem,
+  input: { targetId: string; sourceId: string | null },
+  actor: ReturnType<typeof staffActor>,
+): Promise<Record<string, unknown>> {
+  const kind = item.kind === 'unknown_team' ? 'team' : 'competition';
+  const payload = parseReviewPayload(
+    item.kind as 'unknown_team' | 'unknown_competition',
+    item.payload,
+  );
+  if (payload === null) {
+    throw unprocessable('invalid_payload', `The ${item.kind} item has an unexpected payload`);
+  }
+  const targetId = parseUuid(input.targetId, kind === 'team' ? 'Team' : 'Competition');
+  const sourceId = input.sourceId;
+  if (sourceId !== null && (await getSource(tx, sourceId)) === null) throw notFound('Source');
+  const alias = { sportId: payload.sport, aliasNorm: normalizeName(payload.raw), sourceId };
+  if (kind === 'team') await addTeamAlias(tx, { ...alias, teamId: targetId }, actor);
+  else await addCompetitionAlias(tx, { ...alias, competitionId: targetId }, actor);
+  return { decision: 'map_alias', targetId, sourceId, by: actor.adminId };
+}
+
+/** attack, defence and matches of stored ratings, null where absent or not a finite number. */
+function ratingFacts(
+  ratings: Record<string, number> | null,
+  manual: boolean,
+): { attack: number | null; defence: number | null; matches: number; manual: boolean } {
+  const num = (v: number | undefined) => (v !== undefined && Number.isFinite(v) ? v : null);
+  return {
+    attack: num(ratings?.attack),
+    defence: num(ratings?.defence),
+    matches: Math.max(0, Math.trunc(num(ratings?.matches) ?? 0)),
+    manual,
+  };
 }
 
 interface LockedEvent {
@@ -579,25 +637,12 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             break;
           }
           case 'map_alias': {
-            const kind = item.kind === 'unknown_team' ? 'team' : 'competition';
-            const payload = parseReviewPayload(
-              item.kind as 'unknown_team' | 'unknown_competition',
-              item.payload,
+            resolution = await applyMapAlias(
+              tx,
+              item,
+              { targetId: input.targetId, sourceId: input.sourceId ?? null },
+              actor,
             );
-            if (payload === null) throw badPayload();
-            const targetId = parseUuid(input.targetId, kind === 'team' ? 'Team' : 'Competition');
-            const sourceId = input.sourceId ?? null;
-            if (sourceId !== null && (await getSource(tx, sourceId)) === null) {
-              throw notFound('Source');
-            }
-            const alias = {
-              sportId: payload.sport,
-              aliasNorm: normalizeName(payload.raw),
-              sourceId,
-            };
-            if (kind === 'team') await addTeamAlias(tx, { ...alias, teamId: targetId }, actor);
-            else await addCompetitionAlias(tx, { ...alias, competitionId: targetId }, actor);
-            resolution = { decision: 'map_alias', targetId, sourceId, by: actor.adminId };
             break;
           }
           case 'add_team': {
@@ -845,6 +890,191 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
 
       await publishLive(app, outcome.messages);
       return wire(ResolveReviewResponse, { item: reviewView(outcome.item), changed: true });
+    },
+  );
+
+  /**
+   * Bulk `map_alias` for unknown_team items (plan U-5). Each item is applied exactly like the
+   * single `map_alias` decision (applyMapAlias) and closed in its OWN transaction, so one item
+   * that fails (closed meanwhile, unknown team, alias conflict) does not undo or block the
+   * others: the response lists a result per item, in request order, and the status is 200 even
+   * when some failed (`failed` counts them). Scope `source` uses the item's payload sourceId,
+   * `all` writes a source-less alias. Needs `trading.status`, the single decision's permission.
+   */
+  app.post(
+    '/admin/feed/review/map-batch',
+    { config: { staff: 'trading.status' } },
+    async (request) => {
+      const input = parseInput(MapBatchRequest, request.body);
+      const actor = staffActor(request);
+      const now = deps.clock();
+      const results: MapBatchResult[] = [];
+      for (const entry of input.items) {
+        try {
+          const closed = await inTx(deps, async (tx) => {
+            const id = parseUuid(entry.itemId, 'Review item');
+            const item = await getReviewItem(tx, id);
+            if (item === null) throw notFound('Review item');
+            if (item.kind !== 'unknown_team') {
+              throw unprocessable(
+                'decision_not_allowed',
+                `The decision map_alias does not apply to ${item.kind} items in a batch`,
+                { decision: 'map_alias', kind: item.kind },
+              );
+            }
+            if (item.status !== 'open') {
+              throw conflict('review_closed', `The review item is already ${item.status}`, {
+                id,
+                status: item.status,
+              });
+            }
+            const payload = parseReviewPayload('unknown_team', item.payload);
+            if (payload === null) {
+              throw unprocessable(
+                'invalid_payload',
+                'The unknown_team item has an unexpected payload',
+              );
+            }
+            const resolution = await applyMapAlias(
+              tx,
+              item,
+              {
+                targetId: entry.targetId,
+                sourceId: entry.scope === 'source' ? payload.sourceId : null,
+              },
+              actor,
+            );
+            return resolveReviewItem(tx, id, {
+              status: 'resolved',
+              resolution: JSON.stringify(resolution),
+              actor,
+              now,
+            });
+          }).catch((error: unknown) => {
+            throw contractError(error);
+          });
+          results.push({ itemId: entry.itemId, ok: true, item: reviewView(closed) });
+        } catch (error) {
+          if (error instanceof DomainError) {
+            results.push({
+              itemId: entry.itemId,
+              ok: false,
+              error: { code: error.code, message: error.message },
+            });
+          } else {
+            throw error;
+          }
+        }
+      }
+      const mapped = results.filter((r) => r.ok).length;
+      return wire(MapBatchResponse, { results, mapped, failed: results.length - mapped });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Team ratings (plan R-3).
+
+  app.get('/admin/feed/ratings', { config: { staff: 'trading.view' } }, async (request) => {
+    const query = parseInput(RatingsQuery, request.query);
+    const nameKey = query.team === undefined ? '' : normalizeName(query.team);
+    if (query.team !== undefined && nameKey === '') {
+      throw badRequest('validation_error', 'The team filter has no letters or digits');
+    }
+    // O1 never takes the bar below MIN_RATING_MATCHES; the configured bar may raise it.
+    const minMatches = Math.max(deps.config.scraper.minRatingMatches, MIN_RATING_MATCHES);
+    let rows: RatingRow[];
+    if (query.unrated === true) {
+      rows = (
+        await listUnratedTeams(deps.db, {
+          nameKey,
+          normalize: normalizeName,
+          now: deps.clock(),
+          calibrated: (ratings) => isCalibrated(ratings, minMatches),
+        })
+      ).map((r) => ({
+        teamId: r.teamId,
+        team: r.team,
+        ...ratingFacts(r.ratings, false),
+        upcoming: r.upcoming,
+        nextKickoff: r.nextKickoff.toISOString(),
+      }));
+    } else {
+      rows = (await listRatedTeams(deps.db, { nameKey, normalize: normalizeName })).map((r) => ({
+        teamId: r.teamId,
+        team: r.team,
+        ...ratingFacts(r.ratings, r.manual),
+        upcoming: null,
+        nextKickoff: null,
+      }));
+    }
+    return wire(RatingsResponse, {
+      minMatches,
+      min: MIN_TEAM_RATING,
+      max: MAX_TEAM_RATING,
+      teams: rows.slice(0, RATINGS_WINDOW),
+      truncated: rows.length > RATINGS_WINDOW,
+    });
+  });
+
+  /**
+   * Sets a football team's ratings by hand: attack, defence and optionally matches, with
+   * `manual = 1` (rule O1 then counts the team calibrated whatever the match count). Same effect
+   * as `ratings set` of the scraper CLI: other keys of the stored ratings are kept and the write
+   * goes through setTeamRatings, which audits `scrape.ratings.updated` with before and after.
+   * 422 `rating_out_of_band` outside MIN_TEAM_RATING..MAX_TEAM_RATING, 404 for an unknown or
+   * non-football team.
+   */
+  app.put<{ Params: { teamId: string } }>(
+    '/admin/feed/ratings/:teamId',
+    { config: { staff: 'trading.odds' } },
+    async (request) => {
+      const teamId = parseUuid(request.params.teamId, 'Team');
+      const input = parseInput(SetRatingsRequest, request.body);
+      for (const [label, value] of [
+        ['attack', input.attack],
+        ['defence', input.defence],
+      ] as const) {
+        if (value < MIN_TEAM_RATING || value > MAX_TEAM_RATING) {
+          throw unprocessable(
+            'rating_out_of_band',
+            `${label} must be between ${MIN_TEAM_RATING} and ${MAX_TEAM_RATING} (1 = league average)`,
+            { field: label, min: MIN_TEAM_RATING, max: MAX_TEAM_RATING },
+          );
+        }
+      }
+      const actor = staffActor(request);
+      const result = await inTx(deps, async (tx) => {
+        const [team] = await tx
+          .select({ id: teams.id, shortName: teams.shortName, sportId: teams.sportId })
+          .from(teams)
+          .where(eq(teams.id, teamId));
+        if (team === undefined || team.sportId !== 'football') throw notFound('Team');
+        const current = (await getTeamRatings(tx, [teamId], { forUpdate: true })).get(teamId);
+        const was = current?.ratings ?? null;
+        const next: Record<string, number> = {
+          ...(was ?? {}),
+          attack: input.attack,
+          defence: input.defence,
+          matches: input.matches ?? current?.matches ?? 0,
+          manual: 1,
+        };
+        const unchanged =
+          was !== null &&
+          Object.keys(next).length === Object.keys(was).length &&
+          Object.entries(next).every(([k, v]) => was[k] === v);
+        if (!unchanged) await setTeamRatings(tx, teamId, next, actor);
+        return { team, next, unchanged };
+      });
+      return wire(SetRatingsResponse, {
+        team: {
+          teamId,
+          team: result.team.shortName,
+          ...ratingFacts(result.next, true),
+          upcoming: null,
+          nextKickoff: null,
+        },
+        changed: !result.unchanged,
+      });
     },
   );
 

@@ -111,6 +111,9 @@ importers:
       '@vamos/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@vamos/feed':
+        specifier: workspace:*
+        version: link:../../packages/feed
       '@vamos/payments':
         specifier: workspace:*
         version: link:../../packages/payments

@@ -1,9 +1,10 @@
 import { SCRAPED_FEED_PROVIDER } from '@vamos/core';
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { events, teams } from '../schema/catalog';
 import { scrapeRatingApplied } from '../schema/scrape';
+import { localizedNames } from './aliases';
 import { auditScrape, type ScrapeActor } from './common';
 
 export interface TeamRatings {
@@ -126,4 +127,147 @@ export async function competitionGoalEvidence(
     homeGoals: row?.homeGoals ?? 0,
     awayGoals: row?.awayGoals ?? 0,
   };
+}
+
+/** A football team of the catalogue with every name it answers to. */
+export interface FootballTeamNames {
+  id: string;
+  shortName: string;
+  names: string[];
+}
+
+/** Football teams of the catalogue with every name they answer to (short name, localized names). */
+export async function footballTeamNames(exec: DbExecutor): Promise<FootballTeamNames[]> {
+  const rows = await exec
+    .select({ id: teams.id, shortName: teams.shortName, name: teams.name })
+    .from(teams)
+    .where(eq(teams.sportId, 'football'));
+  return rows.map((r) => ({
+    id: r.id,
+    shortName: r.shortName,
+    names: [r.shortName, ...localizedNames(r.name)],
+  }));
+}
+
+/** What a ratings read needs from the caller: the scraper's name normaliser. */
+export interface RatingsListOptions {
+  /** Already-normalised text the team's names must contain ('' = all). */
+  nameKey: string;
+  normalize: (name: string) => string;
+}
+
+export interface RatedTeamRow {
+  teamId: string;
+  team: string;
+  ratings: Record<string, number>;
+  manual: boolean;
+}
+
+/** Football teams that have ratings (learned or set by hand), by short name. */
+export async function listRatedTeams(
+  exec: DbExecutor,
+  options: RatingsListOptions,
+): Promise<RatedTeamRow[]> {
+  const candidates = (await footballTeamNames(exec)).filter(
+    (t) =>
+      options.nameKey === '' || t.names.some((n) => options.normalize(n).includes(options.nameKey)),
+  );
+  const current = await getTeamRatings(
+    exec,
+    candidates.map((t) => t.id),
+  );
+  return candidates
+    .flatMap((t) => {
+      const r = current.get(t.id);
+      return r?.ratings === null || r?.ratings === undefined
+        ? []
+        : [{ teamId: t.id, team: t.shortName, ratings: r.ratings, manual: r.manual }];
+    })
+    .sort((a, b) => a.team.localeCompare(b.team));
+}
+
+export interface UnratedTeamRow {
+  teamId: string;
+  team: string;
+  /** Learned matches (0 without ratings). */
+  matches: number;
+  hasRatings: boolean;
+  /** The stored ratings, null when the team has none. */
+  ratings: Record<string, number> | null;
+  /** Scheduled scraped matches still to come. */
+  upcoming: number;
+  nextKickoff: Date;
+}
+
+/**
+ * Teams that keep a match from opening on the model (rule O1): every football team of a scheduled
+ * scraped match still to come whose ratings `calibrated` rejects, most upcoming matches first.
+ * The caller supplies the calibration rule (isCalibrated of @vamos/scraper, which this package
+ * does not depend on).
+ */
+export async function listUnratedTeams(
+  exec: DbExecutor,
+  options: RatingsListOptions & {
+    now: Date;
+    calibrated: (ratings: Record<string, number> | null) => boolean;
+  },
+): Promise<UnratedTeamRow[]> {
+  const upcoming = await exec
+    .select({
+      homeTeamId: events.homeTeamId,
+      awayTeamId: events.awayTeamId,
+      startTime: events.startTime,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.feedProvider, SCRAPED_FEED_PROVIDER),
+        eq(events.status, 'scheduled'),
+        isNull(events.resultedAt),
+        gt(events.startTime, options.now),
+      ),
+    );
+  const playing = new Map<string, { count: number; next: Date }>();
+  for (const event of upcoming) {
+    for (const id of [event.homeTeamId, event.awayTeamId]) {
+      if (id === null) continue;
+      const seen = playing.get(id);
+      if (seen === undefined) playing.set(id, { count: 1, next: event.startTime });
+      else {
+        seen.count += 1;
+        if (event.startTime.getTime() < seen.next.getTime()) seen.next = event.startTime;
+      }
+    }
+  }
+  const candidates = (await footballTeamNames(exec)).filter(
+    (t) =>
+      playing.has(t.id) &&
+      (options.nameKey === '' ||
+        t.names.some((n) => options.normalize(n).includes(options.nameKey))),
+  );
+  const current = await getTeamRatings(
+    exec,
+    candidates.map((t) => t.id),
+  );
+  return candidates
+    .filter((t) => !options.calibrated(current.get(t.id)?.ratings ?? null))
+    .map((t) => {
+      const got = current.get(t.id);
+      const plays = playing.get(t.id)!;
+      return {
+        teamId: t.id,
+        team: t.shortName,
+        matches: got?.matches ?? 0,
+        hasRatings: (got?.ratings ?? null) !== null,
+        ratings: got?.ratings ?? null,
+        upcoming: plays.count,
+        nextKickoff: plays.next,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.upcoming - a.upcoming ||
+        a.nextKickoff.getTime() - b.nextKickoff.getTime() ||
+        a.team.localeCompare(b.team),
+    );
 }

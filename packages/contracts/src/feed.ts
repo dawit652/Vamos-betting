@@ -15,6 +15,10 @@ import { Id, IsoDateTime, OddsMilli, Santim } from './common';
  * - `POST /admin/feed/review/:id/resolve` needs `trading.status`, or
  *   `trading.result` when the decision is `apply_result`, or `trading.odds`
  *   when it is `apply_reprice` (`resolveReviewPermission`).
+ * - `POST /admin/feed/review/map-batch` is `trading.status`, the same as the single `map_alias`
+ *   decision it repeats.
+ * - `PUT /admin/feed/ratings/:teamId` is `trading.odds`: ratings are what the model prices from,
+ *   so setting them is as sensitive as applying a proposed re-price.
  * - `PUT /admin/feed/competitions/:id` is listed with its strictest permission,
  *   `settings.edit`; a request that only turns flags off needs just
  *   `trading.status` (`competitionPolicyPermission`).
@@ -24,6 +28,9 @@ export const FEED_ROUTE_PERMISSIONS = {
   'GET /admin/feed/review': 'trading.view',
   'GET /admin/feed/review/:id': 'trading.view',
   'POST /admin/feed/review/:id/resolve': 'trading.status',
+  'POST /admin/feed/review/map-batch': 'trading.status',
+  'GET /admin/feed/ratings': 'trading.view',
+  'PUT /admin/feed/ratings/:teamId': 'trading.odds',
   'GET /admin/feed/aliases': 'trading.view',
   'POST /admin/feed/aliases': 'trading.status',
   'DELETE /admin/feed/aliases/:id': 'trading.status',
@@ -770,3 +777,110 @@ export function resolveReviewPermission(
 /** `changed: false` when the item was already closed with the same decision. */
 export const ResolveReviewResponse = z.object({ item: ReviewItemView, changed: z.boolean() });
 export type ResolveReviewResponse = z.infer<typeof ResolveReviewResponse>;
+
+// ---------------------------------------------------------------------------
+// Bulk alias mapping (POST /admin/feed/review/map-batch, plan U-5).
+
+/** Most items one batch may carry. */
+export const MAP_BATCH_MAX = 50;
+
+/**
+ * `source`: the alias applies to the item's own source only (the item's payload `sourceId`);
+ * `all`: it applies to every source.
+ */
+export const MapBatchScopeSchema = z.enum(['source', 'all']);
+export type MapBatchScope = z.infer<typeof MapBatchScopeSchema>;
+
+export const MapBatchItem = z.strictObject({
+  /** An open unknown_team review item. */
+  itemId: Id,
+  /** The catalogue team the raw name maps to. */
+  targetId: Id,
+  scope: MapBatchScopeSchema,
+});
+export type MapBatchItem = z.infer<typeof MapBatchItem>;
+
+/** Each item is applied exactly like a `map_alias` resolve, in its own transaction. */
+export const MapBatchRequest = z.strictObject({
+  items: z
+    .array(MapBatchItem)
+    .min(1)
+    .max(MAP_BATCH_MAX)
+    .refine((items) => new Set(items.map((i) => i.itemId)).size === items.length, {
+      message: 'an item appears twice',
+    }),
+});
+export type MapBatchRequest = z.infer<typeof MapBatchRequest>;
+
+/** One item's outcome: `item` is the closed review item, or `error` says why it was left as it was. */
+export const MapBatchResult = z.object({
+  itemId: z.string(),
+  ok: z.boolean(),
+  item: ReviewItemView.optional(),
+  error: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+export type MapBatchResult = z.infer<typeof MapBatchResult>;
+
+export const MapBatchResponse = z.object({
+  results: z.array(MapBatchResult),
+  mapped: Count,
+  failed: Count,
+});
+export type MapBatchResponse = z.infer<typeof MapBatchResponse>;
+
+// ---------------------------------------------------------------------------
+// Team ratings (GET /admin/feed/ratings, PUT /admin/feed/ratings/:teamId, plan R-3).
+
+/** Most rows a ratings read returns (`truncated` says when more matched). */
+export const RATINGS_WINDOW = 200;
+
+export const RatingsQuery = z.object({
+  /** Keeps the teams whose name contains this text (normalised like aliases). */
+  team: z.string().trim().min(1).max(80).optional(),
+  /** Only the teams of upcoming scraped matches whose ratings are not calibrated (rule O1). */
+  unrated: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
+});
+export type RatingsQuery = z.infer<typeof RatingsQuery>;
+
+export const RatingRow = z.object({
+  teamId: z.string(),
+  team: z.string(),
+  attack: z.number().nullable(),
+  defence: z.number().nullable(),
+  matches: Count,
+  /** A trader set them by hand (manual = 1): calibrated whatever the count. */
+  manual: z.boolean(),
+  /** Unrated list only: scheduled scraped matches still to come, and the next kickoff. */
+  upcoming: Count.nullable(),
+  nextKickoff: IsoDateTime.nullable(),
+});
+export type RatingRow = z.infer<typeof RatingRow>;
+
+export const RatingsResponse = z.object({
+  /** O1's bar: learned matches needed (calibrated at or above it, or set by hand). */
+  minMatches: Count,
+  /** The allowed band for attack and defence (1 = league average). */
+  min: z.number(),
+  max: z.number(),
+  teams: z.array(RatingRow),
+  truncated: z.boolean(),
+});
+export type RatingsResponse = z.infer<typeof RatingsResponse>;
+
+/** Matches a hand-set rating can claim; far above any calibration threshold. */
+export const MAX_MANUAL_MATCHES = 10_000;
+
+/** The band check (MIN_TEAM_RATING to MAX_TEAM_RATING) is made by the API: this package does not know the feed. */
+export const SetRatingsRequest = z.strictObject({
+  attack: z.number().finite(),
+  defence: z.number().finite(),
+  /** Defaults to what the team already has (0 for a new one). */
+  matches: z.number().int().min(0).max(MAX_MANUAL_MATCHES).optional(),
+});
+export type SetRatingsRequest = z.infer<typeof SetRatingsRequest>;
+
+export const SetRatingsResponse = z.object({ team: RatingRow, changed: z.boolean() });
+export type SetRatingsResponse = z.infer<typeof SetRatingsResponse>;

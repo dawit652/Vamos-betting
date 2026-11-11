@@ -55,7 +55,7 @@ describe('feed routes', () => {
   it('reads with trading.view and changes with trading.status or settings.edit', () => {
     for (const [route, permission] of Object.entries(FEED_ROUTE_PERMISSIONS)) {
       if (route.startsWith('GET ')) expect(permission, route).toBe('trading.view');
-      else expect(['trading.status', 'settings.edit'], route).toContain(permission);
+      else expect(['trading.status', 'trading.odds', 'settings.edit'], route).toContain(permission);
     }
     expect(FEED_ROUTE_PERMISSIONS['PUT /admin/feed/competitions/:id']).toBe('settings.edit');
     expect(FEED_ROUTE_PERMISSIONS['PUT /admin/feed/sources/:id']).toBe('trading.status');

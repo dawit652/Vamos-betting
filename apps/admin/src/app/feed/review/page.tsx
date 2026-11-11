@@ -48,6 +48,7 @@ export default function ReviewQueuePage() {
   return (
     <>
       <PageHeader title="Review queue">
+        <Link href="/feed/review/unknown-names">Unknown names</Link>
         <Link href="/feed">Back to feed</Link>
       </PageHeader>
       <div className="row">

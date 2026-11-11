@@ -27,6 +27,7 @@
     "@vamos/contracts": "workspace:*",
     "@vamos/core": "workspace:*",
     "@vamos/db": "workspace:*",
+    "@vamos/feed": "workspace:*",
     "@vamos/payments": "workspace:*",
     "@vamos/scraper": "workspace:*",
     "drizzle-orm": "0.45.3",

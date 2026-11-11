@@ -147,11 +147,18 @@ export {
 } from './kickoff';
 export {
   competitionGoalEvidence,
+  footballTeamNames,
   getTeamRatings,
+  listRatedTeams,
+  listUnratedTeams,
   markRatingApplied,
   setTeamRatings,
   type CompetitionGoalEvidence,
+  type FootballTeamNames,
+  type RatedTeamRow,
+  type RatingsListOptions,
   type TeamRatings,
+  type UnratedTeamRow,
 } from './ratings';
 export {
   DEFAULT_LISTED_WINDOW_MS,
