@@ -55,6 +55,16 @@ import { tryLock } from '../lib/lock';
 import { secretProblemMessage } from '../lib/secrets';
 import type { ScraperContext } from '../context';
 import { compareText, competitionNames, teamNames } from './common';
+import {
+  applyAutoAlias,
+  autoAliasPolicy,
+  decideAutoAlias,
+  lookupFixtureContext,
+  SUGGEST_ONLY,
+  type AutoAliasPolicy,
+  type FixtureContextLookup,
+  type UnknownFixtureContext,
+} from './fixture-context';
 
 /** A source run holds its lock this long at most (a crashed holder blocks others no longer). */
 export const SOURCE_LOCK_TTL_MS = 15 * 60_000;
@@ -104,6 +114,11 @@ export interface UnknownName {
   sourceId: string;
   /** The competition label of the fixture the name was seen in (the name itself for a competition). */
   competition: string;
+  /**
+   * A team name only, when the row's kickoff is known and its competition and other team
+   * resolved: the fixture context of rule N4.
+   */
+  fixture?: UnknownFixtureContext;
 }
 
 /** The alias index per sport, built when first needed (once per run). */
@@ -118,6 +133,10 @@ export class AliasIndexCache {
     }
     return index;
   }
+  /** Forgets every index: the next get loads the aliases again (after N4 wrote one). */
+  clear(): void {
+    this.#byGame.clear();
+  }
 }
 
 export function aliasIndexCache(ctx: ScraperContext): AliasIndexCache {
@@ -129,11 +148,34 @@ export function aliasIndexCache(ctx: ScraperContext): AliasIndexCache {
 /** Resolves the three names of an observation; unresolved ones are collected for review items. */
 export function resolveNames(
   index: AliasIndex,
-  input: { sport: string; sourceId: string; competition: string; home: string; away: string },
+  input: {
+    sport: string;
+    sourceId: string;
+    competition: string;
+    home: string;
+    away: string;
+    /** The row's kickoff: gives an unknown team name its fixture context (N4). */
+    kickoff?: Date;
+  },
   unknown: UnknownName[],
 ): ResolvedIds {
   const query = (raw: string) => ({ sportId: input.sport, sourceId: input.sourceId, raw });
-  const pick = (kind: NameKind, raw: string, resolution: Resolution): string | null => {
+  const competition = resolveCompetition(index, query(input.competition));
+  const home = resolveTeam(index, query(input.home));
+  const away = resolveTeam(index, query(input.away));
+  const idOf = (r: Resolution): string | null => (r.status === 'resolved' ? r.id : null);
+  const contextOf = (side: 'home' | 'away'): UnknownFixtureContext | null => {
+    const competitionId = idOf(competition);
+    const opponentId = idOf(side === 'home' ? away : home);
+    if (input.kickoff === undefined || competitionId === null || opponentId === null) return null;
+    return { side, kickoff: input.kickoff, competitionId, opponentId };
+  };
+  const pick = (
+    kind: NameKind,
+    raw: string,
+    resolution: Resolution,
+    fixture: UnknownFixtureContext | null = null,
+  ): string | null => {
     if (resolution.status === 'resolved') return resolution.id;
     unknown.push({
       kind,
@@ -142,17 +184,14 @@ export function resolveNames(
       resolution,
       sourceId: input.sourceId,
       competition: input.competition,
+      ...(fixture === null ? {} : { fixture }),
     });
     return null;
   };
   return {
-    competitionId: pick(
-      'competition',
-      input.competition,
-      resolveCompetition(index, query(input.competition)),
-    ),
-    homeTeamId: pick('team', input.home, resolveTeam(index, query(input.home))),
-    awayTeamId: pick('team', input.away, resolveTeam(index, query(input.away))),
+    competitionId: pick('competition', input.competition, competition),
+    homeTeamId: pick('team', input.home, home, contextOf('home')),
+    awayTeamId: pick('team', input.away, away, contextOf('away')),
   };
 }
 
@@ -165,7 +204,15 @@ export interface UnknownItemPlan {
   kind: 'unknown_team' | 'unknown_competition';
   subjectKey: string;
   name: UnknownName;
+  /**
+   * The distinct fixture contexts (N4) of the subject's sightings from `name`'s source, in
+   * (kickoff, competition, opponent, side) order; empty for a competition.
+   */
+  contexts: UnknownFixtureContext[];
 }
+
+const contextKey = (c: UnknownFixtureContext): string =>
+  `${c.kickoff.toISOString()}|${c.competitionId}|${c.opponentId}|${c.side}`;
 
 /**
  * The unknown_team / unknown_competition items to open for these names: one per
@@ -175,45 +222,111 @@ export interface UnknownItemPlan {
  */
 export function planUnknownItems(unknown: readonly UnknownName[]): UnknownItemPlan[] {
   const byId = new Map<string, UnknownItemPlan>();
+  const contexts = new Map<string, Map<string, UnknownFixtureContext>>();
   for (const name of unknown) {
     const kind = name.kind === 'team' ? 'unknown_team' : 'unknown_competition';
     const subjectKey = unknownSubject(name.sport, name.raw);
     const id = `${kind}\u0000${subjectKey}`;
-    if (!byId.has(id)) byId.set(id, { kind, subjectKey, name });
+    let plan = byId.get(id);
+    if (plan === undefined) {
+      plan = { kind, subjectKey, name, contexts: [] };
+      byId.set(id, plan);
+      contexts.set(id, new Map());
+    }
+    // Only sightings from the item's own source: N4 maps a spelling for one source.
+    if (name.fixture !== undefined && name.sourceId === plan.name.sourceId) {
+      contexts.get(id)!.set(contextKey(name.fixture), name.fixture);
+    }
+  }
+  for (const [id, plan] of byId) {
+    plan.contexts = [...contexts.get(id)!.entries()]
+      .sort(([a], [b]) => compareText(a, b))
+      .map(([, c]) => c);
   }
   return [...byId.values()].sort(
     (a, b) => compareText(a.kind, b.kind) || compareText(a.subjectKey, b.subjectKey),
   );
 }
 
-/** Opens unknown_team / unknown_competition items (deduplicated per subject, with suggestions N3), sorted. */
+/**
+ * Opens unknown_team / unknown_competition items (deduplicated per subject, with suggestions N3),
+ * sorted. A team name seen with a fixture context also gets rule N4: `payload.fixture`
+ * (opponent, kickoff, candidates) and, when the context is strong, that team as the only
+ * suggestion. Under `policy` (SCRAPER_AUTO_ALIAS and R2, a source's own fetch only) a strong
+ * suggestion becomes an alias for the item's source. Returns the number of aliases written.
+ */
 export async function openUnknownNameItems(
   tx: DbTransaction,
   index: AliasIndex,
   unknown: readonly UnknownName[],
   now: Date,
-): Promise<void> {
-  for (const { kind, subjectKey, name: item } of planUnknownItems(unknown)) {
+  policy: AutoAliasPolicy = SUGGEST_ONLY,
+): Promise<number> {
+  let applied = 0;
+  for (const { kind, subjectKey, name: item, contexts } of planUnknownItems(unknown)) {
     const found = (item.kind === 'team' ? suggestTeams : suggestCompetitions)(index, {
       sportId: item.sport,
       raw: item.raw,
       limit: 3,
     });
+    const lookup: FixtureContextLookup | null =
+      item.kind === 'team' && contexts.length > 0
+        ? await lookupFixtureContext(tx, index, item, contexts)
+        : null;
+    const strong = lookup?.result.strong ?? null;
+    const first = lookup?.sightings[0];
     // The back office reads { id, name, score 0 to 1 }: the catalogue's own name, the score in permille / 1000.
+    const wanted = [
+      ...new Set([
+        ...found.map((s) => s.id),
+        ...(lookup?.result.candidates.map((c) => c.teamId) ?? []),
+        ...(first === undefined ? [] : [first.opponentId]),
+      ]),
+    ];
     const shown =
-      found.length === 0
+      wanted.length === 0
         ? new Map<string, string>()
-        : await (item.kind === 'team' ? teamNames : competitionNames)(
-            tx,
-            found.map((s) => s.id),
-          );
-    const suggestions = found.map((s) => ({
-      id: s.id,
-      name: shown.get(s.id) ?? s.matchedName,
-      score: s.score / 1000,
-      matchedName: s.matchedName,
-    }));
-    await openReviewItem(tx, {
+        : await (item.kind === 'team' ? teamNames : competitionNames)(tx, wanted);
+    // N4 strong: the opponent plays one match in the window, so the other N3 guesses are contradicted.
+    const suggestions =
+      strong !== null
+        ? [
+            {
+              id: strong.teamId,
+              name: shown.get(strong.teamId) ?? strong.matchedName,
+              score: strong.score,
+              matchedName: strong.matchedName,
+              basis: 'fixture',
+            },
+          ]
+        : found.map((s) => ({
+            id: s.id,
+            name: shown.get(s.id) ?? s.matchedName,
+            score: s.score / 1000,
+            matchedName: s.matchedName,
+          }));
+    // What the back office shows as "vs <opponent>, <kickoff>" (U-5), with N4's evidence.
+    const fixture =
+      lookup === null || first === undefined
+        ? {}
+        : {
+            fixture: {
+              opponent: shown.get(first.opponentId) ?? first.opponentId,
+              opponentId: first.opponentId,
+              kickoff: first.kickoff.toISOString(),
+              side: first.side,
+              competitionId: first.competitionId,
+              sightings: lookup.sightings.length,
+              strong: strong?.teamId ?? null,
+              candidates: lookup.result.candidates.map((c) => ({
+                id: c.teamId,
+                name: shown.get(c.teamId) ?? c.matchedName,
+                score: c.score,
+                kickoff: c.kickoff.toISOString(),
+              })),
+            },
+          };
+    const opened = await openReviewItem(tx, {
       kind,
       subjectKey,
       severity: 'info',
@@ -222,7 +335,7 @@ export async function openUnknownNameItems(
           ? `Unknown team name "${item.raw}"`
           : `Unknown competition name "${item.raw}"`,
       payload: {
-        rules: ['N2', 'N3'],
+        rules: lookup === null ? ['N2', 'N3'] : ['N2', 'N3', 'N4'],
         reasons: [item.resolution.status === 'ambiguous' ? 'ambiguous_name' : 'unknown_name'],
         sourceId: item.sourceId,
         sport: item.sport,
@@ -231,10 +344,28 @@ export async function openUnknownNameItems(
         normalized: normalizeName(item.raw),
         candidates: item.resolution.status === 'ambiguous' ? item.resolution.ids : [],
         suggestions,
+        ...fixture,
       },
       now,
     });
+    if (lookup === null || strong === null || !policy.enabled) continue;
+    const decision = await decideAutoAlias(
+      tx,
+      policy,
+      {
+        sourceId: item.sourceId,
+        raw: item.raw,
+        unknown: item.resolution.status === 'unknown',
+        // A person dismissed this name before: their decision stands, N4 only suggests.
+        dismissedBefore: opened.item.payload.dismissals !== undefined,
+      },
+      lookup,
+    );
+    if (decision !== null && (await applyAutoAlias(tx, opened.item, item, decision, lookup))) {
+      applied += 1;
+    }
   }
+  return applied;
 }
 
 /**
@@ -692,6 +823,7 @@ async function storeObservations(
           competition: obs.competition,
           home: obs.home,
           away: obs.away,
+          kickoff: obs.kickoff,
         },
         unknown,
       ),
@@ -713,6 +845,7 @@ async function storeObservations(
           competition: obs.competition,
           home: obs.home,
           away: obs.away,
+          kickoff: obs.kickoff,
         },
         unknown,
       ),
@@ -720,6 +853,7 @@ async function storeObservations(
   }
 
   const now = ctx.clock();
+  let autoAliases = 0;
   await ctx.db.transaction(async (tx) => {
     for (const { obs, sourceKey } of drafts) {
       const ids = resolved.get(`${obs.kind}\u0000${sourceKey}`)!;
@@ -786,15 +920,23 @@ async function storeObservations(
       await upsertMarketOdds(tx, { sourceId: source.id, runId, rawId, rows });
     }
     // One fixed order across runs: sport by sport (the sport is the prefix of every subject key), each sorted.
+    const policy = autoAliasPolicy(ctx);
     for (const sport of [...new Set(unknown.map((u) => u.sport))].sort(compareText)) {
-      await openUnknownNameItems(
+      autoAliases += await openUnknownNameItems(
         tx,
         await indexes.get(sport),
         unknown.filter((u) => u.sport === sport),
         now,
+        policy,
       );
     }
   });
+  if (autoAliases > 0) {
+    // N4 wrote a source alias: later documents of this run resolve with it, and the stored rows
+    // re-resolve now (their unknown_team item closes once every row with the name resolves).
+    indexes.clear();
+    await reresolveUnresolved(ctx);
+  }
   return {
     fixtures: drafts.filter((d) => d.obs.kind === 'fixture').length,
     results: drafts.filter((d) => d.obs.kind === 'result').length,
@@ -965,6 +1107,7 @@ export async function reresolveChangedAliases(ctx: ScraperContext): Promise<numb
           competition: row.competitionRaw,
           home: row.homeRaw,
           away: row.awayRaw,
+          kickoff: row.kickoff,
         },
         unknown,
       );

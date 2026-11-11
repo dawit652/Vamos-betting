@@ -9,10 +9,12 @@ export {
 export {
   SUGGESTION_MIN_SCORE,
   buildAliasIndex,
+  nameSimilarity,
   resolveCompetition,
   resolveTeam,
   suggestCompetitions,
   suggestTeams,
+  teamCatalogueNames,
 } from './alias';
 export type {
   AliasCompetition,
@@ -32,3 +34,16 @@ export { fixtureKey } from './fixture-key';
 export type { FixtureKeyInput } from './fixture-key';
 export { catalogueGaps } from './gaps';
 export type { GapObservation, GapRow } from './gaps';
+export {
+  combineFixtureContexts,
+  fixtureContextSuggestions,
+  FIXTURE_CONTEXT_WINDOW_MS,
+  STRONG_FIXTURE_SIMILARITY,
+} from './fixture-context';
+export type {
+  CatalogueFixture,
+  FixtureContextCandidate,
+  FixtureContextQuery,
+  FixtureContextResult,
+  FixtureSide,
+} from './fixture-context';

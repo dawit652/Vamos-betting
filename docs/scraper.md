@@ -511,7 +511,21 @@ jk bb as ac ca cd ud sv fsv vfb vfl tsg ssc`, with a number just before one at t
   it computed, null included.
 - **N3 Suggestions.** Unresolved names open `unknown_team` /
   `unknown_competition` with up to three suggested catalogue matches (token
-  similarity). Suggestions are for people; they are never applied.
+  similarity). Suggestions are for people; they are never applied (N4 is the one exception, behind a setting).
+- **N4 Fixture context (2026-11, U-4 of `docs/feed-quality-plan.md`).** An unknown TEAM name seen in a row whose
+  competition and other team resolved is looked up in the catalogue fixtures: scraped events, and other sources'
+  fully resolved observations, of the same competition within ±24 h (`FIXTURE_CONTEXT_WINDOW_MS`) whose team on the
+  other side is that opponent. Each gives the team on the name's side as a candidate, scored with N3's similarity
+  (`nameSimilarity`, 0 to 1); the opponent itself is never a candidate. Sightings of the name in several rows of the
+  source are combined. Exactly one candidate team over all sightings, with a similarity of at least 0.6
+  (`STRONG_FIXTURE_SIMILARITY`), is a **strong suggestion**: it becomes the item's only suggestion (the opponent
+  plays one match in the window, so other guesses are contradicted). The item carries `payload.fixture` (opponent,
+  kickoff, side, candidates, strong) and the rule `N4` (`fixtureContextSuggestions`, `combineFixtureContexts`).
+  With `SCRAPER_AUTO_ALIAS=on` a strong suggestion of an unknown (not ambiguous) name is written as an alias for
+  THAT source only, never global, audited `scrape.alias.auto` with the evidence, and only while two independent
+  full-time upstreams protect the competition's results (R2); never after a person dismissed the name or removed an
+  alias of the spelling. Only a source's fetch applies it. It writes an alias and nothing else: events, prices
+  and results follow through re-resolution and the gates as for any alias.
 - **T1 Time zones.** `zonedToUtc` uses an explicit IANA zone. A local time that
   does not exist (DST gap) or is ambiguous (DST overlap) is rejected with an
   issue; the record is dropped. Never guessed.

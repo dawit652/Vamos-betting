@@ -238,6 +238,13 @@ const envSchema = z.object({
    * time. Existing events keep the half-time markets they have either way.
    */
   SCRAPER_HALF_TIME_MARKETS: z.enum(['all', 'covered']).default('all'),
+  /**
+   * Rule N4 (docs/scraper.md 6.4, U-4 of docs/feed-quality-plan.md): `on` applies a strong
+   * fixture-context suggestion for an unknown team name as an alias for THAT source only (audited
+   * `scrape.alias.auto`), and only in a competition whose results two independent full-time
+   * upstreams protect (rule R2). `off` (the default) only suggests.
+   */
+  SCRAPER_AUTO_ALIAS: z.enum(['off', 'on']).default('off'),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -409,6 +416,8 @@ export interface ScraperConfig {
   minRatingMatches: number;
   /** SCRAPER_HALF_TIME_MARKETS: rule O6, `all` (default) or `covered`. */
   halfTimeMarkets: 'all' | 'covered';
+  /** SCRAPER_AUTO_ALIAS=on: rule N4 auto-applies strong fixture-context suggestions (default off). */
+  autoAlias: boolean;
 }
 
 /** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -702,6 +711,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       resultConfirmMinutes: e.SCRAPER_RESULT_CONFIRM_MINUTES,
       minRatingMatches: e.SCRAPER_MIN_RATING_MATCHES,
       halfTimeMarkets: e.SCRAPER_HALF_TIME_MARKETS,
+      autoAlias: e.SCRAPER_AUTO_ALIAS === 'on',
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {

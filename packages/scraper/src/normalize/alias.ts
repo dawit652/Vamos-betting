@@ -276,6 +276,46 @@ function sharesFirstTokenPrefix(a: readonly string[], b: readonly string[]): boo
   return n >= 3;
 }
 
+/** The N3 similarity of two token lists in permille: Jaccard overlap plus the first-token prefix bonus. */
+function similarityPermille(a: readonly string[], b: readonly string[]): number {
+  let score = jaccardPermille(a, b);
+  if (sharesFirstTokenPrefix(a, b)) score += PREFIX_BONUS;
+  return Math.min(1000, score);
+}
+
+/**
+ * The best N3 similarity (permille, 0..1000) of a raw name against a list of names, with the name
+ * that scored it (normalised; ties to the alphabetically first). Both sides are normalised (N1)
+ * first; an exact normalised match scores 1000. `{ score: 0, matchedName: '' }` for no names.
+ */
+export function nameSimilarity(
+  raw: string,
+  names: readonly string[],
+): { score: number; matchedName: string } {
+  const norm = normalizeName(raw);
+  const tokens = nameTokens(norm);
+  let best = { score: 0, matchedName: '' };
+  for (const name of names) {
+    const other = normalizeName(name);
+    if (other === '') continue;
+    const score = other === norm ? 1000 : similarityPermille(tokens, nameTokens(other));
+    if (
+      best.matchedName === '' ||
+      score > best.score ||
+      (score === best.score && other < best.matchedName)
+    ) {
+      best = { score, matchedName: other };
+    }
+  }
+  return best;
+}
+
+/** The catalogue names (normalised, N1) of a team of the sport; empty for an unknown id. */
+export function teamCatalogueNames(index: AliasIndex, sportId: string, teamId: string): string[] {
+  const entry = (index.teams.catalogue.get(sportId) ?? []).find((e) => e.id === teamId);
+  return entry === undefined ? [] : entry.names.map((n) => n.norm);
+}
+
 function suggest(index: EntityIndex, query: SuggestQuery): Suggestion[] {
   const norm = normalizeName(query.raw);
   const limit = Math.min(MAX_LIMIT, Math.floor(query.limit ?? 3));
@@ -287,9 +327,7 @@ function suggest(index: EntityIndex, query: SuggestQuery): Suggestion[] {
     if (entry.names.some((n) => n.norm === norm)) continue;
     let best: Suggestion | null = null;
     for (const name of entry.names) {
-      let score = jaccardPermille(tokens, name.tokens);
-      if (sharesFirstTokenPrefix(tokens, name.tokens)) score += PREFIX_BONUS;
-      score = Math.min(1000, score);
+      const score = similarityPermille(tokens, name.tokens);
       if (
         best === null ||
         score > best.score ||

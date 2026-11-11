@@ -68,6 +68,8 @@ export interface HarnessOptions {
   secrets?: Record<string, string>;
   /** SCRAPER_HALF_TIME_MARKETS (rule O6); default the config's own default. */
   halfTimeMarkets?: 'all' | 'covered';
+  /** SCRAPER_AUTO_ALIAS=on (rule N4); default off. */
+  autoAlias?: boolean;
 }
 
 // --- documents -----------------------------------------------------------------
@@ -161,6 +163,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     ...(options.halfTimeMarkets === undefined
       ? {}
       : { SCRAPER_HALF_TIME_MARKETS: options.halfTimeMarkets }),
+    ...(options.autoAlias === true ? { SCRAPER_AUTO_ALIAS: 'on' } : {}),
   });
 
   let clock = new Date(T0);

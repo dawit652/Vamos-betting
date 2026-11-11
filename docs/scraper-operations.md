@@ -62,12 +62,25 @@ The scraper reads these from the environment (`packages/config/src/config.ts`; e
 | `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`             | R4 wait, minimum 5                                                                                  |
 | `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
 | `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                      |
+| `SCRAPER_AUTO_ALIAS`             | `off`            | N4: `on` maps a strong fixture-context suggestion as an alias for that source only (see below)      |
 
 These are code constants, not settings: the number of independent upstreams a result needs (`MIN_INDEPENDENT_SOURCES = 2`),
 the kickoff tolerance, the shape threshold (`SHAPE_MIN_RATIO = 0.5`) and the other rule thresholds in
 `packages/scraper/src/constants.ts`. Changing one is a code change and a review, never an operational step.
 
 The scraper's own settings are read at start. Changing one needs `docker compose up -d scraper`.
+
+**`SCRAPER_AUTO_ALIAS` (rule N4, off by default).** With `on`, a strong fixture-context suggestion for an unknown
+team name is written as an alias for the source that showed the name, never for every source, by `system:scraper`.
+It is applied only when the name is unknown (not ambiguous), the competition has at least two independent
+full-time upstreams among the enabled sources (rule R2, as `sources coverage` counts them: a source that takes its
+competition from each record counts for none), no person dismissed the name before and no person removed an alias
+of that spelling. Each one is audited twice: `scrape.alias.added` and `scrape.alias.auto`, whose metadata holds the
+evidence (review item, raw name, team, similarity, full-time upstreams, and each sighting's side, kickoff,
+competition and opponent). The source's observations re-resolve at once and the `unknown_team` item closes when
+every row with the name resolves. To undo one: `aliases list`, then `aliases remove --id <id>`; N4 never re-adds a
+spelling a person removed. Only the fetch of a source applies N4; the promotion pass only suggests. Switch it on
+once the review queue shows the strong suggestions are right (plan U-4).
 
 API keys of sources are not settings of this table: they are the `SCRAPER_SECRET_<NAME>` variables of
 section 7.
@@ -188,7 +201,8 @@ Decisions are recorded in the review item (`resolution`: the decision, the note,
 log. Automatic changes are written with the actor `system:scraper`; staff actions with the staff id.
 
 **Other items a person handles** (not result decisions): `unknown_team` and `unknown_competition` (map an alias,
-or dismiss), `odds_approval` (open betting on the proposed prices), `ratings_uncalibrated` (a team has too few
+or dismiss; a team item seen against a resolved opponent shows the fixture context and, when exactly one catalogue
+team plays that opponent within 24 hours and its name is similar enough, a strong suggestion, rule N4), `odds_approval` (open betting on the proposed prices), `ratings_uncalibrated` (a team has too few
 matches to be priced; nothing to do until its ratings are backfilled or a trader sets them with `ratings set`), `kickoff_change`
 (apply the new time or dismiss), `fixture_conflict` and `fixture_missing` (look at the sources; nothing is
 cancelled because a page did not list an event; a `fixture_conflict` raised only because the sources disagreed
