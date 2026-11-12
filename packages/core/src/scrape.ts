@@ -15,6 +15,7 @@ export const SCRAPE_ADAPTERS = [
   'generic-html',
   'therundown',
   'theoddsapi',
+  'apifootball',
 ] as const;
 export type ScrapeAdapterName = (typeof SCRAPE_ADAPTERS)[number];
 

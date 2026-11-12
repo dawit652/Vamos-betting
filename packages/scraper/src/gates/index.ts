@@ -8,6 +8,7 @@
 export * from './review';
 export * from './confirmation';
 export * from './result';
+export * from './ladder';
 export * from './fixture';
 export * from './conflict-close';
 export * from './kickoff';

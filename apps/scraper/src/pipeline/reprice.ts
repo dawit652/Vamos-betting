@@ -34,6 +34,7 @@ import {
 import {
   betLegs,
   events as eventsTable,
+  markets as marketsTable,
   scrapeReviewItems,
   type ScrapeSuspension,
 } from '@vamos/db/schema';
@@ -54,11 +55,11 @@ import {
   type OddsCheck,
   type OddsIssue,
 } from '@vamos/scraper';
-import { and, eq, like, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like, lt, or, sql } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { LOOK_AHEAD_MS } from './promote-fixtures';
-import { auditScraper, display, openGateReviews, teamNames } from './common';
+import { auditScraper, display, openGateReviews, priceExpiryOption, teamNames } from './common';
 import { isMarketKey, priceEvent, type EventPrice } from './event-pricing';
 import { halfTimeCheck, type HalfTimeCheck } from './half-time';
 
@@ -231,6 +232,7 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
     // O7: the prices as made now against the best book prices (not while old market prices are
     // kept: market_stale speaks then; nothing for teams not calibrated, which are not priced from).
     await ctx.db.transaction(async (tx) => {
+      if (state === 'current') await confirmPrices(tx, ctx, event.eventId, now);
       if (policy.pricingSource === 'market') {
         await syncMarketStaleAlarm(tx, {
           eventId: event.eventId,
@@ -285,6 +287,35 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
       : 'debug'
   ]({ ...summary }, 'repricing run');
   return summary;
+}
+
+/**
+ * Rule P7 (price expiry): the event's inputs were read again at `now` and are unchanged, so its
+ * stored prices are confirmed: push the expiry of its open and suspended markets forward. Only
+ * the 'current' state does this; 'keep' (a market-priced event whose market is not usable now)
+ * lets its prices expire. A no-op while SCRAPER_PRICE_EXPIRY_MINUTES is 0.
+ */
+async function confirmPrices(
+  tx: DbExecutor,
+  ctx: ScraperContext,
+  eventId: string,
+  now: Date,
+): Promise<void> {
+  const expiry = priceExpiryOption(ctx.config.scraper, now);
+  if (expiry.priceValidUntil === undefined) return;
+  // The pass runs every minute: rewrite a market only once less than half its window is left.
+  const halfWindow = (expiry.priceValidUntil.getTime() - now.getTime()) / 2;
+  const refreshBefore = new Date(now.getTime() + halfWindow);
+  await tx
+    .update(marketsTable)
+    .set({ priceValidUntil: expiry.priceValidUntil })
+    .where(
+      and(
+        eq(marketsTable.eventId, eventId),
+        inArray(marketsTable.status, ['open', 'suspended']),
+        or(isNull(marketsTable.priceValidUntil), lt(marketsTable.priceValidUntil, refreshBefore)),
+      ),
+    );
 }
 
 const pricingInput = (
@@ -501,7 +532,10 @@ async function repriceOne(
     ) {
       state = 'go';
     }
-    if (state === 'current') return current();
+    if (state === 'current') {
+      await confirmPrices(tx, ctx, event.eventId, now);
+      return current();
+    }
     // A market-priced event whose market is not usable now keeps its prices.
     if (state === 'keep') return skipped();
     // O1: teams that stopped being calibrated are not priced from (nothing to compare either);
@@ -535,7 +569,7 @@ async function repriceOne(
           startTime: row.startTime,
         },
         next,
-        { now },
+        { now, ...priceExpiryOption(ctx.config.scraper, now) },
       );
       await recordEventPriced(tx, event.eventId, key, now);
       await closeReviewItemsBySubject(tx, `${row.feedRef}${REPRICE_SUBJECT_SUFFIX}`, {

@@ -1,5 +1,6 @@
 import { MIN_INDEPENDENT_SOURCES } from '../constants';
 import { upstreamKey } from '../gates/confirmation';
+import { ApiFootballConfigSchema } from './apifootball';
 import { GenericHtmlConfigSchema } from './generic-html';
 import { GenericJsonConfigSchema } from './generic-json';
 import { OpenFootballConfigSchema } from './openfootball';
@@ -157,6 +158,23 @@ export function sourceCapabilities(
           halfTime: false,
           basis: c.finalIsRegularTime ? 'declared' : 'none',
           prices: true,
+        },
+      };
+    }
+    case 'apifootball': {
+      const parsed = ApiFootballConfigSchema.safeParse(row.config);
+      if (!parsed.success) return { ok: false, errors: issues(parsed.error) };
+      // Every league of the day (competition per record); fixtures, full time and half time. The
+      // basis is stated per match: regular_time only when fulltime equals goals, else unknown.
+      return {
+        ok: true,
+        capabilities: {
+          ...NONE,
+          competitionPerRecord: true,
+          fixtures: true,
+          fullTime: true,
+          halfTime: true,
+          basis: 'per-record',
         },
       };
     }

@@ -392,8 +392,15 @@ function sumOf(a: PlayingTime, b: PlayingTime): PlayingTime {
   return [...byMinutes.values()];
 }
 
-/** Score grid of the goals still to come: Poisson grids mixed over the playing time left. */
-function mixedScoreMatrix(lambdaHome: number, lambdaAway: number, time: PlayingTime): number[][] {
+/**
+ * Score grid of the goals still to come: Poisson grids mixed over the playing time left.
+ * Exported for the market factory's grids (factory.ts); the football books use it unchanged.
+ */
+export function mixedScoreMatrix(
+  lambdaHome: number,
+  lambdaAway: number,
+  time: PlayingTime,
+): number[][] {
   let mixed: number[][] | null = null;
   for (const { minutes, weight } of time) {
     const share = minutes / FOOTBALL_PLAYING_MINUTES;

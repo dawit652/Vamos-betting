@@ -55,6 +55,7 @@ export const FEED_ADAPTERS = [
   'generic-html',
   'therundown',
   'theoddsapi',
+  'apifootball',
 ] as const;
 export const FEED_DATA_CLASSES = ['fixtures', 'results'] as const;
 export const FEED_FIXTURE_STATUSES = ['scheduled', 'postponed', 'cancelled'] as const;

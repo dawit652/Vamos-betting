@@ -208,6 +208,14 @@ export const markets = pgTable(
      * whatever result the event gets later, corrections included.
      */
     voidedAt: timestamp('voided_at', { withTimezone: true }),
+    /**
+     * Price expiry (rule P7, plan task 1.10): bet placement refuses the market's selections from
+     * this instant on, so betting stops by itself when the scraper that refreshes the prices goes
+     * dark; no job has to run. Each pricing read that confirms or moves the prices pushes it
+     * forward. Null (every market not priced by the scraper, and every market while
+     * SCRAPER_PRICE_EXPIRY_MINUTES is 0) never expires. Expiry is not a status change.
+     */
+    priceValidUntil: timestamp('price_valid_until', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

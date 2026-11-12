@@ -59,6 +59,7 @@ import {
   display,
   OBSERVATION_ROW_LIMIT,
   openGateReviews,
+  priceExpiryOption,
   teamNames,
   toResolved,
   undecidedFrom,
@@ -790,7 +791,7 @@ export async function applyCreate(
           startTime: decision.kickoff,
         },
         pricing?.markets ?? [],
-        { now },
+        { now, ...priceExpiryOption(ctx.config.scraper, now) },
       );
       // Another transaction created it after the check: the upsert took its update path; undo it.
       if (!result.created) throw new FeedRefTaken();

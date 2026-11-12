@@ -1,0 +1,2 @@
+ALTER TABLE "scrape_sources" DROP CONSTRAINT "scrape_sources_adapter";--> statement-breakpoint
+ALTER TABLE "scrape_sources" ADD CONSTRAINT "scrape_sources_adapter" CHECK ("scrape_sources"."adapter" IN ('openfootball', 'generic-json', 'generic-html', 'therundown', 'theoddsapi', 'apifootball'));

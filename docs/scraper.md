@@ -708,6 +708,27 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   - A new event (no id yet) has no book prices: the first re-pricing pass applies O7.
   - Switch it on after the shadow measurement (the open and resolved `odds_out_of_line` items, and
     the scorecard's "best price" share) shows how often it binds.
+- **P7 Price expiry (plan task 1.10; a dead-man's switch).** If the scraper stops, the prices it
+  left behind must not stay bettable for ever. `markets.price_valid_until` (nullable) is the time
+  from which a market's price is no longer offered: bet placement and the slip quote refuse its
+  selections with reason `suspended` (`priceExpired`, `packages/db/src/betting/selections.ts`). No
+  job runs for this: the clock passing the time is enough.
+  - **`SCRAPER_PRICE_EXPIRY_MINUTES=0` (default):** off. `price_valid_until` stays NULL and nothing
+    expires. A value of 1 to 1440 is the window.
+  - **With a window:** the promotion pass stamps a new event's markets with now plus the window, and
+    every re-price (`repriceOne`) refreshes it. A pass that reads the inputs again and finds them
+    unchanged (state `current`) confirms the prices and pushes the expiry forward.
+  - **Half-window refresh:** the pass runs every minute, so a market is rewritten only when less than
+    half of its window is left. With 30 minutes, a pass 5 minutes in changes nothing; one 20 minutes
+    in sets the expiry to 30 minutes from then.
+  - **`keep` expires on purpose:** a market-priced event whose market is not usable now (state
+    `keep`) is not confirmed. It keeps its old prices, and the stamp runs out.
+  - **Not a status change:** the market stays `open`; no audit row, history row or live message is
+    written when a price expires, and nothing is resumed when a pass confirms it again. Only
+    markets of open and suspended status are refreshed.
+  - Set it above the slowest refresh of a priority source, for example 90 minutes, and switch it on
+    after a shadow week: watch `price_valid_until` against the passes first, so a normal gap
+    does not suspend betting.
 - **O4 Ratings update.** A confirmed result updates both teams' ratings once
   (`scrape_rating_applied`), in the same transaction as the result. In the same
   transaction the competition's home advantage is re-derived from its finished
@@ -846,6 +867,7 @@ normative):
 | `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
 | `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                      |
 | `SCRAPER_CAP_AT_BEST_PRICE`      | `off`            | O7: `off` (flag only), or `on`: cap the 1X2 and over/under prices at the best fresh book price      |
+| `SCRAPER_PRICE_EXPIRY_MINUTES`   | `0`              | P7: minutes a scraped price stays bettable without a fresh pass, 0 to 1440; `0` is off              |
 
 There is **no** setting for the number of sources a result needs: it is the
 constant `MIN_INDEPENDENT_SOURCES = 2`.

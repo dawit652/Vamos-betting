@@ -96,6 +96,7 @@ describe('sourceCapabilities of the shipped source files', () => {
   it('every shipped source file that createAdapter accepts also has capabilities (and the reverse)', () => {
     const names = [
       'source-api-football.json',
+      'source-apifootball-bydate.json',
       'source-footballdata-br1.json',
       'source-footballdata-nl1.json',
       'source-openfootball-pt1.json',

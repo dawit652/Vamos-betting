@@ -636,3 +636,78 @@ export const scrapeMarketOdds = pgTable(
     ),
   ],
 );
+
+/**
+ * Measured trust of one upstream for one sport (docs/plans/hulusport-parity-plan.md 4.4, task 1.2):
+ * how many of its final regular-time scores were compared with settled results, and how many
+ * matched. Written by `sources truth-check` (and its nightly run); read by the result ladder
+ * (`trustLevel` in @vamos/scraper: nothing counts below 500 comparisons; 99.5% makes a second
+ * source, 99.8% may decide alone). `disagreements` keeps a few recent examples as evidence.
+ */
+export const scrapeSourceTrust = pgTable(
+  'scrape_source_trust',
+  {
+    /** The upstream as `upstreamKey` writes it (trimmed, lower-cased). */
+    upstream: text('upstream').notNull(),
+    sport: text('sport').notNull(),
+    compared: integer('compared').notNull(),
+    agreed: integer('agreed').notNull(),
+    /** Kickoffs of the first and last compared match; null when nothing was compared. */
+    windowFrom: timestamp('window_from', { withTimezone: true }),
+    windowTo: timestamp('window_to', { withTimezone: true }),
+    disagreements: jsonb('disagreements')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    measuredAt: timestamp('measured_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.upstream, t.sport] }),
+    check('scrape_source_trust_sport', oneOf(t.sport, SCRAPE_SPORTS)),
+    check('scrape_source_trust_upstream', sql`btrim(${t.upstream}) <> ''`),
+    check(
+      'scrape_source_trust_counts',
+      sql`${t.compared} >= 0 AND ${t.agreed} BETWEEN 0 AND ${t.compared}`,
+    ),
+  ],
+);
+
+/**
+ * The result ladder in shadow (plan 4.4, tasks 1.6 and 1.7): what rungs B to D WOULD have done for
+ * an event the result gate did not settle. One row per (event, decision); `decision_key` is
+ * `<action>:<rung>:<reason>:<score>` so a changed decision is a new row and an unchanged one only
+ * moves `last_decided_at`. Nothing is applied or voided from it: four weeks of these rows, set
+ * against what then happened to each event, are the evidence the owner decides D7 and D11 on.
+ */
+export const scrapeLadderShadow = pgTable(
+  'scrape_ladder_shadow',
+  {
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    decisionKey: text('decision_key').notNull(),
+    rung: text('rung').notNull(),
+    action: text('action').notNull(),
+    reason: text('reason'),
+    /** The score rung B or C would apply ({ home, away, htHome, htAway }); null for a void. */
+    score: jsonb('score'),
+    /** Rung D: meets the strict text of D7. */
+    strict: boolean('strict'),
+    upstreams: jsonb('upstreams')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    dissent: jsonb('dissent')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    firstDecidedAt: timestamp('first_decided_at', { withTimezone: true }).notNull(),
+    lastDecidedAt: timestamp('last_decided_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.decisionKey] }),
+    index('scrape_ladder_shadow_first_idx').on(t.firstDecidedAt),
+    check('scrape_ladder_shadow_rung', sql`${t.rung} IN ('B', 'C', 'D')`),
+    check(
+      'scrape_ladder_shadow_action',
+      sql`(${t.action} = 'apply' AND ${t.rung} IN ('B', 'C') AND ${t.score} IS NOT NULL) OR (${t.action} = 'void' AND ${t.rung} = 'D' AND ${t.strict} IS NOT NULL)`,
+    ),
+  ],
+);

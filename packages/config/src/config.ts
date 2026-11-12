@@ -270,6 +270,14 @@ const envSchema = z.object({
    * measurement.
    */
   SCRAPER_CAP_AT_BEST_PRICE: z.enum(['off', 'on']).default('off'),
+  /**
+   * Price expiry, rule P7 (plan task 1.10, docs/plans/hulusport-parity-plan.md 4.5): each
+   * scraper re-price stamps its markets valid for this many minutes, and bet placement refuses
+   * an expired price, so betting closes by itself when the scraper goes dark. 0 (default): off,
+   * prices never expire. Set it above the slowest re-price interval of an open event (prematch
+   * reads are every 30 minutes in the last 24 hours), e.g. 90.
+   */
+  SCRAPER_PRICE_EXPIRY_MINUTES: z.coerce.number().int().min(0).max(1440).default(0),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -449,6 +457,8 @@ export interface ScraperConfig {
   skipRedundantScores: boolean;
   /** SCRAPER_CAP_AT_BEST_PRICE: rule O7, true for `on` (default `off`: flag only). */
   capAtBestPrice: boolean;
+  /** SCRAPER_PRICE_EXPIRY_MINUTES: rule P7 price expiry in minutes; 0 (default) is off. */
+  priceExpiryMinutes: number;
 }
 
 /** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -750,6 +760,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
           : [...new Set(e.SCRAPER_PRIORITY_COMPETITIONS.map((slug) => slug.toLowerCase()))],
       skipRedundantScores: e.SCRAPER_SKIP_REDUNDANT_SCORES === 'on',
       capAtBestPrice: e.SCRAPER_CAP_AT_BEST_PRICE === 'on',
+      priceExpiryMinutes: e.SCRAPER_PRICE_EXPIRY_MINUTES,
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {

@@ -34,6 +34,23 @@ export {
   readTheOddsApiUsage,
 } from './theoddsapi';
 export type { TheOddsApiConfig } from './theoddsapi';
+export {
+  createApiFootballAdapter,
+  ApiFootballConfigSchema,
+  APIFOOTBALL_AUTH_HEADER,
+  APIFOOTBALL_HOST,
+  apiFootballUrl,
+  goalsAddUp,
+  parseApiFootballEvents,
+} from './apifootball';
+export type {
+  ApiFootballConfig,
+  GoalEvent,
+  GoalKind,
+  GoalsCheck,
+  OwnGoalRule,
+  ParsedEvents,
+} from './apifootball';
 export { americanToMilli, decimalToMilli, exactDecimal, priceToMilli } from './odds-price';
 export type { PriceFormat, PriceProblem, PriceResult } from './odds-price';
 export * from './capabilities';

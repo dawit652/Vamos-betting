@@ -2,6 +2,7 @@ import type { ScrapeAdapterName } from '@vamos/core';
 import type { z } from 'zod';
 import type { SourceAdapter, SourceDescriptor, SourceKind } from '../types';
 import { zodErrors } from './common';
+import { ApiFootballConfigSchema, createApiFootballAdapter } from './apifootball';
 import { createGenericHtmlAdapter, GenericHtmlConfigSchema } from './generic-html';
 import { createGenericJsonAdapter, GenericJsonConfigSchema } from './generic-json';
 import { createOpenFootballAdapter, OpenFootballConfigSchema } from './openfootball';
@@ -54,6 +55,8 @@ export function createAdapter(row: SourceRow): CreateAdapterResult {
         return build(TheRundownConfigSchema, row, 'licensed_api', createTheRundownAdapter);
       case 'theoddsapi':
         return build(TheOddsApiConfigSchema, row, 'licensed_api', createTheOddsApiAdapter);
+      case 'apifootball':
+        return build(ApiFootballConfigSchema, row, 'licensed_api', createApiFootballAdapter);
       default:
         return { ok: false, errors: [`adapter: unknown adapter "${String(row.adapter)}"`] };
     }

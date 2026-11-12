@@ -1,0 +1,13 @@
+{
+  "id": "apifootball-bydate",
+  "name": "DRAFT API-Football by date (every league of the day), results spine, shadow only",
+  "adapter": "apifootball",
+  "upstream": "API-Sports own collection (UNVERIFIED, ask the vendor)",
+  "config": {
+    "allowedHosts": ["v3.football.api-sports.io"],
+    "secret": "SCRAPER_SECRET_API_FOOTBALL",
+    "sport": "football",
+    "daysBack": 1,
+    "daysAhead": 2
+  }
+}

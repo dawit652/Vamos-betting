@@ -12,8 +12,10 @@ const doc = (body: string, contentType: string | null = null): RawDocument => ({
   fetchedAt: new Date('2025-03-01T00:00:00Z'),
   contentHash: 'h',
 });
-const row = (adapter: 'openfootball' | 'generic-json' | 'generic-html', config: unknown) =>
-  createAdapter({ id: 's', adapter, upstream: 'u', config });
+const row = (
+  adapter: 'openfootball' | 'generic-json' | 'generic-html' | 'apifootball',
+  config: unknown,
+) => createAdapter({ id: 's', adapter, upstream: 'u', config });
 
 const of = {
   allowedHosts: ['a.example.com'],
@@ -42,6 +44,10 @@ const html = {
     kickoff: { selector: 'time', attr: 'datetime', format: 'iso' },
   },
 };
+const apiFootball = {
+  allowedHosts: ['v3.football.api-sports.io'],
+  secret: 'SCRAPER_SECRET_API_FOOTBALL',
+};
 function adapters(): SourceAdapter[] {
   return [row('openfootball', of), row('generic-json', json), row('generic-html', html)].map(
     (r) => {
@@ -49,6 +55,17 @@ function adapters(): SourceAdapter[] {
       return r.adapter;
     },
   );
+}
+/** apifootball only accepts its own request URL, so the hostile bodies reach it through that URL. */
+function apiFootballAdapter(): SourceAdapter {
+  const r = row('apifootball', apiFootball);
+  if (!r.ok) throw new Error(r.errors.join());
+  const adapter = r.adapter;
+  return {
+    ...adapter,
+    parse: (d) =>
+      adapter.parse({ ...d, url: 'https://v3.football.api-sports.io/fixtures?date=2025-03-01' }),
+  };
 }
 
 describe('config validation (S3)', () => {
@@ -150,14 +167,14 @@ describe('hostile documents', () => {
     ['6 MB multibyte', 'é'.repeat(3 * 1024 * 1024 + 1)],
   ];
   it.each(bodies)('%s never throws and yields consistent stats', (_n, body) => {
-    for (const a of adapters()) {
+    for (const a of [...adapters(), apiFootballAdapter()]) {
       const o = safeParse(a, doc(body));
       expect(o.stats.recordsAccepted).toBeLessThanOrEqual(o.stats.recordsSeen);
       expect(o.issues.length).toBeLessThanOrEqual(MAX_ISSUES);
     }
   });
   it('a 6 MB body is fatal with no records', () => {
-    for (const a of adapters()) {
+    for (const a of [...adapters(), apiFootballAdapter()]) {
       const o = a.parse(doc('x'.repeat(6 * 1024 * 1024)));
       expect(o.issues[0]).toMatchObject({ fatal: true, code: 'document_too_large' });
       expect(o.fixtures.length + o.results.length).toBe(0);
@@ -189,7 +206,7 @@ describe('hostile documents', () => {
 
 describe('property: parse never throws', () => {
   it('arbitrary strings of any content type', () => {
-    const as = adapters();
+    const as = [...adapters(), apiFootballAdapter()];
     fc.assert(
       fc.property(
         fc.oneof(fc.string(), fc.string({ unit: 'binary' }), fc.json()),

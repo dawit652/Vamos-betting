@@ -23,6 +23,20 @@ import {
   type ResultObservation,
 } from '@vamos/scraper';
 
+/**
+ * The upsertFixture option of rule P7 (price expiry, plan task 1.10): prices written or
+ * confirmed at `now` stay valid for SCRAPER_PRICE_EXPIRY_MINUTES; 0 (the default) leaves
+ * `price_valid_until` untouched, so nothing expires.
+ */
+export function priceExpiryOption(
+  scraper: { priceExpiryMinutes: number },
+  now: Date,
+): { priceValidUntil?: Date } {
+  const minutes = scraper.priceExpiryMinutes;
+  if (!Number.isFinite(minutes) || minutes <= 0) return {};
+  return { priceValidUntil: new Date(now.getTime() + minutes * 60_000) };
+}
+
 /** Competition id -> slug, for ResolvedNames. */
 export type SlugMap = ReadonlyMap<string, string>;
 

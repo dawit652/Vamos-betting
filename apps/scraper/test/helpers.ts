@@ -76,6 +76,8 @@ export interface HarnessOptions {
   skipRedundantScores?: boolean;
   /** SCRAPER_CAP_AT_BEST_PRICE (rule O7); default the config's own default (off). */
   capAtBestPrice?: 'off' | 'on';
+  /** SCRAPER_PRICE_EXPIRY_MINUTES (rule P7); default the config's own default (0, off). */
+  priceExpiryMinutes?: number;
 }
 
 // --- documents -----------------------------------------------------------------
@@ -177,6 +179,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     ...(options.capAtBestPrice === undefined
       ? {}
       : { SCRAPER_CAP_AT_BEST_PRICE: options.capAtBestPrice }),
+    ...(options.priceExpiryMinutes === undefined
+      ? {}
+      : { SCRAPER_PRICE_EXPIRY_MINUTES: String(options.priceExpiryMinutes) }),
   });
 
   let clock = new Date(T0);

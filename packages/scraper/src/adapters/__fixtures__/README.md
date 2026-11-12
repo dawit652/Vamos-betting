@@ -14,3 +14,9 @@
   `score.fullTime` / `score.halfTime`), for `docs/scraper-plan/data/source-footballdata-en1.json`. The fixtures
   and kickoffs of 6-8 November 2026 are the real ones (official Premier League schedule); every other value is
   invented. Replace it with a real response once one has been captured (`dry-fetch` on the server).
+- `apifootball-fixtures-bydate.synthetic.json`: SYNTHETIC, hand-written from the documented shape of API-Football v3
+  `GET /fixtures?date=2026-11-13&timezone=UTC` (no real response was captured: no working key). Team, league and
+  match ids and every score are invented; kickoffs are 2026-11-12 to 2026-11-14 around 12:00 UTC. One item per
+  status family (FT, NS, 1H, HT, AET, PEN, PST, CANC, ABD, AWD, WO), an FT with null goals, an FT whose
+  `fulltime` equals `goals`, and a kickoff written with a +03:00 offset. Replace with a real response (key removed)
+  when plan check 0.4 runs.

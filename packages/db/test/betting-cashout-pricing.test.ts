@@ -37,6 +37,7 @@ function snapshot(overrides: Partial<SelectionSnapshot>): SelectionSnapshot {
     marketLine: null,
     marketKey: '1x2',
     marketStatus: 'open',
+    priceValidUntil: null,
     eventId: randomUUID(),
     gameId: 1234,
     sportId: 'football',

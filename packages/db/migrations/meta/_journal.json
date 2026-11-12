@@ -330,6 +330,27 @@
       "when": 1794334960262,
       "tag": "0046_scrape_close_prices",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794520036529,
+      "tag": "0047_scrape_apifootball_adapter",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794520268684,
+      "tag": "0048_market_price_valid_until",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794520891233,
+      "tag": "0049_scrape_trust_and_ladder_shadow",
+      "breakpoints": true
     }
   ]
 }

@@ -46,6 +46,13 @@ export interface UpsertFixtureOptions {
   now?: Date;
   /** Random source for the Game ID (tests). */
   randomInt?: AllocateGameIdOptions['randomInt'];
+  /**
+   * Price expiry (rule P7): when given, every market of `feedMarkets` that this call inserts, or
+   * finds open or suspended, gets `price_valid_until` = this instant (also when no price moved:
+   * the read confirmed them). Markets not passed keep theirs and so expire unless another read
+   * refreshes them. Omitted (the default), `price_valid_until` is not touched.
+   */
+  priceValidUntil?: Date;
 }
 
 export interface UpsertFixtureResult {
@@ -105,7 +112,7 @@ export async function upsertFixture(
   if (existing === null) {
     const inserted = await insertEvent(tx, fixture, options);
     if (inserted !== null) {
-      await insertMarkets(tx, inserted.id, planned, source);
+      await insertMarkets(tx, inserted.id, planned, source, options.priceValidUntil);
       return {
         eventId: inserted.id,
         gameId: inserted.gameId,
@@ -175,6 +182,7 @@ export async function upsertFixture(
   const missingMarkets: PlannedMarket[] = [];
   const missingSelections: Array<typeof selections.$inferInsert> = [];
   const changes: OddsChange[] = [];
+  const refreshed: string[] = [];
   for (const market of planned) {
     const row = marketByKey.get(market.key);
     if (row === undefined) {
@@ -182,6 +190,7 @@ export async function upsertFixture(
       continue;
     }
     if (!UPDATABLE_MARKETS.has(row.status)) continue;
+    refreshed.push(row.id);
     for (const selection of market.selections) {
       const current = selectionByKey.get(`${row.id}|${selection.code}`);
       if (current === undefined) {
@@ -202,8 +211,20 @@ export async function upsertFixture(
     }
   }
 
-  const added = await insertMarkets(tx, existing.id, missingMarkets, source);
+  const added = await insertMarkets(
+    tx,
+    existing.id,
+    missingMarkets,
+    source,
+    options.priceValidUntil,
+  );
   for (const marketId of added) messages.push(marketMessage(existing.id, marketId, 'open'));
+  if (options.priceValidUntil !== undefined && refreshed.length > 0) {
+    await tx
+      .update(markets)
+      .set({ priceValidUntil: options.priceValidUntil })
+      .where(inArray(markets.id, refreshed));
+  }
   if (missingSelections.length > 0) {
     const rows = await tx
       .insert(selections)
@@ -298,6 +319,7 @@ async function insertMarkets(
   eventId: string,
   planned: readonly PlannedMarket[],
   source: string,
+  priceValidUntil?: Date,
 ): Promise<string[]> {
   if (planned.length === 0) return [];
   const marketRows = await tx
@@ -310,6 +332,7 @@ async function insertMarkets(
         key: market.key,
         status: 'open' as const,
         sortOrder: market.sortOrder,
+        ...(priceValidUntil === undefined ? {} : { priceValidUntil }),
       })),
     )
     .returning({ id: markets.id, key: markets.key });

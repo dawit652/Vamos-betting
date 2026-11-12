@@ -16,4 +16,5 @@ export * from './archive';
 export * from './normalize';
 export * from './match';
 export * from './gates';
+export * from './league';
 export * from './adapters';
