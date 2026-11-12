@@ -26,8 +26,8 @@ import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
 import { sourcesBudget } from './cli/budget';
 import { sourcesCoverage } from './cli/coverage';
 import { reviewGaps } from './cli/gaps';
-import { reviewCounts, reviewResultsAudit } from './cli/review';
-import { sourcesList, sourcesUpsert } from './cli/sources';
+import { reviewCounts, reviewLadderShadow, reviewResultsAudit } from './cli/review';
+import { sourcesList, sourcesTruthCheck, sourcesUpsert } from './cli/sources';
 
 /**
  * The source and ratings command line (docs/scraper-plan/07-sources-ratings-and-shadow-mode.md).
@@ -50,6 +50,15 @@ commands:
       (priority or standard) and whether its scores are skipped as a redundant upstream come from
       SCRAPER_PRIORITY_COMPETITIONS and SCRAPER_SKIP_REDUNDANT_SCORES; the flags try other values
       without changing them (--priority all: every competition priority). Read-only.
+  sources truth-check [--upstream <name>] [--since YYYY-MM-DD] [--write]
+      Trust is measured: per upstream, how often its finished regular-time scores (football) match
+      the applied result, for events resulted since the date (default: 1 July of this season): the
+      full-time score, and the half-time score when both have one; one comparison per event (an
+      upstream with several sources disagrees when any does). Prints compared, agreed, rate and
+      trust level. --write stores the rows (and up to 20 recent disagreements) in
+      scrape_source_trust, which the result ladder reads; the scraper also does this once a day.
+      Partly circular: a result applied on an upstream's own vote agrees with it by construction, so
+      the table counts those events (from the result audit) and the rate without them.
   sources upsert --file source.json
       Validates the config (createAdapter), then creates or updates the source.
       A new source starts DISABLED; an existing one keeps its enabled flag.
@@ -90,6 +99,12 @@ commands:
       latency from the assumed final whistle (kickoff + 105 min) to the moment the result was
       applied, per competition (count, mismatches, median, p90) against the targets (median 20 min,
       p90 30 min). Read-only.
+  review ladder-shadow [--since YYYY-MM-DD]
+      What the result ladder (rungs B to D) would have done for events the result gate did not
+      settle, against what then happened: an apply decision against the applied score (match,
+      mismatch, not resulted yet), a void decision against whether the match was played or ended
+      void. Then a summary per rung and reason (decisions, agreed, disagreed, pending). Nothing is
+      applied or voided from the ladder. Default --since: 28 days ago. Read-only.
   eval scorecard [--days N | --from <iso> --to <iso>]
       Prices at betting close against the results (last 7 days by default, N from 1 to 90):
       sample, 1X2 and over/under scores of ours, the consensus and Pinnacle, calibration, overround,
@@ -110,6 +125,7 @@ const COMMANDS: Record<string, Command> = {
   'sources coverage': sourcesCoverage,
   'sources budget': sourcesBudget,
   'sources upsert': sourcesUpsert,
+  'sources truth-check': sourcesTruthCheck,
   'dry-parse': dryParse,
   'dry-fetch': dryFetch,
   'aliases import': aliasesImport,
@@ -121,6 +137,7 @@ const COMMANDS: Record<string, Command> = {
   'review counts': reviewCounts,
   'review gaps': reviewGaps,
   'review results-audit': reviewResultsAudit,
+  'review ladder-shadow': reviewLadderShadow,
   'eval scorecard': evalScorecard,
   'eval market': evalMarket,
 };

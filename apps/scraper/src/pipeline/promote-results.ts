@@ -51,6 +51,7 @@ import {
   undecidedFrom,
   type PromoteOptions,
 } from './common';
+import { ladderShadow } from './ladder-shadow';
 import { updateRatingsForResult } from './result-ratings';
 
 export interface PromoteResultsSummary {
@@ -166,6 +167,7 @@ export async function promoteResults(
     ]),
   );
   const confirmMs = ctx.config.scraper.resultConfirmMinutes * MINUTE_MS;
+  const shadow = ladderShadow(ctx, now);
 
   for (const event of candidates) {
     const observations = byEvent.get(event.eventId);
@@ -204,6 +206,8 @@ export async function promoteResults(
         );
         summary.held += 1;
       }
+      // After everything the gate does, and only for what the gate did not apply.
+      if (decision.action !== 'apply') await shadow.record(event, observations);
     } catch (error) {
       summary.failed += 1;
       ctx.logger.error({ err: error, eventId: event.eventId }, 'result promotion failed');

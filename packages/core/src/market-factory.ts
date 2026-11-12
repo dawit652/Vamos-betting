@@ -521,6 +521,8 @@ function oddEvenFamily(
 
 const WINNING_MARGIN = Object.freeze(['1by1', '1by2', '1by3+', 'X', '2by1', '2by2', '2by3+']);
 const GOAL_RANGES = Object.freeze(['0-1', '2-3', '4-5', '6+']);
+const HALF_WINNING_MARGIN = Object.freeze(['1by1', '1by2+', 'X', '2by1', '2by2+']);
+const HALF_GOAL_RANGES = Object.freeze(['0-1', '2-3', '4+']);
 const MULTIGOAL_LINES = Object.freeze([
   '1-2',
   '1-3',
@@ -587,6 +589,88 @@ function resultComboFamilies(
         },
       }) satisfies PeriodFamily,
   };
+}
+
+/** Double chance of one period joined with both teams to score. */
+function doubleChanceBttsFamily(
+  type: string,
+  basis: PeriodBasis,
+  group: FactoryGroup,
+  name: string,
+) {
+  return {
+    type,
+    basis,
+    group,
+    name,
+    marginClass: 'long',
+    winners: 2,
+    selections: combine(DOUBLE_CHANCE, YES_NO),
+    rule: () => (g: Goals) =>
+      doubleChanceWith(resultOf(g), g.home > 0 && g.away > 0 ? 'yes' : 'no'),
+  } satisfies PeriodFamily;
+}
+
+/** Double chance of one period joined with over/under of the same period. */
+function doubleChanceTotalFamily(
+  type: string,
+  basis: PeriodBasis,
+  group: FactoryGroup,
+  name: string,
+  lines: readonly string[],
+) {
+  return {
+    type,
+    basis,
+    group,
+    name,
+    marginClass: 'long',
+    winners: 2,
+    lines,
+    selections: combine(DOUBLE_CHANCE, OVER_UNDER),
+    rule: (line: string | null) => {
+      const value = lineValue(line);
+      return (g: Goals) => doubleChanceWith(resultOf(g), total(g) > value ? 'over' : 'under');
+    },
+  } satisfies PeriodFamily;
+}
+
+/** Winning margin of a half: 1 or 2+ goals for either side, or a draw. */
+function halfWinningMarginFamily(
+  type: string,
+  basis: 'h1' | 'h2',
+  group: FactoryGroup,
+  name: string,
+) {
+  return {
+    type,
+    basis,
+    group,
+    name,
+    marginClass: 'derivative',
+    selections: HALF_WINNING_MARGIN,
+    rule: () => (g: Goals) => {
+      const diff = g.home - g.away;
+      if (diff === 0) return only('X');
+      return only(`${diff > 0 ? '1' : '2'}by${Math.abs(diff) >= 2 ? '2+' : '1'}`);
+    },
+  } satisfies PeriodFamily;
+}
+
+/** Goal range of a half: 0 to 1, 2 to 3, or 4 and more. */
+function halfGoalRangeFamily(type: string, basis: 'h1' | 'h2', group: FactoryGroup, name: string) {
+  return {
+    type,
+    basis,
+    group,
+    name,
+    marginClass: 'derivative',
+    selections: HALF_GOAL_RANGES,
+    rule: () => (g: Goals) => {
+      const goals = total(g);
+      return only(goals <= 1 ? '0-1' : goals <= 3 ? '2-3' : '4+');
+    },
+  } satisfies PeriodFamily;
 }
 
 const FULL_TIME_FAMILIES: Family[] = [
@@ -658,39 +742,28 @@ const FT_COMBOS = resultComboFamilies('ft_', 'ft', 'full_time_combos', '');
 
 const FULL_TIME_COMBO_FAMILIES: Family[] = [
   FT_COMBOS.resultBtts,
-  FT_COMBOS.resultTotal(['1.5', '2.5', '3.5', '4.5']),
-  {
-    type: 'ft_dc_btts',
-    basis: 'ft',
-    group: 'full_time_combos',
-    name: 'Double chance and both teams to score',
-    marginClass: 'long',
-    winners: 2,
-    selections: combine(DOUBLE_CHANCE, YES_NO),
-    rule: () => (g: Goals) =>
-      doubleChanceWith(resultOf(g), g.home > 0 && g.away > 0 ? 'yes' : 'no'),
-  },
-  {
-    type: 'ft_dc_ou',
-    basis: 'ft',
-    group: 'full_time_combos',
-    name: 'Double chance and total goals',
-    marginClass: 'long',
-    winners: 2,
-    lines: ['1.5', '2.5', '3.5', '4.5'],
-    selections: combine(DOUBLE_CHANCE, OVER_UNDER),
-    rule: (line: string | null) => {
-      const value = lineValue(line);
-      return (g: Goals) => doubleChanceWith(resultOf(g), total(g) > value ? 'over' : 'under');
-    },
-  },
+  FT_COMBOS.resultTotal(['0.5', '1.5', '2.5', '3.5', '4.5', '5.5']),
+  doubleChanceBttsFamily(
+    'ft_dc_btts',
+    'ft',
+    'full_time_combos',
+    'Double chance and both teams to score',
+  ),
+  doubleChanceTotalFamily('ft_dc_ou', 'ft', 'full_time_combos', 'Double chance and total goals', [
+    '0.5',
+    '1.5',
+    '2.5',
+    '3.5',
+    '4.5',
+    '5.5',
+  ]),
   {
     type: 'ft_btts_ou',
     basis: 'ft',
     group: 'full_time_combos',
     name: 'Both teams to score and total goals',
     marginClass: 'long',
-    lines: ['2.5', '3.5'],
+    lines: ['2.5', '3.5', '4.5'],
     selections: combine(YES_NO, OVER_UNDER),
     rule: (line: string | null) => {
       const value = lineValue(line);
@@ -718,7 +791,19 @@ function halfFamilies(half: 'h1' | 'h2'): Family[] {
     exactGoalsFamily(`${half}_exact_goals`, half, group, `${label}exact goals`, 3),
     oddEvenFamily(`${half}_odd_even`, half, group, `${label}total goals odd/even`),
     combos.resultBtts,
-    combos.resultTotal(['1.5']),
+    combos.resultTotal(['0.5', '1.5', '2.5']),
+    doubleChanceBttsFamily(
+      `${half}_dc_btts`,
+      half,
+      group,
+      `${label}double chance and both teams to score`,
+    ),
+    doubleChanceTotalFamily(`${half}_dc_ou`, half, group, `${label}double chance and total goals`, [
+      '0.5',
+      '1.5',
+    ]),
+    halfWinningMarginFamily(`${half}_winning_margin`, half, group, `${label}winning margin`),
+    halfGoalRangeFamily(`${half}_goal_range`, half, group, `${label}goal range`),
   ];
 }
 
@@ -833,7 +918,7 @@ function teamFamilies(side: 'home' | 'away'): Family[] {
       group: 'teams',
       name: `${label} multigoals`,
       marginClass: 'derivative',
-      lines: ['1-2', '1-3', '2-3'],
+      lines: ['0-1', '1-2', '1-3', '2-3', '2-4', '3-4'],
       selections: YES_NO,
       rule: (line: string | null) => {
         const { from, to } = rangeOf(line);
@@ -850,6 +935,13 @@ function teamFamilies(side: 'home' | 'away'): Family[] {
 // --- across the halves ---------------------------------------------------------------
 
 const HT_FT = combine(RESULTS, RESULTS).map((s) => s.replace('&', '/'));
+
+/** Half-time scores of the half-time correct score / full-time result market; any other is 'other'. */
+const HT_CS_SCORES = Object.freeze(['0-0', '1-0', '0-1', '1-1']);
+const HT_CS_FT: readonly string[] = Object.freeze([
+  ...HT_CS_SCORES.flatMap((score) => RESULTS.map((result) => `${score}/${result}`)),
+  'other',
+]);
 
 const HALVES_FAMILIES: Family[] = [
   {
@@ -868,7 +960,7 @@ const HALVES_FAMILIES: Family[] = [
     group: 'halves',
     name: 'Half time / full time and total goals',
     marginClass: 'long',
-    lines: ['2.5', '3.5'],
+    lines: ['1.5', '2.5', '3.5', '4.5'],
     selections: Object.freeze(HT_FT.flatMap((s) => [`${s}&over`, `${s}&under`])),
     rule: (line: string | null) => {
       const value = lineValue(line);
@@ -888,6 +980,31 @@ const HALVES_FAMILIES: Family[] = [
     marginClass: 'long',
     selections: Object.freeze(HT_FT),
     rule: () => (first: Goals, second: Goals) => only(`${resultOf(first)}/${resultOf(second)}`),
+  },
+  {
+    type: 'htcs_ft_result',
+    basis: 'halves',
+    group: 'halves',
+    name: 'Half-time correct score / full-time result',
+    marginClass: 'long',
+    selections: HT_CS_FT,
+    rule: () => (first: Goals, second: Goals) => {
+      const half = `${first.home}-${first.away}`;
+      if (!HT_CS_SCORES.includes(half)) return only('other');
+      return only(`${half}/${resultOf(sum(first, second))}`);
+    },
+  },
+  {
+    type: 'h1_h2_btts',
+    basis: 'halves',
+    group: 'halves',
+    name: 'Both teams to score 1st half / 2nd half',
+    marginClass: 'derivative',
+    selections: combine(YES_NO, YES_NO).map((s) => s.replace('&', '/')),
+    rule: () => (first: Goals, second: Goals) =>
+      only(
+        `${first.home > 0 && first.away > 0 ? 'yes' : 'no'}/${second.home > 0 && second.away > 0 ? 'yes' : 'no'}`,
+      ),
   },
   {
     type: 'highest_scoring_half',
@@ -932,6 +1049,19 @@ const HALVES_FAMILIES: Family[] = [
     rule: (line: string | null) => {
       const value = lineValue(line);
       return (first: Goals, second: Goals) => yesNo(total(first) > value && total(second) > value);
+    },
+  },
+  {
+    type: 'both_halves_under',
+    basis: 'halves',
+    group: 'halves',
+    name: 'Both halves under',
+    marginClass: 'derivative',
+    lines: ['1.5'],
+    selections: YES_NO,
+    rule: (line: string | null) => {
+      const value = lineValue(line);
+      return (first: Goals, second: Goals) => yesNo(total(first) < value && total(second) < value);
     },
   },
   {

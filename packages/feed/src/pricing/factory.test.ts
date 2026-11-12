@@ -248,23 +248,25 @@ describe('priceFactoryMarkets', () => {
         selections: priced.reduce((sum, m) => sum + m.selections.length, 0),
       };
     });
+    // Plan 4.1 and task 2.8: a typical match lists at least 500 options after pruning.
+    for (const count of counts) expect(count.selections).toBeGreaterThanOrEqual(500);
     expect(counts).toMatchInlineSnapshot(`
       [
         {
-          "markets": 146,
-          "selections": 477,
+          "markets": 176,
+          "selections": 635,
         },
         {
-          "markets": 143,
-          "selections": 471,
+          "markets": 173,
+          "selections": 629,
         },
         {
-          "markets": 137,
-          "selections": 450,
+          "markets": 165,
+          "selections": 596,
         },
         {
-          "markets": 128,
-          "selections": 437,
+          "markets": 156,
+          "selections": 587,
         },
       ]
     `);

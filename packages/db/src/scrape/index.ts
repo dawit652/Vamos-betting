@@ -169,3 +169,22 @@ export {
   type ScrapedEvent,
   type ScrapedEventStatus,
 } from './events';
+export {
+  ladderShadowKey,
+  LADDER_SHADOW_REFRESH_MS,
+  listLadderShadow,
+  listSourceTrust,
+  listTruthCheckEvents,
+  newestSourceTrustMeasuredAt,
+  recordLadderShadow,
+  TRUTH_KICKOFF_WINDOW_MS,
+  upsertSourceTrust,
+  type LadderShadowDecision,
+  type LadderShadowEntry,
+  type LadderShadowScore,
+  type ListTruthCheckEventsQuery,
+  type SourceTrustRow,
+  type TruthCheckEvent,
+  type TruthObservation,
+  type TruthScore,
+} from './trust';

@@ -1,9 +1,11 @@
 import {
   listCompetitionPolicies,
   listCurrentObservations,
+  listLadderShadow,
   listScrapedEvents,
   reviewQueueSummary,
   type Database,
+  type LadderShadowEntry,
 } from '@vamos/db';
 import { teams } from '@vamos/db/schema';
 import { inArray } from 'drizzle-orm';
@@ -250,6 +252,192 @@ export async function reviewResultsAudit(args: string[], env: CliEnv): Promise<n
         ]),
       ),
     ]),
+  ];
+  emit(env, parsed, json, lines);
+  return EXIT_OK;
+}
+
+/** What happened to the event a shadow decision was about. */
+export type ShadowOutcome = 'match' | 'mismatch' | 'played' | 'void' | 'event_voided' | 'pending';
+
+const VOID_EVENT_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'abandoned', 'postponed']);
+
+/**
+ * An 'apply' decision against the event's applied score: match (full time, and half time when both
+ * have one), mismatch, event_voided (the event was cancelled, abandoned or postponed instead) or
+ * pending (not resulted yet). A 'void' decision: played (the event got a final result), void (it was
+ * cancelled, abandoned or postponed) or pending.
+ */
+export function shadowOutcome(entry: LadderShadowEntry): ShadowOutcome {
+  const { event } = entry;
+  if (entry.action === 'void') {
+    if (event.status === 'finished') return 'played';
+    return VOID_EVENT_STATUSES.has(event.status) ? 'void' : 'pending';
+  }
+  if (VOID_EVENT_STATUSES.has(event.status)) return 'event_voided';
+  if (event.status !== 'finished' || event.score === null || entry.score === null) return 'pending';
+  const full = event.score.home === entry.score.home && event.score.away === entry.score.away;
+  const half =
+    event.score.htHome === null ||
+    event.score.htAway === null ||
+    entry.score.htHome === null ||
+    entry.score.htAway === null ||
+    (event.score.htHome === entry.score.htHome && event.score.htAway === entry.score.htAway);
+  return full && half ? 'match' : 'mismatch';
+}
+
+const AGREED_OUTCOMES: ReadonlySet<ShadowOutcome> = new Set(['match', 'void']);
+const DISAGREED_OUTCOMES: ReadonlySet<ShadowOutcome> = new Set([
+  'mismatch',
+  'played',
+  'event_voided',
+]);
+
+/** The summary label of a decision: the rung, the action and the reason ('strict' for a D7 void). */
+const shadowLabel = (e: LadderShadowEntry): string =>
+  e.action === 'apply'
+    ? `${e.rung} apply`
+    : `${e.rung} void ${e.reason ?? '-'}${e.strict === true ? ' (strict)' : ''}`;
+
+const DEFAULT_SHADOW_DAYS = 28;
+
+/**
+ * `review ladder-shadow [--since YYYY-MM-DD] [--json]` (plan task 1.6): every decision the result
+ * ladder (rungs B to D) would have made for an event the result gate did not settle, first made
+ * since the date (default 28 days ago), next to what happened to the event. An 'apply' decision is
+ * compared with the applied score (match, mismatch, not resulted yet); a 'void' decision with
+ * whether the event was later played (it got a final result) or ended void. A summary per rung and
+ * reason follows: decisions, agreed, disagreed, pending. This is the evidence for the owner's
+ * decisions D7 and D11. Nothing is applied or voided from the ladder. Read-only.
+ */
+export async function reviewLadderShadow(args: string[], env: CliEnv): Promise<number> {
+  const parsed = parseCommandArgs(args, { since: { type: 'string' } });
+  noPositionals(parsed);
+  const now = env.clock();
+  const sinceText = optionalString(parsed, 'since');
+  let since = new Date(now.getTime() - DEFAULT_SHADOW_DAYS * DAY_MS);
+  if (sinceText !== undefined) {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(sinceText) ? new Date(`${sinceText}T00:00:00Z`) : null;
+    if (
+      date === null ||
+      Number.isNaN(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== sinceText
+    ) {
+      throw new UsageError('--since must be a date as YYYY-MM-DD');
+    }
+    since = date;
+  }
+  const db: Database = await env.database();
+  const entries = await listLadderShadow(db, { since });
+
+  const slugs = new Map(
+    (await listCompetitionPolicies(db, { sportId: 'football' })).map((p) => [
+      p.competitionId,
+      p.slug,
+    ]),
+  );
+  const teamIds = [...new Set(entries.flatMap((e) => [e.event.homeTeamId, e.event.awayTeamId]))];
+  const teamRows =
+    teamIds.length === 0
+      ? []
+      : await db
+          .select({ id: teams.id, name: teams.name, shortName: teams.shortName })
+          .from(teams)
+          .where(inArray(teams.id, teamIds));
+  const teamName = new Map(teamRows.map((t) => [t.id, t.name.en || t.shortName]));
+
+  const decisions = entries.map((e) => ({
+    entry: e,
+    label: shadowLabel(e),
+    outcome: shadowOutcome(e),
+    match: `${teamName.get(e.event.homeTeamId) ?? e.event.homeTeamId} v ${teamName.get(e.event.awayTeamId) ?? e.event.awayTeamId}`,
+    competition: slugs.get(e.event.competitionId) ?? e.event.competitionId,
+  }));
+
+  const groups = new Map<
+    string,
+    { decisions: number; agreed: number; disagreed: number; pending: number }
+  >();
+  for (const d of decisions) {
+    const g = groups.get(d.label) ?? { decisions: 0, agreed: 0, disagreed: 0, pending: 0 };
+    g.decisions += 1;
+    if (AGREED_OUTCOMES.has(d.outcome)) g.agreed += 1;
+    else if (DISAGREED_OUTCOMES.has(d.outcome)) g.disagreed += 1;
+    else g.pending += 1;
+    groups.set(d.label, g);
+  }
+  const summary = [...groups.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([label, g]) => ({ label, ...g }));
+
+  const decidedScore = (e: LadderShadowEntry): string =>
+    e.score === null ? '-' : scoreText(e.score);
+  const json = {
+    since: since.toISOString(),
+    decisions: decisions.map((d) => ({
+      eventId: d.entry.eventId,
+      gameId: d.entry.event.gameId,
+      competition: d.competition,
+      match: d.match,
+      kickoff: d.entry.event.startTime.toISOString(),
+      rung: d.entry.rung,
+      action: d.entry.action,
+      reason: d.entry.reason,
+      strict: d.entry.strict,
+      score: d.entry.score,
+      upstreams: d.entry.upstreams,
+      dissent: d.entry.dissent,
+      firstDecidedAt: d.entry.firstDecidedAt.toISOString(),
+      lastDecidedAt: d.entry.lastDecidedAt.toISOString(),
+      eventStatus: d.entry.event.status,
+      appliedScore: d.entry.event.score,
+      outcome: d.outcome,
+    })),
+    summary,
+  };
+  const lines = [
+    `Result ladder in shadow: decisions first made since ${since.toISOString().slice(0, 10)}. Nothing here was applied or voided.`,
+    "apply: match / mismatch with the applied score, or pending (not resulted yet); void: 'played' (the event got a final result), 'void' (cancelled, abandoned or postponed) or pending.",
+    '',
+    ...(decisions.length === 0
+      ? ['no shadow decisions']
+      : table(
+          [
+            'game',
+            'match',
+            'kickoff',
+            'decision',
+            'would',
+            'upstreams',
+            'decided',
+            'now',
+            'outcome',
+          ],
+          decisions.map((d) => [
+            String(d.entry.event.gameId),
+            d.match,
+            d.entry.event.startTime.toISOString(),
+            d.label,
+            decidedScore(d.entry),
+            [...d.entry.upstreams, ...d.entry.dissent.map((u) => `!${u}`)].join(',') || '-',
+            d.entry.firstDecidedAt.toISOString(),
+            d.entry.event.status === 'finished' && d.entry.event.score !== null
+              ? scoreText(d.entry.event.score)
+              : d.entry.event.status,
+            d.outcome,
+          ]),
+        )),
+    '',
+    ...table(
+      ['rung and reason', 'decisions', 'agreed', 'disagreed', 'pending'],
+      summary.map((g) => [
+        g.label,
+        String(g.decisions),
+        String(g.agreed),
+        String(g.disagreed),
+        String(g.pending),
+      ]),
+    ),
   ];
   emit(env, parsed, json, lines);
   return EXIT_OK;

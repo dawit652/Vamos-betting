@@ -5,9 +5,9 @@ import {
   syncOutOfLineAlarm,
 } from './credit-alarms';
 import {
+  anyMarketKey,
   marketKey,
   SCRAPED_FEED_PROVIDER,
-  type MarketTypeCode,
   type ScrapePricingSource,
 } from '@vamos/core';
 import {
@@ -452,7 +452,7 @@ const asGate = (
   line: string | null,
   selections: ReadonlyArray<{ code: string; oddsMilli: number }>,
 ): GateMarket => ({
-  type: type as MarketTypeCode,
+  type,
   line,
   selections: selections.map((s) => ({ code: s.code, oddsMilli: s.oddsMilli })),
 });
@@ -668,10 +668,10 @@ const pricingNote = (price: EventPrice) => ({
 function differs(previous: readonly GateMarket[], next: readonly GateMarket[]): boolean {
   const old = new Map<string, number>();
   for (const m of previous) {
-    for (const s of m.selections) old.set(`${marketKey(m.type, m.line)}|${s.code}`, s.oddsMilli);
+    for (const s of m.selections) old.set(`${anyMarketKey(m.type, m.line)}|${s.code}`, s.oddsMilli);
   }
   return next.some((m) =>
-    m.selections.some((s) => old.get(`${marketKey(m.type, m.line)}|${s.code}`) !== s.oddsMilli),
+    m.selections.some((s) => old.get(`${anyMarketKey(m.type, m.line)}|${s.code}`) !== s.oddsMilli),
   );
 }
 

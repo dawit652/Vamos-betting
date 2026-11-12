@@ -89,9 +89,9 @@ describe('the catalogue', () => {
     expect({ markets: FACTORY_MARKETS.length, selections, types: types.size })
       .toMatchInlineSnapshot(`
       {
-        "markets": 164,
-        "selections": 515,
-        "types": 79,
+        "markets": 194,
+        "selections": 673,
+        "types": 90,
       }
     `);
   });
@@ -353,6 +353,34 @@ describe('selected rules on known scores', () => {
     expect(settle('home_win_to_nil', null, 'yes', [0, 0], [2, 0])).toBe('won');
   });
 
+  it('settles the half and halves families added with task 2.8', () => {
+    // 1-0 at half time, 1-2 at full time: second half 0-2.
+    expect(settle('h1_h2_btts', null, 'no/no', [1, 0], [1, 2])).toBe('won');
+    expect(settle('h1_h2_btts', null, 'no/yes', [1, 0], [2, 1])).toBe('won');
+    expect(settle('h1_h2_btts', null, 'yes/yes', [1, 1], [2, 2])).toBe('won');
+    expect(settle('both_halves_under', '1.5', 'yes', [1, 0], [1, 1])).toBe('won');
+    expect(settle('both_halves_under', '1.5', 'yes', [1, 1], [1, 1])).toBe('lost');
+    expect(settle('htcs_ft_result', null, '1-0/2', [1, 0], [1, 2])).toBe('won');
+    expect(settle('htcs_ft_result', null, '0-0/X', [0, 0], [0, 0])).toBe('won');
+    expect(settle('htcs_ft_result', null, 'other', [2, 0], [2, 1])).toBe('won');
+    expect(settle('htcs_ft_result', null, '1-1/X', [1, 1], [2, 1])).toBe('lost');
+    expect(settle('h1_winning_margin', null, '1by2+', [2, 0], [2, 0])).toBe('won');
+    expect(settle('h2_winning_margin', null, '2by1', [3, 0], [3, 1])).toBe('won');
+    expect(settle('h2_winning_margin', null, 'X', [1, 0], [2, 1])).toBe('won');
+    expect(settle('h1_goal_range', null, '4+', [3, 1], [3, 1])).toBe('won');
+    expect(settle('h2_goal_range', null, '2-3', [0, 0], [1, 1])).toBe('won');
+    expect(settle('h1_dc_btts', null, 'X2&no', [0, 1], [0, 1])).toBe('won');
+    expect(settle('h2_dc_ou', '1.5', '1X&over', [0, 0], [2, 0])).toBe('won');
+    expect(settle('h2_dc_ou', '1.5', '12&over', [0, 0], [1, 1])).toBe('lost');
+    expect(settle('ft_1x2_ou', '5.5', 'X&over', [0, 0], [3, 3])).toBe('won');
+    expect(settle('ft_dc_ou', '0.5', 'X2&under', [0, 0], [0, 0])).toBe('won');
+    expect(settle('ft_btts_ou', '4.5', 'yes&over', [0, 0], [3, 2])).toBe('won');
+    expect(settle('htft_ou', '4.5', '1/1&under', [1, 0], [2, 0])).toBe('won');
+    expect(settle('home_multigoals', '0-1', 'yes', [0, 0], [1, 3])).toBe('won');
+    expect(settle('away_multigoals', '3-4', 'yes', [0, 1], [0, 4])).toBe('won');
+    expect(settle('h2_1x2_ou', '0.5', 'X&under', [1, 1], [1, 1])).toBe('won');
+  });
+
   it('drops selections that no score can produce', () => {
     // Home leads at half time and away wins: at least three goals, so never under 2.5.
     expect(factoryMarket('htft_ou', '2.5').selections).not.toContain('1/2&under');
@@ -360,6 +388,16 @@ describe('selected rules on known scores', () => {
     expect(factoryMarket('htft_ou', '3.5').selections).toContain('1/2&under');
     // Both teams scored means at least two goals.
     expect(factoryMarket('ft_btts_ou', '2.5').selections).toContain('yes&under');
+    // A win or loss needs a goal, so '1&under' and '2&under' of the 0.5 line are dropped.
+    expect(factoryMarket('ft_1x2_ou', '0.5').selections).toEqual([
+      '1&over',
+      'X&over',
+      'X&under',
+      '2&over',
+    ]);
+    expect(factoryMarket('ft_dc_ou', '0.5').selections).not.toContain('12&under');
+    // Half-time scores outside the 0-0, 1-0, 0-1, 1-1 grid share one selection.
+    expect(factoryMarket('htcs_ft_result').selections).toContain('other');
   });
 });
 

@@ -443,6 +443,50 @@ Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_M
   24 hours. It closes by itself when the event has a result, its kickoff moved later or another result item
   opens. It applies, cancels and voids nothing.
 
+#### Trust and the result ladder in shadow
+
+Plan 4.4 of `docs/plans/hulusport-parity-plan.md` lets a result settle on fewer than two agreeing
+upstreams only for an upstream whose scores have been measured against settled results. This
+section is the measurement and the four-week shadow run. **Nothing here applies, voids or cancels an
+event.** R1 to R12 are unchanged and still decide alone.
+
+- **Trust is measured.** `sources truth-check` compares, per upstream, its finished regular-time
+  scores (football) with the applied result of every event that has one (status `finished`, score
+  set, resulted) since a date (default: 1 July of the current season). The full-time score must
+  match, and the half-time score too when both sides have one. It makes one comparison per event and
+  upstream: an upstream with several sources disagrees when any of its sources does. Sources that
+  are switched off count, so a source disabled for being wrong keeps that on its record.
+- **Partly circular.** A result applied on an upstream's own vote agrees with that upstream by
+  construction. The command counts those events (`own vote`, from the `upstreams` the
+  `scrape.result.applied` audit row records) and gives the rate without them (`rate w/o own`). A
+  result with no such audit row (entered by hand, or applied before it was recorded) counts as
+  `no audit`. Read the second rate, not the first, before trusting an upstream.
+- **Where it is stored.** `scrape_source_trust`: one row per upstream (as `upstreamKey` writes it)
+  and sport, with `compared`, `agreed`, the kickoff window, up to 20 recent disagreements (event,
+  source, observed and applied score) and `measured_at`. `trustLevel` turns it into `untrusted`
+  (under 500 compared, or under 99.5%), `second_source` (99.5%) or `trusted` (99.8%). `--write`
+  stores the rows; the scraper does it for every upstream once a day (task `scraper-trust`, looked
+  at every hour, skipped while the newest `measured_at` is under 20 hours old).
+- **The ladder in shadow.** On every promotion pass, for an event the result gate did not apply,
+  `decideLadder` (rungs B, C and D) says what it would do, with the measured trust read once per
+  pass. An `apply` or `void` decision is recorded in `scrape_ladder_shadow`, one row per event and
+  decision (`decision_key` is the action, rung, reason and score), so a changed decision is a new
+  row and an unchanged one only moves `last_decided_at`, and only when that is more than an hour
+  old. Goal events are not read yet, so rung C does not wait for them to add up. The recorder cannot
+  fail a pass: an error is logged as an `error` line with `alarm: 'ladder_shadow_failed'` and the
+  pass goes on. It is its own module (`pipeline/ladder-shadow.ts`) and a test fails if it takes a
+  result, review or transaction operation.
+- **The two commands.**
+  - `sources truth-check [--upstream <name>] [--since YYYY-MM-DD] [--write]` prints upstream,
+    compared, agreed, rate, trust level, `own vote`, `no audit` and `rate w/o own`, and a few
+    recent disagreements. Without `--write` it stores nothing.
+  - `review ladder-shadow [--since YYYY-MM-DD]` (default 28 days) lists every shadow decision next
+    to what happened to the event: an `apply` against the applied score (`match`, `mismatch`, or
+    `pending` when not resulted yet), a `void` against whether the event was later played (it got a
+    final result) or ended void. A summary per rung and reason follows (decisions, agreed,
+    disagreed, pending); a rung D void that meets the strict text of D7 is shown as `(strict)`. After
+    four weeks this is the evidence for the owner's decisions D7 and D11.
+
 ### 6.3 Source health
 
 - **S1 Shape.** After parsing, `recordsAccepted` is compared with the median of

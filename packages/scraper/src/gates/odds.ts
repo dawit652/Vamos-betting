@@ -1,4 +1,7 @@
 import {
+  factoryMarket,
+  factoryMarketKey,
+  isFactoryOnlyMarketType,
   isValidOddsMilli,
   MARKET_TYPES,
   type MarketTypeCode,
@@ -27,9 +30,13 @@ import { buildReviews, type GateJson, type GateReview } from './review';
  * float tolerance: a book exactly on a bound passes, one a hair outside fails.
  */
 
-/** A priced market, structurally the same as FeedMarket of @vamos/feed. */
+/**
+ * A priced market, structurally the same as FeedMarket of @vamos/feed, or a football market of the
+ * market factory (plan task 2.3: a factory-only type, listing a subset of its selections because
+ * pricing does not list long shots).
+ */
 export interface GateMarket {
-  readonly type: MarketTypeCode;
+  readonly type: MarketTypeCode | (string & {});
   readonly line: string | null;
   readonly selections: readonly { readonly code: string; readonly oddsMilli: number }[];
 }
@@ -169,28 +176,40 @@ function result(issues: OddsIssue[]): OddsCheck {
 /** A market's key, or null (with an issue) when its type or line is invalid. */
 function keyOf(market: GateMarket, issues: OddsIssue[]): string | null {
   const type = market?.type;
-  if (typeof type !== 'string' || !Object.hasOwn(MARKET_TYPES, type)) {
+  const factory = typeof type === 'string' && isFactoryOnlyMarketType(type);
+  if (typeof type !== 'string' || (!Object.hasOwn(MARKET_TYPES, type) && !factory)) {
     issues.push(issue('unknown_market', null, null, `unknown market type ${String(type)}`));
     return null;
   }
   try {
-    return marketKey(type, market.line);
+    return factory
+      ? factoryMarketKey(type, market.line)
+      : marketKey(type as MarketTypeCode, market.line);
   } catch (error) {
     issues.push(issue('bad_line', type, null, error instanceof Error ? error.message : 'bad line'));
     return null;
   }
 }
 
-/** Exactly the selections of selectionsFor(type), each once, each with a valid price. */
+/**
+ * Exactly the selections of selectionsFor(type), each once, each with a valid price. A factory
+ * market may list a non-empty subset of its selections (long shots are not listed), each once.
+ */
 function selectionsProblems(market: GateMarket, key: string, issues: OddsIssue[]): boolean {
-  const expected = selectionsFor(market.type);
+  const factory = isFactoryOnlyMarketType(market.type);
+  const expected = factory
+    ? factoryMarket(market.type, market.line).selections
+    : selectionsFor(market.type as MarketTypeCode);
   const selections = listOf(market.selections);
   const codes = selections.map((s) => s?.code);
   const unique = new Set(codes);
-  const exact =
-    codes.length === expected.length &&
-    unique.size === codes.length &&
-    expected.every((code) => unique.has(code));
+  const exact = factory
+    ? codes.length > 0 &&
+      unique.size === codes.length &&
+      codes.every((code) => typeof code === 'string' && expected.includes(code))
+    : codes.length === expected.length &&
+      unique.size === codes.length &&
+      expected.every((code) => unique.has(code));
   if (!exact) {
     issues.push(
       issue('bad_selections', key, null, `expected ${expected.join(',')}, got ${codes.join(',')}`),
@@ -213,6 +232,12 @@ function selectionsProblems(market: GateMarket, key: string, issues: OddsIssue[]
   return exact && pricesValid;
 }
 
+/** MARKET_OUTCOME_COVER for today's types; a factory market's winners per score. */
+function outcomeCover(market: GateMarket): number {
+  if (isFactoryOnlyMarketType(market.type)) return factoryMarket(market.type, market.line).winners;
+  return MARKET_OUTCOME_COVER[market.type as MarketTypeCode];
+}
+
 /**
  * O2: every price is valid odds and every book's overround (Σ 1000/odds,
  * divided by MARKET_OUTCOME_COVER) lies in [OVERROUND_MIN, OVERROUND_MAX].
@@ -233,7 +258,7 @@ export function checkMarkets(markets: readonly GateMarket[]): OddsCheck {
     const odds = market.selections.map((s) => BigInt(s.oddsMilli));
     const product = odds.reduce((p, o) => p * o, 1n);
     const sum = odds.reduce((s, o) => s + (1000n * product) / o, 0n);
-    const cover = BigInt(MARKET_OUTCOME_COVER[market.type]);
+    const cover = BigInt(outcomeCover(market));
     const shown = (
       market.selections.reduce((s, x) => s + 1000 / x.oddsMilli, 0) / Number(cover)
     ).toFixed(4);
@@ -289,6 +314,16 @@ export function checkReprice(
   };
   const before = index(previous);
   const after = index(next);
+  const factoryKeys = new Set(
+    [...listOf(previous), ...listOf(next)].flatMap((market) => {
+      if (typeof market?.type !== 'string' || !isFactoryOnlyMarketType(market.type)) return [];
+      try {
+        return [factoryMarketKey(market.type, market.line)];
+      } catch {
+        return [];
+      }
+    }),
+  );
   const nextCheck = checkMarkets(next);
   if (!nextCheck.ok) issues.push(...nextCheck.issues);
   for (const key of new Set([...before.keys(), ...after.keys()])) {
@@ -303,6 +338,9 @@ export function checkReprice(
       const from = old.get(code);
       const to = now.get(code);
       if (from === undefined || to === undefined) {
+        // A factory market lists a selection only while its price is not a long shot, so its
+        // listing changes with the prices; that is not a reason to hold the re-price.
+        if (factoryKeys.has(key)) continue;
         issues.push(
           issue(
             'selection_set_changed',

@@ -17,6 +17,8 @@ export * from './cashout';
 export * from './jackpot';
 export * from './markets';
 export * from './market-factory';
+export * from './market-resolve';
+export * from './market-labels';
 export * from './market-consensus';
 export * from './consensus-tolerance';
 export * from './best-price';

@@ -15,6 +15,7 @@ import {
   type LegState,
   type SettlementLeg,
   canSettle,
+  forwardCorrection,
   settleBet,
 } from './settlement';
 
@@ -336,5 +337,114 @@ describe('settleBet', () => {
         },
       ),
     );
+  });
+});
+
+describe('forwardCorrection (D10: corrections go forward only)', () => {
+  const settledArb = fc.array(
+    fc.record({ oddsMilli: oddsArb, state: fc.constantFrom<LegState>('won', 'lost', 'void') }),
+    { minLength: 1, maxLength: 6 },
+  );
+
+  function paidOf(settlement: BetSettlement) {
+    return {
+      grossPayout: settlement.grossPayout,
+      taxAmount: settlement.taxAmount,
+      netPayout: settlement.netPayout,
+    };
+  }
+
+  it('pays a lost bet that the correction makes a winner, and nothing on a reversal', () => {
+    const stake = birr(100);
+    const before = settleBet({ stake, legs: [lost(2500)], maxPayout, multiBonus, tax });
+    const corrected = forwardCorrection({
+      stake,
+      legs: [won(2500)],
+      paid: paidOf(before),
+      maxPayout,
+      multiBonus,
+      tax,
+    });
+    expect(corrected.action).toBe('pay');
+    if (corrected.action === 'pay') {
+      expect(corrected.extraNet).toBe(corrected.settlement.netPayout);
+      expect(corrected.extraGross).toBe(corrected.extraNet + corrected.extraTax);
+    }
+    // The other way round: a paid winner whose result is corrected to a loss keeps its money.
+    const paidWinner = settleBet({ stake, legs: [won(2500)], maxPayout, multiBonus, tax });
+    expect(
+      forwardCorrection({
+        stake,
+        legs: [lost(2500)],
+        paid: paidOf(paidWinner),
+        maxPayout,
+        multiBonus,
+        tax,
+      }).action,
+    ).toBe('none');
+  });
+
+  it('never takes money back, never pays twice, and every payment balances', () => {
+    fc.assert(
+      fc.property(
+        stakeArb,
+        settledArb,
+        fc.array(fc.constantFrom<LegState>('won', 'lost', 'void'), { minLength: 6, maxLength: 6 }),
+        taxConfigArb,
+        (stake, legs, correctedStates, taxConfig) => {
+          const original = settleBet({ stake, legs, maxPayout, multiBonus, tax: taxConfig });
+          const correctedLegs = legs.map((leg, i) => ({ ...leg, state: correctedStates[i]! }));
+          const args = { stake, legs: correctedLegs, maxPayout, multiBonus, tax: taxConfig };
+          const first = forwardCorrection({ ...args, paid: paidOf(original) });
+          if (first.action !== 'pay') {
+            if (first.action === 'none') {
+              expect(first.settlement.netPayout <= original.netPayout).toBe(true);
+            }
+            return;
+          }
+          expect(first.extraNet > 0n).toBe(true);
+          expect(first.extraTax >= 0n).toBe(true);
+          expect(first.extraGross).toBe(first.extraNet + first.extraTax);
+          // What has been paid now equals the corrected settlement, exactly.
+          const paidNow = {
+            grossPayout: original.grossPayout + first.extraGross,
+            taxAmount: original.taxAmount + first.extraTax,
+            netPayout: original.netPayout + first.extraNet,
+          };
+          expect(paidNow.netPayout).toBe(first.settlement.netPayout);
+          // The same correction again pays nothing more.
+          expect(forwardCorrection({ ...args, paid: paidNow }).action).toBe('none');
+          // Correcting back to the original result takes nothing back.
+          expect(
+            forwardCorrection({ stake, legs, maxPayout, multiBonus, tax: taxConfig, paid: paidNow })
+              .action,
+          ).toBe('none');
+        },
+      ),
+      { numRuns: 1000 },
+    );
+  });
+
+  it('rejects an inconsistent record of what was paid, and open legs', () => {
+    expect(() =>
+      forwardCorrection({
+        stake: birr(10),
+        legs: [won(2000)],
+        paid: { grossPayout: 100n, taxAmount: 10n, netPayout: 100n },
+        maxPayout,
+        multiBonus,
+        tax,
+      }),
+    ).toThrow(RangeError);
+    expect(() =>
+      forwardCorrection({
+        stake: birr(10),
+        legs: [open(2000)],
+        paid: { grossPayout: 0n, taxAmount: 0n, netPayout: 0n },
+        maxPayout,
+        multiBonus,
+        tax,
+      }),
+    ).toThrow(RangeError);
   });
 });

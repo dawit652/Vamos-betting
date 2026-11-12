@@ -1,5 +1,5 @@
 import {
-  marketKey,
+  anyMarketKey,
   SCRAPER_ACTOR,
   type ScrapeFixtureStatus,
   type ScrapeResultStatus,
@@ -143,10 +143,10 @@ export function compareText(a: string, b: string): number {
 export function display(previous: readonly GateMarket[], next: readonly GateMarket[]): GateJson {
   const old = new Map<string, number>();
   for (const m of previous) {
-    for (const s of m.selections) old.set(`${marketKey(m.type, m.line)}|${s.code}`, s.oddsMilli);
+    for (const s of m.selections) old.set(`${anyMarketKey(m.type, m.line)}|${s.code}`, s.oddsMilli);
   }
   return next.map((m) => {
-    const key = marketKey(m.type, m.line);
+    const key = anyMarketKey(m.type, m.line);
     return {
       market: key,
       selections: m.selections.map((s) => {

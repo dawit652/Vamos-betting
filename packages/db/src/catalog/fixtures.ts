@@ -1,5 +1,10 @@
 import {
+  canonicalFactoryLine,
   canonicalLine,
+  factoryMarket,
+  factoryMarketKey,
+  factoryMarketSortOrder,
+  isFactoryOnlyMarketType,
   isValidOddsMilli,
   MARKET_TYPES,
   marketKey,
@@ -32,9 +37,13 @@ export interface UpsertFixtureInput {
   startTime: Date;
 }
 
-/** A priced market from the feed (structurally a FeedMarket from @vamos/feed). */
+/**
+ * A priced market from the feed (structurally a FeedMarket from @vamos/feed), or a football market
+ * of the market factory (plan task 2.3: a factory-only type such as 'htft', with any non-empty
+ * subset of its selections, since pricing does not list long shots).
+ */
 export interface FixtureMarketInput {
-  type: MarketTypeCode;
+  type: MarketTypeCode | (string & {});
   line: string | null;
   selections: ReadonlyArray<{ code: string; oddsMilli: number }>;
 }
@@ -69,7 +78,7 @@ export interface UpsertFixtureResult {
 }
 
 interface PlannedMarket {
-  type: MarketTypeCode;
+  type: string;
   line: string | null;
   key: string;
   sortOrder: number;
@@ -382,17 +391,21 @@ function planMarkets(
   sport: SportCode,
   feedMarkets: readonly FixtureMarketInput[],
 ): PlannedMarket[] {
-  const offered = SPORT_MARKETS[sport];
+  const offered: readonly string[] = SPORT_MARKETS[sport];
   const keys = new Set<string>();
   return feedMarkets.map((market) => {
+    if (sport === 'football' && isFactoryOnlyMarketType(market.type)) {
+      return planFactoryMarket(market, keys);
+    }
     if (!offered.includes(market.type)) {
       throw new RangeError(`market "${String(market.type)}" is not offered for ${sport}`);
     }
-    const key = marketKey(market.type, market.line);
+    const type = market.type as MarketTypeCode;
+    const key = marketKey(type, market.line);
     if (keys.has(key)) throw new RangeError(`market ${key} appears twice`);
     keys.add(key);
 
-    const codes = selectionsFor(market.type);
+    const codes = selectionsFor(type);
     const odds = new Map<string, number>();
     for (const selection of market.selections) {
       if (!codes.includes(selection.code)) {
@@ -411,10 +424,10 @@ function planMarkets(
     if (odds.size !== codes.length) {
       throw new RangeError(`market ${key} must price all ${codes.length} selections`);
     }
-    const definition = MARKET_TYPES[market.type];
+    const definition = MARKET_TYPES[type];
     return {
-      type: market.type,
-      line: canonicalLine(market.type, market.line),
+      type,
+      line: canonicalLine(type, market.line),
       key,
       sortOrder: definition.sortOrder,
       selections: codes.map((code, index) => ({
@@ -424,4 +437,42 @@ function planMarkets(
       })),
     };
   });
+}
+
+/**
+ * A factory-only football market (plan task 2.3): a market the factory defines, with a non-empty
+ * subset of its selections (pricing does not list long shots), each at most once and at valid
+ * odds. Ordered after today's types, in catalogue order.
+ */
+function planFactoryMarket(market: FixtureMarketInput, keys: Set<string>): PlannedMarket {
+  const key = factoryMarketKey(market.type, market.line);
+  if (keys.has(key)) throw new RangeError(`market ${key} appears twice`);
+  keys.add(key);
+  const definition = factoryMarket(market.type, market.line);
+  const odds = new Map<string, number>();
+  for (const selection of market.selections) {
+    if (!definition.selections.includes(selection.code)) {
+      throw new RangeError(`invalid selection "${selection.code}" for market ${key}`);
+    }
+    if (odds.has(selection.code)) {
+      throw new RangeError(`selection "${selection.code}" appears twice in market ${key}`);
+    }
+    if (!isValidOddsMilli(selection.oddsMilli)) {
+      throw new RangeError(
+        `invalid odds (milli) ${selection.oddsMilli} for ${key} "${selection.code}"`,
+      );
+    }
+    odds.set(selection.code, selection.oddsMilli);
+  }
+  if (odds.size === 0) throw new RangeError(`market ${key} has no selections`);
+  return {
+    type: definition.type,
+    line: canonicalFactoryLine(market.line),
+    key,
+    sortOrder: factoryMarketSortOrder(market.type, market.line),
+    selections: definition.selections.flatMap((code, index) => {
+      const price = odds.get(code);
+      return price === undefined ? [] : [{ code, oddsMilli: price, sortOrder: index }];
+    }),
+  };
 }
