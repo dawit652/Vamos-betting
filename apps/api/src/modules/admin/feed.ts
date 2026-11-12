@@ -46,8 +46,7 @@ import {
 } from '@vamos/contracts';
 import {
   MARKET_PRICING_KEY_PREFIX,
-  marketKey,
-  type MarketTypeCode,
+  anyMarketKey,
   type SportCode,
   uncappedPricingKey,
 } from '@vamos/core';
@@ -845,20 +844,20 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             const updatable = stored.filter((m) => m.status === 'open' || m.status === 'suspended');
             const frozen = new Set(stored.filter((m) => !updatable.includes(m)).map((m) => m.key));
             const proposal: GateMarket[] = payload.proposal.map((m) => ({
-              type: m.type as MarketTypeCode,
+              type: m.type,
               line: m.line,
               selections: m.selections,
             }));
             const next = proposal.filter((m) => {
               try {
-                return !frozen.has(marketKey(m.type, m.line));
+                return !frozen.has(anyMarketKey(m.type, m.line));
               } catch {
                 return true; // checkReprice names it
               }
             });
             const check = checkReprice(
               updatable.map((m) => ({
-                type: m.type as MarketTypeCode,
+                type: m.type,
                 line: m.line,
                 selections: m.selections,
               })),
