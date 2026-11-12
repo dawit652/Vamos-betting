@@ -1,6 +1,6 @@
 {
   "name": "@vamos/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Pure, dependency-free domain logic: money, odds, betslip, bonus, tax, cash-out, jackpot",
   "type": "module",
