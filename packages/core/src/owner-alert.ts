@@ -1,0 +1,197 @@
+/**
+ * Alerts to the owner's phone (plan task 1.11, docs/plans/hulusport-parity-plan.md 4.4). A person is
+ * told, never waited for: an alert says WHAT WAS DONE ("Betting closed on ...", "Odds reads are
+ * stopped ..."), never what to do. It is one short plain text, at most `OWNER_ALERT_MAX_LENGTH`
+ * characters (one SMS), with no personal data: only source, institution and credit-API names and
+ * counts, never a player, a phone number, an amount or a reference.
+ *
+ * `key` is the alarm's name plus its subject; the worker sends the same key at most once per
+ * OWNER_ALERT_MIN_INTERVAL_MINUTES. Pure: no I/O.
+ */
+
+/** One SMS segment of plain text. */
+export const OWNER_ALERT_MAX_LENGTH = 160;
+
+/** A source's name is shown at most this long (the rest is cut with an ellipsis). */
+const NAME_MAX_LENGTH = 40;
+
+/** The alarms that raise an alert, with what each message needs. */
+export type OwnerAlertInput =
+  /** The result ladder's shadow recorder failed (it records only; results are unchanged). */
+  | { alarm: 'ladder_shadow_failed' }
+  /** A source's pages no longer parse as before, or its configuration is invalid. */
+  | {
+      alarm: 'source_broken';
+      sourceId: string;
+      sourceName: string;
+      reason: 'shape' | 'invalid_config';
+    }
+  /** A source answers but has shown nothing new while listed matches ended. */
+  | { alarm: 'source_stale'; sourceId: string; sourceName: string; daysUnchanged: number }
+  /** The credit guard is in economy or minimal (a metered odds API). */
+  | { alarm: 'budget_low'; creditKey: string }
+  /** The credit guard stops reading: no credits left. */
+  | { alarm: 'budget_exhausted'; creditKey: string }
+  /** The last 24 hours of spending would outrun the remaining credits before the reset. */
+  | { alarm: 'budget_projection'; creditKey: string; daysUntilEmpty: number }
+  /** The odds API refused the key (HTTP 401). */
+  | { alarm: 'unauthorized'; creditKey: string }
+  /** A request cost more credits than expected. */
+  | { alarm: 'unexpected_cost'; creditKey: string; cost: number; expected: number }
+  /** A credited SMS deposit is contradicted by the institution's receipt page. */
+  | { alarm: 'sms_receipt_rejected'; smsId: string }
+  /** The collection account's balance moved differently from what the SMS rail saw. */
+  | {
+      alarm: 'sms_balance_drift';
+      institution: string;
+      direction: 'credited_more_than_arrived' | 'missed_incoming';
+    }
+  /** No SMS from the collection handset during active hours. */
+  | { alarm: 'sms_gateway_silent' }
+  /** SMS waiting for staff: a long queue or an old item. */
+  | { alarm: 'sms_review_backlog' }
+  /** An approved manual payout has waited more than two hours. */
+  | { alarm: 'manual_payout_waiting' };
+
+export interface OwnerAlert {
+  /** The alarm's name plus its subject, e.g. `source_broken|odds-api`. Stable per condition. */
+  key: string;
+  /** The text sent: at most OWNER_ALERT_MAX_LENGTH characters, one line. */
+  message: string;
+}
+
+/** Control characters and line breaks become spaces; runs of spaces collapse; the ends are trimmed. */
+function plain(text: string): string {
+  return (
+    text
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
+/** `text` cut to `max` characters, the last three being dots when something was cut. */
+function clip(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length <= max
+    ? text
+    : `${chars
+        .slice(0, max - 3)
+        .join('')
+        .trimEnd()}...`;
+}
+
+/** A name as it is shown: plain text, cut to NAME_MAX_LENGTH; a stand-in when it is empty. */
+function nameOf(name: string, standIn: string): string {
+  const text = plain(name);
+  return text.length === 0 ? standIn : clip(text, NAME_MAX_LENGTH);
+}
+
+const wholeNumber = (n: number, least: number): number =>
+  Number.isFinite(n) ? Math.max(least, Math.round(n)) : least;
+
+const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
+
+/** The subject part of a key: plain, no separator inside, bounded. */
+const subjectOf = (value: string): string => clip(plain(value).replaceAll('|', '/'), 120);
+
+function build(input: OwnerAlertInput): OwnerAlert {
+  switch (input.alarm) {
+    case 'ladder_shadow_failed':
+      return {
+        key: 'ladder_shadow_failed',
+        message:
+          'The result ladder shadow failed on this pass. Results and betting carry on as before; nothing was changed.',
+      };
+    case 'source_broken': {
+      const name = nameOf(input.sourceName, 'A source');
+      return {
+        key: `source_broken|${subjectOf(input.sourceId)}`,
+        message:
+          input.reason === 'invalid_config'
+            ? `${name}: its configuration is invalid, so it is not read. The other sources carry on.`
+            : `${name}: its pages no longer read as before. Nothing from them is stored; the league runs on its other sources.`,
+      };
+    }
+    case 'source_stale': {
+      const name = nameOf(input.sourceName, 'A source');
+      const days = wholeNumber(input.daysUnchanged, 1);
+      return {
+        key: `source_stale|${subjectOf(input.sourceId)}`,
+        message: `${name} has shown nothing new for ${days} ${plural(days, 'day', 'days')}. It is marked stale; no result is settled from one source alone.`,
+      };
+    }
+    case 'budget_low':
+      return {
+        key: `budget_low|${subjectOf(input.creditKey)}`,
+        message:
+          'Bookmaker odds credits are running low: odds are read less often to make them last.',
+      };
+    case 'budget_exhausted':
+      return {
+        key: `budget_exhausted|${subjectOf(input.creditKey)}`,
+        message: 'Bookmaker odds credits are used up: odds reads are stopped until the 1st.',
+      };
+    case 'budget_projection': {
+      const days = wholeNumber(input.daysUntilEmpty, 1);
+      return {
+        key: `budget_projection|${subjectOf(input.creditKey)}`,
+        message: `Bookmaker odds credits would be used up in about ${days} ${plural(days, 'day', 'days')}, before the 1st. Reading carries on at the normal pace.`,
+      };
+    }
+    case 'unauthorized':
+      return {
+        key: `unauthorized|${subjectOf(input.creditKey)}`,
+        message: 'The bookmaker odds API refused our key: reads with that key are stopped.',
+      };
+    case 'unexpected_cost':
+      return {
+        key: `unexpected_cost|${subjectOf(input.creditKey)}`,
+        message: `A bookmaker odds request cost ${wholeNumber(input.cost, 0)} credits instead of ${wholeNumber(input.expected, 0)}. Reading carries on.`,
+      };
+    case 'sms_receipt_rejected':
+      return {
+        key: `sms_receipt_rejected|${subjectOf(input.smsId)}`,
+        message:
+          "A credited SMS deposit is contradicted by the institution's receipt. It stays credited and is held for staff.",
+      };
+    case 'sms_balance_drift': {
+      const institution = nameOf(input.institution, 'The collection account');
+      return {
+        key: `sms_balance_drift|${subjectOf(input.institution)}|${input.direction}`,
+        message:
+          input.direction === 'credited_more_than_arrived'
+            ? `The ${institution} balance moved less than we credited. Nothing was reversed; the gap is kept on the health panel.`
+            : `The ${institution} balance moved more than the SMS we saw. Nothing was changed; the gap is kept on the health panel.`,
+      };
+    }
+    case 'sms_gateway_silent':
+      return {
+        key: 'sms_gateway_silent',
+        message:
+          'No SMS came from the collection handset for 30 minutes. Deposits stay open and are credited when its SMS arrive.',
+      };
+    case 'sms_review_backlog':
+      return {
+        key: 'sms_review_backlog',
+        message:
+          'SMS deposits are waiting for staff. None is credited without a match; those deposits stay open.',
+      };
+    case 'manual_payout_waiting':
+      return {
+        key: 'manual_payout_waiting',
+        message:
+          'An approved manual payout has waited over 2 hours. It stays queued for an operator; nothing is paid without one.',
+      };
+  }
+}
+
+/**
+ * The owner alert for an alarm: a stable key and a short message of what was done. The message is
+ * one line of at most OWNER_ALERT_MAX_LENGTH characters whatever the names in it.
+ */
+export function buildOwnerAlert(input: OwnerAlertInput): OwnerAlert {
+  const { key, message } = build(input);
+  return { key, message: clip(plain(message), OWNER_ALERT_MAX_LENGTH) };
+}

@@ -13,6 +13,7 @@ import {
 } from '@vamos/db';
 import { SmsRailProvider } from '@vamos/payments';
 import { intervalTask, type IntervalTask } from '../lib/interval';
+import { raiseOwnerAlert } from '../lib/owner-alert';
 import { withTxRetry } from '../lib/retry';
 import type { TaskContext } from './context';
 
@@ -26,7 +27,8 @@ import type { TaskContext } from './context';
  *   unreachable); drift is logged as an alarm and kept for the health panel;
  * - the watch: no SMS from the handset for a while during active hours, a
  *   growing review queue, a manual payout waiting too long.
- * Alarms are `error` log lines with `alarm` set, for the log-based alerts.
+ * Alarms are `error` log lines with `alarm` set, for the log-based alerts; each also raises an
+ * owner alert (an `owner.alert` outbox row, plan task 1.11) when OWNER_ALERT_PHONES is set.
  */
 
 export const RECEIPT_AUDIT_INTERVAL_MS = 30_000;
@@ -104,6 +106,7 @@ export async function runReceiptAudit(
         },
         'a credited SMS is contradicted by the institution’s receipt',
       );
+      await raiseOwnerAlert(ctx, { alarm: 'sms_receipt_rejected', smsId: sms.id });
     }
     // The breaker is open: the rest would only answer breaker_open.
     if (verdict.status === 'indeterminate' && verdict.reason === 'breaker_open') break;
@@ -152,6 +155,11 @@ export async function runBalanceReconciliation(ctx: TaskContext): Promise<Stored
           ? 'collection account balance moved less than we credited: a forged SMS?'
           : 'collection account balance moved more than we saw: SMS went missing',
       );
+      await raiseOwnerAlert(ctx, {
+        alarm: 'sms_balance_drift',
+        institution,
+        direction: result.direction,
+      });
     }
   }
   return results;
@@ -190,6 +198,7 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
         { alarm: 'sms_gateway_silent', lastGatewaySmsAt: last?.toISOString() ?? null },
         'no SMS from the collection handset for 30 minutes during active hours',
       );
+      await raiseOwnerAlert(ctx, { alarm: 'sms_gateway_silent' });
     }
   }
   if (
@@ -207,6 +216,7 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
       },
       'SMS waiting for a person: players may be waiting on deposits',
     );
+    await raiseOwnerAlert(ctx, { alarm: 'sms_review_backlog' });
   }
   if (
     health.oldestManualPayoutApprovedAt !== null &&
@@ -221,6 +231,7 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
       },
       'an approved manual payout has waited more than 2 hours',
     );
+    await raiseOwnerAlert(ctx, { alarm: 'manual_payout_waiting' });
   }
   return findings;
 }

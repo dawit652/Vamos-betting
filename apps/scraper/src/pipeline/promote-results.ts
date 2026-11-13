@@ -51,7 +51,7 @@ import {
   undecidedFrom,
   type PromoteOptions,
 } from './common';
-import { ladderShadow } from './ladder-shadow';
+import { alertLadderShadowFailed, ladderShadow } from './ladder-shadow';
 import { updateRatingsForResult } from './result-ratings';
 
 export interface PromoteResultsSummary {
@@ -408,6 +408,7 @@ async function shadowSilentEvents(
     }
   } catch (error) {
     ctx.logger.error({ err: error, alarm: 'ladder_shadow_failed' }, 'ladder shadow failed');
+    await alertLadderShadowFailed(ctx, now);
   }
 }
 

@@ -1,28 +1,23 @@
 import {
   listCompetitionPolicies,
-  listCurrentObservations,
   listLadderShadow,
-  listScrapedEvents,
   reviewQueueSummary,
   type Database,
   type LadderShadowEntry,
 } from '@vamos/db';
 import { teams } from '@vamos/db/schema';
 import { inArray } from 'drizzle-orm';
+import { collectResultsAudit } from '../eval/audit-data';
+import { shadowLabel, shadowOutcome, summariseShadow } from '../eval/ladder-shadow';
 import {
   ASSUMED_MATCH_MINUTES,
-  compareSource,
   isMismatch,
-  latencyMinutes,
-  latestPerSource,
   summariseAudit,
   TARGET_MEDIAN_MINUTES,
   TARGET_P90_MINUTES,
   type AuditedEvent,
   type AuditScore,
   type AuditSummary,
-  type SourceComparison,
-  type SourceResult,
 } from '../eval/result-audit';
 import {
   EXIT_OK,
@@ -74,11 +69,6 @@ const DAY_MS = 86_400_000;
 const AUDIT_AFTER_MS = 48 * HOUR_MS;
 const DEFAULT_AUDIT_DAYS = 7;
 const MAX_AUDIT_DAYS = 90;
-/** A source row belongs to an event when its kickoff is within 12 hours of the event's. */
-const AUDIT_KICKOFF_WINDOW_MS = 12 * HOUR_MS;
-/** Events that kicked off up to this long before they were resulted are still found. */
-const AUDIT_LOOK_BACK_MS = 14 * DAY_MS;
-const OBSERVATION_LIMIT = 20_000;
 
 const scoreText = (s: AuditScore | null): string =>
   s === null
@@ -108,85 +98,7 @@ export async function reviewResultsAudit(args: string[], env: CliEnv): Promise<n
   const to = new Date(now.getTime() - AUDIT_AFTER_MS);
   const db: Database = await env.database();
 
-  const candidates = await listScrapedEvents(db, {
-    from: new Date(from.getTime() - AUDIT_LOOK_BACK_MS),
-    to,
-    includeFinished: true,
-  });
-  const applied = candidates.filter(
-    (e) =>
-      e.status === 'finished' &&
-      e.score !== null &&
-      e.resultedAt !== null &&
-      e.resultedAt >= from &&
-      e.resultedAt <= to,
-  );
-
-  const slugs = new Map(
-    (await listCompetitionPolicies(db, { sportId: 'football' })).map((p) => [
-      p.competitionId,
-      p.slug,
-    ]),
-  );
-  const teamIds = [...new Set(applied.flatMap((e) => [e.homeTeamId, e.awayTeamId]))];
-  const teamRows =
-    teamIds.length === 0
-      ? []
-      : await db
-          .select({ id: teams.id, name: teams.name, shortName: teams.shortName })
-          .from(teams)
-          .where(inArray(teams.id, teamIds));
-  const teamName = new Map(teamRows.map((t) => [t.id, t.name.en || t.shortName]));
-
-  const observations =
-    applied.length === 0
-      ? []
-      : await listCurrentObservations(db, {
-          kind: 'result',
-          resolvedOnly: true,
-          kickoffFrom: new Date(
-            Math.min(...applied.map((e) => e.startTime.getTime())) - AUDIT_KICKOFF_WINDOW_MS,
-          ),
-          kickoffTo: new Date(
-            Math.max(...applied.map((e) => e.startTime.getTime())) + AUDIT_KICKOFF_WINDOW_MS,
-          ),
-          limit: OBSERVATION_LIMIT,
-        });
-
-  const rows = applied.map((event) => {
-    const score = event.score as AuditScore;
-    const sources: SourceResult[] = observations
-      .filter(
-        (o) =>
-          o.competitionId === event.competitionId &&
-          o.homeTeamId === event.homeTeamId &&
-          o.awayTeamId === event.awayTeamId &&
-          Math.abs(o.kickoff.getTime() - event.startTime.getTime()) <= AUDIT_KICKOFF_WINDOW_MS,
-      )
-      .map((o) => ({
-        sourceId: o.sourceId,
-        upstream: o.upstream,
-        status: o.status,
-        scoreBasis: o.scoreBasis,
-        score: o.score,
-        changedAt: o.changedAt,
-      }));
-    const comparisons: SourceComparison[] = latestPerSource(sources).map((s) =>
-      compareSource(score, s),
-    );
-    return {
-      eventId: event.eventId,
-      gameId: event.gameId,
-      competition: slugs.get(event.competitionId) ?? event.competitionId,
-      home: teamName.get(event.homeTeamId) ?? event.homeTeamId,
-      away: teamName.get(event.awayTeamId) ?? event.awayTeamId,
-      kickoff: event.startTime,
-      appliedAt: event.resultedAt as Date,
-      applied: score,
-      latencyMinutes: latencyMinutes(event.startTime, event.resultedAt as Date),
-      comparisons,
-    };
-  });
+  const rows = await collectResultsAudit(db, { from, to });
   const audited: AuditedEvent[] = rows;
   const { overall, byCompetition } = summariseAudit(audited);
   const mismatched = rows.filter((r) => r.comparisons.some((c) => isMismatch(c.verdict)));
@@ -257,48 +169,6 @@ export async function reviewResultsAudit(args: string[], env: CliEnv): Promise<n
   return EXIT_OK;
 }
 
-/** What happened to the event a shadow decision was about. */
-export type ShadowOutcome = 'match' | 'mismatch' | 'played' | 'void' | 'event_voided' | 'pending';
-
-const VOID_EVENT_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'abandoned', 'postponed']);
-
-/**
- * An 'apply' decision against the event's applied score: match (full time, and half time when both
- * have one), mismatch, event_voided (the event was cancelled, abandoned or postponed instead) or
- * pending (not resulted yet). A 'void' decision: played (the event got a final result), void (it was
- * cancelled, abandoned or postponed) or pending.
- */
-export function shadowOutcome(entry: LadderShadowEntry): ShadowOutcome {
-  const { event } = entry;
-  if (entry.action === 'void') {
-    if (event.status === 'finished') return 'played';
-    return VOID_EVENT_STATUSES.has(event.status) ? 'void' : 'pending';
-  }
-  if (VOID_EVENT_STATUSES.has(event.status)) return 'event_voided';
-  if (event.status !== 'finished' || event.score === null || entry.score === null) return 'pending';
-  const full = event.score.home === entry.score.home && event.score.away === entry.score.away;
-  const half =
-    event.score.htHome === null ||
-    event.score.htAway === null ||
-    entry.score.htHome === null ||
-    entry.score.htAway === null ||
-    (event.score.htHome === entry.score.htHome && event.score.htAway === entry.score.htAway);
-  return full && half ? 'match' : 'mismatch';
-}
-
-const AGREED_OUTCOMES: ReadonlySet<ShadowOutcome> = new Set(['match', 'void']);
-const DISAGREED_OUTCOMES: ReadonlySet<ShadowOutcome> = new Set([
-  'mismatch',
-  'played',
-  'event_voided',
-]);
-
-/** The summary label of a decision: the rung, the action and the reason ('strict' for a D7 void). */
-const shadowLabel = (e: LadderShadowEntry): string =>
-  e.action === 'apply'
-    ? `${e.rung} apply`
-    : `${e.rung} void ${e.reason ?? '-'}${e.strict === true ? ' (strict)' : ''}`;
-
 const DEFAULT_SHADOW_DAYS = 28;
 
 /**
@@ -354,21 +224,7 @@ export async function reviewLadderShadow(args: string[], env: CliEnv): Promise<n
     competition: slugs.get(e.event.competitionId) ?? e.event.competitionId,
   }));
 
-  const groups = new Map<
-    string,
-    { decisions: number; agreed: number; disagreed: number; pending: number }
-  >();
-  for (const d of decisions) {
-    const g = groups.get(d.label) ?? { decisions: 0, agreed: 0, disagreed: 0, pending: 0 };
-    g.decisions += 1;
-    if (AGREED_OUTCOMES.has(d.outcome)) g.agreed += 1;
-    else if (DISAGREED_OUTCOMES.has(d.outcome)) g.disagreed += 1;
-    else g.pending += 1;
-    groups.set(d.label, g);
-  }
-  const summary = [...groups.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([label, g]) => ({ label, ...g }));
+  const summary = summariseShadow(decisions);
 
   const decidedScore = (e: LadderShadowEntry): string =>
     e.score === null ? '-' : scoreText(e.score);

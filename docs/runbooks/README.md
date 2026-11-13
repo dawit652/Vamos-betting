@@ -23,6 +23,11 @@ export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.p
 
 Related: [deployment](../deployment.md), [backups](../backups.md), [scraper operations](../scraper-operations.md).
 
+Alerts: with `OWNER_ALERT_PHONES` set, the owner's phone gets a short SMS (at most one per alarm and 30
+minutes) for a source broken or stale, the odds credits, the ladder shadow and the SMS rail alarms. It says
+what the system already did, not what to do; the runbook of the same alarm says what to check
+([`docs/scraper.md` 6.3a](../scraper.md)).
+
 Rules that hold in every runbook:
 
 - **Never edit the ledger.** `ledger_entries`, `ledger_transactions` and `audit_log` are append-only by

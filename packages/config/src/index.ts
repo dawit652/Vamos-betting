@@ -17,6 +17,7 @@ export {
   type ChannelsConfig,
   type CollectionAccount,
   type OperatingMode,
+  type OwnerAlertsConfig,
   type PaymentProvidersConfig,
   type ScraperConfig,
   type SmsRailConfig,

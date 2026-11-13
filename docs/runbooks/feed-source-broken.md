@@ -14,6 +14,9 @@ the rules are in [`scraper.md`](../scraper.md) (S1 to S3).
 - A plain failure (timeouts, 5xx, network errors) is `failed`. It does not show as `broken` or `blocked`: read
   **Failures in a row** on the same `/feed` row.
 
+With `OWNER_ALERT_PHONES` set, a source going `broken` (or `source_stale`) also texts the owner once when its
+item opens ([`docs/scraper.md` 6.3a](../scraper.md)); the text is the heads-up, the steps below are what to do.
+
 **Severity:** SEV3. A broken source stops new fixtures and results from that source; it moves no money by
 itself. Raise it to SEV2 only if a competition with open bets cannot get its results, because a result needs
 two independent upstreams (rule R2).

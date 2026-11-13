@@ -825,3 +825,47 @@ describe('the SMS deposit rail', () => {
     ).toMatch(/SMS_COLLECTION_ACCOUNTS\.0\.institution/);
   });
 });
+
+describe('owner alerts (plan task 1.11)', () => {
+  it('is off by default, with a 30 minute interval', () => {
+    expect(loadConfig({}).ownerAlerts).toEqual({ phones: [], minIntervalMinutes: 30 });
+    // A blank value (as in an env file) is "not set".
+    expect(loadConfig({ OWNER_ALERT_PHONES: ' , ' }).ownerAlerts.phones).toEqual([]);
+  });
+
+  it('reads the numbers and the interval, dropping blanks and duplicates', () => {
+    const config = loadConfig({
+      OWNER_ALERT_PHONES: ' +251911234567, +251922345678 ,,+251911234567 ',
+      OWNER_ALERT_MIN_INTERVAL_MINUTES: '60',
+    });
+    expect(config.ownerAlerts).toEqual({
+      phones: ['+251911234567', '+251922345678'],
+      minIntervalMinutes: 60,
+    });
+  });
+
+  it('refuses numbers that are not E.164 and intervals out of range', () => {
+    for (const [name, values] of [
+      [
+        'OWNER_ALERT_PHONES',
+        [
+          '0911234567',
+          '251911234567',
+          '+2519112',
+          '+0911234567',
+          '+251 911 234 567',
+          '+251911234567,0911234567',
+          '+251911234567x',
+          Array.from({ length: 11 }, (_, i) => `+25191123456${i % 10}${i}`).join(','),
+        ],
+      ],
+      ['OWNER_ALERT_MIN_INTERVAL_MINUTES', ['0', '-5', '1441', '1.5', 'soon', '']],
+    ] as const) {
+      for (const value of values) {
+        expect(problemsOf({ [name]: value }).join('\n'), `${name}=${value}`).toMatch(
+          new RegExp(name),
+        );
+      }
+    }
+  });
+});

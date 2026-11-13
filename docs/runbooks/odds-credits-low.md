@@ -21,6 +21,10 @@ competition back to `model` (step 5).
 | `unexpected_cost`  | A request cost more than the 2 credits expected (a book list over 10, or a changed API default)                                                                             | never: a person dismisses it |
 | `market_stale`     | A market-priced match within 24 h of kickoff kept prices the market no longer backs                                                                                         | fresh prices price it again  |
 
+The first four reasons also text the owner's phone when `OWNER_ALERT_PHONES` is set (once when the item
+opens, and again if `budget_low` becomes `budget_exhausted`); the text says what the guard already did, for
+example "odds reads are stopped until the 1st" ([`docs/scraper.md` 6.3a](../scraper.md)).
+
 ## 1. Look at the credits
 
 On `/feed`, read the panel: credits left of the quota, spent in the last 24 h, the mode, and per league the last

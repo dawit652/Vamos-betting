@@ -66,6 +66,9 @@ const csv = z.string().transform((value) =>
 
 const bool = z.stringbool();
 
+/** An E.164 number: a plus, then 8 to 15 digits, the first not 0. */
+const OWNER_ALERT_PHONE_RE = /^\+[1-9]\d{7,14}$/;
+
 /** Fastify `trustProxy`: false, or the addresses / CIDRs of the trusted proxies. */
 export type TrustProxySetting = false | string[];
 
@@ -286,6 +289,20 @@ const envSchema = z.object({
    */
   SCRAPER_FACTORY_MARKETS: z.enum(['off', 'on']).default('off'),
 
+  /**
+   * Plan task 1.11: the owner's phone numbers (E.164, comma separated, at most 10) that get a short
+   * SMS when an automatic safeguard acts (a source broken or stale, the credit budget, the ladder
+   * shadow, the SMS rail). Unset or empty (the default): no alert is raised or sent.
+   */
+  OWNER_ALERT_PHONES: csv
+    .refine((phones) => phones.every((phone) => OWNER_ALERT_PHONE_RE.test(phone)), {
+      message: 'must be comma-separated E.164 phone numbers (+251911234567)',
+    })
+    .refine((phones) => phones.length <= 10, { message: 'at most 10 numbers' })
+    .default([]),
+  /** The same owner alert (same key) is texted at most once per this many minutes. */
+  OWNER_ALERT_MIN_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
+
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
    * Public base URL of the API that payment providers call back (webhooks,
@@ -444,6 +461,8 @@ export interface AppConfig {
    * answers 404 and nothing else changes.
    */
   channels: ChannelsConfig;
+  /** OWNER_ALERT_*: short SMS alerts to the owner (plan task 1.11), off by default. */
+  ownerAlerts: OwnerAlertsConfig;
 }
 
 export interface ScraperConfig {
@@ -484,6 +503,14 @@ export function scraperUserAgent(scraper: Pick<ScraperConfig, 'userAgent' | 'con
   return scraper.contact === undefined
     ? scraper.userAgent
     : `${scraper.userAgent} (+${scraper.contact})`;
+}
+
+/** Alerts to the owner's phone (plan task 1.11). Off while `phones` is empty. */
+export interface OwnerAlertsConfig {
+  /** OWNER_ALERT_PHONES: E.164 numbers, no duplicates; empty (default) turns alerts off. */
+  phones: string[];
+  /** OWNER_ALERT_MIN_INTERVAL_MINUTES: the same alert key is sent at most once per interval. */
+  minIntervalMinutes: number;
 }
 
 export interface ChannelsConfig {
@@ -782,6 +809,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       factoryMarkets: e.SCRAPER_FACTORY_MARKETS === 'on',
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
+    ownerAlerts: {
+      phones: [...new Set(e.OWNER_ALERT_PHONES)],
+      minIntervalMinutes: e.OWNER_ALERT_MIN_INTERVAL_MINUTES,
+    },
     payments: {
       callbackBaseUrl: e.PAYMENT_CALLBACK_BASE_URL ?? e.PUBLIC_API_URL,
       sms: {

@@ -138,6 +138,7 @@ async function guardModes(
         sourceId: firstSource.id,
         runId: usage.latest?.runId ?? null,
         now,
+        alerts: ctx.config.ownerAlerts,
       };
       const projection = creditProjection(status, now);
       await ctx.db.transaction(async (tx) => {

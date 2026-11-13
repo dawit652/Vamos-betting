@@ -1,5 +1,6 @@
 import {
   closeReviewItemsBySubject,
+  enqueueOwnerAlert,
   listReviewItems,
   listSourceContentFacts,
   openReviewItem,
@@ -54,8 +55,8 @@ export async function flagStaleSources(ctx: ScraperContext): Promise<StaleSource
     if (snoozed.has(subjectKey)) continue;
     const hoursUnchanged = Math.floor((now.getTime() - fact.lastChangedAt.getTime()) / HOUR_MS);
     try {
-      const { created } = await ctx.db.transaction((tx) =>
-        openReviewItem(tx, {
+      const { created } = await ctx.db.transaction(async (tx) => {
+        const opened = await openReviewItem(tx, {
           kind: 'source_stale',
           subjectKey,
           severity: 'warning',
@@ -68,8 +69,23 @@ export async function flagStaleSources(ctx: ScraperContext): Promise<StaleSource
             dueMatches: fact.dueMatches,
           },
           now,
-        }),
-      );
+        });
+        // The owner is told once, when the item opens; a refresh is not news.
+        if (opened.created) {
+          await enqueueOwnerAlert(
+            tx,
+            ctx.config.ownerAlerts,
+            {
+              alarm: 'source_stale',
+              sourceId: fact.sourceId,
+              sourceName: fact.sourceName,
+              daysUnchanged: Math.floor(hoursUnchanged / 24),
+            },
+            now,
+          );
+        }
+        return opened;
+      });
       if (created) summary.opened += 1;
     } catch (error) {
       ctx.logger.error({ err: error, sourceId: fact.sourceId }, 'stale source item failed');

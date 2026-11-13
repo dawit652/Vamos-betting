@@ -1,3 +1,4 @@
+import type { OwnerAlertsConfig } from '@vamos/config';
 import type { Database } from '@vamos/db';
 import type { PaymentProviderRegistry, ReceiptVerifier } from '@vamos/payments';
 import type { Redis } from 'ioredis';
@@ -34,6 +35,11 @@ export interface TaskContext {
   receipts?: ReceiptVerifier;
   /** The SMS gateway for player notifications (SMS_PROVIDER). */
   sms: SmsSender;
+  /**
+   * Alerts to the owner's phone (OWNER_ALERT_*, plan task 1.11). Absent, or without a number, they
+   * are off: nothing is raised and the `owner.alert` handler does nothing.
+   */
+  ownerAlerts?: OwnerAlertsConfig;
   /** Play-money mode (OPERATING_MODE=demo): channel texts say DEMO. Default true. */
   demo?: boolean;
 }

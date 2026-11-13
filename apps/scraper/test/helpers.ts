@@ -80,6 +80,8 @@ export interface HarnessOptions {
   priceExpiryMinutes?: number;
   /** SCRAPER_FACTORY_MARKETS (plan task 2.3); default the config's own default (off). */
   factoryMarkets?: boolean;
+  /** OWNER_ALERT_PHONES (plan task 1.11), comma separated; default unset (alerts off). */
+  ownerAlertPhones?: string;
 }
 
 // --- documents -----------------------------------------------------------------
@@ -187,6 +189,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     ...(options.factoryMarkets === undefined
       ? {}
       : { SCRAPER_FACTORY_MARKETS: options.factoryMarkets ? 'on' : 'off' }),
+    ...(options.ownerAlertPhones === undefined
+      ? {}
+      : { OWNER_ALERT_PHONES: options.ownerAlertPhones }),
   });
 
   let clock = new Date(T0);

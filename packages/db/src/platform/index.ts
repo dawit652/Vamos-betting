@@ -10,6 +10,7 @@ export {
   type OutboxEventInput,
   type OutboxFailureOptions,
 } from './outbox';
+export { enqueueOwnerAlert, OWNER_ALERT, type OwnerAlertPayload } from './owner-alerts';
 export { writeAudit, type AuditEntry } from './audit';
 export { getSetting, setSetting } from './settings';
 export {

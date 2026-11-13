@@ -20,6 +20,7 @@ import {
   RECONCILIATION_REQUESTED,
   markOutboxFailed,
   markOutboxPublished,
+  OWNER_ALERT,
   WITHDRAWAL_APPROVED,
   WITHDRAWAL_CANCELLED,
   WITHDRAWAL_FAILED,
@@ -161,8 +162,22 @@ export interface LiveBetSmsJobData {
   refund?: string;
 }
 
+/**
+ * Data of an `sms` job for an alert to the owner (owner.alert, plan task 1.11): the text is final
+ * and goes to every OWNER_ALERT_PHONES number, once per key and interval.
+ */
+export interface OwnerAlertSmsJobData {
+  outboxId: string;
+  type: typeof OWNER_ALERT;
+  key: string;
+  message: string;
+  /** ISO time the alarm was raised; the deduplication window runs on it. */
+  raisedAt: string;
+}
+
 /** Data of an `sms` job. */
-export type SmsJobData = PaymentSmsJobData | ChannelReplySmsJobData | LiveBetSmsJobData;
+export type SmsJobData =
+  PaymentSmsJobData | ChannelReplySmsJobData | LiveBetSmsJobData | OwnerAlertSmsJobData;
 
 /**
  * Data of a `user-notify` job: push messages for one player, built from the
@@ -335,6 +350,25 @@ const channelReplyRoute: OutboxRoute = (row) => {
     to: payload.to,
     body: payload.body,
     template: payload.template,
+  };
+  return { queue: QUEUE_NAMES.sms, name: row.type, data };
+};
+
+const ownerAlertPayload = z.object({
+  key: nonEmpty.max(400),
+  message: nonEmpty.max(160),
+  raisedAt: nonEmpty,
+});
+
+/** An alert to the owner's phone: the `sms` consumer sends it (or does nothing with alerts off). */
+const ownerAlertRoute: OutboxRoute = (row) => {
+  const payload = ownerAlertPayload.parse(row.payload);
+  const data: OwnerAlertSmsJobData = {
+    outboxId: row.id.toString(),
+    type: OWNER_ALERT,
+    key: payload.key,
+    message: payload.message,
+    raisedAt: payload.raisedAt,
   };
   return { queue: QUEUE_NAMES.sms, name: row.type, data };
 };
@@ -584,6 +618,7 @@ export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = w
     [WITHDRAWAL_PAID]: [smsRoute, userNotifyRoute],
     [WITHDRAWAL_FAILED]: [smsRoute, userNotifyRoute],
     [CHANNEL_SMS_REPLY]: [channelReplyRoute],
+    [OWNER_ALERT]: [ownerAlertRoute],
     [RECONCILIATION_REQUESTED]: [reconciliationRoute],
   },
 );

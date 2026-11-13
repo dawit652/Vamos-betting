@@ -142,6 +142,7 @@ async function main(): Promise<void> {
           }
         : {}),
       sms,
+      ownerAlerts: config.ownerAlerts,
       demo: config.mode === 'demo',
     },
     {

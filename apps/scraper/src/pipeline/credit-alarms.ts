@@ -1,5 +1,13 @@
-import type { OutOfLineSelection } from '@vamos/core';
-import { closeReviewItemsBySubject, openReviewItem, type DbTransaction } from '@vamos/db';
+import type { OwnerAlertsConfig } from '@vamos/config';
+import type { OutOfLineSelection, OwnerAlertInput } from '@vamos/core';
+import {
+  closeReviewItemsBySubject,
+  enqueueOwnerAlert,
+  openReviewItem,
+  type DbTransaction,
+} from '@vamos/db';
+import { scrapeReviewItems } from '@vamos/db/schema';
+import { and, eq } from 'drizzle-orm';
 import type { CreditProjection, CreditStatus } from '@vamos/scraper';
 
 /**
@@ -15,6 +23,11 @@ import type { CreditProjection, CreditStatus } from '@vamos/scraper';
  * | unexpected_cost    | a request cost more than expected (G3)      | a person dismisses it       |
  * | market_stale       | a market-priced match within 24 h kept old prices | fresh prices arrive   |
  * | odds_out_of_line   | a selection is priced above the best book price (O7) | none is any more     |
+ *
+ * The first five also tell the owner (plan task 1.11): when `ref.alerts` has an owner number, the
+ * transaction that opens the item, or changes its reason (budget_low to budget_exhausted share one
+ * item), writes an `owner.alert` outbox row; a refresh that changes nothing does not. market_stale
+ * and odds_out_of_line are per match and do not.
  */
 
 export type CreditAlarmReason =
@@ -32,6 +45,8 @@ export interface AlarmRef {
   sourceId: string;
   runId: string;
   now: Date;
+  /** The owner's alert settings (config.ownerAlerts): without a number no alert is written. */
+  alerts?: Pick<OwnerAlertsConfig, 'phones'>;
 }
 
 export const creditAlarmSubject = (
@@ -46,6 +61,23 @@ export const OUT_OF_LINE_SUBJECT_PREFIX = 'odds_out_of_line|';
 export const outOfLineSubject = (eventId: string): string =>
   `${OUT_OF_LINE_SUBJECT_PREFIX}${eventId}`;
 
+/** The reason of the open source_broken item of `subjectKey`, or null when none is open. */
+async function openReason(tx: DbTransaction, subjectKey: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ payload: scrapeReviewItems.payload })
+    .from(scrapeReviewItems)
+    .where(
+      and(
+        eq(scrapeReviewItems.kind, 'source_broken'),
+        eq(scrapeReviewItems.subjectKey, subjectKey),
+        eq(scrapeReviewItems.status, 'open'),
+      ),
+    )
+    .limit(1);
+  const reason = (row?.payload as { reason?: unknown } | undefined)?.reason;
+  return typeof reason === 'string' ? reason : null;
+}
+
 async function raise(
   tx: DbTransaction,
   ref: AlarmRef,
@@ -54,8 +86,12 @@ async function raise(
   severity: 'info' | 'warning' | 'critical',
   title: string,
   extra: Record<string, unknown>,
+  alert?: OwnerAlertInput,
 ): Promise<void> {
-  await openReviewItem(tx, {
+  const owner = ref.alerts !== undefined && ref.alerts.phones.length > 0 ? ref.alerts : undefined;
+  const before =
+    owner !== undefined && alert !== undefined ? await openReason(tx, subjectKey) : null;
+  const { created } = await openReviewItem(tx, {
     kind: 'source_broken',
     subjectKey,
     severity,
@@ -72,6 +108,10 @@ async function raise(
     },
     now: ref.now,
   });
+  // Once per episode, and again when it gets worse: refreshing the open item every pass is not news.
+  if (owner !== undefined && alert !== undefined && (created || before !== reason)) {
+    await enqueueOwnerAlert(tx, owner, alert, ref.now);
+  }
 }
 
 /**
@@ -99,6 +139,7 @@ export async function syncBudgetAlarm(
       'warning',
       'Bookmaker odds credits are running low: reading less often',
       figures,
+      { alarm: 'budget_low', creditKey: ref.creditKey },
     );
     return;
   }
@@ -111,6 +152,7 @@ export async function syncBudgetAlarm(
       'critical',
       'Bookmaker odds credits are used up: no reads until the 1st',
       figures,
+      { alarm: 'budget_exhausted', creditKey: ref.creditKey },
     );
     return;
   }
@@ -154,6 +196,7 @@ export async function syncProjectionAlarm(
         daysUntilEmpty: days,
         daysLeftInMonth: oneDecimal(projection.daysLeftInMonth),
       },
+      { alarm: 'budget_projection', creditKey: ref.creditKey, daysUntilEmpty: days },
     );
     return;
   }
@@ -176,6 +219,7 @@ export async function raiseUnauthorized(tx: DbTransaction, ref: AlarmRef): Promi
     'critical',
     'The bookmaker odds API refused the key (HTTP 401): reads are stopped',
     {},
+    { alarm: 'unauthorized', creditKey: ref.creditKey },
   );
 }
 
@@ -206,6 +250,7 @@ export async function raiseUnexpectedCost(
     'warning',
     `A bookmaker odds request cost ${cost.cost} credits instead of ${cost.expected}`,
     cost,
+    { alarm: 'unexpected_cost', creditKey: ref.creditKey, ...cost },
   );
 }
 

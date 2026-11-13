@@ -46,6 +46,10 @@ Alarms are `error` log lines with an `alarm` field; wire the log-based alerts to
 | `sms_review_backlog`    | More than 10 SMS wait for a person, or the oldest has waited over 15 minutes                 | Work the [review queue](#the-review-queue)                                  |
 | `manual_payout_waiting` | An approved manual payout has waited more than 2 hours                                       | [Manual payouts](#manual-payouts)                                           |
 
+With `OWNER_ALERT_PHONES` set each alarm above also texts the owner once (at most one per alarm and
+`OWNER_ALERT_MIN_INTERVAL_MINUTES`, default 30) with what the rail already did, e.g. "It stays credited and is
+held for staff"; the alert is the heads-up, this runbook is what to do ([`docs/scraper.md` 6.3a](../scraper.md)).
+
 When the receipt page is slow or down a check is `indeterminate` and retried a few times before it is
 recorded as final; after repeated failures the breaker opens for a while and the health panel shows
 "Receipt page: open". Deposits keep being credited from the SMS; the audit catches up when the page is back.

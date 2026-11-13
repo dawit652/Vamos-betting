@@ -26,6 +26,7 @@ import { ratingsBackfill, ratingsList, ratingsSet } from './cli/ratings';
 import { sourcesBudget } from './cli/budget';
 import { sourcesCoverage } from './cli/coverage';
 import { reviewGaps } from './cli/gaps';
+import { reportWeekly } from './cli/report';
 import { reviewCounts, reviewLadderShadow, reviewResultsAudit } from './cli/review';
 import { sourcesList, sourcesTruthCheck, sourcesUpsert } from './cli/sources';
 
@@ -105,6 +106,11 @@ commands:
       mismatch, not resulted yet), a void decision against whether the match was played or ended
       void. Then a summary per rung and reason (decisions, agreed, disagreed, pending). Nothing is
       applied or voided from the ladder. Default --since: 28 days ago. Read-only.
+  report weekly [--week YYYY-Www]
+      The weekly report (plan task 1.3): the measures of section 8 of the Hulusport parity plan for
+      one ISO week (default: the last complete week) with their targets and a pass, fail or unknown
+      mark; a measure the data cannot answer yet is unknown, with the reason. The scraper writes the
+      same report to <archive>/reports/weekly-<week>.md and .json once a week by itself. Read-only.
   eval scorecard [--days N | --from <iso> --to <iso>]
       Prices at betting close against the results (last 7 days by default, N from 1 to 90):
       sample, 1X2 and over/under scores of ours, the consensus and Pinnacle, calibration, overround,
@@ -138,12 +144,13 @@ const COMMANDS: Record<string, Command> = {
   'review gaps': reviewGaps,
   'review results-audit': reviewResultsAudit,
   'review ladder-shadow': reviewLadderShadow,
+  'report weekly': reportWeekly,
   'eval scorecard': evalScorecard,
   'eval market': evalMarket,
 };
 
 /** Words that take a sub-command; the rest are commands on their own. */
-const GROUPS = new Set(['sources', 'aliases', 'ratings', 'review', 'eval']);
+const GROUPS = new Set(['sources', 'aliases', 'ratings', 'review', 'eval', 'report']);
 
 /** Runs one command line and returns the exit code; never throws and never exits. */
 export async function runCli(argv: readonly string[], env: CliEnv): Promise<number> {

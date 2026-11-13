@@ -6,6 +6,7 @@ import {
   linkMarketOddsToEvents,
   listUnresolvedMarketOddsNames,
   loadAliasInputs,
+  enqueueOwnerAlert,
   openReviewItem,
   recentAcceptedCounts,
   recordRaw,
@@ -408,7 +409,7 @@ async function execute(
   if (!built.ok) {
     const message = `invalid configuration: ${built.errors.join('; ')}`;
     await ctx.db.transaction(async (tx) => {
-      await openReviewItem(tx, {
+      const opened = await openReviewItem(tx, {
         kind: 'source_broken',
         subjectKey,
         severity: 'warning',
@@ -425,6 +426,19 @@ async function execute(
         },
         now: ctx.clock(),
       });
+      if (opened.created) {
+        await enqueueOwnerAlert(
+          tx,
+          ctx.config.ownerAlerts,
+          {
+            alarm: 'source_broken',
+            sourceId: source.id,
+            sourceName: source.name,
+            reason: 'invalid_config',
+          },
+          ctx.clock(),
+        );
+      }
       await finishRun(tx, run.id, {
         status: 'failed',
         error: message,
@@ -544,6 +558,7 @@ async function execute(
               sourceId: source.id,
               runId: run.id,
               now: ctx.clock(),
+              alerts: ctx.config.ownerAlerts,
             }),
           );
         }
@@ -571,7 +586,13 @@ async function execute(
               await ctx.db.transaction((tx) =>
                 raiseUnexpectedCost(
                   tx,
-                  { creditKey, sourceId: source.id, runId: run.id, now: ctx.clock() },
+                  {
+                    creditKey,
+                    sourceId: source.id,
+                    runId: run.id,
+                    now: ctx.clock(),
+                    alerts: ctx.config.ownerAlerts,
+                  },
                   cost,
                 ),
               );
@@ -618,7 +639,7 @@ async function execute(
         });
         await ctx.db.transaction(async (tx) => {
           const review = sourceBrokenReview(source.id, result.url, shape, run.id);
-          await openReviewItem(tx, {
+          const opened = await openReviewItem(tx, {
             kind: review.kind,
             subjectKey: review.subjectKey,
             severity: review.severity,
@@ -626,6 +647,20 @@ async function execute(
             payload: review.payload,
             now: ctx.clock(),
           });
+          // Once per episode: the open item refreshed by the next broken page is not news.
+          if (opened.created) {
+            await enqueueOwnerAlert(
+              tx,
+              ctx.config.ownerAlerts,
+              {
+                alarm: 'source_broken',
+                sourceId: source.id,
+                sourceName: source.name,
+                reason: 'shape',
+              },
+              ctx.clock(),
+            );
+          }
         });
         continue;
       }
