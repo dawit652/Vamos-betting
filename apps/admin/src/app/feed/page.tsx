@@ -23,6 +23,7 @@ import {
   creditModeTone,
   creditsText,
   flagPermission,
+  POLICY_FLAG_HINTS,
   POLICY_FLAGS,
   policyFlag,
   PRICING_SOURCES,
@@ -319,7 +320,12 @@ export default function FeedOverviewPage() {
               <tr>
                 <th>Competition</th>
                 {POLICY_FLAGS.map(([flag, label]) => (
-                  <th key={flag}>{label}</th>
+                  <th key={flag}>
+                    {label}
+                    {POLICY_FLAG_HINTS[flag] !== undefined && (
+                      <div className="muted small">{POLICY_FLAG_HINTS[flag]}</div>
+                    )}
+                  </th>
                 ))}
                 <th>Prices from</th>
                 <th>Changed</th>

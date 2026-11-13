@@ -4,11 +4,13 @@ import { quoteBet } from './betslip';
 import { birr } from './money';
 import {
   DEFAULT_RISK_LIMITS,
+  FACTORY_SELECTION_LIABILITY_SHARE_BPS,
   hasRiskLimits,
   largestStakeWithin,
   liabilityBreach,
   type LiabilityExposure,
   type RiskLimits,
+  selectionLiabilityCap,
 } from './risk';
 import { DEFAULT_BET_RULES, DEFAULT_MULTI_BONUS, DEFAULT_TAX } from './rules';
 
@@ -297,6 +299,78 @@ describe('largestStakeWithin', () => {
         },
       ),
       { numRuns: 60 },
+    );
+  });
+});
+
+describe('factory selections (plan task 2.5: shown with low limits)', () => {
+  const limits: RiskLimits = { maxSelectionLiability: birr(1_000), maxEventLiability: null };
+
+  it('caps a factory selection at a quarter of the selection cap, rounded down', () => {
+    expect(FACTORY_SELECTION_LIABILITY_SHARE_BPS).toBe(2_500);
+    expect(selectionLiabilityCap(limits, false)).toBe(birr(1_000));
+    expect(selectionLiabilityCap(limits, true)).toBe(birr(250));
+    expect(
+      selectionLiabilityCap({ maxSelectionLiability: 3n, maxEventLiability: null }, true),
+    ).toBe(0n);
+    expect(selectionLiabilityCap(DEFAULT_RISK_LIMITS, true)).toBeNull();
+  });
+
+  it('applies the lower cap only to the selections named as factory ones', () => {
+    const selections = [exposure('legacy', birr(200)), exposure('factory', birr(200))];
+    expect(
+      liabilityBreach({
+        payout: birr(100),
+        selections,
+        events: [],
+        limits,
+        factorySelections: new Set(),
+      }),
+    ).toBeNull();
+    expect(
+      liabilityBreach({
+        payout: birr(100),
+        selections,
+        events: [],
+        limits,
+        factorySelections: new Set(['factory']),
+      }),
+    ).toEqual({
+      scope: 'selection',
+      id: 'factory',
+      cap: birr(250),
+      current: birr(200),
+      headroom: birr(50),
+    });
+  });
+
+  it('is never looser than the plain cap', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 0n, max: birr(1_000_000) }),
+        fc.bigInt({ min: 0n, max: birr(1_000_000) }),
+        fc.bigInt({ min: 0n, max: birr(1_000_000) }),
+        (cap, current, payout) => {
+          const caps: RiskLimits = { maxSelectionLiability: cap, maxEventLiability: null };
+          const plain = liabilityBreach({
+            payout,
+            selections: [exposure('s', current)],
+            events: [],
+            limits: caps,
+          });
+          const factory = liabilityBreach({
+            payout,
+            selections: [exposure('s', current)],
+            events: [],
+            limits: caps,
+            factorySelections: new Set(['s']),
+          });
+          if (plain !== null) expect(factory).not.toBeNull();
+          if (factory !== null && plain !== null)
+            expect(factory.headroom <= plain.headroom).toBe(true);
+        },
+      ),
+      { numRuns: 500 },
     );
   });
 });

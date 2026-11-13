@@ -1,0 +1,1 @@
+ALTER TABLE "scrape_competition_policy" ADD COLUMN "factory_markets" boolean DEFAULT false NOT NULL;

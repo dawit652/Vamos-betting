@@ -130,6 +130,7 @@ export async function promoteFixtures(
           autoOpen: row.autoOpen,
           autoResults: row.autoResults,
           extraTime: row.extraTime,
+          factoryMarkets: row.factoryMarkets,
         },
       ]),
   );

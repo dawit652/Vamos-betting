@@ -347,4 +347,6 @@ export interface CompetitionPolicy {
    * settling, so such a competition never auto-applies: a person confirms.
    */
   extraTime: boolean;
+  /** Price the market factory's markets here too (with the global SCRAPER_FACTORY_MARKETS switch on). */
+  factoryMarkets: boolean;
 }

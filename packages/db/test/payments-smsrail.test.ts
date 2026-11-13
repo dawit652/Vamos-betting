@@ -471,7 +471,10 @@ describe('the player check', () => {
     const victimPayment = telebirrCredit(birr(111) + 3n, { phone: null });
     expect((await gateway(victimPayment.text)).outcome).toBe('unmatched');
     const thief = await createPlayer(db);
-    await openDeposit(thief.userId, birr(111));
+    // The offset is pinned: a random one is 3 santim once in 50 runs, and then the deposit (opened
+    // before the SMS's time) has the payment's exact amount, which by the rail's own rule is a
+    // genuine match. This test is about a deposit of another amount.
+    await openDeposit(thief.userId, birr(111), { offset: 7 });
     const result = await db.transaction((tx) =>
       checkSmsDepositForPlayer(tx, {
         userId: thief.userId,

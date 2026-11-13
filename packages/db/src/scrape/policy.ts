@@ -18,6 +18,8 @@ export interface CompetitionPolicy {
   extraTime: boolean;
   /** Where prices come from: the team-rating model (default) or a licensed bookmaker-odds feed first (rule O5). */
   pricingSource: ScrapePricingSource;
+  /** Price the market factory's markets here (also needs the global SCRAPER_FACTORY_MARKETS switch). */
+  factoryMarkets: boolean;
 }
 
 export type CompetitionPolicyFlags = Omit<CompetitionPolicy, 'competitionId'>;
@@ -38,6 +40,7 @@ const OFF: CompetitionPolicyFlags = {
   autoResults: false,
   extraTime: false,
   pricingSource: 'model',
+  factoryMarkets: false,
 };
 
 /** The stored text as a pricing source; anything but 'market' is the model (fail closed to the default). */
@@ -57,6 +60,7 @@ export async function getCompetitionPolicy(
       autoResults: scrapeCompetitionPolicy.autoResults,
       extraTime: scrapeCompetitionPolicy.extraTime,
       pricingSource: scrapeCompetitionPolicy.pricingSource,
+      factoryMarkets: scrapeCompetitionPolicy.factoryMarkets,
     })
     .from(scrapeCompetitionPolicy)
     .where(eq(scrapeCompetitionPolicy.competitionId, competitionId));
@@ -94,6 +98,7 @@ export async function listCompetitionPolicies(
     autoResults: row.policy?.autoResults ?? false,
     extraTime: row.policy?.extraTime ?? false,
     pricingSource: pricingSourceOf(row.policy?.pricingSource),
+    factoryMarkets: row.policy?.factoryMarkets ?? false,
     updatedAt: row.policy?.updatedAt ?? null,
     updatedBy: row.policy?.updatedBy ?? null,
   }));
@@ -131,6 +136,7 @@ export async function setCompetitionPolicy(
     autoResults: current!.autoResults,
     extraTime: current!.extraTime,
     pricingSource: pricingSourceOf(current!.pricingSource),
+    factoryMarkets: current!.factoryMarkets,
   };
   const after: CompetitionPolicyFlags = {
     enabled: patch.enabled ?? before.enabled,
@@ -138,6 +144,7 @@ export async function setCompetitionPolicy(
     autoResults: patch.autoResults ?? before.autoResults,
     extraTime: patch.extraTime ?? before.extraTime,
     pricingSource: patch.pricingSource ?? before.pricingSource,
+    factoryMarkets: patch.factoryMarkets ?? before.factoryMarkets,
   };
   if (JSON.stringify(before) !== JSON.stringify(after)) {
     await tx

@@ -81,6 +81,7 @@ export interface RepriceSummary {
 interface PricingPolicy {
   enabled: boolean;
   pricingSource: ScrapePricingSource;
+  factoryMarkets: boolean;
 }
 
 type Outcome =
@@ -162,7 +163,11 @@ export async function repriceScheduledEvents(ctx: ScraperContext): Promise<Repri
       .filter((row) => row.configured)
       .map((row) => [
         row.competitionId,
-        { enabled: row.enabled, pricingSource: row.pricingSource },
+        {
+          enabled: row.enabled,
+          pricingSource: row.pricingSource,
+          factoryMarkets: row.factoryMarkets,
+        },
       ]),
   );
   if (policyOf.size === 0) return summary;
@@ -331,8 +336,9 @@ const pricingInput = (
   now,
   halfTimeMarkets,
   capAtBestPrice: ctx.config.scraper.capAtBestPrice,
-  // Plan task 2.3: the factory's markets on market-priced events (their key says so).
-  factoryMarkets: ctx.config.scraper.factoryMarkets,
+  // Plan task 2.3: the factory's markets on market-priced events (their key says so): the global
+  // switch and the competition's own flag.
+  factoryMarkets: ctx.config.scraper.factoryMarkets && policy.factoryMarkets,
 });
 
 /**

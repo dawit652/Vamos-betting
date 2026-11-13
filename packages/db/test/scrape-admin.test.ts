@@ -133,6 +133,7 @@ describe('competition policy', () => {
       autoResults: false,
       extraTime: false,
       pricingSource: 'model',
+      factoryMarkets: false,
     });
     const on = await tx((t) =>
       setCompetitionPolicy(t, ctx.competitionId, { enabled: true }, STAFF),
@@ -189,6 +190,39 @@ describe('competition policy', () => {
         [other],
       ),
     ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('factory markets: off by default, changed and audited, other flags keep it', async () => {
+    const db = ctx.handle.db;
+    const other = [...ctx.ids.competitions.values()].find((id) => id !== ctx.competitionId)!;
+    const before0 = (await audits('scrape.policy.updated', other)).length;
+    expect(await getCompetitionPolicy(db, other)).toMatchObject({ factoryMarkets: false });
+    const on = await tx((t) => setCompetitionPolicy(t, other, { factoryMarkets: true }, STAFF));
+    expect(on).toMatchObject({ factoryMarkets: true, enabled: false });
+    await tx((t) => setCompetitionPolicy(t, other, { autoOpen: true }, STAFF));
+    expect(await getCompetitionPolicy(db, other)).toMatchObject({
+      factoryMarkets: true,
+      autoOpen: true,
+    });
+    expect(
+      (await listCompetitionPolicies(db, { sportId: 'football' })).find(
+        (r) => r.competitionId === other,
+      ),
+    ).toMatchObject({ factoryMarkets: true, configured: true });
+    // No change writes nothing.
+    await tx((t) => setCompetitionPolicy(t, other, { factoryMarkets: true }, STAFF));
+    await tx((t) => setCompetitionPolicy(t, other, { factoryMarkets: false }, STAFF));
+    expect(await getCompetitionPolicy(db, other)).toMatchObject({ factoryMarkets: false });
+    const logged = (await audits('scrape.policy.updated', other)).slice(before0);
+    expect(
+      logged.map(
+        (a) => (a.metadata as { after: { factoryMarkets: boolean } }).after.factoryMarkets,
+      ),
+    ).toEqual([true, false]);
+    expect(logged[0]?.metadata).toMatchObject({
+      before: { factoryMarkets: false },
+      after: { factoryMarkets: true },
+    });
   });
 
   it('lists every competition with slug and name; unconfigured ones are off', async () => {

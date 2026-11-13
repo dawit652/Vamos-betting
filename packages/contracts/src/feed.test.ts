@@ -313,6 +313,8 @@ describe('feed requests', () => {
     expect(permission({ extraTime: false })).toBe('settings.edit');
     expect(permission({ extraTime: true })).toBe('settings.edit');
     // The market feed is switched on with settings access; back to the model is a safety action.
+    expect(permission({ factoryMarkets: true })).toBe('settings.edit');
+    expect(permission({ factoryMarkets: false })).toBe('trading.status');
     expect(permission({ pricingSource: 'market' })).toBe('settings.edit');
     expect(permission({ pricingSource: 'model' })).toBe('trading.status');
     expect(permission({ enabled: false, pricingSource: 'model' })).toBe('trading.status');
@@ -412,6 +414,7 @@ describe('feed views', () => {
         autoResults: false,
         extraTime: false,
         pricingSource: 'model',
+        factoryMarkets: false,
         updatedAt: null,
         updatedBy: null,
       }).success,

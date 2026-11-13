@@ -63,6 +63,8 @@ describe('feed helpers', () => {
     expect(flagPermission('enabled', false)).toBe('trading.status');
     expect(flagPermission('autoOpen', false)).toBe('trading.status');
     expect(flagPermission('autoResults', false)).toBe('trading.status');
+    expect(flagPermission('factoryMarkets', false)).toBe('trading.status');
+    expect(flagPermission('factoryMarkets', true)).toBe('settings.edit');
     expect(flagPermission('enabled', true)).toBe('settings.edit');
     expect(flagPermission('extraTime', false)).toBe('settings.edit');
     expect(flagPermission('extraTime', true)).toBe('settings.edit');

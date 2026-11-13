@@ -434,3 +434,35 @@ describe('price expiry on factory markets', () => {
     expect(ok.bet.status).toBe('open');
   });
 });
+
+describe('lower liability cap on factory selections (plan task 2.5)', () => {
+  it('refuses a factory single past a quarter of the selection cap, offering the stake that fits', async () => {
+    const event = await createFactoryEvent();
+    const legacy = await createEvent(handle.db, ids);
+    const capped: GameSettings = {
+      ...settings,
+      riskLimits: { maxSelectionLiability: birr(1_000), maxEventLiability: null },
+    };
+    const userId = await player();
+    // At odds ODDS a stake of 120 ETB pays 300 ETB: over a factory cap of 250, under the plain 1,000.
+    const stake = birr(120);
+    const error = await domainError(
+      place(handle.db, userId, {
+        stake,
+        legs: [{ selectionId: pick(event, 'htft', '1/1'), oddsMilli: ODDS }],
+        settings: capped,
+      }),
+    );
+    expect(error).toMatchObject({ status: 422, code: 'liability_limit' });
+    const maxStake = BigInt((error.details as { maxStake: string }).maxStake);
+    expect((maxStake * BigInt(ODDS)) / 1000n <= birr(250)).toBe(true);
+    expect(maxStake > 0n).toBe(true);
+    // A selection of today's markets takes the same stake (its cap is the plain one).
+    const placed = await place(handle.db, userId, {
+      stake,
+      legs: [{ selectionId: legacy.home, oddsMilli: 2000 }],
+      settings: capped,
+    });
+    expect(placed.bet.status).toBe('open');
+  });
+});

@@ -97,10 +97,10 @@ export function decisionPermission(
 
 /**
  * The permission a competition flag change needs: turning `enabled`, `autoOpen` or
- * `autoResults` off needs `trading.status`; anything else needs `settings.edit`.
+ * `autoResults` or `factoryMarkets` off needs `trading.status`; anything else needs `settings.edit`.
  */
 export function flagPermission(
-  flag: 'enabled' | 'autoOpen' | 'autoResults' | 'extraTime',
+  flag: 'enabled' | 'autoOpen' | 'autoResults' | 'extraTime' | 'factoryMarkets',
   next: boolean,
 ): 'trading.status' | 'settings.edit' {
   return flag !== 'extraTime' && !next ? 'trading.status' : 'settings.edit';
@@ -126,7 +126,13 @@ export const POLICY_FLAGS = [
   ['autoOpen', 'Auto open'],
   ['autoResults', 'Auto results'],
   ['extraTime', 'Extra time'],
+  ['factoryMarkets', 'Market factory markets'],
 ] as const;
+
+/** Hints shown under a flag's column heading. */
+export const POLICY_FLAG_HINTS: Partial<Record<(typeof POLICY_FLAGS)[number][0], string>> = {
+  factoryMarkets: 'Also needs SCRAPER_FACTORY_MARKETS=on',
+};
 
 export function policyFlag(
   policy: CompetitionPolicyView,

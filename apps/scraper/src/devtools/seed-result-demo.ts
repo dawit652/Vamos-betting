@@ -347,6 +347,7 @@ export async function seedResultDemo(
         autoOpen: true,
         autoResults: false,
         extraTime: false,
+        factoryMarkets: false,
       },
       now: listedAt,
       calibrated: pricing.calibrated,

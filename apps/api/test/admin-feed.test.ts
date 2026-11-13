@@ -1253,6 +1253,7 @@ describe('POST /admin/feed/review/:id/resolve', () => {
         autoOpen: false,
         autoResults: false,
         extraTime: false,
+        factoryMarkets: false,
       },
       now: ctx.clock.now,
       calibrated: true,
@@ -1880,6 +1881,7 @@ describe('competition policy', () => {
       autoResults: false,
       extraTime: false,
       pricingSource: 'model',
+      factoryMarkets: false,
       updatedAt: null,
       updatedBy: null,
     });
@@ -1940,6 +1942,28 @@ describe('competition policy', () => {
     expect((await put(ids.cup, { enabled: 'on' }, 'admin')).statusCode).toBe(400);
     // Nothing was written for the competition.
     expect(await auditActions('scrape.policy.updated', ids.cup)).toHaveLength(0);
+  });
+
+  it('switches factoryMarkets: audited, settings.edit to turn on, a trader may turn it off', async () => {
+    const on = await put(ids.cup, { factoryMarkets: true }, 'admin');
+    expect(on.statusCode, on.body).toBe(200);
+    expect(UpdateCompetitionPolicyResponse.parse(on.json()).competition).toMatchObject({
+      factoryMarkets: true,
+      pricingSource: 'model',
+    });
+    const audit = await auditActions('scrape.policy.updated', ids.cup);
+    expect(audit.at(-1)!.metadata).toMatchObject({
+      before: { factoryMarkets: false },
+      after: { factoryMarkets: true },
+    });
+    const refused = await put(ids.cup, { factoryMarkets: true }, 'trader');
+    expect(refused.statusCode).toBe(403);
+    expect((await put(ids.cup, { factoryMarkets: 'yes' }, 'admin')).statusCode).toBe(400);
+    const off = await put(ids.cup, { factoryMarkets: false }, 'trader');
+    expect(off.statusCode, off.body).toBe(200);
+    expect(UpdateCompetitionPolicyResponse.parse(off.json()).competition.factoryMarkets).toBe(
+      false,
+    );
   });
 
   it('switches the pricing source: settings.edit to market, a trader may only go back to the model', async () => {

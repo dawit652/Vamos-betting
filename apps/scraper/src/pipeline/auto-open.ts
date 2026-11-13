@@ -305,7 +305,7 @@ async function openOne(
         // O7: the stamp of capped market prices carries the cap (priceEvent), so ask the same.
         capAtBestPrice: ctx.config.scraper.capAtBestPrice,
         // And it carries the factory's markets (plan task 2.3), so ask the same again.
-        factoryMarkets: ctx.config.scraper.factoryMarkets,
+        factoryMarkets: ctx.config.scraper.factoryMarkets && policy.factoryMarkets,
       });
       if (!backed) return null;
       calibration = 'market';

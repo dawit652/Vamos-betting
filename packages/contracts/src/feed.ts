@@ -295,6 +295,8 @@ export const CompetitionPolicyView = z.object({
    * bookmaker-odds feed first, the model as fallback).
    */
   pricingSource: FeedPricingSourceSchema,
+  /** The market factory's markets are priced here (also needs SCRAPER_FACTORY_MARKETS=on). */
+  factoryMarkets: z.boolean(),
   /** Null while the competition has no policy row yet (everything off). */
   updatedAt: IsoDateTime.nullable(),
   updatedBy: z.string().nullable(),
@@ -304,9 +306,16 @@ export type CompetitionPolicyView = z.infer<typeof CompetitionPolicyView>;
 export const FeedCompetitionsResponse = z.object({ items: z.array(CompetitionPolicyView) });
 export type FeedCompetitionsResponse = z.infer<typeof FeedCompetitionsResponse>;
 
-const POLICY_FLAGS = ['enabled', 'autoOpen', 'autoResults', 'extraTime', 'pricingSource'] as const;
+const POLICY_FLAGS = [
+  'enabled',
+  'autoOpen',
+  'autoResults',
+  'extraTime',
+  'pricingSource',
+  'factoryMarkets',
+] as const;
 /** The flags whose switching off is a safety action (it only makes the scraper do less). */
-const POLICY_SAFETY_FLAGS = ['enabled', 'autoOpen', 'autoResults'] as const;
+const POLICY_SAFETY_FLAGS = ['enabled', 'autoOpen', 'autoResults', 'factoryMarkets'] as const;
 
 /** PUT /admin/feed/competitions/:id: the flags to change; at least one, no others (audited). */
 export const UpdateCompetitionPolicyRequest = z
@@ -316,6 +325,7 @@ export const UpdateCompetitionPolicyRequest = z
     autoResults: z.boolean().optional(),
     extraTime: z.boolean().optional(),
     pricingSource: FeedPricingSourceSchema.optional(),
+    factoryMarkets: z.boolean().optional(),
   })
   .refine((request) => POLICY_FLAGS.some((flag) => request[flag] !== undefined), {
     message: 'at least one flag must be given',
@@ -327,7 +337,7 @@ export type UpdateCompetitionPolicyResponse = z.infer<typeof UpdateCompetitionPo
 
 /**
  * The permission a policy change needs: `trading.status` when it only turns
- * `enabled`, `autoOpen` or `autoResults` off, or sets `pricingSource` back to
+ * `enabled`, `autoOpen`, `autoResults` or `factoryMarkets` off, or sets `pricingSource` back to
  * 'model' (traders' safety actions: the scraper does less, or falls back to the
  * model), `settings.edit` for anything else (turning something on, `extraTime`,
  * or switching to 'market').

@@ -6,6 +6,7 @@ import {
   formatBirr,
   hasRiskLimits,
   largestStakeWithin,
+  isFactoryOnlyMarketType,
   liabilityBreach,
   quoteBet,
   toWire,
@@ -309,6 +310,12 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
     stake,
     quote,
     settings,
+    // Plan task 2.5: the market factory's selections start at a lower liability cap.
+    factorySelections: new Set(
+      resolved
+        .filter(({ snapshot }) => isFactoryOnlyMarketType(snapshot.marketType))
+        .map(({ snapshot }) => snapshot.selectionId),
+    ),
   });
 
   const betId = randomUUID();
@@ -443,9 +450,11 @@ async function assertWithinRiskLimits(
     stake: bigint;
     quote: BetQuote;
     settings: Pick<GameSettingsForBets, 'betRules' | 'multiBonus' | 'tax' | 'riskLimits'>;
+    /** Selections of factory markets, capped lower (selectionLiabilityCap). */
+    factorySelections: ReadonlySet<string>;
   },
 ): Promise<void> {
-  const { legs, stake, quote, settings } = input;
+  const { legs, stake, quote, settings, factorySelections } = input;
   const limits = settings.riskLimits;
   if (!hasRiskLimits(limits)) return;
   const eventIds = legs.map((leg) => leg.eventId);
@@ -454,7 +463,12 @@ async function assertWithinRiskLimits(
     selectionIds: legs.map((leg) => leg.selectionId),
     eventIds,
   });
-  const breach = liabilityBreach({ payout: quote.grossPayout, ...open, limits });
+  const breach = liabilityBreach({
+    payout: quote.grossPayout,
+    ...open,
+    limits,
+    factorySelections,
+  });
   if (breach === null) return;
   const { betRules, multiBonus, tax } = settings;
   const maxStake = largestStakeWithin({

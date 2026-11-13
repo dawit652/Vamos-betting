@@ -114,6 +114,11 @@ export const scrapeCompetitionPolicy = pgTable(
     extraTime: boolean('extra_time').notNull().default(false),
     /** 'model' (team ratings, default) or 'market' (licensed bookmaker odds first, model as fallback). */
     pricingSource: text('pricing_source').notNull().default('model'),
+    /**
+     * Plan task 2.3 (e): market-priced events of this competition also get the market factory's
+     * markets, when the global switch SCRAPER_FACTORY_MARKETS is on too. Default off.
+     */
+    factoryMarkets: boolean('factory_markets').notNull().default(false),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     updatedBy: text('updated_by'),
   },

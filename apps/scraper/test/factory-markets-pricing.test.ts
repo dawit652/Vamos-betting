@@ -57,6 +57,8 @@ const withFlag = (on: boolean): ScraperContext => ({
 async function marketPricedEvent(
   options: HarnessOptions = {},
   setup?: () => Promise<void>,
+  /** The competition's own factoryMarkets flag (task 2.3 (e)). */
+  competitionFlag = true,
 ): Promise<string> {
   h = await createHarness({ calibrated: true, ...options });
   await setup?.();
@@ -70,7 +72,12 @@ async function marketPricedEvent(
   );
   const eventId = event!.id;
   await h.ctx.db.transaction((tx) =>
-    setCompetitionPolicy(tx, h.premier, { pricingSource: 'market' }, actor),
+    setCompetitionPolicy(
+      tx,
+      h.premier,
+      { pricingSource: 'market', factoryMarkets: competitionFlag },
+      actor,
+    ),
   );
   await h.ctx.db.transaction(async (tx) => {
     await upsertSource(
@@ -186,6 +193,32 @@ describe('factory markets on market-priced events', () => {
       const key = await stampKey(eventId);
       expect(key.startsWith('mkt1|')).toBe(true);
       expect(key).not.toContain('|fm1');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'both are needed: global on with the competition flag off, or global off with the flag on, prices no factory market',
+    async () => {
+      // Global on, competition flag off.
+      let eventId = await marketPricedEvent({ factoryMarkets: true }, undefined, false);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ events: 1, failed: 0 });
+      expect((await storedMarkets(eventId)).some((m) => factoryKeys.has(m.key))).toBe(false);
+      expect(await stampKey(eventId)).not.toContain('|fm1');
+      // The flag switched on prices them.
+      await h.ctx.db.transaction((tx) =>
+        setCompetitionPolicy(tx, h.premier, { factoryMarkets: true }, actor),
+      );
+      await repriceScheduledEvents(h.ctx);
+      expect((await storedMarkets(eventId)).some((m) => factoryKeys.has(m.key))).toBe(true);
+      expect(await stampKey(eventId)).toMatch(/\|fm1$/);
+      await h.close();
+
+      // Global off, competition flag on.
+      eventId = await marketPricedEvent({}, undefined, true);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ events: 1, failed: 0 });
+      expect((await storedMarkets(eventId)).some((m) => factoryKeys.has(m.key))).toBe(false);
+      expect(await stampKey(eventId)).not.toContain('|fm1');
     },
     TEST_TIMEOUT,
   );

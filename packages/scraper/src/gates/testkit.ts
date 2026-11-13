@@ -56,6 +56,7 @@ export function makePolicy(over: Partial<CompetitionPolicy> = {}): CompetitionPo
     autoOpen: false,
     autoResults: true,
     extraTime: false,
+    factoryMarkets: false,
     ...over,
   };
 }

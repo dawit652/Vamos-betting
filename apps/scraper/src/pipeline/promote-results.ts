@@ -163,6 +163,7 @@ export async function promoteResults(
         autoOpen: row.autoOpen,
         autoResults: row.autoResults,
         extraTime: row.extraTime,
+        factoryMarkets: row.factoryMarkets,
       },
     ]),
   );
