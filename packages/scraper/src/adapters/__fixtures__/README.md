@@ -26,3 +26,12 @@
   2026-11-07T10:00:00Z in the tests). Two upcoming matches, one already started, one beyond the 15-day horizon,
   one of another sport key and one with an unreadable `commence_time`. Replace with a real response (key removed)
   when one has been captured with `dry-fetch`.
+
+## API-Football, real (13 Nov 2026)
+
+`apifootball-fixtures-bydate.real.json` (one fixture per status from a real worldwide by-date
+answer, envelope kept), `apifootball-events-shootout.real.json` (Oakleigh Cannons v Marconi
+Stallions, decided on penalties: shoot-out kicks are "Goal" events at elapsed 120 with the comment
+"Penalty Shootout") and `apifootball-events-owngoal.real.json` (Fenerbahçe v Lille: an own goal is
+filed under the team it counts for). Trimmed from real responses read with the Pro plan for plan
+checks 0.4 and 0.8; the synthetic file stays for the edge cases real days rarely show.

@@ -516,3 +516,62 @@ describe('goalsAddUp', () => {
     ).toBe(true);
   });
 });
+
+/**
+ * REAL golden files (13 Nov 2026, API-Football Pro, trimmed): one by-date fixture per status, the
+ * events of a match decided on penalties (Oakleigh Cannons v Marconi Stallions, 2-2, 5-6 on
+ * penalties) and of a match with an own goal (Fenerbahçe v Lille, AET: 90 minutes 1-0, extra time
+ * 0-1). They replace the guesses the synthetic file was written from (plan checks 0.4 and 0.8).
+ */
+describe('real API-Football responses', () => {
+  const real = (name: string) =>
+    readFileSync(new URL(`./__fixtures__/${name}`, import.meta.url), 'utf8');
+
+  it('parses a real by-date day: every status maps, nothing is dropped, only FT settles', () => {
+    const outcome = parse(
+      real('apifootball-fixtures-bydate.real.json'),
+      config,
+      apiFootballUrl('2026-11-13'),
+    );
+    expect(outcome.issues).toEqual([]);
+    expect(outcome.stats).toEqual({ recordsSeen: 8, recordsAccepted: 8 });
+    const finished = outcome.results.filter((r) => r.status === 'finished');
+    expect(finished.map((r) => r.scoreBasis).sort()).toEqual(['regular_time', 'unknown']);
+    // The penalties match is reported, but never on a basis that could settle a bet.
+    const pen = finished.find((r) => r.scoreBasis === 'unknown');
+    expect(pen?.score).toMatchObject({ home: 2, away: 2 });
+    expect(outcome.results.map((r) => r.status).sort()).toEqual(
+      ['cancelled', 'finished', 'finished', 'postponed'].sort(),
+    );
+  });
+
+  it('leaves shoot-out kicks out of the goal timeline', () => {
+    const parsed = parseApiFootballEvents(real('apifootball-events-shootout.real.json'));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    // Four goals in normal time; the 14 shoot-out kicks at elapsed 120 are not goals.
+    expect(parsed.timeline).toHaveLength(4);
+    const check = goalsAddUp(
+      parsed.timeline,
+      3808,
+      3768,
+      { home: 2, away: 2, htHome: 1, htAway: 2 },
+      'credited_team',
+      120,
+    );
+    expect(check.matches).toBe(true);
+  });
+
+  it('files an own goal under the team it counts for (credited_team)', () => {
+    const parsed = parseApiFootballEvents(real('apifootball-events-owngoal.real.json'));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const ninety = { home: 1, away: 0, htHome: 0, htAway: 0 };
+    expect(goalsAddUp(parsed.timeline, 611, 79, ninety, 'credited_team').matches).toBe(true);
+    expect(goalsAddUp(parsed.timeline, 611, 79, ninety, 'scorer_team').matches).toBe(false);
+    // With extra time (up to 120) the goals add up to the final 1-1.
+    expect(
+      goalsAddUp(parsed.timeline, 611, 79, { home: 1, away: 1 }, 'credited_team', 120).matches,
+    ).toBe(true);
+  });
+});

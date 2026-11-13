@@ -473,6 +473,9 @@ export function parseApiFootballEvents(body: unknown): ParsedEvents {
       continue;
     }
     if (item.type !== 'Goal') continue;
+    // A shoot-out kick is reported as a "Goal" ("Penalty" or "Missed Penalty") at elapsed 120 with
+    // the comment "Penalty Shootout" (measured on real data, 13 Nov 2026): it is not a goal.
+    if (typeof item.comments === 'string' && /penalty shootout/i.test(item.comments)) continue;
     if (!(detail in GOAL_DETAILS))
       return { ok: false, reason: `unknown goal detail "${detail.slice(0, 40)}"` };
     const kind = GOAL_DETAILS[detail];
@@ -497,7 +500,9 @@ export function parseApiFootballEvents(body: unknown): ParsedEvents {
 }
 
 /**
- * What an own goal's `team` means. Unverified on real data, so `goalsAddUp` has no default:
+ * What an own goal's `team` means; `goalsAddUp` has no default. Measured on real data (13 Nov 2026,
+ * Fenerbahçe v Lille, a Lille player's own goal filed under Fenerbahçe): API-Football files an own
+ * goal under the team it counts for, so use `credited_team` with this API.
  * - `credited_team`: `team` is the team the goal counts for (the opponent of the player);
  * - `scorer_team`: `team` is the player's own team, so the goal counts for the other side.
  */
