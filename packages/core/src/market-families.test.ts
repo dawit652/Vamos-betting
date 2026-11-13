@@ -54,9 +54,37 @@ describe('market family settings', () => {
         typeMarginBps: { h1_ou: 650, htft: 1400 },
         factoryLiabilityShareBps: 1000,
         minWeeklyStake: 500_000n,
+        firstHalfShare: null,
+        drawCorrection: null,
       },
     });
     if (parsed.ok) expect(Object.keys(parsed.value.typeMarginBps)).toEqual(['h1_ou', 'htft']);
+  });
+
+  it('accepts the pricing switches within range, refuses others (task A11)', () => {
+    const base = {
+      marginBps: { ...DEFAULT_FAMILY_MARGIN_BPS },
+      typeMarginBps: {},
+      factoryLiabilityShareBps: 2500,
+      minWeeklyStake: '1',
+    };
+    const ok = parseMarketFamilies({ ...base, firstHalfShare: 0.447, drawCorrection: -0.1 });
+    expect(ok.ok && [ok.value.firstHalfShare, ok.value.drawCorrection]).toEqual([0.447, -0.1]);
+    const zero = parseMarketFamilies({ ...base, drawCorrection: 0 });
+    expect(zero.ok && zero.value.drawCorrection).toBeNull();
+    for (const [field, value] of [
+      ['firstHalfShare', 0.29],
+      ['firstHalfShare', 0.71],
+      ['firstHalfShare', 0.4475],
+      ['firstHalfShare', '0.45'],
+      ['drawCorrection', 0.05],
+      ['drawCorrection', -0.21],
+      ['drawCorrection', Number.NaN],
+    ] as const) {
+      const bad = parseMarketFamilies({ ...base, [field]: value });
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) expect(bad.issues.join(' ')).toContain(field);
+    }
   });
 
   it('refuses out-of-range margins and shares, unknown types and fields, bad amounts', () => {
@@ -142,8 +170,27 @@ describe('factoryPricingPlan', () => {
       typeMarginBps: {},
       types: [...MARKET_FAMILIES],
       excluded: [],
+      firstHalfShare: null,
+      drawCorrection: null,
       tag: '',
     });
+  });
+
+  it('carries the pricing switches (task A11) and stamps them, leaving older stamps as they were', () => {
+    const margins = { ...DEFAULT_MARKET_FAMILIES, typeMarginBps: { htft: 1400 } };
+    const before = factoryPricingPlan(margins).tag;
+    expect(factoryPricingPlan({ ...margins, firstHalfShare: null, drawCorrection: 0 }).tag).toBe(
+      before,
+    );
+    const share = factoryPricingPlan({ ...DEFAULT_MARKET_FAMILIES, firstHalfShare: 0.447 });
+    expect(share).toMatchObject({ firstHalfShare: 0.447, drawCorrection: null });
+    expect(share.tag).toMatch(/^[0-9a-f]{8}$/);
+    const both = factoryPricingPlan({
+      ...DEFAULT_MARKET_FAMILIES,
+      firstHalfShare: 0.447,
+      drawCorrection: -0.1,
+    });
+    expect(both.tag).not.toBe(share.tag);
   });
 
   it('leaves suspended and off families out and prices a returned one at its raised margin', () => {

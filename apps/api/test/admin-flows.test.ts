@@ -574,6 +574,8 @@ describe('settings and withdrawals', () => {
       typeMarginBps: {},
       factoryLiabilityShareBps: 2500,
       minWeeklyStake: '10000000',
+      firstHalfShare: null,
+      drawCorrection: null,
     };
     expect(view.settings.marketFamilies).toEqual(defaults);
     const changed = {

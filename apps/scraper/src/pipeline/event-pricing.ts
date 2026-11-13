@@ -355,6 +355,8 @@ function factoryMarketsFrom(
     types: plan.types,
     marginBps: plan.marginBps,
     typeMarginBps: plan.typeMarginBps,
+    firstHalfShare: plan.firstHalfShare,
+    drawCorrection: plan.drawCorrection,
     maxListedOddsMilli: null,
   })
     .map((m) => ({

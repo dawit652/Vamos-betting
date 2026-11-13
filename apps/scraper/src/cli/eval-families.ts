@@ -102,10 +102,13 @@ export async function evalFamilies(args: string[], env: CliEnv): Promise<number>
   }
   const share = numberFlag(parsed, 'first-half-share', 0.3, 0.7);
   const rho = numberFlag(parsed, 'draw-correction', -0.5, 0.5);
-  const grids = {
-    ...(share === undefined ? {} : { firstHalfShare: share }),
-    ...(rho === undefined ? {} : { drawCorrection: rho }),
-  };
+  const grids =
+    share === undefined && rho === undefined
+      ? undefined
+      : {
+          ...(share === undefined ? {} : { firstHalfShare: share }),
+          ...(rho === undefined ? {} : { drawCorrection: rho }),
+        };
   const write = parsed.values.write === true;
   if (write && (share !== undefined || rho !== undefined)) {
     throw new UsageError(
@@ -133,7 +136,7 @@ export async function evalFamilies(args: string[], env: CliEnv): Promise<number>
     );
     stored = testedAt.toISOString();
   }
-  emit(env, parsed, { files: paths, stored, grids, ...report }, [
+  emit(env, parsed, { files: paths, stored, grids: grids ?? null, ...report }, [
     `Files: ${paths.length}${share === undefined && rho === undefined ? '' : ` (first-half share ${share ?? 'time-based'}, draw correction ${rho ?? 'none'})`}`,
     ...reportLines(report),
     ...(stored === null ? [] : ['', `stored as setting market_family_history at ${stored}`]),

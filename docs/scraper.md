@@ -947,7 +947,12 @@ before and are not families. Everything below is pure in `packages/core` (`parse
   `typeMarginBps` per family (none by default), `factoryLiabilityShareBps` (2500: a factory
   selection's liability cap is a quarter of `risk_limits.maxSelectionLiability`, checked at
   placement and at live acceptance) and `minWeeklyStake` (10,000,000 santim = 100,000 ETB). Margins
-  and the share are integers 0..10000 bps. The defaults are exactly the earlier behaviour.
+  and the share are integers 0..10000 bps. Two pricing switches (task 2.2, A11), both `null` (off)
+  by default: `firstHalfShare` (0.3..0.7, plan item P-5: the share of the goals priced into the first
+  half of the families instead of the time-based split; the history test measured 0.447 and with it
+  19 of the 23 failing families pass) and `drawCorrection` (-0.2..0, plan item P-4: the Dixon-Coles
+  rho of the families' full-time grid). They apply to the factory's families only; today's nine
+  types, half-time 1X2 included, are priced as before. The defaults are exactly the earlier behaviour.
 - **Pricing.** `priceEvent` reads the settings and the families' states (`loadFactoryPricingPlan`) at
   every pricing of a market-priced event with factory markets, so a change applies at the next
   re-price. The pricing key ends in `|fm1` with the defaults; any other margins or a left-out family

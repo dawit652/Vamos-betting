@@ -1242,6 +1242,10 @@ export const MarketFamiliesView = z
     typeMarginBps: z.record(z.string().min(1).max(64), Bps),
     factoryLiabilityShareBps: Bps,
     minWeeklyStake: NonNegativeSantimText,
+    /** Plan item P-5: first-half share of goals for factory pricing (0.3..0.7); null is off. */
+    firstHalfShare: z.number().min(0.3).max(0.7).nullable().optional(),
+    /** Plan item P-4: Dixon-Coles rho of the factory's full-time grid (-0.2..0); null is off. */
+    drawCorrection: z.number().min(-0.2).max(0).nullable().optional(),
   })
   .strict();
 export type MarketFamiliesView = z.infer<typeof MarketFamiliesView>;

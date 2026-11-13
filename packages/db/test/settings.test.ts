@@ -92,6 +92,8 @@ describe('parseGameSettings', () => {
       typeMarginBps: {},
       factoryLiabilityShareBps: 2_500,
       minWeeklyStake: 10_000_000n,
+      firstHalfShare: null,
+      drawCorrection: null,
     });
     const parsed = parseGameSettings({
       market_families: { typeMarginBps: { htft: 1400 }, minWeeklyStake: '500' },

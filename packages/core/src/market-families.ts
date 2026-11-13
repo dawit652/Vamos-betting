@@ -29,6 +29,17 @@ export interface MarketFamilySettings {
   factoryLiabilityShareBps: number;
   /** The weekly job judges a week of a family only when its settled stakes reach this (santim). */
   minWeeklyStake: Santim;
+  /**
+   * Plan item P-5 (task 2.2, A11): the share of a match's goals priced into the first half of the
+   * factory's families, 0.3..0.7 in steps of 0.001; null (the default) keeps the time-based split.
+   * The history test measured 0.447 on 13,949 matches.
+   */
+  firstHalfShare: number | null;
+  /**
+   * Plan item P-4: the Dixon-Coles rho of the families' full-time grid, -0.2..0 in steps of 0.001
+   * (negative raises 0-0 and 1-1); null (the default) leaves the independent grid.
+   */
+  drawCorrection: number | null;
 }
 
 /** 100,000 ETB of settled single stakes a week: below that one week says little about a margin. */
@@ -40,7 +51,24 @@ export const DEFAULT_MARKET_FAMILIES: MarketFamilySettings = Object.freeze({
   typeMarginBps: {},
   factoryLiabilityShareBps: FACTORY_SELECTION_LIABILITY_SHARE_BPS,
   minWeeklyStake: DEFAULT_FAMILY_MIN_WEEKLY_STAKE,
+  firstHalfShare: null,
+  drawCorrection: null,
 });
+
+/** Bounds of the two pricing switches (MarketFamilySettings). */
+export const FIRST_HALF_SHARE_RANGE = Object.freeze({ min: 0.3, max: 0.7 });
+export const DRAW_CORRECTION_RANGE = Object.freeze({ min: -0.2, max: 0 });
+
+/** A switch value: null, or a number within [min, max] with at most three decimals. */
+function switchValue(
+  value: unknown,
+  range: { min: number; max: number },
+): number | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (value < range.min || value > range.max) return undefined;
+  return Math.round(value * 1000) === value * 1000 ? value : undefined;
+}
 
 const MARGIN_CLASSES: readonly FactoryMarginClass[] = ['main', 'derivative', 'long'];
 
@@ -133,6 +161,14 @@ export function parseMarketFamilies(value: unknown): MarketFamiliesParse {
   const floor = santimOf(value.minWeeklyStake);
   if (floor === null) issues.push('minWeeklyStake: expected an amount of santim');
   else if (floor < 0n) issues.push('minWeeklyStake: must not be negative');
+  const firstHalfShare = switchValue(value.firstHalfShare, FIRST_HALF_SHARE_RANGE);
+  if (firstHalfShare === undefined) {
+    issues.push('firstHalfShare: must be null or a number from 0.3 to 0.7 with at most 3 decimals');
+  }
+  const drawCorrection = switchValue(value.drawCorrection, DRAW_CORRECTION_RANGE);
+  if (drawCorrection === undefined) {
+    issues.push('drawCorrection: must be null or a number from -0.2 to 0 with at most 3 decimals');
+  }
   if (issues.length > 0) return { ok: false, issues };
   return {
     ok: true,
@@ -141,6 +177,9 @@ export function parseMarketFamilies(value: unknown): MarketFamiliesParse {
       typeMarginBps,
       factoryLiabilityShareBps: share as number,
       minWeeklyStake: floor as bigint,
+      firstHalfShare: firstHalfShare ?? null,
+      // -0 and 0 are both "no correction": stored as null so equal settings are equal values.
+      drawCorrection: drawCorrection === 0 ? null : (drawCorrection ?? null),
     },
   };
 }
@@ -183,9 +222,12 @@ export interface FactoryPricingPlan {
   types: string[];
   /** Families left out (suspended or off), sorted. */
   excluded: string[];
+  /** The pricing switches of the settings (priceFactoryMarkets `firstHalfShare`, `drawCorrection`). */
+  firstHalfShare: number | null;
+  drawCorrection: number | null;
   /**
    * A short stamp of everything above: '' for the defaults (every family active at its class's
-   * default margin, no override), else 8 hex digits. It goes into the pricing key, so a change of
+   * default margin, no override, both switches off), else 8 hex digits. It goes into the pricing key, so a change of
    * margins or families re-prices each event once.
    */
   tag: string;
@@ -207,9 +249,12 @@ function fnv1a(text: string): string {
  * settings' margin when that is higher (never cheaper than either).
  */
 export function factoryPricingPlan(
-  settings: Pick<MarketFamilySettings, 'marginBps' | 'typeMarginBps'>,
+  settings: Pick<MarketFamilySettings, 'marginBps' | 'typeMarginBps'> &
+    Partial<Pick<MarketFamilySettings, 'firstHalfShare' | 'drawCorrection'>>,
   states: ReadonlyMap<string, MarketFamilyState> = new Map(),
 ): FactoryPricingPlan {
+  const firstHalfShare = settings.firstHalfShare ?? null;
+  const drawCorrection = settings.drawCorrection === 0 ? null : (settings.drawCorrection ?? null);
   const marginBps = { ...settings.marginBps };
   const typeMarginBps: Record<string, number> = {};
   const types: string[] = [];
@@ -235,13 +280,26 @@ export function factoryPricingPlan(
   const isDefault =
     MARGIN_CLASSES.every((c) => marginBps[c] === DEFAULT_FAMILY_MARGIN_BPS[c]) &&
     overrides.length === 0 &&
-    excluded.length === 0;
+    excluded.length === 0 &&
+    firstHalfShare === null &&
+    drawCorrection === null;
   const canonical = [
     MARGIN_CLASSES.map((c) => `${c}=${marginBps[c]}`).join(','),
     overrides.map((t) => `${t}=${typeMarginBps[t]}`).join(','),
     excluded.join(','),
+    // Only when set, so the stamps of settings without the switches stay as they were.
+    ...(firstHalfShare === null ? [] : [`fhs=${firstHalfShare}`]),
+    ...(drawCorrection === null ? [] : [`rho=${drawCorrection}`]),
   ].join(';');
-  return { marginBps, typeMarginBps, types, excluded, tag: isDefault ? '' : fnv1a(canonical) };
+  return {
+    marginBps,
+    typeMarginBps,
+    types,
+    excluded,
+    firstHalfShare,
+    drawCorrection,
+    tag: isDefault ? '' : fnv1a(canonical),
+  };
 }
 
 /** The margin a family is priced at under a plan (its override, else its class's). */

@@ -449,6 +449,37 @@ describe('market families', () => {
   );
 
   it(
+    "the first-half share (task A11) re-prices the families once; today's prices are unchanged",
+    async () => {
+      const eventId = await marketPricedEvent({ factoryMarkets: true });
+      await repriceScheduledEvents(h.ctx);
+      const h2 = async () =>
+        rows<{ code: string; odds_milli: number }>(
+          `SELECT s.code, s.odds_milli FROM selections s JOIN markets m ON m.id = s.market_id
+            WHERE m.event_id = $1 AND m.key = 'h2_ou:2.5' ORDER BY s.code`,
+          [eventId],
+        );
+      const before = await h2();
+      expect(before.map((r) => r.code)).toEqual(['over', 'under']);
+      const todays = await oddsOf(eventId, '1x2');
+
+      await setSetting(h.ctx.db, 'market_families', {
+        ...DEFAULT_MARKET_FAMILIES,
+        firstHalfShare: 0.447,
+      });
+      h.advance(60_000);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1, held: 0 });
+      expect(await stampKey(eventId)).toMatch(/\|fm1\.[0-9a-f]{8}$/);
+      const after = await h2();
+      // More goals in the second half: its over is shorter, its under longer.
+      expect(after[0]!.odds_milli).toBeLessThan(before[0]!.odds_milli);
+      expect(after[1]!.odds_milli).toBeGreaterThan(before[1]!.odds_milli);
+      expect(await oddsOf(eventId, '1x2')).toBe(todays);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
     'the weekly job suspends a family that kept too little for three weeks; the feed suspends its markets; the report lists it; a passed history test lets it return',
     async () => {
       const eventId = await marketPricedEvent({ factoryMarkets: true });

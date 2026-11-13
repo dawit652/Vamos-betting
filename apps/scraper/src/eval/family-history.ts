@@ -57,15 +57,20 @@ const FAMILY_MARKETS: readonly FactoryMarket[] = FACTORY_MARKETS.filter((m) =>
 
 /**
  * The history test over `matches`, at the margins of `settings` (the defaults when omitted).
- * `grids` are the pricing switches of task 2.2 (first-half share, draw correction), off by default
- * as in production; set, they measure what switching them on would change.
+ * `grids` are the pricing switches of task 2.2 (first-half share, draw correction); omitted, the
+ * settings' own (production's) are used.
  */
 export function familyHistoryTest(
   matches: readonly MatchInput[],
   settings: MarketFamilySettings = DEFAULT_MARKET_FAMILIES,
-  grids: PrematchGridOptions = {},
+  grids?: PrematchGridOptions,
 ): FamilyHistoryReport {
   const plan = factoryPricingPlan(settings, new Map());
+  // Production's switches (the settings') unless the caller measures others.
+  const gridOptions: PrematchGridOptions = grids ?? {
+    firstHalfShare: plan.firstHalfShare,
+    drawCorrection: plan.drawCorrection,
+  };
   const acc = new Map<string, FamilyAcc>();
   const skipped = { noFit: 0, residual: 0, noHalfTime: 0 };
   let used = 0;
@@ -83,7 +88,7 @@ export function familyHistoryTest(
     const hasHalf = m.hthg !== null && m.htag !== null && m.hthg <= m.hg && m.htag <= m.ag;
     if (!hasHalf) skipped.noHalfTime += 1;
     used += 1;
-    const scoreGrids = prematchFactoryGrids(fit.lambdaHome, fit.lambdaAway, grids);
+    const scoreGrids = prematchFactoryGrids(fit.lambdaHome, fit.lambdaAway, gridOptions);
     const score = {
       home: m.hg,
       away: m.ag,
