@@ -1,6 +1,6 @@
 {
   "name": "@vamos/contracts",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Zod request/response contracts shared by the API, web and admin apps",
   "type": "module",

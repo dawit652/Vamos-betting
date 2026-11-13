@@ -1,6 +1,6 @@
 {
   "name": "@vamos/scraper-app",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "The scraper process: schedules source runs, stores observations and promotes checked data to the catalogue",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "@vamos/api",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Nahubet REST + SSE API (Fastify)",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "@vamos/feed",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Odds feed provider interface and the mock Poisson pricing / live match simulator",
   "type": "module",
