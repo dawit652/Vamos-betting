@@ -5,7 +5,7 @@ import { upsertSourceTrust } from '@vamos/db';
 import type { Logger } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
-import { promoteResults } from '../src/pipeline/promote-results';
+import { flagOverdueResults, promoteResults } from '../src/pipeline/promote-results';
 import { cliHarness } from './cli-helpers';
 import {
   ARSENAL_CHELSEA_JSON,
@@ -294,6 +294,64 @@ describe('ladder shadow in the result pass', () => {
       expect(await reviewItems()).toEqual(baseline);
       expect(await unresulted()).toBe(1);
       expect(await shadowRows()).toEqual([]);
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+describe('ladder shadow in the overdue-results pass (rung D, no result anywhere)', () => {
+  it(
+    'records nothing at 47 hours and a no_result void at 48 hours, changing nothing else',
+    async () => {
+      await createdEvent();
+      h.at(new Date(KICKOFF.getTime() + 47 * HOUR));
+      await flagOverdueResults(h.ctx);
+      expect(await shadowRows()).toEqual([]);
+      const kinds = async () =>
+        (
+          await h.pool.query(
+            `SELECT kind, subject_key, status FROM scrape_review_items ORDER BY kind, subject_key`,
+          )
+        ).rows;
+      const before = await kinds();
+
+      h.at(new Date(KICKOFF.getTime() + 48 * HOUR));
+      await flagOverdueResults(h.ctx);
+      const [row, ...rest] = await shadowRows();
+      expect(rest).toEqual([]);
+      expect(row).toMatchObject({
+        decision_key: 'void:D:no_result:',
+        rung: 'D',
+        action: 'void',
+        reason: 'no_result',
+        strict: false,
+        score: null,
+      });
+      expect(await unresulted()).toBe(1);
+      expect(await resultAudits()).toBe(0);
+      // The review queue is as the pass left it at 47 hours.
+      expect(await kinds()).toEqual(before);
+
+      // Twice within an hour: still one row.
+      h.advance(10 * MINUTE);
+      await flagOverdueResults(h.ctx);
+      expect(await shadowRows()).toHaveLength(1);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'leaves an event that has observations to the result pass',
+    async () => {
+      await createdEvent();
+      h.at(new Date(KICKOFF.getTime() + 3 * HOUR));
+      h.serve(URL_B, jsonDoc([{ ...ARSENAL_CHELSEA_JSON, st: 'PST' }]));
+      await h.run('src-b');
+      h.at(new Date(KICKOFF.getTime() + 49 * HOUR));
+      await flagOverdueResults(h.ctx);
+      expect(await shadowRows()).toEqual([]);
+      await promoteResults(h.ctx);
+      expect(await shadowRows()).toHaveLength(1);
     },
     TEST_TIMEOUT,
   );

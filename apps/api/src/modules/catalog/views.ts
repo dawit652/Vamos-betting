@@ -6,7 +6,12 @@ import type {
   SelectionView,
 } from '@vamos/contracts';
 import {
+  factoryMarketName,
+  factoryMarketSortOrder,
+  factorySelectionLabel,
+  findFactoryMarket,
   formatGameId,
+  isFactoryOnlyMarketType,
   MARKET_TYPES,
   marketLineValue,
   selectionLabel,
@@ -21,6 +26,12 @@ import { isSelectionBettable } from '@vamos/db';
  * Pure builders of the catalogue's wire views (no I/O). The queries load
  * rows; everything about labels, ordering and the `open` flag lives here.
  */
+
+/** Switches of the catalogue views (config.features). */
+export interface ViewOptions {
+  /** FEATURE_FACTORY_MARKETS: also show the market factory's football markets. */
+  factoryMarkets?: boolean;
+}
 
 export type EventStatus = EventSummary['status'];
 export type MarketStatus = MarketView['status'];
@@ -129,22 +140,41 @@ function lineValue(type: MarketTypeCode, line: string): number | null {
 export function isDisplayableMarket(
   sport: SportCode,
   market: Pick<MarketRow, 'type' | 'line'>,
+  options: ViewOptions = {},
 ): boolean {
+  if (options.factoryMarkets === true && isDisplayableFactoryMarket(sport, market)) return true;
   if (!isMarketTypeCode(market.type) || !SPORT_MARKETS[sport].includes(market.type)) return false;
   if (!MARKET_TYPES[market.type].hasLine) return market.line === null;
   return market.line !== null && lineValue(market.type, market.line) !== null;
 }
 
+/**
+ * A football market only the factory defines, stored with the factory's own
+ * (canonical) line. Whether the selections fit is checked per selection.
+ */
+function isDisplayableFactoryMarket(
+  sport: SportCode,
+  market: Pick<MarketRow, 'type' | 'line'>,
+): boolean {
+  if (sport !== 'football' || !isFactoryOnlyMarketType(market.type)) return false;
+  const definition = findFactoryMarket(market.type, market.line);
+  return definition !== undefined && definition.line === market.line;
+}
+
 /** MARKET_TYPES sortOrder, then line (line-less first), then id. Unknown types go last. */
 export function compareMarkets(a: Pick<MarketRow, 'type' | 'line' | 'id'>, b: typeof a): number {
-  const typeOrder = (type: string) =>
-    isMarketTypeCode(type) ? MARKET_TYPES[type].sortOrder : Number.MAX_SAFE_INTEGER;
+  const typeOrder = (type: string, line: string | null) =>
+    isMarketTypeCode(type)
+      ? MARKET_TYPES[type].sortOrder
+      : isFactoryOnlyMarketType(type)
+        ? factoryMarketSortOrder(type, line)
+        : Number.MAX_SAFE_INTEGER;
   const lineOrder = (type: string, line: string | null) =>
     line === null
       ? -1
       : ((isMarketTypeCode(type) ? lineValue(type, line) : null) ?? Number.MAX_SAFE_INTEGER);
   return (
-    typeOrder(a.type) - typeOrder(b.type) ||
+    typeOrder(a.type, a.line) - typeOrder(b.type, b.line) ||
     lineOrder(a.type, a.line) - lineOrder(b.type, b.line) ||
     (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   );
@@ -160,8 +190,10 @@ export function marketView(
   market: MarketRow,
   selections: readonly SelectionRow[],
   now: Date,
+  options: ViewOptions = {},
 ): MarketView | null {
-  if (!isMarketTypeCode(market.type) || !isDisplayableMarket(event.sport, market)) return null;
+  if (!isDisplayableMarket(event.sport, market, options)) return null;
+  if (!isMarketTypeCode(market.type)) return factoryMarketView(event, market, selections, now);
   const type = market.type;
   const definition = MARKET_TYPES[type];
 
@@ -194,6 +226,49 @@ export function marketView(
     type,
     line: market.line,
     name: { en: definition.name.en, am: definition.name.am },
+    status: market.status,
+    selections: views.map((entry) => entry.view),
+  };
+}
+
+/** A factory-only market (already checked displayable): labels from the factory, its group. */
+function factoryMarketView(
+  event: EventRow,
+  market: MarketRow,
+  selections: readonly SelectionRow[],
+  now: Date,
+): MarketView | null {
+  const definition = findFactoryMarket(market.type, market.line);
+  if (definition === undefined) return null;
+  const position = new Map(definition.selections.map((code, index) => [code, index]));
+  const en = { home: event.home.name.en, away: event.away.name.en };
+  const am = { home: event.home.name.am ?? en.home, away: event.away.name.am ?? en.away };
+  const views: Array<{ index: number; view: SelectionView }> = [];
+  for (const selection of selections) {
+    const index = position.get(selection.code);
+    if (index === undefined) continue;
+    views.push({
+      index,
+      view: {
+        id: selection.id,
+        code: selection.code,
+        label: {
+          en: factorySelectionLabel(market.type, selection.code, en, market.line).en,
+          am: factorySelectionLabel(market.type, selection.code, am, market.line).am,
+        },
+        oddsMilli: selection.oddsMilli,
+        open: isSelectionOpen(event, market, selection, now),
+      },
+    });
+  }
+  views.sort((a, b) => a.index - b.index);
+  const name = factoryMarketName(market.type, market.line);
+  return {
+    id: market.id,
+    type: market.type,
+    line: market.line,
+    name: { en: name.en, am: name.am },
+    group: definition.group,
     status: market.status,
     selections: views.map((entry) => entry.view),
   };
@@ -255,13 +330,14 @@ export function eventSummaryView(
   mainSelections: readonly SelectionRow[],
   now: Date,
   mainType?: MarketTypeCode,
+  options: ViewOptions = {},
 ): EventSummary {
   const main = findMainMarket(event, markets, mainType);
   const marketCount = markets.filter(
     (market) =>
       market !== main &&
       LISTED_MARKET_STATUSES.has(market.status) &&
-      isDisplayableMarket(event.sport, market),
+      isDisplayableMarket(event.sport, market, options),
   ).length;
   return {
     ...summaryFields(event),
@@ -276,10 +352,13 @@ export function eventDetailView(
   markets: readonly MarketRow[],
   selectionsByMarket: ReadonlyMap<string, readonly SelectionRow[]>,
   now: Date,
+  options: ViewOptions = {},
 ): EventDetail {
   const views = [...markets]
     .sort(compareMarkets)
-    .map((market) => marketView(event, market, selectionsByMarket.get(market.id) ?? [], now))
+    .map((market) =>
+      marketView(event, market, selectionsByMarket.get(market.id) ?? [], now, options),
+    )
     .filter((view): view is MarketView => view !== null);
   const main = findMainMarket(event, markets);
   const summary = eventSummaryView(
@@ -287,6 +366,8 @@ export function eventDetailView(
     markets,
     main === null ? [] : (selectionsByMarket.get(main.id) ?? []),
     now,
+    undefined,
+    options,
   );
   const htScore =
     event.status === 'scheduled' || event.htScoreHome === null || event.htScoreAway === null

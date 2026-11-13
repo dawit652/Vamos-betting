@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { factoryMarket } from '@vamos/core';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { resultEvent, upsertFixture, type CatalogIds } from '../src/index';
-import { markets, selections } from '../src/schema/index';
+import { resultEvent, setMarketStatus, upsertFixture, type CatalogIds } from '../src/index';
+import { markets, oddsHistory, selections } from '../src/schema/index';
 import { createBettingDatabase, type TestDb } from './betting-fixtures';
 import { dropTestDatabase } from './helpers';
 
@@ -190,5 +190,116 @@ describe('factory markets in the catalogue', () => {
       .innerJoin(markets, eq(markets.id, selections.marketId))
       .where(inArray(markets.eventId, [created.eventId]));
     expect(rows.every((r) => r.result === null)).toBe(true);
+  });
+});
+
+describe('factoryComplete: factory markets that pricing stops offering', () => {
+  async function statusOf(eventId: string) {
+    const rows = await handle.db
+      .select({ key: markets.key, status: markets.status, suspendedBy: markets.suspendedBy })
+      .from(markets)
+      .where(eq(markets.eventId, eventId));
+    return new Map(rows.map((r) => [r.key, { status: r.status, by: r.suspendedBy }]));
+  }
+
+  it('suspends a stored factory market missing from a complete pricing and reopens it when priced again', async () => {
+    const ref = fixture();
+    const created = await handle.db.transaction((tx) =>
+      upsertFixture(tx, ref, [ONE_X_TWO, priced('htft', null), priced('multigoals', '1-3')]),
+    );
+    // The next pricing no longer offers the multigoals market.
+    const second = await handle.db.transaction((tx) =>
+      upsertFixture(tx, ref, [ONE_X_TWO, priced('htft', null)], { factoryComplete: true }),
+    );
+    let status = await statusOf(created.eventId);
+    expect(status.get('multigoals:1-3')).toEqual({ status: 'suspended', by: 'feed' });
+    expect(status.get('htft')).toEqual({ status: 'open', by: null });
+    expect(status.get('1x2')).toEqual({ status: 'open', by: null });
+    expect(second.messages.some((m) => JSON.stringify(m).includes('suspended'))).toBe(true);
+
+    // Priced again: reopened.
+    await handle.db.transaction((tx) =>
+      upsertFixture(tx, ref, [ONE_X_TWO, priced('htft', null), priced('multigoals', '1-3')], {
+        factoryComplete: true,
+      }),
+    );
+    status = await statusOf(created.eventId);
+    expect(status.get('multigoals:1-3')).toEqual({ status: 'open', by: null });
+  });
+
+  it('never lifts a trader’s suspension and never touches today’s markets', async () => {
+    const ref = fixture();
+    const created = await handle.db.transaction((tx) =>
+      upsertFixture(tx, ref, [ONE_X_TWO, priced('htft', null)]),
+    );
+    const [htft] = await handle.db
+      .select({ id: markets.id })
+      .from(markets)
+      .where(and(eq(markets.eventId, created.eventId), eq(markets.key, 'htft')));
+    if (htft === undefined) throw new Error('htft not stored');
+    await handle.db.transaction((tx) =>
+      setMarketStatus(tx, htft.id, 'suspended', { adminId: 'trader-under-test' }),
+    );
+    // A complete pricing without the 1x2 (today's type) and with the htft again.
+    await handle.db.transaction((tx) =>
+      upsertFixture(tx, ref, [priced('htft', null)], { factoryComplete: true }),
+    );
+    const status = await statusOf(created.eventId);
+    expect(status.get('htft')).toEqual({ status: 'suspended', by: 'trader' });
+    expect(status.get('1x2')).toEqual({ status: 'open', by: null });
+  });
+
+  it('changes nothing without the option', async () => {
+    const ref = fixture();
+    const created = await handle.db.transaction((tx) =>
+      upsertFixture(tx, ref, [ONE_X_TWO, priced('htft', null)]),
+    );
+    await handle.db.transaction((tx) => upsertFixture(tx, ref, [ONE_X_TWO]));
+    expect((await statusOf(created.eventId)).get('htft')).toEqual({ status: 'open', by: null });
+  });
+});
+
+describe('factory selections are repriced quietly (plan task 2.3: the recipe is the record)', () => {
+  async function historyCount(eventId: string, marketKey: string) {
+    const rows = await handle.db
+      .select({ id: oddsHistory.id })
+      .from(oddsHistory)
+      .innerJoin(selections, eq(selections.id, oddsHistory.selectionId))
+      .innerJoin(markets, eq(markets.id, selections.marketId))
+      .where(and(eq(markets.eventId, eventId), eq(markets.key, marketKey)));
+    return rows.length;
+  }
+
+  it('writes no odds history and no live delta for factory selections, and both for today’s markets', async () => {
+    const ref = fixture();
+    const created = await handle.db.transaction((tx) =>
+      upsertFixture(tx, ref, [ONE_X_TWO, priced('htft', null)]),
+    );
+    expect(await historyCount(created.eventId, '1x2')).toBe(3);
+    expect(await historyCount(created.eventId, 'htft')).toBe(0);
+
+    const moved = {
+      ...priced('htft', null),
+      selections: priced('htft', null).selections.map((sel) => ({ ...sel, oddsMilli: 3100 })),
+    };
+    const oneXTwoMoved = {
+      ...ONE_X_TWO,
+      selections: ONE_X_TWO.selections.map((sel) => ({ ...sel, oddsMilli: sel.oddsMilli + 100 })),
+    };
+    const result = await handle.db.transaction((tx) =>
+      upsertFixture(tx, ref, [oneXTwoMoved, moved], { factoryComplete: true }),
+    );
+    // Every price moved (3 + all htft selections) ...
+    expect(result.oddsChanged).toBe(3 + moved.selections.length);
+    // ... but only today's market wrote history and live deltas.
+    expect(await historyCount(created.eventId, '1x2')).toBe(6);
+    expect(await historyCount(created.eventId, 'htft')).toBe(0);
+    expect(result.messages).toHaveLength(3);
+    const stored = await handle.db
+      .select({ odds: selections.oddsMilli })
+      .from(selections)
+      .innerJoin(markets, eq(markets.id, selections.marketId))
+      .where(and(eq(markets.eventId, created.eventId), eq(markets.key, 'htft')));
+    expect(stored.every((row) => row.odds === 3100)).toBe(true);
   });
 });

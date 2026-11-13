@@ -3,11 +3,12 @@ import {
   capAtBestPrice,
   cappedPricingKey,
   CONSENSUS_MIN_BOOKS,
+  FACTORY_MARKETS,
+  HALF_TIME_MARKET_TYPES,
+  isFactoryOnlyMarketType,
   MARKET_PRICING_KEY_PREFIX,
-  MARKET_TYPES,
   marketConsensus,
   type MarketPriceRow,
-  type MarketTypeCode,
   type OutOfLineSelection,
   type ScrapePricingSource,
 } from '@vamos/core';
@@ -17,9 +18,9 @@ import {
   fitGoalsToMarket,
   MAX_MARKET_FIT_RESIDUAL,
   marketPricingKey,
+  priceFactoryMarkets,
   priceFixture,
   priceFootballFromMarket,
-  type FeedMarket,
   type TeamRatings,
 } from '@vamos/feed';
 import {
@@ -97,11 +98,24 @@ export interface EventPriceInput {
    * Default false: the prices stay as they are and `outOfLine` only reports.
    */
   capAtBestPrice?: boolean;
+  /**
+   * Plan task 2.3 (SCRAPER_FACTORY_MARKETS=on): market prices also carry the market factory's own
+   * markets, priced from the same fitted expected goals; each must pass O2 alone, so a weak one is
+   * left out instead of holding the event. Default false: today's markets only.
+   */
+  factoryMarkets?: boolean;
+}
+
+/** A priced market: today's (FeedMarket) or one of the market factory's (a string type). */
+export interface PricedMarket {
+  type: string;
+  line: string | null;
+  selections: Array<{ code: string; oddsMilli: number }>;
 }
 
 export interface EventPrice {
   source: EventPriceSource;
-  markets: FeedMarket[];
+  markets: PricedMarket[];
   /** What the prices come from, as stamped on the event: marketPricingKey or ratingsKey. */
   key: string;
   /** O1 for the model; always true for the market (its prices do not use the ratings). */
@@ -186,7 +200,8 @@ function capRule(price: EventPrice, rows: readonly MarketPriceRow[], cap: boolea
   };
 }
 
-const HALF_TIME_TYPES = (Object.keys(MARKET_TYPES) as MarketTypeCode[]).filter(isHalfTimeMarket);
+/** Today's half-time types and the factory's markets on a half or both halves (O6, plan 2.3). */
+const HALF_TIME_TYPES: string[] = HALF_TIME_MARKET_TYPES.filter(isHalfTimeMarket);
 
 /** The event has a half-time market, whatever its status (open, suspended, closed, settled, void). */
 async function hasHalfTimeMarket(exec: DbExecutor, eventId: string): Promise<boolean> {
@@ -202,7 +217,7 @@ async function hasHalfTimeMarket(exec: DbExecutor, eventId: string): Promise<boo
 function priceBook(input: EventPriceInput, rows: readonly MarketPriceRow[]): EventPrice {
   let fallback: EventPrice['fallback'];
   if (input.competitionPricingSource === 'market' && input.eventId !== null) {
-    const market = marketPrice(rows);
+    const market = marketPrice(rows, input.factoryMarkets === true);
     if (market.kind === 'priced') return market.price;
     fallback = market.reason;
   }
@@ -245,6 +260,7 @@ export async function backedByMarket(exec: DbExecutor, input: EventPriceInput): 
  */
 function marketPrice(
   rows: readonly MarketPriceRow[],
+  factory: boolean,
 ): { kind: 'priced'; price: EventPrice } | { kind: 'none'; reason: MarketFallback } {
   const consensus = marketConsensus(rows, { minBooks: CONSENSUS_MIN_BOOKS });
   const x12 = consensus.find((c) => c.market === '1x2');
@@ -255,14 +271,21 @@ function marketPrice(
   if (!(fit.residual <= MAX_MARKET_FIT_RESIDUAL)) return { kind: 'none', reason: 'poor_fit' };
   const priced = priceFootballFromMarket(consensus);
   if (priced === null) return { kind: 'none', reason: 'no_consensus' };
+  const markets: PricedMarket[] = factory
+    ? [...priced.markets, ...factoryMarketsFrom(priced.lambdaHome, priced.lambdaAway)]
+    : priced.markets;
   return {
     kind: 'priced',
     price: {
       source: 'market',
-      markets: priced.markets,
-      key: marketPricingKey(consensus),
+      markets,
+      // The factory's markets change what is priced, so the key says so: switching it on or off
+      // re-prices every market-priced event once (through the bounds of O3).
+      key: factory
+        ? `${marketPricingKey(consensus)}${FACTORY_KEY_SUFFIX}`
+        : marketPricingKey(consensus),
       calibrated: true,
-      pricesSane: checkMarkets(priced.markets).ok,
+      pricesSane: checkMarkets(markets).ok,
       residual: priced.residual,
       books: priced.source.books1x2,
       bookmakers: x12.bookmakers,
@@ -272,4 +295,32 @@ function marketPrice(
       outOfLine: [],
     },
   };
+}
+
+/** Marks a market pricing key whose prices include the market factory's markets (version 1). */
+export const FACTORY_KEY_SUFFIX = '|fm1';
+
+const FACTORY_ONLY_TYPES: readonly string[] = [
+  ...new Set(FACTORY_MARKETS.map((m) => m.type).filter(isFactoryOnlyMarketType)),
+];
+
+/**
+ * Plan task 2.3: the market factory's own markets (not today's types, which the market path prices
+ * already), from the expected goals fitted to the market, every selection listed. A market whose
+ * favourite would pay under 1.02 is not offered, and a market is kept only when it passes O2 on its
+ * own, so one weak market never holds the event's prices.
+ */
+function factoryMarketsFrom(lambdaHome: number, lambdaAway: number): PricedMarket[] {
+  // Every selection is listed (no long-shot pruning): a stored factory market then always holds
+  // all its prices, and hiding long shots is the match page's choice, not the storage's.
+  return priceFactoryMarkets(lambdaHome, lambdaAway, {
+    types: FACTORY_ONLY_TYPES,
+    maxListedOddsMilli: null,
+  })
+    .map((m) => ({
+      type: m.type,
+      line: m.line,
+      selections: m.selections.map((sel) => ({ code: sel.code, oddsMilli: sel.oddsMilli })),
+    }))
+    .filter((m) => m.selections.length > 0 && checkMarkets([m]).ok);
 }

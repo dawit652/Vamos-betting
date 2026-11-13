@@ -4,12 +4,7 @@ import {
   syncMarketStaleAlarm,
   syncOutOfLineAlarm,
 } from './credit-alarms';
-import {
-  anyMarketKey,
-  marketKey,
-  SCRAPED_FEED_PROVIDER,
-  type ScrapePricingSource,
-} from '@vamos/core';
+import { anyMarketKey, SCRAPED_FEED_PROVIDER, type ScrapePricingSource } from '@vamos/core';
 import {
   closeReviewItemsBySubject,
   getCompetitionPolicy,
@@ -336,6 +331,8 @@ const pricingInput = (
   now,
   halfTimeMarkets,
   capAtBestPrice: ctx.config.scraper.capAtBestPrice,
+  // Plan task 2.3: the factory's markets on market-priced events (their key says so).
+  factoryMarkets: ctx.config.scraper.factoryMarkets,
 });
 
 /**
@@ -547,7 +544,7 @@ async function repriceOne(
     const open = stored.filter((m) => m.status === 'open' || m.status === 'suspended');
     const frozen = new Set(stored.filter((m) => !open.includes(m)).map((m) => m.key));
     const previous = open.map((m) => asGate(m.type, m.line, m.selections));
-    const next = price.markets.filter((m) => !frozen.has(marketKey(m.type, m.line)));
+    const next = price.markets.filter((m) => !frozen.has(anyMarketKey(m.type, m.line)));
     const check = checkReprice(previous, next);
     // A-1: only the size of the move stands in the way of a first market price A-1 lets through.
     const waived =
@@ -569,7 +566,8 @@ async function repriceOne(
           startTime: row.startTime,
         },
         next,
-        { now, ...priceExpiryOption(ctx.config.scraper, now) },
+        // `next` is every market priced now: a stored factory market missing from it is suspended.
+        { now, ...priceExpiryOption(ctx.config.scraper, now), factoryComplete: true },
       );
       await recordEventPriced(tx, event.eventId, key, now);
       await closeReviewItemsBySubject(tx, `${row.feedRef}${REPRICE_SUBJECT_SUFFIX}`, {

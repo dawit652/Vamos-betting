@@ -51,6 +51,12 @@ export interface SetOddsOptions {
    * event past its start time is not bettable. Default: the system clock.
    */
   now?: Date;
+  /**
+   * Default true. False (plan task 2.3, the market factory's selections): the prices change but
+   * no odds_history row and no live delta is written; the pricing run's recipe (the event's
+   * pricing key) is the record, and bet placement checks the current price anyway.
+   */
+  record?: boolean;
 }
 
 const REPRICEABLE_MARKETS: ReadonlySet<MarketStatus> = new Set(['open', 'suspended']);
@@ -134,6 +140,7 @@ export async function setSelectionOdds(
       oddsMilli: change.oddsMilli,
       source: change.source,
     });
+    if (options.record === false) continue;
     messages.push(
       oddsMessage(
         row.eventId,
@@ -168,13 +175,15 @@ export async function setSelectionOdds(
           changed.map((c) => c.selectionId),
         ),
       );
-    await tx.insert(oddsHistory).values(
-      changed.map((c) => ({
-        selectionId: c.selectionId,
-        oddsMilli: c.oddsMilli,
-        source: c.source,
-      })),
-    );
+    if (options.record !== false) {
+      await tx.insert(oddsHistory).values(
+        changed.map((c) => ({
+          selectionId: c.selectionId,
+          oddsMilli: c.oddsMilli,
+          source: c.source,
+        })),
+      );
+    }
   }
   return { changed, skipped, messages };
 }

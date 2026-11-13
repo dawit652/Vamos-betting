@@ -474,7 +474,9 @@ event.** R1 to R12 are unchanged and still decide alone.
   row and an unchanged one only moves `last_decided_at`, and only when that is more than an hour
   old. Goal events are not read yet, so rung C does not wait for them to add up. The recorder cannot
   fail a pass: an error is logged as an `error` line with `alarm: 'ladder_shadow_failed'` and the
-  pass goes on. It is its own module (`pipeline/ladder-shadow.ts`) and a test fails if it takes a
+  pass goes on. The overdue-results pass also records events that are scheduled, unresulted, past their
+  earliest end, kicked off within the last 7 days and have no result observation at all (rung D `no_result`
+  after 48 hours); events with observations are recorded by the result pass only. It is its own module (`pipeline/ladder-shadow.ts`) and a test fails if it takes a
   result, review or transaction operation.
 - **The two commands.**
   - `sources truth-check [--upstream <name>] [--since YYYY-MM-DD] [--write]` prints upstream,
@@ -898,20 +900,21 @@ A licensed API such as API-Football authenticates with a request header
 Added to `packages/config` (all optional unless noted; env names are
 normative):
 
-| Variable                         | Default          | Meaning                                                                                             |
-| -------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
-| `FEED_PROVIDER`                  | `mock`           | adds the value `scraped`                                                                            |
-| `SCRAPER_ARCHIVE_DIR`            | `./var/scraper`  | raw snapshot store; absolute in licensed mode                                                       |
-| `SCRAPER_USER_AGENT`             | `NahubetBot/1.0` | identifies us to sources                                                                            |
-| `SCRAPER_CONTACT`                | unset            | URL or email appended to the user agent; **required** when `FEED_PROVIDER=scraped` in licensed mode |
-| `SCRAPER_ROBOTS`                 | `enforce`        | `enforce` or `off`; `off` is refused in licensed mode                                               |
-| `SCRAPER_PORT`                   | `4200`           | health server (0 = off)                                                                             |
-| `SCRAPER_MAX_CONCURRENCY`        | `4`              | parallel hosts                                                                                      |
-| `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`             | R4 wait, minimum 5                                                                                  |
-| `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
-| `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                      |
-| `SCRAPER_CAP_AT_BEST_PRICE`      | `off`            | O7: `off` (flag only), or `on`: cap the 1X2 and over/under prices at the best fresh book price      |
-| `SCRAPER_PRICE_EXPIRY_MINUTES`   | `0`              | P7: minutes a scraped price stays bettable without a fresh pass, 0 to 1440; `0` is off              |
+| Variable                         | Default          | Meaning                                                                                                                                             |
+| -------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FEED_PROVIDER`                  | `mock`           | adds the value `scraped`                                                                                                                            |
+| `SCRAPER_ARCHIVE_DIR`            | `./var/scraper`  | raw snapshot store; absolute in licensed mode                                                                                                       |
+| `SCRAPER_USER_AGENT`             | `NahubetBot/1.0` | identifies us to sources                                                                                                                            |
+| `SCRAPER_CONTACT`                | unset            | URL or email appended to the user agent; **required** when `FEED_PROVIDER=scraped` in licensed mode                                                 |
+| `SCRAPER_ROBOTS`                 | `enforce`        | `enforce` or `off`; `off` is refused in licensed mode                                                                                               |
+| `SCRAPER_PORT`                   | `4200`           | health server (0 = off)                                                                                                                             |
+| `SCRAPER_MAX_CONCURRENCY`        | `4`              | parallel hosts                                                                                                                                      |
+| `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`             | R4 wait, minimum 5                                                                                                                                  |
+| `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                                                                  |
+| `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                                                                      |
+| `SCRAPER_CAP_AT_BEST_PRICE`      | `off`            | O7: `off` (flag only), or `on`: cap the 1X2 and over/under prices at the best fresh book price                                                      |
+| `SCRAPER_PRICE_EXPIRY_MINUTES`   | `0`              | P7: minutes a scraped price stays bettable without a fresh pass, 0 to 1440; `0` is off                                                              |
+| `SCRAPER_FACTORY_MARKETS`        | `off`            | Plan task 2.3: `on` also prices the market factory's football markets on market-priced events (hidden from players until `FEATURE_FACTORY_MARKETS`) |
 
 There is **no** setting for the number of sources a result needs: it is the
 constant `MIN_INDEPENDENT_SOURCES = 2`.
@@ -1007,18 +1010,20 @@ stderr. Exit code: `0` success, `1` the command failed or refused, `2` the
 command line is wrong. Commands that need the database use `DATABASE_URL` from
 `.env` and check the operating mode like the runner does.
 
-| Command                                                                            | What it does                                                                                                                                                                            |
-| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sources list`                                                                     | Every source with state: enabled or disabled, last run, failures since the last ok run, open review items.                                                                              |
-| `sources upsert --file source.json`                                                | Checks the config with `createAdapter` (the runner's own check, so config errors such as a score without a status map are listed), then upserts.                                        |
-| `dry-parse --source-file source.json --document page.html`                         | Parses a saved page; prints observations and issues. No database, no network. Options: `--url`, `--at`, `--content-type`, `--limit`.                                                    |
-| `dry-fetch --source-file source.json`                                              | Fetches the planned URLs through the `PoliteFetcher` (allow-list, robots.txt, rate limit; the `auth` key from its `SCRAPER_SECRET_*` variable) and parses; prints only. Writes nothing. |
-| `aliases import --file aliases.csv`                                                | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written.                                                                                     |
-| `aliases list [--kind team\|competition] [--q text]`                               | Aliases newest first with their ids; `--q` matches the name or the target.                                                                                                              |
-| `aliases remove --id <id>`                                                         | Removes one alias (audited). The next promotion pass re-resolves the observations that used it.                                                                                         |
-| `ratings backfill --file results.json --competition <slug> [--dry-run]`            | Learns ratings from historical results; prints before and after per team.                                                                                                               |
-| `ratings set --team <name> --attack <n> --defence <n> [--matches <n>] [--dry-run]` | Sets a team's ratings by hand, with `manual = 1`; prints before and after.                                                                                                              |
-| `ratings list [--team text]`                                                       | Football teams that have ratings: attack, defence, matches, manual.                                                                                                                     |
+| Command                                                                            | What it does                                                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sources list`                                                                     | Every source with state: enabled or disabled, last run, failures since the last ok run, open review items.                                                                                                                              |
+| `sources upsert --file source.json`                                                | Checks the config with `createAdapter` (the runner's own check, so config errors such as a score without a status map are listed), then upserts.                                                                                        |
+| `dry-parse --source-file source.json --document page.html`                         | Parses a saved page; prints observations and issues. No database, no network. Options: `--url`, `--at`, `--content-type`, `--limit`.                                                                                                    |
+| `dry-fetch --source-file source.json`                                              | Fetches the planned URLs through the `PoliteFetcher` (allow-list, robots.txt, rate limit; the `auth` key from its `SCRAPER_SECRET_*` variable) and parses; prints only. Writes nothing.                                                 |
+| `aliases import --file aliases.csv`                                                | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written.                                                                                                                                     |
+| `aliases list [--kind team\|competition] [--q text]`                               | Aliases newest first with their ids; `--q` matches the name or the target.                                                                                                                                                              |
+| `aliases remove --id <id>`                                                         | Removes one alias (audited). The next promotion pass re-resolves the observations that used it.                                                                                                                                         |
+| `ratings backfill --file results.json --competition <slug> [--dry-run]`            | Learns ratings from historical results; prints before and after per team.                                                                                                                                                               |
+| `ratings set --team <name> --attack <n> --defence <n> [--matches <n>] [--dry-run]` | Sets a team's ratings by hand, with `manual = 1`; prints before and after.                                                                                                                                                              |
+| `ratings list [--team text]`                                                       | Football teams that have ratings: attack, defence, matches, manual.                                                                                                                                                                     |
+| `sources truth-check [--upstream <name>] [--since YYYY-MM-DD] [--write]`           | Compares each upstream's finished scores with the applied results (see "Trust and the result ladder in shadow"); prints compared, agreed, rate, trust level and recent disagreements. Stores `scrape_source_trust` only with `--write`. |
+| `review ladder-shadow [--since YYYY-MM-DD]`                                        | Lists the result ladder's shadow decisions (default 28 days) next to what happened to each event, with a summary per rung and reason. Read-only.                                                                                        |
 
 `source.json` is `{ "id", "name", "adapter", "upstream", "config" }` (the
 columns of `scrape_sources`; `enabled` is not allowed). **A new source starts

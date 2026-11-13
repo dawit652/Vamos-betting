@@ -23,9 +23,18 @@ const source = (
 });
 
 describe('isHalfTimeMarket', () => {
-  it('is true for ht_1x2 only, and false for unknown or inherited names', () => {
+  it('is true for ht_1x2 among today’s types, and false for unknown or inherited names', () => {
     expect(ALL_TYPES.filter(isHalfTimeMarket)).toEqual(['ht_1x2']);
-    for (const name of ['', 'htft', 'toString', '__proto__', 'constructor', 'HT_1X2']) {
+    for (const name of ['', 'toString', '__proto__', 'constructor', 'HT_1X2', 'nope']) {
+      expect(isHalfTimeMarket(name), name).toBe(false);
+    }
+  });
+
+  it('covers the factory markets that settle on a half or on both halves (plan task 2.3)', () => {
+    for (const name of ['htft', 'h2_1x2', 'h1_ou', 'home_score_both_halves', 'htcs_ft_result']) {
+      expect(isHalfTimeMarket(name), name).toBe(true);
+    }
+    for (const name of ['multigoals', 'ft_1x2_btts', 'exact_goals', 'home_win_to_nil']) {
       expect(isHalfTimeMarket(name), name).toBe(false);
     }
   });

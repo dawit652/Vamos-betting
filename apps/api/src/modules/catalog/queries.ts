@@ -35,6 +35,7 @@ import {
   type EventRow,
   type MarketRow,
   type SelectionRow,
+  type ViewOptions,
 } from './views';
 
 const HOUR_MS = 60 * 60_000;
@@ -380,6 +381,7 @@ export async function listEvents(
   db: DbExecutor,
   query: EventListQuery,
   now: Date,
+  options: ViewOptions = {},
 ): Promise<EventListResponse> {
   const cursor = query.cursor === undefined ? undefined : decodeEventCursor(query.cursor);
   const conditions: SQL[] = [
@@ -413,7 +415,13 @@ export async function listEvents(
 
   const eventRows = page.map(toEventRow).filter((row): row is EventRow => row !== null);
   return {
-    items: await summarizeEvents(db, eventRows, query.market === 'dc' ? 'dc' : undefined, now),
+    items: await summarizeEvents(
+      db,
+      eventRows,
+      query.market === 'dc' ? 'dc' : undefined,
+      now,
+      options,
+    ),
     nextCursor,
   };
 }
@@ -424,6 +432,7 @@ async function summarizeEvents(
   eventRows: readonly EventRow[],
   mainType: 'dc' | undefined,
   now: Date,
+  options: ViewOptions,
 ): Promise<EventSummary[]> {
   const marketRows = await loadMarkets(
     db,
@@ -447,6 +456,7 @@ async function summarizeEvents(
       main === null ? [] : (selectionsByMarket.get(main.id) ?? []),
       now,
       mainType,
+      options,
     );
   });
 }
@@ -477,6 +487,7 @@ export async function searchCatalog(
   db: DbExecutor,
   query: SearchQuery,
   now: Date,
+  options: ViewOptions = {},
 ): Promise<SearchResponse> {
   const raw = `%${escapeLike(query.q)}%`;
   const normalized = normalizeName(query.q);
@@ -586,7 +597,7 @@ export async function searchCatalog(
           ]
         : [],
     ),
-    events: await summarizeEvents(db, eventRows, undefined, now),
+    events: await summarizeEvents(db, eventRows, undefined, now, options),
   };
 }
 
@@ -594,7 +605,12 @@ export async function searchCatalog(
  * One event page. Events of an inactive competition or sport are not part of
  * the public catalogue (no list shows them), so they are not found here either.
  */
-async function eventDetail(db: DbExecutor, where: SQL, now: Date): Promise<EventDetail | null> {
+async function eventDetail(
+  db: DbExecutor,
+  where: SQL,
+  now: Date,
+  options: ViewOptions,
+): Promise<EventDetail | null> {
   const [row] = await selectEvents(db)
     .where(and(where, eq(competitions.active, true), eq(sports.active, true)))
     .limit(1);
@@ -610,6 +626,7 @@ async function eventDetail(db: DbExecutor, where: SQL, now: Date): Promise<Event
     marketRows,
     groupBy(selectionRows, (selection) => selection.marketId),
     now,
+    options,
   );
 }
 
@@ -621,9 +638,10 @@ export async function getEventById(
   db: DbExecutor,
   id: string,
   now: Date,
+  options: ViewOptions = {},
 ): Promise<EventDetail | null> {
   if (!isUuid(id)) return null;
-  return eventDetail(db, eq(events.id, id), now);
+  return eventDetail(db, eq(events.id, id), now, options);
 }
 
 /**
@@ -634,8 +652,9 @@ export async function getEventByGameId(
   db: DbExecutor,
   gameId: string,
   now: Date,
+  options: ViewOptions = {},
 ): Promise<EventDetail | null> {
   const parsed = parseGameId(gameId);
   if (parsed === null) return null;
-  return eventDetail(db, eq(events.gameId, parsed), now);
+  return eventDetail(db, eq(events.gameId, parsed), now, options);
 }

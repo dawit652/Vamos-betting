@@ -331,6 +331,9 @@ export function checkReprice(
     const now = after.get(key);
     if (old === undefined) continue; // added: no price to move from; O2 checked it above
     if (now === undefined) {
+      // A factory market that pricing stops offering is suspended where it is stored
+      // (upsertFixture's factoryComplete), so its removal does not hold the re-price.
+      if (factoryKeys.has(key)) continue;
       issues.push(issue('market_set_changed', key, null, 'market removed'));
       continue;
     }

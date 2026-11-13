@@ -278,6 +278,13 @@ const envSchema = z.object({
    * reads are every 30 minutes in the last 24 hours), e.g. 90.
    */
   SCRAPER_PRICE_EXPIRY_MINUTES: z.coerce.number().int().min(0).max(1440).default(0),
+  /**
+   * Plan task 2.3: `on` adds the market factory's football markets (about 190 lines) to the
+   * events the scraper prices from the market, from the same fitted expected goals. `off`
+   * (default): only today's markets. They stay hidden from players until
+   * FEATURE_FACTORY_MARKETS is on ("priced but hidden" first).
+   */
+  SCRAPER_FACTORY_MARKETS: z.enum(['off', 'on']).default('off'),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -342,6 +349,8 @@ const envSchema = z.object({
   TAX_CONFIG_CONFIRMED: bool.default(false),
 
   FEATURE_CASINO: bool.default(false),
+  /** Plan task 2.4: the catalogue shows the market factory's markets (default false: hidden). */
+  FEATURE_FACTORY_MARKETS: bool.default(false),
   FEATURE_VIRTUALS: bool.default(false),
 
   /**
@@ -419,7 +428,14 @@ export interface AppConfig {
   payments: PaymentProvidersConfig;
   taxConfigConfirmed: boolean;
   /** `smsBetting` and `ussd` mirror channels.sms.enabled and channels.ussd.enabled. */
-  features: { casino: boolean; virtuals: boolean; smsBetting: boolean; ussd: boolean };
+  features: {
+    casino: boolean;
+    virtuals: boolean;
+    smsBetting: boolean;
+    ussd: boolean;
+    /** FEATURE_FACTORY_MARKETS: the catalogue shows the market factory's markets. */
+    factoryMarkets: boolean;
+  };
   /** REGISTRATION_SMS_VERIFICATION: `off` registers a player without proving the phone by SMS code. */
   registration: { smsVerification: 'required' | 'off' };
   /**
@@ -459,6 +475,8 @@ export interface ScraperConfig {
   capAtBestPrice: boolean;
   /** SCRAPER_PRICE_EXPIRY_MINUTES: rule P7 price expiry in minutes; 0 (default) is off. */
   priceExpiryMinutes: number;
+  /** SCRAPER_FACTORY_MARKETS=on: market-priced events also get the factory's markets (default off). */
+  factoryMarkets: boolean;
 }
 
 /** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -761,6 +779,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       skipRedundantScores: e.SCRAPER_SKIP_REDUNDANT_SCORES === 'on',
       capAtBestPrice: e.SCRAPER_CAP_AT_BEST_PRICE === 'on',
       priceExpiryMinutes: e.SCRAPER_PRICE_EXPIRY_MINUTES,
+      factoryMarkets: e.SCRAPER_FACTORY_MARKETS === 'on',
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {
@@ -804,6 +823,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       virtuals: e.FEATURE_VIRTUALS,
       smsBetting: smsEnabled,
       ussd: ussdEnabled,
+      factoryMarkets: e.FEATURE_FACTORY_MARKETS,
     },
     channels: {
       sms: {

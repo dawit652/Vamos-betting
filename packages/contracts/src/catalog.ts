@@ -35,6 +35,8 @@ export const MarketView = z.object({
   type: z.string(),
   line: z.string().nullable(),
   name: LocalizedNameSchema,
+  /** The market factory's group ('goals', 'combo', ...); only on factory markets. */
+  group: z.string().optional(),
   status: z.enum(['open', 'suspended', 'closed', 'settled', 'void']),
   selections: z.array(SelectionView),
 });

@@ -141,6 +141,23 @@ describe('O3 on factory markets', () => {
     expect(check.ok).toBe(false);
   });
 
+  it('does not hold a re-price because a factory market is no longer offered (it is suspended where stored)', () => {
+    const oneXTwo: GateMarket = {
+      type: '1x2',
+      line: null,
+      selections: [
+        { code: '1', oddsMilli: 2100 },
+        { code: 'X', oddsMilli: 3300 },
+        { code: '2', oddsMilli: 3600 },
+      ],
+    };
+    expect(checkReprice([oneXTwo, priced('htft')], [oneXTwo])).toEqual({ ok: true });
+    // Removing one of today's markets still holds.
+    const check = checkReprice([oneXTwo, priced('htft')], [priced('htft')]);
+    expect(check.ok).toBe(false);
+    if (!check.ok) expect(check.issues.map((i) => i.code)).toContain('market_set_changed');
+  });
+
   it('adds a factory market to an event without holding the others', () => {
     const oneXTwo: GateMarket = {
       type: '1x2',

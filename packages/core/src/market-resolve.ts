@@ -100,3 +100,27 @@ export function factoryMarketSortOrder(type: string, line?: string | null): numb
 export function anyMarketKey(type: string, line?: string | null): string {
   return isLegacyMarketType(type) ? marketKey(type, line) : factoryMarketKey(type, line);
 }
+
+/**
+ * True when a market of this type settles on the half-time score: today's half-time types
+ * (`period: 'half_time'`, i.e. 'ht_1x2') and every factory type on a half or on both halves.
+ * An event with such a market needs the half-time score before its result can apply.
+ */
+export function marketNeedsHalfTime(type: string): boolean {
+  if (isLegacyMarketType(type)) return MARKET_TYPES[type].period === 'half_time';
+  return FACTORY_HALF_TIME_TYPES.has(type);
+}
+
+const FACTORY_HALF_TIME_TYPES: ReadonlySet<string> = new Set(
+  FACTORY_MARKETS.filter((m) => !isLegacyMarketType(m.type) && m.basis !== 'ft').map((m) => m.type),
+);
+
+/** Every market type (today's and the factory's) that settles on the half-time score, sorted. */
+export const HALF_TIME_MARKET_TYPES: readonly string[] = Object.freeze(
+  [
+    ...(Object.keys(MARKET_TYPES) as MarketTypeCode[]).filter(
+      (type) => MARKET_TYPES[type].period === 'half_time',
+    ),
+    ...FACTORY_HALF_TIME_TYPES,
+  ].sort(),
+);

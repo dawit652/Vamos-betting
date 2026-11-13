@@ -86,7 +86,9 @@ describe('loadConfig', () => {
       virtuals: false,
       smsBetting: false,
       ussd: false,
+      factoryMarkets: false,
     });
+    expect(loadConfig({ FEATURE_FACTORY_MARKETS: 'true' }).features.factoryMarkets).toBe(true);
   });
 
   it('accepts a fully configured licensed environment', () => {
@@ -593,6 +595,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       skipRedundantScores: false,
       capAtBestPrice: false,
       priceExpiryMinutes: 0,
+      factoryMarkets: false,
     });
     // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
     expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
@@ -614,6 +617,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       SCRAPER_SKIP_REDUNDANT_SCORES: 'on',
       SCRAPER_CAP_AT_BEST_PRICE: 'on',
       SCRAPER_PRICE_EXPIRY_MINUTES: '90',
+      SCRAPER_FACTORY_MARKETS: 'on',
     });
     expect(config.scraper).toEqual({
       archiveDir: '/data/scraper',
@@ -630,6 +634,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       skipRedundantScores: true,
       capAtBestPrice: true,
       priceExpiryMinutes: 90,
+      factoryMarkets: true,
     });
     // A blank contact (as in an env file) is "not set".
     expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();
@@ -652,6 +657,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       ['SCRAPER_SKIP_REDUNDANT_SCORES', ['true', 'ON', '1', '']],
       ['SCRAPER_CAP_AT_BEST_PRICE', ['true', 'ON', '1', '']],
       ['SCRAPER_PRICE_EXPIRY_MINUTES', ['-1', '1441', 'abc', '1.5']],
+      ['SCRAPER_FACTORY_MARKETS', ['true', 'ON', '1', '']],
       ['SCRAPER_ARCHIVE_DIR', ['   ']],
       ['SCRAPER_USER_AGENT', ['   ', 'Bot\r\nX-Evil: 1', 'Bøt/1.0']],
       [

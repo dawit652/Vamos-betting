@@ -1,5 +1,4 @@
-import { MARKET_TYPES, type MarketTypeCode } from '@vamos/core';
-import { SCRAPED_FEED_PROVIDER } from '@vamos/core';
+import { HALF_TIME_MARKET_TYPES, SCRAPED_FEED_PROVIDER } from '@vamos/core';
 import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { DbExecutor } from '../ledger/types';
 import { bets } from '../schema/betting';
@@ -7,10 +6,6 @@ import { events } from '../schema/catalog';
 
 /** Kickoff proximity within which an observation counts as listing an event (rule F5). */
 export const DEFAULT_LISTED_WINDOW_MS = 36 * 3_600_000;
-
-const HALF_TIME_MARKET_TYPES: readonly string[] = (Object.keys(MARKET_TYPES) as MarketTypeCode[])
-  .filter((code) => MARKET_TYPES[code].period === 'half_time')
-  .sort();
 
 export type ScrapedEventStatus =
   'scheduled' | 'live' | 'finished' | 'cancelled' | 'postponed' | 'abandoned';

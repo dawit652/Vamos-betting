@@ -368,11 +368,46 @@ export async function flagOverdueResults(ctx: ScraperContext): Promise<OverdueRe
     }
   }
 
+  await shadowSilentEvents(ctx, now, unresulted);
+
   ctx.logger[summary.opened + summary.closed > 0 ? 'info' : 'debug'](
     { ...summary },
     'overdue result run',
   );
   return summary;
+}
+
+/** Only recent kickoffs are looked at for the ladder's "no result anywhere" case: rung D waits 48 hours. */
+const SILENT_SHADOW_LOOK_BACK_MS = 7 * DAY_MS;
+
+/**
+ * The ladder in shadow for the events `promoteResults` never sees: unresulted, scheduled, past the
+ * earliest end and with no current result observation at all (rung D's `no_result`). Events that
+ * have observations are recorded there, so they are skipped here. It records only; a failure is
+ * the recorder's alarm (or logged here when the observation read fails) and never fails the pass.
+ */
+async function shadowSilentEvents(
+  ctx: ScraperContext,
+  now: Date,
+  unresulted: readonly ScrapedEvent[],
+): Promise<void> {
+  try {
+    const from = now.getTime() - SILENT_SHADOW_LOOK_BACK_MS;
+    const due = unresulted.filter(
+      (event) =>
+        event.startTime.getTime() >= from &&
+        event.startTime.getTime() + MIN_MATCH_DURATION_MS <= now.getTime(),
+    );
+    if (due.length === 0) return;
+    const { byEvent, cutoff } = await resultObservationsByEvent(ctx, unresulted, now);
+    const shadow = ladderShadow(ctx, now);
+    for (const event of due) {
+      if (byEvent.has(event.eventId) || deferredEvent(cutoff, event)) continue;
+      await shadow.record(event, []);
+    }
+  } catch (error) {
+    ctx.logger.error({ err: error, alarm: 'ladder_shadow_failed' }, 'ladder shadow failed');
+  }
 }
 
 const sameScore = (a: Score, b: Score): boolean =>

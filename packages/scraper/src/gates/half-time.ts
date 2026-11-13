@@ -1,4 +1,4 @@
-import { MARKET_TYPES, type MarketTypeCode } from '@vamos/core';
+import { marketNeedsHalfTime } from '@vamos/core';
 import type { SourceCapabilities } from '../adapters/capabilities';
 
 /**
@@ -19,9 +19,8 @@ export type HalfTimeMarketsSetting = 'all' | 'covered';
 
 /** True for a market type settled on the half-time score; an unknown type is not one. */
 export function isHalfTimeMarket(type: string): boolean {
-  return (
-    Object.hasOwn(MARKET_TYPES, type) && MARKET_TYPES[type as MarketTypeCode].period === 'half_time'
-  );
+  // Today's 'ht_1x2' and every factory market on a half or on both halves (plan task 2.3).
+  return typeof type === 'string' && marketNeedsHalfTime(type);
 }
 
 /** The markets without the half-time ones, in their order; every other market is kept as it is. */

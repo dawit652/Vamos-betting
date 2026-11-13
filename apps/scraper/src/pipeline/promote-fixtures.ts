@@ -13,7 +13,6 @@ import {
   type LiveMessage,
   type ScrapedEvent,
 } from '@vamos/db';
-import type { priceFixture } from '@vamos/feed';
 import {
   agreementCovers,
   assessKickoff,
@@ -52,7 +51,7 @@ import { betLegs, events as eventsTable, scrapeReviewItems } from '@vamos/db/sch
 import { and, eq } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
-import { priceEvent } from './event-pricing';
+import { priceEvent, type PricedMarket } from './event-pricing';
 import { halfTimeCheck, type HalfTimeCheck } from './half-time';
 import {
   auditScraper,
@@ -759,7 +758,7 @@ export async function applyCreate(
   ctx: ScraperContext,
   decision: FixtureCreate,
   pricing: {
-    markets: ReturnType<typeof priceFixture>;
+    markets: readonly PricedMarket[];
     ratingsKey: string;
     /** Rule O6 left the half-time markets out (audited). */
     halfTimeOmitted?: boolean;
