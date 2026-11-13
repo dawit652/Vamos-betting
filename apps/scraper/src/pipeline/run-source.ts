@@ -48,9 +48,15 @@ import {
   type MarketOddsObservation,
   type Observation,
   type ParseOutcome,
+  type RateLimitReading,
   type Resolution,
 } from '@vamos/scraper';
-import { raiseUnauthorized, raiseUnexpectedCost, resolveUnauthorized } from './credit-alarms';
+import {
+  raiseUnauthorized,
+  raiseUnexpectedCost,
+  resolveUnauthorized,
+  syncRateLimitAlarm,
+} from './credit-alarms';
 import { scrapeObservations } from '@vamos/db/schema';
 import { tryLock } from '../lib/lock';
 import { secretProblemMessage } from '../lib/secrets';
@@ -474,6 +480,18 @@ async function execute(
   const plan = adapter.plan(ctx.clock());
   /** The key whose guard and alarms this source shares (rule G1); only for metered APIs. */
   const creditKey = adapter.usage === undefined ? null : creditKeyOf(source.id, plan);
+  /**
+   * A daily-limited API (task A3): the answers it counted this run and its latest reading of the
+   * day's limit, stored in the run's credit columns under the source's own key; null otherwise.
+   */
+  const daily =
+    adapter.rateLimit === undefined
+      ? null
+      : {
+          key: creditKeyOf(source.id, plan),
+          answered: 0,
+          reading: null as RateLimitReading | null,
+        };
   try {
     for (const item of plan) {
       counts.requests += 1;
@@ -600,6 +618,10 @@ async function execute(
           }
         }
       }
+      if (daily !== null && adapter.rateLimit !== undefined) {
+        daily.answered += 1;
+        daily.reading = adapter.rateLimit.read(result.headers) ?? daily.reading;
+      }
       currentUrl = result.url;
       counts.bytes += result.body.length;
       // Evidence first: nothing is parsed (let alone stored) that was not archived.
@@ -703,7 +725,29 @@ async function execute(
       error: status === 'ok' ? null : errorText,
       finishedAt: ctx.clock(),
       ...(credits === null ? {} : { apiCredits: credits }),
+      ...(daily === null
+        ? {}
+        : {
+            apiCredits: {
+              spent: daily.answered,
+              used: daily.reading === null ? null : daily.reading.limit - daily.reading.remaining,
+              remaining: daily.reading?.remaining ?? null,
+            },
+          }),
     });
+    if (daily !== null && daily.reading !== null) {
+      await syncRateLimitAlarm(
+        tx,
+        {
+          creditKey: daily.key,
+          sourceId: source.id,
+          runId: run.id,
+          now: ctx.clock(),
+          alerts: ctx.config.ownerAlerts,
+        },
+        daily.reading,
+      );
+    }
   });
   ctx.logger.info({ sourceId: source.id, runId: run.id, status, ...counts }, 'source run finished');
   return {

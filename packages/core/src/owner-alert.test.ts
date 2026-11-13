@@ -18,6 +18,12 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   { alarm: 'budget_projection', creditKey: 'theoddsapi', daysUntilEmpty: 3.4 },
   { alarm: 'unauthorized', creditKey: 'theoddsapi' },
   { alarm: 'unexpected_cost', creditKey: 'theoddsapi', cost: 30, expected: 10 },
+  {
+    alarm: 'rate_limit_low',
+    creditKey: 'SCRAPER_SECRET_API_FOOTBALL',
+    remaining: 600,
+    limit: 7500,
+  },
   { alarm: 'sms_receipt_rejected', smsId: '0b0c7f5e-3c55-4a8e-9d36-3f1b6a5a8e11' },
   { alarm: 'sms_balance_drift', institution: 'telebirr', direction: 'credited_more_than_arrived' },
   { alarm: 'sms_balance_drift', institution: 'cbe', direction: 'missed_incoming' },

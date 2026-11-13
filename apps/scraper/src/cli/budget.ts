@@ -17,7 +17,9 @@ import {
   estimateScoresReadsPerDay,
   METERED_RESULTS_WINDOW_END_MS,
   summariseCredits,
+  rateLimitLow,
   TheOddsApiConfigSchema,
+  utcDayStart,
   utcMonthStart,
   type SourceAdapter,
 } from '@vamos/scraper';
@@ -245,6 +247,42 @@ export async function sourcesBudget(args: string[], env: CliEnv): Promise<number
     });
   }
 
+  // Daily-limited APIs (API-Football, task A3): not under the credit guard; today's reading only.
+  const dailyKeys = new Map<string, string[]>();
+  for (const source of enabled) {
+    const built = createAdapter({
+      id: source.id,
+      adapter: source.adapter,
+      upstream: source.upstream,
+      config: source.config,
+    });
+    if (!built.ok || built.adapter.rateLimit === undefined) continue;
+    const key = creditKeyOf(source.id, built.adapter.plan(now));
+    dailyKeys.set(key, [...(dailyKeys.get(key) ?? []), source.id]);
+  }
+  const dailyLimits = [];
+  for (const [key, ids] of [...dailyKeys].sort(([a], [b]) => a.localeCompare(b))) {
+    const usage = await apiCreditUsage(db, {
+      sourceIds: ids,
+      monthStart: utcDayStart(now),
+      since: new Date(now.getTime() - DAY_MS),
+    });
+    const latest = usage.latest;
+    const limit = latest !== null && latest.used !== null ? latest.used + latest.remaining : null;
+    dailyLimits.push({
+      creditKey: key,
+      sources: ids,
+      limit,
+      remaining: latest?.remaining ?? null,
+      lastReadAt: latest?.at.toISOString() ?? null,
+      answeredLast24h: usage.spentSince,
+      low:
+        limit !== null && latest !== null
+          ? rateLimitLow({ limit, remaining: latest.remaining })
+          : false,
+    });
+  }
+
   const unmatchedPriority = (settings.priorityCompetitions ?? []).filter(
     (slug) => !sources.some((s) => s.competition === slug),
   );
@@ -327,6 +365,24 @@ export async function sourcesBudget(args: string[], env: CliEnv): Promise<number
     if (unmatchedPriority.length > 0)
       lines.push(`priority slug(s) no metered source reads: ${unmatchedPriority.join(', ')}`);
   }
+  if (dailyLimits.length > 0) {
+    lines.push(
+      '',
+      'daily request limits (reset at 00:00 UTC; not under the credit guard):',
+      ...table(
+        ['key', 'sources', 'limit', 'left today', 'answers 24h', 'last read', 'low'],
+        dailyLimits.map((d) => [
+          d.creditKey,
+          d.sources.join(','),
+          d.limit === null ? '-' : String(d.limit),
+          d.remaining === null ? 'no reading today' : String(d.remaining),
+          String(d.answeredLast24h),
+          d.lastReadAt ?? '-',
+          d.low ? 'yes (under 10%)' : 'no',
+        ]),
+      ),
+    );
+  }
   lines.push('', 'assumptions:', ...assumptions.map((a) => `  - ${a}`));
 
   emit(
@@ -343,6 +399,7 @@ export async function sourcesBudget(args: string[], env: CliEnv): Promise<number
       unmatchedPriority,
       sources,
       keys,
+      dailyLimits,
       assumptions,
     },
     lines,

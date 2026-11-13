@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type {
   FetchPlanItem,
   ParseOutcome,
+  RateLimitReading,
   RawDocument,
   Score,
   SourceAdapter,
@@ -122,6 +123,27 @@ function dayOfUrl(url: string): string | null {
   }
 }
 
+/** A request count from a rate-limit header: a whole number >= 0, else null. */
+function requestCount(value: string | undefined): number | null {
+  if (value === undefined || !/^\s*\d{1,12}\s*$/.test(value)) return null;
+  return Number(value);
+}
+
+/**
+ * API-Football's daily limit as a response reports it (task A3): `x-ratelimit-requests-limit`
+ * (requests a day on the plan; 7,500 on Pro) and `x-ratelimit-requests-remaining` (left today,
+ * UTC). The per-minute pair (`x-ratelimit-limit`, `x-ratelimit-remaining`) is not this. Null
+ * unless both are whole numbers and remaining is not above the limit.
+ */
+export function readApiFootballRateLimit(
+  headers: Readonly<Record<string, string>>,
+): RateLimitReading | null {
+  const limit = requestCount(headers['x-ratelimit-requests-limit']);
+  const remaining = requestCount(headers['x-ratelimit-requests-remaining']);
+  if (limit === null || remaining === null || limit === 0 || remaining > limit) return null;
+  return { limit, remaining };
+}
+
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -165,6 +187,7 @@ export function createApiFootballAdapter(
   return {
     descriptor,
     allowedHosts: config.allowedHosts,
+    rateLimit: { read: readApiFootballRateLimit },
     plan(now: Date): FetchPlanItem[] {
       const today = Math.floor(now.getTime() / DAY_MS) * DAY_MS;
       const items: FetchPlanItem[] = [];

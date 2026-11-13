@@ -261,6 +261,25 @@ export interface SourceAdapter {
   parse(doc: RawDocument): ParseOutcome;
   /** A metered API: what it says each response cost, and what one request should cost. */
   readonly usage?: ApiUsageReader;
+  /**
+   * An API with a daily request limit instead of monthly credits (API-Football): its own limit
+   * as each response reports it. Not under the credit guard (whose quota is monthly and whose
+   * schedule is for odds and scores sources); the runs record it and an alarm warns near the limit.
+   */
+  readonly rateLimit?: RateLimitReader;
+}
+
+/** A daily request limit as a response reported it. */
+export interface RateLimitReading {
+  /** Requests allowed per day (UTC). */
+  limit: number;
+  /** Requests left today, this one included. */
+  remaining: number;
+}
+
+export interface RateLimitReader {
+  /** The reading in a response's headers (lower-case names), or null when it reports none. */
+  read(headers: Readonly<Record<string, string>>): RateLimitReading | null;
 }
 
 /** What a metered API reports about its credits in a response's headers. */

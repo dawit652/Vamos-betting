@@ -36,6 +36,8 @@ export type OwnerAlertInput =
   | { alarm: 'budget_projection'; creditKey: string; daysUntilEmpty: number }
   /** The odds API refused the key (HTTP 401). */
   | { alarm: 'unauthorized'; creditKey: string }
+  /** A daily-limited API (API-Football) has under 10% of today's requests left. */
+  | { alarm: 'rate_limit_low'; creditKey: string; remaining: number; limit: number }
   /** A request cost more credits than expected. */
   | { alarm: 'unexpected_cost'; creditKey: string; cost: number; expected: number }
   /** A credited SMS deposit is contradicted by the institution's receipt page. */
@@ -152,6 +154,14 @@ function build(input: OwnerAlertInput): OwnerAlert {
         key: `unauthorized|${subjectOf(input.creditKey)}`,
         message: 'The bookmaker odds API refused our key: reads with that key are stopped.',
       };
+    case 'rate_limit_low': {
+      const remaining = wholeNumber(input.remaining, 0);
+      const limit = wholeNumber(input.limit, 0);
+      return {
+        key: `rate_limit_low|${subjectOf(input.creditKey)}`,
+        message: `The results API has ${remaining} of ${limit} requests left today. Reading carries on; the limit resets at midnight UTC.`,
+      };
+    }
     case 'unexpected_cost':
       return {
         key: `unexpected_cost|${subjectOf(input.creditKey)}`,

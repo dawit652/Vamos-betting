@@ -8,6 +8,7 @@ import {
   createAdapter,
   goalsAddUp,
   parseApiFootballEvents,
+  readApiFootballRateLimit,
   safeParse,
   sourceCapabilities,
   type GoalEvent,
@@ -573,5 +574,59 @@ describe('real API-Football responses', () => {
     expect(
       goalsAddUp(parsed.timeline, 611, 79, { home: 1, away: 1 }, 'credited_team', 120).matches,
     ).toBe(true);
+  });
+});
+
+describe('readApiFootballRateLimit (task A3)', () => {
+  it('reads the daily pair, not the per-minute pair', () => {
+    expect(
+      readApiFootballRateLimit({
+        'x-ratelimit-requests-limit': '7500',
+        'x-ratelimit-requests-remaining': '7412',
+        'x-ratelimit-limit': '300',
+        'x-ratelimit-remaining': '299',
+      }),
+    ).toEqual({ limit: 7500, remaining: 7412 });
+  });
+
+  it('is null when either side is missing, not a whole number, or remaining exceeds the limit', () => {
+    expect(readApiFootballRateLimit({})).toBeNull();
+    expect(readApiFootballRateLimit({ 'x-ratelimit-limit': '300' })).toBeNull();
+    expect(readApiFootballRateLimit({ 'x-ratelimit-requests-limit': '7500' })).toBeNull();
+    expect(
+      readApiFootballRateLimit({
+        'x-ratelimit-requests-limit': '7500',
+        'x-ratelimit-requests-remaining': '-1',
+      }),
+    ).toBeNull();
+    expect(
+      readApiFootballRateLimit({
+        'x-ratelimit-requests-limit': '7500',
+        'x-ratelimit-requests-remaining': '12.5',
+      }),
+    ).toBeNull();
+    expect(
+      readApiFootballRateLimit({
+        'x-ratelimit-requests-limit': '100',
+        'x-ratelimit-requests-remaining': '101',
+      }),
+    ).toBeNull();
+    expect(
+      readApiFootballRateLimit({
+        'x-ratelimit-requests-limit': '0',
+        'x-ratelimit-requests-remaining': '0',
+      }),
+    ).toBeNull();
+  });
+
+  it('is the adapter’s rate-limit reader, and the adapter is not a metered (credit) source', () => {
+    const adapter = build();
+    expect(adapter.usage).toBeUndefined();
+    expect(
+      adapter.rateLimit?.read({
+        'x-ratelimit-requests-limit': '100',
+        'x-ratelimit-requests-remaining': '0',
+      }),
+    ).toEqual({ limit: 100, remaining: 0 });
   });
 });

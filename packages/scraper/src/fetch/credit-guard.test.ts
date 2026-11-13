@@ -10,6 +10,8 @@ import {
   utcMonthStart,
   type CreditGuardMode,
   type CreditStatus,
+  rateLimitLow,
+  utcDayStart,
 } from './credit-guard';
 
 const base = {
@@ -193,6 +195,37 @@ describe('creditProjection', () => {
           expect(p.overruns).toBe(p.daysUntilEmpty! < p.daysLeftInMonth);
         },
       ),
+    );
+  });
+});
+
+describe('daily request limits (task A3)', () => {
+  it('is low under 10% left, not at 10%', () => {
+    expect(rateLimitLow({ limit: 7500, remaining: 749 })).toBe(true);
+    expect(rateLimitLow({ limit: 7500, remaining: 750 })).toBe(false);
+    expect(rateLimitLow({ limit: 7500, remaining: 0 })).toBe(true);
+    expect(rateLimitLow({ limit: 7500, remaining: 7500 })).toBe(false);
+  });
+
+  it('agrees with the share left for any limit (property)', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 1_000_000 }),
+        fc.double({ min: 0, max: 1 }),
+        (limit, share) => {
+          const remaining = Math.floor(limit * share);
+          expect(rateLimitLow({ limit, remaining })).toBe(remaining / limit < 0.1);
+        },
+      ),
+    );
+  });
+
+  it('resets at midnight UTC', () => {
+    expect(utcDayStart(new Date('2026-11-13T23:59:59.999Z')).toISOString()).toBe(
+      '2026-11-13T00:00:00.000Z',
+    );
+    expect(utcDayStart(new Date('2026-11-14T00:00:00.000Z')).toISOString()).toBe(
+      '2026-11-14T00:00:00.000Z',
     );
   });
 });

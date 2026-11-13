@@ -154,3 +154,19 @@ export function creditProjection(status: CreditStatus, now: Date): CreditProject
     overruns: rated && remaining !== null && projectedToReset > remaining,
   };
 }
+
+/**
+ * A daily request limit (API-Football, task A3) is low when under 10% of the day's requests are
+ * left: an alarm, nothing slows down (the spine reads a few requests a run, far under the limit;
+ * a low reading means something else shares the key). Pure.
+ */
+export const RATE_LIMIT_LOW_PER_MILLE = 100;
+
+export function rateLimitLow(reading: { limit: number; remaining: number }): boolean {
+  return reading.remaining * 1000 < reading.limit * RATE_LIMIT_LOW_PER_MILLE;
+}
+
+/** The first instant of `now`'s day, UTC: a daily request limit resets then. */
+export function utcDayStart(now: Date): Date {
+  return new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS);
+}

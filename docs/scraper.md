@@ -594,6 +594,7 @@ Nothing the alarming code does changes; the alert is added in the same transacti
 | `source_broken` (shape, or invalid configuration)                                                                | the item opens                                             | `source_broken\|<source id>`                 |
 | `source_stale` (S5)                                                                                              | the item opens                                             | `source_stale\|<source id>`                  |
 | `budget_low`, `budget_exhausted`, `budget_projection`, `unauthorized`, `unexpected_cost` (4.8)                   | the item opens, or `budget_low` becomes `budget_exhausted` | `<reason>\|<credit key>`                     |
+| `rate_limit_low` (6.7a)                                                                                          | the item opens                                             | `rate_limit_low\|<key variable>`             |
 | `ladder_shadow_failed`                                                                                           | once per pass that fails                                   | `ladder_shadow_failed`                       |
 | `market_family_moved` (6.5a)                                                                                     | the weekly family job suspends, returns or ends a family   | `market_family_moved\|<family>\|<week>`      |
 | `sms_receipt_rejected`, `sms_balance_drift`, `sms_gateway_silent`, `sms_review_backlog`, `manual_payout_waiting` | the check finds it, at most once per interval and key      | `<alarm>` (plus the SMS, or the institution) |
@@ -1003,6 +1004,27 @@ A licensed API such as API-Football authenticates with a request header
   a response that contains the key is dropped (`secret_echoed`: not archived, not parsed); nothing logs
   request headers; the value is not in the config object, the context or the database. Tests search logs,
   run issues, every table, the archive and the CLI output for it.
+
+### 6.7a API-Football: the results spine in shadow, and its daily limit (task A3)
+
+`docs/scraper-plan/data/source-apifootball-bydate.json` is the source row of the `apifootball` adapter
+(upstream `api-sports`, key in `SCRAPER_SECRET_API_FOOTBALL`, header `x-apisports-key`): every
+fixture of yesterday, today and the next two days worldwide, four requests a run on the fixtures
+and results schedule. Add it with `sources upsert --file` and enable it with every competition policy
+it reaches still off for leagues not yet trusted (shadow, section 10): it stores observations, feeds
+`sources truth-check --upstream api-sports` and the ladder shadow, and creates or applies nothing by
+itself where the policy is off.
+
+API-Football meters requests per day (7,500 on Pro, reset at 00:00 UTC), not credits per month, so it
+is **not** under the credit guard (rules G): the adapter has a `rateLimit` reader instead of `usage`,
+and the scheduler reads it on its normal fixtures/results schedule. Each answer's
+`x-ratelimit-requests-limit` and `x-ratelimit-requests-remaining` (not the per-minute pair) are read;
+the run stores the answers it counted (`api_credits_spent`), the day's used and remaining in its credit
+columns, under the source's own key. Under 10% left (`rateLimitLow`) opens a `source_broken` item with
+reason `rate_limit_low` (subject `credits|<key>|rate_limit`) and tells the owner once; the first reading
+above 10% closes it. Nothing slows down: the spine needs a few dozen requests a day, so a low reading
+means something else uses the key. `sources budget` lists today's reading per key under "daily request
+limits".
 
 ## 7. Configuration
 

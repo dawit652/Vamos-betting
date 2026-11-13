@@ -8,7 +8,12 @@ import {
 } from '@vamos/db';
 import { scrapeReviewItems } from '@vamos/db/schema';
 import { and, eq } from 'drizzle-orm';
-import type { CreditProjection, CreditStatus } from '@vamos/scraper';
+import {
+  rateLimitLow,
+  type CreditProjection,
+  type CreditStatus,
+  type RateLimitReading,
+} from '@vamos/scraper';
 
 /**
  * The alarms of a metered odds API (docs/theoddsapi-plan/README.md, section 4.8). Each is a
@@ -23,6 +28,7 @@ import type { CreditProjection, CreditStatus } from '@vamos/scraper';
  * | unexpected_cost    | a request cost more than expected (G3)      | a person dismisses it       |
  * | market_stale       | a market-priced match within 24 h kept old prices | fresh prices arrive   |
  * | odds_out_of_line   | a selection is priced above the best book price (O7) | none is any more     |
+ * | rate_limit_low     | a daily-limited API left under 10% of today's requests | a reading above it |
  *
  * The first five also tell the owner (plan task 1.11): when `ref.alerts` has an owner number, the
  * transaction that opens the item, or changes its reason (budget_low to budget_exhausted share one
@@ -31,6 +37,7 @@ import type { CreditProjection, CreditStatus } from '@vamos/scraper';
  */
 
 export type CreditAlarmReason =
+  | 'rate_limit_low'
   | 'budget_low'
   | 'budget_exhausted'
   | 'budget_projection'
@@ -51,7 +58,7 @@ export interface AlarmRef {
 
 export const creditAlarmSubject = (
   creditKey: string,
-  cause: 'budget' | 'projection' | 'unauthorized' | 'unexpected_cost',
+  cause: 'budget' | 'projection' | 'unauthorized' | 'unexpected_cost' | 'rate_limit',
 ): string => `credits|${creditKey}|${cause}`;
 
 export const marketStaleSubject = (eventId: string): string => `market_stale|${eventId}`;
@@ -163,6 +170,42 @@ export async function syncBudgetAlarm(
       now: ref.now,
     });
   }
+}
+
+/**
+ * rate_limit_low (task A3): a daily-limited API's latest answer left under 10% of the day's
+ * requests (`rateLimitLow`); resolved by the first reading above it (after midnight UTC at the
+ * latest). Tells the owner once per episode.
+ */
+export async function syncRateLimitAlarm(
+  tx: DbTransaction,
+  ref: AlarmRef,
+  reading: RateLimitReading,
+): Promise<void> {
+  const subjectKey = creditAlarmSubject(ref.creditKey, 'rate_limit');
+  if (!rateLimitLow(reading)) {
+    await closeReviewItemsBySubject(tx, subjectKey, {
+      kinds: ['source_broken'],
+      resolution: 'more than 10% of the daily requests are left',
+      now: ref.now,
+    });
+    return;
+  }
+  await raise(
+    tx,
+    ref,
+    subjectKey,
+    'rate_limit_low',
+    'warning',
+    `The daily request limit is nearly used: ${reading.remaining} of ${reading.limit} left today`,
+    { limit: reading.limit, remaining: reading.remaining },
+    {
+      alarm: 'rate_limit_low',
+      creditKey: ref.creditKey,
+      remaining: reading.remaining,
+      limit: reading.limit,
+    },
+  );
 }
 
 const oneDecimal = (n: number): number => Math.round(n * 10) / 10;

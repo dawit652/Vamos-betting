@@ -42,6 +42,7 @@ export {
   apiFootballUrl,
   goalsAddUp,
   parseApiFootballEvents,
+  readApiFootballRateLimit,
 } from './apifootball';
 export type {
   ApiFootballConfig,
