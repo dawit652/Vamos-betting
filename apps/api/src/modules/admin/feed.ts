@@ -1,4 +1,8 @@
 import {
+  MarketFamilyStatesResponse,
+  type MarketFamilyRow,
+  ResetMarketFamilyRequest,
+  ResetMarketFamilyResponse,
   AliasListQuery,
   AliasListResponse,
   type CreditKeyView,
@@ -45,12 +49,21 @@ import {
   type SourceHealthView,
 } from '@vamos/contracts';
 import {
+  ACTIVE_FAMILY,
+  factoryPricingPlan,
+  familyMarginBps,
+  familyMarginClass,
+  MARKET_FAMILIES,
   MARKET_PRICING_KEY_PREFIX,
   anyMarketKey,
   type SportCode,
   uncappedPricingKey,
 } from '@vamos/core';
 import {
+  listMarketFamilyStates,
+  loadFamilyHistory,
+  loadMarketFamilies,
+  resetMarketFamily,
   addCompetitionAlias,
   addTeamAlias,
   addTeamWithAlias,
@@ -1377,6 +1390,39 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
   // -------------------------------------------------------------------------
   // Competition policy.
 
+  /** Every market family with the weekly job's state and the stored history test (task A12). */
+  app.get('/admin/feed/market-families', { config: { staff: 'trading.view' } }, async () =>
+    wire(MarketFamilyStatesResponse, await marketFamilyStates(deps.db)),
+  );
+
+  /**
+   * Puts a suspended or off family back in play as if new (task A12): active from this ISO week,
+   * no raised margin, audited with the reason. `settings.edit`, like the margins themselves.
+   */
+  app.post<{ Params: { family: string } }>(
+    '/admin/feed/market-families/:family/reset',
+    { config: { staff: 'settings.edit' } },
+    async (request) => {
+      const input = parseInput(ResetMarketFamilyRequest, request.body);
+      const family = request.params.family;
+      const now = deps.clock();
+      const result = await inTx(deps, (tx) =>
+        resetMarketFamily(
+          tx,
+          { family, week: isoWeekOf(now), reason: input.reason, now },
+          staffActor(request),
+        ),
+      );
+      if (!result.ok) {
+        if (result.error === 'unknown_family') throw notFound('Market family');
+        throw conflict('not_moved', 'This family is active and was never moved', { family });
+      }
+      const row = (await marketFamilyStates(deps.db)).families.find((f) => f.family === family);
+      if (row === undefined) throw notFound('Market family');
+      return wire(ResetMarketFamilyResponse, { family: row });
+    },
+  );
+
   app.get('/admin/feed/competitions', { config: { staff: 'trading.view' } }, async () =>
     wire(FeedCompetitionsResponse, {
       items: (await listCompetitionPolicies(deps.db)).map(policyView),
@@ -1429,4 +1475,56 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
       return wire(UpdateCompetitionPolicyResponse, { competition: policyView(row) });
     },
   );
+}
+
+/** The ISO week (`YYYY-Www`) of an instant, UTC. */
+function isoWeekOf(at: Date): string {
+  const day = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
+  const weekday = day.getUTCDay() === 0 ? 7 : day.getUTCDay();
+  day.setUTCDate(day.getUTCDate() + 4 - weekday);
+  const yearStart = Date.UTC(day.getUTCFullYear(), 0, 1);
+  const week = Math.ceil(((day.getTime() - yearStart) / 86_400_000 + 1) / 7);
+  return `${day.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+/** Every family, its state, its margin now and its line of the stored history test. */
+async function marketFamilyStates(db: DbExecutor): Promise<MarketFamilyStatesResponse> {
+  const [settings, states, history] = await Promise.all([
+    loadMarketFamilies(db),
+    listMarketFamilyStates(db),
+    loadFamilyHistory(db),
+  ]);
+  const plan = factoryPricingPlan(settings, states);
+  const families: MarketFamilyRow[] = MARKET_FAMILIES.map((family) => {
+    const state = states.get(family) ?? ACTIVE_FAMILY;
+    const tested = history?.families[family];
+    return {
+      family,
+      marginClass: familyMarginClass(family),
+      status: state.status,
+      sinceWeek: state.sinceWeek,
+      raisedMarginBps: state.raisedMarginBps,
+      // A family left out of pricing keeps the margin it would have.
+      marginBps: plan.excluded.includes(family)
+        ? Math.max(
+            state.raisedMarginBps ?? 0,
+            settings.typeMarginBps[family] ?? settings.marginBps[familyMarginClass(family)],
+          )
+        : familyMarginBps(plan, family),
+      history:
+        tested === undefined
+          ? null
+          : {
+              suggestedMarginBps: tested.suggestedMarginBps,
+              holdBps: tested.holdBps,
+              passed: tested.passed,
+            },
+    };
+  });
+  return {
+    families,
+    historyTestedAt: history?.testedAt.toISOString() ?? null,
+    firstHalfShare: settings.firstHalfShare,
+    drawCorrection: settings.drawCorrection,
+  };
 }

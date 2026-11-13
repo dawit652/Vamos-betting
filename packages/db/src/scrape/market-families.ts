@@ -15,6 +15,7 @@ import { markets } from '../schema/catalog';
 import { auditLog, settings } from '../schema/platform';
 import { marketFamilyMoves, marketFamilyState } from '../schema/scrape';
 import { loadMarketFamilies } from '../settings/index';
+import { auditScrape, type ScrapeActor } from './common';
 import { z } from 'zod';
 
 /**
@@ -302,4 +303,55 @@ export async function loadFamilyHistory(exec: DbExecutor): Promise<StoredFamilyH
   const parsed = storedHistorySchema.safeParse(row.value);
   if (!parsed.success) return null;
   return { ...parsed.data, testedAt: new Date(parsed.data.testedAt) };
+}
+
+// ------------------------------------------------------------------ staff reset (task A12)
+
+/** Audit action of a staff reset of a family (target: the family). */
+export const MARKET_FAMILY_RESET_ACTION = 'scrape.market_family.reset';
+
+/**
+ * A person puts a suspended or off family back in play (task A12): it becomes active as if new,
+ * with no raised margin, from `week` on, so the weeks that moved it are not judged again (the weekly
+ * job only judges weeks after `sinceWeek`) and it gets the job's full cycle again. Audited with the
+ * state before and the reason; the job's own moves table stays the job's. An active family that was
+ * never moved is refused (`not_moved`), so a reset always changes something.
+ */
+export async function resetMarketFamily(
+  tx: DbExecutor,
+  input: { family: string; week: string; reason: string; now: Date },
+  actor: ScrapeActor,
+): Promise<
+  | { ok: true; from: MarketFamilyState; to: MarketFamilyState }
+  | { ok: false; error: 'unknown_family' | 'not_moved' }
+> {
+  if (!MARKET_FAMILIES.includes(input.family)) return { ok: false, error: 'unknown_family' };
+  if (!/^\d{4}-W\d{2}$/.test(input.week))
+    throw new RangeError(`week must be an ISO week, got "${input.week}"`);
+  const [row] = await tx
+    .select()
+    .from(marketFamilyState)
+    .where(eq(marketFamilyState.family, input.family))
+    .for('update')
+    .limit(1);
+  if (row === undefined || (row.status === 'active' && row.raisedMarginBps === null)) {
+    return { ok: false, error: 'not_moved' };
+  }
+  const from: MarketFamilyState = {
+    status: row.status as MarketFamilyStatus,
+    sinceWeek: row.sinceWeek,
+    raisedMarginBps: row.raisedMarginBps,
+  };
+  const to: MarketFamilyState = { status: 'active', sinceWeek: input.week, raisedMarginBps: null };
+  await tx
+    .update(marketFamilyState)
+    .set({ ...to, updatedAt: input.now })
+    .where(eq(marketFamilyState.family, input.family));
+  await auditScrape(tx, actor, {
+    action: MARKET_FAMILY_RESET_ACTION,
+    targetType: 'market_family',
+    targetId: input.family,
+    metadata: { from, to, reason: input.reason },
+  });
+  return { ok: true, from, to };
 }

@@ -1250,6 +1250,42 @@ export const MarketFamiliesView = z
   .strict();
 export type MarketFamiliesView = z.infer<typeof MarketFamiliesView>;
 
+/**
+ * One market family with the weekly job's state (task A12): `marginBps` is what it is priced at now
+ * (its override or its class's; a returned family's raised margin); `history` the stored history
+ * test's line for it, if any.
+ */
+export const MarketFamilyRow = z.object({
+  family: z.string(),
+  marginClass: z.enum(['main', 'derivative', 'long']),
+  status: z.enum(['active', 'suspended', 'off']),
+  sinceWeek: z.string().nullable(),
+  raisedMarginBps: Bps.nullable(),
+  marginBps: Bps,
+  history: z
+    .object({ suggestedMarginBps: Bps, holdBps: z.number().int(), passed: z.boolean() })
+    .nullable(),
+});
+export type MarketFamilyRow = z.infer<typeof MarketFamilyRow>;
+
+export const MarketFamilyStatesResponse = z.object({
+  families: z.array(MarketFamilyRow),
+  /** When the stored history test ran (`eval families --write`), or null. */
+  historyTestedAt: z.string().nullable(),
+  firstHalfShare: z.number().nullable(),
+  drawCorrection: z.number().nullable(),
+});
+export type MarketFamilyStatesResponse = z.infer<typeof MarketFamilyStatesResponse>;
+
+/** A person puts a suspended or off family back in play; the reason is audited. */
+export const ResetMarketFamilyRequest = z
+  .object({ reason: z.string().trim().min(3).max(500) })
+  .strict();
+export type ResetMarketFamilyRequest = z.infer<typeof ResetMarketFamilyRequest>;
+
+export const ResetMarketFamilyResponse = z.object({ family: MarketFamilyRow });
+export type ResetMarketFamilyResponse = z.infer<typeof ResetMarketFamilyResponse>;
+
 /** Every business setting in force (santim as strings). */
 export const GameSettingsView = z.object({
   betRules: BetRulesView,

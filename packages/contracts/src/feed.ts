@@ -41,6 +41,8 @@ export const FEED_ROUTE_PERMISSIONS = {
   'PUT /admin/feed/sources/:id': 'trading.status',
   'GET /admin/feed/competitions': 'trading.view',
   'PUT /admin/feed/competitions/:id': 'settings.edit',
+  'GET /admin/feed/market-families': 'trading.view',
+  'POST /admin/feed/market-families/:family/reset': 'settings.edit',
 } as const satisfies Record<string, StaffPermission>;
 export type FeedRoute = keyof typeof FEED_ROUTE_PERMISSIONS;
 

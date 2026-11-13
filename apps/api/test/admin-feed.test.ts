@@ -17,6 +17,8 @@ import {
   FEED_SPORTS,
   FeedCompetitionsResponse,
   FeedHealthResponse,
+  MarketFamilyStatesResponse,
+  ResetMarketFamilyResponse,
   ResolveReviewResponse,
   ReviewDetailResponse,
   ReviewListResponse,
@@ -241,6 +243,10 @@ const resolve = (role: StaffRole, itemId: string, body: unknown) =>
   asStaff(ctx, as(role), 'POST', `/admin/feed/review/${itemId}/resolve`, body);
 
 const errorOf = (response: { json(): unknown }) => ApiErrorSchema.parse(response.json()).error;
+const expectOk = (response: { statusCode: number; body: string; json(): unknown }): unknown => {
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json();
+};
 
 describe('contract drift', () => {
   it('keeps the closed sets of @vamos/contracts equal to the SCRAPE_* arrays of @vamos/core', () => {
@@ -290,6 +296,8 @@ describe('/admin/feed RBAC', () => {
       ['PUT', '/admin/feed/sources/src-off', view],
       ['GET', '/admin/feed/competitions', view],
       ['PUT', `/admin/feed/competitions/${ids.cup}`, ['admin']],
+      ['GET', '/admin/feed/market-families', view],
+      ['POST', '/admin/feed/market-families/htft/reset', ['admin']],
     ];
     for (const [method, url, allowed] of table) {
       expect((await ctx.app.inject({ method, url })).statusCode, url).toBe(401);
@@ -328,6 +336,82 @@ describe('/admin/feed RBAC', () => {
     );
     expect(trader.statusCode).toBe(403);
     expect(errorOf(trader).details).toEqual({ permission: 'settings.edit' });
+  });
+});
+
+describe('market families (task A12)', () => {
+  it('lists every family with its state and margin, and resets a suspended one with a reason, audited', async () => {
+    const list = MarketFamilyStatesResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'GET', '/admin/feed/market-families')),
+    );
+    expect(list.families.length).toBeGreaterThan(60);
+    const htft = list.families.find((f) => f.family === 'htft')!;
+    expect(htft).toMatchObject({
+      status: 'active',
+      marginClass: 'long',
+      marginBps: 1200,
+      history: null,
+    });
+    expect(list.historyTestedAt).toBeNull();
+
+    // Never moved: nothing to reset.
+    const refused = await asStaff(
+      ctx,
+      as('admin'),
+      'POST',
+      '/admin/feed/market-families/htft/reset',
+      {
+        reason: 'checked',
+      },
+    );
+    expect(refused.statusCode).toBe(409);
+    expect(errorOf(refused).code).toBe('not_moved');
+    const unknown = await asStaff(
+      ctx,
+      as('admin'),
+      'POST',
+      '/admin/feed/market-families/nope/reset',
+      {
+        reason: 'checked',
+      },
+    );
+    expect(unknown.statusCode).toBe(404);
+
+    await db.insert(schema.marketFamilyState).values({
+      family: 'htft',
+      status: 'off',
+      sinceWeek: '2026-W40',
+      raisedMarginBps: 1400,
+      updatedAt: new Date(),
+    });
+    const off = MarketFamilyStatesResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'GET', '/admin/feed/market-families')),
+    ).families.find((f) => f.family === 'htft')!;
+    expect(off).toMatchObject({ status: 'off', raisedMarginBps: 1400, marginBps: 1400 });
+
+    const noReason = await asStaff(
+      ctx,
+      as('admin'),
+      'POST',
+      '/admin/feed/market-families/htft/reset',
+      {},
+    );
+    expect(noReason.statusCode).toBe(400);
+    const reset = ResetMarketFamilyResponse.parse(
+      expectOk(
+        await asStaff(ctx, as('admin'), 'POST', '/admin/feed/market-families/htft/reset', {
+          reason: 'margin raised to 14% in the settings',
+        }),
+      ),
+    );
+    expect(reset.family).toMatchObject({
+      status: 'active',
+      raisedMarginBps: null,
+      marginBps: 1200,
+    });
+    expect(reset.family.sinceWeek).toMatch(/^\d{4}-W\d{2}$/);
+    const audits = await auditActions('scrape.market_family.reset', 'htft');
+    expect(audits).toHaveLength(1);
   });
 });
 
