@@ -4,6 +4,7 @@ import {
   familyDecision,
   familyMarginBps,
   factoryPricingPlan,
+  historyTestPassedAt,
   MARKET_FAMILIES,
   type FamilyDecision,
   type FamilyWeek,
@@ -13,6 +14,7 @@ import {
   familyMoneyBetween,
   type FamilyMoney,
   listMarketFamilyStates,
+  loadFamilyHistory,
   loadMarketFamilies,
   MARKET_FAMILY_MOVED_ACTION,
   MARKET_FAMILY_REVIEW_ACTION,
@@ -38,11 +40,12 @@ const MARKET_FAMILY_LOCK_TTL_MS = 10 * 60_000;
 const WEEK_MS = 7 * 24 * HOUR_MS;
 
 /**
- * Whether a history test of a family at a given margin exists (plan 4.1: "It returns once, two
- * points of margin higher, after the history test passes at that margin"). None is built yet, so
- * the job never claims one passed: a suspended family stays suspended, and its reason says why.
+ * A suspended family returns once, at its raised margin, only after the history test passes at
+ * that margin (plan 4.1). The test is `eval families --write` (task A2), stored under the settings
+ * key `market_family_history`: it passes at a margin when its suggested margin for the family is at
+ * or below it and it is at most HISTORY_MAX_AGE_DAYS old (historyTestPassedAt). With no stored test
+ * a suspended family stays suspended, and its reason says why.
  */
-export const FAMILY_HISTORY_TEST_AVAILABLE = false;
 
 export interface MarketFamilyJobSummary {
   /** False when the week's run exists, it is too early, or another instance holds the lock. */
@@ -89,6 +92,7 @@ export async function runMarketFamilyJob(ctx: ScraperContext): Promise<MarketFam
       if (await marketFamilyReviewExists(tx, week.id)) return null;
       const settings = await loadMarketFamilies(tx);
       const states = await listMarketFamilyStates(tx);
+      const history = await loadFamilyHistory(tx);
       const plan = factoryPricingPlan(settings, states);
       const moves: FamilyDecision[] = [];
       let stillSuspended = 0;
@@ -110,7 +114,14 @@ export async function runMarketFamilyJob(ctx: ScraperContext): Promise<MarketFam
           week: week.id,
           weeks,
           minWeeklyStake: settings.minWeeklyStake,
-          historyTestPassed: FAMILY_HISTORY_TEST_AVAILABLE,
+          historyTestPassed:
+            state.status === 'suspended' &&
+            historyTestPassedAt(
+              history?.families[family],
+              state.raisedMarginBps ?? 0,
+              history?.testedAt ?? null,
+              now,
+            ),
         });
         if (decision.move === 'stay_suspended') stillSuspended += 1;
         if (decision.move !== 'suspend' && decision.move !== 'return' && decision.move !== 'off') {
@@ -155,7 +166,7 @@ export async function runMarketFamilyJob(ctx: ScraperContext): Promise<MarketFam
           minWeeklyStake: settings.minWeeklyStake.toString(),
           moves: moves.map((m) => ({ family: m.family, move: m.move, reason: m.reason })),
           stillSuspended,
-          historyTest: FAMILY_HISTORY_TEST_AVAILABLE ? 'available' : 'none',
+          historyTest: history === null ? 'none' : history.testedAt.toISOString(),
         },
       });
       return { moves, stillSuspended };

@@ -191,6 +191,11 @@ export {
 export {
   familyMoneyBetween,
   listMarketFamilyMoves,
+  loadFamilyHistory,
+  MARKET_FAMILY_HISTORY_ACTION,
+  MARKET_FAMILY_HISTORY_KEY,
+  saveFamilyHistory,
+  type StoredFamilyHistory,
   listMarketFamilyStates,
   loadFactoryPricingPlan,
   MARKET_FAMILY_MOVED_ACTION,

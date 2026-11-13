@@ -15,6 +15,7 @@ export {
   buildMarket,
   defaultMarginBps,
   normalCdf,
+  priceBook,
   priceProbability,
 } from './book';
 export * from './football';

@@ -12,6 +12,7 @@ import { aliasesImport, aliasesList, aliasesRemove } from './cli/aliases';
 import { dryFetch, dryParse } from './cli/dry-run';
 import { evalScorecard } from './cli/eval';
 import { evalMarket } from './cli/eval-market';
+import { evalFamilies } from './cli/eval-families';
 import {
   CliFailure,
   defaultReadFile,
@@ -120,6 +121,13 @@ commands:
       opening columns) against the results, per match from the odds of several books: 1X2, over/under
       2.5, BTTS, Asian handicap, half-time 1X2 and correct score, with Pinnacle no-vig and the base
       rate as references (BTTS, half time and correct score have no book odds in the files). Reads files only.
+  eval families (--file <csv> [--file ...] | --dir <folder>) [--write] [--first-half-share x] [--draw-correction=rho]
+      The history test of the market factory's families (check 0.6): every factory-only market priced
+      from the expected goals fitted to football-data.co.uk closing odds and settled on the real score;
+      per family the hold at its margin, the worst selection and a suggested margin. --write tests at
+      the database's margins and stores the result, which lets a suspended family return.
+      --first-half-share (0.3..0.7) and --draw-correction (-0.5..0.5) measure the pricing switches of
+      task 2.2 instead (not with --write).
 
 every command accepts --json (machine-readable output); review gaps also --csv.
 exit codes: 0 success, 1 failed or refused, 2 wrong command line.`;
@@ -147,6 +155,7 @@ const COMMANDS: Record<string, Command> = {
   'report weekly': reportWeekly,
   'eval scorecard': evalScorecard,
   'eval market': evalMarket,
+  'eval families': evalFamilies,
 };
 
 /** Words that take a sub-command; the rest are commands on their own. */

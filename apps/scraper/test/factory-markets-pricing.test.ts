@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { DEFAULT_MARKET_FAMILIES, FACTORY_MARKETS, type FactoryMarket } from '@vamos/core';
 import {
   finishRun,
+  saveFamilyHistory,
   setCompetitionPolicy,
   setSetting,
   setSourceEnabled,
@@ -448,7 +449,7 @@ describe('market families', () => {
   );
 
   it(
-    'the weekly job suspends a family that kept too little for three weeks; the feed suspends its markets; the report lists it',
+    'the weekly job suspends a family that kept too little for three weeks; the feed suspends its markets; the report lists it; a passed history test lets it return',
     async () => {
       const eventId = await marketPricedEvent({ factoryMarkets: true });
       await repriceScheduledEvents(h.ctx);
@@ -549,6 +550,51 @@ describe('market families', () => {
       expect(json.familyMoves).toEqual([
         expect.objectContaining({ family: 'htft', move: 'suspend' }),
       ]);
+
+      // Task A2: it returns at 1400 bps only once a stored history test passes at that margin.
+      const verdict = (suggestedMarginBps: number) => ({
+        family: 'htft',
+        matches: 1000,
+        selections: 5000,
+        marginBps: 1200,
+        holdBps: 500,
+        suggestedMarginBps,
+        worst: null,
+        passed: suggestedMarginBps <= 1200,
+      });
+      const store = (suggested: number) =>
+        h.ctx.db.transaction((tx) =>
+          saveFamilyHistory(
+            tx,
+            { testedAt: h.now(), matches: 1000, files: ['E0.csv'], families: [verdict(suggested)] },
+            { system: 'test' },
+          ),
+        );
+      await store(1600);
+      h.at(new Date('2026-11-03T00:00:00Z'));
+      expect(await runMarketFamilyJob(h.ctx)).toEqual({ ran: true, week: '2026-W44', moves: [] });
+      expect(
+        (
+          await rows<{ status: string }>(
+            `SELECT status FROM market_family_state WHERE family = 'htft'`,
+          )
+        )[0]?.status,
+      ).toBe('suspended');
+
+      await store(1400);
+      expect(
+        await h.count(
+          `SELECT count(*) AS n FROM audit_log WHERE action = 'scrape.market_family_history.written'`,
+        ),
+      ).toBe(2);
+      h.at(new Date('2026-11-10T00:00:00Z'));
+      const returned = await runMarketFamilyJob(h.ctx);
+      expect(returned.moves.map((m) => [m.family, m.move])).toEqual([['htft', 'return']]);
+      expect(returned.moves[0]!.next).toEqual({
+        status: 'active',
+        sinceWeek: '2026-W45',
+        raisedMarginBps: 1400,
+      });
     },
     TEST_TIMEOUT,
   );

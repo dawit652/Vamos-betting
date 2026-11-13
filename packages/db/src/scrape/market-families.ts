@@ -3,6 +3,7 @@ import {
   MARKET_FAMILIES,
   type FactoryPricingPlan,
   type FamilyDecision,
+  type FamilyHistoryVerdict,
   type FamilyWeek,
   type MarketFamilyState,
   type MarketFamilyStatus,
@@ -11,9 +12,10 @@ import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { DbExecutor } from '../ledger/types';
 import { betLegs, bets } from '../schema/betting';
 import { markets } from '../schema/catalog';
-import { auditLog } from '../schema/platform';
+import { auditLog, settings } from '../schema/platform';
 import { marketFamilyMoves, marketFamilyState } from '../schema/scrape';
 import { loadMarketFamilies } from '../settings/index';
+import { z } from 'zod';
 
 /**
  * Market families and the weekly family job (plan task 2.5, docs/scraper.md "Market families"):
@@ -201,4 +203,103 @@ export async function listMarketFamilyMoves(
     reason: row.reason,
     createdAt: row.createdAt,
   }));
+}
+
+// ------------------------------------------------------------------ history test (task A2)
+
+/** `settings.key` of the latest history test of the families (not a back-office setting). */
+export const MARKET_FAMILY_HISTORY_KEY = 'market_family_history';
+/** Audit action of a stored history test (target: the settings key). */
+export const MARKET_FAMILY_HISTORY_ACTION = 'scrape.market_family_history.written';
+
+/** The latest history test, as `eval families --write` stored it. */
+export interface StoredFamilyHistory {
+  testedAt: Date;
+  /** Matches the test used. */
+  matches: number;
+  /** The CSV files it read (names only). */
+  files: string[];
+  families: Record<string, FamilyHistoryVerdict>;
+}
+
+const verdictSchema = z.object({
+  family: z.string(),
+  matches: z.number().int().min(0),
+  selections: z.number().int().min(0),
+  marginBps: z.number().int().min(0).max(10_000),
+  holdBps: z.number().int(),
+  suggestedMarginBps: z.number().int().min(0).max(10_000),
+  worst: z
+    .object({ key: z.string(), lowerBps: z.number().int(), n: z.number().int().min(0) })
+    .nullable(),
+  passed: z.boolean(),
+});
+const storedHistorySchema = z.object({
+  testedAt: z.iso.datetime(),
+  matches: z.number().int().min(0),
+  files: z.array(z.string()),
+  families: z.record(z.string(), verdictSchema),
+});
+
+/**
+ * Stores a history test in place of the previous one, audited in the same transaction. Only
+ * families of the factory are kept (a stale or foreign name is dropped).
+ */
+export async function saveFamilyHistory(
+  tx: DbExecutor,
+  input: {
+    testedAt: Date;
+    matches: number;
+    files: readonly string[];
+    families: readonly FamilyHistoryVerdict[];
+  },
+  actor: { system: string } | { adminId: string },
+): Promise<StoredFamilyHistory> {
+  const families: Record<string, FamilyHistoryVerdict> = {};
+  for (const verdict of input.families) {
+    if (MARKET_FAMILIES.includes(verdict.family)) families[verdict.family] = verdict;
+  }
+  const value = {
+    testedAt: input.testedAt.toISOString(),
+    matches: input.matches,
+    files: [...input.files],
+    families,
+  };
+  storedHistorySchema.parse(value);
+  const by = 'adminId' in actor ? actor.adminId : actor.system;
+  await tx
+    .insert(settings)
+    .values({ key: MARKET_FAMILY_HISTORY_KEY, value, updatedAt: input.testedAt, updatedBy: by })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value, updatedAt: input.testedAt, updatedBy: by },
+    });
+  const failed = Object.values(families).filter((f) => !f.passed);
+  await tx.insert(auditLog).values({
+    actorType: 'adminId' in actor ? 'admin' : 'system',
+    actorId: by,
+    action: MARKET_FAMILY_HISTORY_ACTION,
+    targetType: 'setting',
+    targetId: MARKET_FAMILY_HISTORY_KEY,
+    metadata: {
+      matches: input.matches,
+      families: Object.keys(families).length,
+      failed: failed.map((f) => ({ family: f.family, suggestedMarginBps: f.suggestedMarginBps })),
+    },
+    createdAt: input.testedAt,
+  });
+  return { testedAt: input.testedAt, matches: input.matches, files: value.files, families };
+}
+
+/** The stored history test, or null when none is stored or it does not read (then none counts). */
+export async function loadFamilyHistory(exec: DbExecutor): Promise<StoredFamilyHistory | null> {
+  const [row] = await exec
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, MARKET_FAMILY_HISTORY_KEY))
+    .limit(1);
+  if (row === undefined) return null;
+  const parsed = storedHistorySchema.safeParse(row.value);
+  if (!parsed.success) return null;
+  return { ...parsed.data, testedAt: new Date(parsed.data.testedAt) };
 }

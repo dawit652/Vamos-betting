@@ -961,8 +961,8 @@ before and are not families. Everything below is pure in `packages/core` (`parse
   when its stakes reach `minWeeklyStake` and kept × (10000 + m) < stakes × m, m being the margin
   charged (bps of overround; the margin in force now: margins are not kept per week). Three such
   weeks in a row: the family is **suspended**, to return once at m + 200 bps. A suspended family
-  returns only when a history test at that margin has passed; none is built yet
-  (`FAMILY_HISTORY_TEST_AVAILABLE = false`), so it stays suspended and the run says so. A family
+  returns only when a history test at that margin has passed (below); with no stored test it stays
+  suspended and the run says so. A family
   that fails three weeks after its return is **off** for good. Each move is stored in
   `market_family_state` and the append-only `market_family_moves`, audited
   (`scrape.market_family.moved`), sent to the owner (`market_family_moved`, 6.3a) and listed in the
@@ -970,6 +970,24 @@ before and are not families. Everything below is pure in `packages/core` (`parse
   out of factory pricing, so the next re-price suspends its stored markets (`factoryComplete`); open
   bets on it stand and settle as usual. A returned family prices at its raised margin, or the
   settings' margin when higher.
+- **The history test** (check 0.6, task A2): `eval families (--file <csv> ... | --dir <folder>)
+[--write] [--json]` reads football-data.co.uk files, fits the expected goals of every match to its
+  closing 1X2 and over/under 2.5 exactly as production does (`marketConsensus`,
+  `priceFootballFromMarket`; a fit over `MAX_MARKET_FIT_RESIDUAL` is skipped), prices every family
+  at its margin with production's pruning (a favourite under 1.02 drops the market, a selection over
+  500.0 is not listed) and settles each listed selection on the real score
+  (`apps/scraper/src/eval/family-history.ts`). Per family: the **hold** of one unit on every listed
+  selection at our price; per selection (line and code) the fair yield `mean(won / p) − 1`. The
+  **suggested margin** (`suggestFamilyMarginBps`, `packages/core/src/family-history.ts`) is the
+  largest one-sided 95% lower bound of a selection's fair yield among selections with 200 or more
+  decided matches, rounded up to a whole point, never below the family's margin. A family **passes**
+  when the suggestion is at or below its margin and its hold is not negative. Without `--write` it
+  reads files only and tests at the default margins; `--write` tests at the database's margins and
+  stores the result as the setting `market_family_history` (not a back-office setting; audited as
+  `scrape.market_family_history.written`). The weekly job lets a suspended family return at m + 200
+  only when that stored test is at most 400 days old and its suggestion for the family is at or
+  below m + 200 (`historyTestPassedAt`). The result of the first run is in
+  `docs/plans/hulusport-parity-progress.md` ("History test of the families").
 
 ### 6.6 Scraping manners
 
