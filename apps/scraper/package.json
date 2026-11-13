@@ -10,6 +10,7 @@
     "cli": "tsx src/cli.ts",
     "seed:review": "tsx src/devtools/seed-review-queue.ts",
     "seed:result-demo": "tsx src/devtools/seed-result-demo.ts",
+    "bench:factory-reprice": "tsx src/devtools/bench-factory-reprice.ts",
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests"
