@@ -17,8 +17,10 @@ import { auditScrape } from './common';
  *   kickoff at most `evidenceWindowMs` before or after E's start;
  * - healthy source: its latest finished run (not `running`, not `skipped`) is `ok`;
  * - known: a listed row of the source ended at least `minMatchDurationMs + staleAfterMs` ago; or,
- *   for a source that lists only matches not yet started, its latest ok run started at least that
- *   long after the kickoff of a fixture it had seen and no longer lists it (plan task 1.4);
+ *   only for a free events source (`theoddsapi`, `mode: 'events'`, which lists matches not yet
+ *   started), its latest ok run started at least that long after the kickoff of a fixture it had
+ *   seen and no longer lists it (plan task 1.4); any other source that merely drops a match is not
+ *   known;
  * - stale (S5 on the source's own rows): a listed `scheduled` fixture row ended (kickoff +
  *   `minMatchDurationMs`) at least `staleAfterMs` ago and after the largest `changed_at` of ALL the
  *   source's observations. It does not read the `source_stale` review item;
@@ -130,15 +132,18 @@ function factsCte(now: Date, t: KickoffThresholds): SQL {
         (EXISTS (SELECT 1 FROM listed o
                  WHERE o.source_id = s.id
                    AND o.kickoff + ${ms(endAndAllowance)} <= ${at}::timestamptz)
-         -- A source that lists only matches not yet started (The Odds API's /events and /odds) never
-         -- lists an ended one. It is known once its latest ok run, started after such a match
-         -- ended (plus the allowance), no longer lists a fixture it had seen: the source moves on.
-         OR EXISTS (SELECT 1 FROM scrape_observations o
+         -- A source that lists only matches not yet started (The Odds API's free /events list,
+         -- mode 'events') never lists an ended one. ONLY such a source is known once its latest
+         -- ok run, started after a match it had seen ended (plus the allowance), no longer lists
+         -- it: the source moves on. Every other source stays strict (a source that merely drops
+         -- an ended match is neither known nor stale).
+         OR (s.adapter = 'theoddsapi' AND s.config ->> 'mode' = 'events'
+             AND EXISTS (SELECT 1 FROM scrape_observations o
                     WHERE o.source_id = s.id AND o.kind = 'fixture'
                       AND l.started_at IS NOT NULL
                       AND o.last_seen_at < l.started_at
                       AND o.kickoff + ${ms(endAndAllowance)} <= l.started_at
-                      AND l.started_at <= ${at}::timestamptz)) AS known,
+                      AND l.started_at <= ${at}::timestamptz))) AS known,
         COALESCE((SELECT true FROM listed o
                   WHERE o.source_id = s.id AND o.kind = 'fixture' AND o.status = 'scheduled'
                     AND o.kickoff + ${ms(endAndAllowance)} <= ${at}::timestamptz

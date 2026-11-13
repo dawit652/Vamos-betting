@@ -40,7 +40,7 @@ export const DEFAULT_MARKET_FAMILIES: MarketFamilySettings = Object.freeze({
   typeMarginBps: {},
   factoryLiabilityShareBps: FACTORY_SELECTION_LIABILITY_SHARE_BPS,
   minWeeklyStake: DEFAULT_FAMILY_MIN_WEEKLY_STAKE,
-}) as MarketFamilySettings;
+});
 
 const MARGIN_CLASSES: readonly FactoryMarginClass[] = ['main', 'derivative', 'long'];
 
@@ -169,7 +169,7 @@ export const ACTIVE_FAMILY: MarketFamilyState = Object.freeze({
   status: 'active',
   sinceWeek: null,
   raisedMarginBps: null,
-}) as MarketFamilyState;
+});
 
 // ------------------------------------------------------------------ pricing plan
 

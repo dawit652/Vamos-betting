@@ -13,7 +13,7 @@ import {
   type KickoffThresholds,
   type LoadKickoffEvidenceOptions,
 } from '../src/index';
-import { auditLog } from '../src/schema/index';
+import { auditLog, scrapeSources } from '../src/schema/index';
 import { dropTestDatabase } from './helpers';
 import {
   addRun,
@@ -531,6 +531,72 @@ describe('sourceFresh and the per-source facts', () => {
       stale: false,
       fresh: false,
     });
+  });
+
+  it('a free events source (theoddsapi, mode events) that moves on past an ended match is known', async () => {
+    // The same history as the test above, but the source is The Odds API's free /events list: it
+    // lists upcoming matches only, so "no longer listed after it ended" is how it shows it follows.
+    await addSource(db(), 's-events', { upstream: 'up-events' });
+    await db()
+      .update(scrapeSources)
+      .set({ adapter: 'theoddsapi', config: { mode: 'events', allowedHosts: ['example.test'] } })
+      .where(eq(scrapeSources.id, 's-events'));
+    const t1 = new Date(NOW.getTime() - 20 * DAY);
+    const r1 = await addRun(db(), 's-events', 'ok', t1);
+    const base = {
+      sourceId: 's-events',
+      competitionId: ctx.competitionId,
+      homeTeamId: ctx.team('Chelsea'),
+      awayTeamId: ctx.team('Liverpool'),
+    };
+    await db().transaction((tx) =>
+      upsertObservation(
+        tx,
+        fixtureObs({
+          ...base,
+          runId: r1.id,
+          sourceKey: 'gone',
+          kickoff: kickoffEndedAgo(4 * DAY),
+          observedAt: t1,
+        }),
+      ),
+    );
+    const t2 = new Date(NOW.getTime() - H);
+    const r2 = await addRun(db(), 's-events', 'ok', t2);
+    await db().transaction((tx) =>
+      upsertObservation(
+        tx,
+        fixtureObs({
+          ...base,
+          runId: r2.id,
+          sourceKey: 'future',
+          kickoff: new Date(NOW.getTime() + 5 * DAY),
+          observedAt: t2,
+        }),
+      ),
+    );
+    expect(await factsOf('s-events')).toMatchObject({ healthy: true, known: true, stale: false });
+    // Before it has watched a match end it is not known (nothing to show it follows).
+    await addSource(db(), 's-events-new', { upstream: 'up-events-new' });
+    await db()
+      .update(scrapeSources)
+      .set({ adapter: 'theoddsapi', config: { mode: 'events', allowedHosts: ['example.test'] } })
+      .where(eq(scrapeSources.id, 's-events-new'));
+    const r3 = await addRun(db(), 's-events-new', 'ok', t2);
+    await db().transaction((tx) =>
+      upsertObservation(
+        tx,
+        fixtureObs({
+          ...base,
+          sourceId: 's-events-new',
+          runId: r3.id,
+          sourceKey: 'future',
+          kickoff: new Date(NOW.getTime() + 5 * DAY),
+          observedAt: t2,
+        }),
+      ),
+    );
+    expect(await factsOf('s-events-new')).toMatchObject({ known: false, fresh: false });
   });
 
   it('a source whose latest finished run failed is not healthy, so not fresh; a skipped run does not count', async () => {

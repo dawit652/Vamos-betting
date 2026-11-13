@@ -1,14 +1,27 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { birr, factoryMarket, settleBet, type LegState } from '@vamos/core';
+import {
+  ACTIVE_FAMILY,
+  birr,
+  factoryMarket,
+  familyDecision,
+  settleBet,
+  type LegState,
+} from '@vamos/core';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createBookingCode,
   DomainError,
+  familyMoneyBetween,
   getBalance,
   getBetById,
   getCashOutOffer,
+  listMarketFamilyMoves,
+  listMarketFamilyStates,
   loadBookingCode,
+  loadFactoryPricingPlan,
+  marketFamilyReviewExists,
+  recordMarketFamilyMove,
   resultEvent,
   setMarketStatus,
   settleEventBets,
@@ -464,5 +477,132 @@ describe('lower liability cap on factory selections (plan task 2.5)', () => {
       settings: capped,
     });
     expect(placed.bet.status).toBe('open');
+  });
+});
+
+describe('market families (plan task 2.5)', () => {
+  it('takes the factory share of the selection cap from the market_families setting', async () => {
+    const event = await createFactoryEvent();
+    const userId = await player();
+    const limits = { maxSelectionLiability: birr(1_000), maxEventLiability: null };
+    // At odds ODDS a stake of 90 ETB pays 225 ETB: under the default quarter (250).
+    const byDefault: GameSettings = { ...settings, riskLimits: limits };
+    expect(byDefault.marketFamilies.factoryLiabilityShareBps).toBe(2_500);
+    const tenth: GameSettings = {
+      ...byDefault,
+      marketFamilies: { ...settings.marketFamilies, factoryLiabilityShareBps: 1_000 },
+    };
+    const error = await domainError(
+      place(handle.db, userId, {
+        stake: birr(90),
+        legs: [{ selectionId: pick(event, 'htft', '1/1'), oddsMilli: ODDS }],
+        settings: tenth,
+      }),
+    );
+    expect(error).toMatchObject({ status: 422, code: 'liability_limit' });
+    const maxStake = BigInt((error.details as { maxStake: string }).maxStake);
+    expect((maxStake * BigInt(ODDS)) / 1000n <= birr(100)).toBe(true);
+    const placed = await place(handle.db, userId, {
+      stake: birr(90),
+      legs: [{ selectionId: pick(event, 'htft', '1/1'), oddsMilli: ODDS }],
+      settings: byDefault,
+    });
+    expect(placed.bet.status).toBe('open');
+  });
+
+  it('familyMoneyBetween: settled singles per family; multis, voids and other weeks left out', async () => {
+    const event = await createFactoryEvent();
+    const other = await createFactoryEvent();
+    const userId = await player();
+    const single = (selectionId: string, stake: bigint) =>
+      place(handle.db, userId, { stake, legs: [{ selectionId, oddsMilli: ODDS }], settings });
+    await single(pick(event, 'htft', '1/1'), birr(10)); // wins 25 ETB
+    await single(pick(event, 'htft', 'X/X'), birr(20)); // loses
+    await single(pick(event, 'multigoals:1-3', 'yes'), birr(40)); // wins 100 ETB
+    await place(handle.db, userId, {
+      stake: birr(50),
+      legs: [
+        { selectionId: pick(event, 'htft', '2/2'), oddsMilli: ODDS },
+        { selectionId: pick(other, 'h2_1x2', '1'), oddsMilli: ODDS },
+      ],
+      settings,
+    });
+    await finishWithHalfTime(event.eventId, [2, 0], [1, 0]);
+    const at = new Date('2031-01-07T12:00:00Z');
+    await handle.db.transaction((tx) => settleEventBets(tx, event.eventId, at));
+
+    const week = { from: new Date('2031-01-06T00:00:00Z'), to: new Date('2031-01-13T00:00:00Z') };
+    const money = await familyMoneyBetween(handle.db, week);
+    expect(money.get('htft')).toEqual({ stakes: birr(30), kept: birr(30) - birr(25) });
+    expect(money.get('multigoals')).toEqual({ stakes: birr(40), kept: birr(40) - birr(100) });
+    expect(money.has('h2_1x2')).toBe(false);
+    expect(money.has('1x2')).toBe(false);
+    const before = await familyMoneyBetween(handle.db, {
+      from: new Date('2030-12-30T00:00:00Z'),
+      to: week.from,
+    });
+    expect(before.size).toBe(0);
+  });
+
+  it('records moves, and the pricing plan leaves a suspended family out', async () => {
+    const now = new Date('2031-02-01T00:00:00Z');
+    const decision = familyDecision({
+      family: 'htft_ou',
+      state: ACTIVE_FAMILY,
+      week: '2031-W05',
+      weeks: ['2031-W03', '2031-W04', '2031-W05'].map((week) => ({
+        week,
+        stakes: birr(200_000),
+        kept: 0n,
+        marginBps: 1200,
+      })),
+      minWeeklyStake: birr(100_000),
+      historyTestPassed: false,
+    });
+    expect(decision.move).toBe('suspend');
+    expect(await marketFamilyReviewExists(handle.db, '2031-W05')).toBe(false);
+    await handle.db.transaction((tx) =>
+      recordMarketFamilyMove(tx, {
+        week: '2031-W05',
+        decision,
+        from: ACTIVE_FAMILY,
+        marginBps: 1200,
+        weeks: [],
+        now,
+      }),
+    );
+    expect((await listMarketFamilyStates(handle.db)).get('htft_ou')).toEqual({
+      status: 'suspended',
+      sinceWeek: '2031-W05',
+      raisedMarginBps: 1400,
+    });
+    const plan = await loadFactoryPricingPlan(handle.db);
+    expect(plan.excluded).toEqual(['htft_ou']);
+    expect(plan.types).not.toContain('htft_ou');
+    expect(plan.tag).not.toBe('');
+    expect(await listMarketFamilyMoves(handle.db, '2031-W05')).toEqual([
+      expect.objectContaining({
+        family: 'htft_ou',
+        move: 'suspend',
+        fromStatus: 'active',
+        toStatus: 'suspended',
+        marginBps: 1200,
+        raisedMarginBps: 1400,
+      }),
+    ]);
+    // A keep is not a move.
+    await expect(
+      recordMarketFamilyMove(handle.db, {
+        week: '2031-W06',
+        decision: { ...decision, move: 'keep' },
+        from: ACTIVE_FAMILY,
+        marginBps: 1200,
+        weeks: [],
+        now,
+      }),
+    ).rejects.toThrow(RangeError);
+    // Put the family back for the other tests of this database.
+    await handle.db.execute(sql`DELETE FROM market_family_state WHERE family = 'htft_ou'`);
+    expect((await loadFactoryPricingPlan(handle.db)).tag).toBe('');
   });
 });

@@ -53,7 +53,12 @@ export type OwnerAlertInput =
   /** An approved manual payout has waited more than two hours. */
   | { alarm: 'manual_payout_waiting' }
   /** The weekly market family job moved a family (plan task 2.5). */
-  | { alarm: 'market_family_moved'; family: string; move: 'suspend' | 'return' | 'off'; week: string };
+  | {
+      alarm: 'market_family_moved';
+      family: string;
+      move: 'suspend' | 'return' | 'off';
+      week: string;
+    };
 
 export interface OwnerAlert {
   /** The alarm's name plus its subject, e.g. `source_broken|odds-api`. Stable per condition. */

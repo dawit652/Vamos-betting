@@ -221,3 +221,29 @@ describe('new password strength hint (ASVS 2.1.8)', () => {
     expect(passwordStrength('a new long passphrase')).toBe('Strong');
   });
 });
+
+describe('market families setting (edited as JSON)', () => {
+  const contract = STAFF_SETTING_VALUE_SCHEMAS.market_families;
+  const defaults = {
+    marginBps: { main: 600, derivative: 700, long: 1200 },
+    typeMarginBps: {},
+    factoryLiabilityShareBps: 2500,
+    minWeeklyStake: '10000000',
+  };
+
+  it('the contract takes the defaults and an override, and refuses bad margins or fields', () => {
+    expect(contract.safeParse(defaults).success).toBe(true);
+    expect(contract.safeParse({ ...defaults, typeMarginBps: { htft: 1400 } }).success).toBe(true);
+    const parsed = parseJsonValue(JSON.stringify(defaults));
+    expect(parsed.ok && contract.safeParse(parsed.value).success).toBe(true);
+    for (const value of [
+      { ...defaults, marginBps: { main: 10_001, derivative: 700, long: 1200 } },
+      { ...defaults, typeMarginBps: { htft: 1.5 } },
+      { ...defaults, factoryLiabilityShareBps: -1 },
+      { ...defaults, minWeeklyStake: '-1' },
+      { ...defaults, extra: true },
+    ]) {
+      expect(contract.safeParse(value).success).toBe(false);
+    }
+  });
+});

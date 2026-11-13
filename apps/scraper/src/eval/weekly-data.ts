@@ -3,7 +3,9 @@ import {
   listClosePrices,
   listCompetitionPolicies,
   listLadderShadow,
+  listMarketFamilyMoves,
   listScrapedEvents,
+  marketFamilyReviewExists,
   reviewQueueSummary,
   type Database,
   type ScrapedEvent,
@@ -125,6 +127,18 @@ export async function gatherWeeklyInputs(
       .map((e) => ({ label: shadowLabel(e), outcome: shadowOutcome(e) })),
   );
 
+  // Plan task 2.5: the weekly market family job's moves for the week.
+  const familyRan = await marketFamilyReviewExists(db, week.id);
+  const familyMoves = familyRan
+    ? (await listMarketFamilyMoves(db, week.id)).map((m) => ({
+        family: m.family,
+        move: m.move,
+        marginBps: m.marginBps,
+        raisedMarginBps: m.raisedMarginBps,
+        reason: m.reason,
+      }))
+    : [];
+
   return {
     week,
     generatedAt: now,
@@ -158,5 +172,6 @@ export async function gatherWeeklyInputs(
     },
     trust,
     shadow,
+    familyMoves: { ran: familyRan, moves: familyMoves },
   };
 }

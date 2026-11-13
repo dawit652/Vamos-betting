@@ -310,7 +310,10 @@ payload})`, `claimOutboxBatch(tx, limit, {maxAttempts})` (FOR UPDATE SKIP LOCKED
   - **Settings keys:** `bet_rules`, `multi_bonus`, `tax`, `cash_out`, `live_bet_delay_ms`,
     `responsible_gambling`, `jackpots`, `payments` and `risk_limits` (the house liability caps: the largest
     liability on one selection and on one match, each a positive amount or null for no cap; checked in
-    `placeBet`, see `docs/therundown-plan/README.md` rule L1).
+    `placeBet`, see `docs/therundown-plan/README.md` rule L1) and `market_families` (plan task 2.5:
+    factory margins per class, main 600 / derivative 700 / long 1200 bps, and per family; the factory
+    selections' share of the selection cap, 2500 bps; the weekly family job's stake floor, 100,000 ETB;
+    see `docs/scraper.md` 6.5a).
   - **Catalogue.** `isSelectionBettable(event, marketStatus, selectionStatus, now)`.
     `resultEvent(tx, eventId, input)` sets `selections.result` and the market status, then writes the
     outbox event `event.resulted` or `event.result_corrected`. The payload is `{eventId, status,

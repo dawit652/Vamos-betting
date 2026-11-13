@@ -1,16 +1,22 @@
-import { FACTORY_MARKETS, type FactoryMarket } from '@vamos/core';
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { DEFAULT_MARKET_FAMILIES, FACTORY_MARKETS, type FactoryMarket } from '@vamos/core';
 import {
   finishRun,
   setCompetitionPolicy,
+  setSetting,
   setSourceEnabled,
   startRun,
   upsertMarketOdds,
   upsertSource,
 } from '@vamos/db';
+import { betLegs, bets, users } from '@vamos/db/schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ScraperContext } from '../src/context';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { repriceScheduledEvents } from '../src/pipeline/reprice';
+import { runMarketFamilyJob } from '../src/tasks/market-families';
+import { runWeeklyReport, weeklyReportPaths } from '../src/tasks/weekly-report';
 import {
   ARSENAL_CHELSEA_JSON,
   ARSENAL_CHELSEA_OF,
@@ -396,6 +402,166 @@ describe('factory markets on market-priced events', () => {
       expect((await storedMarkets(eventId)).filter((m) => factoryKeys.has(m.key))).not.toHaveLength(
         0,
       );
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+/** Plan task 2.5: margins per family from the settings, and the weekly family job. */
+describe('market families', () => {
+  const htftOdds = async (eventId: string) =>
+    rows<{ code: string; odds_milli: number }>(
+      `SELECT s.code, s.odds_milli FROM selections s JOIN markets m ON m.id = s.market_id
+        WHERE m.event_id = $1 AND m.key = 'htft' ORDER BY s.code`,
+      [eventId],
+    );
+
+  it(
+    "a family's margin from the settings re-prices once, under a new key; today's prices unchanged",
+    async () => {
+      const eventId = await marketPricedEvent({ factoryMarkets: true });
+      await repriceScheduledEvents(h.ctx);
+      expect(await stampKey(eventId)).toMatch(/\|fm1$/);
+      const before = await htftOdds(eventId);
+      const todays = await oddsOf(eventId, '1x2');
+
+      await setSetting(h.ctx.db, 'market_families', {
+        ...DEFAULT_MARKET_FAMILIES,
+        typeMarginBps: { htft: 1500 },
+      });
+      h.advance(60_000);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1, held: 0 });
+      const key = await stampKey(eventId);
+      expect(key).toMatch(/\|fm1\.[0-9a-f]{8}$/);
+      const after = await htftOdds(eventId);
+      expect(after.map((r) => r.code)).toEqual(before.map((r) => r.code));
+      after.forEach((r, i) => expect(r.odds_milli).toBeLessThanOrEqual(before[i]!.odds_milli));
+      expect(after.some((r, i) => r.odds_milli < before[i]!.odds_milli)).toBe(true);
+      expect(await oddsOf(eventId, '1x2')).toBe(todays);
+
+      // Once only: the next pass finds the prices current.
+      h.advance(60_000);
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 0 });
+      expect(await stampKey(eventId)).toBe(key);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'the weekly job suspends a family that kept too little for three weeks; the feed suspends its markets; the report lists it',
+    async () => {
+      const eventId = await marketPricedEvent({ factoryMarkets: true });
+      await repriceScheduledEvents(h.ctx);
+      await setSetting(h.ctx.db, 'market_families', {
+        ...DEFAULT_MARKET_FAMILIES,
+        minWeeklyStake: '1000',
+      });
+      // A lost week for the house in each of weeks 41 to 43 on htft singles (and one on a 1x2).
+      const [selection] = await rows<{ id: string; market_id: string }>(
+        `SELECT s.id, s.market_id FROM selections s JOIN markets m ON m.id = s.market_id
+          WHERE m.event_id = $1 AND m.key = 'htft' AND s.code = '1/1'`,
+        [eventId],
+      );
+      const [user] = await h.ctx.db
+        .insert(users)
+        .values({
+          phone: '+251911000077',
+          passwordHash: 'x',
+          dateOfBirth: '1990-01-01',
+          status: 'active',
+          termsAcceptedAt: h.now(),
+        })
+        .returning({ id: users.id });
+      const settledAt = ['2026-10-07', '2026-10-14', '2026-10-21'];
+      for (const [i, day] of settledAt.entries()) {
+        const at = new Date(`${day}T12:00:00Z`);
+        const [bet] = await h.ctx.db
+          .insert(bets)
+          .values({
+            userId: user!.id,
+            shortId: `FAM00${i}`,
+            betType: 'single',
+            stake: 100_000n,
+            totalOddsMilli: 3000n,
+            potentialGrossPayout: 300_000n,
+            potentialBonus: 0n,
+            potentialTax: 0n,
+            potentialNetPayout: 300_000n,
+            status: 'won',
+            oddsChangePolicy: 'none',
+            idempotencyKey: randomUUID(),
+            terms: { betRules: {}, multiBonus: {}, tax: {} },
+            settledGrossPayout: 300_000n,
+            settledTax: 0n,
+            settledNetPayout: 300_000n,
+            placedAt: at,
+            settledAt: at,
+          })
+          .returning({ id: bets.id });
+        await h.ctx.db.insert(betLegs).values({
+          betId: bet!.id,
+          position: 0,
+          eventId,
+          marketId: selection!.market_id,
+          selectionId: selection!.id,
+          oddsMilli: 3000,
+          requestedOddsMilli: 3000,
+          isLive: false,
+          state: 'won',
+        });
+      }
+
+      // 2026-10-29: week 43 ended on 26 October, more than 24 hours ago.
+      const run = await runMarketFamilyJob(h.ctx);
+      expect(run).toMatchObject({ ran: true, week: '2026-W43' });
+      expect(run.moves.map((m) => [m.family, m.move])).toEqual([['htft', 'suspend']]);
+      expect(run.moves[0]!.next).toEqual({
+        status: 'suspended',
+        sinceWeek: '2026-W43',
+        raisedMarginBps: 1400,
+      });
+      expect((await runMarketFamilyJob(h.ctx)).ran).toBe(false);
+      expect(
+        await h.count(
+          `SELECT count(*) AS n FROM audit_log WHERE action = 'scrape.market_family.moved' AND target_id = 'htft'`,
+        ),
+      ).toBe(1);
+
+      h.advance(60_000);
+      await repriceScheduledEvents(h.ctx);
+      expect(await stampKey(eventId)).toMatch(/\|fm1\.[0-9a-f]{8}$/);
+      const stored = await storedMarkets(eventId);
+      expect(stored.find((m) => m.key === 'htft')).toMatchObject({
+        status: 'suspended',
+        suspended_by: 'feed',
+      });
+      expect(stored.find((m) => m.key === 'multigoals:1-3')?.status).toBe('open');
+      expect(stored.find((m) => m.key === '1x2')?.status).toBe('open');
+
+      expect(await runWeeklyReport(h.ctx)).toEqual({ ran: true, week: '2026-W43' });
+      const paths = weeklyReportPaths(h.ctx.config.scraper.archiveDir, '2026-W43');
+      const md = readFileSync(paths.md, 'utf8');
+      expect(md).toContain('## Market family moves');
+      expect(md).toMatch(/\| htft \| suspended \| 1200 bps \| 1400 bps \|/);
+      const json = JSON.parse(readFileSync(paths.json, 'utf8')) as {
+        familyMoves: Array<{ family: string; move: string }>;
+      };
+      expect(json.familyMoves).toEqual([
+        expect.objectContaining({ family: 'htft', move: 'suspend' }),
+      ]);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'the job waits 24 hours after the week, and moves nothing without stakes',
+    async () => {
+      h = await createHarness({});
+      h.at(new Date('2026-11-09T12:00:00Z'));
+      expect(await runMarketFamilyJob(h.ctx)).toEqual({ ran: false, week: '2026-W45', moves: [] });
+      h.at(new Date('2026-11-10T00:00:00Z'));
+      expect(await runMarketFamilyJob(h.ctx)).toEqual({ ran: true, week: '2026-W45', moves: [] });
+      expect(await h.count(`SELECT count(*) AS n FROM market_family_state`)).toBe(0);
     },
     TEST_TIMEOUT,
   );

@@ -204,6 +204,37 @@ describe('buildWeeklyReport', () => {
     expect(JSON.parse(JSON.stringify(json))).toEqual(json);
   });
 
+  it('lists the market family moves after the measures, without counting them (task 2.5)', () => {
+    expect(buildWeeklyReport(base).json.familyMoves).toBeNull();
+    expect(buildWeeklyReport(base).markdown).toContain(
+      'The weekly market family job has not run for this week.',
+    );
+    const none = buildWeeklyReport({ ...base, familyMoves: { ran: true, moves: [] } });
+    expect(none.json.familyMoves).toEqual([]);
+    expect(none.markdown).toContain('No market family was suspended, returned or turned off');
+    const moved = buildWeeklyReport({
+      ...base,
+      familyMoves: {
+        ran: true,
+        moves: [
+          {
+            family: 'htft',
+            move: 'suspend',
+            marginBps: 1200,
+            raisedMarginBps: 1400,
+            reason: 'kept less | than expected',
+          },
+        ],
+      },
+    });
+    expect(moved.markdown).toContain('## Market family moves');
+    expect(moved.markdown).toContain(
+      '| htft | suspended | 1200 bps | 1400 bps | kept less \\| than expected |',
+    );
+    expect(moved.json.summary).toEqual(buildWeeklyReport(base).json.summary);
+    expect(moved.json.familyMoves).toHaveLength(1);
+  });
+
   it('keeps a pipe in a note from breaking the table', () => {
     const { markdown } = buildWeeklyReport({
       ...base,

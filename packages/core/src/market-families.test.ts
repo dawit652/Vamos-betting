@@ -198,7 +198,11 @@ describe('factoryPricingPlan', () => {
 
 const weekId = (n: number): string => `2026-W${String(n).padStart(2, '0')}`;
 /** Weeks 40.. with these stakes and kept amounts, at 700 bps. */
-const weeksOf = (rows: ReadonlyArray<[bigint, bigint]>, start = 40, marginBps = 700): FamilyWeek[] =>
+const weeksOf = (
+  rows: ReadonlyArray<[bigint, bigint]>,
+  start = 40,
+  marginBps = 700,
+): FamilyWeek[] =>
   rows.map(([stakes, kept], i) => ({ week: weekId(start + i), stakes, kept, marginBps }));
 const lastWeek = (weeks: readonly FamilyWeek[]): string => weeks[weeks.length - 1]!.week;
 
@@ -245,7 +249,9 @@ describe('familyDecision', () => {
   it('keeps on two short weeks, a good week, a thin week, or too few weeks', () => {
     expect(decide(ACTIVE_FAMILY, weeksOf([SHORT, GOOD, SHORT, SHORT])).move).toBe('keep');
     expect(decide(ACTIVE_FAMILY, weeksOf([SHORT, SHORT, THIN])).move).toBe('keep');
-    expect(decide(ACTIVE_FAMILY, weeksOf([SHORT, SHORT, THIN])).reason).toContain('under the floor');
+    expect(decide(ACTIVE_FAMILY, weeksOf([SHORT, SHORT, THIN])).reason).toContain(
+      'under the floor',
+    );
     expect(decide(ACTIVE_FAMILY, weeksOf([SHORT, SHORT])).reason).toBe('2 of 3 weeks to judge');
   });
 
@@ -280,9 +286,9 @@ describe('familyDecision', () => {
   });
 
   it('caps the raised margin at 10000 and refuses malformed weeks', () => {
-    expect(decide(ACTIVE_FAMILY, weeksOf([SHORT, SHORT, SHORT], 40, 9_900)).next.raisedMarginBps).toBe(
-      10_000,
-    );
+    expect(
+      decide(ACTIVE_FAMILY, weeksOf([SHORT, SHORT, SHORT], 40, 9_900)).next.raisedMarginBps,
+    ).toBe(10_000);
     const weeks = weeksOf([SHORT, SHORT]);
     expect(() => decide(ACTIVE_FAMILY, [weeks[1]!, weeks[0]!])).toThrow(RangeError);
     expect(() =>
@@ -313,9 +319,7 @@ describe('familyDecision', () => {
   const stateArb: fc.Arbitrary<MarketFamilyState> = fc.oneof(
     fc.constant(ACTIVE_FAMILY),
     fc.record({
-      status: fc.constantFrom('active', 'suspended', 'off') as fc.Arbitrary<
-        MarketFamilyState['status']
-      >,
+      status: fc.constantFrom('active', 'suspended', 'off'),
       sinceWeek: fc.option(fc.integer({ min: 1, max: 20 }).map(weekId), { nil: null }),
       raisedMarginBps: fc.option(fc.integer({ min: 0, max: 10_000 }), { nil: null }),
     }),

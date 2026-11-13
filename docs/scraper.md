@@ -134,19 +134,20 @@ column details may be refined by the implementer (documented in the schema).
 Text columns with a closed set get a CHECK constraint built from
 `packages/core/src/scrape.ts`.
 
-| Table                                 | Purpose                                                                                                                                                                                                                                                                                              |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scrape_sources`                      | `id` text PK, `name`, `adapter` (`SCRAPE_ADAPTERS`), `upstream`, `config` jsonb (adapter config incl. `allowedHosts`, requests, `timeZone`, competition label, `scoreBasis`), `enabled` (default **false**), timestamps, `updated_by`                                                                |
-| `scrape_competition_policy`           | `competition_id` PK → competitions, `enabled` (default false), `auto_open` (default false), `auto_results` (default false), `extra_time` (default false), `pricing_source` (`model` default, or `market`, rule O5), `factory_markets` (default false, plan task 2.3 (e)), `updated_at`, `updated_by` |
-| `scrape_market_odds`                  | bookmaker prices of a licensed feed (section 3.1): `source_id`, `source_key`, `bookmaker`, `market`, `line`, `selection`, `price_milli`, `price_updated_at`, `observed_at`, resolved ids and `event_id` (nullable until linked), `run_id`, `raw_id`                                                  |
-| `scrape_runs`                         | one fetch+parse cycle of a source: `id`, `source_id`, `started_at`, `finished_at`, `status` (`SCRAPE_RUN_STATUSES`), `trigger` (`schedule`/`manual`), `requests`, `bytes`, `records_seen`, `records_accepted`, `fixtures`, `results`, `issues` jsonb (capped), `error`                               |
-| `scrape_raw`                          | a stored snapshot: `id`, `run_id`, `url`, `status`, `content_type`, `content_hash` (SHA-256 hex), `bytes`, `fetched_at`, `keep` (result evidence is never pruned)                                                                                                                                    |
-| `scrape_observations`                 | current state per `(source_id, kind, source_key)`: raw names, resolved `competition_id` / `home_team_id` / `away_team_id` (nullable until resolved), `sport`, `kickoff`, `status`, `score` jsonb, `score_basis`, `payload_hash`, `first_seen_at`, `last_seen_at`, `changed_at`, `run_id`, `raw_id`   |
-| `scrape_observation_history`          | **append-only** (trigger + `REVOKE UPDATE, DELETE` from the app role): every distinct payload an observation had, with `seen_at`, `run_id`, `raw_id`. The evidence behind a settlement                                                                                                               |
-| `team_aliases`, `competition_aliases` | normalised raw name → catalogue id, optionally limited to one `source_id` (null = any source). Unique per `(sport/normalised name/source)`                                                                                                                                                           |
-| `scrape_review_items`                 | what a person must look at: `kind` (`SCRAPE_REVIEW_KINDS`), `subject_key`, `status`, `severity`, `title`, `payload` jsonb, `created_at`, resolution fields. At most one **open** item per `(kind, subject_key)` (partial unique index)                                                               |
-| `scrape_rating_applied`               | `fixture_key` PK, `applied_at`: a result updates ratings at most once                                                                                                                                                                                                                                |
-| `scrape_event_pricing`                | `event_id` PK, `ratings_key` (fingerprint of the ratings behind the stored prices, null if unknown), `priced_at`, `held_key` (the fingerprint of the last proposal a person was asked about), `updated_at` (rule O3)                                                                                 |
+| Table                                        | Purpose                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scrape_sources`                             | `id` text PK, `name`, `adapter` (`SCRAPE_ADAPTERS`), `upstream`, `config` jsonb (adapter config incl. `allowedHosts`, requests, `timeZone`, competition label, `scoreBasis`), `enabled` (default **false**), timestamps, `updated_by`                                                                 |
+| `scrape_competition_policy`                  | `competition_id` PK → competitions, `enabled` (default false), `auto_open` (default false), `auto_results` (default false), `extra_time` (default false), `pricing_source` (`model` default, or `market`, rule O5), `factory_markets` (default false, plan task 2.3 (e)), `updated_at`, `updated_by`  |
+| `scrape_market_odds`                         | bookmaker prices of a licensed feed (section 3.1): `source_id`, `source_key`, `bookmaker`, `market`, `line`, `selection`, `price_milli`, `price_updated_at`, `observed_at`, resolved ids and `event_id` (nullable until linked), `run_id`, `raw_id`                                                   |
+| `scrape_runs`                                | one fetch+parse cycle of a source: `id`, `source_id`, `started_at`, `finished_at`, `status` (`SCRAPE_RUN_STATUSES`), `trigger` (`schedule`/`manual`), `requests`, `bytes`, `records_seen`, `records_accepted`, `fixtures`, `results`, `issues` jsonb (capped), `error`                                |
+| `scrape_raw`                                 | a stored snapshot: `id`, `run_id`, `url`, `status`, `content_type`, `content_hash` (SHA-256 hex), `bytes`, `fetched_at`, `keep` (result evidence is never pruned)                                                                                                                                     |
+| `scrape_observations`                        | current state per `(source_id, kind, source_key)`: raw names, resolved `competition_id` / `home_team_id` / `away_team_id` (nullable until resolved), `sport`, `kickoff`, `status`, `score` jsonb, `score_basis`, `payload_hash`, `first_seen_at`, `last_seen_at`, `changed_at`, `run_id`, `raw_id`    |
+| `scrape_observation_history`                 | **append-only** (trigger + `REVOKE UPDATE, DELETE` from the app role): every distinct payload an observation had, with `seen_at`, `run_id`, `raw_id`. The evidence behind a settlement                                                                                                                |
+| `team_aliases`, `competition_aliases`        | normalised raw name → catalogue id, optionally limited to one `source_id` (null = any source). Unique per `(sport/normalised name/source)`                                                                                                                                                            |
+| `scrape_review_items`                        | what a person must look at: `kind` (`SCRAPE_REVIEW_KINDS`), `subject_key`, `status`, `severity`, `title`, `payload` jsonb, `created_at`, resolution fields. At most one **open** item per `(kind, subject_key)` (partial unique index)                                                                |
+| `scrape_rating_applied`                      | `fixture_key` PK, `applied_at`: a result updates ratings at most once                                                                                                                                                                                                                                 |
+| `scrape_event_pricing`                       | `event_id` PK, `ratings_key` (fingerprint of the ratings behind the stored prices, null if unknown), `priced_at`, `held_key` (the fingerprint of the last proposal a person was asked about), `updated_at` (rule O3)                                                                                  |
+| `market_family_state`, `market_family_moves` | plan task 2.5 (6.5a): each market family's state with the weekly job (`active`, `suspended`, `off`; no row is active), the week of its last move and its raised margin; and the job's moves (one per family and week, with the reason and the weeks judged; **append-only**, `REVOKE UPDATE, DELETE`) |
 
 Events created by the scraper have `feed_provider = 'scraped'` and
 `feed_ref = fixture key` (`fx|competitionId|homeTeamId|awayTeamId|YYYY-MM-DD`
@@ -298,10 +299,12 @@ with no trader's tick (A-5), also more than `KICKOFF_CONFIRM_LEAD_MS` ahead:
   `countIndependent` already counts the two upstreams as two (K-rules unchanged: tolerance
   `KICKOFF_TOLERANCE_MS`, K1 closes at once on a lone earlier time, disagreement never confirms).
 - **Freshness of a list that never shows an ended match.** C1 needs both sources _fresh_, which needed a
-  listed row that ended long ago; /events (like /odds) only lists matches not yet started. A source is now
-  also _known_ when its latest `ok` run started at least `MIN_MATCH_DURATION_MS + SOURCE_STALE_AFTER_MS` after
-  the kickoff of a fixture it had seen, and no longer lists it. A new events source therefore counts only
-  after it has watched one match end (a match day or two); until then the event waits as before. Residual
+  listed row that ended long ago; /events (like /odds) only lists matches not yet started. **Only a free
+  events source** (`theoddsapi` with `mode: 'events'`) is now also _known_ when its latest `ok` run started at
+  least `MIN_MATCH_DURATION_MS + SOURCE_STALE_AFTER_MS` after the kickoff of a fixture it had seen, and no
+  longer lists it. Every other source stays strict: one that merely drops an ended match is neither known nor
+  stale (test `rows a source no longer lists make it neither known nor stale`). A new events source counts
+  only after it has watched one match end (a match day or two); until then the event waits as before. Residual
   risk: a frozen events page cannot be told from a live one by S5 (the adapter drops started matches); a
   frozen page that disagrees with the spine still blocks C1 and K1 still closes betting.
 
@@ -592,6 +595,7 @@ Nothing the alarming code does changes; the alert is added in the same transacti
 | `source_stale` (S5)                                                                                              | the item opens                                             | `source_stale\|<source id>`                  |
 | `budget_low`, `budget_exhausted`, `budget_projection`, `unauthorized`, `unexpected_cost` (4.8)                   | the item opens, or `budget_low` becomes `budget_exhausted` | `<reason>\|<credit key>`                     |
 | `ladder_shadow_failed`                                                                                           | once per pass that fails                                   | `ladder_shadow_failed`                       |
+| `market_family_moved` (6.5a)                                                                                     | the weekly family job suspends, returns or ends a family   | `market_family_moved\|<family>\|<week>`      |
 | `sms_receipt_rejected`, `sms_balance_drift`, `sms_gateway_silent`, `sms_review_backlog`, `manual_payout_waiting` | the check finds it, at most once per interval and key      | `<alarm>` (plus the SMS, or the institution) |
 
 `market_stale` and `odds_out_of_line` are per match and do not alert. Deduplication: the worker texts one
@@ -923,6 +927,42 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   best price among the books and which book, the consensus' books and overround, and where our prices
   came from (`model` or `market`). Probabilities are stored in parts per million. Nothing prices,
   opens, suspends or settles from it: the scorecard (M-2) compares it with the results.
+
+### 6.5a Market families: margins, limits and the weekly job (plan task 2.5)
+
+A **family** is one market type that only the market factory prices (`h1_ou`, `htft`, ...: 81 of
+them, `MARKET_FAMILIES` in `packages/core/src/market-families.ts`); today's nine types are priced as
+before and are not families. Everything below is pure in `packages/core` (`parseMarketFamilies`,
+`factoryPricingPlan`, `familyDecision`, with unit and property tests) and applies with no restart.
+
+- **Settings `market_families`** (back office, Settings, "Market families", `settings.edit`, audited
+  as `settings.updated`): `marginBps` per class (`main` 600, `derivative` 700, `long` 1200),
+  `typeMarginBps` per family (none by default), `factoryLiabilityShareBps` (2500: a factory
+  selection's liability cap is a quarter of `risk_limits.maxSelectionLiability`, checked at
+  placement and at live acceptance) and `minWeeklyStake` (10,000,000 santim = 100,000 ETB). Margins
+  and the share are integers 0..10000 bps. The defaults are exactly the earlier behaviour.
+- **Pricing.** `priceEvent` reads the settings and the families' states (`loadFactoryPricingPlan`) at
+  every pricing of a market-priced event with factory markets, so a change applies at the next
+  re-price. The pricing key ends in `|fm1` with the defaults; any other margins or a left-out family
+  add `.<8 hex>` (a stamp of the effective margins and left-out families), so each event re-prices
+  once, through the bounds of O3.
+- **The weekly job** (task `scraper-market-families`, `apps/scraper/src/tasks/market-families.ts`):
+  once the last ISO week is 24 hours over (before the weekly report at 48 hours), and once per week
+  (its `scrape.market_families.reviewed` audit row is the marker), each family is judged on its
+  settled **singles** of the last three weeks (won, lost or cashed out; multis are left out because
+  their money cannot be split honestly per family; voids carry no margin). A week keeps too little
+  when its stakes reach `minWeeklyStake` and kept × (10000 + m) < stakes × m, m being the margin
+  charged (bps of overround; the margin in force now: margins are not kept per week). Three such
+  weeks in a row: the family is **suspended**, to return once at m + 200 bps. A suspended family
+  returns only when a history test at that margin has passed; none is built yet
+  (`FAMILY_HISTORY_TEST_AVAILABLE = false`), so it stays suspended and the run says so. A family
+  that fails three weeks after its return is **off** for good. Each move is stored in
+  `market_family_state` and the append-only `market_family_moves`, audited
+  (`scrape.market_family.moved`), sent to the owner (`market_family_moved`, 6.3a) and listed in the
+  weekly report ("Market family moves", not counted as a measure). A suspended or off family is left
+  out of factory pricing, so the next re-price suspends its stored markets (`factoryComplete`); open
+  bets on it stand and settle as usual. A returned family prices at its raised margin, or the
+  settings' margin when higher.
 
 ### 6.6 Scraping manners
 

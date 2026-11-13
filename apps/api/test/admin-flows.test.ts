@@ -565,6 +565,54 @@ describe('settings and withdrawals', () => {
     expect(cleared.settings.riskLimits).toEqual(none);
   });
 
+  it('edits the market families (plan task 2.5): validated, audited, today by default', async () => {
+    const view = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.finance, 'GET', '/admin/settings')),
+    );
+    const defaults = {
+      marginBps: { main: 600, derivative: 700, long: 1200 },
+      typeMarginBps: {},
+      factoryLiabilityShareBps: 2500,
+      minWeeklyStake: '10000000',
+    };
+    expect(view.settings.marketFamilies).toEqual(defaults);
+    const changed = {
+      ...defaults,
+      typeMarginBps: { htft: 1400 },
+      factoryLiabilityShareBps: 1000,
+    };
+    const updated = StaffSettingsResponse.parse(
+      expectOk(
+        await asStaff(ctx, s.admin, 'PUT', '/admin/settings/market_families', { value: changed }),
+      ),
+    );
+    expect(updated.settings.marketFamilies).toEqual(changed);
+    expect(await staffAudit(s.admin, 'market_families')).toEqual(['settings.updated']);
+
+    for (const value of [
+      { ...defaults, marginBps: { main: 10_001, derivative: 700, long: 1200 } },
+      { ...defaults, typeMarginBps: { '1x2': 500 } },
+      { ...defaults, factoryLiabilityShareBps: -1 },
+      { ...defaults, minWeeklyStake: '-1' },
+    ]) {
+      const refused = await asStaff(ctx, s.admin, 'PUT', '/admin/settings/market_families', {
+        value,
+      });
+      expect(refused.statusCode).toBe(422);
+    }
+    expect(
+      (await asStaff(ctx, s.finance, 'PUT', '/admin/settings/market_families', { value: changed }))
+        .statusCode,
+    ).toBe(403);
+
+    const back = StaffSettingsResponse.parse(
+      expectOk(
+        await asStaff(ctx, s.admin, 'PUT', '/admin/settings/market_families', { value: defaults }),
+      ),
+    );
+    expect(back.settings.marketFamilies).toEqual(defaults);
+  });
+
   it('lets finance approve and reject withdrawals', async () => {
     player = await registerAndLogin(ctx);
     await db.insert(kycProfiles).values({

@@ -120,6 +120,27 @@ export interface WeeklyInputs {
   }[];
   /** Ladder-shadow decisions first made in the week, per rung and reason. */
   shadow: ShadowSummaryRow[];
+  /**
+   * The weekly market family job's moves for the week (plan task 2.5); absent or `ran: false`
+   * when the job has not run for it.
+   */
+  familyMoves?: FamilyMovesInput;
+}
+
+/** What the weekly market family job did for the week. */
+export interface FamilyMovesInput {
+  ran: boolean;
+  moves: FamilyMoveRow[];
+}
+
+export interface FamilyMoveRow {
+  family: string;
+  move: 'suspend' | 'return' | 'off';
+  /** The margin charged in the last week judged (bps). */
+  marginBps: number | null;
+  /** Suspend: the margin it may return at; return and off: the margin it returned at. */
+  raisedMarginBps: number | null;
+  reason: string;
 }
 
 // ------------------------------------------------------------------ output
@@ -149,6 +170,8 @@ export interface WeeklyReportJson {
   generatedAt: string;
   summary: { pass: number; fail: number; unknown: number };
   measures: MeasureRow[];
+  /** The market family job's moves (plan task 2.5); null when it has not run for the week. */
+  familyMoves: FamilyMoveRow[] | null;
 }
 
 /** Section 8's targets, as numbers. */
@@ -462,6 +485,35 @@ const cell = (text: string): string => text.replace(/\|/g, '\\|').replace(/\n/g,
 
 const MARK_TEXT: Record<Mark, string> = { pass: 'PASS', fail: 'FAIL', unknown: 'unknown' };
 
+const MOVE_TEXT: Record<FamilyMoveRow['move'], string> = {
+  suspend: 'suspended',
+  return: 'returned',
+  off: 'off for good',
+};
+
+const bpsText = (bps: number | null): string => (bps === null ? '-' : `${bps} bps`);
+
+/** Plan task 2.5: what the weekly market family job did, after the measures (it is no measure). */
+function familyMovesSection(moves: FamilyMoveRow[] | null): string[] {
+  const head = ['## Market family moves', ''];
+  if (moves === null) {
+    return [...head, 'The weekly market family job has not run for this week.', ''];
+  }
+  if (moves.length === 0) {
+    return [...head, 'No market family was suspended, returned or turned off this week.', ''];
+  }
+  return [
+    ...head,
+    '| Family | Move | Margin | Raised margin | Reason |',
+    '| --- | --- | --- | --- | --- |',
+    ...moves.map(
+      (m) =>
+        `| ${cell(m.family)} | ${MOVE_TEXT[m.move]} | ${bpsText(m.marginBps)} | ${bpsText(m.raisedMarginBps)} | ${cell(m.reason)} |`,
+    ),
+    '',
+  ];
+}
+
 /** The report as a Markdown table and as a JSON document. */
 export function buildWeeklyReport(input: WeeklyInputs): WeeklyReport {
   const measures = weeklyMeasures(input);
@@ -479,6 +531,7 @@ export function buildWeeklyReport(input: WeeklyInputs): WeeklyReport {
     generatedAt: input.generatedAt.toISOString(),
     summary,
     measures,
+    familyMoves: input.familyMoves?.ran === true ? input.familyMoves.moves : null,
   };
   const markdown = [
     `# Weekly report ${input.week.id}`,
@@ -493,6 +546,7 @@ export function buildWeeklyReport(input: WeeklyInputs): WeeklyReport {
         `| ${cell(m.measure)} | ${cell(m.target)} | ${cell(m.value ?? '-')} | ${MARK_TEXT[m.mark]} | ${cell(m.note)} |`,
     ),
     '',
+    ...familyMovesSection(json.familyMoves),
   ].join('\n');
   return { markdown, json };
 }
