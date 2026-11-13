@@ -975,6 +975,12 @@ before and are not families. Everything below is pure in `packages/core` (`parse
   out of factory pricing, so the next re-price suspends its stored markets (`factoryComplete`); open
   bets on it stand and settle as usual. A returned family prices at its raised margin, or the
   settings' margin when higher.
+- **Back office** (Feed → Market families, task A12): every family with its state, margin now and
+  its line of the stored history test (`GET /admin/feed/market-families`, `trading.view`). A person
+  with `settings.edit` can **reset** a suspended or off family (`POST
+/admin/feed/market-families/:family/reset` with a reason, audited as `scrape.market_family.reset`):
+  it becomes active as if new from the current ISO week, with no raised margin, so the weeks that
+  moved it are not judged again. The job's `market_family_moves` stays the job's own record.
 - **The history test** (check 0.6, task A2): `eval families (--file <csv> ... | --dir <folder>)
 [--write] [--json]` reads football-data.co.uk files, fits the expected goals of every match to its
   closing 1X2 and over/under 2.5 exactly as production does (`marketConsensus`,
