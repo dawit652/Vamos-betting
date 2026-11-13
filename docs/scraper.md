@@ -846,6 +846,12 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   - **Not a status change:** the market stays `open`; no audit row, history row or live message is
     written when a price expires, and nothing is resumed when a pass confirms it again. Only
     markets of open and suspended status are refreshed.
+  - **Shown suspended (task A13):** the catalogue API (event page, list rows, search) shows an open
+    market whose price has expired as `suspended`, with its selections not open
+    (`displayedMarketStatus`, `apps/api/src/modules/catalog/views.ts`), and sends the expiry as
+    `priceValidUntil`. The web page already draws a suspended market. A page left open does not
+    suspend a market by itself at `priceValidUntil`: the pass pushes the expiry forward, so that
+    would suspend healthy markets on a long-open page; placement refuses an expired price anyway.
   - Set it above the slowest refresh of a priority source, for example 90 minutes, and switch it on
     after a shadow week: watch `price_valid_until` against the passes first, so a normal gap
     does not suspend betting.

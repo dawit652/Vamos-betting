@@ -38,6 +38,12 @@ export const MarketView = z.object({
   /** The market factory's group ('goals', 'combo', ...); only on factory markets. */
   group: z.string().optional(),
   status: z.enum(['open', 'suspended', 'closed', 'settled', 'void']),
+  /**
+   * When the market's price expires (rule P7, ISO instant); absent when it never does. The API
+   * already shows an expired price as `suspended`; a page left open treats the market as
+   * suspended from this instant on (task 1.10).
+   */
+  priceValidUntil: z.string().optional(),
   selections: z.array(SelectionView),
 });
 export type MarketView = z.infer<typeof MarketView>;

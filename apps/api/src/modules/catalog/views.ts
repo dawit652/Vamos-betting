@@ -71,6 +71,8 @@ export interface MarketRow {
   type: string;
   line: string | null;
   status: MarketStatus;
+  /** markets.price_valid_until (rule P7); null or absent never expires. */
+  priceValidUntil?: Date | null;
 }
 
 export interface SelectionRow {
@@ -122,6 +124,39 @@ export function isSelectionOpen(
   now: Date,
 ): boolean {
   return isSelectionBettable(event, market.status, selection.status, now);
+}
+
+/**
+ * The status a market is shown with at `now`: an open market whose price has expired (rule P7,
+ * `price_valid_until` at or before `now`) is shown suspended, as bet placement already treats it
+ * (task 1.10). Every other status is shown as stored.
+ */
+export function displayedMarketStatus(
+  market: Pick<MarketRow, 'status' | 'priceValidUntil'>,
+  now: Date,
+): MarketStatus {
+  const until = market.priceValidUntil;
+  if (
+    market.status === 'open' &&
+    until !== null &&
+    until !== undefined &&
+    now.getTime() >= until.getTime()
+  ) {
+    return 'suspended';
+  }
+  return market.status;
+}
+
+/** The market fields both views share: the status shown at `now` and the expiry, if any. */
+function marketStatusFields(
+  market: MarketRow,
+  now: Date,
+): Pick<MarketView, 'status' | 'priceValidUntil'> {
+  const until = market.priceValidUntil;
+  return {
+    status: displayedMarketStatus(market, now),
+    ...(until === null || until === undefined ? {} : { priceValidUntil: until.toISOString() }),
+  };
 }
 
 /** The numeric value of a market's line (a total or a handicap), or null when it is malformed. */
@@ -215,7 +250,12 @@ export function marketView(
           am: selectionLabel(type, selection.code, am, market.line).am,
         },
         oddsMilli: selection.oddsMilli,
-        open: isSelectionOpen(event, market, selection, now),
+        open: isSelectionOpen(
+          event,
+          { status: displayedMarketStatus(market, now) },
+          selection,
+          now,
+        ),
       },
     });
   }
@@ -226,7 +266,7 @@ export function marketView(
     type,
     line: market.line,
     name: { en: definition.name.en, am: definition.name.am },
-    status: market.status,
+    ...marketStatusFields(market, now),
     selections: views.map((entry) => entry.view),
   };
 }
@@ -257,7 +297,12 @@ function factoryMarketView(
           am: factorySelectionLabel(market.type, selection.code, am, market.line).am,
         },
         oddsMilli: selection.oddsMilli,
-        open: isSelectionOpen(event, market, selection, now),
+        open: isSelectionOpen(
+          event,
+          { status: displayedMarketStatus(market, now) },
+          selection,
+          now,
+        ),
       },
     });
   }
@@ -269,7 +314,7 @@ function factoryMarketView(
     line: market.line,
     name: { en: name.en, am: name.am },
     group: definition.group,
-    status: market.status,
+    ...marketStatusFields(market, now),
     selections: views.map((entry) => entry.view),
   };
 }

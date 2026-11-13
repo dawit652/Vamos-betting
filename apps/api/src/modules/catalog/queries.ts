@@ -293,6 +293,7 @@ async function loadMarkets(db: DbExecutor, eventIds: readonly string[]): Promise
       type: markets.type,
       line: markets.line,
       status: markets.status,
+      priceValidUntil: markets.priceValidUntil,
     })
     .from(markets)
     .where(inArray(markets.eventId, [...eventIds]));
