@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { creditKeyOf } from '../fetch/credit-guard';
 import type { MarketOddsObservation, RawDocument, SourceAdapter } from '../types';
 import {
   createAdapter,
@@ -660,6 +661,83 @@ describe('scores mode (a second result upstream)', () => {
   });
 });
 
+describe('events mode: the free fixture list (plan task 1.4)', () => {
+  const eventsConfig = {
+    allowedHosts: ['api.the-odds-api.com'],
+    secret: 'SCRAPER_SECRET_THEODDSAPI',
+    sport: 'football',
+    sportKey: 'soccer_epl',
+    competition: 'Premier League',
+    mode: 'events',
+  };
+  const EVENTS_URL = theOddsApiUrl(TheOddsApiConfigSchema.parse(eventsConfig));
+  // SYNTHETIC: see __fixtures__/README.md (read at FETCHED_AT).
+  const fixtureFile = readFileSync(
+    new globalThis.URL('./__fixtures__/theoddsapi-events-epl.synthetic.json', import.meta.url),
+    'utf8',
+  );
+  const parseEvents = (body: unknown) => parse(body, eventsConfig, EVENTS_URL);
+
+  it('reads /events for the fixtures schedule, with the key in a header, and it is free', () => {
+    const adapter = build(eventsConfig);
+    expect(adapter.plan(FETCHED_AT)).toEqual([
+      {
+        url: 'https://api.the-odds-api.com/v4/sports/soccer_epl/events?dateFormat=iso',
+        purpose: 'fixtures',
+        auth: { header: THEODDSAPI_AUTH_HEADER, secret: 'SCRAPER_SECRET_THEODDSAPI' },
+      },
+    ]);
+    // Zero credits: nothing for `sources budget` (no odds or results request) and an unexpected
+    // cost above 0 raises the alarm.
+    expect(theOddsApiCost(TheOddsApiConfigSchema.parse(eventsConfig))).toBe(0);
+    expect(adapter.usage?.expectedCost).toBe(0);
+    expect(
+      adapter.plan(FETCHED_AT).some((p) => p.purpose === 'odds' || p.purpose === 'results'),
+    ).toBe(false);
+    // It shares the key (so the key's 401 alarm covers it) but a metered source's cost stays 2.
+    expect(creditKeyOf('events', adapter.plan(FETCHED_AT))).toBe('SCRAPER_SECRET_THEODDSAPI');
+    expect(build(config).usage?.expectedCost).toBe(2);
+  });
+
+  it('turns the free list into fixture observations: kickoff UTC, names, the event id as reference', () => {
+    const out = parseEvents(fixtureFile);
+    expect(
+      out.fixtures.map((f) => [f.externalRef, f.home, f.away, f.kickoff.toISOString(), f.status]),
+    ).toEqual([
+      ['synthetic-evt-0001', 'Arsenal', 'Chelsea', '2026-11-14T12:30:00.000Z', 'scheduled'],
+      ['synthetic-evt-0002', 'Fulham', 'Everton', '2026-11-20T16:30:00.000Z', 'scheduled'],
+    ]);
+    expect(out.fixtures.every((f) => f.competition === 'Premier League')).toBe(true);
+    expect(out.results).toEqual([]);
+    expect(out.marketOdds).toEqual([]);
+    // Started and far matches are skipped quietly; another sport key and a bad time are issues.
+    expect(codes(out).sort()).toEqual(['bad_time', 'sport_mismatch']);
+    // Not counted as records (like the other companion fixtures): the S1 shape check ignores it.
+    expect(out.stats.recordsAccepted).toBe(0);
+  });
+
+  it('is fatal for an error answer, a non-array or the odds page of the same key', () => {
+    expect(
+      parseEvents({ message: 'quota', error_code: 'OUT_OF_USAGE_CREDITS' }).issues[0],
+    ).toMatchObject({
+      code: 'bad_shape',
+    });
+    expect(codes(parseEvents('nope'))).toEqual(['bad_json']);
+    expect(codes(parse([], eventsConfig, URL))).toEqual(['unknown_request']);
+  });
+
+  it('takes no bookmakers and no fixtures flag; the odds and scores modes are unchanged', () => {
+    expect(refused({ ...eventsConfig, bookmakers: ['pinnacle', 'betsson'] }).join()).toContain(
+      'bookmakers',
+    );
+    expect(refused({ ...eventsConfig, fixtures: true }).join()).toContain('fixtures');
+    expect(() => build(eventsConfig)).not.toThrow();
+    expect(theOddsApiUrl(TheOddsApiConfigSchema.parse(config))).toContain('/odds?');
+    expect(build(config).plan(FETCHED_AT)[0]?.purpose).toBe('odds');
+    expect(TheOddsApiConfigSchema.parse(config).mode).toBe('odds');
+  });
+});
+
 describe('the repository source files (docs/scraper-plan/data)', () => {
   // `URL` is this file's request URL; the constructor is the global one.
   const data = new globalThis.URL('../../../../docs/scraper-plan/data/', import.meta.url);
@@ -697,6 +775,23 @@ describe('the repository source files (docs/scraper-plan/data)', () => {
       }
     },
   );
+
+  it('the draft free events source reads the same league as the prices source, with no credits', () => {
+    const odds = read('source-theoddsapi-en1.json');
+    const events = read('source-theoddsapi-events-en1.json');
+    expect(events.upstream).toBe('TheOddsAPI');
+    const r = createAdapter({
+      id: events.id,
+      adapter: 'theoddsapi',
+      upstream: events.upstream,
+      config: events.config,
+    });
+    expect(r.ok && r.adapter.usage?.expectedCost).toBe(0);
+    expect(events.config.mode).toBe('events');
+    for (const field of ['sportKey', 'competition', 'secret', 'sport', 'allowedHosts']) {
+      expect(events.config[field]).toEqual(odds.config[field]);
+    }
+  });
 
   it('every scores source says unknown for a knockout competition, regular_time for a league (S-4)', () => {
     const files = readdirSync(data).filter((f) => /^source-theoddsapi-scores-.+\.json$/.test(f));

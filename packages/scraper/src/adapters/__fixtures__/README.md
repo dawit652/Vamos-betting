@@ -20,3 +20,9 @@
   status family (FT, NS, 1H, HT, AET, PEN, PST, CANC, ABD, AWD, WO), an FT with null goals, an FT whose
   `fulltime` equals `goals`, and a kickoff written with a +03:00 offset. Replace with a real response (key removed)
   when plan check 0.4 runs.
+- `theoddsapi-events-epl.synthetic.json`: SYNTHETIC, hand-written from the documented shape of The Odds API v4
+  `GET /v4/sports/soccer_epl/events` (the free fixture list: `id`, `sport_key`, `sport_title`, `commence_time`,
+  `home_team`, `away_team`; no bookmakers). No real response was captured. Ids and kickoffs are invented (read at
+  2026-11-07T10:00:00Z in the tests). Two upcoming matches, one already started, one beyond the 15-day horizon,
+  one of another sport key and one with an unreadable `commence_time`. Replace with a real response (key removed)
+  when one has been captured with `dry-fetch`.

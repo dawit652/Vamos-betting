@@ -248,6 +248,51 @@ describe('C1 two upstreams', () => {
     expect(a.confirmed).toBe(false);
   });
 
+  describe('plan task 1.4: the free fixture list and the spine are two kickoff voices', () => {
+    const oddsApi = (over: Spec = {}) =>
+      st({ source: 'theoddsapi-events-en1', upstream: 'TheOddsAPI', ...over });
+    const spine = (over: Spec = {}) =>
+      st({ source: 'apifootball-bydate', upstream: 'API-Sports', ...over });
+
+    it('two agreeing times confirm (C1) 10 days ahead with no person, no lead time and no stability', () => {
+      const a = assess([oddsApi({ changedAt: FAR }), spine({ changedAt: FAR })], { now: FAR });
+      expect(a).toMatchObject({ confirmed: true, basis: 'C1', reasons: [], earlier: [] });
+    });
+
+    it('times within the tolerance of the start agree; one just outside it does not', () => {
+      const within = KICKOFF_TOLERANCE_MS - MINUTE_MS;
+      expect(assess([oddsApi({ offset: within }), spine({ offset: -within })]).basis).toBe('C1');
+      const out = assess([oddsApi({ offset: KICKOFF_TOLERANCE_MS + MINUTE_MS }), spine()]);
+      expect(out.confirmed).toBe(false);
+      expect(out.reasons).toContain('sources_disagree');
+    });
+
+    it('disagreeing times do not confirm, and the earlier one is an earlier-kickoff statement (K1)', () => {
+      const a = assess([oddsApi({ offset: -3 * HOUR_MS }), spine()]);
+      expect(a.confirmed).toBe(false);
+      expect(a.reasons).toContain('earlier_kickoff_reported');
+      expect(a.earlier.map((e) => e.sourceId)).toEqual(['theoddsapi-events-en1']);
+      const later = assess([oddsApi({ offset: 3 * HOUR_MS }), spine()]);
+      expect(later.confirmed).toBe(false);
+      expect(later.reasons).toContain('sources_disagree');
+    });
+
+    it('a lone voice still waits far from the kickoff, and one stale voice does not confirm', () => {
+      expect(assess([spine()]).reasons).toEqual(['too_early_for_single_source']);
+      expect(assess([oddsApi(), spine({ fresh: false })]).confirmed).toBe(false);
+    });
+
+    it('several sources of one upstream with the second upstream still count as two', () => {
+      const a = assess([
+        oddsApi(),
+        st({ source: 'theoddsapi-en1', upstream: 'theoddsapi ' }),
+        spine(),
+      ]);
+      expect(countIndependent(a.earlier)).toBe(0);
+      expect(a.basis).toBe('C1');
+    });
+  });
+
   it('C1 sources sharing an upstream transitively count once', () => {
     const a = assess([
       st({ source: 'a', upstream: 'u1' }),

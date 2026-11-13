@@ -60,11 +60,16 @@ export function liabilityBreach(input: {
   limits: RiskLimits;
   /**
    * Selections of the market factory's markets (plan task 2.5): their cap is
-   * FACTORY_SELECTION_LIABILITY_SHARE_BPS of the selection cap (`selectionLiabilityCap`).
+   * `factoryShareBps` of the selection cap (`selectionLiabilityCap`).
    */
   factorySelections?: ReadonlySet<string>;
+  /**
+   * The factory selections' share of the selection cap, in basis points (settings
+   * `market_families.factoryLiabilityShareBps`); default FACTORY_SELECTION_LIABILITY_SHARE_BPS.
+   */
+  factoryShareBps?: number;
 }): LiabilityBreach | null {
-  const { payout, selections, events, limits, factorySelections } = input;
+  const { payout, selections, events, limits, factorySelections, factoryShareBps } = input;
   if (payout < 0n) throw new RangeError(`payout must not be negative (got ${payout})`);
   let tightest: LiabilityBreach | null = null;
   const consider = (
@@ -82,7 +87,7 @@ export function liabilityBreach(input: {
     }
   };
   consider('selection', selections, (id) =>
-    selectionLiabilityCap(limits, factorySelections?.has(id) === true),
+    selectionLiabilityCap(limits, factorySelections?.has(id) === true, factoryShareBps),
   );
   consider('event', events, () => limits.maxEventLiability);
   return tightest;
@@ -90,19 +95,27 @@ export function liabilityBreach(input: {
 
 /**
  * Plan task 2.5 ("shown with low limits"): a selection of the market factory's markets starts at
- * a quarter of the selection liability cap, the limit of a league at stage 2 (4.3). Until the
- * margins and limits per family come from settings, this share is fixed.
+ * a quarter of the selection liability cap, the limit of a league at stage 2 (4.3). The default of
+ * the setting `market_families.factoryLiabilityShareBps`, which staff change in the back office.
  */
 export const FACTORY_SELECTION_LIABILITY_SHARE_BPS = 2_500;
 
 /**
  * The liability cap of one selection: `maxSelectionLiability`, or for a selection of a factory
- * market FACTORY_SELECTION_LIABILITY_SHARE_BPS of it (rounded down). Null: no cap.
+ * market `shareBps` of it (default FACTORY_SELECTION_LIABILITY_SHARE_BPS, rounded down; a share
+ * above 10,000 is refused, so a factory cap is never looser than the plain one). Null: no cap.
  */
-export function selectionLiabilityCap(limits: RiskLimits, factory: boolean): Santim | null {
+export function selectionLiabilityCap(
+  limits: RiskLimits,
+  factory: boolean,
+  shareBps: number = FACTORY_SELECTION_LIABILITY_SHARE_BPS,
+): Santim | null {
+  if (!Number.isSafeInteger(shareBps) || shareBps < 0 || shareBps > 10_000) {
+    throw new RangeError(`factory liability share must be an integer 0..10000 (got ${shareBps})`);
+  }
   const cap = limits.maxSelectionLiability;
   if (cap === null || !factory) return cap;
-  return (cap * BigInt(FACTORY_SELECTION_LIABILITY_SHARE_BPS)) / 10_000n;
+  return (cap * BigInt(shareBps)) / 10_000n;
 }
 
 function isTighter(a: LiabilityBreach, b: LiabilityBreach): boolean {

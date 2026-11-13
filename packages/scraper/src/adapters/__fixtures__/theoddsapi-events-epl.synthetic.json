@@ -1,0 +1,50 @@
+[
+  {
+    "id": "synthetic-evt-0001",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "2026-11-14T12:30:00Z",
+    "home_team": "Arsenal",
+    "away_team": "Chelsea"
+  },
+  {
+    "id": "synthetic-evt-0002",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "2026-11-20T16:30:00Z",
+    "home_team": "Fulham",
+    "away_team": "Everton"
+  },
+  {
+    "id": "synthetic-evt-live",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "2026-11-07T09:00:00Z",
+    "home_team": "Brighton and Hove Albion",
+    "away_team": "Brentford"
+  },
+  {
+    "id": "synthetic-evt-far",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "2027-03-01T15:00:00Z",
+    "home_team": "Leeds United",
+    "away_team": "Wolverhampton Wanderers"
+  },
+  {
+    "id": "synthetic-evt-other-sport",
+    "sport_key": "soccer_spain_la_liga",
+    "sport_title": "La Liga",
+    "commence_time": "2026-11-21T20:00:00Z",
+    "home_team": "Sevilla",
+    "away_team": "Valencia"
+  },
+  {
+    "id": "synthetic-evt-bad-time",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "soon",
+    "home_team": "Aston Villa",
+    "away_team": "Newcastle United"
+  }
+]

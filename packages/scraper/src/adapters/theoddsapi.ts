@@ -40,6 +40,12 @@ import { decimalToMilli, type PriceProblem } from './odds-price';
  * future is dropped. Its fixtures and results do not count as records (`acceptCompanion`), so the
  * S1 shape check does not watch these pages. Scraped data never cancels, voids or abandons
  * anything; this adapter only ever says a match is scheduled or finished with a score.
+ *
+ * In `events` mode it reads the FREE fixture list `/v4/sports/{sportKey}/events` (no credits,
+ * plan task 1.4): only fixtures, each kickoff being a second voice next to the API-Football spine,
+ * so the kickoff of a match is confirmed (C1) without a person. The request is not metered
+ * (`expectedCost` 0), never in the credit guard's or `sources budget`'s reads, and an answer that
+ * reports a cost above 0 raises the unexpected-cost alarm.
  */
 
 export const THEODDSAPI_HOST = 'api.the-odds-api.com';
@@ -70,9 +76,10 @@ export const TheOddsApiConfigSchema = z
     competition: z.string().trim().min(1).max(120),
     /**
      * `odds` (default): the bookmakers' prices of upcoming matches. `scores`: the final scores of
-     * the last `daysFrom` days, read only after matches (apps/scraper scheduler).
+     * the last `daysFrom` days, read only after matches (apps/scraper scheduler). `events`: the free
+     * fixture list (no credits), fixtures only, on the fixtures schedule.
      */
-    mode: z.enum(['odds', 'scores']).default('odds'),
+    mode: z.enum(['odds', 'scores', 'events']).default('odds'),
     /** Odds mode: also report each upcoming match as a fixture (kickoff = commence_time). */
     fixtures: z.boolean().default(false),
     /** Scores mode: days back (1 to 3); with it a request costs 2 credits. */
@@ -107,6 +114,13 @@ export const TheOddsApiConfigSchema = z
         path: ['allowedHosts'],
       });
     }
+    if (c.mode === 'events' && c.bookmakers !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'events mode reads no prices: bookmakers is for odds mode',
+        path: ['bookmakers'],
+      });
+    }
     if (c.mode === 'odds' && c.bookmakers === undefined) {
       ctx.addIssue({
         code: 'custom',
@@ -121,7 +135,7 @@ export const TheOddsApiConfigSchema = z
         path: ['scoreBasis'],
       });
     }
-    if (c.mode === 'scores' && c.fixtures) {
+    if (c.mode !== 'odds' && c.fixtures) {
       ctx.addIssue({ code: 'custom', message: 'fixtures is for odds mode', path: ['fixtures'] });
     }
     if (c.bookmakers !== undefined && new Set(c.bookmakers).size !== c.bookmakers.length) {
@@ -199,6 +213,10 @@ export function theOddsApiUrl(config: TheOddsApiConfig): string {
     const query = new URLSearchParams({ daysFrom: String(config.daysFrom), dateFormat: 'iso' });
     return `https://${THEODDSAPI_HOST}/v4/sports/${config.sportKey}/scores?${query.toString()}`;
   }
+  if (config.mode === 'events') {
+    const query = new URLSearchParams({ dateFormat: 'iso' });
+    return `https://${THEODDSAPI_HOST}/v4/sports/${config.sportKey}/events?${query.toString()}`;
+  }
   const query = new URLSearchParams({
     bookmakers: (config.bookmakers ?? []).join(','),
     markets: config.markets.join(','),
@@ -210,6 +228,8 @@ export function theOddsApiUrl(config: TheOddsApiConfig): string {
 
 /** Credits one request costs: markets × regions, ten named books making one region (A9). */
 export function theOddsApiCost(config: TheOddsApiConfig): number {
+  // Events: the fixture list is free, whatever the sport key.
+  if (config.mode === 'events') return 0;
   // Scores: 1 credit, 2 with daysFrom (always set here).
   if (config.mode === 'scores') return 2;
   return (
@@ -306,12 +326,15 @@ function halfLine(point: unknown): string | null {
   return `${(doubled - 1) / 2}.5`;
 }
 
-/** The event's sport key from the request path, or null. */
-/** The sport key and the endpoint (`odds` or `scores`) of a request URL, or null. */
-function requestOfUrl(url: string): { sportKey: string; endpoint: 'odds' | 'scores' } | null {
+/** The sport key and the endpoint (`odds`, `scores` or `events`) of a request URL, or null. */
+function requestOfUrl(
+  url: string,
+): { sportKey: string; endpoint: 'odds' | 'scores' | 'events' } | null {
   try {
-    const m = /^\/v4\/sports\/([a-z0-9_]{2,60})\/(odds|scores)\/?$/.exec(new URL(url).pathname);
-    return m ? { sportKey: m[1] as string, endpoint: m[2] as 'odds' | 'scores' } : null;
+    const m = /^\/v4\/sports\/([a-z0-9_]{2,60})\/(odds|scores|events)\/?$/.exec(
+      new URL(url).pathname,
+    );
+    return m ? { sportKey: m[1] as string, endpoint: m[2] as 'odds' | 'scores' | 'events' } : null;
   } catch {
     return null;
   }
@@ -598,7 +621,9 @@ export function createTheOddsApiAdapter(
           url: theOddsApiUrl(config),
           // Odds: read on the odds schedule, by the next kickoff, slowed by the credit guard (P3).
           // Scores: read only in the result window of the league's own matches (scheduler).
-          purpose: config.mode === 'scores' ? 'results' : 'odds',
+          // Events: the free fixture list, on the fixtures schedule, outside the credit guard.
+          purpose:
+            config.mode === 'scores' ? 'results' : config.mode === 'events' ? 'fixtures' : 'odds',
           // A reference only: the fetcher reads the value when it fetches.
           auth: { header: THEODDSAPI_AUTH_HEADER, secret: config.secret },
         },
@@ -683,7 +708,7 @@ export function createTheOddsApiAdapter(
           tally.beyondHorizon += 1;
           return;
         }
-        if (config.fixtures) {
+        if (config.fixtures || config.mode === 'events') {
           const drafts = draftsFor({
             home,
             away,
@@ -698,6 +723,7 @@ export function createTheOddsApiAdapter(
           if (Array.isArray(drafts)) collector.acceptCompanion(drafts, named);
           else collector.issue('error', drafts.code, drafts.message, named);
         }
+        if (config.mode === 'events') return;
         const candidates: Candidate[] = [];
         for (const book of asArray(raw.bookmakers).filter(isObject)) {
           readBook(book, { home: homeRaw, away: awayRaw }, fetchedAt, tally, candidates);

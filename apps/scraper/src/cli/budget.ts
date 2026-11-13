@@ -128,7 +128,13 @@ export async function sourcesBudget(args: string[], env: CliEnv): Promise<number
       horizonMs: (config.success ? config.data.horizonDays : 15) * DAY_MS,
     });
   }
-  const disabledMetered = all.filter((s) => !s.enabled && s.adapter === 'theoddsapi').length;
+  // A disabled free-events source (plan task 1.4) costs no credits: it is not a metered source.
+  const disabledMetered = all.filter(
+    (s) =>
+      !s.enabled &&
+      s.adapter === 'theoddsapi' &&
+      (s.config as { mode?: unknown } | null)?.mode !== 'events',
+  ).length;
 
   const failing = new Set(
     (await sourceHealth(db, now)).filter((x) => x.consecutiveFailures > 0).map((x) => x.sourceId),

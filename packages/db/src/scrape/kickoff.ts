@@ -16,7 +16,9 @@ import { auditScrape } from './common';
  * - statement about event E: a listed row (fixture or result) with E's competition, home and away and a
  *   kickoff at most `evidenceWindowMs` before or after E's start;
  * - healthy source: its latest finished run (not `running`, not `skipped`) is `ok`;
- * - known: a listed row of the source ended at least `minMatchDurationMs + staleAfterMs` ago;
+ * - known: a listed row of the source ended at least `minMatchDurationMs + staleAfterMs` ago; or,
+ *   for a source that lists only matches not yet started, its latest ok run started at least that
+ *   long after the kickoff of a fixture it had seen and no longer lists it (plan task 1.4);
  * - stale (S5 on the source's own rows): a listed `scheduled` fixture row ended (kickoff +
  *   `minMatchDurationMs`) at least `staleAfterMs` ago and after the largest `changed_at` of ALL the
  *   source's observations. It does not read the `source_stale` review item;
@@ -125,9 +127,18 @@ function factsCte(now: Date, t: KickoffThresholds): SQL {
         COALESCE((SELECT r.status FROM scrape_runs r
                   WHERE r.source_id = s.id AND r.status NOT IN ('running', 'skipped')
                   ORDER BY r.started_at DESC, r.id DESC LIMIT 1) = 'ok', false) AS healthy,
-        EXISTS (SELECT 1 FROM listed o
-                WHERE o.source_id = s.id
-                  AND o.kickoff + ${ms(endAndAllowance)} <= ${at}::timestamptz) AS known,
+        (EXISTS (SELECT 1 FROM listed o
+                 WHERE o.source_id = s.id
+                   AND o.kickoff + ${ms(endAndAllowance)} <= ${at}::timestamptz)
+         -- A source that lists only matches not yet started (The Odds API's /events and /odds) never
+         -- lists an ended one. It is known once its latest ok run, started after such a match
+         -- ended (plus the allowance), no longer lists a fixture it had seen: the source moves on.
+         OR EXISTS (SELECT 1 FROM scrape_observations o
+                    WHERE o.source_id = s.id AND o.kind = 'fixture'
+                      AND l.started_at IS NOT NULL
+                      AND o.last_seen_at < l.started_at
+                      AND o.kickoff + ${ms(endAndAllowance)} <= l.started_at
+                      AND l.started_at <= ${at}::timestamptz)) AS known,
         COALESCE((SELECT true FROM listed o
                   WHERE o.source_id = s.id AND o.kind = 'fixture' AND o.status = 'scheduled'
                     AND o.kickoff + ${ms(endAndAllowance)} <= ${at}::timestamptz

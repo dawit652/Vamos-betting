@@ -128,18 +128,20 @@ export function sourceCapabilities(
       if (!parsed.success) return { ok: false, errors: issues(parsed.error) };
       const c = parsed.data;
       const scores = c.mode === 'scores';
+      const events = c.mode === 'events';
       return {
         ok: true,
         capabilities: {
           ...NONE,
           competitions: [c.competition],
           // Odds mode: prices, plus each upcoming match as a fixture when `fixtures` is on.
+          // Events mode (free list): fixtures only.
           // Scores mode: final scores only (never a half time: htHome / htAway are null).
-          fixtures: !scores && c.fixtures,
+          fixtures: events || (!scores && c.fixtures),
           fullTime: scores,
           halfTime: false,
           basis: scores ? declaredBasis(c.scoreBasis) : 'none',
-          prices: !scores,
+          prices: !scores && !events,
         },
       };
     }
