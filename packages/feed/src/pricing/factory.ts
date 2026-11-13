@@ -8,6 +8,7 @@ import {
   type MarketTypeCode,
   type OddsMilli,
   canonicalFactoryLine,
+  DEFAULT_FAMILY_MARGIN_BPS,
   fairBook,
   findFactoryMarket,
 } from '@vamos/core';
@@ -122,12 +123,12 @@ function dixonColes(
   return corrected.map((row) => row.map((p) => p / total));
 }
 
-/** Default margins of the factory markets that are not today's football markets. */
-export const FACTORY_MARGIN_BPS: Readonly<Record<FactoryMarginClass, number>> = Object.freeze({
-  main: 600,
-  derivative: 700,
-  long: 1200,
-});
+/**
+ * Default margins of the factory markets that are not today's football markets (the defaults of
+ * the setting `market_families.marginBps`, DEFAULT_FAMILY_MARGIN_BPS in @vamos/core).
+ */
+export const FACTORY_MARGIN_BPS: Readonly<Record<FactoryMarginClass, number>> =
+  DEFAULT_FAMILY_MARGIN_BPS;
 /** A market whose shortest price is below this is not listed (1.02). */
 export const DEFAULT_MIN_FAVOURITE_ODDS_MILLI = 1020;
 /** A selection priced above this is not listed (500.0). */

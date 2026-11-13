@@ -1,6 +1,7 @@
 import {
   applyOddsChangePolicy,
   hasRiskLimits,
+  isFactoryOnlyMarketType,
   liabilityBreach,
   quoteBet,
   type SlipLeg,
@@ -10,7 +11,7 @@ import { postTransaction } from '../ledger/post';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { enqueueOutbox } from '../platform/outbox';
 import { betLegs, bets } from '../schema/betting';
-import { loadRiskLimits } from '../settings/index';
+import { loadMarketFamilies, loadRiskLimits } from '../settings/index';
 import { BET_ACCEPTED, BET_REJECTED } from './events';
 import { potentialOf } from './place';
 import { refundEntries, rejectionLedgerKey } from './postings';
@@ -164,7 +165,28 @@ export async function acceptPendingBet(
           selectionIds: legs.map((leg) => leg.selectionId),
           eventIds: legs.map((leg) => leg.eventId),
         });
-        if (liabilityBreach({ payout: increase, ...open, limits }) !== null) {
+        // Plan task 2.5: factory selections take their lower cap here too, as at placement.
+        const factorySelections = new Set(
+          legs
+            .filter((leg) => {
+              const type = snapshots.get(leg.selectionId)?.marketType;
+              return type !== undefined && isFactoryOnlyMarketType(type);
+            })
+            .map((leg) => leg.selectionId),
+        );
+        const factoryShareBps =
+          factorySelections.size === 0
+            ? undefined
+            : (await loadMarketFamilies(tx)).factoryLiabilityShareBps;
+        if (
+          liabilityBreach({
+            payout: increase,
+            ...open,
+            limits,
+            factorySelections,
+            ...(factoryShareBps === undefined ? {} : { factoryShareBps }),
+          }) !== null
+        ) {
           return rejectPendingBet(tx, betId, now, 'odds_changed');
         }
       }

@@ -45,7 +45,7 @@ const MAX_SHORT_ID_ATTEMPTS = 8;
 
 export type GameSettingsForBets = Pick<
   GameSettings,
-  'betRules' | 'multiBonus' | 'tax' | 'liveBetDelayMs' | 'riskLimits'
+  'betRules' | 'multiBonus' | 'tax' | 'liveBetDelayMs' | 'riskLimits' | 'marketFamilies'
 >;
 
 export interface SlipLegInput {
@@ -449,7 +449,10 @@ async function assertWithinRiskLimits(
     legs: readonly SlipLeg[];
     stake: bigint;
     quote: BetQuote;
-    settings: Pick<GameSettingsForBets, 'betRules' | 'multiBonus' | 'tax' | 'riskLimits'>;
+    settings: Pick<
+      GameSettingsForBets,
+      'betRules' | 'multiBonus' | 'tax' | 'riskLimits' | 'marketFamilies'
+    >;
     /** Selections of factory markets, capped lower (selectionLiabilityCap). */
     factorySelections: ReadonlySet<string>;
   },
@@ -468,6 +471,8 @@ async function assertWithinRiskLimits(
     ...open,
     limits,
     factorySelections,
+    // Plan task 2.5: the factory share of the selection cap is a setting (default a quarter).
+    factoryShareBps: settings.marketFamilies.factoryLiabilityShareBps,
   });
   if (breach === null) return;
   const { betRules, multiBonus, tax } = settings;

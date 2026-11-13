@@ -1230,6 +1230,22 @@ export const RiskLimitsView = z
   );
 export type RiskLimitsView = z.infer<typeof RiskLimitsView>;
 
+/**
+ * Margins and limits per market family (plan task 2.5): the margin of each class of factory market
+ * and of single families (a factory-only market type such as `htft`), in basis points 0..10000;
+ * the factory selections' share of the selection liability cap (bps); and the weekly family job's
+ * floor of settled stakes a week (santim). The server checks the family names.
+ */
+export const MarketFamiliesView = z
+  .object({
+    marginBps: z.object({ main: Bps, derivative: Bps, long: Bps }).strict(),
+    typeMarginBps: z.record(z.string().min(1).max(64), Bps),
+    factoryLiabilityShareBps: Bps,
+    minWeeklyStake: NonNegativeSantimText,
+  })
+  .strict();
+export type MarketFamiliesView = z.infer<typeof MarketFamiliesView>;
+
 /** Every business setting in force (santim as strings). */
 export const GameSettingsView = z.object({
   betRules: BetRulesView,
@@ -1241,6 +1257,7 @@ export const GameSettingsView = z.object({
   jackpots: z.object({ daily9: JackpotTemplateView, weekly13: JackpotTemplateView }),
   payments: PaymentRulesView,
   riskLimits: RiskLimitsView,
+  marketFamilies: MarketFamiliesView,
 });
 export type GameSettingsView = z.infer<typeof GameSettingsView>;
 
@@ -1262,6 +1279,7 @@ export const StaffSettingKeySchema = z.enum([
   'responsible_gambling',
   'payments',
   'risk_limits',
+  'market_families',
   'multi_bonus',
   'jackpot_template',
 ]);
@@ -1280,6 +1298,7 @@ export const STAFF_SETTING_VALUE_SCHEMAS = {
   responsible_gambling: ResponsibleGamblingView,
   payments: PaymentRulesView,
   risk_limits: RiskLimitsView,
+  market_families: MarketFamiliesView,
   multi_bonus: MultiBonusView,
   jackpot_template: JackpotTemplateView,
 } as const satisfies Record<StaffSettingKey, z.ZodType>;

@@ -13,6 +13,7 @@ import {
   GAME_SETTING_KEYS,
   LiveBetDelaySchema,
   loadGameSettings,
+  MarketFamiliesSchema,
   PaymentRulesSchema,
   ResponsibleGamblingSchema,
   RiskLimitsSchema,
@@ -40,6 +41,7 @@ export type StaffSettingKey =
   | 'responsible_gambling'
   | 'payments'
   | 'risk_limits'
+  | 'market_families'
   | 'multi_bonus'
   | 'jackpot_template';
 
@@ -51,6 +53,7 @@ export const STAFF_SETTING_KEYS: readonly StaffSettingKey[] = [
   'responsible_gambling',
   'payments',
   'risk_limits',
+  'market_families',
   'multi_bonus',
   'jackpot_template',
 ];
@@ -94,6 +97,8 @@ const PLAIN_SETTINGS = {
   },
   payments: { key: GAME_SETTING_KEYS.payments, schema: PaymentRulesSchema },
   risk_limits: { key: GAME_SETTING_KEYS.riskLimits, schema: RiskLimitsSchema },
+  // Plan task 2.5: margins per family apply at the next re-price, the factory share at the next bet.
+  market_families: { key: GAME_SETTING_KEYS.marketFamilies, schema: MarketFamiliesSchema },
 } as const satisfies Record<
   Exclude<StaffSettingKey, 'multi_bonus' | 'jackpot_template'>,
   { key: string; schema: z.ZodType }

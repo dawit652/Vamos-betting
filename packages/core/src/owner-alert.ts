@@ -51,7 +51,9 @@ export type OwnerAlertInput =
   /** SMS waiting for staff: a long queue or an old item. */
   | { alarm: 'sms_review_backlog' }
   /** An approved manual payout has waited more than two hours. */
-  | { alarm: 'manual_payout_waiting' };
+  | { alarm: 'manual_payout_waiting' }
+  /** The weekly market family job moved a family (plan task 2.5). */
+  | { alarm: 'market_family_moved'; family: string; move: 'suspend' | 'return' | 'off'; week: string };
 
 export interface OwnerAlert {
   /** The alarm's name plus its subject, e.g. `source_broken|odds-api`. Stable per condition. */
@@ -184,6 +186,18 @@ function build(input: OwnerAlertInput): OwnerAlert {
         message:
           'An approved manual payout has waited over 2 hours. It stays queued for an operator; nothing is paid without one.',
       };
+    case 'market_family_moved': {
+      const family = nameOf(input.family, 'A market family');
+      return {
+        key: `market_family_moved|${subjectOf(input.family)}|${subjectOf(input.week)}`,
+        message:
+          input.move === 'suspend'
+            ? `Market family ${family} kept less than its margin for 3 weeks: it is suspended. Its open bets stand.`
+            : input.move === 'return'
+              ? `Market family ${family} is offered again, 2 points of margin dearer.`
+              : `Market family ${family} kept too little again after its return: it is off for good. Its open bets stand.`,
+      };
+    }
   }
 }
 

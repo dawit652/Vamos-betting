@@ -716,3 +716,62 @@ export const scrapeLadderShadow = pgTable(
     ),
   ],
 );
+
+/**
+ * Plan task 2.5 ("Self-defending margins, with no review"): where each market family (a factory-only
+ * market type) stands with the weekly family job. No row: active at the settings' margin. A
+ * suspended or off family is left out of factory pricing (its stored markets are suspended by the
+ * feed); a family that returned prices at `raised_margin_bps` at least. Written only by the job
+ * (apps/scraper tasks/market-families.ts), each move with an audit row and a `market_family_moves` row.
+ */
+export const marketFamilyState = pgTable(
+  'market_family_state',
+  {
+    family: text('family').primaryKey(),
+    status: text('status').notNull(),
+    /** ISO week (`YYYY-Www`) of the last move. */
+    sinceWeek: text('since_week'),
+    raisedMarginBps: integer('raised_margin_bps'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    check('market_family_state_status', sql`${t.status} IN ('active', 'suspended', 'off')`),
+    check(
+      'market_family_state_raised',
+      sql`${t.raisedMarginBps} IS NULL OR ${t.raisedMarginBps} BETWEEN 0 AND 10000`,
+    ),
+    check(
+      'market_family_state_moved',
+      sql`${t.status} = 'active' OR (${t.raisedMarginBps} IS NOT NULL AND ${t.sinceWeek} IS NOT NULL)`,
+    ),
+  ],
+);
+
+/**
+ * Every move of the weekly family job (one per family and week at most), with the numbers behind
+ * it, for the weekly report and the owner. Append-only: a move is never edited or deleted.
+ */
+export const marketFamilyMoves = pgTable(
+  'market_family_moves',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    week: text('week').notNull(),
+    family: text('family').notNull(),
+    move: text('move').notNull(),
+    fromStatus: text('from_status').notNull(),
+    toStatus: text('to_status').notNull(),
+    marginBps: integer('margin_bps'),
+    raisedMarginBps: integer('raised_margin_bps'),
+    reason: text('reason').notNull(),
+    /** The weeks judged: [{ week, stakes, kept, marginBps }] (santim as decimal strings). */
+    weeks: jsonb('weeks')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('market_family_moves_week_family_uq').on(t.week, t.family),
+    index('market_family_moves_family_idx').on(t.family, t.createdAt),
+    check('market_family_moves_move', sql`${t.move} IN ('suspend', 'return', 'off')`),
+  ],
+);

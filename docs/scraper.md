@@ -280,6 +280,31 @@ Every rule has an id; tests cite the id in their names. Constants are in
   scraper; the live delta is published after the COMMIT. A trader's close, a dismissed item, a
   held re-price or `auto_open` off keeps the event closed.
 
+### 6.1b Two kickoff sources everywhere (plan task 1.4)
+
+Every match gets two independent kickoff voices, so C1 confirms the kickoff and F7b/F7 open the event
+with no trader's tick (A-5), also more than `KICKOFF_CONFIRM_LEAD_MS` ahead:
+
+- **The Odds API free fixture list.** A `theoddsapi` source with `"mode": "events"` reads
+  `GET /v4/sports/{sportKey}/events`, which costs **0 credits**. It yields fixtures only (kickoff UTC from
+  `commence_time`, home, away, the event id as `externalRef`), skips started matches and those beyond
+  `horizonDays`, and takes no `bookmakers` and no `fixtures` flag. Its request has purpose `fixtures`: it is
+  read on the fixtures schedule, never in `sources budget` (no odds or results request; a disabled one is not
+  counted as a disabled metered source) and never in the credit guard. `expectedCost` is 0, so an answer that
+  reports more than 0 credits raises `unexpected_cost`. Default mode stays `odds`: nothing changes for
+  existing sources. Draft: `docs/scraper-plan/data/source-theoddsapi-events-en1.json` (enable per competition
+  in shadow first).
+- **The spine.** API-Football's by-date source (upstream different from `TheOddsAPI`) is the second voice.
+  `countIndependent` already counts the two upstreams as two (K-rules unchanged: tolerance
+  `KICKOFF_TOLERANCE_MS`, K1 closes at once on a lone earlier time, disagreement never confirms).
+- **Freshness of a list that never shows an ended match.** C1 needs both sources _fresh_, which needed a
+  listed row that ended long ago; /events (like /odds) only lists matches not yet started. A source is now
+  also _known_ when its latest `ok` run started at least `MIN_MATCH_DURATION_MS + SOURCE_STALE_AFTER_MS` after
+  the kickoff of a fixture it had seen, and no longer lists it. A new events source therefore counts only
+  after it has watched one match end (a match day or two); until then the event waits as before. Residual
+  risk: a frozen events page cannot be told from a live one by S5 (the adapter drops started matches); a
+  frozen page that disagrees with the spine still blocks C1 and K1 still closes betting.
+
 ### 6.1a Kickoff safety (K1 to K6)
 
 Design, measurements and tests: `docs/scraper-plan/kickoff-safety.md`. Prematch betting on an event closes

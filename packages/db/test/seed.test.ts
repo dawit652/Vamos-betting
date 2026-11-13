@@ -31,6 +31,7 @@ const SETTING_KEYS = [
   'cash_out',
   'jackpots',
   'live_bet_delay_ms',
+  'market_families',
   'multi_bonus',
   'payments',
   'responsible_gambling',

@@ -358,6 +358,13 @@
       "when": 1794549854974,
       "tag": "0050_scrape_policy_factory_markets",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794566974309,
+      "tag": "0051_market_family_state",
+      "breakpoints": true
     }
   ]
 }

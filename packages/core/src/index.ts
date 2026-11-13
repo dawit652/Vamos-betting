@@ -18,6 +18,7 @@ export * from './jackpot';
 export * from './markets';
 export * from './market-factory';
 export * from './market-resolve';
+export * from './market-families';
 export * from './market-labels';
 export * from './market-consensus';
 export * from './consensus-tolerance';

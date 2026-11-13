@@ -344,6 +344,39 @@ describe('factory selections (plan task 2.5: shown with low limits)', () => {
     });
   });
 
+  it('takes the share from the settings (market_families.factoryLiabilityShareBps)', () => {
+    expect(selectionLiabilityCap(limits, true, 1_000)).toBe(birr(100));
+    expect(selectionLiabilityCap(limits, true, 10_000)).toBe(birr(1_000));
+    expect(selectionLiabilityCap(limits, true, 0)).toBe(0n);
+    expect(selectionLiabilityCap(limits, false, 1_000)).toBe(birr(1_000));
+    expect(() => selectionLiabilityCap(limits, true, 10_001)).toThrow(RangeError);
+    expect(() => selectionLiabilityCap(limits, true, -1)).toThrow(RangeError);
+    expect(() => selectionLiabilityCap(limits, true, 2.5)).toThrow(RangeError);
+    expect(
+      liabilityBreach({
+        payout: birr(100),
+        selections: [exposure('factory', birr(0))],
+        events: [],
+        limits,
+        factorySelections: new Set(['factory']),
+        factoryShareBps: 500,
+      }),
+    ).toMatchObject({ id: 'factory', cap: birr(50), headroom: birr(50) });
+  });
+
+  it('is never looser than the plain cap, whatever the share', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 0n, max: birr(1_000_000) }),
+        fc.integer({ min: 0, max: 10_000 }),
+        (cap, share) => {
+          const caps: RiskLimits = { maxSelectionLiability: cap, maxEventLiability: null };
+          expect(selectionLiabilityCap(caps, true, share)! <= cap).toBe(true);
+        },
+      ),
+    );
+  });
+
   it('is never looser than the plain cap', () => {
     fc.assert(
       fc.property(

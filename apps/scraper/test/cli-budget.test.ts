@@ -73,6 +73,21 @@ beforeAll(async () => {
       },
       actor,
     );
+    // The free events list costs no credits: never in the budget, enabled or not (plan task 1.4).
+    for (const id of ['events-epl', 'events-off']) {
+      await upsertSource(
+        tx,
+        {
+          id,
+          name: 'free events',
+          adapter: 'theoddsapi',
+          upstream: 'TheOddsAPI',
+          config: { ...BASE, mode: 'events' },
+        },
+        actor,
+      );
+    }
+    await setSourceEnabled(tx, 'events-epl', true, actor);
     await setSourceEnabled(tx, 'odds-epl', true, actor);
     await setSourceEnabled(tx, 'scores-epl', true, actor);
     // Three recorded reads: one older than 24 h, two within it (used + remaining = 20 000).

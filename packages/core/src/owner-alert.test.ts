@@ -24,6 +24,9 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   { alarm: 'sms_gateway_silent' },
   { alarm: 'sms_review_backlog' },
   { alarm: 'manual_payout_waiting' },
+  { alarm: 'market_family_moved', family: 'htft_ou', move: 'suspend', week: '2026-W45' },
+  { alarm: 'market_family_moved', family: 'htft_ou', move: 'return', week: '2026-W48' },
+  { alarm: 'market_family_moved', family: 'htft_ou', move: 'off', week: '2026-W52' },
 ];
 
 /** Words of a request or an obligation, wherever they stand. */
