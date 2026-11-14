@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { getT } from '@/i18n/server';
-import { getEvents } from '@/lib/api/catalog';
+import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { routes, type Sport } from '@/lib/routes';
 import { streamEventIds } from './events';
 import { LiveProvider, LiveStatusBar } from './LiveProvider';
+import { competitionFlags } from './leagues';
 import { MatchList } from './MatchList';
+import { SportsbookFrame } from './SportsbookFrame';
 import { listHref } from './tabs';
 
 /** The API's page limit and the live stream's filter limit. */
@@ -16,18 +18,20 @@ const LIVE_LIMIT = 50;
  * periodic refresh for matches that start or end.
  */
 export async function LiveList({ sport }: { sport: Sport }) {
-  const [t, page] = await Promise.all([
+  const [t, page, competitions] = await Promise.all([
     getT(),
     getEvents({ sport, filter: 'live', limit: LIVE_LIMIT }),
+    getCompetitions(sport).catch(() => null),
   ]);
   return (
-    <>
-      <h1 className="sr-only">
+    <SportsbookFrame sport={sport} live>
+      <h1 className="flex items-center gap-2 px-3 pb-3 text-lg font-extrabold lg:px-0">
+        <span aria-hidden="true" className="live-dot h-2 w-2" />
         {t('sportsbook.live.title')} · {t(`common.sports.${sport}`)}
       </h1>
       {page.items.length === 0 ? (
         <LiveProvider eventIds={[]}>
-          <div className="card m-3 space-y-3 text-center">
+          <div className="card mx-3 space-y-3 py-8 text-center lg:mx-0">
             <p className="text-muted">{t('sportsbook.list.emptyLive')}</p>
             <Link
               href={listHref(routes.sport(sport), 'upcoming')}
@@ -46,9 +50,9 @@ export async function LiveList({ sport }: { sport: Sport }) {
           )}
         >
           <LiveStatusBar />
-          <MatchList events={page.items} />
+          <MatchList events={page.items} grouped flags={competitionFlags(competitions)} />
         </LiveProvider>
       )}
-    </>
+    </SportsbookFrame>
   );
 }

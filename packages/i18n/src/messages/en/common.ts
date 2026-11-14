@@ -34,6 +34,7 @@ export const common = {
     register: 'Register',
     balance: 'Balance',
     balanceLabel: 'Balance: {amount}',
+    deposit: 'Deposit',
   },
   sports: {
     football: 'Football',
@@ -64,6 +65,10 @@ export const common = {
   oddsMove: {
     up: 'odds up',
     down: 'odds down',
+  },
+  theme: {
+    toLight: 'Switch to the light theme',
+    toDark: 'Switch to the dark theme',
   },
   language: {
     label: 'Language',

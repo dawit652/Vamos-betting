@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { formatMoney, formatOddsMilli, formatSantim, formatTime, formatTotalOdds } from './format';
+import {
+  formatMoney,
+  formatOddsMilli,
+  formatSantim,
+  formatTime,
+  formatTotalOdds,
+  relativeDay,
+} from './format';
 
 describe('format', () => {
   it('formats santim wire strings without floats', () => {
@@ -32,5 +39,17 @@ describe('format', () => {
 
   it('shows kick-off in East Africa Time', () => {
     expect(formatTime('2026-10-10T15:30:00Z', 'en')).toBe('18:30');
+  });
+
+  it('names today and tomorrow by the East Africa Time calendar', () => {
+    // 22:30 EAT on 14 Nov (19:30 UTC).
+    const now = new Date('2026-11-14T19:30:00Z');
+    expect(relativeDay('2026-11-14T20:00:00Z', now)).toBe('today'); // 23:00 EAT, same day
+    expect(relativeDay('2026-11-14T21:00:00Z', now)).toBe('tomorrow'); // 00:00 EAT on the 15th
+    expect(relativeDay('2026-11-15T20:59:00Z', now)).toBe('tomorrow');
+    expect(relativeDay('2026-11-15T21:00:00Z', now)).toBeNull(); // the 16th in EAT
+    expect(relativeDay('2026-11-13T21:00:00Z', now)).toBe('today'); // 00:00 EAT on the 14th
+    expect(relativeDay('2026-11-13T20:59:00Z', now)).toBeNull(); // yesterday
+    expect(relativeDay('not a date', now)).toBeNull();
   });
 });

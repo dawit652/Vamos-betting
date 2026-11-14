@@ -734,6 +734,7 @@ export const account = {
       bonus: '+{percent}',
       minOdds: 'Each selection needs odds of {odds} or more.',
       maxBonus: 'The bonus is at most {amount} per bet.',
+      jackpot: 'Predict every game and win the jackpot.',
     },
   },
 

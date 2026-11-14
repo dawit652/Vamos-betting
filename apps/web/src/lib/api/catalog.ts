@@ -13,11 +13,12 @@ import { serverGet, serverGetOrNull } from './server';
 /**
  * Typed public catalogue calls for server components. Lists render on the
  * server; client islands only patch odds from the live stream.
+ *
+ * `getSports` and `getCompetitions` are shared by the page and its navigation
+ * (SportsbookFrame), so they are deduplicated per request with React `cache`.
  */
 
-export function getSports(): Promise<SportsResponse> {
-  return serverGet<SportsResponse>('/sports');
-}
+export const getSports = cache((): Promise<SportsResponse> => serverGet<SportsResponse>('/sports'));
 
 /** Once per request: the home page's league shortcuts and its Leagues tab share the result. */
 export const getCompetitions = cache((sport: string): Promise<CompetitionsResponse | null> =>

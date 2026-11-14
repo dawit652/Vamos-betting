@@ -20,6 +20,7 @@ export const sportsbook = {
     nextPage: 'Next page',
     firstPage: 'Back to the start',
     gameId: 'ID {id}',
+    featured: 'Featured',
   },
   controls: {
     days: 'Match day',
@@ -72,6 +73,14 @@ export const sportsbook = {
     count: '{count} markets',
     oddsLabel: '{selection}, {market}, {event}: odds {odds}',
     oddsLabelSuspended: '{selection}, {market}, {event}: suspended',
+    filter: {
+      label: 'Market type',
+      all: 'All',
+      main: 'Main',
+      totals: 'Totals',
+      halves: 'Halves',
+      other: 'More',
+    },
   },
   live: {
     title: 'Live',

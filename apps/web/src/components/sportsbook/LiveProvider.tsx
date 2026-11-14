@@ -224,7 +224,10 @@ export function LiveStatusBar() {
   );
   if (connected) return null;
   return (
-    <p role="status" className="bg-demo-bg px-3 py-1 text-center text-xxs text-demo-ink">
+    <p
+      role="status"
+      className="mx-3 mb-2 rounded-full bg-demo-bg px-3 py-1 text-center text-xxs font-semibold text-demo-ink lg:mx-0"
+    >
       {t('sportsbook.live.paused')}
     </p>
   );

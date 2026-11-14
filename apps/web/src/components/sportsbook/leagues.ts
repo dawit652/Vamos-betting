@@ -10,3 +10,14 @@ export function featuredCompetitions(
     category.competitions.filter((c) => c.featured && c.eventCount > 0),
   );
 }
+
+/** Country code by competition slug: the flags of MatchList's league cards. */
+export function competitionFlags(
+  data: CompetitionsResponse | null | undefined,
+): Record<string, string | null> {
+  const flags: Record<string, string | null> = {};
+  for (const { category, competitions } of data?.items ?? []) {
+    for (const competition of competitions) flags[competition.slug] = category.countryCode;
+  }
+  return flags;
+}

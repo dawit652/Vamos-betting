@@ -245,7 +245,7 @@ export function DevChannelsPanel() {
   const { state, reload } = usePaymentOptions();
   return (
     <div className="space-y-3 px-3">
-      <PaymentDemoNotice />
+      <PaymentDemoNotice state={state} />
       {state.status === 'error' ? (
         <div className="space-y-2">
           <Alert>{t('account.payments.unavailable')}</Alert>

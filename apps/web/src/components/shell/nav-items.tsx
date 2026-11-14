@@ -1,13 +1,10 @@
-'use client';
-
 import type { MessageKey } from '@vamos/i18n/translate';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { useT } from '@/i18n/client';
 import { routes } from '@/lib/routes';
 
-interface Item {
+/** The five destinations of the main navigation (MainNav). */
+export interface NavItem {
+  id: 'home' | 'live' | 'myBets' | 'jackpot' | 'account';
   href: string;
   label: MessageKey;
   icon: ReactNode;
@@ -30,14 +27,16 @@ const icon = (d: string) => (
   </svg>
 );
 
-const ITEMS: readonly Item[] = [
+export const NAV_ITEMS: readonly NavItem[] = [
   {
+    id: 'home',
     href: routes.home,
     label: 'common.nav.home',
     icon: icon('M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'),
     active: (p) => p === '/' || p.startsWith('/sport/') || p.startsWith('/event/'),
   },
   {
+    id: 'live',
     href: routes.live(),
     label: 'common.nav.live',
     icon: icon(
@@ -46,18 +45,21 @@ const ITEMS: readonly Item[] = [
     active: (p) => p === '/live' || p.startsWith('/live/'),
   },
   {
+    id: 'myBets',
     href: routes.myBets,
     label: 'common.nav.myBets',
     icon: icon('M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3'),
     active: (p) => p.startsWith(routes.myBets),
   },
   {
+    id: 'jackpot',
     href: routes.jackpot,
     label: 'common.nav.jackpot',
     icon: icon('M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8 6.6 19.7l1.1-6.1L3.2 9.4l6.1-.8z'),
     active: (p) => p === routes.jackpot,
   },
   {
+    id: 'account',
     href: routes.account,
     label: 'common.nav.account',
     icon: icon('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0'),
@@ -67,35 +69,3 @@ const ITEMS: readonly Item[] = [
       ),
   },
 ];
-
-/** Fixed bottom navigation: Home, Live, My Bets, Jackpot, Account. */
-export function BottomNav() {
-  const t = useT();
-  const pathname = usePathname();
-  return (
-    <nav
-      aria-label={t('common.nav.main')}
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]"
-    >
-      <ul className="mx-auto grid h-bottom-nav max-w-2xl grid-cols-5">
-        {ITEMS.map((item) => {
-          const active = item.active(pathname);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={`flex h-full flex-col items-center justify-center gap-0.5 text-xxs font-semibold ${
-                  active ? 'text-brand' : 'text-muted'
-                }`}
-              >
-                {item.icon}
-                {t(item.label)}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
-  );
-}
