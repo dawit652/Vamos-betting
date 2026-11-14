@@ -15,12 +15,14 @@ import { expect, test } from '@playwright/test';
  * (dark theme, league navigation, featured poster, docked betslip): 158.4 KB =
  * JS 130.7 KB + HTML 18.6 KB + CSS 7.4 KB + the session fetch, in 14 requests;
  * the previous UI weighed about 153 KB on the same data, so the page is over the
- * target and has little room left. The budget leaves a little room for the
+ * target and has little room left. Later that day the betslip drawer's text
+ * moved from every page to the drawer's own chunk: 157.7 KB on the same data
+ * (HTML 0.8 KB lighter, JS 0.1 KB heavier). The budget leaves a little room for the
  * HTML, which grows with the listed matches (about 0.4 KB per row, 20 rows
  * per tab). Lower it when the page gets lighter; raise it only with a reason.
  */
 const TARGET_BYTES = 150 * 1024;
-const BUDGET_BYTES = 160 * 1024; // measured 158.4 KB (14 Nov 2026): 1.6 KB of room
+const BUDGET_BYTES = 160 * 1024; // measured 157.7 KB (14 Nov 2026): 2.3 KB of room
 
 interface Transfer {
   url: string;

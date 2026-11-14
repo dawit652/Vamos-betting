@@ -2,8 +2,9 @@
  * Sportsbook text: home lists, live, event pages, markets, betslip drawer, My Bets.
  * Owned by the sportsbook pages. Add keys here, then the same keys in `am/sportsbook.ts`.
  *
- * The whole namespace is sent to the browser on every page (the betslip can open
- * anywhere), so keep messages short.
+ * The namespace is sent to the browser on every page, so keep messages short. The
+ * betslip drawer's own text is the exception: it loads with the drawer (see
+ * `src/betslip.ts`; keys other screens reuse go in `SHARED_BETSLIP_KEYS`).
  */
 export const sportsbook = {
   tabs: {

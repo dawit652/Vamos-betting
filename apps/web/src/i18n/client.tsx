@@ -15,7 +15,9 @@ import { LOCALE_COOKIE, LOCALE_COOKIE_MAX_AGE } from '@/lib/cookies';
  * `common` and `sportsbook`; a route whose client islands need another
  * namespace wraps them in <ClientMessages namespaces={['account']}> (from
  * '@/i18n/ClientMessages'), which adds it on top. A key whose namespace was not
- * sent renders as the key itself, e.g. "account.login.title".
+ * sent renders as the key itself, e.g. "account.login.title". The betslip
+ * drawer's own text is left out of the root payload and loaded with the drawer
+ * (<BetslipMessages>).
  */
 
 export type ClientMessages = Partial<Pick<Messages, Namespace>>;
@@ -54,6 +56,11 @@ function useI18n(): I18nValue {
 
 export function useT(): Translator {
   return useI18n().t;
+}
+
+/** The messages this subtree received (for providers that extend a namespace). */
+export function useClientMessages(): ClientMessages {
+  return useI18n().messages;
 }
 
 export function useLocale(): Locale {

@@ -6,8 +6,9 @@ server-rendered lists, Amharic first).
 
 **Status key:** `[x]` done · `[~]` in progress · `[ ]` not started
 
-_Last updated: 14 Nov 2026, end of the first working session. Anything not ticked below is still
-to do; the open items are marked **Open**._
+_Last updated: 14 Nov 2026, second working session (betslip text loaded with the drawer, end-to-end
+tests for the redesign). Anything not ticked below is still to do; the open items are marked
+**Open**._
 
 ## What is taken from Hulusport, and what is left out
 
@@ -84,11 +85,12 @@ to do; the open items are marked **Open**._
 - [x] `pnpm lint`, `pnpm typecheck`, web unit tests (201 pass), i18n tests
 - [x] New unit tests: league grouping, market category, monogram, relative day label, theme cookie
 - [x] Screenshots: phone and desktop, dark and light, Amharic and English
-- [x] Page weight against a production build: **158.4 KB** (budget 160 KB, target 150 KB; the
+- [x] Page weight against a production build: **157.7 KB** (budget 160 KB, target 150 KB; the
       previous UI is about 153 KB on the same data)
 - [ ] **Open:** bring the page weight back toward 150 KB (see "Page weight" below)
-- [ ] **Open:** end-to-end tests for the new behaviour itself (theme toggle keeps its choice,
-      market filter chips, docked betslip on a desktop viewport; the suite runs a phone profile only)
+- [x] End-to-end tests for the new behaviour itself (`e2e/tests/redesign.spec.ts`): the theme switch
+      keeps its choice over a reload, market filter chips, slip bar and drawer on a phone (English
+      and Amharic text), docked betslip on a desktop viewport
 
 ### 8. Docs: done
 
@@ -96,16 +98,20 @@ to do; the open items are marked **Open**._
 
 ## Page weight
 
-The first home load is 158.4 KB transferred, 5.4 KB more than the previous UI on the same data:
-about 3 KB of HTML (sport and league links, poster, promo cards, league headers), 1.4 KB of CSS and
-0.9 KB of JS (theme toggle, dock, slip bar). It passes the 160 KB test budget with 1.6 KB to spare,
-so longer team names could tip it over. Ways to win it back, cheapest first:
+The first home load was 158.4 KB transferred after the redesign, 5.4 KB more than the previous UI on
+the same data: about 3 KB of HTML (sport and league links, poster, promo cards, league headers),
+1.4 KB of CSS and 0.9 KB of JS (theme toggle, dock, slip bar). Loading the betslip drawer's text
+with the drawer brought it to 157.7 KB. It passes the 160 KB test budget with 2.3 KB to spare, so
+longer team names could still tip it over. Ways to win more back, cheapest first:
 
 - [ ] Show 16 rows instead of 20 on the first Highlights page (about 1.3 KB)
 - [ ] Send the browser only the active locale of team and market names in list rows (the slip
-      keeps both languages today); needs care with the saved slip format (about 1 to 2 KB)
-- [ ] Send the `sportsbook.betslip.*` messages with the drawer instead of with every page
-      (about 1.5 KB)
+      keeps both languages today); needs care with the saved slip format. Looked at on 14 Nov:
+      the repeated names compress well, so expect well under 1 KB, and a saved slip would no
+      longer follow a language switch
+- [x] Send the drawer-only `sportsbook.betslip.*` messages with the drawer instead of with every
+      page: 0.7 KB measured on the same data (0.8 KB of HTML less, 0.1 KB of JS more). The keys other
+      screens reuse (errors, total odds) stay in the page (`SHARED_BETSLIP_KEYS`)
 - [ ] Or raise the budget on purpose, with the reason written in `e2e/tests/budget.spec.ts`
 
 ## Needs back-end work (not part of this redesign)

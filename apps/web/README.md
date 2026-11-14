@@ -106,6 +106,11 @@ filters its market cards with radio chips and CSS only (`.market-filter`; catego
   sends the `common` and `sportsbook` namespaces to the browser. A route whose client components need
   `account` wraps them: `<ClientMessages namespaces={['account']}>{children}</ClientMessages>` (e.g.
   in `app/account/layout.tsx`, `app/(auth)/layout.tsx`). Otherwise the key itself is shown.
+- The betslip drawer's own text (`sportsbook.betslip.*`, about 40% of the namespace) is not in that
+  payload: it loads with the drawer, one small chunk per locale (`BetslipMessages`,
+  `@vamos/i18n/betslip`). A betslip key that another screen needs (the slip bar's total odds, the
+  error texts the jackpot and the API error mapper reuse) must be listed in `SHARED_BETSLIP_KEYS`
+  there, or that screen shows the key itself.
 - In client code import locale constants from `@vamos/i18n/locales` and `MessageKey` from
   `@vamos/i18n/translate`, never values from `@vamos/i18n` (that would ship every translation).
 - The locale is the `vamos_locale` cookie (default `am`). `LocaleSwitcher` sets it, refreshes, and
@@ -213,7 +218,8 @@ static JS/CSS compressed once at maximum quality and kept in memory, and pages c
 level (149.8 KB measured on 10 Oct 2026; 158.4 KB on 14 Nov 2026 after the redesign, against about
 153 KB for the previous UI on the same data: the navigation with leagues, the poster and the league
 headers add about 3 KB of HTML, the new styles 1.4 KB of CSS and the theme toggle, dock and slip bar
-0.9 KB of JS). That is over the 150 KB target and close to the 160 KB test budget, so new home-page
+0.9 KB of JS; 157.7 KB once the betslip drawer's text moved out of the page and into the drawer's
+chunk). That is over the 150 KB target and close to the 160 KB test budget, so new home-page
 content has to pay for itself. Behind a CDN that does brotli itself, plain `next start` works too.
 The app's own shell JS is about 10 KB. Keep new client code small (code only the drawer needs goes in
 the drawer's lazy chunk), keep lists server-rendered, and avoid client-side libraries (no zod, date

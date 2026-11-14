@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./betslip": "./src/betslip.ts",
     "./locales": "./src/locales.ts",
     "./translate": "./src/translate.ts"
   },

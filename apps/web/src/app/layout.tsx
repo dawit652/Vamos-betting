@@ -6,7 +6,10 @@ import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
 import { DemoBanner } from '@/components/shell/DemoBanner';
 import { Footer } from '@/components/shell/Footer';
 import { Header } from '@/components/shell/Header';
+import { withoutDrawerText } from '@vamos/i18n/betslip';
+import type { Messages } from '@vamos/i18n';
 import { pickNamespaces } from '@/i18n/ClientMessages';
+import type { ClientMessages as ClientMessagesSubset } from '@/i18n/client';
 import { getLocale, getMessages } from '@/i18n/server';
 import { CSRF_COOKIE, parseTheme, THEME_COLORS, THEME_COOKIE } from '@/lib/cookies';
 import { AppProviders } from '@/providers/AppProviders';
@@ -42,6 +45,17 @@ export async function generateViewport(): Promise<Viewport> {
 const ROOT_CLIENT_NAMESPACES = ['common', 'sportsbook'] as const;
 
 /**
+ * The root namespaces, minus the betslip drawer's own text: the drawer loads that
+ * with its code (`<BetslipMessages>`), so pages that never open the slip skip it.
+ */
+function rootClientMessages(messages: Messages): ClientMessagesSubset {
+  return {
+    ...pickNamespaces(messages, ROOT_CLIENT_NAMESPACES),
+    sportsbook: withoutDrawerText(messages.sportsbook) as Messages['sportsbook'],
+  };
+}
+
+/**
  * App shell: sticky header + DEMO banner, the page, footer and the betslip bar.
  * The header holds the main navigation: its links on wide screens, the fixed
  * bottom bar on phones.
@@ -62,7 +76,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body className="min-h-dvh pb-[calc(var(--spacing-bottom-nav)+env(safe-area-inset-bottom))] lg:pb-0">
         <AppProviders
           locale={locale}
-          messages={pickNamespaces(messages, ROOT_CLIENT_NAMESPACES)}
+          messages={rootClientMessages(messages)}
           hasSessionCookie={cookieStore.has(CSRF_COOKIE)}
         >
           <div className="sticky top-0 z-30">

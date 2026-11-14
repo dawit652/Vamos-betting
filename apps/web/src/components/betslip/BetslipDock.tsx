@@ -6,8 +6,8 @@ import { useSyncExternalStore } from 'react';
 /** The `lg` breakpoint: from here up the betslip is a column, not a drawer. */
 const WIDE = '(min-width: 64rem)';
 
-// Phones never download the panel here; they get it with the drawer, on first open.
-const BetslipPanel = dynamic(() => import('./BetslipDrawer').then((m) => m.BetslipPanel), {
+// Phones never download the panel (code or text) here; they get it with the drawer, on first open.
+const DockedBetslip = dynamic(() => import('./BetslipDrawer').then((m) => m.DockedBetslip), {
   ssr: false,
 });
 
@@ -34,7 +34,7 @@ export function BetslipDock() {
       aria-labelledby="betslip-dock-title"
       className="panel flex max-h-[inherit] flex-col bg-page"
     >
-      <BetslipPanel titleId="betslip-dock-title" />
+      <DockedBetslip titleId="betslip-dock-title" />
     </section>
   );
 }

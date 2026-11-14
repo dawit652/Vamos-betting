@@ -6,7 +6,7 @@ import { BetslipButton } from './BetslipButton';
 
 const loadDrawer = () => import('./BetslipDrawer');
 
-// The drawer's code is only downloaded when the player first opens the slip.
+// The drawer's code and text are only downloaded when the player first opens the slip.
 const BetslipDrawer = dynamic(loadDrawer, { ssr: false });
 
 /** Mounted once by the root layout: the floating button and the lazy drawer. */
