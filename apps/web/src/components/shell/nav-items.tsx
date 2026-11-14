@@ -2,7 +2,7 @@ import type { MessageKey } from '@vamos/i18n/translate';
 import type { ReactNode } from 'react';
 import { routes } from '@/lib/routes';
 
-/** The five destinations of the main navigation: bottom bar on a phone, header links on a wide screen. */
+/** The five destinations of the main navigation (MainNav). */
 export interface NavItem {
   id: 'home' | 'live' | 'myBets' | 'jackpot' | 'account';
   href: string;

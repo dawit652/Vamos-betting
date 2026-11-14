@@ -23,7 +23,7 @@ export function BetslipButton({ onIntent }: { onIntent?: () => void }) {
       onPointerEnter={onIntent}
       onTouchStart={onIntent}
       aria-label={`${t('common.betslip.button')}: ${t('common.betslip.count', { count: slip.count })}`}
-      className="slip-bar btn-accent fixed inset-x-3 bottom-[calc(var(--spacing-bottom-nav)+env(safe-area-inset-bottom)+0.5rem)] z-40 mx-auto flex max-w-xl items-center gap-2.5 rounded-2xl py-2 pr-3 pl-2 text-left shadow-xl shadow-black/40 lg:bottom-4"
+      className="slip-bar btn-accent fixed inset-x-3 bottom-[calc(var(--spacing-bottom-nav)+env(safe-area-inset-bottom)+0.5rem)] z-40 mx-auto flex max-w-xl items-center gap-2.5 rounded-2xl py-2 pr-3 pl-2 text-left shadow-lg lg:bottom-4"
     >
       <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-accent-ink px-1.5 text-sm font-extrabold text-accent tabular-nums">
         {slip.count}

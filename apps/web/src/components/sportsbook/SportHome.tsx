@@ -155,7 +155,7 @@ async function Featured({ event }: { event: EventSummary }) {
         >
           ★ {t('sportsbook.list.featured')}
         </span>
-        <span className="truncate font-semibold text-white/75">
+        <span className="truncate font-semibold text-white/70">
           {localName(event.competition.category, locale)} ·{' '}
           {localName(event.competition.name, locale)}
         </span>
@@ -170,7 +170,7 @@ async function Featured({ event }: { event: EventSummary }) {
           <span className="px-1">
             <span className="block text-2xl leading-none font-black whitespace-nowrap tabular-nums">
               <LiveScore eventId={event.id} side="home" initial={event.score?.home ?? 0} />
-              <span className="px-1 text-white/50">:</span>
+              <span className="px-1 text-white/70">:</span>
               <LiveScore eventId={event.id} side="away" initial={event.score?.away ?? 0} />
             </span>
             <LiveClock
@@ -219,7 +219,7 @@ async function Promos() {
       <span className="text-xxs font-extrabold tracking-wider text-accent uppercase">
         {title} ›
       </span>
-      <span className="text-[0.8125rem] leading-snug font-semibold text-white/90">{text}</span>
+      <span className="text-[0.8125rem] leading-snug font-semibold text-white/70">{text}</span>
     </Link>
   );
   return (
@@ -280,7 +280,7 @@ async function Leagues({ sport }: { sport: Sport }) {
         >
           <h2
             id={`cat-${category.category.slug}`}
-            className="flex items-center gap-2 border-b border-line bg-raised/50 px-3 py-2 text-xs font-bold"
+            className="flex items-center gap-2 border-b border-line bg-raised px-3 py-2 text-xs font-bold"
           >
             <span aria-hidden="true" className="tag">
               {monogram(category.category.name.en)}

@@ -21,14 +21,14 @@ export function HeaderAccount() {
         <Link
           href={routes.login}
           prefetch={false}
-          className="flex h-8 items-center rounded-full border border-white/25 px-2.5 text-xs font-bold whitespace-nowrap sm:px-3"
+          className="flex h-8 items-center rounded-full border border-white/20 px-2.5 text-xs font-bold whitespace-nowrap"
         >
           {t('common.header.login')}
         </Link>
         <Link
           href={routes.register}
           prefetch={false}
-          className="flex h-8 items-center rounded-full bg-accent px-2.5 text-xs font-extrabold whitespace-nowrap text-accent-ink sm:px-3"
+          className="flex h-8 items-center rounded-full bg-accent px-2.5 text-xs font-extrabold whitespace-nowrap text-accent-ink"
         >
           {t('common.header.register')}
         </Link>
@@ -38,7 +38,7 @@ export function HeaderAccount() {
 
   const amount = formatSantim(session.wallet?.cash);
   return (
-    <span className="flex h-8 items-center rounded-full bg-white/10 pl-3 text-xs font-bold">
+    <span className="flex h-8 items-center rounded-full bg-white/15 pl-3 text-xs font-bold">
       <Link
         href={routes.wallet}
         className="flex items-center gap-1 pr-2 tabular-nums"

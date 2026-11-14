@@ -52,7 +52,7 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
   const content = (
     <>
       <header className="poster mx-3 mt-3 p-4 lg:mx-0 lg:mt-0">
-        <p className="flex items-center gap-2 text-xxs text-white/75">
+        <p className="flex items-center gap-2 text-xxs text-white/70">
           {sport !== null ? (
             <Link
               href={routes.competition(sport, event.competition.slug)}
@@ -76,11 +76,11 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
             {event.score !== null || live ? (
               <span className="whitespace-nowrap">
                 <LiveScore eventId={event.id} side="home" initial={event.score?.home ?? 0} />
-                <span className="px-1.5 text-white/50">:</span>
+                <span className="px-1.5 text-white/70">:</span>
                 <LiveScore eventId={event.id} side="away" initial={event.score?.away ?? 0} />
               </span>
             ) : (
-              <span className="text-base font-bold text-white/60">{t('sportsbook.match.vs')}</span>
+              <span className="text-base font-bold text-white/70">{t('sportsbook.match.vs')}</span>
             )}
           </span>
           {team(away, event.away.shortName)}
@@ -99,7 +99,7 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
             </span>
           </LiveClock>
           {event.htScore !== null ? (
-            <span className="text-white/75">
+            <span className="text-white/70">
               {t('sportsbook.match.htScore', {
                 home: event.htScore.home,
                 away: event.htScore.away,

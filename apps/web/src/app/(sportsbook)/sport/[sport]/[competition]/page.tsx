@@ -74,7 +74,7 @@ export default async function CompetitionPage(props: PageProps<'/sport/[sport]/[
           {monogram(category.name.en)}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-xxs font-semibold text-white/75">{localName(category.name, locale)}</p>
+          <p className="text-xxs font-semibold text-white/70">{localName(category.name, locale)}</p>
           <h1 className="truncate text-lg leading-tight font-extrabold">
             {localName(competition.name, locale)}
           </h1>

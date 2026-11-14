@@ -37,7 +37,7 @@ export async function MatchList({
     <div className="space-y-3 px-3 lg:px-0">
       {groupByCompetition(events).map((group) => (
         <details key={group.slug} open className="group panel">
-          <summary className="flex items-center gap-2 border-b border-line bg-raised/50 px-3 py-2">
+          <summary className="flex items-center gap-2 border-b border-line bg-raised px-3 py-2">
             <span aria-hidden="true" className="tag">
               {monogram(group.competition.category.en)}
             </span>
@@ -83,7 +83,7 @@ function MatchRow({
     <li className="list-row">
       <div className="flex items-center gap-1.5 text-xxs whitespace-nowrap text-muted">
         {live ? (
-          <span className="flex items-center gap-1 rounded-full bg-live/15 px-1.5">
+          <span className="flex items-center gap-1 rounded-full bg-raised px-1.5">
             <span aria-hidden="true" className="live-dot" />
             <LiveClock
               eventId={event.id}
@@ -139,7 +139,7 @@ function MatchRow({
               layout="row"
             />
           ) : (
-            <span className="flex min-h-11 flex-1 items-center justify-center rounded-[0.625rem] bg-raised text-xxs text-muted">
+            <span className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-raised text-xxs text-muted">
               {t('sportsbook.markets.suspended')}
             </span>
           )}

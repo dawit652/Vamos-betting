@@ -34,7 +34,7 @@ export async function EventMarkets({ event }: { event: EventDetail }) {
         <fieldset className="market-filter no-scrollbar -mx-3 mb-3 flex gap-2 overflow-x-auto px-3 lg:mx-0 lg:px-0">
           <legend className="sr-only">{t('sportsbook.markets.filter.label')}</legend>
           {(['all', ...categories] as const).map((category) => (
-            <label key={category} className="chip cursor-pointer has-focus-visible:outline-2">
+            <label key={category} className="chip cursor-pointer">
               <input
                 type="radio"
                 name="market-filter"

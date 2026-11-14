@@ -163,7 +163,7 @@ export function BookingCodePanel() {
       {loadOpen ? (
         <form className="flex gap-2" onSubmit={(event) => void load(event)}>
           <input
-            className="input min-w-0 font-mono uppercase placeholder:font-sans placeholder:text-sm placeholder:normal-case"
+            className="input min-w-0 font-mono uppercase"
             value={code}
             maxLength={16}
             autoCapitalize="characters"

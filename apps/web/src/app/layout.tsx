@@ -3,7 +3,6 @@ import { cookies } from 'next/headers';
 import type { ReactNode } from 'react';
 import { BetslipHost } from '@/components/betslip/BetslipHost';
 import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
-import { BottomNav } from '@/components/shell/BottomNav';
 import { DemoBanner } from '@/components/shell/DemoBanner';
 import { Footer } from '@/components/shell/Footer';
 import { Header } from '@/components/shell/Header';
@@ -39,8 +38,9 @@ export const viewport: Viewport = {
 const ROOT_CLIENT_NAMESPACES = ['common', 'sportsbook'] as const;
 
 /**
- * App shell: sticky header + DEMO banner, the page, footer, the betslip bar and
- * the fixed bottom nav (phones; wide screens get the header links instead).
+ * App shell: sticky header + DEMO banner, the page, footer and the betslip bar.
+ * The header holds the main navigation: its links on wide screens, the fixed
+ * bottom bar on phones.
  * Pages render inside <main>; they must not add their own shell. Sportsbook pages
  * wrap themselves in <SportsbookFrame> (sport rail, side columns); account and
  * static pages keep a narrow column (`mx-auto max-w-2xl`) of their own.
@@ -68,7 +68,6 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <main className="mx-auto max-w-7xl">{children}</main>
           <Footer />
           <BetslipHost />
-          <BottomNav />
         </AppProviders>
         <ServiceWorkerRegister />
       </body>

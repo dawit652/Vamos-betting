@@ -152,7 +152,7 @@ export default function BetslipDrawer() {
       <button
         type="button"
         aria-label={t('common.actions.close')}
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-black/45"
         onClick={close}
       />
       <div
@@ -643,7 +643,7 @@ function PlacedBet({
     <div className="space-y-3 p-3 text-center">
       <div className="card space-y-1 py-5">
         <p
-          className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-up/15 text-2xl font-bold text-up"
+          className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-soft text-2xl font-bold text-up"
           aria-hidden="true"
         >
           ✓

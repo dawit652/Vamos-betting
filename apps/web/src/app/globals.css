@@ -223,6 +223,71 @@
     background: var(--color-brand);
     color: var(--color-brand-ink);
   }
+  .chip:has(:focus-visible) {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /*
+   * Sport and league links of SportsbookFrame, one set of links for both layouts: a
+   * scrolling row of chips on phones, a boxed column of rows from `lg` up.
+   */
+  .rail {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding: 0.625rem 0.75rem;
+    scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
+  .rail-title {
+    display: none;
+  }
+  @media (max-width: 63.999rem) {
+    /* A second rail sits right under the first; `.rail-wide` is for the column only. */
+    .rail-second {
+      padding-top: 0;
+    }
+    .rail-wide {
+      display: none;
+    }
+  }
+  @media (min-width: 64rem) {
+    .rail {
+      flex-direction: column;
+      gap: 0;
+      overflow: visible;
+      border-radius: 0.875rem;
+      border: 1px solid var(--color-line);
+      background: var(--color-surface);
+      padding: 0.375rem;
+    }
+    .rail-title {
+      display: block;
+      padding: 0.375rem 0.625rem 0.25rem;
+      color: var(--color-muted);
+      font-size: var(--text-xxs);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .rail .chip {
+      gap: 0.625rem;
+      border: 0;
+      border-radius: 0.5rem;
+      background: transparent;
+      padding: 0.5rem 0.625rem;
+    }
+    .rail .chip:hover {
+      background: var(--color-raised);
+    }
+    .rail .chip[aria-current='page'] {
+      background: var(--color-brand-soft);
+      color: var(--color-brand);
+    }
+  }
 
   /* A compact list row (match rows, transactions, bets). */
   .list-row {
