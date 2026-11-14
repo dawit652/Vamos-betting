@@ -75,16 +75,46 @@ export const EventDetail = EventSummary.extend({
 });
 export type EventDetail = z.infer<typeof EventDetail>;
 
-export const EventListFilter = z.enum(['highlights', 'today', 'upcoming', 'live']);
+/**
+ * - highlights, today, upcoming, live: the home page tabs;
+ * - top: matches a trader marked as top matches, live or starting within 72h.
+ */
+export const EventListFilter = z.enum(['highlights', 'today', 'upcoming', 'live', 'top']);
+
+/**
+ * The market of a list row (`mainMarket`): the sport's main market, or double
+ * chance (`dc`), which football has; other sports keep their main market.
+ */
+export const EventListMarket = z.enum(['main', 'dc']);
+export type EventListMarket = z.infer<typeof EventListMarket>;
+
+/** A calendar date in Addis Ababa, `YYYY-MM-DD`. */
+export const CalendarDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+  }, 'not a calendar date');
 
 export const EventListQuery = z.object({
   sport: SportCodeSchema.default('football'),
   filter: EventListFilter.default('highlights'),
+  /** With a date the list is that day's scheduled and live events; `filter` is not used. */
+  date: CalendarDate.optional(),
   competition: z.string().optional(),
+  market: EventListMarket.default('main'),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   cursor: z.string().optional(),
 });
 export type EventListQuery = z.infer<typeof EventListQuery>;
+
+/** GET /events/search: a team, competition or Game ID, in every sport. */
+export const EventSearchQuery = z.object({
+  q: z.string().trim().min(2).max(60),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type EventSearchQuery = z.infer<typeof EventSearchQuery>;
 
 export const EventListResponse = z.object({
   items: z.array(EventSummary),

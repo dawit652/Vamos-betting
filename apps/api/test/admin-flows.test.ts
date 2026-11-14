@@ -297,6 +297,25 @@ describe('trading', () => {
       ),
     ).toEqual({ changed: true });
 
+    // A top match: marked, repeated (unchanged), listed for players, then unmarked.
+    const markTop = (top: boolean) =>
+      asStaff(ctx, s.trader, 'POST', `/admin/trading/events/${ev.later}/top`, { top });
+    expect(expectOk(await markTop(true))).toEqual({ changed: true });
+    expect(expectOk(await markTop(true))).toEqual({ changed: false });
+    expect(
+      TradingEventView.parse(
+        expectOk(await asStaff(ctx, s.trader, 'GET', `/admin/trading/events/${ev.later}`)),
+      ).topMatch,
+    ).toBe(true);
+    expect(expectOk(await markTop(false))).toEqual({ changed: true });
+    expect(
+      (
+        await asStaff(ctx, s.support, 'POST', `/admin/trading/events/${ev.later}/top`, {
+          top: true,
+        })
+      ).statusCode,
+    ).toBe(403);
+
     // A support user cannot touch trading.
     const forbidden = await asStaff(
       ctx,

@@ -60,6 +60,7 @@ export {
   lockEvent,
   resumeEvent,
   setEventBettingOpen,
+  setEventTopMatch,
   setMarketStatus,
   suspendEvent,
   type CatalogChange,

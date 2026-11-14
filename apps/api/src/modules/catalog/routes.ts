@@ -1,5 +1,6 @@
 import {
   EventListQuery,
+  EventSearchQuery,
   type CompetitionsResponse,
   type EventDetail,
   type EventListResponse,
@@ -14,6 +15,7 @@ import {
   listCompetitions,
   listEvents,
   listSports,
+  searchEvents,
 } from './queries';
 
 /** Lists change with every odds tick; a few seconds of caching absorbs refresh storms. */
@@ -51,6 +53,13 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
   app.get('/events', async (request, reply): Promise<EventListResponse> => {
     const query = parseInput(EventListQuery, request.query);
     const body = await listEvents(deps.db, query, deps.clock());
+    cache(reply, LIST_CACHE_CONTROL);
+    return body;
+  });
+
+  app.get('/events/search', async (request, reply): Promise<EventListResponse> => {
+    const query = parseInput(EventSearchQuery, request.query);
+    const body = await searchEvents(deps.db, query, deps.clock());
     cache(reply, LIST_CACHE_CONTROL);
     return body;
   });

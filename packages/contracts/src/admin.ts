@@ -580,6 +580,7 @@ const tradingEventFields = {
   startTime: z.string(),
   status: EventStatusSchema,
   bettingOpen: z.boolean(),
+  topMatch: z.boolean(),
   liveMinute: z.number().int().nullable(),
   period: z.string().nullable(),
   scoreHome: z.number().int().nullable(),
@@ -670,6 +671,13 @@ export type EventSuspendRequest = z.infer<typeof EventSuspendRequest>;
 /** POST /admin/trading/events/:id/betting (trading.status): betting on the whole event on or off. */
 export const EventBettingRequest = z.object({ open: z.boolean(), reason: OptionalAuditText });
 export type EventBettingRequest = z.infer<typeof EventBettingRequest>;
+
+/**
+ * POST /admin/trading/events/:id/top (trading.status): marks or unmarks a top
+ * match, shown as the player app's featured poster. Changes no price or state.
+ */
+export const EventTopMatchRequest = z.object({ top: z.boolean(), reason: OptionalAuditText });
+export type EventTopMatchRequest = z.infer<typeof EventTopMatchRequest>;
 
 const Goals = z.number().int().min(0).max(999);
 

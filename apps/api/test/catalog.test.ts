@@ -8,7 +8,7 @@ import {
 } from '@vamos/contracts';
 import type { Database } from '@vamos/db';
 import { events, sports } from '@vamos/db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   decodeEventCursor,
@@ -660,6 +660,71 @@ describe('GET /events', () => {
     }
   });
 
+  it('lists a given Addis Ababa date instead of the filter window', async () => {
+    // 2026-10-08 in Addis: the live match and everything else starting before 21:00 UTC.
+    expect(await listIds('/events?date=2026-10-08')).toEqual(await listIds('/events?filter=today'));
+    // The date wins over the filter (here: live would list the live match only).
+    expect(await listIds('/events?filter=live&date=2026-10-09')).toEqual([ev.tomorrow.id]);
+    // 80 hours ahead is beyond "upcoming" (72h) but on its own calendar day.
+    expect(await listIds('/events?date=2026-10-11')).toEqual([ev.far.id]);
+    // Finished and cancelled matches of a past day are not listed; nor is an empty day.
+    expect(await listIds('/events?date=2026-10-07')).toEqual([]);
+    expect(await listIds('/events?date=2026-10-10')).toEqual([]);
+    expect(await listIds('/events?date=2026-10-08&competition=caf-champions-league')).toEqual([
+      ev.caf.id,
+    ]);
+    expect(await listIds('/events?sport=basketball&date=2026-10-08')).toEqual([
+      ev.nbaLive.id,
+      ev.nbaSoon.id,
+    ]);
+  });
+
+  it('puts double chance on football rows for market=dc', async () => {
+    const rows = EventListResponse.parse((await get('/events?filter=today&market=dc')).json());
+    const soon = rows.items.find((item) => item.id === ev.soon.id)!;
+    expect(soon.mainMarket).toMatchObject({
+      id: soonMarkets.dc!.id,
+      type: 'dc',
+      status: 'open',
+    });
+    expect(soon.mainMarket!.selections.map((selection) => selection.code)).toEqual([
+      '1X',
+      '12',
+      'X2',
+    ]);
+    expect(soon.mainMarket!.selections.map((selection) => selection.oddsMilli)).toEqual([
+      1250, 1300, 1900,
+    ]);
+    // "+N markets" now counts 1X2 instead of double chance: the same number.
+    const main = EventListResponse.parse((await get('/events?filter=today')).json());
+    expect(soon.marketCount).toBe(main.items.find((item) => item.id === ev.soon.id)!.marketCount);
+    // A match without a double chance market has no row market.
+    expect(rows.items.find((item) => item.id === ev.live.id)!.mainMarket).toBeNull();
+    // Other sports have no double chance: they keep their main market.
+    const nba = EventListResponse.parse(
+      (await get('/events?sport=basketball&filter=live&market=dc')).json(),
+    );
+    expect(nba.items[0]!.mainMarket).toMatchObject({ type: 'ml' });
+  });
+
+  it('lists top matches: marked by a trader, live or within 72h', async () => {
+    expect(await listIds('/events?filter=top')).toEqual([]);
+    await db
+      .update(events)
+      .set({ topMatch: true })
+      .where(
+        inArray(events.id, [ev.tomorrow.id, ev.caf.id, ev.far.id, ev.finished.id, ev.inactive.id]),
+      );
+    try {
+      // Not the one 80h ahead, the finished one or the one of an inactive competition.
+      expect(await listIds('/events?filter=top')).toEqual([ev.caf.id, ev.tomorrow.id]);
+      expect(await listIds('/events?filter=top&limit=1')).toEqual([ev.caf.id]);
+      expect(await listIds('/events?sport=basketball&filter=top')).toEqual([]);
+    } finally {
+      await db.update(events).set({ topMatch: false });
+    }
+  });
+
   it('rejects malformed cursors and queries', async () => {
     const valid = encodeEventCursor({
       startTime: '2026-10-08T13:00:00.123456Z',
@@ -691,7 +756,16 @@ describe('GET /events', () => {
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({ error: { code: 'invalid_cursor' } });
     }
-    for (const query of ['filter=soon', 'sport=cricket', 'limit=0', 'limit=101']) {
+    for (const query of [
+      'filter=soon',
+      'sport=cricket',
+      'limit=0',
+      'limit=101',
+      'market=ou',
+      'date=tomorrow',
+      'date=2026-02-30',
+      'date=2026-1-5',
+    ]) {
       const response = await get(`/events?${query}`);
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({ error: { code: 'validation_error' } });
@@ -712,6 +786,58 @@ describe('GET /events', () => {
       expect(queries).toBe(3); // events, markets, main-market selections
     } finally {
       (pool as { query: unknown }).query = original;
+    }
+  });
+});
+
+describe('GET /events/search', () => {
+  async function search(q: string, extra = ''): Promise<string[]> {
+    return listIds(`/events/search?q=${encodeURIComponent(q)}${extra}`);
+  }
+
+  it('finds live and coming matches by team name, in English or Amharic, in any case', async () => {
+    // Arsenal: live, tomorrow and the one with betting closed; not finished or inactive ones.
+    expect(await search('arsenal')).toEqual([ev.live.id, ev.closedBetting.id, ev.tomorrow.id]);
+    expect(await search('ARSEN')).toEqual(await search('arsenal'));
+    expect(await search('ጊዮርጊስ')).toEqual([ev.soon.id]);
+    expect(await search('St George')).toEqual([ev.soon.id]); // the short name
+    expect(await search('  wydad ')).toEqual([ev.caf.id]);
+    expect(await search('no such team')).toEqual([]);
+  });
+
+  it('finds matches by competition name across sports, soonest first', async () => {
+    expect(await search('ethiopian premier')).toEqual([ev.soon.id]);
+    expect(await search('ፕሪምየር')).toEqual([ev.soon.id]);
+    expect(await search('NBA')).toEqual([ev.nbaLive.id, ev.nbaSoon.id]);
+    // Football (Arsenal) and tennis (Alcaraz) matches in one list, in start order.
+    expect(await search('ar', '&limit=2')).toEqual([ev.live.id, atpEvents[0]]);
+  });
+
+  it('finds a match by its Game ID', async () => {
+    expect(await search('123')).toEqual([ev.soon.id]);
+    expect(await search('0123')).toEqual([ev.soon.id]);
+  });
+
+  it('returns list rows with the main market and no cursor', async () => {
+    const body = EventListResponse.parse((await get('/events/search?q=fasil')).json());
+    expect(body.nextCursor).toBeNull();
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]!.mainMarket).toMatchObject({ id: soonMarkets.oneXTwo!.id, type: '1x2' });
+  });
+
+  it('treats LIKE wildcards as plain text and limits the page', async () => {
+    expect(await search('%%')).toEqual([]);
+    expect(await search('__')).toEqual([]);
+    expect(await search('a\\')).toEqual([]);
+    expect(await search('sinner', '&limit=5')).toHaveLength(5);
+    expect((await search('sinner')).length).toBe(20);
+  });
+
+  it('rejects a missing, too short or too long query', async () => {
+    for (const query of ['', 'q=', 'q=a', 'q=%20a%20', `q=${'x'.repeat(61)}`, 'q=ab&limit=51']) {
+      const response = await get(`/events/search?${query}`);
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: { code: 'validation_error' } });
     }
   });
 });

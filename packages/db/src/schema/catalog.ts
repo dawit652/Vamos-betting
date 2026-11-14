@@ -125,6 +125,11 @@ export const events = pgTable(
     status: eventStatus('status').notNull().default('scheduled'),
     /** false = all markets of the event suspended (e.g. VAR, feed loss). */
     bettingOpen: boolean('betting_open').notNull().default(true),
+    /**
+     * A trader's pick of the day's big matches: the player app's featured
+     * poster shows the soonest one (GET /events?filter=top). Display only.
+     */
+    topMatch: boolean('top_match').notNull().default(false),
     liveMinute: integer('live_minute'),
     /** '1H' | 'HT' | '2H' | 'FT' (football), 'Q1'…'Q4' | 'OT' (basketball), set numbers… */
     period: text('period'),
@@ -154,6 +159,10 @@ export const events = pgTable(
     index('events_status_start_idx').on(t.status, t.startTime),
     index('events_competition_start_idx').on(t.competitionId, t.startTime),
     index('events_sport_start_idx').on(t.sportId, t.startTime),
+    // The few top matches, read on every home page render.
+    index('events_top_match_idx')
+      .on(t.startTime)
+      .where(sql`${t.topMatch}`),
     // The settlement sweep looks at recently resulted events.
     index('events_resulted_idx').on(t.resultedAt),
     // The range of formatGameId / parseGameId in @vamos/core (3 to 6 digits).

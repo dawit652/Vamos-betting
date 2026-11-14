@@ -2,6 +2,7 @@ import type { ResolutionInput } from '@vamos/core';
 import {
   EventBettingRequest,
   EventSuspendRequest,
+  EventTopMatchRequest,
   ResultEventRequest,
   ResultEventResponse,
   SetMarketStatusRequest,
@@ -20,6 +21,7 @@ import {
   staffResultEvent,
   staffSetEventBettingOpen,
   staffSetEventSuspended,
+  staffSetEventTopMatch,
   staffSetMarketStatus,
   staffSetOdds,
   staffVoidMarket,
@@ -150,6 +152,25 @@ export default async function adminTradingRoutes(app: FastifyInstance): Promise<
         }),
       );
       await publishLive(app, change.messages);
+      return { changed: change.changed };
+    },
+  );
+
+  app.post<IdParams>(
+    '/admin/trading/events/:id/top',
+    { config: { staff: 'trading.status' } },
+    async (request): Promise<ChangedResponse> => {
+      const eventId = parseUuid(request.params.id, 'Event');
+      const input = parseInput(EventTopMatchRequest, request.body);
+      const actor = staffActor(request);
+      const change = await inTx(deps, (tx) =>
+        staffSetEventTopMatch(tx, {
+          eventId,
+          top: input.top,
+          ...(input.reason === undefined ? {} : { reason: input.reason }),
+          actor,
+        }),
+      );
       return { changed: change.changed };
     },
   );

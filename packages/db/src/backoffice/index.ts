@@ -102,6 +102,7 @@ export {
   STAFF_EVENT_RESULTED,
   staffResultEvent,
   staffSetEventBettingOpen,
+  staffSetEventTopMatch,
   staffSetEventSuspended,
   staffSetMarketStatus,
   staffSetOdds,

@@ -8,6 +8,7 @@ import { resultEvent, type ResultEventOutcome } from '../catalog/results';
 import {
   resumeEvent,
   setEventBettingOpen,
+  setEventTopMatch,
   setMarketStatus,
   suspendEvent,
   type CatalogChange,
@@ -170,6 +171,22 @@ export async function staffSetEventBettingOpen(
   );
 }
 
+/** Marks or unmarks an event as a top match (setEventTopMatch; audited). */
+export async function staffSetEventTopMatch(
+  tx: DbTransaction,
+  input: { eventId: string; top: boolean; reason?: string; actor: StaffActor },
+): Promise<CatalogChange> {
+  const actor = checkedActor(input.actor);
+  const reason = trimmedReason(input.reason);
+  return catalogCall(() =>
+    setEventTopMatch(tx, input.eventId, input.top, {
+      adminId: actor.adminId,
+      ip: actor.ip ?? null,
+      ...(reason === undefined ? {} : { reason }),
+    }),
+  );
+}
+
 /**
  * Voids one market (voidMarket: every selection void for good, bets
  * re-settled through `market.resulted`). A reason is required (422).
@@ -297,6 +314,8 @@ export interface TradingEventSummary {
   startTime: Date;
   status: EventStatus;
   bettingOpen: boolean;
+  /** Marked as a top match (the player app's featured poster). */
+  topMatch: boolean;
   liveMinute: number | null;
   period: string | null;
   scoreHome: number | null;
@@ -370,6 +389,7 @@ export async function searchTradingEvents(
       startTime: events.startTime,
       status: events.status,
       bettingOpen: events.bettingOpen,
+      topMatch: events.topMatch,
       liveMinute: events.liveMinute,
       period: events.period,
       scoreHome: events.scoreHome,
@@ -488,6 +508,7 @@ export async function getTradingEvent(
       startTime: events.startTime,
       status: events.status,
       bettingOpen: events.bettingOpen,
+      topMatch: events.topMatch,
       liveMinute: events.liveMinute,
       period: events.period,
       scoreHome: events.scoreHome,

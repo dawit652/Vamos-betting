@@ -1,5 +1,6 @@
 import type {
   EventDetail,
+  EventListMarket,
   EventSummary,
   LocalizedNameValue,
   MarketView,
@@ -227,27 +228,38 @@ function summaryFields(event: EventRow): Omit<EventSummary, 'mainMarket' | 'mark
   };
 }
 
-function isMainMarket(event: EventRow, market: MarketRow): boolean {
-  return market.type === mainMarketType(event.sport) && market.line === null;
+/**
+ * The market type of a list row: the sport's main market, or double chance
+ * when the list asks for it and the sport has it (football).
+ */
+export function rowMarketType(sport: SportCode, market: EventListMarket = 'main'): MarketTypeCode {
+  return market === 'dc' && SPORT_MARKETS[sport].includes('dc') ? 'dc' : mainMarketType(sport);
 }
 
-/** The main (line-less) market of the event's sport among `markets`, if any. */
-export function findMainMarket(event: EventRow, markets: readonly MarketRow[]): MarketRow | null {
-  return markets.find((market) => isMainMarket(event, market)) ?? null;
+/** The row (line-less) market of the event among `markets`, if any: its main market by default. */
+export function findMainMarket(
+  event: EventRow,
+  markets: readonly MarketRow[],
+  rowMarket: EventListMarket = 'main',
+): MarketRow | null {
+  const type = rowMarketType(event.sport, rowMarket);
+  return markets.find((market) => market.type === type && market.line === null) ?? null;
 }
 
 /**
  * A list row. `markets` are all of the event's markets; `mainSelections`
- * the selections of its main market. marketCount counts the other markets
- * that are open or suspended ("+N markets").
+ * the selections of its row market (the main market, or double chance for
+ * `rowMarket` 'dc'). marketCount counts the other markets that are open or
+ * suspended ("+N markets").
  */
 export function eventSummaryView(
   event: EventRow,
   markets: readonly MarketRow[],
   mainSelections: readonly SelectionRow[],
   now: Date,
+  rowMarket: EventListMarket = 'main',
 ): EventSummary {
-  const main = findMainMarket(event, markets);
+  const main = findMainMarket(event, markets, rowMarket);
   const marketCount = markets.filter(
     (market) =>
       market !== main &&
