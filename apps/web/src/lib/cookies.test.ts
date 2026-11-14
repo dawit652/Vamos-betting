@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readCookie } from './cookies';
+import { parseTheme, readCookie } from './cookies';
 
 describe('readCookie', () => {
   it('finds a cookie among others', () => {
@@ -18,5 +18,16 @@ describe('readCookie', () => {
   it('keeps values with = and bad escapes', () => {
     expect(readCookie('t=a=b', 't')).toBe('a=b');
     expect(readCookie('t=%E0%A4%A', 't')).toBe('%E0%A4%A');
+  });
+});
+
+describe('parseTheme', () => {
+  it('is dark unless the cookie says light', () => {
+    expect(parseTheme('light')).toBe('light');
+    expect(parseTheme('dark')).toBe('dark');
+    expect(parseTheme(undefined)).toBe('dark');
+    expect(parseTheme(null)).toBe('dark');
+    expect(parseTheme('LIGHT')).toBe('dark');
+    expect(parseTheme('<script>')).toBe('dark');
   });
 });

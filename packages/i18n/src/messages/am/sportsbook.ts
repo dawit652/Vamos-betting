@@ -16,6 +16,8 @@ export const sportsbook: Messages['sportsbook'] = {
     nextPage: 'ቀጣይ ገጽ',
     firstPage: 'ወደ መጀመሪያው ተመለስ',
     gameId: 'መለያ {id}',
+    tomorrow: 'ነገ',
+    featured: 'ተመራጭ',
   },
   match: {
     live: 'ቀጥታ',
@@ -56,6 +58,14 @@ export const sportsbook: Messages['sportsbook'] = {
     count: '{count} ገበያዎች',
     oddsLabel: '{selection}፣ {market}፣ {event}፦ ዕድል {odds}',
     oddsLabelSuspended: '{selection}፣ {market}፣ {event}፦ ታግዷል',
+    filter: {
+      label: 'የገበያ ዓይነት',
+      all: 'ሁሉም',
+      main: 'ዋና',
+      totals: 'ጠቅላላ',
+      halves: 'አጋማሽ',
+      other: 'ሌሎች',
+    },
   },
   live: {
     title: 'ቀጥታ',
@@ -65,6 +75,7 @@ export const sportsbook: Messages['sportsbook'] = {
     title: 'ሊጎች',
     empty: 'አሁን ጨዋታ ያለው ሊግ የለም።',
     matches: '{count} ጨዋታዎች',
+    top: 'ዋና ሊጎች',
   },
   competition: {
     live: 'አሁን በቀጥታ',

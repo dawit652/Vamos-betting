@@ -14,7 +14,7 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
 export default function AccountLayout({ children }: { children: ReactNode }) {
   return (
     <AccountMessages>
-      {children}
+      <div className="mx-auto max-w-2xl">{children}</div>
       <UserStreamHost />
     </AccountMessages>
   );

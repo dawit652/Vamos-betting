@@ -7,13 +7,21 @@ import { MAX_SLIP_LEGS } from '@/lib/betslip/state';
 import { formatOddsMilli } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { useBetslip } from '@/providers/BetslipProvider';
-import { isBettable, shortLabel, slipLeg, type EventRef, type OddsMarket } from './events';
+import {
+  codePrefix,
+  isBettable,
+  shortLabel,
+  slipLeg,
+  type EventRef,
+  type OddsMarket,
+} from './events';
 import { useLiveMarketStatus, useLiveMatch, useLiveOdds } from './LiveProvider';
 import styles from './odds.module.css';
 
 /**
  * The odds buttons of one market: a list row's 1X2 (`row`, labelled by code)
- * or an event page market (`grid`, labelled by selection). Tapping toggles the
+ * or an event page market (`grid`, labelled by selection; a two-way market
+ * puts the label left and the price right). Tapping toggles the
  * pick on the betslip; live deltas (inside a LiveProvider) patch prices and
  * suspension.
  */
@@ -39,7 +47,7 @@ export function MarketOdds({
   return (
     <div className="relative min-w-0 flex-1">
       <div
-        className="grid gap-1"
+        className="grid gap-1.5"
         style={{ gridTemplateColumns: `repeat(${Math.max(columns, 1)}, minmax(0, 1fr))` }}
       >
         {market.selections.map((selection) => (
@@ -50,12 +58,15 @@ export function MarketOdds({
             selection={selection}
             marketOpen={open}
             layout={layout}
+            wide={layout === 'grid' && columns === 2}
           />
         ))}
       </div>
       {status === 'suspended' ? (
         <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-xxs font-bold text-muted uppercase">
-          <span className="rounded-sm bg-surface/90 px-1">{t('sportsbook.markets.suspended')}</span>
+          <span className="rounded-full bg-surface/90 px-2">
+            {t('sportsbook.markets.suspended')}
+          </span>
         </span>
       ) : null}
     </div>
@@ -68,12 +79,15 @@ function OddsButton({
   selection,
   marketOpen,
   layout,
+  wide,
 }: {
   event: EventRef;
   market: OddsMarket;
   selection: SelectionView;
   marketOpen: boolean;
   layout: 'row' | 'grid';
+  /** Label left, price right (a two-way market on the event page). */
+  wide: boolean;
 }) {
   const t = useT();
   const locale = useLocale();
@@ -88,6 +102,8 @@ function OddsButton({
   const selected = slip.has(selection.id);
   const name = localName(selection.label, locale);
   const label = layout === 'row' ? shortLabel(selection.code) : name;
+  // "1X Manchester United or Draw": the code keeps long names apart once they are cut short.
+  const prefix = layout === 'grid' ? codePrefix(selection.code, name) : null;
   const move = usePriceMove(live.oddsMilli);
   // The visible "1 / 1.68" says nothing to a screen reader on a list of 20
   // rows: name the selection, the market and the match, and the price or that it is suspended.
@@ -106,7 +122,9 @@ function OddsButton({
   return (
     <button
       type="button"
-      className="odds-btn relative px-1"
+      className={`odds-btn relative ${wide ? 'odds-btn-wide' : 'px-1'} ${
+        layout === 'grid' ? 'odds-btn-market' : ''
+      }`}
       aria-pressed={selected}
       // A selection already on the slip can always be removed.
       disabled={!enabled && !selected}
@@ -119,10 +137,17 @@ function OddsButton({
         }
       }}
     >
-      <span aria-hidden="true" className="odds-label w-full truncate">
+      <span aria-hidden="true" className={`odds-label truncate ${wide ? 'min-w-0' : 'w-full'}`}>
+        {prefix !== null ? <b className="mr-1 opacity-60">{prefix}</b> : null}
         {label}
       </span>
-      {enabled ? <span aria-hidden="true">{formatOddsMilli(live.oddsMilli)}</span> : <LockIcon />}
+      {enabled ? (
+        <span aria-hidden="true" className="odds-price">
+          {formatOddsMilli(live.oddsMilli)}
+        </span>
+      ) : (
+        <LockIcon />
+      )}
       {enabled && move !== null ? (
         <span
           key={live.oddsMilli}

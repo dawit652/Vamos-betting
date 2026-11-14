@@ -17,7 +17,7 @@ export default function ErrorPage({
     console.error(error);
   }, [error]);
   return (
-    <section role="alert" className="card m-3 space-y-3 text-center">
+    <section role="alert" className="card mx-auto my-3 max-w-md space-y-3 text-center">
       <p className="font-semibold">{t(errorMessageKey(error))}</p>
       <button type="button" className="btn btn-accent" onClick={() => retry()}>
         {t('common.actions.retry')}

@@ -5,6 +5,7 @@ import { routes, type Sport } from '@/lib/routes';
 import { streamEventIds } from './events';
 import { LiveProvider, LiveStatusBar } from './LiveProvider';
 import { MatchList } from './MatchList';
+import { SportsbookFrame } from './SportsbookFrame';
 import { listHref } from './tabs';
 
 /** The API's page limit and the live stream's filter limit. */
@@ -21,13 +22,14 @@ export async function LiveList({ sport }: { sport: Sport }) {
     getEvents({ sport, filter: 'live', limit: LIVE_LIMIT }),
   ]);
   return (
-    <>
-      <h1 className="sr-only">
+    <SportsbookFrame sport={sport} live>
+      <h1 className="flex items-center gap-2 px-3 pb-3 text-lg font-extrabold lg:px-0">
+        <span aria-hidden="true" className="live-dot h-2 w-2" />
         {t('sportsbook.live.title')} · {t(`common.sports.${sport}`)}
       </h1>
       {page.items.length === 0 ? (
         <LiveProvider eventIds={[]}>
-          <div className="card m-3 space-y-3 text-center">
+          <div className="card mx-3 space-y-3 py-8 text-center lg:mx-0">
             <p className="text-muted">{t('sportsbook.list.emptyLive')}</p>
             <Link
               href={listHref(routes.sport(sport), 'upcoming')}
@@ -49,6 +51,6 @@ export async function LiveList({ sport }: { sport: Sport }) {
           <MatchList events={page.items} />
         </LiveProvider>
       )}
-    </>
+    </SportsbookFrame>
   );
 }

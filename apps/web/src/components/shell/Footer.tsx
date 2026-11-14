@@ -3,27 +3,42 @@ import { getT } from '@/i18n/server';
 import { routes } from '@/lib/routes';
 import { LocaleSwitcher } from './LocaleSwitcher';
 
-/** Footer: language, legal links and the age notice. */
+/** Footer card: logo and tagline, language, legal links and the age notice. */
 export async function Footer() {
   const t = await getT();
   return (
-    <footer className="mx-auto mt-6 max-w-2xl space-y-3 px-3 pb-6 text-xs text-muted">
-      <LocaleSwitcher />
-      <nav className="flex flex-wrap gap-x-4 gap-y-1">
-        <Link href={routes.help} prefetch={false}>
-          {t('common.nav.help')}
-        </Link>
-        <Link href={routes.terms} prefetch={false}>
-          {t('common.nav.terms')}
-        </Link>
-        <Link href={routes.privacy} prefetch={false}>
-          {t('common.nav.privacy')}
-        </Link>
-        <Link href={routes.responsibleGambling} prefetch={false}>
-          {t('common.nav.responsibleGambling')}
-        </Link>
-      </nav>
-      <p className="font-semibold">{t('common.rg.ageNotice')}</p>
+    <footer className="mx-auto mt-8 max-w-7xl px-3 pb-6 lg:px-4">
+      <div className="card space-y-4 p-4 text-xs text-muted">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xl font-black tracking-tight text-ink italic">
+              Vamos<span className="text-accent-strong">.</span>
+            </p>
+            <p>{t('common.app.tagline')}</p>
+          </div>
+          <LocaleSwitcher />
+        </div>
+        <nav className="flex flex-wrap gap-x-5 gap-y-2 border-t border-line pt-3 font-semibold">
+          <Link href={routes.help} prefetch={false}>
+            {t('common.nav.help')}
+          </Link>
+          <Link href={routes.terms} prefetch={false}>
+            {t('common.nav.terms')}
+          </Link>
+          <Link href={routes.privacy} prefetch={false}>
+            {t('common.nav.privacy')}
+          </Link>
+          <Link href={routes.responsibleGambling} prefetch={false}>
+            {t('common.nav.responsibleGambling')}
+          </Link>
+        </nav>
+        <p className="flex items-center gap-2 font-semibold text-ink">
+          <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full border border-line text-xxs font-extrabold">
+            21+
+          </span>
+          {t('common.rg.ageNotice')}
+        </p>
+      </div>
     </footer>
   );
 }

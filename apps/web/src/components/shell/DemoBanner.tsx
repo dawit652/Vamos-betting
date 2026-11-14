@@ -7,7 +7,10 @@ import { getT } from '@/i18n/server';
 export async function DemoBanner() {
   const t = await getT();
   return (
-    <p role="note" className="bg-demo-bg px-3 py-1 text-center text-xs font-semibold text-demo-ink">
+    <p
+      role="note"
+      className="border-b border-line bg-demo-bg px-3 py-1 text-center text-xs font-semibold text-demo-ink"
+    >
       {t('common.demo.banner')}
     </p>
   );

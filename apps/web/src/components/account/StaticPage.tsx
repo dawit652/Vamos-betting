@@ -16,7 +16,7 @@ export async function StaticPage({
 }) {
   const t = await getT();
   return (
-    <article className="space-y-3 px-3 pt-3">
+    <article className="mx-auto max-w-2xl space-y-3 px-3 pt-3">
       <header className="space-y-1">
         <h1 className="text-lg font-bold">{title}</h1>
         <p className="text-muted">{intro}</p>

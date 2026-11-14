@@ -7,10 +7,9 @@ import { BottomNav } from '@/components/shell/BottomNav';
 import { DemoBanner } from '@/components/shell/DemoBanner';
 import { Footer } from '@/components/shell/Footer';
 import { Header } from '@/components/shell/Header';
-import { SportChips } from '@/components/shell/SportChips';
 import { pickNamespaces } from '@/i18n/ClientMessages';
 import { getLocale, getMessages } from '@/i18n/server';
-import { CSRF_COOKIE } from '@/lib/cookies';
+import { CSRF_COOKIE, parseTheme, THEME_COOKIE } from '@/lib/cookies';
 import { AppProviders } from '@/providers/AppProviders';
 import './globals.css';
 
@@ -33,16 +32,19 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: '#0a5c36',
+  themeColor: '#0d1613',
 };
 
 /** Message namespaces every client component can use; others need <ClientMessages>. */
 const ROOT_CLIENT_NAMESPACES = ['common', 'sportsbook'] as const;
 
 /**
- * App shell: sticky header + DEMO banner, sport chips (sport and live lists only),
- * the page, footer, floating betslip button and the fixed bottom nav.
- * Pages render inside <main>; they must not add their own shell.
+ * App shell: sticky header + DEMO banner, the page, footer, the betslip bar and
+ * the fixed bottom nav (phones; wide screens get the header links instead).
+ * Pages render inside <main>; they must not add their own shell. Sportsbook pages
+ * wrap themselves in <SportsbookFrame> (sport rail, side columns); account and
+ * static pages keep a narrow column (`mx-auto max-w-2xl`) of their own.
+ * The theme is the `vamos_theme` cookie, rendered as `<html data-theme>`.
  */
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const [locale, messages, cookieStore] = await Promise.all([
@@ -50,20 +52,20 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     getMessages(),
     cookies(),
   ]);
+  const theme = parseTheme(cookieStore.get(THEME_COOKIE)?.value);
   return (
-    <html lang={locale}>
-      <body className="min-h-dvh pb-[calc(var(--spacing-bottom-nav)+env(safe-area-inset-bottom))]">
+    <html lang={locale} data-theme={theme}>
+      <body className="min-h-dvh pb-[calc(var(--spacing-bottom-nav)+env(safe-area-inset-bottom))] lg:pb-0">
         <AppProviders
           locale={locale}
           messages={pickNamespaces(messages, ROOT_CLIENT_NAMESPACES)}
           hasSessionCookie={cookieStore.has(CSRF_COOKIE)}
         >
           <div className="sticky top-0 z-30">
-            <Header />
+            <Header theme={theme} />
             <DemoBanner />
           </div>
-          <SportChips />
-          <main className="mx-auto max-w-2xl">{children}</main>
+          <main className="mx-auto max-w-7xl">{children}</main>
           <Footer />
           <BetslipHost />
           <BottomNav />

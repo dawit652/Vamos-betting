@@ -1,9 +1,15 @@
+import type { EventSummary } from '@vamos/contracts';
 import Link from 'next/link';
 import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { getLocale, getT } from '@/i18n/server';
+import { formatDayMonth, formatTime, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes, type Sport } from '@/lib/routes';
+import { eventRef, monogram, oddsMarket } from './events';
+import { LiveClock, LiveScore } from './LiveMatch';
 import { MatchList } from './MatchList';
+import { MarketOdds } from './MarketOdds';
+import { SportsbookFrame } from './SportsbookFrame';
 import { LIST_TABS, listHref, parseCursor, parseTab, type ListTab } from './tabs';
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -13,7 +19,8 @@ const PAGE_SIZE = 20;
 
 /**
  * A sport's home (`/` for football, `/sport/[sport]`): Highlights / Today /
- * Upcoming / Leagues tabs (`?tab=`), each rendered on the server.
+ * Upcoming / Leagues tabs (`?tab=`), each rendered on the server. The first
+ * page of Highlights opens with the featured-match poster and the promo cards.
  */
 export async function SportHome({
   sport,
@@ -27,26 +34,29 @@ export async function SportHome({
   const cursor = parseCursor(searchParams.cursor);
   const path = routes.sport(sport);
   return (
-    <>
+    <SportsbookFrame sport={sport} leagueRail>
       <h1 className="sr-only">
         {t(`common.sports.${sport}`)} · {t(`sportsbook.tabs.${tab}`)}
       </h1>
-      <ListTabs path={path} current={tab} />
       {tab === 'leagues' ? (
-        <Leagues sport={sport} />
+        <>
+          <ListTabs path={path} current={tab} />
+          <Leagues sport={sport} />
+        </>
       ) : (
         <EventsTab sport={sport} tab={tab} cursor={cursor} path={path} />
       )}
-    </>
+    </SportsbookFrame>
   );
 }
 
+/** Pill tabs; the active one is `aria-current="page"`. */
 async function ListTabs({ path, current }: { path: string; current: ListTab }) {
   const t = await getT();
   return (
     <nav
       aria-label={t('sportsbook.tabs.label')}
-      className="flex border-b border-line bg-surface text-sm font-semibold"
+      className="mx-3 mb-3 flex gap-1 rounded-full border border-line bg-surface p-1 text-[0.8125rem] font-bold lg:mx-0"
     >
       {LIST_TABS.map((tab) => (
         <Link
@@ -54,8 +64,8 @@ async function ListTabs({ path, current }: { path: string; current: ListTab }) {
           href={listHref(path, tab)}
           prefetch={false}
           aria-current={tab === current ? 'page' : undefined}
-          className={`flex-1 border-b-2 py-2 text-center ${
-            tab === current ? 'border-brand text-brand' : 'border-transparent text-muted'
+          className={`flex-1 truncate rounded-full px-1 py-1.5 text-center ${
+            tab === current ? 'bg-brand text-brand-ink' : 'text-muted hover:text-ink'
           }`}
         >
           {t(`sportsbook.tabs.${tab}`)}
@@ -85,26 +95,138 @@ async function EventsTab({
       ...(cursor === undefined ? {} : { cursor }),
     }),
   ]);
-  if (page.items.length === 0) {
-    return (
-      <div className="card m-3 space-y-2 text-center text-muted">
-        <p>{t('sportsbook.list.empty')}</p>
-        {cursor !== undefined ? (
-          <Link href={listHref(path, tab)} prefetch={false} className="btn btn-outline">
-            {t('sportsbook.list.firstPage')}
-          </Link>
-        ) : null}
-      </div>
-    );
-  }
+  // The poster takes the first highlight that can be bet on; the list shows the rest.
+  const [first] = page.items;
+  const featured =
+    tab === 'highlights' && cursor === undefined && first?.mainMarket?.status === 'open'
+      ? first
+      : null;
+  const events = featured === null ? page.items : page.items.slice(1);
   return (
     <>
-      <MatchList events={page.items} />
-      <Pager
-        firstHref={cursor === undefined ? null : listHref(path, tab)}
-        nextHref={page.nextCursor === null ? null : listHref(path, tab, page.nextCursor)}
-      />
+      {tab === 'highlights' && cursor === undefined ? (
+        <div className="mx-3 mb-3 grid gap-3 lg:mx-0 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+          {featured !== null ? <Featured event={featured} /> : null}
+          <Promos />
+        </div>
+      ) : null}
+      <ListTabs path={path} current={tab} />
+      {page.items.length === 0 ? (
+        <div className="card mx-3 space-y-2 text-center text-muted lg:mx-0">
+          <p>{t('sportsbook.list.empty')}</p>
+          {cursor !== undefined ? (
+            <Link href={listHref(path, tab)} prefetch={false} className="btn btn-outline">
+              {t('sportsbook.list.firstPage')}
+            </Link>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <MatchList events={events} />
+          <Pager
+            firstHref={cursor === undefined ? null : listHref(path, tab)}
+            nextHref={page.nextCursor === null ? null : listHref(path, tab, page.nextCursor)}
+          />
+        </>
+      )}
     </>
+  );
+}
+
+/** The featured-match poster: league, both teams, kick-off and the main market. */
+async function Featured({ event }: { event: EventSummary }) {
+  const [t, locale] = await Promise.all([getT(), getLocale()]);
+  const day = relativeDay(event.startTime);
+  const live = event.status === 'live';
+  const team = (side: EventSummary['home']) => (
+    <span className="flex min-w-0 flex-col items-center gap-1.5">
+      <span aria-hidden="true" className="crest h-12 w-12 text-sm">
+        {monogram(side.shortName)}
+      </span>
+      <span className="w-full truncate font-bold">{localName(side.name, locale)}</span>
+    </span>
+  );
+  return (
+    <section aria-labelledby="featured-title" className="poster p-4">
+      <p className="flex items-center gap-2 text-xxs">
+        <span
+          id="featured-title"
+          className="flex-none rounded-full bg-accent px-2 py-0.5 font-extrabold tracking-wider text-accent-ink uppercase"
+        >
+          ★ {t('sportsbook.list.featured')}
+        </span>
+        <span className="truncate font-semibold text-white/75">
+          {localName(event.competition.category, locale)} ·{' '}
+          {localName(event.competition.name, locale)}
+        </span>
+      </p>
+      <Link
+        href={routes.event(event.id)}
+        prefetch={false}
+        className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-center"
+      >
+        {team(event.home)}
+        {live ? (
+          <span className="px-1">
+            <span className="block text-2xl leading-none font-black whitespace-nowrap tabular-nums">
+              <LiveScore eventId={event.id} side="home" initial={event.score?.home ?? 0} />
+              <span className="px-1 text-white/50">:</span>
+              <LiveScore eventId={event.id} side="away" initial={event.score?.away ?? 0} />
+            </span>
+            <LiveClock
+              eventId={event.id}
+              sport={event.sport}
+              status={event.status}
+              minute={event.liveMinute}
+              period={event.period}
+              className="mt-1 inline-block rounded-full bg-white px-2 text-xxs font-bold text-[#0a100e]"
+            />
+          </span>
+        ) : (
+          <span className="px-1">
+            <span className="block text-2xl leading-none font-black tabular-nums">
+              {formatTime(event.startTime, locale)}
+            </span>
+            <span className="text-xxs font-semibold text-white/70">
+              {day === 'today'
+                ? t('sportsbook.tabs.today')
+                : day === 'tomorrow'
+                  ? t('sportsbook.list.tomorrow')
+                  : formatDayMonth(event.startTime)}
+            </span>
+          </span>
+        )}
+        {team(event.away)}
+      </Link>
+      {event.mainMarket !== null ? (
+        <div className="mt-3 flex">
+          <MarketOdds event={eventRef(event)} market={oddsMarket(event.mainMarket)} layout="row" />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/** Two promo cards: the jackpot and the multi bonus (both explained on the jackpot page). */
+async function Promos() {
+  const t = await getT();
+  const card = (tone: string, title: string, text: string) => (
+    <Link
+      href={routes.jackpot}
+      prefetch={false}
+      className={`poster ${tone} flex min-h-24 flex-col justify-between gap-2 p-3`}
+    >
+      <span className="text-xxs font-extrabold tracking-wider text-accent uppercase">
+        {title} ›
+      </span>
+      <span className="text-[0.8125rem] leading-snug font-semibold text-white/90">{text}</span>
+    </Link>
+  );
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+      {card('poster-gold', t('account.jackpot.title'), t('account.jackpot.promo.jackpot'))}
+      {card('', t('account.jackpot.promo.title'), t('account.jackpot.promo.text'))}
+    </div>
   );
 }
 
@@ -144,16 +266,25 @@ async function Leagues({ sport }: { sport: Sport }) {
     }))
     .filter((category) => category.competitions.length > 0);
   if (categories.length === 0) {
-    return <p className="card m-3 text-center text-muted">{t('sportsbook.leagues.empty')}</p>;
+    return (
+      <p className="card mx-3 text-center text-muted lg:mx-0">{t('sportsbook.leagues.empty')}</p>
+    );
   }
   return (
-    <div className="space-y-2 py-2">
+    <div className="space-y-3 px-3 lg:px-0">
       {categories.map((category) => (
-        <section key={category.category.slug} aria-labelledby={`cat-${category.category.slug}`}>
+        <section
+          key={category.category.slug}
+          aria-labelledby={`cat-${category.category.slug}`}
+          className="panel"
+        >
           <h2
             id={`cat-${category.category.slug}`}
-            className="px-3 py-1 text-xxs font-bold text-muted uppercase"
+            className="flex items-center gap-2 border-b border-line bg-raised/50 px-3 py-2 text-xs font-bold"
           >
+            <span aria-hidden="true" className="tag">
+              {monogram(category.category.name.en)}
+            </span>
             {localName(category.category.name, locale)}
           </h2>
           <ul>

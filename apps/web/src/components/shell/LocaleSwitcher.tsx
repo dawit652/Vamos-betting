@@ -64,7 +64,7 @@ export function LocaleToggle() {
     <button
       type="button"
       lang={other}
-      className="rounded border border-white/40 px-1.5 py-1 text-xs font-bold"
+      className="flex h-8 min-w-8 flex-none items-center justify-center rounded-full border border-white/20 px-2 text-xs font-bold text-chrome-ink"
       aria-label={t('common.language.switchTo', { language: LOCALE_NAMES[other] })}
       onClick={() => choose(other)}
     >

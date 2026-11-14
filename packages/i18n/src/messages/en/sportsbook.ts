@@ -20,6 +20,8 @@ export const sportsbook = {
     nextPage: 'Next page',
     firstPage: 'Back to the start',
     gameId: 'ID {id}',
+    tomorrow: 'Tomorrow',
+    featured: 'Featured',
   },
   match: {
     live: 'LIVE',
@@ -61,6 +63,14 @@ export const sportsbook = {
     count: '{count} markets',
     oddsLabel: '{selection}, {market}, {event}: odds {odds}',
     oddsLabelSuspended: '{selection}, {market}, {event}: suspended',
+    filter: {
+      label: 'Market type',
+      all: 'All',
+      main: 'Main',
+      totals: 'Totals',
+      halves: 'Halves',
+      other: 'More',
+    },
   },
   live: {
     title: 'Live',
@@ -70,6 +80,7 @@ export const sportsbook = {
     title: 'Leagues',
     empty: 'No leagues with matches right now.',
     matches: '{count} matches',
+    top: 'Top leagues',
   },
   competition: {
     live: 'Live now',

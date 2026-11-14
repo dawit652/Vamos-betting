@@ -114,6 +114,15 @@ export function shortLabel(code: string): string {
   return code.length <= 3 ? code.toUpperCase() : code;
 }
 
+/**
+ * The selection code shown before its name on the event page ("1", "X", "1X"),
+ * or null when the code says nothing more than the name ("0-0", "over", "yes").
+ */
+export function codePrefix(code: string, name: string): string | null {
+  if (code.length === 0 || code.length > 2) return null;
+  return code.toUpperCase() === name.trim().toUpperCase() ? null : code.toUpperCase();
+}
+
 export type MatchClock =
   | { kind: 'minute'; minute: number }
   | { kind: 'halfTime' }
@@ -164,4 +173,73 @@ export function periodMessageKey(period: string): MessageKey | null {
 /** Live-stream filter ids: unique, at most the API's 50. */
 export function streamEventIds(ids: readonly string[], max = 50): string[] {
   return [...new Set(ids)].slice(0, max);
+}
+
+export interface CompetitionGroup<E> {
+  /** Competition slug: the group's key. */
+  slug: string;
+  competition: EventSummary['competition'];
+  events: E[];
+}
+
+/**
+ * Groups a list page's events by competition for the league cards. Groups come in
+ * the order their first event appears, and events keep the API's order inside a
+ * group, so the earliest kick-off still leads the page.
+ */
+export function groupByCompetition<E extends Pick<EventSummary, 'competition'>>(
+  events: readonly E[],
+): CompetitionGroup<E>[] {
+  const groups = new Map<string, CompetitionGroup<E>>();
+  for (const event of events) {
+    const { slug } = event.competition;
+    let group = groups.get(slug);
+    if (group === undefined) {
+      group = { slug, competition: event.competition, events: [] };
+      groups.set(slug, group);
+    }
+    group.events.push(event);
+  }
+  return [...groups.values()];
+}
+
+/** Filter chips of the event page, in display order (`all` is implicit). */
+export const MARKET_CATEGORIES = ['main', 'totals', 'halves', 'other'] as const;
+export type MarketCategory = (typeof MARKET_CATEGORIES)[number];
+
+const MAIN_TYPES: readonly string[] = ['1x2', 'ml', 'winner', 'dc', 'dnb'];
+const TOTAL_TYPES: readonly string[] = ['ou', 'total', 'btts', 'cs'];
+
+/** The filter chip a market type belongs to: result, totals/scores, half or period, or the rest. */
+export function marketCategory(type: string): MarketCategory {
+  if (/^(ht|h1|h2|1h|2h|q[1-4]|s[1-5])_/.test(type)) return 'halves';
+  if (MAIN_TYPES.includes(type)) return 'main';
+  if (TOTAL_TYPES.includes(type)) return 'totals';
+  return 'other';
+}
+
+/** The categories present among `groups`, in display order. */
+export function marketCategories(groups: readonly Pick<MarketGroup, 'type'>[]): MarketCategory[] {
+  const present = new Set(groups.map((group) => marketCategory(group.type)));
+  return MARKET_CATEGORIES.filter((category) => present.has(category));
+}
+
+/**
+ * Up to three letters standing in for a crest or a flag: the short name when it
+ * is already an abbreviation ("PSG"), else the initials of the words ("Man Utd"
+ * → "MU") or the first letters of a single word ("Liverpool" → "LIV").
+ */
+export function monogram(name: string): string {
+  const words = name
+    .trim()
+    .split(/[\s.\-/]+/)
+    .filter((word) => word !== '');
+  if (words.length === 0) return '?';
+  const [first] = words;
+  if (words.length === 1 && first !== undefined) return first.slice(0, 3).toUpperCase();
+  return words
+    .slice(0, 3)
+    .map((word) => word.charAt(0))
+    .join('')
+    .toUpperCase();
 }

@@ -66,3 +66,17 @@ export function formatDayMonth(iso: string): string {
   const month = parts.find((p) => p.type === 'month')?.value ?? '';
   return `${day}/${month}`;
 }
+
+/** Calendar day in East Africa Time as a number of days since the epoch. */
+function eatDay(date: Date): number {
+  // EAT is UTC+3 all year (no daylight saving).
+  return Math.floor((date.getTime() + 3 * 60 * 60 * 1000) / 86_400_000);
+}
+
+/** Whether a kick-off is today or tomorrow in East Africa Time; null for any other day. */
+export function relativeDay(iso: string, now: Date = new Date()): 'today' | 'tomorrow' | null {
+  const start = new Date(iso);
+  if (Number.isNaN(start.getTime())) return null;
+  const days = eatDay(start) - eatDay(now);
+  return days === 0 ? 'today' : days === 1 ? 'tomorrow' : null;
+}

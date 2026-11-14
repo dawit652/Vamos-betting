@@ -1,6 +1,6 @@
 /**
  * Cookie names shared with the API (apps/api/src/plugins/session.ts) and the
- * locale cookie the web app owns.
+ * locale and theme cookies the web app owns.
  */
 export const SESSION_COOKIE = 'vamos_session'; // httpOnly, never readable from scripts
 export const CSRF_COOKIE = 'vamos_csrf'; // readable; echoed in the x-csrf-token header
@@ -27,4 +27,15 @@ export function readCookie(cookieHeader: string, name: string): string | null {
 /** Browser only: reads a cookie of the current document. */
 export function readBrowserCookie(name: string): string | null {
   return typeof document === 'undefined' ? null : readCookie(document.cookie, name);
+}
+
+/** The colour theme the visitor chose (the web app owns it); dark when absent. */
+export const THEME_COOKIE = 'vamos_theme';
+export const THEMES = ['dark', 'light'] as const;
+export type Theme = (typeof THEMES)[number];
+export const DEFAULT_THEME: Theme = 'dark';
+
+/** The theme of a cookie value; anything unknown is the default. */
+export function parseTheme(value: string | null | undefined): Theme {
+  return value === 'light' ? 'light' : DEFAULT_THEME;
 }

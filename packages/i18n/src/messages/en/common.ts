@@ -34,6 +34,7 @@ export const common = {
     register: 'Register',
     balance: 'Balance',
     balanceLabel: 'Balance: {amount}',
+    deposit: 'Deposit',
   },
   sports: {
     football: 'Football',
@@ -58,6 +59,10 @@ export const common = {
     button: 'Betslip',
     count: '{count} selections',
     limitReached: 'A betslip can hold at most {max} selections.',
+  },
+  theme: {
+    toLight: 'Switch to the light theme',
+    toDark: 'Switch to the dark theme',
   },
   language: {
     label: 'Language',

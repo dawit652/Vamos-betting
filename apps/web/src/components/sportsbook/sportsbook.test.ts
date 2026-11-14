@@ -1,11 +1,16 @@
 import type { EventSummary, MarketView } from '@vamos/contracts';
 import { describe, expect, it } from 'vitest';
 import {
+  codePrefix,
   eventRef,
+  groupByCompetition,
   groupMarkets,
   isBettable,
   isListedMarket,
+  marketCategories,
+  marketCategory,
   matchClock,
+  monogram,
   periodMessageKey,
   shortLabel,
   slipLeg,
@@ -270,5 +275,79 @@ describe('live stream frames', () => {
     store.dropUpTo(store.mark());
     store.flush();
     expect(calls).toBe(2); // nothing dropped, nobody notified
+  });
+});
+
+describe('league groups', () => {
+  const inLeague = (id: string, slug: string): EventSummary => ({
+    ...event,
+    id,
+    competition: { slug, name: { en: slug }, category: { en: 'England' } },
+  });
+
+  it('groups by competition in order of first appearance, keeping the list order inside', () => {
+    const groups = groupByCompetition([
+      inLeague('a', 'epl'),
+      inLeague('b', 'laliga'),
+      inLeague('c', 'epl'),
+      inLeague('d', 'serie-a'),
+      inLeague('e', 'laliga'),
+    ]);
+    expect(groups.map((g) => g.slug)).toEqual(['epl', 'laliga', 'serie-a']);
+    expect(groups.map((g) => g.events.map((e) => e.id))).toEqual([['a', 'c'], ['b', 'e'], ['d']]);
+    expect(groups[0]?.competition.name.en).toBe('epl');
+  });
+
+  it('gives no groups for an empty list', () => {
+    expect(groupByCompetition([])).toEqual([]);
+  });
+});
+
+describe('market filter', () => {
+  it('sorts market types into the filter chips', () => {
+    expect(marketCategory('1x2')).toBe('main');
+    expect(marketCategory('ml')).toBe('main');
+    expect(marketCategory('winner')).toBe('main');
+    expect(marketCategory('dc')).toBe('main');
+    expect(marketCategory('dnb')).toBe('main');
+    expect(marketCategory('ou')).toBe('totals');
+    expect(marketCategory('total')).toBe('totals');
+    expect(marketCategory('btts')).toBe('totals');
+    expect(marketCategory('cs')).toBe('totals');
+    expect(marketCategory('ht_1x2')).toBe('halves');
+    expect(marketCategory('q1_ml')).toBe('halves');
+    expect(marketCategory('something_new')).toBe('other');
+  });
+
+  it('lists only the categories that have markets, in display order', () => {
+    expect(marketCategories([{ type: 'ht_1x2' }, { type: 'ou' }, { type: '1x2' }])).toEqual([
+      'main',
+      'totals',
+      'halves',
+    ]);
+    expect(marketCategories([{ type: 'winner' }])).toEqual(['main']);
+    expect(marketCategories([])).toEqual([]);
+  });
+
+  it('prefixes a selection with its code only when the code adds something', () => {
+    expect(codePrefix('1', 'Home FC')).toBe('1');
+    expect(codePrefix('x', 'Draw')).toBe('X');
+    expect(codePrefix('1X', 'Home FC or Draw')).toBe('1X');
+    expect(codePrefix('0-0', '0-0')).toBeNull();
+    expect(codePrefix('over', 'Over 2.5')).toBeNull();
+    expect(codePrefix('no', 'No')).toBeNull();
+    expect(codePrefix('', 'Anything')).toBeNull();
+  });
+});
+
+describe('monograms', () => {
+  it('takes initials of several words and the start of a single one', () => {
+    expect(monogram('Man Utd')).toBe('MU');
+    expect(monogram('Liverpool')).toBe('LIV');
+    expect(monogram('PSG')).toBe('PSG');
+    expect(monogram('International clubs')).toBe('IC');
+    expect(monogram('T. Paul')).toBe('TP');
+    expect(monogram('Real Sociedad de Futbol SAD')).toBe('RSD');
+    expect(monogram('  ')).toBe('?');
   });
 });
