@@ -5,7 +5,14 @@ import { cache } from 'react';
 import { LiveProvider } from '@/components/sportsbook/LiveProvider';
 import { MatchList } from '@/components/sportsbook/MatchList';
 import { Pager } from '@/components/sportsbook/SportHome';
-import { listHref, parseCursor } from '@/components/sportsbook/tabs';
+import { ListControls } from '@/components/sportsbook/ListControls';
+import {
+  hasRowMarkets,
+  listHref,
+  parseCursor,
+  parseMarket,
+  type RowMarket,
+} from '@/components/sportsbook/tabs';
 import { monogram, streamEventIds } from '@/components/sportsbook/events';
 import { SportsbookFrame } from '@/components/sportsbook/SportsbookFrame';
 import { getLocale, getT } from '@/i18n/server';
@@ -39,7 +46,10 @@ export async function generateMetadata(
   return found === null ? {} : { title: localName(found.competition.name, locale) };
 }
 
-/** A competition: its live matches, then upcoming ones (paged with `?cursor=`). */
+/**
+ * A competition: its live matches, then upcoming ones (paged with `?cursor=`);
+ * football rows can show double chance (`?market=dc`).
+ */
 export default async function CompetitionPage(props: PageProps<'/sport/[sport]/[competition]'>) {
   const [found, searchParams, t, locale] = await Promise.all([
     load(props),
@@ -50,12 +60,16 @@ export default async function CompetitionPage(props: PageProps<'/sport/[sport]/[
   if (found === null) notFound();
   const { sport, competition, category } = found;
   const cursor = parseCursor(searchParams.cursor);
-  const base = { sport, competition: competition.slug, limit: PAGE_SIZE };
+  const market = parseMarket(searchParams.market, sport);
+  const base = { sport, competition: competition.slug, market, limit: PAGE_SIZE };
   const [live, upcoming] = await Promise.all([
     cursor === undefined ? getEvents({ ...base, filter: 'live' }) : null,
     getEvents({ ...base, filter: 'upcoming', ...(cursor === undefined ? {} : { cursor }) }),
   ]);
   const path = routes.competition(sport, competition.slug);
+  // The list tabs' query helper, on the competition's own path ("highlights" adds no tab).
+  const href = (options: { cursor?: string; market?: RowMarket }) =>
+    listHref(path, 'highlights', { market, ...options });
   const liveEvents = live?.items ?? [];
 
   const heading = (id: string, text: string, tone: string) => (
@@ -87,6 +101,13 @@ export default async function CompetitionPage(props: PageProps<'/sport/[sport]/[
           ‹ {t('sportsbook.competition.allLeagues')}
         </Link>
       </header>
+      {hasRowMarkets(sport) ? (
+        <div className="mt-3">
+          <ListControls
+            market={{ current: market, href: (next: RowMarket) => href({ market: next }) }}
+          />
+        </div>
+      ) : null}
       {liveEvents.length > 0 ? (
         <section aria-labelledby="competition-live">
           {heading('competition-live', t('sportsbook.competition.live'), 'text-live')}
@@ -103,12 +124,8 @@ export default async function CompetitionPage(props: PageProps<'/sport/[sport]/[
           <MatchList events={upcoming.items} grouped={false} />
         )}
         <Pager
-          firstHref={cursor === undefined ? null : path}
-          nextHref={
-            upcoming.nextCursor === null
-              ? null
-              : `${path}?cursor=${encodeURIComponent(upcoming.nextCursor)}`
-          }
+          firstHref={cursor === undefined ? null : href({})}
+          nextHref={upcoming.nextCursor === null ? null : href({ cursor: upcoming.nextCursor })}
         />
       </section>
     </SportsbookFrame>

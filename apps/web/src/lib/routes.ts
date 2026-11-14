@@ -25,6 +25,7 @@ export const routes = {
   competition: (sport: Sport, slug: string): string =>
     `/sport/${sport}/${encodeURIComponent(slug)}`,
   event: (eventId: string): string => `/event/${encodeURIComponent(eventId)}`,
+  search: '/search',
   myBets: '/my-bets',
   jackpot: '/jackpot',
   account: '/account',

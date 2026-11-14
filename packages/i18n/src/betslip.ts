@@ -20,13 +20,29 @@ export const SHARED_BETSLIP_KEYS = ['errors', 'insufficientFunds', 'totalOdds'] 
 type SharedBetslipKey = (typeof SHARED_BETSLIP_KEYS)[number];
 export type SharedBetslipMessages = Pick<BetslipMessages, SharedBetslipKey>;
 
-/** The `sportsbook` namespace without the drawer-only betslip text. */
-export function withoutDrawerText(
-  sportsbook: Messages['sportsbook'],
-): Omit<Messages['sportsbook'], 'betslip'> & { betslip: SharedBetslipMessages } {
+/**
+ * `sportsbook` sections that only server components render (the list controls
+ * and the search page): they are never sent to the browser as messages.
+ */
+export const SERVER_ONLY_SPORTSBOOK = ['controls', 'search'] as const;
+
+type ServerOnlySection = (typeof SERVER_ONLY_SPORTSBOOK)[number];
+
+/**
+ * The part of the `sportsbook` namespace every page sends to the browser:
+ * without the drawer-only betslip text and without the server-only sections.
+ */
+export function withoutDrawerText(sportsbook: Messages['sportsbook']): Omit<
+  Messages['sportsbook'],
+  'betslip' | ServerOnlySection
+> & {
+  betslip: SharedBetslipMessages;
+} {
   const betslip = {} as Record<SharedBetslipKey, unknown>;
   for (const key of SHARED_BETSLIP_KEYS) betslip[key] = sportsbook.betslip[key];
-  return { ...sportsbook, betslip: betslip as SharedBetslipMessages };
+  const page: Partial<Messages['sportsbook']> = { ...sportsbook };
+  for (const section of SERVER_ONLY_SPORTSBOOK) delete page[section];
+  return { ...(page as Messages['sportsbook']), betslip: betslip as SharedBetslipMessages };
 }
 
 /** Every `sportsbook.betslip` message of one locale, from a lazily loaded chunk. */

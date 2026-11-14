@@ -17,7 +17,15 @@ import {
   streamEventIds,
 } from './events';
 import { LiveStore, parseLiveFrame } from './live-store';
-import { DEFAULT_TAB, listHref, parseCursor, parseTab } from './tabs';
+import {
+  chipDays,
+  DEFAULT_TAB,
+  listHref,
+  parseCursor,
+  parseDay,
+  parseMarket,
+  parseTab,
+} from './tabs';
 
 const market = (over: Partial<MarketView> = {}): MarketView => ({
   id: 'm1',
@@ -160,10 +168,45 @@ describe('list tabs', () => {
   it('builds list links', () => {
     expect(listHref('/', 'highlights')).toBe('/');
     expect(listHref('/', 'today')).toBe('/?tab=today');
-    expect(listHref('/sport/tennis', 'upcoming', 'abc')).toBe(
+    expect(listHref('/sport/tennis', 'upcoming', { cursor: 'abc' })).toBe(
       '/sport/tennis?tab=upcoming&cursor=abc',
     );
-    expect(listHref('/', 'highlights', 'abc')).toBe('/?cursor=abc');
+    expect(listHref('/', 'highlights', { cursor: 'abc' })).toBe('/?cursor=abc');
+    expect(listHref('/', 'today', { day: '2026-11-15', market: 'dc', cursor: 'abc' })).toBe(
+      '/?tab=today&day=2026-11-15&market=dc&cursor=abc',
+    );
+    expect(listHref('/', 'highlights', { market: 'main' })).toBe('/');
+    expect(listHref('/', 'highlights', { market: 'dc' })).toBe('/?market=dc');
+  });
+
+  it('offers double chance rows for football only', () => {
+    expect(parseMarket('dc', 'football')).toBe('dc');
+    expect(parseMarket(['dc', 'main'], 'football')).toBe('dc');
+    expect(parseMarket('dc', 'tennis')).toBe('main');
+    expect(parseMarket('ou', 'football')).toBe('main');
+    expect(parseMarket(undefined, 'football')).toBe('main');
+  });
+
+  it('lists the day chips by East Africa date and accepts only those days', () => {
+    // 22:30 UTC on 14 Nov is already 15 Nov in Addis Ababa.
+    const now = new Date('2026-11-14T22:30:00.000Z');
+    expect(chipDays(now)).toEqual([
+      '2026-11-15',
+      '2026-11-16',
+      '2026-11-17',
+      '2026-11-18',
+      '2026-11-19',
+      '2026-11-20',
+      '2026-11-21',
+    ]);
+    expect(parseDay('2026-11-16', now)).toBe('2026-11-16');
+    expect(parseDay('2026-11-21', now)).toBe('2026-11-21');
+    // Today is the tab itself; other dates are not offered.
+    expect(parseDay('2026-11-15', now)).toBeUndefined();
+    expect(parseDay('2026-11-14', now)).toBeUndefined();
+    expect(parseDay('2026-11-22', now)).toBeUndefined();
+    expect(parseDay('tomorrow', now)).toBeUndefined();
+    expect(parseDay(undefined, now)).toBeUndefined();
   });
 
   it('caps the live stream filter at 50 unique events', () => {

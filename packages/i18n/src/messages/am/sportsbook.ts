@@ -19,6 +19,21 @@ export const sportsbook: Messages['sportsbook'] = {
     tomorrow: 'ነገ',
     featured: 'ተመራጭ',
   },
+  controls: {
+    days: 'ቀን',
+    market: 'የሚታየው ዕድል',
+    main: '1X2',
+    dc: 'ድርብ ዕድል',
+    search: 'ፈልግ',
+  },
+  search: {
+    title: 'ጨዋታ ፈልግ',
+    label: 'ቡድን፣ ሊግ ወይም የጨዋታ መለያ',
+    submit: 'ፈልግ',
+    hint: 'የቡድን ወይም የሊግ ስም ቢያንስ 2 ፊደላት፣ ወይም የጨዋታ መለያ ያስገቡ።',
+    empty: 'ለ"{q}" በቀጥታ ያለ ወይም መጪ ጨዋታ አልተገኘም።',
+    results: 'የ"{q}" ጨዋታዎች',
+  },
   match: {
     live: 'ቀጥታ',
     minute: "{minute}'",

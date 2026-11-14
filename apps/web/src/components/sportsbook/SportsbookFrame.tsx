@@ -31,6 +31,7 @@ export async function SportsbookFrame({
   live = false,
   competition,
   leagueRail = false,
+  search = false,
   children,
 }: {
   sport: Sport;
@@ -39,6 +40,8 @@ export async function SportsbookFrame({
   /** Slug of the competition being viewed, highlighted in the sidebar. */
   competition?: string;
   leagueRail?: boolean;
+  /** The search page: the search link is the current one, no sport is. */
+  search?: boolean;
   children: ReactNode;
 }) {
   // The navigation is an extra: when its data fails the page itself still renders.
@@ -57,12 +60,23 @@ export async function SportsbookFrame({
     }))
     .filter((category) => category.competitions.length > 0);
   const sportHref = (s: Sport) => (live ? routes.live(s) : routes.sport(s));
+  const searchLabel = t('sportsbook.controls.search');
 
   return (
     <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_21rem] lg:items-start lg:gap-4 lg:px-4 lg:pt-4">
       <aside className={`no-scrollbar lg:space-y-3 lg:overflow-y-auto ${STICKY}`}>
         <nav aria-label={t('common.nav.sports')} className="rail">
           <h2 className="rail-title">{t('common.nav.sports')}</h2>
+          <Link
+            href={routes.search}
+            prefetch={false}
+            className="chip"
+            aria-label={searchLabel}
+            aria-current={search ? 'page' : undefined}
+          >
+            <SearchIcon />
+            <span className="rail-wide lg:min-w-0 lg:flex-1 lg:truncate">{searchLabel}</span>
+          </Link>
           {SPORTS.map((s) => {
             const liveCount = counts.get(s)?.liveCount ?? 0;
             const count = live ? liveCount : (counts.get(s)?.upcomingCount ?? 0);
@@ -71,7 +85,7 @@ export async function SportsbookFrame({
                 key={s}
                 href={sportHref(s)}
                 className="chip"
-                aria-current={s === sport ? 'page' : undefined}
+                aria-current={s === sport && !search ? 'page' : undefined}
               >
                 <span aria-hidden="true">{SPORT_ICONS[s]}</span>
                 <span className="lg:min-w-0 lg:flex-1 lg:truncate">{t(`common.sports.${s}`)}</span>
@@ -124,5 +138,24 @@ export async function SportsbookFrame({
         <BetslipDock />
       </aside>
     </div>
+  );
+}
+
+export function SearchIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+      className="flex-none"
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
   );
 }

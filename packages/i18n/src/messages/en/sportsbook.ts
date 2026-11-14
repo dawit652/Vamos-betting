@@ -24,6 +24,23 @@ export const sportsbook = {
     tomorrow: 'Tomorrow',
     featured: 'Featured',
   },
+  // Server-rendered only (SERVER_ONLY_SPORTSBOOK): not sent to the browser, never use from useT().
+  controls: {
+    days: 'Day',
+    market: 'Odds shown',
+    main: '1X2',
+    dc: 'Double chance',
+    search: 'Search',
+  },
+  // Server-rendered only, like `controls`.
+  search: {
+    title: 'Search matches',
+    label: 'Team, league or game ID',
+    submit: 'Search',
+    hint: 'Type at least 2 letters of a team or league, or a game ID.',
+    empty: 'No live or coming match found for "{q}".',
+    results: 'Matches for "{q}"',
+  },
   match: {
     live: 'LIVE',
     minute: "{minute}'",

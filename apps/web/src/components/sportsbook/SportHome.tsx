@@ -10,17 +10,36 @@ import { LiveClock, LiveScore } from './LiveMatch';
 import { MatchList } from './MatchList';
 import { MarketOdds } from './MarketOdds';
 import { SportsbookFrame } from './SportsbookFrame';
-import { LIST_TABS, listHref, parseCursor, parseTab, type ListTab } from './tabs';
+import { ListControls } from './ListControls';
+import {
+  hasRowMarkets,
+  LIST_TABS,
+  listHref,
+  parseCursor,
+  parseDay,
+  parseMarket,
+  parseTab,
+  type ListTab,
+  type RowMarket,
+} from './tabs';
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-/** Rows per page: each row costs about 0.5 KB gzip of HTML + RSC payload. */
+/** Rows per page: each row costs about 0.3 KB (brotli) of HTML + RSC payload. */
 const PAGE_SIZE = 20;
+/**
+ * The first Highlights page is the home page, which also carries the poster and
+ * the promo cards: four rows fewer keep its first load inside the weight budget.
+ * "Next page" continues from the 17th match.
+ */
+const HOME_PAGE_SIZE = 16;
 
 /**
  * A sport's home (`/` for football, `/sport/[sport]`): Highlights / Today /
  * Upcoming / Leagues tabs (`?tab=`), each rendered on the server. The first
  * page of Highlights opens with the featured-match poster and the promo cards.
+ * The Today tab has day chips (`?day=`, the next six days) and football rows
+ * can show double chance instead of 1X2 (`?market=dc`).
  */
 export async function SportHome({
   sport,
@@ -32,6 +51,8 @@ export async function SportHome({
   const t = await getT();
   const tab = parseTab(searchParams.tab);
   const cursor = parseCursor(searchParams.cursor);
+  const day = tab === 'today' ? parseDay(searchParams.day) : undefined;
+  const market = parseMarket(searchParams.market, sport);
   const path = routes.sport(sport);
   return (
     <SportsbookFrame sport={sport} leagueRail>
@@ -40,18 +61,27 @@ export async function SportHome({
       </h1>
       {tab === 'leagues' ? (
         <>
-          <ListTabs path={path} current={tab} />
+          <ListTabs path={path} current={tab} market={market} />
           <Leagues sport={sport} />
         </>
       ) : (
-        <EventsTab sport={sport} tab={tab} cursor={cursor} path={path} />
+        <EventsTab sport={sport} tab={tab} cursor={cursor} day={day} market={market} path={path} />
       )}
     </SportsbookFrame>
   );
 }
 
 /** Pill tabs; the active one is `aria-current="page"`. */
-async function ListTabs({ path, current }: { path: string; current: ListTab }) {
+async function ListTabs({
+  path,
+  current,
+  market,
+}: {
+  path: string;
+  current: ListTab;
+  /** Kept when changing tab. */
+  market: RowMarket;
+}) {
   const t = await getT();
   return (
     <nav
@@ -61,7 +91,7 @@ async function ListTabs({ path, current }: { path: string; current: ListTab }) {
       {LIST_TABS.map((tab) => (
         <Link
           key={tab}
-          href={listHref(path, tab)}
+          href={listHref(path, tab, { market })}
           prefetch={false}
           aria-current={tab === current ? 'page' : undefined}
           className={`flex-1 truncate rounded-full px-1 py-1.5 text-center ${
@@ -79,43 +109,63 @@ async function EventsTab({
   sport,
   tab,
   cursor,
+  day,
+  market,
   path,
 }: {
   sport: Sport;
   tab: Exclude<ListTab, 'leagues'>;
   cursor: string | undefined;
+  /** A later day of the Today tab. */
+  day: string | undefined;
+  market: RowMarket;
   path: string;
 }) {
-  const [t, page] = await Promise.all([
+  const firstHighlights = tab === 'highlights' && cursor === undefined;
+  const [t, page, top] = await Promise.all([
     getT(),
     getEvents({
       sport,
-      filter: tab,
-      limit: PAGE_SIZE,
+      ...(day === undefined ? { filter: tab } : { date: day }),
+      market,
+      limit: firstHighlights ? HOME_PAGE_SIZE : PAGE_SIZE,
       ...(cursor === undefined ? {} : { cursor }),
     }),
+    // The poster is an extra: without it the list still renders.
+    firstHighlights
+      ? getEvents({ sport, filter: 'top', limit: 1 }).catch(() => null)
+      : Promise.resolve(null),
   ]);
-  // The poster takes the first highlight that can be bet on; the list shows the rest.
-  const [first] = page.items;
-  const featured =
-    tab === 'highlights' && cursor === undefined && first?.mainMarket?.status === 'open'
-      ? first
-      : null;
-  const events = featured === null ? page.items : page.items.slice(1);
+  // The poster takes the soonest top match a trader marked, else the first highlight,
+  // when it can be bet on; the list shows the rest.
+  const candidate = top?.items[0] ?? (market === 'main' ? page.items[0] : undefined);
+  const featured = firstHighlights && candidate?.mainMarket?.status === 'open' ? candidate : null;
+  const events =
+    featured === null ? page.items : page.items.filter((event) => event.id !== featured.id);
+  const href = (options: { cursor?: string; day?: string | undefined; market?: RowMarket }) =>
+    listHref(path, tab, { day, market, ...options });
   return (
     <>
-      {tab === 'highlights' && cursor === undefined ? (
+      {firstHighlights ? (
         <div className="mx-3 mb-3 grid gap-3 lg:mx-0 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
           {featured !== null ? <Featured event={featured} /> : null}
           <Promos />
         </div>
       ) : null}
-      <ListTabs path={path} current={tab} />
+      <ListTabs path={path} current={tab} market={market} />
+      <ListControls
+        {...(tab === 'today'
+          ? { days: { current: day, href: (next: string | undefined) => href({ day: next }) } }
+          : {})}
+        {...(hasRowMarkets(sport)
+          ? { market: { current: market, href: (next: RowMarket) => href({ market: next }) } }
+          : {})}
+      />
       {page.items.length === 0 ? (
         <div className="card mx-3 space-y-2 text-center text-muted lg:mx-0">
           <p>{t('sportsbook.list.empty')}</p>
           {cursor !== undefined ? (
-            <Link href={listHref(path, tab)} prefetch={false} className="btn btn-outline">
+            <Link href={href({})} prefetch={false} className="btn btn-outline">
               {t('sportsbook.list.firstPage')}
             </Link>
           ) : null}
@@ -124,8 +174,8 @@ async function EventsTab({
         <>
           <MatchList events={events} />
           <Pager
-            firstHref={cursor === undefined ? null : listHref(path, tab)}
-            nextHref={page.nextCursor === null ? null : listHref(path, tab, page.nextCursor)}
+            firstHref={cursor === undefined ? null : href({})}
+            nextHref={page.nextCursor === null ? null : href({ cursor: page.nextCursor })}
           />
         </>
       )}

@@ -67,6 +67,15 @@ export function formatDayMonth(iso: string): string {
   return `${day}/${month}`;
 }
 
+/** A calendar date (`YYYY-MM-DD`) as short weekday and day, e.g. "Sat 15" (day chips). */
+export function formatWeekday(date: string, locale: Locale): string {
+  return new Intl.DateTimeFormat(INTL_LOCALE[locale], {
+    weekday: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${date}T12:00:00.000Z`));
+}
+
 /** Calendar day in East Africa Time as a number of days since the epoch. */
 function eatDay(date: Date): number {
   // EAT is UTC+3 all year (no daylight saving).

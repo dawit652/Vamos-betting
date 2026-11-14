@@ -27,6 +27,11 @@ export function getEvents(query: Partial<EventListQuery> = {}): Promise<EventLis
   return serverGet<EventListResponse>('/events', { query });
 }
 
+/** Live and coming matches by team, competition or Game ID (`q` of 2 to 60 characters). */
+export function searchEvents(q: string): Promise<EventListResponse> {
+  return serverGet<EventListResponse>('/events/search', { query: { q } });
+}
+
 export function getEvent(eventId: string): Promise<EventDetail | null> {
   return serverGetOrNull<EventDetail>(`/events/${encodeURIComponent(eventId)}`);
 }

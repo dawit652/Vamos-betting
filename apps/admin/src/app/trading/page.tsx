@@ -70,6 +70,7 @@ export default function TradingPage() {
                 <td>
                   <Badge value={e.status} />
                   {!e.bettingOpen && <Badge value="betting off" tone="warn" />}
+                  {e.topMatch && <Badge value="top match" />}
                 </td>
                 <td className="num">
                   {e.markets.total} ({e.markets.open}/{e.markets.suspended}/{e.markets.voided})
