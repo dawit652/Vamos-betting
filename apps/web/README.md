@@ -31,6 +31,12 @@ pnpm lint                           # repo ESLint covers apps/web
 | `src/lib/{format,localized,routes,cookies}.ts`                   | Formatting, catalogue names, route map, cookie names                              |
 | `public/`                                                        | `manifest.webmanifest`, `icons/`, `sw.js`, `offline.html`                         |
 
+The DEMO banner and the header's DEMO badge follow the platform's operating mode, which the web app
+reads from the API (`getOperatingMode()` in `src/lib/api/mode.ts`, GET /health, kept for a minute):
+they show in demo mode (play money) and are gone in licensed mode. The web app has no setting of its
+own for this, so the notice cannot be switched off while the API runs in demo mode. Before a licensed
+launch the demo wording inside pages (terms, KYC and payment notices) needs its real-money text.
+
 ## Routes
 
 All paths come from `routes` in `src/lib/routes.ts`; link with it instead of writing strings.

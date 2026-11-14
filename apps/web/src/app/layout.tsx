@@ -11,13 +11,24 @@ import type { Messages } from '@vamos/i18n';
 import { pickNamespaces } from '@/i18n/ClientMessages';
 import type { ClientMessages as ClientMessagesSubset } from '@/i18n/client';
 import { getLocale, getMessages } from '@/i18n/server';
+import { isDemoMode } from '@/lib/api/mode';
 import { CSRF_COOKIE, parseTheme, THEME_COLORS, THEME_COOKIE } from '@/lib/cookies';
 import { AppProviders } from '@/providers/AppProviders';
 import './globals.css';
 
-export const metadata: Metadata = {
+const DESCRIPTION = 'Vamos – simple, fast sports betting for Ethiopia';
+
+/** The description says "play money" for as long as the platform runs in demo mode. */
+export async function generateMetadata(): Promise<Metadata> {
+  const demo = await isDemoMode();
+  return {
+    ...METADATA,
+    description: demo ? `${DESCRIPTION} (demo, play money only)` : DESCRIPTION,
+  };
+}
+
+const METADATA: Metadata = {
   title: { default: 'Vamos', template: '%s · Vamos' },
-  description: 'Vamos – simple, fast sports betting for Ethiopia (demo, play money only)',
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [
@@ -56,7 +67,7 @@ function rootClientMessages(messages: Messages): ClientMessagesSubset {
 }
 
 /**
- * App shell: sticky header + DEMO banner, the page, footer and the betslip bar.
+ * App shell: sticky header + DEMO banner (demo mode only), the page, footer and the betslip bar.
  * The header holds the main navigation: its links on wide screens, the fixed
  * bottom bar on phones.
  * Pages render inside <main>; they must not add their own shell. Sportsbook pages
