@@ -35,6 +35,9 @@ export const THEMES = ['dark', 'light'] as const;
 export type Theme = (typeof THEMES)[number];
 export const DEFAULT_THEME: Theme = 'dark';
 
+/** Browser chrome colour of each theme (`--color-chrome` in globals.css). */
+export const THEME_COLORS: Record<Theme, string> = { dark: '#0d1613', light: '#0a5c36' };
+
 /** The theme of a cookie value; anything unknown is the default. */
 export function parseTheme(value: string | null | undefined): Theme {
   return value === 'light' ? 'light' : DEFAULT_THEME;

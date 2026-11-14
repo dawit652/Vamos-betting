@@ -57,8 +57,6 @@ export async function SportsbookFrame({
     }))
     .filter((category) => category.competitions.length > 0);
   const sportHref = (s: Sport) => (live ? routes.live(s) : routes.sport(s));
-  const sportCount = (s: Sport) =>
-    (live ? counts.get(s)?.liveCount : counts.get(s)?.upcomingCount) ?? 0;
 
   return (
     <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_21rem] lg:items-start lg:gap-4 lg:px-4 lg:pt-4">

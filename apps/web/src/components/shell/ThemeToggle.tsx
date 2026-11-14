@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useT } from '@/i18n/client';
-import { LOCALE_COOKIE_MAX_AGE, THEME_COOKIE, type Theme } from '@/lib/cookies';
+import { LOCALE_COOKIE_MAX_AGE, THEME_COLORS, THEME_COOKIE, type Theme } from '@/lib/cookies';
 
 /**
  * Dark / light switch in the header. The choice is the `vamos_theme` cookie, which the
@@ -19,6 +19,9 @@ export function ThemeToggle({ initial }: { initial: Theme }) {
       aria-label={t(next === 'light' ? 'common.theme.toLight' : 'common.theme.toDark')}
       onClick={() => {
         document.documentElement.dataset.theme = next;
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute('content', THEME_COLORS[next]);
         document.cookie = `${THEME_COOKIE}=${next}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE}; samesite=lax`;
         setTheme(next);
       }}

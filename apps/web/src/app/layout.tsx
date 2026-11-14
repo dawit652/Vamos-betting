@@ -8,7 +8,7 @@ import { Footer } from '@/components/shell/Footer';
 import { Header } from '@/components/shell/Header';
 import { pickNamespaces } from '@/i18n/ClientMessages';
 import { getLocale, getMessages } from '@/i18n/server';
-import { CSRF_COOKIE, parseTheme, THEME_COOKIE } from '@/lib/cookies';
+import { CSRF_COOKIE, parseTheme, THEME_COLORS, THEME_COOKIE } from '@/lib/cookies';
 import { AppProviders } from '@/providers/AppProviders';
 import './globals.css';
 
@@ -27,12 +27,16 @@ export const metadata: Metadata = {
   formatDetection: { telephone: false },
 };
 
-export const viewport: Viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  viewportFit: 'cover',
-  themeColor: '#0d1613',
-};
+/** The browser bar takes the header colour of the visitor's theme. */
+export async function generateViewport(): Promise<Viewport> {
+  const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
+  return {
+    width: 'device-width',
+    initialScale: 1,
+    viewportFit: 'cover',
+    themeColor: THEME_COLORS[theme],
+  };
+}
 
 /** Message namespaces every client component can use; others need <ClientMessages>. */
 const ROOT_CLIENT_NAMESPACES = ['common', 'sportsbook'] as const;
