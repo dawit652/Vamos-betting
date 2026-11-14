@@ -108,6 +108,20 @@ so longer team names could tip it over. Ways to win it back, cheapest first:
       (about 1.5 KB)
 - [ ] Or raise the budget on purpose, with the reason written in `e2e/tests/budget.spec.ts`
 
+## Operating mode and the DEMO banner
+
+- [x] The DEMO banner, the header badge, the play-money line on the static pages and the payment
+      notice follow the API's mode (`GET /health`, `apps/web/src/lib/api/mode.ts`): hidden only when
+      the API reports `licensed`, shown in demo mode and whenever the mode cannot be read
+- [ ] **Open:** check on the deployed site that `/health` reports `"mode":"licensed"`; if it says
+      `demo`, the banner stays by design
+- [ ] **Open:** build and test the licensed path against a stub `/health` (not done yet: the API
+      refuses to start in licensed mode without a licence and real providers)
+- [ ] **Open:** the Help, Terms and Responsible gambling pages still say "Vamos is a demo, all money
+      is play money"; they need real licensed wording from the operator
+- [ ] **Open:** the back office hides its banner with the separate build setting
+      `NEXT_PUBLIC_OPERATING_MODE=licensed`
+
 ## Needs back-end work (not part of this redesign)
 
 - [ ] A second market per list row (double chance) so rows can switch 3 Way / Double Chance

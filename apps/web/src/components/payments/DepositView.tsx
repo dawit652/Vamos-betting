@@ -393,7 +393,7 @@ export function DepositPanel({ resumeId }: { resumeId: string | null }) {
   return (
     <div className="space-y-3">
       <div className="space-y-3 px-3">
-        <PaymentDemoNotice />
+        <PaymentDemoNotice state={state} />
         {state.status === 'loading' ? <Skeleton lines={4} /> : null}
         {state.status === 'error' ? (
           <div className="space-y-2">

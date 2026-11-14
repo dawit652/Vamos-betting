@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
 import { getT } from '@/i18n/server';
+import { isDemoMode } from '@/lib/api/mode';
 
 /**
  * Layout of the short static pages (help, terms, responsible gambling): server
- * only, no client JavaScript. Always ends with the 21+ and play-money notices.
+ * only, no client JavaScript. Always ends with the 21+ notice, and the play-money
+ * notice while the API runs in demo mode.
  */
 export async function StaticPage({
   title,
@@ -14,7 +16,7 @@ export async function StaticPage({
   intro: string;
   children: ReactNode;
 }) {
-  const t = await getT();
+  const [t, demo] = await Promise.all([getT(), isDemoMode()]);
   return (
     <article className="mx-auto max-w-2xl space-y-3 px-3 pt-3">
       <header className="space-y-1">
@@ -24,7 +26,7 @@ export async function StaticPage({
       {children}
       <aside className="card space-y-1 border-l-4 border-accent-strong text-xs font-semibold">
         <p>{t('common.rg.ageNotice')}</p>
-        <p>{t('common.demo.banner')}</p>
+        {demo ? <p>{t('common.demo.banner')}</p> : null}
       </aside>
     </article>
   );

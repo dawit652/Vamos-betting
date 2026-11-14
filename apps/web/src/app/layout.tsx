@@ -8,6 +8,7 @@ import { Footer } from '@/components/shell/Footer';
 import { Header } from '@/components/shell/Header';
 import { pickNamespaces } from '@/i18n/ClientMessages';
 import { getLocale, getMessages } from '@/i18n/server';
+import { isDemoMode } from '@/lib/api/mode';
 import { CSRF_COOKIE, parseTheme, THEME_COLORS, THEME_COOKIE } from '@/lib/cookies';
 import { AppProviders } from '@/providers/AppProviders';
 import './globals.css';
@@ -51,15 +52,21 @@ const ROOT_CLIENT_NAMESPACES = ['common', 'sportsbook'] as const;
  * The theme is the `vamos_theme` cookie, rendered as `<html data-theme>`.
  */
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const [locale, messages, cookieStore] = await Promise.all([
+  const [locale, messages, cookieStore, demo] = await Promise.all([
     getLocale(),
     getMessages(),
     cookies(),
+    isDemoMode(),
   ]);
   const theme = parseTheme(cookieStore.get(THEME_COOKIE)?.value);
   return (
     <html lang={locale} data-theme={theme}>
-      <body className="min-h-dvh pb-[calc(var(--spacing-bottom-nav)+env(safe-area-inset-bottom))] lg:pb-0">
+      <body
+        className={`min-h-dvh pb-[calc(var(--spacing-bottom-nav)+env(safe-area-inset-bottom))] lg:pb-0 ${
+          // Sticky columns start under the header alone when there is no DEMO banner.
+          demo ? '' : '[--spacing-chrome:var(--spacing-header)]'
+        }`}
+      >
         <AppProviders
           locale={locale}
           messages={pickNamespaces(messages, ROOT_CLIENT_NAMESPACES)}

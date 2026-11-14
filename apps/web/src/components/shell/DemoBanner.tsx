@@ -1,11 +1,14 @@
 import { getT } from '@/i18n/server';
+import { isDemoMode } from '@/lib/api/mode';
 
 /**
- * Permanent play-money notice. The platform runs in demo mode until an ELS
- * licence exists (see CLAUDE.md); never hide or remove this banner.
+ * Play-money notice on every page while the API runs in demo mode. It goes away
+ * only when the API reports licensed mode (getOperatingMode, which shows it
+ * whenever the mode is unknown). Never hide it any other way.
  */
 export async function DemoBanner() {
-  const t = await getT();
+  const [t, demo] = await Promise.all([getT(), isDemoMode()]);
+  if (!demo) return null;
   return (
     <p
       role="note"
