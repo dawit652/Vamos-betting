@@ -2,7 +2,7 @@ import { devices, expect, test, type Page } from '@playwright/test';
 import { demoTopUp, getWallet, myBets, soonestEvents } from '../support/api';
 import { ADMIN_URL, WEB_URL } from '../support/env';
 import { devInbox } from '../support/otp';
-import { ADULT_DATE_OF_BIRTH, randomPhone } from '../support/phone';
+import { randomPhone } from '../support/phone';
 import { loginInBrowser } from '../support/staff';
 import { registerAndVerify } from '../support/ui';
 
@@ -57,7 +57,7 @@ test('bet and balance by text message, an invalid command gets the help reply', 
 }) => {
   test.setTimeout(150_000);
   const phone = randomPhone();
-  await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+  await registerAndVerify(page, phone);
   await demoTopUp(page.request, TOP_UP);
 
   const [event] = await soonestEvents(page.request, 1, {
@@ -138,7 +138,7 @@ test('bet and balance by text message, an invalid command gets the help reply', 
 test('a bet completed through the USSD phone emulator', async ({ page }) => {
   test.setTimeout(150_000);
   const phone = randomPhone();
-  await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+  await registerAndVerify(page, phone);
   await demoTopUp(page.request, TOP_UP);
 
   const [event] = await soonestEvents(page.request, 1, {

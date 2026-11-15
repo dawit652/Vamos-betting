@@ -158,7 +158,8 @@ export function AccountOverview() {
           <Row label={t('account.overview.phone')}>{localPhone(me.phone)}</Row>
           <NameEditor me={me} onSaved={session.refresh} />
           <Row label={t('account.overview.dateOfBirth')}>
-            {formatBirthDate(me.dateOfBirth, locale)}
+            {/* Optional at registration: KYC fills in the verified date. */}
+            {me.dateOfBirth === null ? '–' : formatBirthDate(me.dateOfBirth, locale)}
           </Row>
           <Row label={t('account.overview.memberSince')}>{formatDate(me.createdAt, locale)}</Row>
           <Row label={t('account.overview.identity')}>

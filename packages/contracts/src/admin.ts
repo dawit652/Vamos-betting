@@ -488,7 +488,7 @@ export const PlayerDetailView = z.object({
   id: z.string(),
   phone: z.string(),
   fullName: z.string().nullable(),
-  dateOfBirth: z.string(),
+  dateOfBirth: z.string().nullable(),
   locale: z.string(),
   status: PlayerStatusSchema,
   phoneVerifiedAt: z.string().nullable(),
@@ -539,7 +539,7 @@ export const KycQueueItemView = StaffKycView.extend({
   userId: z.string(),
   phone: z.string(),
   fullName: z.string().nullable(),
-  dateOfBirth: z.string(),
+  dateOfBirth: z.string().nullable(),
   userStatus: PlayerStatusSchema,
 });
 export type KycQueueItemView = z.infer<typeof KycQueueItemView>;

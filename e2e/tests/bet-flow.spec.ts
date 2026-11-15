@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { getWallet, myBets, soonestEvents } from '../support/api';
 import { WEB_URL } from '../support/env';
 import { birr } from '../support/money';
-import { ADULT_DATE_OF_BIRTH, randomPhone } from '../support/phone';
+import { randomPhone } from '../support/phone';
 import { balanceChip, pick, registerAndVerify } from '../support/ui';
 
 /**
@@ -49,7 +49,7 @@ test('register, top up, place a 3-leg multi and see it settled', async ({ page }
   const phone = randomPhone();
 
   await test.step('register and verify with the OTP from the dev SMS inbox', async () => {
-    await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+    await registerAndVerify(page, phone);
   });
 
   await test.step('add ETB 1,000 of play money', async () => {

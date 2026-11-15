@@ -9,7 +9,6 @@ import { authApi } from '@/lib/api/account';
 import { IS_DEMO } from '@/lib/mode';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
-import { formatBirthDate } from './dates';
 import { formErrors, retryAfterSeconds } from './errors';
 import { PasswordInput, PasswordStrengthMeter, PhoneInput } from './inputs';
 import { accountPaths, afterSignUp, loginHref } from './paths';
@@ -18,7 +17,6 @@ import { Alert, Field, describedBy } from './ui';
 import {
   MIN_PASSWORD_LENGTH,
   hasErrors,
-  latestBirthDate,
   normalizePhone,
   validateRegister,
   type FieldErrors,
@@ -29,15 +27,12 @@ const ERRORS = {
   paths: {
     phone: ['phone', 'account.validation.phone'],
     password: ['password', 'account.validation.passwordShort'],
-    dateOfBirth: ['dateOfBirth', 'account.validation.dateOfBirth'],
     acceptTerms: ['acceptTerms', 'account.validation.terms'],
   },
   codes: {
     invalid_phone: { field: 'phone', key: 'account.validation.phone' },
     phone_taken: { field: 'phone', key: 'account.errors.phoneTaken' },
     weak_password: { field: 'password', key: 'account.validation.weakPassword' },
-    invalid_date_of_birth: { field: 'dateOfBirth', key: 'account.validation.dateOfBirth' },
-    underage: { field: 'dateOfBirth', key: 'account.validation.underage' },
   },
 } as const;
 
@@ -48,21 +43,12 @@ export function RegisterForm({ next }: { next: string }) {
   const session = useSession();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [fields, setFields] = useState<FieldErrors<RegisterField>>({});
   const [formError, setFormError] = useState<MessageKey | null>(null);
   const [busy, setBusy] = useState(false);
   // Seconds until the API sends another code (after a 429 otp_cooldown / otp_limit).
   const [cooldown, setCooldown] = useState(0);
-  // The date input's max (the latest birth date that is 21 today), set after mount
-  // so server and client render the same markup.
-  const [maxBirthDate, setMaxBirthDate] = useState<string | null>(null);
-
-  useEffect(() => {
-    setMaxBirthDate(latestBirthDate(new Date()));
-  }, []);
-
   useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setTimeout(() => setCooldown((s) => s - 1), 1000);
@@ -76,7 +62,7 @@ export function RegisterForm({ next }: { next: string }) {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || cooldown > 0) return;
-    const local = validateRegister({ phone, password, dateOfBirth, acceptTerms }, new Date());
+    const local = validateRegister({ phone, password, acceptTerms });
     setFields(local);
     setFormError(null);
     if (hasErrors(local)) return;
@@ -86,7 +72,6 @@ export function RegisterForm({ next }: { next: string }) {
       const response = await authApi.register({
         phone: normalized,
         password,
-        dateOfBirth,
         locale,
         acceptTerms: true,
       });
@@ -169,30 +154,6 @@ export function RegisterForm({ next }: { next: string }) {
           {...describedBy('reg-password', error('password'), true)}
         />
         <PasswordStrengthMeter password={password} />
-      </Field>
-      <Field
-        id="reg-dob"
-        label={t('account.fields.dateOfBirth')}
-        hint={
-          maxBirthDate
-            ? t('account.register.dobHint', { date: formatBirthDate(maxBirthDate, locale) })
-            : undefined
-        }
-        error={error('dateOfBirth')}
-      >
-        <input
-          id="reg-dob"
-          name="dateOfBirth"
-          type="date"
-          className="input"
-          autoComplete="bday"
-          min="1900-01-01"
-          max={maxBirthDate ?? undefined}
-          value={dateOfBirth}
-          onChange={(e) => setDateOfBirth(e.target.value)}
-          required
-          {...describedBy('reg-dob', error('dateOfBirth'), maxBirthDate !== null)}
-        />
       </Field>
       <Alert tone="info">{t('account.register.ageNotice')}</Alert>
       <div className="space-y-1">

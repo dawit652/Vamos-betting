@@ -35,7 +35,12 @@ export const LocaleSchema = z.enum(['am', 'en', 'om', 'ti']);
 export const RegisterRequest = z.object({
   phone: PhoneInput,
   password: Password,
-  dateOfBirth: DateOfBirth,
+  /**
+   * Optional: the web form no longer asks for it (the player confirms 21+ with
+   * `acceptTerms`, and KYC checks the age on the ID). When a client still sends
+   * one, it is validated and an underage date is refused as before.
+   */
+  dateOfBirth: DateOfBirth.optional(),
   fullName: z.string().trim().min(2).max(120).optional(),
   locale: LocaleSchema.default('am'),
   acceptTerms: z.literal(true, { error: 'you must accept the terms and confirm you are 21+' }),

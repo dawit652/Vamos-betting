@@ -81,7 +81,6 @@ export const account = {
     submit: 'Register',
     ageNotice:
       'Nahubet is for people aged 21 and over. We may check your age with your Fayda ID; under-21 accounts are closed.',
-    dobHint: 'You must be born on or before {date}.',
     acceptTerms: 'I am 21 or older and I accept the terms and conditions and the privacy notice.',
     readTerms: 'Read the terms',
     readPrivacy: 'Read the privacy notice',

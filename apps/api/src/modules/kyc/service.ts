@@ -251,6 +251,13 @@ export async function submitKyc(
             updatedAt: now,
           })
           .where(eq(users.id, userId));
+      } else if (user.dateOfBirth === null) {
+        // Registration asks for no date of birth: the one typed here becomes the declared date,
+        // which a staff review of a pending check falls back on when the registry gave none.
+        await tx
+          .update(users)
+          .set({ dateOfBirth: input.dateOfBirth, updatedAt: now })
+          .where(eq(users.id, userId));
       }
 
       const audit = {

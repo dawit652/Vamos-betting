@@ -90,23 +90,25 @@ export function latestBirthDate(now: Date, minAge: number = MIN_AGE): string {
   return isoDate(new Date(Date.UTC(year, month, day)));
 }
 
+/**
+ * Registration asks for no date of birth: the player confirms 21+ with the
+ * terms checkbox and KYC checks the age on the ID (the API still checks a date
+ * an older client sends).
+ */
 export interface RegisterInput {
   phone: string;
   password: string;
-  dateOfBirth: string;
   acceptTerms: boolean;
 }
 
 export type RegisterField = keyof RegisterInput;
 
-export function validateRegister(input: RegisterInput, now: Date): FieldErrors<RegisterField> {
+export function validateRegister(input: RegisterInput): FieldErrors<RegisterField> {
   const errors: FieldErrors<RegisterField> = {};
   const phone = phoneError(input.phone);
   if (phone) errors.phone = phone;
   const password = passwordError(input.password);
   if (password) errors.password = password;
-  const dob = dateOfBirthError(input.dateOfBirth, now);
-  if (dob) errors.dateOfBirth = dob;
   if (!input.acceptTerms) errors.acceptTerms = 'account.validation.terms';
   return errors;
 }

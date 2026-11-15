@@ -37,7 +37,8 @@ export const users = pgTable(
     passwordHash: text('password_hash').notNull(),
     fullName: text('full_name'),
     /** Gregorian ISO date (YYYY-MM-DD). */
-    dateOfBirth: date('date_of_birth', { mode: 'string' }).notNull(),
+    // Optional at registration (the player confirms 21+); KYC sets the verified date.
+    dateOfBirth: date('date_of_birth', { mode: 'string' }),
     locale: text('locale').notNull().default('am'),
     status: userStatus('status').notNull().default('pending_verification'),
     phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),

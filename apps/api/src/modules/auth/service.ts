@@ -175,13 +175,17 @@ export async function registerUser(
   const phone = requirePhone(input.phone);
   const now = deps.clock();
   const { minAge } = DEFAULT_RESPONSIBLE_GAMBLING;
-  if (parseIsoDate(input.dateOfBirth) === null) {
-    throw badRequest('invalid_date_of_birth', 'Enter a real date of birth (YYYY-MM-DD).');
-  }
-  if (!isOfAge(input.dateOfBirth, minAge, now)) {
-    throw unprocessable('underage', `You must be at least ${minAge} years old to use Nahubet.`, {
-      minAge,
-    });
+  // The date of birth is optional (the player confirms 21+ with acceptTerms and KYC checks
+  // the age on the ID); one that is sent is still checked, so an underage date is refused.
+  if (input.dateOfBirth !== undefined) {
+    if (parseIsoDate(input.dateOfBirth) === null) {
+      throw badRequest('invalid_date_of_birth', 'Enter a real date of birth (YYYY-MM-DD).');
+    }
+    if (!isOfAge(input.dateOfBirth, minAge, now)) {
+      throw unprocessable('underage', `You must be at least ${minAge} years old to use Nahubet.`, {
+        minAge,
+      });
+    }
   }
   assertPasswordAcceptable(input.password, phone);
 
@@ -201,7 +205,7 @@ export async function registerUser(
       .for('update');
     const details = {
       passwordHash,
-      dateOfBirth: input.dateOfBirth,
+      dateOfBirth: input.dateOfBirth ?? null,
       fullName: input.fullName ?? null,
       locale: input.locale,
       termsAcceptedAt: now,

@@ -54,7 +54,7 @@ test('deposit by exact-amount transfer, staff credit a third-party payment, save
   const phone = randomPhone();
 
   await test.step('register, verify and pass KYC', async () => {
-    await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+    await registerAndVerify(page, phone);
     await page.goto('/account/kyc');
     const fin = verifiableFayda();
     await page.locator('#kyc-id').fill(fin);

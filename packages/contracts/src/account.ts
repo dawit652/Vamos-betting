@@ -16,7 +16,8 @@ export const MeResponse = z.object({
   phone: z.string(),
   phoneMasked: z.string(),
   fullName: z.string().nullable(),
-  dateOfBirth: z.string(),
+  /** Null when the player registered without one (it is optional) and has not passed KYC yet. */
+  dateOfBirth: z.string().nullable(),
   locale: LocaleSchema,
   status: z.enum(['pending_verification', 'active', 'suspended', 'closed']),
   kyc: z.object({ status: KycStatusSchema, idNumberLast4: z.string().nullable() }),

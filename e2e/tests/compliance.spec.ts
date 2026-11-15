@@ -79,7 +79,7 @@ test('a deposit followed at once by a withdrawal is flagged; compliance reconcil
     expect(lowered.ok(), await lowered.text()).toBe(true);
 
     await test.step('the player registers, passes KYC and deposits ETB 1,000 on the simulated phone', async () => {
-      await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+      await registerAndVerify(page, phone);
       const me = (await (await page.request.get(`${API_URL}/me`)).json()) as MeResponse;
       userId = me.id;
 

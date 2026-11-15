@@ -128,7 +128,7 @@ test('KYC, deposit, wager, withdraw, approve and see it paid', async ({
 
   await test.step('register and verify the phone', async () => {
     const t0 = Date.now();
-    await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+    await registerAndVerify(page, phone);
     lap('register', t0);
   });
 
