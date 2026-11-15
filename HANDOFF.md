@@ -3,6 +3,25 @@
 Written at the end of a Claude Code session on 14 Nov 2026 so another session (or account) can continue.
 Read this first, then `docs/frontend-redesign-plan.md` (the full plan, with done and open items).
 
+## Deployed (15 Nov 2026, 05:00 server time)
+
+The **web app only** of `claude/happy-keller-redesign-v030` (`e56c80a`) runs on the server, deployed with
+`infra/scripts/deploy-web.sh` into the compose project `vamos`, built with `/opt/nahubet-new/infra/.env.prod`
+(licensed). The container came up healthy and the script found no DEMO banner. The api, worker, admin,
+scraper and database still run the older code (release v0.2.0 plus the server's local changes).
+`/opt/nahubet` is now checked out at that commit (detached HEAD). The previous web image is kept as
+`vamos-web:before-20261115-050057`; to go back:
+
+```bash
+docker tag vamos-web:before-20261115-050057 vamos-web:local
+cd /opt/nahubet && COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=/opt/nahubet-new/infra/.env.prod \
+  COMPOSE_PROJECT_NAME=vamos docker compose up -d --no-deps --force-recreate web
+```
+
+The server's uncommitted changes are committed on the server as `ce7761b` (branch
+`live/nahubet-new-2026-11-15` in `/opt/nahubet-live-save`) but **not pushed**: the server's GitHub key is
+read-only. Next: bring it over as a git bundle, review it for secrets and large files, push it.
+
 ## Where things are (updated 15 Nov 2026)
 
 | Branch                               | What it is                                                                                                                                                                                 |
