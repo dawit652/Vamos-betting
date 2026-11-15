@@ -19,12 +19,13 @@ import { expect, test } from '@playwright/test';
  * redesign onto the live branch (search, day and country chips, flags): 159.8 KB
  * = JS 132.4 + HTML 18.1 + CSS 7.6 + the session fetch, in 14 requests, with 15
  * rows on the first home page (was 20) and the betslip texts sent with the
- * betslip's own code; the live branch alone was about 157.6 KB. The budget leaves a little room for the
+ * betslip's own code; the live branch alone was about 157.6 KB. On release
+ * v0.3.0 the same page is 159.5 KB with 13 rows on the first home page. The budget leaves a little room for the
  * HTML, which grows with the listed matches (about 0.4 KB per row, 20 rows
  * per tab). Lower it when the page gets lighter; raise it only with a reason.
  */
 const TARGET_BYTES = 150 * 1024;
-const BUDGET_BYTES = 160 * 1024; // measured 159.8 KB (15 Nov 2026): 0.2 KB of room
+const BUDGET_BYTES = 160 * 1024; // measured 159.5 KB (15 Nov 2026, on v0.3.0): 0.5 KB of room
 
 interface Transfer {
   url: string;

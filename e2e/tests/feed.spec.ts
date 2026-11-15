@@ -65,7 +65,8 @@ test('a trader reads the feed overview and review queue, inspects items and dism
       await expect(broken).toContainText('broken');
       await expect(page.getByRole('heading', { name: /^Review queue \(\d+ open\)/ })).toBeVisible();
       const league = page.getByRole('row').filter({ hasText: `Feed League ${tag}` });
-      await expect(league.getByRole('button')).toHaveText(['on', 'off', 'on', 'off']);
+      // enabled, auto open, auto results, extra time, market factory markets (off by default, v0.3.0).
+      await expect(league.getByRole('button')).toHaveText(['on', 'off', 'on', 'off', 'off']);
       // A trader may switch a flag off, not on.
       await expect(league.getByRole('button', { name: 'off' }).first()).toBeDisabled();
     });

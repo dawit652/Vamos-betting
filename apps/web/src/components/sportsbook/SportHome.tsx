@@ -30,12 +30,12 @@ import {
 type SearchParams = Record<string, string | string[] | undefined>;
 
 /**
- * Rows per page: each row costs about 0.3 KB brotli of HTML + RSC payload. 15
+ * Rows per page: each row costs about 0.3 KB brotli of HTML + RSC payload. 13
  * since the redesign (was 20): the featured poster and promo cards sit above the
  * list and the first load must stay within the page-weight budget
  * (e2e/tests/budget.spec.ts); "Next page" loads the rest.
  */
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 13;
 
 /**
  * A sport's home (`/` for football, `/sport/[sport]`): Highlights / Today /

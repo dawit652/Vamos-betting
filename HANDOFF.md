@@ -38,7 +38,7 @@ commit those changes to a branch. `/opt/nahubet` is a git checkout (`claude/exci
 
 - `pnpm lint`, `pnpm typecheck`, `pnpm format:check`: pass.
 - `pnpm test` (all 13 packages, including the Postgres integration tests of db, api, worker, scraper): pass.
-- `pnpm e2e`: **all 18 specs pass**, including the page-weight budget (159.8 KB of 160 KB).
+- `pnpm e2e`: **all 18 specs pass**, including the page-weight budget (159.5 KB of 160 KB on the v030 branch).
 - A licensed web build (`NEXT_PUBLIC_OPERATING_MODE=licensed`) shows no DEMO banner or badge, in English
   and Amharic; a demo build shows them. Screens checked on phone and desktop, dark and light.
 
@@ -49,10 +49,10 @@ commit those changes to a branch. `/opt/nahubet` is a git checkout (`claude/exci
   shifted it under the fixed bottom navigation. On phones the theme toggle is now in the footer, the
   DEMO badge gives way to the DEMO banner, the balance pill drops the "ETB" label; the page fits at
   320, 360 and 393 px.
-- **Page-weight budget.** 159.8 KB (budget 160 KB; the live branch alone is about 157.6 KB): the
+- **Page-weight budget.** 159.5 KB on the v030 branch (budget 160 KB; the live branch alone is about 157.6 KB): the
   betslip's own texts (`sportsbook.betslip.*`) now come with the betslip's lazy code
-  (`@vamos/i18n/betslip`) instead of every page, the first home page lists 15 matches (was 20), and an
-  unused style went. Only 0.2 KB of room is left: new home-page content has to pay for itself.
+  (`@vamos/i18n/betslip`) instead of every page, the first home page lists 13 matches (was 20; "Next page" shows the rest), and an
+  unused style went. Only 0.5 KB of room is left: new home-page content has to pay for itself.
 
 ## Deploying (licensed mode, web app only)
 
