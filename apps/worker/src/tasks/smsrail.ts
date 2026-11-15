@@ -258,11 +258,12 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
       {
         alarm: 'manual_payout_claim_idle',
         payoutId: claim.id,
+        heldBy: claim.payingBy,
         claimedAt: claim.processingAt.toISOString(),
       },
       'a claimed manual payout has had no settle, release or fail for more than 30 minutes',
     );
-    await raiseOwnerAlert(ctx, { alarm: 'manual_payout_claim_idle', payoutId: claim.id });
+    await raiseOwnerAlert(ctx, { alarm: 'manual_payout_claim_idle' });
   }
   return findings;
 }

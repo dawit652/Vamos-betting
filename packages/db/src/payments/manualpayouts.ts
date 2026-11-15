@@ -4,7 +4,7 @@ import {
   payoutDestination,
   type ManualPayoutAction,
 } from '@vamos/core';
-import { and, asc, eq, inArray, isNull, lt, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, ne, or } from 'drizzle-orm';
 import type { Database } from '../client';
 import { amlHoldsWithdrawals } from '../compliance/aml';
 import { DomainError, domainConflict, domainUnprocessable } from '../errors';
@@ -98,9 +98,9 @@ export async function listManualPayoutQueue(
 export async function listIdleManualClaims(
   exec: DbExecutor,
   options: { claimedBefore: Date; limit?: number },
-): Promise<{ id: string; processingAt: Date }[]> {
+): Promise<{ id: string; processingAt: Date; payingBy: string | null }[]> {
   const rows = await exec
-    .select({ id: payouts.id, processingAt: payouts.processingAt })
+    .select({ id: payouts.id, processingAt: payouts.processingAt, payingBy: payouts.payingBy })
     .from(payouts)
     .where(
       and(
@@ -112,7 +112,9 @@ export async function listIdleManualClaims(
     .orderBy(asc(payouts.processingAt), asc(payouts.id))
     .limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
   return rows.flatMap((row) =>
-    row.processingAt === null ? [] : [{ id: row.id, processingAt: row.processingAt }],
+    row.processingAt === null
+      ? []
+      : [{ id: row.id, processingAt: row.processingAt, payingBy: row.payingBy }],
   );
 }
 
@@ -158,6 +160,12 @@ export async function claimManualPayout(
 
 /** The most payouts one batch claim takes (the API caps its request at the same number). */
 export const MANUAL_PAYOUT_CLAIM_BATCH_MAX = 20;
+/**
+ * Without ids a batch looks at up to this many times `limit` candidates to find `limit` it can
+ * claim: payouts under an AML hold or a blocked correction are refused one by one and must not
+ * use up the batch, nor a payout another operator took a moment earlier.
+ */
+const CLAIM_SCAN_FACTOR = 5;
 
 export interface ClaimManualPayoutBatchResult {
   payoutId: string;
@@ -168,34 +176,45 @@ export interface ClaimManualPayoutBatchResult {
 
 /**
  * Claims several approved manual payouts for one operator: exactly the given
- * `ids`, or else the oldest approved payouts nobody holds. Every payout goes
- * through claimManualPayout in a transaction of its own, so each claim keeps
- * its row lock, its rules (the approver never claims, AML hold, status) and
- * its audit line, and a refused payout never blocks the others. Two
- * operators racing for the same rows each win a disjoint set: the loser of a
- * row is told `manual_payout_wrong_status`.
+ * `ids`, or else the oldest approved payouts nobody holds, skipping the ones this
+ * operator approved themselves (they could never claim those), until `limit` are
+ * claimed or CLAIM_SCAN_FACTOR times `limit` candidates have been tried. Every payout
+ * goes through claimManualPayout in a transaction of its own, so each claim keeps its
+ * row lock, its rules (the approver never claims, AML hold, status) and its audit
+ * line, and a refused payout never blocks the others. Two operators racing for the
+ * same rows each win a disjoint set: the loser of a row is told
+ * `manual_payout_wrong_status` and goes on to the next one.
  */
 export async function claimManualPayoutBatch(
   db: Database,
   input: ManualPayoutActor & { now: Date; limit?: number; ids?: readonly string[] },
 ): Promise<ClaimManualPayoutBatchResult[]> {
   let ids: string[];
+  let want = Number.POSITIVE_INFINITY;
   if (input.ids !== undefined) {
     ids = [...new Set(input.ids)].slice(0, MANUAL_PAYOUT_CLAIM_BATCH_MAX);
   } else {
-    const limit = Math.min(Math.max(input.limit ?? 10, 1), MANUAL_PAYOUT_CLAIM_BATCH_MAX);
+    want = Math.min(Math.max(input.limit ?? 10, 1), MANUAL_PAYOUT_CLAIM_BATCH_MAX);
     const rows = await db
       .select({ id: payouts.id })
       .from(payouts)
       .where(
-        and(eq(payouts.manual, true), eq(payouts.status, 'approved'), isNull(payouts.payingBy)),
+        and(
+          eq(payouts.manual, true),
+          eq(payouts.status, 'approved'),
+          isNull(payouts.payingBy),
+          // 'system:auto' and other staff approvals stay claimable; only the caller's own are not.
+          or(isNull(payouts.approvedBy), ne(payouts.approvedBy, input.staffId)),
+        ),
       )
       .orderBy(asc(payouts.approvedAt), asc(payouts.id))
-      .limit(limit);
+      .limit(want * CLAIM_SCAN_FACTOR);
     ids = rows.map((row) => row.id);
   }
   const results: ClaimManualPayoutBatchResult[] = [];
+  let claimed = 0;
   for (const payoutId of ids) {
+    if (claimed >= want) break;
     try {
       await withTxRetry(db, (tx) =>
         claimManualPayout(tx, {
@@ -206,6 +225,7 @@ export async function claimManualPayoutBatch(
         }),
       );
       results.push({ payoutId, claimed: true });
+      claimed += 1;
     } catch (error) {
       // Only business refusals are reported; anything else is a fault and surfaces.
       if (!(error instanceof DomainError)) throw error;

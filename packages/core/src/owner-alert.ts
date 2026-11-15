@@ -55,7 +55,7 @@ export type OwnerAlertInput =
   /** An approved manual payout has waited more than two hours. */
   | { alarm: 'manual_payout_waiting' }
   /** An operator claimed a manual payout over 30 minutes ago and has not settled, released or failed it. */
-  | { alarm: 'manual_payout_claim_idle'; payoutId: string }
+  | { alarm: 'manual_payout_claim_idle' }
   /** The weekly market family job moved a family (plan task 2.5). */
   | {
       alarm: 'market_family_moved';
@@ -205,9 +205,11 @@ function build(input: OwnerAlertInput): OwnerAlert {
       };
     case 'manual_payout_claim_idle':
       return {
-        key: `manual_payout_claim_idle|${subjectOf(input.payoutId)}`,
+        // One text per interval whatever the number of idle claims: an operator who took a
+        // batch of ten and is still paying them must not send ten texts.
+        key: 'manual_payout_claim_idle',
         message:
-          'A claimed manual payout has had no result for over 30 minutes. It stays with its operator; nothing was paid or changed.',
+          'A claimed manual payout has had no result for over 30 minutes. It stays with its operator; nothing was recorded or changed.',
       };
     case 'market_family_moved': {
       const family = nameOf(input.family, 'A market family');

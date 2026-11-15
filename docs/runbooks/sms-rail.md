@@ -143,11 +143,13 @@ release or fail it, so two operators never both send it. The worker never touche
 1. Manual payouts → **Claim next 10** takes the oldest approved payouts nobody holds
    (`POST /admin/manual-payouts/claim-batch`, `{limit?: 1..20, ids?: up to 20 uuids}`; permission
    `payouts.settle_manual`). Each payout is claimed on its own through the single claim, with the same rules
-   and audit line, so a refused one never blocks the others and the four-eyes rule holds per payout: the
-   answer lists each refusal with the single claim's code (`manual_payout_approver_cannot_pay` for what you
-   approved, `aml_review_pending` while compliance holds the player, `manual_payout_wrong_status` when
-   another operator was quicker). Two operators claiming at once never get the same payout. **Claim** on a
-   row still claims just that one.
+   and audit line, so a refused one never blocks the others and the four-eyes rule holds per payout. Without
+   ids the batch skips the payouts you approved yourself (you could never claim them) and goes on past any
+   it has to refuse until it has claimed the number asked for, looking at up to five times as many; the
+   answer lists each refusal with the single claim's code (`aml_review_pending` while compliance holds the
+   player, `manual_payout_wrong_status` when another operator was quicker; asked for by id, your own
+   approval gives `manual_payout_approver_cannot_pay`). Two operators claiming at once never get the same
+   payout, and each gets work. **Claim** on a row still claims just that one.
 2. **Your pick list** (top of the page, one column on a phone) shows what you hold, grouped by institution,
    oldest first: the destination (number, or account and holder name for a bank) and the exact amount, with
    **Copy number** and **Copy 1234.50** (the amount in plain birr: a dot, two decimals, no thousands

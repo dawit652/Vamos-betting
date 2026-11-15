@@ -541,7 +541,8 @@ describe('POST /admin/manual-payouts/claim-batch', () => {
       payload: {},
       headers: { cookie: admin.cookie },
     });
-    expect(noCsrf.statusCode).toBeGreaterThanOrEqual(400);
+    expect(noCsrf.statusCode).toBe(403);
+    expect(apiError(noCsrf).code).toBe('csrf_invalid');
     const support = await staffLogin(ctx, 'support');
     const denied = await asStaff(ctx, support, 'POST', URL, {});
     expect(denied.statusCode).toBe(403);
@@ -576,7 +577,14 @@ describe('POST /admin/manual-payouts/claim-batch', () => {
     expect(body.results.every((r) => !r.claimed && r.reason === 'not_found')).toBe(true);
   });
 
-  it('claims for the signed-in operator and refuses what they approved', async () => {
+  it('claims for the signed-in operator and never tries what they approved', async () => {
+    // Asked for by id, the admin's own approval is refused with the four-eyes code.
+    const own = await asStaff(ctx, admin, 'POST', URL, { ids: [payoutIds[2]] });
+    expect(ClaimManualPayoutBatchResponse.parse(own.json()).results).toEqual([
+      { payoutId: payoutIds[2], claimed: false, reason: 'manual_payout_approver_cannot_pay' },
+    ]);
+
+    // Without ids the batch skips it and takes the others.
     const response = await asStaff(ctx, admin, 'POST', URL, { limit: 20 });
     expect(response.statusCode).toBe(200);
     const { results } = ClaimManualPayoutBatchResponse.parse(response.json());
@@ -588,14 +596,13 @@ describe('POST /admin/manual-payouts/claim-batch', () => {
     expect(ours.map((r) => [r.payoutId, r.claimed, r.reason])).toEqual([
       [payoutIds[0], true, undefined],
       [payoutIds[1], true, undefined],
-      [payoutIds[2], false, 'manual_payout_approver_cannot_pay'],
     ]);
     const claimed = StaffWithdrawalView.parse(
       (await asStaff(ctx, admin, 'GET', `/admin/withdrawals/${payoutIds[0]}`)).json(),
     );
     expect(claimed).toMatchObject({ status: 'processing', payingBy: admin.id });
 
-    // The other operator takes what is left (the one the first approved), and the default limit is 10.
+    // The other operator takes what is left (the one the admin approved), and the default limit is 10.
     const second = await asStaff(ctx, finance, 'POST', URL);
     expect(second.statusCode).toBe(200);
     const taken = ClaimManualPayoutBatchResponse.parse(second.json()).results;

@@ -225,10 +225,11 @@ function ClaimNext({ onDone }: { onDone: () => void }) {
       );
       setClaimed(response.results.filter((r) => r.claimed).length);
       setRefused(response.results.filter((r) => !r.claimed));
-      onDone();
     } catch (e) {
       setError(describeError(e));
     } finally {
+      // Also after an error: rows claimed before a fault are committed, so the list must reload.
+      onDone();
       setBusy(false);
     }
   };
