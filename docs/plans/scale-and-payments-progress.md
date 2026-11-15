@@ -17,54 +17,70 @@ a decision of section 3), `not planned`.
 with no commit after 6 hours is free again. Pull before every push, never force-push, and let only
 one session create migrations at a time (the next number is 0053).
 
-| #    | Task                                                                                                                     | Status      | Commit, notes                                                                           |
-| ---- | ------------------------------------------------------------------------------------------------------------------------ | ----------- | --------------------------------------------------------------------------------------- |
-| A1a  | Deposit burst in the load test                                                                                           | in progress | Session `01BhRB` (second account), from about 15:40 UTC; nothing pushed as of 20:06 UTC |
-| A1b  | Pages and live streams in the load test                                                                                  | open        |                                                                                         |
-| A2   | Catalogue cache in the API (2 s)                                                                                         | in progress | Session `01BhRB`, from about 15:40 UTC; nothing pushed as of 20:06 UTC                  |
-| A3   | Web server reuses catalogue answers (2 s)                                                                                | done        | 2 s reuse of catalogue answers in the web server (CATALOG_REUSE_MS), single-flight      |
-| A4   | Several API processes and PgBouncer                                                                                      | open        |                                                                                         |
-| A5   | Live streams on their own processes                                                                                      | open        |                                                                                         |
-| A6   | A leaner bet (query cuts)                                                                                                | done        | 23 to 20 statements per bet; golden and budget tests; target 15 needs A6b               |
-| A6b  | Fewer queries in `rg/` and `ledger/` (merge the users reads, exclusion and limits, ledger account lookups): about 5 more | open        | Opus, high: touches responsible-gambling checks and ledger posting                      |
-| A7   | Measure the `house_stakes` ceiling; shard only if needed                                                                 | open        | After A4                                                                                |
-| A8   | Database: tuning, replica, partitions, restore drill                                                                     | open        | After A1's baseline                                                                     |
-| A9   | Worker queues apart; cold standby design                                                                                 | open        |                                                                                         |
-| A10  | Metrics endpoint                                                                                                         | done        | GET /metrics on the API (METRICS_TOKEN, Caddy 404 on the public host)                   |
-| A10b | Worker metrics: queue depth and oldest waiting job per queue on the worker health port                                   | open        | After A10; Sonnet, medium                                                               |
-| A11  | More than one server                                                                                                     | waits       | D7                                                                                      |
-| B1   | Real SMS and receipt fixtures                                                                                            | waits       | The owner's test payments                                                               |
-| B2a  | Amount space per collection account: core                                                                                | open        |                                                                                         |
-| B2b  | Amount space per collection account: database, gateway                                                                   | open        | After B2a                                                                               |
-| B2c  | Amount space per collection account: screens                                                                             | open        | After B2b                                                                               |
-| B3   | Match by the payer's phone first                                                                                         | waits       | B1                                                                                      |
-| B4   | Offsets 1 to 99                                                                                                          | in progress | Session `01BhRB`, from about 15:40 UTC; nothing pushed as of 20:06 UTC                  |
-| B4b  | Shorter hold on amounts of cancelled deposits                                                                            | waits       | D5                                                                                      |
-| B5   | Second handset and forwarder heartbeat alarm                                                                             | open        | Needs a spare phone on site                                                             |
-| B6   | `received_sms` in reconciliation and retention; re-parse                                                                 | open        |                                                                                         |
-| B7   | telebirr merchant checkout as a second door                                                                              | waits       | D1; telebirr is state-run: confirm with the owner first (15 Nov)                        |
-| B8   | EthioPay-IPS deposits through a bank                                                                                     | not planned | Owner, 15 Nov: outside government platforms                                             |
-| B9   | Statement feed for CBE                                                                                                   | waits       | D2                                                                                      |
-| C1   | Faster hands: batch claim, pick list, idle-claim alarm                                                                   | done        | batch claim, pick list, idle alarm; Opus review: no four-eyes bypass, starvation fixed  |
-| C2   | Settle on double proof                                                                                                   | waits       | D4, D8                                                                                  |
-| C3   | Payout batch files and result import                                                                                     | waits       | D1 or D2                                                                                |
-| C4   | telebirr business payouts by API                                                                                         | waits       | D1; telebirr is state-run: confirm with the owner first (15 Nov)                        |
-| C5   | Bank host-to-host transfers                                                                                              | waits       | D2                                                                                      |
-| C6   | EthioPay-IPS payouts through a bank                                                                                      | not planned | Owner, 15 Nov: outside government platforms                                             |
-| C7   | Chapa transfers                                                                                                          | not planned | Fallback only; the adapter exists                                                       |
-| C8   | A robot on the handset                                                                                                   | not planned | Not recommended (plan, section 6)                                                       |
-| C9   | Approval tiers                                                                                                           | waits       | D6, D8                                                                                  |
-| C10  | Float forecast and alarm                                                                                                 | open        |                                                                                         |
-| C11  | Routing between payout rails                                                                                             | waits       | After a second rail pays out                                                            |
-| X1   | Top-match flag (port of `136f469`, `4df33b1`)                                                                            | not planned | Owner, 15 Nov: not now (see §3)                                                         |
-| X2   | End-to-end tests of the redesign (port of `4df33b1`)                                                                     | open        |                                                                                         |
-| X3   | Rename the inside from Vamos to Nahubet                                                                                  | open        | Stages 1 to 3 only (see §3)                                                             |
-| X4   | Licensed texts for Help, Terms, Responsible gambling                                                                     | open        | Also in root `HANDOFF.md`                                                               |
+| #    | Task                                                                                                                     | Status      | Commit, notes                                                                                   |
+| ---- | ------------------------------------------------------------------------------------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------- |
+| A1a  | Deposit burst in the load test                                                                                           | in progress | Session `01BhRB` (second account), from about 15:40 UTC; nothing pushed as of 20:06 UTC         |
+| A1b  | Pages and live streams in the load test                                                                                  | open        |                                                                                                 |
+| A2   | Catalogue cache in the API (2 s)                                                                                         | in progress | Session `01BhRB`, from about 15:40 UTC; nothing pushed as of 20:06 UTC                          |
+| A3   | Web server reuses catalogue answers (2 s)                                                                                | done        | 2 s reuse of catalogue answers in the web server (CATALOG_REUSE_MS), single-flight              |
+| A4   | Several API processes and PgBouncer                                                                                      | open        |                                                                                                 |
+| A5   | Live streams on their own processes                                                                                      | open        |                                                                                                 |
+| A6   | A leaner bet (query cuts)                                                                                                | done        | 23 to 20 statements per bet; golden and budget tests; no measurable throughput gain (section 2) |
+| A6b  | Fewer queries in `rg/` and `ledger/` (merge the users reads, exclusion and limits, ledger account lookups): about 5 more | open        | Low priority: the A/B of A6 showed no measurable gain from fewer statements (section 2)         |
+| A7   | Measure the `house_stakes` ceiling; shard only if needed                                                                 | open        | After A4                                                                                        |
+| A8   | Database: tuning, replica, partitions, restore drill                                                                     | open        | After A1's baseline                                                                             |
+| A9   | Worker queues apart; cold standby design                                                                                 | open        |                                                                                                 |
+| A10  | Metrics endpoint                                                                                                         | done        | GET /metrics on the API (METRICS_TOKEN, Caddy 404 on the public host)                           |
+| A10b | Worker metrics: queue depth and oldest waiting job per queue on the worker health port                                   | open        | After A10; Sonnet, medium                                                                       |
+| A11  | More than one server                                                                                                     | waits       | D7                                                                                              |
+| B1   | Real SMS and receipt fixtures                                                                                            | waits       | The owner's test payments                                                                       |
+| B2a  | Amount space per collection account: core                                                                                | open        |                                                                                                 |
+| B2b  | Amount space per collection account: database, gateway                                                                   | open        | After B2a                                                                                       |
+| B2c  | Amount space per collection account: screens                                                                             | open        | After B2b                                                                                       |
+| B3   | Match by the payer's phone first                                                                                         | waits       | B1                                                                                              |
+| B4   | Offsets 1 to 99                                                                                                          | in progress | Session `01BhRB`, from about 15:40 UTC; nothing pushed as of 20:06 UTC                          |
+| B4b  | Shorter hold on amounts of cancelled deposits                                                                            | waits       | D5                                                                                              |
+| B5   | Second handset and forwarder heartbeat alarm                                                                             | open        | Needs a spare phone on site                                                                     |
+| B6   | `received_sms` in reconciliation and retention; re-parse                                                                 | open        |                                                                                                 |
+| B7   | telebirr merchant checkout as a second door                                                                              | waits       | D1; telebirr is state-run: confirm with the owner first (15 Nov)                                |
+| B8   | EthioPay-IPS deposits through a bank                                                                                     | not planned | Owner, 15 Nov: outside government platforms                                                     |
+| B9   | Statement feed for CBE                                                                                                   | waits       | D2                                                                                              |
+| C1   | Faster hands: batch claim, pick list, idle-claim alarm                                                                   | done        | batch claim, pick list, idle alarm; Opus review: no four-eyes bypass, starvation fixed          |
+| C2   | Settle on double proof                                                                                                   | waits       | D4, D8                                                                                          |
+| C3   | Payout batch files and result import                                                                                     | waits       | D1 or D2                                                                                        |
+| C4   | telebirr business payouts by API                                                                                         | waits       | D1; telebirr is state-run: confirm with the owner first (15 Nov)                                |
+| C5   | Bank host-to-host transfers                                                                                              | waits       | D2                                                                                              |
+| C6   | EthioPay-IPS payouts through a bank                                                                                      | not planned | Owner, 15 Nov: outside government platforms                                                     |
+| C7   | Chapa transfers                                                                                                          | not planned | Fallback only; the adapter exists                                                               |
+| C8   | A robot on the handset                                                                                                   | not planned | Not recommended (plan, section 6)                                                               |
+| C9   | Approval tiers                                                                                                           | waits       | D6, D8                                                                                          |
+| C10  | Float forecast and alarm                                                                                                 | open        |                                                                                                 |
+| C11  | Routing between payout rails                                                                                             | waits       | After a second rail pays out                                                                    |
+| X1   | Top-match flag (port of `136f469`, `4df33b1`)                                                                            | not planned | Owner, 15 Nov: not now (see §3)                                                                 |
+| X2   | End-to-end tests of the redesign (port of `4df33b1`)                                                                     | open        |                                                                                                 |
+| X3   | Rename the inside from Vamos to Nahubet                                                                                  | open        | Stages 1 to 3 only (see §3)                                                                     |
+| X4   | Licensed texts for Help, Terms, Responsible gambling                                                                     | open        | Also in root `HANDOFF.md`                                                                       |
 
 ## 2. Measured
 
-Nothing yet. A1a and A1b put the first numbers here: deposits refused for lack of an amount, credit
-latency, list and bet latency at each scale, the machine they ran on.
+A1a and A1b will put the next numbers here: deposits refused for lack of an amount, credit latency, list
+and bet latency at each scale, the machine they ran on.
+
+**A6, 15 Nov 2026, A/B on one cloud container (4 shared CPUs), API and worker only, log level warn,
+`pnpm load:bets` with its defaults (30 s, 50 connections, 1,000 players), alternating builds
+(before = `9b4a003`, after = A6):**
+
+| Run      | Bets created (201) | Bets/s | Mean latency | p99    | Reconciliation |
+| -------- | ------------------ | ------ | ------------ | ------ | -------------- |
+| before 1 | 4,119              | 137    | 290 ms       | 428 ms | clean          |
+| after 1  | 3,726              | 124    | 320 ms       | 513 ms | clean          |
+| before 2 | 4,162              | 139    | 287 ms       | 428 ms | clean          |
+| after 2  | 4,399              | 147    | 272 ms       | 426 ms | clean          |
+
+Means: 138 bets/s before, 135.5 after. **Taking 3 of 23 statements out of each bet made no measurable
+difference** (the spread between runs, about 19%, is far larger than the 2% between the means). The
+single API process, not those reads, is what limits a bet, so more processes (A4) is the lever, and the
+remaining statement cuts (A6b) are low priority.
 
 Known from before (`docs/load-testing.md`, 19 Oct 2026): about 95 bets/s on one API process on 4
 shared CPUs, p95 504 ms at 50 connections; the limit is the process's CPU, then the single

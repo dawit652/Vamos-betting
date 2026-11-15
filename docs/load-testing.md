@@ -65,6 +65,15 @@ admin servers, native PostgreSQL 16, Redis 7 and autocannon. All runs lasted 30 
 Every run passed all the checks: stored bets matched the responses, balances added up, no account was
 negative and reconciliation was clean.
 
+## Results (15 Nov 2026): fewer statements per bet
+
+Task A6 removed 3 of the 23 statements of an accepted bet (the read-back of the bet). An alternating
+A/B of the two builds on one 4-CPU container (API and worker only, log level warn, the script's
+defaults) gave 4,119 and 4,162 bets in 30 s before (137 and 139 per second) and 3,726 and 4,399 after
+(124 and 147 per second), the ledger reconciling cleanly every time. The difference between the means
+(2%) is far below the spread between runs (about 19%): fewer reads did not move throughput. See
+`docs/plans/scale-and-payments-progress.md`, section 2.
+
 ## What was found and fixed
 
 **The house_stakes lock (fixed).** Every stake posting updates the one `house_stakes` ledger account
