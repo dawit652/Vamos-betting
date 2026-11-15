@@ -13,6 +13,8 @@ export default tseslint.config(
       '**/coverage/**',
       '**/next-env.d.ts',
       '.data/**',
+      // Agent worktrees: whole copies of the repo, linted in their own checkout.
+      '.claude/**',
       'var/**',
       'packages/db/migrations/**',
       'e2e/test-results/**',
@@ -82,7 +84,12 @@ export default tseslint.config(
   },
   {
     // e2e specs print the measured page weight and the chosen fixtures to the run log.
-    files: ['infra/scripts/**/*.{ts,js,mjs}', '**/scripts/**/*.ts', 'e2e/tests/**/*.ts'],
+    files: [
+      'infra/scripts/**/*.{ts,js,mjs}',
+      '**/scripts/**/*.ts',
+      'e2e/tests/**/*.ts',
+      'e2e/deployment/**/*.ts',
+    ],
     rules: { 'no-console': 'off' },
   },
 );

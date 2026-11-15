@@ -136,9 +136,9 @@ describe('main menu', () => {
     const step = menu(ussdStart(CTX));
     expect(step.state).toEqual({ screen: 'main' });
     expect(step.text).toBe(
-      'Vamos DEMO\n1 Place bet\n2 Balance\n3 My bets\n4 Jackpot\n5 Help\n0 Exit',
+      'Nahubet DEMO\n1 Place bet\n2 Balance\n3 My bets\n4 Jackpot\n5 Help\n0 Exit',
     );
-    expect(menu(ussdStart(context({ demo: false }))).text.startsWith('Vamos\n')).toBe(true);
+    expect(menu(ussdStart(context({ demo: false }))).text.startsWith('Nahubet\n')).toBe(true);
     expect(menu(ussdStart(context({ locale: 'am' }))).text).toContain('1 ውርርድ');
   });
 
@@ -148,14 +148,14 @@ describe('main menu', () => {
     expect(run(['3'])).toEqual({ kind: 'info', info: 'bets' });
     expect(run(['4'])).toEqual({ kind: 'info', info: 'jackpot' });
     expect(end(run(['5']))).toContain('GAMEID#PICK#STAKE');
-    expect(end(run(['0']))).toBe('Thank you for using Vamos.');
+    expect(end(run(['0']))).toBe('Thank you for using Nahubet.');
   });
 
   it('re-prompts on anything else', () => {
     for (const input of ['', '6', '9', '01', 'x', ' 1 1', '1'.repeat(30), '*', '#']) {
       const step = menu(run([input]));
       expect(step.state).toEqual({ screen: 'main' });
-      expect(step.text.startsWith('Invalid choice.\nVamos DEMO\n1 Place bet')).toBe(true);
+      expect(step.text.startsWith('Invalid choice.\nNahubet DEMO\n1 Place bet')).toBe(true);
     }
     // Spaces around a choice are ignored.
     expect(menu(run([' 1 '])).state).toEqual({ screen: 'bet_game' });
@@ -314,7 +314,7 @@ describe('placing a bet', () => {
     for (const path of [[], ['1'], ['1', '1234'], ['1', '1234', '1'], ['1', '1234', '1', '50']]) {
       const step = menu(run([...path, '00']));
       expect(step.state).toEqual({ screen: 'main' });
-      expect(step.text.startsWith('Vamos DEMO\n1 Place bet')).toBe(true);
+      expect(step.text.startsWith('Nahubet DEMO\n1 Place bet')).toBe(true);
     }
   });
 

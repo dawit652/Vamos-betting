@@ -318,8 +318,8 @@ describe('outbox routes', () => {
 
         const summary = await dispatcher.run();
         // The approved payout; each outcome on sms and user-notify (a wallet.changed push);
-        // the deposit and the paid withdrawal on els, the deposit on aml.
-        expect(summary).toMatchObject({ claimed: 5, published: 4, jobs: 10, failed: 1 });
+        // the deposit on aml.
+        expect(summary).toMatchObject({ claimed: 5, published: 4, jobs: 8, failed: 1 });
 
         const row = async (id: bigint) => {
           const [r] = await t.db.db
@@ -799,9 +799,9 @@ describe('deposit reconciliation: late payments and backoff', () => {
 describe('SMS notifications', () => {
   it('writes bilingual payment messages, English first for English players', () => {
     expect(paymentSmsBody('deposit_succeeded', 12_550n, 'en')).toMatch(
-      /^Vamos: Deposit of ETB 125\.50 received\. /,
+      /^Nahubet: Deposit of ETB 125\.50 received\. /,
     );
-    expect(paymentSmsBody('withdrawal_paid', 100_000n, 'am')).toMatch(/^Vamos: 1,000\.00 ብር/);
+    expect(paymentSmsBody('withdrawal_paid', 100_000n, 'am')).toMatch(/^Nahubet: 1,000\.00 ብር/);
     expect(paymentSmsBody('withdrawal_paid', 100_000n, 'am')).toContain(
       'Withdrawal of ETB 1,000.00 sent to your phone.',
     );

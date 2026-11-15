@@ -23,9 +23,6 @@ ADMIN_URL="${E2E_ADMIN_URL:-http://localhost:3001}"
 START_TIMEOUT_S="${E2E_START_TIMEOUT_S:-60}"
 
 export OPERATING_MODE="${OPERATING_MODE:-demo}"
-# One absolute ELS report directory for the API (status page) and the worker (writer); the compliance
-# spec reads the stream from it. A relative ELS_REPORT_DIR would resolve against each app's own folder.
-export ELS_REPORT_DIR="${ELS_REPORT_DIR:-$STATE_DIR/els}"
 export SIM_SPEED="${SIM_SPEED:-60}"
 export FEED_ROLLING_EVERY_MINUTES="${FEED_ROLLING_EVERY_MINUTES:-1}"
 export FEED_ROLLING_HORIZON_MINUTES="${FEED_ROLLING_HORIZON_MINUTES:-10}"
@@ -36,6 +33,9 @@ export USSD_ENABLED="${USSD_ENABLED:-true}"
 # An older .env may still set the legacy spellings (false); a contradiction is a config error, so agree with it.
 export FEATURE_SMS_BETTING="$SMS_BETTING_ENABLED"
 export FEATURE_USSD="$USSD_ENABLED"
+# The SMS deposit rail, simulated (demo mode: the dev SMS simulator plays the bank), next to the mock
+# provider, so sms-rail.spec.ts can deposit through it and staff can work its review queue.
+export PAYMENT_PROVIDERS="${PAYMENT_PROVIDERS:-mock,sms}"
 
 running() {
   local pidfile="$STATE_DIR/$1.pid"

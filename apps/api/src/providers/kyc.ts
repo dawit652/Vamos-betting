@@ -12,7 +12,7 @@ export type KycVerificationResult =
   | { status: 'pending'; reference: string };
 
 export interface KycVerifier {
-  /** `mock` in demo mode; e.g. `fayda` for the national ID service. */
+  /** The adapter's name: `mock`, the only one that exists. */
   readonly name: string;
   verify(request: KycVerificationRequest): Promise<KycVerificationResult>;
 }

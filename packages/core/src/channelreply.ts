@@ -1,7 +1,7 @@
 /**
  * Reply texts of the SMS and USSD channels, in English and Amharic.
  *
- * Each builder returns the message body; `smsText` adds the "Vamos:" prefix
+ * Each builder returns the message body; `smsText` adds the "Nahubet:" prefix
  * (with DEMO in play-money mode) and fits it in MAX_SMS_SEGMENTS parts, and
  * the USSD screens (ussd.ts) cap it at USSD_MAX_LENGTH. Bodies are written
  * to fit one GSM-7 message in English where they can; Amharic is UCS-2, so
@@ -36,9 +36,9 @@ export interface ReplyOptions {
 type Text = { en: string; am: string };
 const pickText = (text: Text, locale: ChannelLocale): string => text[locale];
 
-/** "Vamos: " or "Vamos DEMO: ". */
+/** "Nahubet: " or "Nahubet DEMO: ". */
 export function replyPrefix(demo: boolean): string {
-  return demo ? 'Vamos DEMO: ' : 'Vamos: ';
+  return demo ? 'Nahubet DEMO: ' : 'Nahubet: ';
 }
 
 /** An SMS reply: prefix + body, fitted in MAX_SMS_SEGMENTS parts. */
@@ -194,6 +194,8 @@ export type ChannelRefusal =
   | { code: 'loss_limit_exceeded'; period: LossLimitPeriod; limit: Santim }
   | { code: 'stake_below_minimum'; min: Santim }
   | { code: 'stake_above_maximum'; max: Santim }
+  /** The house's liability cap (rule L1); `max` is the largest stake that fits, null when none does. */
+  | { code: 'liability_limit'; max: Santim | null }
   | { code: 'too_many_legs'; max: number }
   | { code: 'odds_below_minimum'; minOddsMilli: number }
   | { code: 'total_odds_above_maximum' }
@@ -296,6 +298,18 @@ export function refusalBody(refusal: ChannelRefusal, locale: ChannelLocale): str
         en: `The maximum stake is ${money(refusal.max)}. ${noBet}`,
         am: `ከፍተኛው መጠን ${money(refusal.max)} ነው። ${noBet}`,
       };
+      break;
+    case 'liability_limit':
+      text =
+        refusal.max === null
+          ? {
+              en: `This bet is too large for this game right now. ${noBet}`,
+              am: `ይህ ውርርድ ለዚህ ጨዋታ በአሁኑ ጊዜ በጣም ትልቅ ነው። ${noBet}`,
+            }
+          : {
+              en: `This bet is too large for this game right now. Try a stake up to ${money(refusal.max)}. ${noBet}`,
+              am: `ይህ ውርርድ ለዚህ ጨዋታ በአሁኑ ጊዜ በጣም ትልቅ ነው። እስከ ${money(refusal.max)} ይሞክሩ። ${noBet}`,
+            };
       break;
     case 'too_many_legs':
       text = {
@@ -561,8 +575,8 @@ export function optOutBody(optedOut: boolean, locale: ChannelLocale): string {
       : 'You will no longer get offers by SMS. Send START to get them again.';
   }
   return locale === 'am'
-    ? 'የቫሞስ ቅናሾችን በSMS ይቀበላሉ። ለማቆም STOP ይላኩ።'
-    : 'You will get Vamos offers by SMS. Send STOP to opt out.';
+    ? 'የናሁቤት ቅናሾችን በSMS ይቀበላሉ። ለማቆም STOP ይላኩ።'
+    : 'You will get Nahubet offers by SMS. Send STOP to opt out.';
 }
 
 /** STOP / START for a number that is not an active, verified player: both languages. */
@@ -588,7 +602,7 @@ export function tooManyMessagesBody(): string {
  */
 export function notAvailableBody(): string {
   return (
-    'SMS betting is not available for this number. Register and verify it on the Vamos website. ' +
-    'ለዚህ ቁጥር የSMS ውርርድ የለም። ቁጥሩን በቫሞስ ድረ-ገጽ ያስመዝግቡ።'
+    'SMS betting is not available for this number. Register and verify it on the Nahubet website. ' +
+    'ለዚህ ቁጥር የSMS ውርርድ የለም። ቁጥሩን በናሁቤት ድረ-ገጽ ያስመዝግቡ።'
   );
 }

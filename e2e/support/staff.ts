@@ -89,23 +89,44 @@ export async function nextTotpCode(
 
 /** Signs `role` in through the login form of the admin app and waits for the dashboard shell. */
 export async function loginInBrowser(page: Page, role: StaffRole): Promise<void> {
-  const email = staffEmail(role);
+  await loginAccountInBrowser(page, {
+    email: staffEmail(role),
+    password: DEMO_STAFF_PASSWORD,
+    totpSecret: DEMO_STAFF_TOTP_SECRET,
+    role,
+  });
+}
+
+/** A staff account the tests sign in with: a demo account, or one made with `admin:create`. */
+export interface StaffCredentials {
+  email: string;
+  password: string;
+  /** The base32 TOTP secret `admin:create` printed. */
+  totpSecret: string;
+  /** The role the dashboard shell should show; any role when undefined. */
+  role?: string;
+}
+
+/** Signs a staff account in through the login form of the admin app and waits for the shell. */
+export async function loginAccountInBrowser(page: Page, account: StaffCredentials): Promise<void> {
+  const { email } = account;
   // Twice at most: a run of the suite within the same 30 s step leaves the code used.
   for (let attempt = 1; ; attempt += 1) {
     await page.goto(`${ADMIN_URL}/login`);
-    const code = await nextTotpCode(email);
+    const code = await nextTotpCode(email, account.totpSecret);
     const emailInput = page.getByLabel('Email', { exact: true });
     // Hydration: typing before it is attached is lost, so retry until the value sticks.
     await expect(async () => {
       await emailInput.fill(email);
       await expect(emailInput).toHaveValue(email, { timeout: 1000 });
     }).toPass({ timeout: 15_000 });
-    await page.getByLabel('Password', { exact: true }).fill(DEMO_STAFF_PASSWORD);
+    await page.getByLabel('Password', { exact: true }).fill(account.password);
     await page.getByLabel('Authenticator code').fill(code);
     await page.getByRole('button', { name: 'Sign in' }).click();
     const signedIn = page.getByTestId('staff-role');
     try {
-      await expect(signedIn).toHaveText(role, { timeout: 10_000 });
+      if (account.role === undefined) await expect(signedIn).toBeVisible({ timeout: 10_000 });
+      else await expect(signedIn).toHaveText(account.role, { timeout: 10_000 });
       return;
     } catch (error) {
       if (attempt >= 2) throw error;

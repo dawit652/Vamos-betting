@@ -1,14 +1,32 @@
-/* A price move arrow shows for a few seconds after a live update, then fades out. */
-.move {
-  animation: odds-move 4s ease-in forwards;
+/* A brief highlight over the button when its price changes. The arrow itself is static
+   and removed by the component after a few seconds. */
+.flash {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: odds-flash 0.9s ease-out forwards;
 }
 
-@keyframes odds-move {
-  0%,
-  70% {
-    opacity: 1;
+.flashUp {
+  background: var(--color-up);
+}
+
+.flashDown {
+  background: var(--color-down);
+}
+
+@keyframes odds-flash {
+  0% {
+    opacity: 0.45;
   }
   100% {
     opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash {
+    display: none;
   }
 }

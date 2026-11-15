@@ -1,0 +1,1 @@
+ALTER TABLE "markets" ADD COLUMN "price_valid_until" timestamp with time zone;

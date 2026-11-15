@@ -3,8 +3,7 @@ import type { StaffPermission } from './admin';
 import { IsoDateTime, Santim } from './common';
 
 /**
- * The compliance back office (`/admin/compliance/*`, Phase 10): daily
- * summaries for the regulator (ELS), the ELS transaction stream's status,
+ * The compliance back office (`/admin/compliance/*`, Phase 10):
  * reconciliation runs, PSP statement uploads, AML flags and the compliance
  * settings. Same wire conventions and staff session as the rest of
  * `/admin/*` (santim as decimal strings; business dates `YYYY-MM-DD` in
@@ -12,11 +11,6 @@ import { IsoDateTime, Santim } from './common';
  * without a staff session, 403 without the permission).
  */
 export const COMPLIANCE_ROUTE_PERMISSIONS = {
-  'GET /admin/compliance/daily-summaries': 'reports.view',
-  'GET /admin/compliance/daily-summaries.csv': 'reports.view',
-  'GET /admin/compliance/daily-summaries/:date': 'reports.view',
-  'POST /admin/compliance/daily-summaries/:date/recompute': 'reconciliation.run',
-  'GET /admin/compliance/els': 'reports.view',
   'GET /admin/compliance/reconciliation-runs': 'reports.view',
   'GET /admin/compliance/reconciliation-runs/:id': 'reports.view',
   'POST /admin/compliance/reconciliation-runs': 'reconciliation.run',
@@ -77,140 +71,6 @@ function queryList<T extends z.ZodType>(item: T) {
 }
 
 // ---------------------------------------------------------------------------
-// Daily summaries (reports.view; recompute: reconciliation.run).
-
-export const DailySummaryStatusSchema = z.enum(['provisional', 'final']);
-export type DailySummaryStatus = z.infer<typeof DailySummaryStatusSchema>;
-
-/**
- * A business day's figures, from ledger postings by their time (santim):
- * turnover = betStakes + jackpotStakes (stakes accepted; bets net of live
- * rejections); payouts = wonPayouts + cashOuts + refunds + jackpotPrizes
- * (gross, before tax; correction reversals count negative on their day);
- * ggr = turnover − payouts; taxWithheld = winnings tax credited to the tax
- * authority's account; bonuses = promotion costs; deposits / withdrawals =
- * money through the payment providers; commissionDue = floor(ggr ×
- * commissionRateBps / 10000), 0 when ggr ≤ 0.
- */
-export const DailyFiguresView = z.object({
-  turnover: Santim,
-  betStakes: Santim,
-  betCount: Count,
-  jackpotStakes: Santim,
-  jackpotEntryCount: Count,
-  payouts: Santim,
-  wonPayouts: Santim,
-  cashOuts: Santim,
-  refunds: Santim,
-  jackpotPrizes: Santim,
-  ggr: Santim,
-  taxWithheld: Santim,
-  bonuses: Santim,
-  deposits: Santim,
-  depositCount: Count,
-  withdrawals: Santim,
-  withdrawalCount: Count,
-  activePlayers: Count,
-  commissionRateBps: Bps,
-  commissionDue: Santim,
-});
-export type DailyFiguresView = z.infer<typeof DailyFiguresView>;
-
-export const DailySummaryView = DailyFiguresView.extend({
-  businessDate: BusinessDate,
-  status: DailySummaryStatusSchema,
-  /** Increases each time a provisional day is recomputed with different figures. */
-  version: z.number().int().min(1),
-  windowStart: IsoDateTime,
-  windowEnd: IsoDateTime,
-  /** SHA-256 of the figures. */
-  hash: z.string(),
-  computedAt: IsoDateTime,
-  finalizedAt: IsoDateTime.nullable(),
-  /** 'system' or a staff id. */
-  finalizedBy: z.string().nullable(),
-});
-export type DailySummaryView = z.infer<typeof DailySummaryView>;
-
-/** GET /admin/compliance/daily-summaries: newest first; `cursor` is the last date of the previous page. */
-export const DailySummaryQuery = z.object({
-  from: BusinessDate.optional(),
-  to: BusinessDate.optional(),
-  status: DailySummaryStatusSchema.optional(),
-  limit: pageLimit(366, 31),
-  cursor: BusinessDate.optional(),
-});
-export type DailySummaryQuery = z.infer<typeof DailySummaryQuery>;
-
-export const DailySummaryListResponse = page(DailySummaryView);
-export type DailySummaryListResponse = z.infer<typeof DailySummaryListResponse>;
-
-export const DailySummaryVersionView = z.object({
-  version: z.number().int().min(1),
-  /** computed (first), recomputed (figures changed). */
-  reason: z.string(),
-  hash: z.string(),
-  computedAt: IsoDateTime,
-  computedBy: z.string(),
-  figures: DailyFiguresView,
-});
-export type DailySummaryVersionView = z.infer<typeof DailySummaryVersionView>;
-
-/** GET /admin/compliance/daily-summaries/:date (404 when not computed yet). */
-export const DailySummaryDetailResponse = z.object({
-  summary: DailySummaryView,
-  versions: z.array(DailySummaryVersionView),
-});
-export type DailySummaryDetailResponse = z.infer<typeof DailySummaryDetailResponse>;
-
-/**
- * GET /admin/compliance/daily-summaries.csv?from&to: text/csv (header +
- * one row per stored day, oldest first, at most 366 days; amounts in
- * santim). 422 `invalid_range` otherwise.
- */
-export const DailySummaryCsvQuery = z.object({ from: BusinessDate, to: BusinessDate });
-export type DailySummaryCsvQuery = z.infer<typeof DailySummaryCsvQuery>;
-
-/**
- * POST /admin/compliance/daily-summaries/:date/recompute: recomputes a
- * provisional day from the ledger (a new version when the figures changed;
- * a final day is returned unchanged). 422 `summary_not_started` for a day
- * that has not begun.
- */
-export const RecomputeDailySummaryResponse = z.object({
-  summary: DailySummaryView,
-  outcome: z.enum(['created', 'recomputed', 'unchanged', 'final']),
-});
-export type RecomputeDailySummaryResponse = z.infer<typeof RecomputeDailySummaryResponse>;
-
-// ---------------------------------------------------------------------------
-// ELS stream status (reports.view).
-
-export const ElsReportingModeSchema = z.enum(['file', 'http', 'off']);
-
-/** GET /admin/compliance/els. */
-export const ElsReportStatusResponse = z.object({
-  reporter: z
-    .object({
-      mode: ElsReportingModeSchema,
-      ready: z.boolean(),
-      detail: z.string(),
-      target: z.string().nullable(),
-    })
-    .nullable(),
-  /** Records written on the business dates in byDate (the status reads only recent dates). */
-  written: Count,
-  /** Every pending record. */
-  pending: Count,
-  /** The latest write on the business dates in byDate. */
-  lastWrittenAt: IsoDateTime.nullable(),
-  oldestPendingAt: IsoDateTime.nullable(),
-  lastError: z.string().nullable(),
-  byDate: z.array(z.object({ businessDate: BusinessDate, written: Count, pending: Count })),
-});
-export type ElsReportStatusResponse = z.infer<typeof ElsReportStatusResponse>;
-
-// ---------------------------------------------------------------------------
 // Reconciliation (reports.view; run: reconciliation.run).
 
 export const RECONCILIATION_CHECK_NAMES = [
@@ -224,6 +84,7 @@ export const RECONCILIATION_CHECK_NAMES = [
   'psp_movements',
   'psp_records',
   'psp_daily_totals',
+  /** Checked by runs before the daily summaries were removed; kept so their records still read. */
   'daily_summary',
   'psp_statement',
 ] as const;
@@ -553,22 +414,17 @@ export const AmlRulesView = z.object({
 });
 export type AmlRulesView = z.infer<typeof AmlRulesView>;
 
-/** The `els_commission` setting: commission on a day's positive GGR (1500 bps = 15%, to confirm). */
-export const ElsCommissionView = z.object({ rateBps: Bps });
-export type ElsCommissionView = z.infer<typeof ElsCommissionView>;
-
-export const ComplianceSettingKeySchema = z.enum(['els_commission', 'aml_rules']);
+export const ComplianceSettingKeySchema = z.enum(['aml_rules']);
 export type ComplianceSettingKey = z.infer<typeof ComplianceSettingKeySchema>;
 
 /** The value of PUT /admin/compliance/settings/:key (body { value }, like PUT /admin/settings/:key). */
 export const COMPLIANCE_SETTING_VALUE_SCHEMAS = {
-  els_commission: ElsCommissionView,
   aml_rules: AmlRulesView,
 } as const satisfies Record<ComplianceSettingKey, z.ZodType>;
 
 /** GET /admin/compliance/settings, and the answer of PUT /admin/compliance/settings/:key. */
 export const ComplianceSettingsResponse = z.object({
-  settings: z.object({ elsCommission: ElsCommissionView, amlRules: AmlRulesView }),
+  settings: z.object({ amlRules: AmlRulesView }),
   changes: z.array(
     z.object({ key: z.string(), updatedAt: IsoDateTime, updatedBy: z.string().nullable() }),
   ),

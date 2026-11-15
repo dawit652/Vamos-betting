@@ -1,6 +1,6 @@
-# Vamos Betting build plan and handoff
+# Nahubet build plan and handoff
 
-This is the working plan for building Vamos Betting, a mobile-first sportsbook for Ethiopia modelled on
+This is the working plan for building Nahubet, a mobile-first sportsbook for Ethiopia modelled on
 **Betika**. It holds the current status, what the next session does first, the conventions learned so far,
 and the scope and acceptance checks for every remaining phase. Repo rules are in `CLAUDE.md`. Market
 research is in `docs/research/`.
@@ -28,7 +28,7 @@ Last updated 12 Oct 2026.
 **All phases (0–12) are done.** Format, lint, typecheck, build, every unit test and the Playwright e2e suite
 pass. The e2e suite covers the bet flow (register, OTP, demo top-up, a 3-leg bet, settlement, My Bets)
 and the payments flow (KYC, deposit approved on the simulated phone, wagering, withdrawal approved by
-the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s), compliance (reconciliation, daily summary CSV, an AML flag and hold) and SMS/USSD bets through the dev simulator. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
+the dev stand-in, paid) a cash-out of a running accumulator through the confirm sheet, a jackpot entry settled with its prize, back-office flows (staff TOTP login, withdrawal approval, trading, RBAC 403s), compliance (reconciliation, an AML flag and hold) and SMS/USSD bets through the dev simulator. Run it with `bash e2e/scripts/stack.sh start && pnpm e2e`.
 
 **Phase 6 review (13 Oct 2026).** Three adversarial reviews (money, security, reliability) confirmed 15
 findings; all are fixed with regression tests. Highlights:
@@ -94,7 +94,9 @@ statements incl. direction) under an advisory lock with missed-day catch-up; AML
 structuring, deposits-then-withdraw over all deposits since the last withdrawal, cash-out churn) with
 withdrawal holds that only `aml.review` staff can release; players only ever see `manual_review`.
 Left for Phase 12: run manual reconciliation off the request path and make the balance continuity
-scan incremental.
+scan incremental. **Later removed** (the ELS has no counterpart in the new target market): the ELS
+stream, the daily summaries and the `els_commission` setting (migration 0032 drops their tables), and
+`docs/compliance.md`.
 
 **Phase 11 (19 Oct 2026).** SMS/USSD channel, off by default (`SMS_BETTING_ENABLED`, `USSD_ENABLED`;
 licensed mode refuses the mock aggregators). Core `textcommand` (`GAMEID#PICK[#GAMEID#PICK…]#STAKE`,
@@ -120,7 +122,7 @@ new passwords need 8 characters and must not be among the 10,000 most common (se
 account-wide delay no longer refuses addresses without failures (the right password and code get in);
 api/worker connect as the restricted role `vamos_app` (migration 0030; only the migrate job uses the owner,
 `APP_DB_PASSWORD`); encrypted, checksummed WAL backups (`pnpm test:infra`); dependency upgrades (prod audit
-clean); licensed mode refuses http provider/callback/ELS URLs; Caddy `STAFF_ALLOWLIST` covers the admin host
+clean); licensed mode refuses http provider/callback URLs; Caddy `STAFF_ALLOWLIST` covers the admin host
 and `/admin*` on the api host; proxy and web/admin container hardening; dev compose on loopback. Checks green: format, typecheck, lint, 2,251 unit and
 integration tests, `pnpm test:infra`, build, and the 16-test e2e suite run with the api and worker connected
 as `vamos_app` (home page first load 150.5 KB). `pnpm audit --prod`: no known vulnerabilities.
@@ -140,14 +142,10 @@ production compose build (Docker Hub rate limit); the CI docker job runs it.
 
 ## Legal context (do not change)
 
-- Ethiopia revoked all sports betting licences on 15 Dec 2025. Vamos Entertainment PLC was one of the
-  22 suspended operators. The Ethiopian Lottery Service (ELS) is preparing a stricter relaunch with
-  real-time transaction monitoring.
-- So the platform runs as a **play-money demo**: `OPERATING_MODE=demo` is the default, with "Demo ETB",
+- The platform runs as a **play-money demo**: `OPERATING_MODE=demo` is the default, with "Demo ETB",
   mock payment/KYC/SMS providers and a permanent "DEMO – no real money" banner.
-- `OPERATING_MODE=licensed` refuses to start unless all of these hold: an ELS licence number, ELS
-  reporting enabled, real payment and KYC providers, `TAX_CONFIG_CONFIRMED=true`, `NODE_ENV=production`
-  and a non-default `SESSION_SECRET`. The guard is in `packages/config/src/config.ts`. Never weaken it.
+- `OPERATING_MODE=licensed` refuses to start unless all of these hold: real payment and KYC
+  providers, `TAX_CONFIG_CONFIRMED=true`, `NODE_ENV=production` and a non-default `SESSION_SECRET`. The guard is in `packages/config/src/config.ts`. Never weaken it.
 - The `database_identity` table ties a database to one mode. API and worker both call
   `claimOperatingMode` at startup and refuse to run against a database of the other mode.
 - Excluded by policy: casino, crash and virtual games; crypto; agent/cash channels; payouts to a
@@ -310,7 +308,12 @@ payload})`, `claimOutboxBatch(tx, limit, {maxAttempts})` (FOR UPDATE SKIP LOCKED
     `markOutboxPublished`, `markOutboxFailed`, `writeAudit(...)`, and `getSetting` / `setSetting`.
     `getSetting` returns raw JSON, so santim values come back as strings.
   - **Settings keys:** `bet_rules`, `multi_bonus`, `tax`, `cash_out`, `live_bet_delay_ms`,
-    `responsible_gambling` and `jackpots`.
+    `responsible_gambling`, `jackpots`, `payments` and `risk_limits` (the house liability caps: the largest
+    liability on one selection and on one match, each a positive amount or null for no cap; checked in
+    `placeBet`, see `docs/therundown-plan/README.md` rule L1) and `market_families` (plan task 2.5:
+    factory margins per class, main 600 / derivative 700 / long 1200 bps, and per family; the factory
+    selections' share of the selection cap, 2500 bps; the weekly family job's stake floor, 100,000 ETB;
+    see `docs/scraper.md` 6.5a).
   - **Catalogue.** `isSelectionBettable(event, marketStatus, selectionStatus, now)`.
     `resultEvent(tx, eventId, input)` sets `selections.result` and the market status, then writes the
     outbox event `event.resulted` or `event.result_corrected`. The payload is `{eventId, status,
@@ -401,8 +404,7 @@ score, previous?}`. It also returns `'unchanged'` when nothing changed. The serv
 
 ## Business defaults
 
-All of these become editable in admin (Phase 9) and are listed in `docs/compliance.md` as
-"confirm with counsel". The constants live in `packages/core/src/rules.ts`.
+All of these become editable in admin (Phase 9) and are placeholders to "confirm with counsel". The constants live in `packages/core/src/rules.ts`.
 
 | Setting                     | Default                                                                                |
 | --------------------------- | -------------------------------------------------------------------------------------- |
@@ -531,7 +533,7 @@ commit and a push.
   - On `event.resulted` / `event.result_corrected`, read `selections.result`, which `resultEvent` has
     already set, for every open leg on that event, and update the leg states.
   - For each affected bet, lock the bet row. Once `canSettle` allows, run `settleBet`, post the
-    ledger entries and set the status. Then enqueue `bet.settled`; SMS and ELS consume it later.
+    ledger entries and set the status. Then enqueue `bet.settled`; SMS consumes it later.
   - A `cancelled` result (feed withdrawal, postponement) voids the legs. A void leg counts as 1.00.
   - A correction reverses the old settlement with `settlement_reversal` and settles again with the
     next version. Never edit ledger rows.
@@ -732,7 +734,7 @@ Every admin action writes to the audit log (`writeAudit`).
 
 ## Out of scope / backlog
 
-- casino, crash and virtual games, unless the new ELS rules allow them
+- casino, crash and virtual games
 - live video streaming (the match tracker replaces it)
 - athletics outright markets
 - a real feed adapter (Sportradar or BetConstruct, once there is a contract)

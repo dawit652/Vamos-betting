@@ -26,18 +26,14 @@ export async function pick(button: Locator): Promise<void> {
 }
 
 /**
- * Registers a new player and verifies the phone with the OTP read from the
- * dev SMS inbox, then waits for the wallet with its welcome note.
+ * Registers a new player (phone, password, the 21+ and terms checkbox: the form
+ * asks no date of birth) and verifies the phone with the OTP read from the dev
+ * SMS inbox, then waits for the wallet with its welcome note.
  */
-export async function registerAndVerify(
-  page: Page,
-  phone: string,
-  dateOfBirth: string,
-): Promise<void> {
+export async function registerAndVerify(page: Page, phone: string): Promise<void> {
   await page.goto('/register');
   await page.locator('#reg-phone').fill(phone);
   await page.locator('#reg-password').fill(PASSWORD);
-  await page.locator('#reg-dob').fill(dateOfBirth);
   await page.locator('input[name="acceptTerms"]').check();
   await page.getByRole('button', { name: 'Register', exact: true }).click();
 

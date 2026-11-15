@@ -93,5 +93,5 @@ export function paymentSmsBody(
     },
   };
   const { en, am } = text[template];
-  return locale === 'en' ? `Vamos: ${en} ${am}` : `Vamos: ${am} ${en}`;
+  return locale === 'en' ? `Nahubet: ${en} ${am}` : `Nahubet: ${am} ${en}`;
 }

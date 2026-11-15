@@ -5,14 +5,14 @@ describe('content security policy (ASVS 14.4.3)', () => {
   it('allows only nonce scripts, its own origin and the API, and no framing', () => {
     const policy = contentSecurityPolicy({
       nonce: 'abc123',
-      apiUrl: 'https://api.vamos.et',
+      apiUrl: 'https://api.nahubet.com',
       dev: false,
     });
     const directives = new Map(
       policy.split('; ').map((d) => [d.split(' ')[0], d.split(' ').slice(1).join(' ')]),
     );
     expect(directives.get('script-src')).toBe("'self' 'nonce-abc123' 'strict-dynamic'");
-    expect(directives.get('connect-src')).toBe("'self' https://api.vamos.et");
+    expect(directives.get('connect-src')).toBe("'self' https://api.nahubet.com");
     expect(directives.get('object-src')).toBe("'none'");
     expect(directives.get('frame-ancestors')).toBe("'none'");
     expect(directives.get('base-uri')).toBe("'self'");

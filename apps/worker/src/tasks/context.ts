@@ -1,5 +1,6 @@
-import type { Database, ElsReporter } from '@vamos/db';
-import type { PaymentProviderRegistry } from '@vamos/payments';
+import type { OwnerAlertsConfig } from '@vamos/config';
+import type { Database } from '@vamos/db';
+import type { PaymentProviderRegistry, ReceiptVerifier } from '@vamos/payments';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { QueueConfig } from '../lib/queues';
@@ -27,13 +28,18 @@ export interface TaskContext {
    * in demo mode), used by the payout worker and the deposit reconciliation.
    */
   payments: PaymentProviderRegistry;
+  /**
+   * The receipt verifier of the live SMS rail (RECEIPT_VERIFY=audit): the
+   * receipt audit checks every credited telebirr SMS with it. Absent otherwise.
+   */
+  receipts?: ReceiptVerifier;
   /** The SMS gateway for player notifications (SMS_PROVIDER). */
   sms: SmsSender;
+  /**
+   * Alerts to the owner's phone (OWNER_ALERT_*, plan task 1.11). Absent, or without a number, they
+   * are off: nothing is raised and the `owner.alert` handler does nothing.
+   */
+  ownerAlerts?: OwnerAlertsConfig;
   /** Play-money mode (OPERATING_MODE=demo): channel texts say DEMO. Default true. */
   demo?: boolean;
-  /**
-   * Where the ELS stream and daily summary files go (createElsReporter of
-   * config.els). Absent: createTasks builds it from the configuration.
-   */
-  els?: ElsReporter;
 }

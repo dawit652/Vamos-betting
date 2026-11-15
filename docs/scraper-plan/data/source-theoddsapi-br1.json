@@ -1,0 +1,29 @@
+{
+  "id": "theoddsapi-br1",
+  "name": "The Odds API: Brasileirão Série A prices",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "sportKey": "soccer_brazil_campeonato",
+    "competition": "Brasileirão Série A",
+    "fixtures": true,
+    "bookmakers": [
+      "pinnacle",
+      "betfair_ex_uk",
+      "matchbook",
+      "smarkets",
+      "williamhill",
+      "betsson",
+      "unibet_se",
+      "tipico_de",
+      "marathonbet",
+      "onexbet"
+    ],
+    "markets": ["h2h", "totals"],
+    "horizonDays": 15,
+    "maxBookAgeMinutes": 20
+  }
+}

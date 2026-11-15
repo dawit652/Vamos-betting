@@ -140,9 +140,12 @@ const PREMIER_LEAGUE = football('GB-ENG', [
   ['Brighton', 'Brighton & Hove Albion', 1.15, 1.0],
   ['Burnley', 'Burnley', 0.82, 1.18],
   ['Chelsea', 'Chelsea', 1.35, 0.85],
+  ['Coventry', 'Coventry City', 0.88, 1.12],
   ['Crystal Palace', 'Crystal Palace', 1.05, 0.95],
   ['Everton', 'Everton', 0.92, 1.0],
   ['Fulham', 'Fulham', 1.02, 1.02],
+  ['Hull', 'Hull City', 0.82, 1.18],
+  ['Ipswich', 'Ipswich Town', 0.86, 1.14],
   ['Leeds', 'Leeds United', 0.9, 1.12],
   ['Liverpool', 'Liverpool', 1.55, 0.75],
   ['Man City', 'Manchester City', 1.52, 0.78],
@@ -170,6 +173,14 @@ const LALIGA = football('ES', [
   ['Osasuna', 'CA Osasuna', 0.92, 1.02],
   ['Rayo Vallecano', 'Rayo Vallecano', 0.92, 1.02],
   ['Getafe', 'Getafe CF', 0.82, 0.98],
+  // 2026-27 clubs added for the football-data.org source (starting values; `ratings backfill` learns them).
+  ['Alaves', 'Deportivo Alavés', 0.9, 1.05],
+  ['Elche', 'Elche CF', 0.85, 1.12],
+  ['Levante', 'Levante UD', 0.85, 1.12],
+  ['Malaga', 'Málaga CF', 0.85, 1.12],
+  ['Deportivo', 'Deportivo La Coruña', 0.85, 1.12],
+  ['Espanyol', 'RCD Espanyol', 0.9, 1.05],
+  ['Racing Santander', 'Racing Santander', 0.85, 1.12],
 ]);
 
 const SERIE_A = football('IT', [
@@ -186,6 +197,14 @@ const SERIE_A = football('IT', [
   ['Torino', 'Torino FC', 0.92, 1.0],
   ['Udinese', 'Udinese Calcio', 0.9, 1.05],
   ['Genoa', 'Genoa CFC', 0.88, 1.05],
+  // 2026-27 clubs added for the football-data.org source (starting values; `ratings backfill` learns them).
+  ['Monza', 'AC Monza', 0.85, 1.12],
+  ['Cagliari', 'Cagliari Calcio', 0.9, 1.08],
+  ['Frosinone', 'Frosinone Calcio', 0.85, 1.15],
+  ['Parma', 'Parma Calcio 1913', 0.92, 1.08],
+  ['Lecce', 'US Lecce', 0.85, 1.12],
+  ['Sassuolo', 'US Sassuolo Calcio', 0.92, 1.1],
+  ['Venezia', 'Venezia FC', 0.85, 1.12],
 ]);
 
 const BUNDESLIGA = football('DE', [
@@ -202,6 +221,13 @@ const BUNDESLIGA = football('DE', [
   ['Werder Bremen', 'SV Werder Bremen', 1.02, 1.1],
   ['Union Berlin', '1. FC Union Berlin', 0.9, 1.02],
   ['Hoffenheim', 'TSG Hoffenheim', 1.08, 1.1],
+  // 2026-27 clubs added for the football-data.org source (starting values; `ratings backfill` learns them).
+  ['Koln', '1. FC Köln', 0.95, 1.08],
+  ['Augsburg', 'FC Augsburg', 0.95, 1.1],
+  ['Schalke', 'FC Schalke 04', 0.92, 1.1],
+  ['Hamburg', 'Hamburger SV', 0.95, 1.08],
+  ['Paderborn', 'SC Paderborn 07', 0.85, 1.18],
+  ['Elversberg', 'SV 07 Elversberg', 0.85, 1.18],
 ]);
 
 const LIGUE_1 = football('FR', [
@@ -218,6 +244,242 @@ const LIGUE_1 = football('FR', [
   ['Toulouse', 'Toulouse FC', 0.95, 1.02],
   ['Brest', 'Stade Brestois 29', 0.98, 1.1],
   ['Auxerre', 'AJ Auxerre', 0.9, 1.1],
+  // 2026-27 clubs added for the football-data.org source (starting values; `ratings backfill` learns them).
+  ['Angers', 'Angers SCO', 0.85, 1.1],
+  ['Troyes', 'ES Troyes AC', 0.85, 1.12],
+  ['Lorient', 'FC Lorient', 0.9, 1.1],
+  ['Le Havre', 'Le Havre AC', 0.85, 1.1],
+  ['Le Mans', 'Le Mans FC', 0.82, 1.15],
+  ['Paris FC', 'Paris FC', 0.9, 1.05],
+]);
+
+/**
+ * EFL Championship, the 24 clubs of 2026-27 (openfootball en.2.json). Burnley, West Ham and
+ * Wolves are relegated Premier League clubs and stay the teams of PREMIER_LEAGUE (a club is one
+ * team that can appear in several competitions), so they are not repeated here. The Welsh clubs
+ * carry GB-WLS. Starting values; `ratings backfill` learns them from finished matches.
+ */
+const CHAMPIONSHIP = mixedCountry(
+  'football',
+  ['attack', 'defence'],
+  [
+    ['GB-ENG', 'Southampton', 'Southampton', 1.0, 1.05],
+    ['GB-ENG', 'Sheffield United', 'Sheffield United', 0.95, 1.08],
+    ['GB-ENG', 'Norwich', 'Norwich City', 0.95, 1.08],
+    ['GB-ENG', 'Watford', 'Watford', 0.9, 1.1],
+    ['GB-ENG', 'Middlesbrough', 'Middlesbrough', 0.92, 1.05],
+    ['GB-ENG', 'Stoke', 'Stoke City', 0.85, 1.05],
+    ['GB-ENG', 'Millwall', 'Millwall', 0.82, 1.05],
+    ['GB-ENG', 'West Brom', 'West Bromwich Albion', 0.88, 1.08],
+    ['GB-ENG', 'Birmingham', 'Birmingham City', 0.88, 1.08],
+    ['GB-ENG', 'Blackburn', 'Blackburn Rovers', 0.85, 1.1],
+    ['GB-ENG', 'Bristol City', 'Bristol City', 0.88, 1.1],
+    ['GB-ENG', 'Derby', 'Derby County', 0.85, 1.1],
+    ['GB-ENG', 'Preston', 'Preston North End', 0.82, 1.08],
+    ['GB-ENG', 'Portsmouth', 'Portsmouth', 0.85, 1.12],
+    ['GB-ENG', 'QPR', 'Queens Park Rangers', 0.82, 1.12],
+    ['GB-ENG', 'Charlton', 'Charlton Athletic', 0.82, 1.12],
+    ['GB-ENG', 'Bolton', 'Bolton Wanderers', 0.8, 1.15],
+    ['GB-ENG', 'Lincoln', 'Lincoln City', 0.8, 1.15],
+    ['GB-WLS', 'Cardiff', 'Cardiff City', 0.8, 1.12],
+    ['GB-WLS', 'Swansea', 'Swansea City', 0.85, 1.1],
+    ['GB-WLS', 'Wrexham', 'Wrexham', 0.88, 1.12],
+  ],
+);
+
+/** The Eredivisie, 18 clubs of 2026-27 (openfootball nl.1.json); PSV and Feyenoord are in EUROPEAN_CLUBS. */
+const EREDIVISIE = football('NL', [
+  ['Ajax', 'Ajax', 1.2, 0.95],
+  ['AZ', 'AZ Alkmaar', 1.05, 1.0],
+  ['Twente', 'FC Twente', 1.05, 1.0],
+  ['Utrecht', 'FC Utrecht', 1.0, 1.02],
+  ['Heerenveen', 'SC Heerenveen', 0.95, 1.08],
+  ['Sparta Rotterdam', 'Sparta Rotterdam', 0.95, 1.08],
+  ['Go Ahead Eagles', 'Go Ahead Eagles', 0.95, 1.08],
+  ['NEC', 'NEC Nijmegen', 1.0, 1.05],
+  ['Groningen', 'FC Groningen', 0.92, 1.1],
+  ['Fortuna Sittard', 'Fortuna Sittard', 0.88, 1.12],
+  ['PEC Zwolle', 'PEC Zwolle', 0.88, 1.12],
+  ['Excelsior', 'Excelsior', 0.85, 1.12],
+  ['Willem II', 'Willem II', 0.88, 1.12],
+  ['Cambuur', 'SC Cambuur', 0.85, 1.15],
+  ['ADO Den Haag', 'ADO Den Haag', 0.85, 1.15],
+  ['Telstar', 'Telstar', 0.82, 1.15],
+]);
+
+/** The Primeira Liga, 18 clubs of 2026-27 (openfootball pt.1.json); Porto and Sporting CP are in EUROPEAN_CLUBS. */
+const PRIMEIRA_LIGA = football('PT', [
+  ['Benfica', 'Benfica', 1.2, 0.9],
+  ['Braga', 'Braga', 1.08, 0.98],
+  ['Vitoria Guimaraes', 'Vitória Guimarães', 0.98, 1.02],
+  ['Famalicao', 'Famalicão', 0.95, 1.05],
+  ['Gil Vicente', 'Gil Vicente', 0.92, 1.05],
+  ['Estoril', 'Estoril Praia', 0.92, 1.08],
+  ['Moreirense', 'Moreirense', 0.88, 1.08],
+  ['Rio Ave', 'Rio Ave', 0.88, 1.1],
+  ['Casa Pia', 'Casa Pia', 0.85, 1.1],
+  ['Arouca', 'Arouca', 0.85, 1.1],
+  ['Santa Clara', 'Santa Clara', 0.88, 1.08],
+  ['Nacional', 'Nacional', 0.85, 1.1],
+  ['Estrela Amadora', 'Estrela da Amadora', 0.82, 1.12],
+  ['Alverca', 'Alverca', 0.8, 1.15],
+  ['Maritimo', 'Marítimo', 0.82, 1.12],
+  ['Academico Viseu', 'Académico de Viseu', 0.8, 1.15],
+]);
+
+/** The Brasileirão Série A, 20 clubs of 2026 (openfootball br.1.json). */
+const BRASILEIRAO = football('BR', [
+  ['Palmeiras', 'Palmeiras', 1.25, 0.85],
+  ['Flamengo', 'Flamengo', 1.3, 0.88],
+  ['Botafogo', 'Botafogo', 1.1, 0.95],
+  ['Cruzeiro', 'Cruzeiro', 1.05, 0.95],
+  ['Atletico Mineiro', 'Atlético Mineiro', 1.08, 0.98],
+  ['Fluminense', 'Fluminense', 1.02, 1.0],
+  ['Corinthians', 'Corinthians', 0.98, 0.98],
+  ['Sao Paulo', 'São Paulo', 1.0, 0.98],
+  ['Internacional', 'Internacional', 1.0, 0.98],
+  ['Gremio', 'Grêmio', 1.0, 1.0],
+  ['Bahia', 'Bahia', 1.0, 1.0],
+  ['Vasco', 'Vasco da Gama', 0.98, 1.02],
+  ['Santos', 'Santos', 0.95, 1.05],
+  ['Athletico Paranaense', 'Athletico Paranaense', 0.95, 1.02],
+  ['Bragantino', 'RB Bragantino', 0.95, 1.02],
+  ['Vitoria', 'Vitória', 0.88, 1.08],
+  ['Coritiba', 'Coritiba', 0.85, 1.08],
+  ['Mirassol', 'Mirassol', 0.92, 1.05],
+  ['Chapecoense', 'Chapecoense', 0.82, 1.12],
+  ['Remo', 'Remo', 0.82, 1.12],
+]);
+
+/**
+ * Clubs of the competitions added by task 1.4, named as the openfootball 2025-26 files name them
+ * (tr.1, sco.1, be.1, en.3, en.4). The 2026-27 promoted clubs arrive from The Odds API as
+ * "unknown team" review items. Galatasaray, Fenerbahce and Club Brugge are in EUROPEAN_CLUBS and
+ * Bolton, Cardiff and Lincoln in CHAMPIONSHIP (one team can sit in several competitions), so
+ * they are not repeated. Starting values only: no `matches`, so rule O1 keeps every club closed
+ * until its ratings are learned or reviewed.
+ */
+const SUPER_LIG = football('TR', [
+  ['Trabzonspor', 'Trabzonspor', 1.0, 1.02],
+  ['Besiktas', 'Beşiktaş', 1.0, 1.0],
+  ['Basaksehir', 'İstanbul Başakşehir', 0.95, 1.05],
+  ['Samsunspor', 'Samsunspor', 0.92, 1.05],
+  ['Goztepe', 'Göztepe', 0.92, 1.05],
+  ['Konyaspor', 'Konyaspor', 0.88, 1.08],
+  ['Rizespor', 'Çaykur Rizespor', 0.88, 1.1],
+  ['Eyupspor', 'Eyüpspor', 0.88, 1.1],
+  ['Alanyaspor', 'Alanyaspor', 0.88, 1.08],
+  ['Antalyaspor', 'Antalyaspor', 0.85, 1.1],
+  ['Kasimpasa', 'Kasımpaşa', 0.85, 1.1],
+  ['Fatih Karagumruk', 'Fatih Karagümrük', 0.85, 1.1],
+  ['Kayserispor', 'Kayserispor', 0.85, 1.12],
+  ['Gaziantep', 'Gaziantep FK', 0.85, 1.12],
+  ['Genclerbirligi', 'Gençlerbirliği', 0.82, 1.12],
+  ['Kocaelispor', 'Kocaelispor', 0.8, 1.15],
+]);
+
+const SCOTTISH_PREMIERSHIP = football('GB-SCT', [
+  ['Celtic', 'Celtic', 1.15, 0.9],
+  ['Rangers', 'Rangers', 1.1, 0.95],
+  ['Hearts', 'Heart of Midlothian', 1.0, 1.02],
+  ['Aberdeen', 'Aberdeen', 0.95, 1.05],
+  ['Hibernian', 'Hibernian', 0.95, 1.05],
+  ['Motherwell', 'Motherwell', 0.88, 1.1],
+  ['Dundee United', 'Dundee United', 0.88, 1.1],
+  ['Kilmarnock', 'Kilmarnock', 0.85, 1.12],
+  ['Dundee', 'Dundee', 0.85, 1.12],
+  ['St Mirren', 'St. Mirren', 0.82, 1.12],
+  ['Livingston', 'Livingston', 0.8, 1.15],
+  ['Falkirk', 'Falkirk', 0.8, 1.15],
+]);
+
+const BELGIAN_PRO_LEAGUE = football('BE', [
+  ['Anderlecht', 'RSC Anderlecht', 1.05, 1.0],
+  ['Union SG', 'Union Saint-Gilloise', 1.0, 1.0],
+  ['Genk', 'KRC Genk', 1.0, 1.02],
+  ['Gent', 'KAA Gent', 0.98, 1.02],
+  ['Antwerp', 'Royal Antwerp FC', 0.95, 1.05],
+  ['Cercle Brugge', 'Cercle Brugge', 0.9, 1.08],
+  ['Mechelen', 'KV Mechelen', 0.9, 1.08],
+  ['Standard Liege', 'Standard Liège', 0.88, 1.08],
+  ['Charleroi', 'Sporting Charleroi', 0.88, 1.08],
+  ['Westerlo', 'KVC Westerlo', 0.88, 1.1],
+  ['OH Leuven', 'Oud-Heverlee Leuven', 0.85, 1.1],
+  ['Sint-Truiden', 'Sint-Truidense VV', 0.85, 1.1],
+  ['Zulte Waregem', 'SV Zulte Waregem', 0.82, 1.12],
+  ['Dender', 'FCV Dender EH', 0.8, 1.15],
+  ['La Louviere', 'RAAL La Louvière', 0.78, 1.18],
+]);
+
+const LEAGUE_ONE = football('GB-ENG', [
+  ['Luton', 'Luton Town', 0.9, 1.1],
+  ['Huddersfield', 'Huddersfield Town', 0.85, 1.12],
+  ['Reading', 'Reading', 0.85, 1.12],
+  ['Wigan', 'Wigan Athletic', 0.85, 1.12],
+  ['Plymouth', 'Plymouth Argyle', 0.85, 1.12],
+  ['Peterborough', 'Peterborough United', 0.85, 1.15],
+  ['Stockport', 'Stockport County', 0.85, 1.12],
+  ['Blackpool', 'Blackpool', 0.82, 1.15],
+  ['Barnsley', 'Barnsley', 0.82, 1.15],
+  ['Rotherham', 'Rotherham United', 0.82, 1.15],
+  ['Leyton Orient', 'Leyton Orient', 0.82, 1.15],
+  ['Wycombe', 'Wycombe Wanderers', 0.82, 1.15],
+  ['Bradford', 'Bradford City', 0.8, 1.15],
+  ['Mansfield', 'Mansfield Town', 0.8, 1.15],
+  ['Exeter', 'Exeter City', 0.8, 1.15],
+  ['Stevenage', 'Stevenage', 0.8, 1.15],
+  ['Northampton', 'Northampton Town', 0.8, 1.18],
+  ['Doncaster', 'Doncaster Rovers', 0.8, 1.18],
+  ['Port Vale', 'Port Vale', 0.78, 1.18],
+  ['Burton', 'Burton Albion', 0.78, 1.18],
+  ['AFC Wimbledon', 'AFC Wimbledon', 0.78, 1.18],
+]);
+
+const LEAGUE_TWO = football('GB-ENG', [
+  ['Notts County', 'Notts County', 0.82, 1.15],
+  ['MK Dons', 'Milton Keynes Dons', 0.8, 1.15],
+  ['Bristol Rovers', 'Bristol Rovers', 0.8, 1.15],
+  ['Salford', 'Salford City', 0.8, 1.18],
+  ['Walsall', 'Walsall', 0.8, 1.18],
+  ['Chesterfield', 'Chesterfield', 0.8, 1.18],
+  ['Cambridge', 'Cambridge United', 0.78, 1.18],
+  ['Bromley', 'Bromley', 0.78, 1.18],
+  ['Grimsby', 'Grimsby Town', 0.78, 1.18],
+  ['Swindon', 'Swindon Town', 0.78, 1.18],
+  ['Gillingham', 'Gillingham', 0.78, 1.18],
+  ['Crewe', 'Crewe Alexandra', 0.78, 1.2],
+  ['Barnet', 'Barnet', 0.78, 1.2],
+  ['Fleetwood', 'Fleetwood Town', 0.78, 1.2],
+  ['Colchester', 'Colchester United', 0.76, 1.2],
+  ['Shrewsbury', 'Shrewsbury Town', 0.76, 1.2],
+  ['Tranmere', 'Tranmere Rovers', 0.76, 1.2],
+  ['Cheltenham', 'Cheltenham Town', 0.76, 1.2],
+  ['Harrogate', 'Harrogate Town', 0.76, 1.2],
+  ['Accrington', 'Accrington Stanley', 0.76, 1.2],
+  ['Crawley', 'Crawley Town', 0.75, 1.22],
+  ['Barrow', 'Barrow', 0.75, 1.22],
+  ['Newport', 'Newport County', 0.75, 1.22],
+  ['Oldham', 'Oldham Athletic', 0.75, 1.22],
+]);
+
+/**
+ * Liga de Fútbol de Primera División (Liga FPD), the 10 clubs of Apertura 2026
+ * (docs/scraper-plan/sources-costa-rica.md). Ratings are deliberately neutral
+ * and carry neither `matches` nor `manual`, so rule O1 treats every club as
+ * NOT calibrated until a trader runs `ratings set` or `ratings backfill`.
+ * Spanish names need no translation, hence English-only names.
+ */
+const COSTA_RICAN_PRIMERA = football('CR', [
+  ['Alajuelense', 'Liga Deportiva Alajuelense', 1, 1],
+  ['Saprissa', 'Deportivo Saprissa', 1, 1],
+  ['Herediano', 'Club Sport Herediano', 1, 1],
+  ['Cartaginés', 'Club Sport Cartaginés', 1, 1],
+  ['Pérez Zeledón', 'Municipal Pérez Zeledón', 1, 1],
+  ['Puntarenas', 'Puntarenas Fútbol Club', 1, 1],
+  ['Sporting CR', 'Sporting Football Club', 1, 1],
+  ['San Carlos', 'Asociación Deportiva San Carlos', 1, 1],
+  ['Inter San Carlos', 'Inter San Carlos', 1, 1],
+  ['Escorpiones', 'Escorpiones de Belén', 1, 1],
 ]);
 
 const ETHIOPIAN_PREMIER_LEAGUE = football('ET', [
@@ -327,14 +589,53 @@ const VOLLEYBALL_NATIONS = mixedCountry(
   ],
 );
 
+/**
+ * 2026-27 UEFA Champions League clubs from leagues the catalogue does not offer. Their ratings
+ * are hand-set on the scale of the five top leagues (a club's ratings elsewhere are relative to
+ * its own league's average, so a dominant club of a weaker league would look too strong);
+ * infra/scripts/add-champions-league.sh marks them as reviewed (manual).
+ */
+const EUROPEAN_CLUBS = mixedCountry(
+  'football',
+  ['attack', 'defence'],
+  [
+    ['NL', 'PSV', 'PSV Eindhoven', 1.15, 0.95],
+    ['NL', 'Feyenoord', 'Feyenoord Rotterdam', 1.08, 0.98],
+    ['PT', 'Porto', 'FC Porto', 1.12, 0.92],
+    ['PT', 'Sporting CP', 'Sporting Clube de Portugal', 1.15, 0.92],
+    ['NO', 'Bodo/Glimt', 'FK Bodø/Glimt', 0.95, 1.08],
+    ['NO', 'Viking', 'Viking FK', 0.82, 1.18],
+    ['TR', 'Fenerbahce', 'Fenerbahçe SK', 1.02, 1.0],
+    ['TR', 'Galatasaray', 'Galatasaray SK', 1.05, 1.0],
+    ['BE', 'Club Brugge', 'Club Brugge KV', 1.0, 1.0],
+    ['CZ', 'Slavia Prague', 'SK Slavia Praha', 0.92, 1.05],
+    ['GR', 'AEK Athens', 'AEK Athens FC', 0.88, 1.08],
+    ['UA', 'Shakhtar Donetsk', 'FC Shakhtar Donetsk', 0.92, 1.08],
+    ['AT', 'LASK', 'LASK', 0.82, 1.15],
+    ['SK', 'Slovan Bratislava', 'ŠK Slovan Bratislava', 0.8, 1.2],
+    ['AZ', 'Sabah', 'Sabah FK', 0.75, 1.25],
+  ],
+);
+
 export const CATALOG_TEAMS: readonly CatalogTeam[] = [
   ...PREMIER_LEAGUE,
   ...LALIGA,
   ...SERIE_A,
   ...BUNDESLIGA,
   ...LIGUE_1,
+  ...COSTA_RICAN_PRIMERA,
   ...ETHIOPIAN_PREMIER_LEAGUE,
   ...CAF_CLUBS,
+  ...EUROPEAN_CLUBS,
+  ...CHAMPIONSHIP,
+  ...EREDIVISIE,
+  ...PRIMEIRA_LIGA,
+  ...BRASILEIRAO,
+  ...SUPER_LIG,
+  ...SCOTTISH_PREMIERSHIP,
+  ...BELGIAN_PRO_LEAGUE,
+  ...LEAGUE_ONE,
+  ...LEAGUE_TWO,
   ...NBA,
   ...ATP_PLAYERS,
   ...VOLLEYBALL_NATIONS,
@@ -343,6 +644,24 @@ export const CATALOG_TEAMS: readonly CatalogTeam[] = [
 const shortNames = (list: readonly CatalogTeam[]) => list.map((team) => team.shortName);
 
 export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
+  {
+    // Home market, listed first. Sort order 5 sits before the existing 10..80 so
+    // databases seeded earlier (whose sort orders the seed never rewrites) agree.
+    sport: 'football',
+    slug: 'costa-rica',
+    name: { en: 'Costa Rica' },
+    countryCode: 'CR',
+    sortOrder: 5,
+    competitions: [
+      {
+        slug: 'primera-division',
+        name: { en: 'Primera División' },
+        featured: true,
+        sortOrder: 10,
+        teams: shortNames(COSTA_RICAN_PRIMERA),
+      },
+    ],
+  },
   {
     sport: 'football',
     slug: 'england',
@@ -356,6 +675,42 @@ export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
         featured: true,
         sortOrder: 10,
         teams: shortNames(PREMIER_LEAGUE),
+      },
+      {
+        slug: 'championship',
+        name: { en: 'EFL Championship', am: 'ኢኤፍኤል ቻምፒዮንሺፕ' },
+        featured: false,
+        sortOrder: 20,
+        // Relegated Premier League clubs are the same teams as in the Premier League above.
+        teams: ['Burnley', 'West Ham', 'Wolves', ...shortNames(CHAMPIONSHIP)],
+      },
+      {
+        slug: 'league-one',
+        name: { en: 'EFL League One', am: 'ኢኤፍኤል ሊግ አንድ' },
+        featured: false,
+        sortOrder: 30,
+        teams: ['Bolton', 'Cardiff', 'Lincoln', ...shortNames(LEAGUE_ONE)],
+      },
+      {
+        slug: 'league-two',
+        name: { en: 'EFL League Two', am: 'ኢኤፍኤል ሊግ ሁለት' },
+        featured: false,
+        sortOrder: 40,
+        teams: shortNames(LEAGUE_TWO),
+      },
+      {
+        slug: 'fa-cup',
+        name: { en: 'FA Cup', am: 'ኤፍኤ ካፕ' },
+        featured: false,
+        sortOrder: 50,
+        teams: [],
+      },
+      {
+        slug: 'efl-cup',
+        name: { en: 'EFL Cup', am: 'ኢኤፍኤል ካፕ' },
+        featured: false,
+        sortOrder: 60,
+        teams: [],
       },
     ],
   },
@@ -389,6 +744,13 @@ export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
         sortOrder: 10,
         teams: shortNames(LALIGA),
       },
+      {
+        slug: 'copa-del-rey',
+        name: { en: 'Copa del Rey', am: 'ኮፓ ዴል ሬይ' },
+        featured: false,
+        sortOrder: 20,
+        teams: [],
+      },
     ],
   },
   {
@@ -404,6 +766,13 @@ export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
         featured: true,
         sortOrder: 10,
         teams: shortNames(SERIE_A),
+      },
+      {
+        slug: 'coppa-italia',
+        name: { en: 'Coppa Italia', am: 'ኮፓ ኢታሊያ' },
+        featured: false,
+        sortOrder: 20,
+        teams: [],
       },
     ],
   },
@@ -421,6 +790,13 @@ export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
         sortOrder: 10,
         teams: shortNames(BUNDESLIGA),
       },
+      {
+        slug: 'dfb-pokal',
+        name: { en: 'DFB-Pokal', am: 'ዲኤፍቢ ፖካል' },
+        featured: false,
+        sortOrder: 20,
+        teams: [],
+      },
     ],
   },
   {
@@ -436,6 +812,141 @@ export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
         featured: false,
         sortOrder: 10,
         teams: shortNames(LIGUE_1),
+      },
+      {
+        slug: 'coupe-de-france',
+        name: { en: 'Coupe de France', am: 'ኩፕ ደ ፍራንስ' },
+        featured: false,
+        sortOrder: 20,
+        teams: [],
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'netherlands',
+    name: { en: 'Netherlands', am: 'ኔዘርላንድስ' },
+    countryCode: 'NL',
+    sortOrder: 62,
+    competitions: [
+      {
+        slug: 'eredivisie',
+        name: { en: 'Eredivisie', am: 'ኤርዴቪዚ' },
+        featured: false,
+        sortOrder: 10,
+        teams: ['PSV', 'Feyenoord', ...shortNames(EREDIVISIE)],
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'belgium',
+    name: { en: 'Belgium', am: 'ቤልጂየም' },
+    countryCode: 'BE',
+    sortOrder: 63,
+    competitions: [
+      {
+        slug: 'belgian-pro-league',
+        name: { en: 'Belgian Pro League', am: 'የቤልጂየም ፕሮ ሊግ' },
+        featured: false,
+        sortOrder: 10,
+        teams: ['Club Brugge', ...shortNames(BELGIAN_PRO_LEAGUE)],
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'portugal',
+    name: { en: 'Portugal', am: 'ፖርቱጋል' },
+    countryCode: 'PT',
+    sortOrder: 64,
+    competitions: [
+      {
+        slug: 'primeira-liga',
+        name: { en: 'Primeira Liga', am: 'ፕሪሜይራ ሊጋ' },
+        featured: false,
+        sortOrder: 10,
+        teams: ['Porto', 'Sporting CP', ...shortNames(PRIMEIRA_LIGA)],
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'scotland',
+    name: { en: 'Scotland', am: 'ስኮትላንድ' },
+    countryCode: 'GB-SCT',
+    sortOrder: 65,
+    competitions: [
+      {
+        slug: 'scottish-premiership',
+        name: { en: 'Scottish Premiership', am: 'የስኮትላንድ ፕሪሚየርሺፕ' },
+        featured: false,
+        sortOrder: 10,
+        teams: shortNames(SCOTTISH_PREMIERSHIP),
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'brazil',
+    name: { en: 'Brazil', am: 'ብራዚል' },
+    countryCode: 'BR',
+    sortOrder: 66,
+    competitions: [
+      {
+        slug: 'brasileirao-serie-a',
+        name: { en: 'Brasileirão Série A', am: 'ብራዚሌይራኦ ሴሪ አ' },
+        featured: false,
+        sortOrder: 10,
+        teams: shortNames(BRASILEIRAO),
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'switzerland',
+    name: { en: 'Switzerland', am: 'ስዊዘርላንድ' },
+    countryCode: 'CH',
+    sortOrder: 67,
+    competitions: [
+      {
+        slug: 'swiss-super-league',
+        name: { en: 'Swiss Super League', am: 'የስዊስ ሱፐር ሊግ' },
+        featured: false,
+        sortOrder: 10,
+        teams: [],
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'turkey',
+    name: { en: 'Turkey', am: 'ቱርክ' },
+    countryCode: 'TR',
+    sortOrder: 68,
+    competitions: [
+      {
+        slug: 'super-lig',
+        name: { en: 'Süper Lig', am: 'ሱፐር ሊግ' },
+        featured: false,
+        sortOrder: 10,
+        teams: ['Galatasaray', 'Fenerbahce', ...shortNames(SUPER_LIG)],
+      },
+    ],
+  },
+  {
+    sport: 'football',
+    slug: 'saudi-arabia',
+    name: { en: 'Saudi Arabia', am: 'ሳዑዲ ዓረቢያ' },
+    countryCode: 'SA',
+    sortOrder: 69,
+    competitions: [
+      {
+        slug: 'saudi-pro-league',
+        name: { en: 'Saudi Pro League', am: 'የሳዑዲ ፕሮ ሊግ' },
+        featured: false,
+        sortOrder: 10,
+        teams: [],
       },
     ],
   },
@@ -469,6 +980,20 @@ export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
           'PSG',
           'Monaco',
         ],
+      },
+      {
+        slug: 'uefa-europa-league',
+        name: { en: 'UEFA Europa League', am: 'የአውሮፓ ዩሮፓ ሊግ' },
+        featured: false,
+        sortOrder: 20,
+        teams: [],
+      },
+      {
+        slug: 'uefa-conference-league',
+        name: { en: 'UEFA Conference League', am: 'የአውሮፓ ኮንፈረንስ ሊግ' },
+        featured: false,
+        sortOrder: 30,
+        teams: [],
       },
     ],
   },

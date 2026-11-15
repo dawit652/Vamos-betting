@@ -350,6 +350,37 @@ describe('placeBet', () => {
       ).toEqual({ selections: [{ selectionId: closed.home, reason: 'suspended' }] });
     });
 
+    it('refuses a bet inside the close lead before kick-off, and takes no stake', async () => {
+      const startTime = new Date(Date.now() + 60 * 60_000);
+      const late = await createEvent(handle.db, ids, { startTime });
+      // The lead a late feed sets: betting closes 5 minutes before the start time.
+      await handle.db
+        .update(events)
+        .set({ closeLeadMs: 5 * 60_000 })
+        .where(eq(events.id, late.eventId));
+      const userId = await player();
+      const ok = await place(handle.db, userId, {
+        stake: birr(10),
+        legs: [{ selectionId: late.home, oddsMilli: 2000 }],
+        settings,
+        now: new Date(startTime.getTime() - 6 * 60_000),
+      });
+      expect(ok.bet.status).toBe('open');
+      const balance = await getBalance(handle.db, cash(userId));
+      const error = await domainError(
+        place(handle.db, userId, {
+          stake: birr(10),
+          legs: [{ selectionId: late.home, oddsMilli: 2000 }],
+          settings,
+          now: new Date(startTime.getTime() - 4 * 60_000),
+        }),
+      );
+      expect(error.details).toEqual({
+        selections: [{ selectionId: late.home, reason: 'event_started' }],
+      });
+      expect(await getBalance(handle.db, cash(userId))).toBe(balance);
+    });
+
     it('refuses a selection of an inactive competition', async () => {
       const own = await createEvent(handle.db, ids);
       const competitionId = ids.competitions.get('football/premier-league')!;

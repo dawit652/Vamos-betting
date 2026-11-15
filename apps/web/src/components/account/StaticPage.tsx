@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
 import { getT } from '@/i18n/server';
+import { IS_DEMO } from '@/lib/mode';
 
 /**
  * Layout of the short static pages (help, terms, responsible gambling): server
- * only, no client JavaScript. Always ends with the 21+ and play-money notices.
+ * only, no client JavaScript. Always ends with the 21+ notice, and the play-money
+ * notice in a demo build.
  */
 export async function StaticPage({
   title,
@@ -16,7 +18,7 @@ export async function StaticPage({
 }) {
   const t = await getT();
   return (
-    <article className="space-y-3 px-3 pt-3">
+    <article className="mx-auto max-w-2xl space-y-3 px-3 pt-3">
       <header className="space-y-1">
         <h1 className="text-lg font-bold">{title}</h1>
         <p className="text-muted">{intro}</p>
@@ -24,7 +26,7 @@ export async function StaticPage({
       {children}
       <aside className="card space-y-1 border-l-4 border-accent-strong text-xs font-semibold">
         <p>{t('common.rg.ageNotice')}</p>
-        <p>{t('common.demo.banner')}</p>
+        {IS_DEMO ? <p>{t('common.demo.banner')}</p> : null}
       </aside>
     </article>
   );

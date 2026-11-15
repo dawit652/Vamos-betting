@@ -1,0 +1,819 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
+import { creditKeyOf } from '../fetch/credit-guard';
+import type { MarketOddsObservation, RawDocument, SourceAdapter } from '../types';
+import {
+  createAdapter,
+  readTheOddsApiUsage,
+  safeParse,
+  THEODDSAPI_AUTH_HEADER,
+  theOddsApiCost,
+  theOddsApiMayGoToExtraTime,
+  theOddsApiScoreBasis,
+  theOddsApiUrl,
+  TheOddsApiConfigSchema,
+} from './index';
+
+/**
+ * The documents are SYNTHETIC, in the shape The Odds API returned to the Phase 0 probe
+ * (docs/theoddsapi-plan/README.md, section 10): an array of events, each with bookmakers, each
+ * with `h2h` and `totals` markets. Rules A1 to A8 of that plan.
+ */
+
+const FETCHED_AT = new Date('2026-11-07T10:00:00Z');
+const config = {
+  allowedHosts: ['api.the-odds-api.com'],
+  secret: 'SCRAPER_SECRET_THEODDSAPI',
+  sport: 'football',
+  sportKey: 'soccer_epl',
+  competition: 'Premier League',
+  bookmakers: ['pinnacle', 'williamhill', 'betsson'],
+};
+const URL = theOddsApiUrl(TheOddsApiConfigSchema.parse(config));
+
+function build(cfg: unknown = config): SourceAdapter {
+  const r = createAdapter({
+    id: 'odds-epl',
+    adapter: 'theoddsapi',
+    upstream: 'TheOddsAPI',
+    config: cfg,
+  });
+  if (!r.ok) throw new Error(r.errors.join('; '));
+  return r.adapter;
+}
+function refused(cfg: unknown): string[] {
+  const r = createAdapter({ id: 's', adapter: 'theoddsapi', upstream: 'u', config: cfg });
+  if (r.ok) throw new Error('expected the config to be refused');
+  return r.errors;
+}
+const doc = (body: unknown, url = URL): RawDocument => ({
+  sourceId: 'odds-epl',
+  url,
+  status: 200,
+  contentType: 'application/json',
+  body: typeof body === 'string' ? body : JSON.stringify(body),
+  fetchedAt: FETCHED_AT,
+  contentHash: 'h',
+});
+const parse = (body: unknown, cfg: unknown = config, url?: string) =>
+  safeParse(build(cfg), doc(body, url));
+
+// --- document builders ------------------------------------------------------------------------
+
+const RECENT = '2026-11-07T09:58:00Z';
+type Outcome = { name: string; price: unknown; point?: number };
+const h2h = (home: unknown, draw: unknown, away: unknown, last_update = RECENT) => ({
+  key: 'h2h',
+  last_update,
+  outcomes: [
+    { name: 'Arsenal', price: home },
+    { name: 'Draw', price: draw },
+    { name: 'Chelsea', price: away },
+  ] as Outcome[],
+});
+const totals = (point: number, over: unknown, under: unknown, last_update = RECENT) => ({
+  key: 'totals',
+  last_update,
+  outcomes: [
+    { name: 'Over', price: over, point },
+    { name: 'Under', price: under, point },
+  ] as Outcome[],
+});
+const book = (key: string, markets: unknown[]) => ({
+  key,
+  title: key,
+  last_update: RECENT,
+  markets,
+});
+const event = (bookmakers: unknown[], over: Record<string, unknown> = {}) => ({
+  id: 'e1a2b3',
+  sport_key: 'soccer_epl',
+  sport_title: 'EPL',
+  commence_time: '2026-11-07T15:00:00Z',
+  home_team: 'Arsenal',
+  away_team: 'Chelsea',
+  bookmakers,
+  ...over,
+});
+
+const odds = (rows: readonly MarketOddsObservation[]) =>
+  rows.map(
+    (r) =>
+      `${r.bookmaker} ${r.market}${r.line === null ? '' : ` ${r.line}`} ${r.selection} ${r.priceMilli}`,
+  );
+const codes = (outcome: ReturnType<typeof parse>) => outcome.issues.map((i) => i.code);
+
+// --- config -----------------------------------------------------------------------------------
+
+describe('theoddsapi usage (A9)', () => {
+  it('reads the three usage headers, and expects 2 credits a request', () => {
+    expect(build().usage?.expectedCost).toBe(2);
+    expect(
+      readTheOddsApiUsage({
+        'x-requests-last': '2',
+        'x-requests-used': '17',
+        'x-requests-remaining': '483',
+      }),
+    ).toEqual({ last: 2, used: 17, remaining: 483 });
+    // The API sometimes sends a float form.
+    expect(readTheOddsApiUsage({ 'x-requests-remaining': '483.0' })).toEqual({
+      last: null,
+      used: null,
+      remaining: 483,
+    });
+    expect(
+      readTheOddsApiUsage({ 'x-requests-remaining': '-1', 'x-requests-last': 'two' }),
+    ).toBeNull();
+    expect(readTheOddsApiUsage({})).toBeNull();
+  });
+});
+
+describe('theoddsapi config (A1, A2)', () => {
+  it('asks once per run for the listed books and markets, the key in a header', () => {
+    const plan = build().plan(FETCHED_AT);
+    expect(plan).toEqual([
+      {
+        url: 'https://api.the-odds-api.com/v4/sports/soccer_epl/odds?bookmakers=pinnacle%2Cwilliamhill%2Cbetsson&markets=h2h%2Ctotals&oddsFormat=decimal&dateFormat=iso',
+        purpose: 'odds',
+        auth: { header: THEODDSAPI_AUTH_HEADER, secret: 'SCRAPER_SECRET_THEODDSAPI' },
+      },
+    ]);
+    // Never the query-string key, never regions.
+    expect(plan[0]!.url).not.toMatch(/apiKey|regions/);
+  });
+
+  it('costs markets × regions: 2 credits for up to ten books, 1 for one market', () => {
+    const parsed = TheOddsApiConfigSchema.parse(config);
+    expect(theOddsApiCost(parsed)).toBe(2);
+    expect(theOddsApiCost({ ...parsed, markets: ['h2h'] })).toBe(1);
+  });
+
+  it('refuses an eleventh book, a book listed twice, a foreign host and a key in the config', () => {
+    const eleven = Array.from({ length: 11 }, (_, i) => `book${i}`);
+    expect(refused({ ...config, bookmakers: eleven }).join()).toMatch(/bookmakers/);
+    expect(refused({ ...config, bookmakers: ['pinnacle', 'pinnacle'] }).join()).toMatch(/twice/);
+    expect(refused({ ...config, bookmakers: ['pinnacle'] }).join()).toMatch(/bookmakers/);
+    expect(refused({ ...config, allowedHosts: ['example.com'] }).join()).toMatch(/allowedHosts/);
+    expect(refused({ ...config, secret: 'abc123secretvalue' }).join()).toMatch(/NAME/);
+    expect(refused({ ...config, sportKey: 'Soccer EPL' }).join()).toMatch(/sportKey/);
+    expect(refused({ ...config, apiKey: 'x' }).length).toBeGreaterThan(0);
+  });
+});
+
+// --- parsing ----------------------------------------------------------------------------------
+
+describe('theoddsapi parse (A3 to A8)', () => {
+  it('reads complete books into price rows: the draw by name, prices converted exactly', () => {
+    const out = parse([
+      event([
+        book('pinnacle', [h2h(2.07, 3.5, 3.6), totals(2.75, 1.95, 1.9)]),
+        book('williamhill', [h2h(2.05, 3.4, 3.5), totals(2.5, 1.952, 1.85)]),
+      ]),
+    ]);
+    expect(out.issues).toEqual([]);
+    expect(out.fixtures).toEqual([]);
+    expect(out.results).toEqual([]);
+    expect(odds(out.marketOdds)).toEqual([
+      'pinnacle 1x2 1 2070',
+      'pinnacle 1x2 X 3500',
+      'pinnacle 1x2 2 3600',
+      'williamhill 1x2 1 2050',
+      'williamhill 1x2 X 3400',
+      'williamhill 1x2 2 3500',
+      // Pinnacle's 2.75 is a quarter line: left out, routinely (no warning).
+      'williamhill ou 2.5 over 1952',
+      'williamhill ou 2.5 under 1850',
+    ]);
+    const first = out.marketOdds[0]!;
+    expect(first).toMatchObject({
+      kind: 'market_odds',
+      sourceId: 'odds-epl',
+      externalRef: 'e1a2b3',
+      sport: 'football',
+      competition: 'Premier League',
+      home: 'Arsenal',
+      away: 'Chelsea',
+      kickoff: new Date('2026-11-07T15:00:00Z'),
+      priceUpdatedAt: new Date(RECENT),
+      observedAt: FETCHED_AT,
+    });
+  });
+
+  it('matches outcomes by name, in any order', () => {
+    const shuffled = h2h(2.1, 3.3, 3.4);
+    shuffled.outcomes.reverse();
+    const out = parse([event([book('betsson', [shuffled])])]);
+    expect(odds(out.marketOdds)).toEqual([
+      'betsson 1x2 1 2100',
+      'betsson 1x2 X 3300',
+      'betsson 1x2 2 3400',
+    ]);
+  });
+
+  it('drops a book without its draw, or with one side of a line', () => {
+    const noDraw = h2h(2.1, 3.3, 3.4);
+    noDraw.outcomes = noDraw.outcomes.filter((o) => o.name !== 'Draw');
+    const oneSide = totals(2.5, 1.9, 1.9);
+    oneSide.outcomes = oneSide.outcomes.slice(0, 1);
+    const out = parse([event([book('betsson', [noDraw, oneSide])])]);
+    expect(out.marketOdds).toEqual([]);
+    expect(codes(out)).toEqual(['prices_dropped']);
+    expect(out.issues[0]!.context).toMatchObject({ incompleteBooks: 2 });
+  });
+
+  it('keeps a 3.5 line and leaves out whole and quarter lines', () => {
+    const out = parse([
+      event([
+        book('williamhill', [totals(3.5, 2.6, 1.5)]),
+        book('pinnacle', [totals(3, 1.9, 1.95), totals(2.25, 1.8, 2.05)]),
+      ]),
+    ]);
+    expect(odds(out.marketOdds)).toEqual([
+      'williamhill ou 3.5 over 2600',
+      'williamhill ou 3.5 under 1500',
+    ]);
+  });
+
+  it('skips matches that have started and matches beyond the horizon', () => {
+    const out = parse([
+      event([book('betsson', [h2h(2, 3, 4)])], {
+        id: 'live',
+        commence_time: '2026-11-07T09:30:00Z',
+      }),
+      event([book('betsson', [h2h(2, 3, 4)])], {
+        id: 'far',
+        commence_time: '2026-12-01T15:00:00Z',
+      }),
+      event([book('betsson', [h2h(2, 3, 4)])], { id: 'next' }),
+    ]);
+    expect(new Set(out.marketOdds.map((r) => r.externalRef))).toEqual(new Set(['next']));
+    expect(out.issues).toEqual([]);
+    const wider = parse(
+      [
+        event([book('betsson', [h2h(2, 3, 4)])], {
+          id: 'far',
+          commence_time: '2026-12-01T15:00:00Z',
+        }),
+      ],
+      { ...config, horizonDays: 30 },
+    );
+    expect(wider.marketOdds).toHaveLength(3);
+  });
+
+  it('reads only the listed books', () => {
+    const out = parse([
+      event([book('paddypower', [h2h(2, 3, 4)]), book('betsson', [h2h(2, 3, 4)])]),
+    ]);
+    expect(new Set(out.marketOdds.map((r) => r.bookmaker))).toEqual(new Set(['betsson']));
+    expect(out.issues[0]!.context).toMatchObject({ bookNotListed: 1 });
+  });
+
+  it('drops a book listed twice with different prices, and keeps one listed twice the same', () => {
+    const conflict = parse([
+      event([book('betsson', [h2h(2, 3, 4)]), book('betsson', [h2h(2.1, 3, 4)])]),
+    ]);
+    expect(conflict.marketOdds).toEqual([]);
+    expect(conflict.issues[0]!.context).toMatchObject({ conflictingBooks: 1 });
+    const twice = parse([
+      event([book('betsson', [h2h(2, 3, 4)]), book('betsson', [h2h(2, 3, 4)])]),
+    ]);
+    expect(twice.marketOdds).toHaveLength(3);
+  });
+
+  it('drops a stale market and one dated in the future (A7)', () => {
+    const out = parse([
+      event([
+        book('betsson', [h2h(2, 3, 4, '2026-11-07T09:30:00Z')]), // 30 min old: over 20
+        book('pinnacle', [h2h(2, 3, 4, '2026-11-07T10:10:00Z')]), // 10 min ahead
+        book('williamhill', [h2h(2, 3, 4, '2026-11-07T10:03:00Z')]), // 3 min ahead: a clock skew
+      ]),
+    ]);
+    expect(new Set(out.marketOdds.map((r) => r.bookmaker))).toEqual(new Set(['williamhill']));
+    expect(out.issues[0]!.context).toMatchObject({ staleMarkets: 1, futureMarkets: 1 });
+    const keepAll = parse([event([book('betsson', [h2h(2, 3, 4, '2026-11-06T09:30:00Z')])])], {
+      ...config,
+      maxBookAgeMinutes: null,
+    });
+    expect(keepAll.marketOdds).toHaveLength(3);
+  });
+
+  it('refuses the whole page when the prices are not decimal odds (A6)', () => {
+    const american = Array.from({ length: 6 }, (_, i) =>
+      event([book('betsson', [h2h(-150, -110, 0.5)])], { id: `e${i}` }),
+    );
+    const out = parse(american);
+    expect(out.issues.some((i) => i.fatal && i.code === 'wrong_price_format')).toBe(true);
+  });
+
+  it('is fatal for an error answer, a non-array, bad JSON or another source’s URL', () => {
+    const error = parse({
+      message: 'Usage quota has been reached',
+      error_code: 'OUT_OF_USAGE_CREDITS',
+    });
+    expect(error.issues[0]).toMatchObject({
+      fatal: true,
+      code: 'bad_shape',
+      context: { errorCode: 'OUT_OF_USAGE_CREDITS' },
+    });
+    expect(parse('{not json').issues[0]).toMatchObject({ fatal: true, code: 'bad_json' });
+    const other = parse(
+      [event([book('betsson', [h2h(2, 3, 4)])])],
+      config,
+      'https://api.the-odds-api.com/v4/sports/soccer_spain_la_liga/odds?markets=h2h',
+    );
+    expect(other.issues[0]).toMatchObject({ fatal: true, code: 'unknown_request' });
+    expect(other.marketOdds).toEqual([]);
+  });
+
+  it('drops an event of another sport key or without names or time, and keeps the rest', () => {
+    const out = parse([
+      event([book('betsson', [h2h(2, 3, 4)])], {
+        id: 'la-liga',
+        sport_key: 'soccer_spain_la_liga',
+      }),
+      event([book('betsson', [h2h(2, 3, 4)])], { id: 'nameless', home_team: '' }),
+      event([book('betsson', [h2h(2, 3, 4)])], { id: 'timeless', commence_time: 'Saturday' }),
+      event([book('betsson', [h2h(2, 3, 4)])], { id: 'good' }),
+    ]);
+    expect(new Set(out.marketOdds.map((r) => r.externalRef))).toEqual(new Set(['good']));
+    expect(codes(out).sort()).toEqual(['bad_name', 'bad_time', 'sport_mismatch']);
+  });
+
+  it('never throws, whatever the body (property)', () => {
+    const adapter = build();
+    const anyJson = fc.jsonValue({ maxDepth: 6 });
+    const eventish = fc.record({
+      id: fc.oneof(fc.string(), fc.integer()),
+      sport_key: fc.constantFrom('soccer_epl', 'x', 5),
+      commence_time: fc.oneof(fc.constant('2026-11-07T15:00:00Z'), fc.string()),
+      home_team: fc.oneof(fc.constant('Arsenal'), fc.string(), fc.constant(null)),
+      away_team: fc.oneof(fc.constant('Chelsea'), fc.string()),
+      bookmakers: fc.array(
+        fc.record({
+          key: fc.constantFrom('betsson', 'pinnacle', 'other', 1),
+          last_update: fc.oneof(fc.constant(RECENT), fc.string()),
+          markets: fc.array(
+            fc.record({
+              key: fc.constantFrom('h2h', 'totals', 'spreads'),
+              outcomes: fc.array(
+                fc.record({
+                  name: fc.constantFrom('Arsenal', 'Chelsea', 'Draw', 'Over', 'Under', ''),
+                  price: fc.oneof(fc.double(), fc.string(), fc.constant(null), fc.integer()),
+                  point: fc.oneof(fc.double(), fc.constant(2.5), fc.constant(undefined)),
+                }),
+                { maxLength: 4 },
+              ),
+            }),
+            { maxLength: 3 },
+          ),
+        }),
+        { maxLength: 4 },
+      ),
+    });
+    fc.assert(
+      fc.property(fc.oneof(anyJson, fc.array(eventish, { maxLength: 5 })), (body) => {
+        const outcome = safeParse(adapter, doc(body));
+        for (const row of outcome.marketOdds) {
+          expect(Number.isInteger(row.priceMilli)).toBe(true);
+        }
+      }),
+      { numRuns: 300 },
+    );
+  });
+});
+
+describe('fixtures from the odds response (a second kickoff upstream)', () => {
+  const withFixtures = { ...config, fixtures: true };
+  const books = [book('pinnacle', [h2h(2.1, 3.4, 3.6)]), book('williamhill', [h2h(2.0, 3.3, 3.5)])];
+
+  it('reports each upcoming match once, at its commence_time, without counting records', () => {
+    const out = parse(
+      [
+        event(books),
+        event(books, { id: 'e2', commence_time: '2026-11-08T14:00:00Z', home_team: 'Fulham' }),
+        event(books, { id: 'live', commence_time: '2026-11-07T09:00:00Z' }),
+        event(books, { id: 'far', commence_time: '2026-12-30T15:00:00Z' }),
+      ],
+      withFixtures,
+    );
+    expect(
+      out.fixtures.map((f) => [f.externalRef, f.home, f.away, f.kickoff.toISOString()]),
+    ).toEqual([
+      ['e1a2b3', 'Arsenal', 'Chelsea', '2026-11-07T15:00:00.000Z'],
+      ['e2', 'Fulham', 'Chelsea', '2026-11-08T14:00:00.000Z'],
+    ]);
+    expect(
+      out.fixtures.every((f) => f.status === 'scheduled' && f.competition === 'Premier League'),
+    ).toBe(true);
+    expect(out.results).toEqual([]);
+    // S1 does not watch these pages: neither prices nor companion fixtures count.
+    expect(out.stats).toEqual({ recordsSeen: 4, recordsAccepted: 0 });
+    expect(out.marketOdds.length).toBeGreaterThan(0);
+  });
+
+  it('a match without usable prices is still a fixture; without the flag nothing changes', () => {
+    expect(parse([event([])], withFixtures).fixtures).toHaveLength(1);
+    const plain = parse([event(books)]);
+    expect(plain.fixtures).toEqual([]);
+    expect(plain.stats.recordsAccepted).toBe(0);
+  });
+});
+
+describe('scores mode (a second result upstream)', () => {
+  const scoresConfig = {
+    allowedHosts: ['api.the-odds-api.com'],
+    secret: 'SCRAPER_SECRET_THEODDSAPI',
+    sport: 'football',
+    sportKey: 'soccer_epl',
+    competition: 'Premier League',
+    mode: 'scores',
+    scoreBasis: 'regular_time',
+  };
+  const SCORES_URL = theOddsApiUrl(TheOddsApiConfigSchema.parse(scoresConfig));
+  const game = (over: Record<string, unknown> = {}) => ({
+    id: 'g1',
+    sport_key: 'soccer_epl',
+    sport_title: 'EPL',
+    commence_time: '2026-11-06T20:00:00Z',
+    completed: true,
+    home_team: 'Arsenal',
+    away_team: 'Chelsea',
+    scores: [
+      { name: 'Arsenal', score: '2' },
+      { name: 'Chelsea', score: '1' },
+    ],
+    last_update: '2026-11-06T21:55:00Z',
+    ...over,
+  });
+  const parseScores = (body: unknown) => parse(body, scoresConfig, SCORES_URL);
+
+  it('reads /scores with daysFrom, for the results schedule, at 2 credits', () => {
+    const adapter = build(scoresConfig);
+    expect(adapter.plan(FETCHED_AT)).toEqual([
+      {
+        url: 'https://api.the-odds-api.com/v4/sports/soccer_epl/scores?daysFrom=1&dateFormat=iso',
+        purpose: 'results',
+        auth: { header: THEODDSAPI_AUTH_HEADER, secret: 'SCRAPER_SECRET_THEODDSAPI' },
+      },
+    ]);
+    expect(theOddsApiCost(TheOddsApiConfigSchema.parse(scoresConfig))).toBe(2);
+  });
+
+  it('yields a finished full-time score per completed match, without counting records', () => {
+    const out = parseScores([
+      game(),
+      game({ id: 'g2', completed: false, scores: null }),
+      game({
+        id: 'g3',
+        home_team: 'Fulham',
+        scores: [
+          { name: 'Fulham', score: '0' },
+          { name: 'Chelsea', score: '0' },
+        ],
+      }),
+    ]);
+    expect(
+      out.results.map((r) => [r.externalRef, r.home, r.away, r.status, r.score, r.scoreBasis]),
+    ).toEqual([
+      [
+        'g1',
+        'Arsenal',
+        'Chelsea',
+        'finished',
+        { home: 2, away: 1, htHome: null, htAway: null },
+        'regular_time',
+      ],
+      [
+        'g3',
+        'Fulham',
+        'Chelsea',
+        'finished',
+        { home: 0, away: 0, htHome: null, htAway: null },
+        'regular_time',
+      ],
+    ]);
+    expect(out.fixtures).toEqual([]);
+    expect(out.marketOdds).toEqual([]);
+    expect(out.issues).toEqual([]);
+    expect(out.stats).toEqual({ recordsSeen: 3, recordsAccepted: 0 });
+  });
+
+  it('skips a completed match whose scores are missing, unnamed, doubled or not whole numbers', () => {
+    const bad = [
+      game({ id: 'a', scores: null }),
+      game({ id: 'b', scores: [{ name: 'Arsenal', score: '2' }] }),
+      game({
+        id: 'c',
+        scores: [
+          { name: 'Arsenal', score: '2' },
+          { name: 'Arsenal', score: '1' },
+          { name: 'Chelsea', score: '1' },
+        ],
+      }),
+      game({
+        id: 'd',
+        scores: [
+          { name: 'Arsenal', score: '2.5' },
+          { name: 'Chelsea', score: '1' },
+        ],
+      }),
+      game({
+        id: 'e',
+        scores: [
+          { name: 'Arsenal FC', score: '2' },
+          { name: 'Chelsea', score: '1' },
+        ],
+      }),
+    ];
+    const out = parseScores(bad);
+    expect(out.results).toEqual([]);
+    expect(out.issues.filter((i) => i.code === 'bad_score')).toHaveLength(5);
+  });
+
+  it('refuses a completed match that starts in the future and a page of the other endpoint', () => {
+    const future = parseScores([game({ commence_time: '2026-11-07T12:00:00Z' })]);
+    expect(future.results).toEqual([]);
+    expect(future.issues.map((i) => i.code)).toEqual(['bad_time']);
+    const wrong = parse([game()], scoresConfig, URL);
+    expect(wrong.issues[0]).toMatchObject({ code: 'unknown_request', fatal: true });
+    const oddsOnScores = parse([event([])], config, SCORES_URL);
+    expect(oddsOnScores.issues[0]).toMatchObject({ code: 'unknown_request', fatal: true });
+  });
+
+  describe('A10: a knockout competition’s scores have an unknown basis (S-4)', () => {
+    const cupConfig = {
+      ...scoresConfig,
+      sportKey: 'soccer_fa_cup',
+      competition: 'FA Cup',
+      // What the repository files said before S-4: the adapter must not believe it.
+      scoreBasis: 'regular_time',
+    };
+    const CUP_URL = theOddsApiUrl(TheOddsApiConfigSchema.parse(cupConfig));
+    const cupGame = (over: Record<string, unknown> = {}) =>
+      game({ sport_key: 'soccer_fa_cup', sport_title: 'FA Cup', ...over });
+
+    it('marks a cup score unknown even when the config says regular_time', () => {
+      // 2-1 could be 1-1 after 90 minutes and a goal in extra time: /scores does not say.
+      const out = parse([cupGame()], cupConfig, CUP_URL);
+      expect(out.issues).toEqual([]);
+      expect(out.results.map((r) => [r.status, r.score, r.scoreBasis])).toEqual([
+        ['finished', { home: 2, away: 1, htHome: null, htAway: null }, 'unknown'],
+      ]);
+    });
+
+    it('keeps a basis that is already not regular time, and a league’s regular_time', () => {
+      for (const basis of ['unknown', 'includes_extra_time'] as const) {
+        const out = parse([cupGame()], { ...cupConfig, scoreBasis: basis }, CUP_URL);
+        expect(out.results.map((r) => r.scoreBasis)).toEqual([basis]);
+      }
+      expect(parseScores([game()]).results.map((r) => r.scoreBasis)).toEqual(['regular_time']);
+    });
+
+    it.each([
+      'soccer_fa_cup',
+      'soccer_england_efl_cup',
+      'soccer_spain_copa_del_rey',
+      'soccer_germany_dfb_pokal',
+      'soccer_italy_coppa_italia',
+      'soccer_france_coupe_de_france',
+      'soccer_uefa_champs_league',
+      'soccer_uefa_europa_league',
+      'soccer_uefa_europa_conference_league',
+      'soccer_conmebol_copa_libertadores',
+      'soccer_fifa_world_cup',
+      'soccer_uefa_european_championship',
+      'soccer_uefa_nations_league',
+    ])('%s can go to extra time', (key) => {
+      expect(theOddsApiMayGoToExtraTime(key)).toBe(true);
+      const parsed = TheOddsApiConfigSchema.parse({ ...scoresConfig, sportKey: key });
+      expect(theOddsApiScoreBasis(parsed)).toBe('unknown');
+    });
+
+    it.each([
+      'soccer_epl',
+      'soccer_efl_champ',
+      'soccer_england_league1',
+      'soccer_germany_bundesliga',
+      'soccer_spain_la_liga',
+      'soccer_turkey_super_league',
+      'soccer_switzerland_superleague',
+      'soccer_saudi_arabia_pro_league',
+      'soccer_spl',
+      'soccer_brazil_campeonato',
+    ])('%s is a league: the configured basis stands', (key) => {
+      expect(theOddsApiMayGoToExtraTime(key)).toBe(false);
+      const parsed = TheOddsApiConfigSchema.parse({ ...scoresConfig, sportKey: key });
+      expect(theOddsApiScoreBasis(parsed)).toBe('regular_time');
+    });
+
+    it('never reports a regular-time score for a key with a knockout word (property)', () => {
+      const word = fc.stringMatching(/^[a-z0-9]{1,8}$/);
+      const knockout = fc.constantFrom(
+        'cup',
+        'pokal',
+        'copa',
+        'coupe',
+        'coppa',
+        'champs',
+        'europa',
+      );
+      const basis = fc.constantFrom('regular_time', 'includes_extra_time', 'unknown');
+      fc.assert(
+        fc.property(
+          fc.array(word, { maxLength: 3 }),
+          knockout,
+          fc.array(word, { maxLength: 3 }),
+          basis,
+          fc.nat({ max: 9 }),
+          fc.nat({ max: 9 }),
+          (before, cup, after, configured, home, away) => {
+            const sportKey = ['soccer', ...before, cup, ...after].join('_').slice(0, 60);
+            if (!sportKey.split('_').includes(cup)) return; // cut by the 60-character limit
+            const cfg = { ...scoresConfig, sportKey, scoreBasis: configured };
+            const out = parse(
+              [
+                game({
+                  sport_key: sportKey,
+                  scores: [
+                    { name: 'Arsenal', score: String(home) },
+                    { name: 'Chelsea', score: String(away) },
+                  ],
+                }),
+              ],
+              cfg,
+              theOddsApiUrl(TheOddsApiConfigSchema.parse(cfg)),
+            );
+            expect(out.results).toHaveLength(1);
+            expect(out.results[0]?.scoreBasis).not.toBe('regular_time');
+          },
+        ),
+        { numRuns: 300 },
+      );
+    });
+  });
+
+  it('needs a score basis, takes no bookmakers requirement, and refuses fixtures', () => {
+    expect(refused({ ...scoresConfig, scoreBasis: undefined }).join()).toContain('scoreBasis');
+    expect(refused({ ...scoresConfig, fixtures: true }).join()).toContain('fixtures');
+    expect(refused({ ...config, bookmakers: undefined }).join()).toContain('bookmakers');
+    expect(() => build(scoresConfig)).not.toThrow();
+  });
+});
+
+describe('events mode: the free fixture list (plan task 1.4)', () => {
+  const eventsConfig = {
+    allowedHosts: ['api.the-odds-api.com'],
+    secret: 'SCRAPER_SECRET_THEODDSAPI',
+    sport: 'football',
+    sportKey: 'soccer_epl',
+    competition: 'Premier League',
+    mode: 'events',
+  };
+  const EVENTS_URL = theOddsApiUrl(TheOddsApiConfigSchema.parse(eventsConfig));
+  // SYNTHETIC: see __fixtures__/README.md (read at FETCHED_AT).
+  const fixtureFile = readFileSync(
+    new globalThis.URL('./__fixtures__/theoddsapi-events-epl.synthetic.json', import.meta.url),
+    'utf8',
+  );
+  const parseEvents = (body: unknown) => parse(body, eventsConfig, EVENTS_URL);
+
+  it('reads /events for the fixtures schedule, with the key in a header, and it is free', () => {
+    const adapter = build(eventsConfig);
+    expect(adapter.plan(FETCHED_AT)).toEqual([
+      {
+        url: 'https://api.the-odds-api.com/v4/sports/soccer_epl/events?dateFormat=iso',
+        purpose: 'fixtures',
+        auth: { header: THEODDSAPI_AUTH_HEADER, secret: 'SCRAPER_SECRET_THEODDSAPI' },
+      },
+    ]);
+    // Zero credits: nothing for `sources budget` (no odds or results request) and an unexpected
+    // cost above 0 raises the alarm.
+    expect(theOddsApiCost(TheOddsApiConfigSchema.parse(eventsConfig))).toBe(0);
+    expect(adapter.usage?.expectedCost).toBe(0);
+    expect(
+      adapter.plan(FETCHED_AT).some((p) => p.purpose === 'odds' || p.purpose === 'results'),
+    ).toBe(false);
+    // It shares the key (so the key's 401 alarm covers it) but a metered source's cost stays 2.
+    expect(creditKeyOf('events', adapter.plan(FETCHED_AT))).toBe('SCRAPER_SECRET_THEODDSAPI');
+    expect(build(config).usage?.expectedCost).toBe(2);
+  });
+
+  it('turns the free list into fixture observations: kickoff UTC, names, the event id as reference', () => {
+    const out = parseEvents(fixtureFile);
+    expect(
+      out.fixtures.map((f) => [f.externalRef, f.home, f.away, f.kickoff.toISOString(), f.status]),
+    ).toEqual([
+      ['synthetic-evt-0001', 'Arsenal', 'Chelsea', '2026-11-14T12:30:00.000Z', 'scheduled'],
+      ['synthetic-evt-0002', 'Fulham', 'Everton', '2026-11-20T16:30:00.000Z', 'scheduled'],
+    ]);
+    expect(out.fixtures.every((f) => f.competition === 'Premier League')).toBe(true);
+    expect(out.results).toEqual([]);
+    expect(out.marketOdds).toEqual([]);
+    // Started and far matches are skipped quietly; another sport key and a bad time are issues.
+    expect(codes(out).sort()).toEqual(['bad_time', 'sport_mismatch']);
+    // Not counted as records (like the other companion fixtures): the S1 shape check ignores it.
+    expect(out.stats.recordsAccepted).toBe(0);
+  });
+
+  it('is fatal for an error answer, a non-array or the odds page of the same key', () => {
+    expect(
+      parseEvents({ message: 'quota', error_code: 'OUT_OF_USAGE_CREDITS' }).issues[0],
+    ).toMatchObject({
+      code: 'bad_shape',
+    });
+    expect(codes(parseEvents('nope'))).toEqual(['bad_json']);
+    expect(codes(parse([], eventsConfig, URL))).toEqual(['unknown_request']);
+  });
+
+  it('takes no bookmakers and no fixtures flag; the odds and scores modes are unchanged', () => {
+    expect(refused({ ...eventsConfig, bookmakers: ['pinnacle', 'betsson'] }).join()).toContain(
+      'bookmakers',
+    );
+    expect(refused({ ...eventsConfig, fixtures: true }).join()).toContain('fixtures');
+    expect(() => build(eventsConfig)).not.toThrow();
+    expect(theOddsApiUrl(TheOddsApiConfigSchema.parse(config))).toContain('/odds?');
+    expect(build(config).plan(FETCHED_AT)[0]?.purpose).toBe('odds');
+    expect(TheOddsApiConfigSchema.parse(config).mode).toBe('odds');
+  });
+});
+
+describe('the repository source files (docs/scraper-plan/data)', () => {
+  // `URL` is this file's request URL; the constructor is the global one.
+  const data = new globalThis.URL('../../../../docs/scraper-plan/data/', import.meta.url);
+  const read = (name: string) =>
+    JSON.parse(readFileSync(new globalThis.URL(name, data), 'utf8')) as {
+      id: string;
+      adapter: string;
+      upstream: string;
+      config: Record<string, unknown>;
+    };
+  it.each(['en1', 'de1', 'es1', 'it1', 'fr1'])(
+    'theoddsapi-%s reports fixtures; its scores source reads the same league',
+    (key) => {
+      const odds = read(`source-theoddsapi-${key}.json`);
+      const scores = read(`source-theoddsapi-scores-${key}.json`);
+      for (const file of [odds, scores]) {
+        expect(file.adapter).toBe('theoddsapi');
+        expect(file.upstream).toBe('TheOddsAPI');
+        const r = createAdapter({
+          id: file.id,
+          adapter: 'theoddsapi',
+          upstream: file.upstream,
+          config: file.config,
+        });
+        expect(r.ok).toBe(true);
+      }
+      expect(odds.config.fixtures).toBe(true);
+      expect(scores.config).toMatchObject({
+        mode: 'scores',
+        scoreBasis: 'regular_time',
+        daysFrom: 1,
+      });
+      for (const field of ['sportKey', 'competition', 'secret', 'sport', 'allowedHosts']) {
+        expect(scores.config[field]).toEqual(odds.config[field]);
+      }
+    },
+  );
+
+  it('the draft free events source reads the same league as the prices source, with no credits', () => {
+    const odds = read('source-theoddsapi-en1.json');
+    const events = read('source-theoddsapi-events-en1.json');
+    expect(events.upstream).toBe('TheOddsAPI');
+    const r = createAdapter({
+      id: events.id,
+      adapter: 'theoddsapi',
+      upstream: events.upstream,
+      config: events.config,
+    });
+    expect(r.ok && r.adapter.usage?.expectedCost).toBe(0);
+    expect(events.config.mode).toBe('events');
+    for (const field of ['sportKey', 'competition', 'secret', 'sport', 'allowedHosts']) {
+      expect(events.config[field]).toEqual(odds.config[field]);
+    }
+  });
+
+  it('every scores source says unknown for a knockout competition, regular_time for a league (S-4)', () => {
+    const files = readdirSync(data).filter((f) => /^source-theoddsapi-scores-.+\.json$/.test(f));
+    expect(files.length).toBeGreaterThanOrEqual(24);
+    const cups: string[] = [];
+    for (const name of files) {
+      const file = read(name);
+      const config = TheOddsApiConfigSchema.parse(file.config);
+      const cup = theOddsApiMayGoToExtraTime(config.sportKey);
+      if (cup) cups.push(config.competition);
+      expect(config.scoreBasis, name).toBe(cup ? 'unknown' : 'regular_time');
+      expect(theOddsApiScoreBasis(config), name).toBe(config.scoreBasis);
+    }
+    expect(cups.sort()).toEqual([
+      'Copa del Rey',
+      'Coppa Italia',
+      'Coupe de France',
+      'DFB-Pokal',
+      'EFL Cup',
+      'FA Cup',
+      'UEFA Conference League',
+      'UEFA Europa League',
+    ]);
+  });
+});

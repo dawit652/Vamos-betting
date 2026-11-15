@@ -9,7 +9,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 const SECTIONS = ['collect', 'use', 'share', 'keep', 'rights', 'consent'] as const;
 
-/** What personal data Vamos keeps, why and for how long (ASVS 8.3.3; wording to confirm with counsel). */
+/** What personal data Nahubet keeps, why and for how long (ASVS 8.3.3; wording to confirm with counsel). */
 export default async function PrivacyPage() {
   const t = await getT();
   return (

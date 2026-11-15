@@ -12,12 +12,15 @@ import {
 import {
   claimOperatingMode,
   createDb,
-  createElsReporter,
   getDatabaseInstallationId,
   LIVE_CHANNEL,
   OperatingModeMismatchError,
 } from '@vamos/db';
-import { createPaymentProviders, PaymentProviderError } from '@vamos/payments';
+import {
+  createPaymentProviders,
+  createReceiptVerifier,
+  PaymentProviderError,
+} from '@vamos/payments';
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
 import { startHealthServer, workerReadinessChecks, type HealthServer } from './lib/health';
@@ -126,10 +129,21 @@ async function main(): Promise<void> {
       channel: LIVE_CHANNEL,
       queues: { redisUrl: config.redisUrl, prefix: config.queuePrefix },
       payments,
+      // The live SMS rail's receipt audit (RECEIPT_VERIFY=audit): Ethio Telecom's receipt page.
+      ...(config.providers.payments.includes('sms') &&
+      config.payments.sms.mode === 'live' &&
+      config.payments.sms.receiptVerify === 'audit'
+        ? {
+            receipts: createReceiptVerifier({
+              fetch: globalThis.fetch,
+              clock: () => new Date(),
+              timeoutMs: config.payments.sms.receiptVerifyTimeoutMs,
+            }),
+          }
+        : {}),
       sms,
+      ownerAlerts: config.ownerAlerts,
       demo: config.mode === 'demo',
-      // ELS_REPORTING_MODE (file in demo: JSONL + CSV under ELS_REPORT_DIR).
-      els: createElsReporter(config.els),
     },
     {
       // FEED_ROLLING_* (e2e runs with a fixture every minute); the competitions

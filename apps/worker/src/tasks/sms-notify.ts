@@ -4,6 +4,7 @@ import {
   BET_REJECTED,
   CHANNEL_SMS_REPLY,
   DEPOSIT_SUCCEEDED,
+  OWNER_ALERT,
   schema,
   WITHDRAWAL_FAILED,
   WITHDRAWAL_PAID,
@@ -14,7 +15,13 @@ import { createQueueWorker, QUEUE_NAMES, type QueueWorker } from '../lib/queues'
 import { paymentSmsBody, type PaymentSmsTemplate } from '../lib/sms';
 import type { WorkerTask } from '../worker';
 import type { TaskContext } from './context';
-import type { ChannelReplySmsJobData, LiveBetSmsJobData, SmsJobData } from './outbox-dispatch';
+import { processOwnerAlertJob, type OwnerAlertResult } from './owner-alert';
+import type {
+  ChannelReplySmsJobData,
+  LiveBetSmsJobData,
+  OwnerAlertSmsJobData,
+  SmsJobData,
+} from './outbox-dispatch';
 
 /**
  * SMS notifications: a BullMQ worker on the `sms` queue, fed by the outbox
@@ -27,7 +34,8 @@ import type { ChannelReplySmsJobData, LiveBetSmsJobData, SmsJobData } from './ou
  *
  * It also sends the replies to inbound SMS (channel.sms_reply, Phase 11):
  * the text was built when the SMS was handled, so it is sent as it is; and
- * the outcome of live bets placed by SMS or USSD (bet.accepted / rejected).
+ * the outcome of live bets placed by SMS or USSD (bet.accepted / rejected),
+ * and the alerts to the owner's phone (owner.alert, plan task 1.11: owner-alert.ts).
  */
 
 const TEMPLATES: Readonly<Record<string, PaymentSmsTemplate>> = {
@@ -45,6 +53,7 @@ export interface SmsNotifyOptions {
 export const LIVE_BET_OUTCOME_TEMPLATE = 'channel_live_bet';
 
 export type SmsJobResult =
+  | OwnerAlertResult
   | {
       sent: true;
       template:
@@ -55,6 +64,10 @@ export type SmsJobResult =
 
 function isChannelReply(data: SmsJobData): data is ChannelReplySmsJobData {
   return data.type === CHANNEL_SMS_REPLY;
+}
+
+function isOwnerAlert(data: SmsJobData): data is OwnerAlertSmsJobData {
+  return data.type === OWNER_ALERT;
 }
 
 function isLiveBetOutcome(data: SmsJobData): data is LiveBetSmsJobData {
@@ -120,6 +133,7 @@ export async function processSmsJob(ctx: TaskContext, data: SmsJobData): Promise
     const { id } = await ctx.sms.send({ to: data.to, body: data.body, template: data.template });
     return { sent: true, template: data.template, messageId: id };
   }
+  if (isOwnerAlert(data)) return processOwnerAlertJob(ctx, data);
   if (isLiveBetOutcome(data)) return sendLiveBetOutcome(ctx, data);
   const template = TEMPLATES[data.type];
   if (template === undefined) {

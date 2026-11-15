@@ -105,7 +105,7 @@ test('finance approves a player withdrawal in the back office and it gets paid',
   // one wins and pays at least S), then withdraw S, which waits for staff review.
   const stake = 500_000n; // ETB 5,000
   await test.step('register and get verified (KYC, mock Fayda registry)', async () => {
-    await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+    await registerAndVerify(page, phone);
     await page.goto('/account/kyc');
     const fin = verifiableFayda();
     await page.locator('#kyc-id').fill(fin);
@@ -263,7 +263,7 @@ test('a trader suspends an event, voids a market and a selection, results anothe
   const stake = '1000'; // ETB 10
 
   await test.step('a player with ETB 1,000', async () => {
-    await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+    await registerAndVerify(page, phone);
     await demoTopUp(page.request, '100000');
     expect((await getWallet(page.request)).cash).toBe('100000');
   });

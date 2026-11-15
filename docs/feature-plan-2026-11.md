@@ -1,0 +1,237 @@
+# Feature plan: competitors and more leagues (2026-11)
+
+Goal: close the gap with the Ethiopian market leaders (Melbet Ethiopia, Hulusport) on the things a
+mobile bettor notices first (how many matches and leagues, how many markets, how fast the site
+is), without the verticals our policy excludes.
+
+## 0. What was checked and what was not
+
+- **nahubet.com** (read 2026-11-07): live, demo mode ("የሙከራ ሁነታ – በእውነተኛ ገንዘብ አይደለም"),
+  Amharic by default, four sports (football, basketball, tennis, volleyball), bottom bar
+  Home / Live / My bets / Jackpot / Account, tabs Highlights / Today / Upcoming / Leagues,
+  Serie A and LaLiga matches with 1X2 and "+10" more markets.
+- **The code** (this repository, branch `claude/exciting-feynman-fxbdz3`): inventory in section 1.
+- **melbet-et.mobi** redirects to melbet.org, which resets the connection from our (non-Ethiopian)
+  servers. **hulusport.com** answers "Only available in Ethiopia … Turn off your VPN". Geo-blocks
+  were not bypassed. Public reviews are thin and promotional.
+- **Both sites were then observed** through the owner's browser in Ethiopia (2026-11-07, Claude in
+  Chrome, no login on Melbet, no bet, no deposit): details in [competitor-notes.md](competitor-notes.md).
+
+Rule for everything below: take **features and UX patterns**, never their code, images, logos,
+colours or text.
+
+## 1. Where Nahubet stands
+
+| Area             | Nahubet today (verified in code)                                                                | Hulusport (observed)                                                                                                | Melbet (observed, not logged in)                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Leagues          | 13 seeded; matches only where a source exists (top 5 + Champions League, Costa Rica)            | 947 football events; 12 top leagues; some African leagues; no Ethiopian league that day                             | 1,964 football events; CAF competitions, AFCON qualifiers (45), 12+ African national leagues; Ethiopia only a women's league           |
+| Other sports     | Basketball, tennis, volleyball                                                                  | 13 sports; table tennis 248, ice hockey 200 events                                                                  | Table tennis 557, basketball 414, ice hockey 248, volleyball 175, tennis 161, cricket 69                                               |
+| Football markets | 1X2, double chance, over/under, BTTS, correct score, draw no bet, half-time 1X2 (~10 per match) | ~125: handicaps, HT/FT, exact goals, odd/even, team totals, corners, goalscorers, 1X2+O/U and 1X2+BTTS combinations | Very deep: tabs for halves, corners, cards, shots, offsides, fouls, player stats; 1X2+BTTS, DC+BTTS; next goal                         |
+| Match page       | Market list                                                                                     | Filter chips (Main, Total, Combination, Half, Handicap), market search, favourite markets                           | Market tabs, "search by market", Bet Builder and Betting on players tabs                                                               |
+| Match list       | Tabs Highlights / Today / Upcoming / Leagues                                                    | Day tabs + calendar, country filter, 1X2 / double chance switch, league headers with star and count, side drawer    | Sport tabs, search, favourites, filter; odds cards in a swipe strip; selected odds highlighted                                         |
+| Live             | Live list and live match with score and clock                                                   | **None found**                                                                                                      | Top Live cards (minute, score, 1X2, "+N"), live accumulators of the day                                                                |
+| Betslip          | Drawer, booking code, odds-change policy, multi bonus, tax; singles and multis                  | Three parallel slips, floating mini slip bar, max win and net pay, default stake 100 ETB                            | Quick slip bar; single, accumulator, system, singles, constructor; quick stakes (+100, +250); accumulator booster; one-click generator |
+| Cash out         | Yes (`CashOut.tsx`)                                                                             | **None found**                                                                                                      | Not visible before login                                                                                                               |
+| Jackpot          | Yes                                                                                             | **None found**                                                                                                      | Toto-15: 15 picks, auto-complete, pool and minimum jackpot shown, countdown, % of players per pick                                     |
+| Promotions       | Multi bonus                                                                                     | 100% first deposit up to 1,000 ETB (6+ picks at 1.50+, total 12+, 5x), referral 10 ETB, fantasy EPL                 | 200% first deposit up to 37,000 ETB, weekly free bets, safe bet, bank cashback, friends bonus                                          |
+| Results          | None                                                                                            | Not seen                                                                                                            | Results page in the menu                                                                                                               |
+| Payments         | telebirr, Chapa                                                                                 | Not shown before a deposit (wallet page not opened)                                                                 | Behind login; a bank promotion and crypto pages (crypto excluded for us); agents                                                       |
+| Channels         | USSD and SMS betting (`core/ussd.ts`, `core/smstext.ts`)                                        | Web and installable app                                                                                             | Web, Android app, cash agents                                                                                                          |
+| Languages        | Amharic, English, Afaan Oromo, Tigrinya                                                         | English, Amharic, French                                                                                            | Amharic and English seen                                                                                                               |
+| **Missing**      | **Search, favourites, results page, filters, market search, multi-slips, system bets**          | —                                                                                                                   | —                                                                                                                                      |
+| Not doing        | —                                                                                               | Casino tabs lead the home page (Aviator, JetX, Keno, slots, Chicken): excluded by policy                            | Casino, fast games, lotto, crypto deposits: excluded                                                                                   |
+
+The biggest gap is not the front end: it is **how many matches and markets there are**. Phase 1
+comes first for that reason. **Neither site lists the men's Ethiopian Premier League**: task 1.3
+would be a clear first. Nahubet is **already ahead** of Hulusport on live betting, jackpot and cash
+out, and of both on USSD/SMS betting and Afaan Oromo and Tigrinya: keep them visible.
+
+## 2. Leagues
+
+Data sources the scraper already speaks: football-data.org (free tier, 12 competitions),
+The Odds API (paid 20K plan; fixtures, prices, scores), API-Football (draft, Costa Rica).
+The Odds API keys below were checked against its published sports list on 2026-11-07.
+
+| #   | League                                                                                                      | Fixtures and results                                                                                                                                                                                           | Automation                                                                               |
+| --- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| L1  | **Ethiopian Premier League** (seeded, no source)                                                            | API-Football if it covers it (one `/leagues?country=Ethiopia` request with a free key decides); otherwise fixtures entered by a trader in the back office                                                      | Results by a person (one source); auto open off until ratings exist                      |
+| L1  | CAF Champions League, CAF Confederation Cup (seeded, no source)                                             | Same API-Football check                                                                                                                                                                                        | Same                                                                                     |
+| L2  | EFL Championship, Eredivisie, Primeira Liga, Brasileirão Série A                                            | football-data.org free tier (ELC, DED, PPL, BSA; confirm on its coverage page) + The Odds API `soccer_efl_champ`, `soccer_netherlands_eredivisie`, `soccer_portugal_primeira_liga`, `soccer_brazil_campeonato` | Two upstreams: kickoffs (C1) and results (R2) without a person; F7b auto open available  |
+| L3  | UEFA Europa League, Conference League                                                                       | `soccer_uefa_europa_league`, `soccer_uefa_europa_conference_league`                                                                                                                                            | One upstream: kickoffs confirm from 72 h (C2); results go to a person until a 2nd source |
+| L3  | FA Cup, EFL Cup, Copa del Rey, DFB-Pokal, Coppa Italia, Coupe de France                                     | `soccer_fa_cup`, `soccer_england_efl_cup`, `soccer_spain_copa_del_rey`, `soccer_germany_dfb_pokal`, `soccer_italy_coppa_italia`, `soccer_france_coupe_de_france`                                               | Same as L3; extra time on (knockouts)                                                    |
+| L4  | Saudi Pro League, Turkish Süper Lig, Scottish Premiership, League One, League Two                           | `soccer_saudi_arabia_pro_league`, `soccer_turkey_super_league`, `soccer_spl`, `soccer_england_league1`, `soccer_england_league2`                                                                               | Same as L3                                                                               |
+| L4  | Belgian Pro League, Swiss Super League (in Hulusport's top leagues)                                         | `soccer_belgium_first_div`, `soccer_switzerland_superleague`                                                                                                                                                   | Same as L3                                                                               |
+| L4  | Leagues of Morocco, Kenya, Algeria, Nigeria, Ghana, Tunisia, Senegal, Cameroon, Rwanda (seen on both sites) | Not on The Odds API; same API-Football check as L1                                                                                                                                                             | Same as L1                                                                               |
+| L5  | Africa Cup of Nations qualifiers (45 events on Melbet)                                                      | Not on The Odds API's list (only the finals); API-Football check                                                                                                                                               | Same as L1                                                                               |
+| L4  | Egyptian Premier League, South African Premiership                                                          | Not on The Odds API; same API-Football check as L1                                                                                                                                                             | Same as L1                                                                               |
+| L5  | Africa Cup of Nations (next edition 2027)                                                                   | `soccer_africa_cup_of_nations`                                                                                                                                                                                 | Add a month before it starts                                                             |
+
+Each league follows the existing pattern (`infra/scripts/add-top-leagues.sh`,
+`add-champions-league.sh`): catalogue entries and clubs in `packages/db/src/seed/catalog.ts`,
+spellings in `docs/scraper-plan/data/aliases-*.csv`, one `source-*.json` per upstream, ratings
+(learned from results, or set by hand and marked reviewed), then the competition switched on in
+the back office. **Budget:** every Odds API league adds credits per read (scores reads cost 2);
+enable in waves and watch `cli usage` before the next wave. More single-source leagues also mean
+more results for a trader to confirm.
+
+Front end for leagues: the `featured` flag already drives Highlights; add a **top-leagues chip
+row** on the home page (see F1) and country flags in the Leagues tab.
+
+## 3. Phases
+
+Each task is one pull request with tests. Who does it follows CLAUDE.md: _quick_ = `quick-task`
+(Haiku), _routine_ = `routine-coder` (Sonnet), _main_ = main session on Opus (design, migrations,
+money path, review).
+
+### Phase 1: more matches (weeks 1–2)
+
+| Task | What                                                                   | Where                                            | Who              | Done when                                                       |
+| ---- | ---------------------------------------------------------------------- | ------------------------------------------------ | ---------------- | --------------------------------------------------------------- |
+| 1.1  | API-Football coverage check for Ethiopia, Egypt, South Africa, CAF     | one request each; result in `docs/scraper-plan/` | quick            | We know which of L1/L4 have a source                            |
+| 1.2  | L2 leagues (four), script `add-more-leagues.sh` like the existing ones | seed, aliases, sources, script                   | routine + review | Next 14 days of matches appear; results settle with two sources |
+| 1.3  | Ethiopian Premier League: API-Football source, or trader fixture entry | source JSON, or admin form + API route           | main             | This week's Ethiopian matches are bettable                      |
+| 1.4  | L3/L4 leagues in waves of four, budget checked between waves           | seed, aliases, sources                           | routine          | Each wave live, credits within plan                             |
+| 1.5  | Top-league chips on home, flags in Leagues                             | `SportHome.tsx`, catalog API                     | routine          | One tap from home to any featured league                        |
+
+### Phase 2: deeper markets (weeks 3–4)
+
+| Task | What                                                                                                                    | Where                                                                                                                          | Who     |
+| ---- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| 2.1  | Asian handicap and 3-way handicap                                                                                       | `packages/core/src/markets.ts`, pricing in `packages/feed/src/pricing`, settlement rules, O2 cover in `packages/scraper` gates | main    |
+| 2.2  | HT/FT, odd/even goals, home/away team totals, win to nil                                                                | same                                                                                                                           | main    |
+| 2.3  | Market groups on the event page with filter chips (Main, Total, Combination, Half, Handicap), market search, 1X2 pinned | `EventMarkets.tsx`                                                                                                             | routine |
+| 2.4  | Combinations 1X2 + over/under and 1X2 + BTTS, exact goals, goal range                                                   | same as 2.1 (correlated outcomes priced from one score model)                                                                  | main    |
+
+Settlement is money logic: unit and property tests in `packages/core`, payouts rounded down.
+Corners and cards wait for a source that reports them.
+
+**2.1 in two steps (both done).** Step A: `ah` (half and whole lines; a level adjusted score on a whole
+line is void) and `eh` (non-zero whole lines) are defined and settle in `packages/core/src/markets.ts`,
+with property tests, but are not in `SPORT_MARKETS`, so nothing can store them yet. Step B (done) offers them, all together: prices from the score model (`packages/feed/src/pricing`); line handling in
+`packages/db/src/catalog/fixtures.ts` (it canonicalises every line with the half-point
+`parseLine`) and `apps/api/src/modules/catalog/views.ts` (`lineValue`: display and order); the
+selection labels on the web; the db test helper `marketsFor`; and an O3 rule for existing events:
+a book that gains markets is today `market_set_changed`, which would hold every re-price for a
+person and, through the hold, stop F7b. New markets must be added without holding the others.
+
+### Phase 3: front end (weeks 5–6)
+
+| Task | What                                                                                                                                                                 | Where                                           | Who                              |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------- |
+| F1   | Home: top-league chips, live-now count, sticky sport bar                                                                                                             | `SportHome.tsx`, shell                          | routine                          |
+| F2   | Search teams and leagues (Amharic and English, aliases included)                                                                                                     | catalog API route + contract, header component  | routine                          |
+| F3   | Favourites (leagues, teams): table + migration, guests in local storage                                                                                              | `packages/db` schema, `me` module, star buttons | main (migration) + routine       |
+| F4   | Odds movement arrows and flash on change                                                                                                                             | `MarketOdds.tsx`, `live-store.ts`               | routine                          |
+| F5   | Results page (finished matches, scores) and simple form (last 5)                                                                                                     | new `(sportsbook)/results`, catalog API         | routine                          |
+| F6   | One-tap bet mode (setting) next to the existing odds-change policy                                                                                                   | `BetslipDrawer.tsx`                             | main (betting path)              |
+| F7   | Lite mode for cheap phones and slow networks: performance budget, no images, Lighthouse check in CI                                                                  | `apps/web`, `e2e`                               | routine                          |
+| F8   | Promotions page: multi-bonus table, jackpot rules                                                                                                                    | new page, settings                              | routine                          |
+| F9   | Match list controls: day tabs (Today, Tomorrow, next day) + calendar, country filter, 1X2 / double chance switch, league headers with flag, count, star and collapse | `SportHome.tsx`, `MatchList.tsx`, catalog API   | routine                          |
+| F10  | Floating mini slip bar (picks, total odds, net pay) above the bottom bar; max win and net pay in the slip                                                            | `BetslipButton.tsx`, `BetslipDrawer.tsx`        | routine                          |
+| F11  | Up to three parallel slips                                                                                                                                           | betslip state, `BetslipDrawer.tsx`              | main (betting path)              |
+| F12  | Side drawer for sports and top leagues                                                                                                                               | shell                                           | routine                          |
+| F13  | Quick-stake buttons (+50, +100, +250) and selected odds highlighted in every list                                                                                    | `BetslipDrawer.tsx`, `MarketOdds.tsx`           | routine                          |
+| F14  | Jackpot page: pool and guaranteed minimum, countdown to close, share of players per pick, auto-pick                                                                  | `components/jackpot`, jackpots API              | routine (+ main if rules change) |
+| F15  | System bets (e.g. 2 of 3, 3 of 4)                                                                                                                                    | `packages/core` bet rules and settlement, slip  | main (money path)                |
+
+### Phase 4: payments and engagement (later)
+
+- **Payments:** CBE Birr, M-Pesa, bank transfer. First check which of them Chapa already offers;
+  new providers go in `packages/payments/src/providers` (money path: main). Real money only in
+  licensed mode.
+- **Accumulator of the day** picked by a trader in the back office, shown on Highlights (Melbet
+  also has a live version and a one-click slip generator).
+- **Bonuses** (first-deposit bonus, weekly free bet, safe bet): one bonus wallet design on the
+  ledger with wagering rules, then each offer as settings (main). Hulusport's sports-only
+  first-deposit rules (6+ picks at 1.50+) are a good template.
+- **SMS when a bet settles** (SMS channel exists), **referral** (needs a bonus design on the ledger: main).
+- **Bet builder** (same-match multi) needs correlated pricing: large, after Phase 2.
+- Not planned: streaming and match trackers (paid data), and the excluded verticals.
+
+## 4. Order of work
+
+1.1 → 1.2 → 1.5 → 1.3 → F9 → F10 → F13 → 2.1 → 2.3 → F2 → F4 → F5 → 1.4 waves → 2.2 → 2.4 → F1 → F12 → F3 → F11 → F14 → F6 → F15 → F7 → F8 → Phase 4.
+At most two agents at a time; the main session reviews every agent's change before it is committed.
+
+## 5. Needed from the owner
+
+1. **An API-Football key** (free plan is enough for task 1.1), saved through the session's
+   credential form, never in chat.
+2. **Decisions:** Ethiopian Premier League first (recommended); the Odds API credit budget per
+   month for new leagues.
+
+## 6. Execution: models and effort
+
+The main session cannot change its own model (the owner does, with `/model`); delegated work
+runs on cheaper models. `quick-task` and `routine-coder` from CLAUDE.md are not defined in the
+cloud environment, so the same settings are passed to general agents.
+
+| Kind of work                                                 | Runs on                                       | Tasks                                                               |
+| ------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------- |
+| Mechanical: checks, coverage requests, test runs             | Haiku, low effort, or one command in the main | 1.1, verification runs                                              |
+| Routine and well specified                                   | Sonnet, medium effort                         | 1.2, 1.4, 1.5, 2.3, F1, F2, F4, F5, F7, F8, F9, F10, F12, F13, F14  |
+| Hard: money path, migrations, design, reviewing agents' work | Main session on Opus                          | 1.3, 2.1, 2.2, 2.4, F3 (migration), F6, F11, F15, bonuses, payments |
+
+Waves (at most two agents at a time; the main session reviews each change, runs typecheck, lint
+and tests, then commits):
+
+1. **Wave 1:** 1.2 and 1.5 (Sonnet); 1.1 in the main session once the API-Football key is saved.
+2. **Wave 2:** 1.3 (Opus) with F9 and F10 (Sonnet).
+3. **Wave 3:** F13 and F2 (Sonnet); design of 2.1 (Opus).
+4. **Wave 4:** 2.1 and 2.4 (Opus) with 2.3 (Sonnet).
+5. Then F4, F5, the 1.4 waves, 2.2, F1, F12, F3, F11, F14, F6, F15, F7, F8 and Phase 4.
+
+Usage is checked between waves, and no new wave starts near the 5-hour limit.
+
+## 7. Launch blockers (licensed mode)
+
+Checked on 2026-11-08 with a local lab (a fresh empty database, every licensed setting valid):
+
+| Check                                               | Result                                                                                                    |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Licensed mode with mock providers                   | refused, with every problem listed (`licensedModeViolations`)                                             |
+| Fresh database, licensed settings: migrate and seed | works; stamped `licensed`; 6 house accounts, no play-money account, no demo staff                         |
+| Licensed mode against a demo database               | refused (`OperatingModeMismatchError`)                                                                    |
+| Editing the stamp, or adding play money, in SQL     | rejected by the database (migration 0003)                                                                 |
+| **Starting the API with every setting valid**       | **refused: `SMS_PROVIDER="http" is not implemented yet`** (`createSmsProvider` in `apps/api/src/deps.ts`) |
+
+The guards work. **Licensed mode cannot run yet**, because some of what it requires is not built. Do not
+bypass or weaken a guard to get past this (CLAUDE.md): build the missing piece.
+
+### 7.1 Code that must be built before the API can start or run
+
+| #   | Blocker                                   | What exists                                                                                                                                                                          | What is missing                                                                                                                                                                                                                                     | Who                                    |
+| --- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| L2  | **HTTP SMS gateway adapter**              | The `SmsProvider` interface and a mock (`apps/api/src/providers/sms.ts`); used by sign-up and login codes (`lib/otp.ts`) and by notifications                                        | `SMS_PROVIDER=http`: a client for the contracted gateway (E.164 number, text, template in; message id out), sender id, delivery status stored in `sms_messages`, retries, a failure never reveals whether an account exists, tests on a fake server | Sonnet, medium, reviewed by Opus       |
+| L3  | **A way to get matches in licensed mode** | `FEED_PROVIDER=mock` is refused; `manual` is allowed, but the trading routes only list, change prices, open or close betting, settle and void: I found no route that creates a match | Decide, then build: (a) a trader form to enter fixtures (audited; the kickoff confirmation of K2 exists), (b) allow `scraped` once the sources' terms allow commercial use (football-data.org, The Odds API), or (c) a licensed feed                | Decision by the owner; Opus designs it |
+| L4  | **Real money in the player site's text**  | The back-office badge follows `NEXT_PUBLIC_OPERATING_MODE`                                                                                                                           | `DemoBanner` always shows; the help FAQ and the Terms demo section say "play money"; make them depend on the mode, with wording reviewed by counsel (CLAUDE.md: the banner stays in demo)                                                           | Sonnet, medium                         |
+| L5  | **Payments proven against the providers** | Chapa and telebirr adapters with tests; CBE Birr and M-Pesa are skeletons that refuse to run                                                                                         | A live merchant account for each provider, a sandbox then production test of deposit, webhook, payout and reconciliation. Not verified here: there are no credentials in this environment                                                           | Opus, with the provider's sandbox      |
+| L6  | SMS and USSD betting aggregators          | `SMS_AGGREGATOR` and `USSD_AGGREGATOR` accept only `mock`; licensed mode refuses the mock while a channel is on                                                                      | Only if the channels are wanted at launch: a real aggregator adapter (signature, replay protection, IP allowlist). Otherwise leave both channels off                                                                                                | Later; Opus                            |
+| L7  | A dry-run command for the guards          | The guards run only at startup                                                                                                                                                       | `infra/scripts/go-licensed-check.sh`: reads `infra/.env.prod`, prints every licensed-mode problem and every provider that is not implemented, changes nothing                                                                                       | Sonnet, medium                         |
+
+Until L2 lands, every licensed start stops at `refuseToStart`; that is the intended behaviour.
+
+### 7.2 Legal and business (not code)
+
+- The ELS licence, and the operator's own licence conditions.
+- Winnings tax: the rate, base and exemption confirmed by counsel; only then `TAX_CONFIG_CONFIRMED=true`.
+- Data residency, retention and what counts as personal data: the six open questions in `docs/deployment.md`
+  section 7.
+- Age rule (21), responsible-gambling limits, self-exclusion, Terms and Privacy texts reviewed by counsel.
+- Contracts and live credentials: Chapa and/or telebirr, an SMS gateway.
+
+### 7.3 Operational readiness (not enforced by code; `docs/deployment.md` section 4)
+
+- Backups running, and a restore drill passed in the last 30 days.
+- The runbooks reviewed by the on-call staff; alerts wired.
+- The admin host and the staff API restricted (`STAFF_ALLOWLIST`); staff accounts created with TOTP.
+- Secrets in a secret manager, none of the development defaults left.
+- A load test (`docs/load-testing.md`) and an independent security review before real money.
+
+### 7.4 Order
+
+1. **Now, in demo, no external dependency:** L4 (mode-aware text) and L7 (the dry-run command), both Sonnet.
+2. **Needs a decision:** L3 (where matches come from).
+3. **Needs a contract first:** L2 (the SMS gateway), L5 (payment accounts).
+4. **Then:** a full dry run on a fresh licensed database with provider sandboxes, the legal and operational items,
+   and only then `OPERATING_MODE=licensed` on the production server with a new database.

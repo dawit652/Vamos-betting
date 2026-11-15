@@ -66,7 +66,7 @@ export const ledgerTransactions = pgTable(
     index('ledger_transactions_ref_idx').on(t.refType, t.refId),
     // Postings of one kind of reference by time (the dashboard's bet settlements in a window).
     index('ledger_transactions_ref_created_idx').on(t.refType, t.createdAt),
-    // Every posting of a business day (the regulator's daily summary).
+    // Every posting of a time window (a business day's reconciliation and AML checks).
     index('ledger_transactions_created_idx').on(t.createdAt),
   ],
 );

@@ -5,7 +5,14 @@ import type { Santim } from '@vamos/core';
  * converts to and from the provider's own format (birr decimal strings).
  */
 
-export const PAYMENT_PROVIDER_NAMES = ['mock', 'chapa', 'telebirr', 'cbebirr', 'mpesa-et'] as const;
+export const PAYMENT_PROVIDER_NAMES = [
+  'mock',
+  'chapa',
+  'telebirr',
+  'cbebirr',
+  'mpesa-et',
+  'sms',
+] as const;
 
 export type PaymentProviderName = (typeof PAYMENT_PROVIDER_NAMES)[number];
 
@@ -18,9 +25,10 @@ export function isPaymentProviderName(value: string): value is PaymentProviderNa
  * - push: a payment prompt on the player's phone (STK/USSD push, or the dev
  *   phone simulator for the mock provider);
  * - redirect: open `redirectUrl` (hosted checkout) and come back to `returnUrl`;
- * - ussd: dial the code in `instructions`.
+ * - ussd: dial the code in `instructions`;
+ * - transfer: send the exact amount to a collection account (SMS rail).
  */
-export type DepositInitiationKind = 'push' | 'redirect' | 'ussd';
+export type DepositInitiationKind = 'push' | 'redirect' | 'ussd' | 'transfer';
 
 /** A status reported by a provider (webhook or status query). */
 export type ProviderPaymentStatus = 'succeeded' | 'failed' | 'pending';
@@ -80,7 +88,7 @@ export interface VerifiedWebhookEvent {
   status: ProviderPaymentStatus;
   /** Santim, when the notification states the amount. */
   amount: Santim | null;
-  /** ISO 4217 code as sent by the provider (Vamos only accepts 'ETB'). */
+  /** ISO 4217 code as sent by the provider (Nahubet only accepts 'ETB'). */
   currency: string | null;
   /** The parsed payload, for the payment_events audit row. */
   raw: unknown;
@@ -121,6 +129,12 @@ export interface ProviderCapabilities {
   deposits: boolean;
   /** false: initiatePayout / queryPayout throw ProviderNotConfiguredError. */
   payouts: boolean;
+  /**
+   * The SMS rail: deposits are confirmed by forwarded SMS (no status
+   * queries) and payouts are sent by hand by an operator (manual payouts:
+   * the payout worker never takes them).
+   */
+  manual?: boolean;
 }
 
 export interface PaymentProvider {

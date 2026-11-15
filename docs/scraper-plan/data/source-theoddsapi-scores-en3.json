@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-en3",
+  "name": "The Odds API: League One final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_england_league1",
+    "competition": "EFL League One",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

@@ -1,6 +1,13 @@
 import {
+  AddPayoutAccountRequest,
+  ConfirmPayoutAccountRequest,
   CreateDepositRequest,
   CreateWithdrawalRequest,
+  DepositCheckRequest,
+  type AddPayoutAccountResponse,
+  type DepositCheckResponse,
+  type PayoutAccountView,
+  type PayoutAccountsResponse,
   type DepositView,
   type DepositsResponse,
   type PaymentOptionsResponse,
@@ -25,11 +32,23 @@ import {
   receiveWebhook,
   requestPlayerWithdrawal,
 } from './service';
+import {
+  addPlayerPayoutAccount,
+  checkPlayerSmsDeposit,
+  confirmPlayerPayoutAccount,
+  listPlayerPayoutAccounts,
+  receiveGatewaySms,
+  removePlayerPayoutAccount,
+  resendPayoutAccountCode,
+} from './smsrail';
 
 const MINUTE_MS = 60_000;
 
 /** Largest webhook body accepted (provider notifications are a few hundred bytes). */
 export const WEBHOOK_BODY_LIMIT = 16 * 1024;
+
+/** Largest SMS gateway body (one SMS of at most 2000 characters, JSON-encoded). */
+export const SMS_GATEWAY_BODY_LIMIT = 4 * 1024;
 
 /** Per-route limits (requests per minute). */
 export const PAYMENT_RATE_LIMITS = {
@@ -41,6 +60,10 @@ export const PAYMENT_RATE_LIMITS = {
   cancelWithdrawal: 20,
   /** Per (provider, client address): providers call from a few addresses. */
   webhook: 600,
+  /** Per player: each check may ask the institution's receipt page. */
+  depositCheck: 5,
+  /** Per player: adding, confirming and resending payout-account codes. */
+  payoutAccounts: 10,
 } as const;
 
 const ListQuery = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) });
@@ -77,6 +100,32 @@ async function webhookRoutes(app: FastifyInstance): Promise<void> {
     '*',
     { parseAs: 'buffer', bodyLimit: WEBHOOK_BODY_LIMIT },
     (_request, body, done) => done(null, body),
+  );
+
+  // The SMS rail's gateway (the collection handset): a shared secret, not a signature.
+  app.post(
+    '/payments/webhooks/sms',
+    {
+      bodyLimit: SMS_GATEWAY_BODY_LIMIT,
+      config: {
+        rateLimit: {
+          max: PAYMENT_RATE_LIMITS.webhook,
+          timeWindow: MINUTE_MS,
+          keyGenerator: (request: FastifyRequest) =>
+            `payment-webhook|sms|${clientAddressKey(request.ip)}`,
+        },
+      },
+    },
+    async (request, reply): Promise<PaymentWebhookAck> => {
+      const rawBody = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
+      const ack = await receiveGatewaySms(
+        deps,
+        { headers: request.headers, rawBody, ip: request.ip },
+        request.log,
+      );
+      noStore(reply);
+      return ack;
+    },
   );
 
   app.post<{ Params: { provider: string } }>(
@@ -167,6 +216,106 @@ export default async function paymentRoutes(app: FastifyInstance): Promise<void>
       const body = await getPlayerDeposit(deps, user.id, request.params.id);
       noStore(reply);
       return body;
+    },
+  );
+
+  app.post(
+    '/payments/deposits/check',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-deposit-check', PAYMENT_RATE_LIMITS.depositCheck),
+    },
+    async (request, reply): Promise<DepositCheckResponse> => {
+      const user = requireUser(request);
+      const input = parseInput(DepositCheckRequest, request.body);
+      const body = await checkPlayerSmsDeposit(deps, { userId: user.id, text: input.text });
+      noStore(reply);
+      return body;
+    },
+  );
+
+  app.get(
+    '/payments/payout-accounts',
+    { preHandler: app.requireAuth },
+    async (request, reply): Promise<PayoutAccountsResponse> => {
+      const user = requireUser(request);
+      const body = await listPlayerPayoutAccounts(deps, user.id);
+      noStore(reply);
+      return body;
+    },
+  );
+
+  app.post(
+    '/payments/payout-accounts',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-payout-accounts', PAYMENT_RATE_LIMITS.payoutAccounts),
+    },
+    async (request, reply): Promise<AddPayoutAccountResponse> => {
+      const user = requireUser(request);
+      const input = parseInput(AddPayoutAccountRequest, request.body);
+      const body = await addPlayerPayoutAccount(
+        deps,
+        { userId: user.id, ...input, locale: user.locale, ip: request.ip },
+        request.log,
+      );
+      void reply.status(201);
+      noStore(reply);
+      return body;
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/payments/payout-accounts/:id/confirm',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-payout-accounts', PAYMENT_RATE_LIMITS.payoutAccounts),
+    },
+    async (request, reply): Promise<PayoutAccountView> => {
+      const user = requireUser(request);
+      const input = parseInput(ConfirmPayoutAccountRequest, request.body);
+      const body = await confirmPlayerPayoutAccount(deps, {
+        userId: user.id,
+        phone: user.phone,
+        accountId: request.params.id,
+        code: input.code,
+        ip: request.ip,
+      });
+      noStore(reply);
+      return body;
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/payments/payout-accounts/:id/resend',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-payout-accounts', PAYMENT_RATE_LIMITS.payoutAccounts),
+    },
+    async (request, reply): Promise<AddPayoutAccountResponse> => {
+      const user = requireUser(request);
+      const body = await resendPayoutAccountCode(
+        deps,
+        { userId: user.id, accountId: request.params.id, locale: user.locale, ip: request.ip },
+        request.log,
+      );
+      noStore(reply);
+      return body;
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/payments/payout-accounts/:id/remove',
+    { preHandler: app.requireAuth },
+    async (request, reply) => {
+      const user = requireUser(request);
+      await removePlayerPayoutAccount(deps, {
+        userId: user.id,
+        accountId: request.params.id,
+        ip: request.ip,
+      });
+      void reply.status(204);
+      noStore(reply);
     },
   );
 

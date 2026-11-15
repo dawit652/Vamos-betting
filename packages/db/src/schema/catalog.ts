@@ -125,6 +125,13 @@ export const events = pgTable(
     status: eventStatus('status').notNull().default('scheduled'),
     /** false = all markets of the event suspended (e.g. VAR, feed loss). */
     bettingOpen: boolean('betting_open').notNull().default(true),
+    /**
+     * Prematch betting closes this long before `start_time` (0 = at the start
+     * time). Set on events whose data arrives late, such as those checked
+     * against TheRundown (60 s or more behind), so no bet can be struck after
+     * a kick-off the feed has not shown yet (isSelectionBettable).
+     */
+    closeLeadMs: integer('close_lead_ms').notNull().default(0),
     liveMinute: integer('live_minute'),
     /** '1H' | 'HT' | '2H' | 'FT' (football), 'Q1'…'Q4' | 'OT' (basketball), set numbers… */
     period: text('period'),
@@ -158,6 +165,8 @@ export const events = pgTable(
     index('events_resulted_idx').on(t.resultedAt),
     // The range of formatGameId / parseGameId in @vamos/core (3 to 6 digits).
     check('events_game_id_range', sql`${t.gameId} BETWEEN 100 AND 999999`),
+    // At most 6 hours (MAX_CLOSE_LEAD_MS in catalog/live.ts).
+    check('events_close_lead_range', sql`${t.closeLeadMs} BETWEEN 0 AND 21600000`),
   ],
 );
 
@@ -199,6 +208,14 @@ export const markets = pgTable(
      * whatever result the event gets later, corrections included.
      */
     voidedAt: timestamp('voided_at', { withTimezone: true }),
+    /**
+     * Price expiry (rule P7, plan task 1.10): bet placement refuses the market's selections from
+     * this instant on, so betting stops by itself when the scraper that refreshes the prices goes
+     * dark; no job has to run. Each pricing read that confirms or moves the prices pushes it
+     * forward. Null (every market not priced by the scraper, and every market while
+     * SCRAPER_PRICE_EXPIRY_MINUTES is 0) never expires. Expiry is not a status change.
+     */
+    priceValidUntil: timestamp('price_valid_until', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

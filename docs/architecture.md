@@ -1,8 +1,8 @@
-# Vamos Betting – architecture
+# Nahubet – architecture
 
 ## Model and product scope
 
-Vamos is modelled on **Betika**, the East African sportsbook that operated in Ethiopia through Addis Telco. It was designed for mobile-money markets and low-bandwidth phones.
+Nahubet is modelled on **Betika**, the East African sportsbook that operated in Ethiopia through Addis Telco. It was designed for mobile-money markets and low-bandwidth phones.
 
 **What we take from Betika:**
 
@@ -14,7 +14,7 @@ Vamos is modelled on **Betika**, the East African sportsbook that operated in Et
 - cash-out
 - shareable booking codes
 
-**What Vamos adds:**
+**What Nahubet adds:**
 
 - its accumulator bonus ladder, with transparent terms
 - Amharic and English, with Afaan Oromo and Tigrinya prepared
@@ -24,7 +24,7 @@ Vamos is modelled on **Betika**, the East African sportsbook that operated in Et
 
 **Excluded by policy:**
 
-- casino, crash and virtual games (not licensable under the current ELS stance)
+- casino, crash and virtual games
 - crypto
 - agent/cash channels
 - payouts to third-party wallets
@@ -40,7 +40,6 @@ Vamos is modelled on **Betika**, the East African sportsbook that operated in Et
 
 **Licensed-mode startup conditions:**
 
-- an ELS licence number is set
 - regulator reporting is enabled
 - real payment, KYC, SMS and feed providers are configured
 - the tax configuration is confirmed
@@ -70,9 +69,18 @@ The guard is `licensedModeViolations()` in `packages/config/src/config.ts`. Both
           │ apps/worker (BullMQ)               │
           │ feed ingest · live simulator ·     │
           │ settlement · payouts · SMS ·       │
-          │ ELS reporting · reconciliation     │
+          │ reconciliation · AML               │
+          └────────────────────────────────────┘
+          ┌────────────────────────────────────┐
+          │ apps/scraper (data scraper)        │
+          │ sources to gates to catalogue      │
+          │ Redis locks, same database         │
           └────────────────────────────────────┘
 ```
+
+The data scraper (`apps/scraper`) is a separate process. It collects fixtures and results from public sources and
+changes the catalogue only through the existing services and the safety gates; see [scraper.md](scraper.md) and
+[scraper-operations.md](scraper-operations.md).
 
 ## Core conventions
 

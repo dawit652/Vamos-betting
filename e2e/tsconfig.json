@@ -3,5 +3,5 @@
   "compilerOptions": {
     "lib": ["ES2023", "DOM"]
   },
-  "include": ["tests", "*.config.ts", "*.ts", "support"]
+  "include": ["tests", "deployment", "*.config.ts", "*.ts", "support"]
 }

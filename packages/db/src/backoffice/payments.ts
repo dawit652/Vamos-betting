@@ -1,3 +1,4 @@
+import { payoutDestination } from '@vamos/core';
 import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
@@ -14,6 +15,7 @@ import {
 } from '../payments/withdrawals';
 import { kycProfiles, users } from '../schema/accounts';
 import { paymentIntents, payouts } from '../schema/payments';
+import { receivedSms } from '../schema/smsrail';
 import {
   afterCursor,
   cursorTime,
@@ -47,6 +49,16 @@ export interface PaymentPlayer {
 
 export interface StaffPayout extends Payout {
   player: PaymentPlayer;
+  /** Manual (SMS rail) payouts: where the money goes, as the player authorised it. */
+  destination: {
+    institution: string;
+    institutionName: string;
+    kind: 'wallet' | 'bank';
+    account: string;
+    name: string;
+  } | null;
+  /** The outgoing SMS proposed (or used) as this payout's proof. */
+  proposedSms: { id: string; reference: string | null; receivedAt: Date } | null;
 }
 
 export interface StaffDeposit extends PaymentIntent {
@@ -57,11 +69,55 @@ export interface StaffPayoutFilter {
   statuses?: PayoutStatus[];
   /** true: flagged only; false: unflagged only. */
   flagged?: boolean;
+  /** true: manual (SMS rail) payouts only; false: provider payouts only. */
+  manual?: boolean;
   userId?: string;
   /** 'asc' (default, a queue: oldest request first) or 'desc'. */
   order?: 'asc' | 'desc';
   limit?: number;
   cursor?: string;
+}
+
+const proposedFields = {
+  proposedSmsId: receivedSms.id,
+  proposedSmsReference: receivedSms.reference,
+  proposedSmsReceivedAt: receivedSms.receivedAt,
+};
+
+/** Adds the manual-payout fields (destination, proposed SMS) to a payout row. */
+function withManual(
+  payout: Payout & { player: PaymentPlayer },
+  sms: {
+    proposedSmsId: string | null;
+    proposedSmsReference: string | null;
+    proposedSmsReceivedAt: Date | null;
+  },
+): StaffPayout {
+  const spec =
+    payout.destinationInstitution === null
+      ? null
+      : payoutDestination(payout.destinationInstitution);
+  return {
+    ...payout,
+    destination:
+      payout.destinationInstitution === null || payout.destinationAccount === null
+        ? null
+        : {
+            institution: payout.destinationInstitution,
+            institutionName: spec?.name ?? payout.destinationInstitution,
+            kind: spec?.kind ?? 'bank',
+            account: payout.destinationAccount,
+            name: payout.destinationName ?? payout.recipientName,
+          },
+    proposedSms:
+      sms.proposedSmsId === null || sms.proposedSmsReceivedAt === null
+        ? null
+        : {
+            id: sms.proposedSmsId,
+            reference: sms.proposedSmsReference,
+            receivedAt: sms.proposedSmsReceivedAt,
+          },
+  };
 }
 
 const playerFields = {
@@ -108,6 +164,7 @@ export async function listStaffWithdrawals(
   }
   if (filter.flagged === true) conditions.push(isNotNull(payouts.flaggedAt));
   if (filter.flagged === false) conditions.push(sql`${payouts.flaggedAt} IS NULL`);
+  if (filter.manual !== undefined) conditions.push(eq(payouts.manual, filter.manual));
   if (filter.userId !== undefined) {
     if (!UUID_RE.test(filter.userId)) return { items: [], nextCursor: null };
     conditions.push(eq(payouts.userId, filter.userId));
@@ -123,10 +180,16 @@ export async function listStaffWithdrawals(
     );
   }
   const rows = await exec
-    .select({ payout: payouts, cursorAt: cursorTime(payouts.requestedAt), ...playerFields })
+    .select({
+      payout: payouts,
+      cursorAt: cursorTime(payouts.requestedAt),
+      ...playerFields,
+      ...proposedFields,
+    })
     .from(payouts)
     .innerJoin(users, eq(users.id, payouts.userId))
     .leftJoin(kycProfiles, eq(kycProfiles.userId, payouts.userId))
+    .leftJoin(receivedSms, eq(receivedSms.proposedPayoutId, payouts.id))
     .where(conditions.length === 0 ? undefined : and(...conditions))
     .orderBy(
       desc_ ? desc(payouts.requestedAt) : asc(payouts.requestedAt),
@@ -136,8 +199,20 @@ export async function listStaffWithdrawals(
   const page = rows.slice(0, limit);
   const last = page.at(-1);
   return {
-    items: page.map(({ payout, cursorAt: _cursorAt, ...player }) =>
-      withPlayer({ ...payout, ...player }),
+    items: page.map(
+      ({
+        payout,
+        cursorAt: _cursorAt,
+        proposedSmsId,
+        proposedSmsReference,
+        proposedSmsReceivedAt,
+        ...player
+      }) =>
+        withManual(withPlayer({ ...payout, ...player }), {
+          proposedSmsId,
+          proposedSmsReference,
+          proposedSmsReceivedAt,
+        }),
     ),
     nextCursor:
       rows.length > limit && last !== undefined
@@ -153,14 +228,19 @@ export async function getStaffWithdrawal(
 ): Promise<StaffPayout | null> {
   if (!UUID_RE.test(payoutId)) return null;
   const [row] = await exec
-    .select({ payout: payouts, ...playerFields })
+    .select({ payout: payouts, ...playerFields, ...proposedFields })
     .from(payouts)
     .innerJoin(users, eq(users.id, payouts.userId))
     .leftJoin(kycProfiles, eq(kycProfiles.userId, payouts.userId))
+    .leftJoin(receivedSms, eq(receivedSms.proposedPayoutId, payouts.id))
     .where(eq(payouts.id, payoutId));
   if (row === undefined) return null;
-  const { payout, ...player } = row;
-  return withPlayer({ ...payout, ...player });
+  const { payout, proposedSmsId, proposedSmsReference, proposedSmsReceivedAt, ...player } = row;
+  return withManual(withPlayer({ ...payout, ...player }), {
+    proposedSmsId,
+    proposedSmsReference,
+    proposedSmsReceivedAt,
+  });
 }
 
 /** Flagged deposits (waiting for staff), oldest flag first. */

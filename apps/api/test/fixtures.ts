@@ -37,10 +37,11 @@ export async function insertCategory(
   slug: string,
   name: Name,
   sortOrder: number,
+  countryCode: string | null = null,
 ): Promise<string> {
   const [row] = await db
     .insert(categories)
-    .values({ sportId, slug, name, sortOrder })
+    .values({ sportId, slug, name, sortOrder, countryCode })
     .returning({ id: categories.id });
   return row!.id;
 }

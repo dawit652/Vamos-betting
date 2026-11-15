@@ -92,7 +92,7 @@ export const STAFF_PASSWORD_MAX_LENGTH = 128;
 export const STAFF_EMAIL_MAX_LENGTH = 254;
 export const STAFF_DISPLAY_NAME_MAX_LENGTH = 100;
 /** Issuer shown by authenticator apps. */
-export const STAFF_TOTP_ISSUER = 'Vamos Back Office';
+export const STAFF_TOTP_ISSUER = 'Nahubet Back Office';
 
 /** Hashes and checks passwords (argon2id with the pepper; see @vamos/db/passwords). */
 export interface PasswordHasher {
@@ -771,6 +771,19 @@ export async function unlockStaffUserByEmail(
     if (row === undefined) return null;
     return unlockStaffUser(tx, { adminUserId: row.id, actor: input.actor, now: input.now });
   });
+}
+
+/** The staff account with this email, or null (the CLI's lookup). */
+export async function findStaffUserByEmail(
+  db: Database,
+  email: string,
+): Promise<StaffUserView | null> {
+  const [row] = await db
+    .select({ id: adminUsers.id })
+    .from(adminUsers)
+    .where(eq(adminUsers.email, normalizeStaffEmail(email)))
+    .limit(1);
+  return row === undefined ? null : getStaffUser(db, row.id);
 }
 
 type LoginFailureReason =

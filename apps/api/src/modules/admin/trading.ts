@@ -29,6 +29,8 @@ import type { FastifyInstance } from 'fastify';
 import { notFound, parseInput } from '../../lib/errors';
 import { staffActor } from '../../plugins/staff-session';
 import { inTx, optionalDate, parseUuid, publishLive, wire } from './common';
+import { assertScrapedEventMayOpen } from './open-betting';
+import { assertScrapedMatchOver } from './scraped-result';
 
 type IdParams = { Params: { id: string } };
 
@@ -141,14 +143,23 @@ export default async function adminTradingRoutes(app: FastifyInstance): Promise<
       const eventId = parseUuid(request.params.id, 'Event');
       const input = parseInput(EventBettingRequest, request.body);
       const actor = staffActor(request);
-      const change = await inTx(deps, (tx) =>
-        staffSetEventBettingOpen(tx, {
+      const change = await inTx(deps, async (tx) => {
+        // A scraped event opens only with reviewed ratings and sane prices (rules O1, O2).
+        if (input.open) {
+          await assertScrapedEventMayOpen(
+            tx,
+            eventId,
+            deps.config.scraper.minRatingMatches,
+            deps.clock(),
+          );
+        }
+        return staffSetEventBettingOpen(tx, {
           eventId,
           open: input.open,
           ...(input.reason === undefined ? {} : { reason: input.reason }),
           actor,
-        }),
-      );
+        });
+      });
       await publishLive(app, change.messages);
       return { changed: change.changed };
     },
@@ -174,15 +185,17 @@ export default async function adminTradingRoutes(app: FastifyInstance): Promise<
           : { status: input.status };
       const actor = staffActor(request);
       const now = deps.clock();
-      const outcome = await inTx(deps, (tx) =>
-        staffResultEvent(tx, {
+      const outcome = await inTx(deps, async (tx) => {
+        // A scraped match is not resulted by hand before the scraper itself could (R1, S-5).
+        await assertScrapedMatchOver(tx, eventId, result, now);
+        return staffResultEvent(tx, {
           eventId,
           result,
           ...(input.reason === undefined ? {} : { reason: input.reason }),
           actor,
           now,
-        }),
-      );
+        });
+      });
       await publishLive(app, outcome.messages);
       return wire(ResultEventResponse, outcome);
     },

@@ -5,7 +5,7 @@
 | Level | Meaning                                                                              | Response                       |
 | ----- | ------------------------------------------------------------------------------------ | ------------------------------ |
 | SEV1  | Money at risk or wrong (ledger/balance error, double payout), data breach, site down | Page on-call + lead now        |
-| SEV2  | Betting, deposits or withdrawals impaired for many players; ELS reporting stopped    | Page on-call, fix within hours |
+| SEV2  | Betting, deposits or withdrawals impaired for many players                           | Page on-call, fix within hours |
 | SEV3  | Degraded or single-feature problem, one player's issue, a flagged item to review     | Next working hours             |
 
 Anything touching the ledger, payouts or the licence is SEV1/SEV2 until proven otherwise.
@@ -29,7 +29,7 @@ Anything touching the ledger, payouts or the licence is SEV1/SEV2 until proven o
      then restart.
    - `redis` down: the api answers but live updates, rate limits and queues stop; restart it, the worker
      recovers its queues from the outbox sweeps.
-   - Everything up but results wrong: go to the specific runbook (payouts, reconciliation, ELS, AML).
+   - Everything up but results wrong: go to the specific runbook (payouts, reconciliation, AML).
 4. **Stop the bleeding** (use the least drastic option that works):
    - suspend one market or event in the back office (Trading: market status), or void a market/selection;
    - stop new money in/out: `docker compose stop worker` pauses payouts, settlement and reporting (nothing
@@ -39,9 +39,8 @@ Anything touching the ledger, payouts or the licence is SEV1/SEV2 until proven o
    - as a last resort `docker compose stop web api` (the ledger stays consistent; every write is one DB
      transaction).
 5. **Communicate.** One incident channel, one commander, one scribe. Tell support what to say; do not
-   speculate publicly. For licence-relevant events (reporting gap, suspected fraud, data breach) the
-   licence holder decides on notifying ELS and the data-protection authority within the legal deadlines
-   (to confirm with counsel).
+   speculate publicly. For suspected fraud or a data breach the operator decides on notifying the
+   data-protection authority within the legal deadlines (to confirm with counsel).
 
 ## Useful commands
 
@@ -61,7 +60,7 @@ A lost authenticator: an admin with `staff.manage` resets it (`POST /admin/staff
 ## After the incident
 
 - Restore service, then verify: smoke test, a reconciliation run for today (back office, Compliance,
-  Reconciliation, "Run now") that ends `clean`, ELS status with no pending records.
+  Reconciliation, "Run now") that ends `clean`.
 - Write a blameless review within 3 working days: timeline, impact (players, ETB), cause, what worked,
   actions with owners. Store it with the compliance files (7 years for anything touching money).
 - If the cause was a defect, add a regression test before the fix lands.

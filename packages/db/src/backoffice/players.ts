@@ -206,7 +206,8 @@ export interface PlayerDetail {
   id: string;
   phone: string;
   fullName: string | null;
-  dateOfBirth: string;
+  /** Null when the player registered without one and has not passed KYC. */
+  dateOfBirth: string | null;
   locale: string;
   status: PlayerStatus;
   phoneVerifiedAt: Date | null;
@@ -385,7 +386,8 @@ export interface KycQueueItem extends StaffKycView {
   userId: string;
   phone: string;
   fullName: string | null;
-  dateOfBirth: string;
+  /** Null when the player registered without one and has not passed KYC. */
+  dateOfBirth: string | null;
   userStatus: PlayerStatus;
 }
 
@@ -513,14 +515,20 @@ export async function reviewKyc(
     });
   }
   const verifiedDateOfBirth = profile.verifiedDateOfBirth ?? user.dateOfBirth;
-  if (
-    input.decision === 'approve' &&
-    !isOfAge(verifiedDateOfBirth, DEFAULT_RESPONSIBLE_GAMBLING.minAge, now)
-  ) {
-    throw domainConflict(
-      'kyc_underage',
-      `The player is under ${DEFAULT_RESPONSIBLE_GAMBLING.minAge}: reject the check instead.`,
-    );
+  if (input.decision === 'approve') {
+    // No age to check (no registry date and none declared): never approve blind.
+    if (verifiedDateOfBirth === null) {
+      throw domainConflict(
+        'kyc_age_unknown',
+        'The check has no date of birth to confirm the age: reject it so the player submits it again.',
+      );
+    }
+    if (!isOfAge(verifiedDateOfBirth, DEFAULT_RESPONSIBLE_GAMBLING.minAge, now)) {
+      throw domainConflict(
+        'kyc_underage',
+        `The player is under ${DEFAULT_RESPONSIBLE_GAMBLING.minAge}: reject the check instead.`,
+      );
+    }
   }
   const values =
     input.decision === 'approve'

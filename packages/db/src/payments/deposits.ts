@@ -11,6 +11,7 @@ import {
   lt,
   lte,
   ne,
+  notInArray,
   or,
   sql,
 } from 'drizzle-orm';
@@ -59,6 +60,12 @@ export interface CreateDepositIntentInput {
   provider: string;
   /** Santim. */
   amount: bigint;
+  /**
+   * SMS rail: the amount the player asked for (`amount` is the exact amount
+   * to send). The deposit range is checked against it, and an idempotent
+   * replay is recognised by it.
+   */
+  requestedAmount?: bigint;
   /** The paying number; defaults to, and must be, the player's registered phone. */
   phone?: string;
   /** The client's idempotency key (already validated: 8–100 printable characters). */
@@ -146,7 +153,7 @@ export async function createDepositIntent(
     .limit(1);
   if (existing) {
     if (
-      existing.amount !== amount ||
+      (existing.requestedAmount ?? existing.amount) !== (input.requestedAmount ?? amount) ||
       existing.provider !== input.provider ||
       (input.phone !== undefined && existing.phone !== phone)
     ) {
@@ -158,7 +165,16 @@ export async function createDepositIntent(
     return { intent: existing, replayed: true };
   }
 
-  if (amount < rules.minDeposit || amount > rules.maxDeposit) throw amountOutOfRange(rules, amount);
+  const rangeAmount = input.requestedAmount ?? amount;
+  if (input.requestedAmount !== undefined) {
+    assertAmount(input.requestedAmount, 'requested deposit amount');
+    if (input.requestedAmount > amount) {
+      throw new RangeError('createDepositIntent: requestedAmount exceeds amount');
+    }
+  }
+  if (rangeAmount < rules.minDeposit || rangeAmount > rules.maxDeposit) {
+    throw amountOutOfRange(rules, rangeAmount);
+  }
   if (phone !== user.phone) {
     throw domainUnprocessable(
       'deposit_phone_mismatch',
@@ -202,6 +218,7 @@ export async function createDepositIntent(
       userId,
       provider: input.provider,
       amount,
+      requestedAmount: input.requestedAmount ?? null,
       phone: user.phone,
       status: 'created',
       idempotencyKey: input.idempotencyKey,
@@ -312,7 +329,9 @@ export type DepositFlagReason =
   | 'amount_missing'
   | 'currency_mismatch'
   | 'success_after_failure'
-  | 'failure_after_success';
+  | 'failure_after_success'
+  /** SMS rail: the SMS names a paying phone that is not the player's (someone else funded it). */
+  | 'third_party_payer';
 
 type Decision =
   | { outcome: 'credit' }
@@ -372,7 +391,16 @@ const OUTCOME_LABEL: Record<Decision['outcome'], DepositEventOutcome> = {
  */
 export async function applyDepositEvent(
   tx: DbTransaction,
-  input: { provider: string; event: ProviderEventInput; now: Date },
+  input: {
+    provider: string;
+    event: ProviderEventInput;
+    now: Date;
+    /**
+     * Flag the intent with this reason where it would otherwise be credited
+     * (SMS rail: a third-party payer waits for staff).
+     */
+    flagInsteadOfCredit?: Extract<DepositFlagReason, 'third_party_payer'>;
+  },
 ): Promise<ApplyDepositEventResult> {
   const { provider, event, now } = input;
   assertProviderName(provider);
@@ -395,7 +423,11 @@ export async function applyDepositEvent(
     );
   }
   const intent = await lockIntent(tx, found.id);
-  const decision = decide(intent, event);
+  const decided = decide(intent, event);
+  const decision: Decision =
+    decided.outcome === 'credit' && input.flagInsteadOfCredit !== undefined
+      ? { outcome: 'flag', reason: input.flagInsteadOfCredit }
+      : decided;
 
   const [recorded] = await tx
     .insert(paymentEvents)
@@ -644,7 +676,9 @@ export type DepositResolution = 'credit' | 'close';
  *   expired) becomes `failed` (`payment.deposit_failed`), a failed or
  *   succeeded one keeps its status (e.g. a refund at the provider after a
  *   credit, handled outside this function).
- * 409 `deposit_not_flagged` for an intent that is not flagged.
+ * 409 `deposit_not_flagged` for an intent that is not flagged, 409
+ * `sms_deposit_flag` for an SMS-rail deposit (resolved from the SMS review
+ * queue instead).
  */
 export async function resolveFlaggedDeposit(
   tx: DbTransaction,
@@ -655,6 +689,8 @@ export async function resolveFlaggedDeposit(
     note: string;
     now: Date;
     ip?: string | null;
+    /** @internal The SMS rail resolves its own flagged deposits (smsrail.ts). */
+    viaSmsQueue?: boolean;
   },
 ): Promise<PaymentIntent> {
   const { now } = input;
@@ -663,6 +699,15 @@ export async function resolveFlaggedDeposit(
   const intent = await lockIntent(tx, input.intentId);
   if (intent.flaggedAt === null) {
     throw domainConflict('deposit_not_flagged', 'This deposit is not waiting for staff.');
+  }
+  if (intent.provider === 'sms' && input.viaSmsQueue !== true) {
+    // The SMS that flagged it is resolved with it (creditSmsByStaff credits
+    // what actually arrived; closeSmsByStaff closes both), so the SMS review
+    // queue and the deposit never disagree.
+    throw domainConflict(
+      'sms_deposit_flag',
+      'This deposit came through the SMS rail; resolve it from the SMS review queue.',
+    );
   }
   const audit = {
     actorType: 'admin' as const,
@@ -803,6 +848,8 @@ export async function listPendingDepositIntents(
     now: Date;
     createdBefore: Date;
     provider?: string;
+    /** Providers nobody can be asked about (the SMS rail: its deposits wait for their SMS). */
+    excludeProviders?: readonly string[];
     limit?: number;
     lateWindowMs?: number;
   },
@@ -824,6 +871,9 @@ export async function listPendingDepositIntents(
         lt(paymentIntents.createdAt, options.createdBefore),
         or(isNull(paymentIntents.nextPollAt), lte(paymentIntents.nextPollAt, options.now)),
         options.provider === undefined ? undefined : eq(paymentIntents.provider, options.provider),
+        options.excludeProviders === undefined || options.excludeProviders.length === 0
+          ? undefined
+          : notInArray(paymentIntents.provider, [...options.excludeProviders]),
       ),
     )
     .orderBy(

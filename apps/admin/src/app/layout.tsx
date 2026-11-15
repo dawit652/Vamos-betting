@@ -6,7 +6,7 @@ import { Shell } from '@/components/shell';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Vamos Back Office',
+  title: 'Nahubet Back Office',
   robots: { index: false, follow: false },
 };
 

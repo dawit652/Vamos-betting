@@ -22,6 +22,8 @@ export {
 export {
   isSelectionBettable,
   LIVE_CHANNEL,
+  MAX_CLOSE_LEAD_MS,
+  prematchClosesAt,
   type BettableEvent,
   marketMessage,
   matchMessage,
@@ -35,6 +37,7 @@ export {
   type OddsDeltaData,
   type SelectionStatus,
 } from './live';
+export { raiseCloseLead } from './close-lead';
 export {
   MANUAL_ODDS_SOURCE,
   oddsProvenance,

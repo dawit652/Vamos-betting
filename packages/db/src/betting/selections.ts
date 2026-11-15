@@ -33,6 +33,8 @@ export interface SelectionSnapshot {
   marketLine: string | null;
   marketKey: string;
   marketStatus: MarketStatus;
+  /** markets.price_valid_until: the price is refused from this instant (rule P7); null never expires. */
+  priceValidUntil: Date | null;
   eventId: string;
   gameId: number;
   sportId: string;
@@ -41,6 +43,8 @@ export interface SelectionSnapshot {
   homeTeam: LocalizedName;
   awayTeam: LocalizedName;
   startTime: Date;
+  /** events.close_lead_ms: prematch betting closes this long before startTime. */
+  closeLeadMs: number;
   eventStatus: EventStatus;
   bettingOpen: boolean;
   scoreHome: number | null;
@@ -53,9 +57,11 @@ export interface SelectionSnapshot {
  * Why a selection cannot be bet on now:
  * - not_found: no such selection;
  * - inactive: its sport or competition is switched off;
- * - event_started: prematch betting closed at the start time;
+ * - event_started: prematch betting closed (at the start time, or the event's
+ *   close lead before it: see prematchClosesAt);
  * - event_closed: the event is finished, cancelled, postponed or abandoned;
- * - suspended: betting on the event, the market or the selection is suspended;
+ * - suspended: betting on the event, the market or the selection is suspended, or the
+ *   market's price has expired (markets.price_valid_until is at or before `now`, rule P7);
  * - market_closed: the market is closed, settled or void (or the selection settled).
  */
 export type UnavailableReason =
@@ -76,12 +82,13 @@ export function unavailableReason(
       status: snapshot.eventStatus,
       bettingOpen: snapshot.bettingOpen,
       startTime: snapshot.startTime,
+      closeLeadMs: snapshot.closeLeadMs,
     },
     snapshot.marketStatus,
     snapshot.selectionStatus,
     now,
   );
-  if (bettable) return null;
+  if (bettable) return priceExpired(snapshot, now) ? 'suspended' : null;
   if (snapshot.eventStatus !== 'scheduled' && snapshot.eventStatus !== 'live') {
     return 'event_closed';
   }
@@ -93,6 +100,18 @@ export function unavailableReason(
   }
   if (!snapshot.bettingOpen) return 'suspended';
   return 'event_started';
+}
+
+/**
+ * True when the market's price has expired at `now` (rule P7): from `price_valid_until` on, the
+ * price is no longer offered. A missing timestamp (a snapshot built elsewhere) never expires.
+ */
+export function priceExpired(
+  snapshot: Pick<SelectionSnapshot, 'priceValidUntil'>,
+  now: Date,
+): boolean {
+  const until = snapshot.priceValidUntil;
+  return until !== null && until !== undefined && now.getTime() >= until.getTime();
 }
 
 const homeTeams = alias(teams, 'home_team');
@@ -126,6 +145,7 @@ export async function loadSelectionSnapshots(
       marketLine: markets.line,
       marketKey: markets.key,
       marketStatus: markets.status,
+      priceValidUntil: markets.priceValidUntil,
       eventId: events.id,
       gameId: events.gameId,
       sportId: events.sportId,
@@ -134,6 +154,7 @@ export async function loadSelectionSnapshots(
       homeTeam: homeTeams.name,
       awayTeam: awayTeams.name,
       startTime: events.startTime,
+      closeLeadMs: events.closeLeadMs,
       eventStatus: events.status,
       bettingOpen: events.bettingOpen,
       scoreHome: events.scoreHome,

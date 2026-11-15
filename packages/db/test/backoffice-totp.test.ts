@@ -169,11 +169,11 @@ describe('totpUri', () => {
     const uri = totpUri({
       secret: Buffer.from('foobar', 'ascii'),
       account: 'ops@vamos.test',
-      issuer: 'Vamos Back Office',
+      issuer: 'Nahubet Back Office',
     });
     expect(uri).toBe(
-      'otpauth://totp/Vamos%20Back%20Office:ops%40vamos.test?secret=MZXW6YTBOI' +
-        '&issuer=Vamos%20Back%20Office&algorithm=SHA1&digits=6&period=30',
+      'otpauth://totp/Nahubet%20Back%20Office:ops%40vamos.test?secret=MZXW6YTBOI' +
+        '&issuer=Nahubet%20Back%20Office&algorithm=SHA1&digits=6&period=30',
     );
   });
 });

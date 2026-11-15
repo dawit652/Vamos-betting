@@ -33,7 +33,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div className="brand">Vamos Back Office</div>
+        <div className="brand">Nahubet Back Office</div>
         {DEMO && <div className="demo-badge">Demo mode: play money</div>}
         <nav aria-label="Main">
           {items.map((item) => {

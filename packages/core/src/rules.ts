@@ -142,7 +142,7 @@ export const DEFAULT_BET_RULES: BetRules = {
   maxTotalOddsMilli: 1_000_000_000n, // 1,000,000.000
 };
 
-/** Vamos accumulator bonus ladder (on winnings). */
+/** Nahubet accumulator bonus ladder (on winnings). */
 export const DEFAULT_MULTI_BONUS: MultiBonusConfig = {
   enabled: true,
   minLegOddsMilli: 1300,

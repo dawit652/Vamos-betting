@@ -3,18 +3,23 @@ import {
   DEFAULT_CASH_OUT,
   DEFAULT_JACKPOTS,
   DEFAULT_LIVE_BET_DELAY_MS,
+  DEFAULT_MARKET_FAMILIES,
   DEFAULT_MULTI_BONUS,
   DEFAULT_PAYMENT_RULES,
   DEFAULT_RESPONSIBLE_GAMBLING,
+  DEFAULT_RISK_LIMITS,
   DEFAULT_TAX,
   MAX_ODDS_MILLI,
   MIN_ODDS_MILLI,
+  parseMarketFamilies,
   type BetRules,
   type CashOutConfig,
   type JackpotTemplate,
+  type MarketFamilySettings,
   type MultiBonusConfig,
   type PaymentRules,
   type ResponsibleGamblingRules,
+  type RiskLimits,
   type TaxConfig,
 } from '@vamos/core';
 import { inArray, sql } from 'drizzle-orm';
@@ -43,6 +48,13 @@ export interface GameSettings {
   jackpots: JackpotTemplates;
   /** Deposit and withdrawal limits, auto-approval and wagering (Phase 6). */
   payments: PaymentRules;
+  /** House liability caps checked when a bet is placed (rule L1); no caps by default. */
+  riskLimits: RiskLimits;
+  /**
+   * Margins per class and family of the market factory, the factory selections' share of the
+   * selection cap and the weekly family job's stake floor (plan task 2.5); today's by default.
+   */
+  marketFamilies: MarketFamilySettings;
 }
 
 /** `settings.key` of each game setting. */
@@ -55,6 +67,8 @@ export const GAME_SETTING_KEYS = {
   responsibleGambling: 'responsible_gambling',
   jackpots: 'jackpots',
   payments: 'payments',
+  riskLimits: 'risk_limits',
+  marketFamilies: 'market_families',
 } as const satisfies Record<keyof GameSettings, string>;
 
 export type GameSettingKey = (typeof GAME_SETTING_KEYS)[keyof typeof GAME_SETTING_KEYS];
@@ -68,6 +82,8 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   responsibleGambling: DEFAULT_RESPONSIBLE_GAMBLING,
   jackpots: DEFAULT_JACKPOTS,
   payments: DEFAULT_PAYMENT_RULES,
+  riskLimits: DEFAULT_RISK_LIMITS,
+  marketFamilies: DEFAULT_MARKET_FAMILIES,
 };
 
 /** A stored setting does not match its schema. */
@@ -203,6 +219,35 @@ export const PaymentRulesSchema = z
     'minWithdrawal must not exceed dailyWithdrawalCap',
   );
 
+/** A cap is a positive amount or null (no cap): zero would refuse every bet, which is not a cap. */
+const capOrNull = z.union([positiveSantim, z.null()]);
+
+export const RiskLimitsSchema = z
+  .object({
+    maxSelectionLiability: capOrNull,
+    maxEventLiability: capOrNull,
+  })
+  .refine(
+    (limits) =>
+      limits.maxSelectionLiability === null ||
+      limits.maxEventLiability === null ||
+      limits.maxSelectionLiability <= limits.maxEventLiability,
+    // A match's liability is at least that of any one of its selections, so a selection cap above
+    // the match cap could never bind: more likely the two figures were swapped.
+    'maxSelectionLiability must not exceed maxEventLiability',
+  );
+
+/**
+ * Validated by parseMarketFamilies in @vamos/core (margins and the share 0..10000 bps, overrides
+ * only for factory families, a stake floor of at least 0 santim), which also normalises it.
+ */
+export const MarketFamiliesSchema = z.unknown().transform((value, ctx): MarketFamilySettings => {
+  const parsed = parseMarketFamilies(value);
+  if (parsed.ok) return parsed.value;
+  for (const message of parsed.issues) ctx.addIssue({ code: 'custom', message });
+  return z.NEVER;
+});
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -273,7 +318,51 @@ export function parseGameSettings(raw: Partial<Record<GameSettingKey, unknown>>)
       k.payments,
       overDefault(defaults.payments, raw[k.payments]),
     ),
+    riskLimits: parseWith(
+      RiskLimitsSchema,
+      k.riskLimits,
+      overDefault(defaults.riskLimits, raw[k.riskLimits]),
+    ),
+    marketFamilies: parseWith(
+      MarketFamiliesSchema,
+      k.marketFamilies,
+      overDefault(defaults.marketFamilies, raw[k.marketFamilies]),
+    ),
   };
+}
+
+/**
+ * Only the house liability caps (rule L1), parsed like parseGameSettings does: for paths that
+ * need nothing else (live bet acceptance), so an invalid unrelated setting cannot stop them.
+ */
+export async function loadRiskLimits(exec: DbExecutor): Promise<RiskLimits> {
+  const key = GAME_SETTING_KEYS.riskLimits;
+  const [row] = await exec
+    .select({ value: sql<string>`${settings.value}::text` })
+    .from(settings)
+    .where(inArray(settings.key, [key]))
+    .limit(1);
+  const stored: unknown = row === undefined ? undefined : JSON.parse(row.value);
+  return parseWith(RiskLimitsSchema, key, overDefault(DEFAULT_GAME_SETTINGS.riskLimits, stored));
+}
+
+/**
+ * Only the market family settings (plan task 2.5), parsed like parseGameSettings does: for the
+ * scraper's pricing, live bet acceptance and the weekly family job, which need nothing else.
+ */
+export async function loadMarketFamilies(exec: DbExecutor): Promise<MarketFamilySettings> {
+  const key = GAME_SETTING_KEYS.marketFamilies;
+  const [row] = await exec
+    .select({ value: sql<string>`${settings.value}::text` })
+    .from(settings)
+    .where(inArray(settings.key, [key]))
+    .limit(1);
+  const stored: unknown = row === undefined ? undefined : JSON.parse(row.value);
+  return parseWith(
+    MarketFamiliesSchema,
+    key,
+    overDefault(DEFAULT_GAME_SETTINGS.marketFamilies, stored),
+  );
 }
 
 /**

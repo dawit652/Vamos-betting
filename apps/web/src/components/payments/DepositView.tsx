@@ -19,6 +19,7 @@ import { formatSantim } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { PaymentDemoNotice, PhoneReadOnly, ProviderField, usePaymentOptions } from './PaymentParts';
+import { TransferPanel } from './TransferPanel';
 import {
   AMOUNT_ERROR_KEY,
   DEPOSIT_POLL_LIMIT_MS,
@@ -108,17 +109,21 @@ function useDepositPolling(
 
 function DepositProgress({
   deposit,
-  demo,
+  options,
   stopped,
   onRecheck,
   onAnother,
+  onDeposit,
 }: {
   deposit: Deposit;
-  demo: boolean;
+  options: PaymentOptionsResponse;
   stopped: boolean;
   onRecheck: () => void;
   onAnother: () => void;
+  onDeposit: (deposit: Deposit) => void;
 }) {
+  const demo = options.demo;
+  const transfer = deposit.initiation?.kind === 'transfer' && options.smsRail !== null;
   const t = useT();
   const final = isDepositFinal(deposit.status);
   const instructions = deposit.initiation?.instructions ?? null;
@@ -140,9 +145,12 @@ function DepositProgress({
       {deposit.underReview ? (
         <Alert tone="info">{t('account.payments.deposit.underReview')}</Alert>
       ) : null}
+      {!final && transfer && options.smsRail !== null ? (
+        <TransferPanel deposit={deposit} rail={options.smsRail} demo={demo} onDeposit={onDeposit} />
+      ) : null}
       {!final ? (
         <>
-          <p>{instructions ?? t('account.payments.deposit.pushFallback')}</p>
+          {transfer ? null : <p>{instructions ?? t('account.payments.deposit.pushFallback')}</p>}
           {redirectUrl !== null ? (
             <a href={redirectUrl} className="btn btn-accent w-full" rel="noreferrer">
               {t('account.payments.deposit.openCheckout')}
@@ -158,7 +166,7 @@ function DepositProgress({
               {t('account.payments.deposit.checkAgain')}
             </button>
           ) : null}
-          {demo ? (
+          {demo && deposit.provider === 'mock' ? (
             <p className="text-muted">
               {t('account.payments.deposit.simulatorHint')}{' '}
               <Link
@@ -284,13 +292,15 @@ function DepositForm({
           {...describedBy('deposit-amount', amountError, true)}
         />
       </Field>
-      <Field
-        id="deposit-phone"
-        label={t('account.payments.phone')}
-        hint={t('account.payments.deposit.phoneHint')}
-      >
-        <PhoneReadOnly id="deposit-phone" phone={me?.phone ?? ''} />
-      </Field>
+      {provider === 'sms' ? null : (
+        <Field
+          id="deposit-phone"
+          label={t('account.payments.phone')}
+          hint={t('account.payments.deposit.phoneHint')}
+        >
+          <PhoneReadOnly id="deposit-phone" phone={me?.phone ?? ''} />
+        </Field>
+      )}
       <Field id="deposit-provider" label={t('account.payments.provider')}>
         <ProviderField
           id="deposit-provider"
@@ -393,7 +403,7 @@ export function DepositPanel({ resumeId }: { resumeId: string | null }) {
   return (
     <div className="space-y-3">
       <div className="space-y-3 px-3">
-        <PaymentDemoNotice />
+        <PaymentDemoNotice state={state} />
         {state.status === 'loading' ? <Skeleton lines={4} /> : null}
         {state.status === 'error' ? (
           <div className="space-y-2">
@@ -407,10 +417,14 @@ export function DepositPanel({ resumeId }: { resumeId: string | null }) {
         {state.status === 'ready' && deposit !== null ? (
           <DepositProgress
             deposit={deposit}
-            demo={state.options.demo}
+            options={state.options}
             stopped={stopped}
             onRecheck={recheck}
             onAnother={() => setDeposit(null)}
+            onDeposit={(d) => {
+              setDeposit(d);
+              if (isDepositFinal(d.status)) onFinal(d);
+            }}
           />
         ) : null}
         {state.status === 'ready' && deposit === null ? (

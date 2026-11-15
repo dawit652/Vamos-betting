@@ -47,7 +47,8 @@ export function validateReason(text: string): string | null {
   return null;
 }
 
-export type FieldKind = 'santim' | 'int' | 'digits' | 'bool' | 'select';
+/** `santim_optional`: an amount, or empty for none (stored as null). */
+export type FieldKind = 'santim' | 'santim_optional' | 'int' | 'digits' | 'bool' | 'select';
 
 export interface FieldSpec {
   name: string;
@@ -62,7 +63,14 @@ export interface FieldSpec {
 }
 
 export interface SettingSpec {
-  key: 'bet_rules' | 'tax' | 'cash_out' | 'live_bet_delay_ms' | 'responsible_gambling' | 'payments';
+  key:
+    | 'bet_rules'
+    | 'tax'
+    | 'cash_out'
+    | 'live_bet_delay_ms'
+    | 'responsible_gambling'
+    | 'payments'
+    | 'risk_limits';
   title: string;
   /** Where the value sits in the GameSettingsView. */
   path: string;
@@ -162,6 +170,23 @@ export const SETTING_SPECS: readonly SettingSpec[] = [
       { name: 'payoutMaxAttempts', label: 'Payout attempts', kind: 'int', min: 1, max: 100 },
     ],
   },
+  {
+    key: 'risk_limits',
+    title: 'House liability caps',
+    path: 'riskLimits',
+    fields: [
+      {
+        name: 'maxSelectionLiability',
+        label: 'Largest liability on one selection (ETB, empty = no cap)',
+        kind: 'santim_optional',
+      },
+      {
+        name: 'maxEventLiability',
+        label: 'Largest liability on one match (ETB, empty = no cap)',
+        kind: 'santim_optional',
+      },
+    ],
+  },
 ];
 
 export type FormValues = Record<string, string | boolean>;
@@ -175,7 +200,7 @@ export function formFromSetting(spec: SettingSpec, current: unknown): FormValues
   for (const field of spec.fields) {
     const raw = source[field.name];
     if (field.kind === 'bool') out[field.name] = raw === true;
-    else if (field.kind === 'santim')
+    else if (field.kind === 'santim' || field.kind === 'santim_optional')
       out[field.name] = typeof raw === 'string' ? formatSantim(raw).replace(/,/g, '') : '';
     else out[field.name] = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : '';
   }
@@ -205,6 +230,19 @@ export function buildSettingValue(spec: SettingSpec, form: FormValues): BuildRes
         if (santim === null) errors[field.name] = 'Enter an amount with at most 2 decimals.';
         else if (field.allowZero !== true && /^0+$/.test(santim))
           errors[field.name] = 'Must be more than zero.';
+        else value[field.name] = santim;
+        break;
+      }
+      case 'santim_optional': {
+        if (typeof raw === 'string' && raw.trim() === '') {
+          value[field.name] = null;
+          break;
+        }
+        const santim = typeof raw === 'string' ? parseEtbToSantim(raw) : null;
+        if (santim === null)
+          errors[field.name] = 'Enter an amount with at most 2 decimals, or leave it empty.';
+        else if (/^0+$/.test(santim))
+          errors[field.name] = 'Must be more than zero (or empty for no cap).';
         else value[field.name] = santim;
         break;
       }

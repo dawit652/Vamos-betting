@@ -84,7 +84,8 @@ describe('priceBasketball', () => {
   it('prices equal teams equally', () => {
     const markets = priceBasketball(100, 100);
     expect(odds(markets, 'ml', '1')).toBe(odds(markets, 'ml', '2'));
-    expect(odds(markets, 'ml', '1')).toBe(1880); // 1 / (0.5 × 1.06), rounded down
+    // 1 / (0.5 × 1.06) = 1.887: 1.89 (overround 1.058) is nearer the 1.06 total than 1.88 (1.064).
+    expect(odds(markets, 'ml', '1')).toBe(1890);
   });
 
   it('uses the spread of single Poisson points, as simulated (regression)', () => {

@@ -33,7 +33,7 @@ function hasLoneSurrogate(text: string): boolean {
 
 describe('SMS encoding', () => {
   it('sends the GSM 03.38 alphabet in 7 bits and anything else in UCS-2', () => {
-    expect(isGsm7('Vamos: Bet ABCD2345 placed. Odds 3.70, ETB 50.00!')).toBe(true);
+    expect(isGsm7('Nahubet: Bet ABCD2345 placed. Odds 3.70, ETB 50.00!')).toBe(true);
     expect(isGsm7('@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ¤¡ÄÖÑÜ§¿äöñüà\n\r')).toBe(true);
     expect(isGsm7('€[]{}^~|\\')).toBe(true);
     expect(smsEncoding('ቀሪ ሂሳብ')).toBe('ucs2');

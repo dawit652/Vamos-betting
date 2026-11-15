@@ -7,6 +7,8 @@ import { MatchList } from '@/components/sportsbook/MatchList';
 import { Pager } from '@/components/sportsbook/SportHome';
 import { listHref, parseCursor } from '@/components/sportsbook/tabs';
 import { streamEventIds } from '@/components/sportsbook/events';
+import { competitionFlag } from '@/lib/flag';
+import { SportsbookFrame } from '@/components/sportsbook/SportsbookFrame';
 import { getLocale, getT } from '@/i18n/server';
 import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { localName } from '@/lib/localized';
@@ -57,41 +59,47 @@ export default async function CompetitionPage(props: PageProps<'/sport/[sport]/[
   const path = routes.competition(sport, competition.slug);
   const liveEvents = live?.items ?? [];
 
+  const heading = (id: string, text: string, tone: string) => (
+    <h2
+      id={id}
+      className={`flex items-center gap-1.5 px-3 pt-4 pb-2 text-xxs font-bold tracking-wider uppercase lg:px-0 ${tone}`}
+    >
+      {text}
+    </h2>
+  );
+
   return (
-    <>
-      <header className="bg-surface px-3 py-2">
+    <SportsbookFrame sport={sport} competition={competition.slug}>
+      <header className="poster mx-3 mt-1 flex items-center gap-3 p-4 lg:mx-0 lg:mt-0">
+        <span aria-hidden="true" className="crest h-12 w-12 text-2xl">
+          {competitionFlag(competition, category)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xxs font-semibold text-white/70">{localName(category.name, locale)}</p>
+          <h1 className="truncate text-lg leading-tight font-extrabold">
+            {localName(competition.name, locale)}
+          </h1>
+        </div>
         <Link
           href={listHref(routes.sport(sport), 'leagues')}
           prefetch={false}
-          className="text-xxs font-semibold text-brand"
+          className="flex-none rounded-full bg-white/15 px-3 py-1.5 text-xxs font-bold"
         >
           ‹ {t('sportsbook.competition.allLeagues')}
         </Link>
-        <p className="text-xxs text-muted uppercase">{localName(category.name, locale)}</p>
-        <h1 className="text-base font-bold">{localName(competition.name, locale)}</h1>
       </header>
       {liveEvents.length > 0 ? (
         <section aria-labelledby="competition-live">
-          <h2
-            id="competition-live"
-            className="px-3 pt-3 pb-1 text-xxs font-bold text-live uppercase"
-          >
-            {t('sportsbook.competition.live')}
-          </h2>
+          {heading('competition-live', t('sportsbook.competition.live'), 'text-live')}
           <LiveProvider eventIds={streamEventIds(liveEvents.map((e) => e.id))}>
             <MatchList events={liveEvents} showCompetition={false} />
           </LiveProvider>
         </section>
       ) : null}
       <section aria-labelledby="competition-upcoming">
-        <h2
-          id="competition-upcoming"
-          className="px-3 pt-3 pb-1 text-xxs font-bold text-muted uppercase"
-        >
-          {t('sportsbook.competition.upcoming')}
-        </h2>
+        {heading('competition-upcoming', t('sportsbook.competition.upcoming'), 'text-muted')}
         {upcoming.items.length === 0 ? (
-          <p className="card m-3 text-center text-muted">{t('sportsbook.list.empty')}</p>
+          <p className="card mx-3 text-center text-muted lg:mx-0">{t('sportsbook.list.empty')}</p>
         ) : (
           <MatchList events={upcoming.items} showCompetition={false} />
         )}
@@ -104,6 +112,6 @@ export default async function CompetitionPage(props: PageProps<'/sport/[sport]/[
           }
         />
       </section>
-    </>
+    </SportsbookFrame>
   );
 }

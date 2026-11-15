@@ -13,6 +13,7 @@ import { paymentsApi } from '@/lib/api/payments';
 import { formatSantim } from '@/lib/format';
 import { useSession } from '@/providers/SessionProvider';
 import { PaymentDemoNotice, PhoneReadOnly, ProviderField, usePaymentOptions } from './PaymentParts';
+import { PayoutAccountPicker } from './PayoutAccounts';
 import {
   AMOUNT_ERROR_KEY,
   WITHDRAWAL_POLL_MS,
@@ -97,7 +98,12 @@ function WithdrawalCard({
         </Chip>
       </div>
       <p className="text-xxs text-muted">
-        {t('account.payments.withdraw.to', { phone: withdrawal.phone })}
+        {withdrawal.destination !== null
+          ? t('account.payments.withdraw.toAccount', {
+              institution: withdrawal.destination.institutionName,
+              account: withdrawal.destination.account,
+            })
+          : t('account.payments.withdraw.to', { phone: withdrawal.phone })}
       </p>
       <Tracker withdrawal={withdrawal} />
       {review ? <p className="text-muted">{t(review)}</p> : null}
@@ -107,6 +113,14 @@ function WithdrawalCard({
         </p>
       ) : null}
       {returned ? <p className="text-muted">{t('account.payments.withdraw.returned')}</p> : null}
+      {withdrawal.manual && isWithdrawalOpen(withdrawal.status) ? (
+        <p className="text-xxs text-muted">{t('account.payments.withdraw.manualNote')}</p>
+      ) : null}
+      {withdrawal.settlementReference !== null ? (
+        <p className="text-xxs text-muted">
+          {t('account.payments.withdraw.paidRef', { reference: withdrawal.settlementReference })}
+        </p>
+      ) : null}
       {error ? <Alert>{t(error.key, error.vars)}</Alert> : null}
       {withdrawal.cancellable ? (
         <button
@@ -133,6 +147,7 @@ function Rules({
 }) {
   const t = useT();
   const { limits } = options;
+  const manual = options.providers.some((p) => p.payouts && p.manual);
   const text = (id: ReturnType<typeof withdrawRules>[number]['id'], state: RuleState) => {
     const todo = state === 'todo';
     switch (id) {
@@ -148,7 +163,9 @@ function Rules({
             })
           : t('account.payments.withdraw.rules.wageringOk');
       case 'ownPhone':
-        return t('account.payments.withdraw.rules.ownPhone');
+        return manual
+          ? t('account.payments.withdraw.rules.ownAccounts')
+          : t('account.payments.withdraw.rules.ownPhone');
       case 'dailyCap':
         return t('account.payments.withdraw.rules.dailyCap', {
           cap: formatSantim(limits.dailyWithdrawalCap),
@@ -194,6 +211,8 @@ function Rules({
   );
 }
 
+const WITHDRAW_FORM_ID = 'withdraw-form';
+
 function WithdrawForm({
   options,
   onCreated,
@@ -211,10 +230,12 @@ function WithdrawForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Message | null>(null);
   const [amountError, setAmountError] = useState<string | undefined>();
+  const [payoutAccountId, setPayoutAccountId] = useState<string | null>(null);
 
   if (provider === null) {
     return <Alert tone="info">{t('account.payments.notAvailableForYou')}</Alert>;
   }
+  const manual = options.providers.find((p) => p.name === provider)?.manual === true;
 
   const submit = async () => {
     if (busy) return;
@@ -231,12 +252,21 @@ function WithdrawForm({
     }
     setAmountError(undefined);
     setError(null);
+    if (manual && payoutAccountId === null) {
+      setError({ key: 'account.payments.errors.payoutAccountRequired' });
+      return;
+    }
     setBusy(true);
-    const key = withdrawalKeys.get(`${provider}:${checked.amount}`);
+    const key = withdrawalKeys.get(`${provider}:${checked.amount}:${payoutAccountId ?? ''}`);
     try {
-      // No phone in the body: the API pays the registered phone only.
+      // No phone in the body: the API pays the registered phone (or a saved account in the
+      // player's own name, SMS rail) only.
       const withdrawal = await paymentsApi.createWithdrawal(
-        { amount: checked.amount, provider },
+        {
+          amount: checked.amount,
+          provider,
+          ...(manual && payoutAccountId !== null ? { payoutAccountId } : {}),
+        },
         key,
       );
       withdrawalKeys.clear();
@@ -252,34 +282,44 @@ function WithdrawForm({
 
   const checked = checkAmount(input, options.limits.minWithdrawal, options.limits.maxWithdrawal);
   return (
-    <form
-      className="card space-y-3"
-      noValidate
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-    >
-      <p className="text-muted">{t('account.payments.withdraw.intro')}</p>
-      <Field id="withdraw-amount" label={t('account.payments.amount')} error={amountError}>
-        <input
-          id="withdraw-amount"
-          className="input tabular-nums"
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder="0.00"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          {...describedBy('withdraw-amount', amountError)}
-        />
-      </Field>
-      <Field
-        id="withdraw-phone"
-        label={t('account.payments.phone')}
-        hint={t('account.payments.withdraw.phoneHint')}
+    // The form holds only the amount (Enter submits it) and the button points at it: the payout
+    // account picker has a form of its own (add a bank account), and forms must not nest.
+    <div className="card space-y-3">
+      <p className="text-muted">
+        {manual ? t('account.payments.withdraw.introManual') : t('account.payments.withdraw.intro')}
+      </p>
+      <form
+        id={WITHDRAW_FORM_ID}
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
       >
-        <PhoneReadOnly id="withdraw-phone" phone={me?.phone ?? ''} />
-      </Field>
+        <Field id="withdraw-amount" label={t('account.payments.amount')} error={amountError}>
+          <input
+            id="withdraw-amount"
+            className="input tabular-nums"
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0.00"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            {...describedBy('withdraw-amount', amountError)}
+          />
+        </Field>
+      </form>
+      {manual ? (
+        <PayoutAccountPicker value={payoutAccountId} onChange={setPayoutAccountId} />
+      ) : (
+        <Field
+          id="withdraw-phone"
+          label={t('account.payments.phone')}
+          hint={t('account.payments.withdraw.phoneHint')}
+        >
+          <PhoneReadOnly id="withdraw-phone" phone={me?.phone ?? ''} />
+        </Field>
+      )}
       <Field id="withdraw-provider" label={t('account.payments.provider')}>
         <ProviderField
           id="withdraw-provider"
@@ -289,14 +329,19 @@ function WithdrawForm({
         />
       </Field>
       {error ? <Alert>{t(error.key, error.vars)}</Alert> : null}
-      <button type="submit" className="btn btn-accent w-full" disabled={busy}>
+      <button
+        type="submit"
+        form={WITHDRAW_FORM_ID}
+        className="btn btn-accent w-full"
+        disabled={busy}
+      >
         {busy
           ? t('common.actions.loading')
           : t('account.payments.withdraw.submit', {
               amount: checked.ok ? formatSantim(checked.amount) : '…',
             })}
       </button>
-    </form>
+    </div>
   );
 }
 
@@ -377,7 +422,7 @@ export function WithdrawPanel() {
 
   return (
     <div className="space-y-3 px-3">
-      <PaymentDemoNotice />
+      <PaymentDemoNotice state={state} />
       {state.status === 'loading' ? <Skeleton lines={4} /> : null}
       {state.status === 'error' ? (
         <div className="space-y-2">

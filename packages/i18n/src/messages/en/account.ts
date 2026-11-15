@@ -29,7 +29,7 @@ export const account = {
     passwordMismatch: 'The two passwords do not match.',
     dateOfBirthRequired: 'Enter your date of birth.',
     dateOfBirth: 'Enter a real date of birth.',
-    underage: 'You must be 21 or older to use Vamos.',
+    underage: 'You must be 21 or older to use Nahubet.',
     terms: 'Accept the terms and confirm that you are 21 or older.',
     otp: 'Enter the 6-digit code.',
     otpExpired: 'This code has expired or was already used. Request a new code.',
@@ -70,7 +70,7 @@ export const account = {
     title: 'Log in',
     submit: 'Log in',
     forgot: 'Forgot password?',
-    noAccount: 'New to Vamos?',
+    noAccount: 'New to Nahubet?',
     register: 'Create an account',
     passwordChanged: 'Your password was changed. Log in with the new password.',
     signedIn: 'You are logged in.',
@@ -80,8 +80,7 @@ export const account = {
     intro: 'Register with your mobile number. We will send you a code by SMS.',
     submit: 'Register',
     ageNotice:
-      'Vamos is for people aged 21 and over. We may check your age with your Fayda ID; under-21 accounts are closed.',
-    dobHint: 'You must be born on or before {date}.',
+      'Nahubet is for people aged 21 and over. We may check your age with your Fayda ID; under-21 accounts are closed.',
     acceptTerms: 'I am 21 or older and I accept the terms and conditions and the privacy notice.',
     readTerms: 'Read the terms',
     readPrivacy: 'Read the privacy notice',
@@ -170,7 +169,7 @@ export const account = {
     none: 'You are not logged in on any other device.',
     dataTitle: 'Your data',
     dataIntro:
-      'Download a copy of what Vamos keeps about you: profile, identity check, limits and breaks, sign-ins, transactions and bets.',
+      'Download a copy of what Nahubet keeps about you: profile, identity check, limits and breaks, sign-ins, transactions and bets.',
     dataDownload: 'Download my data',
     privacyLink: 'How we use your data (privacy notice)',
   },
@@ -194,7 +193,7 @@ export const account = {
     rejectedRetry: 'Check your details and try again.',
     alreadyVerified: 'Your identity is already verified.',
     idAlreadyUsed:
-      'This ID is already linked to another Vamos account. Contact support if this is a mistake.',
+      'This ID is already linked to another Nahubet account. Contact support if this is a mistake.',
     unavailable: 'Identity verification is temporarily unavailable. Please try again later.',
     underage:
       'The ID check shows that you are under 21. Your account has been suspended; contact support if this is a mistake.',
@@ -282,6 +281,7 @@ export const account = {
     balanceAfter: 'Balance {amount}',
     loadMore: 'Load more',
     welcome: 'Your account is ready. Add play money to start betting.',
+    welcomeReal: 'Your account is ready. Make a deposit to start betting.',
     tx: {
       demo_topup: 'Play money top-up',
       deposit: 'Deposit',
@@ -320,6 +320,7 @@ export const account = {
       telebirr: 'telebirr',
       cbebirr: 'CBE Birr',
       'mpesa-et': 'M-Pesa',
+      sms: 'Transfer (telebirr or bank)',
     },
     loading: 'Loading payment options…',
     unavailable: 'Payments are not available right now. Try again in a moment.',
@@ -360,10 +361,50 @@ export const account = {
         expired: 'The payment request expired before it was approved.',
         generic: 'The payment did not go through. Nothing was taken.',
       },
+      transfer: {
+        title: 'Send exactly ETB {amount}',
+        whyExact:
+          'The last {santim} santim tell us the payment is yours. Send exactly this amount, not a rounded one.',
+        payWith: 'Pay with',
+        sendTo: 'Send it to',
+        account: 'Number or account',
+        holder: 'Account name',
+        copy: 'Copy',
+        copied: 'Copied',
+        copyAmount: 'Copy amount',
+        dial: 'Dial {code}',
+        app: 'or use the {app} app',
+        step1: 'Open your telebirr or bank app, or dial the code above.',
+        step2: 'Send exactly ETB {amount} to the account above, from your own account.',
+        step3: 'Your balance updates by itself within a minute of paying.',
+        anyBank:
+          'You can pay from any Ethiopian bank: transfers into this account arrive from every bank.',
+        expires: 'Pay before {time}. A payment that arrives a little later is still credited.',
+        checkTitle: 'Paid, but your balance has not changed?',
+        checkHint: 'Paste the confirmation SMS, or just its transaction number.',
+        checkLabel: 'Confirmation SMS or transaction number',
+        checkSubmit: 'Check my payment',
+        checkResult: {
+          credited: 'Found it: the deposit is credited.',
+          already_credited: 'That payment was credited already.',
+          in_review:
+            'We received that payment but must check it by hand. Our staff will credit it shortly.',
+          not_found:
+            'No payment with that reference has reached us yet. Wait a minute and try again.',
+        },
+        simulateTitle: 'Demo: play the bank',
+        simulateHint: 'No money moves in the demo. Send the confirmation SMS your bank would.',
+        simulateExact: 'Pay the exact amount',
+        simulateRound: 'Pay the rounded amount',
+        simulateOther: 'Pay from another phone',
+        simulated: 'Simulated SMS: {outcome}',
+      },
     },
     withdraw: {
       title: 'Withdraw',
       intro: 'Money goes to your own registered mobile-money number, in your verified name.',
+      introManual:
+        'Money goes to your own phone wallet or to a bank account in your own name, never to anyone else.',
       rulesTitle: 'Before you withdraw',
       rules: {
         kyc: 'Your identity must be verified.',
@@ -373,6 +414,8 @@ export const account = {
         wageringOk: 'You have bet your deposits at least once.',
         wageringTodo: 'Bet ETB {remaining} more before you can withdraw.',
         ownPhone: 'Payouts go only to your own registered phone. No other numbers or wallets.',
+        ownAccounts:
+          'Payouts go only to you: your registered phone wallet, or a bank account in your own name.',
         dailyCap: 'At most ETB {cap} per 24 hours.',
         limits: 'Each withdrawal is between ETB {min} and ETB {max}.',
         review: 'Under ETB {auto} is approved automatically. Larger amounts are reviewed by staff.',
@@ -403,6 +446,27 @@ export const account = {
         generic: 'Waiting for staff review.',
       },
       rejectedWhy: 'Reason: {reason}',
+      payTo: 'Pay to',
+      ownWallet: 'Your phone wallet ({phone})',
+      noAccounts: 'Verify your identity to choose where to be paid.',
+      manualNote:
+        'Our staff send this payout by hand from our own account, usually within a few hours.',
+      toAccount: 'To {institution} · {account}',
+      paidRef: 'Transfer reference {reference}',
+      unverified: 'Not confirmed yet',
+      remove: 'Remove',
+      addBank: 'Add a bank account',
+      addBankIntro:
+        'The account must be in your own name, as on your ID. We send a code to your phone to confirm it.',
+      bank: 'Bank',
+      accountNumber: 'Account number',
+      accountName: 'Account holder name',
+      addSubmit: 'Save and send the code',
+      code: 'Code from the SMS',
+      confirm: 'Confirm the account',
+      resend: 'Send a new code',
+      demoCode: 'Demo code: {code}',
+      confirmed: 'The account is confirmed.',
     },
     dev: {
       title: 'Simulated phone',
@@ -442,6 +506,16 @@ export const account = {
       settlementCorrection:
         'A result on one of your bets was corrected and your balance is being adjusted. You can withdraw once that is done.',
       invalidPhone: 'That phone number is not valid.',
+      payoutAccountRequired: 'Choose the account to be paid to.',
+      payoutAccountUnverified: 'Confirm this account with the SMS code first.',
+      payoutAccountNotOwn: 'Wallet payouts go only to your own registered phone number.',
+      payoutAccountNameMismatch: 'The account must be in your own name, as on your ID.',
+      invalidPayoutAccount: 'Check the bank and the account number.',
+      tooManyPayoutAccounts: 'You can save up to 5 payout accounts. Remove one first.',
+      smsAmountUnavailable:
+        'Many deposits of this amount are open right now. Change the amount slightly, for example by 1 birr.',
+      otpInvalid: 'That code is not correct. Check the SMS and try again.',
+      otpExpired: 'This code has expired. Send a new code.',
     },
   },
   channelsDev: {
@@ -659,6 +733,7 @@ export const account = {
       bonus: '+{percent}',
       minOdds: 'Each selection needs odds of {odds} or more.',
       maxBonus: 'The bonus is at most {amount} per bet.',
+      jackpot: 'Predict every game and win the jackpot.',
     },
   },
 
@@ -683,7 +758,7 @@ export const account = {
   pages: {
     help: {
       title: 'Help',
-      intro: 'Quick answers about Vamos. Vamos is a demo: all money is play money.',
+      intro: 'Quick answers about Nahubet. Nahubet is a demo: all money is play money.',
       items: {
         bet: {
           q: 'How do I place a bet?',
@@ -691,7 +766,7 @@ export const account = {
         },
         money: {
           q: 'Is this real money?',
-          a: 'No. Vamos is a demo. Your balance is play money with no value. You can add more from your wallet at any time.',
+          a: 'No. Nahubet is a demo. Your balance is play money with no value. You can add more from your wallet at any time.',
         },
         bets: {
           q: 'Where can I see my bets?',
@@ -714,7 +789,7 @@ export const account = {
     privacy: {
       title: 'Privacy notice',
       intro:
-        'What personal data Vamos keeps, why, who receives it and for how long. Demo version: counsel reviews the final notice before Vamos takes real money.',
+        'What personal data Nahubet keeps, why, who receives it and for how long. Demo version: counsel reviews the final notice before Nahubet takes real money.',
       sections: {
         collect: {
           title: 'What we collect',
@@ -726,7 +801,7 @@ export const account = {
         },
         share: {
           title: 'Who receives it',
-          body: 'Only those who need it: the SMS gateway (your number and the message), the identity provider (your ID details when you verify), the payment providers (your number and the amount when you pay or withdraw) and the Ethiopian Lottery Service, which receives your transactions under a pseudonymous id, without your name or number. We never sell your data.',
+          body: 'Only those who need it: the SMS gateway (your number and the message), the identity provider (your ID details when you verify) and the payment providers (your number and the amount when you pay or withdraw). We never sell your data.',
         },
         keep: {
           title: 'How long we keep it',
@@ -744,11 +819,11 @@ export const account = {
     },
     terms: {
       title: 'Terms and conditions',
-      intro: 'Short demo terms. The full terms will be published before Vamos takes real money.',
+      intro: 'Short demo terms. The full terms will be published before Nahubet takes real money.',
       sections: {
         demo: {
           title: 'Demo and play money',
-          body: 'Vamos is a demonstration. All balances, stakes and winnings are play money: they have no value, cannot be deposited or withdrawn and cannot be exchanged for anything.',
+          body: 'Nahubet is a demonstration. All balances, stakes and winnings are play money: they have no value, cannot be deposited or withdrawn and cannot be exchanged for anything.',
         },
         age: {
           title: '21 and over',
@@ -778,7 +853,7 @@ export const account = {
       sections: {
         age: {
           title: '21+ only',
-          body: 'Vamos is only for adults aged 21 and over. Never let a child use your account.',
+          body: 'Nahubet is only for adults aged 21 and over. Never let a child use your account.',
         },
         playMoney: {
           title: 'Play money',

@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-ecl",
+  "name": "The Odds API: Conference League final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_uefa_europa_conference_league",
+    "competition": "UEFA Conference League",
+    "daysFrom": 1,
+    "scoreBasis": "unknown"
+  }
+}

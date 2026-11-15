@@ -1,0 +1,17 @@
+{
+  "id": "openfootball-en2",
+  "name": "openfootball: EFL Championship (football.json)",
+  "adapter": "openfootball",
+  "upstream": "openfootball community (github.com/openfootball/football.json, CC0)",
+  "config": {
+    "allowedHosts": ["raw.githubusercontent.com"],
+    "requests": [
+      {
+        "url": "https://raw.githubusercontent.com/openfootball/football.json/master/2026-27/en.2.json",
+        "competition": "EFL Championship"
+      }
+    ],
+    "timeZone": "Europe/London",
+    "sport": "football"
+  }
+}

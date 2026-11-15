@@ -96,3 +96,68 @@ export function settleBet(input: {
     }),
   };
 }
+
+/**
+ * What a settled bet has been paid so far: its settlement and every forward correction since
+ * (gross, tax and net summed). A lost bet has all three at zero.
+ */
+export interface PaidSoFar {
+  grossPayout: Santim;
+  taxAmount: Santim;
+  netPayout: Santim;
+}
+
+export type ForwardCorrection =
+  /** The corrected result pays no more than was paid: nothing moves (nothing is ever taken back). */
+  | { action: 'none'; settlement: BetSettlement }
+  /**
+   * Pay the difference: `extraNet` to the player, `extraTax` to the tax payable account, both
+   * from house revenue (`extraGross` = `extraNet` + `extraTax`), so the posting sums to zero.
+   */
+  | {
+      action: 'pay';
+      settlement: BetSettlement;
+      extraGross: Santim;
+      extraTax: Santim;
+      extraNet: Santim;
+    }
+  /**
+   * The corrected result pays the player more but would lower the gross or the tax already
+   * posted (a payout crossing the tax exemption): reversing a tax posting is not automatic.
+   */
+  | { action: 'needs_person'; settlement: BetSettlement };
+
+/**
+ * A forward-only correction (docs/plans/hulusport-parity-plan.md 4.4, decision D10, task 1.8):
+ * re-settles a bet on its corrected legs and pays only what the corrected result adds to what
+ * was already paid. Nothing is ever taken back, and a correction applied twice pays once (the
+ * second time `paid` already includes the first). Pure: the caller posts the ledger lines and
+ * decides whether the correction is in time (72 hours) and agreed by two sources.
+ */
+export function forwardCorrection(input: {
+  stake: Santim;
+  legs: readonly SettlementLeg[];
+  paid: PaidSoFar;
+  maxPayout: Santim;
+  multiBonus: MultiBonusConfig;
+  tax: TaxConfig;
+}): ForwardCorrection {
+  const { paid } = input;
+  for (const [what, value] of [
+    ['paid gross', paid.grossPayout],
+    ['paid tax', paid.taxAmount],
+    ['paid net', paid.netPayout],
+  ] as const) {
+    assertNonNegative(value, what);
+  }
+  if (paid.grossPayout - paid.taxAmount !== paid.netPayout) {
+    throw new RangeError('paid gross − tax must equal paid net');
+  }
+  const settlement = settleBet(input);
+  if (settlement.netPayout <= paid.netPayout) return { action: 'none', settlement };
+  const extraGross = settlement.grossPayout - paid.grossPayout;
+  const extraTax = settlement.taxAmount - paid.taxAmount;
+  const extraNet = settlement.netPayout - paid.netPayout;
+  if (extraGross < 0n || extraTax < 0n) return { action: 'needs_person', settlement };
+  return { action: 'pay', settlement, extraGross, extraTax, extraNet };
+}

@@ -9,12 +9,10 @@ _See also: [ethiopia-betting-sites-feature-comparison.md](./ethiopia-betting-sit
 ## 1. Executive summary
 
 1. **No sports betting operator holds a licence in Ethiopia today.** The Ethiopian Lottery Service (ELS, formerly the National Lottery Administration, NLA) suspended 22 operators on 4 Dec 2025. It then revoked **every** sports betting licence with effect from 15 Dec 2025. Banks and payment providers were ordered to block betting transactions. ELS repeated in July 2026 that no licensed operator exists.
-2. **Vamos is directly affected.** "Vamos Entertainment PLC" is on the published list of the 22 suspended firms.
+2. **Nahubet is directly affected.** "Nahubet Entertainment PLC" is on the published list of the 22 suspended firms.
 3. **A relaunch is being prepared, but no date is set.** ELS is building a **unified, real-time digital monitoring system**, and operators reportedly must connect to it before new licences are granted. Expect stricter rules on revenue reporting, payments and KYC than before.
 4. **Before the ban the market was large and ran on mobile money.** A draft audit found about **Birr 199 bn** in transactions between July 2023 and Dec 2025. Deposits and withdrawals ran almost entirely on **telebirr, CBE Birr and M-Pesa**, often through payment gateways (Chapa, ArifPay, SantimPay, Kacha). One analysis says betting was over 99% of payment-gateway volume in 2025.
 5. **Payment rails are now the main enforcement point.** Gateway accounts were reportedly frozen and their executives detained. Any future product has to treat payments compliance (transaction reporting, tax withholding, KYC with Fayda ID) as a core feature from the start, not an add-on.
-
-**Implication for this project:** build for the **relaunch licence regime**, not the old one. Do not take real-money bets or route payments until a licence under the new framework is issued.
 
 ---
 
@@ -55,7 +53,7 @@ No technical specification (data formats, APIs, reporting schedule) has been pub
 
 The 22 firms suspended on 4 Dec 2025, as listed by Birr Metrics (spellings vary between outlets):
 
-Dash Bet · Exnet Solution · Black Pearl Trading · Jambo Bet · ETEL (KWIK) · **Vamos Entertainment** · Hulegeb Online Solution · Hulu Gaming · Unique Sports Betting · Kukulu Sport · Walia Sport · HDM/Afro Trading · iKinetic Sport Entertainment · Daabaaak Trading · Beta Arada Sport & Entertainment · Super Flash Sport · Zemen Sports Betting · Addis Telco Service (Betika's local entity) · Betika Sport Lottery · Toto Sport Solution · Merke Betting · Champion Harif Sport
+Dash Bet · Exnet Solution · Black Pearl Trading · Jambo Bet · ETEL (KWIK) · **Nahubet Entertainment** · Hulegeb Online Solution · Hulu Gaming · Unique Sports Betting · Kukulu Sport · Walia Sport · HDM/Afro Trading · iKinetic Sport Entertainment · Daabaaak Trading · Beta Arada Sport & Entertainment · Super Flash Sport · Zemen Sports Betting · Addis Telco Service (Betika's local entity) · Betika Sport Lottery · Toto Sport Solution · Merke Betting · Champion Harif Sport
 
 Brands that featured most in market reviews before the ban:
 
@@ -63,7 +61,7 @@ Brands that featured most in market reviews before the ban:
 |---|---|---|
 | **Hulusport** | Long-time market leader. Won a court ruling in 2026 that was stayed on appeal. | Mobile money (details not documented) |
 | **Betika** (via Addis Telco) | Pan-East African brand. Large daily and weekly jackpots, cash-out, SMS/USSD betting, "lite" site, Android/iOS apps. 100% welcome bonus up to ETB 5,000. | Telebirr, CBE Birr |
-| **Vamos** | Multi-bet boost on slips with 7+ selections, free-bet bonus, casino and app | Mobile money (telebirr, M-Pesa reported) |
+| **Nahubet** | Multi-bet boost on slips with 7+ selections, free-bet bonus, casino and app | Mobile money (telebirr, M-Pesa reported) |
 | **Dash Bet** | Large volume (biggest single debtor in the audit) | Telebirr, M-Pesa. Reported limits: ETB 10 min, ETB 50,000 max |
 | **Winner Ethiopia** | English and **Amharic** UI, acca boosts, bet builder, live streaming, cash-out, weekly jackpot (up to ETB 1 m), Aviator promos, "second chance" | Telebirr, CBE Birr, Amole, HelloCash, bank transfer |
 | **Telebet** | Low minimum stake. Free-bet winnings must be wagered before withdrawal. | Telebirr, AddisPay + Telebirr, CBE Birr. Reported limits: ETB 5 min, ETB 75,000 max |
@@ -90,7 +88,7 @@ What the pre-ban leaders had in common:
 
 1. **Low stakes.** Minimum bets around ETB 5–10. Retail shops took bets from ETB 10.
 2. **Football first.** Mainly EPL, plus La Liga, Serie A, UCL and the Ethiopian Premier League. Accumulators (multi-bets) dominate.
-3. **Multi-bet boosts.** A percentage bonus that grows with the number of selections (Vamos: 7+ legs).
+3. **Multi-bet boosts.** A percentage bonus that grows with the number of selections (Nahubet: 7+ legs).
 4. **Jackpots.** Pick-13 or pick-17 style weekly and daily jackpots with ETB 0.5–1 m top prizes.
 5. **Crash and instant games.** Aviator-style games and casino as add-ons.
 6. **Cash-out and live betting.** Offered by the leading brands. Live streaming is rarer.
@@ -147,18 +145,17 @@ What the pre-ban leaders had in common:
 
 ---
 
-## 6. Recommendations for the Vamos project
+## 6. Recommendations for the Nahubet project
 
-1. **Do not operate real-money betting** or connect live payment rails until a licence under the new ELS framework is granted. Vamos Entertainment's earlier licence was suspended, and later every licence was revoked.
-2. **Build a platform ready for the relaunch.** Prioritise:
+1. **Build a platform ready for the relaunch.** Prioritise:
    - a double-entry wallet/ledger with an immutable audit trail;
    - a regulator reporting adapter (pluggable, since the ELS spec is not yet published);
    - a payments abstraction layer (telebirr direct, CBE Birr, M-Pesa, licensed gateway) behind feature flags;
    - KYC (Fayda) + AML rules + payout-to-own-account enforcement;
    - a tax engine for commission and winnings tax.
-3. **Keep the product strengths of the leading local brands:** low minimum stakes, football accumulators with multi-bet boosts, jackpots, cash-out, a fast lite web app with low data use, and Amharic plus other local languages.
-4. **Watch for:** the published relaunch regulation and monitoring-system spec, the outcome of the Hulu Sport appeal, and the status of the gateway account freezes (Chapa, ArifPay, SantimPay, Kacha).
-5. **Verify** every figure in this document marked "reported" before relying on it commercially. Get legal advice from Ethiopian counsel before going live.
+2. **Keep the product strengths of the leading local brands:** low minimum stakes, football accumulators with multi-bet boosts, jackpots, cash-out, a fast lite web app with low data use, and Amharic plus other local languages.
+3. **Watch for:** the published relaunch regulation and monitoring-system spec, the outcome of the Hulu Sport appeal, and the status of the gateway account freezes (Chapa, ArifPay, SantimPay, Kacha).
+4. **Verify** every figure in this document marked "reported" before relying on it commercially. Get legal advice from Ethiopian counsel before going live.
 
 ---
 

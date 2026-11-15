@@ -19,6 +19,13 @@ import { formatDateTime } from '@/lib/format';
 
 type Saved = (changes: StaffSettingsResponse) => void;
 
+/** What the market families setting holds (plan task 2.5). */
+const MARKET_FAMILIES_HELP =
+  'Margins of the factory markets in basis points (600 = 6%) per class (main, derivative, long) ' +
+  'and per market type (typeMarginBps, e.g. "htft": 1400); the factory selections\' share of the ' +
+  'selection liability cap (2500 = a quarter); and the weekly stakes (santim) a family needs ' +
+  'before the weekly job judges its margin. Margins apply at the next re-price, the share at the next bet.';
+
 function pick(settings: GameSettingsView, path: string): unknown {
   return (settings as unknown as Record<string, unknown>)[path];
 }
@@ -107,17 +114,23 @@ function SettingForm({
   );
 }
 
-/** The multi-bonus ladder and the jackpot templates are nested: edited as JSON, checked by the API. */
+/**
+ * The multi-bonus ladder, the jackpot templates and the market families are nested: edited as
+ * JSON, checked by the API.
+ */
 function JsonForm({
   title,
   settingKey,
   current,
   canEdit,
   onSaved,
+  help,
 }: {
   title: string;
-  settingKey: 'multi_bonus' | 'jackpot_template';
+  settingKey: 'multi_bonus' | 'jackpot_template' | 'market_families';
   current: unknown;
+  /** One line under the title saying what the value means. */
+  help?: string;
   canEdit: boolean;
   onSaved: Saved;
 }) {
@@ -146,6 +159,7 @@ function JsonForm({
   return (
     <form className="panel" onSubmit={save} aria-label={title} style={{ marginBottom: 12 }}>
       <h2 style={{ marginTop: 0 }}>{title}</h2>
+      {help !== undefined && <p className="small">{help}</p>}
       <textarea
         value={text}
         readOnly={!canEdit}
@@ -197,6 +211,14 @@ export default function SettingsPage() {
             current={current.settings.multiBonus}
             canEdit={canEdit}
             onSaved={setSaved}
+          />
+          <JsonForm
+            title="Market families"
+            settingKey="market_families"
+            current={current.settings.marketFamilies}
+            canEdit={canEdit}
+            onSaved={setSaved}
+            help={MARKET_FAMILIES_HELP}
           />
           <JsonForm
             title="Jackpot template: daily 9"

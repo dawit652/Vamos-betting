@@ -1,13 +1,14 @@
 {
   "name": "@vamos/i18n",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "description": "UI messages for Amharic, English, Afaan Oromo and Tigrinya",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./locales": "./src/locales.ts",
-    "./translate": "./src/translate.ts"
+    "./translate": "./src/translate.ts",
+    "./betslip": "./src/betslip.ts"
   },
   "sideEffects": false,
   "scripts": {

@@ -1,0 +1,17 @@
+{
+  "id": "openfootball-nl1",
+  "name": "openfootball: Eredivisie (football.json)",
+  "adapter": "openfootball",
+  "upstream": "openfootball community (github.com/openfootball/football.json, CC0)",
+  "config": {
+    "allowedHosts": ["raw.githubusercontent.com"],
+    "requests": [
+      {
+        "url": "https://raw.githubusercontent.com/openfootball/football.json/master/2026-27/nl.1.json",
+        "competition": "Eredivisie"
+      }
+    ],
+    "timeZone": "Europe/Amsterdam",
+    "sport": "football"
+  }
+}

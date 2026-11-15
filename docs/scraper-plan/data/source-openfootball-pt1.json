@@ -1,0 +1,17 @@
+{
+  "id": "openfootball-pt1",
+  "name": "openfootball: Primeira Liga (football.json)",
+  "adapter": "openfootball",
+  "upstream": "openfootball community (github.com/openfootball/football.json, CC0)",
+  "config": {
+    "allowedHosts": ["raw.githubusercontent.com"],
+    "requests": [
+      {
+        "url": "https://raw.githubusercontent.com/openfootball/football.json/master/2026-27/pt.1.json",
+        "competition": "Primeira Liga"
+      }
+    ],
+    "timeZone": "Europe/Lisbon",
+    "sport": "football"
+  }
+}

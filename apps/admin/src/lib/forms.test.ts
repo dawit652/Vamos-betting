@@ -137,6 +137,71 @@ describe('settings forms', () => {
   });
 });
 
+describe('house liability caps form', () => {
+  const spec = SETTING_SPECS.find((s) => s.key === 'risk_limits')!;
+  const contract = STAFF_SETTING_VALUE_SCHEMAS.risk_limits;
+
+  it('builds amounts in santim, and an empty field means no cap (null)', () => {
+    const both = buildSettingValue(spec, {
+      maxSelectionLiability: '50,000',
+      maxEventLiability: '250000.50',
+    });
+    expect(both).toEqual({
+      ok: true,
+      value: { maxSelectionLiability: '5000000', maxEventLiability: '25000050' },
+    });
+    const none = buildSettingValue(spec, { maxSelectionLiability: '', maxEventLiability: '  ' });
+    expect(none).toEqual({
+      ok: true,
+      value: { maxSelectionLiability: null, maxEventLiability: null },
+    });
+    for (const built of [both, none]) {
+      if (built.ok) expect(contract.safeParse(built.value).success).toBe(true);
+    }
+  });
+
+  it('refuses zero, which would be a cap that blocks every bet, and bad amounts', () => {
+    const built = buildSettingValue(spec, { maxSelectionLiability: '0', maxEventLiability: 'abc' });
+    expect(built.ok).toBe(false);
+    if (built.ok) return;
+    expect(Object.keys(built.errors).sort()).toEqual([
+      'maxEventLiability',
+      'maxSelectionLiability',
+    ]);
+  });
+
+  it('shows a stored null as an empty field and round-trips both states', () => {
+    const none = { maxSelectionLiability: null, maxEventLiability: null };
+    expect(formFromSetting(spec, none)).toEqual({
+      maxSelectionLiability: '',
+      maxEventLiability: '',
+    });
+    expect(buildSettingValue(spec, formFromSetting(spec, none))).toEqual({ ok: true, value: none });
+    const set = { maxSelectionLiability: '123456', maxEventLiability: '9999900' };
+    const form = formFromSetting(spec, set);
+    expect(form).toEqual({ maxSelectionLiability: '1234.56', maxEventLiability: '99999.00' });
+    expect(buildSettingValue(spec, form)).toEqual({ ok: true, value: set });
+  });
+
+  it('the contract refuses a selection cap above the match cap', () => {
+    expect(
+      contract.safeParse({ maxSelectionLiability: '200', maxEventLiability: '100' }).success,
+    ).toBe(false);
+    expect(
+      contract.safeParse({ maxSelectionLiability: '100', maxEventLiability: '100' }).success,
+    ).toBe(true);
+    expect(
+      contract.safeParse({ maxSelectionLiability: '0', maxEventLiability: null }).success,
+    ).toBe(false); // A malformed amount is a validation issue, never an exception from the cross-field check.
+    expect(
+      contract.safeParse({ maxSelectionLiability: '1.5', maxEventLiability: '5' }).success,
+    ).toBe(false);
+    expect(contract.safeParse({ maxSelectionLiability: '5', maxEventLiability: 'x' }).success).toBe(
+      false,
+    );
+  });
+});
+
 describe('JSON editor', () => {
   it('accepts objects only', () => {
     expect(parseJsonValue('{"enabled":true}')).toEqual({ ok: true, value: { enabled: true } });
@@ -154,5 +219,31 @@ describe('new password strength hint (ASVS 2.1.8)', () => {
     expect(passwordStrength('abcdefghijkl')).toBe('Fair');
     expect(passwordStrength('abcdefghijkl12')).toBe('Good');
     expect(passwordStrength('a new long passphrase')).toBe('Strong');
+  });
+});
+
+describe('market families setting (edited as JSON)', () => {
+  const contract = STAFF_SETTING_VALUE_SCHEMAS.market_families;
+  const defaults = {
+    marginBps: { main: 600, derivative: 700, long: 1200 },
+    typeMarginBps: {},
+    factoryLiabilityShareBps: 2500,
+    minWeeklyStake: '10000000',
+  };
+
+  it('the contract takes the defaults and an override, and refuses bad margins or fields', () => {
+    expect(contract.safeParse(defaults).success).toBe(true);
+    expect(contract.safeParse({ ...defaults, typeMarginBps: { htft: 1400 } }).success).toBe(true);
+    const parsed = parseJsonValue(JSON.stringify(defaults));
+    expect(parsed.ok && contract.safeParse(parsed.value).success).toBe(true);
+    for (const value of [
+      { ...defaults, marginBps: { main: 10_001, derivative: 700, long: 1200 } },
+      { ...defaults, typeMarginBps: { htft: 1.5 } },
+      { ...defaults, factoryLiabilityShareBps: -1 },
+      { ...defaults, minWeeklyStake: '-1' },
+      { ...defaults, extra: true },
+    ]) {
+      expect(contract.safeParse(value).success).toBe(false);
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ConfigError,
   DEV_ADMIN_TOTP_KEY,
@@ -9,10 +9,18 @@ import {
   isDemo,
   isDevAdminTotpKey,
   licensedModeViolations,
-  loadConfig,
+  loadConfig as loadConfigRaw,
   parseAdminTotpKey,
   parseTrustProxy,
+  scraperUserAgent,
 } from './config';
+
+/** OPERATING_MODE defaults to licensed, so tests of the demo defaults say so; an explicit mode in `env` wins. */
+function loadConfig(
+  env: Record<string, string | undefined> = {},
+): ReturnType<typeof loadConfigRaw> {
+  return loadConfigRaw({ OPERATING_MODE: 'demo', ...env });
+}
 
 /** A production-grade ADMIN_TOTP_KEY (any 32 bytes other than the development key). */
 const PRODUCTION_TOTP_KEY = '7f'.repeat(32);
@@ -22,11 +30,8 @@ const PRODUCTION_PEPPER = 'a-real-password-pepper-of-at-least-32-chars';
 const LICENSED_ENV = {
   NODE_ENV: 'production',
   OPERATING_MODE: 'licensed',
-  ELS_LICENSE_NUMBER: 'ELS/SB/0001',
-  ELS_REPORTING_MODE: 'file',
-  ELS_REPORT_DIR: '/var/lib/vamos/els',
   PAYMENT_PROVIDERS: 'telebirr,chapa',
-  KYC_PROVIDER: 'fayda',
+  KYC_PROVIDER: 'mock',
   SMS_PROVIDER: 'http',
   FEED_PROVIDER: 'manual',
   TAX_CONFIG_CONFIRMED: 'true',
@@ -45,7 +50,31 @@ function problemsOf(env: Record<string, string>): string[] {
   return [];
 }
 
+/** Runs loadConfig and returns what it logged with console.warn (the relaxed guard warns instead of refusing). */
+function warningsOf(env: Record<string, string>): string {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  try {
+    loadConfig(env);
+    return warn.mock.calls
+      .map((call) =>
+        call.map((part) => (Array.isArray(part) ? part.join('\n') : String(part))).join(' '),
+      )
+      .join('\n');
+  } finally {
+    warn.mockRestore();
+  }
+}
+
 describe('loadConfig', () => {
+  it('defaults to licensed mode, which refuses the mock payment provider that is the default', () => {
+    expect(() => loadConfigRaw({})).toThrow(
+      /"mock" payment provider is not allowed in licensed mode/,
+    );
+    expect(problemsOf({ OPERATING_MODE: 'licensed' })).toEqual([
+      'the "mock" payment provider is not allowed in licensed mode',
+    ]);
+  });
+
   it('defaults to demo mode with mock providers', () => {
     const config = loadConfig({});
     expect(config.mode).toBe('demo');
@@ -57,7 +86,9 @@ describe('loadConfig', () => {
       virtuals: false,
       smsBetting: false,
       ussd: false,
+      factoryMarkets: false,
     });
+    expect(loadConfig({ FEATURE_FACTORY_MARKETS: 'true' }).features.factoryMarkets).toBe(true);
   });
 
   it('accepts a fully configured licensed environment', () => {
@@ -67,117 +98,73 @@ describe('loadConfig', () => {
     expect(config.taxConfigConfirmed).toBe(true);
   });
 
-  it('refuses licensed mode without a licence number', () => {
-    const { ELS_LICENSE_NUMBER: _omit, ...env } = LICENSED_ENV;
-    expect(problemsOf(env).join('\n')).toMatch(/ELS_LICENSE_NUMBER/);
+  it('sends the registration SMS code unless REGISTRATION_SMS_VERIFICATION=off', () => {
+    expect(loadConfig({}).registration.smsVerification).toBe('required');
+    expect(loadConfig({ REGISTRATION_SMS_VERIFICATION: 'off' }).registration.smsVerification).toBe(
+      'off',
+    );
+    expect(problemsOf({ REGISTRATION_SMS_VERIFICATION: 'maybe' }).join(' ')).toMatch(
+      /REGISTRATION_SMS_VERIFICATION/,
+    );
   });
 
-  it('refuses licensed mode with mock payments, mock KYC, mock SMS, mock feed or unconfirmed tax', () => {
+  it('no longer accepts KYC_PROVIDER=fayda: mock is the only KYC provider', () => {
+    expect(problemsOf({ KYC_PROVIDER: 'fayda' }).join('\n')).toMatch(/KYC_PROVIDER/);
+    expect(loadConfig({ KYC_PROVIDER: 'mock' }).providers.kyc).toBe('mock');
+    expect(loadConfig({}).providers.kyc).toBe('mock');
+  });
+
+  it('refuses only the mock payment provider in licensed mode', () => {
     const problems = problemsOf({
       ...LICENSED_ENV,
       PAYMENT_PROVIDERS: 'mock',
-      KYC_PROVIDER: 'mock',
-      SMS_PROVIDER: 'mock',
-      FEED_PROVIDER: 'mock',
-      TAX_CONFIG_CONFIRMED: 'false',
+      MOCK_PAYMENT_WEBHOOK_SECRET: 'a-unique-mock-webhook-secret-for-the-demo',
     }).join('\n');
-    expect(problems).toMatch(/"mock" payment provider/);
-    expect(problems).toMatch(/at least one real payment provider/);
-    expect(problems).toMatch(/KYC_PROVIDER/);
-    expect(problems).toMatch(/SMS_PROVIDER/);
-    expect(problems).toMatch(/FEED_PROVIDER/);
-    expect(problems).toMatch(/TAX_CONFIG_CONFIRMED/);
-  });
-
-  it('refuses licensed mode with reporting off or casino enabled', () => {
-    const problems = problemsOf({
-      ...LICENSED_ENV,
-      ELS_REPORTING_MODE: 'off',
-      FEATURE_CASINO: 'true',
-    }).join('\n');
-    expect(problems).toMatch(/ELS_REPORTING_MODE must not be "off"/);
-    expect(problems).toMatch(/casino/);
-    // The legacy spelling is refused the same way.
-    const { ELS_REPORTING_MODE: _mode, ...legacy } = LICENSED_ENV;
-    expect(problemsOf({ ...legacy, ELS_REPORTING: 'disabled' }).join('\n')).toMatch(
-      /must not be "off"/,
-    );
-    expect(problemsOf({ ...legacy, ELS_REPORTING: 'file' })).toEqual([]);
-  });
-
-  it('reports to files under ./var/els by default, and accepts the legacy variable', () => {
-    expect(loadConfig({}).els).toMatchObject({
-      reportingMode: 'file',
-      reporting: 'file',
-      reportDir: './var/els',
-    });
-    expect(loadConfig({ ELS_REPORTING_MODE: 'off' }).els).toMatchObject({
-      reportingMode: 'off',
-      reporting: 'disabled',
-    });
-    expect(loadConfig({ ELS_REPORTING: 'disabled' }).els.reportingMode).toBe('off');
-    expect(
-      loadConfig({ ELS_REPORTING_MODE: 'http', ELS_REPORTING: 'http' }).els.reportingMode,
-    ).toBe('http');
-    expect(
-      problemsOf({ ELS_REPORTING_MODE: 'file', ELS_REPORTING: 'disabled' }).join('\n'),
-    ).toMatch(/contradicts/);
-    expect(problemsOf({ ELS_REPORTING_MODE: 'ftp' }).join('\n')).toMatch(/ELS_REPORTING_MODE/);
-  });
-
-  it('needs an absolute report directory in licensed mode', () => {
-    expect(problemsOf({ ...LICENSED_ENV, ELS_REPORT_DIR: './var/els' }).join('\n')).toMatch(
-      /ELS_REPORT_DIR must be an absolute path/,
-    );
-    const { ELS_REPORT_DIR: _dir, ...env } = LICENSED_ENV;
-    expect(problemsOf(env).join('\n')).toMatch(/ELS_REPORT_DIR/);
-  });
-
-  it('refuses licensed mode outside production or with the development secret', () => {
-    const problems = problemsOf({
-      ...LICENSED_ENV,
-      NODE_ENV: 'development',
-      SESSION_SECRET: DEV_SESSION_SECRET,
-    }).join('\n');
-    expect(problems).toMatch(/NODE_ENV=production/);
-    expect(problems).toMatch(/SESSION_SECRET/);
-  });
-
-  it('refuses http reporting in licensed mode until ELS publishes its interface', () => {
-    const problems = problemsOf({ ...LICENSED_ENV, ELS_REPORTING_MODE: 'http' }).join('\n');
-    expect(problems).toMatch(/ELS_REPORT_URL/);
-    expect(problems).toMatch(/placeholder/);
+    expect(problems).toMatch(/"mock" payment provider is not allowed in licensed mode/);
+    // The other mocks (KYC, SMS, feed) and an unconfirmed tax setup no longer block startup.
     expect(
       problemsOf({
         ...LICENSED_ENV,
-        ELS_REPORTING_MODE: 'http',
-        ELS_REPORT_URL: 'https://els.example/report',
-      }).join('\n'),
-    ).toMatch(/placeholder/);
+        KYC_PROVIDER: 'mock',
+        SMS_PROVIDER: 'mock',
+        FEED_PROVIDER: 'mock',
+        TAX_CONFIG_CONFIRMED: 'false',
+      }),
+    ).toEqual([]);
   });
 
-  it('refuses plain-http provider and callback URLs in licensed mode (review I4)', () => {
+  it('ignores the removed ELS reporting variables', () => {
+    expect(
+      problemsOf({ ...LICENSED_ENV, ELS_REPORTING_MODE: 'off', ELS_REPORT_DIR: './var/els' }),
+    ).toEqual([]);
+  });
+
+  it('does not require production settings just because the mode is licensed', () => {
+    expect(
+      problemsOf({ ...LICENSED_ENV, NODE_ENV: 'development', SESSION_SECRET: DEV_SESSION_SECRET }),
+    ).toEqual([]);
+  });
+
+  it('warns about plain-http provider and callback URLs in licensed mode without refusing them', () => {
     for (const [name, url] of [
-      ['PAYMENT_CALLBACK_BASE_URL', 'http://api.vamos.example'],
+      ['PAYMENT_CALLBACK_BASE_URL', 'http://api.nahubet.example'],
       ['CHAPA_BASE_URL', 'http://api.chapa.co/v1'],
       ['TELEBIRR_BASE_URL', 'http://telebirr.example/apiaccess'],
       ['TELEBIRR_CHECKOUT_URL', 'http://telebirr.example/checkout'],
-      ['ELS_REPORT_URL', 'http://els.example/report'],
-      // Not even on loopback: provider calls carry secrets and must leave the host encrypted.
-      ['CHAPA_BASE_URL', 'http://localhost:8080/v1'],
     ] as const) {
-      const problems = problemsOf({ ...LICENSED_ENV, [name]: url }).join('\n');
-      expect(problems, name).toMatch(new RegExp(`${name} must be an https URL in licensed mode`));
+      expect(warningsOf({ ...LICENSED_ENV, [name]: url }), name).toContain(
+        `Non-HTTPS URL detected for ${name}: ${url}`,
+      );
     }
     expect(
-      problemsOf({
+      warningsOf({
         ...LICENSED_ENV,
-        PAYMENT_CALLBACK_BASE_URL: 'https://api.vamos.example',
+        PAYMENT_CALLBACK_BASE_URL: 'https://api.nahubet.example',
         CHAPA_BASE_URL: 'https://api.chapa.co/v1',
         TELEBIRR_BASE_URL: 'https://telebirr.example/apiaccess',
         TELEBIRR_CHECKOUT_URL: 'https://telebirr.example/checkout',
       }),
-    ).toEqual([]);
+    ).not.toContain('Non-HTTPS URL');
     // Demo mode keeps accepting local http stand-ins.
     expect(problemsOf({ CHAPA_BASE_URL: 'http://localhost:8080/v1' })).toEqual([]);
   });
@@ -192,16 +179,19 @@ describe('loadConfig', () => {
     // CORS lets each origin reach only its own routes (/admin or the rest).
     expect(
       problemsOf({
-        PUBLIC_WEB_URL: 'https://vamos.et',
-        ADMIN_WEB_URL: 'https://vamos.et/backoffice',
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://nahubet.com/backoffice',
       }).join('\n'),
     ).toMatch(/ADMIN_WEB_URL/);
     expect(
-      problemsOf({ PUBLIC_WEB_URL: 'https://vamos.et', ADMIN_WEB_URL: 'https://admin.vamos.et' }),
+      problemsOf({
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://admin.nahubet.com',
+      }),
     ).toEqual([]);
   });
 
-  it('requires PASSWORD_PEPPER (32+ characters, not the session secret) in production and licensed mode', () => {
+  it('requires PASSWORD_PEPPER (32+ characters, not the session secret) in production', () => {
     const production = {
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
@@ -224,7 +214,11 @@ describe('loadConfig', () => {
     // Development and tests run without one.
     expect(loadConfig({}).passwordPepper).toBeUndefined();
     const { PASSWORD_PEPPER: _omit, ...licensed } = LICENSED_ENV;
-    expect(problemsOf(licensed).join('\n')).toMatch(/PASSWORD_PEPPER is required in licensed mode/);
+    // Licensed mode adds no rule of its own; in production the production rule applies.
+    expect(problemsOf(licensed)).toEqual([
+      'PASSWORD_PEPPER must be set in production (32+ characters)',
+    ]);
+    expect(problemsOf({ ...licensed, NODE_ENV: 'development' })).toEqual([]);
   });
 
   it('refuses the development session secret in production', () => {
@@ -288,7 +282,7 @@ describe('loadConfig', () => {
     }
   });
 
-  it('refuses the development ADMIN_TOTP_KEY in production and in licensed mode', () => {
+  it('refuses the development ADMIN_TOTP_KEY in production', () => {
     const production = {
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-real-production-secret-of-at-least-32-chars',
@@ -308,24 +302,37 @@ describe('loadConfig', () => {
     expect(problemsOf({})).toEqual([]);
 
     const { ADMIN_TOTP_KEY: _omit, ...licensed } = LICENSED_ENV;
-    expect(problemsOf(licensed).join('\n')).toMatch(
-      /ADMIN_TOTP_KEY must be a unique key in licensed mode/,
-    );
+    expect(problemsOf(licensed)).toEqual([
+      'ADMIN_TOTP_KEY must be set to a unique key in production',
+    ]);
+    // Licensed mode adds no rule of its own.
     const config = loadConfig(LICENSED_ENV);
     expect(
       licensedModeViolations({
         ...config,
         admin: { totpKey: Buffer.from(DEV_ADMIN_TOTP_KEY, 'hex') },
       }),
-    ).toEqual([
-      'ADMIN_TOTP_KEY must be a unique key in licensed mode (it encrypts the staff TOTP secrets)',
-    ]);
+    ).toEqual([]);
   });
 
   it('reads the payment provider settings with demo-safe defaults', () => {
     const config = loadConfig({});
     expect(config.payments).toEqual({
       callbackBaseUrl: 'http://localhost:4000',
+      sms: {
+        mode: 'simulated',
+        gatewaySecret: undefined,
+        gatewayAllowlist: [],
+        collectionAccounts: [
+          { institution: 'telebirr', account: '0900000000', name: 'Vamos Demo' },
+          { institution: 'cbe', account: '1000000000000', name: 'Vamos Demo' },
+        ],
+        operatorLegalName: undefined,
+        receiptVerify: 'audit',
+        receiptVerifyTimeoutMs: 6000,
+        requirePayoutProof: false,
+        payoutProofWaived: false,
+      },
       mock: { webhookSecret: DEV_MOCK_PAYMENT_WEBHOOK_SECRET },
       chapa: { baseUrl: 'https://api.chapa.co/v1', secretKey: undefined, webhookSecret: undefined },
       telebirr: {
@@ -359,10 +366,7 @@ describe('loadConfig', () => {
     expect(licensedModeViolations(config)).toEqual([]);
     expect(
       licensedModeViolations({ ...config, providers: { ...config.providers, payments: ['mock'] } }),
-    ).toEqual([
-      'the "mock" payment provider is not allowed in licensed mode',
-      'at least one real payment provider must be configured in PAYMENT_PROVIDERS',
-    ]);
+    ).toEqual(['the "mock" payment provider is not allowed in licensed mode']);
   });
 
   it('reads the simulator speed and the rolling-fixture knobs', () => {
@@ -490,35 +494,6 @@ describe('loadConfig', () => {
     // Development keeps the defaults usable.
     expect(problemsOf({ SMS_BETTING_ENABLED: 'true', USSD_ENABLED: 'true' })).toEqual([]);
   });
-
-  it('refuses the demo "mock" aggregator in licensed mode while a channel is on', () => {
-    const secrets = {
-      SMS_WEBHOOK_SECRET: 'a-unique-production-sms-secret',
-      USSD_SHARED_SECRET: 'a-unique-production-ussd-secret',
-    };
-    const both = problemsOf({
-      ...LICENSED_ENV,
-      ...secrets,
-      SMS_BETTING_ENABLED: 'true',
-      USSD_ENABLED: 'true',
-    });
-    expect(both).toEqual([
-      'SMS_AGGREGATOR "mock" is not allowed in licensed mode (SMS betting needs a contracted aggregator)',
-      'USSD_AGGREGATOR "mock" is not allowed in licensed mode (USSD needs a contracted aggregator)',
-    ]);
-    const smsOnly = problemsOf({ ...LICENSED_ENV, ...secrets, SMS_BETTING_ENABLED: 'true' });
-    expect(smsOnly.join('\n')).toMatch(/SMS_AGGREGATOR "mock"/);
-    expect(smsOnly.join('\n')).not.toMatch(/USSD_AGGREGATOR/);
-    const ussdOnly = problemsOf({ ...LICENSED_ENV, ...secrets, FEATURE_USSD: 'true' });
-    expect(ussdOnly.join('\n')).toMatch(/USSD_AGGREGATOR "mock"/);
-    expect(ussdOnly.join('\n')).not.toMatch(/SMS_AGGREGATOR/);
-    // Channels off: the mock aggregator is never used, so nothing changes.
-    expect(licensedModeViolations(loadConfig(LICENSED_ENV))).toEqual([]);
-    // The guard still refuses what it refused before, whatever the channels say.
-    expect(
-      problemsOf({ ...LICENSED_ENV, SMS_BETTING_ENABLED: 'true', SMS_PROVIDER: 'mock' }).join('\n'),
-    ).toMatch(/SMS_PROVIDER must be a real SMS gateway/);
-  });
 });
 
 describe('operations settings (Phase 12)', () => {
@@ -574,24 +549,323 @@ describe('operations settings (Phase 12)', () => {
     expect(
       problemsOf({
         ...production,
-        PUBLIC_WEB_URL: 'https://vamos.et',
-        ADMIN_WEB_URL: 'https://admin.vamos.et',
-        PUBLIC_API_URL: 'https://api.vamos.et',
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://admin.nahubet.com',
+        PUBLIC_API_URL: 'https://api.nahubet.com',
       }),
     ).toEqual([]);
     expect(
       problemsOf({
         ...production,
-        PUBLIC_WEB_URL: 'http://vamos.et',
-        ADMIN_WEB_URL: 'http://admin.vamos.et',
-        PUBLIC_API_URL: 'http://api.vamos.et',
+        PUBLIC_WEB_URL: 'http://nahubet.com',
+        ADMIN_WEB_URL: 'http://admin.nahubet.com',
+        PUBLIC_API_URL: 'http://api.nahubet.com',
       }),
     ).toEqual([
-      'PUBLIC_WEB_URL must be an https URL in production (got http://vamos.et)',
-      'ADMIN_WEB_URL must be an https URL in production (got http://admin.vamos.et)',
-      'PUBLIC_API_URL must be an https URL in production (got http://api.vamos.et)',
+      'PUBLIC_WEB_URL must be an https URL in production (got http://nahubet.com)',
+      'ADMIN_WEB_URL must be an https URL in production (got http://admin.nahubet.com)',
+      'PUBLIC_API_URL must be an https URL in production (got http://api.nahubet.com)',
     ]);
     // Development keeps plain http.
     expect(problemsOf({ PUBLIC_WEB_URL: 'http://vamos.lan:3000' })).toEqual([]);
+  });
+});
+
+describe('data scraper settings (docs/scraper.md section 7)', () => {
+  const SCRAPED_LICENSED = {
+    ...LICENSED_ENV,
+    FEED_PROVIDER: 'scraped',
+    SCRAPER_ARCHIVE_DIR: '/var/lib/vamos/scraper',
+    SCRAPER_CONTACT: 'https://nahubet.com/bot',
+  };
+
+  it('has safe defaults and exposes them on config.scraper', () => {
+    expect(loadConfig({}).scraper).toEqual({
+      archiveDir: './var/scraper',
+      userAgent: 'NahubetBot/1.0',
+      contact: undefined,
+      robots: 'enforce',
+      port: 4200,
+      maxConcurrency: 4,
+      resultConfirmMinutes: 15,
+      minRatingMatches: 8,
+      halfTimeMarkets: 'all',
+      autoAlias: false,
+      priorityCompetitions: null,
+      skipRedundantScores: false,
+      capAtBestPrice: false,
+      priceExpiryMinutes: 0,
+      factoryMarkets: false,
+    });
+    // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
+    expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
+  });
+
+  it('reads every setting', () => {
+    const config = loadConfig({
+      SCRAPER_ARCHIVE_DIR: ' /data/scraper ',
+      SCRAPER_USER_AGENT: 'NahubetBot/2.0',
+      SCRAPER_CONTACT: ' ops@nahubet.com ',
+      SCRAPER_ROBOTS: 'off',
+      SCRAPER_PORT: '0',
+      SCRAPER_MAX_CONCURRENCY: '8',
+      SCRAPER_RESULT_CONFIRM_MINUTES: '5',
+      SCRAPER_MIN_RATING_MATCHES: '1',
+      SCRAPER_HALF_TIME_MARKETS: 'covered',
+      SCRAPER_AUTO_ALIAS: 'on',
+      SCRAPER_PRIORITY_COMPETITIONS: ' Premier-League, la-liga,,premier-league ',
+      SCRAPER_SKIP_REDUNDANT_SCORES: 'on',
+      SCRAPER_CAP_AT_BEST_PRICE: 'on',
+      SCRAPER_PRICE_EXPIRY_MINUTES: '90',
+      SCRAPER_FACTORY_MARKETS: 'on',
+    });
+    expect(config.scraper).toEqual({
+      archiveDir: '/data/scraper',
+      userAgent: 'NahubetBot/2.0',
+      contact: 'ops@nahubet.com',
+      robots: 'off',
+      port: 0,
+      maxConcurrency: 8,
+      resultConfirmMinutes: 5,
+      minRatingMatches: 1,
+      halfTimeMarkets: 'covered',
+      autoAlias: true,
+      priorityCompetitions: ['premier-league', 'la-liga'],
+      skipRedundantScores: true,
+      capAtBestPrice: true,
+      priceExpiryMinutes: 90,
+      factoryMarkets: true,
+    });
+    // A blank contact (as in an env file) is "not set".
+    expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();
+    // A blank priority list (as in an env file) is "not set": every competition is priority.
+    expect(
+      loadConfig({ SCRAPER_PRIORITY_COMPETITIONS: ' , ' }).scraper.priorityCompetitions,
+    ).toBeNull();
+  });
+
+  it('refuses values out of range or of the wrong kind', () => {
+    for (const [name, values] of [
+      ['SCRAPER_RESULT_CONFIRM_MINUTES', ['4', '0', '-1', '15.5', 'soon', '1441']],
+      ['SCRAPER_MIN_RATING_MATCHES', ['0', '-3', '2.5', 'many']],
+      ['SCRAPER_MAX_CONCURRENCY', ['0', '-1', '1.5', 'x', '65']],
+      ['SCRAPER_PORT', ['-1', '70000', '42.5', 'x']],
+      ['SCRAPER_ROBOTS', ['maybe', 'ON', 'false']],
+      ['SCRAPER_HALF_TIME_MARKETS', ['some', 'COVERED', 'true', '']],
+      ['SCRAPER_AUTO_ALIAS', ['true', 'ON', '1', '']],
+      ['SCRAPER_PRIORITY_COMPETITIONS', ['premier league', 'epl;la-liga', '-x']],
+      ['SCRAPER_SKIP_REDUNDANT_SCORES', ['true', 'ON', '1', '']],
+      ['SCRAPER_CAP_AT_BEST_PRICE', ['true', 'ON', '1', '']],
+      ['SCRAPER_PRICE_EXPIRY_MINUTES', ['-1', '1441', 'abc', '1.5']],
+      ['SCRAPER_FACTORY_MARKETS', ['true', 'ON', '1', '']],
+      ['SCRAPER_ARCHIVE_DIR', ['   ']],
+      ['SCRAPER_USER_AGENT', ['   ', 'Bot\r\nX-Evil: 1', 'Bøt/1.0']],
+      [
+        'SCRAPER_CONTACT',
+        ['not a contact', 'ftp://nahubet.com', 'a@b', 'ops@nahubet.com)\r\nX: y'],
+      ],
+    ] as const) {
+      for (const value of values) {
+        expect(problemsOf({ [name]: value }).join('\n'), `${name}=${value}`).toMatch(
+          new RegExp(name),
+        );
+      }
+    }
+  });
+
+  it('builds the User-Agent with the contact when there is one', () => {
+    expect(scraperUserAgent(loadConfig({}).scraper)).toBe('NahubetBot/1.0');
+    expect(scraperUserAgent(loadConfig({ SCRAPER_CONTACT: 'ops@nahubet.com' }).scraper)).toBe(
+      'NahubetBot/1.0 (+ops@nahubet.com)',
+    );
+    expect(
+      scraperUserAgent({ userAgent: 'NahubetBot/2.0', contact: 'https://nahubet.com/bot' }),
+    ).toBe('NahubetBot/2.0 (+https://nahubet.com/bot)');
+  });
+
+  it('accepts FEED_PROVIDER=scraped on its own in demo mode, whatever the scraper settings', () => {
+    expect(problemsOf({ FEED_PROVIDER: 'scraped' })).toEqual([]);
+    expect(loadConfig({ FEED_PROVIDER: 'scraped' }).feed.provider).toBe('scraped');
+    // The strict checks apply to licensed mode only.
+    expect(
+      problemsOf({
+        FEED_PROVIDER: 'scraped',
+        SCRAPER_ROBOTS: 'off',
+        SCRAPER_ARCHIVE_DIR: 'relative/dir',
+      }),
+    ).toEqual([]);
+    expect(problemsOf({ FEED_PROVIDER: 'robot' }).join('\n')).toMatch(/FEED_PROVIDER/);
+  });
+
+  it('accepts a fully configured licensed environment with scraped fixtures', () => {
+    const config = loadConfig(SCRAPED_LICENSED);
+    expect(config.feed.provider).toBe('scraped');
+    expect(licensedModeViolations(config)).toEqual([]);
+    for (const archiveDir of [
+      '/srv/scraper',
+      'C:\\scraper',
+      'D:/scraper',
+      '\\\\nas\\share\\scraper',
+    ]) {
+      expect(
+        problemsOf({ ...SCRAPED_LICENSED, SCRAPER_ARCHIVE_DIR: archiveDir }),
+        archiveDir,
+      ).toEqual([]);
+    }
+  });
+
+  it('does not ask for scraper settings in licensed mode unless the feed is scraped', () => {
+    expect(problemsOf({ ...LICENSED_ENV, SCRAPER_ROBOTS: 'off' })).toEqual([]);
+    expect(problemsOf({ ...LICENSED_ENV, FEED_PROVIDER: 'manual', SCRAPER_ROBOTS: 'off' })).toEqual(
+      [],
+    );
+  });
+
+  it('does not refuse the mock feed or scraper settings in licensed mode', () => {
+    expect(problemsOf({ ...SCRAPED_LICENSED, FEED_PROVIDER: 'mock' })).toEqual([]);
+    const config = loadConfig(SCRAPED_LICENSED);
+    expect(
+      licensedModeViolations({
+        ...config,
+        scraper: { ...config.scraper, archiveDir: 'x', contact: undefined, robots: 'off' },
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe('the SMS deposit rail', () => {
+  const LIVE_ACCOUNTS = JSON.stringify([
+    { institution: 'telebirr', account: '0911000000', name: 'Vamos Betting PLC' },
+    { institution: 'cbe', account: '1000123456789', name: 'VAMOS BETTING P.L.C.' },
+  ]);
+  const LIVE_SMS = {
+    PAYMENT_PROVIDERS: 'sms',
+    SMS_RAIL_MODE: 'live',
+    SMS_GATEWAY_SECRET: 'g'.repeat(40),
+    SMS_COLLECTION_ACCOUNTS: LIVE_ACCOUNTS,
+    OPERATOR_LEGAL_NAME: 'Vamos Betting P.L.C',
+    PAYOUT_REQUIRE_PROOF: 'true',
+  };
+
+  it('runs simulated in demo mode, on the demo collection accounts', () => {
+    const config = loadConfig({ PAYMENT_PROVIDERS: 'mock,sms' });
+    expect(config.payments.sms.mode).toBe('simulated');
+    expect(config.payments.sms.collectionAccounts.map((a) => a.institution)).toEqual([
+      'telebirr',
+      'cbe',
+    ]);
+  });
+
+  it('refuses the live rail and real collection accounts in demo mode', () => {
+    expect(problemsOf({ PAYMENT_PROVIDERS: 'sms', SMS_RAIL_MODE: 'live' }).join('\n')).toMatch(
+      /demo mode only allows the "mock" payment provider and the simulated SMS rail \(got: sms\)/,
+    );
+    expect(
+      problemsOf({ PAYMENT_PROVIDERS: 'sms', SMS_COLLECTION_ACCOUNTS: LIVE_ACCOUNTS }).join('\n'),
+    ).toMatch(/SMS_COLLECTION_ACCOUNTS is for the live SMS rail/);
+  });
+
+  it('accepts a fully configured live rail in licensed mode', () => {
+    const config = loadConfig({ ...LICENSED_ENV, ...LIVE_SMS });
+    expect(config.payments.sms).toMatchObject({
+      mode: 'live',
+      receiptVerify: 'audit',
+      requirePayoutProof: true,
+    });
+    expect(config.payments.sms.collectionAccounts).toHaveLength(2);
+  });
+
+  it('reports SMS rail problems as warnings in licensed mode, not as errors', () => {
+    const simulated = warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_RAIL_MODE: 'simulated' });
+    expect(simulated).toContain('SMS Rail compliance notes (non-blocking)');
+    expect(simulated).toMatch(/SMS_RAIL_MODE=live is required/);
+    expect(warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_GATEWAY_SECRET: 'short' })).toMatch(
+      /SMS_GATEWAY_SECRET must be set \(32\+ characters\)/,
+    );
+    expect(
+      warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_GATEWAY_SECRET: LICENSED_ENV.SESSION_SECRET }),
+    ).toMatch(/SMS_GATEWAY_SECRET must be its own secret/);
+    const personal = JSON.stringify([
+      { institution: 'telebirr', account: '0911000000', name: 'Abebe Kebede' },
+    ]);
+    expect(warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: personal })).toMatch(
+      /not in OPERATOR_LEGAL_NAME \(personal accounts are not allowed\)/,
+    );
+    // None of these stop the config from loading.
+    expect(problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_RAIL_MODE: 'simulated' })).toEqual([]);
+    // A fully configured live rail has nothing to report.
+    expect(warningsOf({ ...LICENSED_ENV, ...LIVE_SMS })).not.toContain('SMS Rail compliance notes');
+  });
+
+  it('warns when the live rail has no receipt audit or payout proof unless waived', () => {
+    expect(warningsOf({ ...LICENSED_ENV, ...LIVE_SMS, RECEIPT_VERIFY: 'off' })).toMatch(
+      /RECEIPT_VERIFY must be "audit"/,
+    );
+    const { PAYOUT_REQUIRE_PROOF: _proof, ...noProof } = LIVE_SMS;
+    expect(warningsOf({ ...LICENSED_ENV, ...noProof })).toMatch(
+      /PAYOUT_REQUIRE_PROOF=true is required/,
+    );
+    expect(warningsOf({ ...LICENSED_ENV, ...noProof, PAYOUT_PROOF_WAIVED: 'true' })).not.toContain(
+      'SMS Rail compliance notes',
+    );
+  });
+
+  it('rejects malformed collection accounts', () => {
+    expect(
+      problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: 'not json' }).join('\n'),
+    ).toMatch(/SMS_COLLECTION_ACCOUNTS: must be a JSON array/);
+    expect(
+      problemsOf({
+        ...LICENSED_ENV,
+        ...LIVE_SMS,
+        SMS_COLLECTION_ACCOUNTS: JSON.stringify([
+          { institution: 'Tele Birr', account: '1', name: 'x' },
+        ]),
+      }).join('\n'),
+    ).toMatch(/SMS_COLLECTION_ACCOUNTS\.0\.institution/);
+  });
+});
+
+describe('owner alerts (plan task 1.11)', () => {
+  it('is off by default, with a 30 minute interval', () => {
+    expect(loadConfig({}).ownerAlerts).toEqual({ phones: [], minIntervalMinutes: 30 });
+    // A blank value (as in an env file) is "not set".
+    expect(loadConfig({ OWNER_ALERT_PHONES: ' , ' }).ownerAlerts.phones).toEqual([]);
+  });
+
+  it('reads the numbers and the interval, dropping blanks and duplicates', () => {
+    const config = loadConfig({
+      OWNER_ALERT_PHONES: ' +251911234567, +251922345678 ,,+251911234567 ',
+      OWNER_ALERT_MIN_INTERVAL_MINUTES: '60',
+    });
+    expect(config.ownerAlerts).toEqual({
+      phones: ['+251911234567', '+251922345678'],
+      minIntervalMinutes: 60,
+    });
+  });
+
+  it('refuses numbers that are not E.164 and intervals out of range', () => {
+    for (const [name, values] of [
+      [
+        'OWNER_ALERT_PHONES',
+        [
+          '0911234567',
+          '251911234567',
+          '+2519112',
+          '+0911234567',
+          '+251 911 234 567',
+          '+251911234567,0911234567',
+          '+251911234567x',
+          Array.from({ length: 11 }, (_, i) => `+25191123456${i % 10}${i}`).join(','),
+        ],
+      ],
+      ['OWNER_ALERT_MIN_INTERVAL_MINUTES', ['0', '-5', '1441', '1.5', 'soon', '']],
+    ] as const) {
+      for (const value of values) {
+        expect(problemsOf({ [name]: value }).join('\n'), `${name}=${value}`).toMatch(
+          new RegExp(name),
+        );
+      }
+    }
   });
 });

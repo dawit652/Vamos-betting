@@ -54,6 +54,7 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
   const redis = new Redis(redisUrl, { keyPrefix: `vamos-test:${id}:`, maxRetriesPerRequest: 2 });
   const config = loadConfig({
+    OPERATING_MODE: 'demo',
     NODE_ENV: 'test',
     LOG_LEVEL: 'silent',
     DATABASE_URL: db.url,

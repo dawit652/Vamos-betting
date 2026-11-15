@@ -7,11 +7,15 @@ import type {
   QuoteResponse,
 } from '@vamos/contracts';
 import {
+  factoryMarketName,
+  factorySelectionLabel,
   formatGameId,
+  isFactoryOnlyMarketType,
   MARKET_TYPES,
   selectionLabel,
   toWire,
   type CashOutConfig,
+  type MarketTypeCode,
 } from '@vamos/core';
 import {
   cashedOutView,
@@ -50,9 +54,21 @@ function teamName(name: SelectionSnapshot['homeTeam']): LocalizedNameValue {
 }
 
 /** The market type's display name; an unknown type falls back to its code. */
-export function marketName(selection: Pick<SelectionSnapshot, 'marketType'>): LocalizedNameValue {
+export function marketName(
+  selection: Pick<SelectionSnapshot, 'marketType'> & { marketLine?: string | null },
+): LocalizedNameValue {
   const type = selection.marketType;
-  if (!isMarketTypeCode(type)) return { en: type };
+  if (!isMarketTypeCode(type)) {
+    if (isFactoryOnlyMarketType(type)) {
+      try {
+        const name = factoryMarketName(type, selection.marketLine ?? null);
+        return { en: name.en, am: name.am };
+      } catch {
+        // a malformed stored line: fall through to the raw code
+      }
+    }
+    return { en: type };
+  }
   const { name } = MARKET_TYPES[type];
   return { en: name.en, am: name.am };
 }
@@ -65,7 +81,9 @@ export function selectionName(
   >,
 ): LocalizedNameValue {
   const type = selection.marketType;
-  if (!isMarketTypeCode(type)) return { en: selection.code };
+  const factoryOnly = !isMarketTypeCode(type) && isFactoryOnlyMarketType(type);
+  if (!isMarketTypeCode(type) && !factoryOnly) return { en: selection.code };
+  const label = factoryOnly ? factorySelectionLabel : selectionLabel;
   const en = { home: selection.homeTeam.en, away: selection.awayTeam.en };
   const am = {
     home: selection.homeTeam.am ?? en.home,
@@ -73,8 +91,8 @@ export function selectionName(
   };
   try {
     return {
-      en: selectionLabel(type, selection.code, en, selection.marketLine).en,
-      am: selectionLabel(type, selection.code, am, selection.marketLine).am,
+      en: label(type as MarketTypeCode, selection.code, en, selection.marketLine).en,
+      am: label(type as MarketTypeCode, selection.code, am, selection.marketLine).am,
     };
   } catch {
     return { en: selection.code };

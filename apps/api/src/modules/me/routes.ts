@@ -79,7 +79,7 @@ export default async function meRoutes(app: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const body = await exportMyData(deps, requireUser(request), { ip: request.ip });
-      void reply.header('content-disposition', 'attachment; filename="vamos-my-data.json"');
+      void reply.header('content-disposition', 'attachment; filename="nahubet-my-data.json"');
       return body;
     },
   );

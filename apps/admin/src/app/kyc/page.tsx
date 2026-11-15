@@ -48,7 +48,7 @@ export default function KycPage() {
                   <Link href={`/users/${k.userId}`}>{k.phone}</Link>
                 </td>
                 <td>{k.verifiedName ?? k.fullName ?? '–'}</td>
-                <td>{k.dateOfBirth}</td>
+                <td>{k.dateOfBirth ?? '–'}</td>
                 <td>{k.idNumberLast4 === null ? '–' : `…${k.idNumberLast4}`}</td>
                 <td>
                   <Badge value={k.status} />

@@ -87,7 +87,7 @@ export interface AmlRules {
   cashOutChurn: AmlCashOutChurnRule;
 }
 
-/** Defaults: placeholders to confirm with counsel (see docs/compliance.md). */
+/** Defaults: placeholders to confirm with counsel. */
 export const DEFAULT_AML_RULES: AmlRules = {
   enabled: true,
   holdWithdrawalsOnHighSeverity: true,

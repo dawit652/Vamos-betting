@@ -1,0 +1,597 @@
+{
+  "filters": {
+    "season": "2026"
+  },
+  "resultSet": {
+    "count": 17,
+    "first": "2026-11-01",
+    "last": "2026-11-21",
+    "played": 2
+  },
+  "competition": {
+    "id": 2021,
+    "name": "Premier League",
+    "code": "PL",
+    "type": "LEAGUE"
+  },
+  "matches": [
+    {
+      "id": 901,
+      "utcDate": "2026-11-01T16:30:00Z",
+      "status": "FINISHED",
+      "matchday": 9,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1028,
+        "name": "Liverpool FC",
+        "shortName": "Liverpool",
+        "tla": "LIV"
+      },
+      "awayTeam": {
+        "id": 2011,
+        "name": "Arsenal FC",
+        "shortName": "Arsenal",
+        "tla": "ARS"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 2,
+          "away": 2
+        },
+        "halfTime": {
+          "home": 1,
+          "away": 0
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 902,
+      "utcDate": "2026-11-02T20:00:00Z",
+      "status": "FINISHED",
+      "matchday": 9,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1029,
+        "name": "Newcastle United FC",
+        "shortName": "Newcastle United",
+        "tla": "NEW"
+      },
+      "awayTeam": {
+        "id": 2012,
+        "name": "Everton FC",
+        "shortName": "Everton",
+        "tla": "EVE"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 0,
+          "away": 0
+        },
+        "halfTime": {
+          "home": 0,
+          "away": 0
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1001,
+      "utcDate": "2026-11-06T20:00:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1031,
+        "name": "Everton FC",
+        "shortName": "Everton",
+        "tla": "EVE"
+      },
+      "awayTeam": {
+        "id": 2022,
+        "name": "Coventry City FC",
+        "shortName": "Coventry City",
+        "tla": "COV"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1002,
+      "utcDate": "2026-11-07T12:30:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1032,
+        "name": "Leeds United FC",
+        "shortName": "Leeds United",
+        "tla": "LEE"
+      },
+      "awayTeam": {
+        "id": 2023,
+        "name": "Tottenham Hotspur FC",
+        "shortName": "Tottenham Hotspur",
+        "tla": "TOT"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1003,
+      "utcDate": "2026-11-07T15:00:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1033,
+        "name": "Arsenal FC",
+        "shortName": "Arsenal",
+        "tla": "ARS"
+      },
+      "awayTeam": {
+        "id": 2024,
+        "name": "Hull City AFC",
+        "shortName": "Hull City AFC",
+        "tla": "HUL"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1004,
+      "utcDate": "2026-11-07T15:00:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1034,
+        "name": "Fulham FC",
+        "shortName": "Fulham",
+        "tla": "FUL"
+      },
+      "awayTeam": {
+        "id": 2025,
+        "name": "Newcastle United FC",
+        "shortName": "Newcastle United",
+        "tla": "NEW"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1005,
+      "utcDate": "2026-11-07T17:30:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1035,
+        "name": "Nottingham Forest FC",
+        "shortName": "Nottingham Forest",
+        "tla": "NOT"
+      },
+      "awayTeam": {
+        "id": 2026,
+        "name": "Manchester City FC",
+        "shortName": "Manchester City",
+        "tla": "MAN"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1006,
+      "utcDate": "2026-11-08T14:00:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1036,
+        "name": "Brighton & Hove Albion FC",
+        "shortName": "Brighton & Hove Albion",
+        "tla": "BRI"
+      },
+      "awayTeam": {
+        "id": 2027,
+        "name": "Brentford FC",
+        "shortName": "Brentford",
+        "tla": "BRE"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1007,
+      "utcDate": "2026-11-08T14:00:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1037,
+        "name": "Crystal Palace FC",
+        "shortName": "Crystal Palace",
+        "tla": "CRY"
+      },
+      "awayTeam": {
+        "id": 2028,
+        "name": "Liverpool FC",
+        "shortName": "Liverpool",
+        "tla": "LIV"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1008,
+      "utcDate": "2026-11-08T14:00:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1038,
+        "name": "Ipswich Town FC",
+        "shortName": "Ipswich Town",
+        "tla": "IPS"
+      },
+      "awayTeam": {
+        "id": 2029,
+        "name": "AFC Bournemouth",
+        "shortName": "AFC Bournemouth",
+        "tla": "AFC"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1009,
+      "utcDate": "2026-11-08T14:00:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1039,
+        "name": "Sunderland AFC",
+        "shortName": "Sunderland AFC",
+        "tla": "SUN"
+      },
+      "awayTeam": {
+        "id": 2030,
+        "name": "Chelsea FC",
+        "shortName": "Chelsea",
+        "tla": "CHE"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1010,
+      "utcDate": "2026-11-08T16:30:00Z",
+      "status": "TIMED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1040,
+        "name": "Manchester United FC",
+        "shortName": "Manchester United",
+        "tla": "MAN"
+      },
+      "awayTeam": {
+        "id": 2031,
+        "name": "Aston Villa FC",
+        "shortName": "Aston Villa",
+        "tla": "AST"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1101,
+      "utcDate": "2026-11-21T15:00:00Z",
+      "status": "SCHEDULED",
+      "matchday": 11,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1034,
+        "name": "Chelsea FC",
+        "shortName": "Chelsea",
+        "tla": "CHE"
+      },
+      "awayTeam": {
+        "id": 2033,
+        "name": "Arsenal FC",
+        "shortName": "Arsenal",
+        "tla": "ARS"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1201,
+      "utcDate": "2026-11-04T19:45:00Z",
+      "status": "IN_PLAY",
+      "matchday": 8,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1037,
+        "name": "Brentford FC",
+        "shortName": "Brentford",
+        "tla": "BRE"
+      },
+      "awayTeam": {
+        "id": 2044,
+        "name": "Fulham FC",
+        "shortName": "Fulham",
+        "tla": "FUL"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 1,
+          "away": 0
+        },
+        "halfTime": {
+          "home": 1,
+          "away": 0
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1202,
+      "utcDate": "2026-10-28T19:45:00Z",
+      "status": "POSTPONED",
+      "matchday": 8,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1038,
+        "name": "Hull City AFC",
+        "shortName": "Hull City AFC",
+        "tla": "HUL"
+      },
+      "awayTeam": {
+        "id": 2045,
+        "name": "Chelsea FC",
+        "shortName": "Chelsea",
+        "tla": "CHE"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1203,
+      "utcDate": "2026-10-29T19:45:00Z",
+      "status": "SUSPENDED",
+      "matchday": 8,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1039,
+        "name": "Sunderland AFC",
+        "shortName": "Sunderland AFC",
+        "tla": "SUN"
+      },
+      "awayTeam": {
+        "id": 2046,
+        "name": "Fulham FC",
+        "shortName": "Fulham",
+        "tla": "FUL"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 0,
+          "away": 1
+        },
+        "halfTime": {
+          "home": 0,
+          "away": 1
+        }
+      },
+      "referees": []
+    },
+    {
+      "id": 1204,
+      "utcDate": "2026-10-30T19:45:00Z",
+      "status": "AWARDED",
+      "matchday": 8,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-11-05T08:00:00Z",
+      "homeTeam": {
+        "id": 1040,
+        "name": "Ipswich Town FC",
+        "shortName": "Ipswich Town",
+        "tla": "IPS"
+      },
+      "awayTeam": {
+        "id": 2047,
+        "name": "Everton FC",
+        "shortName": "Everton",
+        "tla": "EVE"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 0,
+          "away": 3
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "referees": []
+    }
+  ]
+}

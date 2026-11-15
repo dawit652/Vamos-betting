@@ -143,7 +143,7 @@ export class ChapaProvider implements PaymentProvider {
         phone_number: localMsisdn(NAME, input.phone),
         callback_url: input.callbackUrl,
         return_url: input.returnUrl,
-        customization: { title: 'Vamos deposit', description: 'Vamos wallet deposit' },
+        customization: { title: 'Nahubet deposit', description: 'Nahubet wallet deposit' },
       },
     });
     assertOk(NAME, 'transaction initialize', response);

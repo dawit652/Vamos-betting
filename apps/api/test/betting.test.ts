@@ -17,7 +17,7 @@ import {
   toWire,
   type SlipLeg,
 } from '@vamos/core';
-import { BOOKING_CODE_TTL_MS, type Database } from '@vamos/db';
+import { BOOKING_CODE_TTL_MS, openLiabilities, setSetting, type Database } from '@vamos/db';
 import {
   bets,
   bookingCodes,
@@ -27,7 +27,7 @@ import {
 } from '@vamos/db/schema';
 import { and, eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { IDEMPOTENT_REPLAYED_HEADER } from '../src/lib/idempotency';
 import { BETTING_RATE_LIMITS } from '../src/modules/betting/routes';
 import {
@@ -853,5 +853,63 @@ describe('booking codes', () => {
     } finally {
       ctx.clock.now = NOW;
     }
+  });
+});
+
+describe('POST /bets: house liability caps', () => {
+  afterEach(async () => {
+    await setSetting(
+      db,
+      'risk_limits',
+      { maxSelectionLiability: null, maxEventLiability: null },
+      'test',
+    );
+  });
+
+  /** The liability already open on the selection, so the cap can be set relative to it. */
+  const openOn = async (selectionId: string, eventId: string) =>
+    (
+      await db.transaction((tx) =>
+        openLiabilities(tx, { selectionIds: [selectionId], eventIds: [eventId] }),
+      )
+    ).selections[0]!.current;
+
+  it('refuses a bet over the cap with 422 liability_limit and the stake that fits, taking nothing', async () => {
+    const already = await openOn(sel.bAway, eventIds.b.id);
+    // Room for a payout of 500: at odds 3.300 a stake of 151.51 pays 499.98, offered as 151.
+    await setSetting(
+      db,
+      'risk_limits',
+      { maxSelectionLiability: toWire(already + birr(500)), maxEventLiability: null },
+      'test',
+    );
+    const user = await fundedPlayer();
+    const before = await cash(user);
+    const response = await placeBet(user, {
+      stake: toWire(birr(200)),
+      legs: [{ selectionId: sel.bAway, oddsMilli: 3300 }],
+    });
+    expect(response.statusCode).toBe(422);
+    const error = apiError(response);
+    expect(error.code).toBe('liability_limit');
+    expect(error.details).toEqual({ maxStake: toWire(birr(151)) });
+    expect(await cash(user)).toBe(before);
+
+    // The stake it named is accepted.
+    const ok = await placeBet(user, {
+      stake: toWire(birr(151)),
+      legs: [{ selectionId: sel.bAway, oddsMilli: 3300 }],
+    });
+    expect(ok.statusCode).toBe(201);
+    expect(await cash(user)).toBe(before - birr(151));
+  });
+
+  it('places the same bet when no cap is set', async () => {
+    const user = await fundedPlayer();
+    const response = await placeBet(user, {
+      stake: toWire(birr(200)),
+      legs: [{ selectionId: sel.bAway, oddsMilli: 3300 }],
+    });
+    expect(response.statusCode).toBe(201);
   });
 });

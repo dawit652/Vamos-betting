@@ -1,7 +1,8 @@
-# @vamos/web: player app (Betika-style lite PWA)
+# @vamos/web: player app (lite PWA)
 
-Next.js 16 (App Router, Turbopack) and React 19. Mobile first (360 px), Amharic by default, play
-money only. Read `node_modules/next/dist/docs/` before using a Next API: v16 differs from older
+Next.js 16 (App Router, Turbopack) and React 19. Mobile first (360 px) with a three-column layout
+from 1024 px, dark theme by default (light on request), Amharic by default, play money only.
+The plan and open tasks of the redesign are in [`docs/frontend-redesign-plan.md`](../../docs/frontend-redesign-plan.md). Read `node_modules/next/dist/docs/` before using a Next API: v16 differs from older
 versions (`cookies()`, `headers()`, `params` and `searchParams` are all async; error boundaries get
 `retry`).
 
@@ -15,19 +16,20 @@ pnpm lint                           # repo ESLint covers apps/web
 
 ## Layout
 
-| Path                                                             | What                                                                            |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `src/app/layout.tsx`                                             | App shell: header, DEMO banner, sport chips, footer, betslip button, bottom nav |
-| `src/app/**/page.tsx`                                            | Pages. Render inside the shell's `<main>`; never add another shell              |
-| `src/components/shell/*`                                         | Shell pieces (header, banner, chips, bottom nav, footer, locale switcher)       |
-| `src/components/betslip/BetslipDrawer.tsx`                       | Betslip drawer, lazy-loaded when the slip opens (placeholder, sportsbook owns)  |
-| `src/components/<feature>/*`                                     | Feature components (`sportsbook/`, `account/`, …)                               |
-| `src/i18n/server.ts`, `client.tsx`, `ClientMessages.tsx`         | `getT()`, `useT()`, scoped client messages                                      |
-| `src/lib/api/{client,server,catalog,session,errors,idempotency}` | API access                                                                      |
-| `src/lib/betslip/state.ts`, `src/providers/BetslipProvider.tsx`  | Betslip rules (pure) and store                                                  |
-| `src/providers/SessionProvider.tsx`                              | Signed-in player: `useSession()`                                                |
-| `src/lib/{format,localized,routes,cookies}.ts`                   | Formatting, catalogue names, route map, cookie names                            |
-| `public/`                                                        | `manifest.webmanifest`, `icons/`, `sw.js`, `offline.html`                       |
+| Path                                                             | What                                                                              |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `src/app/layout.tsx`                                             | App shell: header (with the main nav), DEMO banner, footer, slip bar; theme       |
+| `src/app/**/page.tsx`                                            | Pages. Render inside the shell's `<main>`; never add another shell                |
+| `src/components/shell/*`                                         | Shell pieces (header, main nav, banner, footer, theme and locale switchers)       |
+| `src/components/sportsbook/SportsbookFrame.tsx`                  | Frame of every sportsbook page: sport and league links, docked betslip column     |
+| `src/components/betslip/BetslipDrawer.tsx`                       | Betslip panel: a drawer on phones (lazy, on first open), `BetslipDock` on desktop |
+| `src/components/<feature>/*`                                     | Feature components (`sportsbook/`, `account/`, …)                                 |
+| `src/i18n/server.ts`, `client.tsx`, `ClientMessages.tsx`         | `getT()`, `useT()`, scoped client messages                                        |
+| `src/lib/api/{client,server,catalog,session,errors,idempotency}` | API access                                                                        |
+| `src/lib/betslip/state.ts`, `src/providers/BetslipProvider.tsx`  | Betslip rules (pure) and store                                                    |
+| `src/providers/SessionProvider.tsx`                              | Signed-in player: `useSession()`                                                  |
+| `src/lib/{format,localized,routes,cookies}.ts`                   | Formatting, catalogue names, route map, cookie names                              |
+| `public/`                                                        | `manifest.webmanifest`, `icons/`, `sw.js`, `offline.html`                         |
 
 ## Routes
 
@@ -46,8 +48,30 @@ All paths come from `routes` in `src/lib/routes.ts`; link with it instead of wri
 | `/login`, `/register`, `/forgot-password`  | Auth                                                                       |
 | `/help`, `/terms`, `/responsible-gambling` | Static pages                                                               |
 
-The sport chips show on `/`, `/sport/*` and `/live*` (see `sportFromPath`). Sports are
-`SPORTS` in `routes.ts` (football, basketball, tennis, volleyball).
+Sports are `SPORTS` in `routes.ts` (football, basketball, tennis, volleyball).
+
+## Layout of a sportsbook page
+
+Every sportsbook page (sport home, live list, competition, event) wraps its content in
+`<SportsbookFrame sport={…}>`; account and static pages keep a narrow column (`mx-auto max-w-2xl`).
+
+- **Phones and tablets (below `lg`, 1024 px):** one column. The frame puts a sport rail (with match
+  counts) and, on the sport home (`leagueRail`), a leagues rail above the page. The main navigation
+  is the fixed bottom bar; the slip bar sits above it once the slip has picks.
+- **Wide screens:** three columns: sports and leagues on the left, the page in the middle, the
+  betslip docked on the right (`BetslipDock`, which loads the panel only on a wide screen). The main
+  navigation moves into the header and the slip bar is hidden.
+
+The sport and league links and the main navigation are each rendered **once** and restyled with CSS
+(`.rail` in `globals.css`, `lg:` utilities in `MainNav`), so a phone never downloads a second copy.
+Pass `live` on the live lists (links stay on the live side, counts are live counts) and
+`competition` to highlight the league being viewed.
+
+The sport home opens its Highlights tab with the featured-match poster (the first highlight with an
+open main market) and two promo cards; lists are grouped into one collapsible card per league
+(`groupByCompetition`, native `<details>`), `grouped={false}` gives a flat card. The event page
+filters its market cards with radio chips and CSS only (`.market-filter`; categories come from
+`marketCategory` in `components/sportsbook/events.ts`).
 
 ## Pages: server first, small client islands
 
@@ -144,16 +168,34 @@ odds strings: `formatTotalOdds`. Times: `formatTime(iso, locale)` (East Africa T
   `higher`), `setOddsChangePolicy`, `remove`, `clear`, `updateOdds(changes)` (live prices; sets
   `previousOddsMilli`), `oddsChanged`, `acceptOddsChanges`, `replaceLegs` (booking codes),
   `isOpen` / `open()` / `close()`. `hydrated` is false until localStorage has been read.
-- Saved in localStorage (`vamos_betslip_v1`), synced across tabs. The floating button shows when the
-  slip has legs; the drawer component is loaded only when it opens.
+- Saved in localStorage (`vamos_betslip_v1`), synced across tabs. The slip bar (`BetslipButton`:
+  pick count and combined odds) shows when the slip has legs; the drawer component is loaded only
+  when it opens. `BetslipPanel` (in `BetslipDrawer.tsx`) is the slip itself, shared by the drawer
+  and the desktop dock.
 
 ## Styling
 
-Tailwind CSS v4; tokens in `src/app/globals.css` (`@theme`): `bg-brand` (dark green), `bg-accent`
-(yellow), `bg-page`, `bg-surface`, `text-ink`, `text-muted`, `border-line`, `text-up` / `text-down`,
-`text-live`, `text-xxs`, `h-header`, `h-bottom-nav`. Shared classes: `.odds-btn` (+ `.odds-label`,
-`aria-pressed`), `.chip` (`aria-current="page"`), `.list-row`, `.card`, `.btn .btn-primary|accent|outline`,
-`.input`, `.no-scrollbar`. Use the system font stack (Ethiopic-capable); no web fonts, no icon fonts.
+Tailwind CSS v4; tokens in `src/app/globals.css` (`@theme`): `bg-brand` (action green: links, active
+states, picked odds), `bg-accent` (gold: the one call to action), `bg-page`, `bg-surface`,
+`bg-raised` (one step above the surface: odds tiles, chips, inputs), `bg-chrome` / `text-chrome-ink`
+(header), `text-ink`, `text-muted`, `border-line`, `text-up` / `text-down`, `text-live`, `text-xxs`,
+`h-header`, `h-bottom-nav`. Shared classes: `.odds-btn` (+ `.odds-label`, `.odds-price`,
+`aria-pressed`; `.odds-btn-market` and `.odds-btn-wide` on the event page), `.chip`
+(`aria-current="page"`, `aria-pressed`, or a checked radio inside), `.list-row`, `.card`, `.panel`
+(a card of rows), `.poster` (+ `.poster-gold`: always-dark feature cards), `.crest`, `.tag`,
+`.live-dot`, `.rail`, `.btn .btn-primary|accent|outline`, `.input`, `.no-scrollbar`. Use the system
+font stack (Ethiopic-capable); no web fonts, no icon fonts (sport icons are system emoji; team and
+country marks are initials from `monogram`).
+
+**Themes.** Dark is the default; the light theme overrides the same variables under
+`:root[data-theme='light']`, so use the tokens and never a raw colour (the exception is content on a
+`.poster`, which is always dark: `text-white/70` and the like). The choice is the `vamos_theme`
+cookie (`parseTheme` in `src/lib/cookies.ts`), which the root layout renders as `<html data-theme>`,
+so there is no flash on load; `ThemeToggle` in the header sets both. Check a new screen in both.
+
+**Keep the CSS small.** Each new opacity variant (`text-white/60`), arbitrary value or one-off
+responsive utility adds bytes to every first load: reuse the ones already in the file before
+adding another.
 
 ## PWA
 
@@ -168,7 +210,11 @@ Target: ≤ 150 KB transferred on the first home load, checked by `e2e/tests/bud
 110 KB of it is the React and Next runtime even with brotli, and Next compresses with gzip only
 (179 KB measured). So production runs `server.mjs` (`pnpm start`): `next start` plus brotli, with
 static JS/CSS compressed once at maximum quality and kept in memory, and pages compressed at a fast
-level (149.8 KB measured). Behind a CDN that does brotli itself, plain `next start` works too.
+level (149.8 KB measured on 10 Oct 2026; 158.4 KB on 14 Nov 2026 after the redesign, against about
+153 KB for the previous UI on the same data: the navigation with leagues, the poster and the league
+headers add about 3 KB of HTML, the new styles 1.4 KB of CSS and the theme toggle, dock and slip bar
+0.9 KB of JS). That is over the 150 KB target and close to the 160 KB test budget, so new home-page
+content has to pay for itself. Behind a CDN that does brotli itself, plain `next start` works too.
 The app's own shell JS is about 10 KB. Keep new client code small (code only the drawer needs goes in
 the drawer's lazy chunk), keep lists server-rendered, and avoid client-side libraries (no zod, date
 libraries or icon packs in the browser). Links in view prefetch their route; use `prefetch={false}`

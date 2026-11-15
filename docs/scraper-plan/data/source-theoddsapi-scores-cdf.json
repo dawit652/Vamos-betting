@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-cdf",
+  "name": "The Odds API: Coupe de France final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_france_coupe_de_france",
+    "competition": "Coupe de France",
+    "daysFrom": 1,
+    "scoreBasis": "unknown"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-eflcup",
+  "name": "The Odds API: EFL Cup final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_england_efl_cup",
+    "competition": "EFL Cup",
+    "daysFrom": 1,
+    "scoreBasis": "unknown"
+  }
+}

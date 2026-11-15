@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-coppaitalia",
+  "name": "The Odds API: Coppa Italia final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_italy_coppa_italia",
+    "competition": "Coppa Italia",
+    "daysFrom": 1,
+    "scoreBasis": "unknown"
+  }
+}

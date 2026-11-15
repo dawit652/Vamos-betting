@@ -1,0 +1,765 @@
+{
+  "events": [
+    {
+      "event_id": "ev-ars-che-0001",
+      "sport_id": 11,
+      "event_date": "2026-11-07T15:00:00Z",
+      "teams": [
+        {
+          "team_id": 101,
+          "name": "Arsenal",
+          "mascot": "",
+          "is_home": true,
+          "is_away": false
+        },
+        {
+          "team_id": 102,
+          "name": "Chelsea",
+          "mascot": "",
+          "is_home": false,
+          "is_away": true
+        }
+      ],
+      "score": {
+        "event_status": "STATUS_SCHEDULED",
+        "score_home": null,
+        "score_away": null,
+        "event_status_detail": "Scheduled",
+        "updated_at": "2026-11-01T09:30:00Z"
+      },
+      "markets": [
+        {
+          "market_id": 1,
+          "period_id": 0,
+          "name": "Moneyline",
+          "participants": [
+            {
+              "id": 101,
+              "type": "TYPE_TEAM",
+              "name": "Arsenal",
+              "lines": [
+                {
+                  "id": 1001,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 150,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:05:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    },
+                    "23": {
+                      "price": 145,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:07:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 23
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 99001,
+              "type": "TYPE_RESULT",
+              "name": "Draw",
+              "lines": [
+                {
+                  "id": 1002,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 250,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:05:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    },
+                    "23": {
+                      "price": 255,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:07:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 23
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 102,
+              "type": "TYPE_TEAM",
+              "name": "Chelsea",
+              "lines": [
+                {
+                  "id": 1003,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 180,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:05:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    },
+                    "23": {
+                      "price": 185,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:07:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 23
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": 3,
+          "period_id": 0,
+          "name": "Total",
+          "participants": [
+            {
+              "id": 88001,
+              "type": "TYPE_OVER",
+              "name": "Over",
+              "lines": [
+                {
+                  "id": 2001,
+                  "value": 2.5,
+                  "prices": {
+                    "19": {
+                      "price": -110,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:12:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    },
+                    "23": {
+                      "price": -105,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:14:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 23
+                    },
+                    "27": {
+                      "price": -120,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:01:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 27
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 88002,
+              "type": "TYPE_UNDER",
+              "name": "Under",
+              "lines": [
+                {
+                  "id": 2002,
+                  "value": 2.5,
+                  "prices": {
+                    "19": {
+                      "price": -110,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:12:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    },
+                    "23": {
+                      "price": -115,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:14:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 23
+                    },
+                    "27": {
+                      "price": 100,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:01:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 27
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": 2,
+          "period_id": 0,
+          "name": "Spread",
+          "participants": [
+            {
+              "id": 101,
+              "type": "TYPE_TEAM",
+              "name": "Arsenal",
+              "lines": [
+                {
+                  "id": 9101,
+                  "value": -0.5,
+                  "prices": {
+                    "19": {
+                      "price": 150,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:00:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": 1,
+          "period_id": 1,
+          "name": "1st Half Moneyline",
+          "participants": [
+            {
+              "id": 101,
+              "type": "TYPE_TEAM",
+              "name": "Arsenal",
+              "lines": [
+                {
+                  "id": 9001,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 190,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:00:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "event_id": "ev-liv-eve-0002",
+      "sport_id": 11,
+      "event_date": "2026-10-31T15:00:00Z",
+      "teams": [
+        {
+          "team_id": 103,
+          "name": "Liverpool",
+          "mascot": "",
+          "is_home": true,
+          "is_away": false
+        },
+        {
+          "team_id": 104,
+          "name": "Everton",
+          "mascot": "",
+          "is_home": false,
+          "is_away": true
+        }
+      ],
+      "score": {
+        "event_status": "STATUS_FINAL",
+        "score_home": 2,
+        "score_away": 1,
+        "event_status_detail": "Final",
+        "updated_at": "2026-11-01T09:30:00Z"
+      },
+      "markets": []
+    },
+    {
+      "event_id": "ev-mci-tot-0003",
+      "sport_id": 11,
+      "event_date": "2026-11-08T14:00:00Z",
+      "teams": [
+        {
+          "team_id": 105,
+          "name": "Manchester City",
+          "mascot": "",
+          "is_home": true,
+          "is_away": false
+        },
+        {
+          "team_id": 106,
+          "name": "Tottenham Hotspur",
+          "mascot": "",
+          "is_home": false,
+          "is_away": true
+        }
+      ],
+      "score": {
+        "event_status": "STATUS_POSTPONED",
+        "score_home": null,
+        "score_away": null,
+        "event_status_detail": "Postponed",
+        "updated_at": "2026-11-01T09:30:00Z"
+      },
+      "markets": [
+        {
+          "market_id": 1,
+          "period_id": 0,
+          "name": "Moneyline",
+          "participants": [
+            {
+              "id": 105,
+              "type": "TYPE_TEAM",
+              "name": "Manchester City",
+              "lines": [
+                {
+                  "id": 3001,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": -200,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:00:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 99001,
+              "type": "TYPE_RESULT",
+              "name": "Draw",
+              "lines": [
+                {
+                  "id": 3002,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 400,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:00:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 106,
+              "type": "TYPE_TEAM",
+              "name": "Tottenham Hotspur",
+              "lines": [
+                {
+                  "id": 3003,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 500,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:00:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "event_id": "ev-new-bha-0004",
+      "sport_id": 11,
+      "event_date": "2026-11-07T17:30:00Z",
+      "teams": [
+        {
+          "team_id": 107,
+          "name": "Newcastle United",
+          "mascot": "",
+          "is_home": true,
+          "is_away": false
+        },
+        {
+          "team_id": 108,
+          "name": "Brighton and Hove Albion",
+          "mascot": "",
+          "is_home": false,
+          "is_away": true
+        }
+      ],
+      "score": {
+        "event_status": "STATUS_SCHEDULED",
+        "score_home": null,
+        "score_away": null,
+        "event_status_detail": "Scheduled",
+        "updated_at": "2026-11-01T09:30:00Z"
+      },
+      "markets": [
+        {
+          "market_id": 1,
+          "period_id": 0,
+          "name": "Moneyline",
+          "participants": [
+            {
+              "id": 107,
+              "type": "TYPE_TEAM",
+              "name": "Newcastle United",
+              "lines": [
+                {
+                  "id": 4001,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 120,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:03:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    },
+                    "23": {
+                      "price": 125,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:04:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 23
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 99001,
+              "type": "TYPE_RESULT",
+              "name": "Draw",
+              "lines": [
+                {
+                  "id": 4002,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 260,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:03:00Z",
+                      "closed_at": "2026-11-01T09:20:00Z",
+                      "affiliate_id": 19
+                    },
+                    "23": {
+                      "price": 255,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:04:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 23
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 108,
+              "type": "TYPE_TEAM",
+              "name": "Brighton and Hove Albion",
+              "lines": [
+                {
+                  "id": 4003,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 210,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:03:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    },
+                    "23": {
+                      "price": 205,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:04:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 23
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "event_id": "ev-whu-ful-0005",
+      "sport_id": 11,
+      "event_date": "2026-11-08T16:30:00Z",
+      "teams": [
+        {
+          "team_id": 109,
+          "name": "West Ham United",
+          "mascot": "",
+          "is_home": true,
+          "is_away": false
+        },
+        {
+          "team_id": 110,
+          "name": "Fulham",
+          "mascot": "",
+          "is_home": false,
+          "is_away": true
+        }
+      ],
+      "score": {
+        "event_status": "STATUS_SCHEDULED",
+        "score_home": null,
+        "score_away": null,
+        "event_status_detail": "Scheduled",
+        "updated_at": "2026-11-01T09:30:00Z"
+      },
+      "markets": [
+        {
+          "market_id": 1,
+          "period_id": 0,
+          "name": "Moneyline",
+          "participants": [
+            {
+              "id": 109,
+              "type": "TYPE_TEAM",
+              "name": "West Ham United",
+              "lines": [
+                {
+                  "id": 5001,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 130,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:06:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 99001,
+              "type": "TYPE_RESULT",
+              "name": "Draw",
+              "lines": [
+                {
+                  "id": 5002,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 240,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:06:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 110,
+              "type": "TYPE_TEAM",
+              "name": "Fulham",
+              "lines": [
+                {
+                  "id": 5003,
+                  "value": null,
+                  "prices": {
+                    "19": {
+                      "price": 200,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:06:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": 3,
+          "period_id": 0,
+          "name": "Total",
+          "participants": [
+            {
+              "id": 88001,
+              "type": "TYPE_OVER",
+              "name": "Over",
+              "lines": [
+                {
+                  "id": 5101,
+                  "value": 2.5,
+                  "prices": {
+                    "19": {
+                      "price": -105,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:06:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 88002,
+              "type": "TYPE_UNDER",
+              "name": "Under",
+              "lines": [
+                {
+                  "id": 5102,
+                  "value": 2.5,
+                  "prices": {
+                    "19": {
+                      "price": -115,
+                      "is_main_line": false,
+                      "updated_at": "2026-11-01T09:06:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 19
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "event_id": "ev-avl-wol-0006",
+      "sport_id": 11,
+      "event_date": "2026-11-08T14:00:00Z",
+      "teams": [
+        {
+          "team_id": 111,
+          "name": "Aston Villa",
+          "mascot": "",
+          "is_home": true,
+          "is_away": false
+        },
+        {
+          "team_id": 112,
+          "name": "Wolverhampton Wanderers",
+          "mascot": "",
+          "is_home": false,
+          "is_away": true
+        }
+      ],
+      "score": {
+        "event_status": "STATUS_SCHEDULED",
+        "score_home": null,
+        "score_away": null,
+        "event_status_detail": "Scheduled",
+        "updated_at": "2026-11-01T09:30:00Z"
+      },
+      "markets": [
+        {
+          "market_id": 1,
+          "period_id": 0,
+          "name": "Moneyline",
+          "participants": [
+            {
+              "id": 111,
+              "type": "TYPE_TEAM",
+              "name": "Aston Villa",
+              "lines": [
+                {
+                  "id": 6001,
+                  "value": null,
+                  "prices": {
+                    "27": {
+                      "price": -150,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:00:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 27
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 99001,
+              "type": "TYPE_RESULT",
+              "name": "Draw",
+              "lines": [
+                {
+                  "id": 6002,
+                  "value": null,
+                  "prices": {
+                    "27": {
+                      "price": 300,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:00:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 27
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": 112,
+              "type": "TYPE_TEAM",
+              "name": "Wolverhampton Wanderers",
+              "lines": [
+                {
+                  "id": 6003,
+                  "value": null,
+                  "prices": {
+                    "27": {
+                      "price": 380,
+                      "is_main_line": true,
+                      "updated_at": "2026-11-01T09:00:00Z",
+                      "closed_at": null,
+                      "affiliate_id": 27
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "event_id": "ev-bre-cry-0007",
+      "sport_id": 11,
+      "event_date": "2026-11-08T14:00:00Z",
+      "teams": [
+        {
+          "team_id": 113,
+          "name": "Brentford",
+          "mascot": "",
+          "is_home": true,
+          "is_away": false
+        },
+        {
+          "team_id": 114,
+          "name": "Crystal Palace",
+          "mascot": "",
+          "is_home": false,
+          "is_away": true
+        }
+      ],
+      "score": {
+        "event_status": "STATUS_DELAYED",
+        "score_home": null,
+        "score_away": null,
+        "event_status_detail": "Delayed",
+        "updated_at": "2026-11-01T09:30:00Z"
+      },
+      "markets": []
+    }
+  ]
+}

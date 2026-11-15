@@ -41,6 +41,22 @@ describe('placeBet errors as channel refusals', () => {
     ).toEqual({ code: 'pick_not_offered', gameId: 1234, pick: '1' });
   });
 
+  it('maps the house liability cap (rule L1) to the stake that fits, or none', () => {
+    expect(refusal(422, 'liability_limit', { maxStake: '15100' })).toEqual({
+      code: 'liability_limit',
+      max: 15_100n,
+    });
+    expect(refusal(422, 'liability_limit', { maxStake: null })).toEqual({
+      code: 'liability_limit',
+      max: null,
+    });
+    expect(refusal(422, 'liability_limit')).toEqual({ code: 'liability_limit', max: null });
+    expect(refusal(422, 'liability_limit', { maxStake: 'lots' })).toEqual({
+      code: 'liability_limit',
+      max: null,
+    });
+  });
+
   it('maps odds, slip, funds, exclusion and limit errors', () => {
     expect(refusal(409, 'odds_changed', { changes: [{ currentOddsMilli: 1800 }] })).toEqual({
       code: 'odds_changed',

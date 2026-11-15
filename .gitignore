@@ -37,3 +37,6 @@ var/
 
 # software bill of materials (pnpm sbom; a CI artifact)
 sbom.cdx.json
+
+# Agent worktrees (temporary, per session)
+.claude/worktrees/

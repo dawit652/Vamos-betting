@@ -1,6 +1,13 @@
 import type {
+  AddPayoutAccountRequest,
+  AddPayoutAccountResponse,
   CreateDepositRequest,
   CreateWithdrawalRequest,
+  DepositCheckResponse,
+  DevSmsRequest,
+  DevSmsResponse,
+  PayoutAccountView,
+  PayoutAccountsResponse,
   DepositsResponse,
   DepositView,
   DevPhoneDecisionRequest,
@@ -29,6 +36,24 @@ export const paymentsApi = {
   deposit: (id: string, signal?: AbortSignal) =>
     get<DepositView>(`/payments/deposits/${encodeURIComponent(id)}`, signal),
   deposits: (signal?: AbortSignal) => get<DepositsResponse>('/payments/deposits', signal),
+  /** SMS rail: "I paid but my balance did not change" (the paste is only a lookup key). */
+  checkDeposit: (text: string) =>
+    api.post<DepositCheckResponse>('/payments/deposits/check', { text }),
+
+  payoutAccounts: (signal?: AbortSignal) =>
+    get<PayoutAccountsResponse>('/payments/payout-accounts', signal),
+  addPayoutAccount: (body: AddPayoutAccountRequest) =>
+    api.post<AddPayoutAccountResponse>('/payments/payout-accounts', body),
+  confirmPayoutAccount: (id: string, code: string) =>
+    api.post<PayoutAccountView>(`/payments/payout-accounts/${encodeURIComponent(id)}/confirm`, {
+      code,
+    }),
+  resendPayoutAccountCode: (id: string) =>
+    api.post<AddPayoutAccountResponse>(
+      `/payments/payout-accounts/${encodeURIComponent(id)}/resend`,
+    ),
+  removePayoutAccount: (id: string) =>
+    api.post<void>(`/payments/payout-accounts/${encodeURIComponent(id)}/remove`),
 
   createWithdrawal: (body: CreateWithdrawalRequest, idempotencyKey: string) =>
     api.post<WithdrawalView>('/payments/withdrawals', body, { idempotencyKey }),
@@ -43,4 +68,10 @@ export const devPhoneApi = {
   pushes: (signal?: AbortSignal) => get<DevPhonePushesResponse>('/dev/payments/phone', signal),
   decide: (body: DevPhoneDecisionRequest) =>
     api.post<DevPhoneDecisionResponse>('/dev/payments/phone', body),
+};
+
+/** DEV ONLY (simulated SMS rail): the player's bank sends the confirmation SMS of their own deposit. */
+export const devSmsApi = {
+  send: (body: Partial<DevSmsRequest> & { depositId: string }) =>
+    api.post<DevSmsResponse>('/dev/payments/sms', body),
 };

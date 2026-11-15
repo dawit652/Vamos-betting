@@ -163,7 +163,7 @@ export function BookingCodePanel() {
       {loadOpen ? (
         <form className="flex gap-2" onSubmit={(event) => void load(event)}>
           <input
-            className="input font-mono uppercase"
+            className="input min-w-0 font-mono uppercase"
             value={code}
             maxLength={16}
             autoCapitalize="characters"
@@ -175,7 +175,7 @@ export function BookingCodePanel() {
           />
           <button
             type="submit"
-            className="btn btn-primary"
+            className="btn btn-primary flex-none whitespace-nowrap"
             disabled={busy !== null || code.trim() === ''}
           >
             {busy === 'load' ? t('common.actions.loading') : t('sportsbook.betslip.booking.load')}

@@ -1,0 +1,2 @@
+ALTER TABLE "scrape_event_pricing" ADD COLUMN "suspended_for" text;--> statement-breakpoint
+ALTER TABLE "scrape_event_pricing" ADD CONSTRAINT "scrape_event_pricing_suspended_for" CHECK ("scrape_event_pricing"."suspended_for" IN ('reprice_held', 'market_lapsed'));

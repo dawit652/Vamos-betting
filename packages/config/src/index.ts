@@ -1,6 +1,6 @@
 export {
   ConfigError,
-  DEFAULT_ELS_REPORT_DIR,
+  DEMO_COLLECTION_ACCOUNTS,
   DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
   DEV_SESSION_SECRET,
@@ -12,11 +12,15 @@ export {
   loadConfig,
   parseAdminTotpKey,
   parseTrustProxy,
+  scraperUserAgent,
   type AppConfig,
   type ChannelsConfig,
-  type ElsReportingMode,
+  type CollectionAccount,
   type OperatingMode,
+  type OwnerAlertsConfig,
   type PaymentProvidersConfig,
+  type ScraperConfig,
+  type SmsRailConfig,
   type TrustProxySetting,
 } from './config';
 export { loadDotEnv } from './dotenv';

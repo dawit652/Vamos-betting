@@ -61,6 +61,12 @@ async function main(): Promise<void> {
   if (config.mode === 'demo') {
     app.log.warn('running in DEMO mode: play money only, mock providers, no real payments');
   }
+  const sms = config.payments.sms;
+  if (config.mode === 'licensed' && !sms.requirePayoutProof && sms.payoutProofWaived) {
+    app.log.warn(
+      'PAYOUT_PROOF_WAIVED: manual payouts can be settled without their debit SMS as proof',
+    );
+  }
   if (telemetry.enabled) app.log.info('tracing on (OpenTelemetry, OTLP over HTTP)');
 
   const shutdown = createApiShutdown({

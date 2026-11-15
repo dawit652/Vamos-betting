@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test for a running Vamos deployment: health and readiness endpoints, the public catalogue
+# Smoke test for a running Nahubet deployment: health and readiness endpoints, the public catalogue
 # API, the player home page (and one of its static assets) and the back-office login page.
 # It only reads: no accounts, bets or other state are created. Works against any deployment URL.
 #
@@ -9,6 +9,8 @@
 #     --web URL        player web app         (SMOKE_WEB_URL,    default http://localhost:3000)
 #     --admin URL      back-office web app    (SMOKE_ADMIN_URL,  default http://localhost:3001)
 #     --worker URL     worker health server   (SMOKE_WORKER_URL, default: not checked; the worker's
+#                      port is not published by the compose file, see docs/deployment.md)
+#     --scraper URL    scraper health server  (SMOKE_SCRAPER_URL, default: not checked; the scraper's
 #                      port is not published by the compose file, see docs/deployment.md)
 #     --wait SECONDS   wait up to this long for the API to answer first (default 60; 0 = no wait)
 #     --require-ready  fail (instead of skip) when an endpoint answers 404 for GET /ready
@@ -21,6 +23,7 @@ API_URL="${SMOKE_API_URL:-http://localhost:4000}"
 WEB_URL="${SMOKE_WEB_URL:-http://localhost:3000}"
 ADMIN_URL="${SMOKE_ADMIN_URL:-http://localhost:3001}"
 WORKER_URL="${SMOKE_WORKER_URL:-}"
+SCRAPER_URL="${SMOKE_SCRAPER_URL:-}"
 WAIT_S="${SMOKE_WAIT_S:-60}"
 REQUIRE_READY=0
 PRODUCTION=0
@@ -33,6 +36,7 @@ while (($#)); do
     --web) WEB_URL="${2:?--web needs a URL}"; shift 2 ;;
     --admin) ADMIN_URL="${2:?--admin needs a URL}"; shift 2 ;;
     --worker) WORKER_URL="${2:?--worker needs a URL}"; shift 2 ;;
+    --scraper) SCRAPER_URL="${2:?--scraper needs a URL}"; shift 2 ;;
     --wait) WAIT_S="${2:?--wait needs a number}"; shift 2 ;;
     --require-ready) REQUIRE_READY=1; shift ;;
     --production) PRODUCTION=1; shift ;;
@@ -40,7 +44,7 @@ while (($#)); do
     *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
-API_URL="${API_URL%/}"; WEB_URL="${WEB_URL%/}"; ADMIN_URL="${ADMIN_URL%/}"; WORKER_URL="${WORKER_URL%/}"
+API_URL="${API_URL%/}"; WEB_URL="${WEB_URL%/}"; ADMIN_URL="${ADMIN_URL%/}"; WORKER_URL="${WORKER_URL%/}"; SCRAPER_URL="${SCRAPER_URL%/}"
 
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 2; }
 TMP="$(mktemp -d)"
@@ -82,7 +86,7 @@ check_ready() {
   esac
 }
 
-echo "smoke: api=$API_URL web=$WEB_URL admin=$ADMIN_URL worker=${WORKER_URL:-(not checked)}"
+echo "smoke: api=$API_URL web=$WEB_URL admin=$ADMIN_URL worker=${WORKER_URL:-(not checked)} scraper=${SCRAPER_URL:-(not checked)}"
 
 # Wait for the API: a stack that was just started needs a moment.
 deadline=$((SECONDS + WAIT_S))
@@ -109,6 +113,12 @@ fi
 if [[ -n "$WORKER_URL" ]]; then
   check "worker /health" "$WORKER_URL/health" 200
   check_ready "worker /ready" "$WORKER_URL"
+fi
+
+# Scraper (optional)
+if [[ -n "$SCRAPER_URL" ]]; then
+  check "scraper /health" "$SCRAPER_URL/health" 200
+  check_ready "scraper /ready" "$SCRAPER_URL"
 fi
 
 # Player web app: the page, a static asset it references, the PWA manifest

@@ -1,8 +1,13 @@
 import {
+  canonicalFactoryLine,
+  canonicalLine,
+  factoryMarket,
+  factoryMarketKey,
+  factoryMarketSortOrder,
+  isFactoryOnlyMarketType,
   isValidOddsMilli,
   MARKET_TYPES,
   marketKey,
-  parseLine,
   selectionsFor,
   SPORT_MARKETS,
   type MarketTypeCode,
@@ -15,6 +20,7 @@ import { isUniqueViolation } from './errors';
 import { allocateGameId, GAME_ID_CONSTRAINT, type AllocateGameIdOptions } from './game-id';
 import { marketMessage, type EventStatus, type LiveMessage, type MarketStatus } from './live';
 import { oddsProvenance, setSelectionOdds, type OddsChange } from './odds';
+import { setMarketStatus } from './status';
 
 /** odds_history.source of prematch prices from the feed. */
 export const FEED_ODDS_SOURCE = 'feed';
@@ -32,9 +38,13 @@ export interface UpsertFixtureInput {
   startTime: Date;
 }
 
-/** A priced market from the feed (structurally a FeedMarket from @vamos/feed). */
+/**
+ * A priced market from the feed (structurally a FeedMarket from @vamos/feed), or a football market
+ * of the market factory (plan task 2.3: a factory-only type such as 'htft', with any non-empty
+ * subset of its selections, since pricing does not list long shots).
+ */
 export interface FixtureMarketInput {
-  type: MarketTypeCode;
+  type: MarketTypeCode | (string & {});
   line: string | null;
   selections: ReadonlyArray<{ code: string; oddsMilli: number }>;
 }
@@ -46,6 +56,22 @@ export interface UpsertFixtureOptions {
   now?: Date;
   /** Random source for the Game ID (tests). */
   randomInt?: AllocateGameIdOptions['randomInt'];
+  /**
+   * Price expiry (rule P7): when given, every market of `feedMarkets` that this call inserts, or
+   * finds open or suspended, gets `price_valid_until` = this instant (also when no price moved:
+   * the read confirmed them). Markets not passed keep theirs and so expire unless another read
+   * refreshes them. Omitted (the default), `price_valid_until` is not touched.
+   */
+  priceValidUntil?: Date;
+  /**
+   * Plan task 2.3: `feedMarkets` holds the COMPLETE set of the market factory's markets for this
+   * event as priced now. A stored factory-only market that is not in it (pricing no longer offers
+   * it, e.g. its favourite would pay under 1.02, or factory markets were switched off) is
+   * suspended by the feed, so its last prices cannot be bet; a feed-suspended one that is in it
+   * again is reopened. A trader's suspension is never lifted (setMarketStatus). Today's market
+   * types are never touched by this.
+   */
+  factoryComplete?: boolean;
 }
 
 export interface UpsertFixtureResult {
@@ -62,7 +88,7 @@ export interface UpsertFixtureResult {
 }
 
 interface PlannedMarket {
-  type: MarketTypeCode;
+  type: string;
   line: string | null;
   key: string;
   sortOrder: number;
@@ -105,7 +131,7 @@ export async function upsertFixture(
   if (existing === null) {
     const inserted = await insertEvent(tx, fixture, options);
     if (inserted !== null) {
-      await insertMarkets(tx, inserted.id, planned, source);
+      await insertMarkets(tx, inserted.id, planned, source, options.priceValidUntil);
       return {
         eventId: inserted.id,
         gameId: inserted.gameId,
@@ -142,7 +168,7 @@ export async function upsertFixture(
   }
 
   const marketRows = await tx
-    .select({ id: markets.id, key: markets.key, status: markets.status })
+    .select({ id: markets.id, key: markets.key, type: markets.type, status: markets.status })
     .from(markets)
     .where(eq(markets.eventId, existing.id))
     .orderBy(asc(markets.id));
@@ -175,6 +201,10 @@ export async function upsertFixture(
   const missingMarkets: PlannedMarket[] = [];
   const missingSelections: Array<typeof selections.$inferInsert> = [];
   const changes: OddsChange[] = [];
+  // The market factory's selections (plan task 2.3): repriced without history rows or live deltas.
+  const quietChanges: OddsChange[] = [];
+  const quietMarketIds = new Set<string>();
+  const refreshed: string[] = [];
   for (const market of planned) {
     const row = marketByKey.get(market.key);
     if (row === undefined) {
@@ -182,6 +212,9 @@ export async function upsertFixture(
       continue;
     }
     if (!UPDATABLE_MARKETS.has(row.status)) continue;
+    refreshed.push(row.id);
+    const quiet = isFactoryOnlyMarketType(market.type);
+    if (quiet) quietMarketIds.add(row.id);
     for (const selection of market.selections) {
       const current = selectionByKey.get(`${row.id}|${selection.code}`);
       if (current === undefined) {
@@ -197,36 +230,72 @@ export async function upsertFixture(
       const previousFeedPrice = provenance.get(current.id)?.bySource.get(source);
       const reference = previousFeedPrice ?? current.oddsMilli;
       if (selection.oddsMilli !== reference) {
-        changes.push({ selectionId: current.id, oddsMilli: selection.oddsMilli, source });
+        (quiet ? quietChanges : changes).push({
+          selectionId: current.id,
+          oddsMilli: selection.oddsMilli,
+          source,
+        });
       }
     }
   }
 
-  const added = await insertMarkets(tx, existing.id, missingMarkets, source);
-  for (const marketId of added) messages.push(marketMessage(existing.id, marketId, 'open'));
+  const added = await insertMarkets(
+    tx,
+    existing.id,
+    missingMarkets,
+    source,
+    options.priceValidUntil,
+  );
+  // A factory market is announced by the page load, not by a live delta (plan task 2.3).
+  for (const market of added) {
+    if (!market.factory) messages.push(marketMessage(existing.id, market.id, 'open'));
+  }
+  if (options.priceValidUntil !== undefined && refreshed.length > 0) {
+    await tx
+      .update(markets)
+      .set({ priceValidUntil: options.priceValidUntil })
+      .where(inArray(markets.id, refreshed));
+  }
   if (missingSelections.length > 0) {
     const rows = await tx
       .insert(selections)
       .values(missingSelections)
       .onConflictDoNothing({ target: [selections.marketId, selections.code] })
-      .returning({ id: selections.id, oddsMilli: selections.oddsMilli });
-    if (rows.length > 0) {
+      .returning({
+        id: selections.id,
+        marketId: selections.marketId,
+        oddsMilli: selections.oddsMilli,
+      });
+    const recorded = rows.filter((r) => !quietMarketIds.has(r.marketId));
+    if (recorded.length > 0) {
       await tx
         .insert(oddsHistory)
-        .values(rows.map((r) => ({ selectionId: r.id, oddsMilli: r.oddsMilli, source })));
+        .values(recorded.map((r) => ({ selectionId: r.id, oddsMilli: r.oddsMilli, source })));
     }
   }
-  const repriced = await setSelectionOdds(
-    tx,
-    changes,
-    options.now === undefined ? {} : { now: options.now },
-  );
+  const at = options.now === undefined ? {} : { now: options.now };
+  const repriced = await setSelectionOdds(tx, changes, at);
   messages.push(...repriced.messages);
+  const quietlyRepriced = await setSelectionOdds(tx, quietChanges, { ...at, record: false });
+
+  if (options.factoryComplete === true) {
+    const priced = new Set(planned.map((market) => market.key));
+    for (const row of marketRows) {
+      if (!isFactoryOnlyMarketType(row.type)) continue;
+      const listed = priced.has(row.key);
+      if (!listed && row.status === 'open') {
+        messages.push(...(await setMarketStatus(tx, row.id, 'suspended')).messages);
+      } else if (listed && row.status === 'suspended') {
+        // Reopens only a suspension the feed made (setMarketStatus without an actor).
+        messages.push(...(await setMarketStatus(tx, row.id, 'open')).messages);
+      }
+    }
+  }
 
   return {
     ...unchanged,
     marketsAdded: added.length,
-    oddsChanged: repriced.changed.length,
+    oddsChanged: repriced.changed.length + quietlyRepriced.changed.length,
     messages,
   };
 }
@@ -298,7 +367,8 @@ async function insertMarkets(
   eventId: string,
   planned: readonly PlannedMarket[],
   source: string,
-): Promise<string[]> {
+  priceValidUntil?: Date,
+): Promise<Array<{ id: string; key: string; factory: boolean }>> {
   if (planned.length === 0) return [];
   const marketRows = await tx
     .insert(markets)
@@ -310,6 +380,7 @@ async function insertMarkets(
         key: market.key,
         status: 'open' as const,
         sortOrder: market.sortOrder,
+        ...(priceValidUntil === undefined ? {} : { priceValidUntil }),
       })),
     )
     .returning({ id: markets.id, key: markets.key });
@@ -324,16 +395,25 @@ async function insertMarkets(
       sortOrder: selection.sortOrder,
     }));
   });
-  const selectionRows = await tx
-    .insert(selections)
-    .values(selectionValues)
-    .returning({ id: selections.id, oddsMilli: selections.oddsMilli });
-  await tx
-    .insert(oddsHistory)
-    .values(
-      selectionRows.map((row) => ({ selectionId: row.id, oddsMilli: row.oddsMilli, source })),
-    );
-  return marketRows.map((row) => row.id);
+  const selectionRows = await tx.insert(selections).values(selectionValues).returning({
+    id: selections.id,
+    marketId: selections.marketId,
+    oddsMilli: selections.oddsMilli,
+  });
+  // Opening prices are history for today's markets; a factory market's are in its recipe.
+  const factoryKeys = new Set(
+    planned.filter((m) => isFactoryOnlyMarketType(m.type)).map((m) => m.key),
+  );
+  const factoryIds = new Set(
+    marketRows.filter((row) => factoryKeys.has(row.key)).map((row) => row.id),
+  );
+  const recorded = selectionRows.filter((row) => !factoryIds.has(row.marketId));
+  if (recorded.length > 0) {
+    await tx
+      .insert(oddsHistory)
+      .values(recorded.map((row) => ({ selectionId: row.id, oddsMilli: row.oddsMilli, source })));
+  }
+  return marketRows.map((row) => ({ id: row.id, key: row.key, factory: factoryIds.has(row.id) }));
 }
 
 function checkFixture(fixture: UpsertFixtureInput): void {
@@ -359,17 +439,21 @@ function planMarkets(
   sport: SportCode,
   feedMarkets: readonly FixtureMarketInput[],
 ): PlannedMarket[] {
-  const offered = SPORT_MARKETS[sport];
+  const offered: readonly string[] = SPORT_MARKETS[sport];
   const keys = new Set<string>();
   return feedMarkets.map((market) => {
+    if (sport === 'football' && isFactoryOnlyMarketType(market.type)) {
+      return planFactoryMarket(market, keys);
+    }
     if (!offered.includes(market.type)) {
       throw new RangeError(`market "${String(market.type)}" is not offered for ${sport}`);
     }
-    const key = marketKey(market.type, market.line);
+    const type = market.type as MarketTypeCode;
+    const key = marketKey(type, market.line);
     if (keys.has(key)) throw new RangeError(`market ${key} appears twice`);
     keys.add(key);
 
-    const codes = selectionsFor(market.type);
+    const codes = selectionsFor(type);
     const odds = new Map<string, number>();
     for (const selection of market.selections) {
       if (!codes.includes(selection.code)) {
@@ -388,10 +472,10 @@ function planMarkets(
     if (odds.size !== codes.length) {
       throw new RangeError(`market ${key} must price all ${codes.length} selections`);
     }
-    const definition = MARKET_TYPES[market.type];
+    const definition = MARKET_TYPES[type];
     return {
-      type: market.type,
-      line: definition.hasLine && market.line !== null ? String(parseLine(market.line)) : null,
+      type,
+      line: canonicalLine(type, market.line),
       key,
       sortOrder: definition.sortOrder,
       selections: codes.map((code, index) => ({
@@ -401,4 +485,42 @@ function planMarkets(
       })),
     };
   });
+}
+
+/**
+ * A factory-only football market (plan task 2.3): a market the factory defines, with a non-empty
+ * subset of its selections (pricing does not list long shots), each at most once and at valid
+ * odds. Ordered after today's types, in catalogue order.
+ */
+function planFactoryMarket(market: FixtureMarketInput, keys: Set<string>): PlannedMarket {
+  const key = factoryMarketKey(market.type, market.line);
+  if (keys.has(key)) throw new RangeError(`market ${key} appears twice`);
+  keys.add(key);
+  const definition = factoryMarket(market.type, market.line);
+  const odds = new Map<string, number>();
+  for (const selection of market.selections) {
+    if (!definition.selections.includes(selection.code)) {
+      throw new RangeError(`invalid selection "${selection.code}" for market ${key}`);
+    }
+    if (odds.has(selection.code)) {
+      throw new RangeError(`selection "${selection.code}" appears twice in market ${key}`);
+    }
+    if (!isValidOddsMilli(selection.oddsMilli)) {
+      throw new RangeError(
+        `invalid odds (milli) ${selection.oddsMilli} for ${key} "${selection.code}"`,
+      );
+    }
+    odds.set(selection.code, selection.oddsMilli);
+  }
+  if (odds.size === 0) throw new RangeError(`market ${key} has no selections`);
+  return {
+    type: definition.type,
+    line: canonicalFactoryLine(market.line),
+    key,
+    sortOrder: factoryMarketSortOrder(market.type, market.line),
+    selections: definition.selections.flatMap((code, index) => {
+      const price = odds.get(code);
+      return price === undefined ? [] : [{ code, oddsMilli: price, sortOrder: index }];
+    }),
+  };
 }

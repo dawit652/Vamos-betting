@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-tr1",
+  "name": "The Odds API: Süper Lig final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_turkey_super_league",
+    "competition": "Süper Lig",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

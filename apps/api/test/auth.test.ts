@@ -256,6 +256,22 @@ describe('auth', () => {
       expect(response.statusCode).toBe(201);
     });
 
+    it('registers without a date of birth: the 21+ checkbox is the declaration', async () => {
+      const phone = randomPhone();
+      const { dateOfBirth: _omitted, ...payload } = registerPayload(phone);
+      const response = await post(ctx, '/auth/register', payload);
+      expect(response.statusCode).toBe(201);
+      const [user] = await ctx.db.db.select().from(users).where(eq(users.phone, phone));
+      expect(user?.dateOfBirth).toBeNull();
+      // The terms checkbox (which says 21+) is still required.
+      const refused = await post(
+        ctx,
+        '/auth/register',
+        registerPayload(randomPhone(), { dateOfBirth: undefined, acceptTerms: false }),
+      );
+      expect(refused.statusCode).toBe(400);
+    });
+
     it.each(['qwerty123456', 'PASSWORD1234', 'Iloveyou1234', ' 1qaz2wsx3edc '])(
       'rejects the common password %s',
       async (pw) => {
@@ -883,7 +899,7 @@ describe('auth', () => {
       expect(blocked.statusCode).toBe(403);
       expect(apiError(blocked)).toMatchObject({
         code: 'self_excluded',
-        message: 'You have permanently self-excluded from Vamos.',
+        message: 'You have permanently self-excluded from Nahubet.',
       });
     });
 
@@ -1047,7 +1063,7 @@ describe('auth', () => {
       expect(secureCookies({ ...config, nodeEnv: 'production' })).toBe(true);
       expect(secureCookies({ ...config, mode: 'licensed' })).toBe(true);
       expect(
-        secureCookies({ ...config, api: { ...config.api, publicUrl: 'https://api.vamos.et' } }),
+        secureCookies({ ...config, api: { ...config.api, publicUrl: 'https://api.nahubet.com' } }),
       ).toBe(true);
 
       const licensed = buildApp(

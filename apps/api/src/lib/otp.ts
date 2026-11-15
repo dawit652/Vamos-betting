@@ -42,6 +42,8 @@ export const OTP_HOURLY_PHONE_CEILING = 15;
  */
 export const OTP_DAILY_FAILURE_BUDGET: Readonly<Partial<Record<OtpPurpose, number>>> = {
   password_reset: 10,
+  // A stolen session guessing the code that confirms the thief's own bank account.
+  payout_account: 10,
 };
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -132,7 +134,15 @@ async function failureBudgetExhausted(
  */
 export async function createOtpChallenge(
   tx: DbTransaction,
-  params: { secret: string; phone: string; purpose: OtpPurpose; now: Date; requesterKey: string },
+  params: {
+    secret: string;
+    phone: string;
+    purpose: OtpPurpose;
+    now: Date;
+    requesterKey: string;
+    /** What this code authorises beyond the phone (otp_challenges.binding; consumeOtp compares it). */
+    binding?: string;
+  },
 ): Promise<IssuedOtp> {
   const { secret, phone, purpose, now, requesterKey } = params;
   await lockPhone(tx, phone);
@@ -205,6 +215,7 @@ export async function createOtpChallenge(
       expiresAt,
       createdAt: now,
       requesterKey,
+      binding: params.binding ?? null,
     })
     .returning({ id: otpChallenges.id });
   if (!row) throw new Error('otp_challenges insert returned no row');
@@ -225,7 +236,15 @@ export async function createOtpChallenge(
  */
 export async function consumeOtp<T>(
   db: Database,
-  params: { secret: string; phone: string; purpose: OtpPurpose; code: string; now: Date },
+  params: {
+    secret: string;
+    phone: string;
+    purpose: OtpPurpose;
+    code: string;
+    now: Date;
+    /** The challenge must have been issued for exactly this (else 400 `otp_expired`). */
+    binding?: string;
+  },
   onValid: (tx: DbTransaction) => Promise<T>,
 ): Promise<T> {
   const { secret, phone, purpose, code, now } = params;
@@ -252,7 +271,8 @@ export async function consumeOtp<T>(
     if (
       !challenge ||
       challenge.expiresAt.getTime() <= now.getTime() ||
-      challenge.attempts >= challenge.maxAttempts
+      challenge.attempts >= challenge.maxAttempts ||
+      (params.binding !== undefined && challenge.binding !== params.binding)
     ) {
       return { kind: 'expired' } as const;
     }
@@ -319,18 +339,36 @@ export async function sendOtpSms(
   }
 }
 
-/** True when codes may be echoed to the client: demo mode with the mock SMS gateway only. */
-export function exposesDemoOtp(deps: Pick<AppDeps, 'config' | 'sms'>): boolean {
-  return deps.config.mode === 'demo' && deps.sms.name === 'mock';
+/** True when registration codes are handed to the client instead of sent (REGISTRATION_SMS_VERIFICATION=off). */
+function registrationWithoutSms(deps: Pick<AppDeps, 'config'>, purpose: OtpPurpose): boolean {
+  return purpose === 'register' && deps.config.registration.smsVerification === 'off';
 }
 
 /**
- * Purposes whose code may be shown on screen (demo + mock SMS only). Only
- * registration, where the requester has just chosen the password and holds
- * the registration token. A password-reset code would hand any account to
- * whoever asks, so it is never echoed.
+ * True when the code of `purpose` may be echoed to the client: demo mode with the mock SMS gateway, or
+ * a registration code while REGISTRATION_SMS_VERIFICATION=off. Only the purposes of ECHOED_PURPOSES
+ * ever qualify, and a password-reset or payout-account code is never echoed outside demo mode.
  */
-const ECHOED_PURPOSES: ReadonlySet<OtpPurpose> = new Set<OtpPurpose>(['register']);
+export function exposesDemoOtp(
+  deps: Pick<AppDeps, 'config' | 'sms'>,
+  purpose: OtpPurpose = 'register',
+): boolean {
+  if (!ECHOED_PURPOSES.has(purpose)) return false;
+  if (deps.config.mode === 'demo' && deps.sms.name === 'mock') return true;
+  return registrationWithoutSms(deps, purpose);
+}
+
+/**
+ * Purposes whose code may be shown on screen (demo + mock SMS only):
+ * registration, where the requester has just chosen the password and holds
+ * the registration token, and confirming a payout account, which only the
+ * signed-in player can ask for. A password-reset code would hand any account
+ * to whoever asks, so it is never echoed.
+ */
+const ECHOED_PURPOSES: ReadonlySet<OtpPurpose> = new Set<OtpPurpose>([
+  'register',
+  'payout_account',
+]);
 
 /**
  * The `OtpSentResponse` body for a code of `purpose`. `demoOtp` is included
@@ -346,6 +384,7 @@ export function otpSentBody(
   return {
     otpSentTo: maskMsisdn(phone),
     otpExpiresAt: otp.expiresAt.toISOString(),
-    ...(ECHOED_PURPOSES.has(purpose) && exposesDemoOtp(deps) ? { demoOtp: otp.code } : {}),
+    ...(exposesDemoOtp(deps, purpose) ? { demoOtp: otp.code } : {}),
+    ...(registrationWithoutSms(deps, purpose) ? { registrationWithoutSms: true } : {}),
   };
 }

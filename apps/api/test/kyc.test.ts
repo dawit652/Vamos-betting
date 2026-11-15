@@ -311,6 +311,19 @@ describe('KYC: GET/POST /me/kyc', () => {
     expect(KycResponse.parse(replaced.json()).status).toBe('verified');
   });
 
+  it('keeps the date typed at KYC as the declared one when registration gave none', async () => {
+    const player = await registerAndLogin(ctx);
+    // Registration no longer asks for a date of birth.
+    await ctx.db.db.update(users).set({ dateOfBirth: null }).where(eq(users.id, player.userId));
+    const response = await submit(
+      player,
+      kycPayload(freshFin('9999'), { dateOfBirth: '1985-04-02' }),
+    );
+    expect(KycResponse.parse(response.json()).status).toBe('pending');
+    // A staff review of the pending check can fall back on it (packages/db backoffice).
+    expect((await userOf(player.userId)).dateOfBirth).toBe('1985-04-02');
+  });
+
   it('allows one account per ID: 409 id_already_used while another account holds it', async () => {
     const holder = await registerAndLogin(ctx);
     const fin = freshFin('3333');

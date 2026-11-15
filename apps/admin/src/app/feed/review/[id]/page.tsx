@@ -1,0 +1,735 @@
+'use client';
+
+import {
+  isRepriceItem,
+  parseReviewPayload,
+  type ResolveReviewResponse,
+  type ReviewDetailResponse,
+  type ReviewItemView,
+  type ReviewMarketComparison,
+} from '@vamos/contracts';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { useState, type ReactNode } from 'react';
+import { useFetch } from '@/components/hooks';
+import { useSession } from '@/components/session';
+import {
+  ActionButton,
+  Badge,
+  DefList,
+  Field,
+  Loading,
+  Notice,
+  PageHeader,
+  ReasonAction,
+} from '@/components/ui';
+import { api } from '@/lib/api';
+import {
+  ageText,
+  canApplyResult,
+  closedByText,
+  confirmApplyText,
+  dismissalsText,
+  decisionPermission,
+  exposureText,
+  fixtureDisagreement,
+  isOpen,
+  isTargetId,
+  kindLabel,
+  priceCompareRows,
+  priceText,
+  pricingFacts,
+  resolutionText,
+  reviewStatusTone,
+  scorePercent,
+  scoreText,
+  severityTone,
+  uncalibratedTeamRows,
+} from '@/lib/feed';
+import { formatDateTime, formatEtb, humanize } from '@/lib/format';
+
+type Resolve = (body: Record<string, unknown>) => Promise<void>;
+
+function Votes({ votes }: { votes: { sourceId: string; upstream: string; changedAt: string }[] }) {
+  if (votes.length === 0) return <span className="muted">none</span>;
+  return (
+    <ul>
+      {votes.map((v) => (
+        <li key={`${v.sourceId}`}>
+          {v.sourceId} (upstream {v.upstream}), since {formatDateTime(v.changedAt)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Match({ p }: { p: { gameId: string; home: string; away: string; kickoff: string } }) {
+  return (
+    <>
+      {p.home} v {p.away} (game {p.gameId}), kickoff {formatDateTime(p.kickoff)}
+    </>
+  );
+}
+
+/** "Apply this result" with a confirm step that repeats the score. No score input exists. */
+function ApplyResult({
+  home,
+  away,
+  score,
+  resolve,
+}: {
+  home: string;
+  away: string;
+  score: Parameters<typeof confirmApplyText>[0]['score'];
+  resolve: Resolve;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming) {
+    return (
+      <button type="button" className="primary" onClick={() => setConfirming(true)}>
+        Apply this result
+      </button>
+    );
+  }
+  return (
+    <div className="inline-form">
+      <strong>{confirmApplyText({ home, away, score })}</strong>
+      <ActionButton
+        primary
+        label={`Confirm ${scoreText(score)}`}
+        onAction={() => resolve({ decision: 'apply_result' })}
+      />
+      <button type="button" onClick={() => setConfirming(false)}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+function MapAlias({
+  noun,
+  suggestions,
+  resolve,
+}: {
+  noun: string;
+  suggestions: { id: string; name: string; score: number }[];
+  resolve: Resolve;
+}) {
+  const [picked, setPicked] = useState(suggestions[0]?.id ?? '');
+  const [typed, setTyped] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const targetId = typed.trim() !== '' ? typed.trim() : picked;
+  return (
+    <div>
+      {suggestions.length > 0 && (
+        <Field label="Suggestions">
+          <select value={picked} onChange={(e) => setPicked(e.target.value)}>
+            {suggestions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({scorePercent(s.score)})
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      <Field label="Or the id of another one">
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="uuid" />
+      </Field>
+      <ActionButton
+        primary
+        label={`Map to this ${noun}`}
+        onAction={async () => {
+          if (!isTargetId(targetId)) {
+            setError('Choose a suggestion or enter a valid id.');
+            return;
+          }
+          setError(null);
+          await resolve({ decision: 'map_alias', targetId });
+        }}
+      />
+      {error !== null && <Notice>{error}</Notice>}
+    </div>
+  );
+}
+
+const COUNTRY_CODE = /^[A-Z]{2}(-[A-Z0-9]{2,3})?$/;
+
+/** "Add as a new club": creates the team and maps the raw name to it in one step. */
+function AddTeam({ raw, resolve }: { raw: string; resolve: Resolve }) {
+  const [en, setEn] = useState(raw.trim());
+  const [am, setAm] = useState('');
+  const [shortName, setShortName] = useState('');
+  const [country, setCountry] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div>
+      <h3>Add as a new club</h3>
+      <p className="muted small">
+        Creates the club with no ratings, so its matches stay closed until its ratings are learned
+        or reviewed. If the club is already in the catalogue, map the name to it instead.
+      </p>
+      <Field label="English name">
+        <input value={en} onChange={(e) => setEn(e.target.value)} maxLength={60} />
+      </Field>
+      <Field label="Amharic name (optional)">
+        <input value={am} onChange={(e) => setAm(e.target.value)} maxLength={60} />
+      </Field>
+      <Field label="Short name">
+        <input value={shortName} onChange={(e) => setShortName(e.target.value)} maxLength={40} />
+      </Field>
+      <Field label="Country code (optional, e.g. ES or GB-ENG)">
+        <input
+          value={country}
+          onChange={(e) => setCountry(e.target.value.toUpperCase())}
+          maxLength={6}
+        />
+      </Field>
+      <ActionButton
+        label="Add club"
+        onAction={async () => {
+          const name = en.trim();
+          const short = shortName.trim();
+          const code = country.trim();
+          if (name.length < 2 || short.length < 2) {
+            setError('Enter an English name and a short name of at least two characters.');
+            return;
+          }
+          if (code !== '' && !COUNTRY_CODE.test(code)) {
+            setError('The country code looks like ES or GB-ENG.');
+            return;
+          }
+          setError(null);
+          await resolve({
+            decision: 'add_team',
+            name: am.trim() === '' ? { en: name } : { en: name, am: am.trim() },
+            shortName: short,
+            ...(code === '' ? {} : { countryCode: code }),
+          });
+        }}
+      />
+      {error !== null && <Notice>{error}</Notice>}
+    </div>
+  );
+}
+
+function Observations({
+  observations,
+}: {
+  observations: {
+    sourceId: string;
+    upstream: string;
+    status: string;
+    score: Parameters<typeof scoreText>[0];
+    scoreBasis: string;
+    changedAt: string;
+  }[];
+}) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Upstream</th>
+            <th>Status</th>
+            <th>Score</th>
+            <th>Basis</th>
+            <th>Since</th>
+          </tr>
+        </thead>
+        <tbody>
+          {observations.map((o) => (
+            <tr key={o.sourceId}>
+              <td>{o.sourceId}</td>
+              <td>{o.upstream}</td>
+              <td>{humanize(o.status)}</td>
+              <td>{scoreText(o.score)}</td>
+              <td>{humanize(o.scoreBasis)}</td>
+              <td>{formatDateTime(o.changedAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** F-1: why the sources disagree, from the reasons, details and observations the gate stored. */
+function Disagreement({ payload }: { payload: unknown }) {
+  const d = fixtureDisagreement(payload);
+  return (
+    <>
+      {d.reasons.length > 0 && (
+        <ul>
+          {d.reasons.map((r) => (
+            <li key={r.code}>
+              <strong>{r.label}</strong>
+              {r.rule !== null && <span className="muted small"> (rule {r.rule})</span>}
+              {r.text !== null && <div className="small">{r.text}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {d.facts.length > 0 && <DefList rows={d.facts} />}
+      {d.clusters.length > 0 && (
+        <>
+          <h3>Groups of sources</h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Sources</th>
+                  <th>Kickoff</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.clusters.map((c, i) => (
+                  <tr key={i}>
+                    <td>{c.sources}</td>
+                    <td>{c.kickoffs}</td>
+                    <td>{c.statuses}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {d.observations.length > 0 && (
+        <>
+          <h3>What each source says</h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th>Kickoff</th>
+                  <th>Since</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.observations.map((o, i) => (
+                  <tr key={i}>
+                    <td>{o.source}</td>
+                    <td>{o.status}</td>
+                    <td>{o.kickoff}</td>
+                    <td>{o.since}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+/** A-3: our price beside the bookmaker consensus and Pinnacle, and the books behind the consensus. */
+function PriceCheck({
+  markets,
+  comparison,
+}: {
+  markets: unknown;
+  comparison: ReviewMarketComparison | null | undefined;
+}) {
+  const rows = priceCompareRows(markets, comparison);
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <h3>Our price against the market</h3>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Market</th>
+              <th>Pick</th>
+              <th>Ours</th>
+              <th>Before</th>
+              <th>Consensus</th>
+              <th>Ours v consensus</th>
+              <th>Pinnacle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td>{r.market}</td>
+                <td>{r.selection}</td>
+                <td>{r.ours}</td>
+                <td>{r.previous}</td>
+                <td>{r.consensus}</td>
+                <td>{r.versus}</td>
+                <td>{r.pinnacle}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {comparison === null || comparison === undefined ? (
+        <p className="muted small">No fresh bookmaker prices for this event to compare with.</p>
+      ) : (
+        <p className="muted small">
+          Consensus is the no-margin median of the books below, read now. Pinnacle&apos;s price
+          still includes its margin.{' '}
+          {comparison.consensus
+            .map((c) => `${humanize(c.market)}: ${c.books} books (${c.bookmakers.join(', ')})`)
+            .join('; ')}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** R-2: the teams whose ratings the item waits for, with their rated matches. */
+function UncalibratedTeams({ payload }: { payload: unknown }) {
+  const rows = uncalibratedTeamRows(payload);
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <h3>Teams without enough rated matches</h3>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Team</th>
+              <th>Rated matches</th>
+              <th>Needed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((t, i) => (
+              <tr key={i}>
+                <td>{t.name}</td>
+                <td>{t.matches ?? '–'}</td>
+                <td>{t.needed ?? '–'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function Body({
+  item,
+  resolve,
+  can,
+  comparison,
+}: {
+  item: ReviewItemView;
+  resolve: Resolve;
+  can: (permission: string) => boolean;
+  comparison?: ReviewMarketComparison | null | undefined;
+}) {
+  const kind = item.kind;
+  const open = isOpen(item);
+  const allow = (decision: string) => open && can(decisionPermission(decision));
+  const raw = (): ReactNode => (
+    <>
+      <p className="muted">The detail of this item could not be read.</p>
+      <pre className="small">{JSON.stringify(item.payload, null, 2)}</pre>
+    </>
+  );
+
+  switch (kind) {
+    case 'result_ready':
+    case 'result_unverified': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <>
+          <DefList
+            rows={[
+              ['Match', <Match key="m" p={p} />],
+              ['Proposed score', <strong key="s">{scoreText(p.score)}</strong>],
+              ['Agreeing sources', <Votes key="v" votes={p.sources} />],
+              ['Exposure', exposureText(p.exposure.openBets, formatEtb(p.exposure.totalStake))],
+            ]}
+          />
+          {canApplyResult(item) && allow('apply_result') && (
+            <ApplyResult home={p.home} away={p.away} score={p.score} resolve={resolve} />
+          )}
+          {canApplyResult(item) && !allow('apply_result') && (
+            <p className="muted small">Your role may not apply results.</p>
+          )}
+        </>
+      );
+    }
+    case 'result_overdue': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <>
+          <DefList
+            rows={[
+              ['Match', <Match key="m" p={p} />],
+              ['Overdue', `${p.hoursSinceKickoff} hours after kickoff`],
+              ['Exposure', exposureText(p.exposure.openBets, formatEtb(p.exposure.totalStake))],
+            ]}
+          />
+          <p>
+            No source has a final score for this match. Look the score up on an official site, then
+            enter it on the event&apos;s <Link href={`/trading/${p.eventId}`}>trading page</Link>.
+            This item closes by itself once the event has a result.
+          </p>
+        </>
+      );
+    }
+    case 'result_conflict':
+    case 'result_correction': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <>
+          <DefList
+            rows={[
+              ['Match', <Match key="m" p={p} />],
+              ['Applied score', scoreText(p.appliedScore)],
+              [
+                'Exposure',
+                p.exposure === undefined
+                  ? '–'
+                  : exposureText(p.exposure.openBets, formatEtb(p.exposure.totalStake)),
+              ],
+            ]}
+          />
+          <h3>Observations</h3>
+          <Observations observations={p.observations} />
+          <p className="muted small">A person decides this in the trading screens.</p>
+        </>
+      );
+    }
+    case 'odds_approval':
+    case 'ratings_uncalibrated': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <>
+          <DefList
+            rows={[
+              ['Match', <Match key="m" p={p} />],
+              ['Why', p.reason ?? '–'],
+              ...pricingFacts(item.payload),
+              [
+                'Prices',
+                p.markets.length === 0 ? (
+                  '–'
+                ) : (
+                  <ul key="p">
+                    {p.markets.map((m) => (
+                      <li key={m.market}>
+                        {humanize(m.market)}:{' '}
+                        {m.selections
+                          .map((s) => priceText(s.name, s.oddsMilli, s.previousOddsMilli))
+                          .join(', ')}
+                      </li>
+                    ))}
+                  </ul>
+                ),
+              ],
+            ]}
+          />
+          {kind === 'ratings_uncalibrated' && <UncalibratedTeams payload={item.payload} />}
+          <PriceCheck markets={item.payload.markets} comparison={comparison} />
+          {kind === 'odds_approval' && !isRepriceItem(item) && allow('open_betting') && (
+            <ActionButton
+              primary
+              label="Open betting"
+              onAction={() => resolve({ decision: 'open_betting' })}
+            />
+          )}
+          {isRepriceItem(item) && p.proposal !== undefined && allow('apply_reprice') && (
+            <ActionButton
+              primary
+              label="Apply the proposed prices"
+              onAction={() => resolve({ decision: 'apply_reprice' })}
+            />
+          )}
+        </>
+      );
+    }
+    case 'unknown_team':
+    case 'unknown_competition': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <>
+          <DefList
+            rows={[
+              ['Raw name', <strong key="r">{p.raw}</strong>],
+              ['Source', p.sourceId],
+              ['Competition label', 'competition' in p ? p.competition : '–'],
+              [
+                'Suggestions',
+                p.suggestions.length === 0 ? (
+                  'none'
+                ) : (
+                  <ul key="s">
+                    {p.suggestions.map((s) => (
+                      <li key={s.id}>
+                        {s.name} ({scorePercent(s.score)})
+                      </li>
+                    ))}
+                  </ul>
+                ),
+              ],
+            ]}
+          />
+          {allow('map_alias') && (
+            <MapAlias
+              noun={kind === 'unknown_team' ? 'team' : 'competition'}
+              suggestions={p.suggestions}
+              resolve={resolve}
+            />
+          )}
+          {kind === 'unknown_team' && allow('add_team') && (
+            <AddTeam raw={p.raw} resolve={resolve} />
+          )}
+        </>
+      );
+    }
+    case 'kickoff_change': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <>
+          <DefList
+            rows={[
+              ['Current kickoff', formatDateTime(p.currentKickoff)],
+              ['Proposed kickoff', <strong key="k">{formatDateTime(p.proposedKickoff)}</strong>],
+              ['Sources', <Votes key="v" votes={p.sources} />],
+              ['Bets', p.hasBets ? 'Bets exist on this event' : 'No bets yet'],
+            ]}
+          />
+          {allow('apply_kickoff') && (
+            <ActionButton
+              primary
+              label="Apply new kickoff"
+              onAction={() => resolve({ decision: 'apply_kickoff' })}
+            />
+          )}
+        </>
+      );
+    }
+    case 'source_broken': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <DefList
+          rows={[
+            ['Source', p.sourceId],
+            ['Run', p.runId],
+            ['Reason', p.reason],
+            ['Records accepted', String(p.recordsAccepted)],
+            ['Usual yield', p.baseline === null ? '–' : String(p.baseline)],
+          ]}
+        />
+      );
+    }
+    case 'source_stale': {
+      const p = parseReviewPayload(kind, item.payload);
+      if (p === null) return raw();
+      return (
+        <>
+          <DefList
+            rows={[
+              ['Source', p.sourceName],
+              ['Last change', formatDateTime(p.lastChangedAt)],
+              ['Unchanged for', `${p.hoursUnchanged} hours`],
+              ['Matches waiting', String(p.dueMatches)],
+            ]}
+          />
+          <p>
+            The source still answers, but nothing it shows has changed while matches it lists have
+            ended, so no result can come from it. Check the source&apos;s own page. Until it moves
+            again, results for those matches come from another source or are entered by hand in
+            Trading. This item closes by itself when the source shows something new.
+          </p>
+        </>
+      );
+    }
+    case 'fixture_conflict': {
+      const p = parseReviewPayload(kind, item.payload);
+      return (
+        <>
+          <p>{p?.detail ?? 'The sources disagree about this fixture.'}</p>
+          <Disagreement payload={item.payload} />
+        </>
+      );
+    }
+    default: {
+      const p = parseReviewPayload(kind, item.payload) as { detail?: string } | null;
+      if (p === null) return raw();
+      return <p>{p.detail ?? '–'}</p>;
+    }
+  }
+}
+
+export default function ReviewItemPage() {
+  const { id } = useParams<{ id: string }>();
+  const { can } = useSession();
+  const { data, error, loading, reload } = useFetch<ReviewDetailResponse>(
+    `/admin/feed/review/${id}`,
+  );
+  const [notice, setNotice] = useState<string | null>(null);
+  const item = data?.item ?? null;
+
+  const resolve: Resolve = async (body) => {
+    setNotice(null);
+    await api<ResolveReviewResponse>(`/admin/feed/review/${id}/resolve`, { method: 'POST', body });
+    setNotice('Saved.');
+    reload();
+  };
+  const dismiss = (note: string) => resolve({ decision: 'dismiss', note });
+
+  return (
+    <>
+      <PageHeader title="Review item">
+        <Link href="/feed/review">Back to queue</Link>
+      </PageHeader>
+      <Loading loading={loading && data === null} error={error} />
+      {notice !== null && <Notice kind="ok">{notice}</Notice>}
+      {item !== null && (
+        <section className="panel">
+          <h2>{item.title}</h2>
+          <DefList
+            rows={[
+              ['Kind', kindLabel(item.kind)],
+              [
+                'Severity',
+                <Badge key="v" value={item.severity} tone={severityTone(item.severity)} />,
+              ],
+              [
+                'Status',
+                <Badge key="s" value={item.status} tone={reviewStatusTone(item.status)} />,
+              ],
+              ['Raised', `${formatDateTime(item.createdAt)} (${ageText(item.createdAt)})`],
+              ...(item.status === 'open'
+                ? []
+                : ([
+                    [
+                      'Closed',
+                      `${formatDateTime(item.resolvedAt)} by ${closedByText(item.resolvedBy)}`,
+                    ],
+                    ['Resolution', resolutionText(item.resolution)],
+                  ] as [string, ReactNode][])),
+            ]}
+          />
+          {dismissalsText(item.payload) !== null && (
+            <Notice>Raised again: {dismissalsText(item.payload)}.</Notice>
+          )}
+          <Body item={item} resolve={resolve} can={can} comparison={data?.comparison} />
+          {isOpen(item) && can('trading.status') && (
+            <div className="actions">
+              <ReasonAction label="Dismiss" prompt="Note (required)" onSubmit={dismiss} />
+            </div>
+          )}
+        </section>
+      )}
+    </>
+  );
+}

@@ -3,7 +3,7 @@ import type { Messages } from '../en';
 // Amharic. Pending native-speaker review before a licensed launch.
 export const common: Messages['common'] = {
   app: {
-    name: 'ቫሞስ',
+    name: 'ናሁቤት',
     tagline: 'ቀላል የስፖርት ውርርድ',
   },
   demo: {
@@ -32,6 +32,7 @@ export const common: Messages['common'] = {
     register: 'ተመዝገብ',
     balance: 'ቀሪ ሂሳብ',
     balanceLabel: 'ቀሪ ሂሳብ፦ {amount}',
+    deposit: 'ገንዘብ አስገባ',
   },
   sports: {
     football: 'እግር ኳስ',
@@ -56,6 +57,16 @@ export const common: Messages['common'] = {
     button: 'የውርርድ ወረቀት',
     count: '{count} ምርጫዎች',
     limitReached: 'አንድ የውርርድ ወረቀት ቢበዛ {max} ምርጫዎች ብቻ ይይዛል።',
+    odds: 'ኦድስ',
+    netPay: 'የተጣራ ክፍያ',
+  },
+  oddsMove: {
+    up: 'ኦድስ ጨምሯል',
+    down: 'ኦድስ ቀንሷል',
+  },
+  theme: {
+    toLight: 'ወደ ብሩህ ገጽታ ቀይር',
+    toDark: 'ወደ ጨለማ ገጽታ ቀይር',
   },
   language: {
     label: 'ቋንቋ',

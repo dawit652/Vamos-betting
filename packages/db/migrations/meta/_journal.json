@@ -225,6 +225,153 @@
       "when": 1793066857919,
       "tag": "0031_staff_password_expiry",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793107152181,
+      "tag": "0032_remove_els_reporting",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793233036163,
+      "tag": "0033_scrape_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793233050032,
+      "tag": "0034_scrape_history_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793279354580,
+      "tag": "0035_scrape_event_pricing",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793333835975,
+      "tag": "0036_scrape_review_result_overdue",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793334627571,
+      "tag": "0037_scrape_review_source_stale",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793475565009,
+      "tag": "0038_scrape_market_odds",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793514217983,
+      "tag": "0039_scrape_pricing_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793524901306,
+      "tag": "0040_events_close_lead",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793585083472,
+      "tag": "0041_scrape_adapter_theoddsapi",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793606802873,
+      "tag": "0042_scrape_runs_api_credits",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794230703959,
+      "tag": "0043_sms_rail",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794230726070,
+      "tag": "0044_sms_rail_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794331078964,
+      "tag": "0045_scrape_event_suspension",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794334960262,
+      "tag": "0046_scrape_close_prices",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794520036529,
+      "tag": "0047_scrape_apifootball_adapter",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794520268684,
+      "tag": "0048_market_price_valid_until",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794520891233,
+      "tag": "0049_scrape_trust_and_ladder_shadow",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794549854974,
+      "tag": "0050_scrape_policy_factory_markets",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794566974309,
+      "tag": "0051_market_family_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1794717372510,
+      "tag": "0052_users_date_of_birth_optional",
+      "breakpoints": true
     }
   ]
 }

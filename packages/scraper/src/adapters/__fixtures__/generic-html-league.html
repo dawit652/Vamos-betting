@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+  <body>
+    <script>
+      alert('never executed');
+      document.write(
+        '<table class="fx"><tr class="match"><td class="home">Injected</td></tr></table>',
+      );
+    </script>
+    <table class="fixtures">
+      <tr class="match" data-id="m1">
+        <td class="comp">Demo League</td>
+        <td class="home">Alpha FC</td>
+        <td class="away">Beta United</td>
+        <td><time datetime="2025-03-01T15:00:00+03:00">1 Mar</time></td>
+        <td class="score">2 - 1</td>
+        <td class="ht">(1-0)</td>
+        <td class="status">FT</td>
+      </tr>
+      <tr class="match" data-id="m2">
+        <td class="comp">Demo League</td>
+        <td class="home">Gamma</td>
+        <td class="away">Delta</td>
+        <td><time datetime="2025-03-08T15:00:00Z">8 Mar</time></td>
+        <td class="score">15:00</td>
+        <td class="ht"></td>
+        <td class="status">Scheduled</td>
+      </tr>
+      <tr class="match" data-id="m3">
+        <td class="comp">Demo League</td>
+        <td class="home">Eps</td>
+        <td class="away"></td>
+        <td><time datetime="2025-03-09T15:00:00Z">9 Mar</time></td>
+        <td class="score"></td>
+        <td class="ht"></td>
+        <td class="status">Scheduled</td>
+      </tr>
+    </table>
+    <table class="dates">
+      <tr class="d">
+        <td class="home">Lion</td>
+        <td class="away">Tiger</td>
+        <td class="date">15/03/2025</td>
+        <td class="time">16:00</td>
+      </tr>
+      <tr class="d">
+        <td class="home">Bear</td>
+        <td class="away">Wolf</td>
+        <td class="date">30/03/2025</td>
+        <td class="time">01:30</td>
+      </tr>
+    </table>
+  </body>
+</html>

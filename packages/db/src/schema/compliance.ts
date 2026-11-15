@@ -9,7 +9,6 @@ import {
   jsonb,
   pgEnum,
   pgTable,
-  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -18,149 +17,19 @@ import {
 import { users } from './accounts';
 
 /**
- * Compliance and regulator reporting (Phase 10). The services are in
- * packages/db/src/compliance, the pure maths in @vamos/core (businessday,
- * dailysummary, els, aml, pspstatement). Kept 7 years (docs/compliance.md);
- * the evidence tables refuse UPDATE/DELETE beyond the transitions their
- * services make (migration 0023_phase10_compliance_guards).
+ * Compliance (Phase 10): reconciliation, PSP statements and AML flags. The
+ * services are in packages/db/src/compliance, the pure maths in @vamos/core
+ * (businessday, aml, pspstatement). The evidence tables refuse UPDATE/DELETE
+ * beyond the transitions their services make (migration
+ * 0023_phase10_compliance_guards).
  */
 
-/** pending: recorded, not yet written by the reporter; written: in the stream (final). */
-export const elsReportStatus = pgEnum('els_report_status', ['pending', 'written']);
-
-/**
- * One record of the ELS transaction stream per reportable outbox event,
- * recorded before it is written so a replay (a redelivered job, a restart,
- * the sweep) never writes a second line: `line` is the exact canonical JSON
- * written, `hash` its SHA-256. No player names or phone numbers: the record
- * carries the pseudonymous player id (`player_ref`) and santim amounts.
- */
-export const elsReports = pgTable(
-  'els_reports',
-  {
-    /** outbox_events.id (no foreign key: the outbox may be purged sooner than the 7-year stream). */
-    outboxId: bigint('outbox_id', { mode: 'bigint' }).primaryKey(),
-    type: text('type').notNull(),
-    /** Business date (Africa/Addis_Ababa) of the event: the stream file it belongs to. */
-    businessDate: date('business_date', { mode: 'string' }).notNull(),
-    playerRef: uuid('player_ref'),
-    line: text('line').notNull(),
-    hash: text('hash').notNull(),
-    status: elsReportStatus('status').notNull().default('pending'),
-    /** Times a write was started (a retry after an unconfirmed write checks the file first). */
-    attempts: integer('attempts').notNull().default(0),
-    lastError: text('last_error'),
-    /** Where it was written (path under ELS_REPORT_DIR). */
-    location: text('location'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    writtenAt: timestamp('written_at', { withTimezone: true }),
-  },
-  (t) => [
-    index('els_reports_pending_idx')
-      .on(t.createdAt)
-      .where(sql`${t.status} = 'pending'`),
-    index('els_reports_date_idx').on(t.businessDate, t.outboxId),
-    check('els_reports_written', sql`(${t.status} = 'written') = (${t.writtenAt} IS NOT NULL)`),
-    check('els_reports_hash', sql`${t.hash} ~ '^[0-9a-f]{64}$'`),
-    check('els_reports_attempts', sql`${t.attempts} >= 0`),
-  ],
-);
-
-/** Named positions of the compliance sweeps (e.g. the last outbox id checked for unreported events). */
+/** Named positions of the compliance sweeps (e.g. the ledger entry up to which balance_after is verified). */
 export const complianceCursors = pgTable('compliance_cursors', {
   name: text('name').primaryKey(),
   position: bigint('position', { mode: 'bigint' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
-
-/** provisional: may still be recomputed (each change is a new version); final: frozen. */
-export const dailySummaryStatus = pgEnum('daily_summary_status', ['provisional', 'final']);
-
-/**
- * The regulator's daily summary of one business day (Africa/Addis_Ababa),
- * computed from ledger postings by their time (see @vamos/core
- * dailysummary for the definitions). Santim throughout; payouts gross.
- * Immutable once `final`.
- */
-export const dailySummaries = pgTable(
-  'daily_summaries',
-  {
-    businessDate: date('business_date', { mode: 'string' }).primaryKey(),
-    status: dailySummaryStatus('status').notNull().default('provisional'),
-    version: integer('version').notNull(),
-    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
-    windowEnd: timestamp('window_end', { withTimezone: true }).notNull(),
-    turnover: bigint('turnover', { mode: 'bigint' }).notNull(),
-    betStakes: bigint('bet_stakes', { mode: 'bigint' }).notNull(),
-    betCount: integer('bet_count').notNull(),
-    jackpotStakes: bigint('jackpot_stakes', { mode: 'bigint' }).notNull(),
-    jackpotEntryCount: integer('jackpot_entry_count').notNull(),
-    payouts: bigint('payouts', { mode: 'bigint' }).notNull(),
-    wonPayouts: bigint('won_payouts', { mode: 'bigint' }).notNull(),
-    cashOuts: bigint('cash_outs', { mode: 'bigint' }).notNull(),
-    refunds: bigint('refunds', { mode: 'bigint' }).notNull(),
-    jackpotPrizes: bigint('jackpot_prizes', { mode: 'bigint' }).notNull(),
-    ggr: bigint('ggr', { mode: 'bigint' }).notNull(),
-    taxWithheld: bigint('tax_withheld', { mode: 'bigint' }).notNull(),
-    bonuses: bigint('bonuses', { mode: 'bigint' }).notNull(),
-    deposits: bigint('deposits', { mode: 'bigint' }).notNull(),
-    depositCount: integer('deposit_count').notNull(),
-    withdrawals: bigint('withdrawals', { mode: 'bigint' }).notNull(),
-    withdrawalCount: integer('withdrawal_count').notNull(),
-    activePlayers: integer('active_players').notNull(),
-    commissionRateBps: integer('commission_rate_bps').notNull(),
-    commissionDue: bigint('commission_due', { mode: 'bigint' }).notNull(),
-    /** SHA-256 of the canonical figures (with the date). */
-    hash: text('hash').notNull(),
-    computedAt: timestamp('computed_at', { withTimezone: true }).notNull(),
-    finalizedAt: timestamp('finalized_at', { withTimezone: true }),
-    /** 'system' or the staff member's id. */
-    finalizedBy: text('finalized_by'),
-  },
-  (t) => [
-    index('daily_summaries_status_idx').on(t.status, t.businessDate),
-    check('daily_summaries_version', sql`${t.version} >= 1`),
-    check(
-      'daily_summaries_final',
-      sql`(${t.status} = 'final') = (${t.finalizedAt} IS NOT NULL AND ${t.finalizedBy} IS NOT NULL)`,
-    ),
-    check('daily_summaries_window', sql`${t.windowEnd} = ${t.windowStart} + interval '1 day'`),
-    check('daily_summaries_turnover', sql`${t.turnover} = ${t.betStakes} + ${t.jackpotStakes}`),
-    check(
-      'daily_summaries_payouts',
-      sql`${t.payouts} = ${t.wonPayouts} + ${t.cashOuts} + ${t.refunds} + ${t.jackpotPrizes}`,
-    ),
-    check('daily_summaries_ggr', sql`${t.ggr} = ${t.turnover} - ${t.payouts}`),
-    check(
-      'daily_summaries_commission',
-      sql`${t.commissionRateBps} BETWEEN 0 AND 10000 AND ${t.commissionDue} >= 0 AND (${t.ggr} > 0 OR ${t.commissionDue} = 0) AND ${t.commissionDue} <= GREATEST(${t.ggr}, 0)`,
-    ),
-    check('daily_summaries_hash', sql`${t.hash} ~ '^[0-9a-f]{64}$'`),
-  ],
-);
-
-/** Every version of a daily summary (append-only): what was computed, when, and by whom. */
-export const dailySummaryVersions = pgTable(
-  'daily_summary_versions',
-  {
-    businessDate: date('business_date', { mode: 'string' })
-      .notNull()
-      .references(() => dailySummaries.businessDate, { onDelete: 'restrict' }),
-    version: integer('version').notNull(),
-    /** DailyFigures, santim as decimal strings. */
-    figures: jsonb('figures').notNull(),
-    hash: text('hash').notNull(),
-    /** 'computed' (first), 'recomputed' (figures changed) or 'finalized'. */
-    reason: text('reason').notNull(),
-    computedAt: timestamp('computed_at', { withTimezone: true }).notNull(),
-    /** 'system' or the staff member's id. */
-    computedBy: text('computed_by').notNull(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.businessDate, t.version] }),
-    check('daily_summary_versions_version', sql`${t.version} >= 1`),
-  ],
-);
 
 export const reconciliationRunKind = pgEnum('reconciliation_run_kind', [
   'scheduled',

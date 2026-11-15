@@ -1,17 +1,25 @@
-# Vamos Betting
+# Nahubet
 
-A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It is lightweight on data, pays through mobile money, uses low stakes, and offers football accumulators, daily and weekly jackpots, live betting and cash-out. It adds Vamos's own accumulator bonus ladder, Amharic and other Ethiopian languages, and compliance built into the core.
+A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It is lightweight on data, pays through mobile money, uses low stakes, and offers football accumulators, daily and weekly jackpots, live betting and cash-out. It adds Nahubet's own accumulator bonus ladder, Amharic and other Ethiopian languages, and compliance built into the core.
 
-> **Demo mode only.** Ethiopia revoked every sports betting licence on 15 Dec 2025. The Ethiopian Lottery Service is preparing a new, stricter licensing framework.
->
-> Until a licence is granted, Vamos runs as a **play-money demo** (`OPERATING_MODE=demo`):
+> **Demo mode by default.** Nahubet runs as a **play-money demo** (`OPERATING_MODE=demo`):
 >
 > - only simulated odds and mock payment, KYC and SMS providers
 > - a permanent "DEMO" banner on the site
 >
-> `OPERATING_MODE=licensed` refuses to start unless all of these are configured: a licence number, regulator reporting, real payment, KYC, SMS and odds providers, and confirmed tax settings.
+> `OPERATING_MODE=licensed` refuses to start unless all of these are configured: real payment, KYC, SMS and odds providers, and confirmed tax settings.
 >
 > See [`docs/research`](docs/research) for the market analysis behind these decisions.
+
+## Branches: which one is the latest
+
+- **The default branch (`claude/quirky-ramanujan-xb7e2u`) is the latest safe version.** Work is merged
+  into it only through a pull request, and only once CI (lint, typecheck, unit and integration tests, the
+  end-to-end suite and the Docker build) has passed on it. Start new work from it.
+- Work happens on `claude/*` branches. The one being merged next has an open pull request into the
+  default branch; GitHub merges it by itself when CI passes (auto-merge), so nothing unsafe lands.
+- What runs on the server, and how to deploy or roll back, is in [`HANDOFF.md`](HANDOFF.md).
+- Older `claude/*` branches are history: their work is either in the default branch or superseded.
 
 ## Repository layout
 
@@ -19,6 +27,8 @@ A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It i
 | -------------------- | ---------------------------------------------------------------------------------------------- |
 | `apps/api`           | Fastify REST + SSE API (port 4000)                                                             |
 | `apps/worker`        | Background workers: feed ingest, live simulator, settlement, payouts, notifications, reporting |
+| `apps/scraper`       | Data scraper process (port 4200): fetch, parse, safety gates, promotion; onboarding CLI        |
+| `packages/scraper`   | Pure scraper toolkit, no database: adapters, name matching, polite fetcher, gates              |
 | `apps/web`           | Player PWA (port 3000): Betika-style lite UI, Amharic/English                                  |
 | `apps/admin`         | Back office (port 3001): trading, risk, KYC, finance, compliance                               |
 | `packages/core`      | Pure domain logic: money, odds, betslip, multi-bonus, tax, cash-out, jackpots                  |
@@ -31,7 +41,7 @@ A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It i
 | `infra`              | dev + production docker-compose, Dockerfile, env template, backup and dev services scripts     |
 | `scripts`            | `smoke.sh`: smoke test for any deployment URL                                                  |
 
-See [`docs/architecture.md`](docs/architecture.md) for the design.
+See [`docs/architecture.md`](docs/architecture.md) for the design, and [`docs/scraper-operations.md`](docs/scraper-operations.md) for the data scraper.
 
 ## Getting started
 
@@ -43,13 +53,19 @@ cp .env.example .env
 
 # Services: native (no Docker)…
 pnpm services:start
-# …or with Docker
+# …or with Docker (it publishes Postgres on 5433: set DATABASE_URL in .env to localhost:5433)
 docker compose -f infra/docker-compose.yml up -d
 
 pnpm db:migrate
 pnpm db:seed
 pnpm dev          # api :4000, worker, web :3000
 ```
+
+To try the data scraper with real Premier League data (games, odds, a trader opening betting), follow
+[`docs/scraper-local-test.md`](docs/scraper-local-test.md).
+
+To test on your laptop and on several phones on the same Wi-Fi, follow
+[`docs/testing-with-phones.md`](docs/testing-with-phones.md).
 
 ## Quality checks
 
@@ -61,8 +77,10 @@ pnpm build
 pnpm e2e          # Playwright, against a running dev stack
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same checks with Postgres and Redis service containers, plus a
-`docker` job that builds the production images, boots the compose stack and runs `scripts/smoke.sh`.
+CI (`.github/workflows/ci.yml`) runs the same checks with Postgres and Redis service containers on every push
+(not for changes to documentation only). The slow jobs, end-to-end and `docker` (builds the production images,
+boots the compose stack and runs `scripts/smoke.sh`), run on pushes to the default branch and on demand
+(Actions → CI → Run workflow), to stay within the free runner minutes.
 
 ## Deployment
 

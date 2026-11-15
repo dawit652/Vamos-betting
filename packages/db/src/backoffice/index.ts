@@ -69,6 +69,7 @@ export {
   staffReauthFailedError,
   startOwnStaffTotpEnrolment,
   unlockStaffUser,
+  findStaffUserByEmail,
   unlockStaffUserByEmail,
   updateStaffUser,
   warmUpStaffPasswordHashing,
