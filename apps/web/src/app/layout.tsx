@@ -7,6 +7,7 @@ import { DemoBanner } from '@/components/shell/DemoBanner';
 import { Footer } from '@/components/shell/Footer';
 import { Header } from '@/components/shell/Header';
 import { pickNamespaces } from '@/i18n/ClientMessages';
+import { withoutBetslipMessages } from '@/i18n/subsets';
 import { getLocale, getMessages } from '@/i18n/server';
 import { CSRF_COOKIE, parseTheme, THEME_COLORS, THEME_COOKIE } from '@/lib/cookies';
 import { IS_DEMO } from '@/lib/mode';
@@ -41,7 +42,10 @@ export async function generateViewport(): Promise<Viewport> {
   };
 }
 
-/** Message namespaces every client component can use; others need <ClientMessages>. */
+/**
+ * Message namespaces every client component can use; others need <ClientMessages>.
+ * `sportsbook.betslip.*` is left out here: the betslip's own code brings it.
+ */
 const ROOT_CLIENT_NAMESPACES = ['common', 'sportsbook'] as const;
 
 /**
@@ -70,7 +74,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       >
         <AppProviders
           locale={locale}
-          messages={pickNamespaces(messages, ROOT_CLIENT_NAMESPACES)}
+          messages={withoutBetslipMessages(pickNamespaces(messages, ROOT_CLIENT_NAMESPACES))}
           hasSessionCookie={cookieStore.has(CSRF_COOKIE)}
         >
           <div className="sticky top-0 z-30">

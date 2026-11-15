@@ -431,23 +431,6 @@
     letter-spacing: 0.02em;
   }
 
-  /* Small square tag with a country or category's first letters. */
-  .tag {
-    display: inline-flex;
-    height: 1.25rem;
-    min-width: 1.75rem;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.3125rem;
-    background: var(--color-brand-soft);
-    padding: 0 0.25rem;
-    color: var(--color-brand);
-    font-size: 0.625rem;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-  }
-
   /* Red dot of a live match. */
   .live-dot {
     display: inline-block;

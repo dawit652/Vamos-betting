@@ -1,11 +1,12 @@
 'use client';
 
 import type { BetView, OddsChangePolicy, UnavailableReason } from '@vamos/contracts';
+import { betslipMessages } from '@vamos/i18n/betslip';
 import type { MessageKey } from '@vamos/i18n/translate';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
-import { useLocale, useT } from '@/i18n/client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { I18nProvider, useClientMessages, useLocale, useT } from '@/i18n/client';
 import { bettingApi } from '@/lib/api/betting';
 import { errorMessageKey, isApiClientError } from '@/lib/api/errors';
 import { newIdempotencyKey } from '@/lib/api/idempotency';
@@ -78,7 +79,27 @@ interface Placed {
  * the drawer (phones, `onClose` adds the close button) and the docked column of
  * wide sportsbook pages (BetslipDock).
  */
-export function BetslipPanel({ titleId, onClose }: { titleId: string; onClose?: () => void }) {
+export function BetslipPanel(props: { titleId: string; onClose?: () => void }) {
+  const locale = useLocale();
+  // The betslip's own texts come with this lazily loaded code, not with every page.
+  const parent = useClientMessages();
+  const messages = useMemo(
+    () => ({
+      ...parent,
+      sportsbook: { ...parent.sportsbook, betslip: betslipMessages(locale) } as NonNullable<
+        typeof parent.sportsbook
+      >,
+    }),
+    [parent, locale],
+  );
+  return (
+    <I18nProvider locale={locale} messages={messages}>
+      <PanelBody {...props} />
+    </I18nProvider>
+  );
+}
+
+function PanelBody({ titleId, onClose }: { titleId: string; onClose?: () => void }) {
   const t = useT();
   const slip = useBetslip();
   const [stored, setPlaced] = useState<Placed | null>(null);

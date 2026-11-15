@@ -104,7 +104,6 @@ export async function SportsbookFrame({
                   href={routes.competition(sport, c.slug)}
                   prefetch={false}
                   aria-current={c.slug === competition ? 'page' : undefined}
-                  title={localName(category.category.name, locale)}
                   className={`chip ${c.featured ? '' : 'rail-wide'}`}
                 >
                   <span aria-hidden="true">{category.flag}</span>

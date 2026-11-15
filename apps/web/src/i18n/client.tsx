@@ -46,6 +46,11 @@ export function I18nProvider({
   return <I18nContext value={value}>{children}</I18nContext>;
 }
 
+/** The messages this subtree can read (the betslip's lazy code adds its own texts to them). */
+export function useClientMessages(): ClientMessages {
+  return useI18n().messages;
+}
+
 function useI18n(): I18nValue {
   const value = useContext(I18nContext);
   if (value === null) throw new Error('useT/useLocale must be used inside <I18nProvider>');
