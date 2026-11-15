@@ -49,9 +49,9 @@ a decision of section 3), `not planned`.
 | C9  | Approval tiers                                           | waits       | D6, D8                            |
 | C10 | Float forecast and alarm                                 | open        |                                   |
 | C11 | Routing between payout rails                             | waits       | After a second rail pays out      |
-| X1  | Top-match flag (port of `136f469`, `4df33b1`)            | open        | Ask the owner if still wanted     |
+| X1  | Top-match flag (port of `136f469`, `4df33b1`)            | not planned | Owner, 15 Nov: not now (see §3)   |
 | X2  | End-to-end tests of the redesign (port of `4df33b1`)     | open        |                                   |
-| X3  | Rename the inside from Vamos to Nahubet                  | open        | Stage 4 waits for the owner       |
+| X3  | Rename the inside from Vamos to Nahubet                  | open        | Stages 1 to 3 only (see §3)       |
 | X4  | Licensed texts for Help, Terms, Responsible gambling     | open        | Also in root `HANDOFF.md`         |
 
 ## 2. Measured
@@ -80,8 +80,15 @@ Already decided by the owner (15 Nov 2026):
 
 - No aggregator gateway such as Chapa; deposits stay on the SMS rail, withdrawals are to be automated.
 - Languages: Amharic and English only.
-- The inside of the code is to be renamed from Vamos to Nahubet (task X3; the stage that touches the
-  server's own names waits for the owner).
+- The inside of the code is to be renamed from Vamos to Nahubet (task X3), **except the server's own
+  names**: the compose project, the volumes and the database keep their names. The owner does not
+  want Docker to start on new, empty volumes (15 Nov, second session), so stage 4 of X3 is dropped.
+- Pull requests: the branch goes into the default branch by pull request, merged once CI is green
+  (15 Nov, second session: "use your recommendation").
+- Top-match flag (X1): not now. The home poster keeps showing the first highlight; the featured
+  leagues cover the need. Reopen if a trader asks for it.
+- The two calls with the longest lead time (D1 Ethio telecom, D2 the bank) are the owner's to make;
+  both are still open.
 
 ## 4. Sessions
 
