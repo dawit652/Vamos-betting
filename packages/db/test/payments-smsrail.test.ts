@@ -1,4 +1,4 @@
-import { birr, santimToBirrString, type PaymentRules } from '@vamos/core';
+import { birr, MAX_SANTIM_OFFSET, santimToBirrString, type PaymentRules } from '@vamos/core';
 import { count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -155,7 +155,7 @@ async function depositViaSms(
 }
 
 describe('SMS deposit intents', () => {
-  it('reserves an exact amount 1–50 santim above the request and opens it as a transfer', async () => {
+  it('reserves an exact amount 1–99 santim above the request and opens it as a transfer', async () => {
     const player = await createPlayer(db);
     const intent = await openDeposit(player.userId, birr(100), { offset: 37 });
     expect(intent).toMatchObject({
@@ -190,17 +190,26 @@ describe('SMS deposit intents', () => {
     );
   });
 
-  it('never hands out the same exact amount twice, even concurrently, and refuses the 51st', async () => {
+  it('never hands out the same exact amount twice, even concurrently, and refuses the 100th', async () => {
     const base = birr(333);
-    const players = await Promise.all(Array.from({ length: 50 }, () => createPlayer(db)));
+    const players = await Promise.all(
+      Array.from({ length: MAX_SANTIM_OFFSET }, () => createPlayer(db)),
+    );
     const intents = await Promise.all(players.map((p) => openDeposit(p.userId, base)));
     const amounts = new Set(intents.map((i) => i.amount));
-    expect(amounts.size).toBe(50);
+    expect(amounts.size).toBe(99);
     for (const amount of amounts) {
-      expect(amount > base && amount <= base + 50n).toBe(true);
+      expect(amount > base && amount <= base + 99n).toBe(true);
     }
     const late = await createPlayer(db);
     expect((await domainError(openDeposit(late.userId, base))).code).toBe('sms_amount_unavailable');
+  });
+
+  it('never reserves a whole-birr amount for a request that is not a whole birr', async () => {
+    const player = await createPlayer(db);
+    // 555.01 + 99 santim would be 556.00, which anyone might send by chance: the next one is taken.
+    const intent = await openDeposit(player.userId, birr(555) + 1n, { offset: 99 });
+    expect(intent.amount).toBe(birr(555) + 2n);
   });
 
   it('serialises allocations across overlapping bases (444.00 and 444.25 share 444.26–444.50)', async () => {
@@ -471,7 +480,7 @@ describe('the player check', () => {
     const victimPayment = telebirrCredit(birr(111) + 3n, { phone: null });
     expect((await gateway(victimPayment.text)).outcome).toBe('unmatched');
     const thief = await createPlayer(db);
-    // The offset is pinned: a random one is 3 santim once in 50 runs, and then the deposit (opened
+    // The offset is pinned: a random one is 3 santim once in 99 runs, and then the deposit (opened
     // before the SMS's time) has the payment's exact amount, which by the rail's own rule is a
     // genuine match. This test is about a deposit of another amount.
     await openDeposit(thief.userId, birr(111), { offset: 7 });

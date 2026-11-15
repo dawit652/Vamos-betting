@@ -105,7 +105,7 @@ export interface CreateSmsDepositInput {
 /**
  * Opens an SMS deposit in the caller's transaction and returns it `pending`
  * with `amount` set to the exact amount the player must send (the requested
- * amount plus 1–50 santim, unique among open SMS deposits and those expired
+ * amount plus 1–99 santim, never a whole birr, unique among open SMS deposits and those expired
  * within SMS_AMOUNT_QUARANTINE_MS).
  *
  * 1. one advisory lock serialises every SMS amount allocation: ranges of
@@ -115,7 +115,7 @@ export interface CreateSmsDepositInput {
  *    transaction;
  * 2. a replayed idempotency key returns the existing deposit (422
  *    `idempotency_key_reused` for another amount or provider);
- * 3. 409 `sms_amount_unavailable` when all 50 offsets are taken (the player
+ * 3. 409 `sms_amount_unavailable` when all 99 offsets are taken (the player
  *    picks a slightly different amount); never a colliding amount;
  * 4. createDepositIntent (range against the requested amount, responsible
  *    gambling limits against the exact amount, audit), then

@@ -84,7 +84,7 @@ export const paymentIntents = pgTable(
     currency: text('currency').notNull().default('ETB'),
     /**
      * SMS rail: the amount the player asked to deposit. `amount` is then the
-     * exact amount they were told to send (requested + 1–50 santim, unique
+     * exact amount they were told to send (requested + 1–99 santim, unique
      * among open SMS deposits: the santim are the payment reference). Null
      * for other providers.
      */

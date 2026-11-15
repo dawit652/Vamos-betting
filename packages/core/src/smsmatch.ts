@@ -11,16 +11,22 @@ import type { ParsedSms } from './smsparse';
  * Nothing to copy or paste, and matching is exact rather than fuzzy.
  */
 
-/** Widest santim offset a reserved amount carries (money the player pays on top). */
-export const MAX_SANTIM_OFFSET = 50;
+/**
+ * Widest santim offset a reserved amount carries (money the player pays on top).
+ * 99: a whole-birr request keeps its birr figure (100 becomes 100.01 to 100.99).
+ */
+export const MAX_SANTIM_OFFSET = 99;
+
+const SANTIM_PER_BIRR = 100n;
 
 /**
  * Reserves the amount a new deposit must be sent as: `base` plus 1 to
- * MAX_SANTIM_OFFSET santim, never a round number another player might send by
- * chance. `taken` holds the amounts of the open SMS deposits; `randomOffset`
- * returns an integer in 1..MAX_SANTIM_OFFSET (the caller injects a CSPRNG).
- * Null when every offset for this base is taken: the deposit is refused
- * (ask for another amount), never given a colliding reference.
+ * MAX_SANTIM_OFFSET santim, never a whole-birr amount, which another payer
+ * might send by chance (a request of 100.01 skips 101.00). `taken` holds the
+ * amounts of the open SMS deposits; `randomOffset` returns an integer in
+ * 1..MAX_SANTIM_OFFSET (the caller injects a CSPRNG). Null when every usable
+ * offset for this base is taken: the deposit is refused (ask for another
+ * amount), never given a colliding reference.
  */
 export function allocateSmsAmount(
   base: Santim,
@@ -35,6 +41,7 @@ export function allocateSmsAmount(
   for (let step = 0; step < MAX_SANTIM_OFFSET; step++) {
     const offset = ((start - 1 + step) % MAX_SANTIM_OFFSET) + 1;
     const candidate = base + BigInt(offset);
+    if (candidate % SANTIM_PER_BIRR === 0n) continue;
     if (!taken.has(candidate)) return candidate;
   }
   return null;

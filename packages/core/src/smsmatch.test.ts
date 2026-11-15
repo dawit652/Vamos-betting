@@ -155,7 +155,34 @@ describe('allocateSmsAmount', () => {
     );
   });
 
-  it('never collides and stays within 1..MAX_SANTIM_OFFSET santim above the base', () => {
+  it('offers 99 amounts above a whole-birr request, all with its birr figure', () => {
+    expect(MAX_SANTIM_OFFSET).toBe(99);
+    const taken = new Set<bigint>();
+    for (let i = 0; i < MAX_SANTIM_OFFSET; i++) {
+      const amount = allocateSmsAmount(10000n, taken, () => 1);
+      expect(amount).not.toBeNull();
+      taken.add(amount!);
+    }
+    expect(taken.size).toBe(99);
+    expect([...taken].every((amount) => amount / 100n === 100n && amount % 100n !== 0n)).toBe(true);
+    expect(allocateSmsAmount(10000n, taken, () => 1)).toBeNull();
+  });
+
+  it('never reserves a whole-birr amount, which another payer might send by chance', () => {
+    // 100.01 + 99 santim would be 101.00: skipped, the next free amount is taken instead.
+    expect(allocateSmsAmount(10001n, new Set(), () => 99)).toBe(10002n);
+    // 100.50 + 50 santim would be 101.00.
+    expect(allocateSmsAmount(10050n, new Set(), () => 50)).toBe(10101n);
+    // With every other offset taken there is nothing left: refused, not 101.00.
+    const others = new Set(
+      Array.from({ length: MAX_SANTIM_OFFSET }, (_, i) => 10001n + BigInt(i + 1)).filter(
+        (amount) => amount !== 10100n,
+      ),
+    );
+    expect(allocateSmsAmount(10001n, others, () => 1)).toBeNull();
+  });
+
+  it('never collides, never lands on a whole birr, and stays within the offset range', () => {
     fc.assert(
       fc.property(
         fc.bigInt({ min: 100n, max: 10n ** 9n }),
@@ -166,10 +193,16 @@ describe('allocateSmsAmount', () => {
         (base, start, takenOffsets) => {
           const taken = new Set(takenOffsets.map((o) => base + BigInt(o)));
           const amount = allocateSmsAmount(base, taken, () => start);
-          if (takenOffsets.length === MAX_SANTIM_OFFSET) return amount === null;
+          // Usable offsets: 1..MAX whose amount is not a whole birr and not taken.
+          const usable = Array.from(
+            { length: MAX_SANTIM_OFFSET },
+            (_, i) => base + BigInt(i + 1),
+          ).filter((candidate) => candidate % 100n !== 0n && !taken.has(candidate));
+          if (usable.length === 0) return amount === null;
           return (
             amount !== null &&
             !taken.has(amount) &&
+            amount % 100n !== 0n &&
             amount > base &&
             amount <= base + BigInt(MAX_SANTIM_OFFSET)
           );

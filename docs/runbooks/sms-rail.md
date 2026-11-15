@@ -1,7 +1,7 @@
 # SMS deposit rail and manual payouts
 
 The `sms` payment provider, ported from Melabingo. A player asks to deposit, say, ETB 100 and is told to
-send **exactly** ETB 100.xx (1–50 extra santim, unique among open deposits for 2 h) to one of our collection
+send **exactly** ETB 100.xx (1–99 extra santim, unique among open deposits for 2 h) to one of our collection
 accounts. The collection handset (a company Android phone holding the collection SIM and the bank's SMS
 number) forwards each confirmation SMS to `POST /payments/webhooks/sms`. We parse it, match it to the open
 deposit by that exact amount and credit the player, in one database transaction with its ledger posting and

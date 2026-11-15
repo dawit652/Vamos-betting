@@ -154,7 +154,7 @@ describe('payment options', () => {
       payouts: true,
       manual: true,
     });
-    expect(body.smsRail).toMatchObject({ mode: 'simulated', maxExtraSantim: 50 });
+    expect(body.smsRail).toMatchObject({ mode: 'simulated', maxExtraSantim: 99 });
     expect(body.smsRail?.methods[0]).toMatchObject({
       institution: 'telebirr',
       ussd: '*127#',
@@ -174,7 +174,7 @@ describe('SMS deposits', () => {
     expect(deposit.initiation?.kind).toBe('transfer');
     expect(deposit.transfer?.requestedAmount).toBe('10000');
     const send = BigInt(deposit.transfer!.sendAmount);
-    expect(send > 10_000n && send <= 10_050n).toBe(true);
+    expect(send > 10_000n && send <= 10_099n).toBe(true);
 
     const before = await cashOf(player);
     const sms = await simulate(player, deposit.id);
