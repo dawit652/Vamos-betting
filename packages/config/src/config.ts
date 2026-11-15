@@ -170,6 +170,8 @@ const envSchema = z.object({
   PUBLIC_API_URL: z.url().default('http://localhost:4000'),
 
   DATABASE_URL: z.string().min(1).default('postgres://vamos:vamos@localhost:5432/vamos'),
+  /** Connections one API process keeps open (the worker and the other tools size their own pools). */
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
   /** Key prefix of the worker's BullMQ queues (tests and parallel stacks use their own). */
   QUEUE_PREFIX: z
@@ -425,6 +427,8 @@ export interface AppConfig {
   telemetry: { otlpEndpoint: string | undefined; serviceName: string | undefined };
   web: { publicUrl: string; adminUrl: string };
   databaseUrl: string;
+  /** DB_POOL_MAX: the size of one API process's database pool. */
+  dbPoolMax: number;
   redisUrl: string;
   queuePrefix: string;
   sessionSecret: string;
@@ -783,6 +787,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     telemetry: { otlpEndpoint: e.OTEL_EXPORTER_OTLP_ENDPOINT, serviceName: e.OTEL_SERVICE_NAME },
     web: { publicUrl: e.PUBLIC_WEB_URL, adminUrl: e.ADMIN_WEB_URL },
     databaseUrl: e.DATABASE_URL,
+    dbPoolMax: e.DB_POOL_MAX,
     redisUrl: e.REDIS_URL,
     queuePrefix: e.QUEUE_PREFIX,
     sessionSecret: e.SESSION_SECRET,

@@ -1,0 +1,73 @@
+# The same as Caddyfile, for the scale-out overlay (docker-compose.scale.yml): only the API upstream
+# differs. Reverse proxy of the production compose stack (profile "proxy"): Caddy terminates TLS with
+# automatic certificates (Let's Encrypt / ZeroSSL; needs the three domains to resolve to this host
+# and ports 80/443 reachable). Replace it with your own load balancer if the host provider has one;
+# then keep the upstream ports and set TRUST_PROXY to the balancer's addresses.
+{
+	email {$ACME_EMAIL}
+}
+
+(common) {
+	encode zstd gzip
+	# TLS 1.2 and 1.3 only; TLS 1.2 limited to ECDHE key exchange with AEAD ciphers (forward
+	# secrecy, no CBC, RC4 or 3DES). TLS 1.3 suites are fixed by Go and all strong. Plain HTTP on
+	# port 80 only redirects to HTTPS (Caddy's automatic HTTPS). OCSP responses are stapled when
+	# the CA offers them.
+	tls {
+		protocols tls1.2 tls1.3
+		ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+	}
+	header {
+		-Server
+		-Via
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+	}
+}
+
+{$WEB_DOMAIN} {
+	import common
+	# server.mjs already compresses (brotli) and sets cache headers.
+	reverse_proxy web:3000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+{$API_DOMAIN} {
+	import common
+	# The staff API (/admin/*) is reachable only from STAFF_ALLOWLIST (space-separated IPs/CIDRs of
+	# the office or VPN; default: anywhere). Restricting the admin host alone would not restrict
+	# it: the back office calls this host from the staff member's browser.
+	@staff_denied {
+		path /admin /admin/*
+		not remote_ip {$STAFF_ALLOWLIST:0.0.0.0/0 ::/0}
+	}
+	respond @staff_denied "Forbidden" 403
+	# The metrics endpoint is for the host's own scraper (docs/deployment.md, "Metrics"): the
+	# public host answers 404 as if it did not exist, whatever the token.
+	@metrics path /metrics /metrics/*
+	respond @metrics "Not found" 404
+	# SSE (/live/stream, /me/stream): flush every write instead of buffering.
+	# Several API replicas (docker-compose.scale.yml): every replica's address comes from DNS, refreshed
+	# every few seconds, and a request goes to the one with the fewest open connections.
+	reverse_proxy {
+		dynamic a {
+			name api
+			port 4000
+			refresh 5s
+		}
+		lb_policy least_conn
+		flush_interval -1
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+{$ADMIN_DOMAIN} {
+	import common
+	# The back-office pages: the same allowlist as the staff API.
+	@denied not remote_ip {$STAFF_ALLOWLIST:0.0.0.0/0 ::/0}
+	respond @denied "Forbidden" 403
+	reverse_proxy admin:3001 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+}

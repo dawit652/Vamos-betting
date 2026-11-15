@@ -133,7 +133,7 @@ export function createDefaultDeps(config: AppConfig): DefaultDeps {
   const kyc = createKycVerifier(config);
   const payments = createPaymentRegistry(config);
   // The pool connects lazily, so nothing is open yet if the SMS provider is rejected.
-  const handle = createDb(config.databaseUrl);
+  const handle = createDb(config.databaseUrl, { max: config.dbPoolMax });
   let sms: SmsProvider;
   try {
     sms = createSmsProvider(config, handle.db);

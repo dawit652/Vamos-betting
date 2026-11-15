@@ -199,6 +199,47 @@ the player name with a WAF custom rule (`http.host eq "nahubet.com" and starts_w
 - Redis holds queues (BullMQ), pub/sub and rate-limit counters. Losing it loses queued jobs, not money:
   jobs are recreated from the outbox by sweeps. Use AOF (default here) anyway.
 
+### Scaling out the API (opt-in overlay)
+
+One API process is limited by its own CPU, not by the database (A6 of the scale plan measured it:
+`docs/load-testing.md`, 15 Nov 2026). More processes are the lever. `infra/docker-compose.scale.yml`
+runs several API replicas behind Caddy, with PgBouncer in front of Postgres. It is an overlay: it
+adds a stateless `pgbouncer` service and changes only how `api` runs; the base file, its volumes and
+the database are untouched (nothing starts on an empty volume).
+
+```bash
+# start (the same env file as the base stack; needs Docker Compose 2.24+)
+docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml --profile proxy up -d
+# 4 API replicas instead of the default 3
+API_REPLICAS=4 docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml --profile proxy up -d
+# back to one API process: stop the extras and start with the base file alone
+docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml stop pgbouncer
+docker compose -f infra/docker-compose.prod.yml --profile proxy up -d --remove-orphans
+```
+
+- **PgBouncer** (`infra/pgbouncer`, `infra/docker/pgbouncer.Dockerfile`, Alpine's own package) pools in
+  _transaction_ mode: a server connection is held for one transaction only, so `PGB_POOL_SIZE` (default 40) connections serve up to `PGB_MAX_CLIENT_CONN` (default 3000) client connections. The `vamos_app`
+  role logs in through it (SCRAM). The worker, the scraper and the migrate job keep a direct
+  connection to Postgres. Postgres' `max_connections` is 200; the pool plus those three stay far below it.
+- **Why transaction pooling is safe here.** The API and the code it shares use only transaction-level
+  advisory locks, no LISTEN, no session-level SET, no temporary tables and no held cursors. This is
+  tested twice: `packages/db/test/pooling-safety.test.ts` fails if such a statement is added, and the
+  whole `packages/db` (792 of 793 tests; the one failure is the `vamos_app` login test, whose role the
+  test PgBouncer did not know) and `apps/api` (523 of 523) suites pass through PgBouncer in
+  transaction mode (15 Nov 2026). **Keep it so**: a feature that needs session state must use the
+  worker's direct connection.
+- **API replicas** (`API_REPLICAS`, each with `API_DB_POOL_MAX` connections to PgBouncer, default 20)
+  have no host port; Caddy (`infra/caddy/Caddyfile.scale`, mounted by the overlay) finds every replica
+  by DNS (`dynamic a`, refreshed every 5 s) and sends a request to the one with the fewest connections.
+  Any replica can serve any request: sessions are in Postgres, rate limits and the live fan-out in Redis.
+  A live stream stays on the replica it opened on. `/metrics` is per process (see Metrics): scrape every
+  replica. `DB_POOL_MAX` sets one process's pool in the base stack too.
+- **What is not done**: the overlay was validated here by `docker compose config`, a native PgBouncer run
+  of the real entrypoint (SCRAM login as `vamos_app`) and the test suites above; the Docker image build
+  and `Caddyfile.scale` are validated by CI (`docker` job, or Actions → CI → Run workflow). The throughput
+  gain of several replicas has **not** been measured: try it on staging with `pnpm load:bets --api <url>`
+  before relying on it.
+
 **Observability.** Logs are JSON (pino) with a request id (`x-request-id`, echoed in error bodies) and
 redacted secrets; compose rotates them (20 MB x 5). Ship them with your agent of choice. Traces are exported
 over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET /health`, worker `GET

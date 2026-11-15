@@ -231,6 +231,14 @@ describe('loadConfig', () => {
     );
   });
 
+  it('sizes the database pool of one API process with DB_POOL_MAX (1 to 200, default 10)', () => {
+    expect(loadConfig({}).dbPoolMax).toBe(10);
+    expect(loadConfig({ DB_POOL_MAX: '25' }).dbPoolMax).toBe(25);
+    for (const bad of ['0', '201', '2.5', 'many']) {
+      expect(problemsOf({ DB_POOL_MAX: bad }).join('\n')).toMatch(/DB_POOL_MAX/);
+    }
+  });
+
   it('refuses the development session secret in production', () => {
     expect(
       problemsOf({ NODE_ENV: 'production', SESSION_SECRET: DEV_SESSION_SECRET }).join('\n'),
