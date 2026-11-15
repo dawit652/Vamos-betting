@@ -1,7 +1,8 @@
 # Scale and payments: handover for the next session
 
-Written 15 November 2026 for the next Claude Code session (another account). Nothing of the plan is
-built yet; this file is the to-do list, cut so that each line fits one short session.
+Written 15 November 2026 for the next Claude Code session (another account), and refreshed at the end
+of the second working session that day (section 6). The progress file is the truth about what is done;
+this file is the to-do list, cut so that each line fits one short session.
 
 - **The plan:** [scale-and-payments-plan.md](scale-and-payments-plan.md).
 - **What is done, measured and decided, task by task:** [scale-and-payments-progress.md](scale-and-payments-progress.md).
@@ -29,7 +30,9 @@ Continue the "scale and payments" work on Nahubet.
 2. Read, in this order: CLAUDE.md, docs/plans/scale-and-payments-handover.md,
    docs/plans/scale-and-payments-progress.md, then only the parts of
    docs/plans/scale-and-payments-plan.md that your task names.
-3. Do the setup in the handover's section 1, then take the first task of section 3 that the progress
+3. Run `git log --oneline origin/claude/eager-cerf-ox9vkq -25` to see what landed since the handover was
+   written, and read section 6 of the handover (what was half done and how to recover it). Do the setup in
+   the handover's section 1, then take the first task of section 3 that the progress
    file marks `open` (rows marked `in progress` belong to another session; its claim names it and the
    time; claim yours in the progress file and push that before you start). One task at a time: tests with it, `pnpm lint`, `pnpm typecheck`, the test
    suites of the touched packages and `pnpm format:check` green, then update the progress file, commit
@@ -143,14 +146,101 @@ handset and a heartbeat alarm) needs a spare phone on site. B9 (a statement feed
 | X3  | **Rename the inside from Vamos to Nahubet.** The owner chose a full rename on 15 Nov; the visible brand is already Nahubet. Do it in stages, each green: (1) docs and comments; (2) the package scope `@vamos/*`, in one pull request while no other branch is open (it touches every import); (3) names the browser sees (cookies `vamos_locale`, `vamos_theme`, `vamos_admin_theme`, the `x-vamos-mode` header, storage keys): read the old name as well for 30 days so nobody loses a session, language or betslip. **(4) Names on the server (compose project `vamos`, volumes, network, database and role `vamos_app`, image names, backup folders): do not start without the owner at the server.** A renamed compose project makes Docker create new, empty volumes, so the stack would start on an empty database; the deploy scripts and the backups use these names too. The recommendation given to the owner is to leave stage 4 alone | Opus, high for 2 to 4; Sonnet for 1 |
 | X4  | Licensed texts for Help, Terms and Responsible gambling (also in root `HANDOFF.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Sonnet, medium, then the owner      |
 
-## 6. State at the end of the last session
+## 6. State at the end of the second working session (15 Nov 2026, evening)
 
-- Branch `claude/eager-cerf-ox9vkq`, pushed. Checked on it: lint, typecheck and the 99 tests of
-  `apps/admin`, formatting of the changed files, and the back office by eye in both themes against
-  the e2e stack. The rest of the tree is the default branch's, which CI had passed.
-- No task of sections 3 to 5 is started.
-- Next: A1a.
+**Branch** `claude/eager-cerf-ox9vkq` is the default branch (`b7dc17c`, the deployed line) plus this
+work; **pull request 5** (into `claude/quirky-ramanujan-xb7e2u`) is open and mergeable. The owner said:
+merge pull requests once CI is green. CI runs on every code push (docs-only pushes skip it) and cancels
+the older run of the branch, so only the newest push is checked; look at the run of the newest code commit
+(`mcp__github__actions_list`, or the Actions tab). The `e2e` and `docker` jobs run only on the default
+branch or by hand (Actions, CI, Run workflow); run them once by hand before merging, because the
+scale-out overlay (A4) is validated only by the `docker` job.
 
-When you stop, rewrite this section (what is finished, what is half done and on which commit, what
-is next) and the progress file, commit and push, so the next account can start from the prompt in
-section 0.
+**Done and pushed** (details and numbers in the progress file):
+
+- **A6** a leaner bet (23 to 20 statements), golden and budget tests. Measured: **no throughput gain**
+  (section 7). **A3** web server reuses catalogue answers for 2 s. **A10** protected `/metrics` on the
+  API. **A4** opt-in scale-out overlay (PgBouncer, API replicas, `Caddyfile.scale`), `DB_POOL_MAX`, a
+  pooling-safety test. **C1** manual payouts: batch claim, pick list, idle-claim alarm, reviewed by Opus
+  (no four-eyes bypass; the starvation finding fixed).
+- **Back office** dark and light theme; **E2E_CHROMIUM_PATH**; the two agents named by CLAUDE.md are in
+  `.claude/agents/`; **the C2 design** (`docs/plans/c2-double-proof-design.md`, Opus).
+
+**In flight when this was written** (two Opus agents in the first account's container; their work is
+uncommitted there and is lost if the session ends before it is committed). Look in `git log` for commits
+named "C12" and "C2a"; if they are there, they were reviewed and verified. If not, redo them:
+
+- **C12, settle evidence hardening. Live today, the most urgent code task.** The typed-reference settle in
+  `packages/db/src/payments/manualpayouts.ts` (`settleManualPayout`) accepts any debit SMS with the
+  payout's amount and status `ignored_debit`, without checking it went to the player's number or came after
+  the claim; an operator could pay themselves and settle the player's payout with that debit. Proposals
+  (`applyDebit` / `proposePayoutSettlement` in `smsrail.ts`, `proposePayoutForSms` in
+  `packages/core/src/smsmatch.ts`) can also attach a debit to an unclaimed payout. The fix: for a wallet the
+  SMS must name the payout's destination (else 409 `settlement_destination_mismatch`; no counterparty from
+  `ignored_debit` is refused), the SMS must be received at or after the claim minus 5 minutes (else 409
+  `settlement_proof_too_old`, reuse the skew handling of `smsPaidBy`), proposals only for `processing`
+  payouts; tests for the insider scenario, a debit before the claim, the honest path, an amount-only
+  proposal, an unclaimed payout, two same-amount payouts to different numbers; the runbook gets the new
+  codes **and a correction**: the debit-SMS proof is required only when `PAYOUT_REQUIRE_PROOF=true`, not
+  "in licensed mode" (licensed mode only warns about rail problems). Opus, high, then a review.
+  **It changes what operators see and needs a deploy** (`infra/scripts/deploy-full.sh`, the owner at the
+  server, see root `HANDOFF.md`).
+- **C2a, the pure double-proof rule**: `packages/core/src/payoutproof.ts` (`decideDoubleProof`),
+  `auto_settle` in `assessManualPayout`, the masked-account matcher moved into core, with the unit and
+  property tests of the design's section 8. Opus, high. The design is the spec.
+
+**The other account's claims** (A1a, A2, B4, claimed about 15:40 UTC by its own report): nothing was pushed
+by 21:00 UTC. Claims older than 6 hours without a commit are free (after 21:40 UTC): take them, in the
+order of section 3.
+
+**Findings the design made** (not yet fixed; each is a task or a note): `judgeReceipt`
+(`packages/payments/src/receipts/`) is lenient (accepts a missing reference or status and the amount
+"anywhere on the page", which includes totals with fees): C2c tightens it for debits, and the deposit
+audit deserves the same look (an audit only, it never reverses); payouts do not record which collection
+account sent them; `received_sms.receipt_payer` holds a name, not an account; "the worker never touches
+manual payouts" stops being true if C2 goes to `on`.
+
+**Next, in this order** (model and effort in brackets):
+
+1. Verify and commit C12 and C2a if they did not land (Opus, high), then deploy C12 with the owner.
+2. **B4** offsets 1 to 99, then **B2a, B2b, B2c** amount space per collection account: deposits run out of
+   amounts first at 10,000 players (plan, section 3). B2b and C2b both need **migration 0053**: only one
+   session creates a migration at a time; whoever merges second renumbers.
+3. **A1a, A1b** the load tests (deposit burst, pages and streams) and, on a server with real cores, measure
+   the overlay: `pnpm load:bets --api <url>` against one replica and against three (A4 is unmeasured).
+4. **A2** catalogue cache in the API, **A5** live streams apart (Sonnet, medium; Opus reviews).
+5. **B6** `received_sms` in the reconciliation and retention, with a re-parse action (Opus, high).
+6. **C10** float forecast (Sonnet, medium; Opus reviews), **A10b** worker metrics (Sonnet, medium).
+7. **C2b to C2f** per the design's section 9: they need real fixtures (a real debit SMS and a real
+   telebirr transfer receipt page, listed in the design's section 8, the owner captures them), the owner's
+   answers D4 and D8, and the shadow period before `on`. Until then C2 stays off.
+8. **X2** end-to-end tests of the redesign, **X4** licensed texts, then **X3** the rename stages 1 to 3 (not
+   the server's own names), last, in one pull request while no other branch is open.
+9. Merge pull request 5 when CI is green (above), then restart from the default branch for what follows.
+
+**For the owner** (not code): the two calls (`docs/plans/provider-calls-brief.md`, the bank first, telebirr
+only if accepted), real fixtures (B1), D3 to D8 in the progress file, and whether the steer "outside
+government platforms" means more than dropping EthioPay-IPS and pausing telebirr's APIs.
+
+When you stop, rewrite this section (what is finished, what is half done and on which commit, what is
+next) and the progress file, commit and push, so the next account can start from the prompt in section 0.
+
+## 7. Recipes and facts from the second working session
+
+- **A/B of bet throughput** (what A6 used): build the API and worker of the current tip
+  (`pnpm --filter @vamos/api --filter @vamos/worker build`) and of the older commit in a `git worktree`
+  (copy `.env`, `pnpm install --frozen-lockfile`, same build); start only the API and the worker of one
+  build (`OPERATING_MODE=demo SIM_SPEED=60 LOG_LEVEL=warn node dist/server.js` in `apps/api`,
+  `node dist/main.js` in `apps/worker`), run `pnpm load:bets`, stop them, then the other build, and
+  alternate at least twice: the spread between runs was about 19%, so a smaller difference is noise.
+- **Running the suites through PgBouncer** (A4's evidence): `apt-get update && apt-get install -y
+pgbouncer`; a config with `* = host=127.0.0.1 port=5432`, `pool_mode = transaction`,
+  `auth_type = trust`, `default_pool_size = 10`, user `vamos`; start it as the `postgres` user; then
+  `DATABASE_URL=postgres://vamos:vamos@127.0.0.1:6432/vamos OPERATING_MODE=demo pnpm exec vitest run` in
+  `packages/db` and `apps/api`. Only `app-role.test.ts` fails (the `vamos_app` login is not in that user list).
+- **Metrics**: `GET /metrics` needs `METRICS_TOKEN` (32+ characters); without it the route is a 404.
+- **GitHub**: CI does not run for docs-only pushes; a push cancels the older run of the branch.
+- **Agents**: `routine-coder` (Sonnet, medium) and `quick-task` (Haiku, low) are in `.claude/agents/`; for
+  hard work spawn a `general-purpose` agent with model `opus` and effort `high`. They share one working tree:
+  tell them which files are theirs, ask for `Edit` not `Write` on existing files, commit only after you
+  verified, and add files by path (never `git add -A` while an agent is running).
