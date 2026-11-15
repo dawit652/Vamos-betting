@@ -1058,6 +1058,25 @@ export const SmsRailHealthResponse = z.object({
 });
 export type SmsRailHealthResponse = z.infer<typeof SmsRailHealthResponse>;
 
+/**
+ * POST /admin/manual-payouts/claim-batch: claim the oldest approved payouts
+ * nobody holds (`limit`, default 10), or exactly the given `ids`. Each goes
+ * through the single claim's rules, so some may be refused.
+ */
+export const ClaimManualPayoutBatchRequest = z.object({
+  limit: z.number().int().min(1).max(20).default(10),
+  ids: z.array(Uuid).max(20).optional(),
+});
+export type ClaimManualPayoutBatchRequest = z.infer<typeof ClaimManualPayoutBatchRequest>;
+
+/** `reason` is the single claim's refusal code (e.g. `manual_payout_approver_cannot_pay`). */
+export const ClaimManualPayoutBatchResponse = z.object({
+  results: z.array(
+    z.object({ payoutId: Uuid, claimed: z.boolean(), reason: z.string().optional() }),
+  ),
+});
+export type ClaimManualPayoutBatchResponse = z.infer<typeof ClaimManualPayoutBatchResponse>;
+
 /** POST /admin/manual-payouts/:id/release: hand a claimed payout back unpaid. */
 export const ReleaseManualPayoutRequest = z.object({ note: AuditText });
 export type ReleaseManualPayoutRequest = z.infer<typeof ReleaseManualPayoutRequest>;

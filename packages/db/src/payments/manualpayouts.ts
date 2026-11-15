@@ -4,13 +4,15 @@ import {
   payoutDestination,
   type ManualPayoutAction,
 } from '@vamos/core';
-import { and, asc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, ne } from 'drizzle-orm';
+import type { Database } from '../client';
 import { amlHoldsWithdrawals } from '../compliance/aml';
-import { domainConflict, domainUnprocessable } from '../errors';
+import { DomainError, domainConflict, domainUnprocessable } from '../errors';
 import { postTransaction } from '../ledger/post';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
+import { withTxRetry } from '../retry';
 import { payouts } from '../schema/payments';
 import { receivedSms } from '../schema/smsrail';
 import { WITHDRAWAL_FAILED, WITHDRAWAL_PAID } from './events';
@@ -92,6 +94,28 @@ export async function listManualPayoutQueue(
     .limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
 }
 
+/** Claimed manual payouts still unpaid since before `claimedBefore`, oldest claim first (the idle-claim alarm). */
+export async function listIdleManualClaims(
+  exec: DbExecutor,
+  options: { claimedBefore: Date; limit?: number },
+): Promise<{ id: string; processingAt: Date }[]> {
+  const rows = await exec
+    .select({ id: payouts.id, processingAt: payouts.processingAt })
+    .from(payouts)
+    .where(
+      and(
+        eq(payouts.manual, true),
+        eq(payouts.status, 'processing'),
+        lt(payouts.processingAt, options.claimedBefore),
+      ),
+    )
+    .orderBy(asc(payouts.processingAt), asc(payouts.id))
+    .limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
+  return rows.flatMap((row) =>
+    row.processingAt === null ? [] : [{ id: row.id, processingAt: row.processingAt }],
+  );
+}
+
 /**
  * An operator takes an approved manual payout to send it (`approved` →
  * `processing`, paying_by = the operator). Re-checked at the moment money
@@ -130,6 +154,65 @@ export async function claimManualPayout(
     ip: input.ip ?? null,
   });
   return updated;
+}
+
+/** The most payouts one batch claim takes (the API caps its request at the same number). */
+export const MANUAL_PAYOUT_CLAIM_BATCH_MAX = 20;
+
+export interface ClaimManualPayoutBatchResult {
+  payoutId: string;
+  claimed: boolean;
+  /** The refusal's code (`manual_payout_approver_cannot_pay`, `aml_review_pending`, ...) when not claimed. */
+  reason?: string;
+}
+
+/**
+ * Claims several approved manual payouts for one operator: exactly the given
+ * `ids`, or else the oldest approved payouts nobody holds. Every payout goes
+ * through claimManualPayout in a transaction of its own, so each claim keeps
+ * its row lock, its rules (the approver never claims, AML hold, status) and
+ * its audit line, and a refused payout never blocks the others. Two
+ * operators racing for the same rows each win a disjoint set: the loser of a
+ * row is told `manual_payout_wrong_status`.
+ */
+export async function claimManualPayoutBatch(
+  db: Database,
+  input: ManualPayoutActor & { now: Date; limit?: number; ids?: readonly string[] },
+): Promise<ClaimManualPayoutBatchResult[]> {
+  let ids: string[];
+  if (input.ids !== undefined) {
+    ids = [...new Set(input.ids)].slice(0, MANUAL_PAYOUT_CLAIM_BATCH_MAX);
+  } else {
+    const limit = Math.min(Math.max(input.limit ?? 10, 1), MANUAL_PAYOUT_CLAIM_BATCH_MAX);
+    const rows = await db
+      .select({ id: payouts.id })
+      .from(payouts)
+      .where(
+        and(eq(payouts.manual, true), eq(payouts.status, 'approved'), isNull(payouts.payingBy)),
+      )
+      .orderBy(asc(payouts.approvedAt), asc(payouts.id))
+      .limit(limit);
+    ids = rows.map((row) => row.id);
+  }
+  const results: ClaimManualPayoutBatchResult[] = [];
+  for (const payoutId of ids) {
+    try {
+      await withTxRetry(db, (tx) =>
+        claimManualPayout(tx, {
+          payoutId,
+          staffId: input.staffId,
+          ip: input.ip ?? null,
+          now: input.now,
+        }),
+      );
+      results.push({ payoutId, claimed: true });
+    } catch (error) {
+      // Only business refusals are reported; anything else is a fault and surfaces.
+      if (!(error instanceof DomainError)) throw error;
+      results.push({ payoutId, claimed: false, reason: error.code });
+    }
+  }
+  return results;
 }
 
 /** The claimer hands a payout back unpaid (`processing` → `approved`), with a note. */

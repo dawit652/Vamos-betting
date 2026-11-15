@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   AddPayoutAccountResponse,
   ApiErrorSchema,
+  ClaimManualPayoutBatchResponse,
   DepositCheckResponse,
   DepositView,
   DevSmsResponse,
@@ -481,5 +482,132 @@ describe('payout accounts and manual withdrawals', () => {
       receiptVerify: 'audit',
       receiptBreaker: null,
     });
+  });
+});
+
+describe('POST /admin/manual-payouts/claim-batch', () => {
+  const URL = '/admin/manual-payouts/claim-batch';
+  let finance: StaffSession;
+  let admin: StaffSession;
+  let payoutIds: string[];
+
+  /** A manual payout of 6,000 ETB approved by `approver`. */
+  async function approvedManualPayout(approver: StaffSession): Promise<string> {
+    const player = await registerAndLogin(ctx);
+    await verifyKyc(player);
+    const deposit = await openSmsDeposit(player, 900_000n);
+    await simulate(player, deposit.id);
+    const accounts = PayoutAccountsResponse.parse(
+      (
+        await ctx.app.inject({
+          method: 'GET',
+          url: '/payments/payout-accounts',
+          headers: bearer(player),
+        })
+      ).json(),
+    );
+    const requested = await postAs(
+      player,
+      '/payments/withdrawals',
+      {
+        amount: '600000',
+        provider: 'sms',
+        payoutAccountId: accounts.items.find((a) => a.institution === 'telebirr')!.id,
+      },
+      { 'idempotency-key': randomUUID() },
+    );
+    const { id } = WithdrawalView.parse(requested.json());
+    const approved = await asStaff(ctx, approver, 'POST', `/admin/withdrawals/${id}/approve`);
+    expect(approved.statusCode).toBe(200);
+    return id;
+  }
+
+  beforeAll(async () => {
+    finance = await staffLogin(ctx, 'finance');
+    admin = await staffLogin(ctx, 'admin');
+    payoutIds = [
+      await approvedManualPayout(finance),
+      await approvedManualPayout(finance),
+      await approvedManualPayout(admin),
+    ];
+  });
+
+  it('needs a staff session, the CSRF token and the payouts.settle_manual permission', async () => {
+    const anonymous = await ctx.app.inject({ method: 'POST', url: URL, payload: {} });
+    expect(anonymous.statusCode).toBe(401);
+    const noCsrf = await ctx.app.inject({
+      method: 'POST',
+      url: URL,
+      payload: {},
+      headers: { cookie: admin.cookie },
+    });
+    expect(noCsrf.statusCode).toBeGreaterThanOrEqual(400);
+    const support = await staffLogin(ctx, 'support');
+    const denied = await asStaff(ctx, support, 'POST', URL, {});
+    expect(denied.statusCode).toBe(403);
+    for (const id of payoutIds) {
+      const payout = StaffWithdrawalView.parse(
+        (await asStaff(ctx, admin, 'GET', `/admin/withdrawals/${id}`)).json(),
+      );
+      expect(payout.status).toBe('approved');
+    }
+  });
+
+  it('validates the body: limit 1 to 20, at most 20 uuids', async () => {
+    for (const body of [
+      { limit: 0 },
+      { limit: 21 },
+      { limit: 1.5 },
+      { limit: '5' },
+      { ids: ['not-a-uuid'] },
+      { ids: Array.from({ length: 21 }, () => randomUUID()) },
+      { ids: 'x' },
+    ]) {
+      const response = await asStaff(ctx, admin, 'POST', URL, body);
+      expect(response.statusCode, JSON.stringify(body).slice(0, 60)).toBe(400);
+      expect(apiError(response).code).toBe('validation_error');
+    }
+    // The edges are accepted: 20 uuids that name nothing are all refused, none blocks the answer.
+    const unknown = Array.from({ length: 20 }, () => randomUUID());
+    const edge = await asStaff(ctx, admin, 'POST', URL, { limit: 20, ids: unknown });
+    expect(edge.statusCode).toBe(200);
+    const body = ClaimManualPayoutBatchResponse.parse(edge.json());
+    expect(body.results).toHaveLength(20);
+    expect(body.results.every((r) => !r.claimed && r.reason === 'not_found')).toBe(true);
+  });
+
+  it('claims for the signed-in operator and refuses what they approved', async () => {
+    const response = await asStaff(ctx, admin, 'POST', URL, { limit: 20 });
+    expect(response.statusCode).toBe(200);
+    const { results } = ClaimManualPayoutBatchResponse.parse(response.json());
+    // Other tests of this file may have left an approved payout; only ours are checked.
+    // Their order is the approval order, which can tie within a millisecond: compare by id.
+    const ours = results
+      .filter((r) => payoutIds.includes(r.payoutId))
+      .sort((a, b) => payoutIds.indexOf(a.payoutId) - payoutIds.indexOf(b.payoutId));
+    expect(ours.map((r) => [r.payoutId, r.claimed, r.reason])).toEqual([
+      [payoutIds[0], true, undefined],
+      [payoutIds[1], true, undefined],
+      [payoutIds[2], false, 'manual_payout_approver_cannot_pay'],
+    ]);
+    const claimed = StaffWithdrawalView.parse(
+      (await asStaff(ctx, admin, 'GET', `/admin/withdrawals/${payoutIds[0]}`)).json(),
+    );
+    expect(claimed).toMatchObject({ status: 'processing', payingBy: admin.id });
+
+    // The other operator takes what is left (the one the first approved), and the default limit is 10.
+    const second = await asStaff(ctx, finance, 'POST', URL);
+    expect(second.statusCode).toBe(200);
+    const taken = ClaimManualPayoutBatchResponse.parse(second.json()).results;
+    expect(taken.find((r) => r.payoutId === payoutIds[2])?.claimed).toBe(true);
+    expect(taken.some((r) => r.payoutId === payoutIds[0])).toBe(false);
+  });
+
+  it('refuses a payout someone already claimed, by id, with the single claim code', async () => {
+    const response = await asStaff(ctx, finance, 'POST', URL, { ids: [payoutIds[0]] });
+    const { results } = ClaimManualPayoutBatchResponse.parse(response.json());
+    expect(results).toEqual([
+      { payoutId: payoutIds[0], claimed: false, reason: 'manual_payout_wrong_status' },
+    ]);
   });
 });

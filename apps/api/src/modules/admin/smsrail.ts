@@ -1,4 +1,6 @@
 import {
+  ClaimManualPayoutBatchRequest,
+  ClaimManualPayoutBatchResponse,
   CreditSmsRequest,
   FailManualPayoutRequest,
   ReleaseManualPayoutRequest,
@@ -14,6 +16,7 @@ import {
 import {
   acknowledgeReceiptAlarm,
   claimManualPayout,
+  claimManualPayoutBatch,
   closeSmsByStaff,
   creditSmsByStaff,
   failManualPayout,
@@ -206,6 +209,28 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
     });
     return wire(StaffWithdrawalChangeResponse, { changed: true, withdrawal });
   };
+
+  /**
+   * Claims several payouts at once (the operator's pick list). Each claim
+   * commits on its own through the single claim, so a refused row never
+   * blocks the others and the four-eyes rule holds per payout.
+   */
+  app.post(
+    '/admin/manual-payouts/claim-batch',
+    { config: { staff: 'payouts.settle_manual' } },
+    async (request) => {
+      const input = parseInput(ClaimManualPayoutBatchRequest, request.body ?? {});
+      const actor = staffActor(request);
+      const results = await claimManualPayoutBatch(deps.db, {
+        staffId: actor.adminId,
+        ip: actor.ip ?? null,
+        now: deps.clock(),
+        limit: input.limit,
+        ...(input.ids === undefined ? {} : { ids: input.ids }),
+      });
+      return wire(ClaimManualPayoutBatchResponse, { results });
+    },
+  );
 
   app.post<IdParams>(
     '/admin/manual-payouts/:id/claim',

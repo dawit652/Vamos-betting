@@ -30,6 +30,7 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   { alarm: 'sms_gateway_silent' },
   { alarm: 'sms_review_backlog' },
   { alarm: 'manual_payout_waiting' },
+  { alarm: 'manual_payout_claim_idle', payoutId: '5d1f0c2e-8a7b-4e0f-9a55-0c2a7d3b9f10' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'suspend', week: '2026-W45' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'return', week: '2026-W48' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'off', week: '2026-W52' },

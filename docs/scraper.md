@@ -589,15 +589,15 @@ do, in one line of at most 160 characters with no personal data (`buildOwnerAler
 Nothing the alarming code does changes; the alert is added in the same transaction that opens the item
 (a small one of its own where the alarm was only a log line).
 
-| Alarm                                                                                                            | Written when                                               | Alert key                                    |
-| ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------- |
-| `source_broken` (shape, or invalid configuration)                                                                | the item opens                                             | `source_broken\|<source id>`                 |
-| `source_stale` (S5)                                                                                              | the item opens                                             | `source_stale\|<source id>`                  |
-| `budget_low`, `budget_exhausted`, `budget_projection`, `unauthorized`, `unexpected_cost` (4.8)                   | the item opens, or `budget_low` becomes `budget_exhausted` | `<reason>\|<credit key>`                     |
-| `rate_limit_low` (6.7a)                                                                                          | the item opens                                             | `rate_limit_low\|<key variable>`             |
-| `ladder_shadow_failed`                                                                                           | once per pass that fails                                   | `ladder_shadow_failed`                       |
-| `market_family_moved` (6.5a)                                                                                     | the weekly family job suspends, returns or ends a family   | `market_family_moved\|<family>\|<week>`      |
-| `sms_receipt_rejected`, `sms_balance_drift`, `sms_gateway_silent`, `sms_review_backlog`, `manual_payout_waiting` | the check finds it, at most once per interval and key      | `<alarm>` (plus the SMS, or the institution) |
+| Alarm                                                                                                                                        | Written when                                               | Alert key                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------- |
+| `source_broken` (shape, or invalid configuration)                                                                                            | the item opens                                             | `source_broken\|<source id>`                 |
+| `source_stale` (S5)                                                                                                                          | the item opens                                             | `source_stale\|<source id>`                  |
+| `budget_low`, `budget_exhausted`, `budget_projection`, `unauthorized`, `unexpected_cost` (4.8)                                               | the item opens, or `budget_low` becomes `budget_exhausted` | `<reason>\|<credit key>`                     |
+| `rate_limit_low` (6.7a)                                                                                                                      | the item opens                                             | `rate_limit_low\|<key variable>`             |
+| `ladder_shadow_failed`                                                                                                                       | once per pass that fails                                   | `ladder_shadow_failed`                       |
+| `market_family_moved` (6.5a)                                                                                                                 | the weekly family job suspends, returns or ends a family   | `market_family_moved\|<family>\|<week>`      |
+| `sms_receipt_rejected`, `sms_balance_drift`, `sms_gateway_silent`, `sms_review_backlog`, `manual_payout_waiting`, `manual_payout_claim_idle` | the check finds it, at most once per interval and key      | `<alarm>` (plus the SMS, or the institution) |
 
 `market_stale` and `odds_out_of_line` are per match and do not alert. Deduplication: the worker texts one
 key at most once per `OWNER_ALERT_MIN_INTERVAL_MINUTES` (default 30), counted from the time the alarm was

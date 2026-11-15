@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { DEFAULT_PAYMENT_RULES, santimToBirrString } from '@vamos/core';
 import { createSmsDepositIntent, ingestSms, schema } from '@vamos/db';
 import {
@@ -212,6 +213,110 @@ describe('the watch', () => {
     // The simulated rail has no handset to be silent.
     const quiet = await runSmsRailWatch({ ...t.ctx, logger });
     expect(quiet.silent).toBe(false);
+  });
+
+  it('raises manual_payout_claim_idle once per payout per 30 minutes while a claim has no result', async () => {
+    const MIN = 60_000;
+    const start = new Date('2027-05-10T07:00:00Z');
+    const insertPayout = async (
+      values: Partial<typeof schema.payouts.$inferInsert> & {
+        status: typeof schema.payouts.$inferInsert.status;
+      },
+    ) => {
+      const player = await createPlayer();
+      const [account] = await t.db.db
+        .insert(schema.payoutAccounts)
+        .values({
+          userId: player.userId,
+          institution: 'telebirr',
+          account: player.phone,
+          accountName: 'Test Player',
+          createdAt: start,
+          updatedAt: start,
+        })
+        .returning({ id: schema.payoutAccounts.id });
+      const [row] = await t.db.db
+        .insert(schema.payouts)
+        .values({
+          userId: player.userId,
+          provider: 'sms',
+          amount: 600_000n,
+          phone: player.phone,
+          recipientName: 'Test Player',
+          idempotencyKey: `idle-${player.userId}`,
+          holdLedgerTransactionId: randomUUID(),
+          manual: true,
+          payoutAccountId: account!.id,
+          destinationInstitution: 'telebirr',
+          destinationAccount: player.phone,
+          destinationName: 'Test Player',
+          approvedBy: 'admin-a',
+          approvedAt: new Date(start.getTime() - 120 * MIN),
+          requestedAt: new Date(start.getTime() - 130 * MIN),
+          updatedAt: start,
+          ...values,
+        })
+        .returning({ id: schema.payouts.id });
+      return row!.id;
+    };
+    const claimed = (minutesAgo: number) => ({
+      status: 'processing' as const,
+      payingBy: 'op-b',
+      processingAt: new Date(start.getTime() - minutesAgo * MIN),
+    });
+    const old = await insertPayout(claimed(40));
+    const fresh = await insertPayout(claimed(10));
+    // Approved and unclaimed (even for hours) is the other alarm's business, not this one's.
+    await insertPayout({ status: 'approved' });
+
+    const lines: string[] = [];
+    const noop = () => undefined;
+    const logger = {
+      error: (obj: { alarm?: string; payoutId?: string }) => {
+        if (obj?.alarm === 'manual_payout_claim_idle') lines.push(obj.payoutId!);
+      },
+      warn: noop,
+      info: noop,
+      debug: noop,
+      trace: noop,
+      fatal: noop,
+      child: () => logger,
+    } as unknown as Logger;
+    const ctx: TaskContext = { ...t.ctx, payments: withLive(t.ctx.payments), logger };
+
+    t.clock.set(start);
+    const first = await runSmsRailWatch(ctx);
+    expect(first.idleClaims).toEqual([old]);
+    expect(lines).toEqual([old]);
+    // The watch runs every five minutes: no second line for the same payout inside 30 minutes.
+    t.clock.set(new Date(start.getTime() + 5 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(lines).toEqual([old]);
+    // The fresh claim turns 30 minutes old at +20 minutes, and gets its own line.
+    t.clock.set(new Date(start.getTime() + 25 * MIN));
+    expect((await runSmsRailWatch(ctx)).idleClaims.sort()).toEqual([old, fresh].sort());
+    expect(lines).toEqual([old, fresh]);
+    // 30 minutes after its first line the old claim is raised again.
+    t.clock.set(new Date(start.getTime() + 31 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(lines).toEqual([old, fresh, old]);
+    // Released (back to approved) or paid, a claim is no longer idle.
+    await t.db.db
+      .update(schema.payouts)
+      .set({ status: 'approved', payingBy: null })
+      .where(eq(schema.payouts.id, old));
+    await t.db.db
+      .update(schema.payouts)
+      .set({
+        status: 'failed',
+        payingBy: null,
+        failureReason: 'x',
+        reversalLedgerTransactionId: randomUUID(),
+      })
+      .where(eq(schema.payouts.id, fresh));
+    t.clock.set(new Date(start.getTime() + 90 * MIN));
+    expect((await runSmsRailWatch(ctx)).idleClaims).toEqual([]);
+    expect(lines).toEqual([old, fresh, old]);
   });
 
   it('builds no tasks without the sms provider', () => {

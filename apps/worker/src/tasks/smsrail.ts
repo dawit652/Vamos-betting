@@ -6,6 +6,7 @@ import {
 import {
   listBalanceInstitutions,
   listBalanceObservations,
+  listIdleManualClaims,
   listSmsDueForReceiptCheck,
   recordReceiptCheck,
   smsRailHealth,
@@ -13,7 +14,7 @@ import {
 } from '@vamos/db';
 import { SmsRailProvider } from '@vamos/payments';
 import { intervalTask, type IntervalTask } from '../lib/interval';
-import { raiseOwnerAlert } from '../lib/owner-alert';
+import { claimAlertSlot, raiseOwnerAlert } from '../lib/owner-alert';
 import { withTxRetry } from '../lib/retry';
 import type { TaskContext } from './context';
 
@@ -171,11 +172,15 @@ const SILENCE_ALARM_MS = 30 * 60_000;
 const REVIEW_BACKLOG_ALARM = 10;
 const REVIEW_AGE_ALARM_MS = 15 * 60_000;
 const MANUAL_PAYOUT_AGE_ALARM_MS = 2 * 60 * 60_000;
+/** A claimed payout with no settle, release or fail for this long is idle; its alarm repeats at this pace. */
+const MANUAL_PAYOUT_CLAIM_IDLE_MS = 30 * 60_000;
 
 export interface SmsRailWatchFindings {
   silent: boolean;
   reviewBacklog: boolean;
   slowPayouts: boolean;
+  /** Ids of claimed payouts idle for over 30 minutes. */
+  idleClaims: string[];
 }
 
 /** The watch: logs an alarm for each condition that needs a person. */
@@ -184,6 +189,7 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
     silent: false,
     reviewBacklog: false,
     slowPayouts: false,
+    idleClaims: [],
   };
   const provider = smsProvider(ctx);
   if (provider === null) return findings;
@@ -232,6 +238,31 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
       'an approved manual payout has waited more than 2 hours',
     );
     await raiseOwnerAlert(ctx, { alarm: 'manual_payout_waiting' });
+  }
+  const idle = await listIdleManualClaims(ctx.db, {
+    claimedBefore: new Date(now.getTime() - MANUAL_PAYOUT_CLAIM_IDLE_MS),
+  });
+  for (const claim of idle) {
+    findings.idleClaims.push(claim.id);
+    // The watch runs every few minutes: one line per payout per 30 minutes. If Redis is
+    // down the line is logged every pass, which is noisier but never silent.
+    const first = await claimAlertSlot(
+      ctx.redis,
+      'raised',
+      `log|manual_payout_claim_idle|${claim.id}`,
+      now.getTime(),
+      MANUAL_PAYOUT_CLAIM_IDLE_MS,
+    ).catch(() => true);
+    if (!first) continue;
+    ctx.logger.error(
+      {
+        alarm: 'manual_payout_claim_idle',
+        payoutId: claim.id,
+        claimedAt: claim.processingAt.toISOString(),
+      },
+      'a claimed manual payout has had no settle, release or fail for more than 30 minutes',
+    );
+    await raiseOwnerAlert(ctx, { alarm: 'manual_payout_claim_idle', payoutId: claim.id });
   }
   return findings;
 }

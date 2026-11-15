@@ -431,6 +431,47 @@ th.num {
   color: var(--accent-ink);
 }
 
+/* Manual payouts: the operator's pick list, one column with large tap targets. */
+.pick-list section {
+  margin-bottom: 16px;
+}
+
+.pick-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.pick-destination,
+.pick-amount {
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+}
+
+.pick-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pick-copy button,
+button.big {
+  min-height: 44px;
+  padding: 10px 14px;
+}
+
+.pick-copy button {
+  flex: 1 1 140px;
+}
+
+.claim-next {
+  margin: 12px 0;
+}
+
 @media (max-width: 800px) {
   .layout {
     grid-template-columns: 1fr;

@@ -147,10 +147,14 @@ export {
 } from './payoutaccounts';
 export {
   claimManualPayout,
+  claimManualPayoutBatch,
   failManualPayout,
+  listIdleManualClaims,
   listManualPayoutQueue,
   releaseManualPayout,
   settleManualPayout,
+  MANUAL_PAYOUT_CLAIM_BATCH_MAX,
+  type ClaimManualPayoutBatchResult,
   type ManualPayoutActor,
   type SettleManualPayoutInput,
 } from './manualpayouts';

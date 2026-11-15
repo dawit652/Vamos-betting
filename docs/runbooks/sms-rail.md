@@ -38,13 +38,14 @@ refuses simulator SMS in a licensed database, and licensed mode refuses the simu
 
 Alarms are `error` log lines with an `alarm` field; wire the log-based alerts to these names.
 
-| `alarm`                 | Meaning                                                                                      | Do                                                                          |
-| ----------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `sms_receipt_rejected`  | A **credited** telebirr SMS is contradicted by the receipt page (not found, other receiver…) | [Receipt alarm](#receipt-alarm-a-possibly-forged-sms). SEV1 until explained |
-| `sms_balance_drift`     | The balance an SMS reports moved by a different amount than the messages say                 | [Balance drift](#balance-drift)                                             |
-| `sms_gateway_silent`    | No SMS from the handset for 30 minutes after 06:00 EAT                                       | [Handset offline](#handset-offline)                                         |
-| `sms_review_backlog`    | More than 10 SMS wait for a person, or the oldest has waited over 15 minutes                 | Work the [review queue](#the-review-queue)                                  |
-| `manual_payout_waiting` | An approved manual payout has waited more than 2 hours                                       | [Manual payouts](#manual-payouts)                                           |
+| `alarm`                    | Meaning                                                                                                                           | Do                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `sms_receipt_rejected`     | A **credited** telebirr SMS is contradicted by the receipt page (not found, other receiver…)                                      | [Receipt alarm](#receipt-alarm-a-possibly-forged-sms). SEV1 until explained                |
+| `sms_balance_drift`        | The balance an SMS reports moved by a different amount than the messages say                                                      | [Balance drift](#balance-drift)                                                            |
+| `sms_gateway_silent`       | No SMS from the handset for 30 minutes after 06:00 EAT                                                                            | [Handset offline](#handset-offline)                                                        |
+| `sms_review_backlog`       | More than 10 SMS wait for a person, or the oldest has waited over 15 minutes                                                      | Work the [review queue](#the-review-queue)                                                 |
+| `manual_payout_waiting`    | An approved manual payout has waited more than 2 hours                                                                            | [Manual payouts](#manual-payouts)                                                          |
+| `manual_payout_claim_idle` | A claimed manual payout (`processing`) has had no settle, release or fail for over 30 minutes; one line per payout per 30 minutes | [Manual payouts](#manual-payouts): the operator who holds it settles, releases or fails it |
 
 With `OWNER_ALERT_PHONES` set each alarm above also texts the owner once (at most one per alarm and
 `OWNER_ALERT_MIN_INTERVAL_MINUTES`, default 30) with what the rail already did, e.g. "It stays credited and is
@@ -139,10 +140,19 @@ for every provider, or automatically below the threshold) → **claimed** by an 
 The person who approved it can never claim or settle it, and only the operator who claimed it can settle,
 release or fail it, so two operators never both send it. The worker never touches manual payouts.
 
-1. Manual payouts → **Claim** the oldest. Claiming is refused while compliance holds the player
-   (`aml_review_pending`).
-2. Send the money from the collection account shown, to the destination shown: the player's own telebirr
-   number, or a bank account with the holder name shown. For a bank, check that the name the bank shows for
+1. Manual payouts → **Claim next 10** takes the oldest approved payouts nobody holds
+   (`POST /admin/manual-payouts/claim-batch`, `{limit?: 1..20, ids?: up to 20 uuids}`; permission
+   `payouts.settle_manual`). Each payout is claimed on its own through the single claim, with the same rules
+   and audit line, so a refused one never blocks the others and the four-eyes rule holds per payout: the
+   answer lists each refusal with the single claim's code (`manual_payout_approver_cannot_pay` for what you
+   approved, `aml_review_pending` while compliance holds the player, `manual_payout_wrong_status` when
+   another operator was quicker). Two operators claiming at once never get the same payout. **Claim** on a
+   row still claims just that one.
+2. **Your pick list** (top of the page, one column on a phone) shows what you hold, grouped by institution,
+   oldest first: the destination (number, or account and holder name for a bank) and the exact amount, with
+   **Copy number** and **Copy 1234.50** (the amount in plain birr: a dot, two decimals, no thousands
+   separators) so nothing is retyped. Send the money from the collection account shown, to the destination
+   shown: the player's own telebirr number, or a bank account with the holder name shown. For a bank, check that the name the bank shows for
    the account is the player's name before sending.
 3. When the debit SMS comes in it is proposed for the payout (`settlement_proposed`). **Settle** with that
    SMS (or the transfer reference if the SMS did not come); tick "holder name confirmed" for a bank. With
@@ -151,6 +161,9 @@ release or fail it, so two operators never both send it. The worker never touche
 4. If you cannot send it (the bank refuses, the name does not match): **Release** with a note before you have
    sent anything, or **Fail** with the reason if the money definitely did not leave and will not. Never fail a
    payout you are unsure about: find the transfer first.
+
+A payout you claimed and then leave for 30 minutes raises `manual_payout_claim_idle` (log, and the owner text):
+settle, release or fail it so it does not sit with you while others wait.
 
 Refusals you may see: `settlement_reference_used` (that reference settled another payout),
 `settlement_reference_mismatch` (the SMS is for another amount or payout), `holder_name_not_confirmed`.
