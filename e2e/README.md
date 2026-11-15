@@ -3,6 +3,8 @@
 Mobile Chromium (Pixel 5 profile), `@playwright/test` 1.56.1. In the cloud dev container the
 matching Chromium is preinstalled at `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`; elsewhere run
 `npx playwright install --with-deps chromium` in `e2e/` once.
+If the container ships a different Chromium build than this Playwright expects ("Executable doesn't
+exist"), point the suite at it: `E2E_CHROMIUM_PATH=/opt/pw-browsers/chromium pnpm e2e`.
 
 The suite never starts servers itself: a global setup checks that the API (demo mode, dev SMS
 inbox on) and the web app answer (the admin app on :3001 is needed by `admin.spec.ts`), and fails with the start-up commands otherwise.

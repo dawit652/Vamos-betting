@@ -1,13 +1,32 @@
+/*
+ * The back office shares the player app's palette (apps/web/src/app/globals.css):
+ * dark slate with one green accent by default, a light theme one click away
+ * (`<html data-theme>`, from the `vamos_admin_theme` cookie; see layout.tsx).
+ */
 :root {
-  --bg: #f5f6f8;
-  --panel: #fff;
-  --ink: #1b1f24;
-  --muted: #5d6673;
-  --line: #dde1e7;
-  --accent: #0b6b3a;
-  --danger: #b3261e;
-  --warn: #8a5a00;
-  color-scheme: light;
+  --bg: #0a100e;
+  --panel: #121a17;
+  --raised: #1b2622;
+  --ink: #eef4f1;
+  --muted: #8c9e96;
+  --line: #243029;
+  --accent: #22d07f;
+  --accent-ink: #04130c;
+  --accent-soft: #11291f;
+  --danger: #ff6b5c;
+  --danger-ink: #2a0703;
+  --danger-soft: #3a1612;
+  --warn: #ffdc73;
+  --warn-soft: #2b2408;
+  --info: #8fbcff;
+  --info-soft: #10203a;
+  --chrome: #0d1613;
+  --chrome-ink: #e8f0ec;
+  --chrome-muted: #9fb6a9;
+  --chrome-active: #1b2622;
+  --demo-bg: #ffd43b;
+  --demo-ink: #1a1500;
+  color-scheme: dark;
   font-family:
     system-ui,
     -apple-system,
@@ -15,6 +34,30 @@
     Roboto,
     sans-serif;
   font-size: 15px;
+}
+
+:root[data-theme='light'] {
+  --bg: #eff3f1;
+  --panel: #ffffff;
+  --raised: #edf1ee;
+  --ink: #121a16;
+  --muted: #5c6b64;
+  --line: #dde4e0;
+  --accent: #0b7a47;
+  --accent-ink: #ffffff;
+  --accent-soft: #e2f2ea;
+  --danger: #b3261e;
+  --danger-ink: #ffffff;
+  --danger-soft: #fdecea;
+  --warn: #7a5200;
+  --warn-soft: #fff1c2;
+  --info: #1a4b8c;
+  --info-soft: #eaf1fb;
+  --chrome: #0a5c36;
+  --chrome-ink: #ffffff;
+  --chrome-muted: #cfe6da;
+  --chrome-active: rgb(255 255 255 / 0.15);
+  color-scheme: light;
 }
 
 * {
@@ -60,8 +103,9 @@ h2 {
 }
 
 .sidebar {
-  background: #14231b;
-  color: #e8f0ec;
+  background: var(--chrome);
+  color: var(--chrome-ink);
+  border-right: 1px solid var(--line);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -75,15 +119,15 @@ h2 {
 }
 
 .sidebar nav a {
-  color: #cfe0d7;
+  color: var(--chrome-muted);
   text-decoration: none;
   padding: 8px 10px;
   border-radius: 6px;
 }
 
 .sidebar nav a[aria-current='page'] {
-  background: #23402f;
-  color: #fff;
+  background: var(--chrome-active);
+  color: var(--chrome-ink);
 }
 
 .brand {
@@ -92,8 +136,9 @@ h2 {
 }
 
 .demo-badge {
-  background: #f2c94c;
-  color: #3b2b00;
+  background: var(--demo-bg);
+  color: var(--demo-ink);
+  font-weight: 700;
   border-radius: 4px;
   padding: 3px 6px;
   font-size: 0.78rem;
@@ -107,7 +152,17 @@ h2 {
 }
 
 .who .muted {
-  color: #9fb6a9;
+  color: var(--chrome-muted);
+}
+
+.who a {
+  color: var(--chrome-ink);
+}
+
+.who button {
+  background: transparent;
+  border-color: rgb(255 255 255 / 0.25);
+  color: var(--chrome-ink);
 }
 
 .content {
@@ -179,12 +234,23 @@ button {
   padding: 7px 9px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--raised);
   color: var(--ink);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 button {
   cursor: pointer;
+  font-weight: 600;
 }
 
 button:disabled {
@@ -194,7 +260,7 @@ button:disabled {
 
 button.primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   border-color: var(--accent);
 }
 
@@ -205,7 +271,7 @@ button.danger {
 
 button.danger:is(button[type='submit']) {
   background: var(--danger);
-  color: #fff;
+  color: var(--danger-ink);
 }
 
 textarea {
@@ -223,18 +289,18 @@ textarea {
 }
 
 .notice.error {
-  background: #fdecea;
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
 .notice.ok {
-  background: #e6f4ea;
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
 .notice.info {
-  background: #eaf1fb;
-  color: #1a4b8c;
+  background: var(--info-soft);
+  color: var(--info);
 }
 
 table {
@@ -262,6 +328,11 @@ th {
   font-size: 0.78rem;
   text-transform: uppercase;
   color: var(--muted);
+  background: var(--raised);
+}
+
+tbody tr:hover {
+  background: var(--raised);
 }
 
 td.num,
@@ -275,21 +346,22 @@ th.num {
   padding: 1px 8px;
   border-radius: 999px;
   font-size: 0.78rem;
-  background: #e8eaee;
+  font-weight: 600;
+  background: var(--raised);
 }
 
 .badge.good {
-  background: #dff3e6;
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
 .badge.bad {
-  background: #fbe3e1;
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
 .badge.warn {
-  background: #fdf0d2;
+  background: var(--warn-soft);
   color: var(--warn);
 }
 
@@ -354,8 +426,9 @@ th.num {
 }
 
 .tabs button[aria-pressed='true'] {
-  background: var(--ink);
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (max-width: 800px) {

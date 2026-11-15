@@ -2,13 +2,32 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { canView, navFor } from '@/lib/nav';
+import { otherTheme, themeCookie, type Theme } from '@/lib/theme';
 import { useSession } from './session';
 
 const DEMO = process.env.NEXT_PUBLIC_OPERATING_MODE !== 'licensed';
 
-export function Shell({ children }: { children: ReactNode }) {
+/** Dark / light switch: applies at once and stores the choice for the next page load. */
+function ThemeSwitch({ initial }: { initial: Theme }) {
+  const [theme, setTheme] = useState(initial);
+  const next = otherTheme(theme);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        document.documentElement.dataset.theme = next;
+        document.cookie = themeCookie(next);
+        setTheme(next);
+      }}
+    >
+      {next === 'light' ? 'Light theme' : 'Dark theme'}
+    </button>
+  );
+}
+
+export function Shell({ theme, children }: { theme: Theme; children: ReactNode }) {
   const { state, staff, permissions, logout } = useSession();
   const pathname = usePathname();
   const router = useRouter();
@@ -53,6 +72,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <Link href="/account" aria-current={onAccount ? 'page' : undefined}>
             My account
           </Link>
+          <ThemeSwitch initial={theme} />
           <button type="button" onClick={() => void logout().then(() => router.replace('/login'))}>
             Sign out
           </button>
