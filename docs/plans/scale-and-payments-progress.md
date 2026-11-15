@@ -70,16 +70,16 @@ shared CPUs, p95 504 ms at 50 connections; the limit is the process's CPU, then 
 
 ## 3. Owner decisions
 
-| #   | Decision or call                                                         | State | Answer |
-| --- | ------------------------------------------------------------------------ | ----- | ------ |
-| D1  | Ethio telecom: merchant with disbursement and bulk payment; API document | open  |        |
-| D2  | Main bank: bulk format, statement feed, host-to-host, EthioPay-IPS       | open  |        |
-| D3  | Collection accounts per institution                                      | open  |        |
-| D4  | Settle on double proof for telebirr (C2)                                 | open  |        |
-| D5  | Hold on amounts of cancelled deposits (B4b)                              | open  |        |
-| D6  | Approval tiers (C9)                                                      | open  |        |
-| D7  | Server sizes and a second server (A11)                                   | open  |        |
-| D8  | Counsel and regulator: tiers and C2                                      | open  |        |
+| #   | Decision or call                                                         | State | Answer                                                    |
+| --- | ------------------------------------------------------------------------ | ----- | --------------------------------------------------------- |
+| D1  | Ethio telecom: merchant with disbursement and bulk payment; API document | open  | brief: [provider-calls-brief.md](provider-calls-brief.md) |
+| D2  | Main bank: bulk format, statement feed, host-to-host, EthioPay-IPS       | open  | brief: [provider-calls-brief.md](provider-calls-brief.md) |
+| D3  | Collection accounts per institution                                      | open  |                                                           |
+| D4  | Settle on double proof for telebirr (C2)                                 | open  |                                                           |
+| D5  | Hold on amounts of cancelled deposits (B4b)                              | open  |                                                           |
+| D6  | Approval tiers (C9)                                                      | open  |                                                           |
+| D7  | Server sizes and a second server (A11)                                   | open  |                                                           |
+| D8  | Counsel and regulator: tiers and C2                                      | open  |                                                           |
 
 Already decided by the owner (15 Nov 2026):
 
