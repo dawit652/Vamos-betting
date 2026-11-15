@@ -5,17 +5,25 @@ import { useT } from '@/i18n/client';
 import { LOCALE_COOKIE_MAX_AGE, THEME_COLORS, THEME_COOKIE, type Theme } from '@/lib/cookies';
 
 /**
- * Dark / light switch in the header. The choice is the `vamos_theme` cookie, which the
+ * Dark / light switch: in the header from the `sm` breakpoint up, in the footer on phones
+ * (the header has no room for it at 360 px). The choice is the `vamos_theme` cookie, which the
  * root layout reads to render `<html data-theme>`, so a reload never flashes the other theme.
  */
-export function ThemeToggle({ initial }: { initial: Theme }) {
+export function ThemeToggle({
+  initial,
+  className = 'border-white/20 text-chrome-ink',
+}: {
+  initial: Theme;
+  /** Border and text colours; the default suits the header. */
+  className?: string;
+}) {
   const t = useT();
   const [theme, setTheme] = useState(initial);
   const next: Theme = theme === 'dark' ? 'light' : 'dark';
   return (
     <button
       type="button"
-      className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-white/20 text-chrome-ink"
+      className={`flex h-8 w-8 flex-none items-center justify-center rounded-full border ${className}`}
       aria-label={t(next === 'light' ? 'common.theme.toLight' : 'common.theme.toDark')}
       onClick={() => {
         document.documentElement.dataset.theme = next;

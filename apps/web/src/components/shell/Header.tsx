@@ -10,8 +10,10 @@ import { ThemeToggle } from './ThemeToggle';
 
 /**
  * Top bar: logo, the main navigation (header links on wide screens; the same element is
- * the fixed bottom bar on phones), theme and language toggles, then the balance (signed in)
- * or log in / register.
+ * the fixed bottom bar on phones), search, theme and language toggles, then the balance
+ * (signed in) or log in / register. It must fit a 360 px phone without widening the page
+ * (a wider page shifts everything under the fixed bottom bar): on phones the theme toggle
+ * moves to the footer and the DEMO badge gives way to the DEMO banner right below it.
  */
 export async function Header({ theme }: { theme: Theme }) {
   const t = await getT();
@@ -20,19 +22,21 @@ export async function Header({ theme }: { theme: Theme }) {
       <div className="mx-auto flex h-header max-w-7xl items-center gap-1.5 px-3 lg:gap-4 lg:px-4">
         <Link
           href={routes.home}
-          className="text-xl font-black tracking-tight italic lg:text-2xl"
+          className="flex-none text-lg font-black tracking-tight italic sm:text-xl lg:text-2xl"
           aria-label={t('common.nav.home')}
         >
           Nahubet<span className="text-accent">.</span>
         </Link>
         {IS_DEMO ? (
-          <span className="rounded-md bg-accent px-1 text-xxs font-extrabold text-accent-ink">
+          <span className="hidden rounded-md bg-accent px-1 text-xxs font-extrabold text-accent-ink sm:inline">
             {t('common.demo.badge')}
           </span>
         ) : null}
         <MainNav />
         <div className="ml-auto flex items-center gap-1.5">
-          <ThemeToggle initial={theme} />
+          <span className="hidden sm:contents">
+            <ThemeToggle initial={theme} />
+          </span>
           <Link
             href={routes.search}
             prefetch={false}

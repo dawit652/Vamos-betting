@@ -78,7 +78,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <DemoBanner />
           </div>
           <main className="mx-auto max-w-7xl">{children}</main>
-          <Footer />
+          <Footer theme={theme} />
           <BetslipHost />
         </AppProviders>
         <ServiceWorkerRegister />

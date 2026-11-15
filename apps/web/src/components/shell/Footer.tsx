@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { getT } from '@/i18n/server';
+import type { Theme } from '@/lib/cookies';
 import { routes } from '@/lib/routes';
 import { LocaleSwitcher } from './LocaleSwitcher';
+import { ThemeToggle } from './ThemeToggle';
 
 /** Footer card: logo and tagline, language, legal links and the age notice. */
-export async function Footer() {
+export async function Footer({ theme }: { theme: Theme }) {
   const t = await getT();
   return (
     <footer className="mx-auto mt-8 max-w-7xl px-3 pb-6 lg:px-4">
@@ -16,7 +18,13 @@ export async function Footer() {
             </p>
             <p>{t('common.app.tagline')}</p>
           </div>
-          <LocaleSwitcher />
+          <div className="flex items-center gap-2">
+            <LocaleSwitcher />
+            {/* Phones only: the header has no room for the theme toggle there. */}
+            <span className="contents sm:hidden">
+              <ThemeToggle initial={theme} className="border-line text-ink" />
+            </span>
+          </div>
         </div>
         <nav className="flex flex-wrap gap-x-5 gap-y-2 border-t border-line pt-3 font-semibold">
           <Link href={routes.help} prefetch={false}>
