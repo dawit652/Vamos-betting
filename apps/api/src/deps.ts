@@ -11,6 +11,13 @@ import { Redis } from 'ioredis';
 import { MockKycVerifier, type KycVerifier } from './providers/kyc';
 import { MockSmsProvider, type SmsProvider } from './providers/sms';
 
+/** What GET /metrics reads of the database pool (a pg.Pool has all three). */
+export interface PoolStats {
+  readonly totalCount: number;
+  readonly idleCount: number;
+  readonly waitingCount: number;
+}
+
 /**
  * Everything the API needs from the outside world. Tests build their own
  * (throwaway database, prefixed Redis, fixed clock, mock providers).
@@ -18,6 +25,8 @@ import { MockSmsProvider, type SmsProvider } from './providers/sms';
 export interface AppDeps {
   config: AppConfig;
   db: Database;
+  /** The pool behind `db`, for the pool gauges of GET /metrics (absent: they are left out). */
+  pool?: PoolStats;
   redis: Redis;
   /** Current time. Business logic must use this rather than `new Date()`. */
   clock: () => Date;
@@ -138,6 +147,7 @@ export function createDefaultDeps(config: AppConfig): DefaultDeps {
     ...(receipts === undefined ? {} : { receipts }),
     config,
     db: handle.db,
+    pool: handle.pool,
     redis,
     clock: () => new Date(),
     sms,

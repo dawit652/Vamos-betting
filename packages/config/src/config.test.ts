@@ -221,6 +221,16 @@ describe('loadConfig', () => {
     expect(problemsOf({ ...licensed, NODE_ENV: 'development' })).toEqual([]);
   });
 
+  it('reads METRICS_TOKEN trimmed (32+ characters), and has none by default', () => {
+    const token = 'm'.repeat(32);
+    expect(loadConfig({}).metricsToken).toBeUndefined();
+    expect(loadConfig({ METRICS_TOKEN: '   ' }).metricsToken).toBeUndefined();
+    expect(loadConfig({ METRICS_TOKEN: `  ${token}\n` }).metricsToken).toBe(token);
+    expect(problemsOf({ METRICS_TOKEN: 'm'.repeat(31) }).join('\n')).toMatch(
+      /METRICS_TOKEN: must have at least 32 characters/,
+    );
+  });
+
   it('refuses the development session secret in production', () => {
     expect(
       problemsOf({ NODE_ENV: 'production', SESSION_SECRET: DEV_SESSION_SECRET }).join('\n'),

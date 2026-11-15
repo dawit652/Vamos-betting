@@ -73,6 +73,7 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
   const deps: AppDeps = {
     config,
     db: db.db,
+    pool: db.pool,
     redis,
     clock: now,
     sms: new MockSmsProvider(db.db),

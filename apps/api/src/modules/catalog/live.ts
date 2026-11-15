@@ -4,6 +4,7 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyPluginAsync } from 'fas
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
 import { parseInput, serviceUnavailable } from '../../lib/errors';
+import { registerStreamGauge } from '../../plugins/metrics';
 
 /**
  * GET /live/stream: Server-Sent Events relaying the worker's live changes
@@ -175,6 +176,7 @@ const liveRoutes: FastifyPluginAsync<LiveRoutesOptions> = async (app, options) =
   const heartbeatMs = options.heartbeatMs ?? HEARTBEAT_MS;
   const streams = new Set<PassThrough>();
   HUBS.set(app.server, hub);
+  registerStreamGauge(app, 'live', () => streams.size);
 
   // Open streams would keep server.close() waiting: end them first.
   app.addHook('preClose', async () => {

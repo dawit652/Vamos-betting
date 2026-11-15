@@ -186,6 +186,13 @@ const envSchema = z.object({
   PASSWORD_PEPPER: secret.refine((value) => value === undefined || value.length >= 32, {
     message: 'must have at least 32 characters',
   }),
+  /**
+   * Bearer token of GET /metrics (Prometheus). Unset: the route answers 404 as if it did
+   * not exist. Its own secret: it only reads counters, so it is not shared with anything else.
+   */
+  METRICS_TOKEN: secret.refine((value) => value === undefined || value.length >= 32, {
+    message: 'must have at least 32 characters',
+  }),
   /** Encrypts staff TOTP secrets at rest: 32 bytes as 64 hex characters or base64. */
   ADMIN_TOTP_KEY: z
     .string()
@@ -423,6 +430,8 @@ export interface AppConfig {
   sessionSecret: string;
   /** PASSWORD_PEPPER: argon2's secret key for player and staff passwords (unset: none). */
   passwordPepper: string | undefined;
+  /** METRICS_TOKEN: bearer token of GET /metrics (unset: the route is off). */
+  metricsToken: string | undefined;
   /** The back office (staff accounts). */
   admin: {
     /** AES-256-GCM key (32 bytes) of the staff TOTP secrets (ADMIN_TOTP_KEY). */
@@ -778,6 +787,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     queuePrefix: e.QUEUE_PREFIX,
     sessionSecret: e.SESSION_SECRET,
     passwordPepper: e.PASSWORD_PEPPER,
+    metricsToken: e.METRICS_TOKEN,
     admin: { totpKey: adminTotpKeyOf(e.ADMIN_TOTP_KEY) },
     feed: {
       provider: e.FEED_PROVIDER,

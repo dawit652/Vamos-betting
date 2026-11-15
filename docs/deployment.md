@@ -273,6 +273,7 @@ in a secret manager, not in git.
 | `QUEUE_PREFIX`                         | `vamos`                                                   | Key prefix of the BullMQ queues. Change only with an empty queue.                                                                                                                     |
 | `SESSION_SECRET` (secret)              | dev value (refused in production)                         | 32+ chars. Keys OTP hashes and the national-ID hash that stops one ID opening two accounts. See rotation runbook.                                                                     |
 | `PASSWORD_PEPPER` (secret)             | unset (required in production and licensed mode)          | 32+ chars, not the `SESSION_SECRET`. argon2's secret key for every password hash, kept outside the database (losing it makes passwords unusable). See rotation runbook.               |
+| `METRICS_TOKEN` (secret)               | unset (route off)                                         | 32+ chars. Bearer token of `GET /metrics`; unset, the route answers 404. See "Metrics" below.                                                                                         |
 | `ADMIN_TOTP_KEY` (secret)              | dev key (refused in production)                           | 32 bytes as 64 hex chars or base64. AES-256-GCM key of the staff TOTP secrets. See rotation runbook.                                                                                  |
 | `MOCK_PAYMENT_WEBHOOK_SECRET` (secret) | dev value (refused in production while `mock` is enabled) | HMAC key of the mock provider's webhooks (demo only).                                                                                                                                 |
 
@@ -323,15 +324,41 @@ in a secret manager, not in git.
 
 **Read only by the web and admin apps / the ops scripts**
 
-| Variable                                                                                                    | Where                  | Meaning                                                                                                         |
-| ----------------------------------------------------------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_API_URL`                                                                                       | web, admin (build arg) | Browser-visible api URL, inlined at **build** time. Compose passes `PUBLIC_API_URL`; rebuild after changing it. |
-| `NEXT_PUBLIC_OPERATING_MODE`                                                                                | admin (build arg)      | `licensed` hides the demo banner. Cosmetic: the api's mode is what counts.                                      |
-| `API_INTERNAL_URL`                                                                                          | web (runtime)          | Private api URL for server-side rendering (`http://api:4000` in compose).                                       |
-| `PORT`, `HOST`                                                                                              | web, admin             | Listen port (and address for `server.mjs`).                                                                     |
-| `ADMIN_PASSWORD`                                                                                            | `admin-create.js`      | Initial password of a new staff account (12+ chars); generated when unset.                                      |
-| `BIND_ADDRESS`, `API_PORT`, `WEB_PORT`, `ADMIN_PORT`, `WORKER_HEALTH_PORT`, `VAMOS_SUBNET`, `VAMOS_VERSION` | compose only           | Published addresses/ports, the stack's network, the image tag.                                                  |
-| `WEB_DOMAIN`, `API_DOMAIN`, `ADMIN_DOMAIN`, `ACME_EMAIL`, `STAFF_ALLOWLIST`                                 | compose (`proxy`)      | Caddy host names and ACME contact; `STAFF_ALLOWLIST` limits the admin host and `/admin*` on the api host.       |
+| Variable                                                                                                    | Where                  | Meaning                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`                                                                                       | web, admin (build arg) | Browser-visible api URL, inlined at **build** time. Compose passes `PUBLIC_API_URL`; rebuild after changing it.                             |
+| `NEXT_PUBLIC_OPERATING_MODE`                                                                                | admin (build arg)      | `licensed` hides the demo banner. Cosmetic: the api's mode is what counts.                                                                  |
+| `API_INTERNAL_URL`                                                                                          | web (runtime)          | Private api URL for server-side rendering (`http://api:4000` in compose).                                                                   |
+| `CATALOG_REUSE_MS`                                                                                          | web (runtime)          | Milliseconds the web server reuses a public catalogue answer (sports, competitions, event lists) per URL; default `2000`, `0` turns it off. |
+| `PORT`, `HOST`                                                                                              | web, admin             | Listen port (and address for `server.mjs`).                                                                                                 |
+| `ADMIN_PASSWORD`                                                                                            | `admin-create.js`      | Initial password of a new staff account (12+ chars); generated when unset.                                                                  |
+| `BIND_ADDRESS`, `API_PORT`, `WEB_PORT`, `ADMIN_PORT`, `WORKER_HEALTH_PORT`, `VAMOS_SUBNET`, `VAMOS_VERSION` | compose only           | Published addresses/ports, the stack's network, the image tag.                                                                              |
+| `WEB_DOMAIN`, `API_DOMAIN`, `ADMIN_DOMAIN`, `ACME_EMAIL`, `STAFF_ALLOWLIST`                                 | compose (`proxy`)      | Caddy host names and ACME contact; `STAFF_ALLOWLIST` limits the admin host and `/admin*` on the api host.                                   |
+
+### Metrics
+
+`GET /metrics` on the api answers in the Prometheus text format (version 0.0.4) for a scraper that sends
+`Authorization: Bearer <METRICS_TOKEN>`. Without `METRICS_TOKEN` the route answers 404, and a missing or wrong
+token gets 401. It is read-only and counts requests by route template (never the raw URL).
+
+- `http_requests_total{route,status}` (status as a class: `2xx` to `5xx`) and the `http_request_duration_seconds`
+  histogram by route.
+- `sse_open_streams{stream="live|me"}`: open streams on this api process.
+- `db_pool_connections{state="total|idle|waiting"}`: this process's database pool.
+- `nodejs_eventloop_delay_seconds{quantile="0.5|0.99"}`, `process_resident_memory_bytes`,
+  `nodejs_heap_used_bytes`.
+- Business gauges, read from the database at scrape time and kept 15 seconds (concurrent scrapes share one
+  result): `sms_open_deposits`, `sms_open_deposits_busiest{base_amount_birr}` (the 5 base amounts with most open
+  deposits; a base amount near 50 open deposits is out of free amounts), `manual_payout_oldest_approved_seconds`,
+  `manual_payout_claimed_idle` (claimed over 30 minutes ago) and `withdrawals_awaiting_review`.
+
+Each api process reports its own counters, so scrape every process. Caddy answers 404 for `/metrics` on the
+public api host: scrape from the host over the compose network instead, with the container's address:
+
+```sh
+API_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(docker compose ps -q api)")
+curl -fsS -H "Authorization: Bearer $METRICS_TOKEN" "http://$API_IP:4000/metrics"
+```
 
 ## 6. Secrets management
 

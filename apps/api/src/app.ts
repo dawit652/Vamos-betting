@@ -28,6 +28,7 @@ import { AppError } from './lib/errors';
 import { IDEMPOTENCY_KEY_HEADER, IDEMPOTENT_REPLAYED_HEADER } from './lib/idempotency';
 import { DEFAULT_AUTH_LIMITS, type AuthLimits } from './lib/rate-limits';
 import { registerModules } from './modules/index';
+import { installMetrics } from './plugins/metrics';
 import { CSRF_HEADER, sessionPlugin } from './plugins/session';
 
 export type { AppDeps } from './deps';
@@ -229,6 +230,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.addHook('onClose', async () => {
     await app.background.idle();
   });
+
+  // Before any route: the response hook then covers every route, and the stream plugins find
+  // `app.metrics`. GET /metrics itself exists only with METRICS_TOKEN.
+  installMetrics(app, deps);
 
   void app.register(fastifyCookie);
   void app.register(fastifyHelmet, securityHeaderOptions(config));
