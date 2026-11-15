@@ -21,6 +21,7 @@ import {
   parseCursor,
   parseDay,
   parseMarket,
+  parseWithin,
   parseTab,
 } from './tabs';
 
@@ -305,6 +306,23 @@ describe('list controls parameters', () => {
     expect(parseMarket('1x2')).toBe('1x2');
     expect(parseMarket('ou')).toBe('1x2');
     expect(parseMarket(undefined)).toBe('1x2');
+  });
+
+  it('parseWithin accepts the five choices only', () => {
+    expect(parseWithin('1')).toBe(1);
+    expect(parseWithin('24')).toBe(24);
+    expect(parseWithin(['6', 'x'])).toBe(6);
+    for (const bad of ['0', '2', '48', '01x', '', 'x', undefined]) {
+      expect(parseWithin(bad), String(bad)).toBeUndefined();
+    }
+  });
+
+  it('listHref writes within and leaves it out when absent', () => {
+    expect(listHref('/', 'today', undefined, { within: 3 })).toBe('/?tab=today&within=3');
+    expect(listHref('/', 'highlights', 'abc', { within: 12, country: 'england' })).toBe(
+      '/?within=12&country=england&cursor=abc',
+    );
+    expect(listHref('/', 'today', undefined, { within: undefined })).toBe('/?tab=today');
   });
 
   it('listHref keeps day, country and market and drops defaults', () => {

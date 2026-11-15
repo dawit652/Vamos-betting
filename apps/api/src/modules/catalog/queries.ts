@@ -397,6 +397,12 @@ export async function listEvents(
     const { start, end } = addisAbabaDayOf(query.day);
     conditions.push(gte(events.startTime, start), lt(events.startTime, end));
   }
+  if (query.startsWithinHours !== undefined && query.filter !== 'live') {
+    conditions.push(
+      gte(events.startTime, now),
+      lt(events.startTime, new Date(now.getTime() + query.startsWithinHours * HOUR_MS)),
+    );
+  }
   if (cursor !== undefined) {
     conditions.push(
       sql`(${events.startTime}, ${events.id}) > (${cursor.startTime}::timestamptz, ${cursor.id}::uuid)`,

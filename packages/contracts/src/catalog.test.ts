@@ -37,6 +37,14 @@ describe('EventListQuery new parameters', () => {
     });
   });
 
+  it('accepts startsWithinHours from 1 to 48 and rejects the rest', () => {
+    expect(EventListQuery.parse({}).startsWithinHours).toBeUndefined();
+    expect(EventListQuery.parse({ startsWithinHours: '6' }).startsWithinHours).toBe(6);
+    for (const bad of ['0', '49', '1.5', 'x']) {
+      expect(EventListQuery.safeParse({ startsWithinHours: bad }).success, bad).toBe(false);
+    }
+  });
+
   it('rejects malformed days, empty countries and unknown markets', () => {
     for (const day of ['2026-1-9', '20261009', '2026-02-30', '2026-13-01', 'today', '']) {
       expect(EventListQuery.safeParse({ day }).success, day).toBe(false);

@@ -23,6 +23,8 @@ export const sportsbook = {
     featured: 'Featured',
   },
   controls: {
+    within: 'Starts within',
+    withinHours: '{hours}h',
     days: 'Match day',
     countries: 'Country',
     market: 'Market',

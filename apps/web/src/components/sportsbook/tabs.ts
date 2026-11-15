@@ -46,8 +46,20 @@ export function parseDay(value: SearchValue, now: Date): string | undefined {
   return isCalendarDate(day) && isEventDayInRange(day, now) ? day : undefined;
 }
 
+/** "Starts within" choices, in hours. */
+export const STARTS_WITHIN_HOURS = [1, 3, 6, 12, 24] as const;
+
+/** `?within=` when it is one of STARTS_WITHIN_HOURS, else undefined. */
+export function parseWithin(value: SearchValue): number | undefined {
+  const raw = first(value);
+  if (raw === undefined || !/^\d{1,2}$/.test(raw)) return undefined;
+  const hours = Number(raw);
+  return (STARTS_WITHIN_HOURS as readonly number[]).includes(hours) ? hours : undefined;
+}
+
 /** The list parameters besides the tab and the cursor, kept across the controls' links. */
 export interface ListFilters {
+  within?: number | undefined;
   day?: string | undefined;
   country?: string | undefined;
   market?: ListMarket | undefined;
@@ -66,6 +78,7 @@ export function listHref(
 ): string {
   const params = new URLSearchParams();
   if (tab !== DEFAULT_TAB) params.set('tab', tab);
+  if (filters.within !== undefined) params.set('within', String(filters.within));
   if (filters.day !== undefined) params.set('day', filters.day);
   if (filters.country !== undefined) params.set('country', filters.country);
   if (filters.market === 'dc') params.set('market', 'dc');

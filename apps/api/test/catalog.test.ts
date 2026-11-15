@@ -581,6 +581,25 @@ describe('GET /events', () => {
     expect(await listIds('/events?filter=live&competition=nba')).toEqual([]);
   });
 
+  it('filters by startsWithinHours: from now, soonest first, paged', async () => {
+    expect(await listIds('/events?filter=upcoming&startsWithinHours=1')).toEqual([]);
+    expect(await listIds('/events?filter=upcoming&startsWithinHours=3')).toEqual([ev.soon.id]);
+    expect(await listIds('/events?filter=upcoming&startsWithinHours=4')).toEqual([
+      ev.soon.id,
+      ev.caf.id,
+    ]);
+    expect(await listIds('/events?filter=upcoming&startsWithinHours=24')).toEqual([
+      ev.soon.id,
+      ev.caf.id,
+      ev.closedBetting.id,
+    ]);
+    const pages = await allPages('/events?filter=upcoming&startsWithinHours=24', 2);
+    expect(pages.map((page) => page.map((item) => item.id))).toEqual([
+      [ev.soon.id, ev.caf.id],
+      [ev.closedBetting.id],
+    ]);
+  });
+
   it('filters by Addis Ababa day: today, a later day, and up to today + 14', async () => {
     // Today's tab: live or scheduled today; upcoming never lists what has started.
     expect(await listIds('/events?filter=today&day=2026-10-08')).toEqual(

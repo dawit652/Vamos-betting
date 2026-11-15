@@ -123,6 +123,11 @@ export const EventListQuery = z.object({
   competition: z.string().optional(),
   /** Only events starting on this Addis Ababa calendar day (see `eventListQueryAt` for the range). */
   day: EventDay.optional(),
+  /**
+   * Only events kicking off from now until now + this many hours (soonest first);
+   * ignored for the live filter.
+   */
+  startsWithinHours: z.coerce.number().int().min(1).max(48).optional(),
   /** Category (country) slug. */
   country: z.string().min(1).max(100).optional(),
   /** Market returned as each event's `mainMarket`; default '1x2'. */

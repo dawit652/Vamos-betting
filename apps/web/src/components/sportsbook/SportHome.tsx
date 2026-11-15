@@ -22,6 +22,8 @@ import {
   parseDay,
   parseMarket,
   parseTab,
+  parseWithin,
+  STARTS_WITHIN_HOURS,
   type ListFilters,
   type ListMarket,
   type ListTab,
@@ -56,6 +58,7 @@ export async function SportHome({
   const cursor = parseCursor(searchParams.cursor);
   const path = routes.sport(sport);
   const filters: ListFilters = {
+    within: parseWithin(searchParams.within),
     day: parseDay(searchParams.day, new Date()),
     country: parseCountry(searchParams.country),
     market: parseMarket(searchParams.market),
@@ -136,6 +139,22 @@ async function ListControls({
   const market = filters.market ?? '1x2';
   return (
     <div className="mb-3 space-y-2">
+      <nav aria-label={t('sportsbook.controls.within')} className="chip-row">
+        {STARTS_WITHIN_HOURS.map((hours) => {
+          const active = filters.within === hours;
+          return (
+            <Link
+              key={hours}
+              href={href({ within: active ? undefined : hours, day: undefined })}
+              prefetch={false}
+              aria-current={active ? 'true' : undefined}
+              className="chip min-h-11"
+            >
+              {t('sportsbook.controls.withinHours', { hours })}
+            </Link>
+          );
+        })}
+      </nav>
       {days.length > 0 ? (
         <nav aria-label={t('sportsbook.controls.days')} className="chip-row">
           {days.map((chip) => {
@@ -145,7 +164,10 @@ async function ListControls({
             return (
               <Link
                 key={chip.date}
-                href={href({ day: tab === 'today' && chip.offset === 0 ? undefined : chip.date })}
+                href={href({
+                  within: undefined,
+                  day: tab === 'today' && chip.offset === 0 ? undefined : chip.date,
+                })}
                 prefetch={false}
                 aria-current={active ? 'true' : undefined}
                 className="chip min-h-11"
@@ -221,21 +243,35 @@ async function EventsTab({
   path: string;
   filters: ListFilters;
 }) {
-  const [t, page, competitions] = await Promise.all([
+  const within = filters.within;
+  const [t, fetched, competitions] = await Promise.all([
     getT(),
     getEvents({
       sport,
-      filter: tab,
-      limit: PAGE_SIZE,
-      ...(filters.day === undefined ? {} : { day: filters.day }),
+      filter: within === undefined ? tab : 'upcoming',
+      limit: within === undefined ? PAGE_SIZE : 50,
+      ...(within === undefined
+        ? filters.day === undefined
+          ? {}
+          : { day: filters.day }
+        : { startsWithinHours: within }),
       ...(filters.country === undefined ? {} : { country: filters.country }),
       ...(filters.market === 'dc' ? { market: 'dc' as const } : {}),
       ...(cursor === undefined ? {} : { cursor }),
     }),
     getCompetitions(sport),
   ]);
+  // An older API ignores startsWithinHours: cut the window here too, and stop paging
+  // once anything was cut (later pages only start later).
+  const limit = within === undefined ? null : Date.now() + within * 3_600_000;
+  const items =
+    limit === null ? fetched.items : fetched.items.filter((e) => Date.parse(e.startTime) < limit);
+  const page = {
+    items,
+    nextCursor: items.length < fetched.items.length ? null : fetched.nextCursor,
+  };
   const hrefFor = (next?: string) => listHref(path, tab, next, filters);
-  const firstPage = tab === 'highlights' && cursor === undefined;
+  const firstPage = tab === 'highlights' && cursor === undefined && within === undefined;
   // The poster takes the first highlight that can be bet on; the list shows the rest.
   const [first] = page.items;
   const featured = firstPage && first?.mainMarket?.status === 'open' ? first : null;

@@ -7,6 +7,7 @@ import {
   parseDay,
   parseMarket,
   parseTab,
+  parseWithin,
 } from '@/components/sportsbook/tabs';
 import { getT } from '@/i18n/server';
 import { DEFAULT_SPORT, isSport, routes } from '@/lib/routes';
@@ -25,6 +26,7 @@ export default async function SportPage(props: PageProps<'/sport/[sport]'>) {
   if (sport === DEFAULT_SPORT) {
     redirect(
       listHref(routes.home, parseTab(searchParams.tab), undefined, {
+        within: parseWithin(searchParams.within),
         day: parseDay(searchParams.day, new Date()),
         country: parseCountry(searchParams.country),
         market: parseMarket(searchParams.market),

@@ -19,6 +19,8 @@ export const sportsbook: Messages['sportsbook'] = {
     featured: 'ተመራጭ',
   },
   controls: {
+    within: 'በሚቀጥሉት',
+    withinHours: '{hours} ሰዓት',
     days: 'የጨዋታ ቀን',
     countries: 'ሀገር',
     market: 'ገበያ',
