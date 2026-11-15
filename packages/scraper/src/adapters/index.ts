@@ -34,6 +34,38 @@ export {
   readTheOddsApiUsage,
 } from './theoddsapi';
 export type { TheOddsApiConfig } from './theoddsapi';
+export {
+  HULUSPORT_COREDATA_PATH,
+  HULUSPORT_HOST,
+  HULUSPORT_MATCHES_PATH,
+  HULUSPORT_SOURCE_ID,
+  hulusportMatchPath,
+  parseHulusportCoredata,
+  parseHulusportMatch,
+  parseHulusportMatchList,
+  parseMrxBoard,
+} from './hulusport';
+export type {
+  BoardMarket,
+  BoardMatch,
+  MrxBoard,
+  HulusportCoredata,
+  HulusportLeague,
+  HulusportListedMatch,
+  HulusportMatch,
+} from './hulusport';
+export {
+  API_FOOTBALL_FINISHED,
+  API_FOOTBALL_HOST,
+  API_FOOTBALL_KEY_HEADER,
+  API_FOOTBALL_SECRET,
+  apiFootballFixturesUrl,
+  matchApiFootballFixture,
+  parseApiFootballFixtures,
+  RESULT_MATCH_KICKOFF_MS,
+  sameTeamName,
+} from './apifootball-results';
+export type { ApiFootballFixture } from './apifootball-results';
 export { americanToMilli, decimalToMilli, exactDecimal, priceToMilli } from './odds-price';
 export type { PriceFormat, PriceProblem, PriceResult } from './odds-price';
 export * from './capabilities';

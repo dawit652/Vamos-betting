@@ -636,3 +636,130 @@ export const scrapeMarketOdds = pgTable(
     ),
   ],
 );
+
+/** One market of a competitor board as stored (structurally BoardMarket in @vamos/scraper). */
+export interface BoardMarketJson {
+  type: string;
+  line: string | null;
+  prices: Array<{ code: string; priceMilli: number }>;
+}
+
+/**
+ * A competitor's board read as a price source: Hulusport's prices as the mr-x service serves them
+ * (owner's decision of 14 Nov 2026, docs/plans/hulusport-feed.md). Never shown as they are: the
+ * pricing step removes Hulusport's margin and applies ours, and only while the back office switch
+ * `hulusport_pricing` is on.
+ *
+ * ONE ROW PER MATCH of the board (`source_key`, e.g. 'hulusport:2281709'): the state as of the
+ * latest read, rewritten by every read. `prices_at` is when mr-x last confirmed the prices with
+ * Hulusport (the freshness the pricing step trusts); `observed_at` is when WE last read them.
+ * `event_id` is the catalogue event the match was linked to by its two teams and kickoff (null when
+ * a name did not resolve or no single event matched: nothing is guessed). Rows not read for a week
+ * are pruned (apps/scraper tasks/prune.ts).
+ */
+export const scrapeBoardOdds = pgTable(
+  'scrape_board_odds',
+  {
+    sourceKey: text('source_key').primaryKey(),
+    /** The board: 'hulusport'. */
+    board: text('board').notNull(),
+    competitionRaw: text('competition_raw').notNull(),
+    homeRaw: text('home_raw').notNull(),
+    awayRaw: text('away_raw').notNull(),
+    kickoff: timestamp('kickoff', { withTimezone: true }).notNull(),
+    homeTeamId: uuid('home_team_id').references(() => teams.id, { onDelete: 'set null' }),
+    awayTeamId: uuid('away_team_id').references(() => teams.id, { onDelete: 'set null' }),
+    eventId: uuid('event_id').references(() => events.id, { onDelete: 'set null' }),
+    /** The board's markets mapped onto Vamos market types, prices as the board quoted them. */
+    markets: jsonb('markets').$type<BoardMarketJson[]>().notNull(),
+    /** When the board's service last confirmed these prices upstream. */
+    pricesAt: timestamp('prices_at', { withTimezone: true }).notNull(),
+    /** When we last read the row. */
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index('scrape_board_odds_event_idx').on(t.eventId, t.pricesAt),
+    index('scrape_board_odds_observed_idx').on(t.observedAt),
+    check('scrape_board_odds_board', sql`${t.board} IN ('hulusport')`),
+    check(
+      'scrape_board_odds_teams_differ',
+      sql`${t.homeTeamId} IS NULL OR ${t.awayTeamId} IS NULL OR ${t.homeTeamId} <> ${t.awayTeamId}`,
+    ),
+  ],
+);
+
+/**
+ * Competitions the scraper created for a competitor board's leagues (Hulusport, docs/plans/
+ * hulusport-feed.md): one row per board league (`league_key`, the board's league id). Their events
+ * have feed_provider 'hulusport' and are priced from the board alone. A competition listed here is
+ * "board-owned": the board may add events to it; it never adds events to any other competition.
+ */
+export const scrapeBoardCompetitions = pgTable(
+  'scrape_board_competitions',
+  {
+    board: text('board').notNull(),
+    leagueKey: text('league_key').notNull(),
+    competitionId: uuid('competition_id')
+      .notNull()
+      .references(() => competitions.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.board, t.leagueKey] }),
+    uniqueIndex('scrape_board_competitions_competition_uq').on(t.competitionId),
+    check('scrape_board_competitions_board', sql`${t.board} IN ('hulusport')`),
+  ],
+);
+
+/**
+ * Teams the scraper created for a competitor board's team names (one row per raw name). A team
+ * listed here is "board-owned"; a board match with any other catalogue team is never created as a
+ * board event (that match belongs to the scraper's own sources).
+ */
+export const scrapeBoardTeams = pgTable(
+  'scrape_board_teams',
+  {
+    board: text('board').notNull(),
+    rawName: text('raw_name').notNull(),
+    teamId: uuid('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.board, t.rawName] }),
+    uniqueIndex('scrape_board_teams_team_uq').on(t.teamId),
+    check('scrape_board_teams_board', sql`${t.board} IN ('hulusport')`),
+  ],
+);
+
+/**
+ * The final score API-Football reports for a board event (Hulusport-only match, docs/plans/
+ * hulusport-feed.md), kept until it is applied: the score must stand unchanged for a while before it
+ * settles (`first_seen_at` restarts when anything changes). `applied_at` is set when it was applied.
+ */
+export const scrapeBoardResults = pgTable(
+  'scrape_board_results',
+  {
+    eventId: uuid('event_id')
+      .primaryKey()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    /** API-Football's fixture id. */
+    fixtureId: integer('fixture_id').notNull(),
+    /** API-Football's status (FT, AET, PEN). */
+    status: text('status').notNull(),
+    home: integer('home').notNull(),
+    away: integer('away').notNull(),
+    htHome: integer('ht_home'),
+    htAway: integer('ht_away'),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    appliedAt: timestamp('applied_at', { withTimezone: true }),
+  },
+  (t) => [
+    check(
+      'scrape_board_results_scores',
+      sql`${t.home} BETWEEN 0 AND 99 AND ${t.away} BETWEEN 0 AND 99 AND (${t.htHome} IS NULL OR ${t.htHome} BETWEEN 0 AND ${t.home}) AND (${t.htAway} IS NULL OR ${t.htAway} BETWEEN 0 AND ${t.away})`,
+    ),
+  ],
+);

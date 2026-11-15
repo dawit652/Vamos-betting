@@ -76,6 +76,8 @@ export interface HarnessOptions {
   skipRedundantScores?: boolean;
   /** SCRAPER_CAP_AT_BEST_PRICE (rule O7); default the config's own default (off). */
   capAtBestPrice?: 'off' | 'on';
+  /** SCRAPER_HULUSPORT_URL (the mr-x board); default unset. */
+  hulusportUrl?: string;
 }
 
 // --- documents -----------------------------------------------------------------
@@ -177,6 +179,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     ...(options.capAtBestPrice === undefined
       ? {}
       : { SCRAPER_CAP_AT_BEST_PRICE: options.capAtBestPrice }),
+    ...(options.hulusportUrl === undefined ? {} : { SCRAPER_HULUSPORT_URL: options.hulusportUrl }),
   });
 
   let clock = new Date(T0);

@@ -2,6 +2,13 @@
 #   docker compose -f infra/docker-compose.yml up -d
 # Published on loopback only: the dev password and the password-less Redis must not be reachable
 # from the network.
+#
+# The project name is fixed: without it Docker names the project after the folder ("infra"), and
+# another project whose compose file also sits in an `infra` folder then shares this project's
+# containers and data volume (it happened with the bingo project on 14 Nov 2026). Ports 5433 and
+# 6379 can still be taken by such a project: stop it first if `up` says a port is allocated.
+name: vamos-dev
+
 services:
   postgres:
     image: postgres:16-alpine

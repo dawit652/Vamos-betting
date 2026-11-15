@@ -270,6 +270,17 @@ const envSchema = z.object({
    * measurement.
    */
   SCRAPER_CAP_AT_BEST_PRICE: z.enum(['off', 'on']).default('off'),
+  /**
+   * The owner's mr-x service, which serves Hulusport's board (docs/plans/hulusport-feed.md), e.g.
+   * `http://127.0.0.1:3100`. Unset (the default): the board is not read. Whether its prices are
+   * used is the back office switch `hulusport_pricing`, not this setting.
+   */
+  SCRAPER_HULUSPORT_URL: secret.refine(
+    (value) => value === undefined || /^https?:\/\/[^/\s?#]+\/?$/.test(value),
+    { message: 'SCRAPER_HULUSPORT_URL must be an http(s) origin such as http://127.0.0.1:3100' },
+  ),
+  /** Seconds between two reads of the mr-x board (30 to 3600, default 120). */
+  SCRAPER_HULUSPORT_INTERVAL_SECONDS: z.coerce.number().int().min(30).max(3600).default(120),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -449,6 +460,8 @@ export interface ScraperConfig {
   skipRedundantScores: boolean;
   /** SCRAPER_CAP_AT_BEST_PRICE: rule O7, true for `on` (default `off`: flag only). */
   capAtBestPrice: boolean;
+  /** The mr-x board of Hulusport prices (SCRAPER_HULUSPORT_*); `url` null: not read. */
+  hulusport: { url: string | null; intervalMs: number };
 }
 
 /** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -750,6 +763,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
           : [...new Set(e.SCRAPER_PRIORITY_COMPETITIONS.map((slug) => slug.toLowerCase()))],
       skipRedundantScores: e.SCRAPER_SKIP_REDUNDANT_SCORES === 'on',
       capAtBestPrice: e.SCRAPER_CAP_AT_BEST_PRICE === 'on',
+      hulusport: {
+        url:
+          e.SCRAPER_HULUSPORT_URL === undefined ? null : e.SCRAPER_HULUSPORT_URL.replace(/\/$/, ''),
+        intervalMs: e.SCRAPER_HULUSPORT_INTERVAL_SECONDS * 1000,
+      },
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     payments: {
@@ -912,3 +930,4 @@ function channelFlag(
 export function isDemo(config: Pick<AppConfig, 'mode'>): boolean {
   return config.mode === 'demo';
 }
+
