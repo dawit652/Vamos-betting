@@ -109,7 +109,7 @@ commit those changes to a branch. `/opt/nahubet` is a git checkout (`claude/exci
   320, 360 and 393 px.
 - **Page-weight budget.** 159.5 KB on the v030 branch (budget 160 KB; the live branch alone is about 157.6 KB): the
   betslip's own texts (`sportsbook.betslip.*`) now come with the betslip's lazy code
-  (`@vamos/i18n/betslip`) instead of every page, the first home page lists 13 matches (was 20; "Next page" shows the rest), and an
+  (`@vamos/i18n/betslip`) instead of every page, the first home page lists 12 matches (was 20; "Next page" shows the rest), and an
   unused style went. Only 0.5 KB of room is left: new home-page content has to pay for itself.
 
 ## Deploying (licensed mode, web app only)

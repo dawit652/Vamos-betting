@@ -20,12 +20,13 @@ import { expect, test } from '@playwright/test';
  * = JS 132.4 + HTML 18.1 + CSS 7.6 + the session fetch, in 14 requests, with 15
  * rows on the first home page (was 20) and the betslip texts sent with the
  * betslip's own code; the live branch alone was about 157.6 KB. On release
- * v0.3.0 the same page is 159.5 KB with 13 rows on the first home page. The budget leaves a little room for the
+ * v0.3.0 the same page is 159.5 KB with 13 rows on the first home page; with the
+ * starts-within chips it is 159.6 KB with 12 rows. The budget leaves a little room for the
  * HTML, which grows with the listed matches (about 0.4 KB per row, 20 rows
  * per tab). Lower it when the page gets lighter; raise it only with a reason.
  */
 const TARGET_BYTES = 150 * 1024;
-const BUDGET_BYTES = 160 * 1024; // measured 159.5 KB (15 Nov 2026, on v0.3.0): 0.5 KB of room
+const BUDGET_BYTES = 160 * 1024; // measured 159.6 KB (15 Nov 2026, with the starts-within chips): 0.4 KB of room
 
 interface Transfer {
   url: string;
