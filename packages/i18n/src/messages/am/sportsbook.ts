@@ -16,6 +16,7 @@ export const sportsbook: Messages['sportsbook'] = {
     nextPage: 'ቀጣይ ገጽ',
     firstPage: 'ወደ መጀመሪያው ተመለስ',
     gameId: 'መለያ {id}',
+    featured: 'ተመራጭ',
   },
   controls: {
     days: 'የጨዋታ ቀን',

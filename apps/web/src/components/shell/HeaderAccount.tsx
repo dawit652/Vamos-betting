@@ -6,13 +6,13 @@ import { formatSantim } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 
-/** Balance chip when signed in; log in / register links otherwise. */
+/** Balance pill with a deposit shortcut when signed in; log in / register otherwise. */
 export function HeaderAccount() {
   const t = useT();
   const session = useSession();
 
   if (session.status === 'loading') {
-    return <span className="h-7 w-24 animate-pulse rounded bg-white/15" aria-hidden="true" />;
+    return <span className="h-8 w-24 animate-pulse rounded-full bg-white/15" aria-hidden="true" />;
   }
 
   if (session.status === 'anonymous') {
@@ -21,14 +21,14 @@ export function HeaderAccount() {
         <Link
           href={routes.login}
           prefetch={false}
-          className="rounded border border-white/40 px-3 py-1 text-xs font-bold"
+          className="flex h-8 items-center rounded-full border border-white/20 px-2.5 text-xs font-bold whitespace-nowrap"
         >
           {t('common.header.login')}
         </Link>
         <Link
           href={routes.register}
           prefetch={false}
-          className="rounded bg-accent px-3 py-1 text-xs font-bold text-accent-ink"
+          className="flex h-8 items-center rounded-full bg-accent px-2.5 text-xs font-extrabold whitespace-nowrap text-accent-ink"
         >
           {t('common.header.register')}
         </Link>
@@ -38,13 +38,23 @@ export function HeaderAccount() {
 
   const amount = formatSantim(session.wallet?.cash);
   return (
-    <Link
-      href={routes.wallet}
-      className="flex items-center gap-1 rounded bg-brand-strong px-2 py-1 text-xs font-bold tabular-nums"
-      aria-label={t('common.header.balanceLabel', { amount: `ETB ${amount}` })}
-    >
-      <span className="text-xxs font-semibold opacity-75">ETB</span>
-      <span>{amount}</span>
-    </Link>
+    <span className="flex h-8 items-center rounded-full bg-white/15 pl-3 text-xs font-bold">
+      <Link
+        href={routes.wallet}
+        className="flex items-center gap-1 pr-2 tabular-nums"
+        aria-label={t('common.header.balanceLabel', { amount: `ETB ${amount}` })}
+      >
+        <span className="hidden text-xxs font-semibold opacity-70 sm:inline">ETB</span>
+        <span>{amount}</span>
+      </Link>
+      <Link
+        href={routes.deposit}
+        prefetch={false}
+        aria-label={t('common.header.deposit')}
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-lg leading-none font-extrabold text-accent-ink"
+      >
+        +
+      </Link>
+    </span>
   );
 }

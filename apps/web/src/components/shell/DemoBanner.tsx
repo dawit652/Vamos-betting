@@ -9,7 +9,10 @@ export async function DemoBanner() {
   if (!IS_DEMO) return null;
   const t = await getT();
   return (
-    <p role="note" className="bg-demo-bg px-3 py-1 text-center text-xs font-semibold text-demo-ink">
+    <p
+      role="note"
+      className="border-b border-line bg-demo-bg px-3 py-1 text-center text-xs font-semibold text-demo-ink"
+    >
       {t('common.demo.banner')}
     </p>
   );

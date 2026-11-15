@@ -32,6 +32,7 @@ export const common: Messages['common'] = {
     register: 'ተመዝገብ',
     balance: 'ቀሪ ሂሳብ',
     balanceLabel: 'ቀሪ ሂሳብ፦ {amount}',
+    deposit: 'ገንዘብ አስገባ',
   },
   sports: {
     football: 'እግር ኳስ',
@@ -62,6 +63,10 @@ export const common: Messages['common'] = {
   oddsMove: {
     up: 'ኦድስ ጨምሯል',
     down: 'ኦድስ ቀንሷል',
+  },
+  theme: {
+    toLight: 'ወደ ብሩህ ገጽታ ቀይር',
+    toDark: 'ወደ ጨለማ ገጽታ ቀይር',
   },
   language: {
     label: 'ቋንቋ',

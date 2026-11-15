@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { cache } from 'react';
+import { cache, type ReactNode } from 'react';
 import { EventMarkets } from '@/components/sportsbook/EventMarkets';
+import { monogram } from '@/components/sportsbook/events';
 import { LiveClock, LiveScore } from '@/components/sportsbook/LiveMatch';
 import { LiveProvider, LiveStatusBar } from '@/components/sportsbook/LiveProvider';
+import { SportsbookFrame } from '@/components/sportsbook/SportsbookFrame';
 import { getLocale, getT } from '@/i18n/server';
 import { getEvent } from '@/lib/api/catalog';
 import { formatDayMonth, formatTime } from '@/lib/format';
@@ -26,7 +28,7 @@ export async function generateMetadata(props: PageProps<'/event/[id]'>): Promise
   };
 }
 
-/** Event page: header with clock and score, then every market in accordions. */
+/** Event page: poster header with clock and score, then every market in filterable cards. */
 export default async function EventPage(props: PageProps<'/event/[id]'>) {
   const { id } = await props.params;
   const [event, t, locale] = await Promise.all([loadEvent(id), getT(), getLocale()]);
@@ -38,54 +40,66 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
   const home = localName(event.home.name, locale);
   const away = localName(event.away.name, locale);
 
+  const team = (name: string, shortName: string) => (
+    <span className="flex min-w-0 flex-col items-center gap-1.5">
+      <span aria-hidden="true" className="crest h-14 w-14 text-base">
+        {monogram(shortName)}
+      </span>
+      <span className="w-full text-sm leading-tight font-bold break-words">{name}</span>
+    </span>
+  );
+
   const content = (
     <>
-      <header className="bg-brand-strong px-3 py-3 text-brand-ink">
-        <p className="flex items-center gap-1.5 text-xxs opacity-90">
+      <header className="poster mx-3 mt-3 p-4 lg:mx-0 lg:mt-0">
+        <p className="flex items-center gap-2 text-xxs text-white/70">
           {sport !== null ? (
             <Link
               href={routes.competition(sport, event.competition.slug)}
               prefetch={false}
-              className="truncate underline-offset-2 hover:underline"
+              className="flex min-w-0 items-center gap-1 font-semibold underline-offset-2 hover:underline"
             >
-              {localName(event.competition.category, locale)} ·{' '}
-              {localName(event.competition.name, locale)}
+              <span aria-hidden="true">‹</span>
+              <span className="truncate">
+                {localName(event.competition.category, locale)} ·{' '}
+                {localName(event.competition.name, locale)}
+              </span>
             </Link>
           ) : null}
-          <span aria-hidden="true">·</span>
-          <span className="flex-none tabular-nums">
+          <span className="ml-auto flex-none tabular-nums">
             {t('sportsbook.list.gameId', { id: event.gameId })}
           </span>
         </p>
-        <h1 className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-center font-bold">
-          <span className="break-words">{home}</span>
-          <span className="flex flex-col items-center text-lg tabular-nums">
+        <h1 className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-center">
+          {team(home, event.home.shortName)}
+          <span className="px-1 text-3xl leading-none font-black tabular-nums">
             {event.score !== null || live ? (
-              <span>
-                <LiveScore eventId={event.id} side="home" initial={event.score?.home ?? 0} /> -{' '}
+              <span className="whitespace-nowrap">
+                <LiveScore eventId={event.id} side="home" initial={event.score?.home ?? 0} />
+                <span className="px-1.5 text-white/70">:</span>
                 <LiveScore eventId={event.id} side="away" initial={event.score?.away ?? 0} />
               </span>
             ) : (
-              <span className="text-sm opacity-80">{t('sportsbook.match.vs')}</span>
+              <span className="text-base font-bold text-white/70">{t('sportsbook.match.vs')}</span>
             )}
           </span>
-          <span className="break-words">{away}</span>
+          {team(away, event.away.shortName)}
         </h1>
-        <p className="mt-1 text-center text-xxs">
+        <p className="mt-3 flex items-center justify-center gap-2 text-xxs">
           <LiveClock
             eventId={event.id}
             sport={event.sport}
             status={event.status}
             minute={event.liveMinute}
             period={event.period}
-            className="rounded-sm bg-surface px-1.5 py-0.5 text-ink"
+            className="rounded-full bg-white px-2 py-0.5 font-bold text-[#0a100e]"
           >
-            <span className="tabular-nums">
-              {formatDayMonth(event.startTime)} {formatTime(event.startTime, locale)}
+            <span className="rounded-full bg-white/15 px-2 py-0.5 font-semibold tabular-nums">
+              {formatDayMonth(event.startTime)} · {formatTime(event.startTime, locale)}
             </span>
           </LiveClock>
           {event.htScore !== null ? (
-            <span className="ml-2 opacity-80">
+            <span className="text-white/70">
               {t('sportsbook.match.htScore', {
                 home: event.htScore.home,
                 away: event.htScore.away,
@@ -95,7 +109,7 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
         </p>
       </header>
       {following ? null : (
-        <p className="bg-demo-bg px-3 py-1.5 text-center text-xxs text-demo-ink">
+        <p className="mx-3 mt-3 rounded-xl bg-demo-bg px-3 py-2 text-center text-xs font-semibold text-demo-ink lg:mx-0">
           {t('sportsbook.match.bettingClosed')}
         </p>
       )}
@@ -103,11 +117,20 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
     </>
   );
 
-  if (!following) return content;
-  return (
+  const frame = (children: ReactNode) =>
+    sport === null ? (
+      children
+    ) : (
+      <SportsbookFrame sport={sport} live={live} competition={event.competition.slug}>
+        {children}
+      </SportsbookFrame>
+    );
+
+  if (!following) return frame(content);
+  return frame(
     <LiveProvider eventIds={[event.id]} refreshMs={live ? 60_000 : 0}>
       <LiveStatusBar />
       {content}
-    </LiveProvider>
+    </LiveProvider>,
   );
 }

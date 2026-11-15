@@ -4,7 +4,8 @@ import { IS_DEMO } from '@/lib/mode';
 
 /**
  * Layout of the short static pages (help, terms, responsible gambling): server
- * only, no client JavaScript. Always ends with the 21+ and play-money notices.
+ * only, no client JavaScript. Always ends with the 21+ notice, and the play-money
+ * notice in a demo build.
  */
 export async function StaticPage({
   title,
@@ -17,7 +18,7 @@ export async function StaticPage({
 }) {
   const t = await getT();
   return (
-    <article className="space-y-3 px-3 pt-3">
+    <article className="mx-auto max-w-2xl space-y-3 px-3 pt-3">
       <header className="space-y-1">
         <h1 className="text-lg font-bold">{title}</h1>
         <p className="text-muted">{intro}</p>

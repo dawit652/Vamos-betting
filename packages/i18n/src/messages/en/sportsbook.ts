@@ -20,6 +20,7 @@ export const sportsbook = {
     nextPage: 'Next page',
     firstPage: 'Back to the start',
     gameId: 'ID {id}',
+    featured: 'Featured',
   },
   controls: {
     days: 'Match day',

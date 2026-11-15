@@ -32,12 +32,12 @@ export default async function SearchPage(props: PageProps<'/search'>) {
   const empty = results !== null && results.competitions.length + results.events.length === 0;
 
   return (
-    <div className="pb-4">
+    <div className="mx-auto max-w-2xl pb-4">
       <form
         method="get"
         action={routes.search}
         role="search"
-        className="flex flex-wrap items-end gap-2 border-b border-line bg-surface p-3"
+        className="card m-3 flex flex-wrap items-end gap-2"
       >
         <h1 className="sr-only">{t('sportsbook.search.title')}</h1>
         <div className="min-w-0 flex-1">

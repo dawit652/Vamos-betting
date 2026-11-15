@@ -1,11 +1,12 @@
 'use client';
 
 import type { BetView, OddsChangePolicy, UnavailableReason } from '@vamos/contracts';
+import { betslipMessages } from '@vamos/i18n/betslip';
 import type { MessageKey } from '@vamos/i18n/translate';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
-import { useLocale, useT } from '@/i18n/client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { I18nProvider, useClientMessages, useLocale, useT } from '@/i18n/client';
 import { bettingApi } from '@/lib/api/betting';
 import { errorMessageKey, isApiClientError } from '@/lib/api/errors';
 import { newIdempotencyKey } from '@/lib/api/idempotency';
@@ -34,8 +35,9 @@ import {
 import { useSlipQuote } from './useSlipQuote';
 
 /**
- * The betslip drawer (bottom sheet), loaded lazily by BetslipHost when the slip
- * opens. Legs with remove, stake with quick stakes, a live quote (total odds,
+ * The betslip: a bottom sheet on phones (the default export, loaded lazily by
+ * BetslipHost when the slip opens) and a docked column on wide sportsbook pages
+ * (BetslipPanel, loaded by BetslipDock). Legs with remove, stake with quick stakes, a live quote (total odds,
  * potential win, multi bonus, tax, net payout), odds-change handling, bet
  * placement with an idempotency key, and booking codes.
  *
@@ -68,15 +70,90 @@ interface Placed {
   bet: BetView;
   /** The bet comes from an earlier attempt whose answer was lost. */
   earlier: boolean;
+  /** The slip was emptied when the bet was placed. */
+  cleared: boolean;
 }
 
-export default function BetslipDrawer() {
+/**
+ * The betslip itself: title bar, then the slip or the bet just placed. Shared by
+ * the drawer (phones, `onClose` adds the close button) and the docked column of
+ * wide sportsbook pages (BetslipDock).
+ */
+export function BetslipPanel(props: { titleId: string; onClose?: () => void }) {
+  const locale = useLocale();
+  // The betslip's own texts come with this lazily loaded code, not with every page.
+  const parent = useClientMessages();
+  const messages = useMemo(
+    () => ({
+      ...parent,
+      sportsbook: { ...parent.sportsbook, betslip: betslipMessages(locale) } as NonNullable<
+        typeof parent.sportsbook
+      >,
+    }),
+    [parent, locale],
+  );
+  return (
+    <I18nProvider locale={locale} messages={messages}>
+      <PanelBody {...props} />
+    </I18nProvider>
+  );
+}
+
+function PanelBody({ titleId, onClose }: { titleId: string; onClose?: () => void }) {
   const t = useT();
   const slip = useBetslip();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [placed, setPlaced] = useState<Placed | null>(null);
+  const [stored, setPlaced] = useState<Placed | null>(null);
+  // In the docked column the player can pick again right away: the new slip then
+  // takes over from the confirmation of the last bet.
+  const placed = stored !== null && stored.cleared && slip.count > 0 ? null : stored;
+  return (
+    <>
+      <header className="flex flex-none items-center gap-2 border-b border-line bg-surface px-3 py-2.5">
+        <h2 id={titleId} className="text-base font-extrabold">
+          {t('sportsbook.betslip.title')}
+        </h2>
+        {placed === null && slip.count > 0 ? (
+          <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-extrabold text-accent-ink">
+            {slip.count === 1
+              ? t('sportsbook.betslip.single')
+              : t('sportsbook.betslip.multi', { count: slip.count })}
+          </span>
+        ) : null}
+        {onClose !== undefined ? (
+          <button
+            type="button"
+            className="ml-auto flex h-8 w-8 items-center justify-center rounded-full bg-raised text-xl leading-none"
+            aria-label={t('common.actions.close')}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        ) : null}
+      </header>
+      <div className="min-h-0 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
+        {placed !== null ? (
+          <PlacedBet
+            bet={placed.bet}
+            earlier={placed.earlier}
+            onDone={() => {
+              setPlaced(null);
+              onClose?.();
+            }}
+          />
+        ) : (
+          <SlipBody onPlaced={setPlaced} />
+        )}
+      </div>
+    </>
+  );
+}
 
-  const { close } = slip;
+/** The betslip as a bottom sheet over the page (phones and narrow screens). */
+export default function BetslipDrawer() {
+  const t = useT();
+  const { close } = useBetslip();
+  const panelRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     panelRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
@@ -105,41 +182,15 @@ export default function BetslipDrawer() {
         aria-modal="true"
         aria-labelledby="betslip-title"
         tabIndex={-1}
-        className="relative mx-auto flex max-h-[88dvh] w-full max-w-2xl flex-col rounded-t-lg bg-page shadow-2xl outline-none"
+        className="relative mx-auto flex max-h-[88dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border-t border-line bg-page shadow-2xl outline-none"
       >
-        <header className="flex items-center gap-2 rounded-t-lg bg-brand px-3 py-2 text-brand-ink">
-          <h2 id="betslip-title" className="font-bold">
-            {t('sportsbook.betslip.title')}
-          </h2>
-          {placed === null && slip.count > 0 ? (
-            <span className="rounded-full bg-accent px-2 text-xs font-bold text-accent-ink">
-              {slip.count === 1
-                ? t('sportsbook.betslip.single')
-                : t('sportsbook.betslip.multi', { count: slip.count })}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            className="ml-auto px-2 text-xl leading-none"
-            aria-label={t('common.actions.close')}
-            onClick={close}
-          >
-            ×
-          </button>
-        </header>
-        <div className="overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
-          {placed !== null ? (
-            <PlacedBet bet={placed.bet} earlier={placed.earlier} onDone={close} />
-          ) : (
-            <SlipBody onPlaced={(bet, earlier) => setPlaced({ bet, earlier })} />
-          )}
-        </div>
+        <BetslipPanel titleId="betslip-title" onClose={close} />
       </div>
     </div>
   );
 }
 
-function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => void }) {
+function SlipBody({ onPlaced }: { onPlaced: (placed: Placed) => void }) {
   const t = useT();
   const locale = useLocale();
   const router = useRouter();
@@ -197,10 +248,10 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
     setPlacing(false);
 
     if (result.kind === 'placed') {
-      if (result.earlier === null || sameSelections(result.earlier, slip.legs, slip.stake)) {
-        slip.clear();
-      }
-      onPlaced(result.bet, result.earlier !== null);
+      const cleared =
+        result.earlier === null || sameSelections(result.earlier, slip.legs, slip.stake);
+      if (cleared) slip.clear();
+      onPlaced({ bet: result.bet, earlier: result.earlier !== null, cleared });
       void session.refreshWallet();
       return;
     }
@@ -237,7 +288,23 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
   if (slip.count === 0) {
     return (
       <div className="space-y-3 p-3">
-        <p className="card text-center text-muted">{t('sportsbook.betslip.empty')}</p>
+        <div className="card space-y-2 py-6 text-center text-muted">
+          <svg
+            viewBox="0 0 24 24"
+            width="32"
+            height="32"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className="mx-auto opacity-60"
+          >
+            <path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3" />
+          </svg>
+          <p>{t('sportsbook.betslip.empty')}</p>
+        </div>
         <BookingCodePanel />
       </div>
     );
@@ -254,7 +321,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
 
   return (
     <div className="space-y-2 p-2">
-      <ul className="overflow-hidden rounded-md bg-surface">
+      <ul className="panel">
         {slip.legs.map((leg) => {
           const reason = unavailable.get(leg.selectionId);
           const selection = localName(leg.selectionName, locale);
@@ -274,7 +341,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-1 font-semibold">
                   {leg.live ? (
-                    <span className="rounded-sm bg-live px-1 text-xxs font-bold text-white">
+                    <span className="rounded-full bg-live px-1.5 text-xxs font-bold text-white">
                       {t('sportsbook.match.live')}
                     </span>
                   ) : null}
@@ -311,7 +378,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
               </div>
               <button
                 type="button"
-                className="-mr-2 flex-none px-2 text-lg leading-none text-muted"
+                className="-mr-1 flex h-7 w-7 flex-none items-center justify-center rounded-full bg-raised text-base leading-none text-muted"
                 aria-label={t('sportsbook.betslip.remove', { name: selection })}
                 onClick={() => slip.remove(leg.selectionId)}
               >
@@ -344,7 +411,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
       {slip.oddsChanged ? (
         <div
           role="status"
-          className="flex items-center justify-between gap-2 rounded-md bg-demo-bg px-3 py-2 text-demo-ink"
+          className="flex items-center justify-between gap-2 rounded-xl bg-demo-bg px-3 py-2 text-demo-ink"
         >
           <span className="text-xs font-semibold">{t('sportsbook.betslip.oddsChanged')}</span>
           <button
@@ -361,7 +428,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
         <label className="block">
           <span className="text-xs font-semibold text-muted">{t('sportsbook.betslip.stake')}</span>
           <input
-            className="input mt-1 font-bold tabular-nums"
+            className="input mt-1 text-lg font-extrabold tabular-nums"
             inputMode="decimal"
             autoComplete="off"
             value={stakeText}
@@ -374,7 +441,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
             <button
               key={value}
               type="button"
-              className={`chip flex-1 justify-center ${stake === value ? 'border-brand text-brand' : ''}`}
+              className="chip flex-1 justify-center font-bold tabular-nums"
               aria-pressed={stake === value}
               onClick={() => setStakeFromText(stakeToInput(value))}
             >
@@ -408,7 +475,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
           <SummaryRow
             label={t('sportsbook.betslip.netPayout')}
             value={quote === null ? '–' : formatSantim(quote.netPayout, { currency: true })}
-            className="border-t border-line pt-1 text-base font-bold"
+            className="border-t border-line pt-2 text-base font-extrabold text-brand"
           />
         </dl>
         {quote?.cappedByMaxPayout === true ? (
@@ -441,7 +508,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
       <label className="flex items-center justify-between gap-2 px-1 text-xs">
         <span className="font-semibold text-muted">{t('sportsbook.betslip.policy.label')}</span>
         <select
-          className="rounded-sm border border-line bg-surface px-2 py-1.5 text-sm"
+          className="rounded-lg border border-line bg-raised px-2 py-1.5 text-sm"
           value={slip.oddsChangePolicy}
           onChange={(event) => slip.setOddsChangePolicy(event.target.value as OddsChangePolicy)}
         >
@@ -456,7 +523,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
       {placeError !== null ? (
         <div
           role="alert"
-          className="rounded-md bg-surface px-3 py-2 text-sm font-semibold text-down"
+          className="rounded-xl border border-down/40 bg-down/10 px-3 py-2 text-sm font-semibold text-down"
         >
           {t(placeError.key)}
           {placeError.topUp ? (
@@ -504,7 +571,7 @@ function SlipBody({ onPlaced }: { onPlaced: (bet: BetView, earlier: boolean) => 
       ) : (
         <button
           type="button"
-          className="btn btn-accent w-full text-base"
+          className="btn btn-accent min-h-12 w-full text-base font-extrabold"
           disabled={!canPlace}
           onClick={() => void place()}
         >
@@ -595,8 +662,11 @@ function PlacedBet({
 
   return (
     <div className="space-y-3 p-3 text-center">
-      <div className="card space-y-1">
-        <p className="text-3xl text-up" aria-hidden="true">
+      <div className="card space-y-1 py-5">
+        <p
+          className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-soft text-2xl font-bold text-up"
+          aria-hidden="true"
+        >
           ✓
         </p>
         <p className="text-lg font-bold">{t('sportsbook.betslip.success.title')}</p>

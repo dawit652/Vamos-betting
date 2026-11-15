@@ -69,7 +69,8 @@ async function bet(eventIds: string[], stake: bigint): Promise<void> {
       return { selectionId: s.id, oddsMilli: s.odds };
     }),
   );
-  await place(ctx.handle.db, userId, { stake, legs, settings });
+  // The fixtures kick off on fixed dates; bet at the fixtures' clock, not today's.
+  await place(ctx.handle.db, userId, { stake, legs, settings, now: T0 });
 }
 
 describe('listScrapedEvents', () => {

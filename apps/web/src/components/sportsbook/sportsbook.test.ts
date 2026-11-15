@@ -1,11 +1,13 @@
 import type { EventSummary, MarketView } from '@vamos/contracts';
 import { describe, expect, it } from 'vitest';
 import {
+  codePrefix,
   eventRef,
   groupMarkets,
   isBettable,
   isListedMarket,
   matchClock,
+  monogram,
   periodMessageKey,
   shortLabel,
   slipLeg,
@@ -313,5 +315,29 @@ describe('list controls parameters', () => {
     expect(listHref('/', 'today', 'abc', { country: 'england' })).toBe(
       '/?tab=today&country=england&cursor=abc',
     );
+  });
+});
+
+describe('event page odds labels', () => {
+  it('prefixes a selection with its code only when the code adds something', () => {
+    expect(codePrefix('1', 'Home FC')).toBe('1');
+    expect(codePrefix('x', 'Draw')).toBe('X');
+    expect(codePrefix('1X', 'Home FC or Draw')).toBe('1X');
+    expect(codePrefix('0-0', '0-0')).toBeNull();
+    expect(codePrefix('over', 'Over 2.5')).toBeNull();
+    expect(codePrefix('no', 'No')).toBeNull();
+    expect(codePrefix('', 'Anything')).toBeNull();
+  });
+});
+
+describe('monograms', () => {
+  it('takes initials of several words and the start of a single one', () => {
+    expect(monogram('Man Utd')).toBe('MU');
+    expect(monogram('Liverpool')).toBe('LIV');
+    expect(monogram('PSG')).toBe('PSG');
+    expect(monogram('International clubs')).toBe('IC');
+    expect(monogram('T. Paul')).toBe('TP');
+    expect(monogram('Real Sociedad de Futbol SAD')).toBe('RSD');
+    expect(monogram('  ')).toBe('?');
   });
 });

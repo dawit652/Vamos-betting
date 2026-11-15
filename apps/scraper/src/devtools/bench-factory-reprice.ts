@@ -141,7 +141,7 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   }
   benchFactoryReprice(events)
     .then((result) => {
-      console.log(JSON.stringify(result, null, 2));
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       process.exit(0);
     })
     .catch((error: unknown) => {

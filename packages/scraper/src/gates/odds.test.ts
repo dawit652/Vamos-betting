@@ -179,7 +179,7 @@ describe('O2 sane prices', () => {
     expect(codes(checkMarkets([twoWay('ou', 1900, 1900)]))).toEqual(['bad_line']);
     expect(codes(checkMarkets([twoWay('ou', 1900, 1900, '2')]))).toEqual(['bad_line']);
     expect(checkMarkets([twoWay('ou', 1800, 1800, '2.5')])).toEqual({ ok: true });
-    expect(codes(checkMarkets([{ type: 'xx' as '1x2', line: null, selections: [] }]))).toEqual([
+    expect(codes(checkMarkets([{ type: 'xx', line: null, selections: [] }]))).toEqual([
       'unknown_market',
     ]);
     expect(codes(checkMarkets([m1x2(2100, 3300, 3500), m1x2(2100, 3300, 3500)]))).toEqual([

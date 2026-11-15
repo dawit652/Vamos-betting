@@ -10,6 +10,8 @@ import { MarketSections } from './MarketSections';
 export function EventMarkets({ event }: { event: EventDetail }) {
   const bettingOpen = event.status === 'scheduled' || event.status === 'live';
   return (
-    <MarketSections markets={event.markets} event={eventRef(event)} bettingOpen={bettingOpen} />
+    <div className="px-3 pt-3 lg:px-0">
+      <MarketSections markets={event.markets} event={eventRef(event)} bettingOpen={bettingOpen} />
+    </div>
   );
 }

@@ -6,6 +6,7 @@ import { useLocale, useT } from '@/i18n/client';
 import { localName } from '@/lib/localized';
 import { groupMarkets, oddsMarket, type EventRef } from './events';
 import { MarketOdds } from './MarketOdds';
+import { Chevron } from './Chevron';
 import {
   MAIN_SECTION,
   applyFilter,
@@ -16,9 +17,6 @@ import {
 
 /** Main accordions opened on first view; the rest stay closed to keep the page short. */
 const OPEN_GROUPS = 4;
-
-const CHIP =
-  'flex-none rounded-full border px-3 py-1 text-xs font-semibold whitespace-nowrap aria-pressed:border-brand aria-pressed:bg-brand aria-pressed:text-brand-ink';
 
 /**
  * The event page's markets: "Main" (today's markets, accordion per type, as
@@ -68,21 +66,21 @@ export function MarketSections({
     });
 
   if (all.length === 0) {
-    return <p className="card m-3 text-center text-muted">{t('sportsbook.markets.none')}</p>;
+    return <p className="card text-center text-muted">{t('sportsbook.markets.none')}</p>;
   }
   const single = !hasGroups;
   return (
     <div>
       {hasGroups ? (
-        <div className="space-y-2 bg-surface px-3 py-2">
+        <div className="mb-3 space-y-2">
           <div
             role="group"
             aria-label={t('sportsbook.markets.filterLabel')}
-            className="flex gap-1.5 overflow-x-auto"
+            className="no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 lg:mx-0 lg:px-0"
           >
             <button
               type="button"
-              className={CHIP}
+              className="chip"
               aria-pressed={filter === 'all'}
               onClick={() => setFilter('all')}
             >
@@ -92,7 +90,7 @@ export function MarketSections({
               <button
                 key={s.id}
                 type="button"
-                className={CHIP}
+                className="chip"
                 aria-pressed={filter === s.id}
                 onClick={() => setFilter(s.id)}
               >
@@ -109,14 +107,14 @@ export function MarketSections({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('sportsbook.markets.searchPlaceholder')}
-            className="w-full rounded-sm border border-line bg-bg px-3 py-2 text-sm"
+            className="input"
           />
         </div>
       ) : null}
       {sections.length === 0 ? (
-        <p className="card m-3 text-center text-muted">{t('sportsbook.markets.noMatches')}</p>
+        <p className="card text-center text-muted">{t('sportsbook.markets.noMatches')}</p>
       ) : (
-        <div className="space-y-px">
+        <div className="space-y-2">
           {sections.map((section) =>
             section.id === MAIN_SECTION ? (
               <MainSection
@@ -163,17 +161,12 @@ interface SectionProps {
 function MainSection({ section, heading, ...rest }: SectionProps & { heading: string | null }) {
   const locale = useLocale();
   const body = (
-    <div className="space-y-px">
+    <div className="space-y-2">
       {groupMarkets(section.markets).map((group, index) => (
-        <details key={group.type} open={index < OPEN_GROUPS} className="group bg-surface">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 font-semibold [&::-webkit-details-marker]:hidden">
+        <details key={group.type} open={index < OPEN_GROUPS} className="group panel">
+          <summary className="flex items-center justify-between gap-2 px-3 py-2.5 font-bold">
             <span className="truncate">{localName(group.name, locale)}</span>
-            <span
-              aria-hidden="true"
-              className="text-muted transition-transform group-open:rotate-180"
-            >
-              ▾
-            </span>
+            <Chevron />
           </summary>
           <div className="space-y-1.5 px-3 pb-3">
             {group.markets.map((market) => (
@@ -230,19 +223,19 @@ function Collapsible({
 }: SectionProps & { heading: string; children: React.ReactNode }) {
   const panelId = useId();
   return (
-    <section className="bg-surface" aria-label={heading} data-section={section.id}>
+    <section className="panel" aria-label={heading} data-section={section.id}>
       <button
         type="button"
         aria-expanded={expanded}
         aria-controls={panelId}
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-bold"
+        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left font-bold"
       >
         <span className="truncate">
           {heading} <span className="text-xs font-normal text-muted">{count}</span>
         </span>
-        <span aria-hidden="true" className={`text-muted ${expanded ? 'rotate-180' : ''}`}>
-          ▾
+        <span className={expanded ? 'rotate-180' : ''}>
+          <Chevron />
         </span>
       </button>
       <div id={panelId} hidden={!expanded}>

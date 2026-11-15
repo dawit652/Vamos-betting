@@ -706,6 +706,7 @@ export const account: Messages['account'] = {
       bonus: '+{percent}',
       minOdds: 'እያንዳንዱ ምርጫ {odds} ወይም ከዚያ በላይ ኦድስ ሊኖረው ይገባል።',
       maxBonus: 'ጉርሻው በአንድ ውርርድ ቢበዛ {amount} ነው።',
+      jackpot: 'የሁሉንም ጨዋታ ውጤት በትክክል ገምተው ጃክፖቱን ያሸንፉ።',
     },
   },
 

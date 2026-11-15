@@ -11,12 +11,20 @@ import { expect, test } from '@playwright/test';
  * (next start plus brotli: static JS/CSS at maximum quality, pages at a fast
  * level). Measured on 10 Oct 2026 against server.mjs: 149.8 KB = JS 129.4 KB +
  * HTML 14.8 KB + CSS 5.7 KB, in 12 requests (headers included); with plain
- * `next start` (gzip) it was 179 KB. The budget leaves a little room for the
+ * `next start` (gzip) it was 179 KB. Measured on 14 Nov 2026 after the redesign
+ * (dark theme, league navigation, featured poster, docked betslip): 158.4 KB =
+ * JS 130.7 KB + HTML 18.6 KB + CSS 7.4 KB + the session fetch, in 14 requests;
+ * the previous UI weighed about 153 KB on the same data, so the page is over the
+ * target and has little room left. Measured on 15 Nov 2026 after merging the
+ * redesign onto the live branch (search, day and country chips, flags): 159.8 KB
+ * = JS 132.4 + HTML 18.1 + CSS 7.6 + the session fetch, in 14 requests, with 15
+ * rows on the first home page (was 20) and the betslip texts sent with the
+ * betslip's own code; the live branch alone was about 157.6 KB. The budget leaves a little room for the
  * HTML, which grows with the listed matches (about 0.4 KB per row, 20 rows
  * per tab). Lower it when the page gets lighter; raise it only with a reason.
  */
 const TARGET_BYTES = 150 * 1024;
-const BUDGET_BYTES = 160 * 1024; // measured 149.8 KB, plus room for more or longer rows
+const BUDGET_BYTES = 160 * 1024; // measured 159.8 KB (15 Nov 2026): 0.2 KB of room
 
 interface Transfer {
   url: string;

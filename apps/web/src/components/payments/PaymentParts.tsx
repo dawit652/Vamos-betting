@@ -6,9 +6,13 @@ import { Alert } from '@/components/account/ui';
 import { useT } from '@/i18n/client';
 import { paymentsApi } from '@/lib/api/payments';
 
-/** Explicit play-money notice for every payment screen. Never hide it. */
-export function PaymentDemoNotice() {
+/**
+ * Play-money notice on every payment screen. Hidden only once GET /payments/options
+ * has answered `demo: false` (licensed mode); shown while loading or after an error.
+ */
+export function PaymentDemoNotice({ state }: { state: OptionsState }) {
   const t = useT();
+  if (state.status === 'ready' && !state.options.demo) return null;
   return <Alert tone="demo">{t('account.payments.demoNotice')}</Alert>;
 }
 

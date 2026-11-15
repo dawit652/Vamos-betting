@@ -45,14 +45,3 @@ export const routes = {
   privacy: '/privacy',
   responsibleGambling: '/responsible-gambling',
 } as const;
-
-/** The sport a sportsbook path is about, or null when the path is not a sport list. */
-export function sportFromPath(pathname: string): { sport: Sport; live: boolean } | null {
-  if (pathname === '/') return { sport: DEFAULT_SPORT, live: false };
-  if (pathname === '/live') return { sport: DEFAULT_SPORT, live: true };
-  const [, first, second] = pathname.split('/');
-  if ((first === 'sport' || first === 'live') && second !== undefined && isSport(second)) {
-    return { sport: second, live: first === 'live' };
-  }
-  return null;
-}
