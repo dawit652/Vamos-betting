@@ -5,8 +5,9 @@ Read this first, then `docs/frontend-redesign-plan.md` (the full plan, with done
 
 ## Continue here (updated 15 Nov 2026, afternoon)
 
-**Branch:** `claude/happy-keller-redesign-v030`, merged into the default branch through a pull request
-once CI passes (see "Branches" in README.md).
+**Branch:** the default branch (`claude/quirky-ramanujan-xb7e2u`) is the latest: PR #3 merged it on 15 Nov
+(CI green). Work continues on `claude/happy-keller-redesign-v030` and reaches the default branch by pull
+request once CI passes (see "Branches" in README.md).
 
 **Done on the branch, not deployed yet** (the server still runs the web app of `e56c80a`):
 
@@ -27,11 +28,16 @@ once CI passes (see "Branches" in README.md).
    board in the scraper and its compose settings). The server's GitHub key is read-only: pack it with
    `git bundle create /root/nahubet-live.bundle 661763f..live/nahubet-new-2026-11-15`, copy it with
    `scp`, check it for secrets and large files, push it, and merge it into this branch.
-2. **Full-stack deploy** (Opus, high: migrations 0050 to 0052 run, money path). Take a database dump
-   first (docs/backups.md), then from a checkout of the merged branch with the live env file:
-   `docker compose build && docker compose up -d --wait` (project `vamos`,
-   `COMPOSE_ENV_FILES=/opt/nahubet-new/infra/.env.prod`). Then the web app can follow
-   (`API_UPDATED=1 infra/scripts/deploy-web.sh ...`).
+2. **Full-stack deploy** (Opus, high: migrations 0047 to 0052 run, money path) with
+   `infra/scripts/deploy-full.sh` (on the default branch), from the server's checkout:
+   `cd /opt/nahubet && git fetch origin <branch> && bash <(git show origin/<branch>:infra/scripts/deploy-full.sh) <branch> /opt/nahubet-new/infra/.env.prod vamos`.
+   It refuses a non-licensed env file, a dirty checkout, and any setting of the live compose file
+   the branch lacks (the server-only Hulusport lines, until step 1 is done). It dumps the database
+   (`infra/scripts/backup.sh dump`, to `/root/vamos-backups`), tags the running images, builds and
+   starts the stack (the migrate job first), smoke-tests it, and puts the previous images back if
+   anything fails. The migrations from v0.2.0 on are additive, so the previous images keep working
+   after a rollback. If the server's own changes contain a migration, check its number against
+   0047 to 0052 first. The whole stack includes the web app, so no separate web deploy is needed.
 3. **About 500 options per match** (Sonnet, medium, after step 2): already built in v0.3.0 (the market
    factory prices 587 to 635 options per match from the odds feed data); switch it on with
    `SCRAPER_FACTORY_MARKETS=on` and `FEATURE_FACTORY_MARKETS=true` in the env file and the "Market
