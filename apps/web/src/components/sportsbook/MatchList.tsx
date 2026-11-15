@@ -3,7 +3,7 @@ import type { Locale } from '@vamos/i18n';
 import type { Translator } from '@vamos/i18n/translate';
 import Link from 'next/link';
 import { getLocale, getT } from '@/i18n/server';
-import { flagEmoji } from '@/lib/flag';
+import { WORLD } from '@/lib/flag';
 import { formatDayMonth, formatTime, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes } from '@/lib/routes';
@@ -35,8 +35,8 @@ export async function MatchList({
   showCompetition?: boolean;
   /** Collapsible league cards (flag, name, count) over runs of the same competition. */
   grouped?: boolean;
-  /** Country code by competition slug, for the league cards' flags (competitionFlags). */
-  flags?: Readonly<Record<string, string | null>>;
+  /** Flag emoji by competition slug, for the league cards (competitionFlags). */
+  flags?: Readonly<Record<string, string>>;
 }) {
   const [t, locale] = await Promise.all([getT(), getLocale()]);
   const now = new Date();
@@ -65,7 +65,7 @@ export async function MatchList({
               className="flex min-h-11 items-center gap-2 border-b border-line bg-raised px-3"
             >
               <span aria-hidden="true" className="text-base leading-none">
-                {flagEmoji(flags[group.slug])}
+                {flags[group.slug] ?? WORLD}
               </span>
               <span className="min-w-0 flex-1 truncate">
                 <span className="text-xs text-muted">{localName(group.category, locale)} · </span>

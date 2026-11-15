@@ -7,7 +7,7 @@ import { MatchList } from '@/components/sportsbook/MatchList';
 import { Pager } from '@/components/sportsbook/SportHome';
 import { listHref, parseCursor } from '@/components/sportsbook/tabs';
 import { streamEventIds } from '@/components/sportsbook/events';
-import { flagEmoji } from '@/lib/flag';
+import { competitionFlag } from '@/lib/flag';
 import { SportsbookFrame } from '@/components/sportsbook/SportsbookFrame';
 import { getLocale, getT } from '@/i18n/server';
 import { getCompetitions, getEvents } from '@/lib/api/catalog';
@@ -72,7 +72,7 @@ export default async function CompetitionPage(props: PageProps<'/sport/[sport]/[
     <SportsbookFrame sport={sport} competition={competition.slug}>
       <header className="poster mx-3 mt-1 flex items-center gap-3 p-4 lg:mx-0 lg:mt-0">
         <span aria-hidden="true" className="crest h-12 w-12 text-2xl">
-          {flagEmoji(category.countryCode)}
+          {competitionFlag(competition, category)}
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-xxs font-semibold text-white/70">{localName(category.name, locale)}</p>

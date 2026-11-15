@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { BetslipDock } from '@/components/betslip/BetslipDock';
 import { getLocale, getT } from '@/i18n/server';
 import { getCompetitions, getSports } from '@/lib/api/catalog';
-import { flagEmoji } from '@/lib/flag';
+import { competitionFlag } from '@/lib/flag';
 import { localName } from '@/lib/localized';
 import { routes, SPORTS, type Sport } from '@/lib/routes';
 
@@ -53,7 +53,6 @@ export async function SportsbookFrame({
   const categories = (leagues?.items ?? [])
     .map((category) => ({
       ...category,
-      flag: flagEmoji(category.category.countryCode),
       competitions: category.competitions.filter((c) => c.eventCount > 0),
     }))
     .filter((category) => category.competitions.length > 0);
@@ -106,7 +105,7 @@ export async function SportsbookFrame({
                   aria-current={c.slug === competition ? 'page' : undefined}
                   className={`chip ${c.featured ? '' : 'rail-wide'}`}
                 >
-                  <span aria-hidden="true">{category.flag}</span>
+                  <span aria-hidden="true">{competitionFlag(c, category.category)}</span>
                   <span className="lg:min-w-0 lg:flex-1 lg:truncate">
                     {localName(c.name, locale)}
                   </span>

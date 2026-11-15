@@ -1,6 +1,7 @@
 import type { CompetitionsResponse } from '@vamos/contracts';
 import { describe, expect, it } from 'vitest';
-import { featuredCompetitions } from './leagues';
+import { EUROPE, WORLD, flagEmoji } from '@/lib/flag';
+import { competitionFlags, featuredCompetitions } from './leagues';
 
 const comp = (slug: string, eventCount: number, featured: boolean) => ({
   slug,
@@ -28,5 +29,29 @@ describe('featuredCompetitions', () => {
   it('is empty without data', () => {
     expect(featuredCompetitions(null)).toEqual([]);
     expect(featuredCompetitions({ items: [] })).toEqual([]);
+  });
+});
+
+describe('competitionFlags', () => {
+  it('maps each competition slug to its flag emoji', () => {
+    const data: CompetitionsResponse = {
+      items: [
+        {
+          category: { slug: 'england', name: { en: 'England' }, countryCode: 'GB-ENG' },
+          competitions: [comp('premier-league', 1, true)],
+        },
+        {
+          category: { slug: 'international-clubs', name: { en: 'Clubs' }, countryCode: null },
+          competitions: [comp('uefa-champions-league', 1, true)],
+        },
+        category('misc', [comp('mystery-cup', 1, false)]),
+      ],
+    };
+    expect(competitionFlags(data)).toEqual({
+      'premier-league': flagEmoji('GB-ENG'),
+      'uefa-champions-league': EUROPE,
+      'mystery-cup': WORLD,
+    });
+    expect(competitionFlags(null)).toEqual({});
   });
 });
