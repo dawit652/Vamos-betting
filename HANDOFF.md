@@ -3,15 +3,23 @@
 Written at the end of a Claude Code session on 14 Nov 2026 so another session (or account) can continue.
 Read this first, then `docs/frontend-redesign-plan.md` (the full plan, with done and open items).
 
-## Where things are
+## Where things are (updated 15 Nov 2026)
 
-| Branch                               | What it is                                                                                                                 |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `claude/exciting-feynman-fxbdz3`     | The live branch: what the server's checkout `/opt/nahubet` tracks. Licensed mode by default. **Not changed by this work.** |
-| `claude/happy-keller-i7cvrh`         | The front-end redesign alone, built on the old base `a577587`. Superseded by the merge branch below; keep for reference.   |
-| `claude/happy-keller-redesign-merge` | **Work in progress for review**: the newest live branch with the redesign merged on top. Nothing from it is deployed.      |
+| Branch                               | What it is                                                                                                                                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `claude/happy-keller-redesign-v030`  | **Deploy this one.** Release v0.3.0 (`claude/fervent-bardeen-axglt2`) with the redesign merged on top. Its web app also works with an older API (v0.3.0's new market fields are optional). |
+| `claude/happy-keller-redesign-merge` | The redesign on `claude/exciting-feynman-fxbdz3` (before v0.2.0 and v0.3.0). Superseded by the v030 branch.                                                                                |
+| `claude/fervent-bardeen-axglt2`      | Release v0.3.0. Not changed by this work.                                                                                                                                                  |
+| `claude/happy-keller-i7cvrh`         | The redesign alone on the old base `a577587`. Reference only.                                                                                                                              |
 
-## What the merge branch contains
+**What the server runs.** The compose project `vamos` was started from `/opt/nahubet-new`, which is not a
+git checkout. Its compose file matches **release v0.2.0** (`661763f`) plus three lines that are on no branch
+(`SCRAPER_HULUSPORT_URL`, `SCRAPER_HULUSPORT_INTERVAL_SECONDS` and their comment): **local, uncommitted
+changes that exist only on the server.** Back that folder up before anything else, e.g.
+`tar czf /root/nahubet-new-$(date +%F).tgz --exclude=node_modules --exclude=.next /opt/nahubet-new`, and
+commit those changes to a branch. `/opt/nahubet` is a git checkout (`claude/exciting-feynman-fxbdz3`, behind).
+
+## What the redesign branches contain
 
 - All features of the live branch kept: search, day chips, country chips with flags, 1X2 / double chance
   switch, featured leagues, flags, price-move flash, mini slip bar with net pay, consecutive league
@@ -55,10 +63,14 @@ image first, checks the new page shows no DEMO banner, and rolls back by itself 
 unhealthy. The database, api, worker, admin and scraper are not touched. On the server:
 
 ```bash
-cd /opt/nahubet && git fetch origin claude/happy-keller-redesign-merge
-bash <(git show origin/claude/happy-keller-redesign-merge:infra/scripts/deploy-web.sh) \
-  claude/happy-keller-redesign-merge /opt/nahubet-new/infra/.env.prod vamos
+cd /opt/nahubet && git fetch origin claude/happy-keller-redesign-v030
+ALLOW_COMPOSE_DIFF=1 bash <(git show origin/claude/happy-keller-redesign-v030:infra/scripts/deploy-web.sh) \
+  claude/happy-keller-redesign-v030 /opt/nahubet-new/infra/.env.prod vamos
 ```
+
+The compose difference it prints (and allows) is expected: v0.3.0's new settings (owner alerts, factory
+markets, price expiry) and the server's own Hulusport-board lines. None of them belong to the `web`
+service, the only one recreated.
 
 ## Next steps
 

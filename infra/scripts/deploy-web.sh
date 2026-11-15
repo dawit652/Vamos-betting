@@ -6,9 +6,9 @@
 #   infra/scripts/deploy-web.sh <branch> [env file] [compose project]
 #
 # On the server, from a checkout that does not have this script yet:
-#   cd /opt/nahubet && git fetch origin claude/happy-keller-redesign-merge
-#   bash <(git show origin/claude/happy-keller-redesign-merge:infra/scripts/deploy-web.sh) \
-#     claude/happy-keller-redesign-merge /opt/nahubet-new/infra/.env.prod vamos
+#   cd /opt/nahubet && git fetch origin claude/happy-keller-redesign-v030
+#   bash <(git show origin/claude/happy-keller-redesign-v030:infra/scripts/deploy-web.sh) \
+#     claude/happy-keller-redesign-v030 /opt/nahubet-new/infra/.env.prod vamos
 #
 # What it does, stopping at the first problem:
 #   1. refuses a checkout with uncommitted changes, or an env file that is not a licensed build
@@ -45,14 +45,16 @@ git fetch origin "$BRANCH"
 # The running project was started from the compose file next to its env file: if that file differs
 # from this branch's, recreating `web` could change its ports, networks or settings. Stop and show it
 # (set ALLOW_COMPOSE_DIFF=1 after reviewing the difference).
+# The difference is always printed, also when it is allowed, so the log shows what was accepted.
 LIVE_COMPOSE="$(dirname "$ENV_FILE")/docker-compose.prod.yml"
-if [[ -f "$LIVE_COMPOSE" && "${ALLOW_COMPOSE_DIFF:-0}" != "1" ]]; then
-  if ! git show "origin/$BRANCH:infra/docker-compose.prod.yml" 2>/dev/null | diff -u "$LIVE_COMPOSE" - >/tmp/deploy-web-compose.diff; then
-    if [[ -s /tmp/deploy-web-compose.diff ]]; then
-      cat /tmp/deploy-web-compose.diff >&2
+if [[ -f "$LIVE_COMPOSE" ]]; then
+  if ! git show "origin/$BRANCH:infra/docker-compose.prod.yml" | diff -u "$LIVE_COMPOSE" - >/tmp/deploy-web-compose.diff; then
+    cat /tmp/deploy-web-compose.diff >&2
+    if [[ "${ALLOW_COMPOSE_DIFF:-0}" != "1" ]]; then
       echo "the compose file differs from $LIVE_COMPOSE (above): review it, then rerun with ALLOW_COMPOSE_DIFF=1" >&2
       exit 1
     fi
+    echo "compose difference allowed (ALLOW_COMPOSE_DIFF=1): only the web service is recreated" >&2
   fi
 fi
 
