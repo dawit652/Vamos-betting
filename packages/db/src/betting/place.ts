@@ -29,7 +29,7 @@ import { betLegs, bets } from '../schema/betting';
 import type { GameSettings } from '../settings/index';
 import { BET_PLACED } from './events';
 import { stakeEntries, stakeLedgerKey } from './postings';
-import { getBetById, type BetRow } from './queries';
+import { assembleUserBets, type BetRow } from './queries';
 import { lockEventsForRisk, openLiabilities } from './risk';
 import {
   loadSelectionSnapshots,
@@ -189,19 +189,20 @@ function unavailableLegs(
   return out;
 }
 
+/** Inserts the bet under a fresh short id and returns the row as stored (defaults included). */
 async function insertBetRow(
   tx: DbTransaction,
   values: Omit<typeof bets.$inferInsert, 'shortId'>,
   randomBytes: (size: number) => Uint8Array,
-): Promise<string> {
+): Promise<BetRow> {
   for (let attempt = 0; attempt < MAX_SHORT_ID_ATTEMPTS; attempt += 1) {
     const shortId = encodeCode(randomBytes(BET_SHORT_ID_LENGTH), BET_SHORT_ID_LENGTH);
     const [row] = await tx
       .insert(bets)
       .values({ ...values, shortId })
       .onConflictDoNothing({ target: bets.shortId })
-      .returning({ shortId: bets.shortId });
-    if (row !== undefined) return row.shortId;
+      .returning();
+    if (row !== undefined) return row;
   }
   throw new Error(`no free bet short id after ${MAX_SHORT_ID_ATTEMPTS} attempts`);
 }
@@ -258,8 +259,14 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
         'This Idempotency-Key was already used for a different bet.',
       );
     }
-    const bet = await getBetById(tx, existing.id);
-    if (bet === null) throw new Error(`bet ${existing.id} vanished`);
+    // The rows just read are the bet's rows (as getBetById would read them again); only the
+    // selections are still needed for the view.
+    const snapshots = await loadSelectionSnapshots(
+      tx,
+      legs.map((leg) => leg.selectionId),
+    );
+    const [bet] = assembleUserBets([existing], legs, snapshots);
+    if (bet === undefined) throw new Error(`bet ${existing.id} vanished`);
     return { bet, replayed: true };
   }
   // Checked against the current rules only now: a replay returns the bet
@@ -322,7 +329,7 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
   const live = resolved.some(({ snapshot }) => snapshot.eventStatus === 'live');
   const acceptAfter = live ? new Date(now.getTime() + settings.liveBetDelayMs) : null;
   const status = live ? 'pending_acceptance' : 'open';
-  const shortId = await insertBetRow(
+  const betRow = await insertBetRow(
     tx,
     {
       id: betId,
@@ -347,19 +354,23 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
     },
     input.randomBytes,
   );
-  await tx.insert(betLegs).values(
-    resolved.map(({ leg, snapshot }, position) => ({
-      betId,
-      position,
-      eventId: snapshot.eventId,
-      marketId: snapshot.marketId,
-      selectionId: snapshot.selectionId,
-      oddsMilli: slipLegs[position]?.oddsMilli ?? snapshot.oddsMilli,
-      requestedOddsMilli: leg.oddsMilli,
-      isLive: snapshot.eventStatus === 'live',
-      updatedAt: now,
-    })),
-  );
+  const { shortId } = betRow;
+  const legRows = await tx
+    .insert(betLegs)
+    .values(
+      resolved.map(({ leg, snapshot }, position) => ({
+        betId,
+        position,
+        eventId: snapshot.eventId,
+        marketId: snapshot.marketId,
+        selectionId: snapshot.selectionId,
+        oddsMilli: slipLegs[position]?.oddsMilli ?? snapshot.oddsMilli,
+        requestedOddsMilli: leg.oddsMilli,
+        isLive: snapshot.eventStatus === 'live',
+        updatedAt: now,
+      })),
+    )
+    .returning();
 
   await enqueueOutbox(tx, {
     type: BET_PLACED,
@@ -401,8 +412,15 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
     ip: input.ip ?? null,
   });
 
-  const bet = await getBetById(tx, betId);
-  if (bet === null) throw new Error(`bet ${betId} was not inserted`);
+  // The view is built from the rows as inserted (RETURNING gives the column defaults) and the
+  // snapshots loaded above, instead of reading the bet back (3 statements). The selection rows
+  // are locked FOR SHARE, so their odds and status are still those snapshots.
+  const [bet] = assembleUserBets(
+    [betRow],
+    [...legRows].sort((a, b) => a.position - b.position),
+    snapshots,
+  );
+  if (bet === undefined) throw new Error(`bet ${betId} was not inserted`);
 
   // The stake posting comes last: it locks the shared house_stakes account
   // row until commit, so every bet in the system queues on that lock. Writing

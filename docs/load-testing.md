@@ -90,7 +90,7 @@ added after the lock is taken.
 **What limits throughput now.** The single API process is CPU-bound at about 95 bets/s (plus
 catalogue reads) on this shared 4-CPU box. A CPU profile spreads the time across pg/drizzle query
 building and parsing, Fastify, and logging; no single function stands out. One placement takes
-about 23 queries in `placeBet`, about 20 ms of database round trips when timed alone, and about
+about 23 queries in `placeBet` (20 since task A6 on 15 Nov 2026: the bet is no longer read back after the insert; the rest sit in `rg/` and `ledger/`, see the plan's task A6b), about 20 ms of database round trips when timed alone, and about
 40 ms end to end through the API. The p95 at 50 connections is mostly queueing: 40 bet connections
 divided by 96 bets/s is about 0.42 s.
 

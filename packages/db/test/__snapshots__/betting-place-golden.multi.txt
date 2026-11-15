@@ -1,0 +1,493 @@
+{
+  "placed": {
+    "bet": {
+      "acceptAfter": null,
+      "acceptedAt": "NOW+0",
+      "betType": "multi",
+      "bonusPercentBps": 300,
+      "cashedOut": null,
+      "channel": "web",
+      "id": "<bet>",
+      "legs": [
+        {
+          "eventId": "<event 1>",
+          "id": "<uuid 46>",
+          "isLive": false,
+          "marketId": "<event 1 1x2>",
+          "oddsMilli": 2000,
+          "position": 0,
+          "requestedOddsMilli": 2000,
+          "selection": {
+            "awayTeam": {
+              "en": "Chelsea"
+            },
+            "bettingOpen": true,
+            "closeLeadMs": 0,
+            "code": "1",
+            "competitionActive": true,
+            "competitionId": "<uuid 47>",
+            "competitionName": {
+              "am": "ፕሪሚየር ሊግ",
+              "en": "Premier League"
+            },
+            "eventId": "<event 1>",
+            "eventStatus": "scheduled",
+            "gameId": "<game id>",
+            "homeTeam": {
+              "en": "Arsenal"
+            },
+            "marketId": "<event 1 1x2>",
+            "marketKey": "1x2",
+            "marketLine": null,
+            "marketStatus": "open",
+            "marketType": "1x2",
+            "oddsMilli": 2000,
+            "priceValidUntil": null,
+            "result": null,
+            "scoreAway": null,
+            "scoreHome": null,
+            "selectionId": "<event 1 home>",
+            "selectionStatus": "open",
+            "sportActive": true,
+            "sportId": "football",
+            "startTime": "NOW+10800000"
+          },
+          "selectionId": "<event 1 home>",
+          "state": "open"
+        },
+        {
+          "eventId": "<event 2>",
+          "id": "<uuid 48>",
+          "isLive": false,
+          "marketId": "<event 2 ou>",
+          "oddsMilli": 1950,
+          "position": 1,
+          "requestedOddsMilli": 1900,
+          "selection": {
+            "awayTeam": {
+              "en": "Chelsea"
+            },
+            "bettingOpen": true,
+            "closeLeadMs": 0,
+            "code": "over",
+            "competitionActive": true,
+            "competitionId": "<uuid 47>",
+            "competitionName": {
+              "am": "ፕሪሚየር ሊግ",
+              "en": "Premier League"
+            },
+            "eventId": "<event 2>",
+            "eventStatus": "scheduled",
+            "gameId": "<game id>",
+            "homeTeam": {
+              "en": "Arsenal"
+            },
+            "marketId": "<event 2 ou>",
+            "marketKey": "ou:2.5",
+            "marketLine": "2.5",
+            "marketStatus": "open",
+            "marketType": "ou",
+            "oddsMilli": 1950,
+            "priceValidUntil": null,
+            "result": null,
+            "scoreAway": null,
+            "scoreHome": null,
+            "selectionId": "<event 2 over>",
+            "selectionStatus": "open",
+            "sportActive": true,
+            "sportId": "football",
+            "startTime": "NOW+10800000"
+          },
+          "selectionId": "<event 2 over>",
+          "state": "open"
+        },
+        {
+          "eventId": "<event 3>",
+          "id": "<uuid 49>",
+          "isLive": false,
+          "marketId": "<event 3 1x2>",
+          "oddsMilli": 3500,
+          "position": 2,
+          "requestedOddsMilli": 3500,
+          "selection": {
+            "awayTeam": {
+              "en": "Chelsea"
+            },
+            "bettingOpen": true,
+            "closeLeadMs": 0,
+            "code": "2",
+            "competitionActive": true,
+            "competitionId": "<uuid 47>",
+            "competitionName": {
+              "am": "ፕሪሚየር ሊግ",
+              "en": "Premier League"
+            },
+            "eventId": "<event 3>",
+            "eventStatus": "scheduled",
+            "gameId": "<game id>",
+            "homeTeam": {
+              "en": "Arsenal"
+            },
+            "marketId": "<event 3 1x2>",
+            "marketKey": "1x2",
+            "marketLine": null,
+            "marketStatus": "open",
+            "marketType": "1x2",
+            "oddsMilli": 3500,
+            "priceValidUntil": null,
+            "result": null,
+            "scoreAway": null,
+            "scoreHome": null,
+            "selectionId": "<event 3 away>",
+            "selectionStatus": "open",
+            "sportActive": true,
+            "sportId": "football",
+            "startTime": "NOW+10800000"
+          },
+          "selectionId": "<event 3 away>",
+          "state": "open"
+        }
+      ],
+      "oddsChangePolicy": "any",
+      "placedAt": "NOW+0",
+      "potentialBonus": "1897n",
+      "potentialGrossPayout": "70147n",
+      "potentialNetPayout": "57118n",
+      "potentialTax": "13029n",
+      "rejectReason": null,
+      "settledAt": null,
+      "settledGrossPayout": null,
+      "settledNetPayout": null,
+      "settledTax": null,
+      "settlementVersion": 0,
+      "shortId": "Y7EMU3AH",
+      "stake": "5000n",
+      "status": "open",
+      "terms": {
+        "betRules": {
+          "maxLegs": 40,
+          "maxPayout": "50000000n",
+          "maxStake": "10000000n",
+          "maxTotalOddsMilli": "1000000000n",
+          "minLegOddsMilli": 1010,
+          "minStake": "500n"
+        },
+        "multiBonus": {
+          "enabled": true,
+          "maxBonus": "5000000n",
+          "minLegOddsMilli": 1300,
+          "tiers": [
+            {
+              "minLegs": 3,
+              "percentBps": 300
+            },
+            {
+              "minLegs": 4,
+              "percentBps": 500
+            },
+            {
+              "minLegs": 5,
+              "percentBps": 800
+            },
+            {
+              "minLegs": 6,
+              "percentBps": 1000
+            },
+            {
+              "minLegs": 7,
+              "percentBps": 1500
+            },
+            {
+              "minLegs": 8,
+              "percentBps": 2000
+            },
+            {
+              "minLegs": 9,
+              "percentBps": 2500
+            },
+            {
+              "minLegs": 10,
+              "percentBps": 3000
+            },
+            {
+              "minLegs": 12,
+              "percentBps": 4000
+            },
+            {
+              "minLegs": 15,
+              "percentBps": 5000
+            },
+            {
+              "minLegs": 20,
+              "percentBps": 10000
+            },
+            {
+              "minLegs": 25,
+              "percentBps": 15000
+            },
+            {
+              "minLegs": 30,
+              "percentBps": 20000
+            }
+          ]
+        },
+        "tax": {
+          "base": "net_winnings",
+          "exemptBelow": "10000n",
+          "rateBps": 2000
+        }
+      },
+      "totalOddsMilli": "13650n",
+      "userId": "<user>"
+    },
+    "replayed": false
+  },
+  "written": {
+    "audit": [
+      {
+        "action": "bet.placed",
+        "actorId": "<user>",
+        "actorType": "user",
+        "createdAt": "<db time>",
+        "id": "<serial>",
+        "ip": "192.0.2.10",
+        "metadata": {
+          "channel": "web",
+          "legs": 3,
+          "oddsChanged": 1,
+          "policy": "any",
+          "shortId": "Y7EMU3AH",
+          "stake": "5000",
+          "status": "open"
+        },
+        "targetId": "<bet>",
+        "targetType": "bet"
+      }
+    ],
+    "bet": {
+      "acceptAfter": null,
+      "acceptedAt": "NOW+0",
+      "betType": "multi",
+      "bonusPercentBps": 300,
+      "channel": "web",
+      "id": "<bet>",
+      "idempotencyKey": "golden-multi-0001",
+      "oddsChangePolicy": "any",
+      "placedAt": "NOW+0",
+      "potentialBonus": "1897n",
+      "potentialGrossPayout": "70147n",
+      "potentialNetPayout": "57118n",
+      "potentialTax": "13029n",
+      "rejectReason": null,
+      "settledAt": null,
+      "settledGrossPayout": null,
+      "settledNetPayout": null,
+      "settledTax": null,
+      "settlementRetryAt": null,
+      "settlementVersion": 0,
+      "shortId": "Y7EMU3AH",
+      "stake": "5000n",
+      "status": "open",
+      "terms": {
+        "betRules": {
+          "maxLegs": 40,
+          "maxPayout": "50000000",
+          "maxStake": "10000000",
+          "maxTotalOddsMilli": "1000000000",
+          "minLegOddsMilli": 1010,
+          "minStake": "500"
+        },
+        "multiBonus": {
+          "enabled": true,
+          "maxBonus": "5000000",
+          "minLegOddsMilli": 1300,
+          "tiers": [
+            {
+              "minLegs": 3,
+              "percentBps": 300
+            },
+            {
+              "minLegs": 4,
+              "percentBps": 500
+            },
+            {
+              "minLegs": 5,
+              "percentBps": 800
+            },
+            {
+              "minLegs": 6,
+              "percentBps": 1000
+            },
+            {
+              "minLegs": 7,
+              "percentBps": 1500
+            },
+            {
+              "minLegs": 8,
+              "percentBps": 2000
+            },
+            {
+              "minLegs": 9,
+              "percentBps": 2500
+            },
+            {
+              "minLegs": 10,
+              "percentBps": 3000
+            },
+            {
+              "minLegs": 12,
+              "percentBps": 4000
+            },
+            {
+              "minLegs": 15,
+              "percentBps": 5000
+            },
+            {
+              "minLegs": 20,
+              "percentBps": 10000
+            },
+            {
+              "minLegs": 25,
+              "percentBps": 15000
+            },
+            {
+              "minLegs": 30,
+              "percentBps": 20000
+            }
+          ]
+        },
+        "tax": {
+          "base": "net_winnings",
+          "exemptBelow": "10000",
+          "rateBps": 2000
+        }
+      },
+      "totalOddsMilli": "13650n",
+      "updatedAt": "NOW+0",
+      "userId": "<user>"
+    },
+    "entries": [
+      {
+        "account": "house:stakes",
+        "entry": {
+          "accountId": "<uuid 50>",
+          "amount": "5000n",
+          "balanceAfter": "15000n",
+          "createdAt": "<db time>",
+          "id": "<serial>",
+          "transactionId": "<uuid 51>"
+        }
+      },
+      {
+        "account": "user:<user>:cash",
+        "entry": {
+          "accountId": "<uuid 52>",
+          "amount": "-5000n",
+          "balanceAfter": "95000n",
+          "createdAt": "<db time>",
+          "id": "<serial>",
+          "transactionId": "<uuid 51>"
+        }
+      }
+    ],
+    "legs": [
+      {
+        "betId": "<bet>",
+        "eventId": "<event 1>",
+        "id": "<uuid 46>",
+        "isLive": false,
+        "marketId": "<event 1 1x2>",
+        "oddsMilli": 2000,
+        "position": 0,
+        "requestedOddsMilli": 2000,
+        "selectionId": "<event 1 home>",
+        "state": "open",
+        "updatedAt": "NOW+0"
+      },
+      {
+        "betId": "<bet>",
+        "eventId": "<event 2>",
+        "id": "<uuid 48>",
+        "isLive": false,
+        "marketId": "<event 2 ou>",
+        "oddsMilli": 1950,
+        "position": 1,
+        "requestedOddsMilli": 1900,
+        "selectionId": "<event 2 over>",
+        "state": "open",
+        "updatedAt": "NOW+0"
+      },
+      {
+        "betId": "<bet>",
+        "eventId": "<event 3>",
+        "id": "<uuid 49>",
+        "isLive": false,
+        "marketId": "<event 3 1x2>",
+        "oddsMilli": 3500,
+        "position": 2,
+        "requestedOddsMilli": 3500,
+        "selectionId": "<event 3 away>",
+        "state": "open",
+        "updatedAt": "NOW+0"
+      }
+    ],
+    "outbox": [
+      {
+        "aggregateId": "<bet>",
+        "aggregateType": "bet",
+        "attempts": 0,
+        "createdAt": "<db time>",
+        "id": "<serial>",
+        "jobKey": "<uuid 53>",
+        "lastError": null,
+        "nextAttemptAt": null,
+        "payload": {
+          "acceptAfter": null,
+          "betId": "<bet>",
+          "channel": "web",
+          "legs": [
+            {
+              "eventId": "<event 1>",
+              "isLive": false,
+              "oddsMilli": 2000,
+              "selectionId": "<event 1 home>"
+            },
+            {
+              "eventId": "<event 2>",
+              "isLive": false,
+              "oddsMilli": 1950,
+              "selectionId": "<event 2 over>"
+            },
+            {
+              "eventId": "<event 3>",
+              "isLive": false,
+              "oddsMilli": 3500,
+              "selectionId": "<event 3 away>"
+            }
+          ],
+          "potentialNetPayout": "57118",
+          "shortId": "Y7EMU3AH",
+          "stake": "5000",
+          "status": "open",
+          "totalOddsMilli": "13650",
+          "userId": "<user>"
+        },
+        "publishedAt": null,
+        "type": "bet.placed"
+      }
+    ],
+    "transactions": [
+      {
+        "actorId": "<user>",
+        "actorType": "user",
+        "createdAt": "<db time>",
+        "description": "Bet stake (multi)",
+        "id": "<uuid 51>",
+        "idempotencyKey": "bet:<user>:golden-multi-0001",
+        "refId": "<bet>",
+        "refType": "bet",
+        "type": "bet_stake"
+      }
+    ]
+  }
+}
