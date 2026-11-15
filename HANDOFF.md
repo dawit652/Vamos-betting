@@ -3,6 +3,14 @@
 Written at the end of a Claude Code session on 14 Nov 2026 so another session (or account) can continue.
 Read this first, then `docs/frontend-redesign-plan.md` (the full plan, with done and open items).
 
+## Scale and payments: a separate stream (15 Nov 2026)
+
+A plan for 10,000 people at a time and for deposits and withdrawals without manual work is on branch
+`claude/eager-cerf-ox9vkq` (the default branch plus a dark and light theme for the back office). Start
+from [`docs/plans/scale-and-payments-handover.md`](docs/plans/scale-and-payments-handover.md): it has
+the prompt to paste into a new session, the setup and the ordered tasks. Nothing of that plan is built
+yet, and it touches neither the server nor the deploy steps below.
+
 ## Continue here (updated 15 Nov 2026, afternoon)
 
 **Branch:** the default branch (`claude/quirky-ramanujan-xb7e2u`) is the latest: PR #3 merged it on 15 Nov
