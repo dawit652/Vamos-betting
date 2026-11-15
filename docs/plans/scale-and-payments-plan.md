@@ -120,22 +120,22 @@ a hold returns to the player only on proof that nothing was sent.
 
 Around every option:
 
-- **Approval tiers.** Today one number decides (`autoApproveBelow`), with the wagering rule, the daily
+- **C9, approval tiers.** Today one number decides (`autoApproveBelow`), with the wagering rule, the daily
   cap, exclusions and AML holds. Add: identity verified, account age, a destination that was paid
   before, and per-tier amounts, so only real exceptions reach a person.
-- **Float forecast.** The system knows what every open bet would pay and when its matches end. Forecast
+- **C10, float forecast.** The system knows what every open bet would pay and when its matches end. Forecast
   the withdrawals of the next hours from that, and alarm before the payout account runs short.
-- **Routing.** Once more than one rail pays out, pick per player: their wallet's rail first, the
+- **C11, routing.** Once more than one rail pays out, pick per player: their wallet's rail first, the
   instant system otherwise, the manual queue when a rail is down.
 
 ## 7. Recommended order
 
 1. **Now, no contract needed:** A1 (so everything after is measured), B2 and B4 (deposits stop running
-   out), C1 (faster hands), A2 and A3 (cache), B6. Ask the owner for B1's real fixtures and start the
+   out), C1 (faster hands), C10 (float forecast), A2 and A3 (cache), B6. Ask the owner for B1's real fixtures and start the
    provider conversations of section 8 on day one: they take the longest.
 2. **Next:** A4 to A6 (several API processes, streams apart, leaner bet), C2 after its review, C3 as
    soon as a bulk format is known, B3 once B1 allows it, A10.
-3. **When contracts arrive:** C4 and B7 (telebirr), C5, then B8 and C6 (the instant system), routing.
+3. **When contracts arrive:** C4 and B7 (telebirr), C5, then B8 and C6 (the instant system), C11 (routing).
 4. **When the test says so:** A7, A8, A9, A11.
 
 ## 8. Owner decisions and calls
@@ -147,7 +147,7 @@ Around every option:
 | D3  | How many collection accounts per institution (each one multiplies the deposit amounts, B2)                                              | Two per institution to start                                             |
 | D4  | Settle on double proof (C2): allow it for telebirr                                                                                      | Yes, after the security review, with a per-payout cap                    |
 | D5  | Hold on amounts of cancelled deposits (B4): 2 hours today                                                                               | 30 minutes for deposits the player cancelled; unchanged for expired ones |
-| D6  | Approval tiers (amounts per tier, account age)                                                                                          | Start strict; loosen with a month of data                                |
+| D6  | Approval tiers, C9 (amounts per tier, account age)                                                                                      | Start strict; loosen with a month of data                                |
 | D7  | Server sizes and a second server (A11)                                                                                                  | Decide after A1's baseline                                               |
 | D8  | Counsel and the regulator: confirm the tiers and C2 fit the licence and the anti-money-laundering rules                                 | Before C2 goes live                                                      |
 
