@@ -20,9 +20,7 @@ const WEBHOOK_SECRET = 'whsec_0123456789abcdef0123456789abcdef';
 const LICENSED = {
   NODE_ENV: 'production',
   OPERATING_MODE: 'licensed',
-  ELS_LICENSE_NUMBER: 'ELS/SB/0001',
-  ELS_REPORT_DIR: '/var/lib/vamos/els',
-  KYC_PROVIDER: 'fayda',
+  KYC_PROVIDER: 'mock',
   SMS_PROVIDER: 'http',
   FEED_PROVIDER: 'manual',
   TAX_CONFIG_CONFIRMED: 'true',
@@ -32,8 +30,8 @@ const LICENSED = {
 };
 
 describe('createPaymentProviders', () => {
-  it('builds the mock provider in demo mode by default', () => {
-    const registry = createPaymentProviders(loadConfig({}), deps);
+  it('builds the mock provider in demo mode', () => {
+    const registry = createPaymentProviders(loadConfig({ OPERATING_MODE: 'demo' }), deps);
     expect(registry.names).toEqual(['mock']);
     expect(registry.require('mock')).toBeInstanceOf(MockPaymentProvider);
     expect(registry.require('mock').capabilities).toEqual({ deposits: true, payouts: true });

@@ -285,7 +285,6 @@ export default function TradingEventPage() {
             Game {ev.gameId} · {nameOf(ev.competition)} · {formatDateTime(ev.startTime)} ·{' '}
             <Badge value={ev.status} />{' '}
             {!ev.bettingOpen && <Badge value="betting off" tone="warn" />}
-            {ev.topMatch && <Badge value="top match" />}
             {ev.scoreHome !== null && (
               <strong data-testid="score">
                 {' '}
@@ -313,13 +312,6 @@ export default function TradingEventPage() {
                 optional
                 onSubmit={(reason) =>
                   post(`/admin/trading/events/${id}/betting`, { open: !ev.bettingOpen, reason })
-                }
-              />
-              <ReasonAction
-                label={ev.topMatch ? 'Remove from top matches' : 'Mark as top match'}
-                optional
-                onSubmit={(reason) =>
-                  post(`/admin/trading/events/${id}/top`, { top: !ev.topMatch, reason })
                 }
               />
             </div>

@@ -9,7 +9,13 @@ import {
   SPORT_MARKETS,
   type SelectionResult,
   type SportCode,
+  MAX_HANDICAP,
+  canonicalLine,
+  certainMarketResult,
+  formatHandicap,
   marketKey,
+  marketLineValue,
+  parseHandicap,
   parseLine,
   resolveSelection,
   selectionLabel,
@@ -19,6 +25,14 @@ import {
 const ALL_TYPES = Object.keys(MARKET_TYPES) as MarketTypeCode[];
 const LINE_TYPES = ALL_TYPES.filter((type) => MARKET_TYPES[type].hasLine);
 const NON_LINE_TYPES = ALL_TYPES.filter((type) => !MARKET_TYPES[type].hasLine);
+/** Markets with a half-point total line (the handicaps take other lines). */
+const TOTAL_TYPES = ['ou', 'total'] as const;
+/** A valid line of each kind, for tests that need any one. */
+const sampleLine = (type: MarketTypeCode): string | null => {
+  if (type === 'ah') return '-1.5';
+  if (type === 'eh') return '-1';
+  return MARKET_TYPES[type].hasLine ? '2.5' : null;
+};
 const VOID_STATUSES = ['cancelled', 'abandoned', 'postponed'] as const;
 const TEAMS = { home: 'Saint George', away: 'Fasil Kenema' };
 
@@ -45,6 +59,18 @@ const resolveAll = (
 const goalsArb = fc.integer({ min: 0, max: 12 });
 const pointsArb = fc.integer({ min: 0, max: 400 });
 const lineArb = fc.integer({ min: 0, max: 999 }).map((n) => `${n}.5`);
+/** Asian handicap lines: half and whole steps from -6 to +6 (canonical text). */
+const ahLineArb = fc.integer({ min: -12, max: 12 }).map((n) => String(n / 2));
+/** Three-way handicap lines: non-zero whole numbers from -4 to +4. */
+const ehLineArb = fc
+  .integer({ min: 1, max: 4 })
+  .chain((n) => fc.constantFrom(n, -n))
+  .map(String);
+const lineArbFor = (type: MarketTypeCode): fc.Arbitrary<string> => {
+  if (type === 'ah') return ahLineArb;
+  if (type === 'eh') return ehLineArb;
+  return lineArb;
+};
 /** A consistent football score with half-time goals never above full time. */
 const scoreWithHtArb = fc
   .tuple(goalsArb, goalsArb, goalsArb, goalsArb)
@@ -59,14 +85,27 @@ const marketArb: fc.Arbitrary<MarketRef> = fc
   .constantFrom(...ALL_TYPES)
   .chain((type): fc.Arbitrary<MarketRef> =>
     MARKET_TYPES[type].hasLine
-      ? lineArb.map((line) => ({ type, line }))
+      ? lineArbFor(type).map((line) => ({ type, line }))
       : fc.constant({ type, line: null }),
   );
 
 describe('MARKET_TYPES', () => {
   it('covers every market code with a matching definition', () => {
     expect([...ALL_TYPES].sort()).toEqual(
-      ['1x2', 'btts', 'cs', 'dc', 'dnb', 'ht_1x2', 'ml', 'ou', 'total', 'winner'].sort(),
+      [
+        '1x2',
+        'ah',
+        'btts',
+        'cs',
+        'dc',
+        'dnb',
+        'eh',
+        'ht_1x2',
+        'ml',
+        'ou',
+        'total',
+        'winner',
+      ].sort(),
     );
     for (const type of ALL_TYPES) {
       const definition = MARKET_TYPES[type];
@@ -98,6 +137,8 @@ describe('MARKET_TYPES', () => {
       am: 'የመጀመሪያ አጋማሽ ውጤት',
     });
     expect(MARKET_TYPES.cs.name).toEqual({ en: 'Correct Score', am: 'ትክክለኛ ውጤት' });
+    expect(MARKET_TYPES.ah.name.en).toBe('Asian Handicap');
+    expect(MARKET_TYPES.eh.name.en).toBe('3-Way Handicap');
     expect(MARKET_TYPES.ml.name.am).toBe('አሸናፊ (ተጨማሪ ሰዓትን ጨምሮ)');
     expect(MARKET_TYPES.ml.name.en).toMatch(/overtime/i);
     expect(MARKET_TYPES.total.name).toEqual({
@@ -111,8 +152,8 @@ describe('MARKET_TYPES', () => {
     expect(MARKET_TYPES.winner.sport).toBe('tennis');
   });
 
-  it('only over/under markets take a line and only ht_1x2 is a half-time market', () => {
-    expect([...LINE_TYPES].sort()).toEqual(['ou', 'total']);
+  it('only over/under and handicap markets take a line and only ht_1x2 is a half-time market', () => {
+    expect([...LINE_TYPES].sort()).toEqual(['ah', 'eh', 'ou', 'total']);
     const halfTime = ALL_TYPES.filter((type) => MARKET_TYPES[type].period === 'half_time');
     expect(halfTime).toEqual(['ht_1x2']);
   });
@@ -127,7 +168,7 @@ describe('MARKET_TYPES', () => {
 describe('SPORT_MARKETS', () => {
   it('lists the markets of each sport', () => {
     expect(SPORT_MARKETS).toEqual({
-      football: ['1x2', 'dc', 'ou', 'btts', 'dnb', 'ht_1x2', 'cs'],
+      football: ['1x2', 'dc', 'ou', 'ah', 'eh', 'btts', 'dnb', 'ht_1x2', 'cs'],
       basketball: ['ml', 'total'],
       tennis: ['winner'],
       volleyball: ['winner'],
@@ -248,7 +289,7 @@ describe('marketKey', () => {
 
   it('gives distinct lines distinct keys that round-trip', () => {
     fc.assert(
-      fc.property(fc.constantFrom(...LINE_TYPES), lineArb, lineArb, (type, a, b) => {
+      fc.property(fc.constantFrom(...TOTAL_TYPES), lineArb, lineArb, (type, a, b) => {
         const keyA = marketKey(type, a);
         expect(keyA).toBe(`${type}:${a}`);
         expect(parseLine(keyA.slice(type.length + 1))).toBe(parseLine(a));
@@ -366,7 +407,7 @@ describe('selectionLabel', () => {
 
   it('gives every selection of every market a non-empty label', () => {
     for (const type of ALL_TYPES) {
-      const line = MARKET_TYPES[type].hasLine ? '2.5' : null;
+      const line = sampleLine(type);
       for (const selection of selectionsFor(type)) {
         const label = selectionLabel(type, selection, TEAMS, line);
         expect(label.en.length).toBeGreaterThan(0);
@@ -540,7 +581,7 @@ describe('resolveSelection', () => {
   describe('void statuses', () => {
     it.each(VOID_STATUSES)('voids every selection of every market when %s', (status) => {
       for (const type of ALL_TYPES) {
-        const line = MARKET_TYPES[type].hasLine ? '2.5' : null;
+        const line = sampleLine(type);
         for (const selection of selectionsFor(type)) {
           expect(resolve(type, selection, { status }, line)).toBe('void');
         }
@@ -583,7 +624,7 @@ describe('resolveSelection', () => {
       [2 ** 53, 0],
     ])('throws on an invalid full-time score %d-%d', (home, away) => {
       for (const type of ALL_TYPES) {
-        const line = MARKET_TYPES[type].hasLine ? '2.5' : null;
+        const line = sampleLine(type);
         expect(() => resolve(type, selectionsFor(type)[0]!, finished(home, away), line)).toThrow(
           RangeError,
         );
@@ -638,7 +679,7 @@ describe('resolveSelection', () => {
     it('exactly one of over/under wins for any half-point line', () => {
       fc.assert(
         fc.property(
-          fc.constantFrom(...LINE_TYPES),
+          fc.constantFrom(...TOTAL_TYPES),
           pointsArb,
           pointsArb,
           lineArb,
@@ -746,17 +787,182 @@ describe('resolveSelection', () => {
       );
     });
 
-    it('never voids a finished event except a draw-no-bet draw', () => {
+    it('never voids a finished event except a draw-no-bet draw or an Asian handicap push', () => {
       fc.assert(
         fc.property(marketArb, scoreWithHtArb, (market, score) => {
           fc.pre(market.type !== 'ml' && market.type !== 'winner');
           const isDnbDraw = market.type === 'dnb' && score.home === score.away;
+          const isAhPush = market.type === 'ah' && score.home + Number(market.line) === score.away;
           for (const selection of selectionsFor(market.type)) {
             const result = resolveSelection(market, selection, { status: 'finished', score });
-            expect(result === 'void').toBe(isDnbDraw);
+            expect(result === 'void').toBe(isDnbDraw || isAhPush);
           }
         }),
       );
     });
+  });
+});
+
+describe('handicap markets', () => {
+  it('parses half and whole handicaps, canonical and signed either way', () => {
+    expect(parseHandicap('-1.5')).toBe(-1.5);
+    expect(parseHandicap('+0.5')).toBe(0.5);
+    expect(parseHandicap('0')).toBe(0);
+    expect(Object.is(parseHandicap('-0'), 0)).toBe(true);
+    expect(parseHandicap('12')).toBe(12);
+    expect(parseHandicap(String(MAX_HANDICAP))).toBe(MAX_HANDICAP);
+  });
+
+  it('rejects quarter lines, other text and lines out of range', () => {
+    for (const line of [
+      '-0.25',
+      '0.75',
+      '1.0',
+      '1.50',
+      '',
+      ' 1',
+      'one',
+      '--1',
+      '21',
+      '-20.5',
+      '123',
+    ]) {
+      expect(() => parseHandicap(line)).toThrow(RangeError);
+    }
+    expect(() => parseHandicap(2 as unknown as string)).toThrow(RangeError);
+  });
+
+  it('accepts only non-zero whole lines for the three-way handicap', () => {
+    expect(parseHandicap('-2', { wholeOnly: true })).toBe(-2);
+    expect(parseHandicap('+1', { wholeOnly: true })).toBe(1);
+    for (const line of ['0', '-0', '0.5', '-1.5']) {
+      expect(() => parseHandicap(line, { wholeOnly: true })).toThrow(RangeError);
+    }
+  });
+
+  it('formats a handicap the way a bettor reads it', () => {
+    expect(formatHandicap(1.5)).toBe('+1.5');
+    expect(formatHandicap(-1)).toBe('-1');
+    expect(formatHandicap(0)).toBe('0');
+    expect(formatHandicap(-0)).toBe('0');
+  });
+
+  it('keys handicap markets by their canonical line', () => {
+    expect(marketKey('ah', '-1.5')).toBe('ah:-1.5');
+    expect(marketKey('ah', '+1.5')).toBe('ah:1.5');
+    expect(marketKey('ah', '-0')).toBe('ah:0');
+    expect(marketKey('eh', '+1')).toBe('eh:1');
+    expect(() => marketKey('eh', '0')).toThrow(RangeError);
+    expect(() => marketKey('ah', '2.25')).toThrow(RangeError);
+    expect(() => marketKey('ah')).toThrow(RangeError);
+  });
+
+  it('labels each side with its own handicap', () => {
+    expect(selectionLabel('ah', '1', TEAMS, '-1.5')).toEqual({
+      en: 'Saint George -1.5',
+      am: 'Saint George -1.5',
+    });
+    expect(selectionLabel('ah', '2', TEAMS, '-1.5').en).toBe('Fasil Kenema +1.5');
+    expect(selectionLabel('ah', '1', TEAMS, '0').en).toBe('Saint George 0');
+    expect(selectionLabel('eh', '1', TEAMS, '-1').en).toBe('Saint George (-1)');
+    expect(selectionLabel('eh', 'X', TEAMS, '-1')).toEqual({ en: 'Draw (-1)', am: 'አቻ (-1)' });
+    expect(selectionLabel('eh', '2', TEAMS, '-1').en).toBe('Fasil Kenema (+1)');
+  });
+
+  it('settles worked examples', () => {
+    // Home -1.5: needs to win by two.
+    expect(resolveAll('ah', finished(2, 0), '-1.5')).toEqual({ '1': 'won', '2': 'lost' });
+    expect(resolveAll('ah', finished(1, 0), '-1.5')).toEqual({ '1': 'lost', '2': 'won' });
+    // Home -1: winning by exactly one is a push, both selections void.
+    expect(resolveAll('ah', finished(2, 1), '-1')).toEqual({ '1': 'void', '2': 'void' });
+    expect(resolveAll('ah', finished(3, 1), '-1')).toEqual({ '1': 'won', '2': 'lost' });
+    // Away +0.5 (home -0.5) wins on a draw.
+    expect(resolveAll('ah', finished(1, 1), '-0.5')).toEqual({ '1': 'lost', '2': 'won' });
+    // Three-way, home -1: a one-goal home win is the handicap draw.
+    expect(resolveAll('eh', finished(2, 1), '-1')).toEqual({ '1': 'lost', X: 'won', '2': 'lost' });
+    expect(resolveAll('eh', finished(0, 0), '+1')).toEqual({ '1': 'won', X: 'lost', '2': 'lost' });
+  });
+
+  it('Asian handicap: half lines never push, exactly one side wins', () => {
+    fc.assert(
+      fc.property(goalsArb, goalsArb, fc.integer({ min: -6, max: 5 }), (home, away, n) => {
+        const line = String(n + 0.5);
+        const results = resolveAll('ah', finished(home, away), line);
+        expect([results['1'], results['2']].sort()).toEqual(['lost', 'won']);
+        expect(results['1'] === 'won').toBe(home - away + n + 0.5 > 0);
+      }),
+    );
+  });
+
+  it('Asian handicap: whole lines void both sides exactly on a level adjusted score', () => {
+    fc.assert(
+      fc.property(goalsArb, goalsArb, fc.integer({ min: -6, max: 6 }), (home, away, n) => {
+        const results = resolveAll('ah', finished(home, away), String(n));
+        if (home + n === away) {
+          expect(results).toEqual({ '1': 'void', '2': 'void' });
+        } else {
+          expect([results['1'], results['2']].sort()).toEqual(['lost', 'won']);
+        }
+      }),
+    );
+  });
+
+  it('Asian handicap is symmetric: home at L is away at -L with the teams swapped', () => {
+    fc.assert(
+      fc.property(goalsArb, goalsArb, ahLineArb, (home, away, line) => {
+        const mirrored = String(-Number(line) + 0);
+        expect(resolve('ah', '1', finished(home, away), line)).toBe(
+          resolve('ah', '2', finished(away, home), mirrored),
+        );
+      }),
+    );
+  });
+
+  it('Asian handicap 0 is draw no bet', () => {
+    fc.assert(
+      fc.property(goalsArb, goalsArb, (home, away) => {
+        expect(resolveAll('ah', finished(home, away), '0')).toEqual(
+          resolveAll('dnb', finished(home, away)),
+        );
+      }),
+    );
+  });
+
+  it('three-way handicap: exactly one of 1/X/2 wins, the draw on a level adjusted score', () => {
+    fc.assert(
+      fc.property(goalsArb, goalsArb, ehLineArb, (home, away, line) => {
+        const results = resolveAll('eh', finished(home, away), line);
+        expect(Object.values(results).filter((r) => r === 'won')).toHaveLength(1);
+        expect(results.X === 'won').toBe(home + Number(line) === away);
+      }),
+    );
+  });
+
+  it('is never decided before full time', () => {
+    fc.assert(
+      fc.property(goalsArb, goalsArb, ahLineArb, ehLineArb, (home, away, ah, eh) => {
+        expect(certainMarketResult({ type: 'ah', line: ah }, { home, away })).toBeNull();
+        expect(certainMarketResult({ type: 'eh', line: eh }, { home, away })).toBeNull();
+      }),
+    );
+  });
+});
+
+describe('canonicalLine and marketLineValue', () => {
+  it('canonicalise and value totals and handicaps by market type', () => {
+    expect(canonicalLine('ou', '02.5')).toBe('2.5');
+    expect(canonicalLine('ah', '+1.5')).toBe('1.5');
+    expect(canonicalLine('eh', '-1')).toBe('-1');
+    expect(canonicalLine('1x2', null)).toBeNull();
+    expect(marketLineValue('ah', '-1.5')).toBe(-1.5);
+    expect(marketLineValue('total', '215.5')).toBe(215.5);
+  });
+
+  it('throw like marketKey on a missing, misplaced or malformed line', () => {
+    expect(() => canonicalLine('ou')).toThrow(RangeError);
+    expect(() => canonicalLine('1x2', '2.5')).toThrow(RangeError);
+    expect(() => canonicalLine('eh', '0')).toThrow(RangeError);
+    expect(() => marketLineValue('btts', '1')).toThrow(RangeError);
+    expect(() => marketLineValue('ah', '-0.25')).toThrow(RangeError);
   });
 });

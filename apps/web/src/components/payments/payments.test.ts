@@ -7,15 +7,18 @@ import {
   DEPOSIT_STATUS_LABEL,
   WITHDRAWAL_STATUS_LABEL,
   checkAmount,
+  clipboardAccount,
   createIntentKeys,
   depositFailureKey,
   depositPollDelayMs,
+  extraSantim,
   isDefiniteRefusal,
   isDepositFinal,
   isWithdrawalOpen,
   paymentErrorMessage,
   pickProvider,
   reviewReasonKey,
+  splitSendAmount,
   stepLabelKey,
   upsertWithdrawal,
   withdrawRules,
@@ -236,6 +239,35 @@ describe('message keys exist in every shipped language', () => {
   it.each(['en', 'am'] as const)('%s', (locale) => {
     for (const key of keys) {
       expect(lookup(MESSAGES[locale], key), key).toBeTypeOf('string');
+    }
+  });
+});
+
+describe('SMS rail helpers', () => {
+  it('splits the exact amount so the identifying santim can be highlighted', () => {
+    expect(splitSendAmount('10037')).toEqual({ birr: '100', santim: '37' });
+    expect(splitSendAmount('125000005')).toEqual({ birr: '1,250,000', santim: '05' });
+  });
+
+  it('names the santim added to the requested amount', () => {
+    expect(extraSantim({ requestedAmount: '10000', sendAmount: '10037' })).toBe('37');
+  });
+
+  it('copies a phone-shaped account as the nine digits wallet apps ask for', () => {
+    expect(clipboardAccount('0911678426')).toBe('911678426');
+    expect(clipboardAccount('+251911678426')).toBe('911678426');
+    expect(clipboardAccount('0711 678 426')).toBe('711678426');
+    expect(clipboardAccount('1000123456789')).toBe('1000123456789');
+  });
+
+  it('maps the SMS rail errors to messages', () => {
+    for (const [code, key] of [
+      ['payout_account_required', 'account.payments.errors.payoutAccountRequired'],
+      ['payout_account_name_mismatch', 'account.payments.errors.payoutAccountNameMismatch'],
+      ['sms_amount_unavailable', 'account.payments.errors.smsAmountUnavailable'],
+      ['otp_invalid', 'account.payments.errors.otpInvalid'],
+    ] as const) {
+      expect(paymentErrorMessage(new ApiClientError(422, code, 'x')).key).toBe(key);
     }
   });
 });

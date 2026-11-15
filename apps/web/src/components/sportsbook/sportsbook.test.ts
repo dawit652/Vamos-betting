@@ -3,12 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   codePrefix,
   eventRef,
-  groupByCompetition,
   groupMarkets,
   isBettable,
   isListedMarket,
-  marketCategories,
-  marketCategory,
   matchClock,
   monogram,
   periodMessageKey,
@@ -18,12 +15,13 @@ import {
 } from './events';
 import { LiveStore, parseLiveFrame } from './live-store';
 import {
-  chipDays,
   DEFAULT_TAB,
   listHref,
+  parseCountry,
   parseCursor,
   parseDay,
   parseMarket,
+  parseWithin,
   parseTab,
 } from './tabs';
 
@@ -168,45 +166,10 @@ describe('list tabs', () => {
   it('builds list links', () => {
     expect(listHref('/', 'highlights')).toBe('/');
     expect(listHref('/', 'today')).toBe('/?tab=today');
-    expect(listHref('/sport/tennis', 'upcoming', { cursor: 'abc' })).toBe(
+    expect(listHref('/sport/tennis', 'upcoming', 'abc')).toBe(
       '/sport/tennis?tab=upcoming&cursor=abc',
     );
-    expect(listHref('/', 'highlights', { cursor: 'abc' })).toBe('/?cursor=abc');
-    expect(listHref('/', 'today', { day: '2026-11-15', market: 'dc', cursor: 'abc' })).toBe(
-      '/?tab=today&day=2026-11-15&market=dc&cursor=abc',
-    );
-    expect(listHref('/', 'highlights', { market: 'main' })).toBe('/');
-    expect(listHref('/', 'highlights', { market: 'dc' })).toBe('/?market=dc');
-  });
-
-  it('offers double chance rows for football only', () => {
-    expect(parseMarket('dc', 'football')).toBe('dc');
-    expect(parseMarket(['dc', 'main'], 'football')).toBe('dc');
-    expect(parseMarket('dc', 'tennis')).toBe('main');
-    expect(parseMarket('ou', 'football')).toBe('main');
-    expect(parseMarket(undefined, 'football')).toBe('main');
-  });
-
-  it('lists the day chips by East Africa date and accepts only those days', () => {
-    // 22:30 UTC on 14 Nov is already 15 Nov in Addis Ababa.
-    const now = new Date('2026-11-14T22:30:00.000Z');
-    expect(chipDays(now)).toEqual([
-      '2026-11-15',
-      '2026-11-16',
-      '2026-11-17',
-      '2026-11-18',
-      '2026-11-19',
-      '2026-11-20',
-      '2026-11-21',
-    ]);
-    expect(parseDay('2026-11-16', now)).toBe('2026-11-16');
-    expect(parseDay('2026-11-21', now)).toBe('2026-11-21');
-    // Today is the tab itself; other dates are not offered.
-    expect(parseDay('2026-11-15', now)).toBeUndefined();
-    expect(parseDay('2026-11-14', now)).toBeUndefined();
-    expect(parseDay('2026-11-22', now)).toBeUndefined();
-    expect(parseDay('tomorrow', now)).toBeUndefined();
-    expect(parseDay(undefined, now)).toBeUndefined();
+    expect(listHref('/', 'highlights', 'abc')).toBe('/?cursor=abc');
   });
 
   it('caps the live stream filter at 50 unique events', () => {
@@ -321,57 +284,59 @@ describe('live stream frames', () => {
   });
 });
 
-describe('league groups', () => {
-  const inLeague = (id: string, slug: string): EventSummary => ({
-    ...event,
-    id,
-    competition: { slug, name: { en: slug }, category: { en: 'England' } },
+describe('list controls parameters', () => {
+  const now = new Date('2026-10-08T12:00:00.000Z');
+
+  it('parseDay accepts today to today + 14 only', () => {
+    expect(parseDay('2026-10-08', now)).toBe('2026-10-08');
+    expect(parseDay('2026-10-22', now)).toBe('2026-10-22');
+    expect(parseDay('2026-10-07', now)).toBeUndefined();
+    expect(parseDay('2026-10-23', now)).toBeUndefined();
+    expect(parseDay('2026-02-30', now)).toBeUndefined();
+    expect(parseDay('2026-13-01', now)).toBeUndefined();
+    expect(parseDay('nope', now)).toBeUndefined();
+    expect(parseDay(['2026-10-09', 'x'], now)).toBe('2026-10-09');
+    expect(parseDay(undefined, now)).toBeUndefined();
   });
 
-  it('groups by competition in order of first appearance, keeping the list order inside', () => {
-    const groups = groupByCompetition([
-      inLeague('a', 'epl'),
-      inLeague('b', 'laliga'),
-      inLeague('c', 'epl'),
-      inLeague('d', 'serie-a'),
-      inLeague('e', 'laliga'),
-    ]);
-    expect(groups.map((g) => g.slug)).toEqual(['epl', 'laliga', 'serie-a']);
-    expect(groups.map((g) => g.events.map((e) => e.id))).toEqual([['a', 'c'], ['b', 'e'], ['d']]);
-    expect(groups[0]?.competition.name.en).toBe('epl');
+  it('parseCountry and parseMarket', () => {
+    expect(parseCountry('england')).toBe('england');
+    expect(parseCountry('Bad Slug')).toBeUndefined();
+    expect(parseMarket('dc')).toBe('dc');
+    expect(parseMarket('1x2')).toBe('1x2');
+    expect(parseMarket('ou')).toBe('1x2');
+    expect(parseMarket(undefined)).toBe('1x2');
   });
 
-  it('gives no groups for an empty list', () => {
-    expect(groupByCompetition([])).toEqual([]);
+  it('parseWithin accepts the five choices only', () => {
+    expect(parseWithin('1')).toBe(1);
+    expect(parseWithin('24')).toBe(24);
+    expect(parseWithin(['6', 'x'])).toBe(6);
+    for (const bad of ['0', '2', '48', '01x', '', 'x', undefined]) {
+      expect(parseWithin(bad), String(bad)).toBeUndefined();
+    }
+  });
+
+  it('listHref writes within and leaves it out when absent', () => {
+    expect(listHref('/', 'today', undefined, { within: 3 })).toBe('/?tab=today&within=3');
+    expect(listHref('/', 'highlights', 'abc', { within: 12, country: 'england' })).toBe(
+      '/?within=12&country=england&cursor=abc',
+    );
+    expect(listHref('/', 'today', undefined, { within: undefined })).toBe('/?tab=today');
+  });
+
+  it('listHref keeps day, country and market and drops defaults', () => {
+    expect(listHref('/', 'today', undefined, { market: '1x2' })).toBe('/?tab=today');
+    expect(
+      listHref('/', 'upcoming', undefined, { day: '2026-10-09', country: 'england', market: 'dc' }),
+    ).toBe('/?tab=upcoming&day=2026-10-09&country=england&market=dc');
+    expect(listHref('/', 'today', 'abc', { country: 'england' })).toBe(
+      '/?tab=today&country=england&cursor=abc',
+    );
   });
 });
 
-describe('market filter', () => {
-  it('sorts market types into the filter chips', () => {
-    expect(marketCategory('1x2')).toBe('main');
-    expect(marketCategory('ml')).toBe('main');
-    expect(marketCategory('winner')).toBe('main');
-    expect(marketCategory('dc')).toBe('main');
-    expect(marketCategory('dnb')).toBe('main');
-    expect(marketCategory('ou')).toBe('totals');
-    expect(marketCategory('total')).toBe('totals');
-    expect(marketCategory('btts')).toBe('totals');
-    expect(marketCategory('cs')).toBe('totals');
-    expect(marketCategory('ht_1x2')).toBe('halves');
-    expect(marketCategory('q1_ml')).toBe('halves');
-    expect(marketCategory('something_new')).toBe('other');
-  });
-
-  it('lists only the categories that have markets, in display order', () => {
-    expect(marketCategories([{ type: 'ht_1x2' }, { type: 'ou' }, { type: '1x2' }])).toEqual([
-      'main',
-      'totals',
-      'halves',
-    ]);
-    expect(marketCategories([{ type: 'winner' }])).toEqual(['main']);
-    expect(marketCategories([])).toEqual([]);
-  });
-
+describe('event page odds labels', () => {
   it('prefixes a selection with its code only when the code adds something', () => {
     expect(codePrefix('1', 'Home FC')).toBe('1');
     expect(codePrefix('x', 'Draw')).toBe('X');

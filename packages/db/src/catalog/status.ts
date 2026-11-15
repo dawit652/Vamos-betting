@@ -175,42 +175,6 @@ export async function setEventBettingOpen(
   return { changed: true, messages: [matchMessage(row)] };
 }
 
-/**
- * Marks or unmarks an event as a top match (events.top_match): the player
- * app's featured poster shows the soonest one. Display only: it changes no
- * price and no state, so there is no live delta. Only for scheduled or live events.
- */
-export async function setEventTopMatch(
-  tx: DbTransaction,
-  eventId: string,
-  top: boolean,
-  actor?: TradingActor,
-): Promise<CatalogChange> {
-  const event = await lockEvent(tx, eventId);
-  const [current] = await tx
-    .select({ topMatch: events.topMatch })
-    .from(events)
-    .where(eq(events.id, eventId));
-  if (current === undefined) throw new CatalogNotFoundError('event', eventId);
-  if (current.topMatch === top) return { changed: false, messages: [] };
-  if (top) assertOpenEvent(event, 'mark as a top match');
-  await tx
-    .update(events)
-    .set({ topMatch: top, updatedAt: sql`now()` })
-    .where(eq(events.id, eventId));
-  if (actor !== undefined) {
-    await audit(
-      tx,
-      actor,
-      top ? 'catalog.event.top_match_set' : 'catalog.event.top_match_cleared',
-      'event',
-      eventId,
-      {},
-    );
-  }
-  return { changed: true, messages: [] };
-}
-
 export interface LiveStateInput {
   /** 'live' once the match has kicked off; resultEvent moves it on from there. */
   status: 'scheduled' | 'live';

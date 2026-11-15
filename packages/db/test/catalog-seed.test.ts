@@ -166,6 +166,7 @@ describe('seedCatalog', () => {
       'ethiopian-premier-league',
       'laliga',
       'premier-league',
+      'primera-division',
       'serie-a',
       'uefa-champions-league',
     ]);
@@ -187,7 +188,18 @@ describe('seedCatalog', () => {
     const feed = await loadFeedTeams(handle.db);
     const pool = (slug: string) => feed.teams[slug] ?? [];
 
-    expect(pool('premier-league')).toHaveLength(20);
+    expect(pool('premier-league')).toHaveLength(23);
+    // The clubs promoted for 2026-27, with the modest starting ratings of the other seeded clubs.
+    for (const [short, attack, defence] of [
+      ['Coventry', 0.88, 1.12],
+      ['Hull', 0.82, 1.18],
+      ['Ipswich', 0.86, 1.14],
+    ] as const) {
+      expect(pool('premier-league').find((t) => t.shortName === short)?.ratings).toEqual({
+        attack,
+        defence,
+      });
+    }
     for (const slug of ['laliga', 'serie-a', 'bundesliga', 'ligue-1']) {
       expect(pool(slug).length).toBeGreaterThanOrEqual(12);
     }
@@ -227,6 +239,59 @@ describe('seedCatalog', () => {
       am: 'ቅዱስ ጊዮርጊስ',
     });
     expect((await teamRow('football', 'Mekelle 70')).name.am).toBe('መቐለ 70 እንደርታ');
+  });
+
+  it('seeds the Costa Rican top division first, with the ten Apertura 2026 clubs and neutral ratings', async () => {
+    const [first] = await handle.db
+      .select()
+      .from(categories)
+      .where(eq(categories.sportId, 'football'))
+      .orderBy(asc(categories.sortOrder))
+      .limit(1);
+    expect(first).toMatchObject({
+      slug: 'costa-rica',
+      countryCode: 'CR',
+      name: { en: 'Costa Rica' },
+    });
+    const primera = await competitionRow('football', 'primera-division');
+    expect(primera).toMatchObject({
+      name: { en: 'Primera División' },
+      featured: true,
+      active: true,
+      categoryId: first!.id,
+    });
+
+    const feed = await loadFeedTeams(handle.db);
+    const pool = feed.teams['primera-division'] ?? [];
+    expect(pool.map((t) => t.shortName).sort()).toEqual(
+      [
+        'Alajuelense',
+        'Cartaginés',
+        'Escorpiones',
+        'Herediano',
+        'Inter San Carlos',
+        'Pérez Zeledón',
+        'Puntarenas',
+        'San Carlos',
+        'Saprissa',
+        'Sporting CR',
+      ].sort(),
+    );
+    const rows = await handle.db
+      .select()
+      .from(teams)
+      .where(and(eq(teams.sportId, 'football'), eq(teams.countryCode, 'CR')));
+    expect(rows).toHaveLength(10);
+    // Neutral and uncalibrated (rule O1): no `matches`, no `manual`.
+    for (const row of rows) expect(row.ratings).toEqual({ attack: 1, defence: 1 });
+    expect((await teamRow('football', 'Pérez Zeledón')).name).toEqual({
+      en: 'Municipal Pérez Zeledón',
+    });
+    const unverified = await handle.db
+      .select({ shortName: teams.shortName })
+      .from(teams)
+      .where(sql`${teams.shortName} ILIKE '%liberia%' OR ${teams.shortName} ILIKE '%guadalupe%'`);
+    expect(unverified).toEqual([]);
   });
 
   it('keeps back-office edits and refreshes only what the seed owns', async () => {
@@ -310,7 +375,11 @@ describe('loadFeedTeams', () => {
     expect(feed.competitions.map((c) => `${c.sport}/${c.slug}`)).toEqual(
       CATALOG_SPORTS.flatMap((sport) =>
         CATALOG_CATEGORIES.filter((category) => category.sport === sport.id).flatMap((category) =>
-          category.competitions.map((competition) => `${sport.id}/${competition.slug}`),
+          // Cups and the competitions without a club list (pool of fewer than two) have no
+          // fixtures to draw: the mock feed leaves them out.
+          category.competitions
+            .filter((competition) => competition.teams.length >= 2)
+            .map((competition) => `${sport.id}/${competition.slug}`),
         ),
       ),
     );
@@ -352,8 +421,8 @@ describe('loadFeedTeams', () => {
       {
         sportId: 'football',
         categoryId: england[0]!.id,
-        slug: 'fa-cup',
-        name: { en: 'FA Cup' },
+        slug: 'community-shield',
+        name: { en: 'Community Shield' },
       },
       // No country on the category and no seeded pool: nothing to draw fixtures from.
       {
@@ -373,13 +442,13 @@ describe('loadFeedTeams', () => {
     expect(premier.find((t) => t.shortName === 'Arsenal')?.ratings).toEqual(
       DEFAULT_TEAM_RATINGS.football,
     );
-    expect(feed.teams['fa-cup']?.map((t) => t.shortName).sort()).toEqual(
+    expect(feed.teams['community-shield']?.map((t) => t.shortName).sort()).toEqual(
       CATALOG_TEAMS.filter((t) => t.countryCode === 'GB-ENG')
         .map((t) => t.shortName)
         .sort(),
     );
-    expect(feed.competitions.find((c) => c.slug === 'fa-cup')).toEqual({
-      slug: 'fa-cup',
+    expect(feed.competitions.find((c) => c.slug === 'community-shield')).toEqual({
+      slug: 'community-shield',
       sport: 'football',
       featured: false,
     });

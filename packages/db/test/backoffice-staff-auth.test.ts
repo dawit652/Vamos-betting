@@ -37,6 +37,7 @@ import {
   startOwnStaffTotpEnrolment,
   totpCode,
   unlockStaffUser,
+  findStaffUserByEmail,
   unlockStaffUserByEmail,
   updateStaffUser,
   type PasswordHasher,
@@ -193,7 +194,7 @@ describe('staff accounts', () => {
     expect(created.user.displayName).toBe('New Trader');
     expect(created.generatedPassword).toBeNull();
     expect(created.totp.uri).toMatch(
-      /^otpauth:\/\/totp\/Vamos%20Back%20Office:new\.trader%40vamos\.test\?secret=/,
+      /^otpauth:\/\/totp\/Nahubet%20Back%20Office:new\.trader%40vamos\.test\?secret=/,
     );
     const row = await userRow(created.user.id);
     expect(row.passwordHash).toMatch(/^\$argon2id\$/);
@@ -550,6 +551,12 @@ describe('staff sign-in', () => {
         now,
       }),
     ).toBeNull();
+  });
+
+  it('finds a staff account by email (the CLI lookup of `pnpm admin:reset`)', async () => {
+    const staff = await newStaff();
+    expect((await findStaffUserByEmail(handle.db, staff.email.toUpperCase()))?.id).toBe(staff.id);
+    expect(await findStaffUserByEmail(handle.db, 'nobody@vamos.test')).toBeNull();
   });
 
   it('verifies the password and code outside any database transaction', async () => {

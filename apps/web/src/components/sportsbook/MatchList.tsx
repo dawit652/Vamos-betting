@@ -3,75 +3,96 @@ import type { Locale } from '@vamos/i18n';
 import type { Translator } from '@vamos/i18n/translate';
 import Link from 'next/link';
 import { getLocale, getT } from '@/i18n/server';
+import { WORLD } from '@/lib/flag';
 import { formatDayMonth, formatTime, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes } from '@/lib/routes';
-import { eventRef, groupByCompetition, monogram, oddsMarket } from './events';
+import { eventRef, oddsMarket } from './events';
+import { groupByCompetition } from './groups';
+import { Chevron } from './Chevron';
 import { LiveClock, LiveScore } from './LiveMatch';
 import { MarketOdds } from './MarketOdds';
 
 /**
- * Server-rendered match rows: kick-off (East Africa Time) or live clock, Game
- * ID, a "+N" link to the event page, teams (with the score when live) and the
- * main market's odds buttons. By default the rows are grouped into one
- * collapsible card per league (native <details>, no JavaScript); `grouped={false}`
- * gives one flat card (a competition page, where the league is the page).
- * Only the odds buttons and the live clock/score are client islands.
+ * Server-rendered match rows: kick-off (East Africa Time, "Today" / "Tomorrow")
+ * or live clock, Game ID, a "+N" link to the event page, teams (with the score
+ * when live) and the main market's odds buttons (1X2 or double chance, as the
+ * list asked the API for). Only the odds buttons and the live clock/score are
+ * client islands.
+ *
+ * `grouped` puts collapsible league cards (flag, name, count; native <details>)
+ * over runs of the same competition, keeping the page order; otherwise the rows
+ * sit in one card, with the competition on each row unless `showCompetition` is
+ * false (a competition page, where the league is the page).
  */
 export async function MatchList({
   events,
-  grouped = true,
+  showCompetition = true,
+  grouped = false,
+  flags = {},
 }: {
   events: readonly EventSummary[];
+  showCompetition?: boolean;
+  /** Collapsible league cards (flag, name, count) over runs of the same competition. */
   grouped?: boolean;
+  /** Flag emoji by competition slug, for the league cards (competitionFlags). */
+  flags?: Readonly<Record<string, string>>;
 }) {
   const [t, locale] = await Promise.all([getT(), getLocale()]);
   const now = new Date();
-  const row = (event: EventSummary) => (
-    <MatchRow key={event.id} event={event} t={t} locale={locale} now={now} />
-  );
+  const rows = (list: readonly EventSummary[], withCompetition: boolean) =>
+    list.map((event) => (
+      <MatchRow
+        key={event.id}
+        event={event}
+        withCompetition={withCompetition}
+        t={t}
+        locale={locale}
+        now={now}
+      />
+    ));
   if (!grouped) {
-    return <ul className="panel mx-3 lg:mx-0">{events.map(row)}</ul>;
+    return <ul className="panel mx-3 lg:mx-0">{rows(events, showCompetition)}</ul>;
   }
   return (
     <div className="space-y-3 px-3 lg:px-0">
-      {groupByCompetition(events).map((group) => (
-        <details key={group.slug} open className="group panel">
-          <summary className="flex items-center gap-2 border-b border-line bg-raised px-3 py-2">
-            <span aria-hidden="true" className="tag">
-              {monogram(group.competition.category.en)}
-            </span>
-            <span className="min-w-0 flex-1 truncate">
-              <span className="text-xs text-muted">
-                {localName(group.competition.category, locale)} ·{' '}
+      {groupByCompetition(events).map((group, index) => {
+        const name = localName(group.name, locale);
+        return (
+          <details key={`${group.slug}-${index}`} open className="group panel">
+            <summary
+              aria-label={t('sportsbook.controls.league', { count: group.events.length, name })}
+              className="flex min-h-11 items-center gap-2 border-b border-line bg-raised px-3"
+            >
+              <span aria-hidden="true" className="text-base leading-none">
+                {flags[group.slug] ?? WORLD}
               </span>
-              <Link
-                href={routes.competition(group.events[0]?.sport ?? 'football', group.slug)}
-                prefetch={false}
-                className="font-bold underline-offset-2 hover:underline"
-              >
-                {localName(group.competition.name, locale)}
-              </Link>
-            </span>
-            <span className="rounded-full bg-raised px-2 text-xxs font-bold text-muted tabular-nums">
-              {group.events.length}
-            </span>
-            <Chevron />
-          </summary>
-          <ul>{group.events.map(row)}</ul>
-        </details>
-      ))}
+              <span className="min-w-0 flex-1 truncate">
+                <span className="text-xs text-muted">{localName(group.category, locale)} · </span>
+                <span className="font-bold">{name}</span>
+              </span>
+              <span className="rounded-full bg-surface px-2 text-xxs font-bold text-muted tabular-nums">
+                {group.events.length}
+              </span>
+              <Chevron />
+            </summary>
+            <ul>{rows(group.events, false)}</ul>
+          </details>
+        );
+      })}
     </div>
   );
 }
 
 function MatchRow({
   event,
+  withCompetition,
   t,
   locale,
   now,
 }: {
   event: EventSummary;
+  withCompetition: boolean;
   t: Translator;
   locale: Locale;
   now: Date;
@@ -81,7 +102,7 @@ function MatchRow({
   const day = relativeDay(event.startTime, now);
   return (
     <li className="list-row">
-      <div className="flex items-center gap-1.5 text-xxs whitespace-nowrap text-muted">
+      <div className="flex min-w-0 items-center gap-1.5 text-xxs whitespace-nowrap text-muted">
         {live ? (
           <span className="flex items-center gap-1 rounded-full bg-raised px-1.5">
             <span aria-hidden="true" className="live-dot" />
@@ -100,19 +121,28 @@ function MatchRow({
             </span>
             <span className="tabular-nums">
               {day === 'today'
-                ? t('sportsbook.tabs.today')
+                ? t('sportsbook.controls.today')
                 : day === 'tomorrow'
-                  ? t('sportsbook.list.tomorrow')
+                  ? t('sportsbook.controls.tomorrow')
                   : formatDayMonth(event.startTime)}
             </span>
           </>
         )}
         <span aria-hidden="true">·</span>
         <span className="tabular-nums">{t('sportsbook.list.gameId', { id: event.gameId })}</span>
+        {withCompetition ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="min-w-0 truncate">
+              {localName(event.competition.category, locale)} ·{' '}
+              {localName(event.competition.name, locale)}
+            </span>
+          </>
+        ) : null}
         <Link
           href={href}
           prefetch={false}
-          className="ml-auto rounded-full bg-raised px-2 font-bold text-brand"
+          className="ml-auto flex-none rounded-full bg-raised px-2 font-bold text-brand"
           aria-label={t('sportsbook.markets.more', { count: event.marketCount })}
         >
           {event.marketCount > 0 ? `+${event.marketCount} ›` : '›'}
@@ -146,25 +176,5 @@ function MatchRow({
         </div>
       </div>
     </li>
-  );
-}
-
-/** Points down; turns up while its <details class="group"> is open. */
-export function Chevron() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="16"
-      height="16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className="flex-none text-muted transition-transform group-open:rotate-180"
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
   );
 }

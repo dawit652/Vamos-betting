@@ -1,69 +1,122 @@
+import { SEARCH_MIN_LENGTH } from '@vamos/contracts';
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { MatchList } from '@/components/sportsbook/MatchList';
-import { SearchIcon, SportsbookFrame } from '@/components/sportsbook/SportsbookFrame';
-import { getT } from '@/i18n/server';
-import { searchEvents } from '@/lib/api/catalog';
-import { DEFAULT_SPORT, routes } from '@/lib/routes';
-
-/** The API's limits for `q` (EventSearchQuery). */
-const MIN_QUERY = 2;
-const MAX_QUERY = 60;
+import { getLocale, getT } from '@/i18n/server';
+import { searchCatalog } from '@/lib/api/catalog';
+import { flagEmoji } from '@/lib/flag';
+import { localName } from '@/lib/localized';
+import { routes } from '@/lib/routes';
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
   return { title: t('sportsbook.search.title'), robots: { index: false } };
 }
 
-/** The search text of `?q=`: trimmed, and undefined when it is too short to search for. */
-function parseQuery(value: string | string[] | undefined): string | undefined {
-  const q = (Array.isArray(value) ? value[0] : value)?.trim().slice(0, MAX_QUERY);
-  return q !== undefined && q.length >= MIN_QUERY ? q : undefined;
+/** The first `q` of the query string (it may repeat), trimmed. */
+function queryText(value: string | string[] | undefined): string {
+  const first = Array.isArray(value) ? value[0] : value;
+  return (first ?? '').trim();
 }
 
 /**
- * Match search (`/search?q=`): a plain GET form, answered on the server. Finds
- * live and coming matches of every sport by team, league or Game ID.
+ * Team and league search: a plain GET form, so it works without client
+ * JavaScript. Results are server-rendered; leagues link to their pages and the
+ * matches use the same rows (and odds buttons) as the lists.
  */
 export default async function SearchPage(props: PageProps<'/search'>) {
-  const [searchParams, t] = await Promise.all([props.searchParams, getT()]);
-  const q = parseQuery(searchParams.q);
-  const results = q === undefined ? null : await searchEvents(q);
+  const [searchParams, t, locale] = await Promise.all([props.searchParams, getT(), getLocale()]);
+  const q = queryText(searchParams.q);
+  const tooShort = q !== '' && [...q].length < SEARCH_MIN_LENGTH;
+  const results = q === '' || tooShort ? null : await searchCatalog(q);
+  const empty = results !== null && results.competitions.length + results.events.length === 0;
+
   return (
-    <SportsbookFrame sport={DEFAULT_SPORT} search>
-      <div className="px-3 lg:px-0">
-        <h1 className="mb-2 text-lg font-extrabold">{t('sportsbook.search.title')}</h1>
-        <form action={routes.search} role="search" className="mb-3 flex gap-2">
+    <div className="mx-auto max-w-2xl pb-4">
+      <form
+        method="get"
+        action={routes.search}
+        role="search"
+        className="card m-3 flex flex-wrap items-end gap-2"
+      >
+        <h1 className="sr-only">{t('sportsbook.search.title')}</h1>
+        <div className="min-w-0 flex-1">
+          <label htmlFor="search-q" className="mb-1 block text-xs font-semibold text-muted">
+            {t('sportsbook.search.label')}
+          </label>
           <input
+            id="search-q"
             type="search"
             name="q"
-            defaultValue={q ?? ''}
-            minLength={MIN_QUERY}
-            maxLength={MAX_QUERY}
-            required
-            autoFocus={q === undefined}
+            defaultValue={q}
+            maxLength={60}
+            autoComplete="off"
             enterKeyHint="search"
-            aria-label={t('sportsbook.search.label')}
-            placeholder={t('sportsbook.search.label')}
-            className="input min-w-0 flex-1"
+            placeholder={t('sportsbook.search.placeholder')}
+            className="input"
           />
-          <button type="submit" className="btn btn-primary flex-none gap-1.5">
-            <SearchIcon />
-            {t('sportsbook.search.submit')}
-          </button>
-        </form>
-        {results === null ? (
-          <p className="card text-center text-muted">{t('sportsbook.search.hint')}</p>
-        ) : results.items.length === 0 ? (
-          <p className="card text-center text-muted" role="status">
-            {t('sportsbook.search.empty', { q: q ?? '' })}
-          </p>
-        ) : (
-          <h2 className="mb-2 text-xxs font-bold tracking-wider text-muted uppercase">
-            {t('sportsbook.search.results', { q: q ?? '' })}
+        </div>
+        <button type="submit" className="btn btn-primary">
+          {t('sportsbook.search.submit')}
+        </button>
+      </form>
+
+      {tooShort ? (
+        <p role="status" className="card m-3 text-center text-muted">
+          {t('sportsbook.search.tooShort')}
+        </p>
+      ) : null}
+      {empty ? (
+        <p role="status" className="card m-3 text-center text-muted">
+          {t('sportsbook.search.empty', { q })}
+        </p>
+      ) : null}
+
+      {results !== null && results.competitions.length > 0 ? (
+        <section aria-labelledby="search-leagues">
+          <h2
+            id="search-leagues"
+            className="px-3 pt-3 pb-1 text-xxs font-bold text-muted uppercase"
+          >
+            {t('sportsbook.search.leagues')}
           </h2>
-        )}
-      </div>
-      {results !== null && results.items.length > 0 ? <MatchList events={results.items} /> : null}
-    </SportsbookFrame>
+          <ul>
+            {results.competitions.map((competition) => (
+              <li key={`${competition.sport}/${competition.slug}`}>
+                <Link
+                  href={routes.competition(competition.sport, competition.slug)}
+                  prefetch={false}
+                  className="list-row flex items-center justify-between gap-2 font-semibold"
+                >
+                  <span className="min-w-0 truncate">
+                    <span aria-hidden="true">{flagEmoji(competition.category.countryCode)}</span>{' '}
+                    {localName(competition.name, locale)}
+                    <span className="block text-xxs font-normal text-muted">
+                      {localName(competition.category.name, locale)} ·{' '}
+                      {t(`common.sports.${competition.sport}`)}
+                    </span>
+                  </span>
+                  <span className="flex-none text-xxs font-normal text-muted">
+                    {t('sportsbook.leagues.matches', { count: competition.eventCount })} ›
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {results !== null && results.events.length > 0 ? (
+        <section aria-labelledby="search-matches">
+          <h2
+            id="search-matches"
+            className="px-3 pt-3 pb-1 text-xxs font-bold text-muted uppercase"
+          >
+            {t('sportsbook.search.matches')}
+          </h2>
+          <MatchList events={results.events} />
+        </section>
+      ) : null}
+    </div>
   );
 }

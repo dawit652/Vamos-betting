@@ -1,0 +1,15 @@
+{
+  "id": "theoddsapi-events-en1",
+  "name": "DRAFT The Odds API: Premier League fixture list (free, no credits), shadow only",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "events",
+    "sportKey": "soccer_epl",
+    "competition": "English Premier League",
+    "horizonDays": 15
+  }
+}

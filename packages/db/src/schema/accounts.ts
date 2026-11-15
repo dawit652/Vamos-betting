@@ -37,7 +37,8 @@ export const users = pgTable(
     passwordHash: text('password_hash').notNull(),
     fullName: text('full_name'),
     /** Gregorian ISO date (YYYY-MM-DD). */
-    dateOfBirth: date('date_of_birth', { mode: 'string' }).notNull(),
+    // Optional at registration (the player confirms 21+); KYC sets the verified date.
+    dateOfBirth: date('date_of_birth', { mode: 'string' }),
     locale: text('locale').notNull().default('am'),
     status: userStatus('status').notNull().default('pending_verification'),
     phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),
@@ -100,6 +101,12 @@ export const otpChallenges = pgTable(
      * a stranger cannot use up the owner's codes. Null on older rows.
      */
     requesterKey: text('requester_key'),
+    /**
+     * What the code authorises, when the purpose names something beyond the
+     * phone (`payout_account`: `payout_account:<id>`). consumeOtp compares
+     * it, so a code sent while adding one account cannot confirm another.
+     */
+    binding: text('binding'),
   },
   (t) => [index('otp_phone_purpose_idx').on(t.phone, t.purpose, t.createdAt)],
 );

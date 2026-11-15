@@ -126,8 +126,8 @@ type Text = { en: string; am: string };
 
 const T = {
   title: (demo: boolean): Text => ({
-    en: demo ? 'Vamos DEMO' : 'Vamos',
-    am: demo ? 'Vamos DEMO' : 'Vamos',
+    en: demo ? 'Nahubet DEMO' : 'Nahubet',
+    am: demo ? 'Nahubet DEMO' : 'Nahubet',
   }),
   menu: {
     en: '1 Place bet\n2 Balance\n3 My bets\n4 Jackpot\n5 Help\n0 Exit',
@@ -166,7 +166,7 @@ const T = {
     en: `Odds changed to ${formatOdds(odds)}.`,
     am: `ዕድሉ ወደ ${formatOdds(odds)} ተቀይሯል።`,
   }),
-  goodbye: { en: 'Thank you for using Vamos.', am: 'ቫሞስን ስለተጠቀሙ እናመሰግናለን።' },
+  goodbye: { en: 'Thank you for using Nahubet.', am: 'ናሁቤትን ስለተጠቀሙ እናመሰግናለን።' },
   ended: (code: string): Text => ({
     en: `Session ended. Dial ${code} again.`,
     am: `ክፍለ ጊዜው አብቅቷል። ${code} እንደገና ይደውሉ።`,
@@ -520,7 +520,7 @@ export function ussdUnavailableEnd(ctx: Pick<UssdContext, 'locale'>): UssdStep {
  */
 export function ussdNotAvailableEnd(): UssdStep {
   return endStep(
-    'Not available for this number. Register and verify it on the Vamos website.\nለዚህ ቁጥር አገልግሎቱ የለም። በቫሞስ ድረ-ገጽ ይመዝገቡ።',
+    'Not available for this number. Register and verify it on the Nahubet website.\nለዚህ ቁጥር አገልግሎቱ የለም። በናሁቤት ድረ-ገጽ ይመዝገቡ።',
   );
 }
 

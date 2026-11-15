@@ -142,9 +142,11 @@ export async function requireStaffSession(request: FastifyRequest): Promise<void
 /**
  * preHandler factory: a live staff session whose role holds `permission` (403 `forbidden`),
  * and whose password is the staff member's own (403 `password_change_required` until they
- * change one someone else chose; the session and /admin/me routes stay open).
+ * change one someone else chose; the session and /admin/me routes stay open). With
+ * `orPermission`, holding that one lets the request through the guard too: the route then
+ * checks the finer rule itself (see `staffOr` in modules/admin/common.ts).
  */
-export function requirePermission(permission: StaffPermission) {
+export function requirePermission(permission: StaffPermission, orPermission?: StaffPermission) {
   return async (request: FastifyRequest): Promise<void> => {
     const staff = requireStaff(request);
     if (staff.passwordChangeRequired) {
@@ -153,7 +155,10 @@ export function requirePermission(permission: StaffPermission) {
         'Change the password you were given before using the back office.',
       );
     }
-    if (!hasPermission(staff.role, permission)) {
+    const allowed =
+      hasPermission(staff.role, permission) ||
+      (orPermission !== undefined && hasPermission(staff.role, orPermission));
+    if (!allowed) {
       throw forbidden('forbidden', 'Your role does not allow this.', { permission });
     }
   };

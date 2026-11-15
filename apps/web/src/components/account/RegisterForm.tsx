@@ -6,18 +6,17 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useLocale, useT } from '@/i18n/client';
 import { authApi } from '@/lib/api/account';
+import { IS_DEMO } from '@/lib/mode';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
-import { formatBirthDate } from './dates';
 import { formErrors, retryAfterSeconds } from './errors';
 import { PasswordInput, PasswordStrengthMeter, PhoneInput } from './inputs';
-import { accountPaths, loginHref } from './paths';
+import { accountPaths, afterSignUp, loginHref } from './paths';
 import { setPendingRegistration } from './pending';
 import { Alert, Field, describedBy } from './ui';
 import {
   MIN_PASSWORD_LENGTH,
   hasErrors,
-  latestBirthDate,
   normalizePhone,
   validateRegister,
   type FieldErrors,
@@ -28,15 +27,12 @@ const ERRORS = {
   paths: {
     phone: ['phone', 'account.validation.phone'],
     password: ['password', 'account.validation.passwordShort'],
-    dateOfBirth: ['dateOfBirth', 'account.validation.dateOfBirth'],
     acceptTerms: ['acceptTerms', 'account.validation.terms'],
   },
   codes: {
     invalid_phone: { field: 'phone', key: 'account.validation.phone' },
     phone_taken: { field: 'phone', key: 'account.errors.phoneTaken' },
     weak_password: { field: 'password', key: 'account.validation.weakPassword' },
-    invalid_date_of_birth: { field: 'dateOfBirth', key: 'account.validation.dateOfBirth' },
-    underage: { field: 'dateOfBirth', key: 'account.validation.underage' },
   },
 } as const;
 
@@ -47,21 +43,12 @@ export function RegisterForm({ next }: { next: string }) {
   const session = useSession();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [fields, setFields] = useState<FieldErrors<RegisterField>>({});
   const [formError, setFormError] = useState<MessageKey | null>(null);
   const [busy, setBusy] = useState(false);
   // Seconds until the API sends another code (after a 429 otp_cooldown / otp_limit).
   const [cooldown, setCooldown] = useState(0);
-  // The date input's max (the latest birth date that is 21 today), set after mount
-  // so server and client render the same markup.
-  const [maxBirthDate, setMaxBirthDate] = useState<string | null>(null);
-
-  useEffect(() => {
-    setMaxBirthDate(latestBirthDate(new Date()));
-  }, []);
-
   useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setTimeout(() => setCooldown((s) => s - 1), 1000);
@@ -75,7 +62,7 @@ export function RegisterForm({ next }: { next: string }) {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || cooldown > 0) return;
-    const local = validateRegister({ phone, password, dateOfBirth, acceptTerms }, new Date());
+    const local = validateRegister({ phone, password, acceptTerms });
     setFields(local);
     setFormError(null);
     if (hasErrors(local)) return;
@@ -85,10 +72,21 @@ export function RegisterForm({ next }: { next: string }) {
       const response = await authApi.register({
         phone: normalized,
         password,
-        dateOfBirth,
         locale,
         acceptTerms: true,
       });
+      if (response.registrationWithoutSms && response.demoOtp) {
+        // No SMS gateway: the API handed the code back, so confirm it here (the phone is not proven).
+        await authApi.verifyOtp({
+          phone: normalized,
+          code: response.demoOtp,
+          purpose: 'register',
+          registrationToken: response.registrationToken,
+        });
+        await session.refresh();
+        router.replace(afterSignUp(next));
+        return;
+      }
       setPendingRegistration({
         phone: normalized,
         registrationToken: response.registrationToken,
@@ -157,30 +155,6 @@ export function RegisterForm({ next }: { next: string }) {
         />
         <PasswordStrengthMeter password={password} />
       </Field>
-      <Field
-        id="reg-dob"
-        label={t('account.fields.dateOfBirth')}
-        hint={
-          maxBirthDate
-            ? t('account.register.dobHint', { date: formatBirthDate(maxBirthDate, locale) })
-            : undefined
-        }
-        error={error('dateOfBirth')}
-      >
-        <input
-          id="reg-dob"
-          name="dateOfBirth"
-          type="date"
-          className="input"
-          autoComplete="bday"
-          min="1900-01-01"
-          max={maxBirthDate ?? undefined}
-          value={dateOfBirth}
-          onChange={(e) => setDateOfBirth(e.target.value)}
-          required
-          {...describedBy('reg-dob', error('dateOfBirth'), maxBirthDate !== null)}
-        />
-      </Field>
       <Alert tone="info">{t('account.register.ageNotice')}</Alert>
       <div className="space-y-1">
         <label className="flex items-start gap-2">
@@ -219,7 +193,9 @@ export function RegisterForm({ next }: { next: string }) {
       <button type="submit" className="btn btn-accent w-full" disabled={busy || cooldown > 0}>
         {busy ? t('common.actions.loading') : t('account.register.submit')}
       </button>
-      <p className="text-center text-xs text-muted">{t('account.register.playMoney')}</p>
+      {IS_DEMO ? (
+        <p className="text-center text-xs text-muted">{t('account.register.playMoney')}</p>
+      ) : null}
       <p className="border-t border-line pt-3 text-center text-xs">
         {t('account.register.haveAccount')}{' '}
         <Link href={loginHref(next)} className="font-bold text-brand">

@@ -1,0 +1,2 @@
+ALTER TABLE "scrape_competition_policy" ADD COLUMN "pricing_source" text DEFAULT 'model' NOT NULL;--> statement-breakpoint
+ALTER TABLE "scrape_competition_policy" ADD CONSTRAINT "scrape_competition_policy_pricing_source" CHECK ("scrape_competition_policy"."pricing_source" IN ('model', 'market'));

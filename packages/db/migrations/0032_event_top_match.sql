@@ -1,2 +1,0 @@
-ALTER TABLE "events" ADD COLUMN "top_match" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-CREATE INDEX "events_top_match_idx" ON "events" USING btree ("start_time") WHERE "events"."top_match";

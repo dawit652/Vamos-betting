@@ -1,8 +1,8 @@
 {
   "name": "@vamos/web",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Vamos player PWA – Betika-style lite mobile web",
+  "description": "Nahubet player PWA – Betika-style lite mobile web",
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3000",

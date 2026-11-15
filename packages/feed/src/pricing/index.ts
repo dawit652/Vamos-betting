@@ -3,6 +3,7 @@ import type { FeedMarket, LiveScoreState, TeamRatings } from '../types';
 import { expectedPoints, priceBasketball } from './basketball';
 import { isPositiveFinite } from './book';
 import { expectedGoals, priceFootball } from './football';
+import { HOME_ADVANTAGE_KEY, homeAdvantageOf } from './homeadvantage';
 import { DEFAULT_PLAYER_RATING, priceWinner } from './tennis';
 
 export {
@@ -14,11 +15,16 @@ export {
   buildMarket,
   defaultMarginBps,
   normalCdf,
+  priceBook,
   priceProbability,
 } from './book';
 export * from './football';
+export * from './factory';
+export * from './market';
 export * from './basketball';
 export * from './tennis';
+export * from './ratings';
+export * from './homeadvantage';
 
 /**
  * Model inputs of one match, derived from the two teams' ratings and shared
@@ -35,12 +41,15 @@ export interface MatchStrengths {
 /**
  * teams.ratings keys read by the mock feed (as written by the catalogue
  * seed). Missing or invalid values fall back to the neutral default.
- * - football: `attack` and `defence`; basketball: `offence` (or `attack`) and
+ * - football: `attack` and `defence`, and on the home team's ratings the
+ *   competition's `homeAdvantage` (learned from results, see homeadvantage.ts);
+ *   basketball: `offence` (or `attack`) and
  *   `defence`. Multipliers of the league average, 1 = average; a higher
  *   defence concedes MORE.
  * - tennis, volleyball: `rating`, Elo-like with 1500 average.
  */
 export const RATING_KEYS = Object.freeze({
+  homeAdvantage: HOME_ADVANTAGE_KEY,
   attack: 'attack',
   offence: 'offence',
   defence: 'defence',
@@ -58,6 +67,7 @@ export function matchStrengths(
       return expectedGoals(
         attackDefence(homeRatings, RATING_KEYS.attack),
         attackDefence(awayRatings, RATING_KEYS.attack),
+        { homeAdvantage: homeAdvantageOf(homeRatings) },
       );
     case 'basketball':
       return expectedPoints(

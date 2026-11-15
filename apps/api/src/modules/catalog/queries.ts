@@ -1,24 +1,28 @@
 import type {
   CompetitionsResponse,
   EventDetail,
-  EventListMarket,
   EventListQuery,
   EventListResponse,
-  EventSearchQuery,
+  EventSummary,
+  SearchQuery,
+  SearchResponse,
   SportsResponse,
 } from '@vamos/contracts';
 import { parseGameId } from '@vamos/core';
 import type { DbExecutor } from '@vamos/db';
+import { normalizeName } from '@vamos/scraper';
 import {
   categories,
+  competitionAliases,
   competitions,
   events,
   markets,
   selections,
   sports,
+  teamAliases,
   teams,
 } from '@vamos/db/schema';
-import { and, asc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { badRequest } from '../../lib/errors';
 import {
@@ -31,6 +35,7 @@ import {
   type EventRow,
   type MarketRow,
   type SelectionRow,
+  type ViewOptions,
 } from './views';
 
 const HOUR_MS = 60 * 60_000;
@@ -56,12 +61,6 @@ export function addisAbabaDay(now: Date): { start: Date; end: Date } {
   const start =
     Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) -
     ADDIS_ABABA_OFFSET_MS;
-  return { start: new Date(start), end: new Date(start + 24 * HOUR_MS) };
-}
-
-/** [start, end) of an Addis Ababa calendar date (`YYYY-MM-DD`, validated by the contract). */
-export function addisAbabaDate(date: string): { start: Date; end: Date } {
-  const start = Date.parse(`${date}T00:00:00.000Z`) - ADDIS_ABABA_OFFSET_MS;
   return { start: new Date(start), end: new Date(start + 24 * HOUR_MS) };
 }
 
@@ -182,8 +181,10 @@ export async function listCompetitions(
     .select({
       categorySlug: categories.slug,
       categoryName: categories.name,
+      categoryCountryCode: categories.countryCode,
       slug: competitions.slug,
       name: competitions.name,
+      featured: competitions.featured,
       eventCount: sql<number>`coalesce(${counts.eventCount}, 0)`.mapWith(Number),
     })
     .from(competitions)
@@ -201,11 +202,16 @@ export async function listCompetitions(
     items: [...groupBy(rows, (row) => row.categorySlug).values()].map((group) => {
       const [first] = group as [(typeof rows)[number], ...typeof rows];
       return {
-        category: { slug: first.categorySlug, name: localized(first.categoryName) },
+        category: {
+          slug: first.categorySlug,
+          name: localized(first.categoryName),
+          countryCode: first.categoryCountryCode,
+        },
         competitions: group.map((row) => ({
           slug: row.slug,
           name: localized(row.name),
           eventCount: row.eventCount,
+          featured: row.featured,
         })),
       };
     }),
@@ -227,6 +233,7 @@ function selectEvents(db: DbExecutor) {
       cursorTime: sql<string>`to_char(${events.startTime} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
       status: events.status,
       bettingOpen: events.bettingOpen,
+      closeLeadMs: events.closeLeadMs,
       liveMinute: events.liveMinute,
       period: events.period,
       scoreHome: events.scoreHome,
@@ -267,6 +274,7 @@ function toEventRow(row: SelectedEvent): EventRow | null {
     startTime: row.startTime,
     status: row.status,
     bettingOpen: row.bettingOpen,
+    closeLeadMs: row.closeLeadMs,
     liveMinute: row.liveMinute,
     period: row.period,
     scoreHome: row.scoreHome,
@@ -285,6 +293,7 @@ async function loadMarkets(db: DbExecutor, eventIds: readonly string[]): Promise
       type: markets.type,
       line: markets.line,
       status: markets.status,
+      priceValidUntil: markets.priceValidUntil,
     })
     .from(markets)
     .where(inArray(markets.eventId, [...eventIds]));
@@ -307,25 +316,42 @@ async function loadSelections(
     .where(inArray(selections.marketId, [...marketIds]));
 }
 
-/** Scheduled or live events starting in [start, end). */
-function onDay(day: { start: Date; end: Date }): SQL {
-  return and(
-    inArray(events.status, ['scheduled', 'live']),
-    gte(events.startTime, day.start),
-    lt(events.startTime, day.end),
-  )!;
+/** [start, end) of an Addis Ababa calendar day given as YYYY-MM-DD. */
+function addisAbabaDayOf(day: string): { start: Date; end: Date } {
+  const start = Date.parse(`${day}T00:00:00Z`) - ADDIS_ABABA_OFFSET_MS;
+  return { start: new Date(start), end: new Date(start + 24 * HOUR_MS) };
 }
 
 function filterCondition(query: EventListQuery, now: Date): SQL {
-  if (query.date !== undefined) return onDay(addisAbabaDate(query.date));
+  if (query.day !== undefined && (query.filter === 'today' || query.filter === 'upcoming')) {
+    // An explicit day replaces the tab's own window; upcoming never lists what has started.
+    const { start, end } = addisAbabaDayOf(query.day);
+    return query.filter === 'today'
+      ? and(
+          inArray(events.status, ['scheduled', 'live']),
+          gte(events.startTime, start),
+          lt(events.startTime, end),
+        )!
+      : and(
+          eq(events.status, 'scheduled'),
+          gte(events.startTime, now > start ? now : start),
+          lt(events.startTime, end),
+        )!;
+  }
   switch (query.filter) {
     case 'highlights':
       return and(
         eq(competitions.featured, true),
         liveOrStartingBetween(now, new Date(now.getTime() + HIGHLIGHTS_WINDOW_MS)),
       )!;
-    case 'today':
-      return onDay(addisAbabaDay(now));
+    case 'today': {
+      const { start, end } = addisAbabaDay(now);
+      return and(
+        inArray(events.status, ['scheduled', 'live']),
+        gte(events.startTime, start),
+        lt(events.startTime, end),
+      )!;
+    }
     case 'upcoming':
       return and(
         eq(events.status, 'scheduled'),
@@ -334,11 +360,6 @@ function filterCondition(query: EventListQuery, now: Date): SQL {
       )!;
     case 'live':
       return eq(events.status, 'live');
-    case 'top':
-      return and(
-        eq(events.topMatch, true),
-        liveOrStartingBetween(now, new Date(now.getTime() + UPCOMING_WINDOW_MS)),
-      )!;
     default: {
       const unreachable: never = query.filter;
       throw new RangeError(`unknown event filter: ${String(unreachable)}`);
@@ -353,10 +374,7 @@ function filterCondition(query: EventListQuery, now: Date): SQL {
  *   scheduled event whose start has passed is listed, not bettable, until
  *   the feed reports its kick-off);
  * - upcoming: scheduled, starting within 72h;
- * - live: in play;
- * - top: marked as a top match by a trader, live or starting within 72h.
- * `date` (an Addis Ababa calendar date) replaces the filter: that day's
- * scheduled and live events. `market=dc` puts double chance on football rows.
+ * - live: in play.
  * Ordered by (start time, id), which puts live events (already started)
  * first, and paged by keyset on the same pair.
  */
@@ -364,6 +382,7 @@ export async function listEvents(
   db: DbExecutor,
   query: EventListQuery,
   now: Date,
+  options: ViewOptions = {},
 ): Promise<EventListResponse> {
   const cursor = query.cursor === undefined ? undefined : decodeEventCursor(query.cursor);
   const conditions: SQL[] = [
@@ -373,6 +392,17 @@ export async function listEvents(
     filterCondition(query, now),
   ];
   if (query.competition !== undefined) conditions.push(eq(competitions.slug, query.competition));
+  if (query.country !== undefined) conditions.push(eq(categories.slug, query.country));
+  if (query.day !== undefined && (query.filter === 'highlights' || query.filter === 'live')) {
+    const { start, end } = addisAbabaDayOf(query.day);
+    conditions.push(gte(events.startTime, start), lt(events.startTime, end));
+  }
+  if (query.startsWithinHours !== undefined && query.filter !== 'live') {
+    conditions.push(
+      gte(events.startTime, now),
+      lt(events.startTime, new Date(now.getTime() + query.startsWithinHours * HOUR_MS)),
+    );
+  }
   if (cursor !== undefined) {
     conditions.push(
       sql`(${events.startTime}, ${events.id}) > (${cursor.startTime}::timestamptz, ${cursor.id}::uuid)`,
@@ -390,24 +420,34 @@ export async function listEvents(
       ? encodeEventCursor({ startTime: last.cursorTime, id: last.id })
       : null;
 
-  return { items: await summaries(db, page, query.market, now), nextCursor };
+  const eventRows = page.map(toEventRow).filter((row): row is EventRow => row !== null);
+  return {
+    items: await summarizeEvents(
+      db,
+      eventRows,
+      query.market === 'dc' ? 'dc' : undefined,
+      now,
+      options,
+    ),
+    nextCursor,
+  };
 }
 
-/** List rows for selected events: their markets and the row market's selections (two queries). */
-async function summaries(
+/** List rows (with their main market's odds) for already selected events, in the given order. */
+async function summarizeEvents(
   db: DbExecutor,
-  rows: readonly SelectedEvent[],
-  rowMarket: EventListMarket,
+  eventRows: readonly EventRow[],
+  mainType: 'dc' | undefined,
   now: Date,
-): Promise<EventListResponse['items']> {
-  const eventRows = rows.map(toEventRow).filter((row): row is EventRow => row !== null);
+  options: ViewOptions,
+): Promise<EventSummary[]> {
   const marketRows = await loadMarkets(
     db,
     eventRows.map((event) => event.id),
   );
   const marketsByEvent = groupBy(marketRows, (market) => market.eventId);
   const mainMarketIds = eventRows.flatMap((event) => {
-    const main = findMainMarket(event, marketsByEvent.get(event.id) ?? [], rowMarket);
+    const main = findMainMarket(event, marketsByEvent.get(event.id) ?? [], mainType);
     return main === null ? [] : [main.id];
   });
   const selectionsByMarket = groupBy(
@@ -416,67 +456,168 @@ async function summaries(
   );
   return eventRows.map((event) => {
     const eventMarkets = marketsByEvent.get(event.id) ?? [];
-    const main = findMainMarket(event, eventMarkets, rowMarket);
+    const main = findMainMarket(event, eventMarkets, mainType);
     return eventSummaryView(
       event,
       eventMarkets,
       main === null ? [] : (selectionsByMarket.get(main.id) ?? []),
       now,
-      rowMarket,
+      mainType,
+      options,
     );
   });
 }
 
-/** How far ahead a search looks for scheduled matches. */
+/** Search looks this far ahead for matches. */
 export const SEARCH_WINDOW_MS = 14 * 24 * HOUR_MS;
+export const SEARCH_MAX_EVENTS = 30;
+export const SEARCH_MAX_COMPETITIONS = 20;
 
-/** `q` as a LIKE pattern matching it anywhere, with LIKE's own wildcards escaped. */
-export function containsPattern(q: string): string {
-  return `%${q.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+/** Escapes LIKE wildcards (and the escape character) so user text matches literally. */
+export function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/g, '\\$&');
 }
 
 /**
- * GET /events/search: live matches and matches starting within 14 days, in
- * every active sport, whose team or competition name (English or Amharic)
- * contains `q`, or whose Game ID is `q`. Soonest first; one page, no cursor.
+ * GET /search: teams and competitions whose name matches `query.q`.
+ *
+ * Names (English, Amharic, short name) are compared as raw text with a
+ * case-insensitive substring match (ILIKE; Ethiopic has no case, so Amharic is
+ * matched as typed). Aliases are stored in normalised form (normalizeName), so
+ * they are matched against the normalised query, and also against the raw
+ * lower-cased text, which covers a query that normalises to nothing. LIKE
+ * wildcards in the query are escaped; every value is a bound parameter.
+ * Events: live or starting within 14 days, by start time, at most 30, of
+ * teams that match. Competitions: at most 20. Active sports and competitions only.
  */
-export async function searchEvents(
+export async function searchCatalog(
   db: DbExecutor,
-  query: EventSearchQuery,
+  query: SearchQuery,
   now: Date,
-): Promise<EventListResponse> {
-  const pattern = containsPattern(query.q);
-  const names = [homeTeam.name, awayTeam.name, competitions.name].flatMap((name) => [
-    sql`${name}->>'en' ILIKE ${pattern}`,
-    sql`${name}->>'am' ILIKE ${pattern}`,
-  ]);
-  const matches: SQL[] = [
-    ...names,
-    ilike(homeTeam.shortName, pattern),
-    ilike(awayTeam.shortName, pattern),
-  ];
-  const gameId = parseGameId(query.q);
-  if (gameId !== null) matches.push(eq(events.gameId, gameId));
+  options: ViewOptions = {},
+): Promise<SearchResponse> {
+  const raw = `%${escapeLike(query.q)}%`;
+  const normalized = normalizeName(query.q);
+  const norm = normalized === '' ? undefined : `%${escapeLike(normalized)}%`;
+  const aliasMatch = (column: AnyColumn): SQL =>
+    or(sql`${column} ILIKE ${raw}`, norm === undefined ? undefined : sql`${column} LIKE ${norm}`)!;
+  const nameMatch = (name: AnyColumn): SQL =>
+    or(sql`${name}->>'en' ILIKE ${raw}`, sql`${name}->>'am' ILIKE ${raw}`)!;
 
-  const rows = await selectEvents(db)
+  const matchingTeams = db
+    .select({ id: teams.id })
+    .from(teams)
     .where(
-      and(
-        eq(sports.active, true),
-        eq(competitions.active, true),
-        liveOrStartingBetween(now, new Date(now.getTime() + SEARCH_WINDOW_MS)),
-        or(...matches),
+      or(
+        nameMatch(teams.name),
+        sql`${teams.shortName} ILIKE ${raw}`,
+        inArray(
+          teams.id,
+          db
+            .select({ id: teamAliases.teamId })
+            .from(teamAliases)
+            .where(aliasMatch(teamAliases.aliasNorm)),
+        ),
       ),
-    )
-    .orderBy(asc(events.startTime), asc(events.id))
-    .limit(query.limit);
-  return { items: await summaries(db, rows, 'main', now), nextCursor: null };
+    );
+  const sportFilter = (column: AnyColumn): SQL[] =>
+    query.sport === undefined ? [] : [eq(column, query.sport)];
+
+  const counts = db
+    .select({
+      competitionId: events.competitionId,
+      eventCount: sql<number>`count(*)::int`.as('event_count'),
+    })
+    .from(events)
+    .where(liveOrStartingBetween(now, new Date(now.getTime() + UPCOMING_WINDOW_MS)))
+    .groupBy(events.competitionId)
+    .as('counts');
+  const [competitionRows, eventSelected] = await Promise.all([
+    db
+      .select({
+        sport: competitions.sportId,
+        slug: competitions.slug,
+        name: competitions.name,
+        categorySlug: categories.slug,
+        categoryName: categories.name,
+        categoryCountryCode: categories.countryCode,
+        eventCount: sql<number>`coalesce(${counts.eventCount}, 0)`.mapWith(Number),
+      })
+      .from(competitions)
+      .innerJoin(categories, eq(categories.id, competitions.categoryId))
+      .innerJoin(sports, eq(sports.id, competitions.sportId))
+      .leftJoin(counts, eq(counts.competitionId, competitions.id))
+      .where(
+        and(
+          eq(competitions.active, true),
+          eq(sports.active, true),
+          ...sportFilter(competitions.sportId),
+          or(
+            nameMatch(competitions.name),
+            inArray(
+              competitions.id,
+              db
+                .select({ id: competitionAliases.competitionId })
+                .from(competitionAliases)
+                .where(aliasMatch(competitionAliases.aliasNorm)),
+            ),
+          ),
+        ),
+      )
+      .orderBy(
+        asc(sports.sortOrder),
+        asc(categories.sortOrder),
+        asc(competitions.sortOrder),
+        asc(competitions.slug),
+      )
+      .limit(SEARCH_MAX_COMPETITIONS),
+    selectEvents(db)
+      .where(
+        and(
+          eq(sports.active, true),
+          eq(competitions.active, true),
+          ...sportFilter(events.sportId),
+          liveOrStartingBetween(now, new Date(now.getTime() + SEARCH_WINDOW_MS)),
+          or(inArray(events.homeTeamId, matchingTeams), inArray(events.awayTeamId, matchingTeams)),
+        ),
+      )
+      .orderBy(asc(events.startTime), asc(events.id))
+      .limit(SEARCH_MAX_EVENTS),
+  ]);
+
+  const eventRows = eventSelected.map(toEventRow).filter((row): row is EventRow => row !== null);
+  return {
+    competitions: competitionRows.flatMap((row) =>
+      isSportCode(row.sport)
+        ? [
+            {
+              slug: row.slug,
+              sport: row.sport,
+              name: localized(row.name),
+              category: {
+                slug: row.categorySlug,
+                name: localized(row.categoryName),
+                countryCode: row.categoryCountryCode,
+              },
+              eventCount: row.eventCount,
+            },
+          ]
+        : [],
+    ),
+    events: await summarizeEvents(db, eventRows, undefined, now, options),
+  };
 }
 
 /**
  * One event page. Events of an inactive competition or sport are not part of
  * the public catalogue (no list shows them), so they are not found here either.
  */
-async function eventDetail(db: DbExecutor, where: SQL, now: Date): Promise<EventDetail | null> {
+async function eventDetail(
+  db: DbExecutor,
+  where: SQL,
+  now: Date,
+  options: ViewOptions,
+): Promise<EventDetail | null> {
   const [row] = await selectEvents(db)
     .where(and(where, eq(competitions.active, true), eq(sports.active, true)))
     .limit(1);
@@ -492,6 +633,7 @@ async function eventDetail(db: DbExecutor, where: SQL, now: Date): Promise<Event
     marketRows,
     groupBy(selectionRows, (selection) => selection.marketId),
     now,
+    options,
   );
 }
 
@@ -503,9 +645,10 @@ export async function getEventById(
   db: DbExecutor,
   id: string,
   now: Date,
+  options: ViewOptions = {},
 ): Promise<EventDetail | null> {
   if (!isUuid(id)) return null;
-  return eventDetail(db, eq(events.id, id), now);
+  return eventDetail(db, eq(events.id, id), now, options);
 }
 
 /**
@@ -516,8 +659,9 @@ export async function getEventByGameId(
   db: DbExecutor,
   gameId: string,
   now: Date,
+  options: ViewOptions = {},
 ): Promise<EventDetail | null> {
   const parsed = parseGameId(gameId);
   if (parsed === null) return null;
-  return eventDetail(db, eq(events.gameId, parsed), now);
+  return eventDetail(db, eq(events.gameId, parsed), now, options);
 }

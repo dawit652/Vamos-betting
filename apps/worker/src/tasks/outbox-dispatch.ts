@@ -1,5 +1,4 @@
 import { JackpotTemplateCodeSchema, type UserMessage } from '@vamos/contracts';
-import { ELS_REPORTABLE_TYPES } from '@vamos/core';
 import {
   AML_TRIGGER_TYPES,
   BET_ACCEPTED,
@@ -21,6 +20,7 @@ import {
   RECONCILIATION_REQUESTED,
   markOutboxFailed,
   markOutboxPublished,
+  OWNER_ALERT,
   WITHDRAWAL_APPROVED,
   WITHDRAWAL_CANCELLED,
   WITHDRAWAL_FAILED,
@@ -48,7 +48,7 @@ import type { TaskContext } from './context';
  * a batch of unpublished rows (FOR UPDATE SKIP LOCKED, so several workers can
  * run it), hands each row to the BullMQ queue(s) of its type and marks it
  * published, all in one transaction. The outbox has a single published_at
- * column, so new consumers (SMS, ELS reporting…) get a route here instead
+ * column, so new consumers (SMS, AML…) get a route here instead
  * of reading the outbox themselves.
  *
  * - Each job's id is `outbox-<row id>-<row job_key>` (BullMQ refuses ':' in
@@ -162,8 +162,22 @@ export interface LiveBetSmsJobData {
   refund?: string;
 }
 
+/**
+ * Data of an `sms` job for an alert to the owner (owner.alert, plan task 1.11): the text is final
+ * and goes to every OWNER_ALERT_PHONES number, once per key and interval.
+ */
+export interface OwnerAlertSmsJobData {
+  outboxId: string;
+  type: typeof OWNER_ALERT;
+  key: string;
+  message: string;
+  /** ISO time the alarm was raised; the deduplication window runs on it. */
+  raisedAt: string;
+}
+
 /** Data of an `sms` job. */
-export type SmsJobData = PaymentSmsJobData | ChannelReplySmsJobData | LiveBetSmsJobData;
+export type SmsJobData =
+  PaymentSmsJobData | ChannelReplySmsJobData | LiveBetSmsJobData | OwnerAlertSmsJobData;
 
 /**
  * Data of a `user-notify` job: push messages for one player, built from the
@@ -176,12 +190,6 @@ export interface UserNotifyJobData {
   userId: string;
   messages: UserMessage[];
   wallet: boolean;
-}
-
-/** Data of an `els` job: write the ELS record of this outbox row (emitElsEvent). */
-export interface ElsJobData {
-  outboxId: string;
-  type: string;
 }
 
 /** Data of an `aml` job: evaluate this player's AML rules after the event (evaluateAmlForEvent). */
@@ -342,6 +350,25 @@ const channelReplyRoute: OutboxRoute = (row) => {
     to: payload.to,
     body: payload.body,
     template: payload.template,
+  };
+  return { queue: QUEUE_NAMES.sms, name: row.type, data };
+};
+
+const ownerAlertPayload = z.object({
+  key: nonEmpty.max(400),
+  message: nonEmpty.max(160),
+  raisedAt: nonEmpty,
+});
+
+/** An alert to the owner's phone: the `sms` consumer sends it (or does nothing with alerts off). */
+const ownerAlertRoute: OutboxRoute = (row) => {
+  const payload = ownerAlertPayload.parse(row.payload);
+  const data: OwnerAlertSmsJobData = {
+    outboxId: row.id.toString(),
+    type: OWNER_ALERT,
+    key: payload.key,
+    message: payload.message,
+    raisedAt: payload.raisedAt,
   };
   return { queue: QUEUE_NAMES.sms, name: row.type, data };
 };
@@ -524,23 +551,6 @@ const userNotifyRoute: OutboxRoute = (row) => {
 };
 
 /**
- * ELS reporting (Phase 10): every reportable type (@vamos/core
- * ELS_REPORTABLE_TYPES) gets an `els` job carrying only the outbox id; the
- * consumer builds the record from the stored row, so nothing here can drop
- * or alter a field. Many attempts: a record must not be lost (the sweep is
- * the safety net after that).
- */
-const elsRoute: OutboxRoute = (row) => {
-  const data: ElsJobData = { outboxId: row.id.toString(), type: row.type };
-  return {
-    queue: QUEUE_NAMES.els,
-    name: row.type,
-    data,
-    opts: { attempts: 12, backoff: { type: 'exponential', delay: 2000 } },
-  };
-};
-
-/**
  * AML (Phase 10): the events after which a player's rules are evaluated
  * (@vamos/db AML_TRIGGER_TYPES). A payload without a player routes no job
  * (the daily sweep still sees the activity).
@@ -576,13 +586,12 @@ const reconciliationRoute: OutboxRoute = (row) => {
   };
 };
 
-/** The routes of each type, plus the compliance routes (ELS stream, AML) of the types they cover. */
+/** The routes of each type, plus the compliance route (AML) of the types it covers. */
 function withComplianceRoutes(
   routes: Record<string, readonly OutboxRoute[]>,
 ): Readonly<Record<string, readonly OutboxRoute[]>> {
   const all: Record<string, OutboxRoute[]> = {};
   for (const [type, list] of Object.entries(routes)) all[type] = [...list];
-  for (const type of ELS_REPORTABLE_TYPES) (all[type] ??= []).push(elsRoute);
   for (const type of AML_TRIGGER_TYPES) (all[type] ??= []).push(amlRoute);
   return all;
 }
@@ -609,6 +618,7 @@ export const OUTBOX_ROUTES: Readonly<Record<string, readonly OutboxRoute[]>> = w
     [WITHDRAWAL_PAID]: [smsRoute, userNotifyRoute],
     [WITHDRAWAL_FAILED]: [smsRoute, userNotifyRoute],
     [CHANNEL_SMS_REPLY]: [channelReplyRoute],
+    [OWNER_ALERT]: [ownerAlertRoute],
     [RECONCILIATION_REQUESTED]: [reconciliationRoute],
   },
 );

@@ -1,6 +1,6 @@
 {
   "name": "@vamos/db",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Drizzle ORM schema, migrations and seed data (PostgreSQL 16)",
   "type": "module",
@@ -20,6 +20,7 @@
     "seed": "tsx src/scripts/seed.ts",
     "admin:create": "tsx src/scripts/admin-create.ts",
     "admin:unlock": "tsx src/scripts/admin-unlock.ts",
+    "admin:reset": "tsx src/scripts/admin-reset.ts",
     "admin:totp-rekey": "tsx src/scripts/totp-rekey.ts"
   },
   "dependencies": {

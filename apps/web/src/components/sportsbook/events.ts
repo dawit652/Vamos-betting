@@ -175,55 +175,6 @@ export function streamEventIds(ids: readonly string[], max = 50): string[] {
   return [...new Set(ids)].slice(0, max);
 }
 
-export interface CompetitionGroup<E> {
-  /** Competition slug: the group's key. */
-  slug: string;
-  competition: EventSummary['competition'];
-  events: E[];
-}
-
-/**
- * Groups a list page's events by competition for the league cards. Groups come in
- * the order their first event appears, and events keep the API's order inside a
- * group, so the earliest kick-off still leads the page.
- */
-export function groupByCompetition<E extends Pick<EventSummary, 'competition'>>(
-  events: readonly E[],
-): CompetitionGroup<E>[] {
-  const groups = new Map<string, CompetitionGroup<E>>();
-  for (const event of events) {
-    const { slug } = event.competition;
-    let group = groups.get(slug);
-    if (group === undefined) {
-      group = { slug, competition: event.competition, events: [] };
-      groups.set(slug, group);
-    }
-    group.events.push(event);
-  }
-  return [...groups.values()];
-}
-
-/** Filter chips of the event page, in display order (`all` is implicit). */
-export const MARKET_CATEGORIES = ['main', 'totals', 'halves', 'other'] as const;
-export type MarketCategory = (typeof MARKET_CATEGORIES)[number];
-
-const MAIN_TYPES: readonly string[] = ['1x2', 'ml', 'winner', 'dc', 'dnb'];
-const TOTAL_TYPES: readonly string[] = ['ou', 'total', 'btts', 'cs'];
-
-/** The filter chip a market type belongs to: result, totals/scores, half or period, or the rest. */
-export function marketCategory(type: string): MarketCategory {
-  if (/^(ht|h1|h2|1h|2h|q[1-4]|s[1-5])_/.test(type)) return 'halves';
-  if (MAIN_TYPES.includes(type)) return 'main';
-  if (TOTAL_TYPES.includes(type)) return 'totals';
-  return 'other';
-}
-
-/** The categories present among `groups`, in display order. */
-export function marketCategories(groups: readonly Pick<MarketGroup, 'type'>[]): MarketCategory[] {
-  const present = new Set(groups.map((group) => marketCategory(group.type)));
-  return MARKET_CATEGORIES.filter((category) => present.has(category));
-}
-
 /**
  * Up to three letters standing in for a crest or a flag: the short name when it
  * is already an abbreviation ("PSG"), else the initials of the words ("Man Utd"

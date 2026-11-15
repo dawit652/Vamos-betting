@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-fr1",
+  "name": "The Odds API: Ligue 1 final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_france_ligue_one",
+    "competition": "French Ligue 1",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

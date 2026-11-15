@@ -31,7 +31,7 @@ export default function UserDetailPage() {
               rows={[
                 ['Name', p.fullName ?? '–'],
                 ['Status', <Badge key="s" value={p.status} />],
-                ['Date of birth', p.dateOfBirth],
+                ['Date of birth', p.dateOfBirth ?? '–'],
                 ['Phone verified', formatDateTime(p.phoneVerifiedAt)],
                 ['Joined', formatDateTime(p.createdAt)],
                 ['Cash balance', formatEtb(p.balances.cash)],

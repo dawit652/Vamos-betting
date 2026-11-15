@@ -4,7 +4,7 @@ import type { Messages } from '../en';
 // Afaan Oromoo. UNREVIEWED: untranslated keys fall back to English (see ./index.ts).
 export const common: DeepPartial<Messages['common']> = {
   app: {
-    name: 'Vamos',
+    name: 'Nahubet',
     tagline: 'Qabsiisa ispoortii salphaa',
   },
   demo: {

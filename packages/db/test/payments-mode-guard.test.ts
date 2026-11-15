@@ -5,6 +5,7 @@ import {
   createDepositIntent,
   ensureAccount,
   getDatabaseOperatingMode,
+  ingestSms,
   OperatingModeMismatchError,
 } from '../src/index';
 import { databaseIdentity, payouts } from '../src/schema/index';
@@ -96,5 +97,46 @@ describe('mock payments and the operating mode', () => {
     await expect(
       ensureAccount(licensed.db, { kind: 'house_psp_clearing', provider: 'telebirr' }),
     ).resolves.toMatchObject({ key: 'house:psp:telebirr' });
+  });
+});
+
+/**
+ * SMS from the dev simulator (the SMS rail in demo mode) credit play money:
+ * a database holding one is never claimed for licensed mode, and a licensed
+ * database refuses them. Gateway SMS (the live rail) are real money.
+ */
+describe('simulated SMS deposits and the operating mode', () => {
+  let demo: TestDb;
+  let licensed: TestDb;
+
+  beforeAll(async () => {
+    [demo, licensed] = await Promise.all([createTestDatabase(), createTestDatabase()]);
+    await seed(licensed.db, { mode: 'licensed' });
+  });
+  afterAll(async () => {
+    await Promise.all([dropTestDatabase(demo), dropTestDatabase(licensed)]);
+  });
+
+  const text = 'You have received ETB 10.01 on 10/10/2026. Your transaction number is SIM0000001.';
+
+  it('refuses to claim a database holding simulator SMS for licensed mode', async () => {
+    await demo.db.transaction((tx) =>
+      ingestSms(tx, { source: 'simulator', sender: 'telebirr', text, now: NOW }),
+    );
+    const claim = claimOperatingMode(demo.db, 'licensed');
+    await expect(claim).rejects.toMatchObject({ message: expect.stringMatching(/dev simulator/) });
+  });
+
+  it('lets a licensed database refuse simulator SMS but take gateway SMS', async () => {
+    const simulated = await licensed.db
+      .transaction((tx) =>
+        ingestSms(tx, { source: 'simulator', sender: 'telebirr', text, now: NOW }),
+      )
+      .catch((e: unknown) => e);
+    expect(errorText(simulated)).toMatch(/play money is not allowed in a licensed database/);
+    const live = await licensed.db.transaction((tx) =>
+      ingestSms(tx, { source: 'gateway', sender: 'telebirr', text, now: NOW }),
+    );
+    expect(live.outcome).toBe('unmatched');
   });
 });

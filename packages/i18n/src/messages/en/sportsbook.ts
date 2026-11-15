@@ -2,9 +2,8 @@
  * Sportsbook text: home lists, live, event pages, markets, betslip drawer, My Bets.
  * Owned by the sportsbook pages. Add keys here, then the same keys in `am/sportsbook.ts`.
  *
- * The namespace is sent to the browser on every page, so keep messages short. The
- * betslip drawer's own text is the exception: it loads with the drawer (see
- * `src/betslip.ts`; keys other screens reuse go in `SHARED_BETSLIP_KEYS`).
+ * The whole namespace is sent to the browser on every page (the betslip can open
+ * anywhere), so keep messages short.
  */
 export const sportsbook = {
   tabs: {
@@ -21,25 +20,20 @@ export const sportsbook = {
     nextPage: 'Next page',
     firstPage: 'Back to the start',
     gameId: 'ID {id}',
-    tomorrow: 'Tomorrow',
     featured: 'Featured',
   },
-  // Server-rendered only (SERVER_ONLY_SPORTSBOOK): not sent to the browser, never use from useT().
   controls: {
-    days: 'Day',
-    market: 'Odds shown',
-    main: '1X2',
-    dc: 'Double chance',
-    search: 'Search',
-  },
-  // Server-rendered only, like `controls`.
-  search: {
-    title: 'Search matches',
-    label: 'Team, league or game ID',
-    submit: 'Search',
-    hint: 'Type at least 2 letters of a team or league, or a game ID.',
-    empty: 'No live or coming match found for "{q}".',
-    results: 'Matches for "{q}"',
+    within: 'Starts within',
+    withinHours: '{hours}h',
+    days: 'Match day',
+    countries: 'Country',
+    market: 'Market',
+    all: 'All',
+    today: 'Today',
+    tomorrow: 'Tomorrow',
+    market1x2: '1X2',
+    marketDc: 'Double chance',
+    league: '{count} matches in {name}',
   },
   match: {
     live: 'LIVE',
@@ -79,16 +73,22 @@ export const sportsbook = {
     none: 'No markets are open right now.',
     suspended: 'Suspended',
     count: '{count} markets',
+    filterLabel: 'Filter markets',
+    searchLabel: 'Search markets',
+    searchPlaceholder: 'Search markets',
+    noMatches: 'No markets match your search.',
+    all: 'All',
+    group: {
+      main: 'Main',
+      full_time: 'Full time',
+      full_time_combos: 'Full time combos',
+      first_half: 'First half',
+      second_half: 'Second half',
+      teams: 'Teams',
+      halves: 'Halves',
+    },
     oddsLabel: '{selection}, {market}, {event}: odds {odds}',
     oddsLabelSuspended: '{selection}, {market}, {event}: suspended',
-    filter: {
-      label: 'Market type',
-      all: 'All',
-      main: 'Main',
-      totals: 'Totals',
-      halves: 'Halves',
-      other: 'More',
-    },
   },
   live: {
     title: 'Live',
@@ -98,7 +98,18 @@ export const sportsbook = {
     title: 'Leagues',
     empty: 'No leagues with matches right now.',
     matches: '{count} matches',
-    top: 'Top leagues',
+    topLeagues: 'Top leagues',
+  },
+  search: {
+    title: 'Search',
+    open: 'Search teams and leagues',
+    label: 'Team or league',
+    placeholder: 'e.g. Arsenal or Premier League',
+    submit: 'Search',
+    tooShort: 'Type at least 2 letters to search.',
+    leagues: 'Leagues',
+    matches: 'Matches',
+    empty: 'Nothing found for "{q}". Try another spelling.',
   },
   competition: {
     live: 'Live now',
@@ -158,6 +169,7 @@ export const sportsbook = {
       stakeAboveMaximum: 'The stake is above the maximum.',
       totalOddsAboveMaximum: 'The total odds are above the maximum.',
       stakeLimit: 'This bet goes over your stake limit.',
+      liabilityLimit: 'This bet is too large for this match right now. Try a smaller stake.',
       lossLimit: 'This bet goes over your loss limit.',
       excluded: 'Your account cannot place bets right now.',
       earlierPlaced: 'Your earlier attempt was placed. Check My Bets.',

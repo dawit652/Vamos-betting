@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import { getT } from '@/i18n/server';
-import { getEvents } from '@/lib/api/catalog';
+import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { routes, type Sport } from '@/lib/routes';
 import { streamEventIds } from './events';
 import { LiveProvider, LiveStatusBar } from './LiveProvider';
+import { competitionFlags } from './leagues';
 import { MatchList } from './MatchList';
 import { SportsbookFrame } from './SportsbookFrame';
 import { listHref } from './tabs';
@@ -17,9 +18,10 @@ const LIVE_LIMIT = 50;
  * periodic refresh for matches that start or end.
  */
 export async function LiveList({ sport }: { sport: Sport }) {
-  const [t, page] = await Promise.all([
+  const [t, page, competitions] = await Promise.all([
     getT(),
     getEvents({ sport, filter: 'live', limit: LIVE_LIMIT }),
+    getCompetitions(sport).catch(() => null),
   ]);
   return (
     <SportsbookFrame sport={sport} live>
@@ -48,7 +50,7 @@ export async function LiveList({ sport }: { sport: Sport }) {
           )}
         >
           <LiveStatusBar />
-          <MatchList events={page.items} />
+          <MatchList events={page.items} grouped flags={competitionFlags(competitions)} />
         </LiveProvider>
       )}
     </SportsbookFrame>

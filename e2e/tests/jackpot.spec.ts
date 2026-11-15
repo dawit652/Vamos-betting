@@ -8,7 +8,7 @@ import {
 } from '../support/api';
 import { WEB_URL } from '../support/env';
 import { birr } from '../support/money';
-import { ADULT_DATE_OF_BIRTH, randomPhone } from '../support/phone';
+import { randomPhone } from '../support/phone';
 import { balanceChip, pick, registerAndVerify } from '../support/ui';
 
 /**
@@ -50,7 +50,7 @@ test('place a jackpot entry with a double pick and see it settled', async ({ pag
   const phone = randomPhone();
 
   await test.step('register, verify and add ETB 1,000 of play money', async () => {
-    await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+    await registerAndVerify(page, phone);
     await page.getByRole('radio', { name: '1,000', exact: true }).click();
     await page.getByRole('button', { name: `Add ETB ${birr(TOP_UP)}` }).click();
     await expect(page.getByText('ETB 1,000.00 of play money was added.')).toBeVisible();

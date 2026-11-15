@@ -1,0 +1,575 @@
+{
+  "get": "fixtures",
+  "parameters": {
+    "date": "2026-11-13",
+    "timezone": "UTC"
+  },
+  "errors": [],
+  "results": 8,
+  "paging": {
+    "current": 1,
+    "total": 1
+  },
+  "response": [
+    {
+      "fixture": {
+        "id": 1549870,
+        "referee": "Carlos Andrés Márquez Ortega, Colombia",
+        "timezone": "UTC",
+        "date": "2026-11-13T00:00:00+00:00",
+        "timestamp": 1794528000,
+        "periods": {
+          "first": 1794528000,
+          "second": 1794531600
+        },
+        "venue": {
+          "id": 20648,
+          "name": "Estadio Bello Horizonte",
+          "city": "Villavicencio"
+        },
+        "status": {
+          "long": "Match Finished",
+          "short": "FT",
+          "elapsed": 90,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 239,
+        "name": "Primera A",
+        "country": "Colombia",
+        "logo": "https://media.api-sports.io/football/leagues/239.png",
+        "flag": "https://media.api-sports.io/flags/co.svg",
+        "season": 2026,
+        "round": "Clausura - 19",
+        "standings": true
+      },
+      "teams": {
+        "home": {
+          "id": 1464,
+          "name": "Llaneros",
+          "logo": "https://media.api-sports.io/football/teams/1464.png",
+          "winner": null
+        },
+        "away": {
+          "id": 1132,
+          "name": "Chico",
+          "logo": "https://media.api-sports.io/football/teams/1132.png",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 0,
+        "away": 0
+      },
+      "score": {
+        "halftime": {
+          "home": 0,
+          "away": 0
+        },
+        "fulltime": {
+          "home": 0,
+          "away": 0
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1640361,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T08:30:00+00:00",
+        "timestamp": 1794558600,
+        "periods": {
+          "first": 1794558600,
+          "second": 1794562200
+        },
+        "venue": {
+          "id": 2578,
+          "name": "Jack Edwards Reserve",
+          "city": "Oakleigh"
+        },
+        "status": {
+          "long": "Match Finished",
+          "short": "PEN",
+          "elapsed": 120,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 1202,
+        "name": "Australian Championship",
+        "country": "Australia",
+        "logo": "https://media.api-sports.io/football/leagues/1202.png",
+        "flag": "https://media.api-sports.io/flags/au.svg",
+        "season": 2026,
+        "round": "Group Stage - 5",
+        "standings": true
+      },
+      "teams": {
+        "home": {
+          "id": 3808,
+          "name": "Oakleigh Cannons",
+          "logo": "https://media.api-sports.io/football/teams/3808.png",
+          "winner": false
+        },
+        "away": {
+          "id": 3768,
+          "name": "Marconi Stallions",
+          "logo": "https://media.api-sports.io/football/teams/3768.png",
+          "winner": true
+        }
+      },
+      "goals": {
+        "home": 2,
+        "away": 2
+      },
+      "score": {
+        "halftime": {
+          "home": 1,
+          "away": 2
+        },
+        "fulltime": {
+          "home": 2,
+          "away": 2
+        },
+        "extratime": {
+          "home": 0,
+          "away": 0
+        },
+        "penalty": {
+          "home": 5,
+          "away": 6
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1633689,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T11:00:00+00:00",
+        "timestamp": 1794567600,
+        "periods": {
+          "first": null,
+          "second": null
+        },
+        "venue": {
+          "id": null,
+          "name": null,
+          "city": null
+        },
+        "status": {
+          "long": "Not Started",
+          "short": "NS",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 790,
+        "name": "Liga III - Serie 7",
+        "country": "Romania",
+        "logo": "https://media.api-sports.io/football/leagues/790.png",
+        "flag": "https://media.api-sports.io/flags/ro.svg",
+        "season": 2026,
+        "round": "Group 7 - 13",
+        "standings": true
+      },
+      "teams": {
+        "home": {
+          "id": 28329,
+          "name": "Poli Timisoara 2",
+          "logo": "https://media.api-sports.io/football/teams/28329.png",
+          "winner": null
+        },
+        "away": {
+          "id": 7483,
+          "name": "Progresul Pecica",
+          "logo": "https://media.api-sports.io/football/teams/7483.png",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": null,
+        "away": null
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1594900,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T12:30:00+00:00",
+        "timestamp": 1794573000,
+        "periods": {
+          "first": 1794573000,
+          "second": null
+        },
+        "venue": {
+          "id": null,
+          "name": "Harras El Hodood Stadium",
+          "city": "Alexandria"
+        },
+        "status": {
+          "long": "First Half",
+          "short": "1H",
+          "elapsed": 45,
+          "extra": 6
+        }
+      },
+      "league": {
+        "id": 887,
+        "name": "Second League",
+        "country": "Egypt",
+        "logo": "https://media.api-sports.io/football/leagues/887.png",
+        "flag": "https://media.api-sports.io/flags/eg.svg",
+        "season": 2026,
+        "round": "Regular Season - 12",
+        "standings": true
+      },
+      "teams": {
+        "home": {
+          "id": 1576,
+          "name": "Haras El Hodood",
+          "logo": "https://media.api-sports.io/football/teams/1576.png",
+          "winner": null
+        },
+        "away": {
+          "id": 1032,
+          "name": "El Dakhleya",
+          "logo": "https://media.api-sports.io/football/teams/1032.png",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 0,
+        "away": 0
+      },
+      "score": {
+        "halftime": {
+          "home": 0,
+          "away": 0
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1594902,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T12:30:00+00:00",
+        "timestamp": 1794573000,
+        "periods": {
+          "first": 1794573000,
+          "second": null
+        },
+        "venue": {
+          "id": 2686,
+          "name": "Tanta Stadium",
+          "city": "Tanta"
+        },
+        "status": {
+          "long": "Halftime",
+          "short": "HT",
+          "elapsed": 45,
+          "extra": 4
+        }
+      },
+      "league": {
+        "id": 887,
+        "name": "Second League",
+        "country": "Egypt",
+        "logo": "https://media.api-sports.io/football/leagues/887.png",
+        "flag": "https://media.api-sports.io/flags/eg.svg",
+        "season": 2026,
+        "round": "Regular Season - 12",
+        "standings": true
+      },
+      "teams": {
+        "home": {
+          "id": 1045,
+          "name": "Tanta SC",
+          "logo": "https://media.api-sports.io/football/teams/1045.png",
+          "winner": false
+        },
+        "away": {
+          "id": 16436,
+          "name": "La Viena FC",
+          "logo": "https://media.api-sports.io/football/teams/16436.png",
+          "winner": true
+        }
+      },
+      "goals": {
+        "home": 0,
+        "away": 1
+      },
+      "score": {
+        "halftime": {
+          "home": 0,
+          "away": 1
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1565159,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T12:00:00+00:00",
+        "timestamp": 1794571200,
+        "periods": {
+          "first": 1794571200,
+          "second": 1794574800
+        },
+        "venue": {
+          "id": null,
+          "name": null,
+          "city": null
+        },
+        "status": {
+          "long": "Second Half",
+          "short": "2H",
+          "elapsed": 60,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 668,
+        "name": "1. Liga U19",
+        "country": "Czech-Republic",
+        "logo": "https://media.api-sports.io/football/leagues/668.png",
+        "flag": "https://media.api-sports.io/flags/cz.svg",
+        "season": 2026,
+        "round": "Regular Season - 15",
+        "standings": false
+      },
+      "teams": {
+        "home": {
+          "id": 14840,
+          "name": "Zlín U19",
+          "logo": "https://media.api-sports.io/football/teams/14840.png",
+          "winner": null
+        },
+        "away": {
+          "id": 19200,
+          "name": "Dukla Praha U19",
+          "logo": "https://media.api-sports.io/football/teams/19200.png",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 1,
+        "away": 1
+      },
+      "score": {
+        "halftime": {
+          "home": 1,
+          "away": 1
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1644898,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T13:00:00+00:00",
+        "timestamp": 1794574800,
+        "periods": {
+          "first": null,
+          "second": null
+        },
+        "venue": {
+          "id": null,
+          "name": null,
+          "city": null
+        },
+        "status": {
+          "long": "Match Postponed",
+          "short": "PST",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 424,
+        "name": "Ligue 1",
+        "country": "Congo-DR",
+        "logo": "https://media.api-sports.io/football/leagues/424.png",
+        "flag": "https://media.api-sports.io/flags/cd.svg",
+        "season": 2026,
+        "round": "Regular Season - 5",
+        "standings": true
+      },
+      "teams": {
+        "home": {
+          "id": 8572,
+          "name": "Simba",
+          "logo": "https://media.api-sports.io/football/teams/8572.png",
+          "winner": null
+        },
+        "away": {
+          "id": 6435,
+          "name": "TP Mazembe",
+          "logo": "https://media.api-sports.io/football/teams/6435.png",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": null,
+        "away": null
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1649939,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T10:00:00+00:00",
+        "timestamp": 1794564000,
+        "periods": {
+          "first": null,
+          "second": null
+        },
+        "venue": {
+          "id": null,
+          "name": null,
+          "city": null
+        },
+        "status": {
+          "long": "Match Cancelled",
+          "short": "CANC",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 667,
+        "name": "Friendlies Clubs",
+        "country": "World",
+        "logo": "https://media.api-sports.io/football/leagues/667.png",
+        "flag": null,
+        "season": 2026,
+        "round": "Club Friendlies",
+        "standings": false
+      },
+      "teams": {
+        "home": {
+          "id": 640,
+          "name": "Mlada Boleslav",
+          "logo": "https://media.api-sports.io/football/teams/640.png",
+          "winner": null
+        },
+        "away": {
+          "id": 3731,
+          "name": "Vysočina Jihlava",
+          "logo": "https://media.api-sports.io/football/teams/3731.png",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": null,
+        "away": null
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    }
+  ]
+}

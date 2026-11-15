@@ -5,7 +5,7 @@
  */
 export const common = {
   app: {
-    name: 'Vamos',
+    name: 'Nahubet',
     tagline: 'Sports betting made simple',
   },
   demo: {
@@ -59,6 +59,12 @@ export const common = {
     button: 'Betslip',
     count: '{count} selections',
     limitReached: 'A betslip can hold at most {max} selections.',
+    odds: 'Odds',
+    netPay: 'Net pay',
+  },
+  oddsMove: {
+    up: 'odds up',
+    down: 'odds down',
   },
   theme: {
     toLight: 'Switch to the light theme',

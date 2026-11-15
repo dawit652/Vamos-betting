@@ -44,7 +44,7 @@ export function HeaderAccount() {
         className="flex items-center gap-1 pr-2 tabular-nums"
         aria-label={t('common.header.balanceLabel', { amount: `ETB ${amount}` })}
       >
-        <span className="text-xxs font-semibold opacity-70">ETB</span>
+        <span className="hidden text-xxs font-semibold opacity-70 sm:inline">ETB</span>
         <span>{amount}</span>
       </Link>
       <Link

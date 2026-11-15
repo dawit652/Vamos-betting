@@ -4,7 +4,7 @@ import type { Messages } from '../en';
 // Tigrinya. UNREVIEWED: untranslated keys fall back to English (see ./index.ts).
 export const common: DeepPartial<Messages['common']> = {
   app: {
-    name: 'ቫሞስ',
+    name: 'ናሁቤት',
     tagline: 'ቀሊል ናይ ስፖርት ውርርድ',
   },
   demo: {

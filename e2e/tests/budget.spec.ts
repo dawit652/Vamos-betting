@@ -15,17 +15,18 @@ import { expect, test } from '@playwright/test';
  * (dark theme, league navigation, featured poster, docked betslip): 158.4 KB =
  * JS 130.7 KB + HTML 18.6 KB + CSS 7.4 KB + the session fetch, in 14 requests;
  * the previous UI weighed about 153 KB on the same data, so the page is over the
- * target and has little room left. Later that day the betslip drawer's text
- * moved from every page to the drawer's own chunk: 157.7 KB on the same data
- * (HTML 0.8 KB lighter, JS 0.1 KB heavier). With the list controls (search
- * link, 1X2 / double chance switch) and 16 rows instead of 20 on the first
- * Highlights page: 156.8 KB = JS 130.8 KB + HTML 16.9 KB + CSS 7.5 KB. The
- * budget leaves a little room for the HTML, which grows with the listed matches
- * (about 0.35 KB per row). Lower it when the page gets lighter; raise it only
- * with a reason.
+ * target and has little room left. Measured on 15 Nov 2026 after merging the
+ * redesign onto the live branch (search, day and country chips, flags): 159.8 KB
+ * = JS 132.4 + HTML 18.1 + CSS 7.6 + the session fetch, in 14 requests, with 15
+ * rows on the first home page (was 20) and the betslip texts sent with the
+ * betslip's own code; the live branch alone was about 157.6 KB. On release
+ * v0.3.0 the same page is 159.5 KB with 13 rows on the first home page; with the
+ * starts-within chips it is 159.6 KB with 12 rows. The budget leaves a little room for the
+ * HTML, which grows with the listed matches (about 0.4 KB per row, 20 rows
+ * per tab). Lower it when the page gets lighter; raise it only with a reason.
  */
 const TARGET_BYTES = 150 * 1024;
-const BUDGET_BYTES = 159 * 1024; // measured 156.8 KB (14 Nov 2026): 2.2 KB of room
+const BUDGET_BYTES = 160 * 1024; // measured 159.6 KB (15 Nov 2026, with the starts-within chips): 0.4 KB of room
 
 interface Transfer {
   url: string;

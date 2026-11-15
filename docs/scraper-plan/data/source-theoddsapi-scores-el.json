@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-el",
+  "name": "The Odds API: Europa League final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_uefa_europa_league",
+    "competition": "UEFA Europa League",
+    "daysFrom": 1,
+    "scoreBasis": "unknown"
+  }
+}

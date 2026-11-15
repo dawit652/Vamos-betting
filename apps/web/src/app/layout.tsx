@@ -6,29 +6,19 @@ import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
 import { DemoBanner } from '@/components/shell/DemoBanner';
 import { Footer } from '@/components/shell/Footer';
 import { Header } from '@/components/shell/Header';
-import { withoutDrawerText } from '@vamos/i18n/betslip';
-import type { Messages } from '@vamos/i18n';
 import { pickNamespaces } from '@/i18n/ClientMessages';
-import type { ClientMessages as ClientMessagesSubset } from '@/i18n/client';
+import { withoutBetslipMessages } from '@/i18n/subsets';
 import { getLocale, getMessages } from '@/i18n/server';
-import { isDemoMode } from '@/lib/api/mode';
 import { CSRF_COOKIE, parseTheme, THEME_COLORS, THEME_COOKIE } from '@/lib/cookies';
+import { IS_DEMO } from '@/lib/mode';
 import { AppProviders } from '@/providers/AppProviders';
 import './globals.css';
 
-const DESCRIPTION = 'Vamos – simple, fast sports betting for Ethiopia';
-
-/** The description says "play money" for as long as the platform runs in demo mode. */
-export async function generateMetadata(): Promise<Metadata> {
-  const demo = await isDemoMode();
-  return {
-    ...METADATA,
-    description: demo ? `${DESCRIPTION} (demo, play money only)` : DESCRIPTION,
-  };
-}
-
-const METADATA: Metadata = {
-  title: { default: 'Vamos', template: '%s · Vamos' },
+export const metadata: Metadata = {
+  title: { default: 'Nahubet', template: '%s · Nahubet' },
+  description: IS_DEMO
+    ? 'Nahubet – simple, fast sports betting for Ethiopia (demo, play money only)'
+    : 'Nahubet – simple, fast sports betting for Ethiopia',
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [
@@ -37,7 +27,7 @@ const METADATA: Metadata = {
     ],
     apple: '/icons/apple-touch-icon.png',
   },
-  appleWebApp: { capable: true, title: 'Vamos', statusBarStyle: 'default' },
+  appleWebApp: { capable: true, title: 'Nahubet', statusBarStyle: 'default' },
   formatDetection: { telephone: false },
 };
 
@@ -52,22 +42,14 @@ export async function generateViewport(): Promise<Viewport> {
   };
 }
 
-/** Message namespaces every client component can use; others need <ClientMessages>. */
+/**
+ * Message namespaces every client component can use; others need <ClientMessages>.
+ * `sportsbook.betslip.*` is left out here: the betslip's own code brings it.
+ */
 const ROOT_CLIENT_NAMESPACES = ['common', 'sportsbook'] as const;
 
 /**
- * The root namespaces, minus the betslip drawer's own text: the drawer loads that
- * with its code (`<BetslipMessages>`), so pages that never open the slip skip it.
- */
-function rootClientMessages(messages: Messages): ClientMessagesSubset {
-  return {
-    ...pickNamespaces(messages, ROOT_CLIENT_NAMESPACES),
-    sportsbook: withoutDrawerText(messages.sportsbook) as Messages['sportsbook'],
-  };
-}
-
-/**
- * App shell: sticky header + DEMO banner (demo mode only), the page, footer and the betslip bar.
+ * App shell: sticky header + DEMO banner, the page, footer and the betslip bar.
  * The header holds the main navigation: its links on wide screens, the fixed
  * bottom bar on phones.
  * Pages render inside <main>; they must not add their own shell. Sportsbook pages
@@ -84,10 +66,15 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const theme = parseTheme(cookieStore.get(THEME_COOKIE)?.value);
   return (
     <html lang={locale} data-theme={theme}>
-      <body className="min-h-dvh pb-[calc(var(--spacing-bottom-nav)+env(safe-area-inset-bottom))] lg:pb-0">
+      <body
+        className={`min-h-dvh pb-[calc(var(--spacing-bottom-nav)+env(safe-area-inset-bottom))] lg:pb-0 ${
+          // Sticky columns start under the header alone when there is no DEMO banner.
+          IS_DEMO ? '' : '[--spacing-chrome:var(--spacing-header)]'
+        }`}
+      >
         <AppProviders
           locale={locale}
-          messages={rootClientMessages(messages)}
+          messages={withoutBetslipMessages(pickNamespaces(messages, ROOT_CLIENT_NAMESPACES))}
           hasSessionCookie={cookieStore.has(CSRF_COOKIE)}
         >
           <div className="sticky top-0 z-30">
@@ -95,7 +82,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <DemoBanner />
           </div>
           <main className="mx-auto max-w-7xl">{children}</main>
-          <Footer />
+          <Footer theme={theme} />
           <BetslipHost />
         </AppProviders>
         <ServiceWorkerRegister />

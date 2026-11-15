@@ -14,7 +14,7 @@ import {
 
 const ALL_TYPES = Object.keys(MARKET_TYPES) as MarketTypeCode[];
 /** Markets that are only ever decided at full time. */
-const FULL_TIME_ONLY: readonly MarketTypeCode[] = ['1x2', 'dc', 'dnb', 'ml', 'winner'];
+const FULL_TIME_ONLY: readonly MarketTypeCode[] = ['1x2', 'dc', 'dnb', 'ah', 'eh', 'ml', 'winner'];
 
 type MarketRef = { type: MarketTypeCode; line: string | null };
 
@@ -111,10 +111,11 @@ describe('certainMarketResult – decided markets', () => {
     });
   });
 
-  it('match result, double chance, draw no bet and winners are only decided at full time', () => {
+  it('match result, double chance, draw no bet, handicaps and winners are only decided at full time', () => {
     for (const type of FULL_TIME_ONLY) {
+      const line = type === 'ah' ? '-1.5' : type === 'eh' ? '-1' : null;
       for (const s of [score(0, 0), score(9, 0), score(0, 9, [0, 5]), score(3, 2)]) {
-        expect(certainMarketResult({ type, line: null }, s)).toBeNull();
+        expect(certainMarketResult({ type, line }, s)).toBeNull();
       }
     }
   });
@@ -169,6 +170,15 @@ const marketArb: fc.Arbitrary<MarketRef> = fc
       return fc.integer({ min: 0, max: 12 }).map((n) => ({ type, line: `${n}.5` }));
     if (type === 'total') {
       return fc.integer({ min: 0, max: 400 }).map((n) => ({ type, line: `${n}.5` }));
+    }
+    if (type === 'ah') {
+      return fc.integer({ min: -12, max: 12 }).map((n) => ({ type, line: String(n / 2) }));
+    }
+    if (type === 'eh') {
+      return fc
+        .integer({ min: 1, max: 4 })
+        .chain((n) => fc.constantFrom(n, -n))
+        .map((n) => ({ type, line: String(n) }));
     }
     return fc.constant({ type, line: null });
   });

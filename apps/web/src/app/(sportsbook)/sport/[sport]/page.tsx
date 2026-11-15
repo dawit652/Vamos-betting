@@ -1,7 +1,14 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { SportHome } from '@/components/sportsbook/SportHome';
-import { listHref, parseTab } from '@/components/sportsbook/tabs';
+import {
+  listHref,
+  parseCountry,
+  parseDay,
+  parseMarket,
+  parseTab,
+  parseWithin,
+} from '@/components/sportsbook/tabs';
 import { getT } from '@/i18n/server';
 import { DEFAULT_SPORT, isSport, routes } from '@/lib/routes';
 
@@ -16,6 +23,15 @@ export async function generateMetadata(props: PageProps<'/sport/[sport]'>): Prom
 export default async function SportPage(props: PageProps<'/sport/[sport]'>) {
   const [{ sport }, searchParams] = await Promise.all([props.params, props.searchParams]);
   if (!isSport(sport)) notFound();
-  if (sport === DEFAULT_SPORT) redirect(listHref(routes.home, parseTab(searchParams.tab)));
+  if (sport === DEFAULT_SPORT) {
+    redirect(
+      listHref(routes.home, parseTab(searchParams.tab), undefined, {
+        within: parseWithin(searchParams.within),
+        day: parseDay(searchParams.day, new Date()),
+        country: parseCountry(searchParams.country),
+        market: parseMarket(searchParams.market),
+      }),
+    );
+  }
   return <SportHome sport={sport} searchParams={searchParams} />;
 }

@@ -1,9 +1,4 @@
-import {
-  AML_SEVERITIES,
-  DEFAULT_AML_RULES,
-  DEFAULT_ELS_COMMISSION_RATE_BPS,
-  type AmlRules,
-} from '@vamos/core';
+import { AML_SEVERITIES, DEFAULT_AML_RULES, type AmlRules } from '@vamos/core';
 import { inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { domainUnprocessable } from '../errors';
@@ -15,25 +10,17 @@ import { settings } from '../schema/platform';
 import { InvalidSettingError } from '../settings/index';
 
 /**
- * The compliance settings (the `settings` table): the ELS commission rate
- * (`els_commission`) and the AML rule thresholds (`aml_rules`). Missing keys
- * and fields fall back to the defaults in @vamos/core, which are
- * placeholders to confirm with counsel (docs/compliance.md). Santim are
+ * The compliance settings (the `settings` table): the AML rule thresholds
+ * (`aml_rules`). Missing keys and fields fall back to the defaults in
+ * @vamos/core, which are placeholders to confirm with counsel. Santim are
  * stored as decimal strings.
  */
 
-export interface ElsCommissionSetting {
-  /** Commission on a day's positive GGR, in basis points (1500 = 15%). */
-  rateBps: number;
-}
-
 export interface ComplianceSettings {
-  elsCommission: ElsCommissionSetting;
   amlRules: AmlRules;
 }
 
 export const COMPLIANCE_SETTING_KEYS = {
-  elsCommission: 'els_commission',
   amlRules: 'aml_rules',
 } as const satisfies Record<keyof ComplianceSettings, string>;
 
@@ -41,7 +28,6 @@ export type ComplianceSettingKey =
   (typeof COMPLIANCE_SETTING_KEYS)[keyof typeof COMPLIANCE_SETTING_KEYS];
 
 export const DEFAULT_COMPLIANCE_SETTINGS: ComplianceSettings = {
-  elsCommission: { rateBps: DEFAULT_ELS_COMMISSION_RATE_BPS },
   amlRules: DEFAULT_AML_RULES,
 };
 
@@ -61,8 +47,6 @@ const hours = z
   .min(1)
   .max(24 * 31);
 const severity = z.enum(AML_SEVERITIES);
-
-export const ElsCommissionSchema = z.object({ rateBps: bps });
 
 const VelocitySchema = z
   .object({
@@ -140,11 +124,6 @@ export function parseComplianceSettings(
 ): ComplianceSettings {
   const k = COMPLIANCE_SETTING_KEYS;
   return {
-    elsCommission: parseWith(
-      ElsCommissionSchema,
-      k.elsCommission,
-      overDefault(DEFAULT_COMPLIANCE_SETTINGS.elsCommission, raw[k.elsCommission]),
-    ),
     amlRules: parseWith(
       AmlRulesSchema,
       k.amlRules,
@@ -153,7 +132,7 @@ export function parseComplianceSettings(
   };
 }
 
-/** Both compliance settings in one query (InvalidSettingError when a stored value is invalid). */
+/** The compliance settings in one query (InvalidSettingError when a stored value is invalid). */
 export async function loadComplianceSettings(exec: DbExecutor): Promise<ComplianceSettings> {
   const rows = await exec
     .select({ key: settings.key, value: sql<string>`${settings.value}::text` })
@@ -179,7 +158,6 @@ export async function getComplianceSettings(exec: DbExecutor): Promise<Complianc
 }
 
 const SCHEMAS = {
-  els_commission: { field: 'elsCommission', schema: ElsCommissionSchema },
   aml_rules: { field: 'amlRules', schema: AmlRulesSchema },
 } as const satisfies Record<
   ComplianceSettingKey,
@@ -188,11 +166,10 @@ const SCHEMAS = {
 
 /**
  * Replaces one compliance setting (settings.edit) with a complete value and
- * returns both settings as they are now. 422 `invalid_setting` (details
+ * returns the settings as they are now. 422 `invalid_setting` (details
  * `{ key, issues }`) for an unknown key or a value the schema refuses.
  * Audited as `settings.updated` with the value before and after; changes
- * of one key are serialised. A new commission rate applies to the daily
- * summaries computed after it (final summaries keep theirs).
+ * of one key are serialised.
  */
 export async function updateComplianceSetting(
   tx: DbTransaction,

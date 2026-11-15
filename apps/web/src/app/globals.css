@@ -216,6 +216,7 @@
     white-space: nowrap;
   }
   .chip[aria-current='page'],
+  .chip[aria-current='true'],
   .chip[aria-selected='true'],
   .chip[aria-pressed='true'],
   .chip:has(input:checked) {
@@ -283,9 +284,27 @@
     .rail .chip:hover {
       background: var(--color-raised);
     }
-    .rail .chip[aria-current='page'] {
+    .rail .chip[aria-current='page'],
+    .rail .chip[aria-current='true'] {
       background: var(--color-brand-soft);
       color: var(--color-brand);
+    }
+  }
+
+  /* A row of filter chips that scrolls sideways at every width (day, country). */
+  .chip-row {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding: 0 0.75rem;
+    scrollbar-width: none;
+  }
+  .chip-row::-webkit-scrollbar {
+    display: none;
+  }
+  @media (min-width: 64rem) {
+    .chip-row {
+      padding: 0;
     }
   }
 
@@ -412,23 +431,6 @@
     letter-spacing: 0.02em;
   }
 
-  /* Small square tag with a country or category's first letters. */
-  .tag {
-    display: inline-flex;
-    height: 1.25rem;
-    min-width: 1.75rem;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.3125rem;
-    background: var(--color-brand-soft);
-    padding: 0 0.25rem;
-    color: var(--color-brand);
-    font-size: 0.625rem;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-  }
-
   /* Red dot of a live match. */
   .live-dot {
     display: inline-block;
@@ -438,17 +440,6 @@
     border-radius: 9999px;
     background: var(--color-live);
     animation: var(--animate-live);
-  }
-
-  /*
-   * Event page market filter without JavaScript: radio chips in `.market-filter`, groups
-   * tagged with data-cat; a checked radio hides the groups of the other categories.
-   */
-  .market-filter:has(input[value='main']:checked) ~ .market-groups > :not([data-cat='main']),
-  .market-filter:has(input[value='totals']:checked) ~ .market-groups > :not([data-cat='totals']),
-  .market-filter:has(input[value='halves']:checked) ~ .market-groups > :not([data-cat='halves']),
-  .market-filter:has(input[value='other']:checked) ~ .market-groups > :not([data-cat='other']) {
-    display: none;
   }
 
   .no-scrollbar {

@@ -12,6 +12,7 @@ import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { formErrors, retryAfterSeconds } from './errors';
 import { DemoOtpHint, OtpInput } from './inputs';
+import { afterSignUp } from './paths';
 import {
   getPendingRegistration,
   setPendingRegistration,
@@ -39,11 +40,6 @@ function displayPhone(phone: string): string {
   } catch {
     return phone;
   }
-}
-
-/** Where a new player lands: back to what they were doing, or the wallet to add play money. */
-function afterSignUp(next: string): string {
-  return next === routes.home ? `${routes.wallet}?welcome=1` : next;
 }
 
 export function VerifyForm() {

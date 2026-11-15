@@ -397,7 +397,7 @@ describe('telebirr API calls', () => {
       amount: 15_000n,
       phone: '+251911234567',
       callbackUrl: 'https://api.example.et/payments/webhooks/telebirr',
-      returnUrl: 'https://vamos.example.et/wallet',
+      returnUrl: 'https://nahubet.example.com/wallet',
     });
 
     expect(calls[0]).toMatchObject({
@@ -465,7 +465,7 @@ describe('telebirr API calls', () => {
       amount: 15_000n,
       phone: '+251911234567',
       callbackUrl: 'https://api.example.et/payments/webhooks/telebirr',
-      returnUrl: 'https://vamos.example.et/wallet',
+      returnUrl: 'https://nahubet.example.com/wallet',
       expiresAt: new Date(deps.now.value.getTime() + 15 * 60_000),
     });
     const request = calls.find((c) => c.url.endsWith('/preOrder'))?.body as {
@@ -495,7 +495,7 @@ describe('telebirr API calls', () => {
       amount: 15_000n,
       phone: '+251911234567',
       callbackUrl: 'https://api.example.et/payments/webhooks/telebirr',
-      returnUrl: 'https://vamos.example.et/wallet',
+      returnUrl: 'https://nahubet.example.com/wallet',
     };
     const result = await new TelebirrProvider(OPTIONS, fakeDeps(fetch)).initiateDeposit(deposit);
     expect(result.providerRef).toBe(ORDER);

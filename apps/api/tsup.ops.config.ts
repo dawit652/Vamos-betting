@@ -12,6 +12,7 @@ export default defineConfig({
     seed: '../../packages/db/src/scripts/seed.ts',
     'admin-create': '../../packages/db/src/scripts/admin-create.ts',
     'admin-unlock': '../../packages/db/src/scripts/admin-unlock.ts',
+    'admin-reset': '../../packages/db/src/scripts/admin-reset.ts',
     'totp-rekey': '../../packages/db/src/scripts/totp-rekey.ts',
   },
   format: ['esm'],

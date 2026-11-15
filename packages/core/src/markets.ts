@@ -5,22 +5,26 @@
  * NOTE: every Amharic (`am`) name and label in this file is a working
  * translation that is pending review by a native speaker before launch.
  *
- * Line markets ('ou', 'total') only accept half-point lines ("2.5", "215.5"),
+ * Total markets ('ou', 'total') only accept half-point lines ("2.5", "215.5"),
  * so a finished match always resolves them to exactly one of over/under and a
- * push (refund) is impossible.
+ * push (refund) is impossible. Handicap markets take the home side's handicap:
+ * 'ah' (Asian, two-way) a half or whole line ("-1.5", "0", "1"), where a level
+ * adjusted score on a whole line voids both selections (the stake comes back;
+ * quarter lines are not offered); 'eh' (three-way) a non-zero whole line
+ * ("-1", "2"), settled 1/X/2 on the adjusted score.
  */
 
 export type SportCode = 'football' | 'basketball' | 'tennis' | 'volleyball';
 
 export type MarketTypeCode =
-  '1x2' | 'dc' | 'ou' | 'btts' | 'dnb' | 'ht_1x2' | 'cs' | 'ml' | 'total' | 'winner';
+  '1x2' | 'dc' | 'ou' | 'ah' | 'eh' | 'btts' | 'dnb' | 'ht_1x2' | 'cs' | 'ml' | 'total' | 'winner';
 
 export interface MarketTypeDefinition {
   code: MarketTypeCode;
   /** Owning sport. 'winner' is shared by tennis and volleyball; see SPORT_MARKETS. */
   sport: SportCode;
   name: { en: string; am: string };
-  /** True when the market needs a half-point line such as "2.5". */
+  /** True when the market needs a line: a half-point total ("2.5") or a handicap ("-1.5"). */
   hasLine: boolean;
   /** The part of the match the market is settled on. */
   period: 'full_time' | 'half_time';
@@ -76,6 +80,22 @@ export const MARKET_TYPES: Readonly<Record<MarketTypeCode, MarketTypeDefinition>
     hasLine: true,
     period: 'full_time',
     sortOrder: 30,
+  }),
+  ah: defineMarket({
+    code: 'ah',
+    sport: 'football',
+    name: { en: 'Asian Handicap', am: 'የእስያ ሃንዲካፕ' },
+    hasLine: true,
+    period: 'full_time',
+    sortOrder: 32,
+  }),
+  eh: defineMarket({
+    code: 'eh',
+    sport: 'football',
+    name: { en: '3-Way Handicap', am: 'ባለሦስት ውጤት ሃንዲካፕ' },
+    hasLine: true,
+    period: 'full_time',
+    sortOrder: 34,
   }),
   btts: defineMarket({
     code: 'btts',
@@ -137,7 +157,17 @@ export const MARKET_TYPES: Readonly<Record<MarketTypeCode, MarketTypeDefinition>
 
 /** Markets offered per sport, in display order. */
 export const SPORT_MARKETS: Readonly<Record<SportCode, readonly MarketTypeCode[]>> = Object.freeze({
-  football: frozenList<MarketTypeCode>('1x2', 'dc', 'ou', 'btts', 'dnb', 'ht_1x2', 'cs'),
+  football: frozenList<MarketTypeCode>(
+    '1x2',
+    'dc',
+    'ou',
+    'ah',
+    'eh',
+    'btts',
+    'dnb',
+    'ht_1x2',
+    'cs',
+  ),
   basketball: frozenList<MarketTypeCode>('ml', 'total'),
   tennis: frozenList<MarketTypeCode>('winner'),
   volleyball: frozenList<MarketTypeCode>('winner'),
@@ -170,6 +200,8 @@ const SELECTIONS: Readonly<Record<MarketTypeCode, readonly string[]>> = Object.f
   '1x2': SELECTIONS_1X2,
   dc: frozenList('1X', '12', 'X2'),
   ou: SELECTIONS_OVER_UNDER,
+  ah: SELECTIONS_TWO_WAY,
+  eh: SELECTIONS_1X2,
   btts: frozenList('yes', 'no'),
   dnb: SELECTIONS_TWO_WAY,
   ht_1x2: SELECTIONS_1X2,
@@ -201,6 +233,37 @@ export function parseLine(line: string): number {
   return Number(line);
 }
 
+const HANDICAP_PATTERN = /^[+-]?\d{1,2}(\.5)?$/;
+
+/** Largest handicap offered either way, in goals. */
+export const MAX_HANDICAP = 20;
+
+/**
+ * Parses a handicap line of the home side, a half or whole number of goals
+ * ("-1.5", "+0.5", "0", "2") at most MAX_HANDICAP either way. With
+ * `wholeOnly` (the three-way handicap) only non-zero whole lines are valid.
+ * Quarter lines ("-0.25") and anything else throw a RangeError.
+ */
+export function parseHandicap(line: string, options: { wholeOnly?: boolean } = {}): number {
+  if (typeof line !== 'string' || !HANDICAP_PATTERN.test(line)) {
+    throw new RangeError(
+      `invalid handicap: "${String(line)}" (expected a half or whole line like "-1.5" or "1")`,
+    );
+  }
+  const value = Number(line) + 0; // + 0 turns -0 into 0
+  if (Math.abs(value) > MAX_HANDICAP) throw new RangeError(`handicap out of range: "${line}"`);
+  if (options.wholeOnly === true && (!Number.isInteger(value) || value === 0)) {
+    throw new RangeError(`invalid three-way handicap: "${line}" (expected a non-zero whole line)`);
+  }
+  return value;
+}
+
+/** A handicap as a bettor reads it: "+1.5", "-1", "0". */
+export function formatHandicap(value: number): string {
+  if (value === 0) return '0';
+  return value > 0 ? `+${value}` : String(value);
+}
+
 /**
  * Stable key of a market within an event: the type code, plus ":<line>" for
  * line markets ('1x2', 'ou:2.5'). The line is canonicalised ("02.5" → "2.5")
@@ -210,6 +273,26 @@ export function parseLine(line: string): number {
 export function marketKey(type: MarketTypeCode, line?: string | null): string {
   const canonical = checkedLine(type, line);
   return canonical === null ? type : `${type}:${canonical}`;
+}
+
+/**
+ * The canonical text of a market's line ("2.5", "-1.5", "1"), or null for a
+ * market type without lines. Validates like marketKey: a line market without a
+ * line, a line on a market without lines or a malformed line throws a RangeError.
+ */
+export function canonicalLine(type: MarketTypeCode, line?: string | null): string | null {
+  return checkedLine(type, line);
+}
+
+/**
+ * The numeric value of a market's line, validated against its type: a
+ * half-point total for 'ou' and 'total', a handicap for 'ah' and 'eh'. Throws
+ * a RangeError for a malformed line or a market type without lines.
+ */
+export function marketLineValue(type: MarketTypeCode, line: string): number {
+  const canonical = checkedLine(type, line);
+  if (canonical === null) throw new RangeError(`market "${type}" does not take a line`);
+  return Number(canonical);
 }
 
 /** The valid selection codes of a market type, in display order. */
@@ -231,6 +314,16 @@ export function selectionLabel(
   const canonical = checkedLine(type, line);
   assertSelection(type, selection);
   const { home, away } = teams;
+  if (type === 'ah' || type === 'eh') {
+    const handicap = Number(canonical);
+    const homeLine = formatHandicap(handicap);
+    const awayLine = formatHandicap(-handicap);
+    if (type === 'ah') {
+      return same(selection === '1' ? `${home} ${homeLine}` : `${away} ${awayLine}`);
+    }
+    if (selection === 'X') return { en: `Draw (${homeLine})`, am: `አቻ (${homeLine})` };
+    return same(selection === '1' ? `${home} (${homeLine})` : `${away} (${awayLine})`);
+  }
   switch (selection) {
     case '1':
       return same(home);
@@ -264,7 +357,8 @@ export function selectionLabel(
  * Resolves one selection of a market against the event outcome.
  *
  * - A cancelled, abandoned or postponed event voids every selection.
- * - 'dnb' is void on a draw.
+ * - 'dnb' is void on a draw; 'ah' is void when the adjusted score is level
+ *   (a whole line), so the stake comes back.
  * - 'ml' and 'winner' cannot end in a tie; a tied finished score throws.
  * - 'ht_1x2' needs the half-time score.
  *
@@ -305,6 +399,14 @@ export function resolveSelection(
       const over = home + away > Number(line);
       return wonIf(selection === (over ? 'over' : 'under'));
     }
+    case 'ah': {
+      // Lines are whole or half numbers of goals, so the sum is exact.
+      const margin = home - away + Number(line);
+      if (margin === 0) return 'void';
+      return wonIf(selection === (margin > 0 ? '1' : '2'));
+    }
+    case 'eh':
+      return wonIf(selection === outcomeOf(home + Number(line), away));
     case 'btts':
       return wonIf((selection === 'yes') === (home > 0 && away > 0));
     case 'dnb': {
@@ -356,7 +458,8 @@ export type MarketResult = Readonly<Record<string, SelectionResult>>;
  * - 'cs': 'other' has won once either team has more than 4 goals (every
  *   score in the grid has lost).
  * - 'ht_1x2': decided by the half-time score once the first half is over.
- * - '1x2', 'dc', 'dnb', 'ml', 'winner': only at full time (always null).
+ * - '1x2', 'dc', 'dnb', 'ah', 'eh', 'ml', 'winner': only at full time (always
+ *   null): the goal difference can still move either way.
  *
  * When it returns a result, it is exactly what resolveSelection gives every
  * selection for ANY final score the match can still reach (each side's
@@ -396,6 +499,8 @@ export function certainMarketResult(
     case '1x2':
     case 'dc':
     case 'dnb':
+    case 'ah':
+    case 'eh':
     case 'ml':
     case 'winner':
       decided = false;
@@ -445,6 +550,8 @@ function checkedLine(type: MarketTypeCode, line: string | null | undefined): str
   const definition = definitionOf(type);
   if (definition.hasLine) {
     if (isAbsent(line)) throw new RangeError(`market "${type}" requires a line`);
+    if (type === 'ah') return String(parseHandicap(line));
+    if (type === 'eh') return String(parseHandicap(line, { wholeOnly: true }));
     return String(parseLine(line));
   }
   if (!isAbsent(line)) {

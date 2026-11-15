@@ -28,3 +28,4 @@ export {
   type CatalogSeedSummary,
   type FeedTeamsConfig,
 } from './seed/catalog';
+export * from './scrape/index';

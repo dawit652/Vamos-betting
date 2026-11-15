@@ -11,6 +11,7 @@ import {
   GAME_SETTING_KEYS,
   InvalidSettingError,
   loadGameSettings,
+  loadMarketFamilies,
   parseGameSettings,
   parseTerms,
   serializeTerms,
@@ -66,6 +67,44 @@ describe('parseGameSettings', () => {
     expect(DEFAULT_GAME_SETTINGS.payments.wageringMultiplierBps).toBe(10_000);
   });
 
+  it('has no liability caps by default, and parses stored caps (santim strings) over that', () => {
+    expect(DEFAULT_GAME_SETTINGS.riskLimits).toEqual({
+      maxSelectionLiability: null,
+      maxEventLiability: null,
+    });
+    const parsed = parseGameSettings({
+      risk_limits: { maxSelectionLiability: '100000000', maxEventLiability: null },
+    });
+    expect(parsed.riskLimits).toEqual({
+      maxSelectionLiability: 100_000_000n,
+      maxEventLiability: null,
+    });
+    // A missing field keeps its default (no cap).
+    expect(parseGameSettings({ risk_limits: { maxEventLiability: '5' } }).riskLimits).toEqual({
+      maxSelectionLiability: null,
+      maxEventLiability: 5n,
+    });
+  });
+
+  it('market families default to today and parse stored values (santim strings) over that', () => {
+    expect(DEFAULT_GAME_SETTINGS.marketFamilies).toEqual({
+      marginBps: { main: 600, derivative: 700, long: 1200 },
+      typeMarginBps: {},
+      factoryLiabilityShareBps: 2_500,
+      minWeeklyStake: 10_000_000n,
+      firstHalfShare: null,
+      drawCorrection: null,
+    });
+    const parsed = parseGameSettings({
+      market_families: { typeMarginBps: { htft: 1400 }, minWeeklyStake: '500' },
+    });
+    expect(parsed.marketFamilies).toEqual({
+      ...DEFAULT_GAME_SETTINGS.marketFamilies,
+      typeMarginBps: { htft: 1400 },
+      minWeeklyStake: 500n,
+    });
+  });
+
   it('merges jackpot templates one by one', () => {
     const parsed = parseGameSettings({ jackpots: { daily9: { costPerCombination: '2000' } } });
     expect(parsed.jackpots.daily9).toEqual({
@@ -105,6 +144,21 @@ describe('parseGameSettings', () => {
     ['payments', { wageringMultiplierBps: -1 }],
     ['payments', { depositIntentTtlMinutes: 0 }],
     ['payments', { payoutMaxAttempts: 0 }],
+    // A cap is a positive amount or null: zero would refuse every bet.
+    ['risk_limits', { maxSelectionLiability: '0' }],
+    ['risk_limits', { maxEventLiability: '-5' }],
+    ['risk_limits', { maxEventLiability: '12.5' }],
+    ['risk_limits', { maxEventLiability: 'lots' }],
+    // The selection cap cannot exceed the match cap (probably swapped).
+    ['risk_limits', { maxSelectionLiability: '2000', maxEventLiability: '1000' }],
+    // Plan task 2.5: margins and the share are 0..10000 bps; overrides only for factory families.
+    ['market_families', { marginBps: { main: 10_001, derivative: 700, long: 1200 } }],
+    ['market_families', { marginBps: { main: 600 } }],
+    ['market_families', { typeMarginBps: { '1x2': 500 } }],
+    ['market_families', { typeMarginBps: { htft: -1 } }],
+    ['market_families', { factoryLiabilityShareBps: 10_001 }],
+    ['market_families', { minWeeklyStake: '-1' }],
+    ['market_families', { surprise: 1 }],
   ] as const)('rejects an invalid %s (%j), naming the key', (key, value) => {
     let error: unknown;
     try {
@@ -165,6 +219,16 @@ describe('loadGameSettings', () => {
     expect(loaded.liveBetDelayMs).toBe(8000);
     expect(loaded.payments).toEqual({ ...DEFAULT_PAYMENT_RULES, dailyWithdrawalCap: birr(50_000) });
     expect(loaded.tax).toEqual(DEFAULT_TAX);
+  });
+
+  it('loadMarketFamilies reads the market_families edits alone', async () => {
+    expect(await loadMarketFamilies(handle.db)).toEqual(DEFAULT_GAME_SETTINGS.marketFamilies);
+    await setSetting(handle.db, 'market_families', {
+      ...DEFAULT_GAME_SETTINGS.marketFamilies,
+      factoryLiabilityShareBps: 1_000,
+    });
+    expect((await loadMarketFamilies(handle.db)).factoryLiabilityShareBps).toBe(1_000);
+    expect((await loadGameSettings(handle.db)).marketFamilies.factoryLiabilityShareBps).toBe(1_000);
   });
 
   it('refuses a corrupted stored value', async () => {

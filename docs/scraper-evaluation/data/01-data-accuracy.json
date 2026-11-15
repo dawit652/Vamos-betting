@@ -1,0 +1,3554 @@
+{
+  "generatedAt": "2026-10-29",
+  "asOf": "2026-10-29T20:45:00Z",
+  "sources": {
+    "openfootballHead": "e6744429ee395bc86f247348c6184bb08d4eb361 (2026-09-22)",
+    "fplHead": "d7b05b51d137bfefef4b692386d18c610975b9b9 (2026-10-22, \"Fpl data gw6\")",
+    "catalogueCommit": "049cbdf"
+  },
+  "seasons": {
+    "2025-26": {
+      "records": 380,
+      "fplFixtures": 380,
+      "pairedByHomeAway": 380,
+      "onlyInOpenfootball": [],
+      "onlyInFpl": [],
+      "adapter": {
+        "seen": 380,
+        "accepted": 353,
+        "rejected": 27,
+        "rejectedRate": "7.11%",
+        "fixtures": 0,
+        "results": 353,
+        "rawScoreShapes": {
+          "bare array": 27,
+          "object:ft+ht": 353
+        }
+      },
+      "kickoff": {
+        "paired": 380,
+        "exact": 380,
+        "exactRate": "100.00%",
+        "diffMinutesDistribution": {
+          "0": 380
+        },
+        "mismatches": [],
+        "mismatchesOnFinishedMatches": 0,
+        "dstWindowsPlusMinus3d": [
+          {
+            "window": "2026-03-29 (UK clocks forward)",
+            "matches": 0,
+            "exact": 0,
+            "beforeChange": 0
+          },
+          {
+            "window": "2026-10-25 (UK clocks back)",
+            "matches": 0,
+            "exact": 0,
+            "beforeChange": 0
+          }
+        ]
+      },
+      "upcoming": [
+        {
+          "windowDays": 14,
+          "fplFixtures": 0,
+          "alsoAdapterFixtures": 0,
+          "kickoffExact": 0,
+          "kickoffWrong": 0,
+          "utcDateWrong": 0,
+          "earlierInFpl": 0
+        },
+        {
+          "windowDays": 21,
+          "fplFixtures": 0,
+          "alsoAdapterFixtures": 0,
+          "kickoffExact": 0,
+          "kickoffWrong": 0,
+          "utcDateWrong": 0,
+          "earlierInFpl": 0
+        }
+      ],
+      "scores": {
+        "fplFinished": 380,
+        "comparedWithAdapterResult": 353,
+        "equal": 353,
+        "equalRate": "100.00%",
+        "mismatches": [],
+        "fplFinishedNoAdapterResult": 27,
+        "rejectedRecordsHidingAFinishedMatch": 27,
+        "hiddenWhereFplScoreIsNot00": 0,
+        "hiddenDetail": [
+          {
+            "match": "Aston Villa FC v Newcastle United FC",
+            "date": "2025-08-16",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Chelsea FC v Crystal Palace FC",
+            "date": "2025-08-17",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Leeds United FC v Newcastle United FC",
+            "date": "2025-08-30",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Crystal Palace FC v Sunderland AFC",
+            "date": "2025-09-13",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Everton FC v Aston Villa FC",
+            "date": "2025-09-13",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "AFC Bournemouth v Newcastle United FC",
+            "date": "2025-09-21",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Crystal Palace FC v Brighton & Hove Albion FC",
+            "date": "2025-11-09",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "AFC Bournemouth v Chelsea FC",
+            "date": "2025-12-06",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Brighton & Hove Albion FC v Sunderland AFC",
+            "date": "2025-12-20",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Burnley FC v Everton FC",
+            "date": "2025-12-27",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Liverpool FC v Leeds United FC",
+            "date": "2026-01-01",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Brentford FC v Tottenham Hotspur FC",
+            "date": "2026-01-01",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Sunderland AFC v Manchester City FC",
+            "date": "2026-01-01",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Crystal Palace FC v Aston Villa FC",
+            "date": "2026-01-07",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Arsenal FC v Liverpool FC",
+            "date": "2026-01-08",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Nottingham Forest FC v Arsenal FC",
+            "date": "2026-01-17",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Wolverhampton Wanderers FC v Newcastle United FC",
+            "date": "2026-01-18",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Nottingham Forest FC v Wolverhampton Wanderers FC",
+            "date": "2026-02-11",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "West Ham United FC v AFC Bournemouth",
+            "date": "2026-02-21",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "AFC Bournemouth v Brentford FC",
+            "date": "2026-03-03",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Burnley FC v AFC Bournemouth",
+            "date": "2026-03-14",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Crystal Palace FC v Leeds United FC",
+            "date": "2026-03-15",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Nottingham Forest FC v Fulham FC",
+            "date": "2026-03-15",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Leeds United FC v Brentford FC",
+            "date": "2026-03-21",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Brentford FC v Fulham FC",
+            "date": "2026-04-18",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Crystal Palace FC v West Ham United FC",
+            "date": "2026-04-20",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Sunderland AFC v Manchester United FC",
+            "date": "2026-05-09",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          }
+        ],
+        "fplFinishedButNotScoredInOpenfootball": 0,
+        "adapterResultsNotFinishedInFpl": 0,
+        "adapterResultsBeforeKickoffPlus105min": 0
+      },
+      "halfTime": {
+        "results": 353,
+        "withHalfTime": 353,
+        "missingHalfTime": 0,
+        "scoreBasis": {
+          "regular_time": 353
+        },
+        "status": {
+          "finished": 353
+        },
+        "htExceedsFt": 0,
+        "rawRecordsWithEtOrPenalties": 0
+      },
+      "time": {
+        "missingTime": 0,
+        "midnightPlaceholders": 0,
+        "issuesByCode": {
+          "error:bad_score": 27
+        },
+        "rawVsAdapterConversion": 0,
+        "dateFormatOk": 380
+      }
+    },
+    "2026-27": {
+      "records": 380,
+      "fplFixtures": 380,
+      "pairedByHomeAway": 380,
+      "onlyInOpenfootball": [],
+      "onlyInFpl": [],
+      "adapter": {
+        "seen": 380,
+        "accepted": 375,
+        "rejected": 5,
+        "rejectedRate": "1.32%",
+        "fixtures": 330,
+        "results": 45,
+        "rawScoreShapes": {
+          "bare array": 5,
+          "no score": 330,
+          "object:ft+ht": 45
+        }
+      },
+      "kickoff": {
+        "paired": 380,
+        "exact": 359,
+        "exactRate": "94.47%",
+        "diffMinutesDistribution": {
+          "0": 359,
+          "150": 2,
+          "1140": 2,
+          "-1260": 1,
+          "-1380": 5,
+          "-1385": 4,
+          "-150": 3,
+          "-1530": 3,
+          "-3180": 1
+        },
+        "mismatches": [
+          {
+            "match": "Nottingham Forest FC v Manchester City FC",
+            "round": "Matchday 10",
+            "ofLocal": "2026-11-07 15:00",
+            "ours": "2026-11-07 15:00",
+            "fpl": "2026-11-07 17:30",
+            "diffMin": -150,
+            "sameLocalDate": true,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Leeds United FC v Tottenham Hotspur FC",
+            "round": "Matchday 10",
+            "ofLocal": "2026-11-07 15:00",
+            "ours": "2026-11-07 15:00",
+            "fpl": "2026-11-07 12:30",
+            "diffMin": 150,
+            "sameLocalDate": true,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Everton FC v Coventry City FC",
+            "round": "Matchday 10",
+            "ofLocal": "2026-11-07 15:00",
+            "ours": "2026-11-07 15:00",
+            "fpl": "2026-11-06 20:00",
+            "diffMin": 1140,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Crystal Palace FC v Liverpool FC",
+            "round": "Matchday 10",
+            "ofLocal": "2026-11-07 15:00",
+            "ours": "2026-11-07 15:00",
+            "fpl": "2026-11-08 14:00",
+            "diffMin": -1380,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Sunderland AFC v Chelsea FC",
+            "round": "Matchday 10",
+            "ofLocal": "2026-11-07 15:00",
+            "ours": "2026-11-07 15:00",
+            "fpl": "2026-11-08 14:00",
+            "diffMin": -1380,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Ipswich Town FC v AFC Bournemouth",
+            "round": "Matchday 10",
+            "ofLocal": "2026-11-07 15:00",
+            "ours": "2026-11-07 15:00",
+            "fpl": "2026-11-08 14:00",
+            "diffMin": -1380,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Brighton & Hove Albion FC v Brentford FC",
+            "round": "Matchday 10",
+            "ofLocal": "2026-11-07 15:00",
+            "ours": "2026-11-07 15:00",
+            "fpl": "2026-11-08 14:00",
+            "diffMin": -1380,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Manchester United FC v Aston Villa FC",
+            "round": "Matchday 10",
+            "ofLocal": "2026-11-07 15:00",
+            "ours": "2026-11-07 15:00",
+            "fpl": "2026-11-08 16:30",
+            "diffMin": -1530,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Manchester City FC v Fulham FC",
+            "round": "Matchday 11",
+            "ofLocal": "2026-11-21 15:00",
+            "ours": "2026-11-21 15:00",
+            "fpl": "2026-11-21 12:30",
+            "diffMin": 150,
+            "sameLocalDate": true,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Liverpool FC v Manchester United FC",
+            "round": "Matchday 11",
+            "ofLocal": "2026-11-21 15:00",
+            "ours": "2026-11-21 15:00",
+            "fpl": "2026-11-22 16:30",
+            "diffMin": -1530,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Hull City AFC v Brighton & Hove Albion FC",
+            "round": "Matchday 11",
+            "ofLocal": "2026-11-21 15:00",
+            "ours": "2026-11-21 15:00",
+            "fpl": "2026-11-22 14:00",
+            "diffMin": -1380,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Brentford FC v Everton FC",
+            "round": "Matchday 11",
+            "ofLocal": "2026-11-21 15:00",
+            "ours": "2026-11-21 15:00",
+            "fpl": "2026-11-23 20:00",
+            "diffMin": -3180,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Newcastle United FC v Arsenal FC",
+            "round": "Matchday 11",
+            "ofLocal": "2026-11-21 15:00",
+            "ours": "2026-11-21 15:00",
+            "fpl": "2026-11-21 17:30",
+            "diffMin": -150,
+            "sameLocalDate": true,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Ipswich Town FC v Aston Villa FC",
+            "round": "Matchday 12",
+            "ofLocal": "2026-11-28 15:00",
+            "ours": "2026-11-28 15:00",
+            "fpl": "2026-11-28 17:30",
+            "diffMin": -150,
+            "sameLocalDate": true,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Arsenal FC v Manchester City FC",
+            "round": "Matchday 12",
+            "ofLocal": "2026-11-28 15:00",
+            "ours": "2026-11-28 15:00",
+            "fpl": "2026-11-29 16:30",
+            "diffMin": -1530,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Everton FC v Liverpool FC",
+            "round": "Matchday 12",
+            "ofLocal": "2026-11-28 15:00",
+            "ours": "2026-11-28 15:00",
+            "fpl": "2026-11-29 12:00",
+            "diffMin": -1260,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Fulham FC v AFC Bournemouth",
+            "round": "Matchday 12",
+            "ofLocal": "2026-11-28 15:00",
+            "ours": "2026-11-28 15:00",
+            "fpl": "2026-11-29 14:05",
+            "diffMin": -1385,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Nottingham Forest FC v Chelsea FC",
+            "round": "Matchday 12",
+            "ofLocal": "2026-11-28 15:00",
+            "ours": "2026-11-28 15:00",
+            "fpl": "2026-11-27 20:00",
+            "diffMin": 1140,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Brighton & Hove Albion FC v Newcastle United FC",
+            "round": "Matchday 12",
+            "ofLocal": "2026-11-28 15:00",
+            "ours": "2026-11-28 15:00",
+            "fpl": "2026-11-29 14:05",
+            "diffMin": -1385,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Sunderland AFC v Tottenham Hotspur FC",
+            "round": "Matchday 12",
+            "ofLocal": "2026-11-28 15:00",
+            "ours": "2026-11-28 15:00",
+            "fpl": "2026-11-29 14:05",
+            "diffMin": -1385,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          },
+          {
+            "match": "Crystal Palace FC v Hull City AFC",
+            "round": "Matchday 12",
+            "ofLocal": "2026-11-28 15:00",
+            "ours": "2026-11-28 15:00",
+            "fpl": "2026-11-29 14:05",
+            "diffMin": -1385,
+            "sameLocalDate": false,
+            "finishedInFpl": false,
+            "adapterStatus": "fixture"
+          }
+        ],
+        "mismatchesOnFinishedMatches": 0,
+        "dstWindowsPlusMinus3d": [
+          {
+            "window": "2026-03-29 (UK clocks forward)",
+            "matches": 0,
+            "exact": 0,
+            "beforeChange": 0
+          },
+          {
+            "window": "2026-10-25 (UK clocks back)",
+            "matches": 10,
+            "exact": 10,
+            "beforeChange": 5
+          }
+        ]
+      },
+      "upcoming": [
+        {
+          "windowDays": 14,
+          "fplFixtures": 20,
+          "alsoAdapterFixtures": 20,
+          "kickoffExact": 12,
+          "kickoffWrong": 8,
+          "utcDateWrong": 6,
+          "earlierInFpl": 2
+        },
+        {
+          "windowDays": 21,
+          "fplFixtures": 20,
+          "alsoAdapterFixtures": 20,
+          "kickoffExact": 12,
+          "kickoffWrong": 8,
+          "utcDateWrong": 6,
+          "earlierInFpl": 2
+        }
+      ],
+      "scores": {
+        "fplFinished": 60,
+        "comparedWithAdapterResult": 45,
+        "equal": 45,
+        "equalRate": "100.00%",
+        "mismatches": [],
+        "fplFinishedNoAdapterResult": 15,
+        "rejectedRecordsHidingAFinishedMatch": 5,
+        "hiddenWhereFplScoreIsNot00": 0,
+        "hiddenDetail": [
+          {
+            "match": "Nottingham Forest FC v Tottenham Hotspur FC",
+            "date": "2026-09-05",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Hull City AFC v Aston Villa FC",
+            "date": "2026-09-05",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Liverpool FC v Fulham FC",
+            "date": "2026-09-12",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Tottenham Hotspur FC v Everton FC",
+            "date": "2026-09-12",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          },
+          {
+            "match": "Leeds United FC v Crystal Palace FC",
+            "date": "2026-09-20",
+            "sourceScore": "[0,0]",
+            "rejectCode": "bad_score",
+            "fplScore": "0-0"
+          }
+        ],
+        "fplFinishedButNotScoredInOpenfootball": 10,
+        "adapterResultsNotFinishedInFpl": 0,
+        "adapterResultsBeforeKickoffPlus105min": 0
+      },
+      "halfTime": {
+        "results": 45,
+        "withHalfTime": 45,
+        "missingHalfTime": 0,
+        "scoreBasis": {
+          "regular_time": 45
+        },
+        "status": {
+          "finished": 45
+        },
+        "htExceedsFt": 0,
+        "rawRecordsWithEtOrPenalties": 0
+      },
+      "time": {
+        "missingTime": 0,
+        "midnightPlaceholders": 0,
+        "issuesByCode": {
+          "error:bad_score": 5
+        },
+        "rawVsAdapterConversion": 0,
+        "dateFormatOk": 380
+      }
+    }
+  },
+  "openfootballHistory": {
+    "2025-26": {
+      "snapshots": 22,
+      "invalidSnapshots": [
+        {
+          "sha": "16a82f2b27b59408cd0cd330a22628d98612b7e8",
+          "at": "2025-12-04T16:34:17+01:00",
+          "error": "Expected ',' or '}' after property value in JSON at position 32709 (line 1904 column 12)"
+        }
+      ],
+      "firstSnapshot": "2025-07-30T16:20:51.000Z",
+      "lastSnapshot": "2026-05-26T08:25:18.000Z",
+      "adapterYieldPerSnapshot": [
+        {
+          "commit": "fdca227",
+          "at": "2025-07-30",
+          "seen": 380,
+          "accepted": 0,
+          "fixtures": 0,
+          "results": 0,
+          "rejectedRate": "100.00%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 49,
+            "issues_truncated": 1
+          }
+        },
+        {
+          "commit": "e7b38d4",
+          "at": "2025-11-04",
+          "seen": 380,
+          "accepted": 100,
+          "fixtures": 0,
+          "results": 100,
+          "rejectedRate": "73.68%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 49,
+            "issues_truncated": 1
+          }
+        },
+        {
+          "commit": "5dc74a3",
+          "at": "2025-11-11",
+          "seen": 380,
+          "accepted": 101,
+          "fixtures": 0,
+          "results": 101,
+          "rejectedRate": "73.42%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 49,
+            "issues_truncated": 1
+          }
+        },
+        {
+          "commit": "268e823",
+          "at": "2025-11-12",
+          "seen": 380,
+          "accepted": 110,
+          "fixtures": 0,
+          "results": 110,
+          "rejectedRate": "71.05%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 49,
+            "issues_truncated": 1
+          }
+        },
+        {
+          "commit": "16a82f2",
+          "at": "2025-12-04",
+          "seen": 0,
+          "accepted": 0,
+          "fixtures": 0,
+          "results": 0,
+          "rejectedRate": "n/a",
+          "fatal": "bad_json",
+          "issues": {
+            "bad_json": 1
+          }
+        },
+        {
+          "commit": "6bae9de",
+          "at": "2025-12-09",
+          "seen": 380,
+          "accepted": 120,
+          "fixtures": 0,
+          "results": 120,
+          "rejectedRate": "68.42%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 49,
+            "issues_truncated": 1
+          }
+        },
+        {
+          "commit": "4a843cd",
+          "at": "2026-01-08",
+          "seen": 380,
+          "accepted": 186,
+          "fixtures": 0,
+          "results": 186,
+          "rejectedRate": "51.05%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 24,
+            "issues_truncated": 1,
+            "missing_time": 25
+          }
+        },
+        {
+          "commit": "bc2f15d",
+          "at": "2026-02-11",
+          "seen": 380,
+          "accepted": 210,
+          "fixtures": 0,
+          "results": 210,
+          "rejectedRate": "44.74%",
+          "fatal": null,
+          "issues": {
+            "issues_truncated": 1,
+            "missing_time": 49
+          }
+        },
+        {
+          "commit": "c49bab5",
+          "at": "2026-02-12",
+          "seen": 380,
+          "accepted": 210,
+          "fixtures": 0,
+          "results": 210,
+          "rejectedRate": "44.74%",
+          "fatal": null,
+          "issues": {
+            "issues_truncated": 1,
+            "missing_time": 49
+          }
+        },
+        {
+          "commit": "98f3464",
+          "at": "2026-02-14",
+          "seen": 380,
+          "accepted": 210,
+          "fixtures": 0,
+          "results": 210,
+          "rejectedRate": "44.74%",
+          "fatal": null,
+          "issues": {
+            "issues_truncated": 1,
+            "missing_time": 49
+          }
+        },
+        {
+          "commit": "232e455",
+          "at": "2026-02-19",
+          "seen": 380,
+          "accepted": 260,
+          "fixtures": 0,
+          "results": 260,
+          "rejectedRate": "31.58%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 48,
+            "issues_truncated": 1,
+            "missing_time": 1
+          }
+        },
+        {
+          "commit": "ad52387",
+          "at": "2026-02-26",
+          "seen": 380,
+          "accepted": 271,
+          "fixtures": 0,
+          "results": 271,
+          "rejectedRate": "28.68%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 48,
+            "issues_truncated": 1,
+            "missing_time": 1
+          }
+        },
+        {
+          "commit": "d6d5f37",
+          "at": "2026-03-04",
+          "seen": 380,
+          "accepted": 281,
+          "fixtures": 0,
+          "results": 281,
+          "rejectedRate": "26.05%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 48,
+            "issues_truncated": 1,
+            "missing_time": 1
+          }
+        },
+        {
+          "commit": "25cfaf1",
+          "at": "2026-03-13",
+          "seen": 380,
+          "accepted": 291,
+          "fixtures": 0,
+          "results": 291,
+          "rejectedRate": "23.42%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 48,
+            "issues_truncated": 1,
+            "missing_time": 1
+          }
+        },
+        {
+          "commit": "f3875ee",
+          "at": "2026-04-24",
+          "seen": 380,
+          "accepted": 330,
+          "fixtures": 0,
+          "results": 330,
+          "rejectedRate": "13.16%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 49,
+            "missing_time": 1
+          }
+        },
+        {
+          "commit": "97fd22e",
+          "at": "2026-04-29",
+          "seen": 380,
+          "accepted": 339,
+          "fixtures": 0,
+          "results": 339,
+          "rejectedRate": "10.79%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 38,
+            "missing_time": 3
+          }
+        },
+        {
+          "commit": "b039b5a",
+          "at": "2026-05-06",
+          "seen": 380,
+          "accepted": 349,
+          "fixtures": 0,
+          "results": 349,
+          "rejectedRate": "8.16%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 31
+          }
+        },
+        {
+          "commit": "e19feff",
+          "at": "2026-05-14",
+          "seen": 380,
+          "accepted": 359,
+          "fixtures": 0,
+          "results": 359,
+          "rejectedRate": "5.53%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 21
+          }
+        },
+        {
+          "commit": "b4ceb69",
+          "at": "2026-05-19",
+          "seen": 380,
+          "accepted": 367,
+          "fixtures": 0,
+          "results": 367,
+          "rejectedRate": "3.42%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 13
+          }
+        },
+        {
+          "commit": "f8d1dce",
+          "at": "2026-05-22",
+          "seen": 380,
+          "accepted": 370,
+          "fixtures": 0,
+          "results": 370,
+          "rejectedRate": "2.63%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 10
+          }
+        },
+        {
+          "commit": "3da56c2",
+          "at": "2026-05-23",
+          "seen": 380,
+          "accepted": 0,
+          "fixtures": 0,
+          "results": 0,
+          "rejectedRate": "100.00%",
+          "fatal": null,
+          "issues": {
+            "bad_date": 49,
+            "issues_truncated": 1
+          }
+        },
+        {
+          "commit": "f27dcbe",
+          "at": "2026-05-26",
+          "seen": 380,
+          "accepted": 353,
+          "fixtures": 0,
+          "results": 353,
+          "rejectedRate": "7.11%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 27
+          }
+        }
+      ],
+      "scoreAccuracyVsFplPerSnapshot": [
+        {
+          "snapshot": "2025-07-30",
+          "scoredMatches": 0,
+          "comparedToFpl": 0,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2025-11-04",
+          "scoredMatches": 100,
+          "comparedToFpl": 100,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2025-11-11",
+          "scoredMatches": 101,
+          "comparedToFpl": 101,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2025-11-12",
+          "scoredMatches": 110,
+          "comparedToFpl": 110,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2025-12-09",
+          "scoredMatches": 120,
+          "comparedToFpl": 120,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-01-08",
+          "scoredMatches": 186,
+          "comparedToFpl": 186,
+          "wrongVsFpl": 4
+        },
+        {
+          "snapshot": "2026-02-11",
+          "scoredMatches": 250,
+          "comparedToFpl": 249,
+          "wrongVsFpl": 5
+        },
+        {
+          "snapshot": "2026-02-12",
+          "scoredMatches": 256,
+          "comparedToFpl": 255,
+          "wrongVsFpl": 5
+        },
+        {
+          "snapshot": "2026-02-14",
+          "scoredMatches": 260,
+          "comparedToFpl": 259,
+          "wrongVsFpl": 5
+        },
+        {
+          "snapshot": "2026-02-19",
+          "scoredMatches": 260,
+          "comparedToFpl": 260,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-02-26",
+          "scoredMatches": 271,
+          "comparedToFpl": 271,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-03-04",
+          "scoredMatches": 281,
+          "comparedToFpl": 281,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-03-13",
+          "scoredMatches": 291,
+          "comparedToFpl": 291,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-04-24",
+          "scoredMatches": 330,
+          "comparedToFpl": 330,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-04-29",
+          "scoredMatches": 339,
+          "comparedToFpl": 339,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-05-06",
+          "scoredMatches": 349,
+          "comparedToFpl": 349,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-05-14",
+          "scoredMatches": 359,
+          "comparedToFpl": 359,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-05-19",
+          "scoredMatches": 367,
+          "comparedToFpl": 367,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-05-22",
+          "scoredMatches": 370,
+          "comparedToFpl": 370,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-05-23",
+          "scoredMatches": 370,
+          "comparedToFpl": 370,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-05-26",
+          "scoredMatches": 380,
+          "comparedToFpl": 380,
+          "wrongVsFpl": 0
+        }
+      ],
+      "matchesWithAWrongScoreInSomeSnapshot": [
+        {
+          "match": "Sunderland AFC|AFC Bournemouth",
+          "first": "2026-01-08",
+          "last": "2026-02-14",
+          "shown": "[1,1]",
+          "final": "[3,2]",
+          "date": "2025-11-29"
+        },
+        {
+          "match": "Manchester City FC|Leeds United FC",
+          "first": "2026-01-08",
+          "last": "2026-02-14",
+          "shown": "[3,0]",
+          "final": "[3,2]",
+          "date": "2025-11-29"
+        },
+        {
+          "match": "Everton FC|Newcastle United FC",
+          "first": "2026-01-08",
+          "last": "2026-02-14",
+          "shown": "[0,0]",
+          "final": "[1,4]",
+          "date": "2025-11-29"
+        },
+        {
+          "match": "Tottenham Hotspur FC|Fulham FC",
+          "first": "2026-01-08",
+          "last": "2026-02-14",
+          "shown": "[2,0]",
+          "final": "[1,2]",
+          "date": "2025-11-29"
+        },
+        {
+          "match": "Aston Villa FC|Brentford FC",
+          "first": "2026-02-11",
+          "last": "2026-02-14",
+          "shown": "[2,2]",
+          "final": "[0,1]",
+          "date": "2026-01-31"
+        }
+      ],
+      "scoreCorrections": [
+        {
+          "match": "Sunderland AFC|AFC Bournemouth",
+          "from": "ft[1,1] ht[0,1]",
+          "to": "ft[3,2] ht[1,2]",
+          "between": "2026-02-14..2026-02-19"
+        },
+        {
+          "match": "Manchester City FC|Leeds United FC",
+          "from": "ft[3,0] ht[1,0]",
+          "to": "ft[3,2] ht[2,0]",
+          "between": "2026-02-14..2026-02-19"
+        },
+        {
+          "match": "Everton FC|Newcastle United FC",
+          "from": "ft[0,0] htnull",
+          "to": "ft[1,4] ht[0,3]",
+          "between": "2026-02-14..2026-02-19"
+        },
+        {
+          "match": "Tottenham Hotspur FC|Fulham FC",
+          "from": "ft[2,0] ht[1,0]",
+          "to": "ft[1,2] ht[0,2]",
+          "between": "2026-02-14..2026-02-19"
+        },
+        {
+          "match": "Aston Villa FC|Brentford FC",
+          "from": "ft[2,2] htnull",
+          "to": "ft[0,1] ht[0,1]",
+          "between": "2026-02-14..2026-02-19"
+        }
+      ],
+      "scoredBeforeKickoffCount": 0,
+      "matchesWhoseKickoffChanged": 50,
+      "kickoffChangesByLeadDays": {
+        "1-7d": 1,
+        "7-14d": 14,
+        ">=14d": 25,
+        "after the new kickoff": 13
+      },
+      "exposure14d": {
+        "fixtureSnapshotsInWindow": 234,
+        "fixtureSnapshotsInWindowWithoutTimeDroppedByAdapter": 61,
+        "listedKickoffWrong": 4,
+        "rate": "1.71%",
+        "medianAbsErrorMin": 1080,
+        "perSnapshot": [
+          {
+            "snapshot": "2025-07-30T16:20",
+            "fixturesIn14d": 0,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2025-11-04T14:50",
+            "fixturesIn14d": 10,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2025-11-11T14:49",
+            "fixturesIn14d": 10,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2025-11-12T05:20",
+            "fixturesIn14d": 10,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2025-12-09T15:06",
+            "fixturesIn14d": 20,
+            "listedKickoffDiffersFromFinal": 2
+          },
+          {
+            "snapshot": "2026-01-08T05:19",
+            "fixturesIn14d": 1,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-02-11T06:04",
+            "fixturesIn14d": 0,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-02-12T06:00",
+            "fixturesIn14d": 0,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-02-14T05:39",
+            "fixturesIn14d": 0,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-02-19T05:54",
+            "fixturesIn14d": 29,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-02-26T05:53",
+            "fixturesIn14d": 20,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-03-04T05:38",
+            "fixturesIn14d": 16,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-03-13T05:43",
+            "fixturesIn14d": 18,
+            "listedKickoffDiffersFromFinal": 1
+          },
+          {
+            "snapshot": "2026-04-24T12:04",
+            "fixturesIn14d": 17,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-04-29T07:14",
+            "fixturesIn14d": 20,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-05-06T07:30",
+            "fixturesIn14d": 21,
+            "listedKickoffDiffersFromFinal": 1
+          },
+          {
+            "snapshot": "2026-05-14T07:36",
+            "fixturesIn14d": 20,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-05-19T08:19",
+            "fixturesIn14d": 12,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-05-22T08:16",
+            "fixturesIn14d": 10,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-05-23T07:24",
+            "fixturesIn14d": 0,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-05-26T08:25",
+            "fixturesIn14d": 0,
+            "listedKickoffDiffersFromFinal": 0
+          }
+        ]
+      },
+      "truthForKickoff": "FPL fixtures.csv"
+    },
+    "2026-27": {
+      "snapshots": 8,
+      "invalidSnapshots": [],
+      "firstSnapshot": "2026-08-22T14:56:40.000Z",
+      "lastSnapshot": "2026-09-22T09:33:49.000Z",
+      "adapterYieldPerSnapshot": [
+        {
+          "commit": "6551e6f",
+          "at": "2026-08-22",
+          "seen": 380,
+          "accepted": 380,
+          "fixtures": 380,
+          "results": 0,
+          "rejectedRate": "0.00%",
+          "fatal": null,
+          "issues": {}
+        },
+        {
+          "commit": "e7a7a1a",
+          "at": "2026-08-24",
+          "seen": 380,
+          "accepted": 380,
+          "fixtures": 374,
+          "results": 6,
+          "rejectedRate": "0.00%",
+          "fatal": null,
+          "issues": {}
+        },
+        {
+          "commit": "51c7c2c",
+          "at": "2026-08-24",
+          "seen": 380,
+          "accepted": 380,
+          "fixtures": 374,
+          "results": 6,
+          "rejectedRate": "0.00%",
+          "fatal": null,
+          "issues": {}
+        },
+        {
+          "commit": "4e4146c",
+          "at": "2026-08-26",
+          "seen": 380,
+          "accepted": 380,
+          "fixtures": 370,
+          "results": 10,
+          "rejectedRate": "0.00%",
+          "fatal": null,
+          "issues": {}
+        },
+        {
+          "commit": "8aa4cd0",
+          "at": "2026-09-02",
+          "seen": 380,
+          "accepted": 380,
+          "fixtures": 360,
+          "results": 20,
+          "rejectedRate": "0.00%",
+          "fatal": null,
+          "issues": {}
+        },
+        {
+          "commit": "41a6eb9",
+          "at": "2026-09-09",
+          "seen": 380,
+          "accepted": 378,
+          "fixtures": 350,
+          "results": 28,
+          "rejectedRate": "0.53%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 2
+          }
+        },
+        {
+          "commit": "40b3e1b",
+          "at": "2026-09-19",
+          "seen": 380,
+          "accepted": 376,
+          "fixtures": 340,
+          "results": 36,
+          "rejectedRate": "1.05%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 4
+          }
+        },
+        {
+          "commit": "e674442",
+          "at": "2026-09-22",
+          "seen": 380,
+          "accepted": 375,
+          "fixtures": 330,
+          "results": 45,
+          "rejectedRate": "1.32%",
+          "fatal": null,
+          "issues": {
+            "bad_score": 5
+          }
+        }
+      ],
+      "scoreAccuracyVsFplPerSnapshot": [
+        {
+          "snapshot": "2026-08-22",
+          "scoredMatches": 0,
+          "comparedToFpl": 0,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-08-24",
+          "scoredMatches": 6,
+          "comparedToFpl": 6,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-08-24",
+          "scoredMatches": 6,
+          "comparedToFpl": 6,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-08-26",
+          "scoredMatches": 10,
+          "comparedToFpl": 10,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-09-02",
+          "scoredMatches": 20,
+          "comparedToFpl": 20,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-09-09",
+          "scoredMatches": 30,
+          "comparedToFpl": 30,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-09-19",
+          "scoredMatches": 40,
+          "comparedToFpl": 40,
+          "wrongVsFpl": 0
+        },
+        {
+          "snapshot": "2026-09-22",
+          "scoredMatches": 50,
+          "comparedToFpl": 50,
+          "wrongVsFpl": 0
+        }
+      ],
+      "matchesWithAWrongScoreInSomeSnapshot": [],
+      "scoreCorrections": [],
+      "scoredBeforeKickoffCount": 0,
+      "matchesWhoseKickoffChanged": 267,
+      "kickoffChangesByLeadDays": {
+        "1-7d": 7,
+        "7-14d": 7,
+        ">=14d": 269
+      },
+      "exposure14d": {
+        "fixtureSnapshotsInWindow": 133,
+        "fixtureSnapshotsInWindowWithoutTimeDroppedByAdapter": 0,
+        "listedKickoffWrong": 10,
+        "rate": "7.52%",
+        "medianAbsErrorMin": 1380,
+        "perSnapshot": [
+          {
+            "snapshot": "2026-08-22T14:56",
+            "fixturesIn14d": 22,
+            "listedKickoffDiffersFromFinal": 10
+          },
+          {
+            "snapshot": "2026-08-24T11:11",
+            "fixturesIn14d": 21,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-08-24T16:42",
+            "fixturesIn14d": 21,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-08-26T05:25",
+            "fixturesIn14d": 20,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-09-02T09:12",
+            "fixturesIn14d": 20,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-09-09T09:18",
+            "fixturesIn14d": 20,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-09-19T09:05",
+            "fixturesIn14d": 9,
+            "listedKickoffDiffersFromFinal": 0
+          },
+          {
+            "snapshot": "2026-09-22T09:33",
+            "fixturesIn14d": 0,
+            "listedKickoffDiffersFromFinal": 0
+          }
+        ]
+      },
+      "truthForKickoff": "FPL fixtures.csv"
+    }
+  },
+  "leagueFiles": [
+    {
+      "season": "2025-26",
+      "league": "at.1",
+      "competitionNameInFile": "Österr. Bundesliga 2025/26",
+      "zone": "Europe/Vienna",
+      "records": 132,
+      "accepted": 98,
+      "rejected": 34,
+      "rejectedRate": "25.76%",
+      "fixtures": 31,
+      "results": 67,
+      "issues": {
+        "error:bad_score": 4,
+        "warning:missing_time": 30
+      },
+      "rawScoreShapes": {
+        "bare pair": 4,
+        "none": 61,
+        "object ft+ht": 67
+      },
+      "barePairValues": {
+        "[0,0]": 4
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 67,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 67
+      },
+      "missingTime": 30,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-01..2026-03-07",
+      "topLocalTimeSlots": {
+        "16:00": 72,
+        "13:30": 24,
+        "18:30": 4,
+        "19:30": 2
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "de.1",
+      "competitionNameInFile": "Deutsche Bundesliga 2025/26",
+      "zone": "Europe/Berlin",
+      "records": 306,
+      "accepted": 294,
+      "rejected": 12,
+      "rejectedRate": "3.92%",
+      "fixtures": 0,
+      "results": 294,
+      "issues": {
+        "error:bad_score": 12
+      },
+      "rawScoreShapes": {
+        "bare pair": 12,
+        "object ft+ht": 294
+      },
+      "barePairValues": {
+        "[0,0]": 12
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 294,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 294
+      },
+      "missingTime": 0,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-22..2026-05-16",
+      "topLocalTimeSlots": {
+        "15:30": 185,
+        "20:30": 39,
+        "18:30": 34,
+        "17:30": 32,
+        "19:30": 15,
+        "15:45": 1
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "en.1",
+      "competitionNameInFile": "English Premier League 2025/26",
+      "zone": "Europe/London",
+      "records": 380,
+      "accepted": 353,
+      "rejected": 27,
+      "rejectedRate": "7.11%",
+      "fixtures": 0,
+      "results": 353,
+      "issues": {
+        "error:bad_score": 27
+      },
+      "rawScoreShapes": {
+        "bare pair": 27,
+        "object ft+ht": 353
+      },
+      "barePairValues": {
+        "[0,0]": 27
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 353,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 353
+      },
+      "missingTime": 0,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-15..2026-05-24",
+      "topLocalTimeSlots": {
+        "15:00": 111,
+        "20:00": 59,
+        "14:00": 58,
+        "17:30": 36,
+        "19:30": 30,
+        "16:30": 27
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "en.2",
+      "competitionNameInFile": "English Championship 2025/26",
+      "zone": "Europe/London",
+      "records": 557,
+      "accepted": 521,
+      "rejected": 36,
+      "rejectedRate": "6.46%",
+      "fixtures": 0,
+      "results": 521,
+      "issues": {
+        "error:bad_score": 36
+      },
+      "rawScoreShapes": {
+        "bare pair": 36,
+        "object et+ft": 1,
+        "object ft+ht": 520
+      },
+      "barePairValues": {
+        "[0,0]": 36
+      },
+      "objectFtZeroZero": 1,
+      "withEtOrPenalties": 1,
+      "resultsWithHalfTime": 520,
+      "resultsWithoutHalfTime": 1,
+      "scoreBasis": {
+        "regular_time": 521
+      },
+      "missingTime": 0,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-08..2026-05-23",
+      "topLocalTimeSlots": {
+        "15:00": 246,
+        "19:45": 116,
+        "12:30": 99,
+        "20:00": 59,
+        "12:00": 11,
+        "15:01": 6
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "en.3",
+      "competitionNameInFile": "English League One 2025/26",
+      "zone": "Europe/London",
+      "records": 552,
+      "accepted": 455,
+      "rejected": 97,
+      "rejectedRate": "17.57%",
+      "fixtures": 194,
+      "results": 261,
+      "issues": {
+        "error:bad_score": 47,
+        "warning:issues_truncated": 1,
+        "warning:missing_time": 2
+      },
+      "rawScoreShapes": {
+        "bare pair": 95,
+        "none": 196,
+        "object ft+ht": 261
+      },
+      "barePairValues": {
+        "[0,0]": 14,
+        "[0,1]": 7,
+        "[0,2]": 3,
+        "[0,3]": 1,
+        "[0,4]": 1,
+        "[1,0]": 10,
+        "[1,1]": 10,
+        "[1,2]": 5,
+        "[1,3]": 2,
+        "[1,4]": 1,
+        "[2,0]": 4,
+        "[2,1]": 8,
+        "[2,2]": 8,
+        "[2,3]": 1,
+        "[3,0]": 6,
+        "[3,1]": 5,
+        "[3,2]": 3,
+        "[3,3]": 1,
+        "[4,0]": 2,
+        "[5,1]": 1,
+        "[5,2]": 1,
+        "[6,1]": 1
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 261,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 261
+      },
+      "missingTime": 2,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-01-01..2025-12-29",
+      "topLocalTimeSlots": {
+        "14:00": 424,
+        "18:45": 74,
+        "11:30": 33,
+        "19:00": 14,
+        "11:00": 3,
+        "13:00": 1
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "es.1",
+      "competitionNameInFile": "Spain Primera División 2025/26",
+      "zone": "Europe/Madrid",
+      "records": 380,
+      "accepted": 365,
+      "rejected": 15,
+      "rejectedRate": "3.95%",
+      "fixtures": 0,
+      "results": 365,
+      "issues": {
+        "error:bad_score": 15
+      },
+      "rawScoreShapes": {
+        "bare pair": 15,
+        "object ft+ht": 365
+      },
+      "barePairValues": {
+        "[0,0]": 15
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 365,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 365
+      },
+      "missingTime": 0,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-15..2026-05-24",
+      "topLocalTimeSlots": {
+        "21:00": 127,
+        "18:30": 62,
+        "16:15": 61,
+        "14:00": 59,
+        "19:00": 25,
+        "21:30": 24
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "fr.1",
+      "competitionNameInFile": "French Ligue 1 2025/26",
+      "zone": "Europe/Paris",
+      "records": 306,
+      "accepted": 283,
+      "rejected": 23,
+      "rejectedRate": "7.52%",
+      "fixtures": 1,
+      "results": 282,
+      "issues": {
+        "error:bad_score": 23
+      },
+      "rawScoreShapes": {
+        "bare pair": 23,
+        "none": 1,
+        "object ft+ht": 282
+      },
+      "barePairValues": {
+        "[0,0]": 23
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 282,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 282
+      },
+      "missingTime": 0,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-15..2026-05-17",
+      "topLocalTimeSlots": {
+        "17:15": 90,
+        "20:45": 55,
+        "19:00": 40,
+        "21:05": 38,
+        "15:00": 32,
+        "17:00": 29
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "it.1",
+      "competitionNameInFile": "Italian Serie A 2025/26",
+      "zone": "Europe/Rome",
+      "records": 380,
+      "accepted": 344,
+      "rejected": 36,
+      "rejectedRate": "9.47%",
+      "fixtures": 0,
+      "results": 344,
+      "issues": {
+        "error:bad_score": 36
+      },
+      "rawScoreShapes": {
+        "bare pair": 36,
+        "object ft+ht": 344
+      },
+      "barePairValues": {
+        "[0,0]": 36
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 344,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 344
+      },
+      "missingTime": 0,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-23..2026-05-24",
+      "topLocalTimeSlots": {
+        "20:45": 145,
+        "15:00": 92,
+        "18:00": 70,
+        "12:30": 34,
+        "18:30": 33,
+        "12:00": 5
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "nl.1",
+      "competitionNameInFile": "Netherlands Eredivisie 2025/26",
+      "zone": "Europe/Amsterdam",
+      "records": 306,
+      "accepted": 296,
+      "rejected": 10,
+      "rejectedRate": "3.27%",
+      "fixtures": 1,
+      "results": 295,
+      "issues": {
+        "error:bad_score": 10
+      },
+      "rawScoreShapes": {
+        "bare pair": 10,
+        "none": 1,
+        "object ft+ht": 295
+      },
+      "barePairValues": {
+        "[0,0]": 10
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 295,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 295
+      },
+      "missingTime": 0,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-08..2026-05-17",
+      "topLocalTimeSlots": {
+        "14:30": 69,
+        "20:00": 56,
+        "16:45": 44,
+        "21:00": 38,
+        "18:45": 36,
+        "12:15": 32
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "pt.1",
+      "competitionNameInFile": "Portuguese Primeira Liga 2025/26",
+      "zone": "Europe/Lisbon",
+      "records": 306,
+      "accepted": 287,
+      "rejected": 19,
+      "rejectedRate": "6.21%",
+      "fixtures": 0,
+      "results": 287,
+      "issues": {
+        "error:bad_score": 19
+      },
+      "rawScoreShapes": {
+        "bare pair": 19,
+        "object ft+ht": 287
+      },
+      "barePairValues": {
+        "[0,0]": 19
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 287,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 287
+      },
+      "missingTime": 0,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-08..2026-05-16",
+      "topLocalTimeSlots": {
+        "18:00": 78,
+        "15:30": 75,
+        "20:30": 75,
+        "20:15": 43,
+        "20:45": 15,
+        "18:45": 8
+      }
+    },
+    {
+      "season": "2025-26",
+      "league": "tr.1",
+      "competitionNameInFile": "Turkish Süper Lig 2025/26",
+      "zone": "Europe/Istanbul",
+      "records": 306,
+      "accepted": 135,
+      "rejected": 171,
+      "rejectedRate": "55.88%",
+      "fixtures": 45,
+      "results": 90,
+      "issues": {
+        "error:bad_score": 9,
+        "warning:issues_truncated": 1,
+        "warning:missing_time": 40
+      },
+      "rawScoreShapes": {
+        "bare pair": 9,
+        "none": 207,
+        "object ft+ht": 90
+      },
+      "barePairValues": {
+        "[0,0]": 9
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 90,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 90
+      },
+      "missingTime": 162,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2025-08-08..2026-05-17",
+      "topLocalTimeSlots": {
+        "19:00": 64,
+        "16:00": 33,
+        "20:30": 19,
+        "13:30": 15,
+        "18:00": 13
+      }
+    },
+    {
+      "season": "2026-27",
+      "league": "de.1",
+      "competitionNameInFile": "Deutsche Bundesliga 2026/27",
+      "zone": "Europe/Berlin",
+      "records": 306,
+      "accepted": 105,
+      "rejected": 201,
+      "rejectedRate": "65.69%",
+      "fixtures": 72,
+      "results": 33,
+      "issues": {
+        "error:bad_score": 3,
+        "warning:issues_truncated": 1,
+        "warning:missing_time": 46
+      },
+      "rawScoreShapes": {
+        "bare pair": 3,
+        "none": 270,
+        "object ft+ht": 33
+      },
+      "barePairValues": {
+        "[0,0]": 3
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 33,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 33
+      },
+      "missingTime": 198,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2026-08-28..2027-05-22",
+      "topLocalTimeSlots": {
+        "15:30": 72,
+        "17:30": 11,
+        "18:30": 11,
+        "20:30": 11,
+        "19:30": 3
+      }
+    },
+    {
+      "season": "2026-27",
+      "league": "en.1",
+      "competitionNameInFile": "English Premier League 2026/27",
+      "zone": "Europe/London",
+      "records": 380,
+      "accepted": 375,
+      "rejected": 5,
+      "rejectedRate": "1.32%",
+      "fixtures": 330,
+      "results": 45,
+      "issues": {
+        "error:bad_score": 5
+      },
+      "rawScoreShapes": {
+        "bare pair": 5,
+        "none": 330,
+        "object ft+ht": 45
+      },
+      "barePairValues": {
+        "[0,0]": 5
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 45,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 45
+      },
+      "missingTime": 0,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2026-08-21..2027-05-30",
+      "topLocalTimeSlots": {
+        "15:00": 251,
+        "20:00": 46,
+        "14:00": 21,
+        "19:30": 14,
+        "16:30": 11,
+        "17:30": 11
+      }
+    },
+    {
+      "season": "2026-27",
+      "league": "en.2",
+      "competitionNameInFile": "English Championship 2026/27",
+      "zone": "Europe/London",
+      "records": 552,
+      "accepted": 281,
+      "rejected": 271,
+      "rejectedRate": "49.09%",
+      "fixtures": 193,
+      "results": 88,
+      "issues": {
+        "error:bad_score": 7,
+        "warning:issues_truncated": 1,
+        "warning:missing_time": 42
+      },
+      "rawScoreShapes": {
+        "bare pair": 7,
+        "none": 457,
+        "object ft+ht": 88
+      },
+      "barePairValues": {
+        "[0,0]": 7
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 88,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 88
+      },
+      "missingTime": 264,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2026-08-14..2027-05-01",
+      "topLocalTimeSlots": {
+        "15:00": 127,
+        "19:45": 68,
+        "12:30": 50,
+        "20:00": 28,
+        "12:00": 8,
+        "13:30": 2
+      }
+    },
+    {
+      "season": "2026-27",
+      "league": "es.1",
+      "competitionNameInFile": "Spain Primera División 2026/27",
+      "zone": "Europe/Madrid",
+      "records": 380,
+      "accepted": 85,
+      "rejected": 295,
+      "rejectedRate": "77.63%",
+      "fixtures": 21,
+      "results": 64,
+      "issues": {
+        "error:bad_score": 5,
+        "warning:issues_truncated": 1,
+        "warning:missing_time": 44
+      },
+      "rawScoreShapes": {
+        "bare pair": 5,
+        "none": 311,
+        "object ft+ht": 64
+      },
+      "barePairValues": {
+        "[0,0]": 5
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 64,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 64
+      },
+      "missingTime": 290,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2026-08-15..2027-05-30",
+      "topLocalTimeSlots": {
+        "21:00": 26,
+        "18:30": 12,
+        "21:30": 12,
+        "16:15": 10,
+        "14:00": 8,
+        "19:00": 8
+      }
+    },
+    {
+      "season": "2026-27",
+      "league": "fr.1",
+      "competitionNameInFile": "French Ligue 1 2026/27",
+      "zone": "Europe/Paris",
+      "records": 306,
+      "accepted": 110,
+      "rejected": 196,
+      "rejectedRate": "64.05%",
+      "fixtures": 69,
+      "results": 41,
+      "issues": {
+        "error:bad_score": 4,
+        "warning:issues_truncated": 1,
+        "warning:missing_time": 45
+      },
+      "rawScoreShapes": {
+        "bare pair": 4,
+        "none": 261,
+        "object ft+ht": 41
+      },
+      "barePairValues": {
+        "[0,0]": 4
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 41,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 41
+      },
+      "missingTime": 192,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2026-08-21..2027-05-29",
+      "topLocalTimeSlots": {
+        "20:45": 66,
+        "17:15": 32,
+        "15:00": 12,
+        "19:00": 2,
+        "21:05": 2
+      }
+    },
+    {
+      "season": "2026-27",
+      "league": "it.1",
+      "competitionNameInFile": "Italian Serie A 2026/27",
+      "zone": "Europe/Rome",
+      "records": 380,
+      "accepted": 120,
+      "rejected": 260,
+      "rejectedRate": "68.42%",
+      "fixtures": 70,
+      "results": 50,
+      "issues": {
+        "warning:issues_truncated": 1,
+        "warning:missing_time": 49
+      },
+      "rawScoreShapes": {
+        "none": 330,
+        "object ft+ht": 50
+      },
+      "barePairValues": {},
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 50,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 50
+      },
+      "missingTime": 260,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2026-08-22..2027-05-30",
+      "topLocalTimeSlots": {
+        "20:45": 45,
+        "15:00": 28,
+        "18:30": 22,
+        "18:00": 18,
+        "12:30": 7
+      }
+    },
+    {
+      "season": "2026-27",
+      "league": "nl.1",
+      "competitionNameInFile": "Netherlands Eredivisie 2026/27",
+      "zone": "Europe/Amsterdam",
+      "records": 306,
+      "accepted": 205,
+      "rejected": 101,
+      "rejectedRate": "33.01%",
+      "fixtures": 143,
+      "results": 62,
+      "issues": {
+        "error:bad_score": 1,
+        "warning:issues_truncated": 1,
+        "warning:missing_time": 48
+      },
+      "rawScoreShapes": {
+        "bare pair": 1,
+        "none": 243,
+        "object ft+ht": 62
+      },
+      "barePairValues": {
+        "[0,0]": 1
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 62,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 62
+      },
+      "missingTime": 100,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2026-08-07..2027-05-23",
+      "topLocalTimeSlots": {
+        "14:30": 56,
+        "20:00": 39,
+        "18:45": 23,
+        "21:00": 23,
+        "16:45": 22,
+        "12:15": 21
+      }
+    },
+    {
+      "season": "2026-27",
+      "league": "pt.1",
+      "competitionNameInFile": "Portuguese Primeira Liga 2026/27",
+      "zone": "Europe/Lisbon",
+      "records": 306,
+      "accepted": 103,
+      "rejected": 203,
+      "rejectedRate": "66.34%",
+      "fixtures": 45,
+      "results": 58,
+      "issues": {
+        "error:bad_score": 4,
+        "warning:issues_truncated": 1,
+        "warning:missing_time": 45
+      },
+      "rawScoreShapes": {
+        "bare pair": 4,
+        "none": 244,
+        "object ft+ht": 58
+      },
+      "barePairValues": {
+        "[0,0]": 4
+      },
+      "objectFtZeroZero": 0,
+      "withEtOrPenalties": 0,
+      "resultsWithHalfTime": 58,
+      "resultsWithoutHalfTime": 0,
+      "scoreBasis": {
+        "regular_time": 58
+      },
+      "missingTime": 199,
+      "midnightTimes": 0,
+      "nonHhmmTimes": 0,
+      "invalidCalendarDates": 0,
+      "dateRange": "2026-08-07..2027-05-16",
+      "topLocalTimeSlots": {
+        "18:00": 28,
+        "15:30": 26,
+        "20:30": 26,
+        "20:15": 20,
+        "20:45": 4,
+        "18:45": 3
+      }
+    }
+  ],
+  "names": {
+    "asOf": "2026-10-29T20:45:00.000Z",
+    "catalogue": {
+      "footballTeams": 116,
+      "nameForms": 214,
+      "distinctNormalisedForms": 199
+    },
+    "leagues": [
+      {
+        "league": "en.1",
+        "catalogueTeams": 23,
+        "distinctSourceClubs": 23,
+        "clubsPerSeason": {
+          "2025-26": 20,
+          "2026-27": 20
+        },
+        "clubsInCatalogue": 23,
+        "clubsNotInCatalogue": 0,
+        "resolvedWithoutAlias_correct": 23,
+        "resolvedWithoutAliasRateOfInCatalogue": "100.00%",
+        "resolvedWithoutAliasRateOfAllClubs": "100.00%",
+        "wrongMatches": 0,
+        "needAlias_inCatalogue": [],
+        "notInCatalogue": [],
+        "topSuggestionForUnresolved": [],
+        "namesWithoutTruthEntry": []
+      },
+      {
+        "league": "es.1",
+        "catalogueTeams": 14,
+        "distinctSourceClubs": 23,
+        "clubsPerSeason": {
+          "2025-26": 20,
+          "2026-27": 20
+        },
+        "clubsInCatalogue": 14,
+        "clubsNotInCatalogue": 9,
+        "resolvedWithoutAlias_correct": 9,
+        "resolvedWithoutAliasRateOfInCatalogue": "64.29%",
+        "resolvedWithoutAliasRateOfAllClubs": "39.13%",
+        "wrongMatches": 0,
+        "needAlias_inCatalogue": [
+          "Club Atlético de Madrid -> Atletico Madrid",
+          "RC Celta de Vigo -> Celta Vigo",
+          "Rayo Vallecano de Madrid -> Rayo Vallecano",
+          "Real Betis Balompié -> Real Betis",
+          "Real Sociedad de Fútbol -> Real Sociedad"
+        ],
+        "notInCatalogue": [
+          "Deportivo Alavés",
+          "Elche CF",
+          "Levante UD",
+          "Málaga CF",
+          "RC Deportivo La Coruña",
+          "RCD Espanyol de Barcelona",
+          "RCD Mallorca",
+          "Real Oviedo",
+          "Real Racing Club de Santander"
+        ],
+        "topSuggestionForUnresolved": [
+          {
+            "raw": "Club Atlético de Madrid",
+            "correct": "Atletico Madrid",
+            "suggestion": "Atletico Madrid (750)",
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Deportivo Alavés",
+            "correct": null,
+            "suggestion": "Saprissa (433)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "Elche CF",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Levante UD",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Málaga CF",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "RC Celta de Vigo",
+            "correct": "Celta Vigo",
+            "suggestion": "Celta Vigo (500)",
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "RC Deportivo La Coruña",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "RCD Espanyol de Barcelona",
+            "correct": null,
+            "suggestion": "Barcelona (250)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "RCD Mallorca",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Rayo Vallecano de Madrid",
+            "correct": "Rayo Vallecano",
+            "suggestion": "Rayo Vallecano (600)",
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Real Betis Balompié",
+            "correct": "Real Betis",
+            "suggestion": "Real Betis (766)",
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Real Oviedo",
+            "correct": null,
+            "suggestion": "Real Betis (433)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "Real Racing Club de Santander",
+            "correct": null,
+            "suggestion": "Real Betis (266)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "Real Sociedad de Fútbol",
+            "correct": "Real Sociedad",
+            "suggestion": "Real Sociedad (600)",
+            "suggestionIsWrong": false
+          }
+        ],
+        "namesWithoutTruthEntry": []
+      },
+      {
+        "league": "it.1",
+        "catalogueTeams": 13,
+        "distinctSourceClubs": 23,
+        "clubsPerSeason": {
+          "2025-26": 20,
+          "2026-27": 20
+        },
+        "clubsInCatalogue": 13,
+        "clubsNotInCatalogue": 10,
+        "resolvedWithoutAlias_correct": 10,
+        "resolvedWithoutAliasRateOfInCatalogue": "76.92%",
+        "resolvedWithoutAliasRateOfAllClubs": "43.48%",
+        "wrongMatches": 0,
+        "needAlias_inCatalogue": [
+          "Atalanta BC -> Atalanta",
+          "Bologna FC 1909 -> Bologna",
+          "FC Internazionale Milano -> Inter"
+        ],
+        "notInCatalogue": [
+          "AC Monza",
+          "AC Pisa 1909",
+          "Cagliari Calcio",
+          "Frosinone Calcio",
+          "Hellas Verona FC",
+          "Parma Calcio 1913",
+          "US Cremonese",
+          "US Lecce",
+          "US Sassuolo Calcio",
+          "Venezia FC"
+        ],
+        "topSuggestionForUnresolved": [
+          {
+            "raw": "AC Monza",
+            "correct": null,
+            "suggestion": "AC Milan (333)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "AC Pisa 1909",
+            "correct": null,
+            "suggestion": "AC Milan (250)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "Atalanta BC",
+            "correct": "Atalanta",
+            "suggestion": "Atalanta (600)",
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Bologna FC 1909",
+            "correct": "Bologna",
+            "suggestion": "Bologna (433)",
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Cagliari Calcio",
+            "correct": null,
+            "suggestion": "Udinese (333)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "FC Internazionale Milano",
+            "correct": "Inter",
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Frosinone Calcio",
+            "correct": null,
+            "suggestion": "Udinese (333)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "Hellas Verona FC",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Parma Calcio 1913",
+            "correct": null,
+            "suggestion": "Udinese (250)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "US Cremonese",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "US Lecce",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "US Sassuolo Calcio",
+            "correct": null,
+            "suggestion": "Udinese (250)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "Venezia FC",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          }
+        ],
+        "namesWithoutTruthEntry": []
+      },
+      {
+        "league": "de.1",
+        "catalogueTeams": 13,
+        "distinctSourceClubs": 21,
+        "clubsPerSeason": {
+          "2025-26": 18,
+          "2026-27": 18
+        },
+        "clubsInCatalogue": 13,
+        "clubsNotInCatalogue": 8,
+        "resolvedWithoutAlias_correct": 12,
+        "resolvedWithoutAliasRateOfInCatalogue": "92.31%",
+        "resolvedWithoutAliasRateOfAllClubs": "57.14%",
+        "wrongMatches": 0,
+        "needAlias_inCatalogue": ["TSG 1899 Hoffenheim -> Hoffenheim"],
+        "notInCatalogue": [
+          "1. FC Heidenheim 1846",
+          "1. FC Köln",
+          "FC Augsburg",
+          "FC Schalke 04",
+          "FC St. Pauli 1910",
+          "Hamburger SV",
+          "SC Paderborn 07",
+          "SV 07 Elversberg"
+        ],
+        "topSuggestionForUnresolved": [
+          {
+            "raw": "1. FC Heidenheim 1846",
+            "correct": null,
+            "suggestion": "Union Berlin (333)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "1. FC Köln",
+            "correct": null,
+            "suggestion": "Union Berlin (400)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "FC Augsburg",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "FC Schalke 04",
+            "correct": null,
+            "suggestion": "Leverkusen (250)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "FC St. Pauli 1910",
+            "correct": null,
+            "suggestion": "St George (250)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "Hamburger SV",
+            "correct": null,
+            "suggestion": "Werder Bremen (250)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "SC Paderborn 07",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "SV 07 Elversberg",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "TSG 1899 Hoffenheim",
+            "correct": "Hoffenheim",
+            "suggestion": "Hoffenheim (766)",
+            "suggestionIsWrong": false
+          }
+        ],
+        "namesWithoutTruthEntry": []
+      },
+      {
+        "league": "fr.1",
+        "catalogueTeams": 13,
+        "distinctSourceClubs": 20,
+        "clubsPerSeason": {
+          "2025-26": 18,
+          "2026-27": 18
+        },
+        "clubsInCatalogue": 13,
+        "clubsNotInCatalogue": 7,
+        "resolvedWithoutAlias_correct": 10,
+        "resolvedWithoutAliasRateOfInCatalogue": "76.92%",
+        "resolvedWithoutAliasRateOfAllClubs": "50.00%",
+        "wrongMatches": 0,
+        "needAlias_inCatalogue": [
+          "Lille OSC -> Lille",
+          "Racing Club de Lens -> Lens",
+          "Stade Rennais FC 1901 -> Rennes"
+        ],
+        "notInCatalogue": [
+          "Angers SCO",
+          "ES Troyes AC",
+          "FC Lorient",
+          "FC Metz",
+          "Le Havre AC",
+          "Le Mans FC",
+          "Paris FC"
+        ],
+        "topSuggestionForUnresolved": [
+          {
+            "raw": "Angers SCO",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "ES Troyes AC",
+            "correct": null,
+            "suggestion": "AC Milan (250)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "FC Lorient",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "FC Metz",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Le Havre AC",
+            "correct": null,
+            "suggestion": "AC Milan (250)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "Le Mans FC",
+            "correct": null,
+            "suggestion": null,
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Lille OSC",
+            "correct": "Lille",
+            "suggestion": "Lille (600)",
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Paris FC",
+            "correct": null,
+            "suggestion": "PSG (433)",
+            "suggestionIsWrong": true
+          },
+          {
+            "raw": "Racing Club de Lens",
+            "correct": "Lens",
+            "suggestion": "Lens (250)",
+            "suggestionIsWrong": false
+          },
+          {
+            "raw": "Stade Rennais FC 1901",
+            "correct": "Rennes",
+            "suggestion": "Rennes (600)",
+            "suggestionIsWrong": false
+          }
+        ],
+        "namesWithoutTruthEntry": []
+      }
+    ],
+    "wrongMatches": [],
+    "sameTargetCollisionsAmongSourceNames": [],
+    "otherLeagues": {
+      "clubsChecked": 174,
+      "resolvedToACatalogueTeam": [
+        {
+          "file": "en.2",
+          "season": "2025-26",
+          "raw": "Ipswich Town FC",
+          "outcome": "resolved:name",
+          "team": "Ipswich"
+        },
+        {
+          "file": "en.2",
+          "season": "2025-26",
+          "raw": "Coventry City FC",
+          "outcome": "resolved:name",
+          "team": "Coventry"
+        },
+        {
+          "file": "en.2",
+          "season": "2025-26",
+          "raw": "Hull City AFC",
+          "outcome": "resolved:name",
+          "team": "Hull"
+        },
+        {
+          "file": "en.2",
+          "season": "2026-27",
+          "raw": "Wolverhampton Wanderers FC",
+          "outcome": "resolved:name",
+          "team": "Wolves"
+        },
+        {
+          "file": "en.2",
+          "season": "2026-27",
+          "raw": "Burnley FC",
+          "outcome": "resolved:name",
+          "team": "Burnley"
+        },
+        {
+          "file": "en.2",
+          "season": "2026-27",
+          "raw": "West Ham United FC",
+          "outcome": "resolved:name",
+          "team": "West Ham"
+        }
+      ]
+    },
+    "probes": [
+      {
+        "raw": "Inter",
+        "normalised": "inter",
+        "expect": "Inter",
+        "got": "Inter",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Inter Milan",
+        "normalised": "inter milan",
+        "expect": "Inter",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Internazionale",
+        "normalised": "internazionale",
+        "expect": "Inter",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "FC Internazionale Milano",
+        "normalised": "internazionale milano",
+        "expect": "Inter",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Inter Miami CF",
+        "normalised": "inter miami",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Inter de San Carlos",
+        "normalised": "inter de san carlos",
+        "expect": "Inter San Carlos",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Man United",
+        "normalised": "man united",
+        "expect": "Man Utd",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Man Utd",
+        "normalised": "man utd",
+        "expect": "Man Utd",
+        "got": "Man Utd",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Manchester Utd",
+        "normalised": "manchester utd",
+        "expect": "Man Utd",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Manchester United",
+        "normalised": "manchester united",
+        "expect": "Man Utd",
+        "got": "Man Utd",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Man City",
+        "normalised": "man city",
+        "expect": "Man City",
+        "got": "Man City",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Manchester City",
+        "normalised": "manchester city",
+        "expect": "Man City",
+        "got": "Man City",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Manchester",
+        "normalised": "manchester",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Athletic",
+        "normalised": "athletic",
+        "expect": "Athletic Club",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Athletic Bilbao",
+        "normalised": "athletic bilbao",
+        "expect": "Athletic Club",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Athletic Club Bilbao",
+        "normalised": "athletic club bilbao",
+        "expect": "Athletic Club",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Atletico",
+        "normalised": "atletico",
+        "expect": "Atletico Madrid",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Atlético",
+        "normalised": "atletico",
+        "expect": "Atletico Madrid",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Atlético Madrid",
+        "normalised": "atletico madrid",
+        "expect": "Atletico Madrid",
+        "got": "Atletico Madrid",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Atletico de Madrid",
+        "normalised": "atletico de madrid",
+        "expect": "Atletico Madrid",
+        "got": "Atletico Madrid",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Real Madrid",
+        "normalised": "real madrid",
+        "expect": "Real Madrid",
+        "got": "Real Madrid",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Real Madrid CF",
+        "normalised": "real madrid",
+        "expect": "Real Madrid",
+        "got": "Real Madrid",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Real Sociedad",
+        "normalised": "real sociedad",
+        "expect": "Real Sociedad",
+        "got": "Real Sociedad",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Real Betis",
+        "normalised": "real betis",
+        "expect": "Real Betis",
+        "got": "Real Betis",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Real",
+        "normalised": "real",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Köln",
+        "normalised": "koln",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Cologne",
+        "normalised": "cologne",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "1. FC Köln",
+        "normalised": "1 fc koln",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "FC Koln",
+        "normalised": "koln",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Borussia Dortmund",
+        "normalised": "borussia dortmund",
+        "expect": "Dortmund",
+        "got": "Dortmund",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Dortmund",
+        "normalised": "dortmund",
+        "expect": "Dortmund",
+        "got": "Dortmund",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "BVB",
+        "normalised": "bvb",
+        "expect": "Dortmund",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Borussia Mönchengladbach",
+        "normalised": "borussia monchengladbach",
+        "expect": "Gladbach",
+        "got": "Gladbach",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Borussia M'gladbach",
+        "normalised": "borussia mgladbach",
+        "expect": "Gladbach",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Mönchengladbach",
+        "normalised": "monchengladbach",
+        "expect": "Gladbach",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Monchengladbach",
+        "normalised": "monchengladbach",
+        "expect": "Gladbach",
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "safe miss (needs alias)"
+      },
+      {
+        "raw": "Borussia",
+        "normalised": "borussia",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Paris",
+        "normalised": "paris",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Paris FC",
+        "normalised": "paris",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Sporting",
+        "normalised": "sporting",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Sporting CP",
+        "normalised": "sporting cp",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Sporting Clube de Portugal",
+        "normalised": "sporting clube de portugal",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Union",
+        "normalised": "union",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Union Saint-Gilloise",
+        "normalised": "union saint gilloise",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "Brest",
+        "normalised": "brest",
+        "expect": "Brest",
+        "got": "Brest",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Brentford",
+        "normalised": "brentford",
+        "expect": "Brentford",
+        "got": "Brentford",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Leeds",
+        "normalised": "leeds",
+        "expect": "Leeds",
+        "got": "Leeds",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "Leeds United",
+        "normalised": "leeds united",
+        "expect": "Leeds",
+        "got": "Leeds",
+        "outcome": "resolved:name",
+        "verdict": "ok"
+      },
+      {
+        "raw": "United",
+        "normalised": "united",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      },
+      {
+        "raw": "City",
+        "normalised": "city",
+        "expect": null,
+        "got": null,
+        "outcome": "unknown",
+        "verdict": "ok (unresolved, correct)"
+      }
+    ],
+    "probeWrong": 0,
+    "collisionTest": {
+      "teams": 116,
+      "nameForms": 214,
+      "exactNormalisedCollisions": [],
+      "mechanicalVariantsTried": 2782,
+      "variantsResolvingToAnotherTeam": [],
+      "hazardsOfRulesThePipelineDoesNotHave": {
+        "firstTokenShared": [
+          "manchester: Man City / Man Utd",
+          "man: Man City / Man Utd",
+          "real: Real Madrid / Real Betis / Real Sociedad",
+          "inter: Inter / Inter San Carlos",
+          "borussia: Dortmund / Gladbach",
+          "olympique: Marseille / Lyon",
+          "stade: Rennes / Brest",
+          "club: Herediano / Cartaginés"
+        ],
+        "tokenSubsetPairs": [
+          "\"Inter\" (Inter) ~ \"Inter San Carlos\" (Inter San Carlos)",
+          "\"San Carlos\" (San Carlos) ~ \"Inter San Carlos\" (Inter San Carlos)"
+        ],
+        "editDistanceAtMost2": [
+          "\"Leeds\" (Leeds) ~ \"Lens\" (Lens)",
+          "\"Roma\" (Roma) ~ \"Como\" (Como)",
+          "\"Roma\" (Roma) ~ \"Raja\" (Raja)"
+        ]
+      }
+    },
+    "costaRicaAliasFile": {
+      "teamRows": 11,
+      "rowsWithEmptySource": 11,
+      "probes": [
+        {
+          "raw": "Sporting",
+          "withAliasFile": "Sporting CR"
+        },
+        {
+          "raw": "Sporting CP",
+          "withAliasFile": null
+        },
+        {
+          "raw": "Sporting Clube de Portugal",
+          "withAliasFile": null
+        },
+        {
+          "raw": "Sporting F.C.",
+          "withAliasFile": "Sporting CR"
+        },
+        {
+          "raw": "Inter de San Carlos",
+          "withAliasFile": "Inter San Carlos"
+        }
+      ]
+    },
+    "coverage": [
+      {
+        "league": "en.1",
+        "competitionLabelUsed": "Premier League",
+        "competitionLabelResolves": true,
+        "window": "14d (FIXTURE_HORIZON_MS)",
+        "listedInFileByDate": 20,
+        "droppedForMissingTime": 0,
+        "adapterFixtures": 20,
+        "bothClubsResolve": 20,
+        "wouldBecomeEvents": 20,
+        "shareOfListedFixtures": "100.00%",
+        "shareOfAdapterFixtures": "100.00%",
+        "blockedByClub": {}
+      },
+      {
+        "league": "en.1",
+        "competitionLabelUsed": "Premier League",
+        "competitionLabelResolves": true,
+        "window": "21d",
+        "listedInFileByDate": 20,
+        "droppedForMissingTime": 0,
+        "adapterFixtures": 20,
+        "bothClubsResolve": 20,
+        "wouldBecomeEvents": 20,
+        "shareOfListedFixtures": "100.00%",
+        "shareOfAdapterFixtures": "100.00%",
+        "blockedByClub": {}
+      },
+      {
+        "league": "es.1",
+        "competitionLabelUsed": "LaLiga",
+        "competitionLabelResolves": true,
+        "window": "14d (FIXTURE_HORIZON_MS)",
+        "listedInFileByDate": 20,
+        "droppedForMissingTime": 20,
+        "adapterFixtures": 0,
+        "bothClubsResolve": 0,
+        "wouldBecomeEvents": 0,
+        "shareOfListedFixtures": "0.00%",
+        "shareOfAdapterFixtures": "n/a",
+        "blockedByClub": {}
+      },
+      {
+        "league": "es.1",
+        "competitionLabelUsed": "LaLiga",
+        "competitionLabelResolves": true,
+        "window": "21d",
+        "listedInFileByDate": 20,
+        "droppedForMissingTime": 20,
+        "adapterFixtures": 0,
+        "bothClubsResolve": 0,
+        "wouldBecomeEvents": 0,
+        "shareOfListedFixtures": "0.00%",
+        "shareOfAdapterFixtures": "n/a",
+        "blockedByClub": {}
+      },
+      {
+        "league": "it.1",
+        "competitionLabelUsed": "Serie A",
+        "competitionLabelResolves": true,
+        "window": "14d (FIXTURE_HORIZON_MS)",
+        "listedInFileByDate": 22,
+        "droppedForMissingTime": 0,
+        "adapterFixtures": 20,
+        "bothClubsResolve": 5,
+        "wouldBecomeEvents": 5,
+        "shareOfListedFixtures": "22.73%",
+        "shareOfAdapterFixtures": "25.00%",
+        "blockedByClub": {
+          "AC Monza": 2,
+          "Atalanta BC": 2,
+          "Bologna FC 1909": 2,
+          "Cagliari Calcio": 2,
+          "FC Internazionale Milano": 2,
+          "Frosinone Calcio": 2,
+          "Parma Calcio 1913": 2,
+          "US Lecce": 2,
+          "US Sassuolo Calcio": 2,
+          "Venezia FC": 2
+        }
+      },
+      {
+        "league": "it.1",
+        "competitionLabelUsed": "Serie A",
+        "competitionLabelResolves": true,
+        "window": "21d",
+        "listedInFileByDate": 22,
+        "droppedForMissingTime": 0,
+        "adapterFixtures": 20,
+        "bothClubsResolve": 5,
+        "wouldBecomeEvents": 5,
+        "shareOfListedFixtures": "22.73%",
+        "shareOfAdapterFixtures": "25.00%",
+        "blockedByClub": {
+          "AC Monza": 2,
+          "Atalanta BC": 2,
+          "Bologna FC 1909": 2,
+          "Cagliari Calcio": 2,
+          "FC Internazionale Milano": 2,
+          "Frosinone Calcio": 2,
+          "Parma Calcio 1913": 2,
+          "US Lecce": 2,
+          "US Sassuolo Calcio": 2,
+          "Venezia FC": 2
+        }
+      },
+      {
+        "league": "de.1",
+        "competitionLabelUsed": "Bundesliga",
+        "competitionLabelResolves": true,
+        "window": "14d (FIXTURE_HORIZON_MS)",
+        "listedInFileByDate": 18,
+        "droppedForMissingTime": 0,
+        "adapterFixtures": 18,
+        "bothClubsResolve": 5,
+        "wouldBecomeEvents": 5,
+        "shareOfListedFixtures": "27.78%",
+        "shareOfAdapterFixtures": "27.78%",
+        "blockedByClub": {
+          "1. FC Köln": 2,
+          "FC Augsburg": 2,
+          "FC Schalke 04": 2,
+          "Hamburger SV": 2,
+          "SC Paderborn 07": 2,
+          "SV 07 Elversberg": 2,
+          "TSG 1899 Hoffenheim": 2
+        }
+      },
+      {
+        "league": "de.1",
+        "competitionLabelUsed": "Bundesliga",
+        "competitionLabelResolves": true,
+        "window": "21d",
+        "listedInFileByDate": 18,
+        "droppedForMissingTime": 0,
+        "adapterFixtures": 18,
+        "bothClubsResolve": 5,
+        "wouldBecomeEvents": 5,
+        "shareOfListedFixtures": "27.78%",
+        "shareOfAdapterFixtures": "27.78%",
+        "blockedByClub": {
+          "1. FC Köln": 2,
+          "FC Augsburg": 2,
+          "FC Schalke 04": 2,
+          "Hamburger SV": 2,
+          "SC Paderborn 07": 2,
+          "SV 07 Elversberg": 2,
+          "TSG 1899 Hoffenheim": 2
+        }
+      },
+      {
+        "league": "fr.1",
+        "competitionLabelUsed": "Ligue 1",
+        "competitionLabelResolves": true,
+        "window": "14d (FIXTURE_HORIZON_MS)",
+        "listedInFileByDate": 18,
+        "droppedForMissingTime": 0,
+        "adapterFixtures": 18,
+        "bothClubsResolve": 4,
+        "wouldBecomeEvents": 4,
+        "shareOfListedFixtures": "22.22%",
+        "shareOfAdapterFixtures": "22.22%",
+        "blockedByClub": {
+          "Angers SCO": 2,
+          "ES Troyes AC": 2,
+          "FC Lorient": 2,
+          "Le Havre AC": 2,
+          "Le Mans FC": 2,
+          "Lille OSC": 2,
+          "Paris FC": 2,
+          "Racing Club de Lens": 2,
+          "Stade Rennais FC 1901": 2
+        }
+      },
+      {
+        "league": "fr.1",
+        "competitionLabelUsed": "Ligue 1",
+        "competitionLabelResolves": true,
+        "window": "21d",
+        "listedInFileByDate": 18,
+        "droppedForMissingTime": 0,
+        "adapterFixtures": 18,
+        "bothClubsResolve": 4,
+        "wouldBecomeEvents": 4,
+        "shareOfListedFixtures": "22.22%",
+        "shareOfAdapterFixtures": "22.22%",
+        "blockedByClub": {
+          "Angers SCO": 2,
+          "ES Troyes AC": 2,
+          "FC Lorient": 2,
+          "Le Havre AC": 2,
+          "Le Mans FC": 2,
+          "Lille OSC": 2,
+          "Paris FC": 2,
+          "Racing Club de Lens": 2,
+          "Stade Rennais FC 1901": 2
+        }
+      }
+    ],
+    "competitionNames": {
+      "label": "English Premier League",
+      "resolvesWithoutCompetitionAlias": "unknown",
+      "fileNames": {
+        "es.1": "Spain Primera División 2026/27",
+        "de.1": "Deutsche Bundesliga 2026/27",
+        "it.1": "Italian Serie A 2026/27",
+        "fr.1": "French Ligue 1 2026/27"
+      },
+      "fileNamesResolve": [
+        {
+          "n": "English Premier League 2026/27",
+          "status": "unknown"
+        },
+        {
+          "n": "Spain Primera División 2026/27",
+          "status": "unknown"
+        },
+        {
+          "n": "Deutsche Bundesliga 2026/27",
+          "status": "unknown"
+        },
+        {
+          "n": "Italian Serie A 2026/27",
+          "status": "unknown"
+        },
+        {
+          "n": "French Ligue 1 2026/27",
+          "status": "unknown"
+        }
+      ]
+    }
+  }
+}

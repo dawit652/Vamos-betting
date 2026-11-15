@@ -1,14 +1,9 @@
 import { randomInt } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import type {
   AmlFlagListResponse,
-  DailySummaryListResponse,
-  ElsReportStatusResponse,
   GameSettingsView,
   MeResponse,
-  RecomputeDailySummaryResponse,
   ReconciliationRequestResponse,
   ReconciliationRunListResponse,
   WithdrawalView,
@@ -29,16 +24,9 @@ import { balanceChip, registerAndVerify } from '../support/ui';
  *    reaches the AML rules; it is restored afterwards). The deposit-then-withdraw rule flags it
  *    (high severity) and the withdrawal waits for staff with review reason `aml_review`;
  *  - compliance staff sign in to the admin app, run the reconciliation now (queued by the API,
- *    run by the worker, polled by the page) and see a clean run,
- *    open today's daily summary and download its CSV, and see the AML flag of that player;
- *  - the ELS stream wrote the player's events (checked through the status route, not the files).
- *
- * The worker writes the ELS lines from the outbox through the `els` queue.
+ *    run by the worker, polled by the page) and see a clean run, and see the AML flag of that
+ *    player.
  */
-
-/** Where the stack's worker writes the ELS stream (e2e/scripts/stack.sh). */
-const ELS_REPORT_DIR =
-  process.env.ELS_REPORT_DIR ?? path.resolve(import.meta.dirname, '../.stack/els');
 
 test.describe.configure({ mode: 'serial' });
 test.use({ actionTimeout: 20_000 });
@@ -63,12 +51,7 @@ function verifiableFayda(): string {
   }
 }
 
-/** Today's business day: the calendar date in Addis Ababa (UTC+3). */
-function businessDateNow(): string {
-  return new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
-}
-
-test('a deposit followed at once by a withdrawal is flagged; compliance reconciles, reads the day and sees the flag', async ({
+test('a deposit followed at once by a withdrawal is flagged; compliance reconciles and sees the flag', async ({
   page,
   context,
   browser,
@@ -96,7 +79,7 @@ test('a deposit followed at once by a withdrawal is flagged; compliance reconcil
     expect(lowered.ok(), await lowered.text()).toBe(true);
 
     await test.step('the player registers, passes KYC and deposits ETB 1,000 on the simulated phone', async () => {
-      await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+      await registerAndVerify(page, phone);
       const me = (await (await page.request.get(`${API_URL}/me`)).json()) as MeResponse;
       userId = me.id;
 
@@ -160,7 +143,6 @@ test('a deposit followed at once by a withdrawal is flagged; compliance reconcil
     await test.step('compliance signs in and sees the compliance nav', async () => {
       await loginInBrowser(staffPage, 'compliance');
       const nav = staffPage.getByRole('navigation', { name: 'Main' });
-      await expect(nav.getByRole('link', { name: 'Daily summaries' })).toBeVisible();
       await expect(nav.getByRole('link', { name: 'Reconciliation' })).toBeVisible();
       await expect(nav.getByRole('link', { name: 'AML flags' })).toBeVisible();
     });
@@ -206,45 +188,6 @@ test('a deposit followed at once by a withdrawal is flagged; compliance reconcil
       await expect(staffPage.getByRole('heading', { name: 'Reconciliation run' })).toBeVisible();
     });
 
-    const today = businessDateNow();
-    await test.step("today's daily summary opens and its CSV downloads", async () => {
-      // Make sure today's provisional summary exists (the worker computes it hourly).
-      const staffCsrf = (
-        (await (await staff.request.get(`${API_URL}/admin/session`)).json()) as {
-          csrfToken: string;
-        }
-      ).csrfToken;
-      const recompute = await staff.request.post(
-        `${API_URL}/admin/compliance/daily-summaries/${today}/recompute`,
-        { headers: { [STAFF_CSRF_HEADER]: staffCsrf }, data: {} },
-      );
-      expect(recompute.ok(), await recompute.text()).toBe(true);
-      const { summary } = (await recompute.json()) as RecomputeDailySummaryResponse;
-      expect(summary.businessDate).toBe(today);
-      // The player's ETB 1,000 deposit is in today's figures.
-      expect(BigInt(summary.deposits)).toBeGreaterThanOrEqual(DEPOSIT);
-      expect(BigInt(summary.depositCount)).toBeGreaterThanOrEqual(1n);
-
-      await staffPage.goto(`${ADMIN_URL}/compliance/${today}`);
-      await expect(staffPage.getByRole('heading', { name: `Summary ${today}` })).toBeVisible();
-      await expect(staffPage.getByText('provisional').first()).toBeVisible();
-
-      const csv = await staff.request.get(
-        `${API_URL}/admin/compliance/daily-summaries.csv?from=${today}&to=${today}`,
-      );
-      expect(csv.status()).toBe(200);
-      expect(csv.headers()['content-type']).toContain('text/csv');
-      expect(csv.headers()['content-disposition']).toContain('attachment');
-      const lines = (await csv.text()).trim().split(/\r?\n/);
-      expect(lines.length).toBeGreaterThanOrEqual(2);
-      expect(lines.some((line) => line.startsWith(today))).toBe(true);
-
-      const list = await staff.request.get(
-        `${API_URL}/admin/compliance/daily-summaries?from=${today}&to=${today}`,
-      );
-      expect(((await list.json()) as DailySummaryListResponse).items[0]?.businessDate).toBe(today);
-    });
-
     await test.step("the player's deposit-then-withdraw flag is in the AML list", async () => {
       const flagsResponse = await staff.request.get(
         `${API_URL}/admin/compliance/aml-flags?userId=${userId}`,
@@ -265,40 +208,6 @@ test('a deposit followed at once by a withdrawal is flagged; compliance reconcil
       await expect(row).toContainText('high');
       await staffPage.goto(`${ADMIN_URL}/compliance/aml/${flags[0]!.id}`);
       await expect(staffPage.getByText(withdrawalId.slice(0, 8)).first()).toBeVisible();
-    });
-
-    await test.step("the worker wrote the player's deposit to the ELS stream, without personal data", async () => {
-      // The API's status route sees the report directory the worker writes to (stack.sh sets one).
-      const status = async () =>
-        (await (
-          await staff.request.get(`${API_URL}/admin/compliance/els`)
-        ).json()) as ElsReportStatusResponse;
-      expect((await status()).reporter).toMatchObject({ mode: 'file', ready: true });
-
-      // The stream holds one JSON line per event; the player appears only as the pseudonymous id.
-      const streamDir = path.join(ELS_REPORT_DIR, 'stream');
-      const linesOfPlayer = async (): Promise<string[]> => {
-        const files = await readdir(streamDir).catch(() => [] as string[]);
-        const lines: string[] = [];
-        for (const file of files.filter((name) => name.endsWith('.jsonl'))) {
-          const text = await readFile(path.join(streamDir, file), 'utf8');
-          lines.push(...text.split('\n').filter((line) => line.includes(userId)));
-        }
-        return lines;
-      };
-      await expect.poll(async () => (await linesOfPlayer()).length, { timeout: 60_000 }).toBe(1);
-      const [line] = await linesOfPlayer();
-      const record = JSON.parse(line!) as { type: string; playerRef: string; data: unknown };
-      expect(record).toMatchObject({ type: 'payment.deposit_succeeded', playerRef: userId });
-      expect(line).not.toContain(phone);
-      expect(line).not.toContain('Abebe');
-
-      const after = await status();
-      expect(after.written).toBeGreaterThanOrEqual(1);
-      expect(after.lastError).toBeNull();
-      expect(after.byDate.find((day) => day.businessDate === today)?.written ?? 0).toBeGreaterThan(
-        0,
-      );
     });
   } finally {
     await staff.close();

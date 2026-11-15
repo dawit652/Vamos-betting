@@ -23,8 +23,6 @@ export const QUEUE_NAMES = {
   sms: 'sms',
   /** Player push messages (bet and wallet changes) on the player's Redis channel. */
   userNotify: 'user-notify',
-  /** ELS-reportable events (bets, jackpots, payments, daily summaries): write the record once. */
-  els: 'els',
   /** Deposits, withdrawal requests and cash-outs: evaluate the player's AML rules. */
   aml: 'aml',
   /** compliance.reconciliation_requested: run a staff "Run now" reconciliation. */

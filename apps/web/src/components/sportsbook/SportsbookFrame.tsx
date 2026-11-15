@@ -3,9 +3,9 @@ import type { ReactNode } from 'react';
 import { BetslipDock } from '@/components/betslip/BetslipDock';
 import { getLocale, getT } from '@/i18n/server';
 import { getCompetitions, getSports } from '@/lib/api/catalog';
+import { competitionFlag } from '@/lib/flag';
 import { localName } from '@/lib/localized';
 import { routes, SPORTS, type Sport } from '@/lib/routes';
-import { monogram } from './events';
 
 /** System emoji as sport icons: no icon font or image to download. */
 const SPORT_ICONS: Record<Sport, string> = {
@@ -20,7 +20,8 @@ const STICKY =
 
 /**
  * The frame of every sportsbook page (sport home, live, competition, event).
- * Phones: a sport rail (and, on the sport home, a leagues rail) above the page.
+ * Phones: a sport rail (and, on the sport home, a rail of the featured leagues)
+ * above the page.
  * Wide screens: the same links as a left column, the page in the middle and the
  * betslip docked on the right (BetslipDock). The links are rendered once and
  * restyled by `.rail` (globals.css), so phones do not download a second copy;
@@ -31,7 +32,6 @@ export async function SportsbookFrame({
   live = false,
   competition,
   leagueRail = false,
-  search = false,
   children,
 }: {
   sport: Sport;
@@ -40,8 +40,6 @@ export async function SportsbookFrame({
   /** Slug of the competition being viewed, highlighted in the sidebar. */
   competition?: string;
   leagueRail?: boolean;
-  /** The search page: the search link is the current one, no sport is. */
-  search?: boolean;
   children: ReactNode;
 }) {
   // The navigation is an extra: when its data fails the page itself still renders.
@@ -55,28 +53,18 @@ export async function SportsbookFrame({
   const categories = (leagues?.items ?? [])
     .map((category) => ({
       ...category,
-      tag: monogram(category.category.name.en),
       competitions: category.competitions.filter((c) => c.eventCount > 0),
     }))
     .filter((category) => category.competitions.length > 0);
+  // Phones list only the featured leagues (the sidebar on a wide screen lists all of them).
+  const hasFeatured = categories.some((category) => category.competitions.some((c) => c.featured));
   const sportHref = (s: Sport) => (live ? routes.live(s) : routes.sport(s));
-  const searchLabel = t('sportsbook.controls.search');
 
   return (
     <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_21rem] lg:items-start lg:gap-4 lg:px-4 lg:pt-4">
       <aside className={`no-scrollbar lg:space-y-3 lg:overflow-y-auto ${STICKY}`}>
         <nav aria-label={t('common.nav.sports')} className="rail">
           <h2 className="rail-title">{t('common.nav.sports')}</h2>
-          <Link
-            href={routes.search}
-            prefetch={false}
-            className="chip"
-            aria-label={searchLabel}
-            aria-current={search ? 'page' : undefined}
-          >
-            <SearchIcon />
-            <span className="rail-wide lg:min-w-0 lg:flex-1 lg:truncate">{searchLabel}</span>
-          </Link>
           {SPORTS.map((s) => {
             const liveCount = counts.get(s)?.liveCount ?? 0;
             const count = live ? liveCount : (counts.get(s)?.upcomingCount ?? 0);
@@ -85,7 +73,7 @@ export async function SportsbookFrame({
                 key={s}
                 href={sportHref(s)}
                 className="chip"
-                aria-current={s === sport && !search ? 'page' : undefined}
+                aria-current={s === sport ? 'page' : undefined}
               >
                 <span aria-hidden="true">{SPORT_ICONS[s]}</span>
                 <span className="lg:min-w-0 lg:flex-1 lg:truncate">{t(`common.sports.${s}`)}</span>
@@ -104,10 +92,10 @@ export async function SportsbookFrame({
         </nav>
         {categories.length > 0 ? (
           <nav
-            aria-label={t('sportsbook.leagues.top')}
-            className={`rail rail-second ${leagueRail ? '' : 'rail-wide'}`}
+            aria-label={t('sportsbook.leagues.topLeagues')}
+            className={`rail rail-second ${leagueRail && hasFeatured ? '' : 'rail-wide'}`}
           >
-            <h2 className="rail-title">{t('sportsbook.leagues.top')}</h2>
+            <h2 className="rail-title">{t('sportsbook.leagues.topLeagues')}</h2>
             {categories.map((category) =>
               category.competitions.map((c) => (
                 <Link
@@ -115,16 +103,13 @@ export async function SportsbookFrame({
                   href={routes.competition(sport, c.slug)}
                   prefetch={false}
                   aria-current={c.slug === competition ? 'page' : undefined}
-                  title={localName(category.category.name, locale)}
-                  className="chip"
+                  className={`chip ${c.featured ? '' : 'rail-wide'}`}
                 >
-                  <span aria-hidden="true" className="tag">
-                    {category.tag}
-                  </span>
+                  <span aria-hidden="true">{competitionFlag(c, category.category)}</span>
                   <span className="lg:min-w-0 lg:flex-1 lg:truncate">
                     {localName(c.name, locale)}
                   </span>
-                  <span className="rail-wide text-xxs tabular-nums opacity-70">{c.eventCount}</span>
+                  <span className="text-xxs tabular-nums opacity-70">{c.eventCount}</span>
                 </Link>
               )),
             )}
@@ -138,24 +123,5 @@ export async function SportsbookFrame({
         <BetslipDock />
       </aside>
     </div>
-  );
-}
-
-export function SearchIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      aria-hidden="true"
-      className="flex-none"
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
   );
 }

@@ -6,9 +6,8 @@ server-rendered lists, Amharic first).
 
 **Status key:** `[x]` done · `[~]` in progress · `[ ]` not started
 
-_Last updated: 14 Nov 2026, third working session (day chips, double chance rows, match search,
-top matches, signed-in screens checked, back office on the new palette). Anything not ticked below
-is still to do; the open items are marked **Open**._
+_Last updated: 14 Nov 2026, end of the first working session. Anything not ticked below is still
+to do; the open items are marked **Open**._
 
 ## What is taken from Hulusport, and what is left out
 
@@ -24,9 +23,9 @@ is still to do; the open items are marked **Open**._
 | Balance pill with a Deposit shortcut in the header          | **Taken**                                                                                   |
 | Load a slip from a code                                     | Already in Vamos (booking codes); restyled                                                  |
 | Casino, crash and instant games, game strips, game launcher | **Left out.** Excluded by policy (`CLAUDE.md`)                                              |
-| 3 Way / Double Chance toggle on list rows                   | **Taken.** A link switch (`?market=dc`) on football lists; one market per row at a time     |
-| Day chips and a date picker                                 | **Taken** as chips for today and the next six days on the Today tab; no free date picker    |
-| Country filter dropdown, match search                       | **Search taken** (`/search`: team, league or Game ID). No country dropdown: the league list |
+| 3 Way / Double Chance toggle on list rows                   | **Not yet.** Needs the API to send a second market per list row (see "Needs back-end work") |
+| Day chips and a date picker                                 | **Not yet.** The API only filters by highlights / today / upcoming / live                   |
+| Country filter dropdown, match search                       | **Not yet.** Needs a search endpoint                                                        |
 | Three parallel bet slips                                    | **Left out.** Adds state and risk to bet placement for little gain                          |
 | Hulusport / Nahubet feed API                                | **Not used.** See "The shared feed" below                                                   |
 
@@ -69,35 +68,27 @@ is still to do; the open items are marked **Open**._
       top leagues, market filter names, jackpot promo line
 - [ ] **Open:** native-speaker review of the new Amharic wording (as for the rest of `am/`):
       `common.theme.*`, `common.header.deposit`, `sportsbook.list.tomorrow|featured`,
-      `sportsbook.leagues.top`, `sportsbook.markets.filter.*`, `account.jackpot.promo.jackpot`,
-      `sportsbook.controls.*`, `sportsbook.search.*`
-- [x] Keys of the list controls and the search page (`sportsbook.controls.*`, `sportsbook.search.*`,
-      `en` and `am`); they are server-only messages, not sent to the browser
-- Only Amharic and English are launched. Oromo (`om/`) and Tigrinya (`ti/`) stay prepared but
-  untranslated (they show the English text, as in the rest of the app); nothing to do there now
+      `sportsbook.leagues.top`, `sportsbook.markets.filter.*`, `account.jackpot.promo.jackpot`
+- [ ] **Open:** Oromo (`om/`) and Tigrinya (`ti/`) show the English text for the new keys
 
 ### 6. Other pages on the new tokens
 
 - [x] Login, register, jackpot, help, competition and leagues pages checked in the dark theme
-- [x] Signed-in screens looked at one by one in both themes on a phone (account, KYC, limits,
-      security, self-exclusion, wallet, deposit, withdraw, My Bets, bet detail, cash-out sheet,
-      betslip and placed bet, jackpot, the demo phone and SMS/USSD simulators, password reset,
-      verify, terms, privacy, responsible gambling): nothing assumed a white background, no fix needed
-- [x] The back office (`apps/admin`) uses the same palette: dark by default, a light theme behind a
-      switch in the sidebar (`vamos_admin_theme` cookie, `<html data-theme>`)
+- [ ] **Open:** signed-in screens (account, KYC, limits, security, wallet, deposit, withdraw,
+      My Bets, bet detail, cash-out sheet, self-exclusion) are covered by the end-to-end tests but
+      have not been looked at screen by screen in both themes
+- [ ] **Open:** the back office (`apps/admin`) is untouched and still has the old look
 
 ### 7. Verification
 
 - [x] `pnpm lint`, `pnpm typecheck`, web unit tests (201 pass), i18n tests
 - [x] New unit tests: league grouping, market category, monogram, relative day label, theme cookie
 - [x] Screenshots: phone and desktop, dark and light, Amharic and English
-- [x] Page weight against a production build: **156.8 KB** (budget 159 KB, target 150 KB; the
+- [x] Page weight against a production build: **158.4 KB** (budget 160 KB, target 150 KB; the
       previous UI is about 153 KB on the same data)
 - [ ] **Open:** bring the page weight back toward 150 KB (see "Page weight" below)
-- [x] End-to-end tests for the new behaviour itself (`e2e/tests/redesign.spec.ts`): the theme switch
-      keeps its choice over a reload, market filter chips, slip bar and drawer on a phone (English
-      and Amharic text), docked betslip on a desktop viewport, day chips, double chance rows,
-      search, the featured poster of a top match
+- [ ] **Open:** end-to-end tests for the new behaviour itself (theme toggle keeps its choice,
+      market filter chips, docked betslip on a desktop viewport; the suite runs a phone profile only)
 
 ### 8. Docs: done
 
@@ -105,39 +96,45 @@ is still to do; the open items are marked **Open**._
 
 ## Page weight
 
-The first home load was 158.4 KB transferred after the redesign, 5.4 KB more than the previous UI on
-the same data: about 3 KB of HTML (sport and league links, poster, promo cards, league headers),
-1.4 KB of CSS and 0.9 KB of JS (theme toggle, dock, slip bar). Loading the betslip drawer's text
-with the drawer brought it to 157.7 KB; the list controls and the search link then added about
-0.5 KB, and 16 rows on the first Highlights page took 1.4 KB off: **156.8 KB**. The test budget is
-now 159 KB. The rest of the gap to 150 KB is JavaScript (130.8 KB, of which about 110 KB is the
-React and Next runtime), not page content. What was tried or is left:
+The first home load is 158.4 KB transferred, 5.4 KB more than the previous UI on the same data:
+about 3 KB of HTML (sport and league links, poster, promo cards, league headers), 1.4 KB of CSS and
+0.9 KB of JS (theme toggle, dock, slip bar). It passes the 160 KB test budget with 1.6 KB to spare,
+so longer team names could tip it over. Ways to win it back, cheapest first:
 
-- [x] Show 16 rows instead of 20 on the first Highlights page (1.4 KB measured); other tabs and
-      pages keep 20
+- [ ] Show 16 rows instead of 20 on the first Highlights page (about 1.3 KB)
 - [ ] Send the browser only the active locale of team and market names in list rows (the slip
-      keeps both languages today); needs care with the saved slip format. Looked at on 14 Nov:
-      the repeated names compress well, so expect well under 1 KB, and a saved slip would no
-      longer follow a language switch
-- [x] Send the drawer-only `sportsbook.betslip.*` messages with the drawer instead of with every
-      page: 0.7 KB measured on the same data (0.8 KB of HTML less, 0.1 KB of JS more). The keys other
-      screens reuse (errors, total odds) stay in the page (`SHARED_BETSLIP_KEYS`)
-- [ ] **Open:** the remaining 6.8 KB. It needs less client JavaScript on the home page (for
-      example the odds buttons without the live-stream code until a match is live), or accepting
-      157 KB as the target for this design
+      keeps both languages today); needs care with the saved slip format (about 1 to 2 KB)
+- [ ] Send the `sportsbook.betslip.*` messages with the drawer instead of with every page
+      (about 1.5 KB)
+- [ ] Or raise the budget on purpose, with the reason written in `e2e/tests/budget.spec.ts`
 
-## Back-end work
+## Merge onto the live branch (`claude/exciting-feynman-fxbdz3`)
 
-- [x] Double chance on list rows: `GET /events?market=dc` returns the double chance market as the
-      row market of football events (one market per row, so the page weight does not grow)
-- [x] Date filter: `GET /events?date=YYYY-MM-DD` (an Addis Ababa calendar day)
-- [x] Match search: `GET /events/search?q=` (team, competition or Game ID; English or Amharic;
-      live or starting within 14 days; every sport)
-- [x] Top matches: `events.top_match` (migration 0032), `GET /events?filter=top`, and
-      `POST /admin/trading/events/:id/top` (trading.status, audited) with a button on the back
-      office's event page. The featured poster shows the soonest top match, else the first highlight
-- [ ] **Open:** country or competition artwork (flags, crests). It needs artwork Vamos has the
-      right to use; the app shows initials until then
+The redesign was merged onto the newest `claude/exciting-feynman-fxbdz3` (the branch the server's
+checkout tracks) as `claude/happy-keller-redesign-merge`, for review before any deploy.
+
+- [x] Kept that branch's features: search, day chips, country chips with flags, 1X2 / double chance
+      switch, featured-league shortcuts (now the leagues rail of SportsbookFrame on phones), flags in
+      the Leagues tab and on league cards, price-move flash, the mini slip bar with net pay from the
+      quote, consecutive league grouping (`groups.ts`), Nahubet branding
+- [x] Kept its licensed mode: the build-time `IS_DEMO` switch (`NEXT_PUBLIC_OPERATING_MODE`,
+      `src/lib/mode.ts`) decides the DEMO banner, header badge and static-page notice; the redesign's
+      own `/health` lookup was dropped; `scripts/licensed-static.mjs` is unchanged. Checked: a
+      licensed build shows no DEMO banner or badge
+- [x] Applied the redesign on top: dark/light theme, three-column desktop with docked betslip, league
+      cards, poster, promos, pill tabs, event page filter chips
+- [ ] **Open:** deploy only after review; the live folder `/opt/nahubet-new` is not a git checkout, so
+      deploying means building from a checkout of this branch (see the earlier commands)
+- [ ] **Open:** licensed mode on that branch has no licence check and only mock KYC (no real age or
+      identity verification) while real money moves; confirm the licence and add real verification
+
+## Needs back-end work (not part of this redesign)
+
+- [ ] A second market per list row (double chance) so rows can switch 3 Way / Double Chance
+- [ ] Date filter on `GET /events` for day chips and a date picker
+- [ ] Match search endpoint (team or league name) for a search drawer
+- [ ] "Top matches" flag in the catalogue (today the featured poster uses the first highlight)
+- [ ] Country or competition artwork (flags, crests); the redesign uses initials instead
 
 ## The shared feed (Hulusport and Nahubet)
 

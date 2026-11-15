@@ -1,7 +1,8 @@
+import { isCalendarDate, isEventDayInRange } from '@vamos/contracts';
+
 /**
  * Home / sport list tabs, carried in the URL (`?tab=today&cursor=…`) so the
- * lists render on the server without client state. So are the day of the Today
- * tab (`?day=`) and the market shown on the rows (`?market=dc`).
+ * lists render on the server without client state.
  */
 export const LIST_TABS = ['highlights', 'today', 'upcoming', 'leagues'] as const;
 export type ListTab = (typeof LIST_TABS)[number];
@@ -24,58 +25,64 @@ export function parseCursor(value: SearchValue): string | undefined {
   return cursor !== undefined && /^[\w-]{1,512}$/.test(cursor) ? cursor : undefined;
 }
 
-/** The market of list rows (`?market=dc`): the main market, or double chance (football only). */
-export const ROW_MARKETS = ['main', 'dc'] as const;
-export type RowMarket = (typeof ROW_MARKETS)[number];
+/** List market shown on each row: 1X2 (default) or double chance. */
+export const LIST_MARKETS = ['1x2', 'dc'] as const;
+export type ListMarket = (typeof LIST_MARKETS)[number];
 
-/** Sports whose lists can switch to double chance. */
-export function hasRowMarkets(sport: string): boolean {
-  return sport === 'football';
+export function parseMarket(value: SearchValue): ListMarket {
+  return first(value) === 'dc' ? 'dc' : '1x2';
 }
 
-export function parseMarket(value: SearchValue, sport: string): RowMarket {
-  return first(value) === 'dc' && hasRowMarkets(sport) ? 'dc' : 'main';
+/** A category slug from the query string, or undefined. */
+export function parseCountry(value: SearchValue): string | undefined {
+  const country = first(value);
+  return country !== undefined && /^[a-z0-9-]{1,100}$/.test(country) ? country : undefined;
 }
 
-/** East Africa Time is UTC+3 all year (no daylight saving). */
-const EAT_OFFSET_MS = 3 * 60 * 60 * 1000;
-const DAY_MS = 86_400_000;
-/** Day chips of the Today tab: today and the six days after it. */
-export const DAY_CHIPS = 7;
-
-/** The East Africa calendar dates (`YYYY-MM-DD`) of the day chips, today first. */
-export function chipDays(now: Date = new Date()): string[] {
-  const today = now.getTime() + EAT_OFFSET_MS;
-  return Array.from({ length: DAY_CHIPS }, (_, index) =>
-    new Date(today + index * DAY_MS).toISOString().slice(0, 10),
-  );
-}
-
-/**
- * A day of the Today tab from the query string (`?day=2026-11-15`): one of the
- * chip days after today, or undefined (today, or anything else).
- */
-export function parseDay(value: SearchValue, now: Date = new Date()): string | undefined {
+/** `?day=` when it is a real Addis Ababa date from today to today + 14, else undefined. */
+export function parseDay(value: SearchValue, now: Date): string | undefined {
   const day = first(value);
-  return day !== undefined && chipDays(now).indexOf(day) > 0 ? day : undefined;
+  if (day === undefined || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return undefined;
+  return isCalendarDate(day) && isEventDayInRange(day, now) ? day : undefined;
+}
+
+/** "Starts within" choices, in hours. */
+export const STARTS_WITHIN_HOURS = [1, 3, 6, 12, 24] as const;
+
+/** `?within=` when it is one of STARTS_WITHIN_HOURS, else undefined. */
+export function parseWithin(value: SearchValue): number | undefined {
+  const raw = first(value);
+  if (raw === undefined || !/^\d{1,2}$/.test(raw)) return undefined;
+  const hours = Number(raw);
+  return (STARTS_WITHIN_HOURS as readonly number[]).includes(hours) ? hours : undefined;
+}
+
+/** The list parameters besides the tab and the cursor, kept across the controls' links. */
+export interface ListFilters {
+  within?: number | undefined;
+  day?: string | undefined;
+  country?: string | undefined;
+  market?: ListMarket | undefined;
 }
 
 /**
- * `/sport/basketball?tab=today&day=…&market=dc&cursor=…`; the default tab, today,
- * the main market and no cursor give the bare path.
+ * `/sport/basketball?tab=today&day=2026-10-09&country=england&market=dc&cursor=…`;
+ * defaults (highlights tab, 1X2) and absent values are left out, so no
+ * parameters give the bare path. Changing any control omits the cursor.
  */
 export function listHref(
   path: string,
   tab: ListTab,
-  options: { cursor?: string | undefined; day?: string | undefined; market?: RowMarket } = {},
+  cursor?: string,
+  filters: ListFilters = {},
 ): string {
   const params = new URLSearchParams();
   if (tab !== DEFAULT_TAB) params.set('tab', tab);
-  if (options.day !== undefined) params.set('day', options.day);
-  if (options.market !== undefined && options.market !== 'main') {
-    params.set('market', options.market);
-  }
-  if (options.cursor !== undefined) params.set('cursor', options.cursor);
+  if (filters.within !== undefined) params.set('within', String(filters.within));
+  if (filters.day !== undefined) params.set('day', filters.day);
+  if (filters.country !== undefined) params.set('country', filters.country);
+  if (filters.market === 'dc') params.set('market', 'dc');
+  if (cursor !== undefined) params.set('cursor', cursor);
   const qs = params.toString();
   return qs === '' ? path : `${path}?${qs}`;
 }

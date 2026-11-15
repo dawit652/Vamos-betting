@@ -35,7 +35,15 @@ export const MarketView = z.object({
   type: z.string(),
   line: z.string().nullable(),
   name: LocalizedNameSchema,
+  /** The market factory's group ('goals', 'combo', ...); only on factory markets. */
+  group: z.string().optional(),
   status: z.enum(['open', 'suspended', 'closed', 'settled', 'void']),
+  /**
+   * When the market's price expires (rule P7, ISO instant); absent when it never does. The API
+   * already shows an expired price as `suspended`; a page left open treats the market as
+   * suspended from this instant on (task 1.10).
+   */
+  priceValidUntil: z.string().optional(),
   selections: z.array(SelectionView),
 });
 export type MarketView = z.infer<typeof MarketView>;
@@ -75,46 +83,73 @@ export const EventDetail = EventSummary.extend({
 });
 export type EventDetail = z.infer<typeof EventDetail>;
 
-/**
- * - highlights, today, upcoming, live: the home page tabs;
- * - top: matches a trader marked as top matches, live or starting within 72h.
- */
-export const EventListFilter = z.enum(['highlights', 'today', 'upcoming', 'live', 'top']);
+export const EventListFilter = z.enum(['highlights', 'today', 'upcoming', 'live']);
 
-/**
- * The market of a list row (`mainMarket`): the sport's main market, or double
- * chance (`dc`), which football has; other sports keep their main market.
- */
-export const EventListMarket = z.enum(['main', 'dc']);
+/** The market a list row shows: the 1X2 (football; ML / winner for the other sports) or double chance. */
+export const EventListMarket = z.enum(['1x2', 'dc']);
 export type EventListMarket = z.infer<typeof EventListMarket>;
 
-/** A calendar date in Addis Ababa, `YYYY-MM-DD`. */
-export const CalendarDate = z
+const HOUR_MS = 60 * 60_000;
+/** Africa/Addis_Ababa is UTC+3 all year (no daylight saving). */
+const ADDIS_ABABA_OFFSET_MS = 3 * HOUR_MS;
+/** The list's `day` may be today or up to this many days ahead (Addis Ababa calendar). */
+export const EVENT_DAY_MAX_AHEAD = 14;
+
+/** The Addis Ababa calendar date (YYYY-MM-DD) that is `daysAhead` days after the one containing `now`. */
+export function addisAbabaDate(now: Date, daysAhead = 0): string {
+  const local = new Date(now.getTime() + ADDIS_ABABA_OFFSET_MS + daysAhead * 24 * HOUR_MS);
+  return local.toISOString().slice(0, 10);
+}
+
+/** Whether `day` (already shaped YYYY-MM-DD) is a real date from today to today + 14 in Addis Ababa. */
+export function isEventDayInRange(day: string, now: Date): boolean {
+  return day >= addisAbabaDate(now) && day <= addisAbabaDate(now, EVENT_DAY_MAX_AHEAD);
+}
+
+/** Whether `day` (YYYY-MM-DD) is a real calendar date. */
+export function isCalendarDate(day: string): boolean {
+  const time = Date.parse(`${day}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === day;
+}
+
+const EventDay = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/)
-  .refine((value) => {
-    const date = new Date(`${value}T00:00:00.000Z`);
-    return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
-  }, 'not a calendar date');
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+  .refine(isCalendarDate, { message: 'Not a calendar date' });
 
 export const EventListQuery = z.object({
   sport: SportCodeSchema.default('football'),
   filter: EventListFilter.default('highlights'),
-  /** With a date the list is that day's scheduled and live events; `filter` is not used. */
-  date: CalendarDate.optional(),
   competition: z.string().optional(),
-  market: EventListMarket.default('main'),
+  /** Only events starting on this Addis Ababa calendar day (see `eventListQueryAt` for the range). */
+  day: EventDay.optional(),
+  /**
+   * Only events kicking off from now until now + this many hours (soonest first);
+   * ignored for the live filter.
+   */
+  startsWithinHours: z.coerce.number().int().min(1).max(48).optional(),
+  /** Category (country) slug. */
+  country: z.string().min(1).max(100).optional(),
+  /** Market returned as each event's `mainMarket`; default '1x2'. */
+  market: EventListMarket.default('1x2'),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   cursor: z.string().optional(),
 });
 export type EventListQuery = z.infer<typeof EventListQuery>;
 
-/** GET /events/search: a team, competition or Game ID, in every sport. */
-export const EventSearchQuery = z.object({
-  q: z.string().trim().min(2).max(60),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-});
-export type EventSearchQuery = z.infer<typeof EventSearchQuery>;
+/**
+ * EventListQuery that also checks `day` against the clock: today up to
+ * today + 14 days in Addis Ababa. The API parses with this (its own clock).
+ */
+export function eventListQueryAt(now: Date) {
+  return EventListQuery.refine(
+    (query) => query.day === undefined || isEventDayInRange(query.day, now),
+    {
+      message: `day must be today or up to ${EVENT_DAY_MAX_AHEAD} days ahead (Africa/Addis_Ababa)`,
+      path: ['day'],
+    },
+  );
+}
 
 export const EventListResponse = z.object({
   items: z.array(EventSummary),
@@ -137,9 +172,19 @@ export type SportsResponse = z.infer<typeof SportsResponse>;
 export const CompetitionsResponse = z.object({
   items: z.array(
     z.object({
-      category: z.object({ slug: z.string(), name: LocalizedNameSchema }),
+      category: z.object({
+        slug: z.string(),
+        name: LocalizedNameSchema,
+        /** ISO 3166-1 alpha-2 code, or null for international groupings. */
+        countryCode: z.string().nullable(),
+      }),
       competitions: z.array(
-        z.object({ slug: z.string(), name: LocalizedNameSchema, eventCount: z.number().int() }),
+        z.object({
+          slug: z.string(),
+          name: LocalizedNameSchema,
+          eventCount: z.number().int(),
+          featured: z.boolean(),
+        }),
       ),
     }),
   ),
@@ -180,3 +225,33 @@ export const LiveMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('market'), eventId: z.string(), data: MarketDelta }),
 ]);
 export type LiveMessage = z.infer<typeof LiveMessage>;
+
+/** GET /search: team and competition name search (the query is trimmed first). */
+export const SEARCH_MIN_LENGTH = 2;
+export const SEARCH_MAX_LENGTH = 60;
+
+export const SearchQuery = z.object({
+  q: z.string().trim().min(SEARCH_MIN_LENGTH).max(SEARCH_MAX_LENGTH),
+  sport: SportCodeSchema.optional(),
+});
+export type SearchQuery = z.infer<typeof SearchQuery>;
+
+export const SearchCompetition = z.object({
+  slug: z.string(),
+  sport: SportCodeSchema,
+  name: LocalizedNameSchema,
+  category: z.object({
+    slug: z.string(),
+    name: LocalizedNameSchema,
+    countryCode: z.string().nullable(),
+  }),
+  /** Live plus scheduled events in the next 72 hours (as on the leagues list). */
+  eventCount: z.number().int(),
+});
+export type SearchCompetition = z.infer<typeof SearchCompetition>;
+
+export const SearchResponse = z.object({
+  competitions: z.array(SearchCompetition),
+  events: z.array(EventSummary),
+});
+export type SearchResponse = z.infer<typeof SearchResponse>;

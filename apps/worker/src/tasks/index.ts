@@ -1,5 +1,4 @@
 import type { AppConfig } from '@vamos/config';
-import { createElsReporter } from '@vamos/db';
 import type { WorkerTask } from '../worker';
 import {
   betAcceptanceSweepTask,
@@ -10,16 +9,10 @@ import {
 import {
   amlEvaluateTask,
   amlSweepTask,
-  dailySummaryTask,
-  elsReportTask,
-  elsSweepTask,
   reconciliationRequestTask,
   reconciliationTask,
   type AmlEvaluateOptions,
   type AmlSweepOptions,
-  type DailySummaryOptions,
-  type ElsReportOptions,
-  type ElsSweepOptions,
   type ReconciliationTaskOptions,
 } from './compliance';
 import type { TaskContext } from './context';
@@ -44,6 +37,7 @@ import {
 import { prematchDriftTask, type PrematchDriftOptions } from './prematch-drift';
 import { retentionPruneTask, type RetentionPruneOptions } from './retention-prune';
 import { smsNotifyTask, type SmsNotifyOptions } from './sms-notify';
+import { smsRailTasks, type SmsRailTaskOptions } from './smsrail';
 import { userNotifyTask, type UserNotifyOptions } from './user-notify';
 import { ussdPruneTask, type UssdPruneOptions } from './ussd-prune';
 import {
@@ -71,15 +65,13 @@ export interface TaskOptions {
   depositReconcile?: DepositReconcileOptions;
   smsNotify?: SmsNotifyOptions;
   userNotify?: UserNotifyOptions;
-  elsReport?: ElsReportOptions;
-  elsSweep?: ElsSweepOptions;
-  dailySummaries?: DailySummaryOptions;
   reconciliation?: ReconciliationTaskOptions;
   amlEvaluate?: AmlEvaluateOptions;
   amlSweep?: AmlSweepOptions;
   outboxDispatch?: OutboxDispatchOptions;
   ussdPrune?: UssdPruneOptions;
   retentionPrune?: RetentionPruneOptions;
+  smsRail?: SmsRailTaskOptions;
 }
 
 /**
@@ -91,8 +83,8 @@ export interface TaskOptions {
  * Settlement (and its sweep), the jackpot rounds, their settlement (and its
  * sweep), live bet acceptance, the payout worker (and
  * its sweep), deposit reconciliation, SMS notifications, player push
- * messages, the compliance tasks (ELS stream and its sweep, daily summaries,
- * reconciliation, AML evaluation and sweep; see ./compliance.ts), the
+ * messages, the compliance tasks (reconciliation, AML evaluation and sweep;
+ * see ./compliance.ts), the
  * retention pruning (USSD sessions; ended sessions and old one-time codes) and the
  * outbox dispatcher run in every mode and with every feed; the payment providers in
  * ctx.payments are whatever PAYMENT_PROVIDERS enables (only the mock one in
@@ -105,8 +97,6 @@ export function createTasks(
   options: TaskOptions = {},
 ): WorkerTask[] {
   const tasks: WorkerTask[] = [];
-  // ELS_REPORTING_MODE / ELS_REPORT_DIR, unless the caller brought its own reporter.
-  const compliance: TaskContext = { ...ctx, els: ctx.els ?? createElsReporter(config.els) };
   if (config.feed.provider === 'mock' && config.mode === 'demo') {
     tasks.push(
       feedIngestTask(ctx, options.feedIngest),
@@ -130,15 +120,14 @@ export function createTasks(
     depositReconcileTask(ctx, options.depositReconcile),
     smsNotifyTask(ctx, options.smsNotify),
     userNotifyTask(ctx, options.userNotify),
-    elsReportTask(compliance, options.elsReport),
-    elsSweepTask(compliance, options.elsSweep),
-    dailySummaryTask(compliance, options.dailySummaries),
-    reconciliationTask(compliance, options.reconciliation),
-    reconciliationRequestTask(compliance),
-    amlEvaluateTask(compliance, options.amlEvaluate),
-    amlSweepTask(compliance, options.amlSweep),
+    reconciliationTask(ctx, options.reconciliation),
+    reconciliationRequestTask(ctx),
+    amlEvaluateTask(ctx, options.amlEvaluate),
+    amlSweepTask(ctx, options.amlSweep),
     ussdPruneTask(ctx, options.ussdPrune),
     retentionPruneTask(ctx, options.retentionPrune),
+    // The SMS rail's receipt audit, balance reconciliation and watch (only with `sms`).
+    ...smsRailTasks(ctx, options.smsRail),
     outboxDispatchTask(ctx, options.outboxDispatch),
   );
   return tasks;

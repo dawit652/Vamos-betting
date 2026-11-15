@@ -1,8 +1,8 @@
 {
   "name": "@vamos/api",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Vamos REST + SSE API (Fastify)",
+  "description": "Nahubet REST + SSE API (Fastify)",
   "type": "module",
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/server.ts",
@@ -27,7 +27,9 @@
     "@vamos/contracts": "workspace:*",
     "@vamos/core": "workspace:*",
     "@vamos/db": "workspace:*",
+    "@vamos/feed": "workspace:*",
     "@vamos/payments": "workspace:*",
+    "@vamos/scraper": "workspace:*",
     "drizzle-orm": "0.45.3",
     "fastify": "5.12.7",
     "ioredis": "5.11.1",

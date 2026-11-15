@@ -1,7 +1,7 @@
 # AML flag review
 
 Rules (velocity, structuring, deposit-then-withdraw, cash-out churn) run in the worker on relevant events and
-in a daily sweep; thresholds are the `aml_rules` setting ([compliance.md](../compliance.md#4-aml-rules)). A
+in a daily sweep; thresholds are the `aml_rules` setting (defaults in `packages/core/src/aml.ts`). A
 hit creates one flag per player, rule and window. Only staff with `aml.review` (roles **admin** and
 **compliance**) see and decide flags: Back office -> Compliance -> AML.
 
@@ -41,8 +41,7 @@ legitimate player is waiting for money.
    escalation only an `aml.review` holder may approve (with a written reason) or reject (the hold returns to
    the player). Do not release a withdrawal while a high-severity flag you cannot explain is open.
 5. **Report if required.** Whether and how to file a suspicious-transaction report with the competent
-   authority and ELS is a legal obligation of the licence holder (**to confirm with counsel**; no ELS
-   interface is published yet). Keep the case file: flag id, evidence, decision, reporter, date.
+   authority is a legal obligation of the operator (**to confirm with counsel**). Keep the case file: flag id, evidence, decision, reporter, date.
 
 ## Tuning and false positives
 

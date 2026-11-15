@@ -1,14 +1,13 @@
 # Deployment guide
 
-How to run Vamos Betting in production: the images, the compose stack, configuration, the licensed-mode
+How to run Nahubet in production: the images, the compose stack, configuration, the licensed-mode
 checklist and operations. Day-to-day procedures are in [`runbooks/`](runbooks/README.md), backups in
 [`backups.md`](backups.md). Nothing here is legal advice; items marked **to confirm** need counsel or the
 regulator.
 
-> **Operating mode.** `OPERATING_MODE=demo` (play money, mock providers) is the default and the only mode
-> that can run today: all Ethiopian betting licences were revoked on 15 Dec 2025 and real money needs an
-> Ethiopian Lottery Service (ELS) licence. `licensed` mode refuses to start unless every prerequisite below
-> holds. Never weaken that guard (`packages/config/src/config.ts`).
+> **Operating mode.** `OPERATING_MODE=licensed` (real money) is the default. Licensed mode refuses to start only
+> with the `mock` payment provider; the rest of section 4 is a checklist you work through by hand, because a
+> missing item is logged as a warning, not refused.
 
 ## 1. Architecture
 
@@ -21,8 +20,8 @@ regulator.
                          PostgreSQL 16 (system of record)           Redis 7 (pub/sub, BullMQ queues,
                               ▲                                      rate limits)
                               └────────────── worker :4100 (health only) ┘
-                                  feed, live simulator, settlement, payouts, SMS, ELS reporting,
-                                  reconciliation, AML; writes the ELS reports to a volume
+                                  feed, live simulator, settlement, payouts, SMS,
+                                  reconciliation, AML
 ```
 
 | Service    | Image target | Port   | State                                | Notes                                                                                                                                 |
@@ -30,15 +29,16 @@ regulator.
 | `postgres` | postgres:16  | 5432   | volume `pgdata`, WAL archive `pgwal` | Never published. The ledger, audit log and all business rows.                                                                         |
 | `redis`    | redis:7      | 6379   | volume `redisdata` (AOF)             | Never published. Password, `noeviction` (BullMQ needs it).                                                                            |
 | `migrate`  | `api`        | none   | none                                 | One-shot job: `node dist/ops/migrate.js`, runs before the api and worker start. The only service that connects as the database owner. |
-| `api`      | `api`        | 4000   | none (stateless)                     | `/health`. Reads the ELS volume read-only for the compliance status page.                                                             |
-| `worker`   | `worker`     | 4100   | volume `els` (writer)                | `/health`, `/ready`. Run **one** instance (the ELS writer owns the directory).                                                        |
+| `api`      | `api`        | 4000   | none (stateless)                     | `/health`.                                                                                                                            |
+| `worker`   | `worker`     | 4100   | none                                 | `/health`, `/ready`. Run **one** instance.                                                                                            |
+| `scraper`  | `scraper`    | 4200   | volume `scraper_archive`             | `/health`, `/ready`; not published. Raw snapshots in `/var/lib/vamos/scraper`. Run **one** instance.                                  |
 | `web`      | `web`        | 3000   | none                                 | Player PWA. `NEXT_PUBLIC_API_URL` is baked in at build time.                                                                          |
 | `admin`    | `admin`      | 3001   | none                                 | Back office. Must be on a different origin from the web app.                                                                          |
 | `proxy`    | caddy:2      | 80/443 | volumes `caddy_*`                    | Optional (`--profile proxy`): automatic TLS for three host names.                                                                     |
 
 **Database roles.** The api and worker connect as `vamos_app`, a role the migrations create (0030) with only
 what the app needs: no superuser, owner of nothing, no `TRUNCATE`, and only `INSERT`/`SELECT` on the
-append-only tables (ledger, audit log, cash-outs, summaries, reconciliation, PSP statements), so it can
+append-only tables (ledger, audit log, cash-outs, reconciliation, PSP statements), so it can
 neither rewrite them nor switch their triggers off (`session_replication_role` needs a superuser). The
 owner (`POSTGRES_USER`, a superuser in the postgres image) is used only by the `migrate` job, which also sets
 `vamos_app`'s login from `APP_DB_PASSWORD` on every run, and by the ops scripts run through it (seed,
@@ -58,12 +58,12 @@ the operations scripts (`dist/ops/{migrate,seed,admin-create,admin-unlock,totp-r
 
 ## 2. Environments
 
-| Environment       | Mode / `NODE_ENV`         | Use                                                                                                                                                                                                        |
-| ----------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Local development | `demo` / `development`    | `pnpm services:start && pnpm dev` (README). Dev OTP inbox, demo staff, fast simulator knobs.                                                                                                               |
-| CI / e2e          | `demo` / `development`    | `.github/workflows/ci.yml`: checks, e2e, and the `docker` job (compose build, boot, `scripts/smoke.sh`).                                                                                                   |
-| Demo / staging    | `demo` / `production`     | The compose stack below. Play money, mock providers. Needs unique secrets and https URLs, **no OTP inbox**: sign-ups cannot receive their code unless you set `NODE_ENV=development` (private demos only). |
-| Production        | `licensed` / `production` | Only with an ELS licence and every item of section 4.                                                                                                                                                      |
+| Environment       | Mode / `NODE_ENV`         | Use                                                                                                                                                                                                                                                            |
+| ----------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local development | `demo` / `development`    | `pnpm services:start && pnpm dev` (README). Dev OTP inbox, demo staff, fast simulator knobs.                                                                                                                                                                   |
+| CI / e2e          | `demo` / `development`    | `.github/workflows/ci.yml`: checks on every push; e2e and the `docker` job (compose build, boot, `scripts/smoke.sh`) on the default branch and on demand.                                                                                                      |
+| Demo / staging    | `demo` / `production`     | The compose stack below. Play money, mock providers. Needs unique secrets and https URLs. No SMS leaves the server: the sign-up code is shown on screen, deposits are approved on the simulated phone and withdrawals by staff in the back office (section 8). |
+| Production        | `licensed` / `production` |                                                                                                                                                                                                                                                                |
 
 A database belongs to one mode for life: both the api and the worker `claimOperatingMode` at startup and
 refuse to run a demo database as licensed (or the reverse). Never point a licensed deployment at a demo
@@ -72,7 +72,7 @@ database, and never copy production data into a lower environment.
 ## 3. Deploying the compose stack
 
 Requirements: a Linux host with Docker Engine 25+ and the compose plugin (v2.20+, for `up --wait`), 2 vCPU / 4 GB RAM minimum for the demo, a disk with room for the
-database, WAL archive, ELS reports and backups.
+database, WAL archive and backups.
 
 ```bash
 # 1. Configuration. Review every value; the generator only fills the secrets.
@@ -83,8 +83,8 @@ $EDITOR infra/.env.prod                        # public URLs, mode, providers (s
 export COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=infra/.env.prod
 
 # 3. Build, start, check.
-docker compose build                           # api, worker, web, admin (web/admin bake in PUBLIC_API_URL)
-docker compose up -d --wait                    # postgres + redis -> migrate -> api + worker -> web + admin
+docker compose build                           # api, worker, scraper, web, admin (web/admin bake in PUBLIC_API_URL)
+docker compose up -d --wait                    # postgres + redis -> migrate -> api + worker + scraper -> web + admin
 scripts/smoke.sh --production --worker http://localhost:4100
 
 # 4. First data.
@@ -96,6 +96,16 @@ docker compose run --rm -e ADMIN_PASSWORD='<12+ chars>' migrate \
 Validated on 2026-10-19 with Docker Engine 29.8 (all four images built, stack booted, `scripts/smoke.sh
 --production --worker http://localhost:4100` passed 13 checks, `/ready` on the API skipped as 404 at that
 time). The Caddy proxy profile and a restore from the dumps were not exercised in that run.
+
+**Lost password or authenticator, or retiring an account.** The back office has no staff screen, and the
+password reset by SMS needs a real SMS gateway, so recover a staff account from the server with `admin-reset`
+(audited, refused for the only enabled admin when disabling):
+
+```bash
+docker compose run --rm -e ADMIN_PASSWORD='<12+ chars>' migrate node dist/ops/admin-reset.js --email you@example.et --action password
+docker compose run --rm migrate node dist/ops/admin-reset.js --email you@example.et --action totp      # new authenticator key, shown once
+docker compose run --rm migrate node dist/ops/admin-reset.js --email you@example.et --action disable   # or enable
+```
 
 `admin-create` prints the TOTP enrolment (scan the `otpauth://` URI); without `ADMIN_PASSWORD` it generates a
 password that must be changed at first sign-in, within 72 hours (it stops working after that). The demo staff accounts (`<role>@demo.vamos.test`) exist only
@@ -131,14 +141,58 @@ leaves the staff API open). With the Caddy profile set `STAFF_ALLOWLIST` (space-
 answers 403 to everyone else on `ADMIN_DOMAIN` and on `API_DOMAIN/admin*`. With your own balancer, apply the
 same rule to both.
 
+**The nahubet.com domain.** The domain is registered at Porkbun. On a server with the Caddy profile:
+
+| Porkbun DNS record             | Points to                   | Setting                                                                     |
+| ------------------------------ | --------------------------- | --------------------------------------------------------------------------- |
+| `A` (host empty) `nahubet.com` | the server's public IPv4    | `WEB_DOMAIN=nahubet.com`, `PUBLIC_WEB_URL=https://nahubet.com`              |
+| `A` `api.nahubet.com`          | the same IPv4               | `API_DOMAIN=api.nahubet.com`, `PUBLIC_API_URL=https://api.nahubet.com`      |
+| `A` `admin.nahubet.com`        | the same IPv4               | `ADMIN_DOMAIN=admin.nahubet.com`, `ADMIN_WEB_URL=https://admin.nahubet.com` |
+| URL forward `www.nahubet.com`  | `https://nahubet.com` (301) | none (Porkbun's URL forwarding, so Caddy needs no fourth name)              |
+
+Delete Porkbun's default parking records (`ALIAS`/`CNAME` to `pixie.porkbun.com`) first, set `ACME_EMAIL`, and
+rebuild the web and admin images after changing `PUBLIC_API_URL` (it is inlined at build time). Commented
+examples are in [`infra/env.prod.example`](../infra/env.prod.example).
+
+**Sharing the demo through a tunnel** (one public name for a stack running on a PC, no open ports): point the
+tunnel's public name (for example `nahubet.com`) at the web app on `http://localhost:3000` and set, in `.env`,
+`PUBLIC_WEB_URL=https://nahubet.com`, `PUBLIC_API_URL=https://nahubet.com/_api`,
+`API_PROXY_TARGET=http://127.0.0.1:4000` and `DEV_ALLOWED_ORIGINS=nahubet.com`. The browser then reaches the
+API through the site's own origin (`/_api`), so the session cookie stays same-site. With a Cloudflare tunnel
+the domain's nameservers must be Cloudflare's (change them at Porkbun under Authoritative Nameservers), then
+`cloudflared tunnel route dns <tunnel> nahubet.com`.
+
+**The back office through the tunnel** (staff on other computers and phones): the back office forwards `/_api`
+to the API too when it runs with `API_PROXY_TARGET`, so it works from any address it is opened at. Add a
+second public name (`admin.nahubet.com`) pointing at `http://localhost:3001`, set
+`ADMIN_WEB_URL=https://admin.nahubet.com`, and add `admin.nahubet.com` to `DEV_ALLOWED_ORIGINS` (under
+`next dev`, a host that is not listed gets no live-reload connection and the page never starts). The public
+API URL must be `https` so the staff cookie is `__Host-` with path `/` and reaches `/_api/admin`. Before
+publishing it, put it behind **Cloudflare Access** (Zero Trust, free for up to 50 users: a self-hosted
+application for `admin.nahubet.com`, allowing only the staff's email addresses), and block the staff API on
+the player name with a WAF custom rule (`http.host eq "nahubet.com" and starts_with(http.request.uri.path,
+"/_api/admin")` → Block): the player site's `/_api` forwards every path, `/admin` included.
+
 **Scaling.**
 
 - `api` is stateless (sessions in Postgres, rate limits and live fan-out in Redis): run more replicas behind
   the balancer (drop the host port mapping and give each replica its own service entry or use an
   orchestrator).
 - `web` and `admin` are stateless Next.js servers; scale the same way.
-- `worker`: keep **one** instance. Its tasks take advisory/Redis locks, but the ELS reporter writes plain files
-  into one directory. Scale vertically; a second worker needs a design review first.
+- `worker`: keep **one** instance. Its tasks take advisory/Redis locks; scale vertically, and review the
+  design before running a second worker.
+- `scraper`: keep **one** instance. The source locks make a second harmless, but it only duplicates fetches
+  (and requests to the sources). Its raw snapshots are the `scraper_archive` volume
+  (`/var/lib/vamos/scraper`, `SCRAPER_ARCHIVE_DIR`): the evidence behind every applied result, kept as long as
+  bets are kept and backed up by `backup.sh scraper` ([backups.md](backups.md)). Its port is not published; check
+  it from the host with the container address, e.g.
+  `scripts/smoke.sh --scraper "http://$(docker inspect -f '{{ (index .NetworkSettings.Networks "vamos_vamos").IPAddress }}' "$(docker compose ps -q scraper)"):4200"`.
+  The service always runs with `FEED_PROVIDER=scraped`; in licensed mode that needs `SCRAPER_CONTACT` and
+  `SCRAPER_ROBOTS=enforce` (docs/scraper.md section 7). Daily operation, kill switches and the evidence kept:
+  [scraper-operations.md](scraper-operations.md); incident procedures in [runbooks](runbooks/README.md).
+  The onboarding command line (sources, aliases, ratings) runs inside the scraper image, because Postgres is not
+  published: `docker compose run --rm --no-deps scraper node dist/cli.js sources list` (files are mounted with
+  `-v "$PWD/source.json:/in/source.json:ro"`; see [scraper.md](scraper.md#production)).
 - `postgres`: a single primary. Size `max_connections` (set to 200 in the compose file) against
   api replicas x pool + worker pool (10). Read replicas are not used. Move to a managed or HA Postgres
   (streaming replication + failover) when the licence requires higher availability.
@@ -150,30 +204,35 @@ redacted secrets; compose rotates them (20 MB x 5). Ship them with your agent of
 over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET /health`, worker `GET
 :4100/health` and `/ready` (database, Redis, queues). Alert on: any container unhealthy or restarting,
 `/ready` failing, payouts pending > 24 h (flagged in the back office), a reconciliation run with status
-`mismatches` or `failed`, ELS pending records growing, disk below 20%, a failed backup.
+`mismatches` or `failed`, disk below 20%, a failed backup.
 
 ## 4. Licensed-mode checklist
 
-`OPERATING_MODE=licensed` is refused unless **all** of these hold (the exact messages come from
-`licensedModeViolations` in `packages/config/src/config.ts` plus the api's own checks):
+In `OPERATING_MODE=licensed` the app **refuses to start only** if `PAYMENT_PROVIDERS` contains `mock`
+(`licensedModeViolations` in `packages/config/src/config.ts`). It logs a warning for plain-http provider URLs and for
+problems with the SMS deposit rail (`SMS Rail compliance notes`), and checks nothing else. The production rules
+of `loadConfig` still apply (with `NODE_ENV=production`: https public URLs, a unique `SESSION_SECRET`,
+`ADMIN_TOTP_KEY` and `PASSWORD_PEPPER`). Real-money safety therefore depends on you working through this
+list before launch and reading the startup log:
 
-- [ ] An ELS licence exists and `ELS_LICENSE_NUMBER` is set.
 - [ ] `NODE_ENV=production`; `PUBLIC_WEB_URL`, `ADMIN_WEB_URL`, `PUBLIC_API_URL` are https and the admin
       origin differs from the web origin.
 - [ ] Unique `SESSION_SECRET` (32+ chars), `ADMIN_TOTP_KEY` (32 bytes), `PASSWORD_PEPPER` (32+ chars), and no
       development default left in any secret of a feature that is on.
-- [ ] `ELS_REPORTING_MODE=file` with an absolute `ELS_REPORT_DIR` on a durable, **backed-up** volume (the
-      compose file mounts the `els` volume at `/var/lib/vamos/els`). `off` and the `http` placeholder are
-      refused until ELS publishes its interface. Reports are kept 7 years.
-- [ ] `PAYMENT_PROVIDERS` lists only real providers (`chapa`, `telebirr`), each with its credentials; no
+- [ ] `PAYMENT_PROVIDERS` lists only real providers (`chapa`, `telebirr`, `sms`), each with its credentials; no
       `mock`. Webhook URLs registered with the providers point at `PAYMENT_CALLBACK_BASE_URL` (default
       `PUBLIC_API_URL`). `CHAPA_WEBHOOK_SECRET` is at least 32 characters. `PAYMENT_CALLBACK_BASE_URL`,
-      `CHAPA_BASE_URL`, `TELEBIRR_BASE_URL`, `TELEBIRR_CHECKOUT_URL` and `ELS_REPORT_URL` are https whenever set
+      `CHAPA_BASE_URL`, `TELEBIRR_BASE_URL` and `TELEBIRR_CHECKOUT_URL` are https whenever set
       (plain http is refused, even on loopback).
-- [ ] `KYC_PROVIDER` is a real identity provider (`fayda`), `SMS_PROVIDER` a real gateway (`http`).
+- [ ] With the SMS deposit rail (`sms`, [runbook](runbooks/sms-rail.md)): `SMS_RAIL_MODE=live`; its own
+      `SMS_GATEWAY_SECRET` (32+ chars, shared with no other secret); `OPERATOR_LEGAL_NAME` set and every
+      account in `SMS_COLLECTION_ACCOUNTS` in that name (no personal SIMs); `RECEIPT_VERIFY=audit`; and
+      `PAYOUT_REQUIRE_PROOF=true` (or the explicit, logged waiver `PAYOUT_PROOF_WAIVED=true`). The database
+      also refuses simulator SMS once it is licensed.
+- [ ] `KYC_PROVIDER=mock` (the only KYC adapter: ID checks are simulated). `SMS_PROVIDER=http` has no adapter yet, so
+      the api and worker refuse to start with it; `mock` means no code can be delivered: set `REGISTRATION_SMS_VERIFICATION=off` so players can still register (their phone is then not proven, and password reset by SMS does not work: staff must reset passwords).
 - [ ] `FEED_PROVIDER=manual` (traders only) or a licensed real feed once an adapter exists; `mock` is refused.
-- [ ] `TAX_CONFIG_CONFIRMED=true`, set only after counsel confirmed the winnings-tax rate, base and exemption
-      (and the `els_commission` rate in the back-office settings).
+- [ ] `TAX_CONFIG_CONFIRMED=true`, set only after counsel confirmed the winnings-tax rate, base and exemption.
 - [ ] `FEATURE_CASINO=false`, `FEATURE_VIRTUALS=false` (not licensable). SMS/USSD betting stays off until the
       regulator approves the channel and a real aggregator is contracted (the mock aggregators are refused).
 - [ ] Operational readiness (not enforced by code): backups running and a restore drill passed in the last
@@ -193,8 +252,8 @@ in a secret manager, not in git.
 
 | Variable                                           | Default                        | Meaning                                                                                                   |
 | -------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                                         | `development`                  | `production` enables Secure cookies, hides dev routes and the OTP inbox, and refuses development secrets. |
-| `OPERATING_MODE`                                   | `demo`                         | `demo` or `licensed` (section 4).                                                                         |
+| `NODE_ENV`                                         | `production`                   | `production` enables Secure cookies, hides dev routes and the OTP inbox, and refuses development secrets. |
+| `OPERATING_MODE`                                   | `licensed`                     | `demo` or `licensed` (section 4).                                                                         |
 | `LOG_LEVEL`                                        | `info`                         | pino level: fatal, error, warn, info, debug, trace, silent.                                               |
 | `API_HOST` / `API_PORT`                            | `0.0.0.0` / `4000`             | api listen address (the image fixes 4000).                                                                |
 | `PUBLIC_API_URL`                                   | `http://localhost:4000`        | Public api URL. Also baked into web/admin at build time (`NEXT_PUBLIC_API_URL`). https in production.     |
@@ -221,35 +280,46 @@ in a secret manager, not in git.
 
 | Variable                                                      | Default     | Meaning                                                                  |
 | ------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------ |
-| `FEED_PROVIDER`                                               | `mock`      | `mock` (simulated pricing, live simulator; demo only) or `manual`.       |
+| `FEED_PROVIDER`                                               | `scrapper`  | `mock` (simulated pricing, live simulator; demo only) or `manual`.       |
 | `SIM_SPEED`                                                   | `1`         | Simulated match minutes per real second.                                 |
 | `FEED_ROLLING_EVERY_MINUTES` / `FEED_ROLLING_HORIZON_MINUTES` | `5` / `120` | Rolling demo fixtures: one kicks off every N minutes, up to the horizon. |
 
 **Providers and payments**
 
-| Variable                                                                                           | Default              | Meaning                                                                                      |
-| -------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------- |
-| `PAYMENT_PROVIDERS`                                                                                | `mock`               | Comma list: `mock` (demo only), `chapa`, `telebirr`.                                         |
-| `KYC_PROVIDER` / `SMS_PROVIDER`                                                                    | `mock` / `mock`      | `mock` or `fayda`; `mock` or `http`. Real ones are licensed-mode only.                       |
-| `CHAPA_BASE_URL`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`                                       | Chapa API URL, unset | Chapa credentials (secrets). The webhook secret is 32+ chars, also set in Chapa's dashboard. |
-| `TELEBIRR_BASE_URL`, `TELEBIRR_CHECKOUT_URL`                                                       | unset                | telebirr endpoints. Leave unset, not empty.                                                  |
-| `TELEBIRR_FABRIC_APP_ID`, `TELEBIRR_APP_SECRET`, `TELEBIRR_MERCHANT_APP_ID`, `TELEBIRR_SHORT_CODE` | unset                | telebirr merchant credentials (secrets).                                                     |
-| `TELEBIRR_PRIVATE_KEY`, `TELEBIRR_PUBLIC_KEY`                                                      | unset                | PEM keys; `\n` in the value is read as a newline.                                            |
+| Variable                                                                                           | Default              | Meaning                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PAYMENT_PROVIDERS`                                                                                | `sms`                | Comma list: `mock` (demo only), `chapa`, `telebirr`, `sms` (the SMS deposit rail).                                                                                                                                                                                                                                                          |
+| `KYC_PROVIDER` / `SMS_PROVIDER`                                                                    | `mock` / `mock`      | `mock` only; `mock` or `http` (`http` has no adapter yet: startup is refused).                                                                                                                                                                                                                                                              |
+| `REGISTRATION_SMS_VERIFICATION`                                                                    | `required`           | `off` registers players without an SMS code (the API hands the code back and the web app submits it): the phone number is then **not proven** to be the player's. For a deployment with no SMS gateway (`SMS_PROVIDER=mock`). Password-reset and payout-account codes are never handed back, so they cannot be used without a real gateway. |
+| `CHAPA_BASE_URL`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`                                       | Chapa API URL, unset | Chapa credentials (secrets). The webhook secret is 32+ chars, also set in Chapa's dashboard.                                                                                                                                                                                                                                                |
+| `TELEBIRR_BASE_URL`, `TELEBIRR_CHECKOUT_URL`                                                       | unset                | telebirr endpoints. Leave unset, not empty.                                                                                                                                                                                                                                                                                                 |
+| `TELEBIRR_FABRIC_APP_ID`, `TELEBIRR_APP_SECRET`, `TELEBIRR_MERCHANT_APP_ID`, `TELEBIRR_SHORT_CODE` | unset                | telebirr merchant credentials (secrets).                                                                                                                                                                                                                                                                                                    |
+| `TELEBIRR_PRIVATE_KEY`, `TELEBIRR_PUBLIC_KEY`                                                      | unset                | PEM keys; `\n` in the value is read as a newline.                                                                                                                                                                                                                                                                                           |
 
-**Regulator, tax and features**
+**SMS deposit rail** (`sms`; see [the runbook](runbooks/sms-rail.md))
 
-| Variable                                             | Default         | Meaning                                                                                                                                                                             |
-| ---------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ELS_LICENSE_NUMBER`                                 | unset           | Required in licensed mode. Leave unset, not empty.                                                                                                                                  |
-| `ELS_REPORTING_MODE`                                 | `file`          | `file` (JSONL stream + daily CSVs), `http` (placeholder: sends nothing), `off` (demo only). The legacy `ELS_REPORTING=disabled\|file\|http` is still read; setting both must agree. |
-| `ELS_REPORT_DIR`                                     | `./var/els`     | Report directory; absolute in licensed mode. Compose fixes `/var/lib/vamos/els` (volume `els`).                                                                                     |
-| `ELS_REPORT_URL`                                     | unset           | For the `http` placeholder only.                                                                                                                                                    |
-| `TAX_CONFIG_CONFIRMED`                               | `false`         | Licensed mode requires `true` (counsel confirmed the winnings-tax settings).                                                                                                        |
-| `FEATURE_CASINO`, `FEATURE_VIRTUALS`                 | `false`         | Not licensable; licensed mode refuses `true`.                                                                                                                                       |
-| `SMS_BETTING_ENABLED`, `USSD_ENABLED`                | `false`         | SMS/USSD betting channels (legacy `FEATURE_SMS_BETTING`, `FEATURE_USSD`). Routes answer 404 while off.                                                                              |
-| `SMS_AGGREGATOR`, `USSD_AGGREGATOR`                  | `mock`          | Only `mock` exists until an aggregator is contracted; licensed mode refuses it while the channel is on.                                                                             |
-| `SMS_WEBHOOK_SECRET`, `USSD_SHARED_SECRET` (secrets) | dev values      | Inbound authentication of the channels. Production refuses the dev values while the channel is on; compose requires them to be set.                                                 |
-| `SMS_SHORT_CODE`, `USSD_SERVICE_CODE`                | `8123`, `*123#` | Shown to players.                                                                                                                                                                   |
+| Variable                    | Default | Meaning                                                                                                                                                                       |
+| --------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SMS_RAIL_MODE`             | `live`  | `simulated` (demo: demo collection accounts and the dev SMS simulator) or `live` (licensed mode only, and required there).                                                    |
+| `SMS_GATEWAY_SECRET`        | unset   | Secret, 32+ chars. The collection handset's forwarder sends it as `x-gateway-secret` to `POST /payments/webhooks/sms`. It alone can credit deposits: rotate on staff changes. |
+| `SMS_GATEWAY_ALLOWLIST`     | empty   | Comma list of exact client addresses allowed to post SMS; empty allows any (the secret still applies).                                                                        |
+| `SMS_COLLECTION_ACCOUNTS`   | unset   | JSON array of `{ "institution": "telebirr", "account": "09…", "name": "…", "hint"?: "…" }`, the accounts players pay into. Live rail only.                                    |
+| `OPERATOR_LEGAL_NAME`       | unset   | The licence holder's legal name; every collection account must be in it.                                                                                                      |
+| `RECEIPT_VERIFY`            | `audit` | `audit` checks every credited telebirr SMS against the receipt page (required live), `off` does not.                                                                          |
+| `RECEIPT_VERIFY_TIMEOUT_MS` | `6000`  | Timeout of one receipt-page request (500–30000).                                                                                                                              |
+| `PAYOUT_REQUIRE_PROOF`      | `false` | `true`: a manual payout settles only with its debit SMS as proof. Required in licensed mode unless waived.                                                                    |
+| `PAYOUT_PROOF_WAIVED`       | `false` | The explicit waiver of `PAYOUT_REQUIRE_PROOF` in licensed mode (the api logs a warning at start).                                                                             |
+
+**Tax and features**
+
+| Variable                                             | Default         | Meaning                                                                                                                             |
+| ---------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `TAX_CONFIG_CONFIRMED`                               | `true`          | Licensed mode requires `true` (counsel confirmed the winnings-tax settings).                                                        |
+| `FEATURE_CASINO`, `FEATURE_VIRTUALS`                 | `true`          | Not licensable; keep `false` (licensed mode no longer checks it).                                                                   |
+| `SMS_BETTING_ENABLED`, `USSD_ENABLED`                | `true`          | SMS/USSD betting channels (legacy `FEATURE_SMS_BETTING`, `FEATURE_USSD`). Routes answer 404 while off.                              |
+| `SMS_AGGREGATOR`, `USSD_AGGREGATOR`                  | `mock`          | Only `mock` exists until an aggregator is contracted; do not use it in production (licensed mode no longer checks it).              |
+| `SMS_WEBHOOK_SECRET`, `USSD_SHARED_SECRET` (secrets) | dev values      | Inbound authentication of the channels. Production refuses the dev values while the channel is on; compose requires them to be set. |
+| `SMS_SHORT_CODE`, `USSD_SERVICE_CODE`                | `8123`, `*123#` | Shown to players.                                                                                                                   |
 
 **Read only by the web and admin apps / the ops scripts**
 
@@ -280,13 +350,11 @@ in a secret manager, not in git.
 
 Open questions for counsel and the regulator **before** any real-money launch:
 
-1. **PDPP residency.** Does the Personal Data Protection Proclamation (and any ELS licence condition)
-   require personal data of Ethiopian players, and the ELS report files, to stay in Ethiopia, or is a
-   transfer abroad allowed with safeguards or consent? Does the ELS require real-time access to the
-   transaction stream on infrastructure it can inspect?
+1. **PDPP residency.** Does the Personal Data Protection Proclamation (and any licence condition)
+   require personal data of Ethiopian players to stay in Ethiopia, or is a transfer abroad allowed with
+   safeguards or consent?
 2. **What counts as personal data here.** Phone numbers, names, KYC fields (Fayda ID hash, last four digits,
-   date of birth), bank/wallet identifiers, IP addresses in the audit log, and the pseudonymous `playerRef`
-   in the ELS stream. The ELS stream already minimises: no names, phones or free text.
+   date of birth), bank/wallet identifiers and IP addresses in the audit log.
 3. **In-country hosting options** to evaluate: colocation or cloud capacity in an Addis Ababa data centre
    (national carrier or local provider) versus a regional cloud. Weigh latency to mobile networks,
    bandwidth cost, power and uplink redundancy, the ability to run Docker/PostgreSQL with backups, and
@@ -294,10 +362,42 @@ Open questions for counsel and the regulator **before** any real-money launch:
    plain Docker and PostgreSQL, so it moves between hosts without code changes.
 4. **Backups and logs** are personal data too: keep copies where the residency decision allows, and encrypt
    them (`BACKUP_AGE_RECIPIENT` in `backup.sh`).
-5. **Retention.** Ledger, audit log, ELS reports and summaries: 7 years (placeholder in
-   `docs/compliance.md`, to confirm). Player PII is removed or anonymised on account closure once retention
+5. **Retention.** Ledger, audit log and reconciliation: 7 years (a placeholder, to confirm). Player PII is removed or anonymised on account closure once retention
    duties allow.
 6. **Provider callbacks** from telebirr/Chapa must reach `api` from the internet (or a provider VPN): plan the
    public IP, allowlists and the clock (NTP) of the host.
 
 Until these are answered, run only the demo, with no real player data.
+
+## 8. Testing deposits and withdrawals on a demo deployment
+
+A demo deployment (`OPERATING_MODE=licensed`, `NODE_ENV=production`, `PAYMENT_PROVIDERS=mock`) runs the
+whole money path with play money: the ledger, idempotency, limits, KYC, wagering, staff review, the
+payout worker and the ELS stream are the same code as in licensed mode; only the providers are
+simulated. Nothing here moves real money, and nothing here can: real deposits need licensed mode (section 4).
+
+What a tester needs: the site (`PUBLIC_WEB_URL`), the back office (`ADMIN_WEB_URL`) and a staff account
+with the `admin` or `finance` role (`admin-create.js`, section 3; scan the printed `otpauth://` URI into an
+authenticator app).
+
+| Step           | Where                               | What to do                                                                                                                                                                                                    |
+| -------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Register    | `/register`                         | Any Ethiopian mobile number (`09…`/`07…`), a 12+ character password, an adult date of birth. No SMS is sent: the verify page shows the code, **Fill in**, **Verify**.                                         |
+| 2. Verify ID   | Account → Identity (`/account/kyc`) | Any 12-digit Fayda FIN and a name. The mock registry verifies it, except an ID ending `0000` (not found) or `9999` (manual review: approve it in the back office KYC queue).                                  |
+| 3. Deposit     | Wallet → Deposit                    | Choose an amount, **Deposit**. Open the simulated phone (the link under the waiting card, `/dev/phone`, same browser), enter PIN `1234` and **Approve** (or **Decline**). The balance updates within seconds. |
+| 4. Bet it      | Any match                           | Every deposit must be staked once before it can be withdrawn (anti-money-laundering rule, wagering multiplier 1x in the back office settings). The withdraw page shows how much is left to bet.               |
+| 5. Withdraw    | Wallet → Withdraw                   | Withdrawals go to the player's own registered number. Below the auto-approve threshold (default ETB 5,000) they are approved at once; from it upwards they wait for staff.                                    |
+| 6. Approve     | Back office → Withdrawals           | **Approve** (or **Reject** with a reason). The worker pays within seconds.                                                                                                                                    |
+| 7. See it paid | Wallet → Withdraw                   | The tracker shows Requested → Approved → Processing → Paid. Payout outcomes follow the number: ending `0000` fails (the money goes back), `9999` stays pending until the next status check.                   |
+
+The same walk-through runs automatically against any deployment (about 5 to 10 minutes, most of it
+waiting for a simulated match to be played; screenshots optional):
+
+```bash
+E2E_WEB_URL=https://www.example.et E2E_API_URL=https://api.example.et E2E_ADMIN_URL=https://admin.example.et \
+E2E_STAFF_EMAIL=you@example.et E2E_STAFF_PASSWORD='…' E2E_STAFF_TOTP_SECRET=<base32 secret from admin-create> \
+E2E_SCREENSHOTS_DIR=/tmp/vamos-shots pnpm e2e:deployment
+```
+
+It uses a fresh random player each run (the play-money rows stay in the demo database). If `STAFF_ALLOWLIST`
+is set, run it from an allowed address.

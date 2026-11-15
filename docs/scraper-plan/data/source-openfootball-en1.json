@@ -1,0 +1,17 @@
+{
+  "id": "openfootball-en1",
+  "name": "openfootball: English Premier League (football.json)",
+  "adapter": "openfootball",
+  "upstream": "openfootball community (github.com/openfootball/football.json, CC0)",
+  "config": {
+    "allowedHosts": ["raw.githubusercontent.com"],
+    "requests": [
+      {
+        "url": "https://raw.githubusercontent.com/openfootball/football.json/master/2026-27/en.1.json",
+        "competition": "English Premier League"
+      }
+    ],
+    "timeZone": "Europe/London",
+    "sport": "football"
+  }
+}

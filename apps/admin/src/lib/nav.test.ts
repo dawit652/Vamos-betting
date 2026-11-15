@@ -30,17 +30,19 @@ describe('navigation by role', () => {
   });
 
   it('compliance pages follow reports.view and aml.review', () => {
-    expect(labels('compliance')).toEqual(
-      expect.arrayContaining(['Daily summaries', 'Reconciliation', 'AML flags']),
-    );
-    expect(labels('finance')).toEqual(
-      expect.arrayContaining(['Daily summaries', 'Reconciliation']),
-    );
+    expect(labels('compliance')).toEqual(expect.arrayContaining(['Reconciliation', 'AML flags']));
+    expect(labels('finance')).toContain('Reconciliation');
     expect(labels('finance')).not.toContain('AML flags');
-    expect(labels('support')).not.toContain('Daily summaries');
+    expect(labels('support')).not.toContain('Reconciliation');
     expect(permissionForPath('/compliance/aml/abc')).toBe('aml.review');
     expect(permissionForPath('/compliance/reconciliation/abc')).toBe('reports.view');
-    expect(permissionForPath('/compliance/summaries/2026-10-01')).toBe('reports.view');
+  });
+
+  it('the feed pages follow trading.view', () => {
+    for (const role of ['trader', 'admin']) expect(labels(role)).toContain('Feed');
+    for (const role of ['support', 'finance', 'compliance', 'kyc'])
+      expect(labels(role)).not.toContain('Feed');
+    expect(permissionForPath('/feed/review/abc')).toBe('trading.view');
   });
 
   it('every role sees the dashboard, and an unknown role sees nothing', () => {

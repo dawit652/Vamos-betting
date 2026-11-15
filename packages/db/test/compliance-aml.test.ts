@@ -419,15 +419,6 @@ describe('the sweep, reviews and settings', () => {
     }
     expect((await evaluate(player, after(10 * MIN))).created).toEqual([]);
     expect((await runAmlSweep(handle.db, { now: after(10 * MIN) })).evaluated).toBe(0);
-
-    const commission = await handle.db.transaction((tx) =>
-      updateComplianceSetting(tx, {
-        key: 'els_commission',
-        value: { rateBps: 1200 },
-        actor: STAFF,
-      }),
-    );
-    expect(commission.elsCommission.rateBps).toBe(1200);
-    expect((await loadComplianceSettings(handle.db)).elsCommission.rateBps).toBe(1200);
+    expect((await loadComplianceSettings(handle.db)).amlRules.enabled).toBe(false);
   });
 });

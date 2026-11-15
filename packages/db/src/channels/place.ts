@@ -238,6 +238,9 @@ export function channelRefusalOf(
       return { code: 'cooling_off', until: dateOf(details.endsAt) };
     case 'account_disabled':
       return { code: 'account_disabled' };
+    case 'liability_limit':
+      // `maxStake` is null when even the minimum stake does not fit.
+      return { code: 'liability_limit', max: santimOf(details.maxStake) };
     case 'stake_limit_exceeded': {
       const limit = santimOf(details.limit);
       return limit === null ? { code: 'bet_failed' } : { code: 'stake_limit_exceeded', limit };

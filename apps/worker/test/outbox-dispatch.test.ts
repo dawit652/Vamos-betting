@@ -108,9 +108,8 @@ describe('outbox dispatcher', () => {
         expect(first).toMatchObject({
           claimed: 4,
           published: 4,
-          // event.resulted: bet settlement and jackpot settlement; the pending bet: acceptance;
-          // both bet.placed rows: the ELS stream.
-          jobs: 5,
+          // event.resulted: bet settlement and jackpot settlement; the pending bet: acceptance.
+          jobs: 3,
           failed: 0,
           redisDown: false,
         });
@@ -156,8 +155,8 @@ describe('outbox dispatcher', () => {
           jackpot: await jackpotQueue.count(),
         });
         const before = await counts();
-        // settlement + jackpot settlement + acceptance, and the bet's ELS job.
-        expect(await dispatcher.run()).toMatchObject({ claimed: 2, published: 2, jobs: 4 });
+        // settlement + jackpot settlement + acceptance.
+        expect(await dispatcher.run()).toMatchObject({ claimed: 2, published: 2, jobs: 3 });
         expect(await counts()).toEqual(before);
         expect(before).toEqual({ settlement: 1, acceptance: 1, jackpot: 1 });
       } finally {

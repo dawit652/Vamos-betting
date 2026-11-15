@@ -23,7 +23,10 @@ function task(name: string, log: string[], failOnStart = false): WorkerTask {
 describe('startWorker', () => {
   it('starts tasks in order and stops them in reverse', async () => {
     const log: string[] = [];
-    const handle = await startWorker(loadConfig({}), logger, [task('a', log), task('b', log)]);
+    const handle = await startWorker(loadConfig({ OPERATING_MODE: 'demo' }), logger, [
+      task('a', log),
+      task('b', log),
+    ]);
     expect(handle.tasks).toEqual(['a', 'b']);
     await handle.stop();
     expect(log).toEqual(['start:a', 'start:b', 'stop:b', 'stop:a']);
@@ -32,7 +35,10 @@ describe('startWorker', () => {
   it('stops already-started tasks when a later task fails to start', async () => {
     const log: string[] = [];
     await expect(
-      startWorker(loadConfig({}), logger, [task('a', log), task('b', log, true)]),
+      startWorker(loadConfig({ OPERATING_MODE: 'demo' }), logger, [
+        task('a', log),
+        task('b', log, true),
+      ]),
     ).rejects.toThrow('b failed');
     expect(log).toEqual(['start:a', 'stop:a']);
   });

@@ -58,7 +58,7 @@ export function exclusionError(exclusion: ActiveExclusion): DomainError {
     return domainForbidden(
       'self_excluded',
       endsAt === null
-        ? 'You have permanently self-excluded from Vamos.'
+        ? 'You have permanently self-excluded from Nahubet.'
         : `You are self-excluded until ${endsAt}.`,
       details,
     );

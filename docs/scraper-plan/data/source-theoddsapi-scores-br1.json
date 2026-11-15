@@ -1,0 +1,16 @@
+{
+  "id": "theoddsapi-scores-br1",
+  "name": "The Odds API: Brasileirão Série A final scores",
+  "adapter": "theoddsapi",
+  "upstream": "TheOddsAPI",
+  "config": {
+    "allowedHosts": ["api.the-odds-api.com"],
+    "secret": "SCRAPER_SECRET_THEODDSAPI",
+    "sport": "football",
+    "mode": "scores",
+    "sportKey": "soccer_brazil_campeonato",
+    "competition": "Brasileirão Série A",
+    "daysFrom": 1,
+    "scoreBasis": "regular_time"
+  }
+}

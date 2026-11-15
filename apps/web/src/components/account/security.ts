@@ -32,7 +32,7 @@ export function deviceLabel(userAgent: string | null): string | null {
   return parts.length === 0 ? null : parts.join(' · ');
 }
 
-/** The file name of a data export downloaded on `date`: `vamos-my-data-2026-10-27.json`. */
+/** The file name of a data export downloaded on `date`: `nahubet-my-data-2026-10-27.json`. */
 export function exportFileName(date: Date): string {
-  return `vamos-my-data-${date.toISOString().slice(0, 10)}.json`;
+  return `nahubet-my-data-${date.toISOString().slice(0, 10)}.json`;
 }

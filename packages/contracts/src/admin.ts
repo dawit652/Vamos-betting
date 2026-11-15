@@ -51,16 +51,20 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  * - bets.view: bet search and detail [GET /admin/bets*]
  * - withdrawals.view: withdrawal queues and flagged payments [GET /admin/withdrawals*, /admin/deposits/flagged]
  * - withdrawals.approve: approve / reject withdrawals, flag / clear / settle payouts, resolve flagged deposits
+ * - payouts.settle_manual: claim, pay by hand and settle SMS-rail payouts [/admin/manual-payouts*]
+ *   (never one the same staff member approved: the four-eyes rule)
+ * - sms.review: the SMS rail's received messages and review queue, crediting or closing them
+ *   [/admin/sms*]
  * - jackpots.view: rounds and their entries [GET /admin/jackpots/*]
  * - jackpots.manage: cancel a round before its first kick-off
  * - settings.view: the business settings [GET /admin/settings]
  * - settings.edit: change them [PUT /admin/settings/:key]
  * - audit.view: the audit log [GET /admin/audit]
  * - staff.manage: staff accounts [/admin/staff*]
- * - reports.view: daily summaries and their CSV, ELS stream status, reconciliation runs,
- *   PSP statements, compliance settings [GET /admin/compliance/*, except aml-flags]
- * - reconciliation.run: run a reconciliation now, upload a PSP statement, recompute a
- *   provisional daily summary [POST /admin/compliance/reconciliation-runs, /psp-statements, …/recompute]
+ * - reports.view: reconciliation runs, PSP statements, compliance settings
+ *   [GET /admin/compliance/*, except aml-flags]
+ * - reconciliation.run: run a reconciliation now, upload a PSP statement
+ *   [POST /admin/compliance/reconciliation-runs, /psp-statements]
  * - aml.review: AML flags and their review [/admin/compliance/aml-flags*]
  * (COMPLIANCE_ROUTE_PERMISSIONS in compliance.ts lists every compliance route.)
  */
@@ -77,6 +81,8 @@ export const STAFF_PERMISSIONS = [
   'bets.view',
   'withdrawals.view',
   'withdrawals.approve',
+  'payouts.settle_manual',
+  'sms.review',
   'jackpots.view',
   'jackpots.manage',
   'settings.view',
@@ -104,6 +110,8 @@ export const PERMISSION_ROLES: Readonly<Record<StaffPermission, readonly StaffRo
   'bets.view': ['admin', 'support', 'trader', 'compliance', 'finance'],
   'withdrawals.view': ['admin', 'finance', 'compliance'],
   'withdrawals.approve': ['admin', 'finance'],
+  'payouts.settle_manual': ['admin', 'finance'],
+  'sms.review': ['admin', 'finance', 'compliance'],
   'jackpots.view': ['admin', 'trader', 'compliance', 'support'],
   'jackpots.manage': ['admin', 'trader'],
   'settings.view': ['admin', 'trader', 'finance', 'compliance'],
@@ -480,7 +488,7 @@ export const PlayerDetailView = z.object({
   id: z.string(),
   phone: z.string(),
   fullName: z.string().nullable(),
-  dateOfBirth: z.string(),
+  dateOfBirth: z.string().nullable(),
   locale: z.string(),
   status: PlayerStatusSchema,
   phoneVerifiedAt: z.string().nullable(),
@@ -531,7 +539,7 @@ export const KycQueueItemView = StaffKycView.extend({
   userId: z.string(),
   phone: z.string(),
   fullName: z.string().nullable(),
-  dateOfBirth: z.string(),
+  dateOfBirth: z.string().nullable(),
   userStatus: PlayerStatusSchema,
 });
 export type KycQueueItemView = z.infer<typeof KycQueueItemView>;
@@ -580,7 +588,6 @@ const tradingEventFields = {
   startTime: z.string(),
   status: EventStatusSchema,
   bettingOpen: z.boolean(),
-  topMatch: z.boolean(),
   liveMinute: z.number().int().nullable(),
   period: z.string().nullable(),
   scoreHome: z.number().int().nullable(),
@@ -671,13 +678,6 @@ export type EventSuspendRequest = z.infer<typeof EventSuspendRequest>;
 /** POST /admin/trading/events/:id/betting (trading.status): betting on the whole event on or off. */
 export const EventBettingRequest = z.object({ open: z.boolean(), reason: OptionalAuditText });
 export type EventBettingRequest = z.infer<typeof EventBettingRequest>;
-
-/**
- * POST /admin/trading/events/:id/top (trading.status): marks or unmarks a top
- * match, shown as the player app's featured poster. Changes no price or state.
- */
-export const EventTopMatchRequest = z.object({ top: z.boolean(), reason: OptionalAuditText });
-export type EventTopMatchRequest = z.infer<typeof EventTopMatchRequest>;
 
 const Goals = z.number().int().min(0).max(999);
 
@@ -847,6 +847,24 @@ export type PayoutFlagReason = z.infer<typeof PayoutFlagReasonSchema>;
 
 /** A withdrawal as finance sees it (flags and staff fields included). */
 export const StaffWithdrawalView = z.object({
+  /** SMS rail: paid by hand (see payingBy / settledBy and the destination). */
+  manual: z.boolean(),
+  destination: z
+    .object({
+      institution: z.string(),
+      institutionName: z.string(),
+      kind: z.enum(['wallet', 'bank']),
+      account: z.string(),
+      name: z.string(),
+    })
+    .nullable(),
+  payingBy: z.string().nullable(),
+  settledBy: z.string().nullable(),
+  settlementReference: z.string().nullable(),
+  /** The outgoing SMS proposed as this payout's proof (shown on the settle form). */
+  proposedSms: z
+    .object({ id: z.string(), reference: z.string().nullable(), receivedAt: z.string() })
+    .nullable(),
   id: z.string(),
   userId: z.string(),
   provider: z.string(),
@@ -945,6 +963,125 @@ export const ResolveDepositRequest = z.object({
   note: AuditText,
 });
 export type ResolveDepositRequest = z.infer<typeof ResolveDepositRequest>;
+
+// ---------------------------------------------------------------------------
+// SMS rail (sms.review, payouts.settle_manual).
+
+export const ReceivedSmsStatusSchema = z.enum([
+  'unparsed',
+  'unmatched',
+  'ambiguous',
+  'matched',
+  'flagged',
+  'ignored_debit',
+  'settlement_proposed',
+  'settled',
+  'credited_by_staff',
+  'closed',
+]);
+export type ReceivedSmsStatus = z.infer<typeof ReceivedSmsStatusSchema>;
+
+export const StaffSmsView = z.object({
+  id: z.string(),
+  source: z.enum(['gateway', 'simulator', 'receipt']),
+  sender: z.string().nullable(),
+  rawText: z.string(),
+  institution: z.string().nullable(),
+  direction: z.enum(['credit', 'debit']).nullable(),
+  amount: Santim.nullable(),
+  reference: z.string().nullable(),
+  counterpartyName: z.string().nullable(),
+  counterpartyPhone: z.string().nullable(),
+  balance: Santim.nullable(),
+  receivedAt: z.string(),
+  status: ReceivedSmsStatusSchema,
+  statusReason: z.string().nullable(),
+  matchedIntentId: z.string().nullable(),
+  flaggedIntentId: z.string().nullable(),
+  matchedUserId: z.string().nullable(),
+  proposedPayoutId: z.string().nullable(),
+  receiptStatus: z.enum(['verified', 'rejected', 'indeterminate', 'skipped']).nullable(),
+  receiptReason: z.string().nullable(),
+  resolvedBy: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+});
+export type StaffSmsView = z.infer<typeof StaffSmsView>;
+
+/** GET /admin/sms?queue=review (the review queue) or ?status=… (the log, newest first). */
+export const StaffSmsQuery = z.object({
+  queue: z.enum(['review', 'all']).default('review'),
+  status: ReceivedSmsStatusSchema.optional(),
+  limit: pageLimit(500, 100),
+});
+export type StaffSmsQuery = z.infer<typeof StaffSmsQuery>;
+
+export const StaffSmsListResponse = z.object({ items: z.array(StaffSmsView) });
+export type StaffSmsListResponse = z.infer<typeof StaffSmsListResponse>;
+
+/** POST /admin/sms/:id/credit: credit what arrived to a player (after checking who paid). */
+export const CreditSmsRequest = z.object({ userId: Uuid, note: AuditText });
+export type CreditSmsRequest = z.infer<typeof CreditSmsRequest>;
+
+/** POST /admin/sms/:id/close and …/acknowledge-receipt. */
+export const SmsNoteRequest = z.object({ note: AuditText });
+export type SmsNoteRequest = z.infer<typeof SmsNoteRequest>;
+
+export const StaffSmsChangeResponse = z.object({ sms: StaffSmsView });
+export type StaffSmsChangeResponse = z.infer<typeof StaffSmsChangeResponse>;
+
+/** GET /admin/sms/health: the rail at a glance (also on the dashboard). */
+export const SmsRailHealthResponse = z.object({
+  mode: z.enum(['simulated', 'live']),
+  lastGatewaySmsAt: z.string().nullable(),
+  reviewQueue: z.number().int(),
+  oldestReviewAt: z.string().nullable(),
+  receiptAlarms: z.number().int(),
+  manualPayoutsOpen: z.number().int(),
+  oldestManualPayoutApprovedAt: z.string().nullable(),
+  receiptVerify: z.enum(['off', 'audit']),
+  receiptBreaker: z.enum(['closed', 'open', 'half_open']).nullable(),
+  /**
+   * The last balance reconciliation per collection institution (the worker,
+   * hourly over 24 hours): `drift` is actual − expected movement; negative
+   * means we credited more than arrived (a forged SMS?), positive that SMS
+   * went missing (players waiting).
+   */
+  balance: z.array(
+    z.object({
+      institution: z.string(),
+      checkedAt: z.string(),
+      status: z.enum(['consistent', 'drift', 'insufficient_data']),
+      drift: Santim.nullable(),
+      observations: z.number().int(),
+    }),
+  ),
+});
+export type SmsRailHealthResponse = z.infer<typeof SmsRailHealthResponse>;
+
+/** POST /admin/manual-payouts/:id/release: hand a claimed payout back unpaid. */
+export const ReleaseManualPayoutRequest = z.object({ note: AuditText });
+export type ReleaseManualPayoutRequest = z.infer<typeof ReleaseManualPayoutRequest>;
+
+/**
+ * POST /admin/manual-payouts/:id/settle: the claimer sent the money. Either
+ * the outgoing SMS proposed for it (`smsId`) or the transfer reference the
+ * banking app showed. Bank payouts need `holderNameConfirmed` (the bank
+ * showed the player's own name as the holder).
+ */
+export const SettleManualPayoutRequest = z
+  .object({
+    smsId: Uuid.optional(),
+    reference: z.string().trim().min(6).max(40).optional(),
+    holderNameConfirmed: z.boolean().default(false),
+  })
+  .refine((v) => v.smsId !== undefined || v.reference !== undefined, {
+    message: 'give the proposed SMS or the transfer reference',
+  });
+export type SettleManualPayoutRequest = z.infer<typeof SettleManualPayoutRequest>;
+
+/** POST /admin/manual-payouts/:id/fail: the transfer did not go out (the hold goes back). */
+export const FailManualPayoutRequest = z.object({ reason: AuditText });
+export type FailManualPayoutRequest = z.infer<typeof FailManualPayoutRequest>;
 
 // ---------------------------------------------------------------------------
 // Jackpots (jackpots.view / jackpots.manage).
@@ -1072,6 +1209,83 @@ export const PaymentRulesView = z.object({
 });
 export type PaymentRulesView = z.infer<typeof PaymentRulesView>;
 
+/**
+ * House liability caps (rule L1), checked when a bet is placed. A cap is a positive amount of
+ * santim, or null for no cap. The selection cap cannot exceed the match cap.
+ */
+export const RiskLimitsView = z
+  .object({
+    maxSelectionLiability: PositiveSantimText.nullable(),
+    maxEventLiability: PositiveSantimText.nullable(),
+  })
+  .refine(
+    (limits) =>
+      // Zod runs this even when a field failed its own check: compare only clean digits.
+      typeof limits.maxSelectionLiability !== 'string' ||
+      typeof limits.maxEventLiability !== 'string' ||
+      !/^\d+$/.test(limits.maxSelectionLiability) ||
+      !/^\d+$/.test(limits.maxEventLiability) ||
+      BigInt(limits.maxSelectionLiability) <= BigInt(limits.maxEventLiability),
+    { message: 'maxSelectionLiability must not exceed maxEventLiability' },
+  );
+export type RiskLimitsView = z.infer<typeof RiskLimitsView>;
+
+/**
+ * Margins and limits per market family (plan task 2.5): the margin of each class of factory market
+ * and of single families (a factory-only market type such as `htft`), in basis points 0..10000;
+ * the factory selections' share of the selection liability cap (bps); and the weekly family job's
+ * floor of settled stakes a week (santim). The server checks the family names.
+ */
+export const MarketFamiliesView = z
+  .object({
+    marginBps: z.object({ main: Bps, derivative: Bps, long: Bps }).strict(),
+    typeMarginBps: z.record(z.string().min(1).max(64), Bps),
+    factoryLiabilityShareBps: Bps,
+    minWeeklyStake: NonNegativeSantimText,
+    /** Plan item P-5: first-half share of goals for factory pricing (0.3..0.7); null is off. */
+    firstHalfShare: z.number().min(0.3).max(0.7).nullable().optional(),
+    /** Plan item P-4: Dixon-Coles rho of the factory's full-time grid (-0.2..0); null is off. */
+    drawCorrection: z.number().min(-0.2).max(0).nullable().optional(),
+  })
+  .strict();
+export type MarketFamiliesView = z.infer<typeof MarketFamiliesView>;
+
+/**
+ * One market family with the weekly job's state (task A12): `marginBps` is what it is priced at now
+ * (its override or its class's; a returned family's raised margin); `history` the stored history
+ * test's line for it, if any.
+ */
+export const MarketFamilyRow = z.object({
+  family: z.string(),
+  marginClass: z.enum(['main', 'derivative', 'long']),
+  status: z.enum(['active', 'suspended', 'off']),
+  sinceWeek: z.string().nullable(),
+  raisedMarginBps: Bps.nullable(),
+  marginBps: Bps,
+  history: z
+    .object({ suggestedMarginBps: Bps, holdBps: z.number().int(), passed: z.boolean() })
+    .nullable(),
+});
+export type MarketFamilyRow = z.infer<typeof MarketFamilyRow>;
+
+export const MarketFamilyStatesResponse = z.object({
+  families: z.array(MarketFamilyRow),
+  /** When the stored history test ran (`eval families --write`), or null. */
+  historyTestedAt: z.string().nullable(),
+  firstHalfShare: z.number().nullable(),
+  drawCorrection: z.number().nullable(),
+});
+export type MarketFamilyStatesResponse = z.infer<typeof MarketFamilyStatesResponse>;
+
+/** A person puts a suspended or off family back in play; the reason is audited. */
+export const ResetMarketFamilyRequest = z
+  .object({ reason: z.string().trim().min(3).max(500) })
+  .strict();
+export type ResetMarketFamilyRequest = z.infer<typeof ResetMarketFamilyRequest>;
+
+export const ResetMarketFamilyResponse = z.object({ family: MarketFamilyRow });
+export type ResetMarketFamilyResponse = z.infer<typeof ResetMarketFamilyResponse>;
+
 /** Every business setting in force (santim as strings). */
 export const GameSettingsView = z.object({
   betRules: BetRulesView,
@@ -1082,6 +1296,8 @@ export const GameSettingsView = z.object({
   responsibleGambling: ResponsibleGamblingView,
   jackpots: z.object({ daily9: JackpotTemplateView, weekly13: JackpotTemplateView }),
   payments: PaymentRulesView,
+  riskLimits: RiskLimitsView,
+  marketFamilies: MarketFamiliesView,
 });
 export type GameSettingsView = z.infer<typeof GameSettingsView>;
 
@@ -1102,6 +1318,8 @@ export const StaffSettingKeySchema = z.enum([
   'live_bet_delay_ms',
   'responsible_gambling',
   'payments',
+  'risk_limits',
+  'market_families',
   'multi_bonus',
   'jackpot_template',
 ]);
@@ -1119,6 +1337,8 @@ export const STAFF_SETTING_VALUE_SCHEMAS = {
   live_bet_delay_ms: z.number().int().min(0).max(60_000),
   responsible_gambling: ResponsibleGamblingView,
   payments: PaymentRulesView,
+  risk_limits: RiskLimitsView,
+  market_families: MarketFamiliesView,
   multi_bonus: MultiBonusView,
   jackpot_template: JackpotTemplateView,
 } as const satisfies Record<StaffSettingKey, z.ZodType>;

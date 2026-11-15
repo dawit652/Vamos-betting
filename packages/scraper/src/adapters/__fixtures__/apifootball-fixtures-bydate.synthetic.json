@@ -1,0 +1,827 @@
+{
+  "get": "fixtures",
+  "parameters": {
+    "date": "2026-11-13",
+    "timezone": "UTC"
+  },
+  "errors": [],
+  "results": 14,
+  "paging": {
+    "current": 1,
+    "total": 1
+  },
+  "response": [
+    {
+      "fixture": {
+        "id": 1001,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-12T12:00:00+00:00",
+        "timestamp": 1794484800,
+        "status": {
+          "long": "Match Finished",
+          "short": "FT",
+          "elapsed": 90,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 39,
+        "name": "Premier League",
+        "country": "England",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 33,
+          "name": "Manchester United",
+          "winner": null
+        },
+        "away": {
+          "id": 40,
+          "name": "Liverpool",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 2,
+        "away": 1
+      },
+      "score": {
+        "halftime": {
+          "home": 1,
+          "away": 0
+        },
+        "fulltime": {
+          "home": 2,
+          "away": 1
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1002,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T14:00:00+00:00",
+        "timestamp": 1794578400,
+        "status": {
+          "long": "Not Started",
+          "short": "NS",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 39,
+        "name": "Premier League",
+        "country": "England",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 42,
+          "name": "Arsenal",
+          "winner": null
+        },
+        "away": {
+          "id": 49,
+          "name": "Chelsea",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": null,
+        "away": null
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1003,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T11:30:00+00:00",
+        "timestamp": 1794569400,
+        "status": {
+          "long": "First Half",
+          "short": "1H",
+          "elapsed": 31,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 39,
+        "name": "Premier League",
+        "country": "England",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 50,
+          "name": "Manchester City",
+          "winner": null
+        },
+        "away": {
+          "id": 47,
+          "name": "Tottenham",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 1,
+        "away": 0
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1004,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T11:00:00+00:00",
+        "timestamp": 1794567600,
+        "status": {
+          "long": "Halftime",
+          "short": "HT",
+          "elapsed": 45,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 140,
+        "name": "La Liga",
+        "country": "Spain",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 541,
+          "name": "Real Madrid",
+          "winner": null
+        },
+        "away": {
+          "id": 529,
+          "name": "Barcelona",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 0,
+        "away": 0
+      },
+      "score": {
+        "halftime": {
+          "home": 0,
+          "away": 0
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1005,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-12T12:00:00+00:00",
+        "timestamp": 1794484800,
+        "status": {
+          "long": "Match Finished After Extra Time",
+          "short": "AET",
+          "elapsed": 120,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 81,
+        "name": "DFB Pokal",
+        "country": "Germany",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Round of 16"
+      },
+      "teams": {
+        "home": {
+          "id": 1,
+          "name": "Bayern Munich",
+          "winner": null
+        },
+        "away": {
+          "id": 2,
+          "name": "Borussia Dortmund",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 3,
+        "away": 2
+      },
+      "score": {
+        "halftime": {
+          "home": 1,
+          "away": 1
+        },
+        "fulltime": {
+          "home": 2,
+          "away": 2
+        },
+        "extratime": {
+          "home": 1,
+          "away": 0
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1006,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-12T12:00:00+00:00",
+        "timestamp": 1794484800,
+        "status": {
+          "long": "Match Finished After Penalty",
+          "short": "PEN",
+          "elapsed": 120,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 137,
+        "name": "Coppa Italia",
+        "country": "Italy",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Quarter-finals"
+      },
+      "teams": {
+        "home": {
+          "id": 3,
+          "name": "Juventus",
+          "winner": null
+        },
+        "away": {
+          "id": 4,
+          "name": "Inter",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 1,
+        "away": 1
+      },
+      "score": {
+        "halftime": {
+          "home": 0,
+          "away": 1
+        },
+        "fulltime": {
+          "home": 1,
+          "away": 1
+        },
+        "extratime": {
+          "home": 0,
+          "away": 0
+        },
+        "penalty": {
+          "home": 4,
+          "away": 3
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1007,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-14T12:00:00+00:00",
+        "timestamp": 1794657600,
+        "status": {
+          "long": "Match Postponed",
+          "short": "PST",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 135,
+        "name": "Serie A",
+        "country": "Italy",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 5,
+          "name": "Napoli",
+          "winner": null
+        },
+        "away": {
+          "id": 6,
+          "name": "Roma",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": null,
+        "away": null
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1008,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T13:00:00+00:00",
+        "timestamp": 1794574800,
+        "status": {
+          "long": "Match Cancelled",
+          "short": "CANC",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 88,
+        "name": "Eredivisie",
+        "country": "Netherlands",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 7,
+          "name": "Ajax",
+          "winner": null
+        },
+        "away": {
+          "id": 8,
+          "name": "PSV",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": null,
+        "away": null
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1009,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T10:00:00+00:00",
+        "timestamp": 1794564000,
+        "status": {
+          "long": "Match Abandoned",
+          "short": "ABD",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 94,
+        "name": "Primeira Liga",
+        "country": "Portugal",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 9,
+          "name": "Benfica",
+          "winner": null
+        },
+        "away": {
+          "id": 10,
+          "name": "Porto",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 0,
+        "away": 1
+      },
+      "score": {
+        "halftime": {
+          "home": 0,
+          "away": 1
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1010,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-12T12:00:00+00:00",
+        "timestamp": 1794484800,
+        "status": {
+          "long": "Technical Loss",
+          "short": "AWD",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 2001,
+        "name": "Liga Promerica",
+        "country": "Costa-Rica",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 11,
+          "name": "Club A",
+          "winner": null
+        },
+        "away": {
+          "id": 12,
+          "name": "Club B",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 3,
+        "away": 0
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": 3,
+          "away": 0
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1011,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-12T12:00:00+00:00",
+        "timestamp": 1794484800,
+        "status": {
+          "long": "WalkOver",
+          "short": "WO",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 2001,
+        "name": "Liga Promerica",
+        "country": "Costa-Rica",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 13,
+          "name": "Club C",
+          "winner": null
+        },
+        "away": {
+          "id": 14,
+          "name": "Club D",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 3,
+        "away": 0
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": 3,
+          "away": 0
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1012,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-12T12:00:00+00:00",
+        "timestamp": 1794484800,
+        "status": {
+          "long": "Match Finished",
+          "short": "FT",
+          "elapsed": 90,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 2001,
+        "name": "Liga Promerica",
+        "country": "Costa-Rica",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 15,
+          "name": "Club E",
+          "winner": null
+        },
+        "away": {
+          "id": 16,
+          "name": "Club F",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": null,
+        "away": null
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1013,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-12T12:00:00+00:00",
+        "timestamp": 1794484800,
+        "status": {
+          "long": "Match Finished",
+          "short": "FT",
+          "elapsed": 90,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 233,
+        "name": "Premier League",
+        "country": "Egypt",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 12"
+      },
+      "teams": {
+        "home": {
+          "id": 17,
+          "name": "Al Ahly",
+          "winner": null
+        },
+        "away": {
+          "id": 18,
+          "name": "Zamalek",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": 1,
+        "away": 0
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": 1,
+          "away": 0
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1014,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-11-13T18:00:00+03:00",
+        "timestamp": 1794582000,
+        "status": {
+          "long": "Not Started",
+          "short": "NS",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 363,
+        "name": "Premier League",
+        "country": "Ethiopia",
+        "logo": "x",
+        "flag": null,
+        "season": 2026,
+        "round": "Regular Season - 3"
+      },
+      "teams": {
+        "home": {
+          "id": 19,
+          "name": "Saint George",
+          "winner": null
+        },
+        "away": {
+          "id": 20,
+          "name": "Fasil Kenema",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": null,
+        "away": null
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      }
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import type { BetView, EventSummary } from '@vamos/contracts';
 import { getBet, getWallet, myBets, placeBetApi, upcomingEvents } from '../support/api';
 import { API_URL, WEB_URL } from '../support/env';
 import { birr, santimIn } from '../support/money';
-import { ADULT_DATE_OF_BIRTH, randomPhone } from '../support/phone';
+import { randomPhone } from '../support/phone';
 import { balanceChip, registerAndVerify } from '../support/ui';
 
 /**
@@ -110,7 +110,7 @@ test('cash out a running accumulator through the confirm sheet', async ({ page }
   const phone = randomPhone();
 
   await test.step('register, verify and add ETB 1,000 of play money', async () => {
-    await registerAndVerify(page, phone, ADULT_DATE_OF_BIRTH);
+    await registerAndVerify(page, phone);
     await page.getByRole('radio', { name: '1,000', exact: true }).click();
     await page.getByRole('button', { name: `Add ETB ${birr(TOP_UP)}` }).click();
     await expect(page.getByText('ETB 1,000.00 of play money was added.')).toBeVisible();

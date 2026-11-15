@@ -51,7 +51,7 @@ export class MockSmsProvider implements SmsProvider {
 export function otpSmsBody(code: string, locale: Locale): string {
   const amharic = `የማረጋገጫ ኮድዎ ${code} ነው።`;
   const english = `Your code is ${code}. Valid 5 min. Never share it.`;
-  return locale === 'en' ? `Vamos: ${english} ${amharic}` : `Vamos: ${amharic} ${english}`;
+  return locale === 'en' ? `Nahubet: ${english} ${amharic}` : `Nahubet: ${amharic} ${english}`;
 }
 
 /** The security notices players get by SMS (the template id of each message). */
@@ -75,5 +75,5 @@ const SECURITY_NOTICES: Record<SecurityNotice, { am: string; en: string }> = {
  */
 export function securityNoticeSmsBody(event: SecurityNotice, locale: Locale): string {
   const { am, en } = SECURITY_NOTICES[event];
-  return locale === 'en' ? `Vamos: ${en} ${am}` : `Vamos: ${am} ${en}`;
+  return locale === 'en' ? `Nahubet: ${en} ${am}` : `Nahubet: ${am} ${en}`;
 }

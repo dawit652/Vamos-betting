@@ -1,0 +1,35 @@
+{
+  "id": "unafut-site",
+  "name": "DRAFT UNAFUT official site (selectors are placeholders)",
+  "adapter": "generic-html",
+  "upstream": "UNAFUT / Genius Sports LiveStats (press release Feb 2020; UNVERIFIED today)",
+  "config": {
+    "allowedHosts": ["www.unafut.com"],
+    "requests": [
+      {
+        "url": "https://www.unafut.com/REPLACE-WITH-THE-CALENDAR-PAGE-URL/",
+        "purpose": "both"
+      }
+    ],
+    "sport": "football",
+    "itemSelector": ".REPLACE-match-row",
+    "fields": {
+      "home": { "selector": ".REPLACE-home-team" },
+      "away": { "selector": ".REPLACE-away-team" },
+      "competition": { "fixed": "Liga Promerica" },
+      "kickoff": {
+        "date": { "selector": ".REPLACE-date", "format": "DD/MM/YYYY" },
+        "time": { "selector": ".REPLACE-time" },
+        "timeZone": "America/Costa_Rica"
+      },
+      "round": { "selector": ".REPLACE-matchday" },
+      "status": {
+        "selector": ".REPLACE-status",
+        "map": { "REPLACE: text shown for a finished match": "finished" },
+        "default": "scheduled"
+      },
+      "score": { "selector": ".REPLACE-score" }
+    },
+    "scoreBasis": "regular_time"
+  }
+}

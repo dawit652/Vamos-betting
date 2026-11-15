@@ -1,9 +1,10 @@
 import {
-  EventListQuery,
-  EventSearchQuery,
+  eventListQueryAt,
   type CompetitionsResponse,
   type EventDetail,
   type EventListResponse,
+  SearchQuery,
+  type SearchResponse,
   type SportsResponse,
 } from '@vamos/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -15,8 +16,9 @@ import {
   listCompetitions,
   listEvents,
   listSports,
-  searchEvents,
+  searchCatalog,
 } from './queries';
+import type { ViewOptions } from './views';
 
 /** Lists change with every odds tick; a few seconds of caching absorbs refresh storms. */
 export const LIST_CACHE_CONTROL = 'public, max-age=5';
@@ -33,6 +35,10 @@ function cache(reply: FastifyReply, value: string): void {
  */
 export default async function catalogRoutes(app: FastifyInstance): Promise<void> {
   const { deps } = app;
+  /** Read per request, so the switch is the config's current value. */
+  const viewOptions = (): ViewOptions => ({
+    factoryMarkets: deps.config.features.factoryMarkets,
+  });
 
   app.get('/sports', async (_request, reply): Promise<SportsResponse> => {
     const body = await listSports(deps.db, deps.clock());
@@ -51,15 +57,16 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
   );
 
   app.get('/events', async (request, reply): Promise<EventListResponse> => {
-    const query = parseInput(EventListQuery, request.query);
-    const body = await listEvents(deps.db, query, deps.clock());
+    const now = deps.clock();
+    const query = parseInput(eventListQueryAt(now), request.query);
+    const body = await listEvents(deps.db, query, now, viewOptions());
     cache(reply, LIST_CACHE_CONTROL);
     return body;
   });
 
-  app.get('/events/search', async (request, reply): Promise<EventListResponse> => {
-    const query = parseInput(EventSearchQuery, request.query);
-    const body = await searchEvents(deps.db, query, deps.clock());
+  app.get('/search', async (request, reply): Promise<SearchResponse> => {
+    const query = parseInput(SearchQuery, request.query);
+    const body = await searchCatalog(deps.db, query, deps.clock(), viewOptions());
     cache(reply, LIST_CACHE_CONTROL);
     return body;
   });
@@ -67,7 +74,12 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
   app.get<{ Params: { gameId: string } }>(
     '/events/by-game-id/:gameId',
     async (request, reply): Promise<EventDetail> => {
-      const body = await getEventByGameId(deps.db, request.params.gameId, deps.clock());
+      const body = await getEventByGameId(
+        deps.db,
+        request.params.gameId,
+        deps.clock(),
+        viewOptions(),
+      );
       if (body === null) throw notFound('Event');
       cache(reply, DETAIL_CACHE_CONTROL);
       return body;
@@ -77,7 +89,7 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
   app.get<{ Params: { id: string } }>(
     '/events/:id',
     async (request, reply): Promise<EventDetail> => {
-      const body = await getEventById(deps.db, request.params.id, deps.clock());
+      const body = await getEventById(deps.db, request.params.id, deps.clock(), viewOptions());
       if (body === null) throw notFound('Event');
       cache(reply, DETAIL_CACHE_CONTROL);
       return body;

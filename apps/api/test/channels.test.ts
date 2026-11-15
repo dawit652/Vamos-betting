@@ -352,7 +352,7 @@ describe('channels on', () => {
       expect(response.body.length).toBeLessThanOrEqual(182);
       return response.body;
     };
-    expect(await call('')).toMatch(/^CON Vamos DEMO\n1 Place bet/);
+    expect(await call('')).toMatch(/^CON Nahubet DEMO\n1 Place bet/);
     expect(await call('1')).toBe('CON Enter Game ID:\n00 Main menu');
     expect(await call(`1*${game.gameId}`)).toContain('1 St. George 1.85');
     expect(await call(`1*${game.gameId}*1`)).toMatch(/^CON St\. George @1\.85\nEnter stake/);

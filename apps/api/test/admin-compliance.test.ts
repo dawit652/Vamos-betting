@@ -1,23 +1,18 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   AmlFlagListResponse,
   ApiErrorSchema,
   COMPLIANCE_ROUTE_PERMISSIONS,
   ComplianceSettingsResponse,
-  ElsReportStatusResponse,
   ImportPspStatementResponse,
   PERMISSION_ROLES,
   ReconciliationRequestResponse,
   ReconciliationRunDetailResponse,
   ReconciliationRunListResponse,
-  RecomputeDailySummaryResponse,
   ReviewAmlFlagResponse,
   STAFF_ROLES,
   type StaffRole,
 } from '@vamos/contracts';
-import { addBusinessDays, businessDateOf } from '@vamos/core';
+import { businessDateOf } from '@vamos/core';
 import { runRequestedReconciliation, schema } from '@vamos/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -32,14 +27,12 @@ import {
 } from './helpers';
 
 let ctx: TestContext;
-let dir: string;
 let player: LoggedInUser;
 const staff = new Map<StaffRole, StaffSession>();
 const as = (role: StaffRole) => staff.get(role)!;
 
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'vamos-els-api-'));
-  ctx = await createTestContext({ ELS_REPORT_DIR: dir });
+  ctx = await createTestContext();
   await seedStaff(ctx);
   for (const role of STAFF_ROLES) staff.set(role, await staffLogin(ctx, role));
   player = await registerAndLogin(ctx);
@@ -47,7 +40,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await ctx?.close();
-  if (dir) await rm(dir, { recursive: true, force: true });
 });
 
 const today = () => businessDateOf(ctx.clock.now);
@@ -86,8 +78,6 @@ describe('/admin/compliance RBAC', () => {
 
   it('answers 401 without a staff session (or with a player one) and 403 to roles without the permission', async () => {
     const table: Array<[method: 'GET' | 'POST', url: string, allowed: StaffRole[]]> = [
-      ['GET', '/admin/compliance/daily-summaries', ['admin', 'compliance', 'finance']],
-      ['GET', '/admin/compliance/els', ['admin', 'compliance', 'finance']],
       ['GET', '/admin/compliance/reconciliation-runs', ['admin', 'compliance', 'finance']],
       ['GET', '/admin/compliance/psp-statements', ['admin', 'compliance', 'finance']],
       ['GET', '/admin/compliance/settings', ['admin', 'compliance', 'finance']],
@@ -112,86 +102,6 @@ describe('/admin/compliance RBAC', () => {
         }
       }
     }
-  });
-});
-
-describe('daily summaries', () => {
-  it('recomputes a day (audited) and downloads the CSV with download headers', async () => {
-    const date = today();
-    const support = await asStaff(
-      ctx,
-      as('support'),
-      'POST',
-      `/admin/compliance/daily-summaries/${date}/recompute`,
-    );
-    expect(support.statusCode).toBe(403);
-
-    const recompute = await asStaff(
-      ctx,
-      as('finance'),
-      'POST',
-      `/admin/compliance/daily-summaries/${date}/recompute`,
-    );
-    expect(recompute.statusCode, recompute.body).toBe(200);
-    const body = RecomputeDailySummaryResponse.parse(recompute.json());
-    expect(body.summary).toMatchObject({ businessDate: date, status: 'provisional' });
-    expect(['created', 'recomputed', 'unchanged']).toContain(body.outcome);
-    const audits = await auditActions('compliance.daily_summary_recomputed', date);
-    expect(audits).toHaveLength(1);
-    expect(audits[0]).toMatchObject({ actorType: 'admin', actorId: as('finance').id });
-
-    const detail = await asStaff(
-      ctx,
-      as('compliance'),
-      'GET',
-      `/admin/compliance/daily-summaries/${date}`,
-    );
-    expect(detail.statusCode).toBe(200);
-
-    const csv = await asStaff(
-      ctx,
-      as('compliance'),
-      'GET',
-      `/admin/compliance/daily-summaries.csv?from=${addBusinessDays(date, -1)}&to=${date}`,
-    );
-    expect(csv.statusCode, csv.body).toBe(200);
-    expect(csv.headers['content-type']).toBe('text/csv; charset=utf-8');
-    expect(csv.headers['content-disposition']).toBe(
-      `attachment; filename="vamos-daily-summaries-${addBusinessDays(date, -1)}-to-${date}.csv"`,
-    );
-    expect(csv.headers['cache-control']).toBe('no-store');
-    const rows = csv.body.trim().split('\n');
-    expect(rows).toHaveLength(2); // the header and today's row
-    expect(rows[1]).toContain(date);
-  });
-
-  it('refuses bad ranges and unknown days', async () => {
-    const date = today();
-    const reversed = await asStaff(
-      ctx,
-      as('admin'),
-      'GET',
-      `/admin/compliance/daily-summaries.csv?from=${date}&to=${addBusinessDays(date, -1)}`,
-    );
-    expect(reversed.statusCode).toBe(422);
-    expect(ApiErrorSchema.parse(reversed.json()).error.code).toBe('invalid_range');
-    const missing = await asStaff(ctx, as('admin'), 'GET', '/admin/compliance/daily-summaries.csv');
-    expect(missing.statusCode).toBe(400);
-    for (const url of [
-      '/admin/compliance/daily-summaries/2026-02-30',
-      '/admin/compliance/daily-summaries/not-a-date',
-      '/admin/compliance/daily-summaries/1999-01-01',
-    ]) {
-      expect((await asStaff(ctx, as('admin'), 'GET', url)).statusCode, url).toBe(404);
-    }
-    const future = await asStaff(
-      ctx,
-      as('admin'),
-      'POST',
-      `/admin/compliance/daily-summaries/${addBusinessDays(date, 5)}/recompute`,
-    );
-    expect(future.statusCode).toBe(422);
-    expect(ApiErrorSchema.parse(future.json()).error.code).toBe('summary_not_started');
   });
 });
 
@@ -428,31 +338,27 @@ describe('AML flags', () => {
   });
 });
 
-describe('ELS status and settings', () => {
-  it('shows the configured reporter and the stream counts', async () => {
-    const response = await asStaff(ctx, as('finance'), 'GET', '/admin/compliance/els');
-    expect(response.statusCode).toBe(200);
-    const body = ElsReportStatusResponse.parse(response.json());
-    expect(body.reporter).toMatchObject({ mode: 'file', target: dir });
-  });
-
+describe('compliance settings', () => {
   it('reads the compliance settings and lets only settings.edit change them (audited)', async () => {
     const read = await asStaff(ctx, as('finance'), 'GET', '/admin/compliance/settings');
-    expect(ComplianceSettingsResponse.parse(read.json()).settings.elsCommission.rateBps).toBe(1500);
-    const url = '/admin/compliance/settings/els_commission';
-    expect(
-      (await asStaff(ctx, as('compliance'), 'PUT', url, { value: { rateBps: 1000 } })).statusCode,
-    ).toBe(403);
-    const changed = await asStaff(ctx, as('admin'), 'PUT', url, { value: { rateBps: 1000 } });
+    const { amlRules } = ComplianceSettingsResponse.parse(read.json()).settings;
+    expect(amlRules.enabled).toBe(true);
+    const url = '/admin/compliance/settings/aml_rules';
+    const value = { ...amlRules, enabled: false };
+    expect((await asStaff(ctx, as('compliance'), 'PUT', url, { value })).statusCode).toBe(403);
+    const changed = await asStaff(ctx, as('admin'), 'PUT', url, { value });
     expect(changed.statusCode, changed.body).toBe(200);
-    expect(ComplianceSettingsResponse.parse(changed.json()).settings.elsCommission.rateBps).toBe(
-      1000,
-    );
-    const invalid = await asStaff(ctx, as('admin'), 'PUT', url, { value: { rateBps: 20_000 } });
+    expect(ComplianceSettingsResponse.parse(changed.json()).settings.amlRules.enabled).toBe(false);
+    expect(await auditActions('settings.updated', 'aml_rules')).toHaveLength(1);
+    const invalid = await asStaff(ctx, as('admin'), 'PUT', url, {
+      value: { ...amlRules, depositVelocity: { ...amlRules.depositVelocity, maxPerHour: -1 } },
+    });
     expect(invalid.statusCode).toBe(422);
-    expect(
-      (await asStaff(ctx, as('admin'), 'PUT', '/admin/compliance/settings/tax', { value: {} }))
-        .statusCode,
-    ).toBe(404);
+    for (const key of ['els_commission', 'tax']) {
+      expect(
+        (await asStaff(ctx, as('admin'), 'PUT', `/admin/compliance/settings/${key}`, { value: {} }))
+          .statusCode,
+      ).toBe(404);
+    }
   });
 });

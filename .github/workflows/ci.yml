@@ -1,9 +1,21 @@
 name: CI
 
 on:
+  # Every branch push, which also covers pull requests from this repository: a `pull_request`
+  # trigger next to it ran the whole workflow twice for each push to a branch with an open PR.
   push:
-    branches: [main, 'claude/**']
-  pull_request:
+    branches: ['**']
+    # A change to documentation only cannot break the code, and costs no runner minutes.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  # Actions tab -> CI -> Run workflow: all three jobs on the branch you pick (see the cost note below).
+  workflow_dispatch:
+
+# Cost: the GitHub Free plan includes 2,000 runner minutes a month for private repositories.
+# `checks` (about 15 minutes) runs on every push. The two slow jobs, `e2e` (about 20 minutes) and
+# `docker` (about 6), run on pushes to the default branch and on demand, so a full run is about
+# 40 minutes and a branch push about 15.
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -66,6 +78,7 @@ jobs:
 
   e2e:
     name: End-to-end (Playwright, mobile Chromium)
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -132,6 +145,7 @@ jobs:
 
   docker:
     name: Docker images and smoke test
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -139,23 +153,36 @@ jobs:
       COMPOSE_ENV_FILES: infra/.env.prod
     steps:
       - uses: actions/checkout@v4
-      # Throwaway secrets; the stack runs in demo mode on http://localhost URLs.
-      - run: infra/scripts/init-env.sh
+      # Throwaway secrets; the stack runs in LICENSED mode (real-money settings, the live SMS deposit rail
+      # with made-up collection accounts) on http://localhost URLs. SMS and KYC use the mock adapters, the
+      # only ones that exist. See infra/scripts/init-env-ci.sh.
+      - run: bash infra/scripts/init-env-ci.sh
       - name: Validate the Caddy configuration (proxy profile)
         run: |
           docker run --rm -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            -e ACME_EMAIL=ops@example.et -e WEB_DOMAIN=vamos.example.et \
-            -e API_DOMAIN=api.vamos.example.et -e ADMIN_DOMAIN=admin.vamos.example.et \
+            -e ACME_EMAIL=ops@example.et -e WEB_DOMAIN=nahubet.example.com \
+            -e API_DOMAIN=api.nahubet.example.com -e ADMIN_DOMAIN=admin.nahubet.example.com \
             -e STAFF_ALLOWLIST=10.0.0.0/8 \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - name: Build the images (api, worker, web, admin)
+      - name: Build the images (api, worker, scraper, web, admin)
         run: docker compose build
-      - name: Start postgres, redis, migrate, api, worker, web and admin
+      - name: Start postgres, redis, migrate, api, worker, scraper, web and admin
         run: |
           docker compose up -d --wait --wait-timeout 240
           docker compose run --rm migrate node dist/ops/seed.js
       - name: Smoke test
-        run: scripts/smoke.sh --production --wait 120 --worker http://localhost:4100
+        run: |
+          # The scraper's port is not published: reach the container on the compose network.
+          scraper_ip="$(docker inspect -f '{{ (index .NetworkSettings.Networks "vamos_vamos").IPAddress }}' "$(docker compose ps -q scraper)")"
+          test -n "$scraper_ip"
+          scripts/smoke.sh --production --wait 120 --worker http://localhost:4100 --scraper "http://$scraper_ip:4200"
+      - name: Scraper CLI runs in the image against the compose database
+        # Postgres is not published: the command line is run inside the scraper image (docs/scraper.md, 12).
+        run: docker compose run --rm --no-deps scraper node dist/cli.js sources list
+      - name: Scraper archive volume is writable and can be backed up
+        run: |
+          docker compose exec -T scraper sh -c 'touch /var/lib/vamos/scraper/.ci && rm /var/lib/vamos/scraper/.ci'
+          docker compose exec -T scraper tar -C /var/lib/vamos/scraper -czf - . | tar -tz >/dev/null
       - name: Container logs
         if: failure()
         run: docker compose logs --no-color --tail 200

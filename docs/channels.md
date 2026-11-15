@@ -1,7 +1,7 @@
 # SMS and USSD betting (Phase 11)
 
 Betting by text message and USSD menus, Betika style. **Both channels are off by default and stay
-off until the regulator (ELS) approves them.** While a channel is off its inbound route answers
+off until the regulator approves them.** While a channel is off its inbound route answers
 404 and nothing else changes.
 
 ## Switches
@@ -97,7 +97,7 @@ Responses are `CON …` / `END …`, at most 182 characters, in English or Amhar
 - **Retention:** the worker's `ussd-session-prune` task (hourly, at most 10 batches of 1,000 per
   run) deletes sessions that expired more than 7 days ago and placed no bet. Sessions with a bet
   are kept with it. Inbound texts (`inbound_messages`) are evidence and are never pruned; any
-  archiving of them is a decision for the retention policy agreed with ELS (Phase 12).
+  archiving of them is a decision for the retention policy agreed with the regulator (Phase 12).
 
 ## API routes (`apps/api/src/modules/channels`)
 

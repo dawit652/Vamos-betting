@@ -4,7 +4,6 @@ import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  finalizeDailySummary,
   getPspStatement,
   getReconciliationRun,
   importPspStatement,
@@ -240,11 +239,8 @@ describe('reconciliation', () => {
     );
   });
 
-  it('detects a posting into a day whose summary is final', async () => {
+  it('detects a stake posted yesterday with no bet behind it', async () => {
     const yesterday = addBusinessDays(businessDateOf(new Date()), -1);
-    await handle.db.transaction((tx) =>
-      finalizeDailySummary(tx, { date: yesterday, now: new Date() }),
-    );
     await handle.db.transaction((tx) =>
       postTransaction(tx, {
         type: 'bet_stake',
@@ -257,10 +253,6 @@ describe('reconciliation', () => {
       }),
     );
     const detail = await run();
-    expect(detail.mismatches).toContainEqual(
-      expect.objectContaining({ check: 'daily_summary', subjectId: yesterday }),
-    );
-    // The stake has no bet behind it either.
     expect(failing(detail)).toContain('house_stakes');
     const listed = await listReconciliationRuns(handle.db, { limit: 2 });
     expect(listed.items[0]?.id).toBe(detail.run.id);

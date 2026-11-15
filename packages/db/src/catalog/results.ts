@@ -1,10 +1,10 @@
 import {
   certainMarketResult,
-  MARKET_TYPES,
-  resolveSelection,
+  isLegacyMarketType,
+  isSettleableMarket,
+  resolveMarketSelection,
   type InPlayScore,
   type MarketResult,
-  type MarketTypeCode,
   type ResolutionInput,
   type SelectionResult,
 } from '@vamos/core';
@@ -59,7 +59,8 @@ const RESULT_STATUSES: ReadonlySet<string> = new Set([
 
 /**
  * Results an event: resolves every selection of every market with
- * resolveSelection (@vamos/core), marks selections 'settled' with their
+ * resolveMarketSelection (@vamos/core: today's types as resolveSelection, factory-only types by
+ * their factory rule), marks selections 'settled' with their
  * result, markets 'settled' (or 'void' when every selection is void), and
  * the event finished / cancelled / abandoned / postponed with its score and
  * resulted_at. Writes an 'event.resulted' outbox event in the same
@@ -183,10 +184,11 @@ export async function resultEvent(
   // Markets decided in play whose result this (final-score) correction overturns.
   const overturned: string[] = [];
   for (const market of toResolve) {
-    if (!Object.hasOwn(MARKET_TYPES, market.type)) {
+    // Today's types, or a market the factory defines (plan task 2.3): settled by the rule that priced it.
+    if (!isSettleableMarket(market.type, market.line)) {
       throw new RangeError(`market ${market.id} has an unknown type "${market.type}"`);
     }
-    const type = market.type as MarketTypeCode;
+    const type = market.type;
     let allVoid = true;
     for (const selection of selectionsByMarket.get(market.id) ?? []) {
       let result: SelectionResult;
@@ -195,7 +197,7 @@ export async function resultEvent(
         result =
           selection.voidedAt !== null
             ? 'void'
-            : resolveSelection({ type, line: market.line }, selection.code, resolution);
+            : resolveMarketSelection({ type, line: market.line }, selection.code, resolution);
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         throw new RangeError(`cannot result market ${market.id} (${type}): ${reason}`, {
@@ -414,10 +416,10 @@ export async function resultMarket(
   if (market.voidedAt !== null) {
     return { outcome: 'unchanged', eventId: event.id, marketId, status: 'void', messages: [] };
   }
-  if (!Object.hasOwn(MARKET_TYPES, market.type)) {
+  if (!isSettleableMarket(market.type, market.line)) {
     throw new RangeError(`market ${market.id} has an unknown type "${market.type}"`);
   }
-  const type = market.type as MarketTypeCode;
+  const type = market.type;
   const selectionRows = await tx
     .select({
       id: selections.id,
@@ -432,7 +434,10 @@ export async function resultMarket(
 
   let decided: MarketResult | null;
   try {
-    decided = certainMarketResult({ type, line: market.line }, score);
+    // Factory-only markets are never decided in play: they settle at full time only.
+    decided = isLegacyMarketType(type)
+      ? certainMarketResult({ type, line: market.line }, score)
+      : null;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new RangeError(`cannot result market ${market.id} (${market.key}): ${reason}`, {

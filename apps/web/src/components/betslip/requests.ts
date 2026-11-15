@@ -177,6 +177,7 @@ export const PLACE_BET_ERROR_KEYS: Readonly<Record<string, MessageKey>> = {
   slip_invalid: 'sportsbook.betslip.errors.invalid',
   insufficient_funds: 'sportsbook.betslip.insufficientFunds',
   stake_limit_exceeded: 'sportsbook.betslip.errors.stakeLimit',
+  liability_limit: 'sportsbook.betslip.errors.liabilityLimit',
   loss_limit_exceeded: 'sportsbook.betslip.errors.lossLimit',
   self_excluded: 'sportsbook.betslip.errors.excluded',
   cooling_off: 'sportsbook.betslip.errors.excluded',

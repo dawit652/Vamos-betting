@@ -1,0 +1,1260 @@
+{
+  "evaluation": "02-speed-and-resilience",
+  "evaluatedAt": "2026-10-29",
+  "scope": "P1, P3, two P4 checks; P2/P5/rest of P4 not done",
+  "sources": {
+    "openfootballHead": "e6744429ee395bc86f247348c6184bb08d4eb361 2026-09-22T09:33:49+00:00",
+    "fplHead": "d7b05b51d137bfefef4b692386d18c610975b9b9 2026-10-22T09:46:21+02:00"
+  },
+  "p1_freshness": {
+    "en.1 2026-27": {
+      "commitsValid": 8,
+      "lagWithTimeHours": {
+        "n": 45,
+        "medianH": 66.5,
+        "p90H": 149.1,
+        "maxH": 161.3,
+        "buckets": {
+          "<6 h": 0,
+          "6-24 h": 0,
+          "1-3 d": 25,
+          "3-7 d": 20,
+          "7-14 d": 0,
+          ">=14 d": 0
+        }
+      },
+      "lagIncludingStillPendingLowerBoundHours": {
+        "n": 80,
+        "minH": 32.7,
+        "medianH": 104.5,
+        "p90H": 460.8,
+        "maxH": 1300.8
+      },
+      "updateGapHours": {
+        "n": 7,
+        "minH": 5.5,
+        "medianH": 72.5,
+        "p90H": 199,
+        "maxH": 239.8
+      },
+      "playedAtNow": {
+        "played": 80,
+        "noScore": 30,
+        "bareListScore": 5,
+        "noTime": 0,
+        "postponed": 0
+      },
+      "corrections": 0,
+      "reschedules": 283,
+      "reschedulesByWhenAppeared": {
+        "retroactive": 0,
+        "within14d": 14,
+        "beyond14d": 269,
+        "unknown": 0
+      },
+      "invalidSnapshots": [],
+      "noTimeAtLastCommit": 0,
+      "bareZeroZeroAtLast": 5
+    },
+    "en.1 2025-26": {
+      "commitsValid": 20,
+      "lagWithTimeHours": {
+        "n": 380,
+        "medianH": 401.1,
+        "p90H": 1225.9,
+        "maxH": 1938.1,
+        "buckets": {
+          "<6 h": 0,
+          "6-24 h": 6,
+          "1-3 d": 48,
+          "3-7 d": 66,
+          "7-14 d": 58,
+          ">=14 d": 202
+        }
+      },
+      "lagIncludingStillPendingLowerBoundHours": {
+        "n": 407,
+        "minH": 8,
+        "medianH": 409.6,
+        "p90H": 1751.1,
+        "maxH": 10543.3
+      },
+      "updateGapHours": {
+        "n": 19,
+        "minH": 14.5,
+        "medianH": 168,
+        "p90H": 856.3,
+        "maxH": 2326.5
+      },
+      "playedAtNow": {
+        "played": 380,
+        "noScore": 0,
+        "bareListScore": 27,
+        "noTime": 0,
+        "postponed": 0
+      },
+      "corrections": 5,
+      "reschedules": 110,
+      "reschedulesByWhenAppeared": {
+        "retroactive": 33,
+        "within14d": 35,
+        "beyond14d": 42,
+        "unknown": 0
+      },
+      "invalidSnapshots": [
+        {
+          "sha": "16a82f2b2",
+          "at": "2025-12-04T15:34:17.000Z",
+          "reason": "invalid JSON (Expected ',' or '}' after property value in JSON at position 32709 (line 1904 column 12))"
+        },
+        {
+          "sha": "3da56c22a",
+          "at": "2026-05-23T07:24:42.000Z",
+          "reason": "380 of 380 records have no date"
+        }
+      ],
+      "noTimeAtLastCommit": 0,
+      "bareZeroZeroAtLast": 27
+    },
+    "es.1 2026-27": {
+      "commitsValid": 7,
+      "lagWithTimeHours": {
+        "n": 54,
+        "medianH": 75.8,
+        "p90H": 156.4,
+        "maxH": 180.5,
+        "buckets": {
+          "<6 h": 0,
+          "6-24 h": 0,
+          "1-3 d": 27,
+          "3-7 d": 25,
+          "7-14 d": 2,
+          ">=14 d": 0
+        }
+      },
+      "lagIncludingStillPendingLowerBoundHours": {
+        "n": 80,
+        "minH": 32.2,
+        "medianH": 109.5,
+        "p90H": 458.5,
+        "maxH": 1633.3
+      },
+      "updateGapHours": {
+        "n": 6,
+        "minH": 5.5,
+        "medianH": 120.3,
+        "p90H": 205.8,
+        "maxH": 239.8
+      },
+      "playedAtNow": {
+        "played": 100,
+        "noScore": 31,
+        "bareListScore": 5,
+        "noTime": 10,
+        "postponed": 0
+      },
+      "corrections": 0,
+      "reschedules": 29,
+      "reschedulesByWhenAppeared": {
+        "retroactive": 1,
+        "within14d": 7,
+        "beyond14d": 21,
+        "unknown": 0
+      },
+      "invalidSnapshots": [],
+      "noTimeAtLastCommit": 290,
+      "bareZeroZeroAtLast": 5
+    },
+    "de.1 2026-27": {
+      "commitsValid": 6,
+      "lagWithTimeHours": {
+        "n": 33,
+        "medianH": 90,
+        "p90H": 161.8,
+        "maxH": 180.8,
+        "buckets": {
+          "<6 h": 0,
+          "6-24 h": 0,
+          "1-3 d": 11,
+          "3-7 d": 21,
+          "7-14 d": 1,
+          ">=14 d": 0
+        }
+      },
+      "lagIncludingStillPendingLowerBoundHours": {
+        "n": 63,
+        "minH": 38.3,
+        "medianH": 125.3,
+        "p90H": 461.3,
+        "maxH": 1469.3
+      },
+      "updateGapHours": {
+        "n": 5,
+        "minH": 5.5,
+        "medianH": 168.1,
+        "p90H": 227.3,
+        "maxH": 239.8
+      },
+      "playedAtNow": {
+        "played": 63,
+        "noScore": 27,
+        "bareListScore": 3,
+        "noTime": 0,
+        "postponed": 0
+      },
+      "corrections": 0,
+      "reschedules": 23,
+      "reschedulesByWhenAppeared": {
+        "retroactive": 0,
+        "within14d": 0,
+        "beyond14d": 23,
+        "unknown": 0
+      },
+      "invalidSnapshots": [],
+      "noTimeAtLastCommit": 198,
+      "bareZeroZeroAtLast": 3
+    },
+    "it.1 2026-27": {
+      "commitsValid": 7,
+      "lagWithTimeHours": {
+        "n": 46,
+        "medianH": 66.6,
+        "p90H": 136.8,
+        "maxH": 180.6,
+        "buckets": {
+          "<6 h": 0,
+          "6-24 h": 0,
+          "1-3 d": 26,
+          "3-7 d": 19,
+          "7-14 d": 1,
+          ">=14 d": 0
+        }
+      },
+      "lagIncludingStillPendingLowerBoundHours": {
+        "n": 85,
+        "minH": 1.3,
+        "medianH": 90.6,
+        "p90H": 409.4,
+        "maxH": 461.8
+      },
+      "updateGapHours": {
+        "n": 6,
+        "minH": 5.5,
+        "medianH": 120.3,
+        "p90H": 205.8,
+        "maxH": 239.8
+      },
+      "playedAtNow": {
+        "played": 89,
+        "noScore": 39,
+        "bareListScore": 0,
+        "noTime": 0,
+        "postponed": 0
+      },
+      "corrections": 0,
+      "reschedules": 42,
+      "reschedulesByWhenAppeared": {
+        "retroactive": 0,
+        "within14d": 5,
+        "beyond14d": 37,
+        "unknown": 0
+      },
+      "invalidSnapshots": [],
+      "noTimeAtLastCommit": 260,
+      "bareZeroZeroAtLast": 0
+    },
+    "fr.1 2026-27": {
+      "commitsValid": 7,
+      "lagWithTimeHours": {
+        "n": 37,
+        "medianH": 84.7,
+        "p90H": 145.6,
+        "maxH": 180.6,
+        "buckets": {
+          "<6 h": 0,
+          "6-24 h": 0,
+          "1-3 d": 17,
+          "3-7 d": 19,
+          "7-14 d": 1,
+          ">=14 d": 0
+        }
+      },
+      "lagIncludingStillPendingLowerBoundHours": {
+        "n": 68,
+        "minH": 37.1,
+        "medianH": 109.6,
+        "p90H": 456,
+        "maxH": 1632
+      },
+      "updateGapHours": {
+        "n": 6,
+        "minH": 5.5,
+        "medianH": 120.3,
+        "p90H": 205.8,
+        "maxH": 239.8
+      },
+      "playedAtNow": {
+        "played": 72,
+        "noScore": 27,
+        "bareListScore": 4,
+        "noTime": 0,
+        "postponed": 0
+      },
+      "corrections": 0,
+      "reschedules": 41,
+      "reschedulesByWhenAppeared": {
+        "retroactive": 1,
+        "within14d": 0,
+        "beyond14d": 40,
+        "unknown": 0
+      },
+      "invalidSnapshots": [],
+      "noTimeAtLastCommit": 192,
+      "bareZeroZeroAtLast": 4
+    },
+    "es.1 2025-26": {
+      "commitsValid": 13,
+      "lagWithTimeHours": {
+        "n": 380,
+        "medianH": 486.8,
+        "p90H": 1767.4,
+        "maxH": 2144.2,
+        "buckets": {
+          "<6 h": 0,
+          "6-24 h": 1,
+          "1-3 d": 57,
+          "3-7 d": 72,
+          "7-14 d": 31,
+          ">=14 d": 219
+        }
+      },
+      "lagIncludingStillPendingLowerBoundHours": {
+        "n": 395,
+        "minH": 17.1,
+        "medianH": 610.7,
+        "p90H": 1900.1,
+        "maxH": 9551.8
+      },
+      "updateGapHours": {
+        "n": 12,
+        "minH": 115.2,
+        "medianH": 175.4,
+        "p90H": 2195.3,
+        "maxH": 2376.6
+      },
+      "playedAtNow": {
+        "played": 380,
+        "noScore": 0,
+        "bareListScore": 15,
+        "noTime": 0,
+        "postponed": 0
+      },
+      "corrections": 0,
+      "reschedules": 188,
+      "reschedulesByWhenAppeared": {
+        "retroactive": 96,
+        "within14d": 38,
+        "beyond14d": 54,
+        "unknown": 0
+      },
+      "invalidSnapshots": [
+        {
+          "sha": "3da56c22a",
+          "at": "2026-05-23T07:24:42.000Z",
+          "reason": "380 of 380 records have no date"
+        }
+      ],
+      "noTimeAtLastCommit": 0,
+      "bareZeroZeroAtLast": 15
+    }
+  },
+  "p1_fpl": [
+    {
+      "season": "2025-26",
+      "commits": [
+        {
+          "sha": "46277afda",
+          "at": "2025-08-01T08:49:42.000Z"
+        },
+        {
+          "sha": "e930bb766",
+          "at": "2025-08-20T07:59:03.000Z"
+        },
+        {
+          "sha": "20f6d05bc",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "sha": "19b31c9cb",
+          "at": "2025-09-08T09:23:37.000Z"
+        },
+        {
+          "sha": "45cb8d621",
+          "at": "2025-09-18T12:07:27.000Z"
+        },
+        {
+          "sha": "8db66f4fe",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "sha": "cd74fdea7",
+          "at": "2025-09-30T20:29:48.000Z"
+        },
+        {
+          "sha": "c0b610997",
+          "at": "2025-10-24T09:01:31.000Z"
+        },
+        {
+          "sha": "d8f2ea3f5",
+          "at": "2025-11-01T00:11:46.000Z"
+        },
+        {
+          "sha": "2c43a9500",
+          "at": "2026-02-05T08:00:25.000Z"
+        },
+        {
+          "sha": "77ab48216",
+          "at": "2026-03-13T01:04:19.000Z"
+        },
+        {
+          "sha": "a8337d506",
+          "at": "2026-06-17T12:07:17.000Z"
+        }
+      ],
+      "commitGapsH": {
+        "n": 11,
+        "minH": 141.7,
+        "medianH": 256.7,
+        "p90H": 2311.8,
+        "maxH": 2315
+      },
+      "fixturesAtLast": 380,
+      "firstFinishedLag": {
+        "n": 380,
+        "minH": 23.7,
+        "medianH": 749.8,
+        "p90H": 1822.8,
+        "maxH": 2295.3,
+        "buckets": {
+          "<6 h": 0,
+          "6-24 h": 1,
+          "1-3 d": 9,
+          "3-7 d": 69,
+          "7-14 d": 41,
+          ">=14 d": 260
+        }
+      },
+      "finishedAlreadyInFirstSnapshotExcluded": 0,
+      "playedAtLastCommit": 380,
+      "playedNoScoreAtLastCommit": 0,
+      "scoreChanges": 0,
+      "kickoffChanges": 241,
+      "kickoffChangeList": [
+        {
+          "id": "21",
+          "from": "2025-08-29T19:00:00Z",
+          "to": "2025-08-31T18:00:00Z",
+          "at": "2025-08-20T07:59:03.000Z"
+        },
+        {
+          "id": "63",
+          "from": "2025-10-04T14:00:00Z",
+          "to": "2025-10-03T19:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "67",
+          "from": "2025-10-04T14:00:00Z",
+          "to": "2025-10-04T11:30:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "65",
+          "from": "2025-10-04T14:00:00Z",
+          "to": "2025-10-04T16:30:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "62",
+          "from": "2025-10-04T14:00:00Z",
+          "to": "2025-10-05T13:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "69",
+          "from": "2025-10-04T14:00:00Z",
+          "to": "2025-10-05T13:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "70",
+          "from": "2025-10-04T14:00:00Z",
+          "to": "2025-10-05T13:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "64",
+          "from": "2025-10-04T14:00:00Z",
+          "to": "2025-10-05T15:30:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "77",
+          "from": "2025-10-18T14:00:00Z",
+          "to": "2025-10-18T11:30:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "74",
+          "from": "2025-10-18T14:00:00Z",
+          "to": "2025-10-18T16:30:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "79",
+          "from": "2025-10-18T14:00:00Z",
+          "to": "2025-10-19T13:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "75",
+          "from": "2025-10-18T14:00:00Z",
+          "to": "2025-10-19T15:30:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "80",
+          "from": "2025-10-18T14:00:00Z",
+          "to": "2025-10-20T19:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "87",
+          "from": "2025-10-25T14:00:00Z",
+          "to": "2025-10-24T19:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "84",
+          "from": "2025-10-25T14:00:00Z",
+          "to": "2025-10-25T11:30:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "88",
+          "from": "2025-10-25T14:00:00Z",
+          "to": "2025-10-25T16:30:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "82",
+          "from": "2025-10-25T14:00:00Z",
+          "to": "2025-10-26T14:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "83",
+          "from": "2025-10-25T14:00:00Z",
+          "to": "2025-10-26T14:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "90",
+          "from": "2025-10-25T14:00:00Z",
+          "to": "2025-10-26T14:00:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "86",
+          "from": "2025-10-25T14:00:00Z",
+          "to": "2025-10-26T16:30:00Z",
+          "at": "2025-08-28T16:42:42.000Z"
+        },
+        {
+          "id": "42",
+          "from": "2025-09-20T14:00:00Z",
+          "to": "2025-09-21T13:00:00Z",
+          "at": "2025-09-08T09:23:37.000Z"
+        },
+        {
+          "id": "60",
+          "from": "2025-09-28T13:00:00Z",
+          "to": "2025-09-27T19:00:00Z",
+          "at": "2025-09-08T09:23:37.000Z"
+        },
+        {
+          "id": "51",
+          "from": "2025-09-27T14:00:00Z",
+          "to": "2025-09-28T13:00:00Z",
+          "at": "2025-09-08T09:23:37.000Z"
+        },
+        {
+          "id": "66",
+          "from": "2025-10-04T14:00:00Z",
+          "to": "2025-10-05T13:00:00Z",
+          "at": "2025-09-08T09:23:37.000Z"
+        },
+        {
+          "id": "84",
+          "from": "2025-10-25T11:30:00Z",
+          "to": "2025-10-25T19:00:00Z",
+          "at": "2025-09-08T09:23:37.000Z"
+        },
+        {
+          "id": "81",
+          "from": "2025-10-25T14:00:00Z",
+          "to": "2025-10-26T14:00:00Z",
+          "at": "2025-09-08T09:23:37.000Z"
+        },
+        {
+          "id": "99",
+          "from": "2025-11-01T15:00:00Z",
+          "to": "2025-11-01T17:30:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "95",
+          "from": "2025-11-01T15:00:00Z",
+          "to": "2025-11-01T20:00:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "100",
+          "from": "2025-11-01T15:00:00Z",
+          "to": "2025-11-02T14:00:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "96",
+          "from": "2025-11-01T15:00:00Z",
+          "to": "2025-11-02T16:30:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "98",
+          "from": "2025-11-01T15:00:00Z",
+          "to": "2025-11-03T20:00:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "109",
+          "from": "2025-11-08T15:00:00Z",
+          "to": "2025-11-08T12:30:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "108",
+          "from": "2025-11-08T15:00:00Z",
+          "to": "2025-11-08T17:30:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "103",
+          "from": "2025-11-08T15:00:00Z",
+          "to": "2025-11-08T20:00:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "101",
+          "from": "2025-11-08T15:00:00Z",
+          "to": "2025-11-09T14:00:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "102",
+          "from": "2025-11-08T15:00:00Z",
+          "to": "2025-11-09T14:00:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "104",
+          "from": "2025-11-08T15:00:00Z",
+          "to": "2025-11-09T14:00:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "107",
+          "from": "2025-11-08T15:00:00Z",
+          "to": "2025-11-09T14:00:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "106",
+          "from": "2025-11-08T15:00:00Z",
+          "to": "2025-11-09T16:30:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        },
+        {
+          "id": "114",
+          "from": "2025-11-22T15:00:00Z",
+          "to": "2025-11-22T12:30:00Z",
+          "at": "2025-09-24T22:45:24.000Z"
+        }
+      ]
+    },
+    {
+      "season": "2026-27",
+      "commits": [
+        {
+          "sha": "8c97b2adb",
+          "at": "2026-08-04T08:38:11.000Z"
+        },
+        {
+          "sha": "ef22d9cc4",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "sha": "9779cdbc0",
+          "at": "2026-08-28T09:47:53.000Z"
+        },
+        {
+          "sha": "d7b05b51d",
+          "at": "2026-10-22T07:46:21.000Z"
+        }
+      ],
+      "commitGapsH": {
+        "n": 3,
+        "minH": 177.9,
+        "medianH": 399.3,
+        "p90H": 1134.2,
+        "maxH": 1318
+      },
+      "fixturesAtLast": 380,
+      "firstFinishedLag": {
+        "n": 60,
+        "minH": 85,
+        "medianH": 851,
+        "p90H": 1265,
+        "maxH": 1307,
+        "buckets": {
+          "<6 h": 0,
+          "6-24 h": 0,
+          "1-3 d": 0,
+          "3-7 d": 10,
+          "7-14 d": 10,
+          ">=14 d": 40
+        }
+      },
+      "finishedAlreadyInFirstSnapshotExcluded": 0,
+      "playedAtLastCommit": 70,
+      "playedNoScoreAtLastCommit": 10,
+      "scoreChanges": 0,
+      "kickoffChanges": 81,
+      "kickoffChangeList": [
+        {
+          "id": "51",
+          "from": "2026-10-10T14:00:00Z",
+          "to": "2026-10-10T11:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "59",
+          "from": "2026-10-10T14:00:00Z",
+          "to": "2026-10-10T16:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "55",
+          "from": "2026-10-10T14:00:00Z",
+          "to": "2026-10-11T13:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "56",
+          "from": "2026-10-10T14:00:00Z",
+          "to": "2026-10-11T13:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "58",
+          "from": "2026-10-10T14:00:00Z",
+          "to": "2026-10-11T15:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "54",
+          "from": "2026-10-10T14:00:00Z",
+          "to": "2026-10-12T19:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "64",
+          "from": "2026-10-17T14:00:00Z",
+          "to": "2026-10-17T11:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "68",
+          "from": "2026-10-17T14:00:00Z",
+          "to": "2026-10-17T16:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "61",
+          "from": "2026-10-17T14:00:00Z",
+          "to": "2026-10-18T13:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "63",
+          "from": "2026-10-17T14:00:00Z",
+          "to": "2026-10-18T13:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "66",
+          "from": "2026-10-17T14:00:00Z",
+          "to": "2026-10-18T13:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "69",
+          "from": "2026-10-17T14:00:00Z",
+          "to": "2026-10-18T15:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "70",
+          "from": "2026-10-17T14:00:00Z",
+          "to": "2026-10-19T19:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "77",
+          "from": "2026-10-24T14:00:00Z",
+          "to": "2026-10-23T19:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "72",
+          "from": "2026-10-24T14:00:00Z",
+          "to": "2026-10-24T11:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "73",
+          "from": "2026-10-24T14:00:00Z",
+          "to": "2026-10-24T16:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "75",
+          "from": "2026-10-24T14:00:00Z",
+          "to": "2026-10-25T14:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "76",
+          "from": "2026-10-24T14:00:00Z",
+          "to": "2026-10-25T14:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "79",
+          "from": "2026-10-24T14:00:00Z",
+          "to": "2026-10-25T14:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "80",
+          "from": "2026-10-24T14:00:00Z",
+          "to": "2026-10-25T16:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "84",
+          "from": "2026-10-31T15:00:00Z",
+          "to": "2026-10-31T12:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "90",
+          "from": "2026-10-31T15:00:00Z",
+          "to": "2026-10-31T17:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "81",
+          "from": "2026-10-31T15:00:00Z",
+          "to": "2026-11-01T14:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "87",
+          "from": "2026-10-31T15:00:00Z",
+          "to": "2026-11-01T16:30:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "89",
+          "from": "2026-10-31T15:00:00Z",
+          "to": "2026-11-02T20:00:00Z",
+          "at": "2026-08-20T23:56:50.000Z"
+        },
+        {
+          "id": "44",
+          "from": "2026-09-19T14:00:00Z",
+          "to": "2026-09-20T13:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "45",
+          "from": "2026-09-19T14:00:00Z",
+          "to": "2026-09-20T13:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "78",
+          "from": "2026-10-24T14:00:00Z",
+          "to": "2026-10-25T14:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "81",
+          "from": "2026-11-01T14:00:00Z",
+          "to": "2026-10-31T20:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "94",
+          "from": "2026-11-07T15:00:00Z",
+          "to": "2026-11-06T20:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "97",
+          "from": "2026-11-07T15:00:00Z",
+          "to": "2026-11-07T12:30:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "99",
+          "from": "2026-11-07T15:00:00Z",
+          "to": "2026-11-07T17:30:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "92",
+          "from": "2026-11-07T15:00:00Z",
+          "to": "2026-11-08T14:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "93",
+          "from": "2026-11-07T15:00:00Z",
+          "to": "2026-11-08T14:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "96",
+          "from": "2026-11-07T15:00:00Z",
+          "to": "2026-11-08T14:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "100",
+          "from": "2026-11-07T15:00:00Z",
+          "to": "2026-11-08T14:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "98",
+          "from": "2026-11-07T15:00:00Z",
+          "to": "2026-11-08T16:30:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "108",
+          "from": "2026-11-21T15:00:00Z",
+          "to": "2026-11-21T12:30:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "109",
+          "from": "2026-11-21T15:00:00Z",
+          "to": "2026-11-21T17:30:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        },
+        {
+          "id": "106",
+          "from": "2026-11-21T15:00:00Z",
+          "to": "2026-11-22T14:00:00Z",
+          "at": "2026-10-22T07:46:21.000Z"
+        }
+      ]
+    }
+  ],
+  "p1_bareZeroZeroCrossCheck": [
+    {
+      "season": "2025-26",
+      "bareZeroZeroInOpenfootball": 27,
+      "fplFinishedAtSameKickoff": 27,
+      "fplZeroZeroAtSameKickoff": 27
+    },
+    {
+      "season": "2026-27",
+      "bareZeroZeroInOpenfootball": 5,
+      "fplFinishedAtSameKickoff": 5,
+      "fplZeroZeroAtSameKickoff": 5
+    }
+  ],
+  "p3_simulated_pipeline_latency": {
+    "A": {
+      "trials": [
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 105,
+          "firstSeenSec": 0,
+          "itemOpenSec": null,
+          "appliedSec": 900
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 106,
+          "firstSeenSec": 240,
+          "itemOpenSec": null,
+          "appliedSec": 1140
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 107,
+          "firstSeenSec": 180,
+          "itemOpenSec": null,
+          "appliedSec": 1080
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 108,
+          "firstSeenSec": 120,
+          "itemOpenSec": null,
+          "appliedSec": 1020
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 109,
+          "firstSeenSec": 60,
+          "itemOpenSec": null,
+          "appliedSec": 960
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 110,
+          "firstSeenSec": 0,
+          "itemOpenSec": null,
+          "appliedSec": 900
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 111,
+          "firstSeenSec": 240,
+          "itemOpenSec": null,
+          "appliedSec": 1140
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 112,
+          "firstSeenSec": 180,
+          "itemOpenSec": null,
+          "appliedSec": 1080
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 113,
+          "firstSeenSec": 120,
+          "itemOpenSec": null,
+          "appliedSec": 1020
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 114,
+          "firstSeenSec": 60,
+          "itemOpenSec": null,
+          "appliedSec": 960
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 115,
+          "firstSeenSec": 0,
+          "itemOpenSec": null,
+          "appliedSec": 900
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 116,
+          "firstSeenSec": 240,
+          "itemOpenSec": null,
+          "appliedSec": 1140
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 117,
+          "firstSeenSec": 180,
+          "itemOpenSec": null,
+          "appliedSec": 1080
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 118,
+          "firstSeenSec": 120,
+          "itemOpenSec": null,
+          "appliedSec": 1020
+        },
+        {
+          "scenario": "A two upstreams, auto results, no human",
+          "visibleAfterKickoffMin": 119,
+          "firstSeenSec": 60,
+          "itemOpenSec": null,
+          "appliedSec": 960
+        }
+      ],
+      "visibleToFirstSeenMin": {
+        "n": 15,
+        "ofTrials": 15,
+        "bestMin": 0,
+        "medianMin": 2,
+        "p90Min": 4,
+        "worstMin": 4
+      },
+      "visibleToApplied": {
+        "n": 15,
+        "ofTrials": 15,
+        "bestMin": 15,
+        "medianMin": 17,
+        "p90Min": 19,
+        "worstMin": 19
+      }
+    },
+    "C": {
+      "trials": [
+        {
+          "scenario": "C two upstreams, not on auto results, instant trader",
+          "visibleAfterKickoffMin": 105,
+          "firstSeenSec": 0,
+          "itemOpenSec": 900,
+          "appliedSec": 960
+        },
+        {
+          "scenario": "C two upstreams, not on auto results, instant trader",
+          "visibleAfterKickoffMin": 112,
+          "firstSeenSec": 180,
+          "itemOpenSec": 1080,
+          "appliedSec": 1140
+        }
+      ]
+    },
+    "B": {
+      "trials": [
+        {
+          "scenario": "B one upstream + instant trader",
+          "visibleAfterKickoffMin": 110,
+          "firstSeenSec": 0,
+          "itemOpenSec": 21300,
+          "appliedSec": 21360
+        },
+        {
+          "scenario": "B one upstream + instant trader",
+          "visibleAfterKickoffMin": 1440,
+          "firstSeenSec": 0,
+          "itemOpenSec": 0,
+          "appliedSec": 60
+        }
+      ]
+    }
+  },
+  "p3_settlement_timing": {
+    "betsOnEvent": 120,
+    "singles": 100,
+    "doubles": 20,
+    "placeBetMs": {
+      "n": 120,
+      "medianMs": 18.7,
+      "p90Ms": 24.6,
+      "maxMs": 39.7
+    },
+    "applyConfirmedResultMs": 22.7,
+    "applied": true,
+    "outboxEventResultedRows": 1,
+    "settlePlacedBet": {
+      "twoLanes": {
+        "bets": 60,
+        "wallMs": 343.5,
+        "perBet": {
+          "n": 60,
+          "medianMs": 10.9,
+          "p90Ms": 16.2,
+          "maxMs": 36.8
+        }
+      },
+      "sequential": {
+        "bets": 60,
+        "wallMs": 597.6,
+        "perBet": {
+          "n": 60,
+          "medianMs": 10,
+          "p90Ms": 13.1,
+          "maxMs": 15.3
+        }
+      }
+    },
+    "projectedWallSecondsFor": {
+      "100 bets (2 lanes)": 0.5725,
+      "1000 bets (2 lanes)": 5.7246999999999995,
+      "10000 bets (2 lanes)": 57.2468
+    },
+    "sweepQueryMs": 4.4,
+    "sweepFoundAfterSettlement": 0,
+    "betsSettledOrFinal": 113
+  },
+  "p4_checks": [
+    {
+      "scenario": "identical snapshot",
+      "eventsCreatedBefore": 10,
+      "reviewItemsBefore": 10,
+      "statusOf304Run": "ok",
+      "statusOf200Run": "ok",
+      "runRowsAdded": 2,
+      "rawRowsAdded": 2,
+      "tablesChanged": [],
+      "pass": true,
+      "note": "scrape_runs and scrape_raw rows are written by design (run record, 304 sighting); they are not business state"
+    },
+    {
+      "scenario": "absence: drop 45 % of the records",
+      "recordsInDocument": 380,
+      "recordsAfterDrop": 209,
+      "droppedPercent": 45,
+      "eventsExistingAtDrop": 10,
+      "eventStateUnchanged": true,
+      "eventsCancelledOrVoidedOrFinished": 0,
+      "voidMarkets": 0,
+      "lastRunStatusCounts": {
+        "ok": 16
+      },
+      "reviewItemsOpenedAfterDropByKind": {
+        "fixture_missing": 9,
+        "odds_approval": 9
+      },
+      "fixtureMissingItems": 9,
+      "pass": true
+    },
+    {
+      "scenario": "absence: drop exactly 50 % of the records",
+      "recordsInDocument": 380,
+      "recordsAfterDrop": 190,
+      "droppedPercent": 50,
+      "eventsExistingAtDrop": 10,
+      "eventStateUnchanged": true,
+      "eventsCancelledOrVoidedOrFinished": 0,
+      "voidMarkets": 0,
+      "lastRunStatusCounts": {
+        "ok": 16
+      },
+      "reviewItemsOpenedAfterDropByKind": {
+        "fixture_missing": 9,
+        "odds_approval": 9
+      },
+      "fixtureMissingItems": 9,
+      "pass": true
+    }
+  ]
+}

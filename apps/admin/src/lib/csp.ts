@@ -10,21 +10,24 @@
 export interface CspOptions {
   /** A fresh random nonce for this response (newNonce). */
   nonce: string;
-  /** The API's public URL (NEXT_PUBLIC_API_URL): fetch() and EventSource go there. */
+  /**
+   * The API's public URL (NEXT_PUBLIC_API_URL): fetch() and EventSource go there. A path
+   * such as `/_api` means this origin (the API forwarded through the back office).
+   */
   apiUrl: string;
   /** `next dev` needs eval for its error overlays; production never does. */
   dev: boolean;
 }
 
 export function contentSecurityPolicy({ nonce, apiUrl, dev }: CspOptions): string {
-  const api = new URL(apiUrl);
+  const api = apiUrl.startsWith('/') ? null : new URL(apiUrl);
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self' ${api.origin}`,
+    api === null ? "connect-src 'self'" : `connect-src 'self' ${api.origin}`,
     "worker-src 'self'",
     "manifest-src 'self'",
     "media-src 'none'",
@@ -34,7 +37,7 @@ export function contentSecurityPolicy({ nonce, apiUrl, dev }: CspOptions): strin
     "form-action 'self'",
     "frame-ancestors 'none'",
     // Over https only: a plain-http local stack would have its API calls upgraded.
-    ...(api.protocol === 'https:' ? ['upgrade-insecure-requests'] : []),
+    ...(api?.protocol === 'https:' ? ['upgrade-insecure-requests'] : []),
   ].join('; ');
 }
 

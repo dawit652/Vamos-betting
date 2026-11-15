@@ -1,4 +1,4 @@
-# Production stack: postgres 16, redis 7, migrate (one-shot), api, worker, web, admin and an
+# Production stack: postgres 16, redis 7, migrate (one-shot), api, worker, scraper, web, admin and an
 # optional TLS reverse proxy (profile "proxy").
 #
 #   cp infra/env.prod.example infra/.env.prod && $EDITOR infra/.env.prod
@@ -6,7 +6,7 @@
 #   docker compose build && docker compose up -d            # add --profile proxy for Caddy
 #   scripts/smoke.sh                                        # against the published ports
 #
-# Start order: postgres + redis healthy -> migrate exits 0 -> api + worker healthy -> web + admin.
+# Start order: postgres + redis healthy -> migrate exits 0 -> api + worker + scraper healthy -> web + admin.
 # Details, backups and upgrades: docs/deployment.md, docs/backups.md. The development services
 # (infra/docker-compose.yml) are separate and must not be used in production.
 
@@ -36,7 +36,7 @@ x-hardening: &hardening
 # as the owner (POSTGRES_USER), and it gives vamos_app its login from APP_DB_PASSWORD.
 x-app-env: &app-env
   NODE_ENV: '${NODE_ENV:-production}'
-  OPERATING_MODE: '${OPERATING_MODE:-demo}'
+  OPERATING_MODE: '${OPERATING_MODE:-licensed}'
   LOG_LEVEL: '${LOG_LEVEL:-info}'
   API_HOST: '0.0.0.0'
   API_PORT: '4000'
@@ -59,6 +59,10 @@ x-app-env: &app-env
   PAYMENT_PROVIDERS: '${PAYMENT_PROVIDERS:-mock}'
   KYC_PROVIDER: '${KYC_PROVIDER:-mock}'
   SMS_PROVIDER: '${SMS_PROVIDER:-mock}'
+  REGISTRATION_SMS_VERIFICATION: '${REGISTRATION_SMS_VERIFICATION:-required}'
+  # Alerts to the owner's phone (plan task 1.11): off while the list is empty.
+  OWNER_ALERT_PHONES: '${OWNER_ALERT_PHONES:-}'
+  OWNER_ALERT_MIN_INTERVAL_MINUTES: '${OWNER_ALERT_MIN_INTERVAL_MINUTES:-30}'
   CHAPA_BASE_URL: '${CHAPA_BASE_URL:-https://api.chapa.co/v1}'
   CHAPA_SECRET_KEY: '${CHAPA_SECRET_KEY:-}'
   CHAPA_WEBHOOK_SECRET: '${CHAPA_WEBHOOK_SECRET:-}'
@@ -70,12 +74,20 @@ x-app-env: &app-env
   TELEBIRR_SHORT_CODE: '${TELEBIRR_SHORT_CODE:-}'
   TELEBIRR_PRIVATE_KEY: '${TELEBIRR_PRIVATE_KEY:-}'
   TELEBIRR_PUBLIC_KEY: '${TELEBIRR_PUBLIC_KEY:-}'
-  ELS_LICENSE_NUMBER:
-  ELS_REPORTING_MODE: '${ELS_REPORTING_MODE:-file}'
-  ELS_REPORT_DIR: '/var/lib/vamos/els'
-  ELS_REPORT_URL:
   TAX_CONFIG_CONFIRMED: '${TAX_CONFIG_CONFIRMED:-false}'
+  # SMS deposit rail (docs/runbooks/sms-rail.md), used when PAYMENT_PROVIDERS includes `sms`. Settings
+  # without a value pass through from the env file and set nothing while unset, so the config's own
+  # defaults apply (SMS_RAIL_MODE defaults to the simulated rail: set it to `live` to take real money).
+  SMS_RAIL_MODE:
+  SMS_GATEWAY_SECRET: '${SMS_GATEWAY_SECRET:-}'
+  SMS_GATEWAY_ALLOWLIST:
+  SMS_COLLECTION_ACCOUNTS: '${SMS_COLLECTION_ACCOUNTS:-}'
+  OPERATOR_LEGAL_NAME: '${OPERATOR_LEGAL_NAME:-}'
+  RECEIPT_VERIFY:
+  PAYOUT_REQUIRE_PROOF:
+  PAYOUT_PROOF_WAIVED:
   FEATURE_CASINO: '${FEATURE_CASINO:-false}'
+  FEATURE_FACTORY_MARKETS: '${FEATURE_FACTORY_MARKETS:-false}'
   FEATURE_VIRTUALS: '${FEATURE_VIRTUALS:-false}'
   SMS_BETTING_ENABLED: '${SMS_BETTING_ENABLED:-false}'
   USSD_ENABLED: '${USSD_ENABLED:-false}'
@@ -87,10 +99,29 @@ x-app-env: &app-env
   USSD_SERVICE_CODE: '${USSD_SERVICE_CODE:-*123#}'
   OTEL_EXPORTER_OTLP_ENDPOINT: '${OTEL_EXPORTER_OTLP_ENDPOINT:-}'
   OTEL_SERVICE_NAME: '${OTEL_SERVICE_NAME:-}'
+  # Scraper (docs/scraper.md section 7). Every service validates them (licensed mode with
+  # FEED_PROVIDER=scraped needs a contact, robots enforced and an absolute archive directory); only
+  # the scraper service writes the archive, at the path of its `scraper_archive` volume.
+  SCRAPER_ARCHIVE_DIR: '/var/lib/vamos/scraper'
+  SCRAPER_USER_AGENT: '${SCRAPER_USER_AGENT:-NahubetBot/1.0}'
+  SCRAPER_CONTACT: '${SCRAPER_CONTACT:-}'
+  SCRAPER_ROBOTS: '${SCRAPER_ROBOTS:-enforce}'
+  SCRAPER_PORT: '4200'
+  SCRAPER_MAX_CONCURRENCY: '${SCRAPER_MAX_CONCURRENCY:-4}'
+  SCRAPER_RESULT_CONFIRM_MINUTES: '${SCRAPER_RESULT_CONFIRM_MINUTES:-15}'
+  SCRAPER_MIN_RATING_MATCHES: '${SCRAPER_MIN_RATING_MATCHES:-8}'
+  # Feed-quality switches (docs/scraper-operations.md); the defaults keep the behaviour before them.
+  SCRAPER_HALF_TIME_MARKETS: '${SCRAPER_HALF_TIME_MARKETS:-all}'
+  SCRAPER_AUTO_ALIAS: '${SCRAPER_AUTO_ALIAS:-off}'
+  SCRAPER_PRIORITY_COMPETITIONS: '${SCRAPER_PRIORITY_COMPETITIONS:-}'
+  SCRAPER_SKIP_REDUNDANT_SCORES: '${SCRAPER_SKIP_REDUNDANT_SCORES:-off}'
+  SCRAPER_CAP_AT_BEST_PRICE: '${SCRAPER_CAP_AT_BEST_PRICE:-off}'
+  SCRAPER_PRICE_EXPIRY_MINUTES: '${SCRAPER_PRICE_EXPIRY_MINUTES:-0}'
+  SCRAPER_FACTORY_MARKETS: '${SCRAPER_FACTORY_MARKETS:-off}'
 
 x-build-args: &build-args
   NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL}
-  NEXT_PUBLIC_OPERATING_MODE: ${NEXT_PUBLIC_OPERATING_MODE:-demo}
+  NEXT_PUBLIC_OPERATING_MODE: ${NEXT_PUBLIC_OPERATING_MODE:-licensed}
 
 services:
   postgres:
@@ -202,8 +233,6 @@ services:
     read_only: true
     tmpfs: ['/tmp']
     environment: *app-env
-    volumes:
-      - els:/var/lib/vamos/els:ro
     ports:
       - '${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-4000}:4000'
     networks: [vamos]
@@ -230,8 +259,6 @@ services:
     read_only: true
     tmpfs: ['/tmp']
     environment: *app-env
-    volumes:
-      - els:/var/lib/vamos/els
     # /health and /ready of the worker, for monitoring and scripts/smoke.sh --worker.
     ports:
       - '${BIND_ADDRESS:-127.0.0.1}:${WORKER_HEALTH_PORT:-4100}:4100'
@@ -245,6 +272,48 @@ services:
         condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:4100/health']
+      interval: 15s
+      timeout: 4s
+      retries: 4
+      start_period: 30s
+
+  # Collects fixtures, odds inputs and results from the configured sources and promotes checked data
+  # to the catalogue. Run ONE instance (the source locks make a second harmless, but there is no
+  # reason for it). The raw snapshots behind every applied result live in the `scraper_archive`
+  # volume: kept as long as bets are kept, included in backup.sh (docs/backups.md).
+  scraper:
+    image: vamos-scraper:${VAMOS_VERSION:-local}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile
+      target: scraper
+    <<: *hardening
+    read_only: true
+    tmpfs: ['/tmp']
+    environment:
+      <<: *app-env
+      FEED_PROVIDER: 'scraped'
+      # API keys of sources that authenticate with a header (docs/scraper.md 6.7). Only this service
+      # gets them (not api, worker or migrate, which share *app-env). A source config names the
+      # variable; the key is read here and never stored. Add one line per key, named
+      # SCRAPER_SECRET_<NAME>; unset (empty) makes a source that needs it fail without a request.
+      SCRAPER_SECRET_API_FOOTBALL: '${SCRAPER_SECRET_API_FOOTBALL:-}'
+      SCRAPER_SECRET_FOOTBALL_DATA: '${SCRAPER_SECRET_FOOTBALL_DATA:-}'
+      SCRAPER_SECRET_THEODDSAPI: '${SCRAPER_SECRET_THEODDSAPI:-}'
+    volumes:
+      - scraper_archive:/var/lib/vamos/scraper
+    # /health and /ready are not published (nothing outside the stack needs them): scripts/smoke.sh
+    # --scraper takes the container's address, see docs/deployment.md.
+    networks: [vamos]
+    # Shutdown waits up to 60 s for in-flight source runs.
+    stop_grace_period: 75s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:4200/health']
       interval: 15s
       timeout: 4s
       retries: 4
@@ -351,7 +420,7 @@ volumes:
   pgdata:
   pgwal:
   redisdata:
-  # ELS regulator reports (JSONL stream + daily CSVs), kept 7 years: include in every backup.
-  els:
+  # Raw scraper snapshots (the evidence behind applied results), kept as long as bets: back it up.
+  scraper_archive:
   caddy_data:
   caddy_config:

@@ -273,7 +273,7 @@ describe('Chapa API calls', () => {
       amount: 15_050n,
       phone: '+251911234567',
       callbackUrl: 'https://api.example.et/payments/webhooks/chapa',
-      returnUrl: 'https://vamos.example.et/wallet',
+      returnUrl: 'https://nahubet.example.com/wallet',
     });
     expect(result).toEqual({
       kind: 'redirect',
@@ -290,7 +290,7 @@ describe('Chapa API calls', () => {
         tx_ref: INTENT,
         phone_number: '0911234567',
         callback_url: 'https://api.example.et/payments/webhooks/chapa',
-        return_url: 'https://vamos.example.et/wallet',
+        return_url: 'https://nahubet.example.com/wallet',
       },
     });
   });

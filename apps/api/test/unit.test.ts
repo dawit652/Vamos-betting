@@ -49,10 +49,42 @@ describe('OTP codes', () => {
     expect(hashOtpCode('secret', '+251911234568', 'register', '123456')).not.toBe(hash);
   });
 
+  it('hands the registration code back, and only that code, when REGISTRATION_SMS_VERIFICATION=off', () => {
+    const otp = { code: '123456', expiresAt: new Date('2026-10-08T10:05:00.000Z') };
+    const mock: SmsProvider = { name: 'mock', send: async () => ({ id: '1' }) };
+    const licensed = {
+      OPERATING_MODE: 'licensed',
+      PAYMENT_PROVIDERS: 'sms',
+      LOG_LEVEL: 'silent',
+    } as const;
+    const off = {
+      config: loadConfig({ ...licensed, REGISTRATION_SMS_VERIFICATION: 'off' }),
+      sms: mock,
+    };
+    expect(otpSentBody(off, '+251911234567', otp, 'register')).toEqual({
+      otpSentTo: expect.any(String),
+      otpExpiresAt: '2026-10-08T10:05:00.000Z',
+      demoOtp: '123456',
+      registrationWithoutSms: true,
+    });
+    // Never the codes that protect an existing account or a payout destination.
+    expect(otpSentBody(off, '+251911234567', otp, 'password_reset')).not.toHaveProperty('demoOtp');
+    expect(otpSentBody(off, '+251911234567', otp, 'payout_account')).not.toHaveProperty('demoOtp');
+    // The default (SMS required) sends the code and shows nothing, licensed mode or not.
+    const required = { config: loadConfig(licensed), sms: mock };
+    expect(otpSentBody(required, '+251911234567', otp, 'register')).toEqual({
+      otpSentTo: expect.any(String),
+      otpExpiresAt: '2026-10-08T10:05:00.000Z',
+    });
+  });
+
   it('are echoed on screen only for registration, and only in demo mode with the mock SMS', () => {
     const otp = { code: '123456', expiresAt: new Date('2026-10-08T10:05:00.000Z') };
     const gateway = (name: string): SmsProvider => ({ name, send: async () => ({ id: '1' }) });
-    const demo = { config: loadConfig({ LOG_LEVEL: 'silent' }), sms: gateway('mock') };
+    const demo = {
+      config: loadConfig({ OPERATING_MODE: 'demo', LOG_LEVEL: 'silent' }),
+      sms: gateway('mock'),
+    };
     expect(otpSentBody(demo, '+251911234567', otp, 'register')).toEqual({
       otpSentTo: expect.any(String),
       otpExpiresAt: '2026-10-08T10:05:00.000Z',
@@ -66,10 +98,10 @@ describe('OTP codes', () => {
 
   it('are sent in Amharic and English', () => {
     expect(otpSmsBody('123456', 'am')).toBe(
-      'Vamos: የማረጋገጫ ኮድዎ 123456 ነው። Your code is 123456. Valid 5 min. Never share it.',
+      'Nahubet: የማረጋገጫ ኮድዎ 123456 ነው። Your code is 123456. Valid 5 min. Never share it.',
     );
     expect(otpSmsBody('654321', 'en')).toBe(
-      'Vamos: Your code is 654321. Valid 5 min. Never share it. የማረጋገጫ ኮድዎ 654321 ነው።',
+      'Nahubet: Your code is 654321. Valid 5 min. Never share it. የማረጋገጫ ኮድዎ 654321 ነው።',
     );
   });
 });
@@ -202,49 +234,28 @@ describe('client address keys', () => {
 });
 
 describe('startup checks', () => {
-  it('refuses licensed mode without NODE_ENV=production and a unique SESSION_SECRET', () => {
+  it('starts in licensed mode without extra production requirements (relaxed guard)', () => {
     const licensedEnv = {
       LOG_LEVEL: 'silent',
       OPERATING_MODE: 'licensed',
-      ELS_LICENSE_NUMBER: 'ELS-1',
       PAYMENT_PROVIDERS: 'telebirr',
-      KYC_PROVIDER: 'fayda',
+      KYC_PROVIDER: 'mock',
       SMS_PROVIDER: 'http',
       FEED_PROVIDER: 'manual',
       TAX_CONFIG_CONFIRMED: 'true',
       ADMIN_TOTP_KEY: '7f'.repeat(32),
-      ELS_REPORT_DIR: '/var/lib/vamos/els',
     } as const;
-    // loadConfig itself now refuses these (packages/config licensedModeViolations); the API
-    // check stays as defence in depth for configs built by other means.
-    expect(() => loadConfig(licensedEnv)).toThrow(/NODE_ENV=production/);
-    const production = loadConfig({
-      ...licensedEnv,
-      NODE_ENV: 'production',
-      PASSWORD_PEPPER: 'a-unique-password-pepper-0123456789abcdef',
-      SESSION_SECRET: 'a-unique-production-secret-0123456789abcdef',
-    });
-    const devDefaults = {
-      ...production,
-      nodeEnv: 'development' as const,
-      sessionSecret: DEV_SESSION_SECRET,
-    };
-    expect(apiConfigProblems(devDefaults)).toEqual([
-      expect.stringMatching(/NODE_ENV=production is required/),
-      expect.stringMatching(/SESSION_SECRET must be set/),
-    ]);
+    // Licensed mode no longer demands NODE_ENV=production or a unique SESSION_SECRET.
+    const config = loadConfig(licensedEnv);
+    expect(config.mode).toBe('licensed');
+    expect(apiConfigProblems(config)).toEqual([]);
     expect(
-      apiConfigProblems(
-        loadConfig({
-          ...licensedEnv,
-          NODE_ENV: 'production',
-          PASSWORD_PEPPER: 'a-unique-password-pepper-0123456789abcdef',
-          SESSION_SECRET: 'a-unique-production-secret-0123456789abcdef',
-        }),
-      ),
+      apiConfigProblems({ ...config, nodeEnv: 'development', sessionSecret: DEV_SESSION_SECRET }),
     ).toEqual([]);
     // Demo mode keeps working with the development defaults.
-    expect(apiConfigProblems(loadConfig({ LOG_LEVEL: 'silent' }))).toEqual([]);
+    expect(apiConfigProblems(loadConfig({ OPERATING_MODE: 'demo', LOG_LEVEL: 'silent' }))).toEqual(
+      [],
+    );
   });
 });
 

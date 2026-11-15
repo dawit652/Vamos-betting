@@ -2,44 +2,49 @@ import type { EventSummary } from '@vamos/contracts';
 import Link from 'next/link';
 import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { getLocale, getT } from '@/i18n/server';
-import { formatDayMonth, formatTime, relativeDay } from '@/lib/format';
+import { flagEmoji } from '@/lib/flag';
+import { formatDayMonth, formatTime, formatWeekday, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes, type Sport } from '@/lib/routes';
+import { dayChips } from './day-chips';
 import { eventRef, monogram, oddsMarket } from './events';
+import { competitionFlags } from './leagues';
 import { LiveClock, LiveScore } from './LiveMatch';
-import { MatchList } from './MatchList';
 import { MarketOdds } from './MarketOdds';
+import { MatchList } from './MatchList';
 import { SportsbookFrame } from './SportsbookFrame';
-import { ListControls } from './ListControls';
 import {
-  hasRowMarkets,
+  LIST_MARKETS,
   LIST_TABS,
   listHref,
+  parseCountry,
   parseCursor,
   parseDay,
   parseMarket,
   parseTab,
+  parseWithin,
+  STARTS_WITHIN_HOURS,
+  type ListFilters,
+  type ListMarket,
   type ListTab,
-  type RowMarket,
 } from './tabs';
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-/** Rows per page: each row costs about 0.3 KB (brotli) of HTML + RSC payload. */
-const PAGE_SIZE = 20;
 /**
- * The first Highlights page is the home page, which also carries the poster and
- * the promo cards: four rows fewer keep its first load inside the weight budget.
- * "Next page" continues from the 17th match.
+ * Rows per page: each row costs about 0.3 KB brotli of HTML + RSC payload. 12
+ * since the redesign (was 20): the featured poster and promo cards sit above the
+ * list and the first load must stay within the page-weight budget
+ * (e2e/tests/budget.spec.ts); "Next page" loads the rest.
  */
-const HOME_PAGE_SIZE = 16;
+const PAGE_SIZE = 12;
 
 /**
  * A sport's home (`/` for football, `/sport/[sport]`): Highlights / Today /
- * Upcoming / Leagues tabs (`?tab=`), each rendered on the server. The first
- * page of Highlights opens with the featured-match poster and the promo cards.
- * The Today tab has day chips (`?day=`, the next six days) and football rows
- * can show double chance instead of 1X2 (`?market=dc`).
+ * Upcoming / Leagues tabs (`?tab=`), with day chips, country chips and the
+ * 1X2 / double chance switch (`?day=`, `?country=`, `?market=`), all rendered on
+ * the server. The first page of Highlights opens with the featured-match poster
+ * and the promo cards; the featured leagues are SportsbookFrame's leagues rail.
  */
 export async function SportHome({
   sport,
@@ -51,9 +56,13 @@ export async function SportHome({
   const t = await getT();
   const tab = parseTab(searchParams.tab);
   const cursor = parseCursor(searchParams.cursor);
-  const day = tab === 'today' ? parseDay(searchParams.day) : undefined;
-  const market = parseMarket(searchParams.market, sport);
   const path = routes.sport(sport);
+  const filters: ListFilters = {
+    within: parseWithin(searchParams.within),
+    day: parseDay(searchParams.day, new Date()),
+    country: parseCountry(searchParams.country),
+    market: parseMarket(searchParams.market),
+  };
   return (
     <SportsbookFrame sport={sport} leagueRail>
       <h1 className="sr-only">
@@ -61,11 +70,11 @@ export async function SportHome({
       </h1>
       {tab === 'leagues' ? (
         <>
-          <ListTabs path={path} current={tab} market={market} />
+          <ListTabs path={path} current={tab} filters={filters} />
           <Leagues sport={sport} />
         </>
       ) : (
-        <EventsTab sport={sport} tab={tab} cursor={cursor} day={day} market={market} path={path} />
+        <EventsTab sport={sport} tab={tab} cursor={cursor} path={path} filters={filters} />
       )}
     </SportsbookFrame>
   );
@@ -75,12 +84,11 @@ export async function SportHome({
 async function ListTabs({
   path,
   current,
-  market,
+  filters,
 }: {
   path: string;
   current: ListTab;
-  /** Kept when changing tab. */
-  market: RowMarket;
+  filters: ListFilters;
 }) {
   const t = await getT();
   return (
@@ -91,11 +99,11 @@ async function ListTabs({
       {LIST_TABS.map((tab) => (
         <Link
           key={tab}
-          href={listHref(path, tab, { market })}
+          href={listHref(path, tab, undefined, tabFilters(tab, filters))}
           prefetch={false}
           aria-current={tab === current ? 'page' : undefined}
           className={`flex-1 truncate rounded-full px-1 py-1.5 text-center ${
-            tab === current ? 'bg-brand text-brand-ink' : 'text-muted hover:text-ink'
+            tab === current ? 'bg-brand text-brand-ink' : 'text-muted'
           }`}
         >
           {t(`sportsbook.tabs.${tab}`)}
@@ -105,77 +113,194 @@ async function ListTabs({
   );
 }
 
+/** The filters a tab keeps: the day only means something on Today and Upcoming. */
+function tabFilters(tab: ListTab, filters: ListFilters): ListFilters {
+  return tab === 'today' || tab === 'upcoming' ? filters : { ...filters, day: undefined };
+}
+
+/** Day chips, country chips and the 1X2 / double chance switch, all plain links. */
+async function ListControls({
+  sport,
+  tab,
+  path,
+  filters,
+}: {
+  sport: Sport;
+  tab: Exclude<ListTab, 'leagues'>;
+  path: string;
+  filters: ListFilters;
+}) {
+  const [t, locale, data] = await Promise.all([getT(), getLocale(), getCompetitions(sport)]);
+  const countries = (data?.items ?? []).filter((category) =>
+    category.competitions.some((c) => c.eventCount > 0),
+  );
+  const href = (change: ListFilters) => listHref(path, tab, undefined, { ...filters, ...change });
+  const days = tab === 'today' || tab === 'upcoming' ? dayChips(new Date()) : [];
+  const market = filters.market ?? '1x2';
+  return (
+    <div className="mb-3 space-y-2">
+      <nav aria-label={t('sportsbook.controls.within')} className="chip-row">
+        {STARTS_WITHIN_HOURS.map((hours) => {
+          const active = filters.within === hours;
+          return (
+            <Link
+              key={hours}
+              href={href({ within: active ? undefined : hours, day: undefined })}
+              prefetch={false}
+              aria-current={active ? 'true' : undefined}
+              className="chip min-h-11"
+            >
+              {t('sportsbook.controls.withinHours', { hours })}
+            </Link>
+          );
+        })}
+      </nav>
+      {days.length > 0 ? (
+        <nav aria-label={t('sportsbook.controls.days')} className="chip-row">
+          {days.map((chip) => {
+            // Today's own list is the tab without a day.
+            const active =
+              filters.day === chip.date || (tab === 'today' && chip.offset === 0 && !filters.day);
+            return (
+              <Link
+                key={chip.date}
+                href={href({
+                  within: undefined,
+                  day: tab === 'today' && chip.offset === 0 ? undefined : chip.date,
+                })}
+                prefetch={false}
+                aria-current={active ? 'true' : undefined}
+                className="chip min-h-11"
+              >
+                {chip.offset === 0
+                  ? t('sportsbook.controls.today')
+                  : chip.offset === 1
+                    ? t('sportsbook.controls.tomorrow')
+                    : formatWeekday(chip.date, locale)}
+              </Link>
+            );
+          })}
+        </nav>
+      ) : null}
+      {countries.length > 0 ? (
+        <nav aria-label={t('sportsbook.controls.countries')} className="chip-row">
+          <Link
+            href={href({ country: undefined })}
+            prefetch={false}
+            aria-current={filters.country === undefined ? 'true' : undefined}
+            className="chip min-h-11"
+          >
+            {t('sportsbook.controls.all')}
+          </Link>
+          {countries.map(({ category }) => (
+            <Link
+              key={category.slug}
+              href={href({ country: category.slug })}
+              prefetch={false}
+              aria-current={filters.country === category.slug ? 'true' : undefined}
+              className="chip min-h-11"
+            >
+              <span aria-hidden="true">{flagEmoji(category.countryCode)}</span>
+              <span>{localName(category.name, locale)}</span>
+            </Link>
+          ))}
+        </nav>
+      ) : null}
+      {sport === 'football' ? (
+        <nav
+          aria-label={t('sportsbook.controls.market')}
+          className="mx-3 flex gap-1 rounded-full border border-line bg-surface p-1 text-[0.8125rem] font-bold lg:mx-0"
+        >
+          {LIST_MARKETS.map((value: ListMarket) => (
+            <Link
+              key={value}
+              href={href({ market: value })}
+              prefetch={false}
+              aria-current={market === value ? 'true' : undefined}
+              className={`flex min-h-9 flex-1 items-center justify-center rounded-full px-3 text-center ${
+                market === value ? 'bg-brand text-brand-ink' : 'text-muted'
+              }`}
+            >
+              {t(value === 'dc' ? 'sportsbook.controls.marketDc' : 'sportsbook.controls.market1x2')}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
+    </div>
+  );
+}
+
 async function EventsTab({
   sport,
   tab,
   cursor,
-  day,
-  market,
   path,
+  filters,
 }: {
   sport: Sport;
   tab: Exclude<ListTab, 'leagues'>;
   cursor: string | undefined;
-  /** A later day of the Today tab. */
-  day: string | undefined;
-  market: RowMarket;
   path: string;
+  filters: ListFilters;
 }) {
-  const firstHighlights = tab === 'highlights' && cursor === undefined;
-  const [t, page, top] = await Promise.all([
+  const within = filters.within;
+  const [t, fetched, competitions] = await Promise.all([
     getT(),
     getEvents({
       sport,
-      ...(day === undefined ? { filter: tab } : { date: day }),
-      market,
-      limit: firstHighlights ? HOME_PAGE_SIZE : PAGE_SIZE,
+      filter: within === undefined ? tab : 'upcoming',
+      limit: within === undefined ? PAGE_SIZE : 50,
+      ...(within === undefined
+        ? filters.day === undefined
+          ? {}
+          : { day: filters.day }
+        : { startsWithinHours: within }),
+      ...(filters.country === undefined ? {} : { country: filters.country }),
+      ...(filters.market === 'dc' ? { market: 'dc' as const } : {}),
       ...(cursor === undefined ? {} : { cursor }),
     }),
-    // The poster is an extra: without it the list still renders.
-    firstHighlights
-      ? getEvents({ sport, filter: 'top', limit: 1 }).catch(() => null)
-      : Promise.resolve(null),
+    getCompetitions(sport),
   ]);
-  // The poster takes the soonest top match a trader marked, else the first highlight,
-  // when it can be bet on; the list shows the rest.
-  const candidate = top?.items[0] ?? (market === 'main' ? page.items[0] : undefined);
-  const featured = firstHighlights && candidate?.mainMarket?.status === 'open' ? candidate : null;
-  const events =
-    featured === null ? page.items : page.items.filter((event) => event.id !== featured.id);
-  const href = (options: { cursor?: string; day?: string | undefined; market?: RowMarket }) =>
-    listHref(path, tab, { day, market, ...options });
+  // An older API ignores startsWithinHours: cut the window here too, and stop paging
+  // once anything was cut (later pages only start later).
+  const limit = within === undefined ? null : Date.now() + within * 3_600_000;
+  const items =
+    limit === null ? fetched.items : fetched.items.filter((e) => Date.parse(e.startTime) < limit);
+  const page = {
+    items,
+    nextCursor: items.length < fetched.items.length ? null : fetched.nextCursor,
+  };
+  const hrefFor = (next?: string) => listHref(path, tab, next, filters);
+  const firstPage = tab === 'highlights' && cursor === undefined && within === undefined;
+  // The poster takes the first highlight that can be bet on; the list shows the rest.
+  const [first] = page.items;
+  const featured = firstPage && first?.mainMarket?.status === 'open' ? first : null;
+  const events = featured === null ? page.items : page.items.slice(1);
   return (
     <>
-      {firstHighlights ? (
+      {firstPage ? (
         <div className="mx-3 mb-3 grid gap-3 lg:mx-0 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
           {featured !== null ? <Featured event={featured} /> : null}
           <Promos />
         </div>
       ) : null}
-      <ListTabs path={path} current={tab} market={market} />
-      <ListControls
-        {...(tab === 'today'
-          ? { days: { current: day, href: (next: string | undefined) => href({ day: next }) } }
-          : {})}
-        {...(hasRowMarkets(sport)
-          ? { market: { current: market, href: (next: RowMarket) => href({ market: next }) } }
-          : {})}
-      />
+      <ListTabs path={path} current={tab} filters={filters} />
+      <ListControls sport={sport} tab={tab} path={path} filters={filters} />
       {page.items.length === 0 ? (
         <div className="card mx-3 space-y-2 text-center text-muted lg:mx-0">
           <p>{t('sportsbook.list.empty')}</p>
           {cursor !== undefined ? (
-            <Link href={href({})} prefetch={false} className="btn btn-outline">
+            <Link href={hrefFor()} prefetch={false} className="btn btn-outline">
               {t('sportsbook.list.firstPage')}
             </Link>
           ) : null}
         </div>
       ) : (
         <>
-          <MatchList events={events} />
+          <MatchList events={events} grouped flags={competitionFlags(competitions)} />
           <Pager
-            firstHref={cursor === undefined ? null : href({})}
-            nextHref={page.nextCursor === null ? null : href({ cursor: page.nextCursor })}
+            firstHref={cursor === undefined ? null : hrefFor()}
+            nextHref={page.nextCursor === null ? null : hrefFor(page.nextCursor)}
           />
         </>
       )}
@@ -183,7 +308,7 @@ async function EventsTab({
   );
 }
 
-/** The featured-match poster: league, both teams, kick-off and the main market. */
+/** The featured-match poster: league, both teams, kick-off or live score, and the main market. */
 async function Featured({ event }: { event: EventSummary }) {
   const [t, locale] = await Promise.all([getT(), getLocale()]);
   const day = relativeDay(event.startTime);
@@ -239,9 +364,9 @@ async function Featured({ event }: { event: EventSummary }) {
             </span>
             <span className="text-xxs font-semibold text-white/70">
               {day === 'today'
-                ? t('sportsbook.tabs.today')
+                ? t('sportsbook.controls.today')
                 : day === 'tomorrow'
-                  ? t('sportsbook.list.tomorrow')
+                  ? t('sportsbook.controls.tomorrow')
                   : formatDayMonth(event.startTime)}
             </span>
           </span>
@@ -332,8 +457,8 @@ async function Leagues({ sport }: { sport: Sport }) {
             id={`cat-${category.category.slug}`}
             className="flex items-center gap-2 border-b border-line bg-raised px-3 py-2 text-xs font-bold"
           >
-            <span aria-hidden="true" className="tag">
-              {monogram(category.category.name.en)}
+            <span aria-hidden="true" className="text-base leading-none">
+              {flagEmoji(category.category.countryCode)}
             </span>
             {localName(category.category.name, locale)}
           </h2>

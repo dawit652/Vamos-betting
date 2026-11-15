@@ -297,25 +297,6 @@ describe('trading', () => {
       ),
     ).toEqual({ changed: true });
 
-    // A top match: marked, repeated (unchanged), listed for players, then unmarked.
-    const markTop = (top: boolean) =>
-      asStaff(ctx, s.trader, 'POST', `/admin/trading/events/${ev.later}/top`, { top });
-    expect(expectOk(await markTop(true))).toEqual({ changed: true });
-    expect(expectOk(await markTop(true))).toEqual({ changed: false });
-    expect(
-      TradingEventView.parse(
-        expectOk(await asStaff(ctx, s.trader, 'GET', `/admin/trading/events/${ev.later}`)),
-      ).topMatch,
-    ).toBe(true);
-    expect(expectOk(await markTop(false))).toEqual({ changed: true });
-    expect(
-      (
-        await asStaff(ctx, s.support, 'POST', `/admin/trading/events/${ev.later}/top`, {
-          top: true,
-        })
-      ).statusCode,
-    ).toBe(403);
-
     // A support user cannot touch trading.
     const forbidden = await asStaff(
       ctx,
@@ -547,6 +528,91 @@ describe('settings and withdrawals', () => {
       (await asStaff(ctx, s.finance, 'PUT', '/admin/settings/payments', { value: payments }))
         .statusCode,
     ).toBe(403);
+  });
+
+  it('edits the house liability caps: validated, audited, and no cap by default', async () => {
+    const view = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.finance, 'GET', '/admin/settings')),
+    );
+    expect(view.settings.riskLimits).toEqual({
+      maxSelectionLiability: null,
+      maxEventLiability: null,
+    });
+    const caps = { maxSelectionLiability: '50000000', maxEventLiability: '250000000' };
+    const updated = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.admin, 'PUT', '/admin/settings/risk_limits', { value: caps })),
+    );
+    expect(updated.settings.riskLimits).toEqual(caps);
+    expect(await staffAudit(s.admin, 'risk_limits')).toEqual(['settings.updated']);
+
+    for (const value of [
+      { maxSelectionLiability: '0', maxEventLiability: null },
+      { maxSelectionLiability: '300', maxEventLiability: '200' },
+    ]) {
+      const refused = await asStaff(ctx, s.admin, 'PUT', '/admin/settings/risk_limits', { value });
+      expect(refused.statusCode).toBe(422);
+    }
+    expect(
+      (await asStaff(ctx, s.finance, 'PUT', '/admin/settings/risk_limits', { value: caps }))
+        .statusCode,
+    ).toBe(403);
+
+    // Back to no caps, so the rest of this file is unaffected.
+    const none = { maxSelectionLiability: null, maxEventLiability: null };
+    const cleared = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.admin, 'PUT', '/admin/settings/risk_limits', { value: none })),
+    );
+    expect(cleared.settings.riskLimits).toEqual(none);
+  });
+
+  it('edits the market families (plan task 2.5): validated, audited, today by default', async () => {
+    const view = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.finance, 'GET', '/admin/settings')),
+    );
+    const defaults = {
+      marginBps: { main: 600, derivative: 700, long: 1200 },
+      typeMarginBps: {},
+      factoryLiabilityShareBps: 2500,
+      minWeeklyStake: '10000000',
+      firstHalfShare: null,
+      drawCorrection: null,
+    };
+    expect(view.settings.marketFamilies).toEqual(defaults);
+    const changed = {
+      ...defaults,
+      typeMarginBps: { htft: 1400 },
+      factoryLiabilityShareBps: 1000,
+    };
+    const updated = StaffSettingsResponse.parse(
+      expectOk(
+        await asStaff(ctx, s.admin, 'PUT', '/admin/settings/market_families', { value: changed }),
+      ),
+    );
+    expect(updated.settings.marketFamilies).toEqual(changed);
+    expect(await staffAudit(s.admin, 'market_families')).toEqual(['settings.updated']);
+
+    for (const value of [
+      { ...defaults, marginBps: { main: 10_001, derivative: 700, long: 1200 } },
+      { ...defaults, typeMarginBps: { '1x2': 500 } },
+      { ...defaults, factoryLiabilityShareBps: -1 },
+      { ...defaults, minWeeklyStake: '-1' },
+    ]) {
+      const refused = await asStaff(ctx, s.admin, 'PUT', '/admin/settings/market_families', {
+        value,
+      });
+      expect(refused.statusCode).toBe(422);
+    }
+    expect(
+      (await asStaff(ctx, s.finance, 'PUT', '/admin/settings/market_families', { value: changed }))
+        .statusCode,
+    ).toBe(403);
+
+    const back = StaffSettingsResponse.parse(
+      expectOk(
+        await asStaff(ctx, s.admin, 'PUT', '/admin/settings/market_families', { value: defaults }),
+      ),
+    );
+    expect(back.settings.marketFamilies).toEqual(defaults);
   });
 
   it('lets finance approve and reject withdrawals', async () => {

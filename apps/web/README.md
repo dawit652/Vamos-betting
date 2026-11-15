@@ -31,21 +31,14 @@ pnpm lint                           # repo ESLint covers apps/web
 | `src/lib/{format,localized,routes,cookies}.ts`                   | Formatting, catalogue names, route map, cookie names                              |
 | `public/`                                                        | `manifest.webmanifest`, `icons/`, `sw.js`, `offline.html`                         |
 
-The DEMO banner and the header's DEMO badge follow the platform's operating mode, which the web app
-reads from the API (`getOperatingMode()` in `src/lib/api/mode.ts`, GET /health, kept for a minute):
-they show in demo mode (play money) and are gone in licensed mode. The web app has no setting of its
-own for this, so the notice cannot be switched off while the API runs in demo mode. Before a licensed
-launch the demo wording inside pages (terms, KYC and payment notices) needs its real-money text.
-
 ## Routes
 
 All paths come from `routes` in `src/lib/routes.ts`; link with it instead of writing strings.
 
 | Route                                      | Page                                                                       |
 | ------------------------------------------ | -------------------------------------------------------------------------- |
-| `/`, `/sport/[sport]`                      | Sport home (football is `/`); `?tab=`, `?day=` (Today tab), `?market=dc`   |
-| `/sport/[sport]/[competition]`             | Competition (`?market=dc` on football)                                     |
-| `/search`                                  | Match search (`?q=`: team, league or Game ID), a plain GET form            |
+| `/`, `/sport/[sport]`                      | Sport home (football is `/`); tabs as `?tab=`                              |
+| `/sport/[sport]/[competition]`             | Competition                                                                |
 | `/live`, `/live/[sport]`                   | Live list                                                                  |
 | `/event/[id]`                              | Event page (market accordions)                                             |
 | `/my-bets`                                 | My Bets                                                                    |
@@ -74,13 +67,8 @@ The sport and league links and the main navigation are each rendered **once** an
 Pass `live` on the live lists (links stay on the live side, counts are live counts) and
 `competition` to highlight the league being viewed.
 
-The sport home opens its Highlights tab with the featured-match poster (the soonest match a trader
-marked as top match in the back office, else the first highlight, when its main market is open) and
-two promo cards. Between the tabs and a list sit the list controls (`ListControls`), all plain
-links: the Today tab's day chips (today and the next six days, `?day=YYYY-MM-DD`) and, on football
-lists, the switch between 1X2 and double chance odds on the rows (`?market=dc`; the API then sends
-double chance as the row market, so a row never carries two markets). `tabs.ts` parses and builds
-these query strings. The first Highlights page lists 16 rows, every other list page 20. Lists are grouped into one collapsible card per league
+The sport home opens its Highlights tab with the featured-match poster (the first highlight with an
+open main market) and two promo cards; lists are grouped into one collapsible card per league
 (`groupByCompetition`, native `<details>`), `grouped={false}` gives a flat card. The event page
 filters its market cards with radio chips and CSS only (`.market-filter`; categories come from
 `marketCategory` in `components/sportsbook/events.ts`).
@@ -118,14 +106,6 @@ filters its market cards with radio chips and CSS only (`.market-filter`; catego
   sends the `common` and `sportsbook` namespaces to the browser. A route whose client components need
   `account` wraps them: `<ClientMessages namespaces={['account']}>{children}</ClientMessages>` (e.g.
   in `app/account/layout.tsx`, `app/(auth)/layout.tsx`). Otherwise the key itself is shown.
-- The betslip drawer's own text (`sportsbook.betslip.*`, about 40% of the namespace) is not in that
-  payload: it loads with the drawer, one small chunk per locale (`BetslipMessages`,
-  `@vamos/i18n/betslip`). A betslip key that another screen needs (the slip bar's total odds, the
-  error texts the jackpot and the API error mapper reuse) must be listed in `SHARED_BETSLIP_KEYS`
-  there, or that screen shows the key itself.
-- `sportsbook.controls.*` and `sportsbook.search.*` are rendered by server components only and are
-  never sent to the browser (`SERVER_ONLY_SPORTSBOOK` in the same file): use them with `getT()`,
-  not `useT()`.
 - In client code import locale constants from `@vamos/i18n/locales` and `MessageKey` from
   `@vamos/i18n/translate`, never values from `@vamos/i18n` (that would ship every translation).
 - The locale is the `vamos_locale` cookie (default `am`). `LocaleSwitcher` sets it, refreshes, and
@@ -233,9 +213,7 @@ static JS/CSS compressed once at maximum quality and kept in memory, and pages c
 level (149.8 KB measured on 10 Oct 2026; 158.4 KB on 14 Nov 2026 after the redesign, against about
 153 KB for the previous UI on the same data: the navigation with leagues, the poster and the league
 headers add about 3 KB of HTML, the new styles 1.4 KB of CSS and the theme toggle, dock and slip bar
-0.9 KB of JS; 157.7 KB once the betslip drawer's text moved out of the page and into the drawer's
-chunk; 156.8 KB with the list controls added and 16 rows on the first Highlights page). That is
-over the 150 KB target and close to the 159 KB test budget, so new home-page
+0.9 KB of JS). That is over the 150 KB target and close to the 160 KB test budget, so new home-page
 content has to pay for itself. Behind a CDN that does brotli itself, plain `next start` works too.
 The app's own shell JS is about 10 KB. Keep new client code small (code only the drawer needs goes in
 the drawer's lazy chunk), keep lists server-rendered, and avoid client-side libraries (no zod, date

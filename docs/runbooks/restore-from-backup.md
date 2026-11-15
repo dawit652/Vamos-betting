@@ -10,7 +10,7 @@ correction) when the data is merely wrong; restore when data is missing or untru
 - Declare the incident and stop writes: `docker compose stop web admin api worker` (keep `postgres` for a
   last dump of the damaged state: `infra/scripts/backup.sh dump`, then keep that file: it is evidence and
   it contains the transactions since the last backup).
-- Gather: the backup files (`db/*.dump[.age]`, `base/*.tar`, `wal/*`, `els/*.tar.gz`), the age identity,
+- Gather: the backup files (`db/*.dump[.age]`, `base/*.tar`, `wal/*`), the age identity,
   and the **matching secrets** (`ADMIN_TOTP_KEY`, `SESSION_SECRET`, provider keys). Check `.sha256` files.
 - Decide the recovery point: latest dump (loses up to a day), or point-in-time with WAL (to the minute).
 - Never restore a demo database into a licensed deployment or the reverse (the operating mode is claimed at
@@ -70,18 +70,9 @@ on a new timeline). Remove `recovery_target_*` from `postgresql.auto.conf` befor
 procedure was exercised against the compose stack (base backup + gzipped WAL, restore to a time between two
 commits); repeat it in the quarterly drill.
 
-## C. ELS reports and secrets
+## C. Secrets
 
-```bash
-docker compose up -d --no-start worker
-docker run --rm -v vamos_els:/els -v /var/backups/vamos/els:/in:ro node:22-alpine \
-  sh -c 'cd /els && tar -xzf /in/els-<stamp>.tar.gz && chown -R 1000:1000 /els && chmod -R u=rwX,go= /els'
-```
-
-Restore the ELS archive that is **closest after** the database recovery point. Records written to the old
-database after the backup but missing from the files are re-emitted by the sweep only if `els_reports` did not
-record them; otherwise see [ELS reporting failure](els-reporting-failure.md). Put the original secrets back
-before starting the services: without the matching `ADMIN_TOTP_KEY` staff cannot sign in
+Put the original secrets back before starting the services: without the matching `ADMIN_TOTP_KEY` staff cannot sign in
 ([rotating secrets](rotating-secrets.md#admin_totp_key-staff-authenticator-secrets)).
 
 ## Bring it back and verify
@@ -93,7 +84,7 @@ before starting the services: without the matching `ADMIN_TOTP_KEY` staff cannot
    `clean`. Expect the PSP check to differ if payments completed at the providers after the recovery point:
    see step 5.
 5. **Reconcile with the real world for the lost window** (from the recovery point to the outage): provider
-   dashboards/statements for deposits and payouts, ELS stream, support tickets. Deposits the provider
+   dashboards/statements for deposits and payouts, support tickets. Deposits the provider
    collected but we lost must be credited (flagged-deposit flow); payouts the provider sent but we lost
    must be recorded (settle as paid) so nobody is paid twice. Do this _before_ reopening withdrawals: keep
    `worker` stopped until the payouts that were `processing` at the recovery point are understood, then start it.

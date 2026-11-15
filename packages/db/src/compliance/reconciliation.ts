@@ -10,7 +10,6 @@ import { OPEN_PAYOUT_STATUSES } from '../payments/types';
 import { bets } from '../schema/betting';
 import {
   complianceCursors,
-  dailySummaries,
   reconciliationMismatches,
   reconciliationRequests,
   reconciliationRuns,
@@ -18,7 +17,6 @@ import {
 import { jackpotEntries } from '../schema/jackpots';
 import { ledgerAccounts, ledgerEntries, ledgerTransactions } from '../schema/ledger';
 import { paymentIntents, payouts } from '../schema/payments';
-import { computeDailyFigures, dailyFiguresHash } from './daily-summary';
 
 /**
  * Reconciliation (worker daily, and on demand from the back office): every
@@ -46,9 +44,6 @@ import { computeDailyFigures, dailyFiguresHash } from './daily-summary';
  *   exactly that PSP clearing entry;
  * - psp_daily_totals: per provider, Σ succeeded intents = deposits through
  *   its clearing account and Σ paid payouts = withdrawals through it;
- * Reports:
- * - daily_summary: the final daily summaries of the week up to that day
- *   still equal a recomputation from the ledger.
  * Imported PSP statements are matched line by line in psp-statements.ts
  * (their own runs, kind `psp_statement`).
  *
@@ -86,7 +81,6 @@ export const RECONCILIATION_CHECKS = [
   'psp_movements',
   'psp_records',
   'psp_daily_totals',
-  'daily_summary',
 ] as const;
 export type ReconciliationCheck = (typeof RECONCILIATION_CHECKS)[number] | 'psp_statement';
 
@@ -95,8 +89,6 @@ export const RECONCILIATION_MISMATCH = 'compliance.reconciliation_mismatch';
 
 /** Differences stored per check and run (the check's summary still counts them all). */
 export const MAX_MISMATCHES_PER_CHECK = 500;
-/** How many days of final summaries the daily_summary check recomputes. */
-const SUMMARY_DRIFT_DAYS = 7;
 
 export type ReconciliationRun = typeof reconciliationRuns.$inferSelect;
 export type ReconciliationMismatch = typeof reconciliationMismatches.$inferSelect;
@@ -588,44 +580,6 @@ async function checkPayments(exec: DbExecutor, date: string, cap: number): Promi
   ];
 }
 
-async function checkDailySummaries(exec: DbExecutor, date: string): Promise<CheckResult> {
-  const from = addBusinessDays(date, -(SUMMARY_DRIFT_DAYS - 1));
-  const finals = await exec
-    .select()
-    .from(dailySummaries)
-    .where(
-      and(
-        eq(dailySummaries.status, 'final'),
-        sql`${dailySummaries.businessDate} BETWEEN ${from} AND ${date}`,
-      ),
-    )
-    .orderBy(asc(dailySummaries.businessDate));
-  const mismatches: MismatchInput[] = [];
-  for (const summary of finals) {
-    const figures = await computeDailyFigures(exec, summary.businessDate, {
-      commissionRateBps: summary.commissionRateBps,
-    });
-    const hash = dailyFiguresHash(summary.businessDate, figures);
-    if (hash === summary.hash) continue;
-    mismatches.push({
-      check: 'daily_summary',
-      subjectType: 'daily_summary',
-      subjectId: summary.businessDate,
-      expected: summary.hash,
-      actual: hash,
-      details: {
-        finalTurnover: summary.turnover.toString(),
-        ledgerTurnover: figures.turnover.toString(),
-        finalPayouts: summary.payouts.toString(),
-        ledgerPayouts: figures.payouts.toString(),
-        finalGgr: summary.ggr.toString(),
-        ledgerGgr: figures.ggr.toString(),
-      },
-    });
-  }
-  return result('daily_summary', finals.length, mismatches.length, mismatches);
-}
-
 /**
  * How old (by its transaction's start) an entry must be before the
  * balance_after checkpoint moves past it. Entry ids are taken when a row is
@@ -676,7 +630,6 @@ export async function runReconciliationChecks(
     await checkAccounts(exec, cap, 'player'),
     ...(await checkHouseAccounts(exec)),
     ...(await checkPayments(exec, input.businessDate, cap)),
-    await checkDailySummaries(exec, input.businessDate),
   ];
   return {
     checks: results.map((check) => check.summary),

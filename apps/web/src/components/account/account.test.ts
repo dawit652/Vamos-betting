@@ -105,51 +105,33 @@ describe('safeNextPath', () => {
 });
 
 describe('validation', () => {
-  it('validates registration like the API', () => {
+  it('validates registration like the API (no date of birth: 21+ is the terms checkbox)', () => {
     expect(
-      validateRegister(
-        {
-          phone: '0911 234 567',
-          password: 'secret12-abc',
-          dateOfBirth: '1990-05-17',
-          acceptTerms: true,
-        },
-        NOW,
-      ),
+      validateRegister({
+        phone: '0911 234 567',
+        password: 'secret12-abc',
+        acceptTerms: true,
+      }),
     ).toEqual({});
     // New passwords need 12 characters (the API also refuses common ones).
     expect(
-      validateRegister(
-        {
-          phone: '0911 234 567',
-          password: 'secret1-abc',
-          dateOfBirth: '1990-05-17',
-          acceptTerms: true,
-        },
-        NOW,
-      ).password,
+      validateRegister({
+        phone: '0911 234 567',
+        password: 'secret1-abc',
+        acceptTerms: true,
+      }).password,
     ).toBe('account.validation.passwordShort');
-    expect(
-      validateRegister(
-        { phone: '0111234567', password: '123', dateOfBirth: '', acceptTerms: false },
-        NOW,
-      ),
-    ).toEqual({
+    expect(validateRegister({ phone: '0111234567', password: '123', acceptTerms: false })).toEqual({
       phone: 'account.validation.phone',
       password: 'account.validation.passwordShort',
-      dateOfBirth: 'account.validation.dateOfBirthRequired',
       acceptTerms: 'account.validation.terms',
     });
     expect(
-      validateRegister(
-        {
-          phone: '+251711234567',
-          password: 'abcdefgh-ijk',
-          dateOfBirth: '1990-01-01',
-          acceptTerms: true,
-        },
-        NOW,
-      ),
+      validateRegister({
+        phone: '+251711234567',
+        password: 'abcdefgh-ijk',
+        acceptTerms: true,
+      }),
     ).toEqual({});
   });
 
@@ -545,6 +527,8 @@ describe('security page helpers', () => {
   });
 
   it('names the data export file by its UTC date', () => {
-    expect(exportFileName(new Date('2026-10-27T21:30:00Z'))).toBe('vamos-my-data-2026-10-27.json');
+    expect(exportFileName(new Date('2026-10-27T21:30:00Z'))).toBe(
+      'nahubet-my-data-2026-10-27.json',
+    );
   });
 });
