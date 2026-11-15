@@ -3,6 +3,45 @@
 Written at the end of a Claude Code session on 14 Nov 2026 so another session (or account) can continue.
 Read this first, then `docs/frontend-redesign-plan.md` (the full plan, with done and open items).
 
+## Continue here (updated 15 Nov 2026, afternoon)
+
+**Branch:** `claude/happy-keller-redesign-v030`, merged into the default branch through a pull request
+once CI passes (see "Branches" in README.md).
+
+**Done on the branch, not deployed yet** (the server still runs the web app of `e56c80a`):
+
+- **Registration without a date of birth** (`acb37cf`): the form asks phone, password and the 21+ and
+  terms checkbox; KYC still checks the age on the ID. Needs the **API and migration 0052**
+  (`users.date_of_birth` nullable). `deploy-web.sh` refuses a web-only deploy of it on purpose: an older
+  API refuses sign-ups without a date, so registration would break.
+- **Flags per league and competition** (`28d28e8`): England, Scotland, Wales, UEFA (EU), CAF, CONMEBOL,
+  CONCACAF, AFC, FIFA and friendlies; web only.
+- **"Starts within" 1h / 3h / 6h / 12h / 24h chips** at the top of the lists (`f4cc732`): new
+  `startsWithinHours` on `GET /events`; the web also cuts the window itself, so it works with the
+  older API too.
+
+**Next, in order** (model and effort as in CLAUDE.md):
+
+1. **Bring the server's own changes into git** (Opus, high: review). They exist only on the server, as
+   commit `ce7761b` on branch `live/nahubet-new-2026-11-15` in `/opt/nahubet-live-save` (the Hulusport
+   board in the scraper and its compose settings). The server's GitHub key is read-only: pack it with
+   `git bundle create /root/nahubet-live.bundle 661763f..live/nahubet-new-2026-11-15`, copy it with
+   `scp`, check it for secrets and large files, push it, and merge it into this branch.
+2. **Full-stack deploy** (Opus, high: migrations 0050 to 0052 run, money path). Take a database dump
+   first (docs/backups.md), then from a checkout of the merged branch with the live env file:
+   `docker compose build && docker compose up -d --wait` (project `vamos`,
+   `COMPOSE_ENV_FILES=/opt/nahubet-new/infra/.env.prod`). Then the web app can follow
+   (`API_UPDATED=1 infra/scripts/deploy-web.sh ...`).
+3. **About 500 options per match** (Sonnet, medium, after step 2): already built in v0.3.0 (the market
+   factory prices 587 to 635 options per match from the odds feed data); switch it on with
+   `SCRAPER_FACTORY_MARKETS=on` and `FEATURE_FACTORY_MARKETS=true` in the env file and the "Market
+   factory markets" switch per league in the back office. Amharic labels of the factory markets are
+   still missing (docs/plans/hulusport-parity-progress.md, task 2.4).
+4. **Confirm the live API's mode** (Haiku, low): `docker exec vamos-api-1 node -e
+'fetch("http://localhost:4000/health").then(r=>r.text()).then(console.log)'`.
+5. **Licensed texts** for Help, Terms and Responsible gambling (they still say demo), and a
+   native-speaker review of the new Amharic texts (Sonnet, medium).
+
 ## Deployed (15 Nov 2026, 05:00 server time)
 
 The **web app only** of `claude/happy-keller-redesign-v030` (`e56c80a`) runs on the server, deployed with

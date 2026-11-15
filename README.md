@@ -11,6 +11,16 @@ A mobile-first sportsbook for the Ethiopian market, modelled on **Betika**. It i
 >
 > See [`docs/research`](docs/research) for the market analysis behind these decisions.
 
+## Branches: which one is the latest
+
+- **The default branch (`claude/quirky-ramanujan-xb7e2u`) is the latest safe version.** Work is merged
+  into it only through a pull request, and only once CI (lint, typecheck, unit and integration tests, the
+  end-to-end suite and the Docker build) has passed on it. Start new work from it.
+- Work happens on `claude/*` branches. The one being merged next has an open pull request into the
+  default branch; GitHub merges it by itself when CI passes (auto-merge), so nothing unsafe lands.
+- What runs on the server, and how to deploy or roll back, is in [`HANDOFF.md`](HANDOFF.md).
+- Older `claude/*` branches are history: their work is either in the default branch or superseded.
+
 ## Repository layout
 
 | Path                 | What it is                                                                                     |

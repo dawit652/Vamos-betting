@@ -42,6 +42,17 @@ fi
 
 git fetch origin "$BRANCH"
 
+# A web app from this commit on needs the API of the same branch: its sign-up form sends no date of
+# birth, and an older API refuses such sign-ups (registration would break). Deploy the API first
+# (see HANDOFF.md), then rerun with API_UPDATED=1.
+NEEDS_NEW_API_SINCE=acb37cf
+if git merge-base --is-ancestor "$NEEDS_NEW_API_SINCE" "origin/$BRANCH" 2>/dev/null &&
+  [[ "${API_UPDATED:-0}" != "1" ]]; then
+  echo "origin/$BRANCH needs the API from the same branch (sign-up without a date of birth):" >&2
+  echo "deploy the API first, then rerun with API_UPDATED=1. Nothing changed." >&2
+  exit 1
+fi
+
 # The running project was started from the compose file next to its env file: if that file differs
 # from this branch's, recreating `web` could change its ports, networks or settings. Stop and show it
 # (set ALLOW_COMPOSE_DIFF=1 after reviewing the difference).
