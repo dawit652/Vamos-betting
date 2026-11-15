@@ -9,7 +9,9 @@ built yet; this file is the to-do list, cut so that each line fits one short ses
 - **Project rules:** `CLAUDE.md` (money is bigint santim, double-entry ledger, pure domain maths in
   `packages/core` with property tests, real-Postgres integration tests, the payments section). Its model
   routing applies: **Opus, high** for design, migrations, the money path and reviews; **Sonnet, medium**
-  for well-specified code; **Haiku, low** for running checks. At most two agents at a time.
+  for well-specified code; **Haiku, low** for running checks. At most two agents at a time. The two
+  agents it names, `routine-coder` and `quick-task`, are in `.claude/agents/` since 15 Nov, so every
+  account has them.
 - **The server and deploys** are a separate stream: root [`HANDOFF.md`](../../HANDOFF.md).
 
 ## 0. Paste this to start
