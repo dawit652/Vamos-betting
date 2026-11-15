@@ -31,16 +31,17 @@ Continue the "scale and payments" work on Nahubet.
    docs/plans/scale-and-payments-progress.md, then only the parts of
    docs/plans/scale-and-payments-plan.md that your task names.
 3. Run `git log --oneline origin/claude/eager-cerf-ox9vkq -25` to see what landed since the handover was
-   written, and read section 6 of the handover (what was half done and how to recover it). Do the setup in
-   the handover's section 1, then take the first task of section 3 that the progress
-   file marks `open` (rows marked `in progress` belong to another session; its claim names it and the
-   time; claim yours in the progress file and push that before you start). One task at a time: tests with it, `pnpm lint`, `pnpm typecheck`, the test
-   suites of the touched packages and `pnpm format:check` green, then update the progress file, commit
-   and push. Never leave the branch failing.
+   written, and read section 6 of the handover (what was half done, how to recover it, and the order
+   in its "Next" list). Do the setup in the handover's section 1, then take the first item of that
+   list that the progress file marks `open` (rows marked `in progress` belong to another session; its
+   claim names it and the time; claim yours in the progress file and push that before you start). One
+   task at a time: tests with it, `pnpm lint`, `pnpm typecheck`, the test suites of the touched packages
+   and `pnpm format:check` green, then update the progress file, commit and push. Never leave the
+   branch failing.
 4. Follow CLAUDE.md's model routing to save usage. Stop starting new tasks when the session is close
    to its limit; instead update the progress file and section 6 of the handover, commit and push.
-5. Ask me before anything in the handover's section 4 (owner decisions), before any pull request,
-   and before anything that touches the live server.
+5. Ask me before anything in the handover's section 4 (owner decisions), before merging pull request 5
+   or any other pull request, and before anything that touches the live server.
 ```
 
 ## 1. Before the first task
@@ -149,8 +150,10 @@ handset and a heartbeat alarm) needs a spare phone on site. B9 (a statement feed
 ## 6. State at the end of the second working session (15 Nov 2026, evening)
 
 **Branch** `claude/eager-cerf-ox9vkq` is the default branch (`b7dc17c`, the deployed line) plus this
-work; **pull request 5** (into `claude/quirky-ramanujan-xb7e2u`) is open and mergeable. The owner said:
-merge pull requests once CI is green. CI runs on every code push (docs-only pushes skip it) and cancels
+work; **pull request 5** (into `claude/quirky-ramanujan-xb7e2u`) is open and mergeable. The progress file
+records the owner's answer as "pull requests merged once CI is green"; that line was written by the other
+account's session after the owner said "use your recommendation" about opening the pull request, and the
+first account never heard the merge rule from the owner: **ask the owner before merging.** CI runs on every code push (docs-only pushes skip it) and cancels
 the older run of the branch, so only the newest push is checked; look at the run of the newest code commit
 (`mcp__github__actions_list`, or the Actions tab). The `e2e` and `docker` jobs run only on the default
 branch or by hand (Actions, CI, Run workflow); run them once by hand before merging, because the
@@ -216,7 +219,8 @@ manual payouts" stops being true if C2 goes to `on`.
    answers D4 and D8, and the shadow period before `on`. Until then C2 stays off.
 8. **X2** end-to-end tests of the redesign, **X4** licensed texts, then **X3** the rename stages 1 to 3 (not
    the server's own names), last, in one pull request while no other branch is open.
-9. Merge pull request 5 when CI is green (above), then restart from the default branch for what follows.
+9. Ask the owner whether to merge pull request 5 (CI green first, see above); after a merge continue on this branch
+   (a merge commit needs no restart) and open a new pull request for what follows.
 
 **For the owner** (not code): the two calls (`docs/plans/provider-calls-brief.md`, the bank first, telebirr
 only if accepted), real fixtures (B1), D3 to D8 in the progress file, and whether the steer "outside

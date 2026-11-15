@@ -108,8 +108,10 @@ Already decided by the owner (15 Nov 2026):
 - The inside of the code is to be renamed from Vamos to Nahubet (task X3), **except the server's own
   names**: the compose project, the volumes and the database keep their names. The owner does not
   want Docker to start on new, empty volumes (15 Nov, second session), so stage 4 of X3 is dropped.
-- Pull requests: the branch goes into the default branch by pull request, merged once CI is green
-  (15 Nov, second session: "use your recommendation").
+- Pull requests: the branch goes into the default branch by pull request. The second session wrote
+  "merged once CI is green" here after the owner answered "use your recommendation" to the question
+  about opening the pull request; that answer covers opening it, **not merging** (the first account did
+  not hear a merge rule from the owner): ask the owner before merging (first account, 15 Nov evening).
 - Top-match flag (X1): not now. The home poster keeps showing the first highlight; the featured
   leagues cover the need. Reopen if a trader asks for it.
 - The two calls with the longest lead time (D1 Ethio telecom, D2 the bank) are the owner's to make;
