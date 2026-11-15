@@ -24,8 +24,8 @@ Continue the "scale and payments" work on Nahubet.
 1. Find the handover: if docs/plans/scale-and-payments-handover.md exists in your checkout, use it.
    If not, run `git fetch origin claude/eager-cerf-ox9vkq` and start your branch from
    origin/claude/eager-cerf-ox9vkq (fast-forward or merge it into your session's branch).
-   If several branches have the file, use the one whose scale-and-payments-progress.md has the
-   newest "Last updated" line.
+   If several branches have the file, use the branch where scale-and-payments-progress.md was
+   committed last (the handover's section 1 has the command).
 2. Read, in this order: CLAUDE.md, docs/plans/scale-and-payments-handover.md,
    docs/plans/scale-and-payments-progress.md, then only the parts of
    docs/plans/scale-and-payments-plan.md that your task names.
@@ -44,7 +44,14 @@ Continue the "scale and payments" work on Nahubet.
 1. **Branch.** This work is on `claude/eager-cerf-ox9vkq`: the default branch
    (`claude/quirky-ramanujan-xb7e2u`, `b7dc17c`) plus the back-office theme, `E2E_CHROMIUM_PATH` and
    these documents. It reaches the default branch by pull request (README, "Branches"); the owner has
-   not asked for one yet. If the default branch has moved, merge it in first.
+   not asked for one yet. If the default branch has moved, merge it in first. A later session may
+   have continued on another branch; this lists every branch that has the progress file, newest
+   first, and the first line is the one to continue from:
+
+   ```bash
+   git fetch origin && for b in $(git branch -r | grep -v HEAD); do d=$(git log -1 --format=%ci "$b" -- docs/plans/scale-and-payments-progress.md 2>/dev/null); [ -n "$d" ] && echo "$d $b"; done | sort -r
+   ```
+
 2. **Set up:** `pnpm install`, `cp .env.example .env`, `pnpm services:start`, then
    `OPERATING_MODE=demo pnpm db:migrate && OPERATING_MODE=demo pnpm db:seed`. The default mode is
    licensed and refuses the mock payment provider, so run tests and scripts with `OPERATING_MODE=demo`
