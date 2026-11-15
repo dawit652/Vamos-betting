@@ -30,7 +30,8 @@ Continue the "scale and payments" work on Nahubet.
    docs/plans/scale-and-payments-progress.md, then only the parts of
    docs/plans/scale-and-payments-plan.md that your task names.
 3. Do the setup in the handover's section 1, then take the first task of section 3 that the progress
-   file does not mark done. One task at a time: tests with it, `pnpm lint`, `pnpm typecheck`, the test
+   file marks `open` (rows marked `in progress` belong to another session; its claim names it and the
+   time; claim yours in the progress file and push that before you start). One task at a time: tests with it, `pnpm lint`, `pnpm typecheck`, the test
    suites of the touched packages and `pnpm format:check` green, then update the progress file, commit
    and push. Never leave the branch failing.
 4. Follow CLAUDE.md's model routing to save usage. Stop starting new tasks when the session is close
