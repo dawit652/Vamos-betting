@@ -245,8 +245,8 @@ the database are untouched (nothing starts on an empty volume).
 ```bash
 # start (the same env file as the base stack; needs Docker Compose 2.24+)
 docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml --profile proxy up -d
-# 4 API replicas instead of the default 3
-API_REPLICAS=4 docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml --profile proxy up -d
+# 4 API replicas instead of the default 3, 3 web replicas instead of 2
+API_REPLICAS=4 WEB_REPLICAS=3 docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml --profile proxy up -d
 # back to one API process: stop the extras and start with the base file alone
 docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml stop pgbouncer
 docker compose -f infra/docker-compose.prod.yml --profile proxy up -d --remove-orphans
@@ -269,6 +269,10 @@ docker compose -f infra/docker-compose.prod.yml --profile proxy up -d --remove-o
   Any replica can serve any request: sessions are in Postgres, rate limits and the live fan-out in Redis.
   A live stream stays on the replica it opened on. `/metrics` is per process (see Metrics): scrape every
   replica. `DB_POOL_MAX` sets one process's pool in the base stack too.
+- **Web replicas** (`WEB_REPLICAS`, default 2): one web process renders about 40 to 60 pages a second
+  and was the first part to break in the load test (`docs/load-testing.md`, A1b), so the overlay runs
+  several, also without a host port, balanced by Caddy the same way (`dynamic a web`). Pages hold no
+  state between requests (each one asks the API), so any replica can serve any page.
 - **What is not done**: the overlay was validated here by `docker compose config`, a native PgBouncer run
   of the real entrypoint (SCRAM login as `vamos_app`) and the test suites above; the Docker image build
   and `Caddyfile.scale` are validated by CI (`docker` job, or Actions → CI → Run workflow). The throughput

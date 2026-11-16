@@ -11,9 +11,11 @@
 # - pgbouncer: transaction pooling; the application role vamos_app logs in through it.
 # - api: API_REPLICAS processes (default 3), no host port (the proxy reaches them on the compose
 #   network), each with a pool of API_DB_POOL_MAX connections (default 20) to PgBouncer.
+# - web: WEB_REPLICAS processes (default 2), no host port. One web process renders about 40 to 60
+#   pages a second and was the first thing to break under load (docs/load-testing.md, A1b).
 # - worker, scraper and the migrate job keep their direct connection to Postgres: they hold
 #   long-lived work and the migrate job needs the owner role.
-# - proxy: Caddyfile.scale finds every API replica by DNS and balances by least connections.
+# - proxy: Caddyfile.scale finds every API and web replica by DNS and balances by least connections.
 #
 # Postgres' max_connections is 200: PgBouncer's pool (PGB_POOL_SIZE, default 40) plus the worker,
 # scraper and migrate job stay far below it however many API replicas run.
@@ -55,6 +57,12 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+
+  web:
+    # No host port: several replicas cannot share one; the proxy finds them by DNS.
+    ports: !reset []
+    deploy:
+      replicas: ${WEB_REPLICAS:-2}
 
   proxy:
     volumes:

@@ -28,7 +28,15 @@
 {$WEB_DOMAIN} {
 	import common
 	# server.mjs already compresses (brotli) and sets cache headers.
-	reverse_proxy web:3000 {
+	# Several web replicas (docker-compose.scale.yml, WEB_REPLICAS): found by DNS like the API's,
+	# a request goes to the one with the fewest open connections.
+	reverse_proxy {
+		dynamic a {
+			name web
+			port 3000
+			refresh 5s
+		}
+		lb_policy least_conn
 		header_up X-Forwarded-Proto {scheme}
 	}
 }
