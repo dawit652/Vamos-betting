@@ -272,8 +272,9 @@ and against the 160 KB budget, `caddy validate` of `Caddyfile.streams` (CI does 
 
 1. ~~C10~~ done (progress file): ask the owner for the real `FLOAT_FORECAST_WITHDRAWN_PERCENT` (the default 20 is a guess) and
    whether each institution or the sum should be compared with the forecast; Opus may review it (read-only).
-2. **C12 review and deploy** (Opus, read-only review, then the owner deploys) and **C2a** from
-   `docs/plans/wip/c2a-partial.patch` (Opus, high): the other account's work, unchanged by this session.
+2. **C12 is reviewed** (16 Nov: one more hole closed for bank payouts, see its progress row) and **needs a
+   deploy by the owner**: until then the hole is open on the server. **C2a** from
+   `docs/plans/wip/c2a-partial.patch` (Opus or Fable, high): the other account's work, not started here.
 3. **X2** end-to-end tests of the redesign (needs the e2e stack: `e2e/scripts/stack.sh build` then
    `start`; Sonnet, medium). Run `e2e/tests/sms-rail.spec.ts` with two simulated accounts at the same time.
 4. **A6b, A7, A8, A9, B5, D1 to D8** per the progress file (A6b to B5 need no decision; D rows are owner

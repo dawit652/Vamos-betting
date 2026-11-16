@@ -289,8 +289,9 @@ export interface SettleManualPayoutInput extends ManualPayoutActor {
  * - a typed reference for a wallet payout: the SMS must name the payout's
  *   number (409 `settlement_destination_mismatch`); one that names no number
  *   counts only as the matcher's own proposal for this payout, never as an
- *   `ignored_debit` (409 `settlement_proof_mismatch`). Bank payouts rest on
- *   the holder-name confirmation, as before;
+ *   `ignored_debit` (409 `settlement_proof_mismatch`). A bank payout rests on
+ *   the holder-name confirmation, but an SMS that names a mobile number is of
+ *   a wallet transfer and never proves it (409 `settlement_destination_mismatch`);
  * - either way, the SMS must be of a transfer made after this claim (core
  *   latestClaimForSms: claim minus the clock skew), else 409
  *   `settlement_proof_too_old`. Otherwise the claimer could pay themselves
@@ -361,6 +362,7 @@ export async function settleManualPayout(
         );
       }
       if (destination?.kind === 'wallet') assertSentToWallet(payout, sms);
+      else assertNotSentToAnotherNumber(payout, sms);
       assertSentAfterClaim(payout, sms);
       proof = { id: sms.id, reference: typed };
     } else if (input.requireProof) {
@@ -397,6 +399,26 @@ function assertSentToWallet(payout: Payout, sms: ReceivedSmsRow): void {
     throw domainConflict(
       'settlement_destination_mismatch',
       'That SMS shows money sent to another number: check the reference and the number you paid.',
+    );
+  }
+}
+
+/**
+ * A typed reference for a bank payout (or one whose destination kind is unknown): a debit SMS
+ * that names a mobile number shows money sent to a wallet, so it cannot be the transfer to this
+ * bank account, whatever the claimer confirms about the holder name. Without this the claimer
+ * could send the amount to their own wallet and settle the player's bank payout with that debit
+ * (the wallet rule above, for banks). An SMS that names no number proves nothing about the
+ * destination either way: a bank payout then rests on the holder-name confirmation, as before.
+ */
+function assertNotSentToAnotherNumber(payout: Payout, sms: ReceivedSmsRow): void {
+  if (sms.counterpartyPhone === null) return;
+  const sentTo = comparableDestination(payout.destinationInstitution, sms.counterpartyPhone);
+  const owed = comparableDestination(payout.destinationInstitution, payout.destinationAccount);
+  if (sentTo !== owed) {
+    throw domainConflict(
+      'settlement_destination_mismatch',
+      'That SMS shows money sent to a mobile number, not to this bank account: check the reference and where you paid.',
     );
   }
 }

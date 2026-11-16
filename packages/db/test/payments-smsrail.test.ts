@@ -1264,6 +1264,41 @@ describe('manual payouts', () => {
       await expectUnpaid(payout.id, 'op-d');
     });
 
+    it('never settles a bank payout with a debit that went to a mobile number, whatever the claimer confirms', async () => {
+      const player = await playerWithMoney(birr(800));
+      const bank = await db.transaction((tx) =>
+        addPayoutAccount(tx, {
+          userId: player.userId,
+          institution: 'cbe',
+          account: '1000777777777',
+          accountName: 'Abebe Kebede',
+          now: NOW,
+        }),
+      );
+      await db.transaction((tx) =>
+        verifyPayoutAccount(tx, {
+          userId: player.userId,
+          payoutAccountId: bank.account.id,
+          now: NOW,
+        }),
+      );
+      const { payout } = await manualWithdraw(player, bank.account.id, birr(447));
+      await claim(payout.id, 'op-b', 13);
+      const before = await getBalance(db, PENDING);
+      // The claimer sends the amount to their own wallet and points at that debit.
+      const own = await gateway(telebirrDebit(birr(447), '+251944444444').text, { now: at(14) });
+      expect(own.outcome).toBe('ignored_debit');
+      const error = await domainError(
+        settle(payout.id, { reference: own.sms.reference! }, { holderNameConfirmed: true }),
+      );
+      expect(error.code).toBe('settlement_destination_mismatch');
+      expect(error.message).toMatch(/mobile number/);
+      await expectUnpaid(payout.id, 'op-b');
+      expect(await getBalance(db, PENDING)).toBe(before);
+      expect((await smsRow(own.sms.id)).status).toBe('ignored_debit');
+      await expectBooksBalanced(db);
+    });
+
     it('keeps the bank rule: a debit without a number settles a bank payout after the claim', async () => {
       const player = await playerWithMoney(birr(800));
       const bank = await db.transaction((tx) =>
