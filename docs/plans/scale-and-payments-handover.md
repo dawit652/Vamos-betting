@@ -465,3 +465,49 @@ Facts worth keeping:
   score is required); a person settles or voids them from the trading page, as for `ht_1x2` today.
 - **The web build** printed a Next.js security advisory asking to run `next upgrade --agent=security`.
   Not run (it came from tool output, not the owner); check the advisory and upgrade deliberately.
+
+**Later the same evening:**
+
+- **Registration, item 1 explained by the owner:** "it says it is easy" (the PINs typed were refused by
+  the easy-PIN rule, years above all; the form now names the rule) "or that it is taken" (that is
+  `phone_taken`: "An account with this number already exists", the owner's own number was registered
+  earlier). The owner asked to **remove the 21+ tick box**: the box is gone, a sentence above the
+  Register button says that tapping it confirms 21+ and the terms (`account.register.acceptTerms`),
+  the form still sends `acceptTerms: true`, and the API is unchanged (it still records the terms).
+- **Open decision for the owner:** keep refusing years 1940-2030 as PINs (recommended: birth years
+  are the first guesses) or allow them (one line in `packages/core/src/pin.ts`).
+- **Gap found: a forgotten PIN cannot be reset on the live server.** The reset needs an SMS code,
+  `SMS_PROVIDER=mock` sends nothing, a reset code is never shown on screen (by design), and staff have
+  no tool to reset a player's PIN. Before real players: a real SMS gateway (`SMS_PROVIDER=http`), or a
+  staff-assisted reset designed with KYC checks and four eyes.
+- **Review queue:** rule Q2 (`apps/scraper/src/pipeline/review-sweep-stale.ts`, run after Q1 in
+  `runPromotion`) closes the broken-source items of sources that no longer run and the unknown names
+  not seen for 7 days. The owner can also switch `SCRAPER_AUTO_ALIAS=on` (rule N4: strong name
+  suggestions are mapped by themselves) and use the back office's batch opening for waiting matches.
+- **Locked odds (item 3), not done:** the live matches with betting closed wait for F7b (auto-open):
+  their league's "Auto open" switch, a confirmed kickoff (K2) and calibrated teams (O1) or a strong
+  market (O1m). Query A (sent to the owner, below) shows which condition holds them. If most are model
+  leagues with board prices, a rule O1h (a match whose stored prices are Hulusport's fresh board
+  prices may open like O1m) is the next step: `apps/scraper/src/pipeline/auto-open.ts` `openOne` and
+  the API's `assertScrapedEventMayOpen` together, with tests; if "Auto open" is off, it is the owner's
+  switch per league.
+
+Query A (read-only, run on the server):
+
+```sql
+SELECT p.auto_open, p.pricing_source, count(*) AS locked, count(r.id) AS waiting_item,
+       count(b.event_id) AS hulusport_priced
+  FROM events e JOIN scrape_competition_policy p ON p.competition_id = e.competition_id
+  LEFT JOIN scrape_review_items r ON r.subject_key = e.feed_ref AND r.kind = 'odds_approval'
+       AND r.status = 'open'
+  LEFT JOIN (SELECT DISTINCT event_id FROM scrape_board_odds WHERE event_id IS NOT NULL
+              AND observed_at > now() - interval '30 minutes') b ON b.event_id = e.id
+ WHERE e.feed_provider = 'scraped' AND e.status = 'scheduled' AND e.start_time > now()
+   AND NOT e.betting_open
+ GROUP BY 1, 2 ORDER BY 3 DESC;
+```
+
+**For the owner after the next deploy:** set `TELEGRAM_PUBLIC_URL=https://t.me/<bot or channel>` and
+`TELEGRAM_BOT_TOKEN` in `/opt/nahubet-new/infra/.env.prod` (runbook `docs/runbooks/telegram-bot.md`);
+watch the scraper's `hulusport board read` lines (factory load); the native-speaker check of the new
+Amharic texts (`common.telegram.join`, the PIN reasons, the consent sentence).

@@ -88,14 +88,13 @@ export function latestBirthDate(now: Date, minAge: number = MIN_AGE): string {
 }
 
 /**
- * Registration asks for no date of birth: the player confirms 21+ with the
- * terms checkbox and KYC checks the age on the ID (the API still checks a date
- * an older client sends).
+ * Registration asks for no date of birth and has no tick box (owner, 16 Nov 2026): tapping Register
+ * confirms 21+ and the terms, as the sentence above the button says, and the form sends
+ * `acceptTerms: true`. KYC checks the age on the ID (the API still checks a date an older client sends).
  */
 export interface RegisterInput {
   phone: string;
   password: string;
-  acceptTerms: boolean;
 }
 
 export type RegisterField = keyof RegisterInput;
@@ -106,7 +105,6 @@ export function validateRegister(input: RegisterInput): FieldErrors<RegisterFiel
   if (phone) errors.phone = phone;
   const password = pinError(input.password, input.phone);
   if (password) errors.password = password;
-  if (!input.acceptTerms) errors.acceptTerms = 'account.validation.terms';
   return errors;
 }
 

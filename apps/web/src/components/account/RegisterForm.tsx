@@ -26,7 +26,6 @@ const ERRORS = {
   paths: {
     phone: ['phone', 'account.validation.phone'],
     password: ['password', 'account.validation.pinFormat'],
-    acceptTerms: ['acceptTerms', 'account.validation.terms'],
   },
   codes: {
     invalid_phone: { field: 'phone', key: 'account.validation.phone' },
@@ -42,7 +41,6 @@ export function RegisterForm({ next }: { next: string }) {
   const session = useSession();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [acceptTerms, setAcceptTerms] = useState(false);
   const [fields, setFields] = useState<FieldErrors<RegisterField>>({});
   const [formError, setFormError] = useState<MessageKey | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,7 +59,7 @@ export function RegisterForm({ next }: { next: string }) {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || cooldown > 0) return;
-    const local = validateRegister({ phone, password, acceptTerms });
+    const local = validateRegister({ phone, password });
     setFields(local);
     setFormError(null);
     if (hasErrors(local)) return;
@@ -153,27 +151,14 @@ export function RegisterForm({ next }: { next: string }) {
       </Field>
       <Alert tone="info">{t('account.register.ageNotice')}</Alert>
       <div className="space-y-1">
-        <label className="flex items-start gap-2">
-          <input
-            type="checkbox"
-            name="acceptTerms"
-            className="mt-0.5 size-5 flex-none accent-brand"
-            checked={acceptTerms}
-            onChange={(e) => setAcceptTerms(e.target.checked)}
-            {...describedBy('reg-terms', error('acceptTerms'))}
-          />
-          <span>{t('account.register.acceptTerms')}</span>
-        </label>
-        {error('acceptTerms') ? (
-          <p id="reg-terms-error" className="text-xs font-semibold text-down">
-            {error('acceptTerms')}
-          </p>
-        ) : null}
+        <p id="reg-consent" className="text-sm">
+          {t('account.register.acceptTerms')}
+        </p>
         <Link
           href={routes.terms}
           target="_blank"
           prefetch={false}
-          className="ml-7 inline-block text-xs font-semibold text-brand underline"
+          className="inline-block text-xs font-semibold text-brand underline"
         >
           {t('account.register.readTerms')}
         </Link>
@@ -181,12 +166,17 @@ export function RegisterForm({ next }: { next: string }) {
           href={routes.privacy}
           target="_blank"
           prefetch={false}
-          className="ml-7 inline-block text-xs font-semibold text-brand underline"
+          className="ml-3 inline-block text-xs font-semibold text-brand underline"
         >
           {t('account.register.readPrivacy')}
         </Link>
       </div>
-      <button type="submit" className="btn btn-accent w-full" disabled={busy || cooldown > 0}>
+      <button
+        type="submit"
+        className="btn btn-accent w-full"
+        disabled={busy || cooldown > 0}
+        aria-describedby="reg-consent"
+      >
         {busy ? t('common.actions.loading') : t('account.register.submit')}
       </button>
       {IS_DEMO ? (

@@ -106,18 +106,16 @@ describe('safeNextPath', () => {
 
 describe('validation', () => {
   it('validates registration like the API (no date of birth: 21+ is the terms checkbox)', () => {
-    expect(
-      validateRegister({ phone: '0911 234 567', password: '4826', acceptTerms: true }),
-    ).toEqual({});
-    expect(validateRegister({ phone: '0111234567', password: '123', acceptTerms: false })).toEqual({
+    expect(validateRegister({ phone: '0911 234 567', password: '4826' })).toEqual({});
+    // No tick box any more (owner, 16 Nov 2026): tapping Register confirms 21+ and the terms.
+    expect(validateRegister({ phone: '0111234567', password: '123' })).toEqual({
       phone: 'account.validation.phone',
       password: 'account.validation.pinFormat',
-      acceptTerms: 'account.validation.terms',
     });
     // The last 4 digits of the phone typed on the form are refused as the PIN.
-    expect(
-      validateRegister({ phone: '+251711234826', password: '4826', acceptTerms: true }).password,
-    ).toBe('account.validation.pinPhone');
+    expect(validateRegister({ phone: '+251711234826', password: '4826' }).password).toBe(
+      'account.validation.pinPhone',
+    );
   });
 
   it('accepts exactly 4 digits and refuses easy PINs', () => {
