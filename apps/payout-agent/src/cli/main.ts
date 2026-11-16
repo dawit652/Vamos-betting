@@ -121,9 +121,21 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 2;
   }
   if (command === 'ports') {
-    const checks = await checkPorts(listSerialPorts, (path) => openSerialPort(path, { baudRate }));
+    let checks;
+    try {
+      checks = await checkPorts(listSerialPorts, (path) => openSerialPort(path, { baudRate }));
+    } catch (error) {
+      console.error(
+        `Cannot list the serial ports: ${error instanceof Error ? error.message : String(error)}.`,
+      );
+      console.error(
+        'The serial library may not have loaded on this computer (a missing Visual C++ runtime on Windows?).',
+      );
+      return 2;
+    }
     for (const line of portCheckLines(checks)) console.warn(line);
-    return checks.some((check) => check.answers === true) ? 0 : 1;
+    // Information, not a verdict: the lines say what to do. (`probe` is the verdict.)
+    return 0;
   }
 
   let port: BytePort;

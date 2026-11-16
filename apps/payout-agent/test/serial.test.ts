@@ -2,7 +2,12 @@ import { SerialPortMock } from 'serialport';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AtChannel, type BytePort } from '../src/at/chat';
 import { checkPorts, portCheckLines } from '../src/cli/ports';
-import { openFailureHint, openSerialPort, type SerialPortLike } from '../src/port/serial';
+import {
+  listSerialPorts,
+  openFailureHint,
+  openSerialPort,
+  type SerialPortLike,
+} from '../src/port/serial';
 import { SimulatedModem } from '../src/sim/modem';
 import { simWallet, SimWalletMenu } from '../src/sim/wallet-menu';
 
@@ -147,5 +152,39 @@ describe('checkPorts', () => {
       ),
     );
     expect(lines[0]).toMatch(/No serial ports found/);
+  });
+});
+
+describe('listSerialPorts', () => {
+  const broken = async () => {
+    throw new Error('the serial library did not load');
+  };
+
+  it('lists what the system reports, with the maker and USB ids', async () => {
+    const ports = await listSerialPorts({
+      list: async () => [
+        { path: 'COM5', manufacturer: 'HUAWEI', vendorId: '12d1', productId: '1506' },
+        { path: 'COM4' },
+      ],
+    });
+    expect(ports).toEqual([
+      { path: 'COM5', description: 'HUAWEI, USB 12d1:1506' },
+      { path: 'COM4', description: '' },
+    ]);
+  });
+
+  it('does not turn a failure to list into "no ports" on Windows or macOS', async () => {
+    for (const platform of ['win32', 'darwin']) {
+      await expect(listSerialPorts({ list: broken, platform })).rejects.toThrow('did not load');
+    }
+  });
+
+  it('falls back to the USB device names on Linux when the system list is missing', async () => {
+    const ports = await listSerialPorts({
+      list: broken,
+      platform: 'linux',
+      devices: async () => ['tty0', 'ttyUSB10', 'ttyUSB2', 'ttyACM0', 'sda'],
+    });
+    expect(ports.map((p) => p.path)).toEqual(['/dev/ttyACM0', '/dev/ttyUSB2', '/dev/ttyUSB10']);
   });
 });

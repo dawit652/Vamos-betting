@@ -88,11 +88,6 @@ export interface ListedPort {
   description: string;
 }
 
-/**
- * The serial ports of this computer. Where the system list is unavailable
- * (a Linux without udev, such as a container) the device names USB modems get
- * (`/dev/ttyUSB*`, `/dev/ttyACM*`) are listed instead.
- */
 /** The fields of the library's port list that are used (its own type lives in a transitive package). */
 interface PortInfoLike {
   path: string;
@@ -101,9 +96,22 @@ interface PortInfoLike {
   productId?: string;
 }
 
-export async function listSerialPorts(): Promise<ListedPort[]> {
+/**
+ * The serial ports of this computer. Where the system list is unavailable on Linux (no udev, as in
+ * a container) the device names USB modems get (`/dev/ttyUSB*`, `/dev/ttyACM*`) are listed instead.
+ * Anywhere else a failure to list is NOT turned into "no ports": it is thrown, so a serial library
+ * that did not load is told apart from a modem that is not plugged in.
+ */
+export async function listSerialPorts(
+  options: {
+    list?: () => Promise<PortInfoLike[]>;
+    platform?: string;
+    devices?: () => Promise<string[]>;
+  } = {},
+): Promise<ListedPort[]> {
+  const list = options.list ?? (async () => (await SerialPort.list()) as PortInfoLike[]);
   try {
-    const ports = (await SerialPort.list()) as PortInfoLike[];
+    const ports = await list();
     return ports.map((port) => ({
       path: port.path,
       description: [
@@ -115,9 +123,9 @@ export async function listSerialPorts(): Promise<ListedPort[]> {
         .filter((part): part is string => part !== undefined && part !== '')
         .join(', '),
     }));
-  } catch {
-    if (process.platform !== 'linux') return [];
-    const names = await readdir('/dev').catch(() => [] as string[]);
+  } catch (error) {
+    if ((options.platform ?? process.platform) !== 'linux') throw error;
+    const names = await (options.devices ?? (() => readdir('/dev')))().catch(() => [] as string[]);
     return names
       .filter((name) => /^tty(USB|ACM)\d+$/.test(name))
       .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
