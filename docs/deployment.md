@@ -614,8 +614,8 @@ is set, run it from an allowed address.
   a usable logo (out of date like EURO 2024, or a text banner like the friendlies) gets a drawn disc
   with a short code; an unknown one without a flag gets its initials.
 - **Trademarks.** These logos belong to UEFA, FIFA, CAF, AFC, CONMEBOL and CONCACAF. Showing them on
-  a betting site without a licence can bring a takedown request or a claim; the owner chose to show
-  them. To stop: turn the `logo(...)` rules in `badges.ts` back into drawn badges (`code` or `cup`)
+  a betting site without a licence can bring a takedown request or a claim. The owner was told and
+  decided to keep them (16 Nov 2026: "they should exist"). To stop: turn the `logo(...)` rules in `badges.ts` back into drawn badges (`code` or `cup`)
   and redeploy the web container.
 
 ## Player sign-in: 4-digit PIN and long sessions (owner's choice, 16 Nov 2026)

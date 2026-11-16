@@ -522,7 +522,8 @@ keypad shapes (1212, 1990, 2580) register. X6b (failed-login alarm) matters more
 (button and title now "Top leagues") list Premier League, LaLiga, Serie A, Bundesliga, Champions
 League... first; competitions without a flag show their logo (`apps/web/public/league-logos/`,
 API-Football's images cropped to the emblem; the World Cup trophy is our own drawing). The owner
-asked to see a sample image before deploying: sent (light, dark, phone, desktop). Trademark note in
+asked to see a sample image before deploying: sent (light, dark, phone, desktop). Told that the
+logos are trademarks, the owner decided to keep them ("they should exist"); note in
 `docs/deployment.md` ("Competition logos and Top leagues").
 
 **Decisions of the owner, late evening:** years are valid PINs again (done, `945b496`); for the
