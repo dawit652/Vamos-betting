@@ -121,6 +121,15 @@ migrations. Rolling back code is safe only while no new migration was applied; o
 (runbook: [restore from backup](runbooks/restore-from-backup.md)). Keep image tags per release:
 `VAMOS_VERSION=2026.10.1 docker compose build`.
 
+**First deploy after the server's branch was merged (16 Nov 2026).** The live server ran its own Hulusport
+board migrations (numbered 0047 to 0049 on the server) that this repository did not have. The merge keeps our
+journal and restamps our 0047 to 0051 after the server's newest applied stamp, because Drizzle runs a migration
+only when its stamp is newer than the last one applied. The server's three board migrations are replaced by one,
+`0055_scrape_board`, which is safe to run where those four `scrape_board_*` tables already exist (every
+statement is `IF NOT EXISTS` or duplicate-safe). Checked on a copy of the server's state: 50 applied rows
+become 59, and the schema equals a fresh database's (`pg_dump --schema-only` identical). On the server: take a
+[dump](backups.md) first, then the usual upgrade. Never edit the stamps in `_journal.json` of an applied migration.
+
 **Reverse proxy and TLS.** Production URLs must be `https` (the config refuses plain http outside
 loopback: session cookies are `Secure`). Either:
 

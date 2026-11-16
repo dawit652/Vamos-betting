@@ -380,7 +380,7 @@ C12 review fix (a debit SMS that names a mobile number never proves a bank payou
 
 **Code, in this order** (model and effort in brackets; claim each row in the progress file first):
 
-1. **Merge the server's branch** once it is on GitHub (Opus or Fable, high): `git fetch origin
+1. **Merge the server's branch: DONE 16 Nov 2026 (session `01BG4x`, commit `31ba705`; see `docs/deployment.md`, "First deploy after the server's branch was merged").** Original brief, kept for the record (Opus or Fable, high): `git fetch origin
 live/nahubet-new-2026-11-15` and merge it into this branch. Review it first: no secrets or env files,
    no large files, its migrations against ours (0047 to 0054; renumber theirs after 0054 if they clash,
    never ours, and never edit an applied migration), its compose lines (the server-only Hulusport lines
