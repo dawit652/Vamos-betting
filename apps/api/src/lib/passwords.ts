@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { effectivePasswordLength, MIN_PASSWORD_LENGTH, PIN_LENGTH } from '@vamos/contracts';
 import { isCommonPassword } from '@vamos/core/common-passwords';
+import { pinWeaknessReason } from '@vamos/core';
 import { createPasswordHasher, type PepperedPasswordHasher } from '@vamos/db/passwords';
 import { badRequest } from './errors';
 
@@ -66,63 +67,19 @@ export async function warmUpPasswordHashing(pepper?: string): Promise<void> {
   await dummyHash(pepper);
 }
 
-/**
- * PINs nobody may choose, besides one digit four times and straight runs: the most common 4-digit
- * PINs that are not runs (published PIN frequency studies), the keypad column 2580 and a few
- * patterns. Each one taken off the table matters, because the login limits leave an attacker only
- * a handful of guesses a day on one number.
- */
-const COMMON_PINS: ReadonlySet<string> = new Set([
-  '1212',
-  '1004',
-  '2000',
-  '6969',
-  '1122',
-  '1313',
-  '2580',
-  '0852',
-  '1010',
-  '2001',
-  '1984',
-  '2020',
-  '2468',
-  '1357',
-  '1379',
-  '7410',
-  '0007',
-  '5683',
-  '1221',
-  '2112',
-  '1230',
-  '0101',
-  '2525',
-  '1100',
-  '0011',
-  '1001',
-  '2002',
-  '1999',
-]);
-
 const PIN_RE = new RegExp(`^\\d{${PIN_LENGTH}}$`);
 
-/** The subscriber digits of an E.164 Ethiopian number (+2519XXXXXXXX → 9XXXXXXXX). */
-function subscriberDigits(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  return digits.startsWith('251') ? digits.slice(3) : digits;
-}
+const PIN_MESSAGES = {
+  repeated: 'Do not use the same digit four times.',
+  sequence: 'Do not use digits in a row (like 1234 or 9876).',
+  common: 'This PIN is too common. Choose another one.',
+  phone: 'Do not use the last digits of your phone number as your PIN.',
+} as const;
 
 /** Why a 4-digit PIN is too easy to guess for the account with `phone`, or null. */
 export function pinWeakness(pin: string, phone: string): string | null {
-  if (/^(\d)\1+$/.test(pin)) return 'Do not use the same digit four times.';
-  const steps = Array.from(pin.slice(1), (digit, i) => Number(digit) - Number(pin[i]));
-  if (steps.every((step) => step === 1) || steps.every((step) => step === -1)) {
-    return 'Do not use digits in a row (like 1234 or 9876).';
-  }
-  if (COMMON_PINS.has(pin)) return 'This PIN is too common. Choose another one.';
-  if (subscriberDigits(phone).endsWith(pin)) {
-    return 'Do not use the last digits of your phone number as your PIN.';
-  }
-  return null;
+  const reason = pinWeaknessReason(pin, phone);
+  return reason === null ? null : PIN_MESSAGES[reason];
 }
 
 /**

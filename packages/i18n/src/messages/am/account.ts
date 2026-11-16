@@ -7,9 +7,6 @@ export const account: Messages['account'] = {
   fields: {
     phone: 'ስልክ ቁጥር',
     phoneHint: 'የኢትዮ ቴሌኮም (09…) ወይም የሳፋሪኮም (07…) ቁጥር',
-    password: 'የይለፍ ቃል',
-    newPassword: 'አዲስ የይለፍ ቃል',
-    confirmPassword: 'አዲሱን የይለፍ ቃል ይድገሙ',
     dateOfBirth: 'የትውልድ ቀን',
     fullName: 'ሙሉ ስም',
     code: 'የኤስኤምኤስ ኮድ',
@@ -25,7 +22,6 @@ export const account: Messages['account'] = {
     phone: 'በ09 ወይም በ07 የሚጀምር የኢትዮጵያ ሞባይል ቁጥር ያስገቡ፤ ለምሳሌ 0911 234 567።',
     passwordRequired: 'ፒንዎን ያስገቡ።',
     pinFormat: 'ፒኑ በትክክል 4 አሃዝ መሆን አለበት።',
-    passwordLong: 'የይለፍ ቃሉ ከ128 ቁምፊዎች መብለጥ የለበትም።',
     weakPassword:
       'ይህ ፒን በቀላሉ ይገመታል። የተደጋገሙ አሃዞችን፣ እንደ 1234 ያሉ ተከታታዮችን፣ የተለመዱ ፒኖችንና የስልክ ቁጥርዎን መጨረሻ አይጠቀሙ።',
     passwordMismatch: 'ሁለቱ ፒኖች አይመሳሰሉም።',
@@ -50,13 +46,6 @@ export const account: Messages['account'] = {
     otpWait: 'ሌላ ኮድ ከመጠየቅዎ በፊት {seconds} ሰከንድ ይጠብቁ።',
     registrationExpired: 'ይህ ምዝገባ ከአሁን በኋላ አያገለግልም። አዲስ ኮድ ለማግኘት በዚሁ ቁጥር እንደገና ይመዝገቡ።',
     passwordResetRequired: 'ፒንዎ አሁን ያሉትን የደህንነት መስፈርቶች አያሟላም። ለመቀጠል በኤስኤምኤስ ኮድ አዲስ ፒን ያስገቡ።',
-  },
-  strength: {
-    label: 'የይለፍ ቃሉ ጥንካሬ',
-    short: 'በጣም አጭር',
-    fair: 'መካከለኛ',
-    good: 'ጥሩ',
-    strong: 'ጠንካራ',
   },
   demo: {
     smsNotice: 'ማሳያ፦ እውነተኛ ኤስኤምኤስ አይላክም።',

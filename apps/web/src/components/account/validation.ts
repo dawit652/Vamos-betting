@@ -3,6 +3,8 @@ import {
   isOfAge,
   normalizeEthiopianMsisdn,
   parseIsoDate,
+  PIN_LENGTH,
+  pinWeaknessReason,
 } from '@vamos/core';
 import type { MessageKey } from '@vamos/i18n/translate';
 
@@ -13,58 +15,17 @@ import type { MessageKey } from '@vamos/i18n/translate';
  */
 
 export const MIN_AGE = DEFAULT_RESPONSIBLE_GAMBLING.minAge;
-export const PIN_LENGTH = 4;
+export { PIN_LENGTH };
 /** Login and "current password" fields take any password: old accounts may still have a long one. */
 export const MAX_PASSWORD_LENGTH = 128;
-
-/** PINs everybody tries first; the same list as the API (apps/api/src/lib/passwords.ts). */
-const COMMON_PINS: ReadonlySet<string> = new Set([
-  '1212',
-  '1004',
-  '2000',
-  '6969',
-  '1122',
-  '1313',
-  '2580',
-  '0852',
-  '1010',
-  '2001',
-  '1984',
-  '2020',
-  '2468',
-  '1357',
-  '1379',
-  '7410',
-  '0007',
-  '5683',
-  '1221',
-  '2112',
-  '1230',
-  '0101',
-  '2525',
-  '1100',
-  '0011',
-  '1001',
-  '2002',
-  '1999',
-]);
-
-/** One digit four times, or a straight run up or down (0123, 6789, 9876, 3210). */
-function isRunOrRepeat(pin: string): boolean {
-  const digits = Array.from(pin, Number);
-  const steps = digits.slice(1).map((d, i) => d - digits[i]!);
-  return steps.every((s) => s === 0) || steps.every((s) => s === 1) || steps.every((s) => s === -1);
-}
 
 /**
  * True when a well-formed PIN is too easy to guess (the API refuses these with
  * `weak_password`). `phone` is the number the player typed, if any: its last
- * four digits are refused too.
+ * four digits are refused too. The rule is shared with the API (@vamos/core pin).
  */
 export function isWeakPin(pin: string, phone?: string): boolean {
-  if (isRunOrRepeat(pin) || COMMON_PINS.has(pin)) return true;
-  const phoneDigits = (phone ?? '').replace(/\D/g, '');
-  return phoneDigits.length >= PIN_LENGTH && phoneDigits.slice(-PIN_LENGTH) === pin;
+  return pinWeaknessReason(pin, phone ?? null) !== null;
 }
 
 export type FieldErrors<F extends string> = Partial<Record<F, MessageKey>>;
@@ -86,7 +47,7 @@ export function phoneError(input: string): MessageKey | undefined {
 /** A new PIN: exactly four digits and not an easy one. */
 export function pinError(input: string, phone?: string): MessageKey | undefined {
   if (input.length === 0) return 'account.validation.passwordRequired';
-  if (!/^\d{4}$/.test(input)) return 'account.validation.pinFormat';
+  if (!new RegExp(`^\\d{${PIN_LENGTH}}$`).test(input)) return 'account.validation.pinFormat';
   if (isWeakPin(input, phone)) return 'account.validation.weakPassword';
   return undefined;
 }

@@ -9,9 +9,6 @@ export const account = {
   fields: {
     phone: 'Phone number',
     phoneHint: 'Ethio telecom (09…) or Safaricom (07…) number',
-    password: 'Password',
-    newPassword: 'New password',
-    confirmPassword: 'Repeat the new password',
     dateOfBirth: 'Date of birth',
     fullName: 'Full name',
     code: 'SMS code',
@@ -27,7 +24,6 @@ export const account = {
     phone: 'Enter an Ethiopian mobile number starting with 09 or 07, e.g. 0911 234 567.',
     passwordRequired: 'Enter your PIN.',
     pinFormat: 'The PIN must be exactly 4 digits.',
-    passwordLong: 'The password can have at most 128 characters.',
     weakPassword:
       'This PIN is too easy to guess. Avoid repeated digits, runs like 1234, common PINs and the end of your phone number.',
     passwordMismatch: 'The two PINs do not match.',
@@ -55,13 +51,6 @@ export const account = {
       'This sign-up is no longer valid. Register again with the same number to get a new code.',
     passwordResetRequired:
       'Your PIN no longer meets our security rules. Reset it with an SMS code to continue.',
-  },
-  strength: {
-    label: 'Password strength',
-    short: 'Too short',
-    fair: 'Fair',
-    good: 'Good',
-    strong: 'Strong',
   },
   demo: {
     smsNotice: 'Demo: no real SMS is sent.',
