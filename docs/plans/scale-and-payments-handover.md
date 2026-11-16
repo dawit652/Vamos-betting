@@ -511,3 +511,41 @@ SELECT p.auto_open, p.pricing_source, count(*) AS locked, count(r.id) AS waiting
 `TELEGRAM_BOT_TOKEN` in `/opt/nahubet-new/infra/.env.prod` (runbook `docs/runbooks/telegram-bot.md`);
 watch the scraper's `hulusport board read` lines (factory load); the native-speaker check of the new
 Amharic texts (`common.telegram.join`, the PIN reasons, the consent sentence).
+
+**Decisions of the owner, late evening:** years are valid PINs again (done, `945b496`); for the
+locked odds "use your recommendation" (below); a PIN reset over Telegram when no SMS gateway exists
+(designed: `docs/plans/telegram-pin-reset.md`); the Next.js upgrade (16.4.2 to 16.4.5, advisory
+GHSA-mfr8-8qww-v76h, moderate, a feature we do not use) was asked twice and not yet answered. **CI is
+red on every push until it is upgraded:** the `Dependency audit` step fails first and the rest of the
+job is skipped (the local checks and e2e all pass).
+
+**Locked odds: what was found, and the task (Opus, high; money path).** Our scraped matches whose
+teams are not calibrated (O1) are never re-priced: `repriceScheduledEvents` skips them
+(`if (!price.calibrated) return skipped()` in `apps/scraper/src/pipeline/reprice.ts`), so the
+Hulusport board never reaches them, and even if it did, `boardRule` replaces only the markets the
+board quotes; their other markets (handicaps, correct score, other goal lines, the factory's) would
+stay priced from empty ratings. That is why they wait for a person. The safe unlock, to build:
+
+1. Rule O1h, pricing: when the teams are not calibrated and the Hulusport switch is on and the board
+   holds a fresh match linked to the event with a usable fit (`boardGoalsFit`, the O5 conditions),
+   price the WHOLE event from the board's expected goals: `priceFootball(lambdaHome, lambdaAway)` for
+   today's markets (the same structure `priceFixture` makes), then `boardRule` (the board's own
+   prices over the markets it quotes, as today), then the factory from the same goals. A key of its
+   own (for example `brd1|<digest of the board books used>`), so a move of the board re-prices.
+   Re-price these events instead of skipping them.
+2. Rule O1h, opening: such an event may open like O1m (`backedByMarket`): the stored prices are
+   these very prices (stamp equals the key). Both in `openOne` (`apps/scraper/src/pipeline/
+auto-open.ts`) and for a person (`assertScrapedEventMayOpen`,
+   `apps/api/src/modules/admin/open-betting.ts`). Stale board (older than BOARD_PRICES_MAX_AGE_MS):
+   suspend as `sweepBoardEvents` does for board-only events.
+3. Tests: an uncalibrated event linked to a fresh board is priced from the board (all markets), opens
+   by itself under its league's Auto open, is suspended when the board goes stale, and goes back to
+   the model when its teams become calibrated (the hand-over, `handOverOne`); an event without a
+   board link stays closed exactly as today.
+
+Until then the owner can open such matches by hand: set the teams' ratings (back office, Feed,
+Ratings), then the review queue's "Open selected" (bulk open; the server checks the ratings again).
+
+**Next, in this order (each with its model):** the Next.js upgrade once the owner says yes (Sonnet,
+low; then CI green); O1h above (Opus, high); the Telegram PIN reset
+(`docs/plans/telegram-pin-reset.md`, Opus, high, one migration); then section 10's list.
