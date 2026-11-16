@@ -126,7 +126,9 @@ describe('validation', () => {
     expect(pinError('48a6')).toBe('account.validation.pinFormat');
     expect(pinError('abcd')).toBe('account.validation.pinFormat');
     expect(pinError('4 26')).toBe('account.validation.pinFormat');
-    // Each easy PIN says which rule it breaks (a birth year above all: the hint names it now).
+    // Each easy PIN says which rule it breaks; years are allowed (owner, 16 Nov 2026).
+    expect(pinError('1990')).toBeUndefined();
+    expect(pinError('2016')).toBeUndefined();
     for (const [weak, key] of [
       ['1111', 'account.validation.pinRepeated'],
       ['0000', 'account.validation.pinRepeated'],
@@ -136,8 +138,6 @@ describe('validation', () => {
       ['9876', 'account.validation.pinSequence'],
       ['3210', 'account.validation.pinSequence'],
       ['1212', 'account.validation.pinPattern'],
-      ['1990', 'account.validation.pinYear'],
-      ['2016', 'account.validation.pinYear'],
       ['2580', 'account.validation.pinCommon'],
     ] as const)
       expect(pinError(weak), weak).toBe(key);

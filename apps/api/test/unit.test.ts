@@ -169,7 +169,7 @@ describe('passwords', () => {
     expect(LoginRequest.safeParse({ phone: '0911234567', password: 'Ab3$xy' }).success).toBe(true);
   });
 
-  it('refuses the easiest PINs: one digit, runs, patterns, years, common ones, the phone', () => {
+  it('refuses the easiest PINs: one digit, runs, patterns, common ones, the phone', () => {
     const phone = '+251911234567';
     for (const pin of ['0000', '1111', '9999']) {
       expect(pinWeakness(pin, phone), pin).toMatch(/same digit/);
@@ -183,8 +183,9 @@ describe('passwords', () => {
     for (const pin of ['1212', '6969', '1122', '1221', '2000', '1112']) {
       expect(pinWeakness(pin, phone), pin).toMatch(/pattern/);
     }
-    for (const pin of ['1950', '1987', '2016']) {
-      expect(pinWeakness(pin, phone), pin).toMatch(/a year/);
+    // Years are allowed (owner, 16 Nov 2026).
+    for (const pin of ['1950', '1987', '1990', '2016']) {
+      expect(pinWeakness(pin, phone), pin).toBeNull();
     }
     expect(pinWeakness('7890', phone)).toMatch(/in a row/);
     // Four digits in a row of the number, not only its end: here its start as dialled.
@@ -226,8 +227,8 @@ describe('passwords', () => {
       ).toBe(true);
       if (pinWeakness(pin, phone) !== null) weak += 1;
     }
-    // Repeats, runs (also round the 0), pair patterns, the years 1940-2030, the common list and
-    // the digits of the phone: about 6% of the space, so over 9,400 PINs stay to choose from.
+    // Repeats, runs (also round the 0), pair patterns, the common list and the digits of the
+    // phone (years are allowed since 16 Nov 2026): about 5% of the space, over 9,400 to choose from.
     expect(weak).toBeGreaterThan(500);
     expect(weak).toBeLessThanOrEqual(610);
   });

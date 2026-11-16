@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { effectivePasswordLength, MIN_PASSWORD_LENGTH, PIN_LENGTH } from '@vamos/contracts';
 import { isCommonPassword } from '@vamos/core/common-passwords';
-import { pinWeaknessReason } from '@vamos/core';
+import { pinWeaknessReason, type PinWeakness } from '@vamos/core';
 import { createPasswordHasher, type PepperedPasswordHasher } from '@vamos/db/passwords';
 import { badRequest } from './errors';
 
@@ -69,14 +69,13 @@ export async function warmUpPasswordHashing(pepper?: string): Promise<void> {
 
 const PIN_RE = new RegExp(`^\\d{${PIN_LENGTH}}$`);
 
-const PIN_MESSAGES = {
+const PIN_MESSAGES: Readonly<Record<PinWeakness, string>> = {
   repeated: 'Do not use the same digit four times.',
   sequence: 'Do not use digits in a row (like 1234, 9876 or 7890).',
   pattern: 'Do not use a pattern (like 1212, 1122, 1221 or 1112).',
-  year: 'Do not use a year (like a birth year).',
   common: 'This PIN is too common. Choose another one.',
   phone: 'Do not use digits of your phone number as your PIN.',
-} as const;
+};
 
 /** Why a 4-digit PIN is too easy to guess for the account with `phone`, or null. */
 export function pinWeakness(pin: string, phone: string): string | null {

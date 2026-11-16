@@ -45,3 +45,8 @@ normalisation of the limit keys, counting before the check, failing closed when 
 reset lifting the lock only with a valid code, 256-bit session tokens stored as hashes, cookie
 flags, CSRF, revocation on reset, self-exclusion and suspension, staff sign-in unaffected, and no PIN
 in logs, errors or audit rows.
+
+**16 Nov 2026, evening: the owner allowed years again.** Players kept choosing their birth year and
+the form refused it, so the year rule of F3 is removed (`pinWeaknessReason` no longer has `year`):
+1990 or 2016 is a valid PIN. The other rules stay (repeats, runs, pair patterns, the common list, the
+player's own number), and so do the login limits per number that hold guessing back.

@@ -32,13 +32,7 @@ export const COMMON_PINS: ReadonlySet<string> = new Set([
   '5683',
 ]);
 
-export type PinWeakness = 'repeated' | 'sequence' | 'pattern' | 'year' | 'common' | 'phone';
-
-/**
- * Years people pick (birth years above all; registration no longer asks for a date of birth, so
- * none can be refused one by one), in the Gregorian or the Ethiopian calendar (7 to 8 years behind).
- */
-export const PIN_YEARS = { from: 1940, to: 2030 } as const;
+export type PinWeakness = 'repeated' | 'sequence' | 'pattern' | 'common' | 'phone';
 
 /** The subscriber digits of a typed phone (+2519XXXXXXXX, 2519XXXXXXXX, 09XXXXXXXX → 9XXXXXXXX). */
 function subscriberDigits(phone: string): string {
@@ -60,9 +54,11 @@ function partOfPhone(pin: string, phone: string): boolean {
  * - `repeated`: one digit four times (0000);
  * - `sequence`: digits in a row up or down, also round the keypad's 0 (1234, 9876, 7890, 0987);
  * - `pattern`: a pair twice (1212), two pairs (1122), a mirror (1221), three of a digit (1112);
- * - `year`: 1940 to 2030;
  * - `common`: the frequent PINs of COMMON_PINS;
  * - `phone`: four digits in a row of the player's own number (its last four, its 09.. start…).
+ *
+ * Years (1990, 2016) are allowed: the owner's decision of 16 Nov 2026, after players kept picking
+ * their birth year and the form refused it. The login limits per number still hold guessing back.
  */
 export function pinWeaknessReason(pin: string, phone: string | null): PinWeakness | null {
   const [a, b, c, d] = pin;
@@ -78,8 +74,6 @@ export function pinWeaknessReason(pin: string, phone: string | null): PinWeaknes
   ) {
     return 'pattern';
   }
-  const value = Number(pin);
-  if (value >= PIN_YEARS.from && value <= PIN_YEARS.to) return 'year';
   if (COMMON_PINS.has(pin)) return 'common';
   if (phone !== null && partOfPhone(pin, phone)) return 'phone';
   return null;

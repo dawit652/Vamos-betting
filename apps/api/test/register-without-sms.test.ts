@@ -47,13 +47,13 @@ describe('registration without SMS in licensed mode', () => {
     expect(login.statusCode, login.body).toBe(200);
   });
 
-  it('says why an easy PIN is refused', async () => {
-    for (const pin of ['1234', '1990', '1111', '4567']) {
+  it('refuses an easy PIN, and takes a year (owner, 16 Nov 2026)', async () => {
+    for (const pin of ['1234', '1212', '1111', '4567']) {
       const response = await register('0911234568', pin);
       expect(response.statusCode, pin).toBe(400);
       expect(response.json()).toMatchObject({ error: { code: 'weak_password' } });
     }
-    const ok = await register('0911234568', '3829');
+    const ok = await register('0911234568', '1990');
     expect(ok.statusCode, ok.body).toBe(201);
     OtpSentResponse.parse(ok.json());
   });

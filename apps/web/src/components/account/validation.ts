@@ -50,7 +50,6 @@ const PIN_WEAKNESS_MESSAGES: Readonly<Record<PinWeakness, MessageKey>> = {
   repeated: 'account.validation.pinRepeated',
   sequence: 'account.validation.pinSequence',
   pattern: 'account.validation.pinPattern',
-  year: 'account.validation.pinYear',
   common: 'account.validation.pinCommon',
   phone: 'account.validation.pinPhone',
 };

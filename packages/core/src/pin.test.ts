@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { COMMON_PINS, PIN_LENGTH, PIN_YEARS, pinWeaknessReason, type PinWeakness } from './pin';
+import { COMMON_PINS, PIN_LENGTH, pinWeaknessReason, type PinWeakness } from './pin';
 
 const ALL_PINS = Array.from({ length: 10 ** PIN_LENGTH }, (_, n) =>
   String(n).padStart(PIN_LENGTH, '0'),
@@ -28,9 +28,6 @@ const REFERENCE: ReadonlyMap<string, PinWeakness> = (() => {
     }
   }
   classes.push(['pattern', patterns]);
-  const years: string[] = [];
-  for (let year = 1940; year <= 2030; year += 1) years.push(String(year));
-  classes.push(['year', years]);
   classes.push(['common', [...COMMON_PINS]]);
   const out = new Map<string, PinWeakness>();
   for (const [kind, pins] of classes) for (const pin of pins) if (!out.has(pin)) out.set(pin, kind);
@@ -57,9 +54,11 @@ describe('pinWeaknessReason', () => {
     for (const pin of ['1212', '1414', '1122', '5566', '1221', '2002', '1110', '0001', '2111']) {
       expect(pinWeaknessReason(pin, null), pin).toBe('pattern');
     }
-    for (const pin of ['1940', '1984', '1987', '2016', '2026', '2030']) {
-      expect(pinWeaknessReason(pin, null), pin).toBe('year');
+    // Years are allowed (owner, 16 Nov 2026), unless another rule refuses them (2002, 2000).
+    for (const pin of ['1940', '1984', '1987', '1990', '2016', '2026', '2030']) {
+      expect(pinWeaknessReason(pin, null), pin).toBeNull();
     }
+    expect(pinWeaknessReason('2002', null)).toBe('pattern');
     expect(pinWeaknessReason('2580', null)).toBe('common');
     for (const pin of ['1939', '2031', '4827', '7031']) {
       expect(pinWeaknessReason(pin, null), pin).toBeNull();
@@ -100,7 +99,6 @@ describe('pinWeaknessReason', () => {
       expect(pin).toMatch(/^\d{4}$/);
       expect(REFERENCE.get(pin), pin).toBe('common');
     }
-    expect(PIN_YEARS).toEqual({ from: 1940, to: 2030 });
   });
 
   it('property: the phone rule refuses exactly the four-digit windows of the number', () => {
