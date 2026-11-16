@@ -13,16 +13,17 @@ import { buildApp } from '../src/app';
 import { PEPPERED_HASH_PREFIX } from '@vamos/db/passwords';
 import { sha256Hex } from '../src/lib/crypto';
 import { hashPassword, verifyPassword } from '../src/lib/passwords';
-import { SESSION_IDLE_MS } from '../src/plugins/session';
 import { DATA_EXPORT_FORMAT } from '../src/modules/me/export';
 import { DATA_EXPORTS_PER_HOUR, REAUTH_LIMIT } from '../src/modules/me/routes';
 import { demoCode, seedStaff, staffEmail } from './admin-helpers';
 import {
+  STRICT_PLAYER_SESSION,
   cookieHeader,
   createTestContext,
   latestOtp,
   post,
   registerAndLogin,
+  withPlayerSession,
   type LoggedInUser,
   type TestContext,
 } from './helpers';
@@ -32,7 +33,7 @@ import { DEMO_STAFF_PASSWORD } from '@vamos/db/demo-staff';
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 const apiError = (response: LightMyRequestResponse) => ApiErrorSchema.parse(response.json()).error;
-const NEW_PASSWORD = 'Tirunesh-Dibaba-2008';
+const NEW_PASSWORD = '7031';
 
 describe('account security', () => {
   let ctx: TestContext;
@@ -87,14 +88,17 @@ describe('account security', () => {
       });
       expect(patch.statusCode).toBe(200);
 
-      // An idle-expired session is no session.
-      ctx.clock.advance(SESSION_IDLE_MS);
-      const expired = await ctx.app.inject({
-        method: 'GET',
-        url: '/auth/session',
-        headers: { cookie: sessionCookie },
+      // With an idle limit configured (PLAYER_SESSION_IDLE_MINUTES), an idle-expired session is no
+      // session.
+      await withPlayerSession(ctx, STRICT_PLAYER_SESSION, async () => {
+        ctx.clock.advance(STRICT_PLAYER_SESSION.idleMs);
+        const expired = await ctx.app.inject({
+          method: 'GET',
+          url: '/auth/session',
+          headers: { cookie: sessionCookie },
+        });
+        expect(SessionStateResponse.parse(expired.json())).toEqual({ session: null });
       });
-      expect(SessionStateResponse.parse(expired.json())).toEqual({ session: null });
     });
   });
 
@@ -113,8 +117,10 @@ describe('account security', () => {
       expect(apiError(wrong).code).toBe('reauth_failed');
 
       for (const [newPassword, code] of [
-        ['qwerty123456', 'weak_password'],
-        ['short-one', 'validation_error'],
+        ['1234', 'weak_password'],
+        ['2580', 'weak_password'],
+        ['483', 'validation_error'],
+        ['qwerty123456', 'validation_error'],
         [player.password, 'password_unchanged'],
       ] as const) {
         const refused = await ctx.app.inject({

@@ -10,12 +10,11 @@ import { IS_DEMO } from '@/lib/mode';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { formErrors, retryAfterSeconds } from './errors';
-import { PasswordInput, PasswordStrengthMeter, PhoneInput } from './inputs';
+import { PhoneInput, PinInput } from './inputs';
 import { accountPaths, afterSignUp, loginHref } from './paths';
 import { setPendingRegistration } from './pending';
 import { Alert, Field, describedBy } from './ui';
 import {
-  MIN_PASSWORD_LENGTH,
   hasErrors,
   normalizePhone,
   validateRegister,
@@ -26,7 +25,7 @@ import {
 const ERRORS = {
   paths: {
     phone: ['phone', 'account.validation.phone'],
-    password: ['password', 'account.validation.passwordShort'],
+    password: ['password', 'account.validation.pinFormat'],
     acceptTerms: ['acceptTerms', 'account.validation.terms'],
   },
   codes: {
@@ -138,22 +137,19 @@ export function RegisterForm({ next }: { next: string }) {
       </Field>
       <Field
         id="reg-password"
-        label={t('account.fields.password')}
-        hint={t('account.fields.passwordHint')}
+        label={t('account.fields.pin')}
+        hint={t('account.fields.pinHint')}
         error={error('password')}
       >
-        <PasswordInput
+        <PinInput
           id="reg-password"
           name="password"
           autoComplete="new-password"
-          minLength={MIN_PASSWORD_LENGTH}
-          maxLength={128}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
           {...describedBy('reg-password', error('password'), true)}
         />
-        <PasswordStrengthMeter password={password} />
       </Field>
       <Alert tone="info">{t('account.register.ageNotice')}</Alert>
       <div className="space-y-1">

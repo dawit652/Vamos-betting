@@ -30,6 +30,12 @@ export interface AuthLimits {
    * or the owner resets the password with an SMS code (which clears it).
    */
   loginPerPhone: WindowLimit;
+  /**
+   * Login attempts for one phone number per day, from any address. Player passwords are 4-digit
+   * PINs, so the short window alone would allow the whole PIN space in a few days; with this cap
+   * a stranger gets a handful of guesses a day. The SMS reset lifts it, like loginPerPhone.
+   */
+  loginPerPhoneDaily: WindowLimit;
   /** Staff sign-ins (POST /admin/auth/login) from one client address. */
   staffLoginPerClient: WindowLimit;
   /**
@@ -43,7 +49,8 @@ export interface AuthLimits {
 
 export const DEFAULT_AUTH_LIMITS: AuthLimits = {
   perClient: { max: 300, timeWindow: 15 * MINUTE_MS },
-  loginPerPhone: { max: 20, timeWindow: 15 * MINUTE_MS },
+  loginPerPhone: { max: 6, timeWindow: 15 * MINUTE_MS },
+  loginPerPhoneDaily: { max: 15, timeWindow: 24 * 60 * MINUTE_MS },
   staffLoginPerClient: { max: 60, timeWindow: 15 * MINUTE_MS },
   staffLoginPerEmail: { max: 20, timeWindow: 15 * MINUTE_MS },
 };
@@ -87,9 +94,13 @@ const loginEpochKey = (phone: string) => `vamos:login-phone-epoch:${phone}`;
  * restartLoginPhoneLimit starts a fresh window without touching the
  * limiter's own Redis keys.
  */
-export async function loginPhoneLimitKey(redis: EpochRedis, phone: string): Promise<string> {
+export async function loginPhoneLimitKey(
+  redis: EpochRedis,
+  phone: string,
+  scope: 'window' | 'day' = 'window',
+): Promise<string> {
   const epoch = phone === 'invalid' ? null : await redis.get(loginEpochKey(phone));
-  return `login-phone|${phone}|${epoch ?? '0'}`;
+  return `${scope === 'day' ? 'login-phone-day' : 'login-phone'}|${phone}|${epoch ?? '0'}`;
 }
 
 /**

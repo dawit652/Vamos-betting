@@ -7,12 +7,17 @@ export const PhoneInput = z.string().trim().min(9).max(20);
 export const DateOfBirth = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-DD');
 
 /**
- * A new password (registration, reset, change): 12 to 128 characters, any
- * characters (ASVS 2.1.1–2.1.4, 2.1.9). The API also refuses the 10,000 most
- * common ones and the phone number (`weak_password`). Login takes any
- * non-empty password, but an account whose password no longer meets these
- * rules must reset it before it can sign in (`password_reset_required`).
+ * A new player password (registration, reset, change) is a **4-digit PIN**: the owner's choice
+ * (16 Nov 2026), so players sign in as they do on their mobile money app. The API also refuses the
+ * easiest PINs (`weak_password`: one digit four times, a straight run, a few very common ones, the
+ * last four digits of the phone). Guessing is held back by the login limits per number (per 15
+ * minutes and per day, lifted by the SMS reset) and per address. Staff passwords are not PINs.
+ *
+ * Login (and the current password of a change) takes any non-empty password, so an account made
+ * under the older rule (MIN_PASSWORD_LENGTH characters or more) keeps signing in with it.
  */
+export const PIN_LENGTH = 4;
+/** The rule older player passwords were made under; such a password still signs in. */
 export const MIN_PASSWORD_LENGTH = 12;
 export const MAX_PASSWORD_LENGTH = 128;
 
@@ -21,12 +26,10 @@ export function effectivePasswordLength(password: string): number {
   return Array.from(password.replace(/ {2,}/g, ' ')).length;
 }
 
+/** A new player PIN: exactly PIN_LENGTH digits. */
 export const Password = z
   .string()
-  .max(MAX_PASSWORD_LENGTH)
-  .refine((value) => effectivePasswordLength(value) >= MIN_PASSWORD_LENGTH, {
-    message: `at least ${MIN_PASSWORD_LENGTH} characters`,
-  });
+  .regex(new RegExp(`^\\d{${PIN_LENGTH}}$`), `a ${PIN_LENGTH}-digit PIN`);
 
 export const OtpCode = z.string().regex(/^\d{6}$/, 'the code has 6 digits');
 

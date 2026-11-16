@@ -13,34 +13,58 @@ import type { MessageKey } from '@vamos/i18n/translate';
  */
 
 export const MIN_AGE = DEFAULT_RESPONSIBLE_GAMBLING.minAge;
-export const MIN_PASSWORD_LENGTH = 12;
+export const PIN_LENGTH = 4;
+/** Login and "current password" fields take any password: old accounts may still have a long one. */
 export const MAX_PASSWORD_LENGTH = 128;
 
-/**
- * The length a password counts for, like the API (effectivePasswordLength in
- * @vamos/contracts): Unicode characters, a run of spaces counting once.
- */
-export function effectivePasswordLength(password: string): number {
-  return Array.from(password.replace(/ {2,}/g, ' ')).length;
+/** PINs everybody tries first; the same list as the API (apps/api/src/lib/passwords.ts). */
+const COMMON_PINS: ReadonlySet<string> = new Set([
+  '1212',
+  '1004',
+  '2000',
+  '6969',
+  '1122',
+  '1313',
+  '2580',
+  '0852',
+  '1010',
+  '2001',
+  '1984',
+  '2020',
+  '2468',
+  '1357',
+  '1379',
+  '7410',
+  '0007',
+  '5683',
+  '1221',
+  '2112',
+  '1230',
+  '0101',
+  '2525',
+  '1100',
+  '0011',
+  '1001',
+  '2002',
+  '1999',
+]);
+
+/** One digit four times, or a straight run up or down (0123, 6789, 9876, 3210). */
+function isRunOrRepeat(pin: string): boolean {
+  const digits = Array.from(pin, Number);
+  const steps = digits.slice(1).map((d, i) => d - digits[i]!);
+  return steps.every((s) => s === 0) || steps.every((s) => s === 1) || steps.every((s) => s === -1);
 }
 
-export type PasswordStrength = 'short' | 'fair' | 'good' | 'strong';
-
 /**
- * A rough strength for the meter under a new password (ASVS 2.1.8): length
- * first, then the kinds of characters and how many different ones. It never
- * blocks anything; the API refuses short and common passwords.
+ * True when a well-formed PIN is too easy to guess (the API refuses these with
+ * `weak_password`). `phone` is the number the player typed, if any: its last
+ * four digits are refused too.
  */
-export function passwordStrength(password: string): PasswordStrength {
-  const length = effectivePasswordLength(password);
-  if (length < MIN_PASSWORD_LENGTH) return 'short';
-  const kinds = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) =>
-    re.test(password),
-  ).length;
-  if (new Set(password.toLowerCase()).size < 6) return 'fair';
-  if (length >= 20 || (length >= 16 && kinds >= 2) || kinds >= 3) return 'strong';
-  if (length >= 14 || kinds >= 2) return 'good';
-  return 'fair';
+export function isWeakPin(pin: string, phone?: string): boolean {
+  if (isRunOrRepeat(pin) || COMMON_PINS.has(pin)) return true;
+  const phoneDigits = (phone ?? '').replace(/\D/g, '');
+  return phoneDigits.length >= PIN_LENGTH && phoneDigits.slice(-PIN_LENGTH) === pin;
 }
 
 export type FieldErrors<F extends string> = Partial<Record<F, MessageKey>>;
@@ -59,11 +83,11 @@ export function phoneError(input: string): MessageKey | undefined {
   return normalizePhone(input) === null ? 'account.validation.phone' : undefined;
 }
 
-export function passwordError(input: string): MessageKey | undefined {
+/** A new PIN: exactly four digits and not an easy one. */
+export function pinError(input: string, phone?: string): MessageKey | undefined {
   if (input.length === 0) return 'account.validation.passwordRequired';
-  if (effectivePasswordLength(input) < MIN_PASSWORD_LENGTH)
-    return 'account.validation.passwordShort';
-  if (input.length > MAX_PASSWORD_LENGTH) return 'account.validation.passwordLong';
+  if (!/^\d{4}$/.test(input)) return 'account.validation.pinFormat';
+  if (isWeakPin(input, phone)) return 'account.validation.weakPassword';
   return undefined;
 }
 
@@ -107,7 +131,7 @@ export function validateRegister(input: RegisterInput): FieldErrors<RegisterFiel
   const errors: FieldErrors<RegisterField> = {};
   const phone = phoneError(input.phone);
   if (phone) errors.phone = phone;
-  const password = passwordError(input.password);
+  const password = pinError(input.password, input.phone);
   if (password) errors.password = password;
   if (!input.acceptTerms) errors.acceptTerms = 'account.validation.terms';
   return errors;
@@ -146,7 +170,7 @@ export function validateReset(input: ResetInput): FieldErrors<keyof ResetInput> 
   if (phone) errors.phone = phone;
   const code = otpError(input.code);
   if (code) errors.code = code;
-  const password = passwordError(input.newPassword);
+  const password = pinError(input.newPassword, input.phone);
   if (password) errors.newPassword = password;
   else if (input.confirmPassword !== input.newPassword) {
     errors.confirmPassword = 'account.validation.passwordMismatch';

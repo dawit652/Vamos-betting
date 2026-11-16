@@ -10,23 +10,27 @@ export const account = {
     phone: 'Phone number',
     phoneHint: 'Ethio telecom (09…) or Safaricom (07…) number',
     password: 'Password',
-    passwordHint: 'At least 12 characters (a few words work well), not a common password',
     newPassword: 'New password',
     confirmPassword: 'Repeat the new password',
     dateOfBirth: 'Date of birth',
     fullName: 'Full name',
     code: 'SMS code',
     showPassword: 'Show password',
+    pin: '4-digit PIN',
+    pinHint: 'Exactly 4 digits. Avoid easy ones like 1234, 0000 or the end of your phone number.',
+    newPin: 'New 4-digit PIN',
+    confirmPin: 'Repeat the new PIN',
+    pinLogin: 'PIN',
   },
   validation: {
     phoneRequired: 'Enter your phone number.',
     phone: 'Enter an Ethiopian mobile number starting with 09 or 07, e.g. 0911 234 567.',
-    passwordRequired: 'Enter your password.',
-    passwordShort: 'The password needs at least 12 characters.',
+    passwordRequired: 'Enter your PIN.',
+    pinFormat: 'The PIN must be exactly 4 digits.',
     passwordLong: 'The password can have at most 128 characters.',
     weakPassword:
-      'This password is too easy to guess. Avoid simple sequences and your phone number.',
-    passwordMismatch: 'The two passwords do not match.',
+      'This PIN is too easy to guess. Avoid repeated digits, runs like 1234, common PINs and the end of your phone number.',
+    passwordMismatch: 'The two PINs do not match.',
     dateOfBirthRequired: 'Enter your date of birth.',
     dateOfBirth: 'Enter a real date of birth.',
     underage: 'You must be 21 or older to use Nahubet.',
@@ -40,7 +44,7 @@ export const account = {
   },
   errors: {
     phoneTaken: 'An account with this number already exists. Log in instead.',
-    invalidCredentials: 'Wrong phone number or password.',
+    invalidCredentials: 'Wrong phone number or PIN.',
     phoneNotVerified:
       'This number is not verified yet. Register again with the same number to get a new code.',
     accountDisabled: 'This account is disabled. Please contact support.',
@@ -50,7 +54,7 @@ export const account = {
     registrationExpired:
       'This sign-up is no longer valid. Register again with the same number to get a new code.',
     passwordResetRequired:
-      'Your password no longer meets our security rules. Reset it with an SMS code to continue.',
+      'Your PIN no longer meets our security rules. Reset it with an SMS code to continue.',
   },
   strength: {
     label: 'Password strength',
@@ -69,10 +73,10 @@ export const account = {
   login: {
     title: 'Log in',
     submit: 'Log in',
-    forgot: 'Forgot password?',
+    forgot: 'Forgot PIN?',
     noAccount: 'New to Nahubet?',
     register: 'Create an account',
-    passwordChanged: 'Your password was changed. Log in with the new password.',
+    passwordChanged: 'Your PIN was changed. Log in with the new PIN.',
     signedIn: 'You are logged in.',
   },
   register: {
@@ -102,14 +106,14 @@ export const account = {
     welcome: 'Your account is ready.',
   },
   forgot: {
-    title: 'Forgot your password?',
+    title: 'Forgot your PIN?',
     intro: 'Enter your phone number. If it has an account, we will send a code by SMS.',
     submit: 'Send code',
   },
   reset: {
-    title: 'Choose a new password',
-    intro: 'Enter the code we sent by SMS and choose a new password.',
-    submit: 'Change password',
+    title: 'Choose a new PIN',
+    intro: 'Enter the code we sent by SMS and choose a new 4-digit PIN.',
+    submit: 'Change PIN',
     requestAgain: 'Did not get a code? Request a new one',
   },
   gate: {
@@ -146,14 +150,14 @@ export const account = {
   },
   security: {
     title: 'Password and devices',
-    passwordTitle: 'Change password',
+    passwordTitle: 'Change PIN',
     passwordIntro:
-      'Enter your current password and choose a new one. Every other device is logged out, and we send you an SMS.',
-    currentPassword: 'Current password',
-    submit: 'Change password',
-    changed: 'Your password was changed. Your other devices were logged out.',
-    wrongPassword: 'The password you entered is not correct.',
-    unchanged: 'Choose a password different from the current one.',
+      'Enter your current PIN (or password) and choose a new 4-digit PIN. Every other device is logged out, and we send you an SMS.',
+    currentPassword: 'Current PIN',
+    submit: 'Change PIN',
+    changed: 'Your PIN was changed. Your other devices were logged out.',
+    wrongPassword: 'The PIN you entered is not correct.',
+    unchanged: 'Choose a PIN different from the current one.',
     sessionsTitle: 'Where you are logged in',
     sessionsIntro:
       'You are logged out after 30 minutes without activity, and 12 hours after logging in.',
@@ -161,7 +165,7 @@ export const account = {
     unknownDevice: 'Unknown device',
     lastActive: 'Last active {time}',
     signedIn: 'Logged in {time}',
-    password: 'Your password',
+    password: 'Your PIN',
     passwordHint: 'Needed to log out your other devices.',
     endOne: 'Log out',
     endOthers: 'Log out all other devices',
@@ -775,8 +779,8 @@ export const account = {
           a: 'Open My Bets. Open bets are still running; settled bets show what was paid out.',
         },
         password: {
-          q: 'I forgot my password',
-          a: 'On the login page tap Forgot password. We send a code to your phone so you can choose a new password.',
+          q: 'I forgot my PIN',
+          a: 'On the login page tap Forgot PIN. We send a code to your phone so you can choose a new 4-digit PIN.',
         },
         age: {
           q: 'Who can play?',

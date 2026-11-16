@@ -55,7 +55,8 @@ import {
   createSession,
   revokeAllUserSessions,
   revokeSession,
-  SESSION_IDLE_MS,
+  playerSessionLifetime,
+  type PlayerSessionLifetime,
   type IssuedSession,
   type SessionUser,
 } from '../../plugins/session';
@@ -635,7 +636,7 @@ export async function changePassword(
     // Changed meanwhile (a reset, which also ended this session): the check no longer holds.
     if (row === undefined || row.passwordHash !== verifiedHash) throw reauthFailed();
     await tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, user.id));
-    const ended = await revokeOtherUserSessions(tx, user, now);
+    const ended = await revokeOtherUserSessions(tx, user, now, playerSessionLifetime(deps.config));
     await writeAudit(tx, {
       actorType: 'user',
       actorId: user.id,
@@ -655,14 +656,26 @@ export async function changePassword(
   };
 }
 
+/** Sessions used within the idle limit (none: every session counts). */
+function seenWithinIdle(now: Date, lifetime: PlayerSessionLifetime) {
+  return lifetime.idleMs === null
+    ? undefined
+    : gt(sessions.lastSeenAt, new Date(now.getTime() - lifetime.idleMs));
+}
+
 /** The player's live sessions other than `user`'s (optionally one of them) as of `now`. */
-function otherLiveSessions(user: SessionUser, now: Date, sessionId?: string) {
+function otherLiveSessions(
+  user: SessionUser,
+  now: Date,
+  lifetime: PlayerSessionLifetime,
+  sessionId?: string,
+) {
   return and(
     eq(sessions.userId, user.id),
     ne(sessions.id, user.sessionId),
     isNull(sessions.revokedAt),
     gt(sessions.expiresAt, now),
-    gt(sessions.lastSeenAt, new Date(now.getTime() - SESSION_IDLE_MS)),
+    seenWithinIdle(now, lifetime),
     ...(sessionId === undefined ? [] : [eq(sessions.id, sessionId)]),
   );
 }
@@ -671,19 +684,20 @@ async function revokeOtherUserSessions(
   tx: DbExecutor,
   user: SessionUser,
   now: Date,
+  lifetime: PlayerSessionLifetime,
   sessionId?: string,
 ): Promise<string[]> {
   const rows = await tx
     .update(sessions)
     .set({ revokedAt: now })
-    .where(otherLiveSessions(user, now, sessionId))
+    .where(otherLiveSessions(user, now, lifetime, sessionId))
     .returning({ id: sessions.id });
   return rows.map((row) => row.id);
 }
 
 /** GET /me/sessions: the player's live sessions, most recently used first (ASVS 3.3.4). */
 export async function listSessions(
-  deps: Pick<AppDeps, 'db' | 'clock'>,
+  deps: Pick<AppDeps, 'db' | 'clock' | 'config'>,
   user: SessionUser,
 ): Promise<PlayerSessionsResponse> {
   const now = deps.clock();
@@ -702,7 +716,7 @@ export async function listSessions(
         eq(sessions.userId, user.id),
         isNull(sessions.revokedAt),
         gt(sessions.expiresAt, now),
-        gt(sessions.lastSeenAt, new Date(now.getTime() - SESSION_IDLE_MS)),
+        seenWithinIdle(now, playerSessionLifetime(deps.config)),
       ),
     )
     .orderBy(desc(sessions.lastSeenAt))
@@ -741,7 +755,13 @@ export async function revokeSessions(
   await verifyCurrentPassword(deps, user, input.password, 'sessions_revoke', meta);
   const now = deps.clock();
   const revoked = await deps.db.transaction(async (tx) => {
-    const ended = await revokeOtherUserSessions(tx, user, now, input.sessionId);
+    const ended = await revokeOtherUserSessions(
+      tx,
+      user,
+      now,
+      playerSessionLifetime(deps.config),
+      input.sessionId,
+    );
     if (input.sessionId !== undefined && ended.length === 0) throw notFound('Session');
     await writeAudit(tx, {
       actorType: 'user',

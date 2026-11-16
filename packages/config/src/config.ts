@@ -179,6 +179,15 @@ const envSchema = z.object({
    */
   API_ROLE: z.enum(['all', 'streams', 'no-streams']).default('all'),
   CATALOG_CACHE_SECONDS: z.coerce.number().int().min(0).max(30).default(2),
+  /**
+   * How long a player stays signed in after signing in (hours; default a year). The owner's choice
+   * (16 Nov 2026): a player stays signed in until they sign out. Signing out, a password change or
+   * reset, self-exclusion or a disabled account still end every session at once. Staff sessions
+   * are not affected (12 hours, 30 minutes idle).
+   */
+  PLAYER_SESSION_HOURS: z.coerce.number().int().min(1).max(17_520).default(8_760),
+  /** Minutes without a request after which a player session ends; 0 (default): never. */
+  PLAYER_SESSION_IDLE_MINUTES: z.coerce.number().int().min(0).max(525_600).default(0),
   PUBLIC_WEB_URL: z.url().default('http://localhost:3000'),
   ADMIN_WEB_URL: z.url().default('http://localhost:3001'),
   PUBLIC_API_URL: z.url().default('http://localhost:4000'),
@@ -450,6 +459,8 @@ export interface AppConfig {
     role: ApiRole;
     /** CATALOG_CACHE_SECONDS: how long catalogue list answers are reused (0 = off). */
     catalogCacheSeconds: number;
+    /** PLAYER_SESSION_*: how long a player session lasts, and its idle limit (null: none). */
+    playerSession: { absoluteMs: number; idleMs: number | null };
   };
   /** The worker's health server (WORKER_HEALTH_*; port 0 = off). */
   worker: { healthHost: string; healthPort: number };
@@ -839,6 +850,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       trustProxy: parseTrustProxy(e.TRUST_PROXY),
       role: e.API_ROLE,
       catalogCacheSeconds: e.CATALOG_CACHE_SECONDS,
+      playerSession: {
+        absoluteMs: e.PLAYER_SESSION_HOURS * 3_600_000,
+        idleMs: e.PLAYER_SESSION_IDLE_MINUTES === 0 ? null : e.PLAYER_SESSION_IDLE_MINUTES * 60_000,
+      },
     },
     worker: { healthHost: e.WORKER_HEALTH_HOST, healthPort: e.WORKER_HEALTH_PORT },
     telemetry: { otlpEndpoint: e.OTEL_EXPORTER_OTLP_ENDPOINT, serviceName: e.OTEL_SERVICE_NAME },

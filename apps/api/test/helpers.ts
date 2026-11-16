@@ -41,7 +41,8 @@ export interface TestContext {
   close(): Promise<void>;
 }
 
-export const TEST_PASSWORD = 'Abebe-bikila-1960';
+/** The PIN test players register with (4 digits, not an easy one; randomPhone never ends in it). */
+export const TEST_PASSWORD = '4826';
 export const ADULT_DOB = '1990-05-17';
 
 /**
@@ -115,7 +116,11 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
 
 /** A random Ethio Telecom number in E.164. */
 export function randomPhone(): string {
-  return `+2519${randomInt(0, 100_000_000).toString().padStart(8, '0')}`;
+  // A PIN may not be the phone's last 4 digits: never hand out a number ending in TEST_PASSWORD.
+  for (;;) {
+    const phone = `+2519${randomInt(0, 100_000_000).toString().padStart(8, '0')}`;
+    if (!phone.endsWith(TEST_PASSWORD)) return phone;
+  }
 }
 
 /**
@@ -231,4 +236,25 @@ export async function registerAndLogin(
     csrfToken: session.csrfToken,
     sessionToken: session.sessionToken,
   };
+}
+
+/** The strict player session limits (ASVS 3.3.2 level 2), for the tests of idle and absolute expiry. */
+export const STRICT_PLAYER_SESSION = { absoluteMs: 12 * 60 * 60_000, idleMs: 30 * 60_000 } as const;
+
+/**
+ * Runs `fn` with `lifetime` as the player session lifetime (PLAYER_SESSION_*), then puts the
+ * configured one back. Sessions created inside get that lifetime.
+ */
+export async function withPlayerSession<T>(
+  ctx: TestContext,
+  lifetime: { absoluteMs: number; idleMs: number | null },
+  fn: () => Promise<T>,
+): Promise<T> {
+  const before = ctx.deps.config.api.playerSession;
+  ctx.deps.config.api.playerSession = { ...lifetime };
+  try {
+    return await fn();
+  } finally {
+    ctx.deps.config.api.playerSession = before;
+  }
 }

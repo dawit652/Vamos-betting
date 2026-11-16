@@ -87,6 +87,12 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     ...authLimits.loginPerPhone,
     keyGenerator: (request) => loginPhoneLimitKey(deps.redis, bodyPhone(request) ?? 'invalid'),
   });
+  // And per day: PINs have 10,000 values, so a number gets a handful of guesses a day.
+  const loginPerPhoneDaily = app.createRateLimit({
+    ...authLimits.loginPerPhoneDaily,
+    keyGenerator: (request) =>
+      loginPhoneLimitKey(deps.redis, bodyPhone(request) ?? 'invalid', 'day'),
+  });
 
   const clientLimit = async (request: FastifyRequest, reply: FastifyReply) => {
     await enforceLimit(perClient, request, reply);
@@ -94,7 +100,10 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   const loginLimits = async (request: FastifyRequest, reply: FastifyReply) => {
     await enforceLimit(perClient, request, reply);
     // A malformed number cannot match an account; it shares no budget with real ones.
-    if (bodyPhone(request) !== null) await enforceLimit(loginPerPhone, request, reply);
+    if (bodyPhone(request) !== null) {
+      await enforceLimit(loginPerPhone, request, reply);
+      await enforceLimit(loginPerPhoneDaily, request, reply);
+    }
   };
 
   /** Answers with the body and sends the SMS, if any, after the response. */
@@ -184,12 +193,12 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       // stranger may hold with wrong passwords, so the new password works at once.
       const phone = bodyPhone(request);
       if (phone !== null) {
-        await restartLoginPhoneLimit(
-          deps.redis,
-          phone,
-          authLimits.loginPerPhone,
-          randomToken(deps.randomBytes, 9),
-        );
+        // The epoch must outlive the longer (daily) window counted under the previous one.
+        const longer =
+          authLimits.loginPerPhoneDaily.timeWindow > authLimits.loginPerPhone.timeWindow
+            ? authLimits.loginPerPhoneDaily
+            : authLimits.loginPerPhone;
+        await restartLoginPhoneLimit(deps.redis, phone, longer, randomToken(deps.randomBytes, 9));
       }
       // Every session of the account was revoked, including any on this device.
       clearSessionCookies(reply, deps.config);

@@ -31,8 +31,8 @@ Continue the "scale and payments" work on Nahubet.
    docs/plans/scale-and-payments-progress.md, then only the parts of
    docs/plans/scale-and-payments-plan.md that your task names.
 3. Run `git log --oneline origin/claude/eager-cerf-ox9vkq -25` to see what landed since the handover was
-   written, and read sections 6 and 8 of the handover (what was half done, how to recover it; section 8 is
-   newer and its order of tasks replaces the "Next" list of section 6). Do the setup in the handover's section 1, then take the first item of that
+   written, and read sections 6, 8 and 9 of the handover (what was half done, how to recover it; section 9 is
+   the newest and its order of tasks replaces the lists of sections 6 and 8). Do the setup in the handover's section 1, then take the first item of that
    list that the progress file marks `open` (rows marked `in progress` belong to another session; its
    claim names it and the time; claim yours in the progress file and push that before you start). One
    task at a time: tests with it, `pnpm lint`, `pnpm typecheck`, the test suites of the touched packages
@@ -328,3 +328,80 @@ simulator (`POST /dev/payments/sms`) sends the deposit's own account; a live-gat
 `OPERATING_MODE=demo PAYMENT_PROVIDERS=mock,sms SMS_RAIL_MODE=simulated TRUST_PROXY=127.0.0.1`.
 Agents hit the 5-hour limit twice: give each agent one task and a list of files it may touch, never let
 two agents edit the same file, and commit only after your own typecheck, lint and tests.
+
+## 9. State at the end of the 16 Nov 2026 evening session (second account; replaces the lists of sections 6 and 8)
+
+**Done today in this session, all pushed to `claude/eager-cerf-ox9vkq`** (rows in the progress file):
+B2d (the player chooses the institution; the deposit gets an account of that institution only), the
+C12 review fix (a debit SMS that names a mobile number never proves a bank payout), B5's alarm part
+(`sms_account_silent`), C10, B6, A5, and three owner requests of 16 Nov:
+
+- **About 500 options per match: built, switched off.** The market factory (v0.3.0) prices 587 to 635
+  options per football match (156 to 176 markets; `packages/feed/src/pricing/factory.test.ts` asserts
+  at least 500), on top of today's 67. They appear only with `SCRAPER_FACTORY_MARKETS=on` and
+  `FEATURE_FACTORY_MARKETS=true` in `/opt/nahubet-new/infra/.env.prod` **and** the "Market factory
+  markets" switch per league in the back office (Feed, league policy), and only for events the
+  scraper prices from the market. Their Amharic names are still the English ones (parity plan task 2.4).
+- **Flags and easier league finding:** the Leagues tab lists the top leagues first, then Ethiopia, then
+  international competitions, then the countries A to Z, with a flag on every league
+  (`orderLeagueCategories` in `apps/web/src/components/sportsbook/leagues.ts`). The top-leagues rail,
+  the country chips and the league headers already had flags.
+- **Registration without a birth date** (already so since 15 Nov; KYC still asks for the verified date).
+- **4-digit PIN and staying signed in:** new player passwords are 4-digit PINs (easy ones refused:
+  repeats, straight runs, about 28 common PINs, the phone's last 4 digits), login limits per number
+  are 6 per 15 minutes and 15 per day (lifted by the SMS reset), and a player session lasts
+  `PLAYER_SESSION_HOURS` (default a year) with no idle limit. Older long passwords keep working. The
+  trade-offs are written in `docs/deployment.md`, "Player sign-in". Staff sign-in is unchanged.
+
+**Owner (not code), in this order:**
+
+1. **Put the server's own changes on GitHub**, so the deploy is built on top of what runs. They are in
+   `/opt/nahubet-live-save` (branch `live/nahubet-new-2026-11-15`, commit `ce7761b`) and were never
+   pushed (the server's GitHub key is read-only). On the server:
+   `git -C /opt/nahubet-live-save show --stat ce7761b` (check that no `.env*` file or key is in it), then
+   `git -C /opt/nahubet-live-save bundle create /root/nahubet-live.bundle live/nahubet-new-2026-11-15`.
+   On the PC (PowerShell): `scp root@<server>:/root/nahubet-live.bundle "$HOME\Desktop\nahubet-live.bundle"`,
+   then in the PC's clone: `git fetch "$HOME\Desktop\nahubet-live.bundle" live/nahubet-new-2026-11-15:live/nahubet-new-2026-11-15`
+   and `git push origin live/nahubet-new-2026-11-15`.
+2. After the merge (code task 1 below) and a green CI: deploy the whole stack with
+   `infra/scripts/deploy-full.sh` from `/opt/nahubet` (root `HANDOFF.md` has the command; it keeps the
+   licensed env file and the volumes, dumps the database first, and rolls back by itself on failure).
+   Migrations 0053 and 0054 are in it. For the ~500 options add the two settings above to the env file
+   before the deploy, then switch the leagues on in the back office.
+3. Decisions and things only the owner has: the real `FLOAT_FORECAST_WITHDRAWN_PERCENT` (20 is a guess),
+   D1 to D8, D10, D11, a payout SIM and a USB modem (C8), the licence details (X4), a native speaker for
+   the Amharic texts (the new PIN texts in `packages/i18n/src/messages/am/account.ts`, the factory
+   market names), and whether to merge pull request 5.
+
+**Code, in this order** (model and effort in brackets; claim each row in the progress file first):
+
+1. **Merge the server's branch** once it is on GitHub (Opus or Fable, high): `git fetch origin
+live/nahubet-new-2026-11-15` and merge it into this branch. Review it first: no secrets or env files,
+   no large files, its migrations against ours (0047 to 0054; renumber theirs after 0054 if they clash,
+   never ours, and never edit an applied migration), its compose lines (the server-only Hulusport lines
+   must end up in `infra/docker-compose.prod.yml` so `deploy-full.sh` stops refusing). Keep licensed
+   mode; never rename the compose project, volumes or database. Typecheck, lint, tests, e2e, CI green.
+2. **Review today's sign-in change** (Opus or Fable, read-only first): `apps/api/src/lib/passwords.ts`
+   (`pinWeakness`, `meetsPasswordPolicy`), `apps/api/src/lib/rate-limits.ts` (`loginPerPhoneDaily`),
+   `apps/api/src/plugins/session.ts` (`playerSessionLifetime`), the web forms in
+   `apps/web/src/components/account/`. Ideas left: an e2e step that a weak PIN is refused on the form;
+   remove the now unused i18n keys (`account.strength.*`, `account.fields.password|newPassword|confirmPassword`,
+   `account.validation.passwordLong`); one shared common-PIN list for web and API (today it is copied in
+   `apps/web/src/components/account/validation.ts`).
+3. **C8b part 2b and C8c** (the payout sender: command line, serial port, the SIM's SMS; then the
+   server side with a migration) per the progress file; the first account owns that chain, so check its
+   claim. Nothing real is sent before the owner's explicit yes at C8f.
+4. **C2c and C2b** when real fixtures and D4, D8 exist (C2b takes the next free migration, **0055**).
+5. **A8** (database tuning, Opus high, only when a load test asks for it), **A6b** (low), the rest of
+   **B5** (a forwarder heartbeat needs the forwarder app to send one), an e2e step that picks the second
+   institution on the deposit form (B2d).
+6. **X4** licensed texts once the owner gives the licence details (never invent legal text), then **X3**
+   rename stages 1 to 3 last, in one pull request while no other branch or agent is editing.
+
+**Facts that cost time today:** after `git pull`, run `pnpm install` (the workspace `apps/payout-agent`
+is new); in the cloud container run the e2e suite with `E2E_CHROMIUM_PATH=/opt/pw-browsers/chromium`;
+an API test that builds its own app with `buildApp` must `await app.background.idle()` before
+`latestOtp` (the SMS is sent in that app's background); the rate-limit tests of the per-address login
+limit build an app with the per-number limits relaxed (`perAddressApp` in `apps/api/test/auth.test.ts`);
+`randomPhone()` in the API and e2e helpers never ends in the test PIN (`4826`), since a PIN equal to the
+phone's last 4 digits is refused.

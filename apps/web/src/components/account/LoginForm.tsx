@@ -92,13 +92,14 @@ export function LoginForm({ next, passwordChanged }: { next: string; passwordCha
       </Field>
       <Field
         id="login-password"
-        label={t('account.fields.password')}
+        label={t('account.fields.pinLogin')}
         error={fields.password && t(fields.password)}
       >
         <PasswordInput
           id="login-password"
           name="password"
           autoComplete="current-password"
+          inputMode="numeric"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required

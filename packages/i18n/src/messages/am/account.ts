@@ -1,28 +1,34 @@
 import type { Messages } from '../en';
 
 // Amharic. Pending native-speaker review before a licensed launch.
+// PIN texts (ፒን, ባለ 4 አሃዝ ፒን): added 2026-11-16, native-speaker review needed.
 export const account: Messages['account'] = {
   title: 'የእኔ መለያ',
   fields: {
     phone: 'ስልክ ቁጥር',
     phoneHint: 'የኢትዮ ቴሌኮም (09…) ወይም የሳፋሪኮም (07…) ቁጥር',
     password: 'የይለፍ ቃል',
-    passwordHint: 'ቢያንስ 12 ቁምፊዎች (ጥቂት ቃላት በደንብ ይሠራሉ)፤ የተለመደ የይለፍ ቃል አይሁን',
     newPassword: 'አዲስ የይለፍ ቃል',
     confirmPassword: 'አዲሱን የይለፍ ቃል ይድገሙ',
     dateOfBirth: 'የትውልድ ቀን',
     fullName: 'ሙሉ ስም',
     code: 'የኤስኤምኤስ ኮድ',
     showPassword: 'የይለፍ ቃሉን አሳይ',
+    pin: 'ባለ 4 አሃዝ ፒን',
+    pinHint: 'በትክክል 4 አሃዝ። እንደ 1234፣ 0000 ወይም የስልክ ቁጥርዎ መጨረሻ ያሉ ቀላል ፒኖችን አይጠቀሙ።',
+    newPin: 'አዲስ ባለ 4 አሃዝ ፒን',
+    confirmPin: 'አዲሱን ፒን ይድገሙ',
+    pinLogin: 'ፒን',
   },
   validation: {
     phoneRequired: 'ስልክ ቁጥርዎን ያስገቡ።',
     phone: 'በ09 ወይም በ07 የሚጀምር የኢትዮጵያ ሞባይል ቁጥር ያስገቡ፤ ለምሳሌ 0911 234 567።',
-    passwordRequired: 'የይለፍ ቃልዎን ያስገቡ።',
-    passwordShort: 'የይለፍ ቃሉ ቢያንስ 12 ቁምፊዎች ሊኖሩት ይገባል።',
+    passwordRequired: 'ፒንዎን ያስገቡ።',
+    pinFormat: 'ፒኑ በትክክል 4 አሃዝ መሆን አለበት።',
     passwordLong: 'የይለፍ ቃሉ ከ128 ቁምፊዎች መብለጥ የለበትም።',
-    weakPassword: 'ይህ የይለፍ ቃል በቀላሉ ይገመታል። ቀላል ተከታታይ ቁጥሮችንና ስልክ ቁጥርዎን አይጠቀሙ።',
-    passwordMismatch: 'ሁለቱ የይለፍ ቃሎች አይመሳሰሉም።',
+    weakPassword:
+      'ይህ ፒን በቀላሉ ይገመታል። የተደጋገሙ አሃዞችን፣ እንደ 1234 ያሉ ተከታታዮችን፣ የተለመዱ ፒኖችንና የስልክ ቁጥርዎን መጨረሻ አይጠቀሙ።',
+    passwordMismatch: 'ሁለቱ ፒኖች አይመሳሰሉም።',
     dateOfBirthRequired: 'የትውልድ ቀንዎን ያስገቡ።',
     dateOfBirth: 'ትክክለኛ የትውልድ ቀን ያስገቡ።',
     underage: 'ናሁቤትን ለመጠቀም ዕድሜዎ 21 ወይም ከዚያ በላይ መሆን አለበት።',
@@ -36,15 +42,14 @@ export const account: Messages['account'] = {
   },
   errors: {
     phoneTaken: 'በዚህ ቁጥር የተከፈተ መለያ አለ። እባክዎ ይግቡ።',
-    invalidCredentials: 'ስልክ ቁጥሩ ወይም የይለፍ ቃሉ የተሳሳተ ነው።',
+    invalidCredentials: 'ስልክ ቁጥሩ ወይም ፒኑ የተሳሳተ ነው።',
     phoneNotVerified: 'ይህ ቁጥር ገና አልተረጋገጠም። አዲስ ኮድ ለማግኘት በዚሁ ቁጥር እንደገና ይመዝገቡ።',
     accountDisabled: 'ይህ መለያ ታግዷል። እባክዎ የደንበኞች አገልግሎትን ያነጋግሩ።',
     selfExcluded: 'ራስዎን አግልለዋል። የማግለያ ጊዜው እስኪያበቃ ድረስ መግባት አይችሉም።',
     coolingOff: 'በእረፍት ጊዜ ላይ ነዎት። እረፍቱ እስኪያበቃ ድረስ ውርርድና ገንዘብ ማስገባት ተቋርጠዋል።',
     otpWait: 'ሌላ ኮድ ከመጠየቅዎ በፊት {seconds} ሰከንድ ይጠብቁ።',
     registrationExpired: 'ይህ ምዝገባ ከአሁን በኋላ አያገለግልም። አዲስ ኮድ ለማግኘት በዚሁ ቁጥር እንደገና ይመዝገቡ።',
-    passwordResetRequired:
-      'የይለፍ ቃልዎ አሁን ያሉትን የደህንነት መስፈርቶች አያሟላም። ለመቀጠል በኤስኤምኤስ ኮድ አዲስ የይለፍ ቃል ያስገቡ።',
+    passwordResetRequired: 'ፒንዎ አሁን ያሉትን የደህንነት መስፈርቶች አያሟላም። ለመቀጠል በኤስኤምኤስ ኮድ አዲስ ፒን ያስገቡ።',
   },
   strength: {
     label: 'የይለፍ ቃሉ ጥንካሬ',
@@ -63,10 +68,10 @@ export const account: Messages['account'] = {
   login: {
     title: 'ግባ',
     submit: 'ግባ',
-    forgot: 'የይለፍ ቃል ረሱ?',
+    forgot: 'ፒን ረሱ?',
     noAccount: 'ናሁቤት ላይ አዲስ ነዎት?',
     register: 'መለያ ይክፈቱ',
-    passwordChanged: 'የይለፍ ቃልዎ ተቀይሯል። በአዲሱ የይለፍ ቃል ይግቡ።',
+    passwordChanged: 'ፒንዎ ተቀይሯል። በአዲሱ ፒን ይግቡ።',
     signedIn: 'ገብተዋል።',
   },
   register: {
@@ -96,14 +101,14 @@ export const account: Messages['account'] = {
     welcome: 'መለያዎ ዝግጁ ነው።',
   },
   forgot: {
-    title: 'የይለፍ ቃልዎን ረሱ?',
+    title: 'ፒንዎን ረሱ?',
     intro: 'ስልክ ቁጥርዎን ያስገቡ። መለያ ካለው ኮድ በኤስኤምኤስ እንልካለን።',
     submit: 'ኮድ ላክ',
   },
   reset: {
-    title: 'አዲስ የይለፍ ቃል ይምረጡ',
-    intro: 'በኤስኤምኤስ የላክንልዎን ኮድ ያስገቡና አዲስ የይለፍ ቃል ይምረጡ።',
-    submit: 'የይለፍ ቃል ቀይር',
+    title: 'አዲስ ፒን ይምረጡ',
+    intro: 'በኤስኤምኤስ የላክንልዎን ኮድ ያስገቡና አዲስ ባለ 4 አሃዝ ፒን ይምረጡ።',
+    submit: 'ፒን ቀይር',
     requestAgain: 'ኮድ አልደረሰዎትም? አዲስ ይጠይቁ',
   },
   gate: {
@@ -140,20 +145,21 @@ export const account: Messages['account'] = {
   },
   security: {
     title: 'የይለፍ ቃልና መሣሪያዎች',
-    passwordTitle: 'የይለፍ ቃል ይቀይሩ',
-    passwordIntro: 'የአሁኑን የይለፍ ቃልዎን ያስገቡና አዲስ ይምረጡ። ከሌሎች መሣሪያዎች ሁሉ ይወጣሉ፤ እኛም በኤስኤምኤስ እናሳውቅዎታለን።',
-    currentPassword: 'የአሁኑ የይለፍ ቃል',
-    submit: 'የይለፍ ቃል ቀይር',
-    changed: 'የይለፍ ቃልዎ ተቀይሯል። ከሌሎች መሣሪያዎችዎ ወጥተዋል።',
-    wrongPassword: 'ያስገቡት የይለፍ ቃል ትክክል አይደለም።',
-    unchanged: 'ከአሁኑ የተለየ የይለፍ ቃል ይምረጡ።',
+    passwordTitle: 'ፒን ይቀይሩ',
+    passwordIntro:
+      'የአሁኑን ፒንዎን (ወይም የይለፍ ቃልዎን) ያስገቡና አዲስ ባለ 4 አሃዝ ፒን ይምረጡ። ከሌሎች መሣሪያዎች ሁሉ ይወጣሉ፤ እኛም በኤስኤምኤስ እናሳውቅዎታለን።',
+    currentPassword: 'የአሁኑ ፒን',
+    submit: 'ፒን ቀይር',
+    changed: 'ፒንዎ ተቀይሯል። ከሌሎች መሣሪያዎችዎ ወጥተዋል።',
+    wrongPassword: 'ያስገቡት ፒን ትክክል አይደለም።',
+    unchanged: 'ከአሁኑ የተለየ ፒን ይምረጡ።',
     sessionsTitle: 'የገቡባቸው መሣሪያዎች',
     sessionsIntro: 'ለ30 ደቂቃ ምንም እንቅስቃሴ ከሌለ፣ እንዲሁም ከገቡ ከ12 ሰዓት በኋላ ይወጣሉ።',
     thisDevice: 'ይህ መሣሪያ',
     unknownDevice: 'ያልታወቀ መሣሪያ',
     lastActive: 'መጨረሻ የታየው {time}',
     signedIn: 'የገባው {time}',
-    password: 'የይለፍ ቃልዎ',
+    password: 'ፒንዎ',
     passwordHint: 'ከሌሎች መሣሪያዎችዎ ለማስወጣት ያስፈልጋል።',
     endOne: 'አስወጣ',
     endOthers: 'ከሌሎች መሣሪያዎች ሁሉ አስወጣ',
@@ -747,8 +753,8 @@ export const account: Messages['account'] = {
           a: 'የእኔ ውርርዶችን ይክፈቱ። ክፍት ውርርዶች ገና በሂደት ላይ ያሉ ናቸው፤ የተጠናቀቁት ምን እንደተከፈለ ያሳያሉ።',
         },
         password: {
-          q: 'የይለፍ ቃሌን ረሳሁ',
-          a: 'በመግቢያ ገጹ ላይ «የይለፍ ቃል ረሱ?» የሚለውን ይንኩ። አዲስ የይለፍ ቃል እንዲመርጡ ኮድ ወደ ስልክዎ እንልካለን።',
+          q: 'ፒኔን ረሳሁ',
+          a: 'በመግቢያ ገጹ ላይ «ፒን ረሱ?» የሚለውን ይንኩ። አዲስ ባለ 4 አሃዝ ፒን እንዲመርጡ ኮድ ወደ ስልክዎ እንልካለን።',
         },
         age: {
           q: 'ማን መጫወት ይችላል?',

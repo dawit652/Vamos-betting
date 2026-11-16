@@ -378,6 +378,8 @@ in a secret manager, not in git.
 | `API_HOST` / `API_PORT`                            | `0.0.0.0` / `4000`             | api listen address (the image fixes 4000).                                                                                                                                                               |
 | `API_ROLE`                                         | `all`                          | Which routes this api process serves: `all` (everything), `streams` (only `/health`, `GET /live/stream`, `GET /me/stream`) or `no-streams` (everything else). See "Live streams on their own processes". |
 | `CATALOG_CACHE_SECONDS`                            | `2`                            | Seconds the api reuses `/sports`, competitions and `/events` list answers per query (0 = off, max 30). Never event pages, search or betting.                                                             |
+| `PLAYER_SESSION_HOURS`                             | `8760` (a year)                | How long a player stays signed in after signing in (1 to 17,520). The owner's choice: players stay signed in until they sign out. Staff sessions keep 12 hours and 30 minutes idle.                      |
+| `PLAYER_SESSION_IDLE_MINUTES`                      | `0` (none)                     | Minutes without a request after which a player session ends; 0 = never. Set `12` hours and `30` minutes to return to ASVS level 2 limits.                                                                |
 | `PUBLIC_API_URL`                                   | `http://localhost:4000`        | Public api URL. Also baked into web/admin at build time (`NEXT_PUBLIC_API_URL`). https in production.                                                                                                    |
 | `PUBLIC_WEB_URL` / `ADMIN_WEB_URL`                 | `:3000` / `:3001` on localhost | Public origins (CORS, cookies, redirects). Must differ; https in production.                                                                                                                             |
 | `PAYMENT_CALLBACK_BASE_URL`                        | `PUBLIC_API_URL`               | Base URL providers call for webhooks. Leave **unset** (not empty) to use the default.                                                                                                                    |
@@ -577,3 +579,23 @@ E2E_SCREENSHOTS_DIR=/tmp/vamos-shots pnpm e2e:deployment
 
 It uses a fresh random player each run (the play-money rows stay in the demo database). If `STAFF_ALLOWLIST`
 is set, run it from an allowed address.
+
+## Player sign-in: 4-digit PIN and long sessions (owner's choice, 16 Nov 2026)
+
+- **New player passwords are 4-digit PINs** (registration, SMS reset, change). The API refuses one
+  digit four times, straight runs (1234, 9876), about 28 very common PINs (1212, 2580, 2000...) and
+  the last 4 digits of the player's phone (`weak_password`). Accounts made with an older long
+  password keep signing in with it; a shorter old password must be reset by SMS first.
+- **Guessing limits per number:** 6 login attempts per 15 minutes and 15 per day, from any address
+  (`DEFAULT_AUTH_LIMITS` in `apps/api/src/lib/rate-limits.ts`), lifted at once when the owner of the
+  number resets the PIN with an SMS code. A sign-in from a new device sends the player an SMS.
+- **Sessions:** a player stays signed in for `PLAYER_SESSION_HOURS` (default a year) with no idle
+  limit (`PLAYER_SESSION_IDLE_MINUTES=0`). Signing out, a PIN change or reset, self-exclusion and a
+  disabled account end sessions at once.
+- **What this trades away:** a 4-digit PIN and year-long sessions are weaker than the ASVS level 2
+  rules the API followed before (12+ character passwords, 12-hour sessions with 30 minutes idle).
+  The limits above leave a stranger about 15 guesses a day on one number, but someone trying one
+  common PIN on many numbers is only slowed by the per-address limit, and a phone left signed in
+  stays signed in. Money still only leaves to the player's own registered wallet or KYC-named bank
+  account. To go back to the strict session limits set `PLAYER_SESSION_HOURS=12` and
+  `PLAYER_SESSION_IDLE_MINUTES=30`.

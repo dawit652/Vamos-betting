@@ -46,8 +46,8 @@ import {
   validateLogin,
   validateRegister,
   validateReset,
-  passwordError,
-  passwordStrength,
+  isWeakPin,
+  pinError,
 } from './validation';
 import {
   DEFAULT_DEMO_TOPUP,
@@ -107,32 +107,33 @@ describe('safeNextPath', () => {
 describe('validation', () => {
   it('validates registration like the API (no date of birth: 21+ is the terms checkbox)', () => {
     expect(
-      validateRegister({
-        phone: '0911 234 567',
-        password: 'secret12-abc',
-        acceptTerms: true,
-      }),
+      validateRegister({ phone: '0911 234 567', password: '4826', acceptTerms: true }),
     ).toEqual({});
-    // New passwords need 12 characters (the API also refuses common ones).
-    expect(
-      validateRegister({
-        phone: '0911 234 567',
-        password: 'secret1-abc',
-        acceptTerms: true,
-      }).password,
-    ).toBe('account.validation.passwordShort');
     expect(validateRegister({ phone: '0111234567', password: '123', acceptTerms: false })).toEqual({
       phone: 'account.validation.phone',
-      password: 'account.validation.passwordShort',
+      password: 'account.validation.pinFormat',
       acceptTerms: 'account.validation.terms',
     });
+    // The last 4 digits of the phone typed on the form are refused as the PIN.
     expect(
-      validateRegister({
-        phone: '+251711234567',
-        password: 'abcdefgh-ijk',
-        acceptTerms: true,
-      }),
-    ).toEqual({});
+      validateRegister({ phone: '+251711234826', password: '4826', acceptTerms: true }).password,
+    ).toBe('account.validation.weakPassword');
+  });
+
+  it('accepts exactly 4 digits and refuses easy PINs', () => {
+    expect(pinError('4826')).toBeUndefined();
+    expect(pinError('')).toBe('account.validation.passwordRequired');
+    expect(pinError('482')).toBe('account.validation.pinFormat');
+    expect(pinError('48265')).toBe('account.validation.pinFormat');
+    expect(pinError('48a6')).toBe('account.validation.pinFormat');
+    expect(pinError('abcd')).toBe('account.validation.pinFormat');
+    expect(pinError('4 26')).toBe('account.validation.pinFormat');
+    for (const weak of ['1111', '0000', '1234', '0123', '6789', '9876', '3210', '2580', '1212'])
+      expect(pinError(weak), weak).toBe('account.validation.weakPassword');
+    expect(isWeakPin('4826')).toBe(false);
+    expect(pinError('4826', '0911 234 826')).toBe('account.validation.weakPassword');
+    expect(pinError('4826', '+251711234826')).toBe('account.validation.weakPassword');
+    expect(pinError('4826', '0911 234 567')).toBeUndefined();
   });
 
   it('enforces 21+ on the UTC calendar date', () => {
@@ -163,25 +164,13 @@ describe('validation', () => {
       validateReset({
         phone: '0911234567',
         code: '123456',
-        newPassword: 'abcdefgh-ijk',
-        confirmPassword: 'abcdefgh-ijl',
+        newPassword: '4826',
+        confirmPassword: '4827',
       }),
     ).toEqual({ confirmPassword: 'account.validation.passwordMismatch' });
     expect(hasErrors({})).toBe(false);
     expect(hasErrors({ phone: undefined })).toBe(false);
     expect(hasErrors({ phone: 'account.validation.phone' })).toBe(true);
-  });
-
-  it('counts a run of spaces once and rates password strength (ASVS 2.1.1, 2.1.8)', () => {
-    expect(passwordError('abc  defghij')).toBe('account.validation.passwordShort');
-    expect(passwordError('abc defghijkl')).toBeUndefined();
-    expect(passwordError('x'.repeat(129))).toBe('account.validation.passwordLong');
-    expect(passwordStrength('short')).toBe('short');
-    expect(passwordStrength('aaaaaaaaaaaa')).toBe('fair');
-    expect(passwordStrength('abcdefghijkl')).toBe('fair');
-    expect(passwordStrength('abcdefghijkl12')).toBe('good');
-    expect(passwordStrength('Abebe-bikila-1960')).toBe('strong');
-    expect(passwordStrength('tej and injera at noon')).toBe('strong');
   });
 
   it('accepts a Fayda FIN or FAN with spaces or dashes', () => {

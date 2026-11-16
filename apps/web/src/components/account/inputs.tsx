@@ -4,11 +4,11 @@ import { useState, type InputHTMLAttributes } from 'react';
 import { useT } from '@/i18n/client';
 import { PUBLIC_API_URL } from '@/lib/api/config';
 import { Alert } from './ui';
-import { passwordStrength, type PasswordStrength } from './validation';
+import { PIN_LENGTH } from './validation';
 
 type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'className'>;
 
-/** Password input with a show/hide toggle. */
+/** Password input with a show/hide toggle (see PinInput for a new PIN). */
 export function PasswordInput(props: InputProps) {
   const t = useT();
   const [visible, setVisible] = useState(false);
@@ -48,35 +48,9 @@ export function PasswordInput(props: InputProps) {
   );
 }
 
-const STRENGTH_LEVELS: readonly PasswordStrength[] = ['short', 'fair', 'good', 'strong'];
-const STRENGTH_COLOURS: Record<PasswordStrength, string> = {
-  short: 'bg-down',
-  fair: 'bg-accent-strong',
-  good: 'bg-up',
-  strong: 'bg-brand',
-};
-
-/** The strength meter under a new password (ASVS 2.1.8); nothing while the field is empty. */
-export function PasswordStrengthMeter({ password }: { password: string }) {
-  const t = useT();
-  if (password.length === 0) return null;
-  const level = passwordStrength(password);
-  const filled = STRENGTH_LEVELS.indexOf(level) + 1;
-  return (
-    <div className="flex items-center gap-2" aria-live="polite">
-      <div className="flex flex-1 gap-1" aria-hidden="true">
-        {STRENGTH_LEVELS.map((name, index) => (
-          <span
-            key={name}
-            className={`h-1 flex-1 rounded ${index < filled ? STRENGTH_COLOURS[level] : 'bg-line'}`}
-          />
-        ))}
-      </div>
-      <span className="text-xs text-muted">
-        {t('account.strength.label')}: {t(`account.strength.${level}`)}
-      </span>
-    </div>
-  );
+/** A new PIN: four digits, numeric keypad, with the show/hide toggle. */
+export function PinInput(props: InputProps) {
+  return <PasswordInput {...props} inputMode="numeric" pattern="[0-9]*" maxLength={PIN_LENGTH} />;
 }
 
 /** Phone input: numeric keypad, local or international format. */
