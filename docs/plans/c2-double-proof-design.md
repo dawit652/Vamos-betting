@@ -678,3 +678,29 @@ which never settles).
 - **A rejected receipt's reason can collide with a named code** (`not_found` → `receipt_not_found`).
   Harmless to the decision (still a mismatch), but C2d's metrics must not classify mismatches by name
   alone.
+
+## 12. Independent review of C2a (16 Nov 2026)
+
+A second session read `payoutproof.ts`, `receiptaccount.ts` and `payoutflow.ts` against section 3, row
+by row, and probed the matcher with the masks institutions use. The rule matches the table; where it
+differs it is stricter (a positive amount in E3, a recorded approver and a human claimer in S2, a fetch
+time not in the future in R2).
+
+**Found and fixed: the network digit counted as proof.** With the subscriber-only count, a value such as
+`2519*****111` was a match: it showed "four digits", but the 9 is the first digit of every Ethio telecom
+number. So the payer check (R6, minimum four) passed for any number ending in the same three digits as
+our collection account, the weakness section 11 says was closed for `251******111`, one character
+later. The count now takes only the last eight digits of a mobile number (the prefix and the network
+digit must still not contradict). `2519*****111` is too masked; `2519****0111` shows four.
+
+**To decide with the real receipt (D4, section 10 question 6).** The count is now of digits that tell
+one number from another, so the default `minRevealedDestinationDigits` of 6 means six of the last eight.
+A mask that shows the first four and the last four characters (`2519****4455`), which is common, shows
+four: under the default no such receipt can ever settle, and R7 would wait for a person every time. If
+the real page masks that way, the choice is between leaving C2 off for it, or accepting four digits
+(one number in 10,000 would also fit) together with the caps and the full destination in the SMS (P4).
+That is a risk decision for the owner, not a default to lower quietly.
+
+**No other finding.** The decision is `settle` only when all 27 verdicts are `pass`; unknown receipt
+statuses wait; `auto_settle` is refused for every actor but `system:double_proof`, from every state but
+`processing`, and when the claimer is the approver, absent or a `system:` actor.

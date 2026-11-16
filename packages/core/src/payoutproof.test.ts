@@ -64,7 +64,8 @@ function valid(): DoubleProofInput {
         reference: REF,
         principalAmount: 50_000n,
         payerAccount: '251911***111',
-        receiverAccount: '251922***455',
+        // Seven of the last eight digits shown (the policy below asks for six).
+        receiverAccount: '2519223*4455',
         completed: true,
         occurredAt: TRANSFER,
       },
@@ -376,8 +377,11 @@ describe('decideDoubleProof: the decision table', () => {
   it('R6 needs our collection account as the payer', () => {
     expect(decide({ facts: { payerAccount: null } })).toEqual(waits('payer_unreadable'));
     expect(decide({ facts: { payerAccount: '251*********' } })).toEqual(waits('payer_unreadable'));
-    // Only three subscriber digits shown: any number ending in 111 would do.
+    // Only three telling digits shown, with or without the network digit 9: any number ending in
+    // 111 would do.
     expect(decide({ facts: { payerAccount: '251******111' } })).toEqual(waits('payer_unreadable'));
+    expect(decide({ facts: { payerAccount: '2519*****111' } })).toEqual(waits('payer_unreadable'));
+    expect(decide({ facts: { payerAccount: '2519****0111' } })).toEqual(SETTLE);
     expect(decide({ facts: { payerAccount: '251911***112' } })).toEqual(
       mismatches('payer_not_ours'),
     );
@@ -388,8 +392,16 @@ describe('decideDoubleProof: the decision table', () => {
 
   it("R7 needs the payout's destination as the receiver, with enough digits shown", () => {
     expect(decide({ facts: { receiverAccount: null } })).toEqual(waits('receiver_unreadable'));
-    // Only 4 subscriber digits shown (the 251 prefix reveals nothing).
+    // Three of the last eight digits shown (the 251 prefix and the network digit 9 reveal nothing).
     expect(decide({ facts: { receiverAccount: '2519*****455' } })).toEqual(
+      waits('receiver_unreadable'),
+    );
+    // The first four and the last four characters, a common mask: four, fewer than the six asked.
+    expect(decide({ facts: { receiverAccount: '2519****4455' } })).toEqual(
+      waits('receiver_unreadable'),
+    );
+    // Five.
+    expect(decide({ facts: { receiverAccount: '251922***455' } })).toEqual(
       waits('receiver_unreadable'),
     );
     // The tail hidden.
@@ -400,7 +412,7 @@ describe('decideDoubleProof: the decision table', () => {
       mismatches('receiver_differs'),
     );
     expect(decide({ facts: { receiverAccount: '0922334455' } })).toEqual(SETTLE);
-    expect(decide({ policy: { minRevealedDestinationDigits: 7 } })).toEqual(
+    expect(decide({ policy: { minRevealedDestinationDigits: 8 } })).toEqual(
       waits('receiver_unreadable'),
     );
     expect(decide({ policy: { minRevealedDestinationDigits: null } })).toEqual(
@@ -485,7 +497,8 @@ const validInput: fc.Arbitrary<DoubleProofInput> = fc
     ours: subscriber,
     reference,
     receiverForm: fc.constantFrom('251', '0', '+251'),
-    receiverMasked: fc.integer({ min: 0, max: 3 }),
+    // At most two hidden: the receiver must show six of its last eight digits.
+    receiverMasked: fc.integer({ min: 0, max: 2 }),
     claimedAt: fc.date({
       min: new Date('2026-01-01T00:00:00Z'),
       max: new Date('2027-12-31T00:00:00Z'),

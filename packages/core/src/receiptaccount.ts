@@ -17,8 +17,14 @@ const MASK = /[*x×•·#]/i;
 const ACCOUNT_SHAPED = /^[\d*x×•·#]+$/i;
 /** A plain Ethiopian mobile number in one of the forms `forms` produces. */
 const PLAIN_MOBILE = /^(?:251|0)?[79]\d{8}$/;
-/** The subscriber part of an Ethiopian mobile number: the last nine digits. */
-const SUBSCRIBER_DIGITS = 9;
+/**
+ * The digits of an Ethiopian mobile number that tell one subscriber from
+ * another: the last eight. The ninth from the end is the network digit (9
+ * for Ethio telecom, 7 for Safaricom), the same for every number an
+ * institution's wallet can hold, so a receipt that shows it reveals nothing
+ * about which number it is: `2519*****426` names any number ending in 426.
+ */
+const DISTINGUISHING_DIGITS = 8;
 
 /**
  * A masked value must reveal at least four digits, including the last
@@ -66,7 +72,7 @@ function comparePair(
 ): PairResult {
   if (masked.length === 0 || masked.length !== plain.length) return 'differs';
   const countFrom =
-    subscriberDigitsOnly && PLAIN_MOBILE.test(plain) ? plain.length - SUBSCRIBER_DIGITS : 0;
+    subscriberDigitsOnly && PLAIN_MOBILE.test(plain) ? plain.length - DISTINGUISHING_DIGITS : 0;
   let revealed = 0;
   for (let i = 0; i < masked.length; i++) {
     const ch = masked[i]!;
@@ -97,9 +103,10 @@ export interface ReceiptAccountRule {
    */
   minRevealed?: number;
   /**
-   * Count revealed digits in the nine-digit subscriber part only, when our
-   * account is a mobile number: the country code or trunk prefix (`251`,
-   * `0`) is the same for every number and reveals nothing about which one.
+   * Count revealed digits in the last eight digits only, when our account
+   * is a mobile number: the country code or trunk prefix (`251`, `0`) and
+   * the network digit after it (`9`, `7`) are the same for every number and
+   * reveal nothing about which one. They must still not contradict.
    */
   subscriberDigitsOnly?: boolean;
 }

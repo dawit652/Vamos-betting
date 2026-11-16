@@ -66,6 +66,12 @@ describe('compareReceiptAccount: digits shown', () => {
   it('matches a masked or plain value in any phone form', () => {
     for (const value of ['251922***455', '0922***455', '+251 922 334 455', '0922334455']) {
       expect(compareReceiptAccount(value, DEST), value).toBe('match');
+      // 22 and 455 of the last eight digits are shown: five.
+      expect(compareReceiptAccount(value, DEST, { ...SUBSCRIBER_ONLY, minRevealed: 5 })).toBe(
+        'match',
+      );
+    }
+    for (const value of ['2519223*4455', '09223*4455', '0922334455']) {
       expect(compareReceiptAccount(value, DEST, { ...SUBSCRIBER_ONLY, minRevealed: 6 })).toBe(
         'match',
       );
@@ -95,16 +101,23 @@ describe('compareReceiptAccount: too few digits shown', () => {
     expect(compareReceiptAccount('251922334***', DEST)).toBe('unreadable');
   });
 
-  it('counts only subscriber digits when asked: the 251 prefix reveals nothing', () => {
-    // 251 + 9 + 455: seven characters shown, four of them in the subscriber part.
-    expect(compareReceiptAccount('2519*****455', DEST)).toBe('match');
-    expect(compareReceiptAccount('2519*****455', DEST, SUBSCRIBER_ONLY)).toBe('match');
-    expect(
-      compareReceiptAccount('2519*****455', DEST, { ...SUBSCRIBER_ONLY, minRevealed: 5 }),
-    ).toBe('unreadable');
-    // 251 + 455 alone: six characters shown but three subscriber digits.
+  it('counts only the last eight digits when asked: the prefix and the network digit reveal nothing', () => {
+    // 251 + 455 alone: six characters shown, three that tell one number from another.
     expect(compareReceiptAccount('251******455', DEST)).toBe('match');
     expect(compareReceiptAccount('251******455', DEST, SUBSCRIBER_ONLY)).toBe('unreadable');
+    // 2519 + 455: seven characters shown, but every Ethio telecom number starts 2519. Still
+    // three: it names any number ending in 455, so it is no proof of which one.
+    expect(compareReceiptAccount('2519*****455', DEST)).toBe('match');
+    expect(compareReceiptAccount('2519*****455', DEST, SUBSCRIBER_ONLY)).toBe('unreadable');
+    expect(compareReceiptAccount('09*****455', DEST, SUBSCRIBER_ONLY)).toBe('unreadable');
+    expect(compareReceiptAccount('9*****455', DEST, SUBSCRIBER_ONLY)).toBe('unreadable');
+    // The first four and the last four characters: four.
+    expect(compareReceiptAccount('2519****4455', DEST, SUBSCRIBER_ONLY)).toBe('match');
+    expect(
+      compareReceiptAccount('2519****4455', DEST, { ...SUBSCRIBER_ONLY, minRevealed: 5 }),
+    ).toBe('unreadable');
+    // The network digit is not counted, but it must not contradict.
+    expect(compareReceiptAccount('2517****4455', DEST, SUBSCRIBER_ONLY)).toBe('differs');
   });
 
   it('never accepts fewer than four revealed digits, and a non-integer minimum accepts nothing', () => {
@@ -124,7 +137,9 @@ describe('compareReceiptAccount: too few digits shown', () => {
         fc.integer({ min: 4, max: 9 }),
         (sub, prefix, hiddenList, minRevealed) => {
           const hidden = new Set(hiddenList);
-          fc.pre(9 - hidden.size < minRevealed);
+          // Position 0 is the network digit (9 or 7): shown or hidden, it is not counted.
+          const shownOfLastEight = [1, 2, 3, 4, 5, 6, 7, 8].filter((i) => !hidden.has(i)).length;
+          fc.pre(shownOfLastEight < minRevealed);
           const result = compareReceiptAccount(masked(sub, prefix, hidden), `+251${sub}`, {
             minRevealed,
             subscriberDigitsOnly: true,
@@ -167,7 +182,7 @@ describe('compareReceiptAccount: one mask, two numbers', () => {
     fc.assert(
       fc.property(subscriber, subscriber, (a, b) => {
         fc.pre(a !== b);
-        const rule = { ...SUBSCRIBER_ONLY, minRevealed: 9 };
+        const rule = { ...SUBSCRIBER_ONLY, minRevealed: 8 };
         expect(compareReceiptAccount(`251${a}`, `+251${a}`, rule)).toBe('match');
         expect(compareReceiptAccount(`251${a}`, `+251${b}`, rule)).toBe('differs');
       }),

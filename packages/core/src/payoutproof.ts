@@ -124,7 +124,12 @@ export interface ProofPolicy {
   maxReceiptAgeMs: number;
   /** Default 15 min: the page may lag a fresh transfer. */
   notFoundGraceMs: number;
-  /** Default 6, set from the real fixture. Counted in the subscriber number; never below 4. */
+  /**
+   * Default 6, set from the real fixture. Counted in the last eight digits
+   * (the prefix and the network digit 9 or 7 reveal nothing); never below 4.
+   * A mask that shows the first four and the last four characters
+   * (`2519****4426`) reveals four, so it can never satisfy 6.
+   */
   minRevealedDestinationDigits: number;
 }
 
@@ -480,8 +485,9 @@ export function decideDoubleProof(input: DoubleProofInput): ProofDecision {
   });
 
   // R6 Payer is OUR collection account. Revealed digits are counted in the
-  // subscriber part only (as for R7): `251******111` names any number ending
-  // in 111, so it is too masked to say the money left from us.
+  // last eight digits only (as for R7): `251******111` and `2519*****111`
+  // name any number ending in 111, so they are too masked to say the money
+  // left from us.
   const r6 = factCheck(() => {
     const results = textListOf(policy.collectionAccounts).map((account) =>
       compareReceiptAccount(facts.payerAccount, account, { subscriberDigitsOnly: true }),
