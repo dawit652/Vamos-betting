@@ -37,6 +37,7 @@ import {
   checkPlayerSmsDeposit,
   confirmPlayerPayoutAccount,
   listPlayerPayoutAccounts,
+  receiveGatewayHeartbeat,
   receiveGatewaySms,
   removePlayerPayoutAccount,
   resendPayoutAccountCode,
@@ -119,6 +120,32 @@ async function webhookRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply): Promise<PaymentWebhookAck> => {
       const rawBody = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
       const ack = await receiveGatewaySms(
+        deps,
+        { headers: request.headers, rawBody, ip: request.ip },
+        request.log,
+      );
+      noStore(reply);
+      return ack;
+    },
+  );
+
+  // The forwarder's heartbeat: the same guards, its own rate-limit bucket.
+  app.post(
+    '/payments/webhooks/sms/heartbeat',
+    {
+      bodyLimit: SMS_GATEWAY_BODY_LIMIT,
+      config: {
+        rateLimit: {
+          max: PAYMENT_RATE_LIMITS.webhook,
+          timeWindow: MINUTE_MS,
+          keyGenerator: (request: FastifyRequest) =>
+            `payment-webhook|sms-heartbeat|${clientAddressKey(request.ip)}`,
+        },
+      },
+    },
+    async (request, reply): Promise<{ ok: true }> => {
+      const rawBody = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
+      const ack = await receiveGatewayHeartbeat(
         deps,
         { headers: request.headers, rawBody, ip: request.ip },
         request.log,

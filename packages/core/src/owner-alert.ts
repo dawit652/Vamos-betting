@@ -54,6 +54,10 @@ export type OwnerAlertInput =
   | { alarm: 'sms_gateway_silent' }
   /** One collection account's handset sent nothing while players wait on deposits to it. */
   | { alarm: 'sms_account_silent'; account: string }
+  /** A collection handset's forwarder has sent no heartbeat for the alarm window (the phone may be off). */
+  | { alarm: 'sms_handset_heartbeat_missed'; account: string }
+  /** A collection handset reported a low battery and is not charging. */
+  | { alarm: 'sms_handset_battery_low'; account: string }
   /** SMS waiting for staff: a long queue or an old item. */
   | { alarm: 'sms_review_backlog' }
   /** An approved manual payout has waited more than two hours. */
@@ -207,6 +211,20 @@ function build(input: OwnerAlertInput): OwnerAlert {
       return {
         key: `sms_account_silent|${subjectOf(input.account)}`,
         message: `No SMS came for the collection account ${account} for 30 minutes while players wait on deposits to it. Those deposits stay open and are credited when its SMS arrive.`,
+      };
+    }
+    case 'sms_handset_heartbeat_missed': {
+      const account = nameOf(input.account, 'A collection account');
+      return {
+        key: `sms_handset_heartbeat_missed|${subjectOf(input.account)}`,
+        message: `The handset of the collection account ${account} has sent no heartbeat for a while, so it may be off or offline. Deposits stay open and are credited when its SMS arrive.`,
+      };
+    }
+    case 'sms_handset_battery_low': {
+      const account = nameOf(input.account, 'A collection account');
+      return {
+        key: `sms_handset_battery_low|${subjectOf(input.account)}`,
+        message: `The handset of the collection account ${account} reports a low battery and is not charging. Deposits stay open and are credited when its SMS arrive.`,
       };
     }
     case 'sms_review_backlog':

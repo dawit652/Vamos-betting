@@ -20,7 +20,7 @@ import {
   WalletResponse,
   WithdrawalView,
 } from '@vamos/contracts';
-import { santimToBirrString } from '@vamos/core';
+import { santimToBirrString, smsHeartbeatKey } from '@vamos/core';
 import { setSetting } from '@vamos/db';
 import { kycProfiles, paymentIntents, receivedSms } from '@vamos/db/schema';
 import { eq } from 'drizzle-orm';
@@ -826,6 +826,100 @@ describe('POST /admin/manual-payouts/claim-batch', () => {
     const { results } = ClaimManualPayoutBatchResponse.parse(response.json());
     expect(results).toEqual([
       { payoutId: payoutIds[0], claimed: false, reason: 'manual_payout_wrong_status' },
+    ]);
+  });
+});
+
+describe('handset heartbeat', () => {
+  const HEARTBEAT_URL = '/payments/webhooks/sms/heartbeat';
+  const heartbeat = (body: unknown, headers: Record<string, string> = {}) =>
+    ctx.app.inject({
+      method: 'POST',
+      url: HEARTBEAT_URL,
+      payload: JSON.stringify(body),
+      headers: { 'content-type': 'application/json', ...headers },
+    });
+  const secret = { [SMS_GATEWAY_SECRET_HEADER]: GATEWAY_SECRET };
+  const stored = async (account: string) => {
+    const raw = await ctx.redis.get(smsHeartbeatKey(account));
+    return raw === null ? null : (JSON.parse(raw) as unknown);
+  };
+
+  it('is a 404 on the simulated rail', async () => {
+    ctx.deps.payments = simulatedRegistry;
+    expect((await heartbeat({}, secret)).statusCode).toBe(404);
+  });
+
+  it('refuses without the secret, outside the allowlist, and for an unknown account', async () => {
+    goLive();
+    expect((await heartbeat({ battery: 50 })).statusCode).toBe(401);
+    expect((await heartbeat({ battery: 50, secret: 'wrong' })).statusCode).toBe(401);
+    expect((await heartbeat({ account: 'telebirr:nope' }, secret)).statusCode).toBe(400);
+    expect(apiError(await heartbeat({ account: 'telebirr:nope' }, secret)).code).toBe(
+      'unknown_collection_account',
+    );
+    expect((await heartbeat('x', secret)).statusCode).toBe(400);
+    expect((await heartbeat({ battery: 101 }, secret)).statusCode).toBe(400);
+    goLive({ allowlist: ['196.188.0.1'] });
+    expect((await heartbeat({}, secret)).statusCode).toBe(403);
+  });
+
+  it('stores the last heartbeat of the only account, with the API clock', async () => {
+    goLive();
+    const account = 'telebirr:0911678426';
+    const response = await heartbeat({ battery: 64, charging: true }, secret);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    expect(await stored(account)).toEqual({
+      at: ctx.clock.now.toISOString(),
+      battery: 64,
+      charging: true,
+    });
+    expect(await ctx.redis.ttl(smsHeartbeatKey(account))).toBeGreaterThan(6 * 24 * 3600);
+    // The secret may come in the body; battery and charging are optional.
+    expect((await heartbeat({ secret: GATEWAY_SECRET })).statusCode).toBe(200);
+    expect(await stored(account)).toEqual({
+      at: ctx.clock.now.toISOString(),
+      battery: null,
+      charging: null,
+    });
+  });
+
+  it('needs the account when there are several', async () => {
+    goLive({ twoAccounts: true });
+    const missing = await heartbeat({ battery: 50 }, secret);
+    expect(missing.statusCode).toBe(400);
+    expect(apiError(missing).code).toBe('collection_account_required');
+    const named = await heartbeat({ account: 'telebirr:0922000000', battery: 12 }, secret);
+    expect(named.statusCode).toBe(200);
+    expect(await stored('telebirr:0922000000')).toMatchObject({ battery: 12, charging: null });
+  });
+
+  it('shows the heartbeats on the health panel, late ones marked', async () => {
+    goLive({ twoAccounts: true });
+    await ctx.redis.del(
+      smsHeartbeatKey('telebirr:0911678426'),
+      smsHeartbeatKey('telebirr:0922000000'),
+    );
+    await ctx.redis.set(
+      smsHeartbeatKey('telebirr:0922000000'),
+      JSON.stringify({
+        at: new Date(ctx.clock.now.getTime() - 3 * 60 * 60_000).toISOString(),
+        battery: 40,
+        charging: false,
+      }),
+    );
+    const finance = await staffLogin(ctx, 'finance');
+    const response = await asStaff(ctx, finance, 'GET', '/admin/sms/health');
+    expect(response.statusCode).toBe(200);
+    const health = SmsRailHealthResponse.parse(response.json());
+    expect(health.heartbeats).toEqual([
+      expect.objectContaining({
+        account: 'telebirr:0922000000',
+        battery: 40,
+        charging: false,
+        late: true,
+      }),
     ]);
   });
 });

@@ -391,6 +391,11 @@ const envSchema = z.object({
   FLOAT_FORECAST_WITHDRAWN_PERCENT: z.coerce.number().int().min(0).max(100).default(20),
   /** How long a match is assumed to last from its start (the catalogue has no end time). */
   FLOAT_FORECAST_EVENT_MINUTES: z.coerce.number().int().min(30).max(600).default(120),
+  /**
+   * How long a collection handset's forwarder may go without a heartbeat before the worker raises
+   * `sms_handset_heartbeat_missed`. Only an account that has sent a heartbeat is judged.
+   */
+  SMS_HEARTBEAT_ALARM_MINUTES: z.coerce.number().int().min(5).max(1440).default(20),
   /** Settle a manual payout only against the collection account's outgoing SMS. */
   PAYOUT_REQUIRE_PROOF: bool.default(false),
   /** Licensed mode without PAYOUT_REQUIRE_PROOF: an explicit, logged waiver. */
@@ -623,6 +628,8 @@ export interface SmsRailConfig {
   receiptVerifyTimeoutMs: number;
   /** FLOAT_FORECAST_*: the assumptions of the payout float forecast (same shape as core's rules). */
   floatForecast: { eventDurationMs: number; horizonMs: number; withdrawnShareBps: number };
+  /** SMS_HEARTBEAT_ALARM_MINUTES, in milliseconds. */
+  heartbeatAlarmMs: number;
   requirePayoutProof: boolean;
   payoutProofWaived: boolean;
 }
@@ -919,6 +926,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
           horizonMs: e.FLOAT_FORECAST_HORIZON_HOURS * 3_600_000,
           withdrawnShareBps: e.FLOAT_FORECAST_WITHDRAWN_PERCENT * 100,
         },
+        heartbeatAlarmMs: e.SMS_HEARTBEAT_ALARM_MINUTES * 60_000,
         requirePayoutProof: e.PAYOUT_REQUIRE_PROOF,
         payoutProofWaived: e.PAYOUT_PROOF_WAIVED,
       },

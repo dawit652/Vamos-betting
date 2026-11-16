@@ -411,6 +411,19 @@ export const SmsGatewayRequest = z.object({
 });
 export type SmsGatewayRequest = z.infer<typeof SmsGatewayRequest>;
 
+/**
+ * POST /payments/webhooks/sms/heartbeat: the forwarder on a collection handset says it is alive
+ * (every few minutes), with its battery when it can read it. Same guards as the gateway; `account`
+ * is resolved the same way (it may be left out when there is one collection account).
+ */
+export const SmsHeartbeatRequest = z.object({
+  account: z.string().trim().min(1).max(64).optional(),
+  battery: z.number().int().min(0).max(100).optional(),
+  charging: z.boolean().optional(),
+  secret: z.string().max(200).optional(),
+});
+export type SmsHeartbeatRequest = z.infer<typeof SmsHeartbeatRequest>;
+
 // ---------------------------------------------------------------- dev only
 
 /**

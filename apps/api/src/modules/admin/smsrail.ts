@@ -13,7 +13,7 @@ import {
   StaffWithdrawalChangeResponse,
   StaffWithdrawalListResponse,
 } from '@vamos/contracts';
-import { floatIsLow } from '@vamos/core';
+import { floatIsLow, parseSmsHeartbeat, smsHeartbeatKey, smsHeartbeatLate } from '@vamos/core';
 import {
   acknowledgeReceiptAlarm,
   claimManualPayout,
@@ -111,6 +111,17 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
       const stored = await readBalanceResult(deps, institution);
       if (stored !== null) balance.push(stored);
     }
+    const now = deps.clock();
+    const heartbeats = [];
+    for (const account of provider?.collectionAccountIds ?? []) {
+      const beat = parseSmsHeartbeat(await deps.redis.get(smsHeartbeatKey(account)));
+      if (beat === null) continue;
+      heartbeats.push({
+        account,
+        ...beat,
+        late: smsHeartbeatLate(beat, now, deps.config.payments.sms.heartbeatAlarmMs),
+      });
+    }
     const rules = deps.config.payments.sms.floatForecast;
     const float = await loadFloatForecast(deps.db, { now: deps.clock(), rules });
     return wire(SmsRailHealthResponse, {
@@ -128,6 +139,7 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
       mode: provider?.mode ?? 'simulated',
       receiptVerify: deps.config.payments.sms.receiptVerify,
       receiptBreaker: deps.receipts?.state().breaker ?? null,
+      heartbeats,
       balance,
     });
   });

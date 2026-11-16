@@ -127,11 +127,24 @@ export function PasswordStrengthHint({ password }: { password: string }) {
   );
 }
 
-export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
+export function Stat({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  /** `warn` shows the value in the warning colour. */
+  tone?: 'warn';
+}) {
   return (
     <div className="stat">
       <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
+      <div className="stat-value" {...(tone === 'warn' ? { style: { color: 'var(--warn)' } } : {})}>
+        {value}
+      </div>
       {hint !== undefined && <div className="muted small">{hint}</div>}
     </div>
   );

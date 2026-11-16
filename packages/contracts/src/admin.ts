@@ -1042,6 +1042,16 @@ export const SmsRailHealthResponse = z.object({
   oldestManualPayoutApprovedAt: z.string().nullable(),
   receiptVerify: z.enum(['off', 'audit']),
   receiptBreaker: z.enum(['closed', 'open', 'half_open']).nullable(),
+  /** The last forwarder heartbeat of each collection account that has sent one; `late` is past the alarm window. */
+  heartbeats: z.array(
+    z.object({
+      account: z.string(),
+      at: z.string(),
+      battery: z.number().int().nullable(),
+      charging: z.boolean().nullable(),
+      late: z.boolean(),
+    }),
+  ),
   /**
    * The last balance reconciliation per collection institution (the worker,
    * hourly over 24 hours): `drift` is actual − expected movement; negative

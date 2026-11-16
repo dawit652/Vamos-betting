@@ -358,6 +358,7 @@ describe('loadConfig', () => {
         operatorLegalName: undefined,
         receiptVerify: 'audit',
         receiptVerifyTimeoutMs: 6000,
+        heartbeatAlarmMs: 1_200_000,
         floatForecast: {
           eventDurationMs: 7_200_000,
           horizonMs: 21_600_000,
@@ -818,6 +819,19 @@ describe('the SMS deposit rail', () => {
     expect(
       problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: accounts }).join('\n'),
     ).toMatch(/the id "a" is used twice/);
+  });
+
+  it('reads SMS_HEARTBEAT_ALARM_MINUTES (default 20, 5..1440)', () => {
+    expect(loadConfig({ ...LICENSED_ENV, ...LIVE_SMS }).payments.sms.heartbeatAlarmMs).toBe(
+      20 * 60_000,
+    );
+    const set = (v: string) =>
+      loadConfig({ ...LICENSED_ENV, ...LIVE_SMS, SMS_HEARTBEAT_ALARM_MINUTES: v }).payments.sms
+        .heartbeatAlarmMs;
+    expect(set('5')).toBe(5 * 60_000);
+    expect(set('1440')).toBe(1440 * 60_000);
+    expect(() => set('4')).toThrow();
+    expect(() => set('1441')).toThrow();
   });
 
   it('accepts a fully configured live rail in licensed mode', () => {

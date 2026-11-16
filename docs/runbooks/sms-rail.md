@@ -40,16 +40,18 @@ SMS-rail settings that are not production-ready: the simulated rail, a missing g
 
 Alarms are `error` log lines with an `alarm` field; wire the log-based alerts to these names.
 
-| `alarm`                    | Meaning                                                                                                                                                                                                       | Do                                                                                         |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `sms_receipt_rejected`     | A **credited** telebirr SMS is contradicted by the receipt page (not found, other receiver…)                                                                                                                  | [Receipt alarm](#receipt-alarm-a-possibly-forged-sms). SEV1 until explained                |
-| `sms_balance_drift`        | The balance an SMS reports moved by a different amount than the messages say                                                                                                                                  | [Balance drift](#balance-drift)                                                            |
-| `payout_float_low`         | A collection account's last known balance (from its SMS) is below the withdrawals the open bets are expected to cause (`FLOAT_FORECAST_*`)                                                                    | Top up that account before the matches end; the health panel shows the forecast            |
-| `sms_gateway_silent`       | No SMS from the handset for 30 minutes after 06:00 EAT                                                                                                                                                        | [Handset offline](#handset-offline)                                                        |
-| `sms_account_silent`       | One collection account (`account` in the line) has players waiting on deposits older than 30 minutes and its handset forwarded nothing on it for 30 minutes (live rail, after 06:00 EAT; once per 30 minutes) | [Handset offline](#handset-offline), for the handset of that account                       |
-| `sms_review_backlog`       | More than 10 SMS wait for a person, or the oldest has waited over 15 minutes                                                                                                                                  | Work the [review queue](#the-review-queue)                                                 |
-| `manual_payout_waiting`    | An approved manual payout has waited more than 2 hours                                                                                                                                                        | [Manual payouts](#manual-payouts)                                                          |
-| `manual_payout_claim_idle` | A claimed manual payout (`processing`) has had no settle, release or fail for over 30 minutes; one line per payout per 30 minutes                                                                             | [Manual payouts](#manual-payouts): the operator who holds it settles, releases or fails it |
+| `alarm`                        | Meaning                                                                                                                                                                                                                                                         | Do                                                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `sms_receipt_rejected`         | A **credited** telebirr SMS is contradicted by the receipt page (not found, other receiver…)                                                                                                                                                                    | [Receipt alarm](#receipt-alarm-a-possibly-forged-sms). SEV1 until explained                |
+| `sms_balance_drift`            | The balance an SMS reports moved by a different amount than the messages say                                                                                                                                                                                    | [Balance drift](#balance-drift)                                                            |
+| `payout_float_low`             | A collection account's last known balance (from its SMS) is below the withdrawals the open bets are expected to cause (`FLOAT_FORECAST_*`)                                                                                                                      | Top up that account before the matches end; the health panel shows the forecast            |
+| `sms_gateway_silent`           | No SMS from the handset for 30 minutes after 06:00 EAT                                                                                                                                                                                                          | [Handset offline](#handset-offline)                                                        |
+| `sms_account_silent`           | One collection account (`account` in the line) has players waiting on deposits older than 30 minutes and its handset forwarded nothing on it for 30 minutes (live rail, after 06:00 EAT; once per 30 minutes)                                                   | [Handset offline](#handset-offline), for the handset of that account                       |
+| `sms_handset_heartbeat_missed` | A handset whose forwarder sends [heartbeats](#heartbeat) has sent none for `SMS_HEARTBEAT_ALARM_MINUTES` (default 20): the phone is off or offline, not merely quiet (`account` in the line; once per 30 minutes; an account that never sent one is not judged) | [Handset offline](#handset-offline), for the handset of that account                       |
+| `sms_handset_battery_low`      | The last heartbeat of an account's handset says battery under 15% and not charging (`account` in the line; once per 30 minutes)                                                                                                                                 | Put that handset on its charger: a dead phone stops the rail for its account               |
+| `sms_review_backlog`           | More than 10 SMS wait for a person, or the oldest has waited over 15 minutes                                                                                                                                                                                    | Work the [review queue](#the-review-queue)                                                 |
+| `manual_payout_waiting`        | An approved manual payout has waited more than 2 hours                                                                                                                                                                                                          | [Manual payouts](#manual-payouts)                                                          |
+| `manual_payout_claim_idle`     | A claimed manual payout (`processing`) has had no settle, release or fail for over 30 minutes; one line per payout per 30 minutes                                                                                                                               | [Manual payouts](#manual-payouts): the operator who holds it settles, releases or fails it |
 
 With `OWNER_ALERT_PHONES` set each alarm above also texts the owner once (at most one per alarm and
 `OWNER_ALERT_MIN_INTERVAL_MINUTES`, default 30) with what the rail already did, e.g. "It stays credited and is
@@ -108,7 +110,7 @@ drift: write it down so the next person recognises it.
 
 ## Handset offline
 
-`sms_gateway_silent` or `sms_account_silent`, or players say their deposits do not arrive.
+`sms_gateway_silent`, `sms_account_silent`, `sms_handset_heartbeat_missed`, or players say their deposits do not arrive.
 
 1. Check the phone: power, wifi/data, the forwarder app running and not battery-optimised, the SIM present.
 2. Meanwhile deposits keep working: a telebirr player can paste the confirmation SMS or its transaction
@@ -145,6 +147,32 @@ drift: write it down so the next person recognises it.
   addresses get 403.
 - Every day before 10:00: the balance in the telebirr app and the CBE statement equal the latest balance on
   the health panel, and the balance check is ok.
+
+### Heartbeat
+
+Silence alone cannot tell a phone that is alive but quiet (nobody is paying) from a dead one. A forwarder
+can therefore also post a heartbeat every 5 minutes to `POST https://<api host>/payments/webhooks/sms/heartbeat`
+(live rail only; the same `x-gateway-secret` header or body `secret`, the same `SMS_GATEWAY_ALLOWLIST`).
+Body, all fields optional (`account` as for the SMS: required when there are several accounts, 400
+`collection_account_required` without it):
+
+```json
+{ "account": "<id>", "battery": 64, "charging": true }
+```
+
+With an automation app on the phone (MacroDroid, Tasker) add a 5-minute trigger and an HTTP POST action with
+that body, `Content-Type: application/json` and the `x-gateway-secret` header, filling `battery` and
+`charging` from the app's battery variables. To test from a shell:
+
+```sh
+curl -sS -X POST "https://<api host>/payments/webhooks/sms/heartbeat" \
+  -H "content-type: application/json" -H "x-gateway-secret: <SMS_GATEWAY_SECRET>" \
+  -d '{"account":"<id>","battery":64,"charging":true}'
+```
+
+The answer is `{"ok":true}`. The last heartbeat of each account is shown on the health panel (late ones
+in the warning colour). Without heartbeats only the silence alarms apply: an account that never sent one
+is not judged, so a forwarder that cannot send them gets no false alarm.
 
 ## Manual payouts
 

@@ -147,6 +147,7 @@ async function main(): Promise<void> {
       sms,
       ownerAlerts: config.ownerAlerts,
       floatForecast: config.payments.sms.floatForecast,
+      smsHeartbeatAlarmMs: config.payments.sms.heartbeatAlarmMs,
       demo: config.mode === 'demo',
     },
     {

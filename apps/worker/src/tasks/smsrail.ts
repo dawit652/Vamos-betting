@@ -1,6 +1,10 @@
 import {
   DEFAULT_FLOAT_FORECAST_RULES,
   RECEIPT_VERIFIABLE_INSTITUTIONS,
+  parseSmsHeartbeat,
+  smsHandsetBatteryLow,
+  smsHeartbeatKey,
+  smsHeartbeatLate,
   floatIsLow,
   reconcileBalances,
   type BalanceReconciliation,
@@ -186,6 +190,10 @@ const ACCOUNT_SILENCE_ALARM_REPEAT_MS = 30 * 60_000;
 /** The payout_float_low line repeats at this pace while the balance stays below the forecast. */
 const PAYOUT_FLOAT_ALARM_REPEAT_MS = 30 * 60_000;
 
+/** The handset heartbeat alarms repeat at this pace while the condition holds. */
+const HANDSET_ALARM_REPEAT_MS = 30 * 60_000;
+const DEFAULT_HEARTBEAT_ALARM_MS = 20 * 60_000;
+
 export interface SmsRailWatchFindings {
   silent: boolean;
   /** Collection accounts with waiting deposits and no message from their handset for 30 minutes. */
@@ -196,6 +204,10 @@ export interface SmsRailWatchFindings {
   idleClaims: string[];
   /** Institutions whose last known balance is below the float forecast. */
   floatLow: string[];
+  /** Accounts whose handset sent heartbeats before and has now been quiet past the alarm window. */
+  heartbeatMissed: string[];
+  /** Accounts whose last heartbeat reported a battery under 15% and not charging. */
+  batteryLow: string[];
 }
 
 /** The watch: logs an alarm for each condition that needs a person. */
@@ -207,6 +219,8 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
     slowPayouts: false,
     idleClaims: [],
     floatLow: [],
+    heartbeatMissed: [],
+    batteryLow: [],
   };
   const provider = smsProvider(ctx);
   if (provider === null) return findings;
@@ -250,6 +264,54 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
         'no SMS from this collection account’s handset for 30 minutes while players wait on deposits to it',
       );
       await raiseOwnerAlert(ctx, { alarm: 'sms_account_silent', account: silent.account });
+    }
+  }
+  // The forwarder's heartbeat tells a quiet phone from a dead one. An account that never sent one
+  // is not judged, so a forwarder without heartbeats gets no false alarm.
+  if (provider.mode === 'live') {
+    const alarmMs = ctx.smsHeartbeatAlarmMs ?? DEFAULT_HEARTBEAT_ALARM_MS;
+    for (const account of provider.collectionAccountIds) {
+      const beat = parseSmsHeartbeat(await ctx.redis.get(smsHeartbeatKey(account)));
+      if (beat === null) continue;
+      const missed = smsHeartbeatLate(beat, now, alarmMs);
+      // A stale battery reading says nothing about the phone now: only a fresh beat counts.
+      const low = !missed && smsHandsetBatteryLow(beat);
+      for (const [active, alarm, list, text] of [
+        [
+          missed,
+          'sms_handset_heartbeat_missed',
+          findings.heartbeatMissed,
+          'no heartbeat from this collection account’s handset: it may be off or offline',
+        ],
+        [
+          low,
+          'sms_handset_battery_low',
+          findings.batteryLow,
+          'this collection account’s handset reports a low battery and is not charging',
+        ],
+      ] as const) {
+        if (!active) continue;
+        list.push(account);
+        const first = await claimAlertSlot(
+          ctx.redis,
+          'raised',
+          `log|${alarm}|${account}`,
+          now.getTime(),
+          HANDSET_ALARM_REPEAT_MS,
+        ).catch(() => true);
+        if (!first) continue;
+        ctx.logger.error(
+          {
+            alarm,
+            account,
+            lastHeartbeatAt: beat.at,
+            battery: beat.battery,
+            charging: beat.charging,
+          },
+          text,
+        );
+        await raiseOwnerAlert(ctx, { alarm, account });
+      }
     }
   }
   if (

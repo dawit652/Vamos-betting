@@ -43,6 +43,8 @@ export interface TaskContext {
   ownerAlerts?: OwnerAlertsConfig;
   /** FLOAT_FORECAST_*: the payout float forecast's assumptions (default: core's). */
   floatForecast?: FloatForecastRules;
+  /** SMS_HEARTBEAT_ALARM_MINUTES in ms: a handset heartbeat older than this raises an alarm (default 20 min). */
+  smsHeartbeatAlarmMs?: number;
   /** Play-money mode (OPERATING_MODE=demo): channel texts say DEMO. Default true. */
   demo?: boolean;
 }

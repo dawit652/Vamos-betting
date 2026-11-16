@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_PAYMENT_RULES, santimToBirrString } from '@vamos/core';
+import { DEFAULT_PAYMENT_RULES, santimToBirrString, smsHeartbeatKey } from '@vamos/core';
 import { createSmsDepositIntent, ingestSms, schema } from '@vamos/db';
 import {
   SmsRailProvider,
@@ -263,6 +263,62 @@ describe('the watch', () => {
     // The simulated rail has no handset to be silent.
     const quiet = await runSmsRailWatch({ ...t.ctx, logger });
     expect(quiet.silentAccounts).toEqual([]);
+  });
+
+  it('judges handset heartbeats: none ever, stale, fresh, low battery, simulated rail', async () => {
+    const MIN = 60_000;
+    const telebirr = 'telebirr:0911678426';
+    const cbe = 'cbe:1000123456789';
+    const keys = [smsHeartbeatKey(telebirr), smsHeartbeatKey(cbe)];
+    const start = new Date('2027-07-01T07:00:00Z');
+    const beat = (at: Date, battery: number | null, charging: boolean | null) =>
+      JSON.stringify({ at: at.toISOString(), battery, charging });
+    await t.redis.del(...keys);
+    const { logger, alarms } = capture();
+    const ctx: TaskContext = {
+      ...t.ctx,
+      payments: withLive(t.ctx.payments),
+      logger,
+      smsHeartbeatAlarmMs: 20 * MIN,
+    };
+    const count = (name: string) => alarms.filter((a) => a === name).length;
+
+    // No heartbeat ever: not judged.
+    t.clock.set(start);
+    let findings = await runSmsRailWatch(ctx);
+    expect(findings.heartbeatMissed).toEqual([]);
+    expect(findings.batteryLow).toEqual([]);
+
+    // Fresh: no alarm.
+    await t.redis.set(keys[0]!, beat(start, 64, true));
+    t.clock.set(new Date(start.getTime() + 10 * MIN));
+    findings = await runSmsRailWatch(ctx);
+    expect(findings.heartbeatMissed).toEqual([]);
+
+    // Stale: one alarm per 30 minutes; the account that never sent one is still not judged.
+    t.clock.set(new Date(start.getTime() + 25 * MIN));
+    expect((await runSmsRailWatch(ctx)).heartbeatMissed).toEqual([telebirr]);
+    expect(count('sms_handset_heartbeat_missed')).toBe(1);
+    t.clock.set(new Date(start.getTime() + 30 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(count('sms_handset_heartbeat_missed')).toBe(1);
+    t.clock.set(new Date(start.getTime() + 57 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(count('sms_handset_heartbeat_missed')).toBe(2);
+
+    // The simulated rail has no handset.
+    expect((await runSmsRailWatch({ ...t.ctx, logger })).heartbeatMissed).toEqual([]);
+
+    // Battery 10 and not charging: alarm; charging: none.
+    const later = new Date(start.getTime() + 2 * 60 * MIN);
+    t.clock.set(later);
+    await t.redis.set(keys[1]!, beat(later, 10, false));
+    findings = await runSmsRailWatch(ctx);
+    expect(findings.batteryLow).toEqual([cbe]);
+    expect(count('sms_handset_battery_low')).toBe(1);
+    await t.redis.set(keys[1]!, beat(later, 10, true));
+    expect((await runSmsRailWatch(ctx)).batteryLow).toEqual([]);
+    await t.redis.del(...keys);
   });
 
   it('raises manual_payout_claim_idle once per payout per 30 minutes while a claim has no result', async () => {

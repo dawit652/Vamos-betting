@@ -1,5 +1,6 @@
 import {
   SmsGatewayRequest,
+  SmsHeartbeatRequest,
   type AddPayoutAccountResponse,
   type DepositCheckResponse,
   type PaymentOptionsResponse,
@@ -11,9 +12,12 @@ import {
   MAX_SANTIM_OFFSET,
   PAYOUT_DESTINATIONS,
   RECEIPT_VERIFIABLE_INSTITUTIONS,
+  SMS_HEARTBEAT_TTL_SECONDS,
   depositMethodFor,
   normalizeEthiopianMsisdn,
   payoutDestination,
+  smsHeartbeatKey,
+  type SmsHeartbeat,
 } from '@vamos/core';
 import {
   addPayoutAccount,
@@ -170,6 +174,30 @@ export async function checkPlayerSmsDeposit(
   return checkResponse(result, provider);
 }
 
+/**
+ * Each handset names its account; a deployment with one account needs no name. An unknown
+ * account is refused, never guessed: its message would be matched against the wrong amounts.
+ * A heartbeat has to name its account when there are several (`required`).
+ */
+function resolveGatewayAccount(
+  provider: SmsRailProvider,
+  account: string | undefined,
+  required: boolean,
+): string | null {
+  const ids = provider.collectionAccountIds;
+  if (account !== undefined && !ids.includes(account)) {
+    throw badRequest('unknown_collection_account', 'No collection account has this id.');
+  }
+  const resolved = account ?? (ids.length === 1 ? ids[0]! : null);
+  if (resolved === null && required) {
+    throw badRequest(
+      'collection_account_required',
+      'This heartbeat must name its collection account.',
+    );
+  }
+  return resolved;
+}
+
 function headerString(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -210,13 +238,7 @@ export async function receiveGatewaySms(
     throw new AppError(401, 'webhook_signature_invalid', 'The gateway secret is not valid.');
   }
   const body = parsed.data;
-  // Each handset names its account; a deployment with one account needs no name. An unknown
-  // account is refused, never guessed: its message would be matched against the wrong amounts.
-  const ids = provider.collectionAccountIds;
-  if (body.account !== undefined && !ids.includes(body.account)) {
-    throw badRequest('unknown_collection_account', 'No collection account has this id.');
-  }
-  const collectionAccount = body.account ?? (ids.length === 1 ? ids[0]! : null);
+  const collectionAccount = resolveGatewayAccount(provider, body.account, false);
   const result = await withTxRetry(deps.db, (tx) =>
     ingestSms(tx, {
       source: 'gateway',
@@ -228,6 +250,54 @@ export async function receiveGatewaySms(
     }),
   );
   return { received: true, outcome: result.outcome };
+}
+
+/**
+ * POST /payments/webhooks/sms/heartbeat: the forwarder says the handset is alive, with its
+ * battery. Same guards as the gateway (live rail only, allowlist, shared secret). The last one per
+ * account is kept in Redis for a week; the worker alarms on a late one or a low battery.
+ */
+export async function receiveGatewayHeartbeat(
+  deps: Pick<AppDeps, 'clock' | 'payments' | 'redis'>,
+  input: {
+    headers: Readonly<Record<string, string | string[] | undefined>>;
+    rawBody: Buffer;
+    ip: string;
+  },
+  log?: Pick<FastifyBaseLogger, 'warn'>,
+): Promise<{ ok: true }> {
+  const provider = smsProviderOf(deps);
+  if (provider === null || provider.mode !== 'live') throw notFound('Payment provider');
+  if (!provider.gatewayAddressAllowed(input.ip)) {
+    log?.warn({ ip: input.ip }, 'sms heartbeat from an address outside the allowlist');
+    throw forbidden('gateway_forbidden', 'This address may not post to the SMS gateway.');
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(input.rawBody.toString('utf8'));
+  } catch {
+    throw badRequest('webhook_malformed', 'The webhook body could not be read.');
+  }
+  const parsed = SmsHeartbeatRequest.safeParse(json);
+  if (!parsed.success) throw badRequest('webhook_malformed', 'The webhook body could not be read.');
+  const header = headerString(input.headers[SMS_GATEWAY_SECRET_HEADER]);
+  if (!provider.gatewaySecretMatches(header ?? parsed.data.secret)) {
+    log?.warn({ ip: input.ip }, 'sms heartbeat without a valid secret');
+    throw new AppError(401, 'webhook_signature_invalid', 'The gateway secret is not valid.');
+  }
+  const account = resolveGatewayAccount(provider, parsed.data.account, true)!;
+  const stored: SmsHeartbeat = {
+    at: deps.clock().toISOString(),
+    battery: parsed.data.battery ?? null,
+    charging: parsed.data.charging ?? null,
+  };
+  await deps.redis.set(
+    smsHeartbeatKey(account),
+    JSON.stringify(stored),
+    'EX',
+    SMS_HEARTBEAT_TTL_SECONDS,
+  );
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- payout accounts

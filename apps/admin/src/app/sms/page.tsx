@@ -166,6 +166,11 @@ function SmsRow({ sms, reload }: { sms: StaffSmsView; reload: () => void }) {
   );
 }
 
+function heartbeatAgo(at: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60_000));
+  return minutes < 60 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`;
+}
+
 function Health() {
   const { data } = useFetch<SmsRailHealthResponse>('/admin/sms/health');
   if (data === null) return null;
@@ -189,6 +194,14 @@ function Health() {
           : { hint: `oldest ${formatDateTime(data.oldestManualPayoutApprovedAt)}` })}
       />
       {data.receiptBreaker !== null && <Stat label="Receipt page" value={data.receiptBreaker} />}
+      {data.heartbeats.map((h) => (
+        <Stat
+          key={`heartbeat-${h.account}`}
+          label={`Handset ${h.account}`}
+          value={`${heartbeatAgo(h.at)}${h.battery === null ? '' : `, ${h.battery}%`}${h.charging === null ? '' : h.charging ? ', charging' : ', not charging'}`}
+          {...(h.late ? { tone: 'warn' as const } : {})}
+        />
+      ))}
       {data.balance.map((b) => (
         <Stat
           key={b.institution}
