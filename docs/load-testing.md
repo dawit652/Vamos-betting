@@ -43,6 +43,43 @@ The seeded players stay in the database, because ledger tables are append-only. 
 "Load test player" and have phones `+2517<run tag><index>`. Do not run the script against a shared
 database.
 
+## Deposit burst: `pnpm load:deposits`
+
+A second script, `scripts/load/deposits.ts`, tests the SMS deposit rail under a burst. It needs an
+API in demo mode with the simulated rail and one trusted proxy address (the script sends a
+different `X-Forwarded-For` per player, so the 60-a-minute limit of the simulator is per player):
+
+```bash
+OPERATING_MODE=demo PAYMENT_PROVIDERS=mock,sms SMS_RAIL_MODE=simulated TRUST_PROXY=127.0.0.1 \
+  pnpm --filter @vamos/api exec tsx src/server.ts      # or the built stack with these settings
+pnpm load:deposits --players 500 --waves 6              # also: --amount, --concurrency, --api
+```
+
+It seeds the players, opens an SMS deposit of the same round amount for each (the rail gives
+each an exact amount, requested + 1 to 99 santim, so at most 99 are open at once and the others
+must be refused with `sms_amount_unavailable`), sends the bank SMS of every opened deposit (a third
+in order, a third shuffled, a third shuffled and each sent twice, half of those at the same moment)
+and, in later waves, lets the refused players try again as amounts are freed. It exits 1 unless:
+every paid deposit is credited exactly once and for its exact amount, nobody who did not pay has
+money, no deposit is flagged or left open, no response was unexpected, and a full reconciliation
+run is clean.
+
+## Results (16 Nov 2026): deposit burst
+
+500 players, ETB 100 each, concurrency 25, 6 waves, one API process on the development container
+(Postgres and Redis on the same machine, so read the latencies as relative):
+
+| Measure                                                             | Result                                                                            |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Players credited, each exactly once and for its exact amount        | 500 of 500                                                                        |
+| Double credits, wrong amounts, money without paying, flagged, open  | 0                                                                                 |
+| Refusals for lack of an amount (`sms_amount_unavailable`, expected) | 1,015 (across the waves)                                                          |
+| Open a deposit, `POST /payments/deposits`                           | p50 87 ms, p95 260 ms                                                             |
+| SMS sent to deposit credited                                        | p50 156 ms, p95 301 ms                                                            |
+| Bank SMS sent, of which replays                                     | 666, of which 166                                                                 |
+| Replays that credited nothing                                       | all (13 concurrent pairs: the second request won the race, still one credit each) |
+| Reconciliation after the run                                        | clean                                                                             |
+
 ## Results (19 Oct 2026)
 
 **Setup.** One 4-CPU container, 16 GB of RAM. It ran everything: the built API (a single Node 22

@@ -24,6 +24,7 @@
     "e2e": "pnpm --filter @vamos/e2e e2e",
     "e2e:deployment": "pnpm --filter @vamos/e2e deployment",
     "load:bets": "pnpm --filter @vamos/load bet-placement",
+    "load:deposits": "pnpm --filter @vamos/load deposits",
     "db:generate": "pnpm --filter @vamos/db generate",
     "db:migrate": "pnpm --filter @vamos/db migrate",
     "db:seed": "pnpm --filter @vamos/db seed",

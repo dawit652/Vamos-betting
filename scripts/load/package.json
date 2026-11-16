@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "bet-placement": "tsx bet-placement.ts",
+    "deposits": "tsx deposits.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
