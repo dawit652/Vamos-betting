@@ -14,6 +14,7 @@ export {
   parseAdminTotpKey,
   parseTrustProxy,
   scraperUserAgent,
+  type ApiRole,
   type AppConfig,
   type ChannelsConfig,
   type CollectionAccount,

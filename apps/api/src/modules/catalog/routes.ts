@@ -10,7 +10,6 @@ import {
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { CatalogCache, stableKey } from '../../lib/catalog-cache';
 import { notFound, parseInput } from '../../lib/errors';
-import liveRoutes from './live';
 import {
   getEventByGameId,
   getEventById,
@@ -32,7 +31,8 @@ function cache(reply: FastifyReply, value: string): void {
 
 /**
  * Public sports catalogue (no authentication): sports, competitions, event
- * lists and event pages, plus the live updates stream (see ./live).
+ * lists and event pages. The live updates stream (./live) is registered by
+ * registerModules, as it depends on the API role.
  */
 export default async function catalogRoutes(app: FastifyInstance): Promise<void> {
   const { deps } = app;
@@ -113,10 +113,5 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
       cache(reply, DETAIL_CACHE_CONTROL);
       return body;
     },
-  );
-
-  await app.register(
-    liveRoutes,
-    deps.liveChannel === undefined ? {} : { channel: deps.liveChannel },
   );
 }

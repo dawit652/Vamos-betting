@@ -240,6 +240,49 @@ docker compose -f infra/docker-compose.prod.yml --profile proxy up -d --remove-o
   gain of several replicas has **not** been measured: try it on staging with `pnpm load:bets --api <url>`
   before relying on it.
 
+### Live streams on their own processes (opt-in overlay)
+
+Open live streams (`GET /live/stream`, `GET /me/stream`) hold a connection each for minutes or hours.
+`API_ROLE` lets them run on API processes of their own, so thousands of idle streams never share a
+process (an event loop, a database pool) with bet placement. The same image and code run in every
+role: `all` (the default, one process serves everything), `streams` (only `/health`, `/live/stream`
+and `/me/stream`; `/me/stream` still checks the session cookie or bearer token) and `no-streams`
+(everything else; the two stream paths answer 404). Whatever the roles, a session revoked on one
+process ends the player's streams on every stream process (Redis announcement), and the worker's
+live and player messages reach every process through Redis.
+
+**The proxy must send the two stream paths to the stream processes**, and nothing else there: a
+`streams` process answers 404 to every other path, a `no-streams` process to the two stream paths.
+`infra/caddy/Caddyfile.streams` does this (a `handle @streams` for `/live/stream` and `/me/stream` to
+`api-streams:4000`, flushed and with no read timeout; the rest to `api:4000`; the staff allowlist and
+the `/metrics` 404 are handled first). With your own balancer: route those two paths to the stream
+processes, give them an idle timeout of at least an hour (proxies often cut at 60 s; the clients
+reconnect, but needlessly), and turn response buffering off for them.
+
+`infra/docker-compose.streams.yml` is an overlay like the scale-out one: it adds the `api-streams`
+service (the `api` service's image and settings with `API_ROLE=streams`, no host port,
+`API_STREAMS_REPLICAS` processes, default 2; `nofile` raised to 65536; a pool of
+`API_STREAMS_DB_POOL_MAX`, default 5, straight to Postgres), sets `API_ROLE=no-streams` on `api` and
+mounts `Caddyfile.streams` in the proxy. It changes no volume, port or project name and starts
+nothing on a new volume.
+
+```bash
+docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.streams.yml --profile proxy up -d
+# back to one process serving everything: start with the base file alone
+docker compose -f infra/docker-compose.prod.yml --profile proxy up -d --remove-orphans
+```
+
+- Start it only with the proxy profile (or your own balancer routing the two paths): without a router, `api`
+  refuses the stream paths. With the scale-out overlay too, list both files; its `Caddyfile.scale` mount
+  and this overlay's both set the proxy's Caddyfile, so use `Caddyfile.streams` (copy its `handle`
+  blocks into your scaled Caddyfile) and name the overlay last.
+- `/metrics` is per process: scrape `api-streams` too (the open-stream gauges, `live` and `me`, are
+  there).
+- **Not measured.** `scripts/load/pages.ts` with 2,000 streams on `streams` processes while `pnpm load:bets`
+  runs against `no-streams` ones is the check (A1b of the scale plan); it has not been run. The
+  overlay was validated by `docker compose config`; `Caddyfile.streams` was not run through
+  `caddy validate` here (CI's `docker` job does).
+
 **Observability.** Logs are JSON (pino) with a request id (`x-request-id`, echoed in error bodies) and
 redacted secrets; compose rotates them (20 MB x 5). Ship them with your agent of choice. Traces are exported
 over OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Probes: api `GET /health`, worker `GET
@@ -292,19 +335,20 @@ in a secret manager, not in git.
 
 **Core**
 
-| Variable                                           | Default                        | Meaning                                                                                                                                      |
-| -------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                                         | `production`                   | `production` enables Secure cookies, hides dev routes and the OTP inbox, and refuses development secrets.                                    |
-| `OPERATING_MODE`                                   | `licensed`                     | `demo` or `licensed` (section 4).                                                                                                            |
-| `LOG_LEVEL`                                        | `info`                         | pino level: fatal, error, warn, info, debug, trace, silent.                                                                                  |
-| `API_HOST` / `API_PORT`                            | `0.0.0.0` / `4000`             | api listen address (the image fixes 4000).                                                                                                   |
-| `CATALOG_CACHE_SECONDS`                            | `2`                            | Seconds the api reuses `/sports`, competitions and `/events` list answers per query (0 = off, max 30). Never event pages, search or betting. |
-| `PUBLIC_API_URL`                                   | `http://localhost:4000`        | Public api URL. Also baked into web/admin at build time (`NEXT_PUBLIC_API_URL`). https in production.                                        |
-| `PUBLIC_WEB_URL` / `ADMIN_WEB_URL`                 | `:3000` / `:3001` on localhost | Public origins (CORS, cookies, redirects). Must differ; https in production.                                                                 |
-| `PAYMENT_CALLBACK_BASE_URL`                        | `PUBLIC_API_URL`               | Base URL providers call for webhooks. Leave **unset** (not empty) to use the default.                                                        |
-| `TRUST_PROXY`                                      | empty (nobody)                 | Proxy addresses/CIDRs whose `X-Forwarded-For` sets the client IP. `true` and hop counts are refused.                                         |
-| `WORKER_HEALTH_HOST` / `WORKER_HEALTH_PORT`        | `0.0.0.0` / `4100`             | Worker `/health` and `/ready` server (`0` turns it off).                                                                                     |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | unset                          | Tracing is on only when the endpoint is set; the name defaults to `vamos-api` / `vamos-worker`.                                              |
+| Variable                                           | Default                        | Meaning                                                                                                                                                                                                  |
+| -------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                         | `production`                   | `production` enables Secure cookies, hides dev routes and the OTP inbox, and refuses development secrets.                                                                                                |
+| `OPERATING_MODE`                                   | `licensed`                     | `demo` or `licensed` (section 4).                                                                                                                                                                        |
+| `LOG_LEVEL`                                        | `info`                         | pino level: fatal, error, warn, info, debug, trace, silent.                                                                                                                                              |
+| `API_HOST` / `API_PORT`                            | `0.0.0.0` / `4000`             | api listen address (the image fixes 4000).                                                                                                                                                               |
+| `API_ROLE`                                         | `all`                          | Which routes this api process serves: `all` (everything), `streams` (only `/health`, `GET /live/stream`, `GET /me/stream`) or `no-streams` (everything else). See "Live streams on their own processes". |
+| `CATALOG_CACHE_SECONDS`                            | `2`                            | Seconds the api reuses `/sports`, competitions and `/events` list answers per query (0 = off, max 30). Never event pages, search or betting.                                                             |
+| `PUBLIC_API_URL`                                   | `http://localhost:4000`        | Public api URL. Also baked into web/admin at build time (`NEXT_PUBLIC_API_URL`). https in production.                                                                                                    |
+| `PUBLIC_WEB_URL` / `ADMIN_WEB_URL`                 | `:3000` / `:3001` on localhost | Public origins (CORS, cookies, redirects). Must differ; https in production.                                                                                                                             |
+| `PAYMENT_CALLBACK_BASE_URL`                        | `PUBLIC_API_URL`               | Base URL providers call for webhooks. Leave **unset** (not empty) to use the default.                                                                                                                    |
+| `TRUST_PROXY`                                      | empty (nobody)                 | Proxy addresses/CIDRs whose `X-Forwarded-For` sets the client IP. `true` and hop counts are refused.                                                                                                     |
+| `WORKER_HEALTH_HOST` / `WORKER_HEALTH_PORT`        | `0.0.0.0` / `4100`             | Worker `/health` and `/ready` server (`0` turns it off).                                                                                                                                                 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | unset                          | Tracing is on only when the endpoint is set; the name defaults to `vamos-api` / `vamos-worker`.                                                                                                          |
 
 **Data stores and secrets**
 

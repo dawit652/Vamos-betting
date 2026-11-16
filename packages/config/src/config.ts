@@ -170,6 +170,14 @@ const envSchema = z.object({
    * competitions, event lists) per distinct query. 0 turns the cache off.
    * Never applies to event pages, search, anything per player or betting.
    */
+  /**
+   * Which routes this API process serves: `all` (everything, the default),
+   * `streams` (only /health, GET /live/stream and GET /me/stream) or
+   * `no-streams` (everything else). The roles run the same code, so open
+   * streams can sit on processes of their own behind a proxy that routes the
+   * two stream paths to them (docs/deployment.md, "Live streams on their own processes").
+   */
+  API_ROLE: z.enum(['all', 'streams', 'no-streams']).default('all'),
   CATALOG_CACHE_SECONDS: z.coerce.number().int().min(0).max(30).default(2),
   PUBLIC_WEB_URL: z.url().default('http://localhost:3000'),
   ADMIN_WEB_URL: z.url().default('http://localhost:3001'),
@@ -416,6 +424,9 @@ const envSchema = z.object({
 
 export type OperatingMode = 'demo' | 'licensed';
 
+/** Which routes an API process serves (API_ROLE). */
+export type ApiRole = 'all' | 'streams' | 'no-streams';
+
 export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
   mode: OperatingMode;
@@ -426,6 +437,8 @@ export interface AppConfig {
     publicUrl: string;
     /** TRUST_PROXY: whose X-Forwarded-For may set the client address (false: nobody). */
     trustProxy: TrustProxySetting;
+    /** API_ROLE: which routes this process serves (all, streams only, or all but streams). */
+    role: ApiRole;
     /** CATALOG_CACHE_SECONDS: how long catalogue list answers are reused (0 = off). */
     catalogCacheSeconds: number;
   };
@@ -813,6 +826,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       port: e.API_PORT,
       publicUrl: e.PUBLIC_API_URL,
       trustProxy: parseTrustProxy(e.TRUST_PROXY),
+      role: e.API_ROLE,
       catalogCacheSeconds: e.CATALOG_CACHE_SECONDS,
     },
     worker: { healthHost: e.WORKER_HEALTH_HOST, healthPort: e.WORKER_HEALTH_PORT },

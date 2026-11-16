@@ -919,3 +919,17 @@ describe('owner alerts (plan task 1.11)', () => {
     }
   });
 });
+
+describe('API_ROLE', () => {
+  it('defaults to all and accepts streams and no-streams', () => {
+    expect(loadConfig({}).api.role).toBe('all');
+    expect(loadConfig({ API_ROLE: 'streams' }).api.role).toBe('streams');
+    expect(loadConfig({ API_ROLE: 'no-streams' }).api.role).toBe('no-streams');
+  });
+
+  it('refuses any other value', () => {
+    expect(problemsOf({ OPERATING_MODE: 'demo', API_ROLE: 'stream' }).join('\n')).toContain(
+      'API_ROLE',
+    );
+  });
+});

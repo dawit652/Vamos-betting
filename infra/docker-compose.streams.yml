@@ -1,0 +1,45 @@
+# Opt-in overlay: live streams (GET /live/stream and GET /me/stream) on API processes of their own.
+# It only adds the `api-streams` service and tells `api` to stop serving the two stream routes
+# (API_ROLE=no-streams). It changes no volume, port, project or volume name, and does not touch
+# postgres, redis, the worker or the web apps; the base file and its data stay as they are. Start it
+# with the base file (and, if you also scale out, the scale overlay) and the proxy profile:
+#
+#   docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.streams.yml \
+#     --profile proxy up -d
+#
+# and go back by starting with the base file alone (docs/deployment.md, "Live streams on their own
+# processes"). Needs Docker Compose 2.24 or newer (`!reset`).
+#
+# - api-streams: the same image and settings as `api` with API_ROLE=streams: /health, /live/stream
+#   and /me/stream only. API_STREAMS_REPLICAS processes (default 2), no host port. A process holds
+#   thousands of idle connections but does little database work (the session check of /me/stream),
+#   so its pool is small (API_STREAMS_DB_POOL_MAX, default 5) and goes straight to Postgres.
+# - proxy: Caddyfile.streams sends the two stream paths to api-streams and the rest to api.
+#
+# Do not start this overlay without the proxy profile or your own balancer routing the two paths:
+# `api` would answer 404 to them.
+services:
+  api:
+    environment:
+      API_ROLE: no-streams
+
+  api-streams:
+    extends:
+      file: docker-compose.prod.yml
+      service: api
+    # No host port: several replicas cannot share one.
+    ports: !reset []
+    environment:
+      API_ROLE: streams
+      DB_POOL_MAX: '${API_STREAMS_DB_POOL_MAX:-5}'
+    # Thousands of open connections per process need more than the usual 1024 file descriptors.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    deploy:
+      replicas: ${API_STREAMS_REPLICAS:-2}
+
+  proxy:
+    volumes:
+      - ./caddy/Caddyfile.streams:/etc/caddy/Caddyfile:ro

@@ -3,6 +3,7 @@ import type { AppDeps } from '../deps';
 import adminRoutes from './admin/routes';
 import authRoutes from './auth/routes';
 import bettingRoutes from './betting/routes';
+import liveRoutes from './catalog/live';
 import catalogRoutes from './catalog/routes';
 import devChannelRoutes, { devChannelsEnabled } from './channels/dev-routes';
 import channelRoutes from './channels/routes';
@@ -21,8 +22,23 @@ import walletRoutes from './wallet/routes';
 /**
  * Registers the feature route plugins in a fixed order. Each plugin declares
  * full paths and reads its dependencies from `app.deps`.
+ *
+ * API_ROLE picks the routes: `streams` serves only the two stream routes
+ * (/live/stream, /me/stream; /health and the session hook come from buildApp),
+ * `no-streams` everything else, `all` both. Streams have no database work of
+ * their own beyond the session check, so they can run on separate processes.
  */
 export async function registerModules(app: FastifyInstance, deps: AppDeps): Promise<void> {
+  const { role } = deps.config.api;
+  if (role !== 'no-streams') {
+    await app.register(
+      liveRoutes,
+      deps.liveChannel === undefined ? {} : { channel: deps.liveChannel },
+    );
+    await app.register(userStreamRoutes);
+  }
+  if (role === 'streams') return;
+
   await app.register(authRoutes);
   await app.register(meRoutes);
   await app.register(kycRoutes);
@@ -30,7 +46,6 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   await app.register(walletRoutes);
   await app.register(catalogRoutes);
   await app.register(bettingRoutes);
-  await app.register(userStreamRoutes);
   await app.register(paymentRoutes);
   await app.register(jackpotRoutes);
   // SMS / USSD aggregator routes: registered only while their flag is on (else 404).
