@@ -2,12 +2,19 @@ import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import { AtChannel, type BytePort } from '../at/chat';
+import {
+  DEFAULT_BAUD_RATE,
+  listSerialPorts,
+  openFailureHint,
+  openSerialPort,
+} from '../port/serial';
 import { loadScript } from '../script-file';
 import { SimulatedModem } from '../sim/modem';
 import { SIM_WALLET_SCRIPT, simWallet, SimWalletMenu } from '../sim/wallet-menu';
 import { ModemUssdSession, prepareModem } from '../ussd/session';
 import { recordCommand, rehearseCommand, type CliIo } from './commands';
 import { probeModem, probeReportLines } from './probe';
+import { checkPorts, portCheckLines } from './ports';
 
 /**
  * The payout agent's command line. Run from the repository root:
@@ -17,18 +24,20 @@ import { probeModem, probeReportLines } from './probe';
  *   pnpm --filter @vamos/payout-agent cli rehearse --simulate --script scripts/telebirr.json --to 0922334455 --amount 40
  *
  * `--simulate` uses the invented wallet and modem of the tests (nothing real
- * is touched). A real modem (`--port COM5`, `--port /dev/ttyUSB0`) needs the
- * serial port library, which is not installed yet: see the README.
+ * is touched). A real modem: `cli ports` says which port answers, then
+ * `--port COM5` (Windows) or `--port /dev/ttyUSB2` (Linux).
  */
 
-const USAGE = `Usage: cli <probe | record | rehearse> (--simulate | --port <port>) [options]
+const USAGE = `Usage: cli <ports | probe | record | rehearse> (--simulate | --port <port>) [options]
+  ports                      list this computer's serial ports and say which one answers commands
   probe     [--ussd <code>]  check a modem; with --ussd, dial that code (a balance check) and hang up
   record    --to <number> --amount <birr> [--name <name as the menu shows it>]
             [--institution telebirr] [--dial *127#] [--number-format local|international]
             [--amount-format whole_birr|birr_and_santim] [--script scripts/<institution>.json]
             SENDS one real transfer and makes the menu script from it
   rehearse  --script <file> --to <number> --amount <birr> [--name <name>]
-            walks the menu up to the step that sends, and hangs up there`;
+            walks the menu up to the step that sends, and hangs up there
+  --port COM5 (Windows) or /dev/ttyUSB2 (Linux); --baud <rate> (default 115200)`;
 
 function terminalIo(): CliIo & { close(): void } {
   let muted = false;
@@ -62,14 +71,19 @@ function terminalIo(): CliIo & { close(): void } {
 async function openPort(options: {
   simulate: boolean;
   port: string | undefined;
+  baudRate: number;
 }): Promise<BytePort> {
   if (options.simulate) {
     return new SimulatedModem(new SimWalletMenu(simWallet()));
   }
-  if (options.port === undefined) throw new Error('say which modem: --port <port>, or --simulate');
-  throw new Error(
-    'talking to a real modem needs the serial port library, which is not installed yet (see apps/payout-agent/README.md)',
-  );
+  if (options.port === undefined) {
+    throw new Error('say which modem: --port <port> ("cli ports" lists them), or --simulate');
+  }
+  try {
+    return await openSerialPort(options.port, { baudRate: options.baudRate });
+  } catch (error) {
+    throw new Error(`cannot open ${options.port}: ${openFailureHint(error)}`, { cause: error });
+  }
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
@@ -79,6 +93,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     options: {
       simulate: { type: 'boolean', default: false },
       port: { type: 'string' },
+      baud: { type: 'string', default: String(DEFAULT_BAUD_RATE) },
       ussd: { type: 'string' },
       to: { type: 'string' },
       amount: { type: 'string' },
@@ -92,14 +107,28 @@ export async function main(argv: readonly string[]): Promise<number> {
     },
   });
   const command = positionals[0];
-  if (values.help || command === undefined || !['probe', 'record', 'rehearse'].includes(command)) {
+  if (
+    values.help ||
+    command === undefined ||
+    !['ports', 'probe', 'record', 'rehearse'].includes(command)
+  ) {
     console.error(USAGE);
     return command === undefined || values.help ? 0 : 2;
+  }
+  const baudRate = Number.parseInt(values.baud, 10);
+  if (!Number.isInteger(baudRate) || baudRate < 1200 || baudRate > 4_000_000) {
+    console.error('--baud must be a serial speed such as 115200.');
+    return 2;
+  }
+  if (command === 'ports') {
+    const checks = await checkPorts(listSerialPorts, (path) => openSerialPort(path, { baudRate }));
+    for (const line of portCheckLines(checks)) console.warn(line);
+    return checks.some((check) => check.answers === true) ? 0 : 1;
   }
 
   let port: BytePort;
   try {
-    port = await openPort({ simulate: values.simulate, port: values.port });
+    port = await openPort({ simulate: values.simulate, port: values.port, baudRate });
   } catch (error) {
     console.error(`Cannot start: ${error instanceof Error ? error.message : String(error)}.`);
     return 2;

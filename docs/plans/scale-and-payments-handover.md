@@ -424,13 +424,13 @@ heartbeat agent had stopped without pushing anything). All pushed to `claude/eag
   again, since older letter passwords still sign in. Open: F2 and F5 (a known-device cookie against
   lockouts, which cost 16 requests a day per number), F6, F7 and F8 (owner), a failed-login alarm.
 - **C8b, the payout agent:** the command line `probe`, `record`, `rehearse` (working on the simulated
-  modem with `--simulate`), and the decoder of the payout SIM's own SMS (PDU mode). **Adding the serial
-  port library (`serialport` 13.0.0, native) was stopped by the session's safety check**, so a real
-  modem waits for the owner's yes; do not add it without that.
+  modem with `--simulate`), the decoder of the payout SIM's own SMS (PDU mode), and the serial port
+  (`serialport` 13.0.0, approved by the owner on 16 Nov after the session's safety check had stopped it;
+  `cli ports` finds the modem's command port). Not yet tried on a real modem.
 - **B5's forwarder heartbeat was not built:** it needs the owner to say which forwarder app the
   handset runs and whether it can send a periodic message.
 
 **Next, in this order:** the X6 open items that need no owner (the failed-login alarm; the
 device-cookie design for F2/F5); C8b's SMS reading loop and forwarding, the caps journal, then C8c (the
 server side, with a migration: the next free number is 0055, one session at a time); the serial
-adapter once the owner says yes.
+first real run when the owner's modem arrives (`cli ports`, then `cli probe --port …`).

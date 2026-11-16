@@ -10,7 +10,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vamos/core": "workspace:*"
+    "@vamos/core": "workspace:*",
+    "serialport": "13.0.0"
   },
   "devDependencies": {
     "fast-check": "4.10.2"
