@@ -38,6 +38,7 @@ export * from './textcommand';
 export * from './channelreply';
 export * from './ussd';
 export * from './smsparse';
+export * from './floatforecast';
 export * from './smsmatch';
 export * from './balancechain';
 export * from './paymentmethods';
