@@ -1,4 +1,5 @@
 import type { OwnerAlertsConfig } from '@vamos/config';
+import type { FloatForecastRules } from '@vamos/core';
 import type { Database } from '@vamos/db';
 import type { PaymentProviderRegistry, ReceiptVerifier } from '@vamos/payments';
 import type { Redis } from 'ioredis';
@@ -40,6 +41,8 @@ export interface TaskContext {
    * are off: nothing is raised and the `owner.alert` handler does nothing.
    */
   ownerAlerts?: OwnerAlertsConfig;
+  /** FLOAT_FORECAST_*: the payout float forecast's assumptions (default: core's). */
+  floatForecast?: FloatForecastRules;
   /** Play-money mode (OPERATING_MODE=demo): channel texts say DEMO. Default true. */
   demo?: boolean;
 }

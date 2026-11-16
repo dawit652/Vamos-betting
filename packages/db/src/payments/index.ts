@@ -135,6 +135,14 @@ export {
   type VerifiedReceiptPayment,
 } from './smsrail';
 export {
+  listLastKnownBalances,
+  listOpenBetPayouts,
+  loadFloatForecast,
+  type FloatForecastReport,
+  type LastKnownBalance,
+  type OpenBetPayout,
+} from './floatforecast';
+export {
   MAX_PAYOUT_ACCOUNTS,
   addPayoutAccount,
   ensureOwnWalletPayoutAccount,

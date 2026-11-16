@@ -27,6 +27,7 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   { alarm: 'sms_receipt_rejected', smsId: '0b0c7f5e-3c55-4a8e-9d36-3f1b6a5a8e11' },
   { alarm: 'sms_balance_drift', institution: 'telebirr', direction: 'credited_more_than_arrived' },
   { alarm: 'sms_balance_drift', institution: 'cbe', direction: 'missed_incoming' },
+  { alarm: 'payout_float_low', institution: 'telebirr' },
   { alarm: 'sms_gateway_silent' },
   { alarm: 'sms_review_backlog' },
   { alarm: 'manual_payout_waiting' },
@@ -199,6 +200,7 @@ describe('buildOwnerAlert', () => {
         ),
       }),
       fc.record({ alarm: fc.constant('sms_receipt_rejected' as const), smsId: textArb }),
+      fc.record({ alarm: fc.constant('payout_float_low' as const), institution: textArb }),
     );
     fc.assert(
       fc.property(inputArb, (input) => {

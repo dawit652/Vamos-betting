@@ -197,6 +197,19 @@ function Health() {
           hint={`${b.observations} SMS · ${formatDateTime(b.checkedAt)}`}
         />
       ))}
+      <Stat
+        label={`Expected withdrawals · next ${data.payoutFloat.horizonHours} h`}
+        value={formatEtb(data.payoutFloat.expectedWithdrawals)}
+        hint={`${data.payoutFloat.withdrawnPercent}% of ${formatEtb(data.payoutFloat.possiblePayouts)} possible payouts of ${data.payoutFloat.betsCounted} open bets`}
+      />
+      {data.payoutFloat.balances.map((b) => (
+        <Stat
+          key={`float-${b.institution}`}
+          label={`Last known balance · ${b.institution}`}
+          value={formatEtb(b.balance)}
+          hint={`${b.low ? 'BELOW the forecast, top up · ' : ''}as of ${formatDateTime(b.at)}`}
+        />
+      ))}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
   StaffWithdrawalChangeResponse,
   StaffWithdrawalListResponse,
 } from '@vamos/contracts';
+import { floatIsLow } from '@vamos/core';
 import {
   acknowledgeReceiptAlarm,
   claimManualPayout,
@@ -24,6 +25,7 @@ import {
   getStaffWithdrawal,
   listReceivedSms,
   listSmsReviewQueue,
+  loadFloatForecast,
   listStaffWithdrawals,
   releaseManualPayout,
   settleManualPayout,
@@ -109,8 +111,20 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
       const stored = await readBalanceResult(deps, institution);
       if (stored !== null) balance.push(stored);
     }
+    const rules = deps.config.payments.sms.floatForecast;
+    const float = await loadFloatForecast(deps.db, { now: deps.clock(), rules });
     return wire(SmsRailHealthResponse, {
       ...health,
+      payoutFloat: {
+        horizonHours: Math.round(rules.horizonMs / 3_600_000),
+        withdrawnPercent: Math.round(rules.withdrawnShareBps / 100),
+        expectedWithdrawals: float.forecast.expectedWithdrawals,
+        possiblePayouts: float.forecast.possiblePayouts,
+        betsCounted: float.forecast.betsCounted,
+        balances: float.balances
+          .filter((b) => institutions.includes(b.institution))
+          .map((b) => ({ ...b, low: floatIsLow(b.balance, float.forecast) })),
+      },
       mode: provider?.mode ?? 'simulated',
       receiptVerify: deps.config.payments.sms.receiptVerify,
       receiptBreaker: deps.receipts?.state().breaker ?? null,

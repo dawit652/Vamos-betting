@@ -1,5 +1,7 @@
 import {
+  DEFAULT_FLOAT_FORECAST_RULES,
   RECEIPT_VERIFIABLE_INSTITUTIONS,
+  floatIsLow,
   reconcileBalances,
   type BalanceReconciliation,
 } from '@vamos/core';
@@ -7,6 +9,7 @@ import {
   listBalanceInstitutions,
   listBalanceObservations,
   listIdleManualClaims,
+  loadFloatForecast,
   listSmsDueForReceiptCheck,
   recordReceiptCheck,
   smsRailHealth,
@@ -27,7 +30,8 @@ import type { TaskContext } from './context';
  *   what the messages say (the only check for CBE, whose receipt page is
  *   unreachable); drift is logged as an alarm and kept for the health panel;
  * - the watch: no SMS from the handset for a while during active hours, a
- *   growing review queue, a manual payout waiting too long.
+ *   growing review queue, a manual payout waiting too long, and the payout float: a collection
+ *   account whose last known balance is below the withdrawals the open bets are expected to cause.
  * Alarms are `error` log lines with `alarm` set, for the log-based alerts; each also raises an
  * owner alert (an `owner.alert` outbox row, plan task 1.11) when OWNER_ALERT_PHONES is set.
  */
@@ -175,12 +179,17 @@ const MANUAL_PAYOUT_AGE_ALARM_MS = 2 * 60 * 60_000;
 /** A claimed payout with no settle, release or fail for this long is idle; its alarm repeats at this pace. */
 const MANUAL_PAYOUT_CLAIM_IDLE_MS = 30 * 60_000;
 
+/** The payout_float_low line repeats at this pace while the balance stays below the forecast. */
+const PAYOUT_FLOAT_ALARM_REPEAT_MS = 30 * 60_000;
+
 export interface SmsRailWatchFindings {
   silent: boolean;
   reviewBacklog: boolean;
   slowPayouts: boolean;
   /** Ids of claimed payouts idle for over 30 minutes. */
   idleClaims: string[];
+  /** Institutions whose last known balance is below the float forecast. */
+  floatLow: string[];
 }
 
 /** The watch: logs an alarm for each condition that needs a person. */
@@ -190,6 +199,7 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
     reviewBacklog: false,
     slowPayouts: false,
     idleClaims: [],
+    floatLow: [],
   };
   const provider = smsProvider(ctx);
   if (provider === null) return findings;
@@ -264,6 +274,39 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
       'a claimed manual payout has had no settle, release or fail for more than 30 minutes',
     );
     await raiseOwnerAlert(ctx, { alarm: 'manual_payout_claim_idle' });
+  }
+  // The payout float: only on the live rail (the simulator's balances are made up). One line per
+  // institution per 30 minutes while it stays low.
+  if (provider.mode === 'live') {
+    const rules = ctx.floatForecast ?? DEFAULT_FLOAT_FORECAST_RULES;
+    const { forecast, balances } = await loadFloatForecast(ctx.db, { now, rules });
+    const collecting = new Set(provider.collectionAccounts.map((a) => a.institution));
+    for (const last of balances) {
+      if (!collecting.has(last.institution) || !floatIsLow(last.balance, forecast)) continue;
+      findings.floatLow.push(last.institution);
+      const first = await claimAlertSlot(
+        ctx.redis,
+        'raised',
+        `log|payout_float_low|${last.institution}`,
+        now.getTime(),
+        PAYOUT_FLOAT_ALARM_REPEAT_MS,
+      ).catch(() => true);
+      if (!first) continue;
+      ctx.logger.error(
+        {
+          alarm: 'payout_float_low',
+          institution: last.institution,
+          balance: last.balance.toString(),
+          balanceAt: last.at.toISOString(),
+          expectedWithdrawals: forecast.expectedWithdrawals.toString(),
+          possiblePayouts: forecast.possiblePayouts.toString(),
+          betsCounted: forecast.betsCounted,
+          horizonMs: rules.horizonMs,
+        },
+        'a collection account’s last known balance is below the withdrawals the open bets are expected to cause',
+      );
+      await raiseOwnerAlert(ctx, { alarm: 'payout_float_low', institution: last.institution });
+    }
   }
   return findings;
 }

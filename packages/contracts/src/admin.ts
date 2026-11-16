@@ -1057,6 +1057,27 @@ export const SmsRailHealthResponse = z.object({
       observations: z.number().int(),
     }),
   ),
+  /**
+   * The payout float forecast (plan task C10): what players are expected to withdraw within the
+   * horizon (a share of the possible payouts of open bets whose last match ends by then) against
+   * the last balance each collection institution's SMS reported. `low` is the `payout_float_low`
+   * alarm condition (balance below the forecast).
+   */
+  payoutFloat: z.object({
+    horizonHours: z.number().int(),
+    withdrawnPercent: z.number().int(),
+    expectedWithdrawals: Santim,
+    possiblePayouts: Santim,
+    betsCounted: z.number().int(),
+    balances: z.array(
+      z.object({
+        institution: z.string(),
+        balance: Santim,
+        at: IsoDateTime,
+        low: z.boolean(),
+      }),
+    ),
+  }),
 });
 export type SmsRailHealthResponse = z.infer<typeof SmsRailHealthResponse>;
 

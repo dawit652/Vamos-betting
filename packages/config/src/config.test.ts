@@ -358,6 +358,11 @@ describe('loadConfig', () => {
         operatorLegalName: undefined,
         receiptVerify: 'audit',
         receiptVerifyTimeoutMs: 6000,
+        floatForecast: {
+          eventDurationMs: 7_200_000,
+          horizonMs: 21_600_000,
+          withdrawnShareBps: 2000,
+        },
         requirePayoutProof: false,
         payoutProofWaived: false,
       },

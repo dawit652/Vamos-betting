@@ -19,6 +19,7 @@ import {
   runSmsRailWatch,
   smsRailTasks,
 } from '../src/tasks/smsrail';
+import { createEvent, fundedUser, place, testSettings } from './betting';
 import { createWorkerTestContext, SETUP_TIMEOUT, type WorkerTestContext } from './helpers';
 
 let t: WorkerTestContext;
@@ -327,6 +328,71 @@ describe('the watch', () => {
     t.clock.set(new Date(start.getTime() + 90 * MIN));
     expect((await runSmsRailWatch(ctx)).idleClaims).toEqual([]);
     expect(lines).toEqual([old, fresh, old]);
+  });
+
+  it('raises payout_float_low once per 30 minutes while the last known balance is below the forecast', async () => {
+    const MIN = 60_000;
+    const start = new Date('2028-03-01T10:00:00Z');
+    t.clock.set(start);
+    // A bet of 100 ETB at 2.0 on a match that starts in 3 hours (ends within the 6 hour horizon).
+    const event = await createEvent(t);
+    const userId = await fundedUser(t.db.db, 1_000_000n);
+    await place(t.db.db, userId, {
+      stake: 10_000n,
+      legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+      settings: await testSettings(t.db.db),
+      now: start,
+    });
+    const lines: Array<Record<string, unknown>> = [];
+    const logger = {
+      error: (obj: Record<string, unknown>) => {
+        if (obj?.alarm === 'payout_float_low') lines.push(obj);
+      },
+      warn: () => undefined,
+      info: () => undefined,
+      debug: () => undefined,
+      trace: () => undefined,
+      fatal: () => undefined,
+      child: () => logger,
+    } as unknown as Logger;
+    const ctx: TaskContext = {
+      ...t.ctx,
+      payments: withLive(t.ctx.payments),
+      logger,
+      floatForecast: {
+        eventDurationMs: 2 * 3_600_000,
+        horizonMs: 6 * 3_600_000,
+        withdrawnShareBps: 10_000,
+      },
+    };
+
+    // No balance known: nothing to compare.
+    expect((await runSmsRailWatch(ctx)).floatLow).toEqual([]);
+
+    // The handset reports 5 ETB: far below what the bet could pay.
+    await creditedSms(500n);
+    const first = await runSmsRailWatch(ctx);
+    expect(first.floatLow).toEqual(['telebirr']);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      alarm: 'payout_float_low',
+      institution: 'telebirr',
+      balance: '500',
+    });
+    expect(BigInt(lines[0]!.expectedWithdrawals as string)).toBeGreaterThan(500n);
+
+    // Still low five minutes later: no second line inside 30 minutes, the finding stays.
+    t.clock.set(new Date(start.getTime() + 5 * MIN));
+    expect((await runSmsRailWatch(ctx)).floatLow).toEqual(['telebirr']);
+    expect(lines).toHaveLength(1);
+
+    // A top-up shows in the next SMS balance: the alarm clears.
+    t.clock.set(new Date(start.getTime() + 10 * MIN));
+    await creditedSms(100_000_000n);
+    expect((await runSmsRailWatch(ctx)).floatLow).toEqual([]);
+
+    // The simulated rail has no real balances to compare.
+    expect((await runSmsRailWatch({ ...ctx, payments: t.ctx.payments })).floatLow).toEqual([]);
   });
 
   it('builds no tasks without the sms provider', () => {

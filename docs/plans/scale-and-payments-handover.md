@@ -270,8 +270,8 @@ and against the 160 KB budget, `caddy validate` of `Caddyfile.streams` (CI does 
 
 **Still open, in this order** (model and effort in brackets):
 
-1. **C10** float forecast (Sonnet, medium; Opus reviews). If the progress file says `in progress` with a
-   commit, review it; if it says `done`, skip. An agent was working on it when this was written.
+1. ~~C10~~ done (progress file): ask the owner for the real `FLOAT_FORECAST_WITHDRAWN_PERCENT` (the default 20 is a guess) and
+   whether each institution or the sum should be compared with the forecast; Opus may review it (read-only).
 2. **C12 review and deploy** (Opus, read-only review, then the owner deploys) and **C2a** from
    `docs/plans/wip/c2a-partial.patch` (Opus, high): the other account's work, unchanged by this session.
 3. **X2** end-to-end tests of the redesign (needs the e2e stack: `e2e/scripts/stack.sh build` then

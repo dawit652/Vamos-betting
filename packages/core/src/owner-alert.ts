@@ -48,6 +48,8 @@ export type OwnerAlertInput =
       institution: string;
       direction: 'credited_more_than_arrived' | 'missed_incoming';
     }
+  /** A collection account's last known balance is below the withdrawals open bets are expected to cause. */
+  | { alarm: 'payout_float_low'; institution: string }
   /** No SMS from the collection handset during active hours. */
   | { alarm: 'sms_gateway_silent' }
   /** SMS waiting for staff: a long queue or an old item. */
@@ -183,6 +185,13 @@ function build(input: OwnerAlertInput): OwnerAlert {
           input.direction === 'credited_more_than_arrived'
             ? `The ${institution} balance moved less than we credited. Nothing was reversed; the gap is kept on the health panel.`
             : `The ${institution} balance moved more than the SMS we saw. Nothing was changed; the gap is kept on the health panel.`,
+      };
+    }
+    case 'payout_float_low': {
+      const institution = nameOf(input.institution, 'A collection account');
+      return {
+        key: `payout_float_low|${subjectOf(input.institution)}`,
+        message: `The ${institution} balance is below the withdrawals the open bets are expected to cause. Payouts are not stopped; the forecast is on the health panel.`,
       };
     }
     case 'sms_gateway_silent':

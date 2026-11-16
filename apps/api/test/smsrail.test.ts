@@ -658,6 +658,7 @@ describe('payout accounts and manual withdrawals', () => {
       mode: 'simulated',
       receiptVerify: 'audit',
       receiptBreaker: null,
+      payoutFloat: { horizonHours: 6, withdrawnPercent: 20 },
     });
   });
 });

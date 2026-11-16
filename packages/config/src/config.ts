@@ -373,6 +373,15 @@ const envSchema = z.object({
    */
   RECEIPT_VERIFY: z.enum(['off', 'audit']).default('audit'),
   RECEIPT_VERIFY_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(6_000),
+  /**
+   * Payout float forecast (plan task C10): the share of the possible payouts of open bets that end
+   * within the horizon that players are expected to withdraw, and the alarm `payout_float_low`
+   * when a collection account's last known balance is below it.
+   */
+  FLOAT_FORECAST_HORIZON_HOURS: z.coerce.number().int().min(1).max(48).default(6),
+  FLOAT_FORECAST_WITHDRAWN_PERCENT: z.coerce.number().int().min(0).max(100).default(20),
+  /** How long a match is assumed to last from its start (the catalogue has no end time). */
+  FLOAT_FORECAST_EVENT_MINUTES: z.coerce.number().int().min(30).max(600).default(120),
   /** Settle a manual payout only against the collection account's outgoing SMS. */
   PAYOUT_REQUIRE_PROOF: bool.default(false),
   /** Licensed mode without PAYOUT_REQUIRE_PROOF: an explicit, logged waiver. */
@@ -601,6 +610,8 @@ export interface SmsRailConfig {
   operatorLegalName: string | undefined;
   receiptVerify: 'off' | 'audit';
   receiptVerifyTimeoutMs: number;
+  /** FLOAT_FORECAST_*: the assumptions of the payout float forecast (same shape as core's rules). */
+  floatForecast: { eventDurationMs: number; horizonMs: number; withdrawnShareBps: number };
   requirePayoutProof: boolean;
   payoutProofWaived: boolean;
 }
@@ -888,6 +899,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         operatorLegalName: e.OPERATOR_LEGAL_NAME,
         receiptVerify: e.RECEIPT_VERIFY,
         receiptVerifyTimeoutMs: e.RECEIPT_VERIFY_TIMEOUT_MS,
+        floatForecast: {
+          eventDurationMs: e.FLOAT_FORECAST_EVENT_MINUTES * 60_000,
+          horizonMs: e.FLOAT_FORECAST_HORIZON_HOURS * 3_600_000,
+          withdrawnShareBps: e.FLOAT_FORECAST_WITHDRAWN_PERCENT * 100,
+        },
         requirePayoutProof: e.PAYOUT_REQUIRE_PROOF,
         payoutProofWaived: e.PAYOUT_PROOF_WAIVED,
       },
