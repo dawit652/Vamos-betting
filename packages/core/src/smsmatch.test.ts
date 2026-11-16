@@ -9,6 +9,7 @@ import {
   matchSmsDeposit,
   proposePayoutForSms,
   smsPaidBy,
+  takenAmounts,
   type ManualPayoutCandidate,
   type OpenSmsDeposit,
 } from './smsmatch';
@@ -394,6 +395,133 @@ describe('latestClaimForSms', () => {
             expect(claimedAt.getTime()).toBeLessThanOrEqual(
               deviceReceivedAt.getTime() + SMS_HANDSET_CLOCK_SKEW_MS,
             );
+          }
+        },
+      ),
+    );
+  });
+});
+
+describe('collection accounts', () => {
+  const onA = { ...credit, collectionAccountId: 'A' };
+  const dep = (o: Partial<OpenSmsDeposit>) => deposit(o);
+
+  it('matches a deposit of the account the SMS arrived on', () => {
+    const result = matchSmsDeposit(onA, [dep({ collectionAccountId: 'A' })], NOW);
+    expect(result).toMatchObject({
+      type: 'matched',
+      intentId: 'i1',
+      confidence: 'amount_and_phone',
+    });
+  });
+
+  it('never credits a deposit of another account, even for the same amount and phone', () => {
+    const result = matchSmsDeposit(onA, [dep({ collectionAccountId: 'B' })], NOW);
+    expect(result).toEqual({ type: 'unmatched', reason: 'no_open_deposit' });
+  });
+
+  it('keeps the same amount on two accounts apart', () => {
+    const open = [
+      dep({ intentId: 'a', userId: 'ua', collectionAccountId: 'A', phone: '+251911111111' }),
+      dep({ intentId: 'b', userId: 'ub', collectionAccountId: 'B', phone: '+251922222222' }),
+    ];
+    const onB = { ...credit, collectionAccountId: 'B' };
+    expect(matchSmsDeposit(onA, open, NOW)).toMatchObject({ type: 'matched', intentId: 'a' });
+    expect(matchSmsDeposit(onB, open, NOW)).toMatchObject({ type: 'matched', intentId: 'b' });
+  });
+
+  it('the phone fallback does not look at other accounts either', () => {
+    const open = [dep({ collectionAccountId: 'B', amount: 10_999n })];
+    expect(matchSmsDeposit({ ...onA, amount: 10_000n }, open, NOW)).toEqual({
+      type: 'unmatched',
+      reason: 'no_open_deposit',
+    });
+  });
+
+  it('a deposit without an account (an older row) matches as before, on any account', () => {
+    expect(matchSmsDeposit(onA, [dep({})], NOW)).toMatchObject({ type: 'matched' });
+    expect(matchSmsDeposit(onA, [dep({ collectionAccountId: null })], NOW)).toMatchObject({
+      type: 'matched',
+    });
+    expect(matchSmsDeposit(credit, [dep({})], NOW)).toMatchObject({ type: 'matched' });
+  });
+
+  it('an SMS of unknown account never credits a deposit that names an account', () => {
+    expect(matchSmsDeposit(credit, [dep({ collectionAccountId: 'A' })], NOW)).toEqual({
+      type: 'unmatched',
+      reason: 'no_open_deposit',
+    });
+  });
+
+  it('takenAmounts: the account own amounts and those without an account, nothing of other accounts', () => {
+    const open = [
+      { amount: 10_001n, collectionAccountId: 'A' },
+      { amount: 10_002n, collectionAccountId: 'B' },
+      { amount: 10_003n, collectionAccountId: null },
+      { amount: 10_004n },
+    ];
+    expect([...takenAmounts(open, 'A')].sort()).toEqual([10_001n, 10_003n, 10_004n]);
+    expect([...takenAmounts(open, 'B')].sort()).toEqual([10_002n, 10_003n, 10_004n]);
+    // With no account every amount is taken, as before accounts existed.
+    expect(takenAmounts(open, null).size).toBe(4);
+  });
+
+  it('two accounts give twice the open deposits of one for the same base', () => {
+    const open: { amount: bigint; collectionAccountId: string }[] = [];
+    let full = 0;
+    for (const account of ['A', 'B']) {
+      for (let i = 0; i < MAX_SANTIM_OFFSET + 5; i++) {
+        const amount = allocateSmsAmount(10_000n, takenAmounts(open, account), () => 1 + (i % 99));
+        if (amount === null) full++;
+        else open.push({ amount, collectionAccountId: account });
+      }
+    }
+    expect(open).toHaveLength(2 * MAX_SANTIM_OFFSET);
+    expect(full).toBe(10);
+  });
+
+  it('property: no collision within an account, and an SMS only ever pays its own account', () => {
+    const accounts = ['A', 'B', 'C'];
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            account: fc.constantFrom(...accounts),
+            base: fc.constantFrom(10_000n, 20_000n),
+            offset: fc.integer({ min: 1, max: MAX_SANTIM_OFFSET }),
+          }),
+          { maxLength: 400 },
+        ),
+        (requests) => {
+          const open: OpenSmsDeposit[] = [];
+          for (const [i, r] of requests.entries()) {
+            const amount = allocateSmsAmount(r.base, takenAmounts(open, r.account), () => r.offset);
+            if (amount === null) continue;
+            open.push(
+              deposit({
+                intentId: `d${i}`,
+                userId: `u${i}`,
+                amount,
+                collectionAccountId: r.account,
+                phone: `+2519${String(i).padStart(8, '0')}`,
+              }),
+            );
+          }
+          for (const account of accounts) {
+            const amounts = open
+              .filter((d) => d.collectionAccountId === account)
+              .map((d) => d.amount);
+            expect(new Set(amounts).size).toBe(amounts.length);
+          }
+          for (const d of open) {
+            const sms = {
+              direction: 'credit' as const,
+              amount: d.amount,
+              counterpartyPhone: null,
+              collectionAccountId: d.collectionAccountId,
+            };
+            const result = matchSmsDeposit(sms, open, NOW);
+            expect(result).toMatchObject({ type: 'matched', intentId: d.intentId });
           }
         },
       ),

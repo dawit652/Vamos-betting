@@ -47,10 +47,39 @@ export function allocateSmsAmount(
   return null;
 }
 
+/**
+ * A collection account: one handset and SIM that receives deposits, with its own
+ * space of exact amounts. Absent or null on rows from before accounts were
+ * recorded (they match, and block amounts, on every account).
+ */
+export type CollectionAccountId = string | null | undefined;
+
+/**
+ * The amounts an allocation on `account` must avoid: those of the open deposits
+ * of that account, and of deposits without an account (older rows, which an SMS
+ * on any account can still pay). The same amount on two accounts is fine: an
+ * SMS only matches deposits of the account it arrived on. Without an account
+ * (null) every open amount is taken, as before accounts existed.
+ */
+export function takenAmounts(
+  open: readonly { amount: Santim; collectionAccountId?: CollectionAccountId }[],
+  account: CollectionAccountId,
+): Set<Santim> {
+  const taken = new Set<Santim>();
+  for (const deposit of open) {
+    const owner = deposit.collectionAccountId ?? null;
+    if (account === null || account === undefined || owner === null || owner === account)
+      taken.add(deposit.amount);
+  }
+  return taken;
+}
+
 /** An open SMS deposit, as the matcher sees it. */
 export interface OpenSmsDeposit {
   intentId: string;
   userId: string;
+  /** The account the player was told to pay (null or absent: an older deposit). */
+  collectionAccountId?: CollectionAccountId;
   /** The exact amount the player was told to send. */
   amount: Santim;
   /** The player's registered phone (E.164). */
@@ -88,19 +117,29 @@ export type SmsDepositMatch =
  * deposit (the gateway path) or only the pasting player's own (the checker
  * path, so pasted text can only ever settle the paster's deposit).
  *
- * 1. Only a credit can match.
+ * 1. Only a credit can match, and only on deposits of the account it arrived on.
  * 2. The exact reserved amount matching one open deposit is the designed path.
  * 3. Otherwise the sender's phone, when it names exactly one open deposit
  *    (players send 100 when told 100.37).
  * Anything else is ambiguous or unmatched and goes to a person.
  */
 export function matchSmsDeposit(
-  sms: Pick<ParsedSms, 'direction' | 'amount' | 'counterpartyPhone'>,
+  sms: Pick<ParsedSms, 'direction' | 'amount' | 'counterpartyPhone'> & {
+    /** The collection account the SMS arrived on (null or absent: unknown). */
+    collectionAccountId?: CollectionAccountId;
+  },
   open: readonly OpenSmsDeposit[],
   now: Date,
 ): SmsDepositMatch {
   if (sms.direction !== 'credit') return { type: 'unmatched', reason: 'not_a_credit' };
-  const live = open.filter((deposit) => deposit.expiresAt.getTime() > now.getTime());
+  const account = sms.collectionAccountId ?? null;
+  // An SMS pays only deposits of its own account, or deposits that have none (older rows).
+  // An SMS of unknown account pays only those: it can never credit a deposit that names an account.
+  const live = open.filter((deposit) => {
+    if (deposit.expiresAt.getTime() <= now.getTime()) return false;
+    const owner = deposit.collectionAccountId ?? null;
+    return owner === null || owner === account;
+  });
   if (live.length === 0) return { type: 'unmatched', reason: 'no_open_deposit' };
 
   const exact = live.filter((deposit) => deposit.amount === sms.amount);
