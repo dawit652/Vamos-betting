@@ -169,7 +169,7 @@ describe('passwords', () => {
     expect(LoginRequest.safeParse({ phone: '0911234567', password: 'Ab3$xy' }).success).toBe(true);
   });
 
-  it('refuses the easiest PINs: one digit, straight runs, common ones, the phone ending', () => {
+  it('refuses the easiest PINs: one digit, runs, patterns, years, common ones, the phone', () => {
     const phone = '+251911234567';
     for (const pin of ['0000', '1111', '9999']) {
       expect(pinWeakness(pin, phone), pin).toMatch(/same digit/);
@@ -177,9 +177,18 @@ describe('passwords', () => {
     for (const pin of ['0123', '1234', '6789', '9876', '3210', '4321']) {
       expect(pinWeakness(pin, phone), pin).toMatch(/in a row/);
     }
-    for (const pin of ['1212', '2580', '1004', '2000', '6969', '1122']) {
+    for (const pin of ['2580', '1004', '1470']) {
       expect(pinWeakness(pin, phone), pin).toMatch(/too common/);
     }
+    for (const pin of ['1212', '6969', '1122', '1221', '2000', '1112']) {
+      expect(pinWeakness(pin, phone), pin).toMatch(/pattern/);
+    }
+    for (const pin of ['1950', '1987', '2016']) {
+      expect(pinWeakness(pin, phone), pin).toMatch(/a year/);
+    }
+    expect(pinWeakness('7890', phone)).toMatch(/in a row/);
+    // Four digits in a row of the number, not only its end: here its start as dialled.
+    expect(pinWeakness('0911', phone)).toMatch(/phone number/);
     expect(pinWeakness('4567', phone)).toMatch(/in a row/);
     expect(pinWeakness('3456', '+251911203456')).toMatch(/in a row/);
     expect(pinWeakness('0397', '+251911200397')).toMatch(/phone number/);
@@ -217,9 +226,10 @@ describe('passwords', () => {
       ).toBe(true);
       if (pinWeakness(pin, phone) !== null) weak += 1;
     }
-    // 10 repeated, 14 runs, about 28 common ones and the phone ending: well under 1% of the space.
-    expect(weak).toBeGreaterThan(40);
-    expect(weak).toBeLessThan(100);
+    // Repeats, runs (also round the 0), pair patterns, the years 1940-2030, the common list and
+    // the digits of the phone: about 6% of the space, so over 9,400 PINs stay to choose from.
+    expect(weak).toBeGreaterThan(500);
+    expect(weak).toBeLessThanOrEqual(610);
   });
 });
 

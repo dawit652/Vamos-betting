@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   ApiErrorSchema,
   PlayerSessionsResponse,
@@ -14,7 +15,8 @@ import { PEPPERED_HASH_PREFIX } from '@vamos/db/passwords';
 import { sha256Hex } from '../src/lib/crypto';
 import { hashPassword, verifyPassword } from '../src/lib/passwords';
 import { DATA_EXPORT_FORMAT } from '../src/modules/me/export';
-import { DATA_EXPORTS_PER_HOUR, REAUTH_LIMIT } from '../src/modules/me/routes';
+import { DEFAULT_AUTH_LIMITS, restartLoginPhoneLimit } from '../src/lib/rate-limits';
+import { DATA_EXPORTS_PER_HOUR } from '../src/modules/me/routes';
 import { demoCode, seedStaff, staffEmail } from './admin-helpers';
 import {
   STRICT_PLAYER_SESSION,
@@ -175,26 +177,107 @@ describe('account security', () => {
       );
     });
 
-    it('limits password checks per player', async () => {
+    it("counts PIN checks made with a session in the number's sign-in budget", async () => {
+      // A 4-digit PIN: a stolen session must not get more guesses than the login form gives.
       const player = await registerAndLogin(ctx);
-      const attempt = () =>
+      const revokeWith = (password: string) =>
         ctx.app.inject({
           method: 'POST',
           url: '/me/sessions/revoke',
           headers: bearer(player.sessionToken),
-          payload: { password: 'wrong-password' },
+          payload: { password },
         });
-      for (let i = 0; i < REAUTH_LIMIT.max; i += 1) {
-        expect((await attempt()).statusCode).toBe(403);
+      for (let i = 0; i < DEFAULT_AUTH_LIMITS.loginPerPhone.max; i += 1) {
+        expect((await revokeWith('0000')).statusCode).toBe(403);
       }
-      // One budget for both routes.
-      const limited = await ctx.app.inject({
+      // The number has no guesses left: the right PIN is refused too, on both routes...
+      expect(apiError(await revokeWith(player.password)).code).toBe('rate_limited');
+      const change = await ctx.app.inject({
         method: 'POST',
         url: '/me/password',
         headers: bearer(player.sessionToken),
         payload: { currentPassword: player.password, newPassword: NEW_PASSWORD },
       });
-      expect(limited.statusCode).toBe(429);
+      expect(apiError(change).code).toBe('rate_limited');
+      // ...and so is a sign-in with the right PIN, from any address.
+      expect((await login(player)).response.statusCode).toBe(429);
+    });
+
+    it('does not count requests that never compare the PIN', async () => {
+      const player = await registerAndLogin(ctx);
+      const change = (newPassword: string) =>
+        ctx.app.inject({
+          method: 'POST',
+          url: '/me/password',
+          headers: bearer(player.sessionToken),
+          payload: { currentPassword: player.password, newPassword },
+        });
+      // Weak, malformed or unchanged new PINs are refused before the current PIN is compared.
+      for (const newPassword of ['1234', '1987', '1212', '12', player.password, '2580', '0000']) {
+        expect((await change(newPassword)).statusCode, newPassword).not.toBe(429);
+      }
+      expect((await change(NEW_PASSWORD)).statusCode).toBe(200);
+    });
+
+    it("shares the number's daily budget with the login form", async () => {
+      const daily = 3;
+      const app = buildApp(ctx.deps, {
+        logger: false,
+        rateLimitNameSpace: `reauth-day-${randomUUID()}:`,
+        authLimits: {
+          loginPerPhone: { max: 1000, timeWindow: 15 * 60_000 },
+          loginPerPhoneDaily: { max: daily, timeWindow: 24 * 60 * 60_000 },
+        },
+      });
+      try {
+        const player = await registerAndLogin(ctx);
+        const revokeWith = (password: string) =>
+          app.inject({
+            method: 'POST',
+            url: '/me/sessions/revoke',
+            headers: bearer(player.sessionToken),
+            payload: { password },
+          });
+        for (let i = 0; i < daily; i += 1) expect((await revokeWith('0000')).statusCode).toBe(403);
+        expect(apiError(await revokeWith(player.password)).code).toBe('rate_limited');
+        const signIn = await app.inject({
+          method: 'POST',
+          url: '/auth/login',
+          payload: { phone: player.phone, password: player.password },
+        });
+        expect(signIn.statusCode).toBe(429);
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('ends a session that is only idle, so it cannot come back when the idle limit goes', async () => {
+      const player = await registerAndLogin(ctx);
+      const other = (await login(player)).body!;
+      const me = (token: string) =>
+        ctx.app.inject({ method: 'GET', url: '/me', headers: bearer(token) });
+      await withPlayerSession(ctx, STRICT_PLAYER_SESSION, async () => {
+        // Both used now; then only this one is used again, so the other one idles out.
+        ctx.clock.advance(STRICT_PLAYER_SESSION.idleMs / 2);
+        expect((await me(player.sessionToken)).statusCode).toBe(200);
+        ctx.clock.advance(STRICT_PLAYER_SESSION.idleMs / 2 + 60_000);
+        expect((await me(other.sessionToken)).statusCode).toBe(401);
+        const changed = await ctx.app.inject({
+          method: 'POST',
+          url: '/me/password',
+          headers: bearer(player.sessionToken),
+          payload: { currentPassword: player.password, newPassword: NEW_PASSWORD },
+        });
+        expect(changed.statusCode).toBe(200);
+      });
+      // Back to no idle limit (the default since 16 Nov): the idle one stays ended.
+      expect((await me(other.sessionToken)).statusCode).toBe(401);
+      expect((await me(player.sessionToken)).statusCode).toBe(200);
+      const [row] = await ctx.db.db
+        .select({ revokedAt: sessions.revokedAt })
+        .from(sessions)
+        .where(eq(sessions.tokenHash, sha256Hex(other.sessionToken)));
+      expect(row?.revokedAt).not.toBeNull();
     });
   });
 
@@ -261,6 +344,14 @@ describe('account security', () => {
       // Ended ones are not listed.
       const gone = (await login(player)).body!;
       await post(ctx, '/auth/logout', {}, { headers: bearer(gone.sessionToken) });
+      // Those three sign-ins were only to make sessions: start the number's sign-in budget afresh
+      // (as the SMS reset does), since the PIN checks below count in it too.
+      await restartLoginPhoneLimit(
+        ctx.deps.redis,
+        player.phone,
+        DEFAULT_AUTH_LIMITS.loginPerPhoneDaily,
+        randomUUID(),
+      );
 
       const list = await ctx.app.inject({
         method: 'GET',

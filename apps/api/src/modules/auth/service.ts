@@ -69,6 +69,12 @@ export interface RequestMeta {
   ip: string;
   userAgent: string | null;
   log?: FastifyBaseLogger;
+  /**
+   * Counts one PIN check against the player's number (the sign-in limits of POST /auth/login),
+   * throwing 429 when the number has none left. Called right before a signed-in player's
+   * current PIN is compared, so only requests that actually test a PIN use the budget.
+   */
+  countPinCheck?: () => Promise<void>;
 }
 
 type UserRow = typeof users.$inferSelect;
@@ -578,6 +584,8 @@ async function verifyCurrentPassword(
   purpose: 'password_change' | 'sessions_revoke',
   meta: RequestMeta,
 ): Promise<string> {
+  // Before the comparison, so a number out of guesses learns nothing about this one.
+  await meta.countPinCheck?.();
   const [row] = await deps.db
     .select({ passwordHash: users.passwordHash })
     .from(users)
@@ -636,7 +644,7 @@ export async function changePassword(
     // Changed meanwhile (a reset, which also ended this session): the check no longer holds.
     if (row === undefined || row.passwordHash !== verifiedHash) throw reauthFailed();
     await tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, user.id));
-    const ended = await revokeOtherUserSessions(tx, user, now, playerSessionLifetime(deps.config));
+    const ended = await revokeOtherUserSessions(tx, user, now);
     await writeAudit(tx, {
       actorType: 'user',
       actorId: user.id,
@@ -663,19 +671,19 @@ function seenWithinIdle(now: Date, lifetime: PlayerSessionLifetime) {
     : gt(sessions.lastSeenAt, new Date(now.getTime() - lifetime.idleMs));
 }
 
-/** The player's live sessions other than `user`'s (optionally one of them) as of `now`. */
-function otherLiveSessions(
-  user: SessionUser,
-  now: Date,
-  lifetime: PlayerSessionLifetime,
-  sessionId?: string,
-) {
+/**
+ * The player's sessions other than `user`'s (optionally one of them) that are not revoked and
+ * not past their absolute end as of `now`. Idle ones are included on purpose: an idle limit is
+ * read from the configuration at every request, so a session idle today is live again the day
+ * the limit is raised or switched off (as on 16 Nov 2026, from 30 minutes to none). Ending
+ * sessions must not skip it.
+ */
+function otherUnendedSessions(user: SessionUser, now: Date, sessionId?: string) {
   return and(
     eq(sessions.userId, user.id),
     ne(sessions.id, user.sessionId),
     isNull(sessions.revokedAt),
     gt(sessions.expiresAt, now),
-    seenWithinIdle(now, lifetime),
     ...(sessionId === undefined ? [] : [eq(sessions.id, sessionId)]),
   );
 }
@@ -684,13 +692,12 @@ async function revokeOtherUserSessions(
   tx: DbExecutor,
   user: SessionUser,
   now: Date,
-  lifetime: PlayerSessionLifetime,
   sessionId?: string,
 ): Promise<string[]> {
   const rows = await tx
     .update(sessions)
     .set({ revokedAt: now })
-    .where(otherLiveSessions(user, now, lifetime, sessionId))
+    .where(otherUnendedSessions(user, now, sessionId))
     .returning({ id: sessions.id });
   return rows.map((row) => row.id);
 }
@@ -755,13 +762,7 @@ export async function revokeSessions(
   await verifyCurrentPassword(deps, user, input.password, 'sessions_revoke', meta);
   const now = deps.clock();
   const revoked = await deps.db.transaction(async (tx) => {
-    const ended = await revokeOtherUserSessions(
-      tx,
-      user,
-      now,
-      playerSessionLifetime(deps.config),
-      input.sessionId,
-    );
+    const ended = await revokeOtherUserSessions(tx, user, now, input.sessionId);
     if (input.sessionId !== undefined && ended.length === 0) throw notFound('Session');
     await writeAudit(tx, {
       actorType: 'user',

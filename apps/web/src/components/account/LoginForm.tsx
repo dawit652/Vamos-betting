@@ -99,7 +99,9 @@ export function LoginForm({ next, passwordChanged }: { next: string; passwordCha
           id="login-password"
           name="password"
           autoComplete="current-password"
-          inputMode="numeric"
+          // No number pad here: passwords made before the PIN (16 Nov 2026) have letters and
+          // still sign in, and a number pad cannot type them. New PINs are typed on the
+          // registration and reset forms, which do show the number pad.
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required

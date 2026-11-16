@@ -408,5 +408,29 @@ is new); in the cloud container run the e2e suite with `E2E_CHROMIUM_PATH=/opt/p
 an API test that builds its own app with `buildApp` must `await app.background.idle()` before
 `latestOtp` (the SMS is sent in that app's background); the rate-limit tests of the per-address login
 limit build an app with the per-number limits relaxed (`perAddressApp` in `apps/api/test/auth.test.ts`);
-`randomPhone()` in the API and e2e helpers never ends in the test PIN (`4826`), since a PIN equal to the
-phone's last 4 digits is refused.
+`randomPhone()` in the API and e2e helpers never holds the test PIN (`4826`) anywhere, since a PIN that is
+four digits in a row of the phone is refused (since the X6 review, section 10).
+
+## 10. Continued by the first account after the second one stopped (16 Nov 2026, afternoon)
+
+Session `01BG4x` took over at the second account's stopping point (its review agent and its B5
+heartbeat agent had stopped without pushing anything). All pushed to `claude/eager-cerf-ox9vkq`:
+
+- **X6 reviewed** (`docs/plans/x6-sign-in-review.md`). Fixed: a PIN check made with a session now
+  counts in the number's login limits (before, a stolen session had 960 guesses a day against 15 for
+  a stranger); a PIN change ends idle sessions too (they came back once the idle limit was switched
+  off); a wider easy-PIN rule (runs round the 0, pair patterns, the years 1940 to 2030, four digits in a
+  row of the player's own number: about 590 of 10,000 refused); the login field shows the full keyboard
+  again, since older letter passwords still sign in. Open: F2 and F5 (a known-device cookie against
+  lockouts, which cost 16 requests a day per number), F6, F7 and F8 (owner), a failed-login alarm.
+- **C8b, the payout agent:** the command line `probe`, `record`, `rehearse` (working on the simulated
+  modem with `--simulate`), and the decoder of the payout SIM's own SMS (PDU mode). **Adding the serial
+  port library (`serialport` 13.0.0, native) was stopped by the session's safety check**, so a real
+  modem waits for the owner's yes; do not add it without that.
+- **B5's forwarder heartbeat was not built:** it needs the owner to say which forwarder app the
+  handset runs and whether it can send a periodic message.
+
+**Next, in this order:** the X6 open items that need no owner (the failed-login alarm; the
+device-cookie design for F2/F5); C8b's SMS reading loop and forwarding, the caps journal, then C8c (the
+server side, with a migration: the next free number is 0055, one session at a time); the serial
+adapter once the owner says yes.

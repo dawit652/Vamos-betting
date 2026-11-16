@@ -6,43 +6,39 @@
 export const PIN_LENGTH = 4;
 
 /**
- * PINs nobody may choose, besides one digit four times and straight runs: the most common 4-digit
- * PINs that are not runs (published PIN frequency studies), the keypad column 2580 and a few
- * patterns. Each one taken off the table matters, because the login limits leave an attacker only
- * a handful of guesses a day on one number.
+ * Frequent PINs that no rule below refuses (published PIN frequency studies): keypad columns and
+ * diagonals (2580, 0852, 7410, 3690, 1470, 1590, 3570), step patterns (2468, 1357, 1379, 1230) and a
+ * few favourites (1004, 5683 "love"). Repeats, runs, pair patterns and years are refused by their
+ * rules, so they are not listed. Each one taken off the table matters, because the login limits
+ * leave an attacker only a handful of guesses a day on one number.
  */
 export const COMMON_PINS: ReadonlySet<string> = new Set([
-  '1212',
   '1004',
-  '2000',
-  '6969',
-  '1122',
-  '1313',
   '2580',
   '0852',
-  '1010',
-  '2001',
-  '1984',
-  '2020',
-  '2468',
-  '1357',
-  '1379',
   '7410',
-  '0007',
-  '5683',
-  '1221',
-  '2112',
+  '0147',
+  '3690',
+  '0963',
+  '1470',
+  '1590',
+  '3570',
+  '2468',
+  '8642',
+  '1357',
+  '7531',
+  '1379',
   '1230',
-  '0101',
-  '2525',
-  '1100',
-  '0011',
-  '1001',
-  '2002',
-  '1999',
+  '5683',
 ]);
 
-export type PinWeakness = 'repeated' | 'sequence' | 'common' | 'phone';
+export type PinWeakness = 'repeated' | 'sequence' | 'pattern' | 'year' | 'common' | 'phone';
+
+/**
+ * Years people pick (birth years above all; registration no longer asks for a date of birth, so
+ * none can be refused one by one), in the Gregorian or the Ethiopian calendar (7 to 8 years behind).
+ */
+export const PIN_YEARS = { from: 1940, to: 2030 } as const;
 
 /** The subscriber digits of a typed phone (+2519XXXXXXXX, 2519XXXXXXXX, 09XXXXXXXX → 9XXXXXXXX). */
 function subscriberDigits(phone: string): string {
@@ -51,18 +47,40 @@ function subscriberDigits(phone: string): string {
   return digits.startsWith('0') ? digits.slice(1) : digits;
 }
 
+/** Whether `pin` is four digits in a row of the phone, as people write it (09…, 2519…). */
+function partOfPhone(pin: string, phone: string): boolean {
+  const subscriber = subscriberDigits(phone);
+  if (subscriber.length < PIN_LENGTH) return false;
+  return `0${subscriber}`.includes(pin) || `251${subscriber}`.includes(pin);
+}
+
 /**
  * Why a well-formed 4-digit `pin` is too easy to guess, or null. `phone` is the number in any typed
- * form (null skips the phone check): the last four digits of its subscriber number are refused.
+ * form (null skips the phone check). Refused:
+ * - `repeated`: one digit four times (0000);
+ * - `sequence`: digits in a row up or down, also round the keypad's 0 (1234, 9876, 7890, 0987);
+ * - `pattern`: a pair twice (1212), two pairs (1122), a mirror (1221), three of a digit (1112);
+ * - `year`: 1940 to 2030;
+ * - `common`: the frequent PINs of COMMON_PINS;
+ * - `phone`: four digits in a row of the player's own number (its last four, its 09.. start…).
  */
 export function pinWeaknessReason(pin: string, phone: string | null): PinWeakness | null {
-  if (/^(\d)\1+$/.test(pin)) return 'repeated';
-  const steps = Array.from(pin.slice(1), (digit, i) => Number(digit) - Number(pin[i]));
-  if (steps.every((step) => step === 1) || steps.every((step) => step === -1)) return 'sequence';
-  if (COMMON_PINS.has(pin)) return 'common';
-  if (phone !== null) {
-    const subscriber = subscriberDigits(phone);
-    if (subscriber.length >= PIN_LENGTH && subscriber.endsWith(pin)) return 'phone';
+  const [a, b, c, d] = pin;
+  if (a === b && b === c && c === d) return 'repeated';
+  const steps = Array.from(pin.slice(1), (digit, i) => (Number(digit) - Number(pin[i]) + 10) % 10);
+  if (steps.every((step) => step === 1) || steps.every((step) => step === 9)) return 'sequence';
+  if (
+    (a === c && b === d) ||
+    (a === b && c === d) ||
+    (a === d && b === c) ||
+    (a === b && b === c) ||
+    (b === c && c === d)
+  ) {
+    return 'pattern';
   }
+  const value = Number(pin);
+  if (value >= PIN_YEARS.from && value <= PIN_YEARS.to) return 'year';
+  if (COMMON_PINS.has(pin)) return 'common';
+  if (phone !== null && partOfPhone(pin, phone)) return 'phone';
   return null;
 }

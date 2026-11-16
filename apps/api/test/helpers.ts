@@ -116,10 +116,10 @@ export async function createTestContext(env: Record<string, string> = {}): Promi
 
 /** A random Ethio Telecom number in E.164. */
 export function randomPhone(): string {
-  // A PIN may not be the phone's last 4 digits: never hand out a number ending in TEST_PASSWORD.
+  // A PIN may not be four digits in a row of the phone: never hand out a number holding TEST_PASSWORD.
   for (;;) {
     const phone = `+2519${randomInt(0, 100_000_000).toString().padStart(8, '0')}`;
-    if (!phone.endsWith(TEST_PASSWORD)) return phone;
+    if (!phone.includes(TEST_PASSWORD)) return phone;
   }
 }
 

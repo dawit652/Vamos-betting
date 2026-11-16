@@ -131,8 +131,11 @@ const SessionUserView = z.object({
  * requests (it is also set as the readable `vamos_csrf` cookie, and GET
  * /auth/session hands it out again). Non-browser clients may instead send
  * `Authorization: Bearer <sessionToken>`, which needs no CSRF token. A
- * session ends at `expiresAt` (12 hours after sign-in) or 30 minutes after
- * its last request (`idleExpiresAt` moves on with every request).
+ * player session ends at `expiresAt` (PLAYER_SESSION_HOURS after sign-in: a
+ * year by default) and, only when PLAYER_SESSION_IDLE_MINUTES is set, that
+ * long after its last request (`idleExpiresAt` moves on with every request;
+ * without an idle limit it equals `expiresAt`). Staff sessions are separate
+ * (12 hours, 30 minutes idle).
  */
 export const SessionResponse = z.object({
   user: SessionUserView,
