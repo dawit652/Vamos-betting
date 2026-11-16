@@ -173,6 +173,40 @@ application for `admin.nahubet.com`, allowing only the staff's email addresses),
 the player name with a WAF custom rule (`http.host eq "nahubet.com" and starts_with(http.request.uri.path,
 "/_api/admin")` → Block): the player site's `/_api` forwards every path, `/admin` included.
 
+**A worker that hangs.** Compose marks a worker whose `/health` stops answering as `unhealthy` and does
+nothing else. `infra/scripts/worker-watchdog.sh`, run once a minute on the host, restarts it: after two
+runs in a row that read `unhealthy` it runs `docker compose restart worker` and writes one error line with
+`"alarm":"worker_restarted"` to stderr (so to the journal). It restarts nothing else, never more than once
+in 10 minutes (inside that time it writes `worker_unhealthy` and leaves the worker alone: look at it), and
+leaves a worker that is stopped, missing or still starting to Docker and to you. `worker_restart_failed`
+(exit 1) means the restart command itself failed. Settings: `WATCHDOG_UNHEALTHY_CHECKS` (2),
+`WATCHDOG_MIN_RESTART_GAP_SECONDS` (600), `WATCHDOG_STATE_FILE` (`/run/vamos-worker-watchdog.state`), and
+`COMPOSE_FILE` / `COMPOSE_ENV_FILES` as for `backup.sh`. **Installing it is a manual step on the server**;
+nothing in the stack installs it. For example, with the repository at `/opt/vamos`:
+
+```ini
+# /etc/systemd/system/vamos-worker-watchdog.service
+[Unit]
+Description=Restart the Vamos worker when it is unhealthy
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/vamos
+ExecStart=/opt/vamos/infra/scripts/worker-watchdog.sh
+
+# /etc/systemd/system/vamos-worker-watchdog.timer
+[Unit]
+Description=Check the Vamos worker every minute
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+[Install]
+WantedBy=timers.target
+```
+
+Then `systemctl daemon-reload && systemctl enable --now vamos-worker-watchdog.timer`, and read its lines
+with `journalctl -u vamos-worker-watchdog`. The alert that tells a person is the outbox age on the api's
+`/metrics` (Metrics, below): the watchdog only shortens the outage.
+
 **Scaling.**
 
 - `api` is stateless (sessions in Postgres, rate limits and live fan-out in Redis): run more replicas behind
@@ -180,7 +214,8 @@ the player name with a WAF custom rule (`http.host eq "nahubet.com" and starts_w
   orchestrator).
 - `web` and `admin` are stateless Next.js servers; scale the same way.
 - `worker`: keep **one** instance. Its tasks take advisory/Redis locks; scale vertically, and review the
-  design before running a second worker.
+  design before running a second worker ([plans/worker-standby-design.md](plans/worker-standby-design.md)).
+  Docker restarts a worker that crashed, not one that hangs: see "A worker that hangs" below.
 - `scraper`: keep **one** instance. The source locks make a second harmless, but it only duplicates fetches
   (and requests to the sources). Its raw snapshots are the `scraper_archive` volume
   (`/var/lib/vamos/scraper`, `SCRAPER_ARCHIVE_DIR`): the evidence behind every applied result, kept as long as

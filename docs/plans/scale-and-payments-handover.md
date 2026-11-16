@@ -294,10 +294,9 @@ should read 0 or a few seconds.
 3. ~~X2~~ done (`e2e/tests/redesign.spec.ts`, 11 tests; its caveats are in the progress file). Still to do
    here: run `e2e/tests/sms-rail.spec.ts` with two simulated accounts at the same time (the full suite
    passed 18 of 18 on 16 Nov with the single-account scenarios only).
-4. **A9b's script** (a host script that restarts an unhealthy worker, with a stub-docker test in CI;
-   design in `worker-standby-design.md`, section 3 item 2; Sonnet medium, Opus reviews), then **A8,
-   A6b, B5, D1 to D8** per the progress file (A8 to B5 need no decision; D rows are owner tasks). A7,
-   A9 and A9b part 1 are done. If settlement must be faster than about 370 bets a second, that is a
+4. **A8, A6b, B5, D1 to D8** per the progress file (A8 to B5 need no decision; D rows are owner
+   tasks). A7, A9 and A9b are done; the owner still has to install A9b's watchdog timer on the server
+   (`docs/deployment.md`, "A worker that hangs"), and the script has only run against a stub docker. If settlement must be faster than about 370 bets a second, that is a
    new money-path design (one ledger posting per batch of bets): ask the owner before starting it.
 5. **X4** licensed texts for Help, Terms and Responsible gambling: needs the licence details from the
    owner; do not invent legal text. **X3** the rename stages 1 to 3 last, in one pull request while no

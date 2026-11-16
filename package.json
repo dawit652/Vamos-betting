@@ -18,7 +18,7 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "test:unit": "pnpm -r --if-present test:unit",
-    "test:infra": "bash infra/scripts/backup.test.sh",
+    "test:infra": "bash infra/scripts/backup.test.sh && bash infra/scripts/worker-watchdog.test.sh",
     "sbom": "node scripts/sbom.mjs",
     "audit:prod": "pnpm audit --prod",
     "e2e": "pnpm --filter @vamos/e2e e2e",
