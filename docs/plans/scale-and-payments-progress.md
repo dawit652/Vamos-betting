@@ -89,6 +89,8 @@ Known from before (`docs/load-testing.md`, 19 Oct 2026): about 95 bets/s on one 
 shared CPUs, p95 504 ms at 50 connections; the limit is the process's CPU, then the single
 `house_stakes` ledger row.
 
+**Full end-to-end suite, 16 Nov 2026 (session `01BG4x`)**, on tip `6e33f9d` (the other session's B2a to B2c, B6, A5, A2, C10, C12 review included) built fresh with a new database (migrations 0053 and 0054 applied), one cloud container, Chromium with the Pixel 5 profile: **18 of 18 passed in 12.4 minutes**, including `sms-rail.spec.ts`, `payments-flow.spec.ts`, `bet-flow.spec.ts` and `budget.spec.ts` (the page-weight budget). Not covered by it: two collection accounts at once in the browser, and the redesign specs (X2, not on this branch yet).
+
 ## 3. Owner decisions
 
 | #   | Decision or call                                                         | State | Answer                                                    |
