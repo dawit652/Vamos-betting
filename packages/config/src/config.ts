@@ -165,6 +165,12 @@ const envSchema = z.object({
   /** Overrides the service name of the exported traces (default vamos-api / vamos-worker). */
   OTEL_SERVICE_NAME: secret,
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+  /**
+   * Seconds the API keeps the answers of the public catalogue lists (sports,
+   * competitions, event lists) per distinct query. 0 turns the cache off.
+   * Never applies to event pages, search, anything per player or betting.
+   */
+  CATALOG_CACHE_SECONDS: z.coerce.number().int().min(0).max(30).default(2),
   PUBLIC_WEB_URL: z.url().default('http://localhost:3000'),
   ADMIN_WEB_URL: z.url().default('http://localhost:3001'),
   PUBLIC_API_URL: z.url().default('http://localhost:4000'),
@@ -420,6 +426,8 @@ export interface AppConfig {
     publicUrl: string;
     /** TRUST_PROXY: whose X-Forwarded-For may set the client address (false: nobody). */
     trustProxy: TrustProxySetting;
+    /** CATALOG_CACHE_SECONDS: how long catalogue list answers are reused (0 = off). */
+    catalogCacheSeconds: number;
   };
   /** The worker's health server (WORKER_HEALTH_*; port 0 = off). */
   worker: { healthHost: string; healthPort: number };
@@ -782,6 +790,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       port: e.API_PORT,
       publicUrl: e.PUBLIC_API_URL,
       trustProxy: parseTrustProxy(e.TRUST_PROXY),
+      catalogCacheSeconds: e.CATALOG_CACHE_SECONDS,
     },
     worker: { healthHost: e.WORKER_HEALTH_HOST, healthPort: e.WORKER_HEALTH_PORT },
     telemetry: { otlpEndpoint: e.OTEL_EXPORTER_OTLP_ENDPOINT, serviceName: e.OTEL_SERVICE_NAME },

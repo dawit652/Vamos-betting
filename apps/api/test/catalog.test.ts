@@ -77,7 +77,8 @@ const atpEvents: string[] = [];
 let soonMarkets: Record<string, Awaited<ReturnType<typeof insertMarket>>> = {};
 
 beforeAll(async () => {
-  ctx = await createTestContext();
+  // These tests change the data and count queries, so they run with the list cache off.
+  ctx = await createTestContext({ CATALOG_CACHE_SECONDS: '0' });
   ctx.clock.now = NOW;
   db = ctx.db.db;
 

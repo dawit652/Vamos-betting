@@ -8,6 +8,7 @@ import {
   type SportsResponse,
 } from '@vamos/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { CatalogCache, stableKey } from '../../lib/catalog-cache';
 import { notFound, parseInput } from '../../lib/errors';
 import liveRoutes from './live';
 import {
@@ -40,8 +41,20 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
     factoryMarkets: deps.config.features.factoryMarkets,
   });
 
+  /**
+   * Only the three public lists go through this cache (never event pages,
+   * search, per-player data or betting). It follows the injected clock.
+   */
+  const lists = new CatalogCache({
+    redis: deps.redis,
+    clock: deps.clock,
+    seconds: deps.config.api.catalogCacheSeconds,
+  });
+
   app.get('/sports', async (_request, reply): Promise<SportsResponse> => {
-    const body = await listSports(deps.db, deps.clock());
+    const body = await lists.get(stableKey({ route: 'sports' }), () =>
+      listSports(deps.db, deps.clock()),
+    );
     cache(reply, LIST_CACHE_CONTROL);
     return body;
   });
@@ -49,7 +62,10 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
   app.get<{ Params: { sport: string } }>(
     '/sports/:sport/competitions',
     async (request, reply): Promise<CompetitionsResponse> => {
-      const body = await listCompetitions(deps.db, request.params.sport, deps.clock());
+      const sport = request.params.sport;
+      const body = await lists.get(stableKey({ route: 'competitions', sport }), () =>
+        listCompetitions(deps.db, sport, deps.clock()),
+      );
       if (body === null) throw notFound('Sport');
       cache(reply, LIST_CACHE_CONTROL);
       return body;
@@ -59,7 +75,10 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
   app.get('/events', async (request, reply): Promise<EventListResponse> => {
     const now = deps.clock();
     const query = parseInput(eventListQueryAt(now), request.query);
-    const body = await listEvents(deps.db, query, now, viewOptions());
+    const options = viewOptions();
+    // The normalised query (after zod defaults) plus the setting that changes the view.
+    const key = stableKey({ route: 'events', ...query, factoryMarkets: options.factoryMarkets });
+    const body = await lists.get(key, () => listEvents(deps.db, query, now, options));
     cache(reply, LIST_CACHE_CONTROL);
     return body;
   });

@@ -291,18 +291,19 @@ in a secret manager, not in git.
 
 **Core**
 
-| Variable                                           | Default                        | Meaning                                                                                                   |
-| -------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                                         | `production`                   | `production` enables Secure cookies, hides dev routes and the OTP inbox, and refuses development secrets. |
-| `OPERATING_MODE`                                   | `licensed`                     | `demo` or `licensed` (section 4).                                                                         |
-| `LOG_LEVEL`                                        | `info`                         | pino level: fatal, error, warn, info, debug, trace, silent.                                               |
-| `API_HOST` / `API_PORT`                            | `0.0.0.0` / `4000`             | api listen address (the image fixes 4000).                                                                |
-| `PUBLIC_API_URL`                                   | `http://localhost:4000`        | Public api URL. Also baked into web/admin at build time (`NEXT_PUBLIC_API_URL`). https in production.     |
-| `PUBLIC_WEB_URL` / `ADMIN_WEB_URL`                 | `:3000` / `:3001` on localhost | Public origins (CORS, cookies, redirects). Must differ; https in production.                              |
-| `PAYMENT_CALLBACK_BASE_URL`                        | `PUBLIC_API_URL`               | Base URL providers call for webhooks. Leave **unset** (not empty) to use the default.                     |
-| `TRUST_PROXY`                                      | empty (nobody)                 | Proxy addresses/CIDRs whose `X-Forwarded-For` sets the client IP. `true` and hop counts are refused.      |
-| `WORKER_HEALTH_HOST` / `WORKER_HEALTH_PORT`        | `0.0.0.0` / `4100`             | Worker `/health` and `/ready` server (`0` turns it off).                                                  |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | unset                          | Tracing is on only when the endpoint is set; the name defaults to `vamos-api` / `vamos-worker`.           |
+| Variable                                           | Default                        | Meaning                                                                                                                                      |
+| -------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                         | `production`                   | `production` enables Secure cookies, hides dev routes and the OTP inbox, and refuses development secrets.                                    |
+| `OPERATING_MODE`                                   | `licensed`                     | `demo` or `licensed` (section 4).                                                                                                            |
+| `LOG_LEVEL`                                        | `info`                         | pino level: fatal, error, warn, info, debug, trace, silent.                                                                                  |
+| `API_HOST` / `API_PORT`                            | `0.0.0.0` / `4000`             | api listen address (the image fixes 4000).                                                                                                   |
+| `CATALOG_CACHE_SECONDS`                            | `2`                            | Seconds the api reuses `/sports`, competitions and `/events` list answers per query (0 = off, max 30). Never event pages, search or betting. |
+| `PUBLIC_API_URL`                                   | `http://localhost:4000`        | Public api URL. Also baked into web/admin at build time (`NEXT_PUBLIC_API_URL`). https in production.                                        |
+| `PUBLIC_WEB_URL` / `ADMIN_WEB_URL`                 | `:3000` / `:3001` on localhost | Public origins (CORS, cookies, redirects). Must differ; https in production.                                                                 |
+| `PAYMENT_CALLBACK_BASE_URL`                        | `PUBLIC_API_URL`               | Base URL providers call for webhooks. Leave **unset** (not empty) to use the default.                                                        |
+| `TRUST_PROXY`                                      | empty (nobody)                 | Proxy addresses/CIDRs whose `X-Forwarded-For` sets the client IP. `true` and hop counts are refused.                                         |
+| `WORKER_HEALTH_HOST` / `WORKER_HEALTH_PORT`        | `0.0.0.0` / `4100`             | Worker `/health` and `/ready` server (`0` turns it off).                                                                                     |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | unset                          | Tracing is on only when the endpoint is set; the name defaults to `vamos-api` / `vamos-worker`.                                              |
 
 **Data stores and secrets**
 
