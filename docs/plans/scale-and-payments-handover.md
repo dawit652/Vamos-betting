@@ -31,8 +31,8 @@ Continue the "scale and payments" work on Nahubet.
    docs/plans/scale-and-payments-progress.md, then only the parts of
    docs/plans/scale-and-payments-plan.md that your task names.
 3. Run `git log --oneline origin/claude/eager-cerf-ox9vkq -25` to see what landed since the handover was
-   written, and read section 6 of the handover (what was half done, how to recover it, and the order
-   in its "Next" list). Do the setup in the handover's section 1, then take the first item of that
+   written, and read sections 6 and 8 of the handover (what was half done, how to recover it; section 8 is
+   newer and its order of tasks replaces the "Next" list of section 6). Do the setup in the handover's section 1, then take the first item of that
    list that the progress file marks `open` (rows marked `in progress` belong to another session; its
    claim names it and the time; claim yours in the progress file and push that before you start). One
    task at a time: tests with it, `pnpm lint`, `pnpm typecheck`, the test suites of the touched packages
@@ -247,3 +247,49 @@ pgbouncer`; a config with `* = host=127.0.0.1 port=5432`, `pool_mode = transacti
   hard work spawn a `general-purpose` agent with model `opus` and effort `high`. They share one working tree:
   tell them which files are theirs, ask for `Edit` not `Write` on existing files, commit only after you
   verified, and add files by path (never `git add -A` while an agent is running).
+
+## 8. State at the end of the 16 Nov 2026 session (second account, replaces section 6's "Next" list)
+
+**Finished and pushed to this branch** (one commit each, rows `done` in the progress file): A2 catalogue
+cache (`CATALOG_CACHE_SECONDS`, default 2); A1a `pnpm load:deposits` (500 players credited exactly once);
+A1b `pnpm load:pages` (numbers in `docs/load-testing.md`: one web server saturates at about 40 to 60
+pages/s, the API holds the planned load alone); A10b worker `/metrics`; **B2a, B2b, B2c** an amount space
+per collection account (migration **0053**; account `id` in `SMS_COLLECTION_ACCOUNTS`; the forwarder sends
+`account`; the deposit screen shows the assigned account; the back office shows each message's account);
+A5 `API_ROLE` and the opt-in `infra/docker-compose.streams.yml` overlay (no volumes, ports or names
+changed); **B6** the `sms_credits` reconciliation check, `reparseSmsByStaff`, `POST /admin/sms/:id/reparse`,
+the "Read again" button (migration **0054**). The next free migration is **0055**.
+
+**Before any deploy of this work** (the owner at the server, `infra/scripts/deploy-full.sh`, root
+`HANDOFF.md`): migrations 0053 and 0054 are in it; the rollback images keep working on the migrated
+database (the index of 0053 treats a null account as before). **Do not run two or more live collection
+accounts** until B2b, B2c and every forwarder sending `account` are deployed (with one account nothing
+changes). Not verified: `e2e/tests/sms-rail.spec.ts` with two accounts, the new deposit screen in a browser
+and against the 160 KB budget, `caddy validate` of `Caddyfile.streams` (CI does it), and 2,000 streams on
+`streams` processes while `pnpm load:bets` runs on the others.
+
+**Still open, in this order** (model and effort in brackets):
+
+1. **C10** float forecast (Sonnet, medium; Opus reviews). If the progress file says `in progress` with a
+   commit, review it; if it says `done`, skip. An agent was working on it when this was written.
+2. **C12 review and deploy** (Opus, read-only review, then the owner deploys) and **C2a** from
+   `docs/plans/wip/c2a-partial.patch` (Opus, high): the other account's work, unchanged by this session.
+3. **X2** end-to-end tests of the redesign (needs the e2e stack: `e2e/scripts/stack.sh build` then
+   `start`; Sonnet, medium). Run `e2e/tests/sms-rail.spec.ts` with two simulated accounts at the same time.
+4. **A6b, A7, A8, A9, B5, D1 to D8** per the progress file (A6b to B5 need no decision; D rows are owner
+   tasks).
+5. **X4** licensed texts for Help, Terms and Responsible gambling: needs the licence details from the
+   owner; do not invent legal text. **X3** the rename stages 1 to 3 last, in one pull request while no
+   other branch or agent is editing (it touches every import); never rename the compose project, volumes
+   or database (the owner does not want Docker to start on an empty volume).
+6. Pull request 5 (this branch to the default branch): CI must be green; ask the owner before merging.
+   One CI run (403) failed only at `actions/checkout` (a GitHub-side error), not in our code.
+
+**Facts that cost time** (more in section 7): a database test that credits through `ingestSms` needs the
+account of the SMS to equal the deposit's (a null-account SMS pays only no-account deposits); the demo
+simulator (`POST /dev/payments/sms`) sends the deposit's own account; a live-gateway API test must call
+`goLive()` before opening the deposit; `KEYS` in ioredis does not add the key prefix to its pattern (list
+`*` and filter); for the load tests start the API with
+`OPERATING_MODE=demo PAYMENT_PROVIDERS=mock,sms SMS_RAIL_MODE=simulated TRUST_PROXY=127.0.0.1`.
+Agents hit the 5-hour limit twice: give each agent one task and a list of files it may touch, never let
+two agents edit the same file, and commit only after your own typecheck, lint and tests.
