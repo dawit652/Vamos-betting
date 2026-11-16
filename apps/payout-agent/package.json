@@ -5,6 +5,7 @@
   "description": "The payout sender's agent: drives a modem with the payout SIM through the wallet's USSD menu (docs/plans/payout-sender-design.md)",
   "type": "module",
   "scripts": {
+    "cli": "tsx src/cli/main.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests"
   },

@@ -4,9 +4,10 @@ The payout sender's agent: the program that will sit next to a USB modem holding
 type the wallet's own USSD menu, one payout at a time. Design, rules and risks:
 [docs/plans/payout-sender-design.md](../../docs/plans/payout-sender-design.md).
 
-**State (16 Nov 2026): it has never talked to a real modem and nothing can run it yet.** There is no
-command line, no serial port and no connection to the API. What exists is the part that must be right
-before any of that, tested against a simulated modem and a simulated wallet:
+**State (16 Nov 2026): it has never talked to a real modem.** The command line below runs against the
+simulated modem; a real modem needs the serial port library, which is not installed yet (the owner's
+decision, see "A real modem" below). There is no connection to the API. What exists, tested against a
+simulated modem and a simulated wallet:
 
 | File                     | What it does                                                                                                                                                                                             |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -29,6 +30,37 @@ transcript, trace or error.
 pnpm --filter @vamos/payout-agent test
 ```
 
-Still to build (design, section 8): the command line around what exists (`probe`, `record`, `rehearse`,
-`run`), the serial port, reading the SIM's SMS and forwarding them to the gateway, a journal so the caps survive a restart,
-and the connection to the server's instruction endpoint (C8c).
+## Command line
+
+From the repository root. `--simulate` uses the invented wallet and modem (nothing real is touched; its
+PIN is `482913`), so the whole flow can be tried before any hardware exists:
+
+```sh
+pnpm --filter @vamos/payout-agent cli probe --simulate --ussd '*127#'
+pnpm --filter @vamos/payout-agent cli record --simulate --to 0911234567 --amount 15 --name "ABEBE KEBEDE"
+pnpm --filter @vamos/payout-agent cli rehearse --simulate --script scripts/telebirr.json --to 0922334455 --amount 40 --name "Sara Haile"
+```
+
+- `probe` asks the modem whether it answers commands, whether its SIM is ready (a SIM locked with its own
+  SIM PIN is named as such), the signal, the network, USSD, UCS2 text and SMS reading, and says in one
+  line whether the modem is usable. With `--ussd <code>` it dials that code (pick a harmless one, such as
+  a balance check), shows the first screen and hangs up.
+- `record` **sends one real transfer** (at least 11 birr; it asks you to type `SEND` first). You answer
+  every screen as on the phone: keys as you would press them, `N` for the number, `A` for the amount,
+  `P` for the PIN (typed without being shown, never stored), `Q` to give up. It saves the script
+  (`scripts/<institution>.json`) and the recording next to it (`*.recording.json`, private: it holds the
+  receiver's number and name).
+- `rehearse` walks the menu for another number and amount up to the step that sends, and hangs up there.
+  It asks for the PIN only when the menu wants it before that step.
+
+## A real modem
+
+Talking to a USB modem needs the [`serialport`](https://www.npmjs.com/package/serialport) library
+(version 13.0.0, with prebuilt binaries for Windows and Linux). It is **not installed**: adding a native
+library is the owner's decision. Until then `--port COM5` or `--port /dev/ttyUSB0` stops with that
+message. Once it is approved, the adapter is about 30 lines behind the `BytePort` interface in
+`src/at/chat.ts`, and `cli ports` can list the modem's ports.
+
+Still to build (design, section 8): the serial port adapter (above), reading the SIM's SMS and
+forwarding them to the gateway, a journal so the caps survive a restart, and the connection to the
+server's instruction endpoint (C8c).

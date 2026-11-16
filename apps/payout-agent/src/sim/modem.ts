@@ -13,7 +13,36 @@ export interface SimModemOptions {
   fragment?: (text: string) => string[];
   /** Sends a USSD screen before the OK of its command, as some modems do. */
   screenBeforeOk?: boolean;
+  /** What the modem says about itself and its SIM (the probe's questions). Default: a healthy modem. */
+  info?: SimModemInfo;
 }
+
+/** The answers to the probe's questions; `null` makes the modem answer ERROR. */
+export interface SimModemInfo {
+  identity?: string[];
+  /** `+CPIN:` value: READY, SIM PIN…; null: no SIM. */
+  cpin?: string | null;
+  /** `+CSQ:` value: rssi,ber. */
+  csq?: string;
+  /** `+COPS?` value. */
+  cops?: string | null;
+  /** Whether `AT+CUSD=?` is answered. */
+  ussdTest?: boolean;
+  /** `+CSCS=?` value. */
+  charsets?: string | null;
+  /** `+CMGF=?` value. */
+  cmgf?: string | null;
+}
+
+const HEALTHY: Required<SimModemInfo> = {
+  identity: ['Manufacturer: SIMULATED', 'Model: SIM-MODEM 1', 'Revision: 0.1'],
+  cpin: 'READY',
+  csq: '18,99',
+  cops: '0,0,"ethio telecom",2',
+  ussdTest: true,
+  charsets: '("IRA","GSM","UCS2")',
+  cmgf: '(0-1)',
+};
 
 export class SimulatedModem implements BytePort {
   /** Every command line received, in order (tests look for the PIN here, and nowhere else). */
@@ -91,6 +120,30 @@ export class SimulatedModem implements BytePort {
       this.ok();
       return;
     }
+    const info = { ...HEALTHY, ...this.options.info };
+    const answer = (lines: string[] | null) => {
+      if (lines === null) this.emit('\r\nERROR\r\n');
+      else this.emit(`\r\n${lines.join('\r\n')}\r\n\r\nOK\r\n`);
+    };
+    if (/^ATI$/i.test(line)) return answer(info.identity);
+    if (/^AT\+CGMI$/i.test(line)) return answer(['SIMULATED']);
+    if (/^AT\+CGMM$/i.test(line)) return answer(['SIM-MODEM 1']);
+    if (/^AT\+CPIN\?$/i.test(line)) {
+      if (info.cpin === null) {
+        this.emit('\r\n+CME ERROR: 10\r\n');
+        return;
+      }
+      return answer([`+CPIN: ${info.cpin}`]);
+    }
+    if (/^AT\+CSQ$/i.test(line)) return answer([`+CSQ: ${info.csq}`]);
+    if (/^AT\+COPS\?$/i.test(line))
+      return answer(info.cops === null ? null : [`+COPS: ${info.cops}`]);
+    if (/^AT\+CUSD=\?$/i.test(line)) return answer(info.ussdTest ? ['+CUSD: (0-2)'] : null);
+    if (/^AT\+CSCS=\?$/i.test(line)) {
+      return answer(info.charsets === null ? null : [`+CSCS: ${info.charsets}`]);
+    }
+    if (/^AT\+CMGF=\?$/i.test(line))
+      return answer(info.cmgf === null ? null : [`+CMGF: ${info.cmgf}`]);
     const charset = /^AT\+CSCS="(UCS2|GSM)"$/i.exec(line);
     if (charset !== null) {
       this.charset = charset[1]?.toUpperCase() === 'UCS2' ? 'UCS2' : 'GSM';
