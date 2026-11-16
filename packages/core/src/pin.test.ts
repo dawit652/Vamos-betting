@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { COMMON_PINS, PIN_LENGTH, pinWeaknessReason, type PinWeakness } from './pin';
+import { PIN_LENGTH, pinWeaknessReason, type PinWeakness } from './pin';
 
 const ALL_PINS = Array.from({ length: 10 ** PIN_LENGTH }, (_, n) =>
   String(n).padStart(PIN_LENGTH, '0'),
@@ -20,23 +20,10 @@ const REFERENCE: ReadonlyMap<string, PinWeakness> = (() => {
     runs.push([0, 1, 2, 3].map((k) => (start - k + 10) % 10).join(''));
   }
   classes.push(['sequence', runs]);
-  const patterns: string[] = [];
-  for (const x of digits) {
-    for (const y of digits) {
-      patterns.push(`${x}${y}${x}${y}`, `${x}${x}${y}${y}`, `${x}${y}${y}${x}`);
-      patterns.push(`${x}${x}${x}${y}`, `${y}${x}${x}${x}`);
-    }
-  }
-  classes.push(['pattern', patterns]);
-  classes.push(['common', [...COMMON_PINS]]);
   const out = new Map<string, PinWeakness>();
   for (const [kind, pins] of classes) for (const pin of pins) if (!out.has(pin)) out.set(pin, kind);
   return out;
 })();
-
-/** Every four digits in a row of `text`. */
-const windows = (text: string) =>
-  Array.from({ length: Math.max(0, text.length - 3) }, (_, i) => text.slice(i, i + 4));
 
 const digitPin = fc
   .array(fc.integer({ min: 0, max: 9 }), { minLength: 4, maxLength: 4 })
@@ -48,38 +35,36 @@ const subscriber = fc
 describe('pinWeaknessReason', () => {
   it('examples of every rule', () => {
     expect(pinWeaknessReason('0000', null)).toBe('repeated');
+    expect(pinWeaknessReason('7777', null)).toBe('repeated');
     for (const pin of ['1234', '9876', '7890', '8901', '9012', '0987', '1098', '2109']) {
       expect(pinWeaknessReason(pin, null), pin).toBe('sequence');
     }
-    for (const pin of ['1212', '1414', '1122', '5566', '1221', '2002', '1110', '0001', '2111']) {
-      expect(pinWeaknessReason(pin, null), pin).toBe('pattern');
-    }
-    // Years are allowed (owner, 16 Nov 2026), unless another rule refuses them (2002, 2000).
-    for (const pin of ['1940', '1984', '1987', '1990', '2016', '2026', '2030']) {
-      expect(pinWeaknessReason(pin, null), pin).toBeNull();
-    }
-    expect(pinWeaknessReason('2002', null)).toBe('pattern');
-    expect(pinWeaknessReason('2580', null)).toBe('common');
-    for (const pin of ['1939', '2031', '4827', '7031']) {
-      expect(pinWeaknessReason(pin, null), pin).toBeNull();
-    }
   });
 
-  it('allows the PINs the API and e2e tests sign in with', () => {
-    expect(pinWeaknessReason('4826', null)).toBeNull();
-    expect(pinWeaknessReason('7031', null)).toBeNull();
+  it('allows the PINs players kept typing (owner, 16 Nov 2026): pairs, mirrors, years, shapes', () => {
+    const allowed = [
+      ...['1212', '1414', '1122', '5566', '1221', '2002', '1110', '0001', '2111', '6969'],
+      ...['1940', '1984', '1990', '2000', '2016', '2026'],
+      ...['2580', '1004', '1470', '1357', '2468', '1230', '5683'],
+      ...['4826', '7031', '4827', '0911', '2519'],
+    ];
+    for (const pin of allowed) expect(pinWeaknessReason(pin, null), pin).toBeNull();
   });
 
-  it('refuses four digits in a row of the phone, in every typed form', () => {
+  it('refuses the last four digits of the phone, in every typed form, and nothing else of it', () => {
     for (const phone of ['+251911234827', '0911234827', '251911234827', '911234827']) {
-      // The last four, the start as dialled (09..) and as written internationally (2519..).
-      for (const pin of ['4827', '0911', '9112', '2348', '2519']) {
-        expect(pinWeaknessReason(pin, phone), `${pin} ${phone}`).toBe('phone');
+      expect(pinWeaknessReason('4827', phone), phone).toBe('phone');
+      // Other digits of the number are allowed: its start as dialled (09..), as written
+      // internationally (2519..), its middle.
+      for (const pin of ['0911', '9112', '2348', '2519', '4828']) {
+        expect(pinWeaknessReason(pin, phone), `${pin} ${phone}`).toBeNull();
       }
-      expect(pinWeaknessReason('4828', phone)).toBeNull();
     }
+    expect(pinWeaknessReason('4827', '+251 911 23 48 27')).toBe('phone');
     expect(pinWeaknessReason('4827', null)).toBeNull();
     expect(pinWeaknessReason('4827', '12')).toBeNull();
+    // A number ending in an easy PIN keeps that PIN's reason.
+    expect(pinWeaknessReason('4567', '+251911234567')).toBe('sequence');
   });
 
   it('matches the generated reference over all 10,000 PINs', () => {
@@ -88,20 +73,15 @@ describe('pinWeaknessReason', () => {
     }
   });
 
-  it('leaves at least 94% of the PINs to choose from', () => {
+  it('refuses only 30 of the 10,000 PINs, 31 with the phone', () => {
     const refused = ALL_PINS.filter((pin) => pinWeaknessReason(pin, null) !== null).length;
     expect(refused).toBe(REFERENCE.size);
-    expect(refused).toBeLessThanOrEqual(600);
+    expect(refused).toBe(30);
+    const withPhone = ALL_PINS.filter((pin) => pinWeaknessReason(pin, '+251911234827') !== null);
+    expect(withPhone).toHaveLength(31);
   });
 
-  it('keeps the common list to four-digit PINs no other rule refuses', () => {
-    for (const pin of COMMON_PINS) {
-      expect(pin).toMatch(/^\d{4}$/);
-      expect(REFERENCE.get(pin), pin).toBe('common');
-    }
-  });
-
-  it('property: the phone rule refuses exactly the four-digit windows of the number', () => {
+  it('property: the phone rule refuses exactly the last four digits of the number', () => {
     fc.assert(
       fc.property(
         digitPin,
@@ -113,20 +93,19 @@ describe('pinWeaknessReason', () => {
           if (without !== null) {
             expect(withPhone).toBe(without);
           } else {
-            const inNumber = [...windows(`0${sub}`), ...windows(`251${sub}`)].includes(pin);
-            expect(withPhone === 'phone').toBe(inNumber);
-            expect(withPhone === null).toBe(!inNumber);
+            const isLastFour = sub.endsWith(pin);
+            expect(withPhone === 'phone').toBe(isLastFour);
+            expect(withPhone === null).toBe(!isLastFour);
           }
         },
       ),
     );
   });
 
-  it('property: no four digits in a row of the number are ever accepted', () => {
+  it('property: the last four digits of the number are never accepted', () => {
     fc.assert(
-      fc.property(subscriber, fc.integer({ min: 0, max: 6 }), (sub, at) => {
-        const pin = `0${sub}`.slice(at, at + 4);
-        expect(pinWeaknessReason(pin, `+251${sub}`)).not.toBeNull();
+      fc.property(subscriber, (sub) => {
+        expect(pinWeaknessReason(sub.slice(-4), `+251${sub}`)).not.toBeNull();
       }),
     );
   });

@@ -169,38 +169,29 @@ describe('passwords', () => {
     expect(LoginRequest.safeParse({ phone: '0911234567', password: 'Ab3$xy' }).success).toBe(true);
   });
 
-  it('refuses the easiest PINs: one digit, runs, patterns, common ones, the phone', () => {
+  it('refuses only the easiest PINs: one digit four times, runs, the end of the phone', () => {
     const phone = '+251911234567';
     for (const pin of ['0000', '1111', '9999']) {
       expect(pinWeakness(pin, phone), pin).toMatch(/same digit/);
     }
-    for (const pin of ['0123', '1234', '6789', '9876', '3210', '4321']) {
+    for (const pin of ['0123', '1234', '6789', '9876', '3210', '4321', '7890']) {
       expect(pinWeakness(pin, phone), pin).toMatch(/in a row/);
     }
-    for (const pin of ['2580', '1004', '1470']) {
-      expect(pinWeakness(pin, phone), pin).toMatch(/too common/);
-    }
-    for (const pin of ['1212', '6969', '1122', '1221', '2000', '1112']) {
-      expect(pinWeakness(pin, phone), pin).toMatch(/pattern/);
-    }
-    // Years are allowed (owner, 16 Nov 2026).
-    for (const pin of ['1950', '1987', '1990', '2016']) {
+    expect(pinWeakness('0397', '+251911200397')).toMatch(/last 4 digits of your phone number/);
+    expect(pinWeakness('3456', '+251911203456')).toMatch(/in a row/);
+    // Allowed (owner, 16 Nov 2026): years, pairs, mirrors, keypad shapes, other digits of the number.
+    for (const pin of ['1950', '1987', '1990', '2016', '1212', '6969', '1122', '1221', '2000']) {
       expect(pinWeakness(pin, phone), pin).toBeNull();
     }
-    expect(pinWeakness('7890', phone)).toMatch(/in a row/);
-    // Four digits in a row of the number, not only its end: here its start as dialled.
-    expect(pinWeakness('0911', phone)).toMatch(/phone number/);
-    expect(pinWeakness('4567', phone)).toMatch(/in a row/);
-    expect(pinWeakness('3456', '+251911203456')).toMatch(/in a row/);
-    expect(pinWeakness('0397', '+251911200397')).toMatch(/phone number/);
-    for (const pin of ['4826', '0397', '9150', '7031', '2469']) {
+    for (const pin of ['2580', '1004', '1470', '1112', '0911', '9112', '4826', '9150', '7031']) {
       expect(pinWeakness(pin, phone), pin).toBeNull();
     }
     // passwordWeakness sends a PIN to these rules, and assertPasswordAcceptable throws on them.
     expect(passwordWeakness('1234', phone)).toMatch(/in a row/);
-    expect(() => assertPasswordAcceptable('2580', phone)).toThrow(
+    expect(() => assertPasswordAcceptable('0000', phone)).toThrow(
       expect.objectContaining({ statusCode: 400, code: 'weak_password' }),
     );
+    expect(() => assertPasswordAcceptable('1212', phone)).not.toThrow();
   });
 
   it('lets a good PIN or an older long password keep signing in, nothing weaker', () => {
@@ -227,10 +218,8 @@ describe('passwords', () => {
       ).toBe(true);
       if (pinWeakness(pin, phone) !== null) weak += 1;
     }
-    // Repeats, runs (also round the 0), pair patterns, the common list and the digits of the
-    // phone (years are allowed since 16 Nov 2026): about 5% of the space, over 9,400 to choose from.
-    expect(weak).toBeGreaterThan(500);
-    expect(weak).toBeLessThanOrEqual(610);
+    // Repeats (10) and runs (20, also round the 0); this number's end (4567) is a run already.
+    expect(weak).toBe(30);
   });
 });
 

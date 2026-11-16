@@ -601,12 +601,13 @@ is set, run it from an allowed address.
 ## Player sign-in: 4-digit PIN and long sessions (owner's choice, 16 Nov 2026)
 
 - **New player passwords are 4-digit PINs** (registration, SMS reset, change). The API refuses
-  (`weak_password`, `pinWeaknessReason` in `packages/core/src/pin.ts`): one digit four times; runs up
-  or down, also round the 0 (1234, 9876, 7890); pair patterns (1212, 1122, 1221) and three of a digit
-  (1112); the years 1940 to 2030 (birth years, either calendar); a short list of frequent PINs (2580,
-  1004...); and any four digits in a row of the player's own number (its end, its 09.. start). That
-  is about 590 of the 10,000 PINs. Accounts made with an older long password keep signing in with
-  it (the login field shows the full keyboard for that); a shorter old password must be reset by SMS.
+  (`weak_password`, `pinWeaknessReason` in `packages/core/src/pin.ts`) only one digit four times
+  (1111), runs up or down, also round the 0 (1234, 9876, 7890), and the last four digits of the
+  player's own number: 31 of the 10,000 PINs. Pairs, mirrors, years and keypad shapes (1212, 1122,
+  1990, 2580) are valid: the owner's decision of 16 Nov 2026, after the registration form kept
+  refusing the PINs players typed (it had refused about 590). Accounts made with an older long
+  password keep signing in with it (the login field shows the full keyboard for that); a shorter old
+  password must be reset by SMS.
 - **Guessing limits per number:** 6 PIN checks per 15 minutes and 15 per day, from any address
   (`DEFAULT_AUTH_LIMITS` in `apps/api/src/lib/rate-limits.ts`), counting the login form AND the
   checks a signed-in player makes (changing the PIN, ending other sessions), so a stolen session

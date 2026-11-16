@@ -512,6 +512,12 @@ SELECT p.auto_open, p.pricing_source, count(*) AS locked, count(r.id) AS waiting
 watch the scraper's `hulusport board read` lines (factory load); the native-speaker check of the new
 Amharic texts (`common.telegram.join`, the PIN reasons, the consent sentence).
 
+**Registration, still refused (owner, late evening):** "it says easy number to predict or used
+password". The easy-PIN rule now refuses only one digit four times, runs and the last four digits of
+the player's own number (31 of 10,000; it was about 590): `packages/core/src/pin.ts`, the API and the
+form share it, and the hint and messages say exactly that (English and Amharic). Pairs, years and
+keypad shapes (1212, 1990, 2580) register. X6b (failed-login alarm) matters more now.
+
 **Decisions of the owner, late evening:** years are valid PINs again (done, `945b496`); for the
 locked odds "use your recommendation" (below); a PIN reset over Telegram when no SMS gateway exists
 (designed: `docs/plans/telegram-pin-reset.md`); the Next.js upgrade (16.4.2 to 16.4.5, advisory

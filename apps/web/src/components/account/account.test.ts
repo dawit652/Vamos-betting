@@ -126,9 +126,11 @@ describe('validation', () => {
     expect(pinError('48a6')).toBe('account.validation.pinFormat');
     expect(pinError('abcd')).toBe('account.validation.pinFormat');
     expect(pinError('4 26')).toBe('account.validation.pinFormat');
-    // Each easy PIN says which rule it breaks; years are allowed (owner, 16 Nov 2026).
-    expect(pinError('1990')).toBeUndefined();
-    expect(pinError('2016')).toBeUndefined();
+    // Each easy PIN says which rule it breaks. Years, pairs, mirrors and keypad shapes are allowed
+    // (owner, 16 Nov 2026).
+    for (const allowed of ['1990', '2016', '1212', '1122', '1221', '2580', '2000', '6969']) {
+      expect(pinError(allowed), allowed).toBeUndefined();
+    }
     for (const [weak, key] of [
       ['1111', 'account.validation.pinRepeated'],
       ['0000', 'account.validation.pinRepeated'],
@@ -137,14 +139,17 @@ describe('validation', () => {
       ['6789', 'account.validation.pinSequence'],
       ['9876', 'account.validation.pinSequence'],
       ['3210', 'account.validation.pinSequence'],
-      ['1212', 'account.validation.pinPattern'],
-      ['2580', 'account.validation.pinCommon'],
+      ['7890', 'account.validation.pinSequence'],
     ] as const)
       expect(pinError(weak), weak).toBe(key);
     expect(isWeakPin('4826')).toBe(false);
     expect(pinError('4826', '0911 234 826')).toBe('account.validation.pinPhone');
     expect(pinError('4826', '+251711234826')).toBe('account.validation.pinPhone');
     expect(pinError('4826', '0911 234 567')).toBeUndefined();
+    // Only the last four digits of the number, not its start or middle.
+    expect(pinError('0911', '0911 234 826')).toBeUndefined();
+    expect(pinError('1234', '0911 234 826')).toBe('account.validation.pinSequence');
+    expect(pinError('9112', '0911 234 826')).toBeUndefined();
   });
 
   it('enforces 21+ on the UTC calendar date', () => {

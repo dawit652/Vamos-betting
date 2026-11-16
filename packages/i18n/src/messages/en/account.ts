@@ -14,8 +14,7 @@ export const account = {
     code: 'SMS code',
     showPassword: 'Show password',
     pin: '4-digit PIN',
-    pinHint:
-      'Exactly 4 digits, not an easy one: not 1111, 1234, 1212 or the end of your phone number.',
+    pinHint: 'Exactly 4 digits. Not 1111, 1234 or the last 4 digits of your phone number.',
     newPin: 'New 4-digit PIN',
     confirmPin: 'Repeat the new PIN',
     pinLogin: 'PIN',
@@ -26,14 +25,11 @@ export const account = {
     passwordRequired: 'Enter your PIN.',
     pinFormat: 'The PIN must be exactly 4 digits.',
     weakPassword:
-      'This PIN is too easy to guess. Avoid repeated digits, runs like 1234, common PINs and the end of your phone number.',
+      'This PIN is too easy to guess. Do not use one digit four times (1111), digits in a row (1234) or the last 4 digits of your phone number.',
     pinRepeated: 'A PIN of one digit repeated (like 1111) is too easy to guess. Choose another.',
     pinSequence:
       'A PIN of digits in a row (like 1234 or 9876) is too easy to guess. Choose another.',
-    pinPattern:
-      'A PIN with a simple pattern (like 1212, 1122 or 1221) is too easy to guess. Choose another.',
-    pinCommon: 'This is one of the most common PINs. Choose another.',
-    pinPhone: 'Do not use part of your phone number as your PIN. Choose another.',
+    pinPhone: 'Do not use the last 4 digits of your phone number as your PIN. Choose another.',
     passwordMismatch: 'The two PINs do not match.',
     dateOfBirthRequired: 'Enter your date of birth.',
     dateOfBirth: 'Enter a real date of birth.',

@@ -9,8 +9,8 @@ export const DateOfBirth = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-
 /**
  * A new player password (registration, reset, change) is a **4-digit PIN**: the owner's choice
  * (16 Nov 2026), so players sign in as they do on their mobile money app. The API also refuses the
- * easiest PINs (`weak_password`: one digit four times, a straight run, a few very common ones, the
- * last four digits of the phone). Guessing is held back by the login limits per number (per 15
+ * easiest PINs (`weak_password`: one digit four times, a straight run, the last four digits of the
+ * phone). Guessing is held back by the login limits per number (per 15
  * minutes and per day, lifted by the SMS reset) and per address. Staff passwords are not PINs.
  *
  * Login (and the current password of a change) takes any non-empty password, so an account made

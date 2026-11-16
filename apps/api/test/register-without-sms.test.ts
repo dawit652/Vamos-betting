@@ -48,7 +48,7 @@ describe('registration without SMS in licensed mode', () => {
   });
 
   it('refuses an easy PIN, and takes a year (owner, 16 Nov 2026)', async () => {
-    for (const pin of ['1234', '1212', '1111', '4567']) {
+    for (const pin of ['1234', '1111', '4567', '4568']) {
       const response = await register('0911234568', pin);
       expect(response.statusCode, pin).toBe(400);
       expect(response.json()).toMatchObject({ error: { code: 'weak_password' } });
