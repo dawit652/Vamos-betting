@@ -65,6 +65,7 @@ export const sportsbook: Messages['sportsbook'] = {
   },
   markets: {
     more: '+{count} ገበያዎች',
+    moreOptions: '{count} ተጨማሪ አማራጮች',
     none: 'አሁን ክፍት ገበያ የለም።',
     suspended: 'ታግዷል',
     count: '{count} ገበያዎች',

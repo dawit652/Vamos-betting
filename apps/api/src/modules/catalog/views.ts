@@ -332,7 +332,9 @@ function teamView(team: TeamRow): EventSummary['home'] {
   return { id: team.id, name: localized(team.name), shortName: team.shortName };
 }
 
-function summaryFields(event: EventRow): Omit<EventSummary, 'mainMarket' | 'marketCount'> {
+function summaryFields(
+  event: EventRow,
+): Omit<EventSummary, 'mainMarket' | 'marketCount' | 'optionCount'> {
   return {
     id: event.id,
     gameId: formatGameId(event.gameId),
@@ -367,7 +369,8 @@ export function findMainMarket(
 /**
  * A list row. `markets` are all of the event's markets; `mainSelections`
  * the selections of its main market. marketCount counts the other markets
- * that are open or suspended ("+N markets").
+ * that are open or suspended ("+N markets"); optionCount sums the selections of
+ * those same markets, from `selectionCounts` (market id to number of selections).
  */
 export function eventSummaryView(
   event: EventRow,
@@ -376,18 +379,28 @@ export function eventSummaryView(
   now: Date,
   mainType?: MarketTypeCode,
   options: ViewOptions = {},
+  selectionCounts?: ReadonlyMap<string, number>,
 ): EventSummary {
   const main = findMainMarket(event, markets, mainType);
-  const marketCount = markets.filter(
+  const counted = markets.filter(
     (market) =>
       market !== main &&
       LISTED_MARKET_STATUSES.has(market.status) &&
       isDisplayableMarket(event.sport, market, options),
-  ).length;
+  );
+  const marketCount = counted.length;
   return {
     ...summaryFields(event),
     mainMarket: main === null ? null : marketView(event, main, mainSelections, now),
     marketCount,
+    ...(selectionCounts === undefined
+      ? {}
+      : {
+          optionCount: counted.reduce(
+            (sum, market) => sum + (selectionCounts.get(market.id) ?? 0),
+            0,
+          ),
+        }),
   };
 }
 
@@ -413,6 +426,7 @@ export function eventDetailView(
     now,
     undefined,
     options,
+    new Map([...selectionsByMarket].map(([id, rows]) => [id, rows.length])),
   );
   const htScore =
     event.status === 'scheduled' || event.htScoreHome === null || event.htScoreAway === null

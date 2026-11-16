@@ -346,6 +346,11 @@ C12 review fix (a debit SMS that names a mobile number never proves a bank payou
   international competitions, then the countries A to Z, with a flag on every league
   (`orderLeagueCategories` in `apps/web/src/components/sportsbook/leagues.ts`). The top-leagues rail,
   the country chips and the league headers already had flags.
+- **Left column like Hulusport** (wide screens): search box, Top Matches and Upcoming, a collapsible Top
+  Leagues panel with flags and match counts, then Sports and More leagues (X7). Phones unchanged.
+- **Match rows count options** like Hulusport's "503+": `optionCount` in the list rows (X8); 64+ per
+  football match today, about 650+ with the market factory switched on. The scraper's factory test
+  asserts at least 500 options for a market-priced match with the switches on.
 - **Registration without a birth date** (already so since 15 Nov; KYC still asks for the verified date).
 - **4-digit PIN and staying signed in:** new player passwords are 4-digit PINs (easy ones refused:
   repeats, straight runs, about 28 common PINs, the phone's last 4 digits), login limits per number

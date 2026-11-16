@@ -100,6 +100,7 @@ function MatchRow({
   const href = routes.event(event.id);
   const live = event.status === 'live';
   const day = relativeDay(event.startTime, now);
+  const optionCount = event.optionCount ?? 0;
   return (
     <li className="list-row">
       <div className="flex min-w-0 items-center gap-1.5 text-xxs whitespace-nowrap text-muted">
@@ -143,9 +144,17 @@ function MatchRow({
           href={href}
           prefetch={false}
           className="ml-auto flex-none rounded-full bg-raised px-2 font-bold text-brand"
-          aria-label={t('sportsbook.markets.more', { count: event.marketCount })}
+          aria-label={
+            optionCount > 0
+              ? t('sportsbook.markets.moreOptions', { count: optionCount })
+              : t('sportsbook.markets.more', { count: event.marketCount })
+          }
         >
-          {event.marketCount > 0 ? `+${event.marketCount} ›` : '›'}
+          {optionCount > 0
+            ? `${optionCount}+ ›`
+            : event.marketCount > 0
+              ? `+${event.marketCount} ›`
+              : '›'}
         </Link>
       </div>
       <div className="mt-1.5 flex items-center gap-2">

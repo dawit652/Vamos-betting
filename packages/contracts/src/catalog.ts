@@ -74,6 +74,11 @@ export const EventSummary = z.object({
   mainMarket: MarketView.nullable(),
   /** Number of other open markets ("+N markets"). */
   marketCount: z.number().int(),
+  /**
+   * Number of selections of exactly the markets marketCount counts (Hulusport-style "503+" badge).
+   * Optional so an older API answer still parses.
+   */
+  optionCount: z.number().int().optional(),
 });
 export type EventSummary = z.infer<typeof EventSummary>;
 

@@ -316,6 +316,24 @@ async function loadSelections(
     .where(inArray(selections.marketId, [...marketIds]));
 }
 
+/**
+ * Number of selections per market of the given events, in one grouped query (the list rows' option
+ * count; no per-row queries).
+ */
+async function loadSelectionCounts(
+  db: DbExecutor,
+  eventIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (eventIds.length === 0) return new Map();
+  const rows = await db
+    .select({ marketId: selections.marketId, n: sql<number>`count(*)::int` })
+    .from(selections)
+    .innerJoin(markets, eq(markets.id, selections.marketId))
+    .where(inArray(markets.eventId, [...eventIds]))
+    .groupBy(selections.marketId);
+  return new Map(rows.map((row) => [row.marketId, row.n]));
+}
+
 /** [start, end) of an Addis Ababa calendar day given as YYYY-MM-DD. */
 function addisAbabaDayOf(day: string): { start: Date; end: Date } {
   const start = Date.parse(`${day}T00:00:00Z`) - ADDIS_ABABA_OFFSET_MS;
@@ -441,10 +459,11 @@ async function summarizeEvents(
   now: Date,
   options: ViewOptions,
 ): Promise<EventSummary[]> {
-  const marketRows = await loadMarkets(
-    db,
-    eventRows.map((event) => event.id),
-  );
+  const eventIds = eventRows.map((event) => event.id);
+  const [marketRows, selectionCounts] = await Promise.all([
+    loadMarkets(db, eventIds),
+    loadSelectionCounts(db, eventIds),
+  ]);
   const marketsByEvent = groupBy(marketRows, (market) => market.eventId);
   const mainMarketIds = eventRows.flatMap((event) => {
     const main = findMainMarket(event, marketsByEvent.get(event.id) ?? [], mainType);
@@ -464,6 +483,7 @@ async function summarizeEvents(
       now,
       mainType,
       options,
+      selectionCounts,
     );
   });
 }

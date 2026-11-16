@@ -70,6 +70,7 @@ export const sportsbook = {
   },
   markets: {
     more: '+{count} markets',
+    moreOptions: '{count} more options',
     none: 'No markets are open right now.',
     suspended: 'Suspended',
     count: '{count} markets',

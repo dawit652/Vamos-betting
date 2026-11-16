@@ -518,6 +518,8 @@ describe('GET /events', () => {
       score: { home: 1, away: 0 },
       // ou 2.5 (open) and btts (suspended); not cs (closed) or dnb (settled).
       marketCount: 2,
+      // ou 2.5 (2) and btts (2).
+      optionCount: 4,
     });
     expect(live?.mainMarket).toMatchObject({
       type: '1x2',
@@ -540,6 +542,8 @@ describe('GET /events', () => {
       liveMinute: null,
       // dc, ou 1.5 (suspended), ou 2.5, ht_1x2, cs; not the unknown market type.
       marketCount: 5,
+      // Their selections: dc 3, ou 1.5 2, ou 2.5 2, ht_1x2 3, cs 3.
+      optionCount: 13,
     });
     expect(soon?.home.name).toEqual({ en: 'Saint George', am: 'ቅዱስ ጊዮርጊስ' });
     expect(soon?.mainMarket?.selections.map((s) => [s.code, s.label.am, s.open])).toEqual([
@@ -852,7 +856,7 @@ describe('GET /events', () => {
     try {
       const response = await get('/events?sport=tennis&filter=upcoming&limit=25');
       expect(EventListResponse.parse(response.json()).items).toHaveLength(25);
-      expect(queries).toBe(3); // events, markets, main-market selections
+      expect(queries).toBe(4); // events, markets, option counts, main-market selections
     } finally {
       (pool as { query: unknown }).query = original;
     }
@@ -868,6 +872,7 @@ describe('GET /events/:id and /events/by-game-id/:gameId', () => {
     expect(body.gameId).toBe('0123');
     expect(body.htScore).toBeNull();
     expect(body.marketCount).toBe(5);
+    expect(body.optionCount).toBe(13);
     expect(body.mainMarket?.id).toBe(soonMarkets.oneXTwo!.id);
     expect(body.markets.map((m) => [m.type, m.line, m.status, m.name.en])).toEqual([
       ['1x2', null, 'open', 'Match Result'],
