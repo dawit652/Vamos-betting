@@ -1,6 +1,6 @@
 # Scale and payments: progress
 
-Last updated: 16 Nov 2026, 04:30 UTC. Session `01BhRB` (second account): B4, A2, A1a, A1b, A5, A10b, C10, B2a, B2b, B2c and B6 done. Session `01BG4x` (first account, Sonnet 5.5): C12 landed (reviewed and extended by `01BhRB`), C2a saved as a patch; its Opus agents hit the 5-hour limit (reset 01:00 UTC).
+Last updated: 16 Nov 2026, 06:26 UTC. Session `01BG4x` (first account): A7, A9, A9b part 1, C2a review. Before it, session `01BhRB` (second account): B4, A1a, B2a to B2c, A5, B6, C10, the C12 review.
 
 The plan is [scale-and-payments-plan.md](scale-and-payments-plan.md); the to-do list with "done when"
 for each task is [scale-and-payments-handover.md](scale-and-payments-handover.md). Update this file in

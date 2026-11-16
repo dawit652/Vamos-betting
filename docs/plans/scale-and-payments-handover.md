@@ -273,6 +273,15 @@ changes). Not verified: `e2e/tests/sms-rail.spec.ts` with two accounts, the new 
 and against the 160 KB budget, `caddy validate` of `Caddyfile.streams` (CI does it), and 2,000 streams on
 `streams` processes while `pnpm load:bets` runs on the others.
 
+**Added on 16 Nov, 05:30 to 06:26 UTC (first account, session `01BG4x`), all pushed:** A7 measured (no
+shard); A9: **the outbox dispatcher handed over only 100 rows a second and now drains about 9,000**
+(worker code: deploy it with the rest), settlement pace measured (about 370 bets a second),
+`docs/plans/worker-standby-design.md`; A9b part 1 (outbox age on the API's metrics); an independent
+review of C2a that fixed one more weakness in the masked-account count (design section 12). **Deploy
+note for the owner:** the dispatcher change is in `apps/worker` only, has no migration and changes no
+job id or retry rule; after the deploy, `outbox_oldest_unpublished_seconds` on the api's `/metrics`
+should read 0 or a few seconds.
+
 **Still open, in this order** (model and effort in brackets):
 
 1. ~~C10~~ done (progress file): ask the owner for the real `FLOAT_FORECAST_WITHDRAWN_PERCENT` (the default 20 is a guess) and
@@ -285,8 +294,11 @@ and against the 160 KB budget, `caddy validate` of `Caddyfile.streams` (CI does 
 3. ~~X2~~ done (`e2e/tests/redesign.spec.ts`, 11 tests; its caveats are in the progress file). Still to do
    here: run `e2e/tests/sms-rail.spec.ts` with two simulated accounts at the same time (the full suite
    passed 18 of 18 on 16 Nov with the single-account scenarios only).
-4. **A9b, A8, A6b, B5, D1 to D8** per the progress file (A9b to B5 need no decision; D rows are owner
-   tasks). A7 and A9 are done.
+4. **A9b's script** (a host script that restarts an unhealthy worker, with a stub-docker test in CI;
+   design in `worker-standby-design.md`, section 3 item 2; Sonnet medium, Opus reviews), then **A8,
+   A6b, B5, D1 to D8** per the progress file (A8 to B5 need no decision; D rows are owner tasks). A7,
+   A9 and A9b part 1 are done. If settlement must be faster than about 370 bets a second, that is a
+   new money-path design (one ledger posting per batch of bets): ask the owner before starting it.
 5. **X4** licensed texts for Help, Terms and Responsible gambling: needs the licence details from the
    owner; do not invent legal text. **X3** the rename stages 1 to 3 last, in one pull request while no
    other branch or agent is editing (it touches every import); never rename the compose project, volumes
