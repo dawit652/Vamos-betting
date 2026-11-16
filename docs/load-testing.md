@@ -111,6 +111,43 @@ defaults) gave 4,119 and 4,162 bets in 30 s before (137 and 139 per second) and 
 (2%) is far below the spread between runs (about 19%): fewer reads did not move throughput. See
 `docs/plans/scale-and-payments-progress.md`, section 2.
 
+## Results (16 Nov 2026): the house_stakes ceiling (A7)
+
+`pnpm --filter @vamos/load house-stakes [--processes N] [--workers 8] [--seconds 15]` posts stakes with
+the real `postTransaction` (player cash -1 ETB, `house_stakes` +1 ETB, one transaction each) from N
+Node processes with 8 loops each, against a scratch database (`scripts/load/house-stakes.ts`). There
+is no bet, no HTTP: this is the one row all bets share, and nothing else. One 4-CPU container, the
+same disk as above, 15 s per run, the ledger check passing every time (house_stakes equals the total
+staked, the entries sum to zero, no failed posting):
+
+| Processes | Concurrent postings | Postings/s | p50   | p95    | p99    |
+| --------- | ------------------- | ---------- | ----- | ------ | ------ |
+| 1         | 8                   | 775        | 8 ms  | 25 ms  | 38 ms  |
+| 2         | 16                  | 534        | 20 ms | 91 ms  | 147 ms |
+| 4         | 32                  | 495        | 42 ms | 204 ms | 323 ms |
+| 6         | 48                  | 367        | 82 ms | 406 ms | 663 ms |
+
+What it says:
+
+- **The row, not the CPUs, is the limit.** During the 4-process run (load average 2.4 on 4 CPUs) 16 to
+  29 of the busy connections were waiting in `Lock:transactionid` and 2 to 15 in `Lock:tuple`, behind
+  the one row.
+- **The ceiling is 500 to 800 postings/s, and it goes down, not up, with more concurrent writers**:
+  waiters queue on the row and every hand-over costs a wake-up. Eight concurrent postings did best;
+  48 gave less than half of that. A busy period with many API processes therefore cannot reach the
+  single-process figure on the house row alone.
+- **The plan's threshold (shard only if the row limits below 300 bets/s) is not reached.** The row
+  allows about 370 to 500 stakes/s with 32 to 48 writers. In a real bet the posting is only the last
+  part of the transaction, so fewer bets queue on the row at once than here. No shard, no change of
+  the ledger layout: A7 stays measured-only.
+- **Settlement shares the row.** Settling a lost or won bet posts to `house_stakes` too, so a
+  settlement burst (the whole evening's final whistles) takes row time from bet placement. If the
+  load test of the whole stack (A1) ever shows bet latency climbing while settlement runs, this
+  table is the budget: about 500 postings/s shared. The remedy then is to batch settlement postings
+  per event, before sharding the account.
+- **Not measured**: a slower disk (commit is about 0.3 ms here; a network disk can be 5 to 10 times
+  that and lowers the ceiling in proportion), and PgBouncer in front (the overlay of A4).
+
 ## What was found and fixed
 
 **The house_stakes lock (fixed).** Every stake posting updates the one `house_stakes` ledger account
@@ -143,8 +180,8 @@ divided by 96 bets/s is about 0.42 s.
 To go further:
 
 - **Scale out.** Run several API replicas. They share nothing but Postgres and Redis. With the stake
-  posting last, the lock-bound ceiling for one house account is about 1 / (posting + commit), which
-  is several hundred bets/s. That figure is an estimate and was not measured here.
+  posting last, the lock-bound ceiling for one house account is several hundred postings/s. It was
+  measured on 16 Nov 2026 (task A7, next section).
 - **Cut queries.** Avoid re-reading the bet after inserting it (`getBetById`, 3 queries), and merge
   the two `users` reads.
 - **Split the house account.** Only if that ceiling is ever reached, split `house_stakes` per channel

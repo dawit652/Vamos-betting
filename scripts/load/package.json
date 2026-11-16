@@ -8,7 +8,8 @@
     "bet-placement": "tsx bet-placement.ts",
     "deposits": "tsx deposits.ts",
     "pages": "tsx pages.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "house-stakes": "tsx house-stakes.ts"
   },
   "devDependencies": {
     "@types/autocannon": "7.12.7",
