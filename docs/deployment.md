@@ -439,8 +439,12 @@ token gets 401. It is read-only and counts requests by route template (never the
   `nodejs_heap_used_bytes`.
 - Business gauges, read from the database at scrape time and kept 15 seconds (concurrent scrapes share one
   result): `sms_open_deposits`, `sms_open_deposits_busiest{base_amount_birr}` (the 5 base amounts with most open
-  deposits; a base amount near 50 open deposits is out of free amounts), `manual_payout_oldest_approved_seconds`,
+  deposits; a base amount near 99 open deposits is out of free amounts), `manual_payout_oldest_approved_seconds`,
   `manual_payout_claimed_idle` (claimed over 30 minutes ago) and `withdrawals_awaiting_review`.
+- `outbox_unpublished` and `outbox_oldest_unpublished_seconds`, the same two gauges the worker serves (below). The
+  worker's copy stops answering when the worker is down or hung, which is exactly when the age grows; the api's
+  keeps answering. **Alert on `outbox_oldest_unpublished_seconds > 60` from the api**: it covers a worker that is
+  down, hung, or cut off from Redis.
 
 **Worker.** The worker answers `GET /metrics` on its health port (`WORKER_HEALTH_PORT`, default 4100) with the same
 `METRICS_TOKEN` and the same rules (no token: 404; missing or wrong bearer: 401; Redis unreadable: 503). It

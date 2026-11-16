@@ -1,4 +1,5 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks';
+import { readOutboxBacklog } from '@vamos/db';
 import { paymentIntents, payouts } from '@vamos/db/schema';
 import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -60,6 +61,9 @@ export interface BusinessGauges {
   manualPayoutOldestApprovedSeconds: number;
   manualPayoutClaimedIdle: number;
   withdrawalsAwaitingReview: number;
+  /** Outbox rows the worker has not yet handed to its queues, and the age of the oldest. */
+  outboxUnpublished: number;
+  outboxOldestUnpublishedSeconds: number;
 }
 
 /** Santim as a whole-birr label: "100" for 10000, "12.50" only when santim remain. */
@@ -78,10 +82,10 @@ export async function readBusinessGauges(deps: AppDeps): Promise<BusinessGauges>
     eq(paymentIntents.provider, 'sms'),
     inArray(paymentIntents.status, ['created', 'pending']),
   );
-  // The base amount is what the player asked for; `amount` adds the 1-50 santim reference.
+  // The base amount is what the player asked for; `amount` adds the 1-99 santim reference.
   const baseAmount = sql<bigint>`coalesce(${paymentIntents.requestedAmount}, ${paymentIntents.amount})`;
 
-  const [[total], busiest, [queue]] = await Promise.all([
+  const [[total], busiest, [queue], outbox] = await Promise.all([
     db.select({ n: count() }).from(paymentIntents).where(openSms),
     db
       .select({ base: baseAmount, n: count() })
@@ -105,6 +109,7 @@ export async function readBusinessGauges(deps: AppDeps): Promise<BusinessGauges>
       })
       .from(payouts)
       .where(inArray(payouts.status, ['requested', 'approved', 'processing'])),
+    readOutboxBacklog(db),
   ]);
 
   const oldest = queue?.oldestApproved ?? null;
@@ -118,6 +123,8 @@ export async function readBusinessGauges(deps: AppDeps): Promise<BusinessGauges>
       oldest === null ? 0 : Math.max(0, Math.floor((now.getTime() - oldest.getTime()) / 1000)),
     manualPayoutClaimedIdle: queue?.claimedIdle ?? 0,
     withdrawalsAwaitingReview: queue?.awaitingReview ?? 0,
+    outboxUnpublished: outbox.unpublished,
+    outboxOldestUnpublishedSeconds: outbox.oldestSeconds,
   };
 }
 
@@ -248,7 +255,7 @@ export function installMetrics(app: FastifyInstance, deps: AppDeps): void {
         ]),
         renderGauge(
           'sms_open_deposits_busiest',
-          'Open SMS deposits of the busiest base amounts (what the player asked for); near 50 an amount is out of references.',
+          'Open SMS deposits of the busiest base amounts (what the player asked for); near 99 an amount is out of references.',
           gauges.smsBusiest.map((row) => ({
             labels: { base_amount_birr: row.baseAmountBirr },
             value: row.open,
@@ -267,6 +274,18 @@ export function installMetrics(app: FastifyInstance, deps: AppDeps): void {
         renderGauge('withdrawals_awaiting_review', 'Withdrawals waiting for manual review.', [
           { value: gauges.withdrawalsAwaitingReview },
         ]),
+        // The worker serves these two as well, but only while it runs: here they keep answering
+        // when the worker is down or hung, which is when the age grows.
+        renderGauge(
+          'outbox_unpublished',
+          'Outbox rows not yet handed to the queues (rows backing off and dead letters included).',
+          [{ value: gauges.outboxUnpublished }],
+        ),
+        renderGauge(
+          'outbox_oldest_unpublished_seconds',
+          'Age of the oldest outbox row not yet handed to the queues (0: none).',
+          [{ value: gauges.outboxOldestUnpublishedSeconds }],
+        ),
       );
     }
     return reply.header('content-type', PROMETHEUS_CONTENT_TYPE).send(renderExposition(families));

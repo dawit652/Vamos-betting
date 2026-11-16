@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { paymentIntents, payoutAccounts, payouts } from '@vamos/db/schema';
+import { outboxEvents, paymentIntents, payoutAccounts, payouts } from '@vamos/db/schema';
+import { isNull, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { BUSINESS_CACHE_MS, birrLabel, CLAIMED_IDLE_MS } from '../src/plugins/metrics';
 import { createTestContext, registerAndLogin, type TestContext } from './helpers';
@@ -344,6 +345,46 @@ describe('GET /metrics', () => {
         );
       } finally {
         query.mockRestore();
+      }
+    });
+
+    it('reports what waits in the outbox, which the worker cannot report when it is down', async () => {
+      const publishAll = () =>
+        ctx.db.db
+          .update(outboxEvents)
+          .set({ publishedAt: new Date() })
+          .where(isNull(outboxEvents.publishedAt));
+      await publishAll();
+      ctx.clock.advance(BUSINESS_CACHE_MS + 1_000);
+      const empty = (await scrape()).body;
+      expect(gauge(empty, 'outbox_unpublished')).toBe(0);
+      expect(gauge(empty, 'outbox_oldest_unpublished_seconds')).toBe(0);
+
+      try {
+        const rows = await ctx.db.db
+          .insert(outboxEvents)
+          .values(
+            [1, 2].map((n) => ({
+              type: 'user.registered',
+              aggregateType: 'user',
+              aggregateId: `metrics-${n}`,
+              payload: {},
+            })),
+          )
+          .returning({ id: outboxEvents.id });
+        // The age is read by the database's clock: one row was written 90 seconds ago.
+        await ctx.db.db
+          .update(outboxEvents)
+          .set({ createdAt: sql`now() - interval '90 seconds'` })
+          .where(sql`${outboxEvents.id} = ${rows[0]!.id}`);
+        ctx.clock.advance(BUSINESS_CACHE_MS + 1_000);
+        const waiting = (await scrape()).body;
+        expect(gauge(waiting, 'outbox_unpublished')).toBe(2);
+        const age = gauge(waiting, 'outbox_oldest_unpublished_seconds') ?? 0;
+        expect(age).toBeGreaterThanOrEqual(90);
+        expect(age).toBeLessThan(150);
+      } finally {
+        await publishAll();
       }
     });
   });
