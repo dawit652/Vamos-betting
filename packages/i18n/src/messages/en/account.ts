@@ -377,6 +377,8 @@ export const account = {
         step1: 'Open your telebirr or bank app, or dial the code above.',
         step2: 'Send exactly ETB {amount} to the account above, from your own account.',
         step3: 'Your balance updates by itself within a minute of paying.',
+        onlyThisAccount:
+          'Pay only to this account: your exact amount is reserved for it and would not be found on another.',
         anyBank:
           'You can pay from any Ethiopian bank: transfers into this account arrive from every bank.',
         expires: 'Pay before {time}. A payment that arrives a little later is still credited.',

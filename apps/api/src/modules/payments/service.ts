@@ -50,7 +50,7 @@ import {
   unprocessable,
 } from '../../lib/errors';
 import { cachedGameSettings } from '../betting/service';
-import { smsRailOptions } from './smsrail';
+import { smsProviderOf, smsRailOptions } from './smsrail';
 import { depositView, withdrawalView } from './views';
 
 type Deps = Pick<AppDeps, 'config' | 'db' | 'clock' | 'payments'>;
@@ -224,7 +224,10 @@ export async function createPlayerDeposit(
           provider instanceof SmsRailProvider ? provider.collectionAccountIds : [],
       });
     });
-    return { deposit: depositView(sms.intent), replayed: sms.replayed };
+    return {
+      deposit: depositView(sms.intent, provider instanceof SmsRailProvider ? provider : null),
+      replayed: sms.replayed,
+    };
   }
   const created = await withTxRetry(deps.db, async (tx) => {
     const settings = await loadGameSettings(tx);
@@ -248,23 +251,24 @@ export async function createPlayerDeposit(
 
 /** GET /payments/deposits/:id; 404 for an unknown id or another player's deposit. */
 export async function getPlayerDeposit(
-  deps: Pick<AppDeps, 'db'>,
+  deps: Pick<AppDeps, 'db' | 'payments'>,
   userId: string,
   depositId: string,
 ): Promise<DepositView> {
   const intent = await getUserDepositIntent(deps.db, userId, parseId(depositId, 'Deposit'));
   if (intent === null) throw notFound('Deposit');
-  return depositView(intent);
+  return depositView(intent, smsProviderOf(deps));
 }
 
 /** GET /payments/deposits: the player's latest deposits. */
 export async function listPlayerDeposits(
-  deps: Pick<AppDeps, 'db'>,
+  deps: Pick<AppDeps, 'db' | 'payments'>,
   userId: string,
   limit: number,
 ): Promise<DepositsResponse> {
   const rows = await listUserDepositIntents(deps.db, userId, { limit });
-  return { items: rows.map(depositView) };
+  const sms = smsProviderOf(deps);
+  return { items: rows.map((row) => depositView(row, sms)) };
 }
 
 export interface RequestWithdrawalCommand {

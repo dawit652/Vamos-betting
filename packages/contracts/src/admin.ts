@@ -985,6 +985,8 @@ export const StaffSmsView = z.object({
   id: z.string(),
   source: z.enum(['gateway', 'simulator', 'receipt']),
   sender: z.string().nullable(),
+  /** The collection account (SMS_COLLECTION_ACCOUNTS id) whose handset received it; null when unknown. */
+  collectionAccount: z.string().nullable(),
   rawText: z.string(),
   institution: z.string().nullable(),
   direction: z.enum(['credit', 'debit']).nullable(),

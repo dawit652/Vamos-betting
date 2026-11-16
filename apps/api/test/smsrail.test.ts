@@ -4,6 +4,7 @@ import {
   ApiErrorSchema,
   ClaimManualPayoutBatchResponse,
   DepositCheckResponse,
+  DepositsResponse,
   DepositView,
   DevSmsResponse,
   PaymentOptionsResponse,
@@ -305,6 +306,63 @@ describe('the live gateway', () => {
     expect(await cashOf(player)).toBe(before + send);
   });
 
+  it('shows a deposit the one account it was given, on create, get and list', async () => {
+    const live = goLive({ twoAccounts: true });
+    const deposit = await openSmsDeposit(player, 65_000n);
+    const [row] = await ctx.db.db
+      .select({ account: paymentIntents.collectionAccount })
+      .from(paymentIntents)
+      .where(eq(paymentIntents.id, deposit.id));
+    const given = live.collectionAccounts.find((a) => a.id === row?.account);
+    expect(given).toBeDefined();
+    const expected = {
+      institution: given!.institution,
+      account: given!.account,
+      name: given!.name,
+      hint: null,
+    };
+    expect(deposit.transfer?.account).toEqual(expected);
+    const fetched = await ctx.app.inject({
+      method: 'GET',
+      url: `/payments/deposits/${deposit.id}`,
+      headers: bearer(player),
+    });
+    expect(DepositView.parse(fetched.json()).transfer?.account).toEqual(expected);
+    const listed = await ctx.app.inject({
+      method: 'GET',
+      url: '/payments/deposits',
+      headers: bearer(player),
+    });
+    const item = DepositsResponse.parse(listed.json()).items.find((d) => d.id === deposit.id);
+    expect(item?.transfer?.account).toEqual(expected);
+  });
+
+  it('has no account for a deposit that recorded none, or when the rail is not running', async () => {
+    goLive({ twoAccounts: true });
+    const deposit = await openSmsDeposit(player, 66_000n);
+    await ctx.db.db
+      .update(paymentIntents)
+      .set({ collectionAccount: null })
+      .where(eq(paymentIntents.id, deposit.id));
+    const fetched = await ctx.app.inject({
+      method: 'GET',
+      url: `/payments/deposits/${deposit.id}`,
+      headers: bearer(player),
+    });
+    expect(DepositView.parse(fetched.json()).transfer?.account).toBeNull();
+    // An id the configuration no longer has is also no account, never a guess.
+    await ctx.db.db
+      .update(paymentIntents)
+      .set({ collectionAccount: 'telebirr:gone' })
+      .where(eq(paymentIntents.id, deposit.id));
+    const gone = await ctx.app.inject({
+      method: 'GET',
+      url: `/payments/deposits/${deposit.id}`,
+      headers: bearer(player),
+    });
+    expect(DepositView.parse(gone.json()).transfer?.account).toBeNull();
+  });
+
   it('refuses malformed bodies and addresses outside the allowlist', async () => {
     goLive();
     expect((await gateway({ secret: GATEWAY_SECRET })).statusCode).toBe(400);
@@ -351,6 +409,8 @@ describe('the live gateway', () => {
     expect(asked).toEqual(['telebirr:RC00000001']);
     expect(body.status).toBe('credited');
     expect(body.deposit?.id).toBe(deposit.id);
+    // The check names the account too: the one live account.
+    expect(body.deposit?.transfer?.account).toMatchObject({ institution: 'telebirr' });
   });
 });
 
@@ -525,6 +585,18 @@ describe('payout accounts and manual withdrawals', () => {
     );
     expect(mine.status).toBe('paid');
     expect(mine.settlementReference).toBe(proposed.proposedSms!.reference);
+  });
+
+  it('shows staff the collection account of each message', async () => {
+    const live = goLive({ twoAccounts: true });
+    const secret = { [SMS_GATEWAY_SECRET_HEADER]: GATEWAY_SECRET };
+    const account = live.collectionAccounts[1]!.id;
+    const text = telebirrCredit(12_345n, player.phone, 'LV00000065');
+    await gateway({ sender: 'telebirr', text, account }, secret);
+    const log = StaffSmsListResponse.parse(
+      (await asStaff(ctx, finance, 'GET', '/admin/sms?queue=all&limit=50')).json(),
+    );
+    expect(log.items.find((sms) => sms.rawText === text)?.collectionAccount).toBe(account);
   });
 
   it('shows the review queue and health, and lets staff credit a flagged SMS', async () => {

@@ -4,13 +4,26 @@ import type {
   WithdrawalStep,
   WithdrawalView,
 } from '@vamos/contracts';
+import type { CollectionAccount } from '@vamos/config';
 import { payoutDestination, toWire } from '@vamos/core';
 import type { PaymentIntent, Payout } from '@vamos/db';
 
 const iso = (date: Date | null): string | null => (date === null ? null : date.toISOString());
 
-/** A deposit intent as the player sees it. */
-export function depositView(intent: PaymentIntent): DepositView {
+/** The collection accounts of the SMS rail provider, when it runs (for the deposit's account). */
+export interface CollectionAccountLookup {
+  collectionAccounts: readonly CollectionAccount[];
+}
+
+/** A deposit intent as the player sees it; `sms` names the account of an SMS deposit. */
+export function depositView(
+  intent: PaymentIntent,
+  sms?: CollectionAccountLookup | null,
+): DepositView {
+  const account =
+    intent.collectionAccount === null
+      ? undefined
+      : sms?.collectionAccounts.find((a) => a.id === intent.collectionAccount);
   return {
     id: intent.id,
     // Rows are only created for providers of the registry (PAYMENT_PROVIDER_NAMES).
@@ -34,6 +47,15 @@ export function depositView(intent: PaymentIntent): DepositView {
         ? {
             requestedAmount: toWire(intent.requestedAmount ?? intent.amount),
             sendAmount: toWire(intent.amount),
+            account:
+              account === undefined
+                ? null
+                : {
+                    institution: account.institution,
+                    account: account.account,
+                    name: account.name,
+                    hint: account.hint ?? null,
+                  },
           }
         : null,
     expiresAt: intent.expiresAt.toISOString(),

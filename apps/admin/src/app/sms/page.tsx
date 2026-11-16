@@ -93,6 +93,9 @@ function SmsRow({ sms, reload }: { sms: StaffSmsView; reload: () => void }) {
       <td>
         {sms.institution ?? sms.sender ?? '–'}
         <div className="muted small">{sms.source}</div>
+        {sms.collectionAccount !== null && (
+          <div className="muted small">to {sms.collectionAccount}</div>
+        )}
       </td>
       <td>{sms.direction ?? '–'}</td>
       <td className="num">{sms.amount === null ? '–' : formatEtb(sms.amount)}</td>

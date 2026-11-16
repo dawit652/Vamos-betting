@@ -76,10 +76,10 @@ export function smsRailOptions(deps: Pick<AppDeps, 'payments'>): PaymentOptionsR
   };
 }
 
-function checkResponse(result: SmsCheckResult): DepositCheckResponse {
+function checkResponse(result: SmsCheckResult, provider: SmsRailProvider): DepositCheckResponse {
   return {
     status: result.status,
-    deposit: result.intent === undefined ? null : depositView(result.intent),
+    deposit: result.intent === undefined ? null : depositView(result.intent, provider),
   };
 }
 
@@ -130,7 +130,7 @@ export async function checkPlayerSmsDeposit(
     deps.receipts === undefined ||
     deps.config.payments.sms.receiptVerify === 'off'
   ) {
-    return checkResponse(result);
+    return checkResponse(result, provider);
   }
   const reference = result.reference;
   for (const spec of RECEIPT_VERIFIABLE_INSTITUTIONS) {
@@ -165,9 +165,9 @@ export async function checkPlayerSmsDeposit(
         now: deps.clock(),
       }),
     );
-    return checkResponse(recorded);
+    return checkResponse(recorded, provider);
   }
-  return checkResponse(result);
+  return checkResponse(result, provider);
 }
 
 function headerString(value: string | string[] | undefined): string | undefined {

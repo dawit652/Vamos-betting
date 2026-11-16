@@ -147,7 +147,26 @@ export const DepositView = z.object({
    * amount plus a few santim: they identify the deposit) to one of the
    * collection accounts of GET /payments/options.
    */
-  transfer: z.object({ requestedAmount: Santim, sendAmount: Santim }).nullable(),
+  transfer: z
+    .object({
+      requestedAmount: Santim,
+      sendAmount: Santim,
+      /**
+       * The one collection account this deposit's exact amount belongs to: pay only there.
+       * Null for older deposits and when no accounts are configured (then any account of
+       * GET /payments/options). Optional so an older client's parse still passes.
+       */
+      account: z
+        .object({
+          institution: z.string(),
+          account: z.string(),
+          name: z.string(),
+          hint: z.string().nullable(),
+        })
+        .nullable()
+        .optional(),
+    })
+    .nullable(),
   expiresAt: IsoDateTime,
   createdAt: IsoDateTime,
   completedAt: IsoDateTime.nullable(),
