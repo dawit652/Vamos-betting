@@ -105,6 +105,14 @@ export const CreateDepositRequest = z.object({
   provider: PaymentProviderNameSchema.optional(),
   /** Must be the registered phone (the default). */
   phone: PhoneInput.optional(),
+  /**
+   * SMS rail: the institution the player pays through (one of `smsRail.methods`; default the
+   * first). The server gives the deposit one of that institution's collection accounts only.
+   */
+  institution: z
+    .string()
+    .regex(/^[a-z]{2,20}$/)
+    .optional(),
 });
 export type CreateDepositRequest = z.infer<typeof CreateDepositRequest>;
 

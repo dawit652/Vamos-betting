@@ -210,6 +210,13 @@ export async function createPlayerDeposit(
     if (request.phone !== undefined) {
       throw badRequest('phone_not_applicable', 'SMS rail deposits are not tied to a phone.');
     }
+    const rail = provider instanceof SmsRailProvider ? provider : null;
+    const institution = request.institution ?? rail?.collectionAccounts[0]?.institution;
+    const collectionAccounts =
+      rail?.collectionAccounts.filter((a) => a.institution === institution).map((a) => a.id) ?? [];
+    if (request.institution !== undefined && collectionAccounts.length === 0) {
+      throw badRequest('unknown_institution', 'No collection account at that institution.');
+    }
     const sms = await withTxRetry(deps.db, async (tx) => {
       const settings = await loadGameSettings(tx);
       return createSmsDepositIntent(tx, {
@@ -219,9 +226,9 @@ export async function createPlayerDeposit(
         now,
         rules: settings.payments,
         ip: command.ip ?? null,
-        // Each collection account has its own amounts: the deposit is given the emptiest one.
-        collectionAccounts:
-          provider instanceof SmsRailProvider ? provider.collectionAccountIds : [],
+        // Each collection account has its own amounts: the deposit is given the emptiest one of
+        // the institution the player chose (never an account of another institution).
+        collectionAccounts,
       });
     });
     return {

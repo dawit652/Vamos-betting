@@ -600,6 +600,39 @@ describe('payout accounts and manual withdrawals', () => {
     expect(log.items.find((sms) => sms.rawText === text)?.collectionAccount).toBe(account);
   });
 
+  it('gives a deposit an account of the institution the player chose, never of another', async () => {
+    const options = PaymentOptionsResponse.parse(
+      (await ctx.app.inject({ method: 'GET', url: '/payments/options' })).json(),
+    );
+    const institutions = options.smsRail?.methods.map((m) => m.institution) ?? [];
+    expect(institutions.length).toBeGreaterThan(1);
+    for (const institution of institutions) {
+      for (let i = 0; i < 3; i++) {
+        const response = await postAs(
+          player,
+          '/payments/deposits',
+          { amount: '30000', provider: 'sms', institution },
+          { 'idempotency-key': randomUUID() },
+        );
+        expect(response.statusCode).toBe(201);
+        const deposit = DepositView.parse(response.json());
+        expect(deposit.transfer?.account?.institution).toBe(institution);
+        const [row] = await ctx.db.db
+          .select({ account: paymentIntents.collectionAccount })
+          .from(paymentIntents)
+          .where(eq(paymentIntents.id, deposit.id));
+        expect(row?.account?.startsWith(`${institution}:`)).toBe(true);
+      }
+    }
+    const unknown = await postAs(
+      player,
+      '/payments/deposits',
+      { amount: '30000', provider: 'sms', institution: 'nosuchbank' },
+      { 'idempotency-key': randomUUID() },
+    );
+    expect(unknown.statusCode).toBe(400);
+  });
+
   it('lets staff read an unread message again, crediting a deposit once', async () => {
     const deposit = await openSmsDeposit(player, 75_000n);
     const send = BigInt(deposit.transfer!.sendAmount);
