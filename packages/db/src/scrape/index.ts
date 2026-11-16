@@ -86,6 +86,38 @@ export {
   type UnresolvedMarketOddsNames,
 } from './market-odds';
 export {
+  boardOddsSummary,
+  findEventByTeams,
+  freshBoardKeys,
+  getHulusportPricing,
+  HULUSPORT_PRICING_SETTING,
+  latestBoardOdds,
+  pruneBoardOdds,
+  setHulusportPricing,
+  upsertBoardOdds,
+  type BoardOddsInput,
+  type BoardOddsSummary,
+  type HulusportPricing,
+  type LatestBoardOdds,
+} from './board-odds';
+export {
+  BOARD_FEED_PROVIDER,
+  boardEventsSummary,
+  boardEventsWithoutResult,
+  markBoardResultApplied,
+  recordBoardResultSighting,
+  boardSlug,
+  ensureBoardCompetition,
+  ensureBoardTeam,
+  listBoardEvents,
+  loadBoardCatalog,
+  type BoardCatalog,
+  type BoardEventRow,
+  type BoardEventsSummary,
+  type BoardEventPendingResult,
+  type BoardResultSighting,
+} from './board-events';
+export {
   addCompetitionAlias,
   addTeamAlias,
   addTeamWithAlias,

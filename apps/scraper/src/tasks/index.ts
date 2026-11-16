@@ -1,14 +1,21 @@
 import type { ScraperContext } from '../context';
 import type { ScraperTask } from '../lib/interval';
 import { marketFamilyTask } from './market-families';
+import { boardResultsTask } from './board-results';
+import { hulusportTask } from './hulusport';
 import { promoteTask } from './promote';
 import { pruneTask } from './prune';
 import { schedulerTask } from './scheduler';
 import { trustTask } from './trust';
 import { weeklyReportTask } from './weekly-report';
 
-/** The scraper's tasks, in start order (they stop in reverse). */
+/**
+ * The scraper's tasks, in start order (they stop in reverse). The Hulusport board only when
+ * configured (SCRAPER_HULUSPORT_URL), and its API-Football results only with a key as well.
+ */
 export function createTasks(ctx: ScraperContext): ScraperTask[] {
+  const hulusport = hulusportTask(ctx);
+  const results = hulusport === null ? null : boardResultsTask(ctx);
   return [
     schedulerTask(ctx),
     promoteTask(ctx),
@@ -16,6 +23,8 @@ export function createTasks(ctx: ScraperContext): ScraperTask[] {
     trustTask(ctx),
     marketFamilyTask(ctx),
     weeklyReportTask(ctx),
+    ...(hulusport === null ? [] : [hulusport]),
+    ...(results === null ? [] : [results]),
   ];
 }
 
@@ -34,3 +43,5 @@ export {
   WEEKLY_REPORT_INTERVAL_MS,
   WEEKLY_REPORT_WAIT_MS,
 } from './weekly-report';
+export { readHulusportBoard, HULUSPORT_BOARD_PATH } from './hulusport';
+export { runBoardResults, BOARD_RESULTS_INTERVAL_MS } from './board-results';

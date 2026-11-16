@@ -334,35 +334,35 @@
     {
       "idx": 47,
       "version": "7",
-      "when": 1794520036529,
+      "when": 1794652000000,
       "tag": "0047_scrape_apifootball_adapter",
       "breakpoints": true
     },
     {
       "idx": 48,
       "version": "7",
-      "when": 1794520268684,
+      "when": 1794652060000,
       "tag": "0048_market_price_valid_until",
       "breakpoints": true
     },
     {
       "idx": 49,
       "version": "7",
-      "when": 1794520891233,
+      "when": 1794652120000,
       "tag": "0049_scrape_trust_and_ladder_shadow",
       "breakpoints": true
     },
     {
       "idx": 50,
       "version": "7",
-      "when": 1794549854974,
+      "when": 1794652180000,
       "tag": "0050_scrape_policy_factory_markets",
       "breakpoints": true
     },
     {
       "idx": 51,
       "version": "7",
-      "when": 1794566974309,
+      "when": 1794652240000,
       "tag": "0051_market_family_state",
       "breakpoints": true
     },
@@ -385,6 +385,13 @@
       "version": "7",
       "when": 1794800742241,
       "tag": "0054_received_sms_reparse",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794854007784,
+      "tag": "0055_scrape_board",
       "breakpoints": true
     }
   ]

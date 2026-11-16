@@ -630,6 +630,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       capAtBestPrice: false,
       priceExpiryMinutes: 0,
       factoryMarkets: false,
+      hulusport: { url: null, intervalMs: 120_000 },
     });
     // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
     expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
@@ -652,6 +653,8 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       SCRAPER_CAP_AT_BEST_PRICE: 'on',
       SCRAPER_PRICE_EXPIRY_MINUTES: '90',
       SCRAPER_FACTORY_MARKETS: 'on',
+      SCRAPER_HULUSPORT_URL: ' http://127.0.0.1:3100/ ',
+      SCRAPER_HULUSPORT_INTERVAL_SECONDS: '60',
     });
     expect(config.scraper).toEqual({
       archiveDir: '/data/scraper',
@@ -669,6 +672,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       capAtBestPrice: true,
       priceExpiryMinutes: 90,
       factoryMarkets: true,
+      hulusport: { url: 'http://127.0.0.1:3100', intervalMs: 60_000 },
     });
     // A blank contact (as in an env file) is "not set".
     expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();
@@ -692,6 +696,11 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       ['SCRAPER_CAP_AT_BEST_PRICE', ['true', 'ON', '1', '']],
       ['SCRAPER_PRICE_EXPIRY_MINUTES', ['-1', '1441', 'abc', '1.5']],
       ['SCRAPER_FACTORY_MARKETS', ['true', 'ON', '1', '']],
+      [
+        'SCRAPER_HULUSPORT_URL',
+        ['127.0.0.1:3100', 'ftp://mrx', 'http://mrx/api/board', 'http://a b'],
+      ],
+      ['SCRAPER_HULUSPORT_INTERVAL_SECONDS', ['29', '3601', '90.5', 'often']],
       ['SCRAPER_ARCHIVE_DIR', ['   ']],
       ['SCRAPER_USER_AGENT', ['   ', 'Bot\r\nX-Evil: 1', 'Bøt/1.0']],
       [

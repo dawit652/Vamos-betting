@@ -1,4 +1,4 @@
-import { deleteRaw, listPrunableRaw, pruneMarketOdds } from '@vamos/db';
+import { deleteRaw, listPrunableRaw, pruneBoardOdds, pruneMarketOdds } from '@vamos/db';
 import { scrapeRaw } from '@vamos/db/schema';
 import { DAY_MS } from '@vamos/scraper';
 import { notInArray } from 'drizzle-orm';
@@ -56,6 +56,22 @@ export async function pruneOldMarketOdds(
   return removed;
 }
 
+/** Deletes competitor board rows (Hulusport) no read has listed for MARKET_ODDS_RETENTION_MS. */
+export async function pruneOldBoardOdds(
+  ctx: ScraperContext,
+  retentionMs: number = MARKET_ODDS_RETENTION_MS,
+): Promise<number> {
+  const olderThan = new Date(ctx.clock().getTime() - retentionMs);
+  let removed = 0;
+  for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
+    const n = await pruneBoardOdds(ctx.db, olderThan, BATCH);
+    removed += n;
+    if (n < BATCH) break;
+  }
+  if (removed > 0) ctx.logger.info({ removed }, 'board odds pruned');
+  return removed;
+}
+
 export function pruneTask(ctx: ScraperContext): IntervalTask {
   return intervalTask({
     name: 'scraper-prune',
@@ -64,6 +80,7 @@ export function pruneTask(ctx: ScraperContext): IntervalTask {
     run: async () => {
       await pruneRaw(ctx);
       await pruneOldMarketOdds(ctx);
+      await pruneOldBoardOdds(ctx);
     },
     runOnStart: false,
   });

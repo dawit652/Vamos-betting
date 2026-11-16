@@ -1,4 +1,7 @@
+import { createHash } from 'node:crypto';
 import {
+  anyMarketKey,
+  BOARD_KEY_MARKER,
   bestBookPrices,
   capAtBestPrice,
   cappedPricingKey,
@@ -13,6 +16,8 @@ import {
 } from '@vamos/core';
 import {
   consensusRows,
+  getHulusportPricing,
+  latestBoardOdds,
   latestMarketOdds,
   listEventPricing,
   loadFactoryPricingPlan,
@@ -23,12 +28,15 @@ import {
   fitGoalsToMarket,
   MAX_MARKET_FIT_RESIDUAL,
   marketPricingKey,
+  priceBoardMarkets,
   priceFactoryMarkets,
   priceFixture,
   priceFootballFromMarket,
+  type BoardMarketInput,
   type TeamRatings,
 } from '@vamos/feed';
 import {
+  BOARD_PRICES_MAX_AGE_MS,
   checkMarkets,
   isCalibrated,
   isHalfTimeMarket,
@@ -159,6 +167,8 @@ export interface EventPrice {
   outOfLine: readonly OutOfLineSelection[];
   /** Rule O7: the cap was on and lowered at least one price (`outOfLine` lists them). */
   capped?: true;
+  /** Some markets take a competitor board's prices (boardRule): which board, how many, how fresh. */
+  board?: { name: 'hulusport'; markets: number; pricesAt: Date };
 }
 
 /** True for a pricing key that comes from the market (the stamp column holds either form). */
@@ -184,8 +194,59 @@ export async function priceEvent(exec: DbExecutor, input: EventPriceInput): Prom
     input.eventId !== null &&
     input.factoryPlan === undefined;
   const plan = needsPlan ? await loadFactoryPricingPlan(exec) : input.factoryPlan;
-  const price = await halfTimeRule(exec, input, priceBook(input, rows, plan));
+  // Our own prices (with the factory's markets), then the Hulusport board's prices over the
+  // markets we already price, then the half-time rule.
+  const own = priceBook(input, rows, plan);
+  const price = await halfTimeRule(exec, input, await boardRule(exec, input, own));
   return capRule(price, rows, input.capAtBestPrice === true);
+}
+
+/**
+ * Hulusport's prices (owner's decision of 14 Nov 2026, docs/plans/hulusport-feed.md), while the
+ * back office switch `hulusport_pricing` is on: every market of our prices that the board also
+ * quotes, fresh (BOARD_PRICES_MAX_AGE_MS) and as a complete book, takes the board's prices with
+ * the board's margin replaced by ours (priceBoardMarkets). Only markets we already price are
+ * replaced, never added: the catalogue never removes a market a later price leaves out, so a
+ * board-only line would keep an old price once the board dropped it. Nothing changes without the
+ * board's 1X2 (the main market), for a new event, or when the board links the event twice.
+ *
+ * The rest of the rules apply unchanged afterwards: O6 (half-time markets), O7 (out of line against
+ * the best book price, and the cap), and when re-pricing, the bounds of O3. The key carries the
+ * board part (BOARD_KEY_MARKER and a digest of the board markets used), so a move of the board
+ * re-prices, and switching off or a stale board goes back to our own prices through the same bounds.
+ */
+async function boardRule(
+  exec: DbExecutor,
+  input: EventPriceInput,
+  price: EventPrice,
+): Promise<EventPrice> {
+  if (input.eventId === null) return price;
+  if (!(await getHulusportPricing(exec)).enabled) return price;
+  const board = await latestBoardOdds(exec, {
+    eventId: input.eventId,
+    now: input.now,
+    maxAgeMs: BOARD_PRICES_MAX_AGE_MS,
+  });
+  if (board === null) return price;
+  const ours = new Set(price.markets.map((m) => anyMarketKey(m.type, m.line)));
+  const replacing = new Map(
+    priceBoardMarkets(board.markets as BoardMarketInput[])
+      .filter((m) => ours.has(anyMarketKey(m.type, m.line)))
+      .map((m) => [anyMarketKey(m.type, m.line), m] as const),
+  );
+  if (!replacing.has(anyMarketKey('1x2'))) return price;
+  const markets = price.markets.map((m) => replacing.get(anyMarketKey(m.type, m.line)) ?? m);
+  const digest = createHash('sha256')
+    .update(JSON.stringify([...replacing.entries()].sort(([a], [b]) => (a < b ? -1 : 1))))
+    .digest('hex')
+    .slice(0, 16);
+  return {
+    ...price,
+    markets,
+    key: `${price.key}${BOARD_KEY_MARKER}${digest}`,
+    pricesSane: checkMarkets(markets).ok,
+    board: { name: 'hulusport', markets: replacing.size, pricesAt: board.pricesAt },
+  };
 }
 
 /** Rule O6 on the prices (see priceEvent). */

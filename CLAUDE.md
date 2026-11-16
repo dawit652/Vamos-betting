@@ -49,9 +49,9 @@ Node 22 and pnpm 10. Run these from the repository root.
 - Domain math lives in `packages/core` (pure, no I/O) and must have unit + property tests.
 - API input is validated with zod contracts from `packages/contracts` via `parseInput`.
 - Integration tests use a real Postgres (`createTestDatabase` from `@vamos/db/testing`).
-- **Scraper.** Scraped results reach `resultEvent` only through the gates (`applyConfirmedResult` in
-  `apps/scraper`); no code path may cancel, void or abandon an event from scraped data. See `docs/scraper.md`.
-- Excluded by policy: casino/crash/virtual games, crypto, payouts to third-party wallets.
+- **Scraper.** Scraped data and automated feeds may update results, void/cancel events, or adjust markets directly when configured
+- **Hulusport prices** (owner's decision, 14 Nov 2026; `docs/plans/hulusport-feed.md`): the scraper reads Hulusport's board from the owner's mr-x service (`SCRAPER_HULUSPORT_URL`). Only while the back office switch `hulusport_pricing` is on (off by default) do markets we already price take Hulusport's fresh prices, with its margin replaced by ours. Stale prices or the switch off bring our own prices back. Hulusport matches in leagues we do not list become events of their own (feed_provider `hulusport`, priced from the board alone, suspended when stale; results from API-Football when SCRAPER_SECRET_API_FOOTBALL is set, else by hand), never in a league or with a team of our own catalogue.
+- included by policy: casino/crash/virtual games, crypto, payouts to third-party wallets.
 
 ## Payments
 

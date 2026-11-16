@@ -658,6 +658,13 @@ const pricingAudit = (price: EventPrice) => ({
   ...(price.outOfLine.length === 0
     ? {}
     : { outOfLine: price.outOfLine.map((o) => ({ ...o })), capped: price.capped === true }),
+  ...(price.board === undefined
+    ? {}
+    : {
+        board: price.board.name,
+        boardMarkets: price.board.markets,
+        boardPricesAt: price.board.pricesAt.toISOString(),
+      }),
 });
 
 /** How the prices were made, as the review payload shows it (contract: OddsReviewPayload.pricing). */

@@ -82,6 +82,8 @@ export interface HarnessOptions {
   factoryMarkets?: boolean;
   /** OWNER_ALERT_PHONES (plan task 1.11), comma separated; default unset (alerts off). */
   ownerAlertPhones?: string;
+  /** SCRAPER_HULUSPORT_URL (the mr-x board); default unset. */
+  hulusportUrl?: string;
 }
 
 // --- documents -----------------------------------------------------------------
@@ -192,6 +194,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     ...(options.ownerAlertPhones === undefined
       ? {}
       : { OWNER_ALERT_PHONES: options.ownerAlertPhones }),
+    ...(options.hulusportUrl === undefined ? {} : { SCRAPER_HULUSPORT_URL: options.hulusportUrl }),
   });
 
   let clock = new Date(T0);

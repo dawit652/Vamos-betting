@@ -21,6 +21,7 @@ export {
 export * from './football';
 export * from './factory';
 export * from './market';
+export * from './board';
 export * from './basketball';
 export * from './tennis';
 export * from './ratings';
