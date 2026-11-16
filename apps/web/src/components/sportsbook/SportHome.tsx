@@ -1,14 +1,20 @@
 import type { EventSummary } from '@vamos/contracts';
 import Link from 'next/link';
+import type { Locale } from '@vamos/i18n';
 import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { getLocale, getT } from '@/i18n/server';
-import { flagEmoji } from '@/lib/flag';
+import { competitionFlag, flagEmoji } from '@/lib/flag';
 import { formatDayMonth, formatTime, formatWeekday, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes, type Sport } from '@/lib/routes';
 import { dayChips } from './day-chips';
 import { eventRef, monogram, oddsMarket } from './events';
-import { competitionFlags } from './leagues';
+import {
+  competitionFlags,
+  featuredCompetitions,
+  orderLeagueCategories,
+  type FeaturedCompetition,
+} from './leagues';
 import { LiveClock, LiveScore } from './LiveMatch';
 import { MarketOdds } from './MarketOdds';
 import { MatchList } from './MatchList';
@@ -434,12 +440,9 @@ export async function Pager({
 
 async function Leagues({ sport }: { sport: Sport }) {
   const [t, locale, data] = await Promise.all([getT(), getLocale(), getCompetitions(sport)]);
-  const categories = (data?.items ?? [])
-    .map((category) => ({
-      ...category,
-      competitions: category.competitions.filter((c) => c.eventCount > 0),
-    }))
-    .filter((category) => category.competitions.length > 0);
+  const categories = orderLeagueCategories(data?.items ?? [], locale);
+  const top = featuredCompetitions(data);
+  const flags = competitionFlags(data);
   if (categories.length === 0) {
     return (
       <p className="card mx-3 text-center text-muted lg:mx-0">{t('sportsbook.leagues.empty')}</p>
@@ -447,6 +450,25 @@ async function Leagues({ sport }: { sport: Sport }) {
   }
   return (
     <div className="space-y-3 px-3 lg:px-0">
+      {top.length > 0 ? (
+        <section aria-labelledby="cat-top" className="panel">
+          <h2 id="cat-top" className="border-b border-line bg-raised px-3 py-2 text-xs font-bold">
+            {t('sportsbook.leagues.topLeagues')}
+          </h2>
+          <ul>
+            {top.map((competition) => (
+              <LeagueRow
+                key={competition.slug}
+                sport={sport}
+                competition={competition}
+                flag={flags[competition.slug] ?? ''}
+                locale={locale}
+                label={t('sportsbook.leagues.matches', { count: competition.eventCount })}
+              />
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {categories.map((category) => (
         <section
           key={category.category.slug}
@@ -464,22 +486,50 @@ async function Leagues({ sport }: { sport: Sport }) {
           </h2>
           <ul>
             {category.competitions.map((competition) => (
-              <li key={competition.slug}>
-                <Link
-                  href={routes.competition(sport, competition.slug)}
-                  prefetch={false}
-                  className="list-row flex items-center justify-between gap-2 font-semibold"
-                >
-                  <span className="truncate">{localName(competition.name, locale)}</span>
-                  <span className="flex-none text-xxs font-normal text-muted">
-                    {t('sportsbook.leagues.matches', { count: competition.eventCount })} ›
-                  </span>
-                </Link>
-              </li>
+              <LeagueRow
+                key={competition.slug}
+                sport={sport}
+                competition={competition}
+                flag={competitionFlag(competition, category.category)}
+                locale={locale}
+                label={t('sportsbook.leagues.matches', { count: competition.eventCount })}
+              />
             ))}
           </ul>
         </section>
       ))}
     </div>
+  );
+}
+
+function LeagueRow({
+  sport,
+  competition,
+  flag,
+  locale,
+  label,
+}: {
+  sport: Sport;
+  competition: FeaturedCompetition;
+  flag: string;
+  locale: Locale;
+  label: string;
+}) {
+  return (
+    <li>
+      <Link
+        href={routes.competition(sport, competition.slug)}
+        prefetch={false}
+        className="list-row flex items-center justify-between gap-2 font-semibold"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" className="text-base leading-none">
+            {flag}
+          </span>
+          <span className="truncate">{localName(competition.name, locale)}</span>
+        </span>
+        <span className="flex-none text-xxs font-normal text-muted">{label} ›</span>
+      </Link>
+    </li>
   );
 }

@@ -1,7 +1,7 @@
 import type { CompetitionsResponse } from '@vamos/contracts';
 import { describe, expect, it } from 'vitest';
 import { EUROPE, WORLD, flagEmoji } from '@/lib/flag';
-import { competitionFlags, featuredCompetitions } from './leagues';
+import { competitionFlags, featuredCompetitions, orderLeagueCategories } from './leagues';
 
 const comp = (slug: string, eventCount: number, featured: boolean) => ({
   slug,
@@ -53,5 +53,47 @@ describe('competitionFlags', () => {
       'mystery-cup': WORLD,
     });
     expect(competitionFlags(null)).toEqual({});
+  });
+});
+
+describe('orderLeagueCategories', () => {
+  const cat = (slug: string, countryCode: string | null, name: string, counts: number[] = [1]) => ({
+    category: { slug, name: { en: name }, countryCode },
+    competitions: counts.map((n, i) => comp(`${slug}-${i}`, n, false)),
+  });
+
+  it('puts Ethiopia first, international next, then the rest A-Z', () => {
+    const items = [
+      cat('spain', 'ES', 'Spain'),
+      cat('england', 'GB-ENG', 'England'),
+      cat('europe', 'EU', 'Europe'),
+      cat('world', null, 'World'),
+      cat('ethiopia', 'ET', 'Ethiopia'),
+      cat('brazil', 'BR', 'Brazil'),
+    ];
+    expect(orderLeagueCategories(items, 'en').map((c) => c.category.slug)).toEqual([
+      'ethiopia',
+      'europe',
+      'world',
+      'brazil',
+      'england',
+      'spain',
+    ]);
+  });
+
+  it('keeps competition order and drops categories with no matches', () => {
+    const items = [cat('italy', 'IT', 'Italy', [3, 1, 2]), cat('peru', 'PE', 'Peru', [0])];
+    const out = orderLeagueCategories(items, 'en');
+    expect(out.map((c) => c.category.slug)).toEqual(['italy']);
+    expect(out[0]?.competitions.map((c) => c.slug)).toEqual(['italy-0', 'italy-1', 'italy-2']);
+  });
+
+  it('falls back to en for an invalid locale and handles empty input', () => {
+    expect(orderLeagueCategories([], 'en')).toEqual([]);
+    const items = [cat('b', 'BB', 'B'), cat('a', 'AA', 'A')];
+    expect(orderLeagueCategories(items, 'not a locale').map((c) => c.category.slug)).toEqual([
+      'a',
+      'b',
+    ]);
   });
 });
