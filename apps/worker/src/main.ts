@@ -15,6 +15,7 @@ import {
   getDatabaseInstallationId,
   LIVE_CHANNEL,
   OperatingModeMismatchError,
+  readOutboxBacklog,
 } from '@vamos/db';
 import {
   createPaymentProviders,
@@ -178,7 +179,12 @@ async function main(): Promise<void> {
           ? {
               metrics: {
                 token: config.metricsToken,
-                render: cachedQueueMetrics(metricsQueues, () => new Date()),
+                render: cachedQueueMetrics(
+                  metricsQueues,
+                  () => new Date(),
+                  undefined,
+                  () => readOutboxBacklog(handle.db),
+                ),
               },
             }
           : {}),

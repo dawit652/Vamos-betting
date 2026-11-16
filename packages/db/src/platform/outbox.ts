@@ -107,6 +107,33 @@ export async function markOutboxFailed(
     .where(eq(outboxEvents.id, id));
 }
 
+/** What is waiting in the outbox (for the worker's metrics). */
+export interface OutboxBacklog {
+  /** Rows not yet handed to the queues (rows backing off and dead letters included). */
+  unpublished: number;
+  /** Seconds since the oldest of them was written, by the database's clock (0: none). */
+  oldestSeconds: number;
+}
+
+/**
+ * The size and age of the dispatcher's backlog. A healthy outbox is empty or seconds old: an age
+ * that keeps growing means the dispatcher is not running, Redis refuses jobs, or a dead letter is
+ * waiting for a redrive. One index-only pass over the unpublished rows.
+ */
+export async function readOutboxBacklog(exec: DbExecutor): Promise<OutboxBacklog> {
+  const [row] = await exec
+    .select({
+      unpublished: sql<number>`count(*)::int`,
+      oldestSeconds: sql<number>`coalesce(floor(extract(epoch from now() - min(${outboxEvents.createdAt}))), 0)::int`,
+    })
+    .from(outboxEvents)
+    .where(isNull(outboxEvents.publishedAt));
+  return {
+    unpublished: row?.unpublished ?? 0,
+    oldestSeconds: Math.max(0, row?.oldestSeconds ?? 0),
+  };
+}
+
 /** Unpublished events that reached `maxAttempts` (no longer claimed by the dispatcher). */
 export async function countDeadLetteredOutbox(
   exec: DbExecutor,

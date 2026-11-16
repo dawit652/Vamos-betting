@@ -148,6 +148,30 @@ What it says:
 - **Not measured**: a slower disk (commit is about 0.3 ms here; a network disk can be 5 to 10 times
   that and lowers the ceiling in proportion), and PgBouncer in front (the overlay of A4).
 
+## Results (16 Nov 2026): the outbox dispatcher (A9)
+
+Every queue of the worker is fed from `outbox_events` by one dispatcher. It claimed one batch of 100
+rows a second, so 100 rows a second was the ceiling of everything behind it, whatever the queues'
+concurrency: live bet acceptance, payouts, settlement after a result, notifications. One API process
+alone writes more (about 140 bets a second above, one row each), so during a busy minute the backlog
+grew and everything waited in arrival order. Measured with `apps/worker/test/outbox-throughput.test.ts`
+(3,000 `bet.placed` rows, then one approved withdrawal behind them):
+
+|                                    | Before       | After         |
+| ---------------------------------- | ------------ | ------------- |
+| Rows handed to the queues          | 100 a second | about 9,000/s |
+| The burst of 3,001 rows drained in | 30.0 s       | 0.3 s         |
+| The payout behind the burst queued | after 30.0 s | after 0.3 s   |
+
+The dispatcher now takes batch after batch (200 rows each) while batches come back full, and gives the
+turn back after 50 batches, on a Redis outage, or when the worker is stopping. Nothing else changed:
+one transaction per batch, the same job ids, the same retry and dead-letter rules. The worker's
+`/metrics` has `outbox_unpublished` and `outbox_oldest_unpublished_seconds` (see `docs/deployment.md`);
+alert on an age over 60 seconds.
+
+The load tests above did not show this because they check the ledger, which is written in the bet's own
+transaction; the outbox lag only delays what happens after.
+
 ## What was found and fixed
 
 **The house_stakes lock (fixed).** Every stake posting updates the one `house_stakes` ledger account

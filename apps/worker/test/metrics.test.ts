@@ -119,6 +119,18 @@ describe('queue metrics', () => {
   });
 });
 
+describe('outbox gauges', () => {
+  it('are rendered after the queue gauges when a reading is given, and left out without one', () => {
+    const without = renderQueueMetrics([]);
+    expect(without).not.toContain('outbox_');
+    const text = renderQueueMetrics([], { unpublished: 1234, oldestSeconds: 17 });
+    expect(text).toContain('# TYPE outbox_unpublished gauge\noutbox_unpublished 1234\n');
+    expect(text).toContain(
+      '# TYPE outbox_oldest_unpublished_seconds gauge\noutbox_oldest_unpublished_seconds 17\n',
+    );
+  });
+});
+
 describe('metrics helpers', () => {
   it('renders the gauges of every queue', () => {
     const text = renderQueueMetrics([

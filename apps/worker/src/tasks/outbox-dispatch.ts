@@ -51,6 +51,11 @@ import type { TaskContext } from './context';
  * column, so new consumers (SMS, AML…) get a route here instead
  * of reading the outbox themselves.
  *
+ * - The task drains: while a batch comes back full it takes the next one at
+ *   once (up to `maxBatchesPerDrain`), so the pace is what Postgres and Redis
+ *   take, not one batch per interval. One batch a second was 100 rows a
+ *   second: less than the bets of a busy minute write, and a payout approved
+ *   behind the settlement of an evening's matches waited minutes for its turn.
  * - Each job's id is `outbox-<row id>-<row job_key>` (BullMQ refuses ':' in
  *   custom ids), so a row queued again (a crash between the enqueue and the
  *   COMMIT) maps to the job already there: a row is never processed twice.
@@ -79,8 +84,13 @@ export const OUTBOX_DISPATCH_INTERVAL_MS = 1000;
 export interface OutboxDispatchOptions {
   /** Default 1 s. */
   intervalMs?: number;
-  /** Rows claimed per run (default 100). */
+  /** Rows claimed per batch (default 200). */
   batchSize?: number;
+  /**
+   * Batches one drain takes before it gives the turn back to the interval
+   * (default 50). It bounds how long stop() waits for a drain in progress.
+   */
+  maxBatchesPerDrain?: number;
   /** Failed attempts after which a row is dead-lettered (default 10). */
   maxAttempts?: number;
   /** First retry delay after a failed enqueue (default 1 s, doubled per attempt). */
@@ -644,7 +654,14 @@ export interface OutboxDispatchSummary {
 }
 
 export interface OutboxDispatcher {
+  /** One batch. */
   run(): Promise<OutboxDispatchSummary>;
+  /**
+   * Batches until one comes back less than full (the outbox is empty, or what
+   * is left is backing off), Redis is down or refusing jobs, `shouldStop()`
+   * says so, or `maxBatchesPerDrain` is reached. Returns the totals.
+   */
+  drain(shouldStop?: () => boolean): Promise<OutboxDispatchSummary>;
   /** Closes the queues' Redis connection. */
   close(): Promise<void>;
 }
@@ -686,7 +703,8 @@ export function createOutboxDispatcher(
   ctx: TaskContext,
   options: OutboxDispatchOptions = {},
 ): OutboxDispatcher {
-  const batchSize = options.batchSize ?? 100;
+  const batchSize = options.batchSize ?? 200;
+  const maxBatchesPerDrain = Math.max(1, options.maxBatchesPerDrain ?? 50);
   const maxAttempts = options.maxAttempts ?? 10;
   const backoffBaseMs = options.backoffBaseMs ?? 1000;
   const backoffMaxMs = options.backoffMaxMs ?? 60_000;
@@ -745,107 +763,131 @@ export function createOutboxDispatcher(
     }
   };
 
-  return {
-    async run() {
-      try {
-        await queues.ping();
-        if (redisDown) logger.info('outbox dispatch: redis is reachable again');
-        redisDown = false;
-      } catch (error) {
-        if (!redisDown) logger.warn({ err: error }, 'outbox dispatch paused: redis unreachable');
-        redisDown = true;
-        return { ...empty(), redisDown: true };
-      }
+  const run = async (): Promise<OutboxDispatchSummary> => {
+    try {
+      await queues.ping();
+      if (redisDown) logger.info('outbox dispatch: redis is reachable again');
+      redisDown = false;
+    } catch (error) {
+      if (!redisDown) logger.warn({ err: error }, 'outbox dispatch paused: redis unreachable');
+      redisDown = true;
+      return { ...empty(), redisDown: true };
+    }
 
-      const now = ctx.clock();
-      await reportDeadLetters(now);
-      return ctx.db.transaction(async (tx) => {
-        const summary = empty();
-        const rows = await claimOutboxBatch(tx, batchSize, { maxAttempts, now });
-        summary.claimed = rows.length;
-        const results = await Promise.allSettled(rows.map((row) => enqueue(row, now)));
+    const now = ctx.clock();
+    await reportDeadLetters(now);
+    return ctx.db.transaction(async (tx) => {
+      const summary = empty();
+      const rows = await claimOutboxBatch(tx, batchSize, { maxAttempts, now });
+      summary.claimed = rows.length;
+      const results = await Promise.allSettled(rows.map((row) => enqueue(row, now)));
 
-        const published: bigint[] = [];
-        for (const [i, result] of results.entries()) {
-          const row = rows[i];
-          if (row === undefined) continue;
-          const key = row.id.toString();
-          if (result.status === 'fulfilled') {
-            published.push(row.id);
-            summary.jobs += result.value;
-            continue;
-          }
-          const error = message(result.reason);
-          summary.failed += 1;
-          if (isQueueOutageError(result.reason)) {
-            summary.outage += 1;
-            await markOutboxFailed(tx, row.id, error, {
-              countAttempt: false,
-              retryAt: new Date(now.getTime() + outageRetryMs),
-            });
-            continue;
-          }
-          const attempts = row.attempts + 1;
-          if (attempts >= maxAttempts) {
-            await markOutboxFailed(tx, row.id, error);
-            summary.deadLettered += 1;
-            logger.error(
-              { outboxId: key, type: row.type, aggregateId: row.aggregateId, attempts, error },
-              'outbox event dead-lettered: reached max attempts, it will not be retried',
-            );
-          } else {
-            const delay = Math.min(backoffMaxMs, backoffBaseMs * 2 ** (attempts - 1));
-            await markOutboxFailed(tx, row.id, error, {
-              retryAt: new Date(now.getTime() + delay),
-            });
-            logger.warn(
-              { outboxId: key, type: row.type, attempts, retryInMs: delay, error },
-              'outbox event could not be queued; will retry',
-            );
-          }
+      const published: bigint[] = [];
+      for (const [i, result] of results.entries()) {
+        const row = rows[i];
+        if (row === undefined) continue;
+        const key = row.id.toString();
+        if (result.status === 'fulfilled') {
+          published.push(row.id);
+          summary.jobs += result.value;
+          continue;
         }
-        await markOutboxPublished(tx, published);
-        summary.published = published.length;
-
-        if (summary.outage > 0 && !queueOutage) {
-          queueOutage = true;
-          logger.warn(
-            { rows: summary.outage, retryInMs: outageRetryMs },
-            'outbox dispatch: the queue redis refuses jobs (outage); rows are retried without using up attempts',
+        const error = message(result.reason);
+        summary.failed += 1;
+        if (isQueueOutageError(result.reason)) {
+          summary.outage += 1;
+          await markOutboxFailed(tx, row.id, error, {
+            countAttempt: false,
+            retryAt: new Date(now.getTime() + outageRetryMs),
+          });
+          continue;
+        }
+        const attempts = row.attempts + 1;
+        if (attempts >= maxAttempts) {
+          await markOutboxFailed(tx, row.id, error);
+          summary.deadLettered += 1;
+          logger.error(
+            { outboxId: key, type: row.type, aggregateId: row.aggregateId, attempts, error },
+            'outbox event dead-lettered: reached max attempts, it will not be retried',
           );
-        } else if (summary.outage === 0 && published.length > 0 && queueOutage) {
-          queueOutage = false;
-          logger.info('outbox dispatch: the queue redis takes jobs again');
+        } else {
+          const delay = Math.min(backoffMaxMs, backoffBaseMs * 2 ** (attempts - 1));
+          await markOutboxFailed(tx, row.id, error, {
+            retryAt: new Date(now.getTime() + delay),
+          });
+          logger.warn(
+            { outboxId: key, type: row.type, attempts, retryInMs: delay, error },
+            'outbox event could not be queued; will retry',
+          );
         }
-        if (summary.jobs > 0) {
-          logger.debug({ ...summary }, 'outbox dispatched');
-        }
-        return summary;
-      });
+      }
+      await markOutboxPublished(tx, published);
+      summary.published = published.length;
+
+      if (summary.outage > 0 && !queueOutage) {
+        queueOutage = true;
+        logger.warn(
+          { rows: summary.outage, retryInMs: outageRetryMs },
+          'outbox dispatch: the queue redis refuses jobs (outage); rows are retried without using up attempts',
+        );
+      } else if (summary.outage === 0 && published.length > 0 && queueOutage) {
+        queueOutage = false;
+        logger.info('outbox dispatch: the queue redis takes jobs again');
+      }
+      if (summary.jobs > 0) {
+        logger.debug({ ...summary }, 'outbox dispatched');
+      }
+      return summary;
+    });
+  };
+
+  return {
+    run,
+    async drain(shouldStop = () => false) {
+      const total = empty();
+      for (let batch = 0; batch < maxBatchesPerDrain; batch += 1) {
+        const summary = await run();
+        total.claimed += summary.claimed;
+        total.published += summary.published;
+        total.jobs += summary.jobs;
+        total.failed += summary.failed;
+        total.outage += summary.outage;
+        total.deadLettered += summary.deadLettered;
+        total.redisDown = summary.redisDown;
+        // Less than a full batch: nothing more is due. An outage: the rows carry their retry
+        // time, and asking Redis again at once would only fail the next batch too.
+        if (summary.claimed < batchSize || summary.redisDown || summary.outage > 0) break;
+        if (shouldStop()) break;
+      }
+      return total;
     },
     close: () => queues.close(),
   };
 }
 
-/** The dispatcher as a WorkerTask (every second by default). */
+/** The dispatcher as a WorkerTask (a drain every second by default). */
 export function outboxDispatchTask(
   ctx: TaskContext,
   options: OutboxDispatchOptions = {},
 ): WorkerTask {
   let dispatcher: OutboxDispatcher | null = null;
+  let stopping = false;
   const task = intervalTask({
     name: 'outbox-dispatch',
     intervalMs: options.intervalMs ?? OUTBOX_DISPATCH_INTERVAL_MS,
     logger: ctx.logger,
-    run: async () => dispatcher?.run(),
+    run: async () => dispatcher?.drain(() => stopping),
   });
   return {
     name: task.name,
     start: async () => {
+      stopping = false;
       dispatcher ??= createOutboxDispatcher(ctx, options);
       await task.start();
     },
     stop: async () => {
+      // A drain in progress finishes its batch and stops; the rest waits for the next start.
+      stopping = true;
       await task.stop();
       const current = dispatcher;
       dispatcher = null;

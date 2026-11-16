@@ -3,8 +3,8 @@ import type { QueueName, QueueSet } from './queues';
 import { QUEUE_NAMES } from './queues';
 
 /**
- * GET /metrics on the worker's health port: Prometheus text (version 0.0.4) for the queues, so a
- * backlog is seen before a player feels it. Off unless METRICS_TOKEN is set (then 404, as if the
+ * GET /metrics on the worker's health port: Prometheus text (version 0.0.4) for the queues and
+ * the outbox that feeds them, so a backlog is seen before a player feels it. Off unless METRICS_TOKEN is set (then 404, as if the
  * route did not exist); with it, only a request that carries it as a bearer token is answered.
  * The exposition is written by hand, as the api's is (the worker does not import the api).
  */
@@ -72,8 +72,17 @@ function gauge(
   return lines;
 }
 
-/** The exposition body. */
-export function renderQueueMetrics(snapshots: readonly QueueSnapshot[]): string {
+/** The outbox backlog as the gauges need it (readOutboxBacklog of @vamos/db). */
+export interface OutboxSnapshot {
+  unpublished: number;
+  oldestSeconds: number;
+}
+
+/** The exposition body. Without `outbox` (no database reader given) its two gauges are left out. */
+export function renderQueueMetrics(
+  snapshots: readonly QueueSnapshot[],
+  outbox?: OutboxSnapshot,
+): string {
   const states = ['waiting', 'active', 'delayed', 'failed'] as const;
   const families = [
     gauge(
@@ -95,6 +104,20 @@ export function renderQueueMetrics(snapshots: readonly QueueSnapshot[]): string 
       })),
     ),
   ];
+  if (outbox !== undefined) {
+    families.push(
+      gauge(
+        'outbox_unpublished',
+        'Outbox rows not yet handed to the queues (rows backing off and dead letters included).',
+        [{ value: outbox.unpublished }],
+      ),
+      gauge(
+        'outbox_oldest_unpublished_seconds',
+        'Age of the oldest outbox row not yet handed to the queues (0: none).',
+        [{ value: outbox.oldestSeconds }],
+      ),
+    );
+  }
   return `${families.map((lines) => lines.join('\n')).join('\n')}\n`;
 }
 
@@ -114,11 +137,15 @@ export interface MetricsEndpoint {
   render: () => Promise<string>;
 }
 
-/** A renderer that keeps one reading for QUEUE_CACHE_MS and shares a read in flight. */
+/**
+ * A renderer that keeps one reading for QUEUE_CACHE_MS and shares a read in flight. With
+ * `readOutbox` the outbox backlog (the step before every queue) is read from the database too.
+ */
 export function cachedQueueMetrics(
   queues: Pick<QueueSet, 'get'>,
   clock: () => Date,
   timeoutMs = QUEUE_READ_TIMEOUT_MS,
+  readOutbox?: () => Promise<OutboxSnapshot>,
 ): () => Promise<string> {
   let entry: { value: Promise<string>; expiresAt: number } | null = null;
   return () => {
@@ -131,8 +158,9 @@ export function cachedQueueMetrics(
         timeoutMs,
       );
     });
-    const value = Promise.race([readQueueSnapshots(queues, clock()), timeout])
-      .then(renderQueueMetrics)
+    const read = Promise.all([readQueueSnapshots(queues, clock()), readOutbox?.()]);
+    const value = Promise.race([read, timeout])
+      .then(([snapshots, outbox]) => renderQueueMetrics(snapshots, outbox))
       .finally(() => clearTimeout(timer));
     const mine = { value, expiresAt: at + QUEUE_CACHE_MS };
     entry = mine;
