@@ -1,4 +1,4 @@
-import { marketKey } from '@vamos/core';
+import { anyMarketKey, type FactoryPricingPlan } from '@vamos/core';
 import {
   BOARD_FEED_PROVIDER,
   ensureBoardCompetition,
@@ -7,6 +7,7 @@ import {
   getHulusportPricing,
   listBoardEvents,
   loadBoardCatalog,
+  loadFactoryPricingPlan,
   marketsWithSelections,
   raiseCloseLead,
   setMarketStatus,
@@ -15,7 +16,7 @@ import {
   type BoardCatalog,
   type LiveMessage,
 } from '@vamos/db';
-import { priceBoardMarkets } from '@vamos/feed';
+import { boardGoalsFit, priceBoardMarkets } from '@vamos/feed';
 import {
   BOARD_PRICES_MAX_AGE_MS,
   checkMarkets,
@@ -26,6 +27,7 @@ import {
 } from '@vamos/scraper';
 import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
+import { factoryMarketsFrom, type PricedMarket } from './event-pricing';
 
 /**
  * Hulusport matches Nahubet does not list itself (owner's decision of 14 Nov 2026, docs/plans/
@@ -37,6 +39,15 @@ import { publishAfterCommit } from '../lib/publish';
  * is ours when one of its board matches links to our event, or its name resolves to one of our
  * competitions; a match with a team of our own catalogue is never created either. Both fail closed
  * (the match is not listed), so the board cannot put a second copy of one of our matches on the site.
+ *
+ * The market factory (SCRAPER_FACTORY_MARKETS=on, owner's request of 16 Nov 2026: about 500
+ * options per match): a board event also gets the factory's own markets, priced from the expected
+ * goals that explain the board's own 1X2 and goal line (boardGoalsFit: the conditions of rule O5,
+ * a goal line to fit and a fit residual within MAX_MARKET_FIT_RESIDUAL), at the factory's margins
+ * and without the families the weekly job suspended or turned off (loadFactoryPricingPlan), each
+ * market passing O2 on its own (factoryMarketsFrom), exactly as on a market-priced event of ours.
+ * Without a usable fit, or switched off, its stored factory markets are suspended by the feed and
+ * re-open with the next read that prices them.
  *
  * Every pass (sweepBoardEvents, also when reading the board failed): an upcoming board event whose
  * board prices are not fresh (BOARD_PRICES_MAX_AGE_MS), or every one while the switch is off, has its
@@ -61,6 +72,16 @@ export interface BoardEventsSummary {
   skipped: number;
 }
 
+/** The factory's markets of a board match (see the module notes); none without a plan or a fit. */
+export function boardFactoryMarkets(
+  match: Pick<BoardMatch, 'markets'>,
+  plan: FactoryPricingPlan | null,
+): PricedMarket[] {
+  if (plan === null) return [];
+  const fit = boardGoalsFit(match.markets);
+  return fit === null ? [] : factoryMarketsFrom(fit.lambdaHome, fit.lambdaAway, plan);
+}
+
 const leagueKeyOf = (m: BoardMatch): string | null =>
   m.leagueId === null ? null : String(m.leagueId);
 
@@ -82,6 +103,9 @@ export async function syncBoardEvents(
   const summary: BoardEventsSummary = { created: 0, updated: 0, skipped: 0 };
   if (!(await getHulusportPricing(ctx.db)).enabled) return summary;
   const catalog = await loadBoardCatalog(ctx.db, 'hulusport');
+  const factoryPlan = ctx.config.scraper.factoryMarkets
+    ? await loadFactoryPricingPlan(ctx.db)
+    : null;
 
   // Leagues Nahubet lists itself: never add board events there.
   const ours = new Set<string>();
@@ -114,11 +138,12 @@ export async function syncBoardEvents(
       summary.skipped += 1;
       continue;
     }
-    const markets = priceBoardMarkets(m.markets);
-    if (!markets.some((x) => x.type === '1x2') || !checkMarkets(markets).ok) {
+    const boardMarkets = priceBoardMarkets(m.markets);
+    if (!boardMarkets.some((x) => x.type === '1x2') || !checkMarkets(boardMarkets).ok) {
       summary.skipped += 1;
       continue;
     }
+    const markets: PricedMarket[] = [...boardMarkets, ...boardFactoryMarkets(m, factoryPlan)];
     const messages: LiveMessage[] = [];
     const outcome = await ctx.db.transaction(async (tx) => {
       const competitionId = await ensureBoardCompetition(tx, {
@@ -154,8 +179,9 @@ export async function syncBoardEvents(
       if (result.status !== 'scheduled') return result;
       // The board's prices can be up to BOARD_PRICES_MAX_AGE_MS old: close a little before kickoff.
       await raiseCloseLead(tx, result.eventId, MARKET_CLOSE_LEAD_MS);
-      // What the board quotes is open (unless a trader suspended it); what it dropped is suspended.
-      const quoted = new Set(markets.map((x) => marketKey(x.type, x.line)));
+      // What the board quotes (and the factory prices from it) is open, unless a trader suspended
+      // it; what it dropped is suspended.
+      const quoted = new Set(markets.map((x) => anyMarketKey(x.type, x.line)));
       for (const stored of await marketsWithSelections(tx, result.eventId)) {
         if (stored.status === 'open' && !quoted.has(stored.key)) {
           messages.push(...(await setMarketStatus(tx, stored.id, 'suspended')).messages);

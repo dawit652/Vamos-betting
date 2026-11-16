@@ -340,7 +340,29 @@ function addisAbabaDayOf(day: string): { start: Date; end: Date } {
   return { start: new Date(start), end: new Date(start + 24 * HOUR_MS) };
 }
 
-function filterCondition(query: EventListQuery, now: Date): SQL {
+/**
+ * Highlights fall back to every league (owner's report of 16 Nov 2026: the tab stayed empty
+ * through an international break) when no featured competition of the sport has a match live or
+ * starting within HIGHLIGHTS_WINDOW_MS: then they show what is live or starts soonest anywhere.
+ */
+async function highlightsHaveFeatured(db: DbExecutor, sport: string, now: Date): Promise<boolean> {
+  const [row] = await db
+    .select({ id: events.id })
+    .from(events)
+    .innerJoin(competitions, eq(competitions.id, events.competitionId))
+    .where(
+      and(
+        eq(events.sportId, sport),
+        eq(competitions.active, true),
+        eq(competitions.featured, true),
+        liveOrStartingBetween(now, new Date(now.getTime() + HIGHLIGHTS_WINDOW_MS)),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+function filterCondition(query: EventListQuery, now: Date, featuredOnly = true): SQL {
   if (query.day !== undefined && (query.filter === 'today' || query.filter === 'upcoming')) {
     // An explicit day replaces the tab's own window; upcoming never lists what has started.
     const { start, end } = addisAbabaDayOf(query.day);
@@ -357,11 +379,10 @@ function filterCondition(query: EventListQuery, now: Date): SQL {
         )!;
   }
   switch (query.filter) {
-    case 'highlights':
-      return and(
-        eq(competitions.featured, true),
-        liveOrStartingBetween(now, new Date(now.getTime() + HIGHLIGHTS_WINDOW_MS)),
-      )!;
+    case 'highlights': {
+      const soon = liveOrStartingBetween(now, new Date(now.getTime() + HIGHLIGHTS_WINDOW_MS));
+      return featuredOnly ? and(eq(competitions.featured, true), soon)! : soon;
+    }
     case 'today': {
       const { start, end } = addisAbabaDay(now);
       return and(
@@ -387,7 +408,8 @@ function filterCondition(query: EventListQuery, now: Date): SQL {
 
 /**
  * GET /events: a page of a sport's events of active competitions.
- * - highlights: featured competitions, live or starting within 24h;
+ * - highlights: featured competitions, live or starting within 24h (every competition when no
+ *   featured one has such a match: highlightsHaveFeatured);
  * - today: scheduled or live, starting on today's Addis Ababa date (a
  *   scheduled event whose start has passed is listed, not bettable, until
  *   the feed reports its kick-off);
@@ -407,7 +429,11 @@ export async function listEvents(
     eq(events.sportId, query.sport),
     eq(sports.active, true),
     eq(competitions.active, true),
-    filterCondition(query, now),
+    filterCondition(
+      query,
+      now,
+      query.filter !== 'highlights' || (await highlightsHaveFeatured(db, query.sport, now)),
+    ),
   ];
   if (query.competition !== undefined) conditions.push(eq(competitions.slug, query.competition));
   if (query.country !== undefined) conditions.push(eq(categories.slug, query.country));

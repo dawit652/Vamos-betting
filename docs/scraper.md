@@ -924,6 +924,17 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   closed in one transaction that locks the event row, then its items, and checks the conditions
   again. Nothing else changes (no event, market, price, bet or `scrape_event_pricing`), and a second
   pass closes nothing.
+- **Q2 Stale review items.** The second part of the sweeper (`sweepStaleReviewItems`, right after Q1
+  in the promotion pass). Two cases, same style as Q1 (resolution `auto: <reason>`, resolved by the
+  scraper, audit `scrape.review.swept` with `rule: 'Q2'` per item, a transaction per subject or item
+  that locks and reads again, idempotent, nothing else changes):
+  `source_disabled`: `source_broken` and `source_stale` items on `source|<id>` whose `scrape_sources`
+  row does not exist or has `enabled = false` (other subjects, such as credit alarms, are left
+  alone); `name_not_seen`: `unknown_team` and `unknown_competition` items with
+  `updated_at < now - NAME_NOT_SEEN_MS` (7 days; `openReviewItem` moves `updated_at` on every sighting,
+  so no source showed the name for a week). The items are resolved, not dismissed: no
+  `payload.dismissals` is added, so a name that appears again opens a new item and N4 auto-aliasing
+  treats it as new.
 - **M1 Prices at betting close (2026-11, M-1 of `docs/feed-quality-plan.md`; measurement only).** The
   promotion pass (`captureClosePrices`, after F7b) records once, for every scraped, scheduled,
   unresulted event with betting open whose betting closes within `CLOSE_CAPTURE_WINDOW_MS` (10 min;

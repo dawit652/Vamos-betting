@@ -497,6 +497,35 @@ describe('GET /events', () => {
     expect(body.nextCursor).toBeNull();
   });
 
+  it('falls back to every league when no featured one has a match within 24h', async () => {
+    const featured = await db.execute<{ id: string }>(
+      sql`UPDATE competitions SET featured = false WHERE featured RETURNING id`,
+    );
+    try {
+      const body = EventListResponse.parse(
+        (await get('/events?filter=highlights&limit=100')).json(),
+      );
+      const ids = body.items.map((item) => item.id);
+      // The featured leagues' matches are still there, and the others' too (the CAF match).
+      expect(ids).toEqual(expect.arrayContaining([ev.live.id, ev.soon.id, ev.closedBetting.id]));
+      expect(ids).toContain(ev.caf.id);
+      // Not tomorrow's match beyond 24h, and in start order (live first).
+      expect(ids).not.toContain(ev.tomorrow.id);
+      const starts = body.items.map((item) => item.startTime);
+      expect([...starts].sort()).toEqual(starts);
+    } finally {
+      const back = featured.rows.map((r) => r.id);
+      if (back.length > 0) {
+        await db.execute(
+          sql`UPDATE competitions SET featured = true WHERE id IN (${sql.join(
+            back.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})`,
+        );
+      }
+    }
+  });
+
   it('builds list rows with the main market, "+N markets" and game id', async () => {
     const body = EventListResponse.parse((await get('/events?filter=highlights')).json());
     const [live, soon, closed] = body.items;

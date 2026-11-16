@@ -28,6 +28,7 @@ import {
   fitGoalsToMarket,
   MAX_MARKET_FIT_RESIDUAL,
   marketPricingKey,
+  matchStrengths,
   priceBoardMarkets,
   priceFactoryMarkets,
   priceFixture,
@@ -187,12 +188,9 @@ export async function priceEvent(exec: DbExecutor, input: EventPriceInput): Prom
             maxAgeMs: input.maxAgeMs ?? MARKET_ODDS_MAX_AGE_MS,
           }),
         );
-  // Plan task 2.5: the factory's margins and families, only when its markets can be priced.
-  const needsPlan =
-    input.factoryMarkets === true &&
-    input.competitionPricingSource === 'market' &&
-    input.eventId !== null &&
-    input.factoryPlan === undefined;
+  // Plan task 2.5: the factory's margins and families, only when its markets can be priced (from
+  // the market, or from the model since 16 Nov 2026).
+  const needsPlan = input.factoryMarkets === true && input.factoryPlan === undefined;
   const plan = needsPlan ? await loadFactoryPricingPlan(exec) : input.factoryPlan;
   // Our own prices (with the factory's markets), then the Hulusport board's prices over the
   // markets we already price, then the half-time rule.
@@ -304,11 +302,22 @@ function priceBook(
     if (market.kind === 'priced') return market.price;
     fallback = market.reason;
   }
-  const markets = priceFixture('football', input.homeRatings ?? null, input.awayRatings ?? null);
+  const own = priceFixture('football', input.homeRatings ?? null, input.awayRatings ?? null);
+  // The factory's markets from the model's own expected goals (owner's request of 16 Nov 2026: about
+  // 500 options per match on the leagues whose "Market factory markets" switch is on, whatever
+  // their prices come from). The key says so, as for the market path, so switching it on or off,
+  // or a change of the factory's margins or families, re-prices each event once.
+  const factory = input.factoryMarkets === true ? (plan ?? null) : null;
+  let markets: PricedMarket[] = own;
+  if (factory !== null) {
+    const goals = matchStrengths('football', input.homeRatings ?? null, input.awayRatings ?? null);
+    markets = [...own, ...factoryMarketsFrom(goals.home, goals.away, factory)];
+  }
+  const key = ratingsKey(input.homeRatings, input.awayRatings);
   return {
     source: 'model',
     markets,
-    key: ratingsKey(input.homeRatings, input.awayRatings),
+    key: factory === null ? key : `${key}${factoryKeySuffix(factory)}`,
     calibrated:
       isCalibrated(input.homeRatings ?? null, input.minRatingMatches) &&
       isCalibrated(input.awayRatings ?? null, input.minRatingMatches),
@@ -404,7 +413,7 @@ export function factoryKeySuffix(plan: Pick<FactoryPricingPlan, 'tag'>): string 
  * class and family, without the families the weekly job suspended or turned off (their stored
  * markets are then suspended by the feed: upsertFixture's factoryComplete).
  */
-function factoryMarketsFrom(
+export function factoryMarketsFrom(
   lambdaHome: number,
   lambdaAway: number,
   plan: FactoryPricingPlan,

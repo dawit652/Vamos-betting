@@ -1,6 +1,13 @@
-import { canonicalLine, type MarketTypeCode, MARKET_TYPES, selectionsFor } from '@vamos/core';
+import {
+  canonicalLine,
+  type MarketConsensus,
+  type MarketTypeCode,
+  MARKET_TYPES,
+  selectionsFor,
+} from '@vamos/core';
 import type { FeedMarket } from '../types';
 import { buildMarket, defaultMarginBps } from './book';
+import { fitGoalsToMarket, MAX_MARKET_FIT_RESIDUAL, type MarketGoalsFit } from './market';
 
 /**
  * A competitor's markets with OUR margin (docs/plans/hulusport-feed.md).
@@ -30,11 +37,16 @@ export const MAX_BOARD_OVERROUND = 1.5;
 
 const fairTotal = (type: MarketTypeCode): number => (type === 'dc' ? 2 : 1);
 
-/** One board market with our margin, or null when it cannot be used (see the module notes). */
-export function priceBoardMarket(
-  market: BoardMarketInput,
-  marginBps: number = defaultMarginBps(market.type, false),
-): FeedMarket | null {
+/** A usable board market without the board's margin: canonical line, fair probabilities, overround. */
+interface BoardFairBook {
+  line: string | null;
+  probabilities: Record<string, number>;
+  /** Σ 1/price of the board's prices. */
+  overround: number;
+}
+
+/** The board's own book of `market` with its margin removed, or null (see the module notes). */
+function boardFairBook(market: BoardMarketInput): BoardFairBook | null {
   if (!Object.hasOwn(MARKET_TYPES, market.type)) return null;
   let line: string | null;
   try {
@@ -61,7 +73,59 @@ export function priceBoardMarket(
   if (!(overround >= total && overround <= total * MAX_BOARD_OVERROUND)) return null;
   const probabilities: Record<string, number> = {};
   for (const [code, p] of implied) probabilities[code] = (p * total) / overround;
-  return buildMarket(market.type, line, probabilities, marginBps);
+  return { line, probabilities, overround };
+}
+
+/** One board market with our margin, or null when it cannot be used (see the module notes). */
+export function priceBoardMarket(
+  market: BoardMarketInput,
+  marginBps: number = defaultMarginBps(market.type, false),
+): FeedMarket | null {
+  const book = boardFairBook(market);
+  return book === null ? null : buildMarket(market.type, book.line, book.probabilities, marginBps);
+}
+
+/** The name a board's prices carry when they stand in for a market consensus (one book). */
+export const BOARD_CONSENSUS_BOOKMAKER = 'board';
+
+/**
+ * The board's 1X2 and over/under books in the shape of a market consensus of ONE book (the board),
+ * margin removed as for {@link priceBoardMarket}, so the market fit can read them. A 1X2 or
+ * over/under line that is not a usable book is left out; the first usable book of a line wins.
+ */
+export function boardConsensus(markets: readonly BoardMarketInput[]): MarketConsensus[] {
+  const out: MarketConsensus[] = [];
+  const seen = new Set<string>();
+  for (const market of markets) {
+    if (market.type !== '1x2' && market.type !== 'ou') continue;
+    const book = boardFairBook(market);
+    if (book === null) continue;
+    const id = `${market.type}|${book.line ?? ''}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      market: market.type,
+      line: book.line,
+      probabilities: book.probabilities,
+      books: 1,
+      bookmakers: [BOARD_CONSENSUS_BOOKMAKER],
+      overroundMedian: book.overround,
+    });
+  }
+  return out;
+}
+
+/**
+ * Expected goals that explain a board's own prices (docs/plans/hulusport-feed.md, the market
+ * factory on board-only matches): {@link fitGoalsToMarket} on {@link boardConsensus}, kept only
+ * under the same conditions as a market-priced event (rule O5): the board quotes a 1X2 and a goal
+ * line the fit can use (2.5, or an x.5 line in its place) and the fit explains them within
+ * MAX_MARKET_FIT_RESIDUAL. Null otherwise, and then no market is derived from the board.
+ */
+export function boardGoalsFit(markets: readonly BoardMarketInput[]): MarketGoalsFit | null {
+  const fit = fitGoalsToMarket(boardConsensus(markets));
+  if (fit === null || fit.totalsLine === null) return null;
+  return fit.residual <= MAX_MARKET_FIT_RESIDUAL ? fit : null;
 }
 
 /** Every usable board market with our margin, in the order given. */
