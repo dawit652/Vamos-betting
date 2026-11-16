@@ -316,7 +316,7 @@ in a secret manager, not in git.
 | `QUEUE_PREFIX`                         | `vamos`                                                   | Key prefix of the BullMQ queues. Change only with an empty queue.                                                                                                                     |
 | `SESSION_SECRET` (secret)              | dev value (refused in production)                         | 32+ chars. Keys OTP hashes and the national-ID hash that stops one ID opening two accounts. See rotation runbook.                                                                     |
 | `PASSWORD_PEPPER` (secret)             | unset (required in production and licensed mode)          | 32+ chars, not the `SESSION_SECRET`. argon2's secret key for every password hash, kept outside the database (losing it makes passwords unusable). See rotation runbook.               |
-| `METRICS_TOKEN` (secret)               | unset (route off)                                         | 32+ chars. Bearer token of `GET /metrics`; unset, the route answers 404. See "Metrics" below.                                                                                         |
+| `METRICS_TOKEN` (secret)               | unset (route off)                                         | 32+ chars. Bearer token of `GET /metrics` on the api and the worker health port; unset, the route answers 404. See "Metrics" below.                                                   |
 | `ADMIN_TOTP_KEY` (secret)              | dev key (refused in production)                           | 32 bytes as 64 hex chars or base64. AES-256-GCM key of the staff TOTP secrets. See rotation runbook.                                                                                  |
 | `MOCK_PAYMENT_WEBHOOK_SECRET` (secret) | dev value (refused in production while `mock` is enabled) | HMAC key of the mock provider's webhooks (demo only).                                                                                                                                 |
 
@@ -394,6 +394,20 @@ token gets 401. It is read-only and counts requests by route template (never the
   result): `sms_open_deposits`, `sms_open_deposits_busiest{base_amount_birr}` (the 5 base amounts with most open
   deposits; a base amount near 50 open deposits is out of free amounts), `manual_payout_oldest_approved_seconds`,
   `manual_payout_claimed_idle` (claimed over 30 minutes ago) and `withdrawals_awaiting_review`.
+
+**Worker.** The worker answers `GET /metrics` on its health port (`WORKER_HEALTH_PORT`, default 4100) with the same
+`METRICS_TOKEN` and the same rules (no token: 404; missing or wrong bearer: 401; Redis unreadable: 503). It
+reads Redis at scrape time and keeps the result 5 seconds:
+
+- `queue_jobs{queue,state}` for every queue (`settlement`, `payouts`, `sms`, ...) and `state` of `waiting` (ready to
+  be taken), `active`, `delayed` (not due yet, e.g. a live bet's acceptance delay) and `failed`.
+- `queue_oldest_waiting_seconds{queue}`: how long the oldest waiting job has waited (0: none). A value that keeps
+  growing means the consumers of that queue are stuck or too slow; `payouts` and `settlement` are the ones to alert on.
+
+```sh
+WORKER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(docker compose ps -q worker)")
+curl -fsS -H "Authorization: Bearer $METRICS_TOKEN" "http://$WORKER_IP:4100/metrics"
+```
 
 Each api process reports its own counters, so scrape every process. Caddy answers 404 for `/metrics` on the
 public api host: scrape from the host over the compose network instead, with the container's address:

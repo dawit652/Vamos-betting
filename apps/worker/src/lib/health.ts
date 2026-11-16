@@ -2,6 +2,12 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { sql, type SQL } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import {
+  bearerMatches,
+  METRICS_PATH,
+  PROMETHEUS_CONTENT_TYPE,
+  type MetricsEndpoint,
+} from './metrics';
 import { queueWorkerStatuses, withTimeout, type QueueWorkerStatus } from './queues';
 
 /** One readiness check: resolves when the dependency answers, throws otherwise. */
@@ -56,6 +62,8 @@ export async function readiness(
  * - `GET /ready`: 200 when every readiness check passes (database, Redis,
  *   the queue consumers connected), 503 with the failing checks otherwise,
  *   and 503 `draining` once shutdown has begun.
+ * - `GET /metrics`: queue depth and the oldest waiting job per queue (Prometheus text), only
+ *   when `metrics` is given (METRICS_TOKEN set) and the request carries it as a bearer token.
  * Anything else is 404. Answers are JSON and never cached. Errors carry the
  * dependency's message, not credentials (connection URLs are not logged).
  */
@@ -65,6 +73,7 @@ export async function startHealthServer(input: {
   checks: ReadinessCheck[];
   logger: Logger;
   timeoutMs?: number;
+  metrics?: MetricsEndpoint;
 }): Promise<HealthServer> {
   let draining = false;
   const server: Server = createServer((request, response) => {
@@ -78,6 +87,28 @@ export async function startHealthServer(input: {
     const path = (request.url ?? '/').split('?', 1)[0];
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       send(405, { status: 'method_not_allowed' });
+      return;
+    }
+    if (path === METRICS_PATH && input.metrics !== undefined) {
+      const { token, render } = input.metrics;
+      if (!bearerMatches(request.headers.authorization, token)) {
+        response.setHeader('www-authenticate', 'Bearer');
+        send(401, { status: 'unauthorized' });
+        return;
+      }
+      render().then(
+        (body) => {
+          response.writeHead(200, {
+            'content-type': PROMETHEUS_CONTENT_TYPE,
+            'cache-control': 'no-store',
+          });
+          response.end(request.method === 'HEAD' ? undefined : body);
+        },
+        (error: unknown) => {
+          input.logger.warn({ err: error }, 'queue metrics unavailable');
+          send(503, { status: 'unavailable' });
+        },
+      );
       return;
     }
     if (path === '/health') {
