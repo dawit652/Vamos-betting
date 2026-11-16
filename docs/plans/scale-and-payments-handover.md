@@ -169,28 +169,27 @@ scale-out overlay (A4) is validated only by the `docker` job.
 - **Back office** dark and light theme; **E2E_CHROMIUM_PATH**; the two agents named by CLAUDE.md are in
   `.claude/agents/`; **the C2 design** (`docs/plans/c2-double-proof-design.md`, Opus).
 
-**In flight when this was written** (two Opus agents in the first account's container; their work is
-uncommitted there and is lost if the session ends before it is committed). Look in `git log` for commits
-named "C12" and "C2a"; if they are there, they were reviewed and verified. If not, redo them:
+**Half done when this was written** (the first account's two Opus agents hit the 5-hour limit, which
+resets at 01:00 UTC; their partial work was saved, nothing was lost):
 
-- **C12, settle evidence hardening. Live today, the most urgent code task.** The typed-reference settle in
-  `packages/db/src/payments/manualpayouts.ts` (`settleManualPayout`) accepts any debit SMS with the
-  payout's amount and status `ignored_debit`, without checking it went to the player's number or came after
-  the claim; an operator could pay themselves and settle the player's payout with that debit. Proposals
-  (`applyDebit` / `proposePayoutSettlement` in `smsrail.ts`, `proposePayoutForSms` in
-  `packages/core/src/smsmatch.ts`) can also attach a debit to an unclaimed payout. The fix: for a wallet the
-  SMS must name the payout's destination (else 409 `settlement_destination_mismatch`; no counterparty from
-  `ignored_debit` is refused), the SMS must be received at or after the claim minus 5 minutes (else 409
-  `settlement_proof_too_old`, reuse the skew handling of `smsPaidBy`), proposals only for `processing`
-  payouts; tests for the insider scenario, a debit before the claim, the honest path, an amount-only
-  proposal, an unclaimed payout, two same-amount payouts to different numbers; the runbook gets the new
-  codes **and a correction**: the debit-SMS proof is required only when `PAYOUT_REQUIRE_PROOF=true`, not
-  "in licensed mode" (licensed mode only warns about rail problems). Opus, high, then a review.
-  **It changes what operators see and needs a deploy** (`infra/scripts/deploy-full.sh`, the owner at the
-  server, see root `HANDOFF.md`).
-- **C2a, the pure double-proof rule**: `packages/core/src/payoutproof.ts` (`decideDoubleProof`),
-  `auto_settle` in `assessManualPayout`, the masked-account matcher moved into core, with the unit and
-  property tests of the design's section 8. Opus, high. The design is the spec.
+- **C12, settle evidence hardening: LANDED (`8c58c5d`), verified, but not yet reviewed by Opus.** It was
+  the most urgent code task: the typed-reference settle in `packages/db/src/payments/manualpayouts.ts`
+  accepted any same-amount debit SMS (`ignored_debit`) without checking it went to the player's number or
+  came after the claim, so a claiming operator could pay themselves and settle the player's payout with
+  that debit. Now a wallet proof must name the payout's number (409 `settlement_destination_mismatch`; an
+  SMS with no number counts only as the matcher's own proposal for this payout), every proof must be of a
+  transfer after the claim minus 5 minutes (409 `settlement_proof_too_old`, core `latestClaimForSms`),
+  and proposals only attach to claimed payouts. Verified here: typecheck clean; core 909, db 812, api 523,
+  worker 123, admin 105 tests pass; the source was read line by line. **To do: a read-only Opus review**
+  (the scenarios: an honest operator blocked by a phone-format difference or a bank SMS without a
+  counterparty; an operator who sends the money before claiming is refused by design; races) **and a
+  deploy** (`infra/scripts/deploy-full.sh`, the owner at the server, root `HANDOFF.md`): until it is
+  deployed the hole is open. The runbook also lost a wrong sentence: the debit-SMS proof is required
+  only when `PAYOUT_REQUIRE_PROOF=true`, not "in licensed mode".
+- **C2a, the pure double-proof rule: PARTIAL.** Saved as `docs/plans/wip/c2a-partial.patch` (about 1,900
+  lines: `payoutproof.ts`, its tests, the masked-account matcher in core, `auto_settle` in
+  `payoutflow.ts`); it is not reviewed and does not typecheck yet. `docs/plans/wip/README.md` says what is
+  missing and how to continue (Opus, high; the design is the spec).
 
 **The other account's claims** (A1a, A2, B4, claimed about 15:40 UTC by its own report): nothing was pushed
 by 21:00 UTC. Claims older than 6 hours without a commit are free (after 21:40 UTC): take them, in the
@@ -205,7 +204,7 @@ manual payouts" stops being true if C2 goes to `on`.
 
 **Next, in this order** (model and effort in brackets):
 
-1. Verify and commit C12 and C2a if they did not land (Opus, high), then deploy C12 with the owner.
+1. Review C12 with Opus (read-only) and deploy it with the owner; finish C2a from the patch (Opus, high).
 2. **B4** offsets 1 to 99, then **B2a, B2b, B2c** amount space per collection account: deposits run out of
    amounts first at 10,000 players (plan, section 3). B2b and C2b both need **migration 0053**: only one
    session creates a migration at a time; whoever merges second renumbers.
