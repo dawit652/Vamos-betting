@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { countryCodeOfName } from '@vamos/core';
 import { and, asc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { categories, competitions, events, teams } from '../schema/catalog';
@@ -87,6 +88,7 @@ export async function ensureBoardCompetition(
       sportId: SPORT,
       slug: categorySlug,
       name: { en: groupName },
+      countryCode: countryCodeOfName(groupName),
       sortOrder: BOARD_SORT_ORDER,
     })
     .onConflictDoNothing();
@@ -136,6 +138,29 @@ export async function ensureBoardCompetition(
     .values({ board: input.board, leagueKey: input.leagueKey, competitionId: competition!.id })
     .onConflictDoNothing();
   return competition!.id;
+}
+
+/**
+ * Gives the board's categories created before they carried a country (slug `hl-...`, no code) the
+ * code of the country their name says. Idempotent; returns how many it filled. A name that is not a
+ * country (International, Africa) stays without one and is looked at again next time (few rows).
+ */
+export async function fillBoardCategoryCountries(exec: DbExecutor): Promise<number> {
+  const open = await exec
+    .select({ id: categories.id, name: sql<string>`${categories.name}->>'en'` })
+    .from(categories)
+    .where(and(sql`${categories.slug} LIKE 'hl-%'`, isNull(categories.countryCode)));
+  let filled = 0;
+  for (const row of open) {
+    const code = countryCodeOfName(row.name ?? '');
+    if (code === null) continue;
+    await exec
+      .update(categories)
+      .set({ countryCode: code })
+      .where(and(eq(categories.id, row.id), isNull(categories.countryCode)));
+    filled += 1;
+  }
+  return filled;
 }
 
 /**

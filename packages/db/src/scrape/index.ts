@@ -109,6 +109,7 @@ export {
   boardSlug,
   ensureBoardCompetition,
   ensureBoardTeam,
+  fillBoardCategoryCountries,
   listBoardEvents,
   loadBoardCatalog,
   type BoardCatalog,

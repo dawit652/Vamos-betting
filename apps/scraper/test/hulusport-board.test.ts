@@ -266,6 +266,7 @@ describe('Hulusport matches Nahubet does not list', () => {
       home?: string;
       league?: number;
       leagueName?: string;
+      group?: string;
       homeWin?: number;
       btts?: boolean;
     } = {},
@@ -280,7 +281,7 @@ describe('Hulusport matches Nahubet does not list', () => {
       id: over.league ?? 99,
       name: over.leagueName ?? 'Somewhere League',
       sport_type: 79,
-      group: 'Somewhereland',
+      group: over.group ?? 'Somewhereland',
     },
     items: [
       item('3 Way', {}, [
@@ -332,6 +333,36 @@ describe('Hulusport matches Nahubet does not list', () => {
         )
       ).map((r) => [r.key, r.status]),
     );
+
+  it(
+    'gives the category of a board league its country, and fills those made without one',
+    async () => {
+      await createdEvent();
+      await switchTo(true);
+      const board = serveBoard(
+        boardOf(h.now(), [
+          ownMatch(h.now(), { id: 1, league: 71, group: 'England Amateur' }),
+          ownMatch(h.now(), { id: 2, league: 72, group: 'International' }),
+        ]),
+      );
+      await readHulusportBoard(h.ctx, board.fetchImpl);
+      const codes = () =>
+        rows<{ slug: string; country_code: string | null }>(
+          `SELECT slug, country_code FROM categories WHERE slug LIKE 'hl-%' ORDER BY slug`,
+        );
+      expect(await codes()).toEqual([
+        { slug: 'hl-england-amateur', country_code: 'GB-ENG' },
+        { slug: 'hl-international', country_code: null },
+      ]);
+      // A category made before the code existed is filled on the next read.
+      await h.pool.query(
+        `UPDATE categories SET country_code = NULL WHERE slug = 'hl-england-amateur'`,
+      );
+      await readHulusportBoard(h.ctx, board.fetchImpl);
+      expect((await codes())[0]).toEqual({ slug: 'hl-england-amateur', country_code: 'GB-ENG' });
+    },
+    TEST_TIMEOUT,
+  );
 
   it(
     'lists the match in a league and with teams of its own, priced from the board, and follows the board',

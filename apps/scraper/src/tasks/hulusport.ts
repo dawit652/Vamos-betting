@@ -1,4 +1,9 @@
-import { findEventByTeams, upsertBoardOdds, type BoardOddsInput } from '@vamos/db';
+import {
+  fillBoardCategoryCountries,
+  findEventByTeams,
+  upsertBoardOdds,
+  type BoardOddsInput,
+} from '@vamos/db';
 import {
   HULUSPORT_SOURCE_ID,
   MARKET_ODDS_LINK_WINDOW_MS,
@@ -163,6 +168,13 @@ export async function readHulusportBoard(
   }
   await ctx.db.transaction((tx) => upsertBoardOdds(tx, rows));
   summary.boardEvents = await syncBoardEvents(ctx, entries, now);
+  // Categories made before they carried a country code get their flag; never fails the read.
+  try {
+    const filled = await fillBoardCategoryCountries(ctx.db);
+    if (filled > 0) ctx.logger.info({ filled }, 'hulusport board categories got a country');
+  } catch (err) {
+    ctx.logger.error({ err }, 'could not fill the country of board categories');
+  }
   ctx.logger.info({ ...summary }, 'hulusport board read');
   return summary;
 }
