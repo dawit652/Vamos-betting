@@ -140,6 +140,16 @@ importers:
         specifier: 8.5.1
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.31)(tsx@4.23.15)(typescript@6.0.3)
 
+  apps/payout-agent:
+    dependencies:
+      '@vamos/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+    devDependencies:
+      fast-check:
+        specifier: 4.10.2
+        version: 4.10.2
+
   apps/scraper:
     dependencies:
       '@vamos/config':

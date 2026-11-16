@@ -57,6 +57,8 @@ back office ── shift open/stop ──▶ API + database ◀── debit SMS 
      broke after it. **A machine never retries an unknown.** The shift pauses, an alarm is raised,
      and a person looks at the wallet before anything else happens to that payout.
    - A payout with a debit SMS proposed for it is never sent again, whatever its attempt said.
+   - Two instructions for the same number and the same amount are at least ten minutes apart, so
+     a late "sent" screen of the first can never be read as the result of the second.
 5. **The confirmation is read back.** Money cannot move unless a screen, after the number and the
    amount were typed, showed this payout's own number and amount (and the holder's name where the
    menu shows one, compared with the player's name). Any screen that is not the expected one ends
@@ -107,6 +109,27 @@ SMS within the window, or an SMS without a `sent`, goes to a person.
   afterwards.
 - The two scripts in the tests are **invented**. A real script comes from the real SIM (section 6).
 
+### Built: the agent's core, against a simulated modem (C8b, part 1)
+
+`apps/payout-agent` (its README lists the files). It has **never talked to a real modem**, and nothing
+can run it yet: no command line, no serial port, no connection to the API.
+
+- `runTransfer` types what the judgement says and adds three rules of its own: an answer counts as
+  typed before it is written to the modem (a write that failed half-way is never "nothing was sent");
+  a rehearsal never types the commit; the session is always hung up afterwards, also when the last
+  screen said it was over (found by a test: a late screen of an earlier session had left the new
+  session open, and the next transfer answered into it).
+- The PIN is read from memory at the moment it is typed, sent with a flag that keeps it out of the
+  trace and out of error messages, and written as `<PIN>` in the transcript.
+- `checkSendCaps`: per send, sends and sum per hour, sum per shift, sum per East Africa Time day, a
+  pause; an `unknown` outcome counts as money that left.
+- Tests (69): the AT channel and codec; the whole path; a rehearsal; every stop before the PIN; and
+  five kinds of fault (a lost message, a lost answer after the menu acted, an unexpected screen, a
+  cut session, a modem error) at each of the six exchanges. A property test runs random faults,
+  menus that take other values, both character sets, answers cut into pieces and screens before
+  their OK, and checks each time that the report agrees with the simulated wallet's own books.
+  Seven deliberate faults planted in the runner were all caught.
+
 ## 6. What only the owner can do (no calls to anyone)
 
 1. **Decide D9**: accept a machine that types the wallet's menu with the PIN in its memory during a
@@ -137,17 +160,17 @@ SMS within the window, or an SMS without a `sent`, goes to a person.
 
 ## 8. Build order
 
-| Task | What                                                                                                                                                                                                                                              | Model / effort               | Done when                                                                                       |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------- |
-| C8a  | The judgement in core                                                                                                                                                                                                                             | done                         |                                                                                                 |
-| C8b  | `apps/payout-agent`: modem over AT commands (`AT+CUSD`, `AT+CMGL`), the session driver, PIN in memory, local caps, `record`, `rehearse`, forwarding the SIM's SMS, and a **simulated modem** so all of it is tested without hardware. No database | Opus, high                   | The driver passes against the simulator: every stop of section 3, a session broken at each step |
-| C8c  | Server: migration (the next free number: coordinate, one session at a time), shifts, attempts, the instruction endpoint with its own secret and allowlist, caps, stop rules, alarms                                                               | Opus, high                   | Database tests: at most once, never after an unknown, never with a proposed SMS, four eyes      |
-| C8d  | Settlement on proof for sent payouts (C12 checks, `auto_settle` of C2a, C2's receipt where there is one)                                                                                                                                          | Opus, high                   | No settle on the agent's word alone; mismatches go to a person                                  |
-| C8e  | Back office (shift, attempts, resolve an unknown), runbook, e2e with the simulated modem                                                                                                                                                          | Sonnet, medium; Opus reviews | Works on a phone width; runbook merged                                                          |
-| C8f  | Gate: the real script recorded, rehearsal on real payouts, first day with a small float                                                                                                                                                           | Owner + Opus, high           | Written sign-off; `PAYOUT_SENDER=on` with low caps                                              |
+| Task | What                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Model / effort               | Done when                                                                                       |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| C8a  | The judgement in core                                                                                                                                                                                                                                                                                                                                                                                                                                           | done                         |                                                                                                 |
+| C8b  | `apps/payout-agent`. **Part 1 done:** the AT channel, the USSD session, the driver, the PIN handling, the local caps and the simulated modem and wallet. **Part 2 open:** the command line (`probe` a modem, `record` a script from one real session, `rehearse`), the serial port (`serialport`), reading the SIM's SMS (PDU mode, so long messages are put together) and forwarding them to the gateway, a journal so the caps survive a restart. No database | Opus, high                   | The driver passes against the simulator: every stop of section 3, a session broken at each step |
+| C8c  | Server: migration (the next free number: coordinate, one session at a time), shifts, attempts, the instruction endpoint with its own secret and allowlist, caps, stop rules, alarms                                                                                                                                                                                                                                                                             | Opus, high                   | Database tests: at most once, never after an unknown, never with a proposed SMS, four eyes      |
+| C8d  | Settlement on proof for sent payouts (C12 checks, `auto_settle` of C2a, C2's receipt where there is one)                                                                                                                                                                                                                                                                                                                                                        | Opus, high                   | No settle on the agent's word alone; mismatches go to a person                                  |
+| C8e  | Back office (shift, attempts, resolve an unknown), runbook, e2e with the simulated modem                                                                                                                                                                                                                                                                                                                                                                        | Sonnet, medium; Opus reviews | Works on a phone width; runbook merged                                                          |
+| C8f  | Gate: the real script recorded, rehearsal on real payouts, first day with a small float                                                                                                                                                                                                                                                                                                                                                                         | Owner + Opus, high           | Written sign-off; `PAYOUT_SENDER=on` with low caps                                              |
 
-C8b needs no decision and no migration and can start now. C8c changes CLAUDE.md's rule that the worker
-never touches manual payouts: reword it when C8c lands, not before.
+C8b part 2 needs no decision and no migration. C8c changes CLAUDE.md's rule that the worker never
+touches manual payouts: reword it when C8c lands, not before.
 
 ## 9. Risks the owner accepts with D9
 

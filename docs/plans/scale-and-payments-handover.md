@@ -284,10 +284,14 @@ should read 0 or a few seconds.
 
 **Owner, 16 Nov: "there is no way I can call the bank, solve it by the code."** So C3 and C5 are out
 and C8 (a machine that types the wallet's menu) is reopened: `docs/plans/payout-sender-design.md`.
-C8a (the pure judgement, `packages/core/src/payoutmenu.ts`) is built and tested. **Next is C8b**, the
-agent with a simulated modem (Opus, high): it needs no decision and no migration. The owner still owes
-D9 to D11, a payout SIM and a USB modem before anything real can be sent. Do not weaken the design's
-section 3 to make something work.
+C8a (the pure judgement, `packages/core/src/payoutmenu.ts`) and **C8b part 1** (`apps/payout-agent`:
+the driver on a modem's AT port, tested against a simulated modem and wallet) are built. **Next is C8b
+part 2**: the command line (`probe`, `record`, `rehearse`), the serial port, the SIM's SMS in PDU mode
+(design, section 8; the app's README). It needs no decision and no migration. Then C8c (the server
+side, with a migration: coordinate the number). The owner still owes D10, D11, a payout SIM and a USB
+modem before anything real can be sent, and an explicit yes at C8f. Do not weaken the design's
+section 3 to make something work, and do not report the agent as working on a real modem: it has only
+met the simulated one.
 
 **Still open, in this order** (model and effort in brackets):
 

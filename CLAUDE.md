@@ -6,21 +6,22 @@ Oct 27, 2026 · @Which Version Of Claude Are U
 
 Vamos Betting is a mobile-first sportsbook for Costa Rica, modelled on Betika: a TypeScript pnpm monorepo. Money stays in Ethiopian birr (ETB) and deposits and payouts go through telebirr, CBE (SMS rail) and Chapa.
 
-| Path                 | Package            | What it holds                                                                                    |
-| -------------------- | ------------------ | ------------------------------------------------------------------------------------------------ |
-| `apps/api`           | `@vamos/api`       | REST + SSE API (Fastify), :4000                                                                  |
-| `apps/worker`        | `@vamos/worker`    | Feed ingest, live simulator, settlement, payouts, notifications, reporting, SMS rail checks      |
-| `apps/web`           | `@vamos/web`       | Player PWA (Next.js), Betika-style lite mobile web, :3000                                        |
-| `apps/admin`         | `@vamos/admin`     | Back office: trading, risk, KYC, finance, compliance, SMS rail, manual payouts, :3001            |
-| `packages/core`      | `@vamos/core`      | Pure domain logic: money, odds, betslip, bonus, tax, cash-out, jackpot, SMS parsing and matching |
-| `packages/db`        | `@vamos/db`        | Drizzle schema, migrations, seed and the services that write money (PostgreSQL 16)               |
-| `packages/contracts` | `@vamos/contracts` | Zod request/response contracts shared by api, web and admin                                      |
-| `packages/payments`  | `@vamos/payments`  | Provider adapters (mock, Chapa, telebirr, SMS rail) and the receipt verifier; no database        |
-| `packages/feed`      | `@vamos/feed`      | Odds feed interface, mock Poisson pricing and live match simulator                               |
-| `packages/config`    | `@vamos/config`    | Environment loading and the operating-mode guard                                                 |
-| `packages/i18n`      | `@vamos/i18n`      | UI messages: Amharic, English, Afaan Oromo, Tigrinya                                             |
-| `e2e`                | `@vamos/e2e`       | Playwright end-to-end specs                                                                      |
-| `infra`, `scripts`   |                    | Docker, Caddy, ops scripts, load tests, SBOM                                                     |
+| Path                 | Package               | What it holds                                                                                                                             |
+| -------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api`           | `@vamos/api`          | REST + SSE API (Fastify), :4000                                                                                                           |
+| `apps/worker`        | `@vamos/worker`       | Feed ingest, live simulator, settlement, payouts, notifications, reporting, SMS rail checks                                               |
+| `apps/web`           | `@vamos/web`          | Player PWA (Next.js), Betika-style lite mobile web, :3000                                                                                 |
+| `apps/admin`         | `@vamos/admin`        | Back office: trading, risk, KYC, finance, compliance, SMS rail, manual payouts, :3001                                                     |
+| `apps/payout-agent`  | `@vamos/payout-agent` | The payout sender's agent (types a wallet's USSD menu through a modem); simulator-tested, not wired: `docs/plans/payout-sender-design.md` |
+| `packages/core`      | `@vamos/core`         | Pure domain logic: money, odds, betslip, bonus, tax, cash-out, jackpot, SMS parsing and matching                                          |
+| `packages/db`        | `@vamos/db`           | Drizzle schema, migrations, seed and the services that write money (PostgreSQL 16)                                                        |
+| `packages/contracts` | `@vamos/contracts`    | Zod request/response contracts shared by api, web and admin                                                                               |
+| `packages/payments`  | `@vamos/payments`     | Provider adapters (mock, Chapa, telebirr, SMS rail) and the receipt verifier; no database                                                 |
+| `packages/feed`      | `@vamos/feed`         | Odds feed interface, mock Poisson pricing and live match simulator                                                                        |
+| `packages/config`    | `@vamos/config`       | Environment loading and the operating-mode guard                                                                                          |
+| `packages/i18n`      | `@vamos/i18n`         | UI messages: Amharic, English, Afaan Oromo, Tigrinya                                                                                      |
+| `e2e`                | `@vamos/e2e`          | Playwright end-to-end specs                                                                                                               |
+| `infra`, `scripts`   |                       | Docker, Caddy, ops scripts, load tests, SBOM                                                                                              |
 
 ## Commands
 
