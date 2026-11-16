@@ -268,9 +268,10 @@ the "Read again" button (migration **0054**). The next free migration is **0055*
 **Before any deploy of this work** (the owner at the server, `infra/scripts/deploy-full.sh`, root
 `HANDOFF.md`): migrations 0053 and 0054 are in it; the rollback images keep working on the migrated
 database (the index of 0053 treats a null account as before). **Do not run two or more live collection
-accounts** until B2b, B2c and every forwarder sending `account` are deployed (with one account nothing
-changes). Not verified: `e2e/tests/sms-rail.spec.ts` with two accounts, the new deposit screen in a browser
-and against the 160 KB budget, `caddy validate` of `Caddyfile.streams` (CI does it), and 2,000 streams on
+accounts** until B2b, B2c, **B2d** (16 Nov: the player chooses the institution, the server picks an
+account only within it) and every forwarder sending `account` are deployed (with one account nothing
+changes). Verified on 16 Nov: `e2e/tests/sms-rail.spec.ts` passes against the built stack with the two demo
+institutions (telebirr and CBE), and the page-weight budget spec passes. Not verified: `caddy validate` of `Caddyfile.streams` (CI does it), and 2,000 streams on
 `streams` processes while `pnpm load:bets` runs on the others.
 
 **Added on 16 Nov, 05:30 to 06:26 UTC (first account, session `01BG4x`), all pushed:** A7 measured (no
@@ -303,9 +304,11 @@ met the simulated one.
    is done (core only, wired into nothing): next in that chain is C2c (the receipt verifier's debit mode,
    Sonnet medium) and C2b (database, **migration 0055**, Opus high), both need real fixtures and the
    owner's D4 and D8 before anything can go to `shadow`.
-3. ~~X2~~ done (`e2e/tests/redesign.spec.ts`, 11 tests; its caveats are in the progress file). Still to do
-   here: run `e2e/tests/sms-rail.spec.ts` with two simulated accounts at the same time (the full suite
-   passed 18 of 18 on 16 Nov with the single-account scenarios only).
+3. ~~X2~~ done (`e2e/tests/redesign.spec.ts`, 11 tests; its caveats are in the progress file). The SMS rail
+   spec passes with the two demo institutions (B2d fixed the choice); no e2e step yet picks the second
+   institution on the deposit form (add one if you touch that form again). In the cloud container run the
+   suite with `E2E_CHROMIUM_PATH=/opt/pw-browsers/chromium`, and run `pnpm install` after pulling (new
+   workspace `apps/payout-agent`, otherwise typecheck and lint fail on `@vamos/core`).
 4. **A8, A6b, B5, D1 to D8** per the progress file (A8 to B5 need no decision; D rows are owner
    tasks). A7, A9 and A9b are done; the owner still has to install A9b's watchdog timer on the server
    (`docs/deployment.md`, "A worker that hangs"), and the script has only run against a stub docker. If settlement must be faster than about 370 bets a second, that is a
