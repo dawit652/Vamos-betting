@@ -42,6 +42,9 @@ export const common = {
     tennis: 'Tennis',
     volleyball: 'Volleyball',
   },
+  telegram: {
+    join: 'Join us on Telegram',
+  },
   actions: {
     save: 'Save',
     cancel: 'Cancel',

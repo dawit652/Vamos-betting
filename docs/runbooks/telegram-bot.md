@@ -58,6 +58,14 @@ Optional, in @BotFather: `/setdescription` and `/setcommands` (paste
 
 To send alerts only, with no player menu: `TELEGRAM_PLAYER_MENU=off`.
 
+## Showing the Telegram link on the site
+
+To show "Join us on Telegram" in the player site's footer, left column and phone league panel, set
+`TELEGRAM_PUBLIC_URL` in the env file to the bot or channel players should join, for example
+`https://t.me/NahubetBot`, and recreate the web container (it is read at run time: no rebuild).
+Only an `https://t.me/<name>` address (letters, digits, underscore, an optional path) is accepted;
+anything else is ignored and the web log says so. Unset: no link is shown.
+
 ## When something is wrong
 
 | Sign                                                                            | Cause and what was done                                                                                           | Fix                                                                                                                           |

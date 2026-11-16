@@ -1,9 +1,12 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { TelegramLink } from '@/components/shell/TelegramLink';
 import { BetslipDock } from '@/components/betslip/BetslipDock';
 import { getLocale, getT } from '@/i18n/server';
 import { getCompetitions, getSports } from '@/lib/api/catalog';
 import { localName } from '@/lib/localized';
+import { telegramUrl } from '@/lib/telegram';
+import { LeaguesDrawer } from './LeaguesDrawer';
 import { listHref } from './tabs';
 import { splitLeagues, type SidebarLeague } from './leagues';
 import { routes, SPORTS, type Sport } from '@/lib/routes';
@@ -65,6 +68,7 @@ export async function SportsbookFrame({
       <span className="text-xxs tabular-nums opacity-70">{c.eventCount}</span>
     </Link>
   );
+  const telegram = telegramUrl();
   const sportHref = (s: Sport) => (live ? routes.live(s) : routes.sport(s));
 
   return (
@@ -122,33 +126,42 @@ export async function SportsbookFrame({
             </Link>
           </div>
         </div>
-        <nav aria-label={t('common.nav.sports')} className="rail lg:order-3">
-          <h2 className="rail-title">{t('common.nav.sports')}</h2>
-          {SPORTS.map((s) => {
-            const liveCount = counts.get(s)?.liveCount ?? 0;
-            const count = live ? liveCount : (counts.get(s)?.upcomingCount ?? 0);
-            return (
-              <Link
-                key={s}
-                href={sportHref(s)}
-                className="chip"
-                aria-current={s === sport ? 'page' : undefined}
-              >
-                <span aria-hidden="true">{SPORT_ICONS[s]}</span>
-                <span className="lg:min-w-0 lg:flex-1 lg:truncate">{t(`common.sports.${s}`)}</span>
-                {!live && liveCount > 0 ? (
-                  <span className="flex items-center gap-1 text-xxs font-bold text-live tabular-nums">
-                    <span aria-hidden="true" className="live-dot" />
-                    {liveCount}
+        {/* Phones: the leagues button at the left edge of the sport rail; `contents` from lg. */}
+        <div className="flex items-center lg:contents">
+          <LeaguesDrawer key={sport} sport={sport} competition={competition} />
+          <nav
+            aria-label={t('common.nav.sports')}
+            className="rail min-w-0 flex-1 lg:flex-none lg:order-3"
+          >
+            <h2 className="rail-title">{t('common.nav.sports')}</h2>
+            {SPORTS.map((s) => {
+              const liveCount = counts.get(s)?.liveCount ?? 0;
+              const count = live ? liveCount : (counts.get(s)?.upcomingCount ?? 0);
+              return (
+                <Link
+                  key={s}
+                  href={sportHref(s)}
+                  className="chip"
+                  aria-current={s === sport ? 'page' : undefined}
+                >
+                  <span aria-hidden="true">{SPORT_ICONS[s]}</span>
+                  <span className="lg:min-w-0 lg:flex-1 lg:truncate">
+                    {t(`common.sports.${s}`)}
                   </span>
-                ) : null}
-                {count > 0 ? (
-                  <span className="text-xxs tabular-nums opacity-70">{count}</span>
-                ) : null}
-              </Link>
-            );
-          })}
-        </nav>
+                  {!live && liveCount > 0 ? (
+                    <span className="flex items-center gap-1 text-xxs font-bold text-live tabular-nums">
+                      <span aria-hidden="true" className="live-dot" />
+                      {liveCount}
+                    </span>
+                  ) : null}
+                  {count > 0 ? (
+                    <span className="text-xxs tabular-nums opacity-70">{count}</span>
+                  ) : null}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
         {featured.length > 0 ? (
           <details open className={`rail-panel lg:order-2 ${leagueRail ? '' : 'rail-wide'}`}>
             <summary className="rail-summary">
@@ -183,6 +196,15 @@ export async function SportsbookFrame({
             <h2 className="rail-title">{t('sportsbook.leagues.moreLeagues')}</h2>
             {others.map((c) => leagueLink(c))}
           </nav>
+        ) : null}
+        {telegram !== null ? (
+          <div className="hidden lg:order-5 lg:block">
+            <TelegramLink
+              href={telegram}
+              label={t('common.telegram.join')}
+              className="side-btn w-full"
+            />
+          </div>
         ) : null}
       </aside>
 

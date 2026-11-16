@@ -117,7 +117,7 @@ describe('validation', () => {
     // The last 4 digits of the phone typed on the form are refused as the PIN.
     expect(
       validateRegister({ phone: '+251711234826', password: '4826', acceptTerms: true }).password,
-    ).toBe('account.validation.weakPassword');
+    ).toBe('account.validation.pinPhone');
   });
 
   it('accepts exactly 4 digits and refuses easy PINs', () => {
@@ -128,11 +128,24 @@ describe('validation', () => {
     expect(pinError('48a6')).toBe('account.validation.pinFormat');
     expect(pinError('abcd')).toBe('account.validation.pinFormat');
     expect(pinError('4 26')).toBe('account.validation.pinFormat');
-    for (const weak of ['1111', '0000', '1234', '0123', '6789', '9876', '3210', '2580', '1212'])
-      expect(pinError(weak), weak).toBe('account.validation.weakPassword');
+    // Each easy PIN says which rule it breaks (a birth year above all: the hint names it now).
+    for (const [weak, key] of [
+      ['1111', 'account.validation.pinRepeated'],
+      ['0000', 'account.validation.pinRepeated'],
+      ['1234', 'account.validation.pinSequence'],
+      ['0123', 'account.validation.pinSequence'],
+      ['6789', 'account.validation.pinSequence'],
+      ['9876', 'account.validation.pinSequence'],
+      ['3210', 'account.validation.pinSequence'],
+      ['1212', 'account.validation.pinPattern'],
+      ['1990', 'account.validation.pinYear'],
+      ['2016', 'account.validation.pinYear'],
+      ['2580', 'account.validation.pinCommon'],
+    ] as const)
+      expect(pinError(weak), weak).toBe(key);
     expect(isWeakPin('4826')).toBe(false);
-    expect(pinError('4826', '0911 234 826')).toBe('account.validation.weakPassword');
-    expect(pinError('4826', '+251711234826')).toBe('account.validation.weakPassword');
+    expect(pinError('4826', '0911 234 826')).toBe('account.validation.pinPhone');
+    expect(pinError('4826', '+251711234826')).toBe('account.validation.pinPhone');
     expect(pinError('4826', '0911 234 567')).toBeUndefined();
   });
 

@@ -345,6 +345,8 @@ services:
       # Server-side rendering calls the API over the private network; the browser uses the
       # public URL that was baked into the bundle at build time (PUBLIC_API_URL).
       - API_INTERNAL_URL=http://api:4000
+      # Run-time setting (no rebuild): the Telegram link in the footer. Empty = no link.
+      - TELEGRAM_PUBLIC_URL=${TELEGRAM_PUBLIC_URL:-}
     ports:
       - '${BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000'
     networks: [vamos]

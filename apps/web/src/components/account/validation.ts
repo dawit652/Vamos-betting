@@ -5,6 +5,7 @@ import {
   parseIsoDate,
   PIN_LENGTH,
   pinWeaknessReason,
+  type PinWeakness,
 } from '@vamos/core';
 import type { MessageKey } from '@vamos/i18n/translate';
 
@@ -44,11 +45,22 @@ export function phoneError(input: string): MessageKey | undefined {
   return normalizePhone(input) === null ? 'account.validation.phone' : undefined;
 }
 
-/** A new PIN: exactly four digits and not an easy one. */
+/** Why an easy PIN is refused, in the player's words (the reasons of @vamos/core pinWeaknessReason). */
+const PIN_WEAKNESS_MESSAGES: Readonly<Record<PinWeakness, MessageKey>> = {
+  repeated: 'account.validation.pinRepeated',
+  sequence: 'account.validation.pinSequence',
+  pattern: 'account.validation.pinPattern',
+  year: 'account.validation.pinYear',
+  common: 'account.validation.pinCommon',
+  phone: 'account.validation.pinPhone',
+};
+
+/** A new PIN: exactly four digits and not an easy one (the message says which rule it breaks). */
 export function pinError(input: string, phone?: string): MessageKey | undefined {
   if (input.length === 0) return 'account.validation.passwordRequired';
   if (!new RegExp(`^\\d{${PIN_LENGTH}}$`).test(input)) return 'account.validation.pinFormat';
-  if (isWeakPin(input, phone)) return 'account.validation.weakPassword';
+  const weakness = pinWeaknessReason(input, phone ?? null);
+  if (weakness !== null) return PIN_WEAKNESS_MESSAGES[weakness];
   return undefined;
 }
 
