@@ -48,7 +48,7 @@ export function LeaguesDrawer({ sport, competition }: { sport: Sport; competitio
         >
           <path d="M4 6h16M4 12h16M4 18h10" />
         </svg>
-        {t('sportsbook.leagues.title')}
+        {t('sportsbook.leagues.topLeagues')}
       </button>
       <div id={panelId} hidden={!open}>
         {open ? (

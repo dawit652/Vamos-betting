@@ -518,6 +518,13 @@ the player's own number (31 of 10,000; it was about 590): `packages/core/src/pin
 form share it, and the hint and messages say exactly that (English and Amharic). Pairs, years and
 keypad shapes (1212, 1990, 2580) register. X6b (failed-login alarm) matters more now.
 
+**Top leagues and competition logos (owner, late evening):** the left column and the phone panel
+(button and title now "Top leagues") list Premier League, LaLiga, Serie A, Bundesliga, Champions
+League... first; competitions without a flag show their logo (`apps/web/public/league-logos/`,
+API-Football's images cropped to the emblem; the World Cup trophy is our own drawing). The owner
+asked to see a sample image before deploying: sent (light, dark, phone, desktop). Trademark note in
+`docs/deployment.md` ("Competition logos and Top leagues").
+
 **Decisions of the owner, late evening:** years are valid PINs again (done, `945b496`); for the
 locked odds "use your recommendation" (below); a PIN reset over Telegram when no SMS gateway exists
 (designed: `docs/plans/telegram-pin-reset.md`); the Next.js upgrade (16.4.2 to 16.4.5, advisory

@@ -6,6 +6,7 @@ import { getLocale, getT } from '@/i18n/server';
 import { getCompetitions, getSports } from '@/lib/api/catalog';
 import { localName } from '@/lib/localized';
 import { telegramUrl } from '@/lib/telegram';
+import { LeagueIcon } from './LeagueIcon';
 import { LeaguesDrawer } from './LeaguesDrawer';
 import { listHref } from './tabs';
 import { splitLeagues, type SidebarLeague } from './leagues';
@@ -63,7 +64,7 @@ export async function SportsbookFrame({
       aria-current={c.slug === competition ? 'page' : undefined}
       className="chip"
     >
-      <span aria-hidden="true">{c.flag}</span>
+      <LeagueIcon flag={c.flag} badge={c.badge} />
       <span className="lg:min-w-0 lg:flex-1 lg:truncate">{localName(c.name, locale)}</span>
       <span className="text-xxs tabular-nums opacity-70">{c.eventCount}</span>
     </Link>

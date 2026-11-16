@@ -598,6 +598,26 @@ E2E_SCREENSHOTS_DIR=/tmp/vamos-shots pnpm e2e:deployment
 It uses a fresh random player each run (the play-money rows stay in the demo database). If `STAFF_ALLOWLIST`
 is set, run it from an allowed address.
 
+## Competition logos and Top leagues (owner's choice, 16 Nov 2026)
+
+- **Top leagues first.** The desktop left column and the phone "Top leagues" panel (the button that
+  used to say "Leagues") list the major leagues first, in this order when they have matches:
+  Premier League, LaLiga, Serie A, Bundesliga, Champions League, Ligue 1, Europa League, Conference
+  League, World Cup, Africa Cup of Nations, CAF Champions League, Ethiopian Premier League... then the
+  other featured leagues (`MAJOR_LEAGUES` in `apps/web/src/components/sportsbook/leagues.ts`).
+- **Logos where there is no flag.** A competition with no country flag (Champions League, Europa
+  League, CAF Champions League, World Cup...) shows its logo where the flag goes: left column, phone
+  panel, league cards, Leagues tab, competition page. Domestic leagues keep their country flag.
+- The files are in `apps/web/public/league-logos/`, served by the web container (about 50 KB in
+  all): API-Football's league images (ids in `LOGO_SOURCES`, `apps/web/src/lib/badges.ts`), cropped
+  to the emblem and shrunk to 96 px. The World Cup trophy is our own drawing. A competition without
+  a usable logo (out of date like EURO 2024, or a text banner like the friendlies) gets a drawn disc
+  with a short code; an unknown one without a flag gets its initials.
+- **Trademarks.** These logos belong to UEFA, FIFA, CAF, AFC, CONMEBOL and CONCACAF. Showing them on
+  a betting site without a licence can bring a takedown request or a claim; the owner chose to show
+  them. To stop: turn the `logo(...)` rules in `badges.ts` back into drawn badges (`code` or `cup`)
+  and redeploy the web container.
+
 ## Player sign-in: 4-digit PIN and long sessions (owner's choice, 16 Nov 2026)
 
 - **New player passwords are 4-digit PINs** (registration, SMS reset, change). The API refuses

@@ -3,12 +3,14 @@ import type { Locale } from '@vamos/i18n';
 import type { Translator } from '@vamos/i18n/translate';
 import Link from 'next/link';
 import { getLocale, getT } from '@/i18n/server';
-import { WORLD } from '@/lib/flag';
+import type { LeagueMark } from '@/lib/badges';
 import { formatDayMonth, formatTime, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes } from '@/lib/routes';
 import { eventRef, oddsMarket } from './events';
 import { groupByCompetition } from './groups';
+import { LeagueIcon } from './LeagueIcon';
+import { leagueMark } from './leagues';
 import { Chevron } from './Chevron';
 import { LiveClock, LiveScore } from './LiveMatch';
 import { MarketOdds } from './MarketOdds';
@@ -29,14 +31,14 @@ export async function MatchList({
   events,
   showCompetition = true,
   grouped = false,
-  flags = {},
+  marks = {},
 }: {
   events: readonly EventSummary[];
   showCompetition?: boolean;
   /** Collapsible league cards (flag, name, count) over runs of the same competition. */
   grouped?: boolean;
-  /** Flag emoji by competition slug, for the league cards (competitionFlags). */
-  flags?: Readonly<Record<string, string>>;
+  /** Flag or badge by competition slug, for the league cards (competitionMarks). */
+  marks?: Readonly<Record<string, LeagueMark>>;
 }) {
   const [t, locale] = await Promise.all([getT(), getLocale()]);
   const now = new Date();
@@ -64,9 +66,14 @@ export async function MatchList({
               aria-label={t('sportsbook.controls.league', { count: group.events.length, name })}
               className="flex min-h-11 items-center gap-2 border-b border-line bg-raised px-3"
             >
-              <span aria-hidden="true" className="text-base leading-none">
-                {flags[group.slug] ?? WORLD}
-              </span>
+              <LeagueIcon
+                {...(marks[group.slug] ??
+                  leagueMark(
+                    { slug: group.slug, name: group.name },
+                    { slug: '', countryCode: null },
+                  ))}
+                className="text-base leading-none"
+              />
               <span className="min-w-0 flex-1 truncate">
                 <span className="text-xs text-muted">{localName(group.category, locale)} · </span>
                 <span className="font-bold">{name}</span>

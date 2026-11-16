@@ -3,16 +3,19 @@ import Link from 'next/link';
 import type { Locale } from '@vamos/i18n';
 import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { getLocale, getT } from '@/i18n/server';
-import { competitionFlag, flagEmoji } from '@/lib/flag';
+import type { LeagueMark } from '@/lib/badges';
+import { flagEmoji } from '@/lib/flag';
 import { formatDayMonth, formatTime, formatWeekday, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes, type Sport } from '@/lib/routes';
 import { dayChips } from './day-chips';
 import { eventRef, monogram, oddsMarket } from './events';
+import { LeagueIcon } from './LeagueIcon';
 import {
-  competitionFlags,
-  featuredCompetitions,
+  competitionMarks,
+  leagueMark,
   orderLeagueCategories,
+  splitLeagues,
   type FeaturedCompetition,
 } from './leagues';
 import { LiveClock, LiveScore } from './LiveMatch';
@@ -303,7 +306,7 @@ async function EventsTab({
         </div>
       ) : (
         <>
-          <MatchList events={events} grouped flags={competitionFlags(competitions)} />
+          <MatchList events={events} grouped marks={competitionMarks(competitions)} />
           <Pager
             firstHref={cursor === undefined ? null : hrefFor()}
             nextHref={page.nextCursor === null ? null : hrefFor(page.nextCursor)}
@@ -441,8 +444,7 @@ export async function Pager({
 async function Leagues({ sport }: { sport: Sport }) {
   const [t, locale, data] = await Promise.all([getT(), getLocale(), getCompetitions(sport)]);
   const categories = orderLeagueCategories(data?.items ?? [], locale);
-  const top = featuredCompetitions(data);
-  const flags = competitionFlags(data);
+  const top = splitLeagues(data).featured;
   if (categories.length === 0) {
     return (
       <p className="card mx-3 text-center text-muted lg:mx-0">{t('sportsbook.leagues.empty')}</p>
@@ -461,7 +463,7 @@ async function Leagues({ sport }: { sport: Sport }) {
                 key={competition.slug}
                 sport={sport}
                 competition={competition}
-                flag={flags[competition.slug] ?? ''}
+                mark={competition}
                 locale={locale}
                 label={t('sportsbook.leagues.matches', { count: competition.eventCount })}
               />
@@ -490,7 +492,7 @@ async function Leagues({ sport }: { sport: Sport }) {
                 key={competition.slug}
                 sport={sport}
                 competition={competition}
-                flag={competitionFlag(competition, category.category)}
+                mark={leagueMark(competition, category.category)}
                 locale={locale}
                 label={t('sportsbook.leagues.matches', { count: competition.eventCount })}
               />
@@ -505,13 +507,13 @@ async function Leagues({ sport }: { sport: Sport }) {
 function LeagueRow({
   sport,
   competition,
-  flag,
+  mark,
   locale,
   label,
 }: {
   sport: Sport;
   competition: FeaturedCompetition;
-  flag: string;
+  mark: LeagueMark;
   locale: Locale;
   label: string;
 }) {
@@ -523,9 +525,7 @@ function LeagueRow({
         className="list-row flex items-center justify-between gap-2 font-semibold"
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span aria-hidden="true" className="text-base leading-none">
-            {flag}
-          </span>
+          <LeagueIcon flag={mark.flag} badge={mark.badge} className="text-base leading-none" />
           <span className="truncate">{localName(competition.name, locale)}</span>
         </span>
         <span className="flex-none text-xxs font-normal text-muted">{label} ›</span>

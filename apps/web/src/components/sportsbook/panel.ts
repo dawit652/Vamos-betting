@@ -1,5 +1,6 @@
 import type { CompetitionsResponse } from '@vamos/contracts';
 import type { Locale } from '@vamos/i18n/locales';
+import type { LeagueBadge } from '@/lib/badges';
 import { localName } from '@/lib/localized';
 import { routes, type Sport } from '@/lib/routes';
 import { splitLeagues } from './leagues';
@@ -9,6 +10,8 @@ export interface PanelLeague {
   slug: string;
   href: string;
   flag: string;
+  /** Our badge for a competition with no country flag (lib/badges), else null. */
+  badge: LeagueBadge | null;
   name: string;
   count: number;
 }
@@ -34,6 +37,7 @@ export function panelLeagues(
     slug: c.slug,
     href: routes.competition(sport, c.slug),
     flag: c.flag,
+    badge: c.badge,
     name: localName(c.name, locale),
     count: c.eventCount,
   });
