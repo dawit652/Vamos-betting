@@ -416,6 +416,7 @@ describe('an alarm in the scraper reaches the owner', () => {
       const alertsTo = async (phone: string) =>
         (await ownerSms(phone)).filter((m) => m.template === OWNER_ALERT_TEMPLATE);
       const before = (await alertsTo(OWNER_A)).length;
+      const beforeB = (await alertsTo(OWNER_B)).length;
       // The scraper's alarm: it opens the review item and, in the same transaction, the alert.
       await t.db.db.transaction((tx) =>
         raiseUnauthorized(tx, {
@@ -438,8 +439,10 @@ describe('an alarm in the scraper reaches the owner', () => {
 
       const summary = await dispatcher.run();
       expect(summary).toMatchObject({ claimed: 1, published: 1, jobs: 1, failed: 0 });
-      await waitForSms(OWNER_A, 1);
-      await waitForSms(OWNER_B, 1);
+      // Earlier tests of this file left alerts for both numbers: wait for THIS one. Waiting for
+      // "at least one" returned at once, and the assertion below then raced the SMS consumer.
+      await waitForSms(OWNER_A, before + 1);
+      await waitForSms(OWNER_B, beforeB + 1);
       const sent = await alertsTo(OWNER_A);
       expect(sent).toHaveLength(before + 1);
       expect(sent.at(-1)).toMatchObject({
