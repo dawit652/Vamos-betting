@@ -84,6 +84,7 @@ export const RECONCILIATION_CHECK_NAMES = [
   'psp_movements',
   'psp_records',
   'psp_daily_totals',
+  'sms_credits',
   /** Checked by runs before the daily summaries were removed; kept so their records still read. */
   'daily_summary',
   'psp_statement',

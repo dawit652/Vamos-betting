@@ -932,6 +932,72 @@ export async function creditSmsByStaff(
 }
 
 /**
+ * Staff re-read a message no parser could read, after a parser was fixed (the stored text is
+ * parsed again). Still unreadable: nothing changes (`unparsed`). Readable: its parsed fields are
+ * filled in once (the guard allows this for an `unparsed` row only) and it is then handled
+ * exactly as when it arrived: a credit is matched against the deposits that existed when the
+ * money moved (bounded by the time we received it, never by today), a debit proposes a payout.
+ * A deposit that has meanwhile left its quarantine is no longer matched: the message goes to
+ * the review queue as `unmatched`. 409 `sms_not_reparseable` unless it is unparsed and
+ * unresolved; 409 `sms_duplicate_reference` when another message already carries the reference.
+ */
+export async function reparseSmsByStaff(
+  tx: DbTransaction,
+  input: { smsId: string; adminId: string; now: Date; ip?: string | null },
+): Promise<SmsResult> {
+  const { now } = input;
+  const row = await lockSms(tx, input.smsId);
+  if (row.status !== 'unparsed' || row.resolvedAt !== null) {
+    throw domainConflict('sms_not_reparseable', 'Only an unread message can be read again.', {
+      status: row.status,
+    });
+  }
+  const sms = parseSms(row.rawText, row.sender);
+  if (sms === null) return { sms: row, outcome: 'unparsed' };
+  const [other] = await tx
+    .select({ id: receivedSms.id })
+    .from(receivedSms)
+    .where(eq(receivedSms.reference, sms.reference))
+    .limit(1);
+  if (other) {
+    throw domainConflict(
+      'sms_duplicate_reference',
+      'Another message already carries this transaction number.',
+      { otherSmsId: other.id },
+    );
+  }
+  const parsed = await updateSms(tx, row.id, {
+    institution: sms.institution,
+    direction: sms.direction,
+    amount: sms.amount,
+    reference: sms.reference,
+    counterpartyName: sms.counterpartyName,
+    counterpartyPhone: sms.counterpartyPhone,
+    balance: sms.balance,
+    occurredAt: sms.occurredAt,
+    status: 'unmatched',
+    statusReason: 'reparsed',
+    updatedAt: now,
+  });
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.adminId,
+    action: 'payment.sms_reparsed',
+    targetType: 'received_sms',
+    targetId: row.id,
+    metadata: { reference: sms.reference, direction: sms.direction, amount: sms.amount },
+    ip: input.ip ?? null,
+  });
+  if (sms.direction === 'debit') return applyDebit(tx, parsed, sms, now);
+  const createdBefore = smsPaidBy({
+    occurredAt: sms.occurredAt,
+    deviceReceivedAt: row.deviceReceivedAt,
+    now: row.receivedAt,
+  });
+  return applyCredit(tx, parsed, sms, await openSmsDeposits(tx, { now, createdBefore }), now);
+}
+
+/**
  * Staff close an SMS that should not credit anyone (not our money, refunded
  * to the sender outside Vamos, a test message…), with a note. A deposit it
  * matched but flagged is closed too. 409 `sms_not_closable` for a message

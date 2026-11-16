@@ -119,6 +119,7 @@ export {
   listSmsReviewQueue,
   recordReceiptCheck,
   recordReceiptPaymentForPlayer,
+  reparseSmsByStaff,
   smsRailHealth,
   type CreateSmsDepositInput,
   type IngestSmsInput,

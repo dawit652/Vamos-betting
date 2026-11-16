@@ -17,6 +17,7 @@ import {
 import { jackpotEntries } from '../schema/jackpots';
 import { ledgerAccounts, ledgerEntries, ledgerTransactions } from '../schema/ledger';
 import { paymentIntents, payouts } from '../schema/payments';
+import { receivedSms } from '../schema/smsrail';
 
 /**
  * Reconciliation (worker daily, and on demand from the back office): every
@@ -44,6 +45,11 @@ import { paymentIntents, payouts } from '../schema/payments';
  *   exactly that PSP clearing entry;
  * - psp_daily_totals: per provider, Σ succeeded intents = deposits through
  *   its clearing account and Σ paid payouts = withdrawals through it;
+ * SMS rail, for the same day (the credit's time):
+ * - sms_credits: every received SMS that credited a deposit names a succeeded `sms`
+ *   deposit of the same player and amount that has its ledger transaction, and every
+ *   succeeded `sms` deposit is backed by a received SMS that matched it (or flagged it, and
+ *   staff then credited it): a missing credit and a credit without a message both show;
  * Imported PSP statements are matched line by line in psp-statements.ts
  * (their own runs, kind `psp_statement`).
  *
@@ -81,6 +87,7 @@ export const RECONCILIATION_CHECKS = [
   'psp_movements',
   'psp_records',
   'psp_daily_totals',
+  'sms_credits',
 ] as const;
 export type ReconciliationCheck = (typeof RECONCILIATION_CHECKS)[number] | 'psp_statement';
 
@@ -580,6 +587,104 @@ async function checkPayments(exec: DbExecutor, date: string, cap: number): Promi
   ];
 }
 
+interface SmsCreditRow extends Record<string, unknown> {
+  sms_id: string | null;
+  sms_status: string | null;
+  sms_reference: string | null;
+  sms_amount: string | null;
+  sms_user: string | null;
+  intent_id: string | null;
+  intent_status: string | null;
+  intent_provider: string | null;
+  intent_amount: string | null;
+  intent_user: string | null;
+  intent_tx: string | null;
+}
+
+/**
+ * The SMS rail's evidence against its ledger credits (see the header): two passes over the
+ * day, one from the messages that say they credited, one from the deposits that were credited.
+ */
+async function checkSmsCredits(exec: DbExecutor, date: string, cap: number): Promise<CheckResult> {
+  const { start, end } = businessDayWindow(date);
+  const from = start.toISOString();
+  const to = end.toISOString();
+  const mismatches: MismatchInput[] = [];
+  let total = 0;
+  const note = (input: MismatchInput) => {
+    total += 1;
+    if (mismatches.length < cap) mismatches.push(input);
+  };
+
+  const credited = await exec.execute<SmsCreditRow>(sql`
+    SELECT s.id::text AS sms_id, s.status::text AS sms_status, s.reference AS sms_reference,
+      s.amount::text AS sms_amount, s.matched_user_id::text AS sms_user,
+      i.id::text AS intent_id, i.status::text AS intent_status, i.provider AS intent_provider,
+      i.amount::text AS intent_amount, i.user_id::text AS intent_user,
+      i.ledger_transaction_id::text AS intent_tx
+    FROM ${receivedSms} s
+    LEFT JOIN ${paymentIntents} i ON i.id = s.matched_intent_id
+    WHERE s.status IN ('matched', 'credited_by_staff')
+      AND COALESCE(i.completed_at, s.updated_at) >= ${from}::timestamptz
+      AND COALESCE(i.completed_at, s.updated_at) < ${to}::timestamptz
+    ORDER BY s.created_at, s.id
+  `);
+  for (const row of credited.rows) {
+    let problem: string | null = null;
+    if (row.intent_id === null) problem = 'the message says it credited a deposit, but names none';
+    else if (row.intent_status !== 'succeeded') {
+      problem = `the deposit it credited is ${row.intent_status ?? '?'}, not succeeded`;
+    } else if (row.intent_provider !== 'sms')
+      problem = 'the deposit it credited is not an SMS deposit';
+    else if (row.intent_tx === null) problem = 'the deposit it credited has no ledger transaction';
+    else if (row.intent_user !== row.sms_user) problem = 'the deposit belongs to another player';
+    else if (BigInt(row.intent_amount ?? '0') !== BigInt(row.sms_amount ?? '-1')) {
+      problem = 'the deposit amount differs from the amount received';
+    }
+    if (problem === null) continue;
+    note({
+      check: 'sms_credits',
+      subjectType: 'received_sms',
+      subjectId: row.sms_id ?? '?',
+      expected: row.sms_amount,
+      actual: row.intent_status === 'succeeded' ? row.intent_amount : null,
+      details: { problem, reference: row.sms_reference, intentId: row.intent_id },
+    });
+  }
+
+  const deposits = await exec.execute<SmsCreditRow>(sql`
+    SELECT i.id::text AS intent_id, i.amount::text AS intent_amount, i.user_id::text AS intent_user
+    FROM ${paymentIntents} i
+    WHERE i.provider = 'sms' AND i.status = 'succeeded'
+      AND i.completed_at >= ${from}::timestamptz AND i.completed_at < ${to}::timestamptz
+      AND NOT EXISTS (
+        SELECT 1 FROM ${receivedSms} s
+        WHERE s.matched_intent_id = i.id OR s.flagged_intent_id = i.id
+      )
+    ORDER BY i.completed_at, i.id
+  `);
+  for (const row of deposits.rows) {
+    note({
+      check: 'sms_credits',
+      subjectType: 'payment_intent',
+      subjectId: row.intent_id ?? '?',
+      expected: null,
+      actual: row.intent_amount,
+      details: {
+        problem: 'an SMS deposit was credited with no received SMS behind it',
+        userId: row.intent_user,
+      },
+    });
+  }
+  const creditedDeposits = await countOf(
+    exec,
+    sql`SELECT count(*)::int AS n FROM ${paymentIntents} i
+      WHERE i.provider = 'sms' AND i.status = 'succeeded'
+        AND i.completed_at >= ${from}::timestamptz AND i.completed_at < ${to}::timestamptz`,
+  );
+  return result('sms_credits', credited.rows.length + creditedDeposits, total, mismatches);
+}
+
 /**
  * How old (by its transaction's start) an entry must be before the
  * balance_after checkpoint moves past it. Entry ids are taken when a row is
@@ -630,6 +735,7 @@ export async function runReconciliationChecks(
     await checkAccounts(exec, cap, 'player'),
     ...(await checkHouseAccounts(exec)),
     ...(await checkPayments(exec, input.businessDate, cap)),
+    await checkSmsCredits(exec, input.businessDate, cap),
   ];
   return {
     checks: results.map((check) => check.summary),
