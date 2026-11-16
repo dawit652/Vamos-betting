@@ -157,7 +157,9 @@ describe('priceFactoryMarkets', () => {
       }),
       { numRuns: 25 },
     );
-  });
+    // About 600 markets priced for each of 25 matches: 1.4 s alone, but CI runs several packages'
+    // tests at once and it passed vitest's default 5 s there (run 431). The checks stay as they are.
+  }, 30_000);
 
   it('applies class and per-type margins, the per-type one winning', () => {
     const base = priceFactoryMarkets(1.5, 1.2, { ...UNPRUNED, types: ['1x2', 'odd_even', 'htft'] });
