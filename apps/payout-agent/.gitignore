@@ -1,0 +1,4 @@
+# What `cli record` writes: the menu script, and the recording of a real transfer
+# (it holds the receiver's number and name). Kept on the agent's computer, never committed.
+scripts/
+*.recording.json

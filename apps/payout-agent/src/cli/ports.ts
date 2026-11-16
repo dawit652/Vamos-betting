@@ -15,19 +15,45 @@ export interface PortCheck {
   detail: string;
 }
 
+/** How long one port may take to open before it is skipped. */
+export const PORT_OPEN_TIMEOUT_MS = 5_000;
+
+class OpenTimeout extends Error {}
+
 export async function checkPorts(
   list: () => Promise<ListedPort[]>,
   open: (path: string) => Promise<BytePort>,
   timeoutMs = 2_000,
+  openTimeoutMs = PORT_OPEN_TIMEOUT_MS,
 ): Promise<PortCheck[]> {
   const checks: PortCheck[] = [];
   for (const port of await list()) {
     let opened: BytePort;
+    // On Windows a Bluetooth serial port can take very long to open (it tries to reach the paired
+    // device), or never: skip it after a while, and close it if it opens later.
+    const opening = open(port.path);
+    let timer: NodeJS.Timeout | undefined;
     try {
-      opened = await open(port.path);
+      opened = await Promise.race([
+        opening,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new OpenTimeout()), openTimeoutMs);
+        }),
+      ]);
     } catch (error) {
-      checks.push({ ...port, answers: null, detail: `cannot open: ${openFailureHint(error)}` });
+      if (error instanceof OpenTimeout) {
+        opening.then((late) => late.close()).catch(() => undefined);
+        checks.push({
+          ...port,
+          answers: null,
+          detail: `did not open within ${openTimeoutMs / 1000} s (a Bluetooth port?): skipped`,
+        });
+      } else {
+        checks.push({ ...port, answers: null, detail: `cannot open: ${openFailureHint(error)}` });
+      }
       continue;
+    } finally {
+      clearTimeout(timer);
     }
     const at = new AtChannel(opened, { commandTimeoutMs: timeoutMs });
     try {

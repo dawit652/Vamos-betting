@@ -114,6 +114,31 @@ describe('checkPorts', () => {
     expect(lines.at(-1)).toBe('Next: cli probe --port /dev/ttyUSB1');
   });
 
+  it('skips a port that does not open in time (a Bluetooth port on Windows), and closes it later', async () => {
+    let closed = 0;
+    let finishOpening: (port: BytePort) => void = () => undefined;
+    const slow = new Promise<BytePort>((resolve) => {
+      finishOpening = resolve;
+    });
+    const checks = await checkPorts(
+      async () => [
+        { path: 'COM4', description: 'Standard Serial over Bluetooth link' },
+        { path: 'COM5', description: '' },
+      ],
+      async (path) => (path === 'COM4' ? slow : new SimulatedModem(new SimWalletMenu(simWallet()))),
+      100,
+      50,
+    );
+    expect(checks.map((c) => [c.path, c.answers])).toEqual([
+      ['COM4', null],
+      ['COM5', true],
+    ]);
+    expect(checks[0]?.detail).toMatch(/did not open within 0\.05 s/);
+    finishOpening({ ...silent, close: async () => void (closed += 1) });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(closed).toBe(1);
+  });
+
   it('explains an empty list', async () => {
     const lines = portCheckLines(
       await checkPorts(
