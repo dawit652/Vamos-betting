@@ -32,7 +32,9 @@ Back office: **SMS rail** (`/sms`: health panel, review queue, all messages) and
 
 In demo mode the rail is **simulated** (`SMS_RAIL_MODE=simulated`, demo collection accounts, play money):
 the deposit screen offers "Demo: play the bank" and the dev SMS simulator sends the SMS. The database
-refuses simulator SMS in a licensed database, and licensed mode refuses the simulated rail.
+refuses simulator SMS in a licensed database. Licensed mode only **warns** at start (it does not refuse) about
+SMS-rail settings that are not production-ready: the simulated rail, a missing gateway secret,
+`RECEIPT_VERIFY=off`, `PAYOUT_REQUIRE_PROOF` unset (CLAUDE.md "Operating mode"). Check the start-up log.
 
 ## Alarms
 
@@ -66,8 +68,8 @@ institution, direction, amount, reference and payer, the status and the raw mess
 | `unmatched`           | A credit that fits no open deposit: late, a typo in the amount, an unknown payer | Find the player (by payer phone or name in Players). If you are sure, **Credit to player** with their id and a note; if not, leave it and ask.                                                                                                                                    |
 | `ambiguous`           | Fits two open deposits                                                           | Ask both players; credit the one who paid.                                                                                                                                                                                                                                        |
 | `unparsed`            | No parser could read it: a new message shape, or a non-payment SMS               | Read it. Not a payment: **Close**. A payment: leave it open and escalate to engineering with the text (capture it as a fixture, below). Staff never type an amount, so it cannot be credited from here, and there is no re-parse action yet: tell the player it is being handled. |
-| `ignored_debit`       | Money left a collection account and fits no manual payout                        | Someone sent money that is not a recorded payout: find out who. Close only with an explanation.                                                                                                                                                                                   |
-| `settlement_proposed` | An outgoing transfer that looks like it paid a manual payout                     | Nothing here: the operator settling that payout links it.                                                                                                                                                                                                                         |
+| `ignored_debit`       | Money left a collection account and fits no claimed manual payout                | Someone sent money that is not a recorded payout, sent it before claiming, or sent it to another number: find out who. Close only with an explanation.                                                                                                                            |
+| `settlement_proposed` | An outgoing transfer that looks like it paid a claimed manual payout             | Nothing here: the operator settling that payout links it.                                                                                                                                                                                                                         |
 
 Rules: a note is required for every action and is audited. **Credit** posts exactly the amount in the SMS
 (never what the player says they sent), once: the message is then `credited_by_staff`. Never credit a
@@ -156,10 +158,15 @@ release or fail it, so two operators never both send it. The worker never touche
    separators) so nothing is retyped. Send the money from the collection account shown, to the destination
    shown: the player's own telebirr number, or a bank account with the holder name shown. For a bank, check that the name the bank shows for
    the account is the player's name before sending.
-3. When the debit SMS comes in it is proposed for the payout (`settlement_proposed`). **Settle** with that
-   SMS (or the transfer reference if the SMS did not come); tick "holder name confirmed" for a bank. With
-   `PAYOUT_REQUIRE_PROOF=true` (required in licensed mode unless explicitly waived) the debit SMS is
-   required.
+3. When the debit SMS comes in it is proposed for the payout (`settlement_proposed`): only a payout that is
+   claimed, and only by a transfer made after the claim, so always **claim first, then send**. **Settle**
+   with that SMS (or the transfer reference if the SMS did not come); tick "holder name confirmed" for a
+   bank. A typed reference that matches a debit SMS we hold is checked against it: same amount, for a wallet
+   the player's number, and a transfer made after your claim (5 minutes of clock skew allowed). With
+   `PAYOUT_REQUIRE_PROOF=true` the debit SMS is required. The code does **not** enforce that setting in
+   licensed mode: without it licensed mode only logs a start-up warning (or the `PAYOUT_PROOF_WAIVED`
+   warning), and a reference that matches no SMS we hold settles without proof. Set
+   `PAYOUT_REQUIRE_PROOF=true` in production.
 4. If you cannot send it (the bank refuses, the name does not match): **Release** with a note before you have
    sent anything, or **Fail** with the reason if the money definitely did not leave and will not. Never fail a
    payout you are unsure about: find the transfer first.
@@ -167,8 +174,17 @@ release or fail it, so two operators never both send it. The worker never touche
 A payout you claimed and then leave for 30 minutes raises `manual_payout_claim_idle` (log, and the owner text):
 settle, release or fail it so it does not sit with you while others wait.
 
-Refusals you may see: `settlement_reference_used` (that reference settled another payout),
-`settlement_reference_mismatch` (the SMS is for another amount or payout), `holder_name_not_confirmed`.
+Refusals you may see when you settle:
+
+| Code                              | Meaning                                                                                                                  | Do                                                                                                                                                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `settlement_reference_used`       | That reference already settled another payout                                                                            | Check the reference in the collection account's history.                                                                                                                                                                              |
+| `settlement_reference_mismatch`   | We hold an SMS with that reference for another amount, another payout, or that is not a debit                            | Check the reference you typed.                                                                                                                                                                                                        |
+| `settlement_destination_mismatch` | Wallet payout: the SMS for that reference shows the money going to another number                                        | Check the reference and the number you paid. If you sent it to the wrong number, do **not** settle, release or fail: tell a supervisor at once (the player is unpaid and the money has left).                                         |
+| `settlement_proof_mismatch`       | The SMS is not the proposed proof; or, for a wallet payout, the SMS names no number and was not proposed for this payout | Use the SMS proposed on the row if there is one. Otherwise a supervisor checks the transfer in the collection account's history (number, amount, time) before anything else is done.                                                  |
+| `settlement_proof_too_old`        | The SMS is of a transfer made before you claimed this payout (claim time minus 5 minutes)                                | Use the reference of the transfer you sent after claiming. If you really sent this one before claiming, or the payout was released and claimed again after a transfer, a supervisor checks the history: never send a second transfer. |
+| `settlement_proof_required`       | `PAYOUT_REQUIRE_PROOF=true` and no debit SMS for that reference yet                                                      | Wait for the SMS; check the handset if it does not come.                                                                                                                                                                              |
+| `holder_name_not_confirmed`       | Bank payout without the holder-name confirmation                                                                         | Tick it once the bank showed the player's own name.                                                                                                                                                                                   |
 
 ## Capturing real fixtures
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_SANTIM_OFFSET,
   allocateSmsAmount,
+  latestClaimForSms,
   SMS_HANDSET_CLOCK_SKEW_MS,
   SMS_INSTITUTION_CLOCK_SKEW_MS,
   matchSmsDeposit,
@@ -335,6 +336,67 @@ describe('smsPaidBy', () => {
         }
         expect(bound).toBeGreaterThanOrEqual(Math.min(...floors));
       }),
+    );
+  });
+});
+
+describe('latestClaimForSms', () => {
+  const receivedAt = new Date('2026-08-15T13:00:00Z'); // 16:00 EAT
+  const minutes = (n: number) => n * 60_000;
+
+  it('allows a claim up to the skew after our receive time, and no later', () => {
+    const latest = latestClaimForSms({ occurredAt: null, deviceReceivedAt: null, receivedAt });
+    expect(latest).toEqual(new Date(receivedAt.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS));
+  });
+
+  it('refuses a claim made after the institution says the money moved', () => {
+    const occurredAt = new Date(receivedAt.getTime() - minutes(60)); // sent an hour before
+    const latest = latestClaimForSms({ occurredAt, deviceReceivedAt: null, receivedAt });
+    expect(latest).toEqual(new Date(occurredAt.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS));
+    expect(latest.getTime()).toBeLessThan(receivedAt.getTime());
+  });
+
+  it('gives a date without a time the whole day, and the handset its larger skew', () => {
+    const dayOnly = new Date('2026-08-14T21:00:00Z'); // "on 15/08/2026"
+    expect(latestClaimForSms({ occurredAt: dayOnly, deviceReceivedAt: null, receivedAt })).toEqual(
+      new Date(receivedAt.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS),
+    );
+    const device = new Date(receivedAt.getTime() - minutes(90));
+    expect(latestClaimForSms({ occurredAt: null, deviceReceivedAt: device, receivedAt })).toEqual(
+      new Date(device.getTime() + SMS_HANDSET_CLOCK_SKEW_MS),
+    );
+  });
+
+  it('never lets a claim after receipt plus skew, or after any clock plus its skew, pass', () => {
+    const time = fc.date({
+      min: new Date('2026-01-01T00:00:00Z'),
+      max: new Date('2027-01-01T00:00:00Z'),
+      noInvalidDate: true,
+    });
+    fc.assert(
+      fc.property(
+        fc.option(time),
+        fc.option(time),
+        time,
+        time,
+        (occurredAt, deviceReceivedAt, received, claimedAt) => {
+          const latest = latestClaimForSms({ occurredAt, deviceReceivedAt, receivedAt: received });
+          if (claimedAt.getTime() > latest.getTime()) return;
+          // A claim that passes is no later than our receive time plus the skew ...
+          expect(claimedAt.getTime()).toBeLessThanOrEqual(
+            received.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS,
+          );
+          // ... nor than a handset time (not in our future) plus the handset skew.
+          if (
+            deviceReceivedAt !== null &&
+            deviceReceivedAt.getTime() <= received.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS
+          ) {
+            expect(claimedAt.getTime()).toBeLessThanOrEqual(
+              deviceReceivedAt.getTime() + SMS_HANDSET_CLOCK_SKEW_MS,
+            );
+          }
+        },
+      ),
     );
   });
 });

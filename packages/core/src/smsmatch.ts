@@ -185,6 +185,29 @@ export function smsPaidBy(input: {
   return new Date(bound);
 }
 
+/**
+ * The latest claim an outgoing (debit) SMS can be the transfer of: a manual
+ * payout claimed after the money moved was not paid by it (an operator who
+ * claims a payout and points at an older transfer of the same amount settles
+ * nothing). The mirror of smsPaidBy for deposits: the money must have moved
+ * at or after the claim minus SMS_INSTITUTION_CLOCK_SKEW_MS by every clock the
+ * SMS carries, the institution's (a date without a time counts as the end of
+ * its day), the handset's (with its larger skew) and our own receive time.
+ * A payout passes when `claimedAt <= latestClaimForSms(sms)`.
+ */
+export function latestClaimForSms(input: {
+  occurredAt: Date | null;
+  deviceReceivedAt: Date | null;
+  /** When we received the SMS (received_sms.received_at, our clock). */
+  receivedAt: Date;
+}): Date {
+  return smsPaidBy({
+    occurredAt: input.occurredAt,
+    deviceReceivedAt: input.deviceReceivedAt,
+    now: new Date(input.receivedAt.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS),
+  });
+}
+
 /** A payout waiting to be paid by hand, as the proposer sees it. */
 export interface ManualPayoutCandidate {
   payoutId: string;
@@ -199,8 +222,10 @@ export type PayoutProposal =
   | { type: 'ambiguous' };
 
 /**
- * Which approved payout an outgoing (debit) SMS from a collection account
- * appears to have paid. It only proposes: settling stays a staff action under
+ * Which claimed payout an outgoing (debit) SMS from a collection account
+ * appears to have paid. The caller passes only payouts that were claimed
+ * (`processing`) no later than latestClaimForSms: an unclaimed payout has not
+ * been sent by anyone, and a transfer older than the claim did not pay it. It only proposes: settling stays a staff action under
  * the four-eyes rule, because whoever holds the handset could otherwise mark
  * payouts as paid with no money moving (and the player's money is already
  * held, so a false settlement takes it for good).
