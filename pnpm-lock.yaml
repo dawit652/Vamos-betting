@@ -406,6 +406,9 @@ importers:
       '@vamos/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@vamos/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@vamos/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -415,6 +418,9 @@ importers:
       drizzle-orm:
         specifier: 0.45.3
         version: 0.45.3(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(pg@8.23.1)
+      ioredis:
+        specifier: 5.11.1
+        version: 5.11.1
 
 packages:
 

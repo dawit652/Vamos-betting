@@ -150,3 +150,76 @@ To go further:
 - **Split the house account.** Only if that ceiling is ever reached, split `house_stakes` per channel
   or shard. That would change the ledger account structure and reconciliation, so it needs its own
   design review.
+
+## Pages and live streams: `pnpm load:pages`
+
+A third script, `scripts/load/pages.ts`, tests the read side: page and list requests through the web
+app and the API, and open `GET /live/stream` connections that must each see a price change. It
+needs an API and a web app that are up, a catalogue with fixtures (run the worker's feed ingest
+once; stop it afterwards if you want quiet streams) and the Redis the API relays from. It writes
+nothing to the database. It sends a distinct `X-Forwarded-For` per request, so start the API with
+`TRUST_PROXY=127.0.0.1` as for the deposit burst.
+
+```bash
+OPERATING_MODE=demo PAYMENT_PROVIDERS=mock,sms SMS_RAIL_MODE=simulated TRUST_PROXY=127.0.0.1 \
+  pnpm --filter @vamos/api exec tsx src/server.ts      # or the built stack, bash e2e/scripts/stack.sh start
+pnpm load:pages                                         # 1/10 of the plan's load, 30 s
+pnpm load:pages --scale 0.3 --duration 60               # also: --streams, --rate, --api, --web
+```
+
+The load is section 2 of `docs/plans/scale-and-payments-plan.md` times `--scale`: 700 page and list
+requests a second and 6,000 open streams at scale 1. Requests go out at a fixed rate (a slow answer
+does not slow the sending), in this mix: web home 15%, web sport page 10%, web event page 10%, web
+live page 5%, API `/sports` 10%, API `/events` list 30% (four different queries), API `/events/:id`
+20%. The mix is an assumption, to be replaced with real traffic. If the web app does not answer, its
+kinds are skipped and a warning says so. Every 5 s the script publishes an `odds` change on the
+live Redis channel, as the worker does, and times how long each open stream takes to see it.
+
+It prints p50/p95/p99/max per kind of request (answers of 400 and above count as errors, not as
+latencies) and for the stream delivery. It exits 1 if a stream could not be opened, a stream
+missed a price change, the error rate is above `--max-error-rate` (default 0.5%) or the script
+could not send as planned. The p95 targets (400 ms for requests, 2 s for a price change) are
+printed, not enforced.
+
+### Results (16 Nov 2026): baseline on one 4-CPU container
+
+Everything shares the 4 CPUs: Postgres, Redis, one API process, one production web server
+(`apps/web/server.mjs`, one Node process), the script, and no worker. Catalogue cache of the API at
+its default. Scale 0.1 (63 to 70 requests a second, 600 streams), two runs of 30 s:
+
+| Kind                   | p50 (ms) | p95 (ms) |
+| ---------------------- | -------- | -------- |
+| web `/`                | 34.6     | 88.6     |
+| web `/sport/football`  | 11.6     | 33.2     |
+| web `/event/:id`       | 28.2     | 63.2     |
+| web `/live`            | 18.2     | 48.4     |
+| API `/sports`          | 1.4      | 5.1      |
+| API `/events`          | 2.4      | 8.4      |
+| API `/events/:id`      | 5.1      | 9.0      |
+| all requests           | 5.6      | 49.8     |
+| price change to stream | 8.8      | 16.4     |
+
+(First run: all requests p95 93.6 ms, delivery p95 24.7 ms.) No errors, every stream saw all 5
+price changes. Larger scales on the same box:
+
+| Scale | Requests/s asked | Streams | Result                                                                                               |
+| ----- | ---------------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| 0.3   | 210              | 1,800   | No errors, but web pages p50 2 to 5 s, p95 18 s; API kinds p95 16 to 28 ms; delivery p95 58 ms       |
+| 0.5   | 350              | 3,000   | 8% of requests failed (all web); API p95 18 to 39 ms; delivery p95 96 ms                             |
+| 1     | 700              | 6,000   | With the web app: 23% failed (all web, p95 32 s); API p95 60 to 173 ms; delivery p95 179 ms          |
+| 1     | 700 (API only)   | 6,000   | No errors; API p50 22 to 73 ms, p95 219 to 1,411 ms; delivery p95 159 ms; the script sent 606/s only |
+
+What this shows, on this box and with this mix:
+
+- **The web server is what breaks first.** Server-rendered pages saturate one Node process at
+  roughly 40 to 60 pages a second, long before the API (the API answered at p95 under 30 ms while
+  the pages queued for seconds). Nothing in the web app reuses catalogue answers yet (task A3).
+- **6,000 live streams open and deliver.** All of them were open within 2.5 s and saw every price
+  change, with p95 delivery 96 to 179 ms (the time grows with the streams because one process
+  writes every frame). The 2 s target holds with room to spare. The API-only run at scale 1
+  does show list latency growing under 6,000 streams plus 700 requests a second (p95 0.2 to 1.4 s),
+  which is what task A5 (streams on their own process) is meant to change.
+- **Not measured:** more than 6,000 streams; the web app behind the proxy (Caddy, brotli is done
+  by `server.mjs`); bet latency while the streams are open (run `pnpm load:bets` next to it); a
+  machine other than a shared 4-CPU container. At scale 1 the script itself uses a large share of
+  one CPU, so the API-only numbers understate what separate machines would show.
