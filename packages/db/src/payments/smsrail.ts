@@ -1209,6 +1209,51 @@ export async function listBalanceInstitutions(
   return rows.flatMap((row) => (row.institution === null ? [] : [row.institution]));
 }
 
+export interface SilentCollectionAccount {
+  account: string;
+  /** The newest gateway message on this account, or null. */
+  lastGatewaySmsAt: Date | null;
+  /** Open deposits to this account created before the silence began. */
+  waitingDeposits: number;
+}
+
+/**
+ * The collection accounts whose handset looks dead: players have been waiting longer than
+ * `silenceMs` on an open deposit to the account and no gateway message arrived on it within that
+ * time. A quiet account nobody is paying into is not silent. Read-only.
+ */
+export async function listSilentCollectionAccounts(
+  exec: DbExecutor,
+  input: { accounts: readonly string[]; now: Date; silenceMs: number },
+): Promise<SilentCollectionAccount[]> {
+  const since = new Date(input.now.getTime() - input.silenceMs);
+  const silent: SilentCollectionAccount[] = [];
+  for (const account of input.accounts) {
+    const [last] = await exec
+      .select({ at: sql<Date | null>`max(${receivedSms.receivedAt})` })
+      .from(receivedSms)
+      .where(and(eq(receivedSms.source, 'gateway'), eq(receivedSms.collectionAccount, account)));
+    const lastAt = last?.at === null || last?.at === undefined ? null : new Date(last.at);
+    if (lastAt !== null && lastAt.getTime() > since.getTime()) continue;
+    const [waiting] = await exec
+      .select({ count: sql<number>`count(*)::int` })
+      .from(paymentIntents)
+      .where(
+        and(
+          eq(paymentIntents.provider, SMS_PROVIDER),
+          eq(paymentIntents.collectionAccount, account),
+          inArray(paymentIntents.status, ['created', 'pending']),
+          isNull(paymentIntents.flaggedAt),
+          lte(paymentIntents.createdAt, since),
+        ),
+      );
+    if ((waiting?.count ?? 0) > 0) {
+      silent.push({ account, lastGatewaySmsAt: lastAt, waitingDeposits: waiting?.count ?? 0 });
+    }
+  }
+  return silent;
+}
+
 export interface SmsRailHealth {
   /** The newest message from the handset (gateway), or null. */
   lastGatewaySmsAt: Date | null;

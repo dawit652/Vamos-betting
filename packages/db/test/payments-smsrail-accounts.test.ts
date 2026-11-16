@@ -1,7 +1,12 @@
 import { birr, MAX_SANTIM_OFFSET, santimToBirrString } from '@vamos/core';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createSmsDepositIntent, getDepositIntent, ingestSms } from '../src/index';
+import {
+  createSmsDepositIntent,
+  getDepositIntent,
+  ingestSms,
+  listSilentCollectionAccounts,
+} from '../src/index';
 import type { Database } from '../src/client';
 import { paymentIntents, receivedSms } from '../src/schema/index';
 import { createTestDatabase } from '../src/testing';
@@ -200,5 +205,47 @@ describe('SMS deposits per collection account', () => {
       );
     expect(err).not.toBeNull();
     expect(pgCode(err)).toBe('23505');
+  });
+});
+
+describe('a collection account whose handset looks dead (B5)', () => {
+  const MIN = 60_000;
+  const silent = (now: Date, accounts: readonly string[]) =>
+    listSilentCollectionAccounts(db, { accounts, now, silenceMs: 30 * MIN });
+
+  it('is silent only when players wait on it and nothing arrived on it for the silence', async () => {
+    // The third account has no deposit: nobody waits on it, so it is never silent.
+    const waiting = ['telebirr:0933000001', 'telebirr:0933000002', 'telebirr:0933000003'] as const;
+    const [dead, alive] = waiting;
+    const p1 = await createPlayer(db);
+    const p2 = await createPlayer(db);
+    // Two deposits wait, one per account, opened at NOW; nobody waits on the third account.
+    const d1 = await open(p1.userId, birr(810), { accounts: [dead], offset: 5 });
+    const d2 = await open(p2.userId, birr(820), { accounts: [alive], offset: 5 });
+    expect([d1.collectionAccount, d2.collectionAccount]).toEqual([dead, alive]);
+
+    // Too early: the deposits are not older than the silence.
+    expect(await silent(at(10), waiting)).toEqual([]);
+    // Later, with nothing from any handset: both accounts that have waiting players are silent.
+    const later = await silent(at(45), waiting);
+    expect(later.map((a) => a.account)).toEqual([dead, alive]);
+    expect(later[0]).toMatchObject({ lastGatewaySmsAt: null, waitingDeposits: 1 });
+
+    // A message on `alive` (some other payment) shows its handset works: only `dead` stays silent.
+    await db.transaction((tx) =>
+      ingestSms(tx, {
+        source: 'gateway',
+        sender: 'telebirr',
+        text: credit(birr(1), '+251911000000'),
+        collectionAccount: alive,
+        now: at(40),
+      }),
+    );
+    expect((await silent(at(45), waiting)).map((a) => a.account)).toEqual([dead]);
+    // ...and again silent once its own message is older than the silence.
+    expect((await silent(at(75), waiting)).map((a) => a.account)).toEqual([dead, alive]);
+    // A deposit that was paid no longer waits.
+    await gateway(credit(d1.amount, p1.phone), dead);
+    expect((await silent(at(75), waiting)).map((a) => a.account)).toEqual([alive]);
   });
 });

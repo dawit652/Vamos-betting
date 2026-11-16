@@ -121,6 +121,8 @@ export {
   recordReceiptPaymentForPlayer,
   reparseSmsByStaff,
   smsRailHealth,
+  listSilentCollectionAccounts,
+  type SilentCollectionAccount,
   type CreateSmsDepositInput,
   type IngestSmsInput,
   type ReceiptCheckStatus,

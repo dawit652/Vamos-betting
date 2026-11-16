@@ -226,6 +226,45 @@ describe('the watch', () => {
     expect(quiet.silent).toBe(false);
   });
 
+  it('raises sms_account_silent for an account with players waiting and no message from its handset, once per 30 minutes', async () => {
+    const MIN = 60_000;
+    const telebirr = 'telebirr:0911678426';
+    t.clock.set(new Date('2027-06-01T07:00:00Z')); // 10:00 EAT
+    const player = await createPlayer();
+    await t.db.db.transaction((tx) =>
+      createSmsDepositIntent(tx, {
+        userId: player.userId,
+        amount: 12_000n,
+        idempotencyKey: `silent-${Math.random()}`,
+        now: t.ctx.clock(),
+        rules: { ...DEFAULT_PAYMENT_RULES },
+        collectionAccounts: [telebirr],
+      }),
+    );
+    const { logger, alarms } = capture();
+    const ctx: TaskContext = { ...t.ctx, payments: withLive(t.ctx.payments), logger };
+
+    // The deposit is new: nobody has waited long enough.
+    t.clock.set(new Date('2027-06-01T07:10:00Z'));
+    expect((await runSmsRailWatch(ctx)).silentAccounts).toEqual([]);
+
+    // 45 minutes with nothing from the handset: the account is silent; the CBE account, which
+    // nobody waits on, is not. The line is raised once per 30 minutes.
+    t.clock.set(new Date(Date.UTC(2027, 5, 1, 7, 45)));
+    expect((await runSmsRailWatch(ctx)).silentAccounts).toEqual([telebirr]);
+    expect(alarms.filter((a) => a === 'sms_account_silent')).toHaveLength(1);
+    t.clock.set(new Date(Date.UTC(2027, 5, 1, 7, 45) + 5 * MIN));
+    expect((await runSmsRailWatch(ctx)).silentAccounts).toEqual([telebirr]);
+    expect(alarms.filter((a) => a === 'sms_account_silent')).toHaveLength(1);
+    t.clock.set(new Date(Date.UTC(2027, 5, 1, 7, 45) + 31 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(alarms.filter((a) => a === 'sms_account_silent')).toHaveLength(2);
+
+    // The simulated rail has no handset to be silent.
+    const quiet = await runSmsRailWatch({ ...t.ctx, logger });
+    expect(quiet.silentAccounts).toEqual([]);
+  });
+
   it('raises manual_payout_claim_idle once per payout per 30 minutes while a claim has no result', async () => {
     const MIN = 60_000;
     const start = new Date('2027-05-10T07:00:00Z');

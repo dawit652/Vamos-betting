@@ -13,6 +13,7 @@ import {
   listSmsDueForReceiptCheck,
   recordReceiptCheck,
   smsRailHealth,
+  listSilentCollectionAccounts,
   type ReceiptCheckStatus,
 } from '@vamos/db';
 import { SmsRailProvider } from '@vamos/payments';
@@ -179,11 +180,16 @@ const MANUAL_PAYOUT_AGE_ALARM_MS = 2 * 60 * 60_000;
 /** A claimed payout with no settle, release or fail for this long is idle; its alarm repeats at this pace. */
 const MANUAL_PAYOUT_CLAIM_IDLE_MS = 30 * 60_000;
 
+/** The sms_account_silent line repeats at this pace while the account stays silent. */
+const ACCOUNT_SILENCE_ALARM_REPEAT_MS = 30 * 60_000;
+
 /** The payout_float_low line repeats at this pace while the balance stays below the forecast. */
 const PAYOUT_FLOAT_ALARM_REPEAT_MS = 30 * 60_000;
 
 export interface SmsRailWatchFindings {
   silent: boolean;
+  /** Collection accounts with waiting deposits and no message from their handset for 30 minutes. */
+  silentAccounts: string[];
   reviewBacklog: boolean;
   slowPayouts: boolean;
   /** Ids of claimed payouts idle for over 30 minutes. */
@@ -196,6 +202,7 @@ export interface SmsRailWatchFindings {
 export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFindings> {
   const findings: SmsRailWatchFindings = {
     silent: false,
+    silentAccounts: [],
     reviewBacklog: false,
     slowPayouts: false,
     idleClaims: [],
@@ -215,6 +222,34 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
         'no SMS from the collection handset for 30 minutes during active hours',
       );
       await raiseOwnerAlert(ctx, { alarm: 'sms_gateway_silent' });
+    }
+    // One account's handset can be dead while the others still forward: the global silence above
+    // would never see it. Only an account with players waiting on it counts (a quiet one is fine).
+    const silentAccounts = await listSilentCollectionAccounts(ctx.db, {
+      accounts: provider.collectionAccountIds,
+      now,
+      silenceMs: SILENCE_ALARM_MS,
+    });
+    for (const silent of silentAccounts) {
+      findings.silentAccounts.push(silent.account);
+      const first = await claimAlertSlot(
+        ctx.redis,
+        'raised',
+        `log|sms_account_silent|${silent.account}`,
+        now.getTime(),
+        ACCOUNT_SILENCE_ALARM_REPEAT_MS,
+      ).catch(() => true);
+      if (!first) continue;
+      ctx.logger.error(
+        {
+          alarm: 'sms_account_silent',
+          account: silent.account,
+          lastGatewaySmsAt: silent.lastGatewaySmsAt?.toISOString() ?? null,
+          waitingDeposits: silent.waitingDeposits,
+        },
+        'no SMS from this collection account’s handset for 30 minutes while players wait on deposits to it',
+      );
+      await raiseOwnerAlert(ctx, { alarm: 'sms_account_silent', account: silent.account });
     }
   }
   if (
