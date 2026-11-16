@@ -3,7 +3,7 @@ import type { Locale } from '@vamos/i18n/locales';
 import type { LeagueBadge } from '@/lib/badges';
 import { localName } from '@/lib/localized';
 import { routes, type Sport } from '@/lib/routes';
-import { splitLeagues } from './leagues';
+import { topLeagues } from './leagues';
 
 /** One row of the phone league panel: plain data, so it travels as JSON. */
 export interface PanelLeague {
@@ -18,21 +18,20 @@ export interface PanelLeague {
 
 export interface PanelData {
   featured: PanelLeague[];
-  others: PanelLeague[];
   /** Validated Telegram link, or null. */
   telegram: string | null;
 }
 
 /**
- * The phone panel's rows: the same split and order as the desktop column
- * (`splitLeagues`), with names in the player's language and the links of the rail.
+ * The phone panel's rows: the same Top Leagues in the same order as the desktop column
+ * (`topLeagues`), with names in the player's language and the links of the rail.
  */
 export function panelLeagues(
   data: CompetitionsResponse | null | undefined,
   sport: Sport,
   locale: Locale,
-): Pick<PanelData, 'featured' | 'others'> {
-  const { featured, others } = splitLeagues(data);
+): Pick<PanelData, 'featured'> {
+  const featured = topLeagues(data, sport);
   const row = (c: (typeof featured)[number]): PanelLeague => ({
     slug: c.slug,
     href: routes.competition(sport, c.slug),
@@ -41,5 +40,5 @@ export function panelLeagues(
     name: localName(c.name, locale),
     count: c.eventCount,
   });
-  return { featured: featured.map(row), others: others.map(row) };
+  return { featured: featured.map(row) };
 }

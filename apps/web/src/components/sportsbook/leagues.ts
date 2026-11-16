@@ -1,70 +1,72 @@
 import type { CompetitionsResponse } from '@vamos/contracts';
 import { leagueBadge, type LeagueMark } from '@/lib/badges';
 import { competitionFlag } from '@/lib/flag';
+import type { Sport } from '@/lib/routes';
 
 export type FeaturedCompetition = CompetitionsResponse['items'][number]['competitions'][number];
 
-/**
- * The major leagues players look for first, in this order (owner, 16 Nov 2026: "Premier League,
- * LaLiga, Serie A, Bundesliga, Champions League etc. at the top"). A league is recognised by its slug, or by
- * its English name in the right country (so the Ethiopian Premier League is not England's). A
- * major league with matches is a top league even when nobody marked it featured.
- */
-const MAJOR_LEAGUES: readonly {
+interface TopLeague {
   slugs: readonly string[];
   names: readonly string[];
   country?: string;
-}[] = [
-  {
-    slugs: ['premier-league', 'english-premier-league', 'england-premier-league'],
-    names: ['premier league', 'english premier league'],
-    country: 'GB-ENG',
-  },
-  {
-    slugs: ['la-liga', 'laliga', 'spain-la-liga', 'primera-division-spain'],
-    names: ['laliga', 'la liga'],
-    country: 'ES',
-  },
-  { slugs: ['serie-a', 'italy-serie-a', 'italian-serie-a'], names: ['serie a'], country: 'IT' },
-  { slugs: ['bundesliga', 'germany-bundesliga'], names: ['bundesliga'], country: 'DE' },
-  {
-    slugs: ['uefa-champions-league', 'champions-league'],
-    names: ['uefa champions league', 'champions league'],
-  },
-  { slugs: ['ligue-1', 'france-ligue-1'], names: ['ligue 1'], country: 'FR' },
-  {
-    slugs: ['uefa-europa-league', 'europa-league'],
-    names: ['uefa europa league', 'europa league'],
-  },
-  {
-    slugs: ['uefa-conference-league', 'uefa-europa-conference-league', 'conference-league'],
-    names: ['uefa conference league', 'uefa europa conference league'],
-  },
-  { slugs: ['fifa-world-cup', 'world-cup'], names: ['fifa world cup', 'world cup'] },
-  {
-    slugs: ['africa-cup-of-nations', 'afcon', 'caf-africa-cup-of-nations'],
-    names: ['africa cup of nations'],
-  },
-  { slugs: ['caf-champions-league'], names: ['caf champions league'] },
-  {
-    slugs: ['ethiopian-premier-league', 'ethiopia-premier-league'],
-    names: ['ethiopian premier league'],
-    country: 'ET',
-  },
-  { slugs: ['eredivisie'], names: ['eredivisie'], country: 'NL' },
-  {
-    slugs: ['primeira-liga', 'liga-portugal'],
-    names: ['primeira liga', 'liga portugal'],
-    country: 'PT',
-  },
-  {
-    slugs: ['championship', 'efl-championship'],
-    names: ['championship', 'efl championship'],
-    country: 'GB-ENG',
-  },
-  { slugs: ['nba'], names: ['nba'] },
-  { slugs: ['euroleague'], names: ['euroleague'] },
-];
+}
+
+/**
+ * The left column's Top Leagues: always these, in this order, even when a league has no match
+ * right now (owner, 16 Nov 2026, showing Hulusport's column: "top leagues should exist even if
+ * they don't have matches", every other league out of the column; Premier League, LaLiga, Serie A,
+ * Bundesliga and the Champions League first, as asked earlier). A league is found in the
+ * catalogue by its slug, or by its English name in the right country (so Greece's Super League is
+ * not Switzerland's, nor Saudi Arabia's Pro League Belgium's). One the catalogue does not have
+ * (Superettan until the Hulusport board brings a match) is left out. A sport without a list here
+ * shows its featured leagues that have matches.
+ */
+const TOP_LEAGUES: Partial<Record<Sport, readonly TopLeague[]>> = {
+  football: [
+    {
+      slugs: ['premier-league', 'english-premier-league', 'england-premier-league'],
+      names: ['premier league', 'english premier league'],
+      country: 'GB-ENG',
+    },
+    {
+      slugs: ['la-liga', 'laliga', 'spain-la-liga', 'primera-division-spain'],
+      names: ['laliga', 'la liga'],
+      country: 'ES',
+    },
+    { slugs: ['serie-a', 'italy-serie-a', 'italian-serie-a'], names: ['serie a'], country: 'IT' },
+    { slugs: ['bundesliga', 'germany-bundesliga'], names: ['bundesliga'], country: 'DE' },
+    {
+      slugs: ['uefa-champions-league', 'champions-league'],
+      names: ['uefa champions league', 'champions league'],
+    },
+    {
+      slugs: ['uefa-europa-league', 'europa-league'],
+      names: ['uefa europa league', 'europa league'],
+    },
+    { slugs: ['ligue-1', 'france-ligue-1'], names: ['ligue 1'], country: 'FR' },
+    { slugs: ['eredivisie'], names: ['eredivisie'], country: 'NL' },
+    {
+      slugs: ['primeira-liga', 'liga-portugal'],
+      names: ['primeira liga', 'liga portugal'],
+      country: 'PT',
+    },
+    {
+      slugs: ['belgian-pro-league', 'jupiler-pro-league', 'pro-league'],
+      names: ['pro league', 'belgian pro league', 'jupiler pro league'],
+      country: 'BE',
+    },
+    {
+      slugs: ['swiss-super-league', 'super-league-switzerland'],
+      names: ['super league', 'swiss super league'],
+      country: 'CH',
+    },
+    { slugs: ['superettan'], names: ['superettan'], country: 'SE' },
+  ],
+  basketball: [
+    { slugs: ['nba'], names: ['nba'] },
+    { slugs: ['euroleague'], names: ['euroleague'] },
+  ],
+};
 
 const normalized = (text: string) =>
   text
@@ -72,21 +74,25 @@ const normalized = (text: string) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
-/** The position of a major league in MAJOR_LEAGUES (0 first), or null for any other league. */
-export function majorLeagueRank(
+/**
+ * The position of a competition in the sport's Top Leagues (0 first) and whether it was found by
+ * slug, or null when it is not a top league.
+ */
+export function topLeagueRank(
+  sport: Sport,
   competition: { slug: string; name: { en: string } },
   category: { countryCode: string | null },
-): number | null {
+): { rank: number; bySlug: boolean } | null {
   const slug = competition.slug.toLowerCase();
   const name = normalized(competition.name.en);
   const country = category.countryCode?.toUpperCase() ?? null;
-  for (const [rank, league] of MAJOR_LEAGUES.entries()) {
-    if (league.slugs.includes(slug)) return rank;
+  for (const [rank, league] of (TOP_LEAGUES[sport] ?? []).entries()) {
+    if (league.slugs.includes(slug)) return { rank, bySlug: true };
     if (
       league.names.includes(name) &&
       (league.country === undefined || league.country === country)
     ) {
-      return rank;
+      return { rank, bySlug: false };
     }
   }
   return null;
@@ -104,37 +110,34 @@ export function leagueMark(
 }
 
 /**
- * The leagues with matches, flag and badge attached, split into the top leagues (the sidebar's Top
- * Leagues, the phone rail and panel, the Leagues tab's first section) and the rest (More
- * leagues). Top leagues: the major leagues first, in MAJOR_LEAGUES order, then the other
- * featured ones in API order. The rest keep the API order.
+ * The sport's Top Leagues, flag and badge attached: the left column, the phone panel and the
+ * Leagues tab's first section. With a list in TOP_LEAGUES, exactly those leagues in that order,
+ * with or without matches (one per entry: a slug match wins over a name match, then the first in
+ * API order). Without one, the featured leagues that have matches, in API order.
  */
-export function splitLeagues(data: CompetitionsResponse | null | undefined): {
-  featured: SidebarLeague[];
-  others: SidebarLeague[];
-} {
-  const major: { rank: number; league: SidebarLeague }[] = [];
+export function topLeagues(
+  data: CompetitionsResponse | null | undefined,
+  sport: Sport,
+): SidebarLeague[] {
+  const fixed = TOP_LEAGUES[sport] !== undefined;
+  const found = new Map<number, { league: SidebarLeague; bySlug: boolean }>();
   const featured: SidebarLeague[] = [];
-  const others: SidebarLeague[] = [];
   for (const { category, competitions } of data?.items ?? []) {
     for (const c of competitions) {
-      if (c.eventCount <= 0) continue;
-      const league = { ...c, ...leagueMark(c, category) };
-      const rank = majorLeagueRank(c, category);
-      if (rank !== null) major.push({ rank, league });
-      else (c.featured ? featured : others).push(league);
+      if (!fixed) {
+        if (c.featured && c.eventCount > 0) featured.push({ ...c, ...leagueMark(c, category) });
+        continue;
+      }
+      const top = topLeagueRank(sport, c, category);
+      if (top === null) continue;
+      const held = found.get(top.rank);
+      if (held === undefined || (top.bySlug && !held.bySlug)) {
+        found.set(top.rank, { league: { ...c, ...leagueMark(c, category) }, bySlug: top.bySlug });
+      }
     }
   }
-  // Stable: two leagues of one rank (e.g. two "World Cup" competitions) keep the API order.
-  major.sort((a, b) => a.rank - b.rank);
-  return { featured: [...major.map((m) => m.league), ...featured], others };
-}
-
-/** The top leagues with matches (see splitLeagues): the major ones first, then the featured. */
-export function featuredCompetitions(
-  data: CompetitionsResponse | null | undefined,
-): FeaturedCompetition[] {
-  return splitLeagues(data).featured;
+  if (!fixed) return featured;
+  return [...found.entries()].sort(([a], [b]) => a - b).map(([, { league }]) => league);
 }
 
 /** Flag and badge by competition slug: the marks of MatchList's league cards. */

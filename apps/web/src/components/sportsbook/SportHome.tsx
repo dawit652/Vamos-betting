@@ -15,7 +15,7 @@ import {
   competitionMarks,
   leagueMark,
   orderLeagueCategories,
-  splitLeagues,
+  topLeagues,
   type FeaturedCompetition,
 } from './leagues';
 import { LiveClock, LiveScore } from './LiveMatch';
@@ -444,7 +444,7 @@ export async function Pager({
 async function Leagues({ sport }: { sport: Sport }) {
   const [t, locale, data] = await Promise.all([getT(), getLocale(), getCompetitions(sport)]);
   const categories = orderLeagueCategories(data?.items ?? [], locale);
-  const top = splitLeagues(data).featured;
+  const top = topLeagues(data, sport);
   if (categories.length === 0) {
     return (
       <p className="card mx-3 text-center text-muted lg:mx-0">{t('sportsbook.leagues.empty')}</p>

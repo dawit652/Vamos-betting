@@ -145,13 +145,7 @@ export default function LeaguesPanel({
                 // The panel's title already says "Top leagues": no second heading here.
                 <nav aria-label={t('sportsbook.leagues.topLeagues')}>{data.featured.map(row)}</nav>
               ) : null}
-              {data.others.length > 0 ? (
-                <nav aria-label={t('sportsbook.leagues.moreLeagues')}>
-                  <h3 className="leagues-heading">{t('sportsbook.leagues.moreLeagues')}</h3>
-                  {data.others.map(row)}
-                </nav>
-              ) : null}
-              {data.featured.length + data.others.length === 0 ? (
+              {data.featured.length === 0 ? (
                 <p className="p-3 text-xs text-muted">{t('sportsbook.leagues.empty')}</p>
               ) : null}
             </>

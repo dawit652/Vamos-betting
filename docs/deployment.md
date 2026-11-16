@@ -600,11 +600,15 @@ is set, run it from an allowed address.
 
 ## Competition logos and Top leagues (owner's choice, 16 Nov 2026)
 
-- **Top leagues first.** The desktop left column and the phone "Top leagues" panel (the button that
-  used to say "Leagues") list the major leagues first, in this order when they have matches:
-  Premier League, LaLiga, Serie A, Bundesliga, Champions League, Ligue 1, Europa League, Conference
-  League, World Cup, Africa Cup of Nations, CAF Champions League, Ethiopian Premier League... then the
-  other featured leagues (`MAJOR_LEAGUES` in `apps/web/src/components/sportsbook/leagues.ts`).
+- **Top leagues: a fixed list.** The desktop left column and the phone "Top leagues" panel (the
+  button that used to say "Leagues") show only these football leagues, in this order, even when one
+  has no match right now (its count is 0): Premier League, LaLiga, Serie A, Bundesliga, UEFA
+  Champions League, UEFA Europa League, Ligue 1, Eredivisie, Liga Portugal, Belgian Pro League,
+  Swiss Super League, Superettan (owner, 16 Nov 2026, from Hulusport's column). No other league is
+  in the column any more ("More leagues" is gone); every league is still on the Leagues tab and in
+  search. A league the catalogue does not have (Superettan until the Hulusport board brings a match)
+  is left out. Basketball shows NBA and Euroleague; tennis and volleyball their featured leagues
+  with matches. The list is `TOP_LEAGUES` in `apps/web/src/components/sportsbook/leagues.ts`.
 - **Logos where there is no flag.** A competition with no country flag (Champions League, Europa
   League, CAF Champions League, World Cup...) shows its logo where the flag goes: left column, phone
   panel, league cards, Leagues tab, competition page. Domestic leagues keep their country flag.
