@@ -43,4 +43,6 @@ export * from './smsmatch';
 export * from './balancechain';
 export * from './paymentmethods';
 export * from './payoutflow';
+export * from './receiptaccount';
+export * from './payoutproof';
 export * from './owner-alert';

@@ -186,10 +186,12 @@ resets at 01:00 UTC; their partial work was saved, nothing was lost):
   deploy** (`infra/scripts/deploy-full.sh`, the owner at the server, root `HANDOFF.md`): until it is
   deployed the hole is open. The runbook also lost a wrong sentence: the debit-SMS proof is required
   only when `PAYOUT_REQUIRE_PROOF=true`, not "in licensed mode".
-- **C2a, the pure double-proof rule: PARTIAL.** Saved as `docs/plans/wip/c2a-partial.patch` (about 1,900
-  lines: `payoutproof.ts`, its tests, the masked-account matcher in core, `auto_settle` in
-  `payoutflow.ts`); it is not reviewed and does not typecheck yet. `docs/plans/wip/README.md` says what is
-  missing and how to continue (Opus, high; the design is the spec).
+- **C2a, the pure double-proof rule: DONE (16 Nov, first account).** `packages/core/src/payoutproof.ts`
+  (`decideDoubleProof`), `auto_settle` in `assessManualPayout`, the masked-account matcher in core
+  (`receiptaccount.ts`), 991 core tests (every row of the design's decision table plus fast-check
+  properties: any single changed or removed field never settles). The review inside the work found and
+  fixed an unsafe payer check (a number ending in the same three digits as ours passed). It is wired into
+  nothing: C2b to C2f remain, see the design's sections 9 and 11.
 
 **The other account's claims** (A1a, A2, B4, claimed about 15:40 UTC by its own report): nothing was pushed
 by 21:00 UTC. Claims older than 6 hours without a commit are free (after 21:40 UTC): take them, in the
@@ -273,8 +275,10 @@ and against the 160 KB budget, `caddy validate` of `Caddyfile.streams` (CI does 
 1. ~~C10~~ done (progress file): ask the owner for the real `FLOAT_FORECAST_WITHDRAWN_PERCENT` (the default 20 is a guess) and
    whether each institution or the sum should be compared with the forecast; Opus may review it (read-only).
 2. **C12 is reviewed** (16 Nov: one more hole closed for bank payouts, see its progress row) and **needs a
-   deploy by the owner**: until then the hole is open on the server. **C2a** from
-   `docs/plans/wip/c2a-partial.patch` (Opus or Fable, high): the other account's work, not started here.
+   deploy by the owner**: until then the hole is open on the server. **C2a**
+   is done (core only, wired into nothing): next in that chain is C2c (the receipt verifier's debit mode,
+   Sonnet medium) and C2b (database, **migration 0055**, Opus high), both need real fixtures and the
+   owner's D4 and D8 before anything can go to `shadow`.
 3. **X2** end-to-end tests of the redesign (needs the e2e stack: `e2e/scripts/stack.sh build` then
    `start`; Sonnet, medium). Run `e2e/tests/sms-rail.spec.ts` with two simulated accounts at the same time.
 4. **A6b, A7, A8, A9, B5, D1 to D8** per the progress file (A6b to B5 need no decision; D rows are owner

@@ -52,6 +52,8 @@ const DENIAL_MESSAGES = {
   wrong_status: 'This withdrawal is not in a state that allows this.',
   approver_cannot_pay: 'You approved this withdrawal, so someone else must pay it.',
   claimed_by_someone_else: 'Another operator is paying this withdrawal.',
+  not_automatic: 'Only the automatic double-proof check may record this settlement.',
+  not_a_person: 'A person must settle this withdrawal; an automatic process cannot.',
 } as const;
 
 async function lockManualPayout(

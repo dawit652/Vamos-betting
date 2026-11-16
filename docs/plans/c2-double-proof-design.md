@@ -1,6 +1,7 @@
 # C2: settle manual payouts on double proof (design)
 
-Status: design for review (15 Nov 2026). Nothing here is built. Plan reference:
+Status: design for review (15 Nov 2026). C2a (the pure rule) is built (section 11, 16 Nov 2026);
+nothing else here is. Plan reference:
 [`scale-and-payments-plan.md`](scale-and-payments-plan.md) section 6, option C2; owner decisions D4 and D8.
 Read first: CLAUDE.md "Rules that matter" and "Payments", [`docs/runbooks/sms-rail.md`](../runbooks/sms-rail.md).
 
@@ -63,7 +64,8 @@ _records_ the fact that money moved, and only after an independent source (the t
     nothing automatic may use the click path, whose proof rules are weaker).
     `release` / `fail` / `claim` are untouched. The new action is reachable only from the new DB
     function in section 5; no API route calls it.
-- **What the database must allow and newly enforce** (migration 0053, section 5): a trigger on
+- **What the database must allow and newly enforce** (the next free migration number (0055 when
+  this was written; 0053 and 0054 are taken by the SMS rail work), section 5): a trigger on
   `payouts` that, for a manual payout entering `paid`, requires `OLD.status = 'processing'`,
   `NEW.settled_by = OLD.paying_by` and `NEW.settled_by NOT LIKE 'system:%'`; and, when
   `settlement_method = 'double_proof'`, an evidence row for exactly that payout and SMS. The existing human
@@ -258,9 +260,9 @@ which worker.
   audit; C2 does not write them.
 - `payouts.settlement_*` holds the reference and SMS id only, which stay as they are.
 
-**Migration `0053_payout_double_proof.sql`** (the next free number; another session may also create a
-0053: whoever merges second renumbers theirs to 0054 and regenerates the drizzle snapshot and journal).
-Additive only:
+**Migration `NNNN_payout_double_proof.sql`** at the next free migration number (0055 when this was
+written; 0053 and 0054 are taken by the SMS rail work). If another session takes the same number first,
+whoever merges second renumbers theirs and regenerates the drizzle snapshot and journal. Additive only:
 
 ```sql
 ALTER TABLE payouts ADD COLUMN settlement_method text;             -- NULL = settled by the click
@@ -496,7 +498,7 @@ commit; the main session verifies and commits.
 | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **C2a** | `packages/core/src/payoutproof.ts` (`decideDoubleProof`, types, constants); move `receiptAccountMatches` to core (payments re-exports); `assessManualPayout` gains `auto_settle` and the two denials                                                                                                                          | Opus, high                                                         | Every decision-table row and the one-field-forgery properties pass; `pnpm lint typecheck test` green; no other package changed behaviour |
 | **C2c** | Receipt verifier debit mode: `verifyDebit({ institution, reference, payerAccounts, destination, amount })` returning `DebitReceiptResult` + `bodySha256` + flattened excerpt; labelled `principalAmount` in `parseTelebirrReceipt`; strict gates (reference and status required); reconstructed debit fixtures marked as such | Sonnet (`routine-coder`), medium; Opus reviews                     | Debit tests pass, credit audit tests unchanged; fixtures flagged "reconstructed, replace before `on`"                                    |
-| **C2b** | Migration 0053 (column, table, indexes, guards), drizzle schema, `autoSettleManualPayout`, `pay()` refactor, optional `failManualPayout` guard (Q3), integration tests                                                                                                                                                        | Opus, high                                                         | All section-8 DB tests pass, existing manual-payout suites pass unchanged, `pnpm db:generate` clean, rollback reasoning re-checked       |
+| **C2b** | Migration at the next free migration number (0055 when this was written; 0053 and 0054 are taken by the SMS rail work) (column, table, indexes, guards), drizzle schema, `autoSettleManualPayout`, `pay()` refactor, optional `failManualPayout` guard (Q3), integration tests                                                | Opus, high                                                         | All section-8 DB tests pass, existing manual-payout suites pass unchanged, `pnpm db:generate` clean, rollback reasoning re-checked       |
 | **C2d** | Config switches and guards; worker job (shadow and on), kill switch in `settings`, owner-alert variants, alarms, API gauges, shadow comparison query/job                                                                                                                                                                      | Opus, high (gauges and owner-alert texts may go to Sonnet, medium) | Worker and config tests pass; deployed with `PAYOUT_AUTO_SETTLE=shadow` only                                                             |
 | **C2e** | Admin: proof status on each claimed row, "Settled automatically: sent by X", Proof mismatches list with reasons and excerpt, mode/caps/today panel, Suspend/Resume (new permission), shadow report; API routes + contracts; runbook section; e2e for the admin screens with seeded evidence rows                              | Sonnet (`routine-coder`), medium; Opus reviews                     | Screens work on a phone width; e2e green; runbook merged                                                                                 |
 | **C2f** | Gate: real fixtures in (section 8), parser fixed against them, ≥ 14 days of shadow meeting section 6, security review, D4/D8                                                                                                                                                                                                  | Owner + Opus, high                                                 | Written sign-off; switch to `on` with low caps                                                                                           |
@@ -553,3 +555,126 @@ at a time.
 - **No record of the source collection account** on a payout: "payer is ours" means any configured
   collection account at that institution.
 - **"The worker never touches manual payouts"** (runbook, `payoutflow.ts`) stops being true under `on`.
+
+## 11. C2a built
+
+16 Nov 2026. The pure rule only: no migration, no database function, no worker, API or config change.
+`auto_settle` is not called from anywhere yet. Finished from a partial patch an earlier session left
+when it hit a usage limit (reviewed line by line against sections 2, 3, 4 and 8 before it was kept).
+
+**What is where**
+
+| What                                                                                                     | Where                                                                                        |
+| -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `decideDoubleProof`, the types of section 3, `DOUBLE_PROOF_RULE_VERSION`, `AUTO_SETTLE_ACTOR`            | `packages/core/src/payoutproof.ts`                                                           |
+| `WaitCode`, `MismatchCode`, `DOUBLE_PROOF_WAIT_RETRY` (which waits retry, which go to a human)           | same                                                                                         |
+| `doubleProofEarliestTransfer` (`claim⁻`), `DOUBLE_PROOF_CLOCK_SKEW_MS`, `DOUBLE_PROOF_TIME_AGREEMENT_MS` | same                                                                                         |
+| Masked-account matcher moved to core, plus a three-way `compareReceiptAccount`                           | `packages/core/src/receiptaccount.ts`                                                        |
+| payments re-exports `receiptAccountMatches` / `receiptMatchesAnyAccount` from core                       | `packages/payments/src/receipts/accountmatch.ts`                                             |
+| `auto_settle` action, denials `not_automatic` and `not_a_person`                                         | `packages/core/src/payoutflow.ts`                                                            |
+| Texts for the two new denials (no behaviour change)                                                      | `packages/db/src/payments/manualpayouts.ts` (`DENIAL_MESSAGES`)                              |
+| Tests                                                                                                    | `payoutproof.test.ts`, `payoutflow.test.ts`, `receiptaccount.test.ts` in `packages/core/src` |
+
+**How the rule is tested.** One example test per decision-table row (E1–E6, S1–S3, P1–P7, R1–R7,
+T1–T3, U1), each with its pass value, its boundary and every failure value including `null` and
+ill-typed values (a `number` where a `bigint` amount belongs never passes). Properties (fast-check):
+an arbitrary valid input always settles under the claimer; changing exactly one field never settles
+(each amount by one santim or more, one digit of the destination in the payout, the player's phone,
+the SMS and the receipt, one shown digit of the payer or of our collection account, either reference by
+one character, every timestamp past its bound, receipt status and `completed`, SMS source, direction,
+institution and status, payout status and institution, `proposedPayoutId`, payout id, the claimer null /
+the approver / a `system:` actor, each flag, each cap, the institution allowlist, the window, the
+receipt age and the revealed-digit minimum); nulling or deleting any single field (or a whole object)
+never settles; no non-verified receipt settles; arbitrary inputs never throw; the same input gives the
+same decision and is not mutated (also run on deep-frozen input). `assessManualPayout`: `auto_settle`
+from each status, for each actor, with each claimer/approver combination, plus a property that it
+succeeds exactly when the rule allows; the human `settle` refused for every `system:` actor. The matcher:
+digits shown, too few digits shown (with and without the subscriber-only count), one mask matching two
+different numbers, properties that a value revealing fewer digits than required never matches, and a
+property that `receiptAccountMatches` gives the same answer as the implementation it replaced (kept
+verbatim in the test as an oracle) on random masked and plain values; the payments receipt tests run
+unchanged. The only fields whose absence may still settle: `sms.occurredAt = null` (T3: the SMS carries
+no time), a verified receipt's `reason`, and `policy.notFoundGraceMs` (read only for a not-found receipt,
+which never settles).
+
+**Decisions** (each the stricter reading where the design left room)
+
+1. **Every check is positive and typed.** Amounts must be `bigint`, times valid `Date`s, durations
+   finite non-negative numbers, texts non-blank strings, flags exactly `false`. Anything else fails its
+   check. A value one check needs that another check owns (claim time, SMS receive time, the payout's
+   amount or destination) reports the owning check's reason, so a released payout or a malformed row
+   reads as a wait rather than a forgery alarm. Settling also requires that every verdict is an explicit
+   pass, not merely that no wait or mismatch was collected.
+2. **E3 also requires `amount > 0`** (a zero or negative payout waits as `over_payout_cap`).
+3. **E6 also requires the destination to be canonical E.164** (`normalizeEthiopianMsisdn(d) === d`), so
+   P4's exact string comparison with the parsed SMS number (always E.164) is meaningful.
+4. **S2: no recorded approver is a `four_eyes_violation` mismatch**, and so is a claimer starting
+   `system:`. The design's literal `payingBy !== approvedBy` would pass with `approvedBy = null`; a claimed
+   payout nobody approved is an impossible row and must alarm, not settle. Likewise `assessManualPayout`
+   refuses `auto_settle` with `approvedBy = null` (`wrong_status`) or a `system:` claimer (`not_a_person`),
+   and when the approver is `system:double_proof` itself (`approver_cannot_pay`).
+5. **R2: the receipt age must be between 0 and `maxReceiptAgeMs`.** A `fetchedAt` later than `now` is a
+   clock or caller error, not a fresh receipt: it waits (`receipt_stale`, retry). **C2b and C2d must take
+   `now` and `fetchedAt` from the same clock** (the worker's), or every receipt will wait.
+6. **R6 counts revealed digits in the subscriber part only** when our collection account is a mobile
+   number (minimum 4, the last 3 included). With the credit audit's rule, which counts the `251` prefix,
+   `251******111` would prove "the money left from us" for any number ending in 111. A too-masked or
+   unreadable payer waits as `payer_unreadable` (retry), a name the design left open.
+7. **R7 counts subscriber digits only, never fewer than 4** whatever `minRevealedDestinationDigits` says
+   (a non-integer minimum makes every receiver too masked). "Including the last 3" is enforced.
+8. **T1 and T2 use their own 5-minute constant** (`DOUBLE_PROOF_CLOCK_SKEW_MS`) rather than
+   `SMS_INSTITUTION_CLOCK_SKEW_MS`: same value as the design, but widening the deposit matcher's
+   tolerance can no longer silently widen what settles a payout.
+9. **T3 passes only on an SMS time that is exactly `null`** (the SMS carries none). An invalid or missing
+   (`undefined`) value is a `times_disagree` mismatch: such a row can only come from a mapping bug in the
+   caller, and a bug should be loud (alarm and suspend), not a silent pass.
+10. **R1:** a `rejected` reason becomes `receipt_<reason>` only when it is a short snake_case word
+    (`/^[a-z][a-z0-9_]{0,47}$/`), else `receipt_rejected`, so verifier text never reaches a code or a
+    log label. An unknown receipt status is treated as `indeterminate` (wait, retry). Facts on a
+    `not_found`, `indeterminate` or `skipped` result are ignored: only `verified` or `rejected` carry facts.
+11. **R4 is exact**: case and whitespace differences are `reference_differs`. A missing SMS reference is
+    also `reference_differs` (the design names only the receipt's null as a wait).
+12. **Empty `collectionAccounts` is a `payer_not_ours` mismatch** (alarm), not a wait. Section 6's config
+    guard should make it impossible; if it happens, a loud stop is right.
+13. **Retry flags** (`DOUBLE_PROOF_WAIT_RETRY`): only `receipt_indeterminate`, `receipt_not_found_yet`,
+    `receipt_stale` and the unreadable receipt fields except receiver and time are retried; every
+    eligibility, claim, SMS and window wait goes to a person, as the table says.
+
+**Ambiguities and how they were resolved**
+
+- _"Null → wait" without a code_ (R6): named `payer_unreadable`, retry true.
+- _P2 with a null SMS institution, P5 with a null SMS amount, P2 with a null direction_: the table's
+  "Otherwise" is a mismatch, kept literally. An SMS proposed for a payout without these is an anomaly.
+- _S1 vs S2 when `payingBy` is null_: S1's `not_processing` wait, never a four-eyes alarm.
+- _The masked-account matcher "moved and re-exported"_: `receiptAccountMatches` and
+  `receiptMatchesAnyAccount` keep their exact behaviour (proved against the old implementation); the
+  stricter options (`minRevealed`, `subscriberDigitsOnly`) exist only on the new `compareReceiptAccount`,
+  which also says `unreadable` (absent, not account-shaped, too masked) apart from `differs` (a shown
+  digit or the length contradicts), so a page that changed shape waits instead of alarming.
+- _`claim`, `release` and `fail` by a `system:` actor_: left untouched, as section 2 says. Nothing calls
+  them with one; a `system:` claimer could never be settled by either path (`not_a_person`).
+
+**What I think is unsafe or must not be forgotten in the design**
+
+- **The default masking rule is too weak to prove that money left us.** Section 3 says
+  `receiptAccountMatches(...)` for R6. That function counts the `251` prefix as revealed digits, so if
+  telebirr masks the payer as `251******111`, it matches every number ending in 111. Scenario: an operator
+  and a player collude; an accomplice whose number ends in the same three digits as our collection account
+  sends the player the payout amount after the claim; the operator forges the debit SMS with that
+  transfer's reference. Every other check passes (receiver, amount, reference, times), the rule read
+  literally says the payer is "ours", and the payout is recorded paid although our money never left. The
+  books now say that money is gone while it still sits in the collection account, which covers a later
+  unrecorded transfer of it to the gang (only the balance-drift checks would notice). Fixed here (decision
+  6); C2c must not "simplify" the debit path back to `receiptAccountMatches`.
+- **One mask matches many numbers** (tested in core). With `minRevealedDestinationDigits = 6`, a receiver
+  shown as `251922***455` is satisfied by a thousand numbers. This is the residual of section 4 (Q1); it
+  must be set from a real capture, and if telebirr shows fewer than 6 subscriber digits, every receiver
+  waits (safe, no gain) rather than the minimum being lowered.
+- **R2 and clocks** (decision 5): if C2b passes the database's `now()` with a worker-clock `fetchedAt`,
+  a worker clock ahead of the database makes every receipt wait.
+- **`referenceSettledElsewhere`, `amlHold`, `openReceiptAlarm` and the caps are inputs**: the rule is only
+  as good as the locked re-read in C2b. Computing any of them outside the settling transaction reopens
+  the TOCTOU window of section 4.
+- **A rejected receipt's reason can collide with a named code** (`not_found` → `receipt_not_found`).
+  Harmless to the decision (still a mismatch), but C2d's metrics must not classify mismatches by name
+  alone.
