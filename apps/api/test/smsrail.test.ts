@@ -13,6 +13,7 @@ import {
   PayoutAccountsResponse,
   SmsRailHealthResponse,
   StaffSmsListResponse,
+  StaffSmsChangeResponse,
   StaffWithdrawalChangeResponse,
   StaffWithdrawalListResponse,
   StaffWithdrawalView,
@@ -21,7 +22,7 @@ import {
 } from '@vamos/contracts';
 import { santimToBirrString } from '@vamos/core';
 import { setSetting } from '@vamos/db';
-import { kycProfiles, paymentIntents } from '@vamos/db/schema';
+import { kycProfiles, paymentIntents, receivedSms } from '@vamos/db/schema';
 import { eq } from 'drizzle-orm';
 import {
   SMS_GATEWAY_SECRET_HEADER,
@@ -597,6 +598,42 @@ describe('payout accounts and manual withdrawals', () => {
       (await asStaff(ctx, finance, 'GET', '/admin/sms?queue=all&limit=50')).json(),
     );
     expect(log.items.find((sms) => sms.rawText === text)?.collectionAccount).toBe(account);
+  });
+
+  it('lets staff read an unread message again, crediting a deposit once', async () => {
+    const deposit = await openSmsDeposit(player, 75_000n);
+    const send = BigInt(deposit.transfer!.sendAmount);
+    const text = telebirrCredit(send, player.phone, 'RP00000001');
+    // As stored when no parser knew the message yet, on the account the deposit was given.
+    const [intent] = await ctx.db.db
+      .select({ account: paymentIntents.collectionAccount })
+      .from(paymentIntents)
+      .where(eq(paymentIntents.id, deposit.id));
+    const [row] = await ctx.db.db
+      .insert(receivedSms)
+      .values({
+        source: 'gateway',
+        collectionAccount: intent?.account ?? null,
+        sender: 'telebirr',
+        rawText: text,
+        textHash: 'reparse-test-hash',
+        receivedAt: ctx.deps.clock(),
+        status: 'unparsed',
+        createdAt: ctx.deps.clock(),
+        updatedAt: ctx.deps.clock(),
+      })
+      .returning();
+    const before = await cashOf(player);
+    const done = await asStaff(ctx, finance, 'POST', `/admin/sms/${row!.id}/reparse`);
+    expect(done.statusCode).toBe(200);
+    expect(StaffSmsChangeResponse.parse(done.json()).sms).toMatchObject({
+      status: 'matched',
+      reference: 'RP00000001',
+    });
+    expect(await cashOf(player)).toBe(before + send);
+    const again = await asStaff(ctx, finance, 'POST', `/admin/sms/${row!.id}/reparse`);
+    expect(again.statusCode).toBe(409);
+    expect(await cashOf(player)).toBe(before + send);
   });
 
   it('shows the review queue and health, and lets staff credit a flagged SMS', async () => {

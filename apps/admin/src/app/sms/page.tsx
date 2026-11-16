@@ -125,6 +125,16 @@ function SmsRow({ sms, reload }: { sms: StaffSmsView; reload: () => void }) {
             {CREDITABLE.includes(sms.status) && sms.direction === 'credit' && (
               <CreditForm sms={sms} onDone={reload} />
             )}
+            {sms.status === 'unparsed' && (
+              <button
+                type="button"
+                onClick={() => {
+                  void api(`/admin/sms/${sms.id}/reparse`, { method: 'POST' }).then(reload, reload);
+                }}
+              >
+                Read again
+              </button>
+            )}
             {CLOSABLE.includes(sms.status) && (
               <ReasonAction
                 label="Close"

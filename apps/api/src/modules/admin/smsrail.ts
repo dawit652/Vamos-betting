@@ -19,6 +19,7 @@ import {
   claimManualPayoutBatch,
   closeSmsByStaff,
   creditSmsByStaff,
+  reparseSmsByStaff,
   failManualPayout,
   getStaffWithdrawal,
   listReceivedSms,
@@ -130,6 +131,26 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
           userId: input.userId,
           adminId: actor.adminId,
           note: input.note,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      return smsBody(result.sms);
+    },
+  );
+
+  // Reads a message again that no parser could read (after the parser was fixed): handled as when
+  // it arrived. A credit is matched only against deposits that existed when the money moved.
+  app.post<IdParams>(
+    '/admin/sms/:id/reparse',
+    { config: { staff: 'sms.review' } },
+    async (request) => {
+      const smsId = parseUuid(request.params.id, 'SMS');
+      const actor = staffActor(request);
+      const result = await inTx(deps, (tx) =>
+        reparseSmsByStaff(tx, {
+          smsId,
+          adminId: actor.adminId,
           now: deps.clock(),
           ip: actor.ip ?? null,
         }),
