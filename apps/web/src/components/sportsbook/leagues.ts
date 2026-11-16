@@ -12,6 +12,28 @@ export function featuredCompetitions(
   );
 }
 
+export type SidebarLeague = FeaturedCompetition & { flag: string };
+
+/**
+ * The sidebar's leagues with matches, flag attached, split into the featured
+ * ones (Top Leagues, and the phone rail) and the rest (More leagues, column only).
+ * Both keep the API order.
+ */
+export function splitLeagues(data: CompetitionsResponse | null | undefined): {
+  featured: SidebarLeague[];
+  others: SidebarLeague[];
+} {
+  const featured: SidebarLeague[] = [];
+  const others: SidebarLeague[] = [];
+  for (const { category, competitions } of data?.items ?? []) {
+    for (const c of competitions) {
+      if (c.eventCount <= 0) continue;
+      (c.featured ? featured : others).push({ ...c, flag: competitionFlag(c, category) });
+    }
+  }
+  return { featured, others };
+}
+
 /** Flag emoji by competition slug: the flags of MatchList's league cards. */
 export function competitionFlags(
   data: CompetitionsResponse | null | undefined,

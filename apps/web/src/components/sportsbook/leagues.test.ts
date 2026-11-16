@@ -1,7 +1,12 @@
 import type { CompetitionsResponse } from '@vamos/contracts';
 import { describe, expect, it } from 'vitest';
 import { EUROPE, WORLD, flagEmoji } from '@/lib/flag';
-import { competitionFlags, featuredCompetitions, orderLeagueCategories } from './leagues';
+import {
+  competitionFlags,
+  featuredCompetitions,
+  orderLeagueCategories,
+  splitLeagues,
+} from './leagues';
 
 const comp = (slug: string, eventCount: number, featured: boolean) => ({
   slug,
@@ -29,6 +34,26 @@ describe('featuredCompetitions', () => {
   it('is empty without data', () => {
     expect(featuredCompetitions(null)).toEqual([]);
     expect(featuredCompetitions({ items: [] })).toEqual([]);
+  });
+});
+
+describe('splitLeagues', () => {
+  it('splits featured from other leagues with matches, keeping order and adding flags', () => {
+    const data: CompetitionsResponse = {
+      items: [
+        category('a', [comp('a1', 2, true), comp('a2', 5, false), comp('a3', 0, true)]),
+        category('b', [comp('b1', 1, true), comp('b2', 3, false)]),
+      ],
+    };
+    const { featured, others } = splitLeagues(data);
+    expect(featured.map((c) => c.slug)).toEqual(['a1', 'b1']);
+    expect(others.map((c) => c.slug)).toEqual(['a2', 'b2']);
+    expect(featured[0]?.flag).toBe(WORLD);
+    expect(featured).toHaveLength(featuredCompetitions(data).length);
+  });
+
+  it('is empty without data', () => {
+    expect(splitLeagues(null)).toEqual({ featured: [], others: [] });
   });
 });
 

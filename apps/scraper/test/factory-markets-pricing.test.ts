@@ -258,6 +258,9 @@ describe('factory markets on market-priced events', () => {
       for (const s of selections) byKey.set(s.key, (byKey.get(s.key) ?? new Set()).add(s.code));
       const present = FACTORY.filter((m) => keys.has(keyOf(m)));
       expect(present.length).toBeGreaterThan(100);
+      // The owner's target (16 Nov 2026, like Hulusport's "500+" per match): about 500 options per
+      // match, counting today's markets and the factory's.
+      expect(selections.length).toBeGreaterThanOrEqual(500);
       for (const m of present) {
         expect([...byKey.get(keyOf(m))!].sort(), keyOf(m)).toEqual([...m.selections].sort());
       }

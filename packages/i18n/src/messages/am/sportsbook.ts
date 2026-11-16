@@ -95,12 +95,17 @@ export const sportsbook: Messages['sportsbook'] = {
     empty: 'አሁን ጨዋታ ያለው ሊግ የለም።',
     matches: '{count} ጨዋታዎች',
     topLeagues: 'ምርጥ ሊጎች',
+    moreLeagues: 'ተጨማሪ ሊጎች',
+  },
+  sidebar: {
+    topMatches: 'ምርጥ ጨዋታዎች',
   },
   search: {
     title: 'ፍለጋ',
     open: 'ቡድኖችንና ሊጎችን ይፈልጉ',
     label: 'ቡድን ወይም ሊግ',
     placeholder: 'ለምሳሌ አርሰናል ወይም ፕሪሚየር ሊግ',
+    sidebarPlaceholder: 'ጨዋታዎችን ይፈልጉ...',
     submit: 'ፈልግ',
     tooShort: 'ለመፈለግ ቢያንስ 2 ፊደላት ይጻፉ።',
     leagues: 'ሊጎች',

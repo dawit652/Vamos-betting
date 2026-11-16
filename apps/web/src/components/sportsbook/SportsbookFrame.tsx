@@ -3,8 +3,9 @@ import type { ReactNode } from 'react';
 import { BetslipDock } from '@/components/betslip/BetslipDock';
 import { getLocale, getT } from '@/i18n/server';
 import { getCompetitions, getSports } from '@/lib/api/catalog';
-import { competitionFlag } from '@/lib/flag';
 import { localName } from '@/lib/localized';
+import { listHref } from './tabs';
+import { splitLeagues, type SidebarLeague } from './leagues';
 import { routes, SPORTS, type Sport } from '@/lib/routes';
 
 /** System emoji as sport icons: no icon font or image to download. */
@@ -50,20 +51,78 @@ export async function SportsbookFrame({
     getCompetitions(sport).catch(() => null),
   ]);
   const counts = new Map((sports?.items ?? []).map((item) => [item.id, item]));
-  const categories = (leagues?.items ?? [])
-    .map((category) => ({
-      ...category,
-      competitions: category.competitions.filter((c) => c.eventCount > 0),
-    }))
-    .filter((category) => category.competitions.length > 0);
-  // Phones list only the featured leagues (the sidebar on a wide screen lists all of them).
-  const hasFeatured = categories.some((category) => category.competitions.some((c) => c.featured));
+  const { featured, others } = splitLeagues(leagues);
+  const leagueLink = (c: SidebarLeague) => (
+    <Link
+      key={c.slug}
+      href={routes.competition(sport, c.slug)}
+      prefetch={false}
+      aria-current={c.slug === competition ? 'page' : undefined}
+      className="chip"
+    >
+      <span aria-hidden="true">{c.flag}</span>
+      <span className="lg:min-w-0 lg:flex-1 lg:truncate">{localName(c.name, locale)}</span>
+      <span className="text-xxs tabular-nums opacity-70">{c.eventCount}</span>
+    </Link>
+  );
   const sportHref = (s: Sport) => (live ? routes.live(s) : routes.sport(s));
 
   return (
     <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_21rem] lg:items-start lg:gap-4 lg:px-4 lg:pt-4">
-      <aside className={`no-scrollbar lg:space-y-3 lg:overflow-y-auto ${STICKY}`}>
-        <nav aria-label={t('common.nav.sports')} className="rail">
+      <aside className={`no-scrollbar lg:flex lg:flex-col lg:gap-3 lg:overflow-y-auto ${STICKY}`}>
+        <div className="hidden lg:order-1 lg:block">
+          <form method="get" action={routes.search} role="search" className="side-search">
+            <label htmlFor="side-q" className="sr-only">
+              {t('sportsbook.search.label')}
+            </label>
+            <input
+              id="side-q"
+              name="q"
+              type="search"
+              autoComplete="off"
+              placeholder={t('sportsbook.search.sidebarPlaceholder')}
+              className="side-search-input"
+            />
+            <button
+              type="submit"
+              aria-label={t('sportsbook.search.submit')}
+              className="side-search-btn"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden="true"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-4-4" />
+              </svg>
+            </button>
+          </form>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Link
+              href={listHref(routes.sport(sport), 'highlights')}
+              prefetch={false}
+              className="side-btn"
+            >
+              <span aria-hidden="true">🏆</span>
+              {t('sportsbook.sidebar.topMatches')}
+            </Link>
+            <Link
+              href={listHref(routes.sport(sport), 'upcoming')}
+              prefetch={false}
+              className="side-btn"
+            >
+              <span aria-hidden="true">🕒</span>
+              {t('sportsbook.tabs.upcoming')}
+            </Link>
+          </div>
+        </div>
+        <nav aria-label={t('common.nav.sports')} className="rail lg:order-3">
           <h2 className="rail-title">{t('common.nav.sports')}</h2>
           {SPORTS.map((s) => {
             const liveCount = counts.get(s)?.liveCount ?? 0;
@@ -90,29 +149,39 @@ export async function SportsbookFrame({
             );
           })}
         </nav>
-        {categories.length > 0 ? (
+        {featured.length > 0 ? (
+          <details open className={`rail-panel lg:order-2 ${leagueRail ? '' : 'rail-wide'}`}>
+            <summary className="rail-summary">
+              <span aria-hidden="true">🏆</span>
+              <h2 className="min-w-0 flex-1 truncate">{t('sportsbook.leagues.topLeagues')}</h2>
+              <span className="rail-badge">{featured.length}</span>
+              <svg
+                className="rail-chevron"
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                aria-hidden="true"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </summary>
+            <nav aria-label={t('sportsbook.leagues.topLeagues')} className="rail rail-second">
+              {featured.map((c) => leagueLink(c))}
+            </nav>
+          </details>
+        ) : null}
+        {others.length > 0 ? (
           <nav
-            aria-label={t('sportsbook.leagues.topLeagues')}
-            className={`rail rail-second ${leagueRail && hasFeatured ? '' : 'rail-wide'}`}
+            aria-label={t('sportsbook.leagues.moreLeagues')}
+            className="rail rail-second hidden lg:order-4 lg:flex"
           >
-            <h2 className="rail-title">{t('sportsbook.leagues.topLeagues')}</h2>
-            {categories.map((category) =>
-              category.competitions.map((c) => (
-                <Link
-                  key={c.slug}
-                  href={routes.competition(sport, c.slug)}
-                  prefetch={false}
-                  aria-current={c.slug === competition ? 'page' : undefined}
-                  className={`chip ${c.featured ? '' : 'rail-wide'}`}
-                >
-                  <span aria-hidden="true">{competitionFlag(c, category.category)}</span>
-                  <span className="lg:min-w-0 lg:flex-1 lg:truncate">
-                    {localName(c.name, locale)}
-                  </span>
-                  <span className="text-xxs tabular-nums opacity-70">{c.eventCount}</span>
-                </Link>
-              )),
-            )}
+            <h2 className="rail-title">{t('sportsbook.leagues.moreLeagues')}</h2>
+            {others.map((c) => leagueLink(c))}
           </nav>
         ) : null}
       </aside>

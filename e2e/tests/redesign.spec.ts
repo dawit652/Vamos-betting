@@ -204,7 +204,7 @@ test('a country chip lists only that country, All clears it', async ({ page }) =
   await expect(countries.getByRole('link', { name: 'All' })).not.toHaveAttribute('aria-current');
 
   // Every league card on the page belongs to that country ("Country · League").
-  const summaries = page.locator('main details > summary');
+  const summaries = page.locator('main details:not(.rail-panel) > summary');
   await expect(summaries.first()).toBeVisible();
   await expect(summaries.filter({ hasNotText: name })).toHaveCount(0);
 

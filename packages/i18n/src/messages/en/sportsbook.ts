@@ -99,12 +99,17 @@ export const sportsbook = {
     empty: 'No leagues with matches right now.',
     matches: '{count} matches',
     topLeagues: 'Top leagues',
+    moreLeagues: 'More leagues',
+  },
+  sidebar: {
+    topMatches: 'Top Matches',
   },
   search: {
     title: 'Search',
     open: 'Search teams and leagues',
     label: 'Team or league',
     placeholder: 'e.g. Arsenal or Premier League',
+    sidebarPlaceholder: 'Search matches...',
     submit: 'Search',
     tooShort: 'Type at least 2 letters to search.',
     leagues: 'Leagues',
