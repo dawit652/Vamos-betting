@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { createTelegramClient } from './telegram/client';
 import {
   baseLoggerOptions,
   ConfigError,
@@ -146,6 +147,10 @@ async function main(): Promise<void> {
         : {}),
       sms,
       ownerAlerts: config.ownerAlerts,
+      // The Telegram bot (TELEGRAM_BOT_TOKEN): owner alerts to its chats, and the bot task.
+      ...(config.telegram.botToken === undefined
+        ? {}
+        : { telegram: createTelegramClient({ token: config.telegram.botToken }) }),
       floatForecast: config.payments.sms.floatForecast,
       smsHeartbeatAlarmMs: config.payments.sms.heartbeatAlarmMs,
       demo: config.mode === 'demo',

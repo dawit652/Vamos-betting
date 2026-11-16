@@ -38,6 +38,9 @@ import { prematchDriftTask, type PrematchDriftOptions } from './prematch-drift';
 import { retentionPruneTask, type RetentionPruneOptions } from './retention-prune';
 import { smsNotifyTask, type SmsNotifyOptions } from './sms-notify';
 import { smsRailTasks, type SmsRailTaskOptions } from './smsrail';
+import { smsRailHealth } from '@vamos/db';
+import { createCatalogReader } from '../telegram/catalog';
+import { telegramBotTask, type TelegramBotTaskOptions } from '../telegram/task';
 import { userNotifyTask, type UserNotifyOptions } from './user-notify';
 import { ussdPruneTask, type UssdPruneOptions } from './ussd-prune';
 import {
@@ -51,6 +54,7 @@ export type { TaskContext } from './context';
 
 export interface TaskOptions {
   feedIngest?: FeedIngestOptions;
+  telegramBot?: TelegramBotTaskOptions;
   liveSim?: Partial<LiveSimOptions>;
   prematchDrift?: PrematchDriftOptions;
   settlement?: SettlementOptions;
@@ -130,5 +134,25 @@ export function createTasks(
     ...smsRailTasks(ctx, options.smsRail),
     outboxDispatchTask(ctx, options.outboxDispatch),
   );
+  // The Telegram bot (TELEGRAM_BOT_TOKEN): players' read-only menu, /id and the owner's /status.
+  if (ctx.telegram !== undefined && config.telegram.botToken !== undefined) {
+    tasks.push(
+      telegramBotTask(
+        {
+          client: ctx.telegram,
+          catalog: createCatalogReader({ baseUrl: config.api.internalUrl }),
+          redis: ctx.redis,
+          logger: ctx.logger,
+          clock: ctx.clock,
+          webUrl: config.web.publicUrl,
+          ownerChatIds: new Set(config.telegram.ownerChatIds),
+          playerMenu: config.telegram.playerMenu,
+          demo: config.mode === 'demo',
+          status: async () => smsRailHealth(ctx.db),
+        },
+        options.telegramBot,
+      ),
+    );
+  }
   return tasks;
 }

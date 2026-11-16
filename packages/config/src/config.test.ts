@@ -897,7 +897,11 @@ describe('the SMS deposit rail', () => {
 
 describe('owner alerts (plan task 1.11)', () => {
   it('is off by default, with a 30 minute interval', () => {
-    expect(loadConfig({}).ownerAlerts).toEqual({ phones: [], minIntervalMinutes: 30 });
+    expect(loadConfig({}).ownerAlerts).toEqual({
+      phones: [],
+      telegramChatIds: [],
+      minIntervalMinutes: 30,
+    });
     // A blank value (as in an env file) is "not set".
     expect(loadConfig({ OWNER_ALERT_PHONES: ' , ' }).ownerAlerts.phones).toEqual([]);
   });
@@ -909,8 +913,49 @@ describe('owner alerts (plan task 1.11)', () => {
     });
     expect(config.ownerAlerts).toEqual({
       phones: ['+251911234567', '+251922345678'],
+      telegramChatIds: [],
       minIntervalMinutes: 60,
     });
+  });
+
+  it('reads the Telegram bot: token, owner chats (also as alert targets) and the player menu', () => {
+    expect(loadConfig({}).telegram).toEqual({
+      botToken: undefined,
+      ownerChatIds: [],
+      playerMenu: true,
+    });
+    const token = '123456789:AAH' + 'x'.repeat(32);
+    const config = loadConfig({
+      TELEGRAM_BOT_TOKEN: token,
+      TELEGRAM_OWNER_CHAT_IDS: '123456789, -1001234567890,123456789',
+      TELEGRAM_PLAYER_MENU: 'off',
+    });
+    expect(config.telegram).toEqual({
+      botToken: token,
+      ownerChatIds: [123456789, -1001234567890],
+      playerMenu: false,
+    });
+    expect(config.ownerAlerts.telegramChatIds).toEqual([123456789, -1001234567890]);
+  });
+
+  it('refuses owner chats without a token, bad chat ids and a malformed token, never echoing it', () => {
+    expect(() => loadConfig({ TELEGRAM_OWNER_CHAT_IDS: '123456789' })).toThrow(
+      /TELEGRAM_OWNER_CHAT_IDS needs TELEGRAM_BOT_TOKEN/,
+    );
+    expect(() =>
+      loadConfig({
+        TELEGRAM_BOT_TOKEN: '123456789:AAH' + 'x'.repeat(32),
+        TELEGRAM_OWNER_CHAT_IDS: 'abc',
+      }),
+    ).toThrow(/TELEGRAM_OWNER_CHAT_IDS/);
+    let message = '';
+    try {
+      loadConfig({ TELEGRAM_BOT_TOKEN: 'not-a-token-secret-value' });
+    } catch (error) {
+      message = String(error);
+    }
+    expect(message).toMatch(/TELEGRAM_BOT_TOKEN is not a bot token/);
+    expect(message).not.toContain('not-a-token-secret-value');
   });
 
   it('refuses numbers that are not E.164 and intervals out of range', () => {

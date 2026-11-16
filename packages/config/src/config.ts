@@ -68,6 +68,7 @@ const bool = z.stringbool();
 
 /** An E.164 number: a plus, then 8 to 15 digits, the first not 0. */
 const OWNER_ALERT_PHONE_RE = /^\+[1-9]\d{7,14}$/;
+const TELEGRAM_CHAT_ID_RE = /^-?[1-9]\d{0,14}$/;
 
 /** Fastify `trustProxy`: false, or the addresses / CIDRs of the trusted proxies. */
 export type TrustProxySetting = false | string[];
@@ -335,6 +336,33 @@ const envSchema = z.object({
   /** The same owner alert (same key) is texted at most once per this many minutes. */
   OWNER_ALERT_MIN_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
 
+  /**
+   * The Telegram bot (create it with @BotFather). Unset (the default): no bot. With a token the
+   * worker (a) sends the owner alerts to TELEGRAM_OWNER_CHAT_IDS next to the SMS and (b) answers
+   * players' read-only questions (matches and odds) when TELEGRAM_PLAYER_MENU is on. The bot
+   * never moves money and never sees an account. Never log it.
+   */
+  TELEGRAM_BOT_TOKEN: secret,
+  /**
+   * Chat ids (integers; a group's id is negative, at most 10) that get the owner alerts and may use
+   * the owner commands (/status). Ask the bot `/id` to learn a chat's id. Use private chats: every
+   * member of a group chat listed here may run the owner commands.
+   */
+  TELEGRAM_OWNER_CHAT_IDS: csv
+    .refine((ids) => ids.every((id) => TELEGRAM_CHAT_ID_RE.test(id)), {
+      message:
+        'must be comma-separated Telegram chat ids (integers such as 123456789 or -1001234567890)',
+    })
+    .refine((ids) => ids.length <= 10, { message: 'at most 10 chat ids' })
+    .default([]),
+  /** `on` (default with a token): players may ask the bot for matches and odds. `off`: alerts only. */
+  TELEGRAM_PLAYER_MENU: z.enum(['on', 'off']).default('on'),
+  /**
+   * Where the worker reads the public catalogue for the bot (the API over the private network,
+   * e.g. http://api:4000). Default: PUBLIC_API_URL.
+   */
+  API_INTERNAL_URL: z.url().optional(),
+
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
    * Public base URL of the API that payment providers call back (webhooks,
@@ -462,6 +490,8 @@ export interface AppConfig {
     trustProxy: TrustProxySetting;
     /** API_ROLE: which routes this process serves (all, streams only, or all but streams). */
     role: ApiRole;
+    /** API_INTERNAL_URL (default publicUrl): where the worker reads the catalogue for the bot. */
+    internalUrl: string;
     /** CATALOG_CACHE_SECONDS: how long catalogue list answers are reused (0 = off). */
     catalogCacheSeconds: number;
     /** PLAYER_SESSION_*: how long a player session lasts, and its idle limit (null: none). */
@@ -522,6 +552,8 @@ export interface AppConfig {
   channels: ChannelsConfig;
   /** OWNER_ALERT_*: short SMS alerts to the owner (plan task 1.11), off by default. */
   ownerAlerts: OwnerAlertsConfig;
+  /** TELEGRAM_*: the Telegram bot (none without a token). */
+  telegram: TelegramConfig;
 }
 
 export interface ScraperConfig {
@@ -564,10 +596,36 @@ export function scraperUserAgent(scraper: Pick<ScraperConfig, 'userAgent' | 'con
     : `${scraper.userAgent} (+${scraper.contact})`;
 }
 
-/** Alerts to the owner's phone (plan task 1.11). Off while `phones` is empty. */
+/** Who gets owner alerts: phone numbers (SMS) and Telegram chats. */
+export interface OwnerAlertTargets {
+  phones: readonly string[];
+  telegramChatIds?: readonly number[];
+}
+
+/** How many places an owner alert goes to; 0 means alerts are off. */
+export function ownerAlertTargetCount(alerts: OwnerAlertTargets): number {
+  return alerts.phones.length + (alerts.telegramChatIds?.length ?? 0);
+}
+
+/** The Telegram bot (TELEGRAM_*). */
+export interface TelegramConfig {
+  /** TELEGRAM_BOT_TOKEN: undefined means no bot. */
+  botToken: string | undefined;
+  /** TELEGRAM_OWNER_CHAT_IDS: the owner alert chats (also the owner commands' audience). */
+  ownerChatIds: number[];
+  /** TELEGRAM_PLAYER_MENU: players may ask for matches and odds. */
+  playerMenu: boolean;
+}
+
+/**
+ * Alerts to the owner (plan task 1.11), by SMS and by Telegram. Off while there is no number and
+ * no chat id.
+ */
 export interface OwnerAlertsConfig {
-  /** OWNER_ALERT_PHONES: E.164 numbers, no duplicates; empty (default) turns alerts off. */
+  /** OWNER_ALERT_PHONES: E.164 numbers, no duplicates; empty (default) turns the SMS off. */
   phones: string[];
+  /** TELEGRAM_OWNER_CHAT_IDS when TELEGRAM_BOT_TOKEN is set, else empty (absent: none). */
+  telegramChatIds?: number[];
   /** OWNER_ALERT_MIN_INTERVAL_MINUTES: the same alert key is sent at most once per interval. */
   minIntervalMinutes: number;
 }
@@ -856,6 +914,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       publicUrl: e.PUBLIC_API_URL,
       trustProxy: parseTrustProxy(e.TRUST_PROXY),
       role: e.API_ROLE,
+      internalUrl: e.API_INTERNAL_URL ?? e.PUBLIC_API_URL,
       catalogCacheSeconds: e.CATALOG_CACHE_SECONDS,
       playerSession: {
         absoluteMs: e.PLAYER_SESSION_HOURS * 3_600_000,
@@ -905,7 +964,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     ownerAlerts: {
       phones: [...new Set(e.OWNER_ALERT_PHONES)],
+      telegramChatIds:
+        e.TELEGRAM_BOT_TOKEN === undefined
+          ? []
+          : [...new Set(e.TELEGRAM_OWNER_CHAT_IDS.map(Number))],
       minIntervalMinutes: e.OWNER_ALERT_MIN_INTERVAL_MINUTES,
+    },
+    telegram: {
+      botToken: e.TELEGRAM_BOT_TOKEN,
+      ownerChatIds: [...new Set(e.TELEGRAM_OWNER_CHAT_IDS.map(Number))],
+      playerMenu: e.TELEGRAM_PLAYER_MENU === 'on',
     },
     payments: {
       callbackBaseUrl: e.PAYMENT_CALLBACK_BASE_URL ?? e.PUBLIC_API_URL,
@@ -1046,6 +1114,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     }
   } else {
     problems.push(...licensedModeViolations(config));
+  }
+  if (e.TELEGRAM_BOT_TOKEN === undefined && e.TELEGRAM_OWNER_CHAT_IDS.length > 0) {
+    problems.push('TELEGRAM_OWNER_CHAT_IDS needs TELEGRAM_BOT_TOKEN (a bot to send from)');
+  }
+  if (
+    e.TELEGRAM_BOT_TOKEN !== undefined &&
+    !/^\d{5,15}:[A-Za-z0-9_-]{30,60}$/.test(e.TELEGRAM_BOT_TOKEN)
+  ) {
+    // Never echo the value: it is a secret.
+    problems.push('TELEGRAM_BOT_TOKEN is not a bot token (BotFather gives <digits>:<letters>)');
   }
   if (problems.length > 0) {
     throw new ConfigError(problems);

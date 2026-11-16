@@ -29,7 +29,9 @@ live/nahubet-new-2026-11-15`. A session then merges it into the working branch (
 2. For about 500 options per match, add `SCRAPER_FACTORY_MARKETS=on` and `FEATURE_FACTORY_MARKETS=true`
    to `/opt/nahubet-new/infra/.env.prod`, and after the deploy switch "Market factory markets" on per
    league in the back office (Feed).
-3. Deploy the whole stack with `infra/scripts/deploy-full.sh` (command below in "Continue here"): it keeps
+3. For the **Telegram bot**, create it with @BotFather and add `TELEGRAM_BOT_TOKEN=...` to the env file
+   (then `/id` in the bot gives the chat id for `TELEGRAM_OWNER_CHAT_IDS`): `docs/runbooks/telegram-bot.md`.
+4. Deploy the whole stack with `infra/scripts/deploy-full.sh` (command below in "Continue here"): it keeps
    the licensed env file, the compose project `vamos` and its volumes, dumps the database first and
    puts the previous images back if the smoke test fails.
 

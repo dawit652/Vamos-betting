@@ -6,6 +6,7 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { QueueConfig } from '../lib/queues';
 import type { SmsSender } from '../lib/sms';
+import type { TelegramClient } from '../telegram/client';
 
 /** What the worker tasks need from the outside world (tests pass their own). */
 export interface TaskContext {
@@ -45,6 +46,8 @@ export interface TaskContext {
   floatForecast?: FloatForecastRules;
   /** SMS_HEARTBEAT_ALARM_MINUTES in ms: a handset heartbeat older than this raises an alarm (default 20 min). */
   smsHeartbeatAlarmMs?: number;
+  /** The Telegram bot (TELEGRAM_BOT_TOKEN): owner alerts also go to its owner chats. */
+  telegram?: TelegramClient;
   /** Play-money mode (OPERATING_MODE=demo): channel texts say DEMO. Default true. */
   demo?: boolean;
 }
