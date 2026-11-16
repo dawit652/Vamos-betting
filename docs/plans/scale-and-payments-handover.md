@@ -282,6 +282,13 @@ note for the owner:** the dispatcher change is in `apps/worker` only, has no mig
 job id or retry rule; after the deploy, `outbox_oldest_unpublished_seconds` on the api's `/metrics`
 should read 0 or a few seconds.
 
+**Owner, 16 Nov: "there is no way I can call the bank, solve it by the code."** So C3 and C5 are out
+and C8 (a machine that types the wallet's menu) is reopened: `docs/plans/payout-sender-design.md`.
+C8a (the pure judgement, `packages/core/src/payoutmenu.ts`) is built and tested. **Next is C8b**, the
+agent with a simulated modem (Opus, high): it needs no decision and no migration. The owner still owes
+D9 to D11, a payout SIM and a USB modem before anything real can be sent. Do not weaken the design's
+section 3 to make something work.
+
 **Still open, in this order** (model and effort in brackets):
 
 1. ~~C10~~ done (progress file): ask the owner for the real `FLOAT_FORECAST_WITHDRAWN_PERCENT` (the default 20 is a guess) and
