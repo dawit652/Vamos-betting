@@ -172,6 +172,23 @@ alert on an age over 60 seconds.
 The load tests above did not show this because they check the ledger, which is written in the bet's own
 transaction; the outbox lag only delays what happens after.
 
+## Results (16 Nov 2026): the pace of settlement (A9)
+
+`BENCH=1 pnpm --filter @vamos/worker exec vitest run test/settlement-pace.bench.test.ts --reporter=verbose`
+places 3,200 single bets on 8 events (half win), results the events and times `settleEvent` (one
+transaction per bet, as the worker does) with 1, 2 and 4 events settled in parallel. Two runs:
+
+| Events in parallel       | Bets settled a second |
+| ------------------------ | --------------------- |
+| 1                        | 220, 222              |
+| 2 (the worker's default) | 385, 356              |
+| 4                        | 321, 375              |
+
+Two lanes is the useful number: more lanes meet on the `house_stakes` row (A7). At about 370 bets a
+second, 100,000 open bets are settled in about 4.5 minutes. Raising the settlement concurrency does
+not help; one ledger posting per batch of bets would, and that is a redesign of how settlement writes
+the ledger (`docs/plans/worker-standby-design.md`, section 5).
+
 ## What was found and fixed
 
 **The house_stakes lock (fixed).** Every stake posting updates the one `house_stakes` ledger account

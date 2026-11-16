@@ -134,8 +134,11 @@ is in the progress file.
 | B8, C6 | EthioPay-IPS through a bank (payment requests, QR, bulk payments)                                                                                                                                                                                            | D2                          | Opus, high     |
 | A11    | More than one server                                                                                                                                                                                                                                         | D7, after A1's baseline     | Opus, high     |
 
-Later, when the load test asks for it: A7 (the `house_stakes` ceiling), A8 (database tuning, replica,
-partitions) and A9 (worker queues, standby), all Opus, high; see the plan, section 4. B5 (a second
+A7 (the `house_stakes` ceiling) and A9 (the outbox dispatcher, the pace of settlement, the standby
+design) were done on 16 Nov: `docs/load-testing.md` and `docs/plans/worker-standby-design.md`. Later,
+when the load test asks for it: A8 (database tuning, replica, partitions), Opus, high; see the plan,
+section 4. A9b (outbox age on the API's metrics, a host script that restarts an unhealthy worker) is
+small and open. B5 (a second
 handset and a heartbeat alarm) needs a spare phone on site. B9 (a statement feed for CBE) waits for D2.
 
 ## 5. Left over from the last session (not part of the plan)
@@ -282,8 +285,8 @@ and against the 160 KB budget, `caddy validate` of `Caddyfile.streams` (CI does 
 3. ~~X2~~ done (`e2e/tests/redesign.spec.ts`, 11 tests; its caveats are in the progress file). Still to do
    here: run `e2e/tests/sms-rail.spec.ts` with two simulated accounts at the same time (the full suite
    passed 18 of 18 on 16 Nov with the single-account scenarios only).
-4. **A6b, A7, A8, A9, B5, D1 to D8** per the progress file (A6b to B5 need no decision; D rows are owner
-   tasks).
+4. **A9b, A8, A6b, B5, D1 to D8** per the progress file (A9b to B5 need no decision; D rows are owner
+   tasks). A7 and A9 are done.
 5. **X4** licensed texts for Help, Terms and Responsible gambling: needs the licence details from the
    owner; do not invent legal text. **X3** the rename stages 1 to 3 last, in one pull request while no
    other branch or agent is editing (it touches every import); never rename the compose project, volumes
