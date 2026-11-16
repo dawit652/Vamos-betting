@@ -268,8 +268,9 @@ list before launch and reading the startup log:
 - [ ] With the SMS deposit rail (`sms`, [runbook](runbooks/sms-rail.md)): `SMS_RAIL_MODE=live`; its own
       `SMS_GATEWAY_SECRET` (32+ chars, shared with no other secret); `OPERATOR_LEGAL_NAME` set and every
       account in `SMS_COLLECTION_ACCOUNTS` in that name (no personal SIMs); `RECEIPT_VERIFY=audit`; and
-      `PAYOUT_REQUIRE_PROOF=true` (or the explicit, logged waiver `PAYOUT_PROOF_WAIVED=true`). The database
-      also refuses simulator SMS once it is licensed.
+      `PAYOUT_REQUIRE_PROOF=true` (or the explicit, logged waiver `PAYOUT_PROOF_WAIVED=true`). These SMS-rail
+      items are your check: licensed mode only logs them as warnings at start and does not refuse to start
+      without them. The database also refuses simulator SMS once it is licensed.
 - [ ] `KYC_PROVIDER=mock` (the only KYC adapter: ID checks are simulated). `SMS_PROVIDER=http` has no adapter yet, so
       the api and worker refuse to start with it; `mock` means no code can be delivered: set `REGISTRATION_SMS_VERIFICATION=off` so players can still register (their phone is then not proven, and password reset by SMS does not work: staff must reset passwords).
 - [ ] `FEED_PROVIDER=manual` (traders only) or a licensed real feed once an adapter exists; `mock` is refused.
@@ -349,7 +350,7 @@ in a secret manager, not in git.
 | `OPERATOR_LEGAL_NAME`       | unset   | The licence holder's legal name; every collection account must be in it.                                                                                                      |
 | `RECEIPT_VERIFY`            | `audit` | `audit` checks every credited telebirr SMS against the receipt page (required live), `off` does not.                                                                          |
 | `RECEIPT_VERIFY_TIMEOUT_MS` | `6000`  | Timeout of one receipt-page request (500–30000).                                                                                                                              |
-| `PAYOUT_REQUIRE_PROOF`      | `false` | `true`: a manual payout settles only with its debit SMS as proof. Required in licensed mode unless waived.                                                                    |
+| `PAYOUT_REQUIRE_PROOF`      | `false` | `true`: a manual payout settles only with its debit SMS as proof. Set it in production: licensed mode without it only logs a warning, it is not enforced.                     |
 | `PAYOUT_PROOF_WAIVED`       | `false` | The explicit waiver of `PAYOUT_REQUIRE_PROOF` in licensed mode (the api logs a warning at start).                                                                             |
 
 **Tax and features**

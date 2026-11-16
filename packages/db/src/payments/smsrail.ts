@@ -2,6 +2,7 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import {
   MAX_SANTIM_OFFSET,
   allocateSmsAmount,
+  latestClaimForSms,
   matchSmsDeposit,
   parseSms,
   pastedSmsReference,
@@ -44,7 +45,7 @@ import {
 } from './deposits';
 import { DEPOSIT_SUCCEEDED } from './events';
 import { depositEntries, depositLedgerKey } from './postings';
-import { assertAmount, type PaymentIntent } from './types';
+import { assertAmount, comparableDestination, type PaymentIntent } from './types';
 
 /**
  * The SMS deposit rail (ported from Melabingo): players transfer an exact
@@ -384,7 +385,10 @@ async function applyCredit(
 
 /**
  * Proposes the manual payout an outgoing (debit) SMS appears to have paid:
- * approved or claimed manual payouts not yet proposed by another message.
+ * claimed (`processing`) manual payouts not yet proposed by another message,
+ * claimed no later than the money moved (core latestClaimForSms). An
+ * approved payout nobody claimed has not been sent, and a transfer older
+ * than the claim did not pay it: such a debit stays `ignored_debit`.
  */
 async function applyDebit(
   tx: DbTransaction,
@@ -392,10 +396,16 @@ async function applyDebit(
   sms: ParsedSms,
   now: Date,
 ): Promise<SmsResult> {
+  const claimedBy = latestClaimForSms({
+    occurredAt: row.occurredAt,
+    deviceReceivedAt: row.deviceReceivedAt,
+    receivedAt: row.receivedAt,
+  });
   const candidates = await tx
     .select({
       payoutId: payouts.id,
       amount: payouts.amount,
+      destinationInstitution: payouts.destinationInstitution,
       destinationAccount: payouts.destinationAccount,
     })
     .from(payouts)
@@ -403,7 +413,8 @@ async function applyDebit(
     .where(
       and(
         eq(payouts.manual, true),
-        inArray(payouts.status, ['approved', 'processing']),
+        eq(payouts.status, 'processing'),
+        lte(payouts.processingAt, claimedBy),
         eq(payouts.amount, sms.amount),
         isNull(receivedSms.id),
       ),
@@ -411,7 +422,12 @@ async function applyDebit(
     .limit(200);
   const proposal = proposePayoutForSms(
     sms,
-    candidates.map((c) => ({ ...c, destinationAccount: c.destinationAccount ?? '' })),
+    candidates.map((c) => ({
+      payoutId: c.payoutId,
+      amount: c.amount,
+      // Wallets in E.164, as a parsed SMS names them.
+      destinationAccount: comparableDestination(c.destinationInstitution, c.destinationAccount),
+    })),
   );
   if (proposal.type !== 'proposed') {
     const updated = await updateSms(tx, row.id, {

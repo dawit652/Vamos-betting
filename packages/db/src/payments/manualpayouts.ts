@@ -1,6 +1,7 @@
 import {
   assessManualPayout,
   bareSmsReference,
+  latestClaimForSms,
   payoutDestination,
   type ManualPayoutAction,
 } from '@vamos/core';
@@ -17,7 +18,7 @@ import { payouts } from '../schema/payments';
 import { receivedSms } from '../schema/smsrail';
 import { WITHDRAWAL_FAILED, WITHDRAWAL_PAID } from './events';
 import { withdrawalPaidEntries, withdrawalPaidLedgerKey } from './postings';
-import type { Payout } from './types';
+import { comparableDestination, type Payout } from './types';
 import {
   blockedSettlementCorrection,
   correctionPending,
@@ -285,6 +286,15 @@ export interface SettleManualPayoutInput extends ManualPayoutActor {
  *   not proposed for another payout (409 `settlement_reference_mismatch`),
  *   and is then linked as the proof; 409 `settlement_proof_required` with
  *   `requireProof` and no SMS; 422 `invalid_settlement_reference`;
+ * - a typed reference for a wallet payout: the SMS must name the payout's
+ *   number (409 `settlement_destination_mismatch`); one that names no number
+ *   counts only as the matcher's own proposal for this payout, never as an
+ *   `ignored_debit` (409 `settlement_proof_mismatch`). Bank payouts rest on
+ *   the holder-name confirmation, as before;
+ * - either way, the SMS must be of a transfer made after this claim (core
+ *   latestClaimForSms: claim minus the clock skew), else 409
+ *   `settlement_proof_too_old`. Otherwise the claimer could pay themselves
+ *   the same amount and point at that debit as the player's payment;
  * - 409 `settlement_reference_used` when the reference settled another payout.
  */
 export async function settleManualPayout(
@@ -322,6 +332,7 @@ export async function settleManualPayout(
         'That SMS is not the proposed proof of this withdrawal.',
       );
     }
+    assertSentAfterClaim(payout, sms);
     proof = { id: sms.id, reference: sms.reference };
   } else {
     const typed = input.reference === undefined ? null : bareSmsReference(input.reference);
@@ -349,6 +360,8 @@ export async function settleManualPayout(
           'We hold an SMS with that reference that is not this payment. Check the reference.',
         );
       }
+      if (destination?.kind === 'wallet') assertSentToWallet(payout, sms);
+      assertSentAfterClaim(payout, sms);
       proof = { id: sms.id, reference: typed };
     } else if (input.requireProof) {
       throw domainConflict(
@@ -360,6 +373,51 @@ export async function settleManualPayout(
     }
   }
   return pay(tx, payout, input, { reference: proof.reference, smsId: proof.id });
+}
+
+type ReceivedSmsRow = typeof receivedSms.$inferSelect;
+
+/**
+ * A typed reference for a wallet payout: the debit SMS must show the money
+ * going to the payout's own number (both compared in E.164). An SMS without a
+ * number proves nothing about where the money went, unless the matcher already
+ * proposed it for this payout as its only same-amount candidate (`amount_only`).
+ */
+function assertSentToWallet(payout: Payout, sms: ReceivedSmsRow): void {
+  if (sms.counterpartyPhone === null) {
+    if (sms.status === 'settlement_proposed' && sms.proposedPayoutId === payout.id) return;
+    throw domainConflict(
+      'settlement_proof_mismatch',
+      "That SMS does not show the number the money went to, so it cannot prove this withdrawal. Ask a supervisor to check the transfer in the collection account's history.",
+    );
+  }
+  const sentTo = comparableDestination(payout.destinationInstitution, sms.counterpartyPhone);
+  const owed = comparableDestination(payout.destinationInstitution, payout.destinationAccount);
+  if (sentTo !== owed) {
+    throw domainConflict(
+      'settlement_destination_mismatch',
+      'That SMS shows money sent to another number: check the reference and the number you paid.',
+    );
+  }
+}
+
+/**
+ * The SMS must be of a transfer made after this payout was claimed (minus the
+ * clock skew; core latestClaimForSms): an older debit of the same amount, or one
+ * made under an earlier claim, did not pay this claim.
+ */
+function assertSentAfterClaim(payout: Payout, sms: ReceivedSmsRow): void {
+  const latest = latestClaimForSms({
+    occurredAt: sms.occurredAt,
+    deviceReceivedAt: sms.deviceReceivedAt,
+    receivedAt: sms.receivedAt,
+  });
+  if (payout.processingAt === null || payout.processingAt.getTime() > latest.getTime()) {
+    throw domainConflict(
+      'settlement_proof_too_old',
+      'That SMS is of a transfer made before you claimed this withdrawal, so it is not this payment. Check the reference of the transfer you sent after claiming.',
+    );
+  }
 }
 
 async function pay(
