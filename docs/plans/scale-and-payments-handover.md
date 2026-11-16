@@ -279,8 +279,9 @@ and against the 160 KB budget, `caddy validate` of `Caddyfile.streams` (CI does 
    is done (core only, wired into nothing): next in that chain is C2c (the receipt verifier's debit mode,
    Sonnet medium) and C2b (database, **migration 0055**, Opus high), both need real fixtures and the
    owner's D4 and D8 before anything can go to `shadow`.
-3. **X2** end-to-end tests of the redesign (needs the e2e stack: `e2e/scripts/stack.sh build` then
-   `start`; Sonnet, medium). Run `e2e/tests/sms-rail.spec.ts` with two simulated accounts at the same time.
+3. ~~X2~~ done (`e2e/tests/redesign.spec.ts`, 11 tests; its caveats are in the progress file). Still to do
+   here: run `e2e/tests/sms-rail.spec.ts` with two simulated accounts at the same time (the full suite
+   passed 18 of 18 on 16 Nov with the single-account scenarios only).
 4. **A6b, A7, A8, A9, B5, D1 to D8** per the progress file (A6b to B5 need no decision; D rows are owner
    tasks).
 5. **X4** licensed texts for Help, Terms and Responsible gambling: needs the licence details from the
