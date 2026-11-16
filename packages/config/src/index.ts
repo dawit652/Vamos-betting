@@ -1,6 +1,7 @@
 export {
   ConfigError,
   DEMO_COLLECTION_ACCOUNTS,
+  defaultCollectionAccountId,
   DEV_ADMIN_TOTP_KEY,
   DEV_MOCK_PAYMENT_WEBHOOK_SECRET,
   DEV_SESSION_SECRET,

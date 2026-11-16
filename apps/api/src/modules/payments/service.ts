@@ -32,6 +32,7 @@ import { payouts } from '@vamos/db/schema';
 import {
   paymentWebhookUrl,
   PaymentProviderError,
+  SmsRailProvider,
   WebhookVerificationError,
   type PaymentProvider,
   type ProviderCapabilities,
@@ -218,6 +219,9 @@ export async function createPlayerDeposit(
         now,
         rules: settings.payments,
         ip: command.ip ?? null,
+        // Each collection account has its own amounts: the deposit is given the emptiest one.
+        collectionAccounts:
+          provider instanceof SmsRailProvider ? provider.collectionAccountIds : [],
       });
     });
     return { deposit: depositView(sms.intent), replayed: sms.replayed };

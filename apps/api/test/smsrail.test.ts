@@ -20,7 +20,8 @@ import {
 } from '@vamos/contracts';
 import { santimToBirrString } from '@vamos/core';
 import { setSetting } from '@vamos/db';
-import { kycProfiles } from '@vamos/db/schema';
+import { kycProfiles, paymentIntents } from '@vamos/db/schema';
+import { eq } from 'drizzle-orm';
 import {
   SMS_GATEWAY_SECRET_HEADER,
   SmsRailProvider,
@@ -105,13 +106,28 @@ async function verifyKyc(user: LoggedInUser, name = 'Test Player'): Promise<void
 }
 
 /** The registry with a live SMS rail (the gateway route only answers on it). */
-function goLive(options: { allowlist?: string[] } = {}): SmsRailProvider {
+function goLive(options: { allowlist?: string[]; twoAccounts?: boolean } = {}): SmsRailProvider {
   const live = new SmsRailProvider({
     mode: 'live',
     gatewaySecret: GATEWAY_SECRET,
     gatewayAllowlist: options.allowlist ?? [],
     collectionAccounts: [
-      { institution: 'telebirr', account: '0911678426', name: 'Vamos Betting PLC' },
+      {
+        id: 'telebirr:0911678426',
+        institution: 'telebirr',
+        account: '0911678426',
+        name: 'Vamos Betting PLC',
+      },
+      ...(options.twoAccounts
+        ? [
+            {
+              id: 'telebirr:0922000000',
+              institution: 'telebirr',
+              account: '0922000000',
+              name: 'Vamos Betting PLC',
+            },
+          ]
+        : []),
     ],
   });
   ctx.deps.payments = {
@@ -219,8 +235,9 @@ describe('the live gateway', () => {
   });
 
   it('needs the shared secret and credits a forwarded SMS once', async () => {
-    const deposit = await openSmsDeposit(player, 40_000n);
+    // Live first: the deposit is given one of the live rail's collection accounts.
     goLive();
+    const deposit = await openSmsDeposit(player, 40_000n);
     const text = telebirrCredit(BigInt(deposit.transfer!.sendAmount), player.phone, 'LV00000001');
     expect((await gateway({ sender: 'telebirr', text })).statusCode).toBe(401);
     expect((await gateway({ sender: 'telebirr', text, secret: 'wrong' })).statusCode).toBe(401);
@@ -238,6 +255,56 @@ describe('the live gateway', () => {
     expect(PaymentWebhookAck.parse(again.json()).outcome).toBe('duplicate');
   });
 
+  it('records the collection account a handset names, and refuses an unknown one', async () => {
+    goLive({ twoAccounts: true });
+    const secret = { [SMS_GATEWAY_SECRET_HEADER]: GATEWAY_SECRET };
+    const deposit = await openSmsDeposit(player, 60_000n);
+    const send = BigInt(deposit.transfer!.sendAmount);
+    const before = await cashOf(player);
+    const unknown = await gateway(
+      {
+        sender: 'telebirr',
+        text: telebirrCredit(send, player.phone, 'LV00000060'),
+        account: 'nope',
+      },
+      secret,
+    );
+    expect(unknown.statusCode).toBe(400);
+    // Two accounts and no name: the message is kept for staff, never matched on a guess.
+    const unnamed = await gateway(
+      { sender: 'telebirr', text: telebirrCredit(send, player.phone, 'LV00000061') },
+      secret,
+    );
+    expect(PaymentWebhookAck.parse(unnamed.json()).outcome).toBe('unmatched');
+    // Named for the other account than the one the deposit was given: not its payment.
+    const [row] = await ctx.db.db
+      .select({ account: paymentIntents.collectionAccount })
+      .from(paymentIntents)
+      .where(eq(paymentIntents.id, deposit.id));
+    const ids = ['telebirr:0911678426', 'telebirr:0922000000'];
+    expect(ids).toContain(row?.account);
+    const wrong = await gateway(
+      {
+        sender: 'telebirr',
+        text: telebirrCredit(send, player.phone, 'LV00000062'),
+        account: ids.find((id) => id !== row?.account),
+      },
+      secret,
+    );
+    expect(PaymentWebhookAck.parse(wrong.json()).outcome).toBe('unmatched');
+    expect(await cashOf(player)).toBe(before);
+    const right = await gateway(
+      {
+        sender: 'telebirr',
+        text: telebirrCredit(send, player.phone, 'LV00000063'),
+        account: row?.account,
+      },
+      secret,
+    );
+    expect(PaymentWebhookAck.parse(right.json()).outcome).toBe('credited');
+    expect(await cashOf(player)).toBe(before + send);
+  });
+
   it('refuses malformed bodies and addresses outside the allowlist', async () => {
     goLive();
     expect((await gateway({ secret: GATEWAY_SECRET })).statusCode).toBe(400);
@@ -253,8 +320,9 @@ describe('the live gateway', () => {
   });
 
   it('asks the receipt page when the handset never forwarded a payment', async () => {
-    const deposit = await openSmsDeposit(player, 50_000n);
+    // Live first: the deposit is given one of the live rail's collection accounts.
     goLive();
+    const deposit = await openSmsDeposit(player, 50_000n);
     const send = BigInt(deposit.transfer!.sendAmount);
     const asked: string[] = [];
     const receipts: ReceiptVerifier = {

@@ -37,7 +37,12 @@ describe('SmsRailProvider', () => {
       mode: 'live',
       gatewaySecret: SECRET,
       collectionAccounts: [
-        { institution: 'telebirr', account: '0911000000', name: 'Vamos Betting PLC' },
+        {
+          id: 'telebirr:0911000000',
+          institution: 'telebirr',
+          account: '0911000000',
+          name: 'Vamos Betting PLC',
+        },
       ],
     });
     expect(live.gatewaySecretMatches(SECRET)).toBe(true);
@@ -72,7 +77,9 @@ describe('SmsRailProvider', () => {
       () =>
         new SmsRailProvider({
           mode: 'simulated',
-          collectionAccounts: [{ institution: 'nosuchbank', account: '12345', name: 'X' }],
+          collectionAccounts: [
+            { id: 'nosuchbank:12345', institution: 'nosuchbank', account: '12345', name: 'X' },
+          ],
         }),
     ).toThrow(ProviderNotConfiguredError);
     expect(() => new SmsRailProvider({ mode: 'simulated', collectionAccounts: [] })).toThrow(

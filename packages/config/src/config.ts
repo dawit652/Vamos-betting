@@ -555,6 +555,12 @@ export interface ChannelsConfig {
 
 /** A collection account of the SMS rail (what players pay into). */
 export interface CollectionAccount {
+  /**
+   * Stable id of this account: the handset that receives its SMS sends it, and every
+   * SMS deposit records it (each account has its own space of exact amounts). Default
+   * `<institution>:<account>`. Never change it while deposits are open.
+   */
+  id: string;
   /** Institution id (core INSTITUTIONS: telebirr, cbe…). */
   institution: string;
   /** The number or account players send to, as they type it. */
@@ -570,8 +576,8 @@ export interface CollectionAccount {
  * dev simulator composes the SMS).
  */
 export const DEMO_COLLECTION_ACCOUNTS: readonly CollectionAccount[] = [
-  { institution: 'telebirr', account: '0900000000', name: 'Vamos Demo' },
-  { institution: 'cbe', account: '1000000000000', name: 'Vamos Demo' },
+  { id: 'telebirr:0900000000', institution: 'telebirr', account: '0900000000', name: 'Vamos Demo' },
+  { id: 'cbe:1000000000000', institution: 'cbe', account: '1000000000000', name: 'Vamos Demo' },
 ];
 
 export interface SmsRailConfig {
@@ -706,9 +712,19 @@ function smsRailLicensedViolations(_config: AppConfig): string[] {
   return problems;
 }
 
+/** The id of a collection account that names none: `<institution>:<account>`. */
+export function defaultCollectionAccountId(institution: string, account: string): string {
+  return `${institution}:${account}`;
+}
+
 const COLLECTION_ACCOUNTS_SCHEMA = z
   .array(
     z.object({
+      id: z
+        .string()
+        .trim()
+        .regex(/^[A-Za-z0-9:_+.-]{1,64}$/, 'an id of letters, digits and : _ + . -')
+        .optional(),
       institution: z
         .string()
         .regex(/^[a-z]{2,20}$/, 'an institution id such as "telebirr" or "cbe"'),
@@ -739,12 +755,19 @@ function parseCollectionAccounts(raw: string | undefined): CollectionAccount[] {
       ),
     );
   }
-  return parsed.data.map((a) => ({
+  const accounts: CollectionAccount[] = parsed.data.map((a) => ({
+    id: a.id ?? defaultCollectionAccountId(a.institution, a.account),
     institution: a.institution,
     account: a.account,
     name: a.name,
     ...(a.hint === undefined ? {} : { hint: a.hint }),
   }));
+  const ids = accounts.map((a) => a.id);
+  const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
+  if (duplicate !== undefined) {
+    throw new ConfigError([`SMS_COLLECTION_ACCOUNTS: the id "${duplicate}" is used twice`]);
+  }
+  return accounts;
 }
 
 function isHttpsUrl(url: string): boolean {

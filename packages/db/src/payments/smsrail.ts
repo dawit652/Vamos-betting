@@ -2,12 +2,14 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import {
   MAX_SANTIM_OFFSET,
   allocateSmsAmount,
+  countFreeSmsAmounts,
   latestClaimForSms,
   matchSmsDeposit,
   parseSms,
   pastedSmsReference,
   proposePayoutForSms,
   smsPaidBy,
+  takenAmounts,
   toWire,
   type OpenSmsDeposit,
   type ParsedSms,
@@ -101,6 +103,12 @@ export interface CreateSmsDepositInput {
   ip?: string | null;
   /** Tests inject a fixed offset; production uses a CSPRNG. */
   randomOffset?: () => number;
+  /**
+   * The ids of the live collection accounts (SMS_COLLECTION_ACCOUNTS). The deposit is given the
+   * one with the most free amounts for this request, and records it; each account has its own
+   * space of exact amounts. Omitted or empty: no account is recorded (one space, as before).
+   */
+  collectionAccounts?: readonly string[];
 }
 
 /**
@@ -152,7 +160,10 @@ export async function createSmsDepositIntent(
 
   const reservedSince = new Date(now.getTime() - SMS_AMOUNT_QUARANTINE_MS);
   const takenRows = await tx
-    .select({ amount: paymentIntents.amount })
+    .select({
+      amount: paymentIntents.amount,
+      collectionAccountId: paymentIntents.collectionAccount,
+    })
     .from(paymentIntents)
     .where(
       and(
@@ -165,11 +176,24 @@ export async function createSmsDepositIntent(
         ),
       ),
     );
-  const exact = allocateSmsAmount(
-    amount,
-    new Set(takenRows.map((row) => row.amount)),
-    input.randomOffset ?? secureOffset,
-  );
+  // The account with the most free amounts for this request (the first of a tie); without
+  // accounts, one space for everything.
+  const accounts = input.collectionAccounts ?? [];
+  let collectionAccount: string | null = null;
+  let taken = takenAmounts(takenRows, null);
+  if (accounts.length > 0) {
+    let bestFree = -1;
+    for (const account of accounts) {
+      const candidate = takenAmounts(takenRows, account);
+      const free = countFreeSmsAmounts(amount, candidate);
+      if (free > bestFree) {
+        bestFree = free;
+        collectionAccount = account;
+        taken = candidate;
+      }
+    }
+  }
+  const exact = allocateSmsAmount(amount, taken, input.randomOffset ?? secureOffset);
   if (exact === null) {
     throw domainConflict(
       'sms_amount_unavailable',
@@ -187,6 +211,12 @@ export async function createSmsDepositIntent(
     rules: input.rules,
     ip: input.ip ?? null,
   });
+  if (collectionAccount !== null) {
+    await tx
+      .update(paymentIntents)
+      .set({ collectionAccount })
+      .where(eq(paymentIntents.id, created.intent.id));
+  }
   const intent = await markDepositInitiated(tx, {
     intentId: created.intent.id,
     initiation: { kind: 'transfer', providerRef: created.intent.id },
@@ -211,6 +241,7 @@ async function openSmsDeposits(
       intentId: paymentIntents.id,
       userId: paymentIntents.userId,
       amount: paymentIntents.amount,
+      collectionAccountId: paymentIntents.collectionAccount,
       phone: users.phone,
       expiresAt: paymentIntents.expiresAt,
     })
@@ -312,7 +343,8 @@ async function applyCredit(
   open: readonly OpenSmsDeposit[],
   now: Date,
 ): Promise<SmsResult> {
-  const match = matchSmsDeposit(sms, open, now);
+  // Only deposits of the account the message arrived on (or deposits without one) can match.
+  const match = matchSmsDeposit({ ...sms, collectionAccountId: row.collectionAccount }, open, now);
   if (match.type === 'ambiguous') {
     const updated = await updateSms(tx, row.id, {
       status: 'ambiguous',
@@ -453,6 +485,8 @@ export interface IngestSmsInput {
   text: string;
   /** When the handset says it received the message. */
   deviceReceivedAt?: Date | null;
+  /** The collection account (SMS_COLLECTION_ACCOUNTS id) the handset that forwarded it belongs to. */
+  collectionAccount?: string | null;
   now: Date;
 }
 
@@ -479,6 +513,7 @@ export async function ingestSms(tx: DbTransaction, input: IngestSmsInput): Promi
       sender,
       rawText: text,
       textHash: textHash([sender ?? '', text]),
+      collectionAccount: input.collectionAccount ?? null,
       institution: sms?.institution ?? null,
       direction: sms?.direction ?? null,
       amount: sms?.amount ?? null,
@@ -625,7 +660,13 @@ export interface VerifiedReceiptPayment {
  */
 export async function recordReceiptPaymentForPlayer(
   tx: DbTransaction,
-  input: { userId: string; receipt: VerifiedReceiptPayment; now: Date },
+  input: {
+    userId: string;
+    receipt: VerifiedReceiptPayment;
+    /** The collection account the receipt's receiver is (SMS_COLLECTION_ACCOUNTS id), when known. */
+    collectionAccount?: string | null;
+    now: Date;
+  },
 ): Promise<SmsCheckResult> {
   const { receipt, now } = input;
   assertAmount(receipt.amount, 'receipt amount');
@@ -636,6 +677,7 @@ export async function recordReceiptPaymentForPlayer(
     .insert(receivedSms)
     .values({
       source: 'receipt',
+      collectionAccount: input.collectionAccount ?? null,
       sender: receipt.institution,
       rawText: summary.slice(0, MAX_RAW_LENGTH),
       textHash: textHash(['receipt', receipt.institution, receipt.reference]),

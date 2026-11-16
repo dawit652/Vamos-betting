@@ -118,9 +118,19 @@ export default async function devSmsRoutes(app: FastifyInstance): Promise<void> 
         throw notFound('Deposit');
       }
       const provider = smsProviderOf(deps);
+      // The account the server gave the deposit is the one the player pays (the first account
+      // when the deposit names none, or the one at the institution the caller asked for).
+      const assigned = provider?.collectionAccounts.find((a) => a.id === intent.collectionAccount);
       const institution =
-        input.institution ?? provider?.collectionAccounts[0]?.institution ?? 'telebirr';
-      if (!provider?.collectionAccounts.some((a) => a.institution === institution)) {
+        input.institution ??
+        assigned?.institution ??
+        provider?.collectionAccounts[0]?.institution ??
+        'telebirr';
+      const paidAccount =
+        assigned?.institution === institution
+          ? assigned
+          : provider?.collectionAccounts.find((a) => a.institution === institution);
+      if (paidAccount === undefined) {
         throw badRequest('unknown_institution', 'No collection account at that institution.');
       }
       const amount =
@@ -136,6 +146,7 @@ export default async function devSmsRoutes(app: FastifyInstance): Promise<void> 
       const result = await withTxRetry(deps.db, (tx) =>
         ingestSms(tx, {
           source: 'simulator',
+          collectionAccount: paidAccount.id,
           sender: sms.sender,
           text: sms.text,
           now: deps.clock(),

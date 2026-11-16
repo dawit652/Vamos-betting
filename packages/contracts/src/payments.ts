@@ -376,6 +376,11 @@ export const SmsGatewayRequest = z.object({
   /** Epoch milliseconds from the handset (informational; our clock is used). */
   receivedAt: z.number().int().positive().optional(),
   secret: z.string().max(200).optional(),
+  /**
+   * The id of the collection account this handset receives for (SMS_COLLECTION_ACCOUNTS `id`,
+   * default `<institution>:<account>`). Left out, it is the only account when there is one.
+   */
+  account: z.string().trim().min(1).max(64).optional(),
 });
 export type SmsGatewayRequest = z.infer<typeof SmsGatewayRequest>;
 

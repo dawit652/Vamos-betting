@@ -127,6 +127,16 @@ drift: write it down so the next person recognises it.
 - The forwarder posts JSON `{ "sender": "...", "text": "...", "receivedAt": <epoch ms> }` to
   `https://<api host>/payments/webhooks/sms` with the header `x-gateway-secret: <SMS_GATEWAY_SECRET>`
   (a `secret` field in the body is accepted for forwarders that cannot set headers).
+- **One account per handset.** Each collection account has its own space of exact amounts (99 open
+  deposits of one amount per account), and the server gives a new deposit the account with the most free
+  amounts. A message only pays a deposit of the account it arrived on, so the forwarder on each handset
+  must add `"account": "<id>"` to its JSON: the `id` of that account in `SMS_COLLECTION_ACCOUNTS`
+  (default `<institution>:<account>`, e.g. `telebirr:0911000001`). With one account configured the field
+  may be left out. With several and no `account`, the message is kept in the review queue as unmatched
+  (never matched on a guess); an `account` the server does not know is refused with 400
+  `unknown_collection_account`. Set the field on every forwarder **before** adding a second account.
+  Do not change an account's `id`, or take an account out of the list, while deposits to it are open: their
+  payments would wait in the review queue (staff can credit them by hand).
 - Allowed senders only: the collection institutions' SMS numbers (`127` / `telebirr`, `CBE`). Do not forward
   personal messages.
 - If the forwarder has fixed egress addresses, list them in `SMS_GATEWAY_ALLOWLIST`; requests from other

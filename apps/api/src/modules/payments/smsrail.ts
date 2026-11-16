@@ -161,6 +161,7 @@ export async function checkPlayerSmsDeposit(
           paidAt: verdict.facts.occurredAt,
           raw: '',
         },
+        collectionAccount: provider.collectionAccountIdAt(spec.id, verdict.facts.receiverAccount),
         now: deps.clock(),
       }),
     );
@@ -209,9 +210,17 @@ export async function receiveGatewaySms(
     throw new AppError(401, 'webhook_signature_invalid', 'The gateway secret is not valid.');
   }
   const body = parsed.data;
+  // Each handset names its account; a deployment with one account needs no name. An unknown
+  // account is refused, never guessed: its message would be matched against the wrong amounts.
+  const ids = provider.collectionAccountIds;
+  if (body.account !== undefined && !ids.includes(body.account)) {
+    throw badRequest('unknown_collection_account', 'No collection account has this id.');
+  }
+  const collectionAccount = body.account ?? (ids.length === 1 ? ids[0]! : null);
   const result = await withTxRetry(deps.db, (tx) =>
     ingestSms(tx, {
       source: 'gateway',
+      collectionAccount,
       sender: body.sender ?? null,
       text: body.text,
       deviceReceivedAt: body.receivedAt === undefined ? null : new Date(body.receivedAt),

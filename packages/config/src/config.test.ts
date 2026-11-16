@@ -342,8 +342,18 @@ describe('loadConfig', () => {
         gatewaySecret: undefined,
         gatewayAllowlist: [],
         collectionAccounts: [
-          { institution: 'telebirr', account: '0900000000', name: 'Vamos Demo' },
-          { institution: 'cbe', account: '1000000000000', name: 'Vamos Demo' },
+          {
+            id: 'telebirr:0900000000',
+            institution: 'telebirr',
+            account: '0900000000',
+            name: 'Vamos Demo',
+          },
+          {
+            id: 'cbe:1000000000000',
+            institution: 'cbe',
+            account: '1000000000000',
+            name: 'Vamos Demo',
+          },
         ],
         operatorLegalName: undefined,
         receiptVerify: 'audit',
@@ -781,6 +791,28 @@ describe('the SMS deposit rail', () => {
     expect(
       problemsOf({ PAYMENT_PROVIDERS: 'sms', SMS_COLLECTION_ACCOUNTS: LIVE_ACCOUNTS }).join('\n'),
     ).toMatch(/SMS_COLLECTION_ACCOUNTS is for the live SMS rail/);
+  });
+
+  it('gives each collection account an id: its own, or institution:account', () => {
+    const accounts = JSON.stringify([
+      { id: 'handset-1', institution: 'telebirr', account: '0911000001', name: 'Vamos PLC' },
+      { institution: 'cbe', account: '1000123456789', name: 'Vamos PLC' },
+    ]);
+    const config = loadConfig({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: accounts });
+    expect(config.payments.sms.collectionAccounts.map((a) => a.id)).toEqual([
+      'handset-1',
+      'cbe:1000123456789',
+    ]);
+  });
+
+  it('refuses two collection accounts with the same id', () => {
+    const accounts = JSON.stringify([
+      { id: 'a', institution: 'telebirr', account: '0911000001', name: 'Vamos PLC' },
+      { id: 'a', institution: 'cbe', account: '1000123456789', name: 'Vamos PLC' },
+    ]);
+    expect(
+      problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: accounts }).join('\n'),
+    ).toMatch(/the id "a" is used twice/);
   });
 
   it('accepts a fully configured live rail in licensed mode', () => {

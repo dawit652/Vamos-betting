@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_SANTIM_OFFSET,
   allocateSmsAmount,
+  countFreeSmsAmounts,
   latestClaimForSms,
   SMS_HANDSET_CLOCK_SKEW_MS,
   SMS_INSTITUTION_CLOCK_SKEW_MS,
@@ -525,6 +526,25 @@ describe('collection accounts', () => {
           }
         },
       ),
+    );
+  });
+});
+
+describe('countFreeSmsAmounts', () => {
+  it('counts the offsets allocateSmsAmount can still hand out', () => {
+    expect(countFreeSmsAmounts(10_000n, new Set())).toBe(MAX_SANTIM_OFFSET);
+    expect(countFreeSmsAmounts(10_000n, new Set([10_001n, 10_002n, 20_000n]))).toBe(97);
+    // 100.01 skips 101.00, the whole-birr amount in its range.
+    expect(countFreeSmsAmounts(10_001n, new Set())).toBe(MAX_SANTIM_OFFSET - 1);
+  });
+
+  it('is zero exactly when allocateSmsAmount refuses', () => {
+    fc.assert(
+      fc.property(fc.array(fc.integer({ min: 1, max: 99 }), { maxLength: 120 }), (offsets) => {
+        const taken = new Set(offsets.map((o) => 10_000n + BigInt(o)));
+        const free = countFreeSmsAmounts(10_000n, taken);
+        expect(free === 0).toBe(allocateSmsAmount(10_000n, taken, () => 1) === null);
+      }),
     );
   });
 });

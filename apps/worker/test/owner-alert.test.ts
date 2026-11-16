@@ -349,7 +349,14 @@ describe('raiseOwnerAlert (worker code)', () => {
     const live = new SmsRailProvider({
       mode: 'live',
       gatewaySecret: 'w'.repeat(40),
-      collectionAccounts: [{ institution: 'telebirr', account: '0911678426', name: 'Vamos PLC' }],
+      collectionAccounts: [
+        {
+          id: 'telebirr:0911678426',
+          institution: 'telebirr',
+          account: '0911678426',
+          name: 'Vamos PLC',
+        },
+      ],
     });
     const payments: PaymentProviderRegistry = {
       names: [...t.ctx.payments.names, 'sms'],

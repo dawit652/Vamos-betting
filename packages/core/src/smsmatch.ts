@@ -74,6 +74,19 @@ export function takenAmounts(
   return taken;
 }
 
+/**
+ * How many amounts `allocateSmsAmount` could still hand out for `base` given
+ * `taken` (the caller offers the account with the most). 0: that account is full for this base.
+ */
+export function countFreeSmsAmounts(base: Santim, taken: ReadonlySet<Santim>): number {
+  let free = 0;
+  for (let offset = 1; offset <= MAX_SANTIM_OFFSET; offset++) {
+    const candidate = base + BigInt(offset);
+    if (candidate % SANTIM_PER_BIRR !== 0n && !taken.has(candidate)) free++;
+  }
+  return free;
+}
+
 /** An open SMS deposit, as the matcher sees it. */
 export interface OpenSmsDeposit {
   intentId: string;

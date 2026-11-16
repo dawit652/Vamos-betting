@@ -103,6 +103,22 @@ export class SmsRailProvider implements PaymentProvider {
       .map((a) => a.account);
   }
 
+  /** The ids of the collection accounts (each has its own space of exact amounts). */
+  get collectionAccountIds(): string[] {
+    return this.collectionAccounts.map((a) => a.id);
+  }
+
+  /**
+   * The collection account a receiver number at an institution is, by id. When the receiver is
+   * not given or not listed, the account only if the institution has exactly one; else null.
+   */
+  collectionAccountIdAt(institution: string, receiver?: string | null): string | null {
+    const at = this.collectionAccounts.filter((a) => a.institution === institution);
+    const named = receiver ? at.find((a) => a.account === receiver) : undefined;
+    if (named !== undefined) return named.id;
+    return at.length === 1 ? at[0]!.id : null;
+  }
+
   async initiateDeposit(input: InitiateDepositInput): Promise<DepositInitiation> {
     if (typeof input.amount !== 'bigint' || input.amount <= 0n) {
       throw new PaymentProviderError(NAME, 'amount must be a positive santim bigint');

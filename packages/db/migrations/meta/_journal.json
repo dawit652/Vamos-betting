@@ -372,6 +372,13 @@
       "when": 1794717372510,
       "tag": "0052_users_date_of_birth_optional",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794799944070,
+      "tag": "0053_sms_collection_accounts",
+      "breakpoints": true
     }
   ]
 }

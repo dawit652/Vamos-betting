@@ -75,6 +75,8 @@ export const receivedSms = pgTable(
     balance: bigint('balance', { mode: 'bigint' }),
     occurredAt: timestamp('occurred_at', { withTimezone: true }),
     /** When the api received it (our clock: the matching and audit clock). */
+    /** The collection account (SMS_COLLECTION_ACCOUNTS id) the message arrived on; null: not known. */
+    collectionAccount: text('collection_account'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull(),
     /** When the handset says it received it (informational). */
     deviceReceivedAt: timestamp('device_received_at', { withTimezone: true }),

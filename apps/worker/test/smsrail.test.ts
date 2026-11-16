@@ -33,8 +33,18 @@ const live = new SmsRailProvider({
   mode: 'live',
   gatewaySecret: 'w'.repeat(40),
   collectionAccounts: [
-    { institution: 'telebirr', account: '0911678426', name: 'Vamos Betting PLC' },
-    { institution: 'cbe', account: '1000123456789', name: 'Vamos Betting PLC' },
+    {
+      id: 'telebirr:0911678426',
+      institution: 'telebirr',
+      account: '0911678426',
+      name: 'Vamos Betting PLC',
+    },
+    {
+      id: 'cbe:1000123456789',
+      institution: 'cbe',
+      account: '1000123456789',
+      name: 'Vamos Betting PLC',
+    },
   ],
 });
 
