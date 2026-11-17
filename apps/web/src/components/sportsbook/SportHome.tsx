@@ -24,6 +24,7 @@ import {
 import { LiveClock, LiveScore } from './LiveMatch';
 import { MarketOdds } from './MarketOdds';
 import { MatchList } from './MatchList';
+import { teamFlagCodes } from './team-marks';
 import { SportsbookFrame } from './SportsbookFrame';
 import {
   LIST_MARKETS,
@@ -395,10 +396,15 @@ function FeaturedCard({
   t: Translator;
 }) {
   const day = relativeDay(event.startTime);
-  const team = (side: EventSummary['home']) => (
+  const flags = teamFlagCodes(event);
+  const team = (side: EventSummary['home'], code: string | null) => (
     <span className="flex min-w-0 flex-col items-center gap-0.5">
       <span aria-hidden="true" className="crest h-7 w-7 text-[0.625rem]">
-        {monogram(side.shortName)}
+        {code === null ? (
+          monogram(side.shortName)
+        ) : (
+          <span className="text-lg">{flagEmoji(code)}</span>
+        )}
       </span>
       <span className="w-full truncate text-xs font-bold">{localName(side.name, locale)}</span>
     </span>
@@ -418,7 +424,7 @@ function FeaturedCard({
         prefetch={false}
         className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 text-center"
       >
-        {team(event.home)}
+        {team(event.home, flags[0])}
         {event.status === 'live' ? (
           <span className="px-0.5">
             <span className="block text-base leading-none font-black whitespace-nowrap tabular-nums">
@@ -449,7 +455,7 @@ function FeaturedCard({
             </span>
           </span>
         )}
-        {team(event.away)}
+        {team(event.away, flags[1])}
       </Link>
       {event.mainMarket !== null ? (
         <div className="mt-1.5 flex">

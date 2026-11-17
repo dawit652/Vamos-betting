@@ -4,6 +4,8 @@ import { notFound } from 'next/navigation';
 import { cache, type ReactNode } from 'react';
 import { EventMarkets } from '@/components/sportsbook/EventMarkets';
 import { monogram } from '@/components/sportsbook/events';
+import { teamFlagCodes } from '@/components/sportsbook/team-marks';
+import { flagEmoji } from '@/lib/flag';
 import { LiveClock, LiveScore } from '@/components/sportsbook/LiveMatch';
 import { LiveProvider, LiveStatusBar } from '@/components/sportsbook/LiveProvider';
 import { SportsbookFrame } from '@/components/sportsbook/SportsbookFrame';
@@ -40,10 +42,11 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
   const home = localName(event.home.name, locale);
   const away = localName(event.away.name, locale);
 
-  const team = (name: string, shortName: string) => (
+  const flags = teamFlagCodes(event);
+  const team = (name: string, shortName: string, code: string | null) => (
     <span className="flex min-w-0 flex-col items-center gap-1.5">
       <span aria-hidden="true" className="crest h-14 w-14 text-base">
-        {monogram(shortName)}
+        {code === null ? monogram(shortName) : <span className="text-3xl">{flagEmoji(code)}</span>}
       </span>
       <span className="w-full text-sm leading-tight font-bold break-words">{name}</span>
     </span>
@@ -71,7 +74,7 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
           </span>
         </p>
         <h1 className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-center">
-          {team(home, event.home.shortName)}
+          {team(home, event.home.shortName, flags[0])}
           <span className="px-1 text-3xl leading-none font-black tabular-nums">
             {event.score !== null || live ? (
               <span className="whitespace-nowrap">
@@ -83,7 +86,7 @@ export default async function EventPage(props: PageProps<'/event/[id]'>) {
               <span className="text-base font-bold text-white/70">{t('sportsbook.match.vs')}</span>
             )}
           </span>
-          {team(away, event.away.shortName)}
+          {team(away, event.away.shortName, flags[1])}
         </h1>
         <p className="mt-3 flex items-center justify-center gap-2 text-xxs">
           <LiveClock

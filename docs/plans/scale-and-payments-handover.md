@@ -539,7 +539,12 @@ sideways, big matches only (`isBigMatch`: the Top Leagues, or senior national te
 nations; live first, at most 8); bigger flags, logos and icons in the sidebar, the phone panel and
 the league lists; on "this number is already registered" the form offers Log in and Forgot PIN; a
 first load that meets network trouble retries before showing the player signed out. Page budget
-168 KB (logos). Forgot PIN over Telegram (X12) is built: `docs/runbooks/telegram-bot.md`.
+168 KB (logos). Forgot PIN over Telegram (X12) is built: `docs/runbooks/telegram-bot.md`. Found on the first live try (17 Nov): the Forgot PIN form's
+"Send code" killed the Telegram code (every new code retired the older); fixed in `otp.ts` (a
+Telegram code survives a website request; any live code of the number is accepted). Team flags:
+national teams show their flag after the name in every match row, the featured cards and the event
+page (`team-marks.ts`); clubs keep an initials crest until a club logo source exists (API-Football
+has team logos by team id: needs a download job and the id of each team).
 
 **Decisions of the owner, late evening:** years are valid PINs again (done, `945b496`); for the
 locked odds "use your recommendation" (below); a PIN reset over Telegram when no SMS gateway exists
