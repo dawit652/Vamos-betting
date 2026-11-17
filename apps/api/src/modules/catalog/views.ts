@@ -6,6 +6,7 @@ import type {
   SelectionView,
 } from '@vamos/contracts';
 import {
+  amharicName,
   factoryMarketName,
   factoryMarketSortOrder,
   factorySelectionLabel,
@@ -102,10 +103,14 @@ export function mainMarketType(sport: SportCode): MarketTypeCode {
   return type;
 }
 
-/** A copy holding only the known language keys (jsonb may carry anything). */
+/**
+ * A copy holding only the known language keys (jsonb may carry anything). A team, competition or
+ * country with no Amharic gets it from amharicName (@vamos/core; the feeds give English only, and
+ * the owner wants every name in Amharic for an Amharic page); one written in Amharic stays.
+ */
 export function localized(name: LocalizedNameValue): LocalizedNameValue {
   const result: LocalizedNameValue = { en: name.en };
-  if (name.am !== undefined) result.am = name.am;
+  result.am = name.am !== undefined && name.am.trim() !== '' ? name.am : amharicName(name.en);
   if (name.om !== undefined) result.om = name.om;
   if (name.ti !== undefined) result.ti = name.ti;
   return result;

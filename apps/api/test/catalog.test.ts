@@ -429,7 +429,8 @@ describe('GET /sports/:sport/competitions', () => {
     const body = CompetitionsResponse.parse(response.json());
     expect(body.items).toEqual([
       {
-        category: { slug: 'england', name: { en: 'England' }, countryCode: 'GB' },
+        // Names without Amharic get it from amharicName (@vamos/core).
+        category: { slug: 'england', name: { en: 'England', am: 'እንግሊዝ' }, countryCode: 'GB' },
         competitions: [
           {
             slug: 'premier-league',
@@ -455,17 +456,17 @@ describe('GET /sports/:sport/competitions', () => {
         ],
       },
       {
-        category: { slug: 'africa', name: { en: 'Africa' }, countryCode: null },
+        category: { slug: 'africa', name: { en: 'Africa', am: 'አፍሪካ' }, countryCode: null },
         competitions: [
           {
             slug: 'caf-champions-league',
-            name: { en: 'CAF Champions League' },
+            name: { en: 'CAF Champions League', am: 'የካፍ ሻምፒየንስ ሊግ' },
             eventCount: 1,
             featured: false,
           },
           {
             slug: 'caf-confederation-cup',
-            name: { en: 'CAF Confederation Cup' },
+            name: { en: 'CAF Confederation Cup', am: 'የካፍ ኮንፌዴሬሽን ዋንጫ' },
             eventCount: 0,
             featured: false,
           },
@@ -1110,7 +1111,7 @@ describe('GET /search', () => {
       slug: 'premier-league',
       sport: 'football',
       name: { en: 'Premier League', am: 'ፕሪሚየር ሊግ' },
-      category: { slug: 'england', name: { en: 'England' }, countryCode: 'GB' },
+      category: { slug: 'england', name: { en: 'England', am: 'እንግሊዝ' }, countryCode: 'GB' },
       eventCount: 3,
     });
     const amharic = await search('ፕሪምየር');

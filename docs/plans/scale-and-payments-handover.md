@@ -528,6 +528,12 @@ asked to see a sample image before deploying: sent (light, dark, phone, desktop)
 logos are trademarks, the owner decided to keep them ("they should exist"); note in
 `docs/deployment.md` ("Competition logos and Top leagues").
 
+**Amharic names (owner, 17 Nov):** on an Amharic page every team, competition and country name is
+in Amharic. The API fills a missing `am` with `amharicName` (`packages/core/src/amharic-names.ts`):
+the conventional spelling of known names (`amharic-names.data.ts`: countries, competitions, clubs,
+Ethiopian clubs), else football words translated (U20, Women, Cup) and the rest written in fidel by
+sound. A name staff wrote in Amharic always wins. A native speaker should review the dictionary.
+
 **Decisions of the owner, late evening:** years are valid PINs again (done, `945b496`); for the
 locked odds "use your recommendation" (below); a PIN reset over Telegram when no SMS gateway exists
 (designed: `docs/plans/telegram-pin-reset.md`); the Next.js upgrade (16.4.2 to 16.4.5, advisory
