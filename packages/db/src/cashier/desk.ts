@@ -292,7 +292,7 @@ export async function closeShift(
 /** Shifts, newest first (cashier.reports); optionally one shop's or one staff member's. */
 export async function listShifts(
   exec: DbExecutor,
-  options: { shopId?: string; staffId?: string; limit: number },
+  options: { shopId?: string; staffId?: string; shiftId?: string; limit: number },
 ): Promise<Array<CashierShift & { staffName: string; shopName: string }>> {
   return exec
     .select({
@@ -316,6 +316,7 @@ export async function listShifts(
       and(
         options.shopId === undefined ? undefined : eq(cashierShifts.shopId, options.shopId),
         options.staffId === undefined ? undefined : eq(cashierShifts.staffId, options.staffId),
+        options.shiftId === undefined ? undefined : eq(cashierShifts.id, options.shiftId),
       ),
     )
     .orderBy(desc(cashierShifts.openedAt), desc(cashierShifts.id))

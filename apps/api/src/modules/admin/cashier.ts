@@ -1,0 +1,324 @@
+import {
+  CashDepositRequest,
+  CashDepositResponse,
+  CashierDeskResponse,
+  CashierPlayerQuery,
+  CashierPlayerResponse,
+  CashierShiftDetailResponse,
+  CashierShiftListResponse,
+  CashierShiftResponse,
+  CashierShopListResponse,
+  CashierShopResponse,
+  CashReceiptResponse,
+  CloseShiftRequest,
+  maskPhone,
+  OpenShiftRequest,
+  UpdateCashierShopRequest,
+  type CashierShiftView,
+  type CashOperationView,
+  type CashReceiptView,
+} from '@vamos/contracts';
+import {
+  cashDeposit,
+  closeShift,
+  findDeskPlayer,
+  getOpenShift,
+  getReceipt,
+  getShift,
+  listShiftOperations,
+  listShifts,
+  listShops,
+  loadGameSettings,
+  openShift,
+  recordReprint,
+  shiftTotals,
+  updateShop,
+  type CashierShift,
+  type CashierShop,
+  type DbExecutor,
+  type Receipt,
+} from '@vamos/db';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
+import { notFound, parseInput } from '../../lib/errors';
+import { requireStaff, staffActor } from '../../plugins/staff-session';
+import { inTx, parseUuid, wire } from './common';
+
+/**
+ * The cashier desk (docs/plans/cashier-dashboard.md). The money moves in @vamos/db (cashDeposit:
+ * a `cash` payment intent credited with the ordinary deposit posting); these routes only check
+ * the caller and shape the answers.
+ */
+
+/** Roles that may work above a shop's threshold and see any receipt. */
+const SUPERVISORS: ReadonlySet<string> = new Set(['admin', 'finance']);
+
+type IdParams = { Params: { id: string } };
+
+const ShiftListQuery = z.object({
+  shopId: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+function shopView(shop: CashierShop) {
+  return {
+    id: shop.id,
+    code: shop.code,
+    name: shop.name,
+    address: shop.address,
+    receiptWidthMm: shop.receiptWidthMm,
+    approvalThreshold: shop.approvalThreshold,
+    active: shop.active,
+  };
+}
+
+async function shiftView(
+  exec: DbExecutor,
+  shift: CashierShift,
+  names: { shopName: string; staffName: string },
+): Promise<CashierShiftView> {
+  const totals = await shiftTotals(exec, shift);
+  // A closed shift keeps the expected figure fixed at its close.
+  const expected = shift.expectedCash ?? totals.expectedCash;
+  return wire(CashierShiftResponse.shape.shift, {
+    id: shift.id,
+    shopId: shift.shopId,
+    shopName: names.shopName,
+    staffId: shift.staffId,
+    staffName: names.staffName,
+    status: shift.status,
+    openingFloat: shift.openingFloat,
+    openedAt: shift.openedAt,
+    closedAt: shift.closedAt,
+    deposits: totals.deposits,
+    withdrawals: totals.withdrawals,
+    expectedCash: expected,
+    countedCash: shift.countedCash,
+    variance: shift.countedCash === null ? null : shift.countedCash - expected,
+    closeNote: shift.closeNote,
+  });
+}
+
+function operationView(op: {
+  id: string;
+  receiptNo: number;
+  kind: 'deposit' | 'withdrawal';
+  amount: bigint;
+  reprints: number;
+  createdAt: Date;
+  playerPhone: string;
+}): CashOperationView {
+  return wire(CashDepositResponse.shape.receipt.shape.operation, {
+    id: op.id,
+    receiptNo: op.receiptNo,
+    reference: `R${op.receiptNo}`,
+    kind: op.kind,
+    amount: op.amount,
+    playerPhone: maskPhone(op.playerPhone),
+    reprints: op.reprints,
+    createdAt: op.createdAt,
+  });
+}
+
+function receiptView(receipt: Receipt): CashReceiptView {
+  return {
+    operation: operationView({ ...receipt.operation, playerPhone: receipt.player.phone }),
+    shop: wire(CashierShopResponse.shape.shop, shopView(receipt.shop)),
+    staffName: receipt.staffName,
+    playerPhone: maskPhone(receipt.player.phone),
+    playerName: receipt.player.name,
+  };
+}
+
+export default async function adminCashierRoutes(app: FastifyInstance): Promise<void> {
+  const { deps } = app;
+  const supervisor = (request: FastifyRequest) => SUPERVISORS.has(requireStaff(request).role);
+
+  /** The shift's view with its shop's and staff member's names. */
+  const namedShiftView = async (exec: DbExecutor, shift: CashierShift) => {
+    const [named] = await listShifts(exec, { shiftId: shift.id, limit: 1 });
+    return shiftView(exec, shift, {
+      shopName: named?.shopName ?? '',
+      staffName: named?.staffName ?? '',
+    });
+  };
+
+  app.get('/admin/cashier/desk', { config: { staff: 'cashier.desk' } }, async (request) => {
+    const actor = staffActor(request);
+    const shops = await listShops(deps.db);
+    const shift = await getOpenShift(deps.db, actor.adminId);
+    const operations =
+      shift === null ? [] : (await listShiftOperations(deps.db, shift.id)).map(operationView);
+    return wire(CashierDeskResponse, {
+      shops: shops.filter((shop) => shop.active).map(shopView),
+      shift: shift === null ? null : await namedShiftView(deps.db, shift),
+      operations,
+      supervisor: supervisor(request),
+    });
+  });
+
+  app.post('/admin/cashier/shifts', { config: { staff: 'cashier.desk' } }, async (request) => {
+    const input = parseInput(OpenShiftRequest, request.body);
+    const actor = staffActor(request);
+    const shift = await inTx(deps, async (tx) => {
+      const opened = await openShift(tx, {
+        staffId: actor.adminId,
+        shopId: input.shopId,
+        openingFloat: BigInt(input.openingFloat),
+        now: deps.clock(),
+        ip: actor.ip ?? null,
+      });
+      return namedShiftView(tx, opened);
+    });
+    return wire(CashierShiftResponse, { shift });
+  });
+
+  app.post<IdParams>(
+    '/admin/cashier/shifts/:id/close',
+    { config: { staff: 'cashier.desk' } },
+    async (request) => {
+      const shiftId = parseUuid(request.params.id, 'Shift');
+      const input = parseInput(CloseShiftRequest, request.body);
+      const actor = staffActor(request);
+      const shift = await inTx(deps, async (tx) => {
+        const { shift: closed } = await closeShift(tx, {
+          staffId: actor.adminId,
+          shiftId,
+          countedCash: BigInt(input.countedCash),
+          note: input.note ?? null,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        });
+        return namedShiftView(tx, closed);
+      });
+      return wire(CashierShiftResponse, { shift });
+    },
+  );
+
+  app.get('/admin/cashier/players', { config: { staff: 'cashier.desk' } }, async (request) => {
+    const query = parseInput(CashierPlayerQuery, request.query);
+    const player = await findDeskPlayer(deps.db, query.phone, deps.clock());
+    if (player === null) throw notFound('Player');
+    return wire(CashierPlayerResponse, { player });
+  });
+
+  app.post('/admin/cashier/deposits', { config: { staff: 'cashier.desk' } }, async (request) => {
+    const input = parseInput(CashDepositRequest, request.body);
+    const actor = staffActor(request);
+    const result = await inTx(deps, async (tx) => {
+      const { payments } = await loadGameSettings(tx);
+      const { operation, replayed } = await cashDeposit(tx, {
+        staffId: actor.adminId,
+        shiftId: input.shiftId,
+        userId: input.userId,
+        amount: BigInt(input.amount),
+        idempotencyKey: input.idempotencyKey,
+        rules: payments,
+        now: deps.clock(),
+        ip: actor.ip ?? null,
+      });
+      const receipt = await getReceipt(tx, operation.id);
+      if (receipt === null) throw new Error('receipt missing after a deposit');
+      return { receipt: receiptView(receipt), replayed };
+    });
+    return wire(CashDepositResponse, result);
+  });
+
+  /** A receipt: its cashier's, or any for a supervisor; 404 otherwise. */
+  const readReceipt = async (exec: DbExecutor, request: FastifyRequest<IdParams>) => {
+    const id = parseUuid(request.params.id, 'Receipt');
+    const receipt = await getReceipt(exec, id);
+    if (
+      receipt === null ||
+      (!supervisor(request) && receipt.operation.staffId !== staffActor(request).adminId)
+    ) {
+      throw notFound('Receipt');
+    }
+    return receipt;
+  };
+
+  app.get<IdParams>(
+    '/admin/cashier/receipts/:id',
+    { config: { staff: 'cashier.desk' } },
+    async (request) => {
+      const receipt = await readReceipt(deps.db, request);
+      return wire(CashReceiptResponse, { receipt: receiptView(receipt) });
+    },
+  );
+
+  app.post<IdParams>(
+    '/admin/cashier/receipts/:id/reprint',
+    { config: { staff: 'cashier.desk' } },
+    async (request) => {
+      const actor = staffActor(request);
+      const receipt = await inTx(deps, async (tx) => {
+        const current = await readReceipt(tx, request);
+        await recordReprint(tx, {
+          operationId: current.operation.id,
+          staffId: actor.adminId,
+          supervisor: supervisor(request),
+          ip: actor.ip ?? null,
+        });
+        const after = await getReceipt(tx, current.operation.id);
+        if (after === null) throw notFound('Receipt');
+        return after;
+      });
+      return wire(CashReceiptResponse, { receipt: receiptView(receipt) });
+    },
+  );
+
+  app.get('/admin/cashier/shifts', { config: { staff: 'cashier.reports' } }, async (request) => {
+    const query = parseInput(ShiftListQuery, request.query);
+    const rows = await listShifts(deps.db, {
+      ...(query.shopId === undefined ? {} : { shopId: query.shopId }),
+      limit: query.limit,
+    });
+    const shifts: CashierShiftView[] = [];
+    for (const row of rows) shifts.push(await shiftView(deps.db, row, row));
+    return wire(CashierShiftListResponse, { shifts });
+  });
+
+  app.get<IdParams>(
+    '/admin/cashier/shifts/:id',
+    { config: { staff: 'cashier.reports' } },
+    async (request) => {
+      const shiftId = parseUuid(request.params.id, 'Shift');
+      const shift = await getShift(deps.db, shiftId);
+      if (shift === null) throw notFound('Shift');
+      const operations = (await listShiftOperations(deps.db, shift.id)).map(operationView);
+      return wire(CashierShiftDetailResponse, {
+        shift: await namedShiftView(deps.db, shift),
+        operations,
+      });
+    },
+  );
+
+  app.get('/admin/cashier/shops', { config: { staff: 'cashier.reports' } }, async () => {
+    const shops = await listShops(deps.db);
+    return wire(CashierShopListResponse, { shops: shops.map(shopView) });
+  });
+
+  app.put<IdParams>(
+    '/admin/cashier/shops/:id',
+    { config: { staff: 'settings.edit' } },
+    async (request) => {
+      const shopId = parseUuid(request.params.id, 'Shop');
+      const input = parseInput(UpdateCashierShopRequest, request.body);
+      const actor = staffActor(request);
+      const shop = await inTx(deps, (tx) =>
+        updateShop(tx, {
+          shopId,
+          name: input.name,
+          address: input.address,
+          receiptWidthMm: input.receiptWidthMm,
+          approvalThreshold: BigInt(input.approvalThreshold),
+          active: input.active,
+          adminId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      return wire(CashierShopResponse, { shop: shopView(shop) });
+    },
+  );
+}
