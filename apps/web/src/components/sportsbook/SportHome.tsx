@@ -14,6 +14,7 @@ import { eventRef, monogram, oddsMarket } from './events';
 import { LeagueIcon } from './LeagueIcon';
 import {
   competitionMarks,
+  countryChips,
   isBigMatch,
   leagueMark,
   orderLeagueCategories,
@@ -142,9 +143,7 @@ async function ListControls({
   filters: ListFilters;
 }) {
   const [t, locale, data] = await Promise.all([getT(), getLocale(), getCompetitions(sport)]);
-  const countries = (data?.items ?? []).filter((category) =>
-    category.competitions.some((c) => c.eventCount > 0),
-  );
+  const countries = countryChips(data);
   const href = (change: ListFilters) => listHref(path, tab, undefined, { ...filters, ...change });
   const days = tab === 'today' || tab === 'upcoming' ? dayChips(new Date()) : [];
   const market = filters.market ?? '1x2';
@@ -203,12 +202,16 @@ async function ListControls({
           >
             {t('sportsbook.controls.all')}
           </Link>
-          {countries.map(({ category }) => (
+          {countries.map(({ category, slugs }) => (
             <Link
               key={category.slug}
               href={href({ country: category.slug })}
               prefetch={false}
-              aria-current={filters.country === category.slug ? 'true' : undefined}
+              aria-current={
+                filters.country !== undefined && slugs.includes(filters.country)
+                  ? 'true'
+                  : undefined
+              }
               className="chip min-h-11"
             >
               <span aria-hidden="true" className="text-lg leading-none">

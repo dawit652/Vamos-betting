@@ -216,6 +216,36 @@ export function isBigMatch(
   return teams.some((team) => BIG_NATIONS.has(plainName(team)));
 }
 
+/** One country chip: the category that names it and every category slug it stands for. */
+export interface CountryChip {
+  category: CompetitionsResponse['items'][number]['category'];
+  slugs: string[];
+}
+
+/**
+ * The country chips: categories that have matches, one chip per country (owner, 17 Nov 2026: our
+ * "Brazil" and the Hulusport board's "Brazil" are one chip; the API's country filter takes in every
+ * category of that country). The first category in API order names the chip (ours come before the
+ * board's); a category without a country code is a chip of its own.
+ */
+export function countryChips(data: CompetitionsResponse | null | undefined): CountryChip[] {
+  const chips: CountryChip[] = [];
+  const byCode = new Map<string, CountryChip>();
+  for (const { category, competitions } of data?.items ?? []) {
+    if (!competitions.some((c) => c.eventCount > 0)) continue;
+    const code = category.countryCode?.toUpperCase() ?? null;
+    const held = code === null ? undefined : byCode.get(code);
+    if (held !== undefined) {
+      held.slugs.push(category.slug);
+      continue;
+    }
+    const chip = { category, slugs: [category.slug] };
+    chips.push(chip);
+    if (code !== null) byCode.set(code, chip);
+  }
+  return chips;
+}
+
 /** Flag and badge by competition slug: the marks of MatchList's league cards. */
 export function competitionMarks(
   data: CompetitionsResponse | null | undefined,

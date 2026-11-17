@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { EUROPE, WORLD, flagEmoji } from '@/lib/flag';
 import {
   competitionMarks,
+  countryChips,
   isBigMatch,
   orderLeagueCategories,
   topLeagueRank,
@@ -265,5 +266,38 @@ describe('isBigMatch: the featured row', () => {
     expect(isBigMatch(match('hl-5', 'Friendlies Women', 'France', 'Spain'), top)).toBe(false);
     expect(isBigMatch(match('hl-6', 'Friendlies', 'Brazil U23', 'Chile U23'), top)).toBe(false);
     expect(isBigMatch(match('hl-7', 'Superliga', 'Midtjylland', 'Brondby'), top)).toBe(false);
+  });
+});
+
+describe('countryChips', () => {
+  const cat = (slug: string, code: string | null, events: number) => ({
+    category: { slug, name: { en: slug }, countryCode: code },
+    competitions: [
+      { slug: `${slug}-league`, name: { en: 'League' }, eventCount: events, featured: false },
+    ],
+  });
+
+  it('makes one chip per country, named by the first category, standing for all of them', () => {
+    const chips = countryChips({
+      items: [
+        cat('brazil', 'BR', 3),
+        cat('england', 'GB-ENG', 2),
+        cat('hl-brazil', 'BR', 5),
+        cat('hl-england-amateur', 'gb-eng', 1),
+        cat('international', null, 4),
+        cat('hl-other', null, 2),
+        cat('hl-bulgaria', 'BG', 0),
+      ],
+    });
+    expect(chips.map((c) => [c.category.slug, c.slugs])).toEqual([
+      ['brazil', ['brazil', 'hl-brazil']],
+      ['england', ['england', 'hl-england-amateur']],
+      ['international', ['international']],
+      ['hl-other', ['hl-other']],
+    ]);
+  });
+
+  it('is empty without data', () => {
+    expect(countryChips(null)).toEqual([]);
   });
 });
