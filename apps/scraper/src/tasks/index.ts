@@ -6,6 +6,7 @@ import { hulusportTask } from './hulusport';
 import { promoteTask } from './promote';
 import { pruneTask } from './prune';
 import { schedulerTask } from './scheduler';
+import { teamLogosTask } from './team-logos';
 import { trustTask } from './trust';
 import { weeklyReportTask } from './weekly-report';
 
@@ -16,6 +17,7 @@ import { weeklyReportTask } from './weekly-report';
 export function createTasks(ctx: ScraperContext): ScraperTask[] {
   const hulusport = hulusportTask(ctx);
   const results = hulusport === null ? null : boardResultsTask(ctx);
+  const logos = teamLogosTask(ctx);
   return [
     schedulerTask(ctx),
     promoteTask(ctx),
@@ -25,6 +27,7 @@ export function createTasks(ctx: ScraperContext): ScraperTask[] {
     weeklyReportTask(ctx),
     ...(hulusport === null ? [] : [hulusport]),
     ...(results === null ? [] : [results]),
+    ...(logos === null ? [] : [logos]),
   ];
 }
 
@@ -45,3 +48,4 @@ export {
 } from './weekly-report';
 export { readHulusportBoard, HULUSPORT_BOARD_PATH } from './hulusport';
 export { runBoardResults, BOARD_RESULTS_INTERVAL_MS } from './board-results';
+export { runTeamLogos, TEAM_LOGOS_INTERVAL_MS } from './team-logos';

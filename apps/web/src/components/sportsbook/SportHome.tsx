@@ -10,7 +10,7 @@ import { formatDayMonth, formatTime, formatWeekday, relativeDay } from '@/lib/fo
 import { localName } from '@/lib/localized';
 import { routes, type Sport } from '@/lib/routes';
 import { dayChips } from './day-chips';
-import { eventRef, monogram, oddsMarket } from './events';
+import { eventRef, oddsMarket } from './events';
 import { LeagueIcon } from './LeagueIcon';
 import {
   competitionMarks,
@@ -25,6 +25,7 @@ import { LiveClock, LiveScore } from './LiveMatch';
 import { MarketOdds } from './MarketOdds';
 import { MatchList } from './MatchList';
 import { teamFlagCodes } from './team-marks';
+import { TeamIcon } from './TeamIcon';
 import { SportsbookFrame } from './SportsbookFrame';
 import {
   LIST_MARKETS,
@@ -399,13 +400,7 @@ function FeaturedCard({
   const flags = teamFlagCodes(event);
   const team = (side: EventSummary['home'], code: string | null) => (
     <span className="flex min-w-0 flex-col items-center gap-0.5">
-      <span aria-hidden="true" className="crest h-7 w-7 text-[0.625rem]">
-        {code === null ? (
-          monogram(side.shortName)
-        ) : (
-          <span className="text-lg">{flagEmoji(code)}</span>
-        )}
-      </span>
+      <TeamIcon team={side} code={code} size="card" />
       <span className="w-full truncate text-xs font-bold">{localName(side.name, locale)}</span>
     </span>
   );

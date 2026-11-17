@@ -393,6 +393,13 @@
       "when": 1794854007784,
       "tag": "0055_scrape_board",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794938940774,
+      "tag": "0056_team_logos",
+      "breakpoints": true
     }
   ]
 }

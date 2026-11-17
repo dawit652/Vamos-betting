@@ -42,6 +42,8 @@ export interface TeamRow {
   id: string;
   name: LocalizedNameValue;
   shortName: string;
+  /** When the team's logo was stored (team_logos); null or absent: no logo. */
+  logoAt?: Date | null;
 }
 
 export interface EventRow {
@@ -334,7 +336,12 @@ function scoreOf(
 }
 
 function teamView(team: TeamRow): EventSummary['home'] {
-  return { id: team.id, name: localized(team.name), shortName: team.shortName };
+  return {
+    id: team.id,
+    name: localized(team.name),
+    shortName: team.shortName,
+    ...(team.logoAt ? { logo: String(team.logoAt.getTime()) } : {}),
+  };
 }
 
 function summaryFields(

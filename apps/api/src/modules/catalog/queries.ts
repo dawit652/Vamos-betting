@@ -21,6 +21,7 @@ import {
   sports,
   teamAliases,
   teams,
+  teamLogos,
 } from '@vamos/db/schema';
 import { and, asc, eq, gte, inArray, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
@@ -246,9 +247,11 @@ function selectEvents(db: DbExecutor) {
       homeId: homeTeam.id,
       homeName: homeTeam.name,
       homeShortName: homeTeam.shortName,
+      homeLogoAt: homeTeam.logoAt,
       awayId: awayTeam.id,
       awayName: awayTeam.name,
       awayShortName: awayTeam.shortName,
+      awayLogoAt: awayTeam.logoAt,
     })
     .from(events)
     .innerJoin(competitions, eq(competitions.id, events.competitionId))
@@ -269,8 +272,18 @@ function toEventRow(row: SelectedEvent): EventRow | null {
     competitionSlug: row.competitionSlug,
     competitionName: row.competitionName,
     categoryName: row.categoryName,
-    home: { id: row.homeId, name: row.homeName, shortName: row.homeShortName },
-    away: { id: row.awayId, name: row.awayName, shortName: row.awayShortName },
+    home: {
+      id: row.homeId,
+      name: row.homeName,
+      shortName: row.homeShortName,
+      logoAt: row.homeLogoAt,
+    },
+    away: {
+      id: row.awayId,
+      name: row.awayName,
+      shortName: row.awayShortName,
+      logoAt: row.awayLogoAt,
+    },
     startTime: row.startTime,
     status: row.status,
     bettingOpen: row.bettingOpen,
@@ -738,4 +751,15 @@ export async function getEventByGameId(
   const parsed = parseGameId(gameId);
   if (parsed === null) return null;
   return eventDetail(db, eq(events.gameId, parsed), now, options);
+}
+
+/** A team's stored logo (64 px PNG, team_logos), or null when it has none or the id is not a uuid. */
+export async function getTeamLogo(db: DbExecutor, teamId: string): Promise<Buffer | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) return null;
+  const [row] = await db
+    .select({ png: teamLogos.png })
+    .from(teamLogos)
+    .where(eq(teamLogos.teamId, teamId))
+    .limit(1);
+  return row?.png ?? null;
 }

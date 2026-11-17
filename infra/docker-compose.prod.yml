@@ -127,6 +127,8 @@ x-app-env: &app-env
   # The mr-x board of Hulusport prices (docs/plans/hulusport-feed.md); empty: not read.
   SCRAPER_HULUSPORT_URL: '${SCRAPER_HULUSPORT_URL:-}'
   SCRAPER_HULUSPORT_INTERVAL_SECONDS: '${SCRAPER_HULUSPORT_INTERVAL_SECONDS:-120}'
+  # Team logos from API-Football (docs/plans/team-logos.md): on with SCRAPER_SECRET_API_FOOTBALL.
+  SCRAPER_TEAM_LOGOS: '${SCRAPER_TEAM_LOGOS:-on}'
 
 x-build-args: &build-args
   NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL}

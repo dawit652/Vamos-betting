@@ -2,12 +2,14 @@ import { BOARD_KEY_MARKER, hasBoardPrices } from '@vamos/core';
 import { getHulusportPricing, latestBoardOdds, setHulusportPricing } from '@vamos/db';
 import { priceBoardMarket } from '@vamos/feed';
 import { apiFootballFixturesUrl } from '@vamos/scraper';
+import sharp from 'sharp';
 import { afterEach, describe, expect, it } from 'vitest';
 import { priceEvent } from '../src/pipeline/event-pricing';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { repriceScheduledEvents } from '../src/pipeline/reprice';
 import { sweepBoardEvents } from '../src/pipeline/board-events';
 import { runBoardResults } from '../src/tasks/board-results';
+import { runTeamLogos, teamLogoUrl } from '../src/tasks/team-logos';
 import { HULUSPORT_BOARD_PATH, readHulusportBoard } from '../src/tasks/hulusport';
 import {
   ARSENAL_CHELSEA_JSON,
@@ -584,6 +586,85 @@ describe('API-Football results for Hulusport-only matches', () => {
 
       // Nothing more to do for the settled one; the postponed one waits for a person.
       expect(await runBoardResults(h.ctx)).toMatchObject({ pending: 1, applied: 0 });
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'stores the logos of the teams it finds among the fixtures, and waits a week for the others',
+    async () => {
+      h = await createHarness({ hulusportUrl: MRX, secrets: { SCRAPER_SECRET_API_FOOTBALL: KEY } });
+      await switchTo(true);
+      const board = {
+        generated_at: h.now().toISOString(),
+        worker: { last_success_at: h.now().toISOString() },
+        matches: [
+          boardMatch(601, 'Nobody United', 'Nowhere Town', h.now()),
+          boardMatch(602, 'Unlisted Rovers', 'Unknown Athletic', h.now()),
+        ],
+      };
+      expect(
+        (await readHulusportBoard(h.ctx, serveBoard(board).fetchImpl)).boardEvents.created,
+      ).toBe(2);
+      // Only the first match is in API-Football's list; its teams carry ids.
+      h.serve(
+        apiFootballFixturesUrl(KICKOFF.toISOString().slice(0, 10)),
+        JSON.stringify({
+          errors: [],
+          response: [
+            {
+              fixture: { id: 9101, date: KICKOFF.toISOString(), status: { short: 'NS' } },
+              league: { name: 'Somewhere League', country: 'Somewhereland' },
+              teams: {
+                home: { id: 7001, name: 'Nobody Utd' },
+                away: { id: 7002, name: 'Nowhere Town' },
+              },
+              goals: { home: null, away: null },
+              score: { halftime: { home: null, away: null }, fulltime: { home: null, away: null } },
+            },
+          ],
+        }),
+      );
+      // API-Football's logos are 150 px PNGs.
+      const logo = async (r: number, g: number, b: number) => ({
+        status: 200,
+        body: new Uint8Array(
+          await sharp({
+            create: { width: 150, height: 150, channels: 4, background: { r, g, b, alpha: 1 } },
+          })
+            .png()
+            .toBuffer(),
+        ),
+        headers: { 'content-type': 'image/png' },
+      });
+      h.serve(teamLogoUrl(7001), await logo(200, 0, 0));
+      h.serve(teamLogoUrl(7002), await logo(0, 0, 200));
+      h.at(new Date(KICKOFF.getTime() - 3 * 3_600_000));
+
+      expect(await runTeamLogos(h.ctx)).toMatchObject({
+        candidates: 2,
+        matched: 1,
+        stored: 2,
+        checked: 2,
+        failedRequests: 0,
+      });
+      const logos = await rows<{ name: string; bytes: number; png: boolean }>(
+        `SELECT t.name->>'en' AS name, octet_length(l.png) AS bytes,
+                substring(l.png from 2 for 3) = 'PNG'::bytea AS png
+           FROM team_logos l JOIN teams t ON t.id = l.team_id ORDER BY 1`,
+      );
+      expect(logos.map((l) => l.name)).toEqual(['Nobody United', 'Nowhere Town']);
+      for (const logo of logos) {
+        expect(logo.png).toBe(true);
+        expect(logo.bytes).toBeLessThan(10_000);
+      }
+      // The two teams not found are not asked again within the week; nothing is left to do.
+      expect(await runTeamLogos(h.ctx)).toMatchObject({ candidates: 0, stored: 0 });
+      // The API shows the logo's version on the team.
+      const [team] = await rows<{ logo_at: Date | null }>(
+        `SELECT logo_at FROM teams WHERE name->>'en' = 'Nobody United'`,
+      );
+      expect(team?.logo_at).not.toBeNull();
     },
     TEST_TIMEOUT,
   );

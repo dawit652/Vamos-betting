@@ -3,6 +3,7 @@ import {
   bigserial,
   boolean,
   check,
+  customType,
   index,
   integer,
   jsonb,
@@ -99,9 +100,31 @@ export const teams = pgTable(
     countryCode: text('country_code'),
     /** Pricing inputs for the mock feed only (e.g. { attack, defence } or { rating }). */
     ratings: jsonb('ratings').$type<Record<string, number>>(),
+    /** When the team's logo (team_logos) was stored; null: no logo, the site shows a crest. */
+    logoAt: timestamp('logo_at', { withTimezone: true }),
+    /** When the logo job last looked for this team (found or not), so it does not ask daily. */
+    logoCheckedAt: timestamp('logo_checked_at', { withTimezone: true }),
   },
   (t) => [uniqueIndex('teams_sport_short_name_uq').on(t.sportId, t.shortName)],
 );
+
+/** PostgreSQL bytea as a Buffer. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => 'bytea',
+});
+
+/**
+ * A team's logo (owner, 17 Nov 2026: a logo for every team), found by the scraper's team-logos
+ * task through API-Football and stored small (64 px PNG, a few KB) so the site serves it itself.
+ */
+export const teamLogos = pgTable('team_logos', {
+  teamId: uuid('team_id')
+    .primaryKey()
+    .references(() => teams.id, { onDelete: 'cascade' }),
+  apiFootballTeamId: integer('api_football_team_id').notNull(),
+  png: bytea('png').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const events = pgTable(
   'events',

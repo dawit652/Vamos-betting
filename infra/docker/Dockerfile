@@ -19,7 +19,8 @@
 #
 # The api, worker and scraper are bundled by tsup (the @vamos/* packages are inlined, and so is
 # cheerio, which only packages/scraper uses), so their images carry only dist/ and the npm packages
-# that stay external (the scraper: drizzle-orm, ioredis, pg, pino, zod). The api image also carries the operations
+# that stay external (the scraper: drizzle-orm, ioredis, pg, pino, zod, and sharp with its native
+# image library for the team logos). The api image also carries the operations
 # scripts (migrate, seed, admin-create, admin-unlock, totp-rekey) in dist/ops and the SQL migrations in
 # dist/migrations: the compose `migrate` job is this image with another command.
 #
