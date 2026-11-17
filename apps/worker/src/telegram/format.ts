@@ -35,7 +35,7 @@ const TEXT = {
     more: 'more options',
     footer: '21+ only. Bet responsibly.',
     demo: 'DEMO: play money only.',
-    help: 'Commands: /today, /live, /top, /leagues, /id',
+    help: 'Commands: /today, /live, /top, /leagues, /share, /id',
     chatId: 'This chat’s id:',
     live: 'LIVE',
     statusTitle: 'Nahubet status',
@@ -55,6 +55,9 @@ const TEXT = {
     resetCode:
       'Your Nahubet code: {code}\nIt is valid for 5 minutes. Never share it with anyone, not even Nahubet staff.\nOn the website, enter it with your phone number and choose a new PIN.',
     resetOpen: 'Choose a new PIN',
+    menuShare: 'Share with friends',
+    shareText: 'Nahubet on Telegram: today’s matches, live scores and odds. Join here:',
+    shareIntro: 'Invite your friends: tap the button and choose who to send the Nahubet bot to.',
   },
   am: {
     welcome:
@@ -75,7 +78,7 @@ const TEXT = {
     more: 'ተጨማሪ አማራጮች',
     footer: 'ዕድሜ 21+ ብቻ። በኃላፊነት ይወራረዱ።',
     demo: 'ማሳያ፦ የጨዋታ ገንዘብ ብቻ።',
-    help: 'ትዕዛዞች፦ /today, /live, /top, /leagues, /id',
+    help: 'ትዕዛዞች፦ /today, /live, /top, /leagues, /share, /id',
     chatId: 'የዚህ ውይይት መለያ፦',
     live: 'ቀጥታ',
     statusTitle: 'የናሁቤት ሁኔታ',
@@ -94,6 +97,9 @@ const TEXT = {
     resetCode:
       'የናሁቤት ኮድዎ፦ {code}\nለ5 ደቂቃ ያገለግላል። ለማንም አያጋሩ፣ ለናሁቤት ሰራተኞችም ቢሆን።\nበድረ-ገጹ ላይ ከስልክ ቁጥርዎ ጋር ያስገቡትና አዲስ ፒን ይምረጡ።',
     resetOpen: 'አዲስ ፒን ይምረጡ',
+    menuShare: 'ለጓደኞችዎ ያጋሩ',
+    shareText: 'ናሁቤት በቴሌግራም፦ የዛሬ ጨዋታዎች፣ የቀጥታ ውጤቶችና ዕድሎች። እዚህ ይቀላቀሉ፦',
+    shareIntro: 'ጓደኞችዎን ይጋብዙ፦ ቁልፉን ይጫኑና የናሁቤትን ቦት ለማን እንደሚልኩ ይምረጡ።',
   },
 } as const;
 
@@ -185,9 +191,37 @@ export function matchListMessage(input: {
   };
 }
 
-/** The main menu: today, live, top matches, top leagues, and "Forgot PIN" when the reset is on. */
-export function menuMessage(locale: BotLocale, demo: boolean, reset = false): BotMessage {
+/**
+ * Telegram's share page for the bot's own link (https://t.me/<bot>): the player picks the chats
+ * to send it to (owner, 17 Nov 2026: players can share the bot with their friends).
+ */
+export function shareUrl(botUsername: string, locale: BotLocale): string {
+  const link = `https://t.me/${botUsername}`;
+  return `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(
+    textOf(locale).shareText,
+  )}`;
+}
+
+/** The /share answer: the invitation button and the bot's link to copy. */
+export function shareMessage(botUsername: string, locale: BotLocale): BotMessage {
   const t = textOf(locale);
+  return {
+    text: `${t.shareIntro}\nhttps://t.me/${botUsername}`,
+    replyMarkup: { inline_keyboard: [[{ text: t.menuShare, url: shareUrl(botUsername, locale) }]] },
+  };
+}
+
+/**
+ * The main menu: today, live, top matches, top leagues; "Forgot PIN" when the reset is on and
+ * "Share with friends" once the bot knows its own username.
+ */
+export function menuMessage(
+  locale: BotLocale,
+  demo: boolean,
+  options: { reset?: boolean; botUsername?: string } = {},
+): BotMessage {
+  const t = textOf(locale);
+  const { reset = false, botUsername } = options;
   return {
     text: [...(demo ? [t.demo] : []), t.welcome, '', t.help, '', t.footer].join('\n'),
     replyMarkup: {
@@ -201,6 +235,9 @@ export function menuMessage(locale: BotLocale, demo: boolean, reset = false): Bo
           { text: t.menuLeagues, callback_data: 'm:leagues' },
         ],
         ...(reset ? [[{ text: t.menuReset, callback_data: 'm:reset' }]] : []),
+        ...(botUsername === undefined
+          ? []
+          : [[{ text: t.menuShare, url: shareUrl(botUsername, locale) }]]),
       ],
     },
   };

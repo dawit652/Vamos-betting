@@ -11,6 +11,7 @@ import {
   parseCommand,
   resetAskMessage,
   resetCodeMessage,
+  shareMessage,
   startPayload,
   statusMessage,
   textOf,
@@ -60,6 +61,8 @@ export interface BotDeps {
   } | null>;
   /** Redis key prefix of the per-chat rate limit (tests use their own). */
   rateKeyPrefix?: string;
+  /** The bot's own username (from getMe), for "Share with friends". Unset: no share button. */
+  botUsername?: string;
   /** Asks the API for a PIN reset code for a proven number. Unset: no reset in the bot. */
   resetCode?: (input: { phone: string; chatId: number }) => Promise<ResetCodeResult>;
 }
@@ -160,9 +163,23 @@ async function act(
       return matches(deps, chatId, locale, t.titleTop, { filter: 'highlights', limit: 10 });
     case 'leagues':
       return leagues(deps, chatId, locale);
+    case 'share':
+      if (deps.botUsername !== undefined) {
+        await send(deps, chatId, shareMessage(deps.botUsername, locale));
+        return;
+      }
+      break;
     default:
-      await send(deps, chatId, menuMessage(locale, deps.demo, deps.resetCode !== undefined));
+      break;
   }
+  await send(
+    deps,
+    chatId,
+    menuMessage(locale, deps.demo, {
+      reset: deps.resetCode !== undefined,
+      ...(deps.botUsername === undefined ? {} : { botUsername: deps.botUsername }),
+    }),
+  );
 }
 
 /**

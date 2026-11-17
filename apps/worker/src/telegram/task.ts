@@ -48,9 +48,12 @@ export function telegramBotTask(
     });
 
   async function run(signal: AbortSignal): Promise<void> {
+    // The bot's username, for the "Share with friends" button (none if getMe fails).
+    let botDeps: BotDeps = deps;
     try {
       const me = await deps.client.getMe();
       deps.logger.info({ bot: me.username }, 'telegram bot polling');
+      if (me.username !== undefined) botDeps = { ...deps, botUsername: me.username };
     } catch (error) {
       deps.logger.warn({ err: error }, 'telegram bot: getMe failed; polling anyway');
     }
@@ -71,7 +74,7 @@ export function telegramBotTask(
         for (const update of updates) {
           offset = update.update_id + 1;
           try {
-            await handleUpdate(deps, update);
+            await handleUpdate(botDeps, update);
           } catch (error) {
             deps.logger.warn(
               { err: error, updateId: update.update_id },

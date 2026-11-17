@@ -77,6 +77,13 @@ the code over the compose network, signed with `SESSION_SECRET` (`/internal/tele
 refused when the signature is wrong or older than 60 seconds). The code and the number are never
 written to a log. Add `reset - Forgot PIN` to the bot's commands in @BotFather (`/setcommands`).
 
+## Share with friends
+
+The menu has a **Share with friends** button and `/share` sends it with the bot's link: it opens
+Telegram's share page so a player can send the bot to their friends' chats (owner, 17 Nov 2026).
+The bot learns its own username at start (getMe); if that fails the button is left out. Add
+`share - Share with friends` to the bot's commands in @BotFather.
+
 ## Showing the Telegram link on the site
 
 To show "Join us on Telegram" in the player site's footer, left column and phone league panel, set

@@ -635,3 +635,24 @@ describe('createResetCodeRequester', () => {
     expect(await answer(200, { status: 'no_account' })).toEqual({ status: 'no_account' });
   });
 });
+
+describe('Telegram bot: share with friends', () => {
+  it('offers Telegram’s share page for the bot’s link in the menu and on /share', async () => {
+    const { deps, sent } = botDeps({ botUsername: 'NahubetBot' });
+    await handleUpdate(deps, message(80, '/start'));
+    const menu = JSON.stringify(sent[0]!.replyMarkup);
+    expect(menu).toContain('https://t.me/share/url?url=https%3A%2F%2Ft.me%2FNahubetBot');
+    await handleUpdate(deps, message(80, '/share'));
+    expect(sent[1]!.text).toContain('https://t.me/NahubetBot');
+    expect(sent[1]!.replyMarkup).toMatchObject({
+      inline_keyboard: [[{ text: 'Share with friends' }]],
+    });
+  });
+
+  it('answers /share with the menu while the bot does not know its name', async () => {
+    const { deps, sent } = botDeps();
+    await handleUpdate(deps, message(81, '/share'));
+    expect(sent[0]!.text).toContain('Welcome to Nahubet');
+    expect(JSON.stringify(sent[0]!.replyMarkup)).not.toContain('t.me/share');
+  });
+});

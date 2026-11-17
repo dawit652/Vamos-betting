@@ -393,16 +393,16 @@ function FeaturedCard({
 }) {
   const day = relativeDay(event.startTime);
   const team = (side: EventSummary['home']) => (
-    <span className="flex min-w-0 flex-col items-center gap-1">
-      <span aria-hidden="true" className="crest h-9 w-9 text-xs">
+    <span className="flex min-w-0 flex-col items-center gap-0.5">
+      <span aria-hidden="true" className="crest h-7 w-7 text-[0.625rem]">
         {monogram(side.shortName)}
       </span>
-      <span className="w-full truncate text-sm font-bold">{localName(side.name, locale)}</span>
+      <span className="w-full truncate text-xs font-bold">{localName(side.name, locale)}</span>
     </span>
   );
   return (
-    <li className="poster w-[16rem] flex-none snap-start p-3 lg:w-[17.5rem]">
-      <p className="flex items-center gap-1.5 text-xxs">
+    <li className="poster featured-card w-[12.5rem] flex-none snap-start p-2.5 lg:w-[13.5rem]">
+      <p className="flex items-center gap-1.5 text-[0.625rem]">
         {mark !== undefined ? (
           <LeagueIcon flag={mark.flag} badge={mark.badge} className="text-xl leading-none" />
         ) : null}
@@ -413,12 +413,12 @@ function FeaturedCard({
       <Link
         href={routes.event(event.id)}
         prefetch={false}
-        className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 text-center"
+        className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 text-center"
       >
         {team(event.home)}
         {event.status === 'live' ? (
-          <span className="px-1">
-            <span className="block text-lg leading-none font-black whitespace-nowrap tabular-nums">
+          <span className="px-0.5">
+            <span className="block text-base leading-none font-black whitespace-nowrap tabular-nums">
               <LiveScore eventId={event.id} side="home" initial={event.score?.home ?? 0} />
               <span className="px-0.5 text-white/70">:</span>
               <LiveScore eventId={event.id} side="away" initial={event.score?.away ?? 0} />
@@ -433,8 +433,8 @@ function FeaturedCard({
             />
           </span>
         ) : (
-          <span className="px-1">
-            <span className="block text-lg leading-none font-black tabular-nums">
+          <span className="px-0.5">
+            <span className="block text-base leading-none font-black tabular-nums">
               {formatTime(event.startTime, locale)}
             </span>
             <span className="text-xxs font-semibold text-white/70">
@@ -449,7 +449,7 @@ function FeaturedCard({
         {team(event.away)}
       </Link>
       {event.mainMarket !== null ? (
-        <div className="mt-2 flex">
+        <div className="mt-1.5 flex">
           <MarketOdds event={eventRef(event)} market={oddsMarket(event.mainMarket)} layout="row" />
         </div>
       ) : null}
