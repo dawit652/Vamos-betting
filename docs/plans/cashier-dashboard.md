@@ -6,6 +6,17 @@ and print receipts on a betting (thermal) printer, with the other features and p
 shop needs. Status: **planned, not built**. It moves money: Opus, high effort, several sessions,
 reviewed by a second model before any deploy; owner decisions below first.
 
+## Rules for every session of this work
+
+- **Build on top of the server's branch.** The live server deploys from
+  `live/nahubet-new-2026-11-15`; every commit of this work must contain it. Before every push:
+  `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor FETCH_HEAD HEAD`
+  (no output and exit 0 = fine; otherwise merge it in first and run the checks again).
+- **Model and effort by task** (CLAUDE.md): the money path (ledger postings, deposits,
+  withdrawals, shift totals, migrations, security) stays in the main session on Opus, high effort;
+  routine pages and forms go to the `routine-coder` agent; running checks and reporting goes to the
+  `quick-task` agent.
+
 ## Where it lives
 
 - The back office `apps/admin` (Next.js, :3001) already has staff sign-in, roles and pages for

@@ -28,6 +28,8 @@ export const adminRole = pgEnum('admin_role', [
   'kyc',
   'support',
   'compliance',
+  // A betting shop's desk: cash deposits and withdrawals, receipts (docs/plans/cashier-dashboard.md).
+  'cashier',
 ]);
 
 export const ledgerOwnerType = pgEnum('ledger_owner_type', ['user', 'house']);

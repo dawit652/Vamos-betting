@@ -13,6 +13,11 @@ Oct 27, 2026 · @Which Version Of Claude Are U
 5. Near the end of the 5-hour window: stop new work, commit and push, and update
    `docs/plans/remaining-tasks.md` in a few lines. After a limit reset or a restart, do not resume
    on your own: wait for the owner's next message.
+6. Always build on top of the server's branch: before every push,
+   `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor FETCH_HEAD HEAD`
+   must succeed (else merge it in first). Every plan in `docs/plans/` says so too.
+7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
+   `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
 
 ## Overview
 

@@ -25,6 +25,13 @@ export const PaymentProviderNameSchema = z.enum([
 ]);
 export type PaymentProviderName = z.infer<typeof PaymentProviderNameSchema>;
 
+/**
+ * The provider a deposit or withdrawal record carries: an online provider, or `cash` (taken or
+ * paid at a shop's desk, docs/plans/cashier-dashboard.md). Never something a player requests.
+ */
+export const PaymentRecordProviderSchema = z.enum([...PaymentProviderNameSchema.options, 'cash']);
+export type PaymentRecordProvider = z.infer<typeof PaymentRecordProviderSchema>;
+
 /** A positive amount of santim (decimal string). */
 export const PositiveSantim = Santim.refine(
   (value) => !value.startsWith('-') && /[1-9]/.test(value) && value.length <= 15,
@@ -130,7 +137,7 @@ export const DepositInitiationKindSchema = z.enum(['push', 'redirect', 'ussd', '
 
 export const DepositView = z.object({
   id: z.string(),
-  provider: PaymentProviderNameSchema,
+  provider: PaymentRecordProviderSchema,
   amount: Santim,
   currency: z.literal('ETB'),
   /** The paying (registered) phone. */
@@ -342,7 +349,7 @@ export type WithdrawalStep = z.infer<typeof WithdrawalStep>;
 
 export const WithdrawalView = z.object({
   id: z.string(),
-  provider: PaymentProviderNameSchema,
+  provider: PaymentRecordProviderSchema,
   amount: Santim,
   currency: z.literal('ETB'),
   /** The player's registered phone, where the money goes. */

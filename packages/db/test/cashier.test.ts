@@ -1,0 +1,388 @@
+import { randomUUID } from 'node:crypto';
+import { birr, businessDateOf } from '@vamos/core';
+import { eq } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  CASH_PROVIDER,
+  cashDeposit,
+  closeShift,
+  findDeskPlayer,
+  getOpenShift,
+  getReceipt,
+  listShiftOperations,
+  listShops,
+  openShift,
+  recordReprint,
+  shiftTotals,
+  updateShop,
+} from '../src/cashier/index';
+import { runReconciliationChecks } from '../src/compliance/index';
+import { DomainError } from '../src/errors';
+import { getBalance } from '../src/ledger/index';
+import { DEPOSIT_SUCCEEDED } from '../src/payments/index';
+import {
+  adminUsers,
+  auditLog,
+  cashOperations,
+  paymentIntents,
+  rgExclusions,
+  rgLimits,
+  users,
+} from '../src/schema/index';
+import { createTestDatabase } from '../src/testing';
+import { dropTestDatabase } from './helpers';
+import {
+  cashOf,
+  createPlayer,
+  expectBooksBalanced,
+  NOW,
+  outboxOf,
+  rules,
+} from './payments-fixtures';
+
+/** The cashier desk (docs/plans/cashier-dashboard.md): shifts, cash deposits, receipts. */
+
+type TestDb = Awaited<ReturnType<typeof createTestDatabase>>;
+let handle: TestDb;
+let shopId: string;
+
+beforeAll(async () => {
+  handle = await createTestDatabase();
+  const [shop] = await listShops(handle.db);
+  shopId = shop!.id;
+});
+
+afterAll(async () => {
+  await dropTestDatabase(handle);
+});
+
+const RULES = rules();
+
+async function staff(role: 'cashier' | 'finance' | 'support' = 'cashier'): Promise<string> {
+  const [row] = await handle.db
+    .insert(adminUsers)
+    .values({
+      email: `${role}-${randomUUID()}@example.com`,
+      passwordHash: 'not-a-real-hash',
+      displayName: `Test ${role}`,
+      role,
+    })
+    .returning({ id: adminUsers.id });
+  return row!.id;
+}
+
+async function shiftFor(staffId: string, openingFloat = birr(500)) {
+  return handle.db.transaction((tx) => openShift(tx, { staffId, shopId, openingFloat, now: NOW }));
+}
+
+function deposit(
+  staffId: string,
+  shiftId: string,
+  userId: string,
+  amount: bigint,
+  key = `desk-${randomUUID()}`,
+  now = NOW,
+) {
+  return handle.db.transaction((tx) =>
+    cashDeposit(tx, {
+      staffId,
+      shiftId,
+      userId,
+      amount,
+      idempotencyKey: key,
+      rules: RULES,
+      now,
+    }),
+  );
+}
+
+async function refusal(promise: Promise<unknown>): Promise<{ status: number; code: string }> {
+  try {
+    await promise;
+  } catch (error) {
+    if (error instanceof DomainError) return { status: error.status, code: error.code };
+    throw error;
+  }
+  throw new Error('expected a refusal');
+}
+
+describe('the first shop', () => {
+  it('exists after the migrations, with 80 mm receipts and an ETB 10,000 threshold', async () => {
+    const shops = await listShops(handle.db);
+    expect(shops).toHaveLength(1);
+    expect(shops[0]).toMatchObject({
+      code: 'main',
+      receiptWidthMm: 80,
+      approvalThreshold: birr(10_000),
+      active: true,
+    });
+  });
+});
+
+describe('shifts', () => {
+  it('opens one shift per staff member and closes it with the expected cash and the variance', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier, birr(1_000));
+    expect(shift.status).toBe('open');
+    expect(await refusal(shiftFor(cashier))).toEqual({ status: 409, code: 'shift_already_open' });
+
+    const { userId } = await createPlayer(handle.db);
+    await deposit(cashier, shift.id, userId, birr(300));
+    await deposit(cashier, shift.id, userId, birr(200));
+
+    // Only the owner closes it.
+    const other = await staff();
+    expect(
+      await refusal(
+        handle.db.transaction((tx) =>
+          closeShift(tx, { staffId: other, shiftId: shift.id, countedCash: 0n, now: NOW }),
+        ),
+      ),
+    ).toEqual({ status: 404, code: 'not_found' });
+
+    const closed = await handle.db.transaction((tx) =>
+      closeShift(tx, {
+        staffId: cashier,
+        shiftId: shift.id,
+        countedCash: birr(1_490),
+        note: ' short by 10 ',
+        now: new Date(NOW.getTime() + 8 * 3_600_000),
+      }),
+    );
+    expect(closed.shift).toMatchObject({
+      status: 'closed',
+      expectedCash: birr(1_500),
+      countedCash: birr(1_490),
+      closeNote: 'short by 10',
+    });
+    expect(closed.totals.deposits).toEqual({ count: 2, total: birr(500) });
+    const [audit] = await handle.db
+      .select({ metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.targetId, shift.id));
+    expect(audit).toBeDefined();
+    expect(await getOpenShift(handle.db, cashier)).toBeNull();
+
+    // Closed: no more operations in it, and a new shift may open.
+    expect(await refusal(deposit(cashier, shift.id, userId, birr(50)))).toEqual({
+      status: 409,
+      code: 'shift_not_open',
+    });
+    expect((await shiftFor(cashier)).status).toBe('open');
+  });
+
+  it('refuses a closed shop', async () => {
+    const admin = await staff('finance');
+    const [shop] = await listShops(handle.db);
+    await handle.db.transaction((tx) =>
+      updateShop(tx, {
+        shopId,
+        name: shop!.name,
+        address: shop!.address,
+        receiptWidthMm: 80,
+        approvalThreshold: shop!.approvalThreshold,
+        active: false,
+        adminId: admin,
+        now: NOW,
+      }),
+    );
+    try {
+      expect(await refusal(shiftFor(await staff()))).toEqual({
+        status: 409,
+        code: 'shop_inactive',
+      });
+    } finally {
+      await handle.db.transaction((tx) =>
+        updateShop(tx, {
+          shopId,
+          name: shop!.name,
+          address: shop!.address,
+          receiptWidthMm: 80,
+          approvalThreshold: shop!.approvalThreshold,
+          active: true,
+          adminId: admin,
+          now: NOW,
+        }),
+      );
+    }
+  });
+});
+
+describe('cash deposits', () => {
+  it('credit the player like any deposit: a cash intent, the deposit posting and its event', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier);
+    const { userId, phone } = await createPlayer(handle.db);
+
+    const { operation, replayed } = await deposit(cashier, shift.id, userId, birr(250));
+    expect(replayed).toBe(false);
+    expect(operation).toMatchObject({ kind: 'deposit', amount: birr(250), reprints: 0 });
+    expect(await cashOf(handle.db, userId)).toBe(birr(250));
+
+    const [intent] = await handle.db
+      .select()
+      .from(paymentIntents)
+      .where(eq(paymentIntents.id, operation.paymentIntentId!));
+    expect(intent).toMatchObject({
+      provider: CASH_PROVIDER,
+      status: 'succeeded',
+      amount: birr(250),
+      phone,
+      providerRef: `R${operation.receiptNo}`,
+    });
+    expect(intent?.ledgerTransactionId).not.toBeNull();
+    // The cash drawer is a PSP clearing account: house:psp:cash -amount.
+    expect(await getBalance(handle.db, { kind: 'house_psp_clearing', provider: 'cash' })).toBe(
+      -(await cashOperationsTotal()),
+    );
+    const events = await outboxOf(handle.db, intent!.id);
+    expect(events.map(([type]) => type)).toEqual([DEPOSIT_SUCCEEDED]);
+    expect(events[0]?.[1]).toMatchObject({ userId, provider: 'cash' });
+    await expectBooksBalanced(handle.db);
+  });
+
+  it('a replayed key gives the same receipt and credits once; another use of it is refused', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier);
+    const { userId } = await createPlayer(handle.db);
+    const key = `desk-${randomUUID()}`;
+    const first = await deposit(cashier, shift.id, userId, birr(100), key);
+    const again = await deposit(cashier, shift.id, userId, birr(100), key);
+    expect(again.replayed).toBe(true);
+    expect(again.operation.id).toBe(first.operation.id);
+    expect(await cashOf(handle.db, userId)).toBe(birr(100));
+    expect(await refusal(deposit(cashier, shift.id, userId, birr(101), key))).toEqual({
+      status: 422,
+      code: 'idempotency_key_reused',
+    });
+    // Two at once with one key: one credit.
+    const key2 = `desk-${randomUUID()}`;
+    const both = await Promise.all([
+      deposit(cashier, shift.id, userId, birr(40), key2),
+      deposit(cashier, shift.id, userId, birr(40), key2),
+    ]);
+    expect(both.filter((r) => !r.replayed)).toHaveLength(1);
+    expect(await cashOf(handle.db, userId)).toBe(birr(140));
+  });
+
+  it('respect the payment rules, the shop threshold for cashiers, and the player state', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier);
+    const { userId } = await createPlayer(handle.db);
+
+    expect(await refusal(deposit(cashier, shift.id, userId, RULES.minDeposit - 1n))).toEqual({
+      status: 422,
+      code: 'deposit_amount_out_of_range',
+    });
+    // Above the shop's threshold (ETB 10,000): a supervisor only.
+    expect(await refusal(deposit(cashier, shift.id, userId, birr(10_001)))).toEqual({
+      status: 403,
+      code: 'cashier_approval_required',
+    });
+    const supervisor = await staff('finance');
+    const theirs = await shiftFor(supervisor);
+    expect((await deposit(supervisor, theirs.id, userId, birr(10_001))).replayed).toBe(false);
+
+    // A deposit limit counts cash like any other deposit.
+    await handle.db.insert(rgLimits).values({
+      userId,
+      kind: 'deposit',
+      period: 'day',
+      amount: birr(10_100),
+      effectiveFrom: new Date(NOW.getTime() - 86_400_000),
+    });
+    expect(await refusal(deposit(cashier, shift.id, userId, birr(100)))).toEqual({
+      status: 422,
+      code: 'deposit_limit_exceeded',
+    });
+
+    // Excluded or disabled players are not served.
+    const excluded = (await createPlayer(handle.db)).userId;
+    await handle.db.insert(rgExclusions).values({
+      userId: excluded,
+      kind: 'self_exclusion',
+      startsAt: new Date(NOW.getTime() - 60_000),
+      endsAt: null,
+    });
+    expect((await refusal(deposit(cashier, shift.id, excluded, birr(50)))).status).toBe(403);
+    const suspended = (await createPlayer(handle.db)).userId;
+    await handle.db.update(users).set({ status: 'suspended' }).where(eq(users.id, suspended));
+    expect(await refusal(deposit(cashier, shift.id, suspended, birr(50)))).toEqual({
+      status: 403,
+      code: 'account_disabled',
+    });
+    // Someone else's shift is not found.
+    expect(await refusal(deposit(cashier, theirs.id, userId, birr(50)))).toEqual({
+      status: 404,
+      code: 'not_found',
+    });
+    await expectBooksBalanced(handle.db);
+  });
+});
+
+describe('players and receipts', () => {
+  it('finds a player by any form of the phone number, with balance, KYC and exclusion', async () => {
+    const { userId, phone } = await createPlayer(handle.db, { kyc: 'verified', name: 'Abebe K.' });
+    const local = `0${phone.slice(4)}`;
+    const found = await findDeskPlayer(handle.db, local, NOW);
+    expect(found).toMatchObject({ id: userId, phone, kycStatus: 'verified', exclusion: null });
+    expect(await findDeskPlayer(handle.db, '+251900000001', NOW)).toBeNull();
+    expect(await findDeskPlayer(handle.db, 'not a phone', NOW)).toBeNull();
+  });
+
+  it('prints a receipt with the shop, the cashier and the masked player; copies are counted', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier);
+    const { userId, phone } = await createPlayer(handle.db);
+    const { operation } = await deposit(cashier, shift.id, userId, birr(75));
+
+    const receipt = await getReceipt(handle.db, operation.id);
+    expect(receipt).toMatchObject({
+      shop: { code: 'main' },
+      staffName: 'Test cashier',
+      player: { phone },
+      reference: `R${operation.receiptNo}`,
+    });
+    const ops = await listShiftOperations(handle.db, shift.id);
+    expect(ops.map((o) => o.id)).toEqual([operation.id]);
+    expect((await shiftTotals(handle.db, shift)).expectedCash).toBe(birr(575));
+
+    // A copy by its cashier or a supervisor; nobody else sees it.
+    const copy = await handle.db.transaction((tx) =>
+      recordReprint(tx, { operationId: operation.id, staffId: cashier, supervisor: false }),
+    );
+    expect(copy.reprints).toBe(1);
+    const stranger = await staff();
+    expect(
+      await refusal(
+        handle.db.transaction((tx) =>
+          recordReprint(tx, { operationId: operation.id, staffId: stranger, supervisor: false }),
+        ),
+      ),
+    ).toEqual({ status: 404, code: 'not_found' });
+  });
+});
+
+describe('reconciliation', () => {
+  it('finds every cash deposit consistent: an intent, its clearing entry, the daily totals', async () => {
+    const result = await runReconciliationChecks(handle.db, {
+      businessDate: businessDateOf(NOW),
+      balanceAfterGraceMs: 0,
+    });
+    const psp = result.checks.filter((check) => check.check.startsWith('psp_'));
+    expect(psp.map((check) => check.check).sort()).toEqual([
+      'psp_daily_totals',
+      'psp_movements',
+      'psp_records',
+    ]);
+    expect(result.mismatches.filter((m) => m.check.startsWith('psp_'))).toEqual([]);
+  });
+});
+
+async function cashOperationsTotal(): Promise<bigint> {
+  const rows = await handle.db
+    .select({ amount: cashOperations.amount })
+    .from(cashOperations)
+    .where(eq(cashOperations.kind, 'deposit'));
+  return rows.reduce((sum, row) => sum + row.amount, 0n);
+}

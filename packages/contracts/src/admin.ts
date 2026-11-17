@@ -33,7 +33,15 @@ import { WalletTransaction } from './wallet';
 // Roles and permissions (the one RBAC matrix: the API guards with it, the
 // admin UI builds its navigation from it).
 
-export const STAFF_ROLES = ['admin', 'trader', 'finance', 'kyc', 'support', 'compliance'] as const;
+export const STAFF_ROLES = [
+  'admin',
+  'trader',
+  'finance',
+  'kyc',
+  'support',
+  'compliance',
+  'cashier',
+] as const;
 export const StaffRoleSchema = z.enum(STAFF_ROLES);
 export type StaffRole = z.infer<typeof StaffRoleSchema>;
 
@@ -66,6 +74,10 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  * - reconciliation.run: run a reconciliation now, upload a PSP statement
  *   [POST /admin/compliance/reconciliation-runs, /psp-statements]
  * - aml.review: AML flags and their review [/admin/compliance/aml-flags*]
+ * - cashier.desk: a shop's desk: open and close one's own shift, find a player, take cash
+ *   deposits, print receipts [/admin/cashier/*, except the reports and the shop settings]
+ * - cashier.reports: every shift and its operations [GET /admin/cashier/shifts*]
+ *   (the shop's name, address and limits change with settings.edit)
  * (COMPLIANCE_ROUTE_PERMISSIONS in compliance.ts lists every compliance route.)
  */
 export const STAFF_PERMISSIONS = [
@@ -92,6 +104,8 @@ export const STAFF_PERMISSIONS = [
   'reports.view',
   'reconciliation.run',
   'aml.review',
+  'cashier.desk',
+  'cashier.reports',
 ] as const;
 export const StaffPermissionSchema = z.enum(STAFF_PERMISSIONS);
 export type StaffPermission = z.infer<typeof StaffPermissionSchema>;
@@ -121,6 +135,9 @@ export const PERMISSION_ROLES: Readonly<Record<StaffPermission, readonly StaffRo
   'reports.view': ['admin', 'compliance', 'finance'],
   'reconciliation.run': ['admin', 'compliance', 'finance'],
   'aml.review': ['admin', 'compliance'],
+  // A cashier holds only the desk; supervisors (finance, admin) may work a desk too.
+  'cashier.desk': ['admin', 'finance', 'cashier'],
+  'cashier.reports': ['admin', 'finance', 'compliance'],
 };
 
 /** Whether `role` holds `permission` (false for anything unknown). */
