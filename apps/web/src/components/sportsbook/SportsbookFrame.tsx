@@ -64,7 +64,7 @@ export async function SportsbookFrame({
       aria-current={c.slug === competition ? 'page' : undefined}
       className="chip"
     >
-      <LeagueIcon flag={c.flag} badge={c.badge} />
+      <LeagueIcon flag={c.flag} badge={c.badge} className="text-xl leading-none" />
       <span className="lg:min-w-0 lg:flex-1 lg:truncate">{localName(c.name, locale)}</span>
       <span className="text-xxs tabular-nums opacity-70">{c.eventCount}</span>
     </Link>
@@ -145,7 +145,9 @@ export async function SportsbookFrame({
                   className="chip"
                   aria-current={s === sport ? 'page' : undefined}
                 >
-                  <span aria-hidden="true">{SPORT_ICONS[s]}</span>
+                  <span aria-hidden="true" className="text-xl leading-none">
+                    {SPORT_ICONS[s]}
+                  </span>
                   <span className="lg:min-w-0 lg:flex-1 lg:truncate">
                     {t(`common.sports.${s}`)}
                   </span>

@@ -534,6 +534,13 @@ the conventional spelling of known names (`amharic-names.data.ts`: countries, co
 Ethiopian clubs), else football words translated (U20, Women, Cup) and the rest written in fidel by
 sound. A name staff wrote in Amharic always wins. A native speaker should review the dictionary.
 
+**Owner's requests of 17 Nov (done):** the featured area is a row of small cards that scroll
+sideways, big matches only (`isBigMatch`: the Top Leagues, or senior national teams of the big
+nations; live first, at most 8); bigger flags, logos and icons in the sidebar, the phone panel and
+the league lists; on "this number is already registered" the form offers Log in and Forgot PIN; a
+first load that meets network trouble retries before showing the player signed out. Page budget
+168 KB (logos). Still open: the Forgot PIN over Telegram (X12, `docs/plans/telegram-pin-reset.md`).
+
 **Decisions of the owner, late evening:** years are valid PINs again (done, `945b496`); for the
 locked odds "use your recommendation" (below); a PIN reset over Telegram when no SMS gateway exists
 (designed: `docs/plans/telegram-pin-reset.md`); the Next.js upgrade (16.4.2 to 16.4.5, advisory

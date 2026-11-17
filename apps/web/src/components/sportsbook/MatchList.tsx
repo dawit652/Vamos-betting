@@ -72,7 +72,7 @@ export async function MatchList({
                     { slug: group.slug, name: group.name },
                     { slug: '', countryCode: null },
                   ))}
-                className="text-base leading-none"
+                className="text-2xl leading-none"
               />
               <span className="min-w-0 flex-1 truncate">
                 <span className="text-xs text-muted">{localName(group.category, locale)} · </span>

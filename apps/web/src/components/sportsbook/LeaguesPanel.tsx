@@ -83,7 +83,7 @@ export default function LeaguesPanel({
       className="leagues-row"
       onClick={close}
     >
-      <LeagueIcon flag={c.flag} badge={c.badge} />
+      <LeagueIcon flag={c.flag} badge={c.badge} className="text-2xl leading-none" />
       <span className="min-w-0 flex-1 truncate">{c.name}</span>
       <span className="text-xxs tabular-nums opacity-70">{c.count}</span>
     </Link>

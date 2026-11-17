@@ -140,6 +140,82 @@ export function topLeagues(
   return [...found.entries()].sort(([a], [b]) => a - b).map(([, { league }]) => league);
 }
 
+/**
+ * National teams whose matches are big matches for the featured row: FIFA's top ranks, Africa's
+ * strongest sides and Ethiopia. English names as the feeds write them (lower case, no accents).
+ */
+const BIG_NATIONS: ReadonlySet<string> = new Set([
+  'argentina',
+  'spain',
+  'france',
+  'england',
+  'brazil',
+  'portugal',
+  'netherlands',
+  'belgium',
+  'italy',
+  'germany',
+  'croatia',
+  'morocco',
+  'uruguay',
+  'colombia',
+  'mexico',
+  'usa',
+  'united states',
+  'japan',
+  'senegal',
+  'switzerland',
+  'denmark',
+  'austria',
+  'south korea',
+  'korea republic',
+  'turkey',
+  'turkiye',
+  'norway',
+  'nigeria',
+  'egypt',
+  'algeria',
+  'ivory coast',
+  'cote divoire',
+  'cameroon',
+  'ghana',
+  'tunisia',
+  'south africa',
+  'ethiopia',
+]);
+
+/** A youth, women's, Olympic or reserve side: never a big match, whatever the teams. */
+const NOT_SENIOR = /\bu\d{2}\b|youth|women|junior|olympic|reserve/i;
+
+const plainName = (text: string) =>
+  text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/['’.]/g, '')
+    .trim()
+    .toLowerCase();
+
+/**
+ * Whether an event belongs in the featured row (owner, 17 Nov 2026: "only big matches from top
+ * leagues or top rank nations"): a match of a top league (`topSlugs`, from topLeagues), or a
+ * senior national-team match with a big nation.
+ */
+export function isBigMatch(
+  event: {
+    competition: { slug: string; name: { en: string } };
+    home: { name: { en: string } };
+    away: { name: { en: string } };
+  },
+  topSlugs: ReadonlySet<string>,
+): boolean {
+  if (topSlugs.has(event.competition.slug)) return true;
+  const teams = [event.home.name.en, event.away.name.en];
+  if (NOT_SENIOR.test(event.competition.name.en) || teams.some((team) => NOT_SENIOR.test(team))) {
+    return false;
+  }
+  return teams.some((team) => BIG_NATIONS.has(plainName(team)));
+}
+
 /** Flag and badge by competition slug: the marks of MatchList's league cards. */
 export function competitionMarks(
   data: CompetitionsResponse | null | undefined,

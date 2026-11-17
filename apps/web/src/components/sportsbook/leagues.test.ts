@@ -1,7 +1,13 @@
 import type { CompetitionsResponse } from '@vamos/contracts';
 import { describe, expect, it } from 'vitest';
 import { EUROPE, WORLD, flagEmoji } from '@/lib/flag';
-import { competitionMarks, orderLeagueCategories, topLeagueRank, topLeagues } from './leagues';
+import {
+  competitionMarks,
+  isBigMatch,
+  orderLeagueCategories,
+  topLeagueRank,
+  topLeagues,
+} from './leagues';
 
 const comp = (slug: string, eventCount: number, featured: boolean) => ({
   slug,
@@ -228,5 +234,36 @@ describe('topLeagues: football, a fixed list like the Hulusport column', () => {
       ],
     };
     expect(topLeagues(data, 'basketball').map((c) => c.slug)).toEqual(['nba', 'euroleague']);
+  });
+});
+
+describe('isBigMatch: the featured row', () => {
+  const match = (slug: string, competition: string, home: string, away: string) => ({
+    competition: { slug, name: { en: competition } },
+    home: { name: { en: home } },
+    away: { name: { en: away } },
+  });
+  const top = new Set(['premier-league', 'uefa-champions-league']);
+
+  it('takes every match of a top league', () => {
+    expect(isBigMatch(match('premier-league', 'Premier League', 'Fulham', 'Brentford'), top)).toBe(
+      true,
+    );
+  });
+
+  it('takes a senior national-team match with a big nation', () => {
+    expect(isBigMatch(match('hl-1', 'Int. Friendly Games', 'Brazil', 'Bolivia'), top)).toBe(true);
+    expect(
+      isBigMatch(match('hl-2', 'World Cup Qualification', 'Côte d’Ivoire', 'Gabon'), top),
+    ).toBe(true);
+    expect(isBigMatch(match('hl-3', 'Friendlies', 'Ethiopia', 'Kenya'), top)).toBe(true);
+  });
+
+  it('leaves out small nations, youth and women sides, and ordinary leagues', () => {
+    expect(isBigMatch(match('hl-1', 'Int. Friendly Games', 'Malaysia', 'Yemen'), top)).toBe(false);
+    expect(isBigMatch(match('hl-4', 'U20 Friendly Games', 'Brazil', 'Peru'), top)).toBe(false);
+    expect(isBigMatch(match('hl-5', 'Friendlies Women', 'France', 'Spain'), top)).toBe(false);
+    expect(isBigMatch(match('hl-6', 'Friendlies', 'Brazil U23', 'Chile U23'), top)).toBe(false);
+    expect(isBigMatch(match('hl-7', 'Superliga', 'Midtjylland', 'Brondby'), top)).toBe(false);
   });
 });
