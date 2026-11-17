@@ -2,6 +2,18 @@
 
 Oct 27, 2026 · @Which Version Of Claude Are U
 
+## Start here (every session, to save tokens)
+
+1. Read only `docs/plans/remaining-tasks.md` (short), then the plan doc of the task you take. Do
+   not read the long handover, progress or architecture docs unless that task needs a section.
+2. Read code with targeted `grep` and line ranges, not whole files. No screenshots and no full
+   test suites unless the change needs them: test what you change; full checks before a push.
+3. One build and one e2e run per batch of changes; reuse a running stack (`e2e/scripts/stack.sh`).
+4. Short answers to the owner; never re-explain earlier work.
+5. Near the end of the 5-hour window: stop new work, commit and push, and update
+   `docs/plans/remaining-tasks.md` in a few lines. After a limit reset or a restart, do not resume
+   on your own: wait for the owner's next message.
+
 ## Overview
 
 Vamos Betting is a mobile-first sportsbook for Costa Rica, modelled on Betika: a TypeScript pnpm monorepo. Money stays in Ethiopian birr (ETB) and deposits and payouts go through telebirr, CBE (SMS rail) and Chapa.
