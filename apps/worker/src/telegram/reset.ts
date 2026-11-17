@@ -37,7 +37,15 @@ export function createResetCodeRequester(options: {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(options.timeoutMs ?? 5_000),
     });
-    if (response.status === 429) return { status: 'limited' };
+    if (response.status === 429) {
+      // otp_cooldown (a code went out less than a minute ago) is not otp_limit (too many codes).
+      const answer = (await response.json().catch(() => null)) as {
+        error?: { code?: string; details?: { retryAfterSeconds?: number } };
+      } | null;
+      return answer?.error?.code === 'otp_cooldown'
+        ? { status: 'cooldown', seconds: answer.error.details?.retryAfterSeconds ?? 60 }
+        : { status: 'limited' };
+    }
     if (!response.ok) return { status: 'unavailable' };
     const parsed = TelegramResetCodeResponse.safeParse(await response.json());
     if (!parsed.success) return { status: 'unavailable' };

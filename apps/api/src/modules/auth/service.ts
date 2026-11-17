@@ -38,6 +38,7 @@ import { toLocale, type Locale } from '../../lib/locale';
 import {
   consumeOtp,
   createOtpChallenge,
+  TELEGRAM_REQUESTER_PREFIX,
   otpExpired,
   otpSentBody,
   sendOtpSms,
@@ -524,7 +525,7 @@ export async function issueTelegramResetCode(
       phone,
       purpose: 'password_reset',
       now,
-      requesterKey: `telegram:${input.chatId}`,
+      requesterKey: `${TELEGRAM_REQUESTER_PREFIX}${input.chatId}`,
     });
     await writeAudit(tx, {
       actorType: 'user',

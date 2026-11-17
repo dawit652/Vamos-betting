@@ -51,9 +51,11 @@ const TEXT = {
     resetNotOwn: 'Please share your own number with the button below.',
     resetNoAccount: 'No Nahubet account uses this number. You can register on the website.',
     resetLimited: 'Too many codes were asked for this number. Try again in an hour.',
+    resetCooldown:
+      'A code was sent a moment ago. Use it, or wait {seconds} seconds and ask again (a new code replaces the old one).',
     resetUnavailable: 'The code cannot be sent right now. Try again in a minute.',
     resetCode:
-      'Your Nahubet code: {code}\nIt is valid for 5 minutes. Never share it with anyone, not even Nahubet staff.\nOn the website, enter it with your phone number and choose a new PIN.',
+      'Your Nahubet code: {code}\nIt is valid for 5 minutes. Never share it with anyone, not even Nahubet staff.\nOn the website, enter it with your phone number and choose a new PIN. A newer code replaces this one: always use the newest.',
     resetOpen: 'Choose a new PIN',
     menuShare: 'Share with friends',
     shareText: 'Nahubet on Telegram: today’s matches, live scores and odds. Join here:',
@@ -93,9 +95,10 @@ const TEXT = {
     resetNotOwn: 'እባክዎ ከታች ባለው ቁልፍ የራስዎን ቁጥር ያጋሩ።',
     resetNoAccount: 'በዚህ ቁጥር የናሁቤት መለያ የለም። በድረ-ገጹ ላይ መመዝገብ ይችላሉ።',
     resetLimited: 'ለዚህ ቁጥር ብዙ ኮዶች ተጠይቀዋል። ከአንድ ሰዓት በኋላ እንደገና ይሞክሩ።',
+    resetCooldown: 'ኮድ አሁን ተልኳል። ይጠቀሙበት፣ ወይም {seconds} ሰከንድ ጠብቀው እንደገና ይጠይቁ (አዲስ ኮድ አሮጌውን ይተካል)።',
     resetUnavailable: 'ኮዱ አሁን ሊላክ አይችልም። ከአንድ ደቂቃ በኋላ እንደገና ይሞክሩ።',
     resetCode:
-      'የናሁቤት ኮድዎ፦ {code}\nለ5 ደቂቃ ያገለግላል። ለማንም አያጋሩ፣ ለናሁቤት ሰራተኞችም ቢሆን።\nበድረ-ገጹ ላይ ከስልክ ቁጥርዎ ጋር ያስገቡትና አዲስ ፒን ይምረጡ።',
+      'የናሁቤት ኮድዎ፦ {code}\nለ5 ደቂቃ ያገለግላል። ለማንም አያጋሩ፣ ለናሁቤት ሰራተኞችም ቢሆን።\nበድረ-ገጹ ላይ ከስልክ ቁጥርዎ ጋር ያስገቡትና አዲስ ፒን ይምረጡ። አዲስ ኮድ ይህን ይተካል፤ ሁልጊዜ የመጨረሻውን ይጠቀሙ።',
     resetOpen: 'አዲስ ፒን ይምረጡ',
     menuShare: 'ለጓደኞችዎ ያጋሩ',
     shareText: 'ናሁቤት በቴሌግራም፦ የዛሬ ጨዋታዎች፣ የቀጥታ ውጤቶችና ዕድሎች። እዚህ ይቀላቀሉ፦',

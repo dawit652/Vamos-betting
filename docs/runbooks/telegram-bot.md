@@ -72,6 +72,11 @@ The live server has no SMS gateway, so a forgotten PIN is reset through the bot 
    five an hour per number) with a button to the reset page, where the player enters their phone
    number, the code and a new PIN.
 
+A reset code asked for on the website afterwards (the Forgot PIN form's "Send code") does not cancel
+a Telegram code that is still valid, and any live code of the number is accepted; a newer Telegram
+code replaces an older one (always use the newest). Found on 17 Nov 2026 when the owner's Telegram
+code was refused after pressing "Send code".
+
 Players need Telegram on the phone number of their Nahubet account. The worker asks the API for
 the code over the compose network, signed with `SESSION_SECRET` (`/internal/telegram/password-reset`,
 refused when the signature is wrong or older than 60 seconds). The code and the number are never

@@ -568,6 +568,13 @@ describe('Telegram bot: Forgot PIN (X12)', () => {
     expect(failing.sent[0]!.text).toContain('cannot be sent right now');
   });
 
+  it('tells a number that just got a code to use it, with the seconds to wait', async () => {
+    const { deps, sent } = withReset({ status: 'cooldown', seconds: 42 });
+    await handleUpdate(deps, contact(76, '+251911234567', 76));
+    expect(sent[0]!.text).toContain('A code was sent a moment ago');
+    expect(sent[0]!.text).toContain('42 seconds');
+  });
+
   it('ignores a shared number while the reset is off, or in a group', async () => {
     const off = botDeps();
     await handleUpdate(off.deps, contact(75, '+251911234567', 75));
@@ -630,6 +637,10 @@ describe('createResetCodeRequester', () => {
         fetch: async () => new Response(JSON.stringify(body), { status }),
       })({ phone: '+251911234567', chatId: 9 });
     expect(await answer(429, { error: {} })).toEqual({ status: 'limited' });
+    expect(
+      await answer(429, { error: { code: 'otp_cooldown', details: { retryAfterSeconds: 42 } } }),
+    ).toEqual({ status: 'cooldown', seconds: 42 });
+    expect(await answer(429, { error: { code: 'otp_limit' } })).toEqual({ status: 'limited' });
     expect(await answer(401, { error: {} })).toEqual({ status: 'unavailable' });
     expect(await answer(200, { status: 'sent', code: 'abc' })).toEqual({ status: 'unavailable' });
     expect(await answer(200, { status: 'no_account' })).toEqual({ status: 'no_account' });

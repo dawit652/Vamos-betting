@@ -38,6 +38,7 @@ export type ResetCodeResult =
   | { status: 'sent'; code: string }
   | { status: 'no_account' }
   | { status: 'limited' }
+  | { status: 'cooldown'; seconds: number }
   | { status: 'unavailable' };
 
 export interface BotDeps {
@@ -222,7 +223,9 @@ async function resetWithContact(
       ? t.resetNoAccount
       : result.status === 'limited'
         ? t.resetLimited
-        : t.resetUnavailable;
+        : result.status === 'cooldown'
+          ? t.resetCooldown.replace('{seconds}', String(result.seconds))
+          : t.resetUnavailable;
   await send(deps, chatId, { text, replyMarkup: done });
 }
 

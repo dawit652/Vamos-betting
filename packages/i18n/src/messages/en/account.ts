@@ -37,7 +37,8 @@ export const account = {
     terms: 'Accept the terms and confirm that you are 21 or older.',
     otp: 'Enter the 6-digit code.',
     otpExpired: 'This code has expired or was already used. Request a new code.',
-    otpInvalid: 'That code is not correct. Check the SMS and try again.',
+    otpInvalid:
+      'That code is not correct. Use the newest code you received (SMS or Telegram) and try again.',
     fayda: 'Enter your 12-digit FIN or 16-digit FAN.',
     fullName: 'Enter your full name (at least 2 letters).',
     amount: 'Enter an amount in birr, e.g. 500 or 250.50.',
