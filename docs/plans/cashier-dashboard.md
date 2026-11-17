@@ -3,8 +3,60 @@
 Owner's request of 17 Nov 2026: a cashier dashboard where operators pay players' withdrawals in
 cash, deposit cash for players (also when an automatic deposit failed to arrive), control players,
 and print receipts on a betting (thermal) printer, with the other features and parameters a betting
-shop needs. Status: **planned, not built**. It moves money: Opus, high effort, several sessions,
-reviewed by a second model before any deploy; owner decisions below first.
+shop needs. Status: **phase 1 built 17 Nov 2026** (desk, shifts, cash deposits, receipts; see
+"As built"); cash withdrawals next. It moves money: Opus, high effort, reviewed by a second model
+before any deploy.
+
+## As built (phase 1, 17 Nov 2026)
+
+Owner decisions were not answered; built with the recommended defaults, each one a setting:
+one shop (`main`, name and address editable), supervisor above ETB 10,000 per shop, 80 mm
+receipts (58 mm as a setting), walk-in tickets later.
+
+- **Cash is the payment provider `cash`.** A desk deposit is a `cash` payment intent credited at
+  once with the ordinary deposit posting (`house:psp:cash` -amount, player cash +amount) and the
+  ordinary `DEPOSIT_SUCCEEDED` event. So deposit limits, exclusions, AML, the player's history and
+  SMS notice, the wallet push and reconciliation all treat it like any deposit (tested,
+  reconciliation included). A withdrawal will be an ordinary payout of provider `cash` paid at the
+  desk (same rules as online: KYC, wagering, daily cap, AML hold).
+- **Data** (migration `0057_cashier_desk`): role `cashier`; `cashier_shops` (receipt header,
+  width, approval threshold, active); `cashier_shifts` (one open shift per staff member; float,
+  count, expected cash fixed at the close); `cash_operations` (the receipts: number, shift, shop,
+  staff, player, amount, the intent or payout, the desk's idempotency key, copies). The app role
+  cannot delete shifts or receipts.
+- **Services** `packages/db/src/cashier/desk.ts`: `openShift`, `closeShift` (under the shift's
+  lock), `cashDeposit` (replay-safe, also for two requests with one key; refuses above the shop
+  threshold unless finance/admin; `assertDepositAllowed` for limits and exclusions),
+  `findDeskPlayer`, `getReceipt`, `recordReprint`, `updateShop`, `listShifts`.
+- **API** `apps/api/src/modules/admin/cashier.ts` under `/admin/cashier/*`: permissions
+  `cashier.desk` (cashier, finance, admin), `cashier.reports` (finance, compliance, admin), shop
+  settings with `settings.edit` (admin). The cashier role holds only the desk (no dashboard, no
+  player list).
+- **Back office**: `/cashier` (open shift, find player, cash deposit, receipts of the shift, close
+  with count and a printable Z report), `/cashier/receipt/<id>` (80 or 58 mm, auto print; a copy
+  says COPY and is counted and audited), `/cashier/shifts` (all shifts with variance; shop
+  settings), `/cashier/shifts/<id>` and its printable report. Printing is the browser's print with
+  `@page` named sizes: any thermal printer with a driver (Xprinter, Epson TM).
+- **Demo**: `cashier@demo.vamos.test` (demo mode only, like the other demo staff). On the live
+  server a cashier account is made with `pnpm admin:create` and role `cashier`.
+
+## Next phases (in order)
+
+1. **Cash withdrawal at the desk.** The player makes a one-time withdrawal code on their own phone
+   (logged in: "Withdraw at a shop"), so the cashier never learns a PIN; at the desk: phone + code
+   - amount → `requestWithdrawal` with provider `cash` (all online rules) → paid at once when
+     auto-approved and under the shop threshold, else refused with the reason. The payout worker
+     must never take a `cash` payout (`claimDuePayouts`: exclude provider `cash`). Receipt with a
+     signature line.
+2. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
+   flagged deposits) rather than a new credit path; a supervisor-only "credit by provider
+   reference" if still needed.
+3. **Player control** at the desk (block/unblock with reason, audited) and assisted PIN reset
+   with ID check and four eyes.
+4. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
+   (`adjustment`, house cash vs revenue); today the variance is recorded and shown, not posted.
+5. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
+6. Retail walk-in tickets (largest; later).
 
 ## Rules for every session of this work
 

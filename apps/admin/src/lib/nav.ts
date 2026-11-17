@@ -19,6 +19,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/bets', label: 'Bets', permission: 'bets.view' },
   { href: '/withdrawals', label: 'Withdrawals', permission: 'withdrawals.view' },
   { href: '/manual-payouts', label: 'Manual payouts', permission: 'payouts.settle_manual' },
+  { href: '/cashier', label: 'Cashier desk', permission: 'cashier.desk' },
+  { href: '/cashier/shifts', label: 'Cash shifts', permission: 'cashier.reports' },
   { href: '/sms', label: 'SMS rail', permission: 'sms.review' },
   { href: '/jackpots', label: 'Jackpots', permission: 'jackpots.view' },
   { href: '/compliance/reconciliation', label: 'Reconciliation', permission: 'reports.view' },
@@ -49,4 +51,9 @@ export function permissionForPath(pathname: string): string | null {
 export function canView(permissions: readonly string[], pathname: string): boolean {
   const needed = permissionForPath(pathname);
   return needed === null || permissions.includes(needed);
+}
+
+/** Where a staff member lands after sign-in: the first page they can see, else their account. */
+export function homeFor(permissions: readonly string[]): string {
+  return navFor(permissions)[0]?.href ?? '/account';
 }

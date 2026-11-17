@@ -10,7 +10,8 @@ import { ADMIN_URL, API_URL } from './env';
  * does not depend on the db package. Never used outside demo mode.
  */
 
-export type StaffRole = 'admin' | 'trader' | 'finance' | 'kyc' | 'support' | 'compliance';
+export type StaffRole =
+  'admin' | 'trader' | 'finance' | 'kyc' | 'support' | 'compliance' | 'cashier';
 
 export const DEMO_STAFF_PASSWORD = 'vamos-demo-staff';
 /** Base32 TOTP secret shared by every demo staff user. */

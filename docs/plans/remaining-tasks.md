@@ -18,9 +18,10 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
 2. **Team logos: check on live after the owner deploys** (built 17 Nov, `docs/plans/team-logos.md`
    "As built"). Logos appear only with `SCRAPER_SECRET_API_FOOTBALL` set on the server; the
    scraper logs `team logo download failed` or `team logos skipped` when something is wrong.
-3. **Cashier dashboard with receipt printer** (owner, 17 Nov): `docs/plans/cashier-dashboard.md`.
-   Money path: Opus high, several sessions, owner decisions first (shops, limits, printer,
-   four-eyes threshold, walk-in tickets).
+3. **Cashier dashboard**: phase 1 built 17 Nov (desk, shifts, cash deposits, receipts; cash is
+   the payment provider `cash`). Next: cash withdrawal with a player-made code, then the other
+   phases in `docs/plans/cashier-dashboard.md` ("Next phases"). Money path: Opus high. Owner
+   decisions still open (shops, limits, printer, walk-in tickets); defaults are settings.
 4. **X6b failed-login alarm** (open): many failed logins or many numbers tried in 15 minutes
    raise an alarm (`apps/api/src/lib/rate-limits.ts`, alarms are `error` log lines with `alarm`).
 5. **X11 rule O1h, locked odds** (open, money path): `docs/plans/scale-and-payments-handover.md`
@@ -42,7 +43,7 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
   `E2E_CHROMIUM_PATH=/opt/pw-browsers/chromium npx playwright test <spec> --trace off`.
 - Home page weight 167.4 KB, budget 168 KB (`e2e/tests/budget.spec.ts`): new UI needs room first.
 - Migrations: Drizzle runs one only if its journal `when` is later than the last applied one
-  (handover, "migration" notes); next free number after 0056.
+  (handover, "migration" notes); next free number after 0057.
 - Done on 16-17 Nov (no need to re-read): Telegram bot (alerts, menu, /status, Forgot PIN,
   share), Amharic names (`amharic-names.ts`), Top leagues fixed list, competition logos, featured
   row of big matches, team flags for national teams, merged country chips, tap feedback and the

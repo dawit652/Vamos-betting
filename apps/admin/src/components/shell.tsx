@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { canView, navFor } from '@/lib/nav';
+import { canView, homeFor, navFor } from '@/lib/nav';
 import { otherTheme, themeCookie, type Theme } from '@/lib/theme';
 import { useSession } from './session';
 
@@ -38,12 +38,19 @@ export function Shell({ theme, children }: { theme: Theme; children: ReactNode }
 
   useEffect(() => {
     if (state.status === 'anonymous' && !onLogin) router.replace('/login');
-    if (state.status === 'ready' && onLogin) router.replace(mustChangePassword ? '/account' : '/');
+    if (state.status === 'ready' && onLogin) {
+      router.replace(mustChangePassword ? '/account' : homeFor(permissions));
+    }
+    // A role without the dashboard (the cashier) lands on its own first page instead.
+    if (state.status === 'ready' && pathname === '/' && !mustChangePassword) {
+      const home = homeFor(permissions);
+      if (home !== '/' && !canView(permissions, '/')) router.replace(home);
+    }
     // Until the staff member sets a password of their own, the API refuses everything else.
     if (state.status === 'ready' && mustChangePassword && !onLogin && !onAccount) {
       router.replace('/account');
     }
-  }, [state.status, onLogin, onAccount, mustChangePassword, router]);
+  }, [state.status, onLogin, onAccount, mustChangePassword, permissions, pathname, router]);
 
   if (onLogin) return <>{children}</>;
   if (state.status !== 'ready' || staff === null) return <p className="muted pad">Loading…</p>;
