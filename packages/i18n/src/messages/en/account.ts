@@ -103,10 +103,15 @@ export const account = {
     title: 'Forgot your PIN?',
     intro: 'Enter your phone number. If it has an account, we will send a code by SMS.',
     submit: 'Send code',
+    telegramTitle: 'Or get the code on Telegram',
+    telegramHint:
+      'Open the Nahubet bot on Telegram and share your phone number with it. It sends you the code; then enter it here with a new PIN.',
+    telegram: 'Get the code on Telegram',
+    haveCode: 'I have a code',
   },
   reset: {
     title: 'Choose a new PIN',
-    intro: 'Enter the code we sent by SMS and choose a new 4-digit PIN.',
+    intro: 'Enter the code we sent you (by SMS or on Telegram) and choose a new 4-digit PIN.',
     submit: 'Change PIN',
     requestAgain: 'Did not get a code? Request a new one',
   },

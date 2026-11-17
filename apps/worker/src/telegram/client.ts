@@ -16,11 +16,18 @@ export interface TelegramChat {
   type: 'private' | 'group' | 'supergroup' | 'channel';
 }
 
+/** A shared contact; `user_id` is set when it is a Telegram user's own card. */
+export interface TelegramContact {
+  phone_number: string;
+  user_id?: number;
+}
+
 export interface TelegramMessage {
   message_id: number;
   chat: TelegramChat;
   from?: TelegramUser;
   text?: string;
+  contact?: TelegramContact;
 }
 
 export interface TelegramCallbackQuery {
@@ -41,6 +48,19 @@ export type InlineButton = { text: string; url: string } | { text: string; callb
 export interface InlineKeyboard {
   inline_keyboard: InlineButton[][];
 }
+
+/** A keyboard under the message box; `request_contact` asks Telegram to share the user's number. */
+export interface ReplyKeyboard {
+  keyboard: { text: string; request_contact?: boolean }[][];
+  resize_keyboard?: boolean;
+  one_time_keyboard?: boolean;
+}
+
+export interface ReplyKeyboardRemove {
+  remove_keyboard: true;
+}
+
+export type ReplyMarkup = InlineKeyboard | ReplyKeyboard | ReplyKeyboardRemove;
 
 /** A call the Bot API refused (`ok: false`), or an HTTP error without a body. */
 export class TelegramError extends Error {
@@ -68,7 +88,7 @@ export interface TelegramClient {
   sendMessage(
     chatId: number,
     text: string,
-    options?: { replyMarkup?: InlineKeyboard },
+    options?: { replyMarkup?: ReplyMarkup },
   ): Promise<TelegramMessage>;
   answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void>;
 }

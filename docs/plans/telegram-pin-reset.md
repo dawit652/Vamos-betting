@@ -4,8 +4,14 @@ Owner's request of 16 Nov 2026: "if an SMS gateway is not available, use a Teleg
 option". Today a forgotten PIN cannot be reset on the live server: the reset needs an SMS code,
 `SMS_PROVIDER=mock` sends nothing, and the code is never shown on screen (by design).
 
-Status: **designed, not built.** Needs one migration (next free number after 0055) and touches
-sign-in security: Opus, high effort, one session; review by a second model before the deploy.
+Status: **built on 17 Nov 2026, simpler than designed below** (no link token, no migration): the
+website links to the bot with `?start=reset`; the bot asks for the person's own contact
+(`contact.user_id === from.id`), then asks the API for the code over a signed internal call
+(`POST /internal/telegram/password-reset`, HMAC with `SESSION_SECRET` over timestamp, phone and chat,
+at most 60 seconds old, which is also the code's resend cooldown, so a replay gets nothing). The
+API creates the usual `password_reset` challenge (same limits, the chat as requester) and returns
+the code to the worker, which sends it in that chat. Only the owner of a number learns whether it
+has an account. Operations: `docs/runbooks/telegram-bot.md`, "Forgot PIN over Telegram".
 
 ## Why Telegram can prove a phone number
 

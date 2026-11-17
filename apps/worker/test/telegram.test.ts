@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import type { EventSummary } from '@vamos/contracts';
+import { createHmac, randomUUID } from 'node:crypto';
+import { telegramResetSigningInput, type EventSummary } from '@vamos/contracts';
 import { OWNER_ALERT } from '@vamos/db';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -11,6 +11,7 @@ import {
   createTelegramClient,
   TelegramError,
   type InlineKeyboard,
+  type ReplyMarkup,
   type TelegramClient,
   type TelegramUpdate,
 } from '../src/telegram/client';
@@ -24,6 +25,7 @@ import {
   parseCommand,
   statusMessage,
 } from '../src/telegram/format';
+import { createResetCodeRequester } from '../src/telegram/reset';
 import { telegramBotTask } from '../src/telegram/task';
 import { createWorkerTestContext, SETUP_TIMEOUT, type WorkerTestContext } from './helpers';
 
@@ -124,7 +126,7 @@ describe('telegram: what the bot says', () => {
       ],
       'en',
     );
-    expect(message.replyMarkup!.inline_keyboard.flat()).toEqual([
+    expect((message.replyMarkup as InlineKeyboard).inline_keyboard.flat()).toEqual([
       { text: '🇬🇧 Premier League (9)', callback_data: 'lg:premier-league' },
     ]);
     expect(flagOf('ET')).toBe('🇪🇹');
@@ -213,7 +215,7 @@ describe('telegram: the client', () => {
 
 /** A Telegram client that records what the bot sends. */
 function fakeClient() {
-  const sent: { chatId: number; text: string; replyMarkup?: InlineKeyboard }[] = [];
+  const sent: { chatId: number; text: string; replyMarkup?: ReplyMarkup }[] = [];
   const answered: string[] = [];
   const client: TelegramClient = {
     getMe: async () => ({ id: 1, username: 'NahubetBot' }),
@@ -317,8 +319,8 @@ describe('telegram: the bot', () => {
     await handleUpdate(deps, message(7, 'hello'));
     expect(sent[1]!.text).toContain('Welcome to Nahubet');
     expect(
-      sent[1]!
-        .replyMarkup!.inline_keyboard.flat()
+      (sent[1]!.replyMarkup as InlineKeyboard).inline_keyboard
+        .flat()
         .map((b) => 'callback_data' in b && b.callback_data),
     ).toEqual(['m:today', 'm:live', 'm:top', 'm:leagues']);
   });
@@ -477,5 +479,159 @@ describe('telegram: owner alerts', () => {
       [111, 'Odds reads are stopped.'],
       [-222, 'Odds reads are stopped.'],
     ]);
+  });
+});
+
+describe('Telegram bot: Forgot PIN (X12)', () => {
+  const contact = (chatId: number, phone: string, userId: number | undefined): TelegramUpdate => ({
+    update_id: (updateId += 1),
+    message: {
+      message_id: updateId,
+      chat: { id: chatId, type: 'private' },
+      from: { id: chatId, language_code: 'en' },
+      contact: { phone_number: phone, ...(userId === undefined ? {} : { user_id: userId }) },
+    },
+  });
+  const asked: { phone: string; chatId: number }[] = [];
+  const lines: string[] = [];
+  const recording = {
+    warn: (...args: unknown[]) => lines.push(JSON.stringify(args)),
+    info: (...args: unknown[]) => lines.push(JSON.stringify(args)),
+  } as unknown as Logger;
+  const withReset = (result: Awaited<ReturnType<NonNullable<BotDeps['resetCode']>>>) =>
+    botDeps({
+      logger: recording,
+      resetCode: async (input) => {
+        asked.push(input);
+        return result;
+      },
+    });
+
+  it('asks for the number with the share button, from /reset, the menu and /start reset', async () => {
+    const { deps, sent } = withReset({ status: 'sent', code: '123456' });
+    await handleUpdate(deps, message(70, '/reset'));
+    await handleUpdate(deps, press(70, 'm:reset'));
+    await handleUpdate(deps, message(70, '/start reset'));
+    expect(sent).toHaveLength(3);
+    for (const reply of sent) {
+      expect(reply.text).toContain('share your phone number');
+      expect(reply.replyMarkup).toMatchObject({
+        keyboard: [[{ text: 'Share my phone number', request_contact: true }]],
+      });
+    }
+    // The menu offers it.
+    await handleUpdate(deps, message(70, '/start'));
+    expect(JSON.stringify(sent[3]!.replyMarkup)).toContain('m:reset');
+  });
+
+  it("sends the code for the sender's own number, with a button to the reset page", async () => {
+    asked.length = 0;
+    lines.length = 0;
+    const { deps, sent } = withReset({ status: 'sent', code: '482913' });
+    await handleUpdate(deps, contact(71, '251911234567', 71));
+    expect(asked).toEqual([{ phone: '+251911234567', chatId: 71 }]);
+    expect(sent[0]!.text).toContain('482913');
+    expect(JSON.stringify(sent[0]!.replyMarkup)).toContain(`${WEB}/reset-password`);
+    // Never in a log line: neither the code nor the number.
+    expect(lines.join('\n')).not.toContain('482913');
+    expect(lines.join('\n')).not.toContain('911234567');
+  });
+
+  it("refuses someone else's card, and tells only the number's owner there is no account", async () => {
+    asked.length = 0;
+    const { deps, sent } = withReset({ status: 'no_account' });
+    await handleUpdate(deps, contact(72, '+251911234567', 999));
+    await handleUpdate(deps, contact(72, '+251911234567', undefined));
+    expect(asked).toEqual([]);
+    expect(sent.map((s) => s.text)).toEqual([
+      'Please share your own number with the button below.',
+      'Please share your own number with the button below.',
+    ]);
+    await handleUpdate(deps, contact(72, '+251911234567', 72));
+    expect(sent[2]!.text).toContain('No Nahubet account uses this number');
+    // A foreign number cannot have an account: the API is not even asked.
+    await handleUpdate(deps, contact(72, '+447700900123', 72));
+    expect(asked).toHaveLength(1);
+  });
+
+  it('says when the number asked too often or the code cannot be had', async () => {
+    const limited = withReset({ status: 'limited' });
+    await handleUpdate(limited.deps, contact(73, '+251911234567', 73));
+    expect(limited.sent[0]!.text).toContain('Try again in an hour');
+    const failing = botDeps({
+      logger: recording,
+      resetCode: async () => {
+        throw new Error('network down');
+      },
+    });
+    await handleUpdate(failing.deps, contact(74, '+251911234567', 74));
+    expect(failing.sent[0]!.text).toContain('cannot be sent right now');
+  });
+
+  it('ignores a shared number while the reset is off, or in a group', async () => {
+    const off = botDeps();
+    await handleUpdate(off.deps, contact(75, '+251911234567', 75));
+    expect(off.sent).toEqual([]);
+    const { deps, sent } = withReset({ status: 'sent', code: '111111' });
+    await handleUpdate(deps, {
+      update_id: (updateId += 1),
+      message: {
+        message_id: updateId,
+        chat: { id: OWNER, type: 'group' },
+        from: { id: OWNER },
+        contact: { phone_number: '+251911234567', user_id: OWNER },
+      },
+    });
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('createResetCodeRequester', () => {
+  const SECRET = 'test-session-secret-0123456789abcdef0123456789';
+  const clock = () => new Date('2026-11-17T08:00:00Z');
+
+  it('signs the request the way the API checks it, and reads the code', async () => {
+    let seen: { url: string; headers: Record<string, string>; body: string } | undefined;
+    const ask = createResetCodeRequester({
+      baseUrl: 'http://api:4000/',
+      secret: SECRET,
+      clock,
+      fetch: async (url, init) => {
+        seen = {
+          url: url as string,
+          headers: init?.headers as Record<string, string>,
+          body: init?.body as string,
+        };
+        return new Response(
+          JSON.stringify({ status: 'sent', code: '048213', expiresAt: '2026-11-17T08:05:00Z' }),
+          { status: 200 },
+        );
+      },
+    });
+    expect(await ask({ phone: '+251911234567', chatId: 9 })).toEqual({
+      status: 'sent',
+      code: '048213',
+    });
+    expect(seen!.url).toBe('http://api:4000/internal/telegram/password-reset');
+    const body = JSON.parse(seen!.body) as { phone: string; chatId: number; timestamp: number };
+    expect(body).toEqual({ phone: '+251911234567', chatId: 9, timestamp: 1_794_902_400 });
+    const expected = createHmac('sha256', SECRET)
+      .update(telegramResetSigningInput(body))
+      .digest('hex');
+    expect(seen!.headers['x-vamos-signature']).toBe(expected);
+  });
+
+  it('turns 429 into limited and anything unexpected into unavailable', async () => {
+    const answer = (status: number, body: unknown) =>
+      createResetCodeRequester({
+        baseUrl: 'http://api:4000',
+        secret: SECRET,
+        clock,
+        fetch: async () => new Response(JSON.stringify(body), { status }),
+      })({ phone: '+251911234567', chatId: 9 });
+    expect(await answer(429, { error: {} })).toEqual({ status: 'limited' });
+    expect(await answer(401, { error: {} })).toEqual({ status: 'unavailable' });
+    expect(await answer(200, { status: 'sent', code: 'abc' })).toEqual({ status: 'unavailable' });
+    expect(await answer(200, { status: 'no_account' })).toEqual({ status: 'no_account' });
   });
 });

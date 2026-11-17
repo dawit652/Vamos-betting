@@ -539,7 +539,7 @@ sideways, big matches only (`isBigMatch`: the Top Leagues, or senior national te
 nations; live first, at most 8); bigger flags, logos and icons in the sidebar, the phone panel and
 the league lists; on "this number is already registered" the form offers Log in and Forgot PIN; a
 first load that meets network trouble retries before showing the player signed out. Page budget
-168 KB (logos). Still open: the Forgot PIN over Telegram (X12, `docs/plans/telegram-pin-reset.md`).
+168 KB (logos). Forgot PIN over Telegram (X12) is built: `docs/runbooks/telegram-bot.md`.
 
 **Decisions of the owner, late evening:** years are valid PINs again (done, `945b496`); for the
 locked odds "use your recommendation" (below); a PIN reset over Telegram when no SMS gateway exists
