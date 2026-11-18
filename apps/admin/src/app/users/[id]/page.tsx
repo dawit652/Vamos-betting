@@ -1,10 +1,17 @@
 'use client';
 
-import type { PlayerDetailView, StaffLimitSlotView } from '@vamos/contracts';
+import type {
+  PlayerDetailView,
+  SetPlayerStatusRequest,
+  SetPlayerStatusResponse,
+  StaffLimitSlotView,
+} from '@vamos/contracts';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useFetch } from '@/components/hooks';
-import { Badge, DefList, Loading, PageHeader } from '@/components/ui';
+import { useSession } from '@/components/session';
+import { Badge, DefList, Loading, PageHeader, ReasonAction } from '@/components/ui';
+import { api } from '@/lib/api';
 import { formatDateTime, formatEtb, formatOdds, humanize } from '@/lib/format';
 
 function limit(slot: StaffLimitSlotView): string {
@@ -16,7 +23,16 @@ function limit(slot: StaffLimitSlotView): string {
 
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: p, error, loading } = useFetch<PlayerDetailView>(`/admin/users/${id}`);
+  const { data: p, error, loading, reload } = useFetch<PlayerDetailView>(`/admin/users/${id}`);
+  const { can } = useSession();
+
+  async function setStatus(status: SetPlayerStatusRequest['status'], reason: string) {
+    await api<SetPlayerStatusResponse>(`/admin/users/${id}/status`, {
+      method: 'POST',
+      body: { status, reason } satisfies SetPlayerStatusRequest,
+    });
+    reload();
+  }
 
   return (
     <>
@@ -40,6 +56,25 @@ export default function UserDetailPage() {
                 ['Open bets', `${p.openBets.count} (${formatEtb(p.openBets.amount)} staked)`],
               ]}
             />
+            {can('users.status') && p.status === 'active' && (
+              <div className="actions">
+                <ReasonAction
+                  label="Block player"
+                  submitLabel="Block"
+                  danger
+                  onSubmit={(reason) => setStatus('suspended', reason)}
+                />
+              </div>
+            )}
+            {can('users.status') && p.status === 'suspended' && (
+              <div className="actions">
+                <ReasonAction
+                  label="Unblock player"
+                  submitLabel="Unblock"
+                  onSubmit={(reason) => setStatus('active', reason)}
+                />
+              </div>
+            )}
           </section>
           <h2>KYC</h2>
           <section className="panel">

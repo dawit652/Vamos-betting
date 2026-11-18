@@ -31,6 +31,9 @@ export interface ApiFootballFixture {
   kickoff: Date;
   home: string;
   away: string;
+  /** API-Football's team ids (the team logos are media.api-sports.io/football/teams/<id>.png). */
+  homeId: number | null;
+  awayId: number | null;
   league: string | null;
   country: string | null;
   /** fixture.status.short: NS, 1H, HT, FT, AET, PEN, PST, CANC, ABD, AWD, WO, ... */
@@ -97,11 +100,17 @@ export function parseApiFootballFixtures(
     }
     const score = isObject(row.score) ? row.score : {};
     const league = isObject(row.league) ? row.league : {};
+    const teamId = (team: unknown) =>
+      isObject(team) && typeof team.id === 'number' && Number.isSafeInteger(team.id) && team.id > 0
+        ? team.id
+        : null;
     fixtures.push({
       id,
       kickoff,
       home,
       away,
+      homeId: teamId(row.teams.home),
+      awayId: teamId(row.teams.away),
       league: text(league.name),
       country: text(league.country),
       status,

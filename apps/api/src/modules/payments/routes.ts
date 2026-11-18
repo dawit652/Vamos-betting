@@ -1,5 +1,6 @@
 import {
   AddPayoutAccountRequest,
+  type CashCodeResponse,
   ConfirmPayoutAccountRequest,
   CreateDepositRequest,
   CreateWithdrawalRequest,
@@ -15,8 +16,10 @@ import {
   type WithdrawalView,
   type WithdrawalsResponse,
 } from '@vamos/contracts';
+import { createCashCode, withTxRetry } from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { cashCodeHash, newCashCode } from '../../lib/cash-code';
 import { clientAddressKey } from '../../lib/client-address';
 import { parseInput } from '../../lib/errors';
 import { IDEMPOTENT_REPLAYED_HEADER, readIdempotencyKey } from '../../lib/idempotency';
@@ -59,6 +62,8 @@ export const PAYMENT_RATE_LIMITS = {
   createWithdrawal: 10,
   /** Per player. */
   cancelWithdrawal: 20,
+  /** Per player: shop codes for cash withdrawals at a desk. */
+  createCashCode: 10,
   /** Per (provider, client address): providers call from a few addresses. */
   webhook: 600,
   /** Per player: each check may ask the institution's receipt page. */
@@ -371,6 +376,30 @@ export default async function paymentRoutes(app: FastifyInstance): Promise<void>
       }
       noStore(reply);
       return result.withdrawal;
+    },
+  );
+
+  // A one-time code to withdraw cash at a shop's desk (docs/plans/cashier-dashboard.md): the
+  // player tells the cashier their phone number and this code; the cashier never learns a PIN.
+  app.post(
+    '/payments/cash-codes',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-cash-code', PAYMENT_RATE_LIMITS.createCashCode),
+    },
+    async (request, reply): Promise<CashCodeResponse> => {
+      const user = requireUser(request);
+      const code = newCashCode();
+      const made = await withTxRetry(deps.db, (tx) =>
+        createCashCode(tx, {
+          userId: user.id,
+          codeHash: cashCodeHash(deps.config.sessionSecret, user.id, code),
+          now: deps.clock(),
+        }),
+      );
+      void reply.status(201);
+      noStore(reply);
+      return { code, expiresAt: made.expiresAt.toISOString() };
     },
   );
 

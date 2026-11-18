@@ -246,6 +246,12 @@ export interface FetchPlanItem {
   headers?: Record<string, string>;
   /** Sent only to the origin of `url`; a redirect to another origin drops it. */
   auth?: RequestAuthRef;
+  /**
+   * `image`: the answer must be a PNG, JPEG, WebP or GIF image (anything else is refused); it is
+   * returned as bytes, never as a validated or block-checked page. robots.txt, the allow-list,
+   * the rate limit and the size cap apply as for a document. Default `document`.
+   */
+  accept?: 'document' | 'image';
 }
 
 /**

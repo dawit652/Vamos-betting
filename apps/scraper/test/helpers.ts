@@ -34,7 +34,7 @@ export const HOUR = 3_600_000;
 export const URL_A = 'https://raw.githubusercontent.com/test/en1.json';
 export const URL_B = 'https://api.example.com/events';
 
-export type Hit = { status: number; body: string; headers?: Record<string, string> };
+export type Hit = { status: number; body: string | Uint8Array; headers?: Record<string, string> };
 
 export interface Harness {
   ctx: ScraperContext;

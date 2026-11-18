@@ -1,7 +1,31 @@
 # Team logos for every team
 
 Owner's request of 17 Nov 2026: "every team should have its logo" next to its name in every match
-(the match rows, the featured cards, the event page). Status: **planned, not built**.
+(the match rows, the featured cards, the event page). Status: **built 17 Nov 2026** (see "As built";
+the design below is the plan it came from).
+
+## As built
+
+- **Data**: migration `0056_team_logos`: table `team_logos` (team, API-Football team id, 64 px
+  palette PNG, 1 to 4 KB) and `teams.logo_at` / `teams.logo_checked_at`
+  (`packages/db/src/catalog/team-logos.ts`).
+- **Job**: scraper task `team-logos` (`apps/scraper/src/tasks/team-logos.ts`), every 6 hours, only
+  with `SCRAPER_SECRET_API_FOOTBALL`; `SCRAPER_TEAM_LOGOS=off` stops it. Football matches of the next
+  2 days with a team without a logo; one `/fixtures?date=` request per kickoff day (at most 3 a pass;
+  the fixtures carry the team ids); a match is matched to exactly one fixture as for the board's
+  results (kickoff and both names), never guessed. Each logo is downloaded once from
+  `media.api-sports.io` (no key, no quota) through the polite fetcher's image mode
+  (`FetchPlanItem.accept: 'image'`: PNG, JPEG, WebP, GIF only; robots.txt and the rate limit apply),
+  shrunk with sharp (loaded on first use: if it cannot load, only the logos stop). A team not found
+  is asked again after 7 days.
+- **Serving**: API `GET /teams/:id/logo` (week cache, immutable); `TeamView.logo` is the logo's
+  version; the web route `/team-logo/<id>?v=<version>` proxies it (the page's CSP allows only its
+  own images).
+- **Web**: `TeamIcon` (`apps/web/src/components/sportsbook/TeamIcon.tsx`) in the match rows, the
+  featured cards and the event page: the flag of a national team, else the logo, else the initials.
+- **Page weight**: the e2e budget page has no logos (the e2e stack has no API-Football key). On the
+  live site each club on screen adds 1 to 4 KB the first time (then a week of browser cache); images
+  below the screen load only when scrolled to.
 
 ## What exists
 

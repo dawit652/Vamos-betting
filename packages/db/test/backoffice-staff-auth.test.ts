@@ -994,7 +994,7 @@ describe('demo staff', () => {
       });
       const rows = await db.db.select().from(adminUsers);
       expect(new Set(rows.map((row) => row.role))).toEqual(
-        new Set(['admin', 'trader', 'finance', 'kyc', 'support', 'compliance']),
+        new Set(['admin', 'trader', 'finance', 'kyc', 'support', 'compliance', 'cashier']),
       );
 
       const secret = base32Decode(DEMO_STAFF_TOTP_SECRET);

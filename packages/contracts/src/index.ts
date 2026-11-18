@@ -13,3 +13,4 @@ export * from './admin';
 export * from './compliance';
 export * from './channels';
 export * from './feed';
+export * from './cashier';

@@ -17,6 +17,7 @@ const row = (over: {
   status?: string;
   ft?: [number, number] | null;
   ht?: [number, number] | null;
+  ids?: [unknown, unknown];
 }) => ({
   fixture: {
     id: over.id ?? 1,
@@ -24,7 +25,10 @@ const row = (over: {
     status: { short: over.status ?? 'FT' },
   },
   league: { name: 'Czech Liga', country: 'Czech-Republic' },
-  teams: { home: { name: over.home ?? 'Mlada Boleslav' }, away: { name: over.away ?? 'Plzen' } },
+  teams: {
+    home: { id: (over.ids ?? [574, 571])[0], name: over.home ?? 'Mlada Boleslav' },
+    away: { id: (over.ids ?? [574, 571])[1], name: over.away ?? 'Plzen' },
+  },
   goals: { home: 3, away: 2 },
   score: {
     halftime:
@@ -52,6 +56,8 @@ describe('parseApiFootballFixtures', () => {
         kickoff: new Date('2026-11-14T16:00:00Z'),
         home: 'Mlada Boleslav',
         away: 'Plzen',
+        homeId: 574,
+        awayId: 571,
         league: 'Czech Liga',
         country: 'Czech-Republic',
         status: 'AET',
@@ -60,6 +66,17 @@ describe('parseApiFootballFixtures', () => {
         halfTime: { home: 1, away: 0 },
       },
     ]);
+  });
+
+  it('keeps a team id only when it is a positive whole number', () => {
+    const ids = (pair: [unknown, unknown]) => {
+      const [fixture] = parseApiFootballFixtures(doc([row({ ids: pair })]))!.fixtures;
+      return [fixture?.homeId, fixture?.awayId];
+    };
+    expect(ids([42, 49])).toEqual([42, 49]);
+    expect(ids(['42', 0])).toEqual([null, null]);
+    expect(ids([-3, 1.5])).toEqual([null, null]);
+    expect(ids([undefined, 2 ** 60])).toEqual([null, null]);
   });
 
   it('reports the errors API-Football returns, and has no score while a match is not played', () => {

@@ -30,7 +30,10 @@ describe('the staff permission matrix', () => {
   it('matches the agreed role design', () => {
     const holders = (permission: (typeof STAFF_PERMISSIONS)[number]) =>
       [...PERMISSION_ROLES[permission]].sort();
-    expect(holders('dashboard.view')).toEqual([...STAFF_ROLES].sort());
+    // The cashier (a shop's desk, 17 Nov 2026) sees no business totals.
+    expect(holders('dashboard.view')).toEqual(
+      [...STAFF_ROLES].filter((role) => role !== 'cashier').sort(),
+    );
     expect(holders('kyc.review')).toEqual(['admin', 'kyc']);
     for (const permission of [
       'trading.view',
@@ -53,6 +56,11 @@ describe('the staff permission matrix', () => {
     expect(holders('reports.view')).toEqual(['admin', 'compliance', 'finance']);
     expect(holders('reconciliation.run')).toEqual(['admin', 'compliance', 'finance']);
     expect(holders('aml.review')).toEqual(['admin', 'compliance']);
+    // The cashier desk: supervisors may work a desk; reports for finance and compliance.
+    expect(holders('cashier.desk')).toEqual(['admin', 'cashier', 'finance']);
+    expect(holders('cashier.reports')).toEqual(['admin', 'compliance', 'finance']);
+    expect(permissionsOf('cashier')).toEqual(['cashier.desk']);
+    expect(holders('users.status')).toEqual(['admin', 'compliance']);
   });
 
   it('keeps support away from trading, money and settings changes', () => {

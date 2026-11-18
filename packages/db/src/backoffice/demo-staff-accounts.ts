@@ -20,7 +20,7 @@ export const DEMO_STAFF_TOTP_SECRET = 'OZQW233TFVSGK3LPFVZXIYLGMYWW65DQ';
 
 export interface DemoStaffAccount {
   email: string;
-  role: 'admin' | 'trader' | 'finance' | 'kyc' | 'support' | 'compliance';
+  role: 'admin' | 'trader' | 'finance' | 'kyc' | 'support' | 'compliance' | 'cashier';
   displayName: string;
 }
 
@@ -32,4 +32,5 @@ export const DEMO_STAFF_ACCOUNTS: readonly DemoStaffAccount[] = [
   { email: 'kyc@demo.vamos.test', role: 'kyc', displayName: 'Demo KYC' },
   { email: 'support@demo.vamos.test', role: 'support', displayName: 'Demo Support' },
   { email: 'compliance@demo.vamos.test', role: 'compliance', displayName: 'Demo Compliance' },
+  { email: 'cashier@demo.vamos.test', role: 'cashier', displayName: 'Demo Cashier' },
 ];

@@ -17,6 +17,7 @@ import {
   listEvents,
   listSports,
   searchCatalog,
+  getTeamLogo,
 } from './queries';
 import type { ViewOptions } from './views';
 
@@ -81,6 +82,18 @@ export default async function catalogRoutes(app: FastifyInstance): Promise<void>
     const body = await lists.get(key, () => listEvents(deps.db, query, now, options));
     cache(reply, LIST_CACHE_CONTROL);
     return body;
+  });
+
+  // A team's logo (owner, 17 Nov 2026): the URL carries the logo's version (TeamView.logo), so it
+  // may be kept a week.
+  app.get<{ Params: { id: string } }>('/teams/:id/logo', async (request, reply) => {
+    const png = await getTeamLogo(deps.db, request.params.id);
+    if (png === null) throw notFound('Logo');
+    void reply
+      .type('image/png')
+      .header('cache-control', 'public, max-age=604800, immutable')
+      .header('x-content-type-options', 'nosniff');
+    return png;
   });
 
   app.get('/search', async (request, reply): Promise<SearchResponse> => {

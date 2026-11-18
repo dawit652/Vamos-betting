@@ -41,7 +41,7 @@ type ItemRow = {
 const items = (kind: string, subject: string) =>
   rows<ItemRow>(
     `SELECT id, status, resolution, resolved_by FROM scrape_review_items
-      WHERE kind = $1 AND subject_key = $2 ORDER BY id`,
+      WHERE kind = $1 AND subject_key = $2 ORDER BY created_at, id`,
     [kind, subject],
   );
 const statuses = async (kind: string, subject: string) =>

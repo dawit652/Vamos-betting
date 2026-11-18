@@ -326,6 +326,16 @@ export const account = {
       'mpesa-et': 'M-Pesa',
       sms: 'Transfer (telebirr or bank)',
     },
+    cashAtShop: {
+      title: 'Withdraw cash at a shop',
+      intro:
+        'Get a shop code, then tell the cashier your phone number and the code. Bring your ID. The code works for 15 minutes.',
+      get: 'Get a shop code',
+      getNew: 'Get a new code',
+      codeLabel: 'Your shop code',
+      validUntil: 'Valid until {time}',
+      remaining: 'Time left: {time}',
+    },
     loading: 'Loading payment options…',
     unavailable: 'Payments are not available right now. Try again in a moment.',
     notAvailableForYou: 'No payment method is enabled for this action yet.',

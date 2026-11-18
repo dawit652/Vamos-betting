@@ -12,6 +12,7 @@ import { newIdempotencyKey } from '@/lib/api/idempotency';
 import { paymentsApi } from '@/lib/api/payments';
 import { formatSantim } from '@/lib/format';
 import { useSession } from '@/providers/SessionProvider';
+import { CashAtShop } from './CashAtShop';
 import { PaymentDemoNotice, PhoneReadOnly, ProviderField, usePaymentOptions } from './PaymentParts';
 import { PayoutAccountPicker } from './PayoutAccounts';
 import {
@@ -457,6 +458,7 @@ export function WithdrawPanel() {
           />
         </>
       ) : null}
+      <CashAtShop />
       <section className="space-y-2" aria-live="polite">
         <h2 className="font-bold">{t('account.payments.withdraw.listTitle')}</h2>
         {!loaded ? <Skeleton lines={3} /> : null}

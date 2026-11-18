@@ -3,8 +3,103 @@
 Owner's request of 17 Nov 2026: a cashier dashboard where operators pay players' withdrawals in
 cash, deposit cash for players (also when an automatic deposit failed to arrive), control players,
 and print receipts on a betting (thermal) printer, with the other features and parameters a betting
-shop needs. Status: **planned, not built**. It moves money: Opus, high effort, several sessions,
-reviewed by a second model before any deploy; owner decisions below first.
+shop needs. Status: **phases 1 and 2 built 17–18 Nov 2026** (desk, shifts, cash deposits, cash
+withdrawals, receipts; see "As built"); the rest under "Next phases". It moves money: Opus, high
+effort, reviewed by a second model before real cashiers use it.
+
+## As built (phase 1, 17 Nov 2026)
+
+Owner decisions were not answered; built with the recommended defaults, each one a setting:
+one shop (`main`, name and address editable), supervisor above ETB 10,000 per shop, 80 mm
+receipts (58 mm as a setting), walk-in tickets later.
+
+- **Cash is the payment provider `cash`.** A desk deposit is a `cash` payment intent credited at
+  once with the ordinary deposit posting (`house:psp:cash` -amount, player cash +amount) and the
+  ordinary `DEPOSIT_SUCCEEDED` event. So deposit limits, exclusions, AML, the player's history and
+  SMS notice, the wallet push and reconciliation all treat it like any deposit (tested,
+  reconciliation included). A withdrawal will be an ordinary payout of provider `cash` paid at the
+  desk (same rules as online: KYC, wagering, daily cap, AML hold).
+- **Data** (migration `0057_cashier_desk`): role `cashier`; `cashier_shops` (receipt header,
+  width, approval threshold, active); `cashier_shifts` (one open shift per staff member; float,
+  count, expected cash fixed at the close); `cash_operations` (the receipts: number, shift, shop,
+  staff, player, amount, the intent or payout, the desk's idempotency key, copies). The app role
+  cannot delete shifts or receipts.
+- **Services** `packages/db/src/cashier/desk.ts`: `openShift`, `closeShift` (under the shift's
+  lock), `cashDeposit` (replay-safe, also for two requests with one key; refuses above the shop
+  threshold unless finance/admin; `assertDepositAllowed` for limits and exclusions),
+  `findDeskPlayer`, `getReceipt`, `recordReprint`, `updateShop`, `listShifts`.
+- **API** `apps/api/src/modules/admin/cashier.ts` under `/admin/cashier/*`: permissions
+  `cashier.desk` (cashier, finance, admin), `cashier.reports` (finance, compliance, admin), shop
+  settings with `settings.edit` (admin). The cashier role holds only the desk (no dashboard, no
+  player list).
+- **Back office**: `/cashier` (open shift, find player, cash deposit, receipts of the shift, close
+  with count and a printable Z report), `/cashier/receipt/<id>` (80 or 58 mm, auto print; a copy
+  says COPY and is counted and audited), `/cashier/shifts` (all shifts with variance; shop
+  settings), `/cashier/shifts/<id>` and its printable report. Printing is the browser's print with
+  `@page` named sizes: any thermal printer with a driver (Xprinter, Epson TM).
+- **Demo**: `cashier@demo.vamos.test` (demo mode only, like the other demo staff). On the live
+  server a cashier account is made with `pnpm admin:create` and role `cashier`.
+
+## As built (phase 2, 18 Nov 2026): cash withdrawals
+
+- The player makes a one-time six-digit **shop code** on their own phone (withdraw page, "Withdraw
+  cash at a shop"; `POST /payments/cash-codes`): 15 minutes, five tries, a newer code retires the
+  older; only an HMAC is stored (`cash_withdrawal_codes`, migration `0058`). The cashier never
+  learns a PIN.
+- Desk (`POST /admin/cashier/withdrawals`, `packages/db/src/cashier/withdrawals.ts`): the code is
+  checked in its own transaction (wrong tries always count), then the ordinary
+  `requestWithdrawal` with provider `cash` (KYC with a verified name, deposit and settlement
+  checks, min/max, daily cap, wagering, AML). Approved at once (below `autoApproveBelow`, no
+  exclusion, no AML hold): paid at the desk with `markPayoutPaid` (hold to `house:psp:cash`,
+  reference R<receipt>), receipt with a signature line. Otherwise it waits in the back office's
+  withdrawal review queue with the money on hold; once approved, the player comes back with a new
+  code and the desk pays that amount (`cash_payout_waiting` for another amount). The approver never
+  pays it (four eyes); the shop threshold binds cashiers; the payout worker never takes a `cash`
+  payout.
+- Tests: `packages/db/test/cashier.test.ts`, `apps/api/test/cashier.test.ts`, e2e
+  `e2e/tests/cashier.spec.ts`.
+
+## Review by a second model (18 Nov 2026) and player blocking
+
+A second model (Sonnet) reviewed the money path: no way to create, lose or double-pay money was
+found. Fixed the same day: the approval threshold counts what the desk already took from or paid
+to the player in the shift (no splitting); an approved cash withdrawal that waited is paid only
+after the account and the AML hold are checked again; a `cash` payout is paid only at the desk
+(the back office settle path refuses it); a retry after a `review` answer gets the same answer;
+per-staff rate limits on lookups, deposits and withdrawals; every desk lookup is audited.
+Player blocking: `setPlayerStatus` (`packages/db/src/backoffice/player-status.ts`); the desk
+blocks (`POST /admin/cashier/players/:id/block`, reason required), unblocking needs `users.status`
+(admin, compliance; `POST /admin/users/:id/status`). A blocked player cannot sign in, deposit, bet
+or withdraw.
+
+Also built 18 Nov: a supervisor closes a shift its cashier left open
+(`POST /admin/cashier/shifts/:id/force-close`, the shift page), and database triggers (migration
+`0059`) refuse any change to a closed shift and to a receipt except counting a copy.
+
+## Next phases (in order)
+
+1. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
+   flagged deposits) rather than a new credit path; a supervisor-only "credit by provider
+   reference" if still needed.
+2. **Assisted PIN reset** at the desk with an ID check and four eyes.
+3. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
+   (`adjustment`, house cash vs revenue); today the variance is recorded and shown, not posted.
+4. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
+5. **Uncollected approved cash withdrawals**: the money stays on hold until the player collects it
+   or cancels it online (finance can also fail it to give it back); consider an expiry.
+6. Shift reports: one grouped query instead of one per shift (review finding 8, small).
+7. Retail walk-in tickets (largest; later).
+
+## Rules for every session of this work
+
+- **Build on top of the server's branch.** The live server deploys from
+  `live/nahubet-new-2026-11-15`; every commit of this work must contain it. Before every push:
+  `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor FETCH_HEAD HEAD`
+  (no output and exit 0 = fine; otherwise merge it in first and run the checks again).
+- **Model and effort by task** (CLAUDE.md): the money path (ledger postings, deposits,
+  withdrawals, shift totals, migrations, security) stays in the main session on Opus, high effort;
+  routine pages and forms go to the `routine-coder` agent; running checks and reporting goes to the
+  `quick-task` agent.
 
 ## Where it lives
 

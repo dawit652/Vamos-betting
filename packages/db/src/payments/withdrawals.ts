@@ -16,6 +16,7 @@ import {
   isNotNull,
   isNull,
   lte,
+  ne,
   notInArray,
   or,
   sql,
@@ -874,6 +875,8 @@ export async function claimDuePayouts(
         isNull(payouts.flaggedAt),
         // Paid by hand by an operator: no provider to send them to.
         eq(payouts.manual, false),
+        // Paid in cash at a shop's desk (cashier/withdrawals.ts): never sent by the worker.
+        ne(payouts.provider, 'cash'),
         or(isNull(payouts.nextAttemptAt), lte(payouts.nextAttemptAt, options.now)),
       ),
     )
@@ -957,11 +960,25 @@ function notOpenError(payout: Payout): DomainError {
  */
 export async function markPayoutPaid(
   tx: DbTransaction,
-  input: { payoutId: string; providerRef?: string; now: Date; admin?: AdminActor },
+  input: {
+    payoutId: string;
+    providerRef?: string;
+    now: Date;
+    admin?: AdminActor;
+    /** The cashier desk paying a `cash` payout (cashier/withdrawals.ts), with its receipt. */
+    cashDesk?: boolean;
+  },
 ): Promise<PayoutChange> {
   const payout = await lockPayout(tx, input.payoutId);
   if (payout.status === 'paid') return { payout, changed: false };
   assertNotManual(payout);
+  // Cash is paid only at a desk, with a shift and a receipt: never settled from the back office.
+  if (payout.provider === 'cash' && input.cashDesk !== true) {
+    throw domainConflict(
+      'cash_payout_desk_only',
+      "A cash withdrawal is paid at a shop's desk, with a receipt.",
+    );
+  }
   if (!isOpen(payout)) throw notOpenError(payout);
   if (input.admin !== undefined) assertStaffMaySettle(payout);
   if (

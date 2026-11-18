@@ -52,6 +52,11 @@ export const TeamView = z.object({
   id: z.string(),
   name: LocalizedNameSchema,
   shortName: z.string(),
+  /**
+   * Present when the team has a logo (GET /teams/:id/logo): a version to put in the image URL, so a
+   * new logo is not hidden by a cached one. Absent: show a flag or the initials.
+   */
+  logo: z.string().optional(),
 });
 
 export const EventSummary = z.object({
