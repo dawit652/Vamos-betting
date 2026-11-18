@@ -14,29 +14,21 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
 
 ## Next, in order
 
-1. **Check the Telegram PIN reset after the owner deploys `c14e2c9`** (fix: a website "Send code"
-   no longer kills the Telegram code, `apps/api/src/lib/otp.ts`). If the owner's number hit the
-   10 wrong codes a day budget, it clears 24 h after the first wrong try.
-2. **Team logos: check on live after the owner deploys** (built 17 Nov, `docs/plans/team-logos.md`
-   "As built"). Logos appear only with `SCRAPER_SECRET_API_FOOTBALL` set on the server; the
-   scraper logs `team logo download failed` or `team logos skipped` when something is wrong.
-3. **Cashier dashboard**: phases 1 and 2 built and reviewed by a second model (desk, shifts, cash
-   deposits, cash withdrawals with a player-made shop code, receipts, player blocking; cash is the
-   payment provider `cash`). Next, in order: `docs/plans/cashier-dashboard.md` "Next phases"
-   (failed automatic deposit, assisted PIN reset, variance posting, original receipt once, uncollected approved cash
-   withdrawals, grouped shift totals, walk-in tickets). Money path: Opus high. Owner decisions
-   still open (shops, limits, printer, walk-in tickets); today's defaults are settings. On the live
-   server a cashier account is made with `admin-create.js --role cashier` (deployment.md).
-4. **X6b failed-login alarm: done 18 Nov** (`apps/api/src/lib/login-alarm.ts`): 60 failed player
-   logins, 30 numbers, or 10 numbers from one address in 15 minutes write one `error` line with
-   `alarm: login_failures_total | _numbers | _address` per window (numbers hashed). Not yet an owner
-   alert (Telegram/SMS): add one in the worker's owner-alert list if the owner wants it.
-5. **X11 rule O1h, locked odds: done 18 Nov** (docs/scraper.md "O1h"): uncalibrated matches with a fresh
-   Hulusport board are priced entirely from the board, handed over and opened like a strong market,
-   suspended when the board goes stale. After the deploy, watch `odds_approval` and
-   `ratings_uncalibrated` fall; a league's "Auto open" switch decides whether F7b opens them alone.
-6. **Next.js security upgrade: done 18 Nov** (16.4.5, owner's yes, `d2c5f42`); CI's dependency audit
-   passes again.
+1. **After the owner deploys `16c58bb` or later, check on live** (read-only queries, owner runs them):
+   the Telegram PIN reset (fix `313271b`); team logos (need `SCRAPER_SECRET_API_FOOTBALL`; the
+   scraper logs `team logo download failed` / `team logos skipped`); rule O1h (open
+   `odds_approval` and `ratings_uncalibrated` items fall, locked matches with a fresh Hulusport
+   board open in leagues with "Auto open" on); the X6b alarm lines (`"alarm":"login_failures_`).
+2. **Cashier dashboard, next phases** (`docs/plans/cashier-dashboard.md` "Next phases"; money path:
+   Opus high, reviewed by a second model): 1 failed automatic deposit (a cashier-readable list of
+   the found player's recent deposits with their state, and a supervisor link to the SMS rail
+   queue; needs a read-only API with the `cashier.desk` permission), 2 assisted PIN reset with ID
+   check and four eyes, 3 variance posting into the ledger, 4 original receipt printed once (needs a
+   migration: next free number after 0059), 5 uncollected approved cash withdrawals, 7 walk-in
+   tickets (owner decision). Phase 6 (grouped shift totals) is done.
+3. Done on 18 Nov (first account): Next.js 16.4.5 (CI green again), X6b failed-login alarm, X11
+   rule O1h (locked odds), grouped shift totals; `claude/happy-keller-i7cvrh` merged into this
+   branch.
 
 ## Owner decisions still open
 
