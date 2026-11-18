@@ -2,7 +2,11 @@
  * Creates a back-office staff account and prints its TOTP enrolment.
  *
  *   pnpm admin:create --email ops@example.et --name "Abebe K." --role admin
+ *   pnpm admin:create --email desk1@example.et --name "Hana T." --role cashier --shop bole-02
  *
+ * `--shop <code>` (cashiers only) assigns the new cashier to that shop at once (the owner runs more
+ * than 40 shops; a cashier opens shifts only at their shop). The shop must exist and be active: it is
+ * checked before the account is created.
  * Roles: admin, trader, finance, kyc, support, compliance. The password comes
  * from the ADMIN_PASSWORD environment variable (at least 12 characters);
  * without it a random one is generated and printed once, and must be
@@ -18,10 +22,13 @@ import { createPasswordHasher } from '../backoffice/argon2';
 import { createStaffUser, STAFF_ROLES, type StaffRole } from '../backoffice/staff-auth';
 import { createDb } from '../client';
 import { DomainError } from '../errors';
+import { writeAudit } from '../platform/audit';
+import { cashierShops, cashierStaffShops } from '../schema/cashier';
+import { eq } from 'drizzle-orm';
 
 const USAGE =
   'usage: pnpm admin:create --email <email> --name <display name> --role <' +
-  `${STAFF_ROLES.join('|')}>  (password: ADMIN_PASSWORD env, else generated)`;
+  `${STAFF_ROLES.join('|')}> [--shop <shop code>]  (password: ADMIN_PASSWORD env, else generated)`;
 
 function fail(message: string): never {
   console.error(message);
@@ -33,6 +40,7 @@ const { values } = parseArgs({
     email: { type: 'string' },
     name: { type: 'string' },
     role: { type: 'string' },
+    shop: { type: 'string' },
     help: { type: 'boolean' },
   },
   strict: true,
@@ -43,11 +51,23 @@ if (values.help) {
 }
 if (!values.email || !values.name || !values.role) fail(USAGE);
 if (!(STAFF_ROLES as readonly string[]).includes(values.role)) fail(USAGE);
+if (values.shop !== undefined && values.role !== 'cashier')
+  fail('--shop is for --role cashier only');
 
 loadDotEnv();
 const config = loadConfig();
 const handle = createDb(config.databaseUrl, { max: 1 });
 try {
+  // The shop first: a wrong code must not leave a cashier account without its shop.
+  let shopId: string | null = null;
+  if (values.shop !== undefined) {
+    const [shop] = await handle.db
+      .select({ id: cashierShops.id, active: cashierShops.active })
+      .from(cashierShops)
+      .where(eq(cashierShops.code, values.shop.trim().toLowerCase()));
+    if (!shop || !shop.active) fail(`no active shop with the code "${values.shop}"`);
+    shopId = shop.id;
+  }
   const password = process.env.ADMIN_PASSWORD?.trim() ? process.env.ADMIN_PASSWORD : undefined;
   const result = await createStaffUser(
     {
@@ -66,8 +86,23 @@ try {
       actor: { type: 'system', via: 'cli' },
     },
   );
+  if (shopId !== null) {
+    await handle.db.transaction(async (tx) => {
+      await tx
+        .insert(cashierStaffShops)
+        .values({ staffId: result.user.id, shopId, assignedAt: new Date() });
+      await writeAudit(tx, {
+        actorType: 'system',
+        action: 'cashier.staff_shop_assigned',
+        targetType: 'admin_user',
+        targetId: result.user.id,
+        metadata: { before: null, after: shopId, via: 'cli' },
+      });
+    });
+  }
   const lines = [
     `staff account created: ${result.user.email} (${result.user.role}, id ${result.user.id})`,
+    ...(shopId === null ? [] : [`works at shop: ${values.shop}`]),
     ...(result.generatedPassword === null
       ? []
       : [
