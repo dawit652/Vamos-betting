@@ -112,8 +112,11 @@ account with its shop from the command line (`admin-create`), and per-shop expor
 /admin/cashier/receipts/:id/print`, audited `cashier.receipt_printed`); every later print, also
    with the page's Print button, is a counted copy that says COPY; the receipt guard refuses to clear
    or move the stamp. Silent ESC/POS printing is still open (only if wanted).
-5. **Uncollected approved cash withdrawals**: the money stays on hold until the player collects it
-   or cancels it online (finance can also fail it to give it back); consider an expiry.
+5. **Uncollected approved cash withdrawals: done 18 Nov** (owner's default: 7 days): the worker's
+   hourly `cash-collect` task returns an approved cash withdrawal not collected within
+   `CASH_WITHDRAWAL_COLLECT_DAYS` (default 7, 0 = never) of its approval to the player
+   (`expireUncollectedCashPayouts` → `markPayoutFailed`, reason `cash_not_collected`: the hold back,
+   the player notified, audited); a desk paying it at the same moment wins or loses cleanly.
 6. Shift reports: one grouped query instead of one per shift (review finding 8): **done 18 Nov**
    (`shiftTotalsMany`).
 7. Retail walk-in tickets (largest; later).

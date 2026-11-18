@@ -160,6 +160,7 @@ describe('createTasks', () => {
     'bet-acceptance-sweep',
     'payouts',
     'payout-sweep',
+    'cash-collect',
     'deposit-reconcile',
     'sms-notify',
     'user-notify',

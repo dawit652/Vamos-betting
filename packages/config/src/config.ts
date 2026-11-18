@@ -436,6 +436,11 @@ const envSchema = z.object({
    */
   SMS_HEARTBEAT_ALARM_MINUTES: z.coerce.number().int().min(5).max(1440).default(20),
   /** Settle a manual payout only against the collection account's outgoing SMS. */
+  /**
+   * Cashier desk: an approved cash withdrawal the player does not collect goes back to their
+   * balance after this many days (the worker fails it: the hold is returned); 0 keeps it forever.
+   */
+  CASH_WITHDRAWAL_COLLECT_DAYS: z.coerce.number().int().min(0).max(365).default(7),
   PAYOUT_REQUIRE_PROOF: bool.default(false),
   /** Licensed mode without PAYOUT_REQUIRE_PROOF: an explicit, logged waiver. */
   PAYOUT_PROOF_WAIVED: bool.default(false),
@@ -711,6 +716,8 @@ export interface PaymentProvidersConfig {
   /** The SMS deposit rail (`sms` provider): see SMS_RAIL_MODE. */
   sms: SmsRailConfig;
   mock: { webhookSecret: string };
+  /** CASH_WITHDRAWAL_COLLECT_DAYS in milliseconds; 0: an approved cash withdrawal never expires. */
+  cashCollectMs: number;
   chapa: { baseUrl: string; secretKey: string | undefined; webhookSecret: string | undefined };
   telebirr: {
     baseUrl: string | undefined;
@@ -1017,6 +1024,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         payoutProofWaived: e.PAYOUT_PROOF_WAIVED,
       },
       mock: { webhookSecret: e.MOCK_PAYMENT_WEBHOOK_SECRET },
+      cashCollectMs: e.CASH_WITHDRAWAL_COLLECT_DAYS * 86_400_000,
       chapa: {
         baseUrl: e.CHAPA_BASE_URL,
         secretKey: e.CHAPA_SECRET_KEY,

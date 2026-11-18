@@ -7,6 +7,7 @@ import {
   cashDeposit,
   cashWithdrawal,
   checkCashCode,
+  expireUncollectedCashPayouts,
   closeShift,
   createCashCode,
   findDeskPayout,
@@ -24,7 +25,7 @@ import {
 } from '../src/cashier/index';
 import { runReconciliationChecks } from '../src/compliance/index';
 import { DomainError } from '../src/errors';
-import { getBalance } from '../src/ledger/index';
+import { getBalance, getPlayerBalances } from '../src/ledger/index';
 import {
   approveWithdrawal,
   claimDuePayouts,
@@ -660,6 +661,77 @@ describe('review findings', () => {
     expect(
       (await handle.db.select().from(payouts).where(eq(payouts.id, held.payoutId)))[0]?.status,
     ).toBe('approved');
+  });
+});
+
+describe('uncollected approved cash withdrawals', () => {
+  const hash = (code: string) => createHash('sha256').update(code).digest('hex');
+
+  it('go back to the player after the collect period, not before, and once', async () => {
+    const cashier = await staff();
+    const supervisor = await staff('finance');
+    const shift = await shiftFor(cashier);
+    const { userId } = await createPlayer(handle.db, { kyc: 'verified', name: 'Selam T.' });
+    await deposit(cashier, shift.id, userId, birr(6_000));
+    await handle.db.transaction((tx) =>
+      createCashCode(tx, { userId, codeHash: hash('404040'), now: NOW }),
+    );
+    const codeId = await checkCashCode(handle.db, { userId, codeHash: hash('404040'), now: NOW });
+    const held = await handle.db.transaction((tx) =>
+      cashWithdrawal(tx, {
+        staffId: cashier,
+        shiftId: shift.id,
+        userId,
+        amount: birr(5_000),
+        idempotencyKey: `desk-${randomUUID()}`,
+        code: { id: codeId, hash: hash('404040') },
+        rules: RULES,
+        now: NOW,
+      }),
+    );
+    if (held.outcome !== 'review') throw new Error('expected review');
+    await handle.db.transaction((tx) =>
+      approveWithdrawal(tx, { payoutId: held.payoutId, adminId: supervisor, now: NOW }),
+    );
+    const cashBefore = (await getPlayerBalances(handle.db, userId)).cash;
+    const DAY = 86_400_000;
+    const statusOf = async () =>
+      (await handle.db.select().from(payouts).where(eq(payouts.id, held.payoutId)))[0]?.status;
+
+    // Within the period (and with the setting at 0) nothing happens.
+    expect(
+      await expireUncollectedCashPayouts(handle.db, {
+        now: new Date(NOW.getTime() + 6 * DAY),
+        maxAgeMs: 7 * DAY,
+      }),
+    ).toBe(0);
+    expect(
+      await expireUncollectedCashPayouts(handle.db, {
+        now: new Date(NOW.getTime() + 30 * DAY),
+        maxAgeMs: 0,
+      }),
+    ).toBe(0);
+    expect(await statusOf()).toBe('approved');
+
+    // After it: failed with cash_not_collected, and the hold is back on the player's balance (an
+    // approved one an earlier test left waiting goes back too).
+    expect(
+      await expireUncollectedCashPayouts(handle.db, {
+        now: new Date(NOW.getTime() + 8 * DAY),
+        maxAgeMs: 7 * DAY,
+      }),
+    ).toBeGreaterThanOrEqual(1);
+    expect(await statusOf()).toBe('failed');
+    const [row] = await handle.db.select().from(payouts).where(eq(payouts.id, held.payoutId));
+    expect(row?.failureReason).toBe('cash_not_collected');
+    expect((await getPlayerBalances(handle.db, userId)).cash).toBe(cashBefore + birr(5_000));
+    // Idempotent.
+    expect(
+      await expireUncollectedCashPayouts(handle.db, {
+        now: new Date(NOW.getTime() + 9 * DAY),
+        maxAgeMs: 7 * DAY,
+      }),
+    ).toBe(0);
   });
 });
 

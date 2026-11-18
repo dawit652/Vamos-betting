@@ -3,6 +3,7 @@ import { toWire, type AmlRules, type PaymentRules } from '@vamos/core';
 import { and, asc, desc, eq, gt, isNull, lt } from 'drizzle-orm';
 import type { Database } from '../client';
 import {
+  DomainError,
   domainBadRequest,
   domainConflict,
   domainForbidden,
@@ -11,7 +12,7 @@ import {
 } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { amlHoldsWithdrawals } from '../compliance/aml';
-import { markPayoutPaid, requestWithdrawal } from '../payments/withdrawals';
+import { markPayoutFailed, markPayoutPaid, requestWithdrawal } from '../payments/withdrawals';
 import { writeAudit } from '../platform/audit';
 import { lockUser } from '../rg/limits';
 import { adminUsers, users } from '../schema/accounts';
@@ -447,4 +448,46 @@ export async function findDeskPayout(
     )
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Cashier phase "uncollected approved cash withdrawals": an approved `cash` withdrawal the player has
+ * not collected `maxAgeMs` after its approval goes back to the player's balance: markPayoutFailed
+ * returns the hold (`withdrawal_reversal`), notifies the player and audits it, reason
+ * `cash_not_collected`. One transaction per payout, with markPayoutFailed's lock and status checks,
+ * so a desk paying it at the same moment wins or loses cleanly (a paid one is skipped). At most
+ * `limit` per call; returns how many went back.
+ */
+export async function expireUncollectedCashPayouts(
+  db: Database,
+  input: { now: Date; maxAgeMs: number; limit?: number },
+): Promise<number> {
+  if (input.maxAgeMs <= 0) return 0;
+  const cutoff = new Date(input.now.getTime() - input.maxAgeMs);
+  const due = await db
+    .select({ id: payouts.id })
+    .from(payouts)
+    .where(
+      and(
+        eq(payouts.provider, CASH_PROVIDER),
+        eq(payouts.status, 'approved'),
+        lt(payouts.approvedAt, cutoff),
+      ),
+    )
+    .orderBy(asc(payouts.approvedAt), asc(payouts.id))
+    .limit(input.limit ?? 100);
+  let expired = 0;
+  for (const { id } of due) {
+    try {
+      const change = await db.transaction((tx) =>
+        markPayoutFailed(tx, { payoutId: id, reason: 'cash_not_collected', now: input.now }),
+      );
+      if (change.changed) expired += 1;
+    } catch (error) {
+      // Paid at the desk (or closed) in between: nothing to give back.
+      if (error instanceof DomainError) continue;
+      throw error;
+    }
+  }
+  return expired;
 }

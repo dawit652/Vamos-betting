@@ -15,6 +15,7 @@ import {
   type AmlSweepOptions,
   type ReconciliationTaskOptions,
 } from './compliance';
+import { cashCollectTask } from './cash-collect';
 import type { TaskContext } from './context';
 import { depositReconcileTask, type DepositReconcileOptions } from './deposit-reconcile';
 import { feedIngestTask, type FeedIngestOptions } from './feed-ingest';
@@ -122,6 +123,8 @@ export function createTasks(
     betAcceptanceSweepTask(ctx, options.betAcceptanceSweep),
     payoutTask(ctx, options.payouts),
     payoutSweepTask(ctx, options.payoutSweep),
+    // Approved cash withdrawals nobody collected go back to the player (CASH_WITHDRAWAL_COLLECT_DAYS).
+    cashCollectTask(ctx, { maxAgeMs: config.payments.cashCollectMs }),
     depositReconcileTask(ctx, options.depositReconcile),
     smsNotifyTask(ctx, options.smsNotify),
     userNotifyTask(ctx, options.userNotify),

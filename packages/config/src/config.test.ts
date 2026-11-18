@@ -368,6 +368,7 @@ describe('loadConfig', () => {
         payoutProofWaived: false,
       },
       mock: { webhookSecret: DEV_MOCK_PAYMENT_WEBHOOK_SECRET },
+      cashCollectMs: 7 * 86_400_000,
       chapa: { baseUrl: 'https://api.chapa.co/v1', secretKey: undefined, webhookSecret: undefined },
       telebirr: {
         baseUrl: undefined,
