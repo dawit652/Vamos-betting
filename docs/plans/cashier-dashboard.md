@@ -59,21 +59,34 @@ receipts (58 mm as a setting), walk-in tickets later.
 - Tests: `packages/db/test/cashier.test.ts`, `apps/api/test/cashier.test.ts`, e2e
   `e2e/tests/cashier.spec.ts`.
 
+## Review by a second model (18 Nov 2026) and player blocking
+
+A second model (Sonnet) reviewed the money path: no way to create, lose or double-pay money was
+found. Fixed the same day: the approval threshold counts what the desk already took from or paid
+to the player in the shift (no splitting); an approved cash withdrawal that waited is paid only
+after the account and the AML hold are checked again; a `cash` payout is paid only at the desk
+(the back office settle path refuses it); a retry after a `review` answer gets the same answer;
+per-staff rate limits on lookups, deposits and withdrawals; every desk lookup is audited.
+Player blocking: `setPlayerStatus` (`packages/db/src/backoffice/player-status.ts`); the desk
+blocks (`POST /admin/cashier/players/:id/block`, reason required), unblocking needs `users.status`
+(admin, compliance; `POST /admin/users/:id/status`). A blocked player cannot sign in, deposit, bet
+or withdraw.
+
 ## Next phases (in order)
 
-1. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
+1. **Supervisor force-close of a forgotten shift**, and a database guard so a closed shift and its
+   receipts cannot be updated (review finding 7; today only DELETE is revoked).
+2. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
    flagged deposits) rather than a new credit path; a supervisor-only "credit by provider
    reference" if still needed.
-2. **Player control** at the desk (block/unblock with reason, audited) and assisted PIN reset
-   with ID check and four eyes.
-3. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
+3. **Assisted PIN reset** at the desk with an ID check and four eyes.
+4. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
    (`adjustment`, house cash vs revenue); today the variance is recorded and shown, not posted.
-4. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
-5. **Uncollected approved cash withdrawals**: today the money stays on hold until the player
-   collects it or cancels it online; consider an expiry that returns it.
-6. Retail walk-in tickets (largest; later).
-7. Before real cashiers: a review of the cashier money path by a second model
-   (`packages/db/src/cashier/*`, `apps/api/src/modules/admin/cashier.ts`).
+5. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
+6. **Uncollected approved cash withdrawals**: the money stays on hold until the player collects it
+   or cancels it online (finance can also fail it to give it back); consider an expiry.
+7. Shift reports: one grouped query instead of one per shift (review finding 8, small).
+8. Retail walk-in tickets (largest; later).
 
 ## Rules for every session of this work
 

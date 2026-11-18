@@ -19,11 +19,12 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
 2. **Team logos: check on live after the owner deploys** (built 17 Nov, `docs/plans/team-logos.md`
    "As built"). Logos appear only with `SCRAPER_SECRET_API_FOOTBALL` set on the server; the
    scraper logs `team logo download failed` or `team logos skipped` when something is wrong.
-3. **Cashier dashboard**: phases 1 and 2 built (desk, shifts, cash deposits, cash withdrawals
-   with a player-made shop code, receipts; cash is the payment provider `cash`). Next, in order:
-   `docs/plans/cashier-dashboard.md` "Next phases" (failed automatic deposit, player control,
-   variance posting, original receipt once, uncollected approved cash withdrawals, walk-in
-   tickets, a second-model review before real cashiers). Money path: Opus high. Owner decisions
+3. **Cashier dashboard**: phases 1 and 2 built and reviewed by a second model (desk, shifts, cash
+   deposits, cash withdrawals with a player-made shop code, receipts, player blocking; cash is the
+   payment provider `cash`). Next, in order: `docs/plans/cashier-dashboard.md` "Next phases"
+   (force-close of a forgotten shift and a guard on closed shifts, failed automatic deposit,
+   assisted PIN reset, variance posting, original receipt once, uncollected approved cash
+   withdrawals, grouped shift totals, walk-in tickets). Money path: Opus high. Owner decisions
    still open (shops, limits, printer, walk-in tickets); today's defaults are settings. On the live
    server a cashier account is made with `admin-create.js --role cashier` (deployment.md).
 4. **X6b failed-login alarm** (open): many failed logins or many numbers tried in 15 minutes
