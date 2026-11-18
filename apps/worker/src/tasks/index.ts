@@ -40,6 +40,7 @@ import { smsNotifyTask, type SmsNotifyOptions } from './sms-notify';
 import { smsRailTasks, type SmsRailTaskOptions } from './smsrail';
 import { smsRailHealth } from '@vamos/db';
 import { createCatalogReader } from '../telegram/catalog';
+import { createResetCodeRequester } from '../telegram/reset';
 import { telegramBotTask, type TelegramBotTaskOptions } from '../telegram/task';
 import { userNotifyTask, type UserNotifyOptions } from './user-notify';
 import { ussdPruneTask, type UssdPruneOptions } from './ussd-prune';
@@ -149,6 +150,12 @@ export function createTasks(
           playerMenu: config.telegram.playerMenu,
           demo: config.mode === 'demo',
           status: async () => smsRailHealth(ctx.db),
+          // Forgot PIN over Telegram (X12): the API issues the code, the bot sends it.
+          resetCode: createResetCodeRequester({
+            baseUrl: config.api.internalUrl,
+            secret: config.sessionSecret,
+            clock: ctx.clock,
+          }),
         },
         options.telegramBot,
       ),

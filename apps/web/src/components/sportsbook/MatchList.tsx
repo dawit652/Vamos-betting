@@ -3,12 +3,16 @@ import type { Locale } from '@vamos/i18n';
 import type { Translator } from '@vamos/i18n/translate';
 import Link from 'next/link';
 import { getLocale, getT } from '@/i18n/server';
-import { WORLD } from '@/lib/flag';
+import type { LeagueMark } from '@/lib/badges';
+import { flagEmoji } from '@/lib/flag';
 import { formatDayMonth, formatTime, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes } from '@/lib/routes';
-import { eventRef, oddsMarket } from './events';
+import { eventRef, monogram, oddsMarket } from './events';
 import { groupByCompetition } from './groups';
+import { LeagueIcon } from './LeagueIcon';
+import { leagueMark } from './leagues';
+import { teamFlagCodes } from './team-marks';
 import { Chevron } from './Chevron';
 import { LiveClock, LiveScore } from './LiveMatch';
 import { MarketOdds } from './MarketOdds';
@@ -29,14 +33,14 @@ export async function MatchList({
   events,
   showCompetition = true,
   grouped = false,
-  flags = {},
+  marks = {},
 }: {
   events: readonly EventSummary[];
   showCompetition?: boolean;
   /** Collapsible league cards (flag, name, count) over runs of the same competition. */
   grouped?: boolean;
-  /** Flag emoji by competition slug, for the league cards (competitionFlags). */
-  flags?: Readonly<Record<string, string>>;
+  /** Flag or badge by competition slug, for the league cards (competitionMarks). */
+  marks?: Readonly<Record<string, LeagueMark>>;
 }) {
   const [t, locale] = await Promise.all([getT(), getLocale()]);
   const now = new Date();
@@ -64,9 +68,14 @@ export async function MatchList({
               aria-label={t('sportsbook.controls.league', { count: group.events.length, name })}
               className="flex min-h-11 items-center gap-2 border-b border-line bg-raised px-3"
             >
-              <span aria-hidden="true" className="text-base leading-none">
-                {flags[group.slug] ?? WORLD}
-              </span>
+              <LeagueIcon
+                {...(marks[group.slug] ??
+                  leagueMark(
+                    { slug: group.slug, name: group.name },
+                    { slug: '', countryCode: null },
+                  ))}
+                className="text-2xl leading-none"
+              />
               <span className="min-w-0 flex-1 truncate">
                 <span className="text-xs text-muted">{localName(group.category, locale)} · </span>
                 <span className="font-bold">{name}</span>
@@ -101,6 +110,7 @@ function MatchRow({
   const live = event.status === 'live';
   const day = relativeDay(event.startTime, now);
   const optionCount = event.optionCount ?? 0;
+  const flags = teamFlagCodes(event);
   return (
     <li className="list-row">
       <div className="flex min-w-0 items-center gap-1.5 text-xxs whitespace-nowrap text-muted">
@@ -159,9 +169,9 @@ function MatchRow({
       </div>
       <div className="mt-1.5 flex items-center gap-2">
         <Link href={href} prefetch={false} className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="min-w-0 flex-1 leading-5 font-semibold">
-            <span className="block truncate">{localName(event.home.name, locale)}</span>
-            <span className="block truncate">{localName(event.away.name, locale)}</span>
+          <span className="min-w-0 flex-1 leading-7 font-semibold">
+            <TeamLine team={event.home} code={flags[0]} locale={locale} />
+            <TeamLine team={event.away} code={flags[1]} locale={locale} />
           </span>
           {live ? (
             <span className="flex flex-col text-right leading-5 font-extrabold text-live tabular-nums">
@@ -185,5 +195,31 @@ function MatchRow({
         </div>
       </div>
     </li>
+  );
+}
+
+/** A team's name with its flag (national teams) or its initials crest (clubs) right after it. */
+function TeamLine({
+  team,
+  code,
+  locale,
+}: {
+  team: EventSummary['home'];
+  code: string | null;
+  locale: Locale;
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="truncate">{localName(team.name, locale)}</span>
+      {code !== null ? (
+        <span aria-hidden="true" className="flex-none text-xl leading-none">
+          {flagEmoji(code)}
+        </span>
+      ) : (
+        <span aria-hidden="true" className="crest h-6 w-6 flex-none text-[0.5rem]">
+          {monogram(team.shortName)}
+        </span>
+      )}
+    </span>
   );
 }

@@ -7,6 +7,7 @@ import type {
   QuoteResponse,
 } from '@vamos/contracts';
 import {
+  amharicName,
   factoryMarketName,
   factorySelectionLabel,
   formatGameId,
@@ -44,10 +45,10 @@ export function eventName(selection: Pick<SelectionSnapshot, 'homeTeam' | 'awayT
   return `${selection.homeTeam.en} vs ${selection.awayTeam.en}`;
 }
 
-/** A team's name as a wire LocalizedName (only the languages it has). */
+/** A team's name as a wire LocalizedName, with its Amharic filled when it has none (amharicName). */
 function teamName(name: SelectionSnapshot['homeTeam']): LocalizedNameValue {
   const out: LocalizedNameValue = { en: name.en };
-  if (name.am !== undefined) out.am = name.am;
+  out.am = name.am !== undefined && name.am.trim() !== '' ? name.am : amharicName(name.en);
   if (name.om !== undefined) out.om = name.om;
   if (name.ti !== undefined) out.ti = name.ti;
   return out;

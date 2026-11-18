@@ -407,6 +407,32 @@ function filterCondition(query: EventListQuery, now: Date, featuredOnly = true):
 }
 
 /**
+ * The `country` filter (a category slug): that category and every other category of the same
+ * country, so our "Brazil" and the Hulusport board's are one country chip (owner, 17 Nov 2026). A
+ * category without a country code is only itself.
+ */
+async function countryCondition(
+  db: DbExecutor,
+  sport: string | undefined,
+  slug: string,
+): Promise<SQL> {
+  const [row] = await db
+    .select({ code: categories.countryCode })
+    .from(categories)
+    .where(
+      sport === undefined
+        ? eq(categories.slug, slug)
+        : and(eq(categories.slug, slug), eq(categories.sportId, sport)),
+    )
+    .limit(1);
+  const code = row?.code ?? null;
+  return code === null
+    ? eq(categories.slug, slug)
+    : (or(eq(categories.slug, slug), eq(categories.countryCode, code)) ??
+        eq(categories.slug, slug));
+}
+
+/**
  * GET /events: a page of a sport's events of active competitions.
  * - highlights: featured competitions, live or starting within 24h (every competition when no
  *   featured one has such a match: highlightsHaveFeatured);
@@ -436,7 +462,9 @@ export async function listEvents(
     ),
   ];
   if (query.competition !== undefined) conditions.push(eq(competitions.slug, query.competition));
-  if (query.country !== undefined) conditions.push(eq(categories.slug, query.country));
+  if (query.country !== undefined) {
+    conditions.push(await countryCondition(db, query.sport, query.country));
+  }
   if (query.day !== undefined && (query.filter === 'highlights' || query.filter === 'live')) {
     const { start, end } = addisAbabaDayOf(query.day);
     conditions.push(gte(events.startTime, start), lt(events.startTime, end));

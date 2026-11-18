@@ -598,15 +598,40 @@ E2E_SCREENSHOTS_DIR=/tmp/vamos-shots pnpm e2e:deployment
 It uses a fresh random player each run (the play-money rows stay in the demo database). If `STAFF_ALLOWLIST`
 is set, run it from an allowed address.
 
+## Competition logos and Top leagues (owner's choice, 16 Nov 2026)
+
+- **Top leagues: a fixed list.** The desktop left column and the phone "Top leagues" panel (the
+  button that used to say "Leagues") show only these football leagues, in this order, even when one
+  has no match right now (its count is 0): Premier League, LaLiga, Serie A, Bundesliga, UEFA
+  Champions League, UEFA Europa League, Ligue 1, Eredivisie, Liga Portugal, Belgian Pro League,
+  Swiss Super League, Superettan (owner, 16 Nov 2026, from Hulusport's column). No other league is
+  in the column any more ("More leagues" is gone); every league is still on the Leagues tab and in
+  search. A league the catalogue does not have (Superettan until the Hulusport board brings a match)
+  is left out. Basketball shows NBA and Euroleague; tennis and volleyball their featured leagues
+  with matches. The list is `TOP_LEAGUES` in `apps/web/src/components/sportsbook/leagues.ts`.
+- **Logos where there is no flag.** A competition with no country flag (Champions League, Europa
+  League, CAF Champions League, World Cup...) shows its logo where the flag goes: left column, phone
+  panel, league cards, Leagues tab, competition page. Domestic leagues keep their country flag.
+- The files are in `apps/web/public/league-logos/`, served by the web container (about 50 KB in
+  all): API-Football's league images (ids in `LOGO_SOURCES`, `apps/web/src/lib/badges.ts`), cropped
+  to the emblem and shrunk to 96 px. The World Cup trophy is our own drawing. A competition without
+  a usable logo (out of date like EURO 2024, or a text banner like the friendlies) gets a drawn disc
+  with a short code; an unknown one without a flag gets its initials.
+- **Trademarks.** These logos belong to UEFA, FIFA, CAF, AFC, CONMEBOL and CONCACAF. Showing them on
+  a betting site without a licence can bring a takedown request or a claim. The owner was told and
+  decided to keep them (16 Nov 2026: "they should exist"). To stop: turn the `logo(...)` rules in `badges.ts` back into drawn badges (`code` or `cup`)
+  and redeploy the web container.
+
 ## Player sign-in: 4-digit PIN and long sessions (owner's choice, 16 Nov 2026)
 
 - **New player passwords are 4-digit PINs** (registration, SMS reset, change). The API refuses
-  (`weak_password`, `pinWeaknessReason` in `packages/core/src/pin.ts`): one digit four times; runs up
-  or down, also round the 0 (1234, 9876, 7890); pair patterns (1212, 1122, 1221) and three of a digit
-  (1112); the years 1940 to 2030 (birth years, either calendar); a short list of frequent PINs (2580,
-  1004...); and any four digits in a row of the player's own number (its end, its 09.. start). That
-  is about 590 of the 10,000 PINs. Accounts made with an older long password keep signing in with
-  it (the login field shows the full keyboard for that); a shorter old password must be reset by SMS.
+  (`weak_password`, `pinWeaknessReason` in `packages/core/src/pin.ts`) only one digit four times
+  (1111), runs up or down, also round the 0 (1234, 9876, 7890), and the last four digits of the
+  player's own number: 31 of the 10,000 PINs. Pairs, mirrors, years and keypad shapes (1212, 1122,
+  1990, 2580) are valid: the owner's decision of 16 Nov 2026, after the registration form kept
+  refusing the PINs players typed (it had refused about 590). Accounts made with an older long
+  password keep signing in with it (the login field shows the full keyboard for that); a shorter old
+  password must be reset by SMS.
 - **Guessing limits per number:** 6 PIN checks per 15 minutes and 15 per day, from any address
   (`DEFAULT_AUTH_LIMITS` in `apps/api/src/lib/rate-limits.ts`), counting the login form AND the
   checks a signed-in player makes (changing the PIN, ending other sessions), so a stolen session

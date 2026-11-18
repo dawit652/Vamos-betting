@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/i18n/client';
 import { TelegramLink } from '@/components/shell/TelegramLink';
 import type { Sport } from '@/lib/routes';
+import { LeagueIcon } from './LeagueIcon';
 import type { PanelData, PanelLeague } from './panel';
 
 /**
@@ -82,7 +83,7 @@ export default function LeaguesPanel({
       className="leagues-row"
       onClick={close}
     >
-      <span aria-hidden="true">{c.flag}</span>
+      <LeagueIcon flag={c.flag} badge={c.badge} className="text-2xl leading-none" />
       <span className="min-w-0 flex-1 truncate">{c.name}</span>
       <span className="text-xxs tabular-nums opacity-70">{c.count}</span>
     </Link>
@@ -107,7 +108,7 @@ export default function LeaguesPanel({
       >
         <div className="flex items-center gap-2 border-b border-line px-3 py-2">
           <h2 id={titleId} className="min-w-0 flex-1 truncate text-sm font-extrabold">
-            {t('sportsbook.leagues.title')}
+            {t('sportsbook.leagues.topLeagues')}
           </h2>
           <button
             type="button"
@@ -141,18 +142,10 @@ export default function LeaguesPanel({
           ) : (
             <>
               {data.featured.length > 0 ? (
-                <nav aria-label={t('sportsbook.leagues.topLeagues')}>
-                  <h3 className="leagues-heading">{t('sportsbook.leagues.topLeagues')}</h3>
-                  {data.featured.map(row)}
-                </nav>
+                // The panel's title already says "Top leagues": no second heading here.
+                <nav aria-label={t('sportsbook.leagues.topLeagues')}>{data.featured.map(row)}</nav>
               ) : null}
-              {data.others.length > 0 ? (
-                <nav aria-label={t('sportsbook.leagues.moreLeagues')}>
-                  <h3 className="leagues-heading">{t('sportsbook.leagues.moreLeagues')}</h3>
-                  {data.others.map(row)}
-                </nav>
-              ) : null}
-              {data.featured.length + data.others.length === 0 ? (
+              {data.featured.length === 0 ? (
                 <p className="p-3 text-xs text-muted">{t('sportsbook.leagues.empty')}</p>
               ) : null}
             </>

@@ -24,9 +24,13 @@ import { expect, test } from '@playwright/test';
  * starts-within chips it is 159.6 KB with 12 rows. The budget leaves a little room for the
  * HTML, which grows with the listed matches (about 0.4 KB per row, 20 rows
  * per tab). Lower it when the page gets lighter; raise it only with a reason.
+ * Raised to 168 KB on 17 Nov 2026 for the owner's competition logos (Champions League,
+ * CAF...: 4.6 KB of images in 2 requests, 64 px files) and the featured row of big matches
+ * (small cards instead of one poster): measured 166.6 KB = JS 132.9 + HTML 19.3 + CSS 8.2 +
+ * images 4.6, in 16 requests.
  */
 const TARGET_BYTES = 150 * 1024;
-const BUDGET_BYTES = 160 * 1024; // measured 159.6 KB (15 Nov 2026, with the starts-within chips): 0.4 KB of room
+const BUDGET_BYTES = 168 * 1024; // measured 166.6 KB (17 Nov 2026, logos and featured row): 1.4 KB of room
 
 interface Transfer {
   url: string;

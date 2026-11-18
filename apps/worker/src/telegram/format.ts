@@ -1,6 +1,6 @@
 import type { EventSummary, LocalizedNameValue } from '@vamos/contracts';
 import { formatOdds } from '@vamos/core';
-import type { InlineButton, InlineKeyboard } from './client';
+import type { InlineButton, ReplyMarkup } from './client';
 
 /**
  * What the Telegram bot says (pure: no I/O, unit tested). Plain text only. English and Amharic,
@@ -35,7 +35,7 @@ const TEXT = {
     more: 'more options',
     footer: '21+ only. Bet responsibly.',
     demo: 'DEMO: play money only.',
-    help: 'Commands: /today, /live, /top, /leagues, /id',
+    help: 'Commands: /today, /live, /top, /leagues, /share, /id',
     chatId: 'This chat’s id:',
     live: 'LIVE',
     statusTitle: 'Nahubet status',
@@ -44,6 +44,22 @@ const TEXT = {
     statusPayouts: 'Manual payouts open',
     statusNever: 'never',
     statusUnavailable: 'Status is not available right now.',
+    menuReset: 'Forgot PIN',
+    resetAsk:
+      'To get a code for a new PIN, share your phone number with the button below. It must be the number of your Nahubet account.',
+    resetButton: 'Share my phone number',
+    resetNotOwn: 'Please share your own number with the button below.',
+    resetNoAccount: 'No Nahubet account uses this number. You can register on the website.',
+    resetLimited: 'Too many codes were asked for this number. Try again in an hour.',
+    resetCooldown:
+      'A code was sent a moment ago. Use it, or wait {seconds} seconds and ask again (a new code replaces the old one).',
+    resetUnavailable: 'The code cannot be sent right now. Try again in a minute.',
+    resetCode:
+      'Your Nahubet code: {code}\nIt is valid for 5 minutes. Never share it with anyone, not even Nahubet staff.\nOn the website, enter it with your phone number and choose a new PIN. A newer code replaces this one: always use the newest.',
+    resetOpen: 'Choose a new PIN',
+    menuShare: 'Share with friends',
+    shareText: 'Nahubet on Telegram: today’s matches, live scores and odds. Join here:',
+    shareIntro: 'Invite your friends: tap the button and choose who to send the Nahubet bot to.',
   },
   am: {
     welcome:
@@ -64,7 +80,7 @@ const TEXT = {
     more: 'ተጨማሪ አማራጮች',
     footer: 'ዕድሜ 21+ ብቻ። በኃላፊነት ይወራረዱ።',
     demo: 'ማሳያ፦ የጨዋታ ገንዘብ ብቻ።',
-    help: 'ትዕዛዞች፦ /today, /live, /top, /leagues, /id',
+    help: 'ትዕዛዞች፦ /today, /live, /top, /leagues, /share, /id',
     chatId: 'የዚህ ውይይት መለያ፦',
     live: 'ቀጥታ',
     statusTitle: 'የናሁቤት ሁኔታ',
@@ -73,6 +89,20 @@ const TEXT = {
     statusPayouts: 'ክፍት የእጅ ክፍያዎች',
     statusNever: 'በጭራሽ',
     statusUnavailable: 'ሁኔታው አሁን አይገኝም።',
+    menuReset: 'ፒን ረሳሁ',
+    resetAsk: 'አዲስ ፒን ለማዘጋጀት ኮድ ለማግኘት፣ ከታች ባለው ቁልፍ ስልክ ቁጥርዎን ያጋሩ። የናሁቤት መለያዎ ቁጥር መሆን አለበት።',
+    resetButton: 'ስልክ ቁጥሬን አጋራ',
+    resetNotOwn: 'እባክዎ ከታች ባለው ቁልፍ የራስዎን ቁጥር ያጋሩ።',
+    resetNoAccount: 'በዚህ ቁጥር የናሁቤት መለያ የለም። በድረ-ገጹ ላይ መመዝገብ ይችላሉ።',
+    resetLimited: 'ለዚህ ቁጥር ብዙ ኮዶች ተጠይቀዋል። ከአንድ ሰዓት በኋላ እንደገና ይሞክሩ።',
+    resetCooldown: 'ኮድ አሁን ተልኳል። ይጠቀሙበት፣ ወይም {seconds} ሰከንድ ጠብቀው እንደገና ይጠይቁ (አዲስ ኮድ አሮጌውን ይተካል)።',
+    resetUnavailable: 'ኮዱ አሁን ሊላክ አይችልም። ከአንድ ደቂቃ በኋላ እንደገና ይሞክሩ።',
+    resetCode:
+      'የናሁቤት ኮድዎ፦ {code}\nለ5 ደቂቃ ያገለግላል። ለማንም አያጋሩ፣ ለናሁቤት ሰራተኞችም ቢሆን።\nበድረ-ገጹ ላይ ከስልክ ቁጥርዎ ጋር ያስገቡትና አዲስ ፒን ይምረጡ። አዲስ ኮድ ይህን ይተካል፤ ሁልጊዜ የመጨረሻውን ይጠቀሙ።',
+    resetOpen: 'አዲስ ፒን ይምረጡ',
+    menuShare: 'ለጓደኞችዎ ያጋሩ',
+    shareText: 'ናሁቤት በቴሌግራም፦ የዛሬ ጨዋታዎች፣ የቀጥታ ውጤቶችና ዕድሎች። እዚህ ይቀላቀሉ፦',
+    shareIntro: 'ጓደኞችዎን ይጋብዙ፦ ቁልፉን ይጫኑና የናሁቤትን ቦት ለማን እንደሚልኩ ይምረጡ።',
   },
 } as const;
 
@@ -120,7 +150,7 @@ export const MAX_MATCHES_PER_MESSAGE = 10;
 
 export interface BotMessage {
   text: string;
-  replyMarkup?: InlineKeyboard;
+  replyMarkup?: ReplyMarkup;
 }
 
 /** The website's page of an event. */
@@ -164,9 +194,37 @@ export function matchListMessage(input: {
   };
 }
 
-/** The main menu: today, live, top matches, top leagues. */
-export function menuMessage(locale: BotLocale, demo: boolean): BotMessage {
+/**
+ * Telegram's share page for the bot's own link (https://t.me/<bot>): the player picks the chats
+ * to send it to (owner, 17 Nov 2026: players can share the bot with their friends).
+ */
+export function shareUrl(botUsername: string, locale: BotLocale): string {
+  const link = `https://t.me/${botUsername}`;
+  return `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(
+    textOf(locale).shareText,
+  )}`;
+}
+
+/** The /share answer: the invitation button and the bot's link to copy. */
+export function shareMessage(botUsername: string, locale: BotLocale): BotMessage {
   const t = textOf(locale);
+  return {
+    text: `${t.shareIntro}\nhttps://t.me/${botUsername}`,
+    replyMarkup: { inline_keyboard: [[{ text: t.menuShare, url: shareUrl(botUsername, locale) }]] },
+  };
+}
+
+/**
+ * The main menu: today, live, top matches, top leagues; "Forgot PIN" when the reset is on and
+ * "Share with friends" once the bot knows its own username.
+ */
+export function menuMessage(
+  locale: BotLocale,
+  demo: boolean,
+  options: { reset?: boolean; botUsername?: string } = {},
+): BotMessage {
+  const t = textOf(locale);
+  const { reset = false, botUsername } = options;
   return {
     text: [...(demo ? [t.demo] : []), t.welcome, '', t.help, '', t.footer].join('\n'),
     replyMarkup: {
@@ -179,6 +237,10 @@ export function menuMessage(locale: BotLocale, demo: boolean): BotMessage {
           { text: t.menuTop, callback_data: 'm:top' },
           { text: t.menuLeagues, callback_data: 'm:leagues' },
         ],
+        ...(reset ? [[{ text: t.menuReset, callback_data: 'm:reset' }]] : []),
+        ...(botUsername === undefined
+          ? []
+          : [[{ text: t.menuShare, url: shareUrl(botUsername, locale) }]]),
       ],
     },
   };
@@ -237,4 +299,36 @@ export function parseCommand(text: string | undefined): string | null {
   if (text === undefined) return null;
   const match = /^\/([A-Za-z_]{1,32})(?:@\w+)?(?:\s|$)/.exec(text.trim());
   return match === null ? null : match[1]!.toLowerCase();
+}
+
+/** Asks for the person's own number, with Telegram's one-tap "share my number" button. */
+export function resetAskMessage(locale: BotLocale): BotMessage {
+  const t = textOf(locale);
+  return {
+    text: t.resetAsk,
+    replyMarkup: {
+      keyboard: [[{ text: t.resetButton, request_contact: true }]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    },
+  };
+}
+
+/** The reset code, with a button to the website's reset page. */
+export function resetCodeMessage(code: string, locale: BotLocale, webUrl: string): BotMessage {
+  const t = textOf(locale);
+  return {
+    text: t.resetCode.replace('{code}', code),
+    replyMarkup: {
+      inline_keyboard: [
+        [{ text: t.resetOpen, url: `${webUrl.replace(/\/$/, '')}/reset-password` }],
+      ],
+    },
+  };
+}
+
+/** "/start reset" (the website's Telegram link): the payload after /start, or null. */
+export function startPayload(text: string | undefined): string | null {
+  const match = /^\/start(?:@\w+)?\s+(\S+)/.exec(text?.trim() ?? '');
+  return match === null ? null : match[1]!;
 }

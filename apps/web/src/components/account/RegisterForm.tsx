@@ -133,6 +133,17 @@ export function RegisterForm({ next }: { next: string }) {
           {...describedBy('reg-phone', error('phone'), true)}
         />
       </Field>
+      {fields.phone === 'account.errors.phoneTaken' ? (
+        // Already registered (owner, 17 Nov 2026): log in, or set a new PIN when it is forgotten.
+        <div className="flex gap-2">
+          <Link href={loginHref(next)} className="btn btn-primary flex-1">
+            {t('account.login.submit')}
+          </Link>
+          <Link href={routes.forgotPassword} className="btn btn-outline flex-1">
+            {t('account.login.forgot')}
+          </Link>
+        </div>
+      ) : null}
       <Field
         id="reg-password"
         label={t('account.fields.pin')}

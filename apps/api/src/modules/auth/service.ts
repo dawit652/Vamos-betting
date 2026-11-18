@@ -38,6 +38,7 @@ import { toLocale, type Locale } from '../../lib/locale';
 import {
   consumeOtp,
   createOtpChallenge,
+  TELEGRAM_REQUESTER_PREFIX,
   otpExpired,
   otpSentBody,
   sendOtpSms,
@@ -496,6 +497,48 @@ export async function requestPasswordReset(
       }
     : null;
   return { response: otpSentBody(deps, phone, otp, 'password_reset'), deliver };
+}
+
+/** What the Telegram bot gets when it asks for a reset code for a proven number. */
+export type TelegramResetCode =
+  { status: 'sent'; code: string; expiresAt: Date } | { status: 'no_account' };
+
+/**
+ * A PIN reset code for a number the Telegram bot has proven (the person shared their own contact,
+ * which Telegram verified), to be sent in that chat instead of by SMS (owner, 17 Nov 2026: the live
+ * server has no SMS gateway). The same challenge, limits and expiry as the SMS reset
+ * (createOtpChallenge; the chat is the requester), confirmed on the reset page as usual.
+ * "no_account" tells the owner of that number only, so it leaks nothing.
+ */
+export async function issueTelegramResetCode(
+  deps: AppDeps,
+  input: { phone: string; chatId: number },
+  meta: RequestMeta,
+): Promise<TelegramResetCode> {
+  const phone = requirePhone(input.phone);
+  const now = deps.clock();
+  const user = await findUserByPhone(deps.db, phone);
+  if (user === null || user.status !== 'active') return { status: 'no_account' };
+  const issued = await deps.db.transaction(async (tx) => {
+    const otp = await createOtpChallenge(tx, {
+      secret: deps.config.sessionSecret,
+      phone,
+      purpose: 'password_reset',
+      now,
+      requesterKey: `${TELEGRAM_REQUESTER_PREFIX}${input.chatId}`,
+    });
+    await writeAudit(tx, {
+      actorType: 'user',
+      actorId: user.id,
+      action: 'user.password_reset_requested',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { phone: maskMsisdn(phone), channel: 'telegram' },
+      ip: meta.ip,
+    });
+    return otp;
+  });
+  return { status: 'sent', code: issued.code, expiresAt: issued.expiresAt };
 }
 
 /** A committed password change: `deliver` sends the player's notice (never throws). */

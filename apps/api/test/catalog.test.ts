@@ -8,7 +8,14 @@ import {
   type EventSummary,
 } from '@vamos/contracts';
 import type { Database } from '@vamos/db';
-import { competitionAliases, events, sports, teamAliases } from '@vamos/db/schema';
+import {
+  categories,
+  competitionAliases,
+  competitions,
+  events,
+  sports,
+  teamAliases,
+} from '@vamos/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { normalizeName } from '@vamos/scraper';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -429,7 +436,8 @@ describe('GET /sports/:sport/competitions', () => {
     const body = CompetitionsResponse.parse(response.json());
     expect(body.items).toEqual([
       {
-        category: { slug: 'england', name: { en: 'England' }, countryCode: 'GB' },
+        // Names without Amharic get it from amharicName (@vamos/core).
+        category: { slug: 'england', name: { en: 'England', am: 'እንግሊዝ' }, countryCode: 'GB' },
         competitions: [
           {
             slug: 'premier-league',
@@ -455,17 +463,17 @@ describe('GET /sports/:sport/competitions', () => {
         ],
       },
       {
-        category: { slug: 'africa', name: { en: 'Africa' }, countryCode: null },
+        category: { slug: 'africa', name: { en: 'Africa', am: 'አፍሪካ' }, countryCode: null },
         competitions: [
           {
             slug: 'caf-champions-league',
-            name: { en: 'CAF Champions League' },
+            name: { en: 'CAF Champions League', am: 'የካፍ ሻምፒየንስ ሊግ' },
             eventCount: 1,
             featured: false,
           },
           {
             slug: 'caf-confederation-cup',
-            name: { en: 'CAF Confederation Cup' },
+            name: { en: 'CAF Confederation Cup', am: 'የካፍ ኮንፌዴሬሽን ዋንጫ' },
             eventCount: 0,
             featured: false,
           },
@@ -691,6 +699,40 @@ describe('GET /events', () => {
     expect(await listIds('/events?filter=upcoming&country=england&day=2026-10-09')).toEqual([
       ev.tomorrow.id,
     ]);
+  });
+
+  it("takes in every category of the same country: ours and the board's are one chip", async () => {
+    const board = await insertCategory(db, 'football', 'hl-england', { en: 'England' }, 900, 'GB');
+    const boardLeague = await insertCompetition(db, {
+      sportId: 'football',
+      categoryId: board,
+      slug: 'hl-national-league',
+      name: { en: 'National League' },
+      sortOrder: 10,
+    });
+    const extra = await insertEvent(db, {
+      sportId: 'football',
+      competitionId: boardLeague,
+      homeTeamId: ids.arsenal,
+      awayTeamId: ids.chelsea,
+      startTime: minutes(-20),
+      status: 'live',
+      liveMinute: 20,
+      period: '1H',
+      score: [0, 0],
+    });
+    try {
+      for (const slug of ['england', 'hl-england']) {
+        const found = await listIds(`/events?filter=live&country=${slug}`);
+        expect(found, slug).toEqual(expect.arrayContaining([ev.live.id, extra.id]));
+      }
+      // A category without a country code stays only itself.
+      expect(await listIds('/events?filter=today&country=africa')).toEqual([ev.caf.id]);
+    } finally {
+      await db.delete(events).where(eq(events.id, extra.id));
+      await db.delete(competitions).where(eq(competitions.id, boardLeague));
+      await db.delete(categories).where(eq(categories.id, board));
+    }
   });
 
   it('returns the double chance market as mainMarket with market=dc', async () => {
@@ -1110,7 +1152,7 @@ describe('GET /search', () => {
       slug: 'premier-league',
       sport: 'football',
       name: { en: 'Premier League', am: 'ፕሪሚየር ሊግ' },
-      category: { slug: 'england', name: { en: 'England' }, countryCode: 'GB' },
+      category: { slug: 'england', name: { en: 'England', am: 'እንግሊዝ' }, countryCode: 'GB' },
       eventCount: 3,
     });
     const amharic = await search('ፕሪምየር');

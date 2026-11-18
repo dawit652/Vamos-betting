@@ -1,23 +1,30 @@
 import type { EventSummary } from '@vamos/contracts';
 import Link from 'next/link';
 import type { Locale } from '@vamos/i18n';
+import type { Translator } from '@vamos/i18n/translate';
 import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { getLocale, getT } from '@/i18n/server';
-import { competitionFlag, flagEmoji } from '@/lib/flag';
+import type { LeagueMark } from '@/lib/badges';
+import { flagEmoji } from '@/lib/flag';
 import { formatDayMonth, formatTime, formatWeekday, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes, type Sport } from '@/lib/routes';
 import { dayChips } from './day-chips';
 import { eventRef, monogram, oddsMarket } from './events';
+import { LeagueIcon } from './LeagueIcon';
 import {
-  competitionFlags,
-  featuredCompetitions,
+  competitionMarks,
+  countryChips,
+  isBigMatch,
+  leagueMark,
   orderLeagueCategories,
+  topLeagues,
   type FeaturedCompetition,
 } from './leagues';
 import { LiveClock, LiveScore } from './LiveMatch';
 import { MarketOdds } from './MarketOdds';
 import { MatchList } from './MatchList';
+import { teamFlagCodes } from './team-marks';
 import { SportsbookFrame } from './SportsbookFrame';
 import {
   LIST_MARKETS,
@@ -137,9 +144,7 @@ async function ListControls({
   filters: ListFilters;
 }) {
   const [t, locale, data] = await Promise.all([getT(), getLocale(), getCompetitions(sport)]);
-  const countries = (data?.items ?? []).filter((category) =>
-    category.competitions.some((c) => c.eventCount > 0),
-  );
+  const countries = countryChips(data);
   const href = (change: ListFilters) => listHref(path, tab, undefined, { ...filters, ...change });
   const days = tab === 'today' || tab === 'upcoming' ? dayChips(new Date()) : [];
   const market = filters.market ?? '1x2';
@@ -198,15 +203,21 @@ async function ListControls({
           >
             {t('sportsbook.controls.all')}
           </Link>
-          {countries.map(({ category }) => (
+          {countries.map(({ category, slugs }) => (
             <Link
               key={category.slug}
               href={href({ country: category.slug })}
               prefetch={false}
-              aria-current={filters.country === category.slug ? 'true' : undefined}
+              aria-current={
+                filters.country !== undefined && slugs.includes(filters.country)
+                  ? 'true'
+                  : undefined
+              }
               className="chip min-h-11"
             >
-              <span aria-hidden="true">{flagEmoji(category.countryCode)}</span>
+              <span aria-hidden="true" className="text-lg leading-none">
+                {flagEmoji(category.countryCode)}
+              </span>
               <span>{localName(category.name, locale)}</span>
             </Link>
           ))}
@@ -250,7 +261,8 @@ async function EventsTab({
   filters: ListFilters;
 }) {
   const within = filters.within;
-  const [t, fetched, competitions] = await Promise.all([
+  const firstPage = tab === 'highlights' && cursor === undefined && within === undefined;
+  const [t, fetched, competitions, candidates] = await Promise.all([
     getT(),
     getEvents({
       sport,
@@ -266,6 +278,7 @@ async function EventsTab({
       ...(cursor === undefined ? {} : { cursor }),
     }),
     getCompetitions(sport),
+    firstPage ? bigMatchCandidates(sport) : Promise.resolve([]),
   ]);
   // An older API ignores startsWithinHours: cut the window here too, and stop paging
   // once anything was cut (later pages only start later).
@@ -277,18 +290,22 @@ async function EventsTab({
     nextCursor: items.length < fetched.items.length ? null : fetched.nextCursor,
   };
   const hrefFor = (next?: string) => listHref(path, tab, next, filters);
-  const firstPage = tab === 'highlights' && cursor === undefined && within === undefined;
-  // The poster takes the first highlight that can be bet on; the list shows the rest.
-  const [first] = page.items;
-  const featured = firstPage && first?.mainMarket?.status === 'open' ? first : null;
-  const events = featured === null ? page.items : page.items.slice(1);
+  const marks = competitionMarks(competitions);
+  // The featured row: big matches only (top leagues, big nations), live ones first.
+  const topSlugs = new Set(topLeagues(competitions, sport).map((c) => c.slug));
+  const big = candidates
+    .filter((event) => event.mainMarket !== null && isBigMatch(event, topSlugs))
+    .slice(0, FEATURED_MAX);
+  const events = page.items;
   return (
     <>
       {firstPage ? (
-        <div className="mx-3 mb-3 grid gap-3 lg:mx-0 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
-          {featured !== null ? <Featured event={featured} /> : null}
-          <Promos />
-        </div>
+        <>
+          {big.length > 0 ? <FeaturedRow events={big} marks={marks} /> : null}
+          <div className="mx-3 mb-3 lg:mx-0">
+            <Promos />
+          </div>
+        </>
       ) : null}
       <ListTabs path={path} current={tab} filters={filters} />
       <ListControls sport={sport} tab={tab} path={path} filters={filters} />
@@ -303,7 +320,7 @@ async function EventsTab({
         </div>
       ) : (
         <>
-          <MatchList events={events} grouped flags={competitionFlags(competitions)} />
+          <MatchList events={events} grouped marks={marks} />
           <Pager
             firstHref={cursor === undefined ? null : hrefFor()}
             nextHref={page.nextCursor === null ? null : hrefFor(page.nextCursor)}
@@ -314,44 +331,105 @@ async function EventsTab({
   );
 }
 
-/** The featured-match poster: league, both teams, kick-off or live score, and the main market. */
-async function Featured({ event }: { event: EventSummary }) {
-  const [t, locale] = await Promise.all([getT(), getLocale()]);
-  const day = relativeDay(event.startTime);
-  const live = event.status === 'live';
-  const team = (side: EventSummary['home']) => (
-    <span className="flex min-w-0 flex-col items-center gap-1.5">
-      <span aria-hidden="true" className="crest h-12 w-12 text-sm">
-        {monogram(side.shortName)}
-      </span>
-      <span className="w-full truncate font-bold">{localName(side.name, locale)}</span>
-    </span>
+/** At most this many cards in the featured row (each one weighs on the page). */
+const FEATURED_MAX = 8;
+
+/** Live matches first, then the next 48 hours: where the featured row looks for big matches. */
+async function bigMatchCandidates(sport: Sport): Promise<EventSummary[]> {
+  const [live, upcoming] = await Promise.all([
+    getEvents({ sport, filter: 'live', limit: 50 }).catch(() => null),
+    getEvents({ sport, filter: 'upcoming', startsWithinHours: 48, limit: 100 }).catch(() => null),
+  ]);
+  const seen = new Set<string>();
+  return [...(live?.items ?? []), ...(upcoming?.items ?? [])].filter((event) =>
+    seen.has(event.id) ? false : (seen.add(event.id), true),
   );
+}
+
+/**
+ * The featured row (owner, 17 Nov 2026): big matches of the top leagues and the big nations as
+ * small cards that scroll sideways, instead of one large poster.
+ */
+async function FeaturedRow({
+  events,
+  marks,
+}: {
+  events: readonly EventSummary[];
+  marks: Readonly<Record<string, LeagueMark>>;
+}) {
+  const [t, locale] = await Promise.all([getT(), getLocale()]);
   return (
-    <section aria-labelledby="featured-title" className="poster p-4">
-      <p className="flex items-center gap-2 text-xxs">
+    <section aria-labelledby="featured-title" className="mb-3">
+      <h2 className="mx-3 mb-2 text-xxs lg:mx-0">
         <span
           id="featured-title"
-          className="flex-none rounded-full bg-accent px-2 py-0.5 font-extrabold tracking-wider text-accent-ink uppercase"
+          className="inline-block rounded-full bg-accent px-2 py-0.5 font-extrabold tracking-wider text-accent-ink uppercase"
         >
           ★ {t('sportsbook.list.featured')}
         </span>
-        <span className="truncate font-semibold text-white/70">
-          {localName(event.competition.category, locale)} ·{' '}
+      </h2>
+      <ul className="no-scrollbar flex snap-x snap-mandatory scroll-px-3 gap-3 overflow-x-auto px-3 pb-1 lg:scroll-px-0 lg:px-0">
+        {events.map((event) => (
+          <FeaturedCard
+            key={event.id}
+            event={event}
+            mark={marks[event.competition.slug]}
+            locale={locale}
+            t={t}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** One card of the featured row: league, both teams, kick-off or live score, the main market. */
+function FeaturedCard({
+  event,
+  mark,
+  locale,
+  t,
+}: {
+  event: EventSummary;
+  mark: LeagueMark | undefined;
+  locale: Locale;
+  t: Translator;
+}) {
+  const day = relativeDay(event.startTime);
+  const flags = teamFlagCodes(event);
+  const team = (side: EventSummary['home'], code: string | null) => (
+    <span className="flex min-w-0 flex-col items-center gap-0.5">
+      <span aria-hidden="true" className="crest h-7 w-7 text-[0.625rem]">
+        {code === null ? (
+          monogram(side.shortName)
+        ) : (
+          <span className="text-lg">{flagEmoji(code)}</span>
+        )}
+      </span>
+      <span className="w-full truncate text-xs font-bold">{localName(side.name, locale)}</span>
+    </span>
+  );
+  return (
+    <li className="poster featured-card w-[12.5rem] flex-none snap-start p-2.5 lg:w-[13.5rem]">
+      <p className="flex items-center gap-1.5 text-[0.625rem]">
+        {mark !== undefined ? (
+          <LeagueIcon flag={mark.flag} badge={mark.badge} className="text-xl leading-none" />
+        ) : null}
+        <span className="truncate font-semibold text-white/75">
           {localName(event.competition.name, locale)}
         </span>
       </p>
       <Link
         href={routes.event(event.id)}
         prefetch={false}
-        className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-center"
+        className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 text-center"
       >
-        {team(event.home)}
-        {live ? (
-          <span className="px-1">
-            <span className="block text-2xl leading-none font-black whitespace-nowrap tabular-nums">
+        {team(event.home, flags[0])}
+        {event.status === 'live' ? (
+          <span className="px-0.5">
+            <span className="block text-base leading-none font-black whitespace-nowrap tabular-nums">
               <LiveScore eventId={event.id} side="home" initial={event.score?.home ?? 0} />
-              <span className="px-1 text-white/70">:</span>
+              <span className="px-0.5 text-white/70">:</span>
               <LiveScore eventId={event.id} side="away" initial={event.score?.away ?? 0} />
             </span>
             <LiveClock
@@ -360,12 +438,12 @@ async function Featured({ event }: { event: EventSummary }) {
               status={event.status}
               minute={event.liveMinute}
               period={event.period}
-              className="mt-1 inline-block rounded-full bg-white px-2 text-xxs font-bold text-[#0a100e]"
+              className="mt-1 inline-block rounded-full bg-white px-1.5 text-xxs font-bold text-[#0a100e]"
             />
           </span>
         ) : (
-          <span className="px-1">
-            <span className="block text-2xl leading-none font-black tabular-nums">
+          <span className="px-0.5">
+            <span className="block text-base leading-none font-black tabular-nums">
               {formatTime(event.startTime, locale)}
             </span>
             <span className="text-xxs font-semibold text-white/70">
@@ -377,14 +455,14 @@ async function Featured({ event }: { event: EventSummary }) {
             </span>
           </span>
         )}
-        {team(event.away)}
+        {team(event.away, flags[1])}
       </Link>
       {event.mainMarket !== null ? (
-        <div className="mt-3 flex">
+        <div className="mt-1.5 flex">
           <MarketOdds event={eventRef(event)} market={oddsMarket(event.mainMarket)} layout="row" />
         </div>
       ) : null}
-    </section>
+    </li>
   );
 }
 
@@ -404,7 +482,7 @@ async function Promos() {
     </Link>
   );
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+    <div className="grid grid-cols-2 gap-3">
       {card('poster-gold', t('account.jackpot.title'), t('account.jackpot.promo.jackpot'))}
       {card('', t('account.jackpot.promo.title'), t('account.jackpot.promo.text'))}
     </div>
@@ -441,8 +519,7 @@ export async function Pager({
 async function Leagues({ sport }: { sport: Sport }) {
   const [t, locale, data] = await Promise.all([getT(), getLocale(), getCompetitions(sport)]);
   const categories = orderLeagueCategories(data?.items ?? [], locale);
-  const top = featuredCompetitions(data);
-  const flags = competitionFlags(data);
+  const top = topLeagues(data, sport);
   if (categories.length === 0) {
     return (
       <p className="card mx-3 text-center text-muted lg:mx-0">{t('sportsbook.leagues.empty')}</p>
@@ -461,7 +538,7 @@ async function Leagues({ sport }: { sport: Sport }) {
                 key={competition.slug}
                 sport={sport}
                 competition={competition}
-                flag={flags[competition.slug] ?? ''}
+                mark={competition}
                 locale={locale}
                 label={t('sportsbook.leagues.matches', { count: competition.eventCount })}
               />
@@ -479,7 +556,7 @@ async function Leagues({ sport }: { sport: Sport }) {
             id={`cat-${category.category.slug}`}
             className="flex items-center gap-2 border-b border-line bg-raised px-3 py-2 text-xs font-bold"
           >
-            <span aria-hidden="true" className="text-base leading-none">
+            <span aria-hidden="true" className="text-2xl leading-none">
               {flagEmoji(category.category.countryCode)}
             </span>
             {localName(category.category.name, locale)}
@@ -490,7 +567,7 @@ async function Leagues({ sport }: { sport: Sport }) {
                 key={competition.slug}
                 sport={sport}
                 competition={competition}
-                flag={competitionFlag(competition, category.category)}
+                mark={leagueMark(competition, category.category)}
                 locale={locale}
                 label={t('sportsbook.leagues.matches', { count: competition.eventCount })}
               />
@@ -505,13 +582,13 @@ async function Leagues({ sport }: { sport: Sport }) {
 function LeagueRow({
   sport,
   competition,
-  flag,
+  mark,
   locale,
   label,
 }: {
   sport: Sport;
   competition: FeaturedCompetition;
-  flag: string;
+  mark: LeagueMark;
   locale: Locale;
   label: string;
 }) {
@@ -523,9 +600,7 @@ function LeagueRow({
         className="list-row flex items-center justify-between gap-2 font-semibold"
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span aria-hidden="true" className="text-base leading-none">
-            {flag}
-          </span>
+          <LeagueIcon flag={mark.flag} badge={mark.badge} className="text-xl leading-none" />
           <span className="truncate">{localName(competition.name, locale)}</span>
         </span>
         <span className="flex-none text-xxs font-normal text-muted">{label} ›</span>

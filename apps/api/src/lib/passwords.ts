@@ -72,9 +72,7 @@ const PIN_RE = new RegExp(`^\\d{${PIN_LENGTH}}$`);
 const PIN_MESSAGES: Readonly<Record<PinWeakness, string>> = {
   repeated: 'Do not use the same digit four times.',
   sequence: 'Do not use digits in a row (like 1234, 9876 or 7890).',
-  pattern: 'Do not use a pattern (like 1212, 1122, 1221 or 1112).',
-  common: 'This PIN is too common. Choose another one.',
-  phone: 'Do not use digits of your phone number as your PIN.',
+  phone: 'Do not use the last 4 digits of your phone number as your PIN.',
 };
 
 /** Why a 4-digit PIN is too easy to guess for the account with `phone`, or null. */

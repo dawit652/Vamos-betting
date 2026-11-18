@@ -9,8 +9,8 @@ export const DateOfBirth = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-
 /**
  * A new player password (registration, reset, change) is a **4-digit PIN**: the owner's choice
  * (16 Nov 2026), so players sign in as they do on their mobile money app. The API also refuses the
- * easiest PINs (`weak_password`: one digit four times, a straight run, a few very common ones, the
- * last four digits of the phone). Guessing is held back by the login limits per number (per 15
+ * easiest PINs (`weak_password`: one digit four times, a straight run, the last four digits of the
+ * phone). Guessing is held back by the login limits per number (per 15
  * minutes and per day, lifted by the SMS reset) and per address. Staff passwords are not PINs.
  *
  * Login (and the current password of a change) takes any non-empty password, so an account made
@@ -208,3 +208,32 @@ export type RevokeSessionsResponse = z.infer<typeof RevokeSessionsResponse>;
 
 export const OkResponse = z.object({ ok: z.literal(true) });
 export type OkResponse = z.infer<typeof OkResponse>;
+
+/**
+ * POST /internal/telegram/password-reset: the Telegram bot (worker) asks the API for a PIN reset
+ * code for a number the person proved by sharing their own Telegram contact. Only the worker can
+ * call it: `x-vamos-signature` is the HMAC-SHA256 (hex) of telegramResetSigningInput under
+ * SESSION_SECRET, which the API and the worker share, and a request older than
+ * TELEGRAM_RESET_MAX_AGE_SECONDS is refused (as long as the code's resend cooldown, so a replay
+ * gets nothing). `timestamp` is in seconds.
+ */
+export const TelegramResetCodeRequest = z.object({
+  phone: z.string().min(1).max(32),
+  chatId: z.number().int(),
+  timestamp: z.number().int().positive(),
+});
+export type TelegramResetCodeRequest = z.infer<typeof TelegramResetCodeRequest>;
+
+export const TELEGRAM_RESET_PATH = '/internal/telegram/password-reset';
+export const TELEGRAM_RESET_MAX_AGE_SECONDS = 60;
+
+/** The text both sides sign (never the code: there is none in the request). */
+export function telegramResetSigningInput(input: TelegramResetCodeRequest): string {
+  return `telegram-reset:v1:${input.timestamp}:${input.phone}:${input.chatId}`;
+}
+
+export const TelegramResetCodeResponse = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('sent'), code: z.string().regex(/^\d{6}$/), expiresAt: z.string() }),
+  z.object({ status: z.literal('no_account') }),
+]);
+export type TelegramResetCodeResponse = z.infer<typeof TelegramResetCodeResponse>;

@@ -58,6 +58,37 @@ Optional, in @BotFather: `/setdescription` and `/setcommands` (paste
 
 To send alerts only, with no player menu: `TELEGRAM_PLAYER_MENU=off`.
 
+## Forgot PIN over Telegram
+
+The live server has no SMS gateway, so a forgotten PIN is reset through the bot (owner, 17 Nov 2026):
+
+1. On the website's Forgot PIN page the player taps **Get the code on Telegram** (shown while
+   `TELEGRAM_PUBLIC_URL` is set; it must be the **bot's** link, `https://t.me/<bot username>`, not a
+   channel). The bot opens on the reset step. In the bot, `/reset` or the **Forgot PIN** menu
+   button does the same.
+2. The bot asks the player to share their phone number with one tap. Only their own Telegram
+   number counts (Telegram verified it); a card forwarded from someone else is refused.
+3. The bot sends a 6-digit code in the chat (5 minutes; the same limits as SMS codes: one a minute,
+   five an hour per number) with a button to the reset page, where the player enters their phone
+   number, the code and a new PIN.
+
+A reset code asked for on the website afterwards (the Forgot PIN form's "Send code") does not cancel
+a Telegram code that is still valid, and any live code of the number is accepted; a newer Telegram
+code replaces an older one (always use the newest). Found on 17 Nov 2026 when the owner's Telegram
+code was refused after pressing "Send code".
+
+Players need Telegram on the phone number of their Nahubet account. The worker asks the API for
+the code over the compose network, signed with `SESSION_SECRET` (`/internal/telegram/password-reset`,
+refused when the signature is wrong or older than 60 seconds). The code and the number are never
+written to a log. Add `reset - Forgot PIN` to the bot's commands in @BotFather (`/setcommands`).
+
+## Share with friends
+
+The menu has a **Share with friends** button and `/share` sends it with the bot's link: it opens
+Telegram's share page so a player can send the bot to their friends' chats (owner, 17 Nov 2026).
+The bot learns its own username at start (getMe); if that fails the button is left out. Add
+`share - Share with friends` to the bot's commands in @BotFather.
+
 ## Showing the Telegram link on the site
 
 To show "Join us on Telegram" in the player site's footer, left column and phone league panel, set

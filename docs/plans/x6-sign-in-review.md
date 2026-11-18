@@ -50,3 +50,12 @@ in logs, errors or audit rows.
 the form refused it, so the year rule of F3 is removed (`pinWeaknessReason` no longer has `year`):
 1990 or 2016 is a valid PIN. The other rules stay (repeats, runs, pair patterns, the common list, the
 player's own number), and so do the login limits per number that hold guessing back.
+
+**16 Nov 2026, late evening: the owner was still refused at registration** ("it says easy number to
+predict or used password"), so the rule keeps only what every player understands: one digit four
+times, runs (also round the 0) and the last four digits of the player's own number, 31 of the 10,000
+PINs. Pair patterns, three of a digit, the common list and the other digits of the number (its 09..
+start, its middle) are valid again. The cost: the PINs an attacker tries first on a number
+(1212, 2000, 6969, 1122, years) now exist, so the per-number login limits (6 per 15 minutes, 15 a
+day) are what holds guessing back, and the failed-login alarm (X6b: one PIN tried on many numbers)
+matters more. Every PIN refused now was refused before, so no player is sent to the reset.

@@ -100,7 +100,6 @@ export const sportsbook = {
     empty: 'No leagues with matches right now.',
     matches: '{count} matches',
     topLeagues: 'Top leagues',
-    moreLeagues: 'More leagues',
   },
   sidebar: {
     topMatches: 'Top Matches',

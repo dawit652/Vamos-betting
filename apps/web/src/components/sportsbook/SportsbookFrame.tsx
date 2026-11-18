@@ -6,9 +6,10 @@ import { getLocale, getT } from '@/i18n/server';
 import { getCompetitions, getSports } from '@/lib/api/catalog';
 import { localName } from '@/lib/localized';
 import { telegramUrl } from '@/lib/telegram';
+import { LeagueIcon } from './LeagueIcon';
 import { LeaguesDrawer } from './LeaguesDrawer';
 import { listHref } from './tabs';
-import { splitLeagues, type SidebarLeague } from './leagues';
+import { topLeagues, type SidebarLeague } from './leagues';
 import { routes, SPORTS, type Sport } from '@/lib/routes';
 
 /** System emoji as sport icons: no icon font or image to download. */
@@ -54,7 +55,7 @@ export async function SportsbookFrame({
     getCompetitions(sport).catch(() => null),
   ]);
   const counts = new Map((sports?.items ?? []).map((item) => [item.id, item]));
-  const { featured, others } = splitLeagues(leagues);
+  const featured = topLeagues(leagues, sport);
   const leagueLink = (c: SidebarLeague) => (
     <Link
       key={c.slug}
@@ -63,7 +64,7 @@ export async function SportsbookFrame({
       aria-current={c.slug === competition ? 'page' : undefined}
       className="chip"
     >
-      <span aria-hidden="true">{c.flag}</span>
+      <LeagueIcon flag={c.flag} badge={c.badge} className="text-xl leading-none" />
       <span className="lg:min-w-0 lg:flex-1 lg:truncate">{localName(c.name, locale)}</span>
       <span className="text-xxs tabular-nums opacity-70">{c.eventCount}</span>
     </Link>
@@ -144,7 +145,9 @@ export async function SportsbookFrame({
                   className="chip"
                   aria-current={s === sport ? 'page' : undefined}
                 >
-                  <span aria-hidden="true">{SPORT_ICONS[s]}</span>
+                  <span aria-hidden="true" className="text-xl leading-none">
+                    {SPORT_ICONS[s]}
+                  </span>
                   <span className="lg:min-w-0 lg:flex-1 lg:truncate">
                     {t(`common.sports.${s}`)}
                   </span>
@@ -187,15 +190,6 @@ export async function SportsbookFrame({
               {featured.map((c) => leagueLink(c))}
             </nav>
           </details>
-        ) : null}
-        {others.length > 0 ? (
-          <nav
-            aria-label={t('sportsbook.leagues.moreLeagues')}
-            className="rail rail-second hidden lg:order-4 lg:flex"
-          >
-            <h2 className="rail-title">{t('sportsbook.leagues.moreLeagues')}</h2>
-            {others.map((c) => leagueLink(c))}
-          </nav>
         ) : null}
         {telegram !== null ? (
           <div className="hidden lg:order-5 lg:block">

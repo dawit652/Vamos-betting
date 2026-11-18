@@ -1,13 +1,18 @@
+import { normalizeEthiopianMsisdn } from '@vamos/core';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { CatalogReader } from './catalog';
-import type { TelegramClient, TelegramUpdate } from './client';
+import type { TelegramClient, TelegramMessage, TelegramUpdate } from './client';
 import {
   botLocale,
   leaguesMessage,
   matchListMessage,
   menuMessage,
   parseCommand,
+  resetAskMessage,
+  resetCodeMessage,
+  shareMessage,
+  startPayload,
   statusMessage,
   textOf,
   type BotLocale,
@@ -22,7 +27,19 @@ import {
  * - Players write in private chats; group chats are answered only when they are owner chats.
  * - Each chat may send BOT_RATE_LIMIT messages a minute; the rest are ignored silently.
  * - /status is for the owner chats only; for anyone else it is an unknown command.
+ * - Forgot PIN (X12, while `resetCode` is set): /reset, the menu button or the website's link
+ *   (/start reset) ask the person to share their own number; the code for a new PIN comes back in
+ *   the chat. Only a card with the sender's own user id counts (Telegram verified that number). The
+ *   code and the number are never logged.
  */
+
+/** What the API answered for a reset code (`unavailable`: it could not be asked). */
+export type ResetCodeResult =
+  | { status: 'sent'; code: string }
+  | { status: 'no_account' }
+  | { status: 'limited' }
+  | { status: 'cooldown'; seconds: number }
+  | { status: 'unavailable' };
 
 export interface BotDeps {
   client: TelegramClient;
@@ -45,6 +62,10 @@ export interface BotDeps {
   } | null>;
   /** Redis key prefix of the per-chat rate limit (tests use their own). */
   rateKeyPrefix?: string;
+  /** The bot's own username (from getMe), for "Share with friends". Unset: no share button. */
+  botUsername?: string;
+  /** Asks the API for a PIN reset code for a proven number. Unset: no reset in the bot. */
+  resetCode?: (input: { phone: string; chatId: number }) => Promise<ResetCodeResult>;
 }
 
 /** Messages (and button presses) one chat may send per minute. */
@@ -125,6 +146,10 @@ async function act(
     );
     return;
   }
+  if (action === 'reset' && deps.resetCode !== undefined) {
+    await send(deps, chatId, resetAskMessage(locale));
+    return;
+  }
   if (!deps.playerMenu) {
     await send(deps, chatId, `${t.alertsOnly}\n${owner ? '/status, /id' : '/id'}`);
     return;
@@ -139,9 +164,69 @@ async function act(
       return matches(deps, chatId, locale, t.titleTop, { filter: 'highlights', limit: 10 });
     case 'leagues':
       return leagues(deps, chatId, locale);
+    case 'share':
+      if (deps.botUsername !== undefined) {
+        await send(deps, chatId, shareMessage(deps.botUsername, locale));
+        return;
+      }
+      break;
     default:
-      await send(deps, chatId, menuMessage(locale, deps.demo));
+      break;
   }
+  await send(
+    deps,
+    chatId,
+    menuMessage(locale, deps.demo, {
+      reset: deps.resetCode !== undefined,
+      ...(deps.botUsername === undefined ? {} : { botUsername: deps.botUsername }),
+    }),
+  );
+}
+
+/**
+ * A shared contact, for the PIN reset: the sender's own card only, then the code (or why not)
+ * in the chat. Nothing about the account is said before the number is proven.
+ */
+async function resetWithContact(
+  deps: BotDeps,
+  message: TelegramMessage,
+  locale: BotLocale,
+): Promise<void> {
+  const t = textOf(locale);
+  const chatId = message.chat.id;
+  const contact = message.contact!;
+  if (message.from === undefined || contact.user_id !== message.from.id) {
+    await send(deps, chatId, { ...resetAskMessage(locale), text: t.resetNotOwn });
+    return;
+  }
+  const raw = contact.phone_number.trim();
+  const phone = normalizeEthiopianMsisdn(raw.startsWith('+') ? raw : `+${raw}`);
+  const done = { remove_keyboard: true } as const;
+  if (phone === null) {
+    // Not an Ethiopian mobile number: no Nahubet account can have it.
+    await send(deps, chatId, { text: t.resetNoAccount, replyMarkup: done });
+    return;
+  }
+  let result: ResetCodeResult;
+  try {
+    result = await deps.resetCode!({ phone, chatId });
+  } catch (error) {
+    deps.logger.warn({ err: error }, 'telegram bot: the reset code could not be asked for');
+    result = { status: 'unavailable' };
+  }
+  if (result.status === 'sent') {
+    await send(deps, chatId, resetCodeMessage(result.code, locale, deps.webUrl));
+    return;
+  }
+  const text =
+    result.status === 'no_account'
+      ? t.resetNoAccount
+      : result.status === 'limited'
+        ? t.resetLimited
+        : result.status === 'cooldown'
+          ? t.resetCooldown.replace('{seconds}', String(result.seconds))
+          : t.resetUnavailable;
+  await send(deps, chatId, { text, replyMarkup: done });
 }
 
 export async function handleUpdate(deps: BotDeps, update: TelegramUpdate): Promise<void> {
@@ -172,8 +257,18 @@ export async function handleUpdate(deps: BotDeps, update: TelegramUpdate): Promi
   const chatId = message.chat.id;
   const owner = deps.ownerChatIds.has(chatId);
   if (message.chat.type !== 'private' && !owner) return;
+  const locale = botLocale(message.from?.language_code);
+  if (message.contact !== undefined) {
+    // A number is only ever shared for the PIN reset, and only in a private chat.
+    if (message.chat.type !== 'private' || deps.resetCode === undefined) return;
+    if (!(await withinRate(deps, chatId))) return;
+    await resetWithContact(deps, message, locale);
+    return;
+  }
   const command = parseCommand(message.text);
   if (command === null && message.chat.type !== 'private') return;
   if (!(await withinRate(deps, chatId))) return;
-  await act(deps, chatId, botLocale(message.from?.language_code), command ?? 'start', owner);
+  const action =
+    command === 'start' && startPayload(message.text) === 'reset' ? 'reset' : (command ?? 'start');
+  await act(deps, chatId, locale, action, owner);
 }

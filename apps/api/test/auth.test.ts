@@ -268,7 +268,7 @@ describe('auth', () => {
       expect(refused.statusCode).toBe(400);
     });
 
-    it.each(['1234', '0000', '2580', '1212', '9876'])('rejects the easy PIN %s', async (pw) => {
+    it.each(['1234', '0000', '7777', '9876', '7890'])('rejects the easy PIN %s', async (pw) => {
       const response = await post(
         ctx,
         '/auth/register',
@@ -277,6 +277,18 @@ describe('auth', () => {
       expect(response.statusCode).toBe(400);
       expect(apiError(response).code).toBe('weak_password');
     });
+
+    it.each(['1212', '1122', '2580', '2000', '1990'])(
+      'takes the PIN %s (owner, 16 Nov 2026)',
+      async (pw) => {
+        const response = await post(
+          ctx,
+          '/auth/register',
+          registerPayload(randomPhone(), { password: pw }),
+        );
+        expect(response.statusCode, response.body).toBe(201);
+      },
+    );
 
     it('rejects the last 4 digits of the phone number as PIN', async () => {
       let phone = randomPhone();

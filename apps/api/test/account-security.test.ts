@@ -120,7 +120,7 @@ describe('account security', () => {
 
       for (const [newPassword, code] of [
         ['1234', 'weak_password'],
-        ['2580', 'weak_password'],
+        ['0000', 'weak_password'],
         ['483', 'validation_error'],
         ['qwerty123456', 'validation_error'],
         [player.password, 'password_unchanged'],
@@ -213,7 +213,7 @@ describe('account security', () => {
           payload: { currentPassword: player.password, newPassword },
         });
       // Weak, malformed or unchanged new PINs are refused before the current PIN is compared.
-      for (const newPassword of ['1234', '1987', '1212', '12', player.password, '2580', '0000']) {
+      for (const newPassword of ['1234', '7890', '12', player.password, '9876', '0000']) {
         expect((await change(newPassword)).statusCode, newPassword).not.toBe(429);
       }
       expect((await change(NEW_PASSWORD)).statusCode).toBe(200);

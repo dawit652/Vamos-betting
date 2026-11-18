@@ -512,6 +512,40 @@ SELECT p.auto_open, p.pricing_source, count(*) AS locked, count(r.id) AS waiting
 watch the scraper's `hulusport board read` lines (factory load); the native-speaker check of the new
 Amharic texts (`common.telegram.join`, the PIN reasons, the consent sentence).
 
+**Registration, still refused (owner, late evening):** "it says easy number to predict or used
+password". The easy-PIN rule now refuses only one digit four times, runs and the last four digits of
+the player's own number (31 of 10,000; it was about 590): `packages/core/src/pin.ts`, the API and the
+form share it, and the hint and messages say exactly that (English and Amharic). Pairs, years and
+keypad shapes (1212, 1990, 2580) register. X6b (failed-login alarm) matters more now.
+
+**Top leagues and competition logos (owner, late evening):** the left column and the phone panel
+(button and title now "Top leagues") show a fixed list, even without matches, and nothing else
+(Premier League, LaLiga, Serie A, Bundesliga, Champions League, Europa League, Ligue 1, Eredivisie,
+Liga Portugal, Pro League, Super League, Superettan, after Hulusport's column; `TOP_LEAGUES`);
+competitions without a flag show their logo (`apps/web/public/league-logos/`,
+API-Football's images cropped to the emblem; the World Cup trophy is our own drawing). The owner
+asked to see a sample image before deploying: sent (light, dark, phone, desktop). Told that the
+logos are trademarks, the owner decided to keep them ("they should exist"); note in
+`docs/deployment.md` ("Competition logos and Top leagues").
+
+**Amharic names (owner, 17 Nov):** on an Amharic page every team, competition and country name is
+in Amharic. The API fills a missing `am` with `amharicName` (`packages/core/src/amharic-names.ts`):
+the conventional spelling of known names (`amharic-names.data.ts`: countries, competitions, clubs,
+Ethiopian clubs), else football words translated (U20, Women, Cup) and the rest written in fidel by
+sound. A name staff wrote in Amharic always wins. A native speaker should review the dictionary.
+
+**Owner's requests of 17 Nov (done):** the featured area is a row of small cards that scroll
+sideways, big matches only (`isBigMatch`: the Top Leagues, or senior national teams of the big
+nations; live first, at most 8); bigger flags, logos and icons in the sidebar, the phone panel and
+the league lists; on "this number is already registered" the form offers Log in and Forgot PIN; a
+first load that meets network trouble retries before showing the player signed out. Page budget
+168 KB (logos). Forgot PIN over Telegram (X12) is built: `docs/runbooks/telegram-bot.md`. Found on the first live try (17 Nov): the Forgot PIN form's
+"Send code" killed the Telegram code (every new code retired the older); fixed in `otp.ts` (a
+Telegram code survives a website request; any live code of the number is accepted). Team flags:
+national teams show their flag after the name in every match row, the featured cards and the event
+page (`team-marks.ts`); clubs keep an initials crest until a club logo source exists (API-Football
+has team logos by team id: needs a download job and the id of each team).
+
 **Decisions of the owner, late evening:** years are valid PINs again (done, `945b496`); for the
 locked odds "use your recommendation" (below); a PIN reset over Telegram when no SMS gateway exists
 (designed: `docs/plans/telegram-pin-reset.md`); the Next.js upgrade (16.4.2 to 16.4.5, advisory

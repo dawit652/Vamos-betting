@@ -16,6 +16,7 @@ import devPaymentRoutes, { demoPhoneEnabled } from './payments/dev-routes';
 import devSmsRoutes, { devSmsEnabled } from './payments/dev-sms';
 import paymentRoutes from './payments/routes';
 import rgRoutes from './rg/routes';
+import telegramRoutes from './telegram/routes';
 import userStreamRoutes from './stream/routes';
 import walletRoutes from './wallet/routes';
 
@@ -48,6 +49,7 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   await app.register(bettingRoutes);
   await app.register(paymentRoutes);
   await app.register(jackpotRoutes);
+  await app.register(telegramRoutes);
   // SMS / USSD aggregator routes: registered only while their flag is on (else 404).
   await app.register(channelRoutes);
   // The back office: staff sessions and RBAC of their own (plugins/staff-session.ts).
