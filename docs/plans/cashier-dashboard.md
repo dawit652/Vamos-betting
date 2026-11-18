@@ -104,15 +104,14 @@ account with its shop from the command line (`admin-create`), and per-shop expor
 /admin/cashier/players/:id/deposits`, cashier.desk, audited `cashier.player_deposits_viewed`);
    it never credits an online deposit; supervisors get links to the SMS rail page and the player
    page. A supervisor-only "credit by provider reference" was not needed.
-2. **Assisted PIN reset** (owner's default 18 Nov; in progress). The desk checks the player's ID card
-   against the verified KYC record (keyed hash of the ID number), a supervisor approves (four eyes,
-   not the cashier who asked), then the desk issues the ORDINARY one-time reset code (as the Telegram
-   reset does, `createOtpChallenge` purpose `password_reset`) and prints it; the player sets a new PIN
-   on "Forgot PIN". Done: migration `0063_cash_pin_resets`, services `requestDeskPinReset`,
-   `decideDeskPinReset`, `issueDeskPinReset` (`packages/db/src/cashier/pin-reset.ts`) with tests. API (done): `POST /admin/cashier/players/:id/pin-reset` (cashier.desk, the ID number; a
-   mismatch audited in its own transaction), `GET` the same path (the open request), `GET
-/admin/cashier/pin-resets` and `POST .../:id/decision` (users.status: admin, compliance), `POST
-.../:id/issue` (cashier.desk: the code, once). Next: the desk and supervisor screens.
+2. **Assisted PIN reset: done 18 Nov** (owner's default). The desk checks the player's ID card
+   against the verified KYC record (keyed hash of the ID number; a mismatch is audited), a supervisor
+   with users.status (admin, compliance; never the cashier who asked) approves on the Cash shifts
+   page ("PIN resets waiting"), then the desk shows the ORDINARY one-time reset code (made as the
+   Telegram reset makes it) for the player, who sets a new PIN on "Forgot PIN". The desk never sees
+   the PIN. Migration `0063_cash_pin_resets`; `packages/db/src/cashier/pin-reset.ts`; routes
+   `/admin/cashier/players/:id/pin-reset`, `/admin/cashier/pin-resets`, `.../:id/decision`,
+   `.../:id/issue`; the desk section "PIN reset (ID check)" for a verified, active player.
 3. **Variance posting: done 18 Nov** (owner's default: a shop loss or gain, approved by a
    supervisor; migration `0062_cash_shift_variance`): ledger account kind `house_cash_variance`
    (GGR in `house_revenue` stays clean); `cash_shift_variance_postings` (once per shift);

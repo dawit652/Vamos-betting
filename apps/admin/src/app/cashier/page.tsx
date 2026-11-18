@@ -12,6 +12,8 @@ import type {
   SetPlayerStatusResponse,
   CashierDepositsResponse,
   CashierDepositView,
+  DeskPinResetCodeResponse,
+  DeskPinResetResponse,
 } from '@vamos/contracts';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
@@ -308,6 +310,9 @@ function PlayerDesk({
                 }.`}
           </p>
           <RecentDeposits playerId={player.id} supervisor={desk.supervisor} />
+          {player.kycStatus === 'verified' && player.status === 'active' && (
+            <DeskPinReset playerId={player.id} />
+          )}
           {blocked ? (
             <Notice>This player cannot be served.</Notice>
           ) : (
@@ -426,6 +431,97 @@ function Operations({ desk }: { desk: CashierDeskResponse }) {
 }
 
 /** The cashier desk: open a shift, serve players with cash deposits and receipts, close with a count. */
+/**
+ * PIN reset at the desk (for a player without SMS or Telegram): the cashier types the ID number from
+ * the player's card (checked against the verified ID), a supervisor approves, then the desk shows the
+ * one-time code to give the player, who sets a new PIN on "Forgot PIN". The desk never sees the PIN.
+ */
+function DeskPinReset({ playerId }: { playerId: string }) {
+  const { data, reload } = useFetch<DeskPinResetResponse>(
+    `/admin/cashier/players/${playerId}/pin-reset`,
+  );
+  const [idNumber, setIdNumber] = useState('');
+  const [code, setCode] = useState<DeskPinResetCodeResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const run = async (work: () => Promise<void>) => {
+    setBusy(true);
+    setFailure(null);
+    try {
+      await work();
+    } catch (e) {
+      setFailure(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const ask = (event: FormEvent) => {
+    event.preventDefault();
+    void run(async () => {
+      await api(`/admin/cashier/players/${playerId}/pin-reset`, {
+        method: 'POST',
+        body: { idNumber },
+      });
+      setIdNumber('');
+      reload();
+    });
+  };
+  const issue = (resetId: string) =>
+    void run(async () => {
+      setCode(
+        await api<DeskPinResetCodeResponse>(`/admin/cashier/pin-resets/${resetId}/issue`, {
+          method: 'POST',
+          body: {},
+        }),
+      );
+      reload();
+    });
+  const reset = data?.reset ?? null;
+  return (
+    <section data-testid="cashier-pin-reset">
+      <h3>PIN reset (ID check)</h3>
+      {code !== null ? (
+        <div>
+          <p>
+            Give the player this code: <strong className="receipt-code">{code.code}</strong>
+          </p>
+          <p className="small">
+            On Nahubet, Forgot PIN: the phone number, this code and a new PIN, before{' '}
+            {formatDateTime(code.expiresAt)}. The code works once.
+          </p>
+        </div>
+      ) : reset === null ? (
+        <form className="inline-form" onSubmit={ask}>
+          <input
+            aria-label="ID number on the card"
+            placeholder="ID number (FIN or FAN)"
+            inputMode="numeric"
+            value={idNumber}
+            onChange={(e) => setIdNumber(e.target.value)}
+          />
+          <button type="submit" disabled={busy || idNumber.trim() === ''}>
+            Ask a PIN reset
+          </button>
+        </form>
+      ) : reset.status === 'requested' ? (
+        <p className="small">
+          Waiting for a supervisor to approve.{' '}
+          <button type="button" onClick={reload} disabled={busy}>
+            Check again
+          </button>
+        </p>
+      ) : (
+        <p>
+          <button type="button" className="primary" onClick={() => issue(reset.id)} disabled={busy}>
+            Show the code for the player
+          </button>
+        </p>
+      )}
+      {failure !== null && <Notice>{failure}</Notice>}
+    </section>
+  );
+}
+
 /** What a deposit's state means to the player at the desk. */
 function depositState(d: CashierDepositView): string {
   if (d.flagged) return 'Under review by staff';

@@ -6,6 +6,7 @@ import type {
   CashierShopView,
   CashierStaffListResponse,
   ShopSummaryResponse,
+  DeskPinResetListResponse,
 } from '@vamos/contracts';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
@@ -235,6 +236,60 @@ function Shops() {
   );
 }
 
+/** PIN resets the desks asked (ID checked): a supervisor approves or rejects, never their own. */
+function PinResetsWaiting() {
+  const { data, error, loading, reload } = useFetch<DeskPinResetListResponse>(
+    '/admin/cashier/pin-resets',
+  );
+  const [failure, setFailure] = useState<string | null>(null);
+  const decide = async (id: string, approve: boolean) => {
+    setFailure(null);
+    try {
+      await api(`/admin/cashier/pin-resets/${id}/decision`, { method: 'POST', body: { approve } });
+      reload();
+    } catch (e) {
+      setFailure(describeError(e));
+    }
+  };
+  const waiting = (data?.resets ?? []).filter((r) => r.status === 'requested');
+  return (
+    <section data-testid="pin-resets-waiting">
+      <h2>PIN resets waiting ({waiting.length})</h2>
+      <Loading loading={loading && data === null} error={error} />
+      {failure !== null && <Notice>{failure}</Notice>}
+      {waiting.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>Asked</th>
+              <th>Player</th>
+              <th>By</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {waiting.map((r) => (
+              <tr key={r.id}>
+                <td>{formatDateTime(r.createdAt)}</td>
+                <td>{r.playerPhone}</td>
+                <td>{r.requestedByName}</td>
+                <td>
+                  <button type="button" onClick={() => void decide(r.id, true)}>
+                    Approve
+                  </button>{' '}
+                  <button type="button" onClick={() => void decide(r.id, false)}>
+                    Reject
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
 /** Every shop's cash on one day, in one table (the owner runs more than 40 shops). */
 function ShopDay() {
   const [day, setDay] = useState('');
@@ -294,6 +349,7 @@ export default function CashShiftsPage() {
   return (
     <>
       <PageHeader title="Cash shifts" />
+      {can('users.status') && <PinResetsWaiting />}
       <ShopDay />
       {can('settings.edit') && <Shops />}
       <h2>Shifts</h2>

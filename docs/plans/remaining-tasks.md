@@ -21,9 +21,9 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
    board open in leagues with "Auto open" on); the X6b alarm lines (`"alarm":"login_failures_`).
 2. **Cashier dashboard, next phases** (`docs/plans/cashier-dashboard.md` "Next phases"; money path:
    Opus high, reviewed by a second model): 1 failed automatic deposit (done 18 Nov), 2 assisted PIN reset with ID
-   check and four eyes (in progress: database and API done, screens next), 3 variance posting into the ledger (done 18 Nov, migration 0062: a shop loss or gain on
+   check and four eyes (done 18 Nov, migration 0063; next free number 0064), 3 variance posting into the ledger (done 18 Nov, migration 0062: a shop loss or gain on
    `house:cash_variance`), 4 original receipt printed once (done 18 Nov, migration
-   0061; the next free number is 0063), 5 uncollected approved cash withdrawals (done 18 Nov: 7 days, `CASH_WITHDRAWAL_COLLECT_DAYS`), 7 walk-in
+   0061; the next free number is 0064), 5 uncollected approved cash withdrawals (done 18 Nov: 7 days, `CASH_WITHDRAWAL_COLLECT_DAYS`), 7 walk-in
    tickets (owner decision). Phase 6 (grouped shift totals) is done, and many shops (the owner runs
    more than 40: adding shops, a shop per cashier with migration 0060, every shop on one day) is
    built: `docs/plans/cashier-dashboard.md` "As built (18 Nov 2026): many shops".
