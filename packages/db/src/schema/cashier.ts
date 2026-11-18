@@ -62,6 +62,26 @@ export const cashierShops = pgTable(
 );
 
 /**
+ * Which shop a cashier works at (the owner runs more than 40 shops). One row per cashier: a cashier
+ * opens shifts only at this shop. A cashier without a row may work while only one shop is active
+ * (a single-shop setup); supervisors (finance, admin) are not assigned and open shifts anywhere.
+ */
+export const cashierStaffShops = pgTable(
+  'cashier_staff_shops',
+  {
+    staffId: uuid('staff_id')
+      .primaryKey()
+      .references(() => adminUsers.id, { onDelete: 'cascade' }),
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => cashierShops.id),
+    assignedBy: uuid('assigned_by').references(() => adminUsers.id),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cashier_staff_shops_shop_idx').on(t.shopId)],
+);
+
+/**
  * One staff member's time at a shop's desk. Expected cash = opening float + deposits − withdrawals
  * of the shift; the close stores the count and the expected figure (the difference is the
  * variance, reviewed by finance).

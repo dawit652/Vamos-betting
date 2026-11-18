@@ -294,6 +294,17 @@ describe('shop settings', () => {
     expect(
       list.json<{ shops: Array<{ code: string }> }>().shops.map((shop) => shop.code),
     ).toContain('bole-02');
+    // Closed again: with two active shops an unassigned cashier could not open a shift, and the
+    // rest of this file works one shop (cashier-shops.test.ts covers the assignment).
+    const id = created.json<{ shop: { id: string } }>().shop.id;
+    const closed = await asStaff(ctx, admin, 'PUT', `/admin/cashier/shops/${id}`, {
+      name: 'Nahubet Bole 2',
+      address: 'Bole, Addis Ababa',
+      receiptWidthMm: 80,
+      approvalThreshold: '1000000',
+      active: false,
+    });
+    expect(closed.statusCode, closed.body).toBe(200);
   });
 });
 

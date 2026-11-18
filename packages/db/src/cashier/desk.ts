@@ -13,7 +13,7 @@ import { enqueueOutbox } from '../platform/outbox';
 import { getActiveExclusion } from '../rg/exclusions';
 import { assertDepositAllowed, lockUser } from '../rg/limits';
 import { adminUsers, kycProfiles, users } from '../schema/accounts';
-import { cashOperations, cashierShifts, cashierShops } from '../schema/cashier';
+import { cashOperations, cashierShifts, cashierShops, cashierStaffShops } from '../schema/cashier';
 import { paymentIntents } from '../schema/payments';
 
 /**
@@ -38,6 +38,7 @@ export const CASHIER_AUDIT = {
   receiptReprinted: 'cashier.receipt_reprinted',
   shopUpdated: 'cashier.shop_updated',
   shopCreated: 'cashier.shop_created',
+  staffShopAssigned: 'cashier.staff_shop_assigned',
 } as const;
 
 /** Roles that may work above a shop's approval threshold (the supervisors). */
@@ -181,6 +182,109 @@ export async function createShop(
     ip: input.ip ?? null,
   });
   return created;
+}
+
+/**
+ * A cashier opens shifts only at their own shop (cashier_staff_shops); one without a shop may work
+ * while only one shop is active (a single-shop setup). Supervisors (finance, admin) work anywhere.
+ */
+async function assertMayWorkAt(tx: DbTransaction, staffId: string, shopId: string): Promise<void> {
+  const [staff] = await tx
+    .select({ role: adminUsers.role })
+    .from(adminUsers)
+    .where(eq(adminUsers.id, staffId));
+  if (staff?.role !== 'cashier') return;
+  const assigned = await getStaffShop(tx, staffId);
+  if (assigned !== null) {
+    if (assigned !== shopId) {
+      throw domainForbidden(
+        'shop_not_assigned',
+        'You work at another shop: open your shift there.',
+      );
+    }
+    return;
+  }
+  const active = await tx
+    .select({ id: cashierShops.id })
+    .from(cashierShops)
+    .where(eq(cashierShops.active, true))
+    .limit(2);
+  if (active.length > 1) {
+    throw domainForbidden(
+      'shop_assignment_required',
+      'An admin must first assign you to your shop (Cashier, Shifts, Cashiers).',
+    );
+  }
+}
+
+/** The shop a cashier is assigned to, or null. */
+export async function getStaffShop(exec: DbExecutor, staffId: string): Promise<string | null> {
+  const [row] = await exec
+    .select({ shopId: cashierStaffShops.shopId })
+    .from(cashierStaffShops)
+    .where(eq(cashierStaffShops.staffId, staffId));
+  return row?.shopId ?? null;
+}
+
+/** The cashier accounts with their shop (null: not assigned), by name. */
+export async function listCashierStaff(
+  exec: DbExecutor,
+): Promise<Array<{ id: string; email: string; name: string; shopId: string | null }>> {
+  return exec
+    .select({
+      id: adminUsers.id,
+      email: adminUsers.email,
+      name: adminUsers.displayName,
+      shopId: cashierStaffShops.shopId,
+    })
+    .from(adminUsers)
+    .leftJoin(cashierStaffShops, eq(cashierStaffShops.staffId, adminUsers.id))
+    .where(eq(adminUsers.role, 'cashier'))
+    .orderBy(asc(adminUsers.displayName));
+}
+
+/**
+ * Assigns a cashier to a shop, or removes the assignment (`shopId` null), settings.edit; audited.
+ * Only cashier accounts are assigned (404 otherwise); the shop must exist and be active.
+ */
+export async function assignStaffShop(
+  tx: DbTransaction,
+  input: { staffId: string; shopId: string | null; adminId: string; now: Date; ip?: string | null },
+): Promise<void> {
+  const [staff] = await tx
+    .select({ role: adminUsers.role })
+    .from(adminUsers)
+    .where(eq(adminUsers.id, input.staffId));
+  if (staff?.role !== 'cashier') throw domainNotFound('Cashier');
+  const before = await getStaffShop(tx, input.staffId);
+  if (input.shopId === null) {
+    await tx.delete(cashierStaffShops).where(eq(cashierStaffShops.staffId, input.staffId));
+  } else {
+    const shop = await getShop(tx, input.shopId);
+    if (shop === null) throw domainNotFound('Shop');
+    if (!shop.active) throw domainConflict('shop_inactive', 'This shop is closed.');
+    await tx
+      .insert(cashierStaffShops)
+      .values({
+        staffId: input.staffId,
+        shopId: input.shopId,
+        assignedBy: input.adminId,
+        assignedAt: input.now,
+      })
+      .onConflictDoUpdate({
+        target: cashierStaffShops.staffId,
+        set: { shopId: input.shopId, assignedBy: input.adminId, assignedAt: input.now },
+      });
+  }
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.adminId,
+    action: CASHIER_AUDIT.staffShopAssigned,
+    targetType: 'admin_user',
+    targetId: input.staffId,
+    metadata: { before, after: input.shopId },
+    ip: input.ip ?? null,
+  });
 }
 
 /** Changes a shop's receipt header and desk parameters (settings.edit); audited. */
@@ -328,6 +432,7 @@ export async function openShift(
   const shop = await getShop(tx, input.shopId);
   if (shop === null) throw domainNotFound('Shop');
   if (!shop.active) throw domainConflict('shop_inactive', 'This shop is closed.');
+  await assertMayWorkAt(tx, input.staffId, shop.id);
   if ((await getOpenShift(tx, input.staffId)) !== null) {
     throw domainConflict('shift_already_open', 'You already have an open shift. Close it first.');
   }

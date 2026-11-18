@@ -185,6 +185,21 @@ export type CreateCashierShopRequest = z.infer<typeof CreateCashierShopRequest>;
 
 export const CashierShopResponse = z.object({ shop: CashierShopView });
 
+/** A cashier account and the shop it works at (null: not assigned). */
+export const CashierStaffView = z.object({
+  id: z.string(),
+  email: z.string(),
+  name: z.string(),
+  shopId: z.string().nullable(),
+});
+export type CashierStaffView = z.infer<typeof CashierStaffView>;
+/** GET /admin/cashier/staff (settings.edit). */
+export const CashierStaffListResponse = z.object({ staff: z.array(CashierStaffView) });
+export type CashierStaffListResponse = z.infer<typeof CashierStaffListResponse>;
+/** PUT /admin/cashier/staff/:id/shop (settings.edit): null removes the assignment. */
+export const AssignCashierShopRequest = z.object({ shopId: z.uuid().nullable() }).strict();
+export type AssignCashierShopRequest = z.infer<typeof AssignCashierShopRequest>;
+
 /** GET /admin/cashier/shops (cashier.reports): every shop, the closed ones too. */
 export const CashierShopListResponse = z.object({ shops: z.array(CashierShopView) });
 export type CashierShopListResponse = z.infer<typeof CashierShopListResponse>;

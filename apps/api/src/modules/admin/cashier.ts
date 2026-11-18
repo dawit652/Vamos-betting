@@ -19,6 +19,8 @@ import {
   SetPlayerStatusResponse,
   UpdateCashierShopRequest,
   CreateCashierShopRequest,
+  AssignCashierShopRequest,
+  CashierStaffListResponse,
   type CashierShiftView,
   type CashOperationView,
   type CashReceiptView,
@@ -48,6 +50,9 @@ import {
   shiftTotalsMany,
   updateShop,
   createShop,
+  assignStaffShop,
+  getStaffShop,
+  listCashierStaff,
   writeAudit,
   type CashierShift,
   type CashierShop,
@@ -184,7 +189,11 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
 
   app.get('/admin/cashier/desk', { config: { staff: 'cashier.desk' } }, async (request) => {
     const actor = staffActor(request);
-    const shops = await listShops(deps.db);
+    // A cashier assigned to a shop sees only that shop (the owner runs more than 40).
+    const assigned = await getStaffShop(deps.db, actor.adminId);
+    const shops = (await listShops(deps.db)).filter(
+      (shop) => assigned === null || shop.id === assigned,
+    );
     const shift = await getOpenShift(deps.db, actor.adminId);
     const operations =
       shift === null ? [] : (await listShiftOperations(deps.db, shift.id)).map(operationView);
@@ -502,6 +511,32 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       );
       reply.code(201);
       return wire(CashierShopResponse, { shop: shopView(shop) });
+    },
+  );
+
+  app.get('/admin/cashier/staff', { config: { staff: 'settings.edit' } }, async () => {
+    const staff = await listCashierStaff(deps.db);
+    return wire(CashierStaffListResponse, { staff });
+  });
+
+  app.put<IdParams>(
+    '/admin/cashier/staff/:id/shop',
+    { config: { staff: 'settings.edit' } },
+    async (request) => {
+      const staffId = parseUuid(request.params.id, 'Cashier');
+      const input = parseInput(AssignCashierShopRequest, request.body);
+      const actor = staffActor(request);
+      await inTx(deps, (tx) =>
+        assignStaffShop(tx, {
+          staffId,
+          shopId: input.shopId,
+          adminId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      const staff = await listCashierStaff(deps.db);
+      return wire(CashierStaffListResponse, { staff });
     },
   );
 

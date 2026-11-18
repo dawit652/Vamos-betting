@@ -4,6 +4,7 @@ import type {
   CashierShiftListResponse,
   CashierShopListResponse,
   CashierShopView,
+  CashierStaffListResponse,
 } from '@vamos/contracts';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
@@ -150,6 +151,73 @@ function NewShopForm({ onSaved }: { onSaved: () => void }) {
   );
 }
 
+/**
+ * Which shop each cashier works at: with more than one active shop, a cashier must be assigned
+ * before opening a shift, and opens shifts only there.
+ */
+function Cashiers({ shops }: { shops: CashierShopView[] }) {
+  const { data, error, loading, reload } =
+    useFetch<CashierStaffListResponse>('/admin/cashier/staff');
+  const [failure, setFailure] = useState<string | null>(null);
+  const assign = async (staffId: string, shopId: string) => {
+    setFailure(null);
+    try {
+      await api(`/admin/cashier/staff/${staffId}/shop`, {
+        method: 'PUT',
+        body: { shopId: shopId === '' ? null : shopId },
+      });
+      reload();
+    } catch (e) {
+      setFailure(describeError(e));
+    }
+  };
+  return (
+    <section>
+      <h2>Cashiers</h2>
+      <Loading loading={loading && data === null} error={error} />
+      {failure !== null && <Notice>{failure}</Notice>}
+      {data !== null && data.staff.length === 0 && (
+        <p className="small">No cashier accounts yet (pnpm admin:create with role cashier).</p>
+      )}
+      {data !== null && data.staff.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>Cashier</th>
+              <th>Shop</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.staff.map((person) => (
+              <tr key={person.id}>
+                <td>
+                  {person.name} <span className="small">{person.email}</span>
+                </td>
+                <td>
+                  <select
+                    aria-label={`Shop of ${person.name}`}
+                    value={person.shopId ?? ''}
+                    onChange={(e) => void assign(person.id, e.target.value)}
+                  >
+                    <option value="">Not assigned</option>
+                    {shops
+                      .filter((shop) => shop.active || shop.id === person.shopId)
+                      .map((shop) => (
+                        <option key={shop.id} value={shop.id}>
+                          {shop.code} · {shop.name}
+                        </option>
+                      ))}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
 function Shops() {
   const { data, error, loading, reload } =
     useFetch<CashierShopListResponse>('/admin/cashier/shops');
@@ -161,6 +229,7 @@ function Shops() {
       {data?.shops.map((shop) => (
         <ShopForm key={`${shop.id}-${shop.name}-${shop.address}`} shop={shop} onSaved={reload} />
       ))}
+      {data !== null && <Cashiers shops={data.shops} />}
     </section>
   );
 }
