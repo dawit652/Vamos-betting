@@ -398,6 +398,71 @@ function totalsOf(
   };
 }
 
+/** One shop's day (shopDaySummary). */
+export interface ShopDaySummary {
+  shopId: string;
+  code: string;
+  name: string;
+  active: boolean;
+  /** Shifts open now (whatever day they opened). */
+  openShifts: number;
+  deposits: { count: number; total: bigint };
+  withdrawals: { count: number; total: bigint };
+  /** Deposits − withdrawals of the period: the cash the shop took in. */
+  net: bigint;
+}
+
+/**
+ * Every shop's cash in [from, to) and its open shifts, in two grouped queries, by shop code (the
+ * owner runs more than 40 shops: one table instead of opening each shift).
+ */
+export async function shopDaySummary(
+  exec: DbExecutor,
+  period: { from: Date; to: Date },
+): Promise<ShopDaySummary[]> {
+  const [shops, sums, open] = await Promise.all([
+    listShops(exec),
+    exec
+      .select({
+        shopId: cashOperations.shopId,
+        kind: cashOperations.kind,
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`COALESCE(sum(${cashOperations.amount}), 0)::text`,
+      })
+      .from(cashOperations)
+      .where(
+        and(
+          sql`${cashOperations.createdAt} >= ${period.from.toISOString()}::timestamptz`,
+          sql`${cashOperations.createdAt} < ${period.to.toISOString()}::timestamptz`,
+        ),
+      )
+      .groupBy(cashOperations.shopId, cashOperations.kind),
+    exec
+      .select({ shopId: cashierShifts.shopId, count: sql<number>`count(*)::int` })
+      .from(cashierShifts)
+      .where(eq(cashierShifts.status, 'open'))
+      .groupBy(cashierShifts.shopId),
+  ]);
+  return shops.map((shop) => {
+    const of = (kind: 'deposit' | 'withdrawal') => {
+      const row = sums.find((r) => r.shopId === shop.id && r.kind === kind);
+      return { count: row?.count ?? 0, total: BigInt(row?.total ?? '0') };
+    };
+    const deposits = of('deposit');
+    const withdrawals = of('withdrawal');
+    return {
+      shopId: shop.id,
+      code: shop.code,
+      name: shop.name,
+      active: shop.active,
+      openShifts: open.find((r) => r.shopId === shop.id)?.count ?? 0,
+      deposits,
+      withdrawals,
+      net: deposits.total - withdrawals.total,
+    };
+  });
+}
+
 /** The staff member's open shift, if any. */
 export async function getOpenShift(
   exec: DbExecutor,

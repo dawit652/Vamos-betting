@@ -90,4 +90,29 @@ describe('cashiers and their shops', () => {
     const notCashier = await asStaff(ctx, admin, 'GET', '/admin/cashier/staff');
     expect(notCashier.json<{ staff: unknown[] }>().staff).toHaveLength(1);
   });
+
+  it('every shop on one day in one table, for reports staff only', async () => {
+    expect((await asStaff(ctx, cashier, 'GET', '/admin/cashier/shops/summary')).statusCode).toBe(
+      403,
+    );
+    const today = await asStaff(ctx, finance, 'GET', '/admin/cashier/shops/summary');
+    expect(today.statusCode, today.body).toBe(200);
+    const body = today.json<{
+      day: string;
+      shops: Array<{ code: string; openShifts: number; net: string; deposits: { count: number } }>;
+    }>();
+    expect(body.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // Both shops, by code; the shifts opened in the test before are counted where they are open.
+    expect(body.shops.map((shop) => shop.code)).toEqual(['main', 'merkato-01']);
+    expect(body.shops.find((shop) => shop.code === 'merkato-01')).toMatchObject({
+      openShifts: 1,
+      net: '0',
+      deposits: { count: 0 },
+    });
+    const past = await asStaff(ctx, finance, 'GET', '/admin/cashier/shops/summary?day=2026-01-01');
+    expect(past.json()).toMatchObject({ day: '2026-01-01' });
+    expect(
+      (await asStaff(ctx, finance, 'GET', '/admin/cashier/shops/summary?day=nope')).statusCode,
+    ).toBe(400);
+  });
 });

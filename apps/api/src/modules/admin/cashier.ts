@@ -21,6 +21,8 @@ import {
   CreateCashierShopRequest,
   AssignCashierShopRequest,
   CashierStaffListResponse,
+  ShopSummaryQuery,
+  ShopSummaryResponse,
   type CashierShiftView,
   type CashOperationView,
   type CashReceiptView,
@@ -53,6 +55,7 @@ import {
   assignStaffShop,
   getStaffShop,
   listCashierStaff,
+  shopDaySummary,
   writeAudit,
   type CashierShift,
   type CashierShop,
@@ -63,7 +66,7 @@ import {
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { cashCodeHash } from '../../lib/cash-code';
-import { notFound, parseInput } from '../../lib/errors';
+import { badRequest, notFound, parseInput } from '../../lib/errors';
 import { requireStaff, staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, wire } from './common';
 
@@ -511,6 +514,23 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       );
       reply.code(201);
       return wire(CashierShopResponse, { shop: shopView(shop) });
+    },
+  );
+
+  // Every shop's day in one table (the owner runs more than 40 shops): Addis Ababa calendar day.
+  app.get(
+    '/admin/cashier/shops/summary',
+    { config: { staff: 'cashier.reports' } },
+    async (request) => {
+      const query = parseInput(ShopSummaryQuery, request.query);
+      const ADDIS_MS = 3 * 3_600_000;
+      const day =
+        query.day ?? new Date(deps.clock().getTime() + ADDIS_MS).toISOString().slice(0, 10);
+      const from = new Date(Date.parse(`${day}T00:00:00.000Z`) - ADDIS_MS);
+      if (Number.isNaN(from.getTime())) throw badRequest('invalid_day', 'Use a real date.');
+      const to = new Date(from.getTime() + 24 * 3_600_000);
+      const shops = await shopDaySummary(deps.db, { from, to });
+      return wire(ShopSummaryResponse, { day, shops });
     },
   );
 

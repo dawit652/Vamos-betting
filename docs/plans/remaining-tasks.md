@@ -25,7 +25,9 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
    queue; needs a read-only API with the `cashier.desk` permission), 2 assisted PIN reset with ID
    check and four eyes, 3 variance posting into the ledger, 4 original receipt printed once (needs a
    migration: next free number after 0059), 5 uncollected approved cash withdrawals, 7 walk-in
-   tickets (owner decision). Phase 6 (grouped shift totals) is done.
+   tickets (owner decision). Phase 6 (grouped shift totals) is done, and many shops (the owner runs
+   more than 40: adding shops, a shop per cashier with migration 0060, every shop on one day) is
+   built: `docs/plans/cashier-dashboard.md` "As built (18 Nov 2026): many shops".
 3. Done on 18 Nov (first account): Next.js 16.4.5 (CI green again), X6b failed-login alarm, X11
    rule O1h (locked odds), grouped shift totals; `claude/happy-keller-i7cvrh` merged into this
    branch.

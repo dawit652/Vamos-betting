@@ -5,6 +5,7 @@ import type {
   CashierShopListResponse,
   CashierShopView,
   CashierStaffListResponse,
+  ShopSummaryResponse,
 } from '@vamos/contracts';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
@@ -234,6 +235,57 @@ function Shops() {
   );
 }
 
+/** Every shop's cash on one day, in one table (the owner runs more than 40 shops). */
+function ShopDay() {
+  const [day, setDay] = useState('');
+  const { data, error, loading } = useFetch<ShopSummaryResponse>(
+    '/admin/cashier/shops/summary',
+    day === '' ? {} : { day },
+  );
+  return (
+    <section>
+      <h2>Shops on {data?.day ?? 'today'}</h2>
+      <label className="small">
+        Day{' '}
+        <input type="date" aria-label="Day" value={day} onChange={(e) => setDay(e.target.value)} />
+      </label>
+      <Loading loading={loading && data === null} error={error} />
+      {data !== null && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Shop</th>
+                <th>Open shifts</th>
+                <th>Deposits</th>
+                <th>Withdrawals</th>
+                <th>Net cash in</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.shops.map((shop) => (
+                <tr key={shop.shopId}>
+                  <td>
+                    {shop.code} · {shop.name} {!shop.active && <Badge value="closed" tone="warn" />}
+                  </td>
+                  <td>{shop.openShifts}</td>
+                  <td>
+                    {shop.deposits.count} · {formatEtb(shop.deposits.total)}
+                  </td>
+                  <td>
+                    {shop.withdrawals.count} · {formatEtb(shop.withdrawals.total)}
+                  </td>
+                  <td>{formatEtb(shop.net)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function CashShiftsPage() {
   const { can } = useSession();
   const { data, error, loading } = useFetch<CashierShiftListResponse>('/admin/cashier/shifts', {
@@ -242,6 +294,7 @@ export default function CashShiftsPage() {
   return (
     <>
       <PageHeader title="Cash shifts" />
+      <ShopDay />
       {can('settings.edit') && <Shops />}
       <h2>Shifts</h2>
       <Loading loading={loading && data === null} error={error} />

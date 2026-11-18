@@ -185,6 +185,32 @@ export type CreateCashierShopRequest = z.infer<typeof CreateCashierShopRequest>;
 
 export const CashierShopResponse = z.object({ shop: CashierShopView });
 
+/** GET /admin/cashier/shops/summary?day=YYYY-MM-DD (cashier.reports): every shop's day. */
+export const ShopSummaryQuery = z
+  .object({
+    day: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-DD')
+      .optional(),
+  })
+  .strict();
+export const ShopDayView = z.object({
+  shopId: z.string(),
+  code: z.string(),
+  name: z.string(),
+  active: z.boolean(),
+  openShifts: z.number().int(),
+  deposits: z.object({ count: z.number().int(), total: Santim }),
+  withdrawals: z.object({ count: z.number().int(), total: Santim }),
+  net: z.string(),
+});
+export const ShopSummaryResponse = z.object({
+  /** The Addis Ababa calendar day the figures cover. */
+  day: z.string(),
+  shops: z.array(ShopDayView),
+});
+export type ShopSummaryResponse = z.infer<typeof ShopSummaryResponse>;
+
 /** A cashier account and the shop it works at (null: not assigned). */
 export const CashierStaffView = z.object({
   id: z.string(),

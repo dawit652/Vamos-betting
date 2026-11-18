@@ -76,6 +76,27 @@ Also built 18 Nov: a supervisor closes a shift its cashier left open
 (`POST /admin/cashier/shifts/:id/force-close`, the shift page), and database triggers (migration
 `0059`) refuse any change to a closed shift and to a receipt except counting a copy.
 
+## As built (18 Nov 2026): many shops
+
+The owner runs **more than 40 shops** (answered 18 Nov). Added:
+
+- **Adding shops** in the back office (Cashier, Shifts, Shops: "Add shop"): `POST
+/admin/cashier/shops` (settings.edit) with a code (2-32 of a-z, 0-9, -; unique), name, address,
+  receipt width and approval threshold; audited `cashier.shop_created`.
+- **Each cashier works at one shop** (migration `0060_cashier_staff_shops`): the Cashiers table under
+  Shops assigns a shop to every cashier account (`PUT /admin/cashier/staff/:id/shop`, settings.edit,
+  audited `cashier.staff_shop_assigned`). With more than one active shop a cashier without a shop
+  cannot open a shift (`shop_assignment_required`) and an assigned cashier opens shifts only at their
+  shop (`shop_not_assigned`); one active shop works without an assignment (single shop, demo).
+  Supervisors (finance, admin) are not assigned and open shifts anywhere. The desk shows a cashier
+  only their shop.
+- **Every shop on one day** (Cashier, Shifts: "Shops on <day>"; `GET /admin/cashier/shops/summary
+?day=YYYY-MM-DD`, cashier.reports, Addis Ababa day): open shifts, deposits, withdrawals and net
+  cash per shop in two grouped queries.
+
+Still open for many shops: cash limits per cashier per day (owner decision), creating a cashier
+account with its shop from the command line (`admin-create`), and per-shop exports.
+
 ## Next phases (in order)
 
 1. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
