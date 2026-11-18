@@ -5,33 +5,36 @@ too, merged by the first account). A new session may be given another
 branch name: start it from `origin/claude/eager-cerf-ox9vkq` (or whichever is newer). It holds the server's own branch
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Live
-server runs `47c3126`; pushed and not yet deployed: team logos, cashier desk phases 1 and 2
-(migrations 0056 to 0059 run on deploy), and on 18 Nov the failed-login alarm (X6b), rule O1h
-(locked odds) and Next.js 16.4.5 (`0998108`).
+server runs `9a4e399` or the other account's later deploy; pushed and NOT deployed: everything up to
+`ed60961` and this file (team logos, the whole cashier desk, the failed-login alarm X6b, rule O1h,
+Next.js 16.4.5). Migrations 0056 to 0063 run on the deploy; the next free number is **0064**.
 Deploy is done by the owner (PowerShell command in the last session: `ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
 ## Next, in order
 
-1. **After the owner deploys `16c58bb` or later, check on live** (read-only queries, owner runs them):
-   the Telegram PIN reset (fix `313271b`); team logos (need `SCRAPER_SECRET_API_FOOTBALL`; the
-   scraper logs `team logo download failed` / `team logos skipped`); rule O1h (open
-   `odds_approval` and `ratings_uncalibrated` items fall, locked matches with a fresh Hulusport
-   board open in leagues with "Auto open" on); the X6b alarm lines (`"alarm":"login_failures_`).
-2. **Cashier dashboard, next phases** (`docs/plans/cashier-dashboard.md` "Next phases"; money path:
-   Opus high, reviewed by a second model): 1 failed automatic deposit (done 18 Nov), 2 assisted PIN reset with ID
-   check and four eyes (built 18 Nov, migration 0063, but SWITCHED OFF: the review found the desk sees
-   the code; the redesign that binds the code to the player's own device is in the plan; next free
-   migration number 0064), 3 variance posting into the ledger (done 18 Nov, migration 0062: a shop loss or gain on
-   `house:cash_variance`), 4 original receipt printed once (done 18 Nov, migration
-   0061; the next free number is 0064), 5 uncollected approved cash withdrawals (done 18 Nov: 7 days, `CASH_WITHDRAWAL_COLLECT_DAYS`), 7 walk-in
-   tickets (owner decision). Phase 6 (grouped shift totals) is done, and many shops (the owner runs
-   more than 40: adding shops, a shop per cashier with migration 0060, every shop on one day) is
-   built: `docs/plans/cashier-dashboard.md` "As built (18 Nov 2026): many shops".
-3. Done on 18 Nov (first account): Next.js 16.4.5 (CI green again), X6b failed-login alarm, X11
-   rule O1h (locked odds), grouped shift totals; `claude/happy-keller-i7cvrh` merged into this
-   branch.
+1. **After the owner deploys `ed60961` or later, check on live** (read-only queries, the owner runs
+   them): migrations 59 + 8 applied; the Telegram PIN reset; team logos (need
+   `SCRAPER_SECRET_API_FOOTBALL`; scraper log `team logos`); rule O1h (open `odds_approval` and
+   `ratings_uncalibrated` fall); the X6b alarm lines (`"alarm":"login_failures_`); the cashier desk:
+   add the shops, `admin-create --role cashier --shop <code>`, a test shift with a deposit.
+2. **Desk PIN reset redesign** (Opus, high; security), then switch `CASHIER_PIN_RESET=on`: the code
+   must only work from the player's own device. The design is in `docs/plans/cashier-dashboard.md`
+   "Assisted PIN reset" (player starts on the phone, a browser secret, the cashier types the desk code
+   and the ID number, a supervisor approves, only that browser sets the PIN; no code ever shown at the
+   desk). Also: a per-player budget of wrong ID numbers and one identical answer for "no verified ID"
+   and "wrong ID". The built parts (migration 0063, `pin-reset.ts`, the routes, the screens) stay.
+3. **Walk-in tickets** (cashier phase 7): waits for the owner's decision (anonymous bets at a shop
+   touch KYC and licensing rules).
+4. Smaller: cash limits per cashier per day (owner's numbers); a reassigned cashier's open shift is
+   not closed (review note, minor).
+
+Done on 18 Nov by the first account (no need to re-read): Next.js 16.4.5; X6b; X11 rule O1h; cashier
+phases 1 (failed deposit at the desk), 3 (variance posting, migration 0062, reconciliation aware), 4
+(original receipt once, 0061), 5 (uncollected cash withdrawals back after 7 days,
+`CASH_WITHDRAWAL_COLLECT_DAYS`), 6 (grouped shift totals); many shops (adding shops, a shop per
+cashier with 0060, every shop on one day with CSV, `--shop`); the second-model review and its fixes.
 
 ## Owner decisions still open
 
