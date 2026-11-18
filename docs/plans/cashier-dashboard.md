@@ -104,7 +104,15 @@ account with its shop from the command line (`admin-create`), and per-shop expor
 /admin/cashier/players/:id/deposits`, cashier.desk, audited `cashier.player_deposits_viewed`);
    it never credits an online deposit; supervisors get links to the SMS rail page and the player
    page. A supervisor-only "credit by provider reference" was not needed.
-2. **Assisted PIN reset** at the desk with an ID check and four eyes.
+2. **Assisted PIN reset** (owner's default 18 Nov; in progress). The desk checks the player's ID card
+   against the verified KYC record (keyed hash of the ID number), a supervisor approves (four eyes,
+   not the cashier who asked), then the desk issues the ORDINARY one-time reset code (as the Telegram
+   reset does, `createOtpChallenge` purpose `password_reset`) and prints it; the player sets a new PIN
+   on "Forgot PIN". Done: migration `0063_cash_pin_resets`, services `requestDeskPinReset`,
+   `decideDeskPinReset`, `issueDeskPinReset` (`packages/db/src/cashier/pin-reset.ts`) with tests. Next:
+   API routes (request `POST /admin/cashier/players/:id/pin-reset` with the ID number, cashier.desk,
+   audit an ID mismatch in its own transaction; list and decide with users.status; issue with
+   cashier.desk, creating the code), then the desk and supervisor screens.
 3. **Variance posting: done 18 Nov** (owner's default: a shop loss or gain, approved by a
    supervisor; migration `0062_cash_shift_variance`): ledger account kind `house_cash_variance`
    (GGR in `house_revenue` stays clean); `cash_shift_variance_postings` (once per shift);

@@ -142,6 +142,41 @@ export const cashShiftVariancePostings = pgTable('cash_shift_variance_postings',
   postedAt: timestamp('posted_at', { withTimezone: true }).notNull(),
 });
 
+/**
+ * A PIN reset asked at a shop desk (cashier phase "assisted PIN reset"): the cashier checked the
+ * player's ID against the verified KYC record, a supervisor approves (four eyes), then the desk
+ * issues the ordinary one-time reset code (printed instead of sent by SMS) that the player uses on
+ * "Forgot PIN". At most one open (requested or approved) request per player.
+ */
+export const cashPinResets = pgTable(
+  'cash_pin_resets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    shopId: uuid('shop_id').references(() => cashierShops.id),
+    requestedBy: uuid('requested_by')
+      .notNull()
+      .references(() => adminUsers.id),
+    status: text('status').notNull(),
+    approvedBy: uuid('approved_by').references(() => adminUsers.id),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    issuedAt: timestamp('issued_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    check(
+      'cash_pin_resets_status',
+      sql`${t.status} IN ('requested', 'approved', 'issued', 'rejected', 'expired')`,
+    ),
+    uniqueIndex('cash_pin_resets_open_uq')
+      .on(t.userId)
+      .where(sql`${t.status} IN ('requested', 'approved')`),
+    index('cash_pin_resets_status_idx').on(t.status, t.createdAt),
+  ],
+);
+
 /** Every cash operation at a desk: its receipt. The money moved through the intent or payout. */
 export const cashOperations = pgTable(
   'cash_operations',
