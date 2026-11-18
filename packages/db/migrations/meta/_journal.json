@@ -414,6 +414,13 @@
       "when": 1794960974322,
       "tag": "0058_cash_withdrawal_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794963157854,
+      "tag": "0059_cashier_guards",
+      "breakpoints": true
     }
   ]
 }

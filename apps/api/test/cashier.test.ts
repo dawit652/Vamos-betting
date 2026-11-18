@@ -536,3 +536,24 @@ describe('review fixes at the desk', () => {
     expect(statuses.at(-1)).toBe(429);
   });
 });
+
+describe('a forgotten shift', () => {
+  it('a supervisor closes it; compliance (reports only) cannot', async () => {
+    const shift = await openShift(cashier, '10000');
+    const url = `/admin/cashier/shifts/${shift.id}/force-close`;
+    const refused = await asStaff(ctx, compliance, 'POST', url, { countedCash: '10000' });
+    expect(refused.statusCode).toBe(403);
+    expect(code(refused.body)).toBe('supervisor_required');
+    const closed = await asStaff(ctx, finance, 'POST', url, {
+      countedCash: '10000',
+      note: 'cashier went home',
+    });
+    expect(closed.statusCode, closed.body).toBe(200);
+    expect(CashierShiftResponse.parse(closed.json()).shift).toMatchObject({
+      status: 'closed',
+      variance: '0',
+      closeNote: 'Closed by a supervisor: cashier went home',
+    });
+    expect((await desk(cashier)).shift).toBeNull();
+  });
+});

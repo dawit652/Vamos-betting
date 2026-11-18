@@ -30,6 +30,7 @@ export const CASH_PROVIDER = 'cash';
 export const CASHIER_AUDIT = {
   shiftOpened: 'cashier.shift_opened',
   shiftClosed: 'cashier.shift_closed',
+  shiftForceClosed: 'cashier.shift_force_closed',
   deposit: 'cashier.deposit',
   withdrawal: 'cashier.withdrawal',
   withdrawalForReview: 'cashier.withdrawal_for_review',
@@ -337,6 +338,79 @@ export async function closeShift(
       openingFloat: shift.openingFloat,
       deposits: totals.deposits.total,
       withdrawals: totals.withdrawals.total,
+      expectedCash: totals.expectedCash,
+      countedCash: input.countedCash,
+      variance: input.countedCash - totals.expectedCash,
+    },
+    ip: input.ip ?? null,
+  });
+  return { shift, totals };
+}
+
+/**
+ * A supervisor (finance, admin) closes a shift its cashier left open (gone home, ill), with the cash
+ * the supervisor counted in that drawer; audited with both staff members. 403
+ * `supervisor_required` for anyone else, 409 `use_own_close` for the supervisor's own shift (the
+ * ordinary close), 409 `shift_not_open` when it is closed already.
+ */
+export async function forceCloseShift(
+  tx: DbTransaction,
+  input: {
+    supervisorId: string;
+    shiftId: string;
+    countedCash: bigint;
+    note?: string | null;
+    now: Date;
+    ip?: string | null;
+  },
+): Promise<{ shift: CashierShift; totals: ShiftTotals }> {
+  assertSantim(input.countedCash, 'countedCash', true);
+  const [staff] = await tx
+    .select({ role: adminUsers.role })
+    .from(adminUsers)
+    .where(eq(adminUsers.id, input.supervisorId))
+    .limit(1);
+  if (!staff || !SUPERVISOR_ROLES.has(staff.role)) {
+    throw domainForbidden(
+      'supervisor_required',
+      "Only a supervisor (finance or admin) can close another person's shift.",
+    );
+  }
+  const [open] = await tx
+    .select()
+    .from(cashierShifts)
+    .where(eq(cashierShifts.id, input.shiftId))
+    .for('update');
+  if (!open) throw domainNotFound('Shift');
+  if (open.staffId === input.supervisorId) {
+    throw domainConflict('use_own_close', 'Close your own shift from your desk.');
+  }
+  if (open.status !== 'open') {
+    throw domainConflict('shift_not_open', 'This shift is closed already.');
+  }
+  const totals = await shiftTotals(tx, open);
+  const note = input.note?.trim();
+  const [shift] = await tx
+    .update(cashierShifts)
+    .set({
+      status: 'closed',
+      closedAt: input.now,
+      countedCash: input.countedCash,
+      expectedCash: totals.expectedCash,
+      closeNote: note ? `Closed by a supervisor: ${note}` : 'Closed by a supervisor',
+    })
+    .where(eq(cashierShifts.id, open.id))
+    .returning();
+  if (!shift) throw new Error('shift update returned no row');
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.supervisorId,
+    action: CASHIER_AUDIT.shiftForceClosed,
+    targetType: 'cashier_shift',
+    targetId: shift.id,
+    metadata: {
+      cashierId: open.staffId,
+      shopId: shift.shopId,
       expectedCash: totals.expectedCash,
       countedCash: input.countedCash,
       variance: input.countedCash - totals.expectedCash,

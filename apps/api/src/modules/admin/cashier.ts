@@ -30,6 +30,7 @@ import {
   findDeskPayout,
   findDeskPlayer,
   findOperationByKey,
+  forceCloseShift,
   getOpenShift,
   getReceipt,
   getShift,
@@ -215,6 +216,29 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       const shift = await inTx(deps, async (tx) => {
         const { shift: closed } = await closeShift(tx, {
           staffId: actor.adminId,
+          shiftId,
+          countedCash: BigInt(input.countedCash),
+          note: input.note ?? null,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        });
+        return namedShiftView(tx, closed);
+      });
+      return wire(CashierShiftResponse, { shift });
+    },
+  );
+
+  /** A supervisor closes a shift its cashier left open, with the cash they counted in the drawer. */
+  app.post<IdParams>(
+    '/admin/cashier/shifts/:id/force-close',
+    { config: { staff: 'cashier.reports' } },
+    async (request) => {
+      const shiftId = parseUuid(request.params.id, 'Shift');
+      const input = parseInput(CloseShiftRequest, request.body);
+      const actor = staffActor(request);
+      const shift = await inTx(deps, async (tx) => {
+        const { shift: closed } = await forceCloseShift(tx, {
+          supervisorId: actor.adminId,
           shiftId,
           countedCash: BigInt(input.countedCash),
           note: input.note ?? null,

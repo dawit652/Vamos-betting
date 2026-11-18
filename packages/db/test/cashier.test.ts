@@ -10,6 +10,7 @@ import {
   closeShift,
   createCashCode,
   findDeskPayout,
+  forceCloseShift,
   findDeskPlayer,
   getOpenShift,
   getReceipt,
@@ -654,5 +655,70 @@ describe('review findings', () => {
     expect(
       (await handle.db.select().from(payouts).where(eq(payouts.id, held.payoutId)))[0]?.status,
     ).toBe('approved');
+  });
+});
+
+describe('closing a forgotten shift, and closed records', () => {
+  it("a supervisor closes a cashier's open shift; others may not", async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier, birr(200));
+    const { userId } = await createPlayer(handle.db);
+    await deposit(cashier, shift.id, userId, birr(100));
+    const other = await staff();
+    expect(
+      await refusal(
+        handle.db.transaction((tx) =>
+          forceCloseShift(tx, {
+            supervisorId: other,
+            shiftId: shift.id,
+            countedCash: 0n,
+            now: NOW,
+          }),
+        ),
+      ),
+    ).toEqual({ status: 403, code: 'supervisor_required' });
+    const supervisor = await staff('finance');
+    const { shift: closed } = await handle.db.transaction((tx) =>
+      forceCloseShift(tx, {
+        supervisorId: supervisor,
+        shiftId: shift.id,
+        countedCash: birr(300),
+        note: 'cashier went home ill',
+        now: NOW,
+      }),
+    );
+    expect(closed).toMatchObject({
+      status: 'closed',
+      expectedCash: birr(300),
+      countedCash: birr(300),
+      closeNote: 'Closed by a supervisor: cashier went home ill',
+    });
+    // The cashier may open a new shift now.
+    expect((await shiftFor(cashier)).status).toBe('open');
+  });
+
+  it('the database refuses changes to a closed shift and to a receipt (copies only go up)', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier);
+    const { userId } = await createPlayer(handle.db);
+    const { operation } = await deposit(cashier, shift.id, userId, birr(50));
+    await handle.db.transaction((tx) =>
+      closeShift(tx, { staffId: cashier, shiftId: shift.id, countedCash: birr(550), now: NOW }),
+    );
+    await expect(
+      handle.pool.query('UPDATE cashier_shifts SET counted_cash = 0 WHERE id = $1', [shift.id]),
+    ).rejects.toThrow(/closed and cannot change/);
+    await expect(
+      handle.pool.query('UPDATE cash_operations SET amount = 1 WHERE id = $1', [operation.id]),
+    ).rejects.toThrow(/only its copies are counted/);
+    await expect(
+      handle.pool.query('UPDATE cash_operations SET reprints = reprints - 1 WHERE id = $1', [
+        operation.id,
+      ]),
+    ).rejects.toThrow(/only its copies are counted/);
+    const copy = await handle.db.transaction((tx) =>
+      recordReprint(tx, { operationId: operation.id, staffId: cashier, supervisor: false }),
+    );
+    expect(copy.reprints).toBe(1);
   });
 });
