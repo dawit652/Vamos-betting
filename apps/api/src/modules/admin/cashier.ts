@@ -10,6 +10,8 @@ import {
   CashierShopListResponse,
   CashierShopResponse,
   CashReceiptResponse,
+  CashWithdrawalRequest,
+  CashWithdrawalResponse,
   CloseShiftRequest,
   maskPhone,
   OpenShiftRequest,
@@ -20,14 +22,18 @@ import {
 } from '@vamos/contracts';
 import {
   cashDeposit,
+  cashWithdrawal,
+  checkCashCode,
   closeShift,
   findDeskPlayer,
+  findOperationByKey,
   getOpenShift,
   getReceipt,
   getShift,
   listShiftOperations,
   listShifts,
   listShops,
+  loadComplianceSettings,
   loadGameSettings,
   openShift,
   recordReprint,
@@ -40,6 +46,7 @@ import {
 } from '@vamos/db';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { cashCodeHash } from '../../lib/cash-code';
 import { notFound, parseInput } from '../../lib/errors';
 import { requireStaff, staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, wire } from './common';
@@ -222,6 +229,57 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       return { receipt: receiptView(receipt), replayed };
     });
     return wire(CashDepositResponse, result);
+  });
+
+  app.post('/admin/cashier/withdrawals', { config: { staff: 'cashier.desk' } }, async (request) => {
+    const input = parseInput(CashWithdrawalRequest, request.body);
+    const actor = staffActor(request);
+    const now = deps.clock();
+    // A replay answers with its receipt before the code is checked (the code is spent by then).
+    const done = await findOperationByKey(deps.db, input.idempotencyKey);
+    if (
+      done !== null &&
+      done.kind === 'withdrawal' &&
+      done.userId === input.userId &&
+      done.amount === BigInt(input.amount) &&
+      done.staffId === actor.adminId
+    ) {
+      const receipt = await getReceipt(deps.db, done.id);
+      if (receipt === null) throw notFound('Receipt');
+      return wire(CashWithdrawalResponse, {
+        outcome: 'paid',
+        receipt: receiptView(receipt),
+        replayed: true,
+      });
+    }
+    const codeHash = cashCodeHash(deps.config.sessionSecret, input.userId, input.code);
+    // Its own transaction: a wrong code's try counts even when nothing else happens.
+    const codeId = await checkCashCode(deps.db, { userId: input.userId, codeHash, now });
+    const result = await inTx(deps, async (tx) => {
+      const { payments } = await loadGameSettings(tx);
+      const { amlRules } = await loadComplianceSettings(tx);
+      const outcome = await cashWithdrawal(tx, {
+        staffId: actor.adminId,
+        shiftId: input.shiftId,
+        userId: input.userId,
+        amount: BigInt(input.amount),
+        idempotencyKey: input.idempotencyKey,
+        code: { id: codeId, hash: codeHash },
+        rules: payments,
+        amlRules,
+        now,
+        ip: actor.ip ?? null,
+      });
+      if (outcome.outcome === 'review') return outcome;
+      const receipt = await getReceipt(tx, outcome.operation.id);
+      if (receipt === null) throw new Error('receipt missing after a withdrawal');
+      return {
+        outcome: 'paid' as const,
+        receipt: receiptView(receipt),
+        replayed: outcome.replayed,
+      };
+    });
+    return wire(CashWithdrawalResponse, result);
   });
 
   /** A receipt: its cashier's, or any for a supervisor; 404 otherwise. */

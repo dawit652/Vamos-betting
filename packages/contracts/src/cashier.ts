@@ -179,3 +179,50 @@ export function maskPhone(phone: string): string {
   if (phone.length <= 8) return phone;
   return `${phone.slice(0, 5)}****${phone.slice(-4)}`;
 }
+
+/** A shop code: six digits. */
+const ShopCode = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, 'the code has six digits');
+
+/**
+ * POST /payments/cash-codes (the player, signed in): a one-time code to withdraw cash at a shop.
+ * The player tells the cashier their phone number and this code; a newer code retires the older.
+ */
+export const CashCodeResponse = z.object({ code: ShopCode, expiresAt: IsoDateTime });
+export type CashCodeResponse = z.infer<typeof CashCodeResponse>;
+
+/** POST /admin/cashier/withdrawals: cash paid to a player who gave their shop code. */
+export const CashWithdrawalRequest = z
+  .object({
+    shiftId: z.uuid(),
+    userId: z.uuid(),
+    amount: PositiveSantim,
+    code: ShopCode,
+    idempotencyKey: z
+      .string()
+      .trim()
+      .min(8)
+      .max(100)
+      .regex(/^[A-Za-z0-9_-]+$/),
+  })
+  .strict();
+export type CashWithdrawalRequest = z.infer<typeof CashWithdrawalRequest>;
+
+/**
+ * `paid`: the cash goes to the player now (print the receipt; the player signs it). `review`: the
+ * withdrawal waits for the back office (the reason says why); the money is on hold and is paid at
+ * the desk once approved, on the player's next visit with a new code.
+ */
+export const CashWithdrawalResponse = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('paid'), receipt: CashReceiptView, replayed: z.boolean() }),
+  z.object({
+    outcome: z.literal('review'),
+    payoutId: z.string(),
+    amount: Santim,
+    reviewReason: z.string().nullable(),
+    replayed: z.boolean(),
+  }),
+]);
+export type CashWithdrawalResponse = z.infer<typeof CashWithdrawalResponse>;

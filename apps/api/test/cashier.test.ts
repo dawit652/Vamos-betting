@@ -5,10 +5,13 @@ import {
   CashierPlayerResponse,
   CashierShiftListResponse,
   CashierShiftResponse,
+  CashCodeResponse,
   CashReceiptResponse,
+  CashWithdrawalResponse,
   DepositsResponse,
 } from '@vamos/contracts';
-import { getPlayerBalances } from '@vamos/db';
+import { getPlayerBalances, postTransaction } from '@vamos/db';
+import { kycProfiles } from '@vamos/db/schema';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
@@ -261,5 +264,154 @@ describe('shop settings', () => {
     expect(changed.json()).toMatchObject({ shop: { name: 'Nahubet Piassa', receiptWidthMm: 58 } });
     const all = await asStaff(ctx, compliance, 'GET', '/admin/cashier/shops');
     expect(all.statusCode).toBe(200);
+  });
+});
+
+describe('cash withdrawals', () => {
+  beforeAll(async () => {
+    // The test money is not wagered: the owner's wagering rule is turned off here.
+    const current = await asStaff(ctx, admin, 'GET', '/admin/settings');
+    const payments = current.json<{ settings: { payments: Record<string, unknown> } }>().settings
+      .payments;
+    const changed = await asStaff(ctx, admin, 'PUT', '/admin/settings/payments', {
+      value: { ...payments, wageringMultiplierBps: 0 },
+    });
+    expect(changed.statusCode, changed.body).toBe(200);
+  });
+
+  async function verifiedPlayerWith(amount: bigint) {
+    const player = await registerAndLogin(ctx);
+    await ctx.deps.db.insert(kycProfiles).values({
+      userId: player.userId,
+      status: 'verified',
+      provider: 'mock',
+      idNumberLast4: '1234',
+      verifiedName: 'Abebe Kebede',
+      submittedAt: ctx.clock.now,
+    });
+    // Winnings-like money (not a deposit), so no wagering is owed.
+    await ctx.deps.db.transaction((tx) =>
+      postTransaction(tx, {
+        type: 'demo_topup',
+        idempotencyKey: `test:${randomUUID()}`,
+        entries: [
+          { account: { kind: 'house_demo_funding' }, amount: -amount },
+          { account: { kind: 'player_cash', userId: player.userId }, amount },
+        ],
+      }),
+    );
+    return player;
+  }
+  const makeCode = async (player: Awaited<ReturnType<typeof registerAndLogin>>) => {
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/payments/cash-codes',
+      headers: { cookie: player.cookie, 'x-csrf-token': player.csrfToken },
+    });
+    expect(response.statusCode, response.body).toBe(201);
+    return CashCodeResponse.parse(response.json()).code;
+  };
+  const withdraw = (
+    staff: StaffSession,
+    body: {
+      shiftId: string;
+      userId: string;
+      amount: string;
+      code: string;
+      idempotencyKey?: string;
+    },
+  ) =>
+    asStaff(ctx, staff, 'POST', '/admin/cashier/withdrawals', {
+      idempotencyKey: `desk-${randomUUID()}`,
+      ...body,
+    });
+
+  it('the player makes a code; the desk pays with it once, prints a receipt; a wrong code counts', async () => {
+    const player = await verifiedPlayerWith(200_000n);
+    // Only a signed-in player makes a code.
+    expect((await ctx.app.inject({ method: 'POST', url: '/payments/cash-codes' })).statusCode).toBe(
+      401,
+    );
+    const shopCode = await makeCode(player);
+    expect(shopCode).toMatch(/^\d{6}$/);
+
+    const shift = await openShift(cashier);
+    const wrong = shopCode === '000000' ? '111111' : '000000';
+    const refused = await withdraw(cashier, {
+      shiftId: shift.id,
+      userId: player.userId,
+      amount: '50000',
+      code: wrong,
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(code(refused.body)).toBe('cash_code_invalid');
+
+    const idempotencyKey = `desk-${randomUUID()}`;
+    const paid = await withdraw(cashier, {
+      shiftId: shift.id,
+      userId: player.userId,
+      amount: '50000',
+      code: shopCode,
+      idempotencyKey,
+    });
+    expect(paid.statusCode, paid.body).toBe(200);
+    const result = CashWithdrawalResponse.parse(paid.json());
+    if (result.outcome !== 'paid') throw new Error('expected paid');
+    expect(result.receipt.operation).toMatchObject({ kind: 'withdrawal', amount: '50000' });
+    expect((await getPlayerBalances(ctx.deps.db, player.userId)).cash).toBe(150_000n);
+
+    // The same key again: the same receipt (the code is spent, so no code check), no second payout.
+    const again = await withdraw(cashier, {
+      shiftId: shift.id,
+      userId: player.userId,
+      amount: '50000',
+      code: shopCode,
+      idempotencyKey,
+    });
+    expect(CashWithdrawalResponse.parse(again.json())).toMatchObject({
+      outcome: 'paid',
+      replayed: true,
+    });
+    expect((await getPlayerBalances(ctx.deps.db, player.userId)).cash).toBe(150_000n);
+    // A new desk key with the spent code: refused.
+    const spent = await withdraw(cashier, {
+      shiftId: shift.id,
+      userId: player.userId,
+      amount: '1000',
+      code: shopCode,
+    });
+    expect(spent.statusCode).toBe(400);
+
+    // The shift's cash: float 500 − 500 paid out.
+    expect((await desk(cashier)).shift).toMatchObject({
+      withdrawals: { count: 1, total: '50000' },
+      expectedCash: '0',
+    });
+    await asStaff(ctx, cashier, 'POST', `/admin/cashier/shifts/${shift.id}/close`, {
+      countedCash: '0',
+    });
+  });
+
+  it('a large withdrawal waits for review, like an online one', async () => {
+    const player = await verifiedPlayerWith(1_000_000n);
+    const shift = await openShift(finance);
+    const shopCode = await makeCode(player);
+    const response = await withdraw(finance, {
+      shiftId: shift.id,
+      userId: player.userId,
+      amount: '600000',
+      code: shopCode,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(CashWithdrawalResponse.parse(response.json())).toMatchObject({
+      outcome: 'review',
+      amount: '600000',
+      reviewReason: 'above_auto_approve_threshold',
+    });
+    // Held for the back office review.
+    expect((await getPlayerBalances(ctx.deps.db, player.userId)).cash).toBe(400_000n);
+    await asStaff(ctx, finance, 'POST', `/admin/cashier/shifts/${shift.id}/close`, {
+      countedCash: shift.openingFloat,
+    });
   });
 });
