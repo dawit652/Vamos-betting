@@ -56,6 +56,8 @@ export const CashOperationView = z.object({
   amount: Santim,
   playerPhone: z.string(),
   reprints: z.number().int(),
+  /** When the original was printed; null: not yet (the next print is the original). */
+  originalPrintedAt: IsoDateTime.nullable(),
   createdAt: IsoDateTime,
 });
 export type CashOperationView = z.infer<typeof CashOperationView>;
@@ -158,6 +160,9 @@ export type CashDepositResponse = z.infer<typeof CashDepositResponse>;
 
 /** GET /admin/cashier/receipts/:id, and POST /admin/cashier/receipts/:id/reprint (a COPY). */
 export const CashReceiptResponse = z.object({ receipt: CashReceiptView });
+/** POST /admin/cashier/receipts/:id/print: the receipt, and whether this print is a copy. */
+export const CashReceiptPrintResponse = z.object({ receipt: CashReceiptView, copy: z.boolean() });
+export type CashReceiptPrintResponse = z.infer<typeof CashReceiptPrintResponse>;
 export type CashReceiptResponse = z.infer<typeof CashReceiptResponse>;
 
 /** GET /admin/cashier/shifts (cashier.reports): newest first. */

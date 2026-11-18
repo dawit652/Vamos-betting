@@ -107,7 +107,11 @@ account with its shop from the command line (`admin-create`), and per-shop expor
 2. **Assisted PIN reset** at the desk with an ID check and four eyes.
 3. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
    (`adjustment`, house cash vs revenue); today the variance is recorded and shown, not posted.
-4. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
+4. **Original receipt printed once: done 18 Nov** (migration `0061_receipt_original_once`):
+   `cash_operations.original_printed_at` is set by the first print (`POST
+/admin/cashier/receipts/:id/print`, audited `cashier.receipt_printed`); every later print, also
+   with the page's Print button, is a counted copy that says COPY; the receipt guard refuses to clear
+   or move the stamp. Silent ESC/POS printing is still open (only if wanted).
 5. **Uncollected approved cash withdrawals**: the money stays on hold until the player collects it
    or cancels it online (finance can also fail it to give it back); consider an expiry.
 6. Shift reports: one grouped query instead of one per shift (review finding 8): **done 18 Nov**

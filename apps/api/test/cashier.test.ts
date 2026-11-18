@@ -194,6 +194,21 @@ describe('a shift at the desk', () => {
     expect(copy.statusCode, copy.body).toBe(200);
     expect(CashReceiptResponse.parse(copy.json()).receipt.operation.reprints).toBe(1);
 
+    // The original is printed once: the first print is it, every later print a counted copy, and
+    // the database refuses to forget that the original was printed.
+    const printOf = () =>
+      asStaff(ctx, cashier, 'POST', `/admin/cashier/receipts/${receipt.operation.id}/print`);
+    const original = await printOf();
+    expect(original.statusCode, original.body).toBe(200);
+    expect(original.json()).toMatchObject({ copy: false, receipt: { operation: { reprints: 1 } } });
+    const second = await printOf();
+    expect(second.json()).toMatchObject({ copy: true, receipt: { operation: { reprints: 2 } } });
+    await expect(
+      ctx.db.pool.query(`UPDATE cash_operations SET original_printed_at = NULL WHERE id = $1`, [
+        receipt.operation.id,
+      ]),
+    ).rejects.toThrow(/only its copies are counted/);
+
     // The desk shows the shift with its deposit and the expected cash.
     const open = await desk(cashier);
     expect(open.shift).toMatchObject({

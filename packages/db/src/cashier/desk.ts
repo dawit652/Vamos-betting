@@ -36,6 +36,7 @@ export const CASHIER_AUDIT = {
   withdrawalForReview: 'cashier.withdrawal_for_review',
   codeMade: 'cashier.code_made',
   receiptReprinted: 'cashier.receipt_reprinted',
+  receiptPrinted: 'cashier.receipt_printed',
   shopUpdated: 'cashier.shop_updated',
   shopCreated: 'cashier.shop_created',
   staffShopAssigned: 'cashier.staff_shop_assigned',
@@ -1058,6 +1059,7 @@ export async function listShiftOperations(
       payoutId: cashOperations.payoutId,
       idempotencyKey: cashOperations.idempotencyKey,
       reprints: cashOperations.reprints,
+      originalPrintedAt: cashOperations.originalPrintedAt,
       createdAt: cashOperations.createdAt,
       playerPhone: users.phone,
     })
@@ -1065,6 +1067,51 @@ export async function listShiftOperations(
     .innerJoin(users, eq(users.id, cashOperations.userId))
     .where(eq(cashOperations.shiftId, shiftId))
     .orderBy(desc(cashOperations.createdAt), desc(cashOperations.receiptNo));
+}
+
+/**
+ * Prints a receipt (cashier phase "original receipt once"): the first print is the ORIGINAL
+ * (original_printed_at set, audited `cashier.receipt_printed`); every later one is a copy, counted
+ * and audited like a reprint. Only the staff member who made it, or a supervisor, prints it.
+ */
+export async function printReceipt(
+  tx: DbTransaction,
+  input: {
+    operationId: string;
+    staffId: string;
+    supervisor: boolean;
+    now: Date;
+    ip?: string | null;
+  },
+): Promise<{ operation: CashOperation; copy: boolean }> {
+  const [current] = await tx
+    .select()
+    .from(cashOperations)
+    .where(eq(cashOperations.id, input.operationId))
+    .for('update');
+  if (!current || (!input.supervisor && current.staffId !== input.staffId)) {
+    throw domainNotFound('Receipt');
+  }
+  if (current.originalPrintedAt !== null) {
+    const operation = await recordReprint(tx, input);
+    return { operation, copy: true };
+  }
+  const [updated] = await tx
+    .update(cashOperations)
+    .set({ originalPrintedAt: input.now })
+    .where(eq(cashOperations.id, current.id))
+    .returning();
+  if (!updated) throw new Error('print update returned no row');
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.staffId,
+    action: CASHIER_AUDIT.receiptPrinted,
+    targetType: 'cash_operation',
+    targetId: current.id,
+    metadata: { receiptNo: current.receiptNo },
+    ip: input.ip ?? null,
+  });
+  return { operation: updated, copy: false };
 }
 
 /**

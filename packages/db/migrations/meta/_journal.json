@@ -428,6 +428,13 @@
       "when": 1794967133934,
       "tag": "0060_cashier_staff_shops",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794968708940,
+      "tag": "0061_receipt_original_once",
+      "breakpoints": true
     }
   ]
 }

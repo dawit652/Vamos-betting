@@ -157,6 +157,11 @@ export const cashOperations = pgTable(
     /** Times the receipt was printed after the first print (reprints say COPY). */
     reprints: integer('reprints').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    /**
+     * When the ORIGINAL receipt was printed (cashier phase "original receipt once"): set once by the
+     * first print; every later print is a counted copy (reprints). The guard refuses to change it.
+     */
+    originalPrintedAt: timestamp('original_printed_at', { withTimezone: true }),
   },
   (t) => [
     uniqueIndex('cash_operations_receipt_no_uq').on(t.receiptNo),

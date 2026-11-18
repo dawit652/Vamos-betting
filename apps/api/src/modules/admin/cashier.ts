@@ -24,6 +24,7 @@ import {
   ShopSummaryQuery,
   ShopSummaryResponse,
   CashierDepositsResponse,
+  CashReceiptPrintResponse,
   type CashierShiftView,
   type CashOperationView,
   type CashReceiptView,
@@ -58,6 +59,7 @@ import {
   listCashierStaff,
   shopDaySummary,
   recentDeposits,
+  printReceipt,
   writeAudit,
   type CashierShift,
   type CashierShop,
@@ -154,6 +156,7 @@ function operationView(op: {
   kind: 'deposit' | 'withdrawal';
   amount: bigint;
   reprints: number;
+  originalPrintedAt: Date | null;
   createdAt: Date;
   playerPhone: string;
 }): CashOperationView {
@@ -165,6 +168,7 @@ function operationView(op: {
     amount: op.amount,
     playerPhone: maskPhone(op.playerPhone),
     reprints: op.reprints,
+    originalPrintedAt: op.originalPrintedAt,
     createdAt: op.createdAt,
   });
 }
@@ -469,6 +473,29 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
     async (request) => {
       const receipt = await readReceipt(deps.db, request);
       return wire(CashReceiptResponse, { receipt: receiptView(receipt) });
+    },
+  );
+
+  // The first print is the original, every later one a counted copy (phase "original receipt once").
+  app.post<IdParams>(
+    '/admin/cashier/receipts/:id/print',
+    { config: { staff: 'cashier.desk' } },
+    async (request) => {
+      const actor = staffActor(request);
+      const { receipt, copy } = await inTx(deps, async (tx) => {
+        const current = await readReceipt(tx, request);
+        const printed = await printReceipt(tx, {
+          operationId: current.operation.id,
+          staffId: actor.adminId,
+          supervisor: supervisor(request),
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        });
+        const after = await getReceipt(tx, current.operation.id);
+        if (after === null) throw notFound('Receipt');
+        return { receipt: after, copy: printed.copy };
+      });
+      return wire(CashReceiptPrintResponse, { receipt: receiptView(receipt), copy });
     },
   );
 
