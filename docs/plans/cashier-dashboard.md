@@ -87,7 +87,8 @@ Also built 18 Nov: a supervisor closes a shift its cashier left open
 4. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
 5. **Uncollected approved cash withdrawals**: the money stays on hold until the player collects it
    or cancels it online (finance can also fail it to give it back); consider an expiry.
-6. Shift reports: one grouped query instead of one per shift (review finding 8, small).
+6. Shift reports: one grouped query instead of one per shift (review finding 8): **done 18 Nov**
+   (`shiftTotalsMany`).
 7. Retail walk-in tickets (largest; later).
 
 ## Rules for every session of this work

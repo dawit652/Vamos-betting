@@ -1,5 +1,5 @@
 import { normalizeEthiopianMsisdn, toWire, type PaymentRules } from '@vamos/core';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { isUniqueViolation } from '../catalog/errors';
 import { domainConflict, domainForbidden, domainNotFound, domainUnprocessable } from '../errors';
@@ -186,17 +186,44 @@ export async function updateShop(
 
 /** The deposits and withdrawals of a shift and the cash the drawer should hold. */
 export async function shiftTotals(exec: DbExecutor, shift: CashierShift): Promise<ShiftTotals> {
+  return (await shiftTotalsMany(exec, [shift])).get(shift.id)!;
+}
+
+/**
+ * shiftTotals for many shifts in ONE grouped query (the shift list; review finding 8 of the
+ * cashier dashboard: it read one query per shift). Every shift given has an entry.
+ */
+export async function shiftTotalsMany(
+  exec: DbExecutor,
+  shifts: readonly CashierShift[],
+): Promise<Map<string, ShiftTotals>> {
+  const out = new Map<string, ShiftTotals>();
+  if (shifts.length === 0) return out;
   const rows = await exec
     .select({
+      shiftId: cashOperations.shiftId,
       kind: cashOperations.kind,
       count: sql<number>`count(*)::int`,
       total: sql<string>`COALESCE(sum(${cashOperations.amount}), 0)::text`,
     })
     .from(cashOperations)
-    .where(eq(cashOperations.shiftId, shift.id))
-    .groupBy(cashOperations.kind);
+    .where(
+      inArray(
+        cashOperations.shiftId,
+        shifts.map((shift) => shift.id),
+      ),
+    )
+    .groupBy(cashOperations.shiftId, cashOperations.kind);
+  for (const shift of shifts) out.set(shift.id, totalsOf(shift, rows));
+  return out;
+}
+
+function totalsOf(
+  shift: CashierShift,
+  rows: ReadonlyArray<{ shiftId: string; kind: string; count: number; total: string }>,
+): ShiftTotals {
   const of = (kind: 'deposit' | 'withdrawal') => {
-    const row = rows.find((r) => r.kind === kind);
+    const row = rows.find((r) => r.shiftId === shift.id && r.kind === kind);
     return { count: row?.count ?? 0, total: BigInt(row?.total ?? '0') };
   };
   const deposits = of('deposit');

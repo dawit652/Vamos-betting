@@ -19,6 +19,7 @@ import {
   openShift,
   recordReprint,
   shiftTotals,
+  shiftTotalsMany,
   updateShop,
 } from '../src/cashier/index';
 import { runReconciliationChecks } from '../src/compliance/index';
@@ -357,6 +358,10 @@ describe('players and receipts', () => {
     const ops = await listShiftOperations(handle.db, shift.id);
     expect(ops.map((o) => o.id)).toEqual([operation.id]);
     expect((await shiftTotals(handle.db, shift)).expectedCash).toBe(birr(575));
+    // The shift list reads every shift's totals in one grouped query: the same figures.
+    const many = await shiftTotalsMany(handle.db, [shift]);
+    expect(many.get(shift.id)).toEqual(await shiftTotals(handle.db, shift));
+    expect((await shiftTotalsMany(handle.db, [])).size).toBe(0);
 
     // A copy by its cashier or a supervisor; nobody else sees it.
     const copy = await handle.db.transaction((tx) =>

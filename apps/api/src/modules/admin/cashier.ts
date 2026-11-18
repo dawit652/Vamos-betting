@@ -44,12 +44,14 @@ import {
   recordReprint,
   setPlayerStatus,
   shiftTotals,
+  shiftTotalsMany,
   updateShop,
   writeAudit,
   type CashierShift,
   type CashierShop,
   type DbExecutor,
   type Receipt,
+  type ShiftTotals,
 } from '@vamos/db';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -109,8 +111,10 @@ async function shiftView(
   exec: DbExecutor,
   shift: CashierShift,
   names: { shopName: string; staffName: string },
+  /** Already read for many shifts at once (shiftTotalsMany); read here when not given. */
+  known?: ShiftTotals,
 ): Promise<CashierShiftView> {
-  const totals = await shiftTotals(exec, shift);
+  const totals = known ?? (await shiftTotals(exec, shift));
   // A closed shift keeps the expected figure fixed at its close.
   const expected = shift.expectedCash ?? totals.expectedCash;
   return wire(CashierShiftResponse.shape.shift, {
@@ -450,8 +454,9 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       ...(query.shopId === undefined ? {} : { shopId: query.shopId }),
       limit: query.limit,
     });
+    const totals = await shiftTotalsMany(deps.db, rows);
     const shifts: CashierShiftView[] = [];
-    for (const row of rows) shifts.push(await shiftView(deps.db, row, row));
+    for (const row of rows) shifts.push(await shiftView(deps.db, row, row, totals.get(row.id)));
     return wire(CashierShiftListResponse, { shifts });
   });
 
