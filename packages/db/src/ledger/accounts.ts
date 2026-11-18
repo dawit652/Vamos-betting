@@ -14,6 +14,7 @@ const HOUSE_KEYS = {
   house_promotions: 'house:promotions',
   house_jackpot: 'house:jackpot',
   house_withdrawals_pending: 'house:withdrawals_pending',
+  house_cash_variance: 'house:cash_variance',
 } as const;
 
 /**

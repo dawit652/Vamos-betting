@@ -18,7 +18,8 @@ export type HouseAccountKind =
   | 'house_demo_funding'
   | 'house_promotions'
   | 'house_jackpot'
-  | 'house_withdrawals_pending';
+  | 'house_withdrawals_pending'
+  | 'house_cash_variance';
 
 /** Identifies a ledger account independently of its database id. */
 export type AccountRef =

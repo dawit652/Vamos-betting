@@ -115,4 +115,24 @@ describe('cashiers and their shops', () => {
       (await asStaff(ctx, finance, 'GET', '/admin/cashier/shops/summary?day=nope')).statusCode,
     ).toBe(400);
   });
+
+  it("a supervisor books a closed shift's difference once; the cashier cannot", async () => {
+    // The cashier's shift at Merkato (opened above with a float of 0) closes 25 birr over.
+    const desk = await asStaff(ctx, cashier, 'GET', '/admin/cashier/desk');
+    const shiftId = desk.json<{ shift: { id: string } }>().shift.id;
+    const closed = await asStaff(ctx, cashier, 'POST', `/admin/cashier/shifts/${shiftId}/close`, {
+      countedCash: '2500',
+    });
+    expect(closed.statusCode, closed.body).toBeLessThan(300);
+    const path = `/admin/cashier/shifts/${shiftId}/variance`;
+    expect((await asStaff(ctx, cashier, 'POST', path)).statusCode).toBe(403);
+    const booked = await asStaff(ctx, finance, 'POST', path);
+    expect(booked.statusCode, booked.body).toBe(200);
+    expect(booked.json()).toMatchObject({ variancePosting: { amount: '2500' } });
+    const again = await asStaff(ctx, finance, 'POST', path);
+    expect(again.statusCode).toBe(409);
+    expect(errorCode(again.body)).toBe('variance_already_posted');
+    const detail = await asStaff(ctx, finance, 'GET', `/admin/cashier/shifts/${shiftId}`);
+    expect(detail.json()).toMatchObject({ variancePosting: { amount: '2500' } });
+  });
 });

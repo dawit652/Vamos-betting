@@ -61,6 +61,36 @@ function ForceClose({ shift, onDone }: { shift: CashierShiftView; onDone: () => 
   );
 }
 
+/**
+ * Books the closed shift's cash difference as a shop loss or gain (house cash variance account),
+ * the owner's default of 18 Nov; a supervisor other than the shift's cashier, once.
+ */
+function BookVariance({ shiftId, onDone }: { shiftId: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const book = async () => {
+    setBusy(true);
+    setFailure(null);
+    try {
+      await api(`/admin/cashier/shifts/${shiftId}/variance`, { method: 'POST', body: {} });
+      onDone();
+    } catch (e) {
+      setFailure(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <p>
+      <button type="button" disabled={busy} onClick={() => void book()}>
+        Book the difference
+      </button>{' '}
+      <span className="small muted">as a shop loss or gain in the books (once).</span>
+      {failure !== null && <Notice>{failure}</Notice>}
+    </p>
+  );
+}
+
 export default function CashShiftPage() {
   const { id } = useParams<{ id: string }>();
   const { can, staff } = useSession();
@@ -96,6 +126,17 @@ export default function CashShiftPage() {
           ['Note', shift.closeNote ?? '–'],
         ]}
       />
+      {data.variancePosting !== null ? (
+        <p className="small" data-testid="variance-booked">
+          Difference booked: {formatEtb(data.variancePosting.amount)} on{' '}
+          {formatDateTime(data.variancePosting.postedAt)}.
+        </p>
+      ) : (
+        shift.status === 'closed' &&
+        hasVariance(shift.variance) &&
+        can('withdrawals.approve') &&
+        staff?.id !== shift.staffId && <BookVariance shiftId={shift.id} onDone={reload} />
+      )}
       {shift.status === 'open' &&
         can('cashier.desk') &&
         can('cashier.reports') &&

@@ -173,6 +173,10 @@ export type CashierShiftListResponse = z.infer<typeof CashierShiftListResponse>;
 export const CashierShiftDetailResponse = z.object({
   shift: CashierShiftView,
   operations: z.array(CashOperationView),
+  /** The booked cash difference (POST /admin/cashier/shifts/:id/variance), or null. */
+  variancePosting: z
+    .object({ amount: z.string(), postedAt: IsoDateTime, postedBy: z.string() })
+    .nullable(),
 });
 export type CashierShiftDetailResponse = z.infer<typeof CashierShiftDetailResponse>;
 

@@ -60,6 +60,8 @@ import {
   shopDaySummary,
   recentDeposits,
   printReceipt,
+  getShiftVariancePosting,
+  postShiftVariance,
   writeAudit,
   type CashierShift,
   type CashierShop,
@@ -543,6 +545,32 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       return wire(CashierShiftDetailResponse, {
         shift: await namedShiftView(deps.db, shift),
         operations,
+        variancePosting: await getShiftVariancePosting(deps.db, shift.id),
+      });
+    },
+  );
+
+  // A supervisor books a closed shift's cash difference (phase "variance posting"; four eyes).
+  app.post<IdParams>(
+    '/admin/cashier/shifts/:id/variance',
+    { config: { staff: 'withdrawals.approve' } },
+    async (request) => {
+      const shiftId = parseUuid(request.params.id, 'Shift');
+      const actor = staffActor(request);
+      await inTx(deps, (tx) =>
+        postShiftVariance(tx, {
+          shiftId,
+          supervisorId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      const shift = await getShift(deps.db, shiftId);
+      if (shift === null) throw notFound('Shift');
+      return wire(CashierShiftDetailResponse, {
+        shift: await namedShiftView(deps.db, shift),
+        operations: (await listShiftOperations(deps.db, shift.id)).map(operationView),
+        variancePosting: await getShiftVariancePosting(deps.db, shift.id),
       });
     },
   );

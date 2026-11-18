@@ -29,8 +29,9 @@ export default function ShiftReportPage() {
       } catch (e) {
         if (!(e instanceof ApiClientError) || e.status !== 403) return setError(describeError(e));
         const desk = await api<CashierDeskResponse>('/admin/cashier/desk');
-        if (desk.shift?.id === id) setData({ shift: desk.shift, operations: desk.operations });
-        else setError('You can only print the report of your own open shift.');
+        if (desk.shift?.id === id) {
+          setData({ shift: desk.shift, operations: desk.operations, variancePosting: null });
+        } else setError('You can only print the report of your own open shift.');
       }
     };
     load().catch((e: unknown) => setError(describeError(e)));

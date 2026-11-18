@@ -125,6 +125,23 @@ export const cashierShifts = pgTable(
   ],
 );
 
+/**
+ * A closed shift's cash difference booked in the ledger (cashier phase "variance posting"): once per
+ * shift (the shift is closed and cannot change, so the booking is its own row). `amount` is
+ * counted − expected: negative when the drawer was short.
+ */
+export const cashShiftVariancePostings = pgTable('cash_shift_variance_postings', {
+  shiftId: uuid('shift_id')
+    .primaryKey()
+    .references(() => cashierShifts.id),
+  amount: bigint('amount', { mode: 'bigint' }).notNull(),
+  ledgerTransactionId: uuid('ledger_transaction_id').notNull(),
+  postedBy: uuid('posted_by')
+    .notNull()
+    .references(() => adminUsers.id),
+  postedAt: timestamp('posted_at', { withTimezone: true }).notNull(),
+});
+
 /** Every cash operation at a desk: its receipt. The money moved through the intent or payout. */
 export const cashOperations = pgTable(
   'cash_operations',

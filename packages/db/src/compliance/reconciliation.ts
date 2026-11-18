@@ -8,6 +8,7 @@ import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
 import { OPEN_PAYOUT_STATUSES } from '../payments/types';
 import { bets } from '../schema/betting';
+import { cashShiftVariancePostings } from '../schema/cashier';
 import {
   complianceCursors,
   reconciliationMismatches,
@@ -40,7 +41,9 @@ import { receivedSms } from '../schema/smsrail';
  * Payment providers, for one business day (ledger posting time):
  * - psp_movements: every house_psp_clearing posting belongs to a succeeded
  *   deposit intent (−amount, same provider, its ledger transaction) or a paid
- *   payout (+amount), and nothing else moves those accounts;
+ *   payout (+amount), or is the booked cash difference of a closed cashier
+ *   shift (`cash` only, −variance, its cash_shift_variance_postings row), and
+ *   nothing else moves those accounts;
  * - psp_records: every intent that succeeded and payout paid that day has
  *   exactly that PSP clearing entry;
  * - psp_daily_totals: per provider, Σ succeeded intents = deposits through
@@ -406,11 +409,20 @@ interface PspMovementRow extends Record<string, unknown> {
   payout_amount: string | null;
   payout_provider: string | null;
   payout_tx: string | null;
+  /** A cashier shift's booked cash difference (adjustment postings with ref_type cashier_shift). */
+  variance_amount: string | null;
 }
 
 /** Why a PSP clearing posting does not belong to its intent or payout (null when it does). */
 function movementProblem(row: PspMovementRow): string | null {
   const amount = BigInt(row.amount);
+  if (row.type === 'adjustment' && row.ref_type === 'cashier_shift') {
+    if (row.provider !== 'cash') return 'a cash shift difference moved another provider';
+    if (row.variance_amount === null) return 'no booked shift difference for this posting';
+    if (amount !== -BigInt(row.variance_amount))
+      return 'the amount differs from the shift difference';
+    return null;
+  }
   if (row.type === 'deposit') {
     if (row.intent_id === null) return 'no deposit intent for this posting';
     if (row.intent_status !== 'succeeded')
@@ -445,12 +457,15 @@ async function checkPayments(exec: DbExecutor, date: string, cap: number): Promi
       i.id::text AS intent_id, i.status::text AS intent_status, i.amount::text AS intent_amount,
       i.provider AS intent_provider, i.ledger_transaction_id::text AS intent_tx,
       p.id::text AS payout_id, p.status::text AS payout_status, p.amount::text AS payout_amount,
-      p.provider AS payout_provider, p.paid_ledger_transaction_id::text AS payout_tx
+      p.provider AS payout_provider, p.paid_ledger_transaction_id::text AS payout_tx,
+      v.amount::text AS variance_amount
     FROM ${ledgerEntries} e
     JOIN ${ledgerAccounts} a ON a.id = e.account_id
     JOIN ${ledgerTransactions} t ON t.id = e.transaction_id
     LEFT JOIN ${paymentIntents} i ON t.ref_type = 'payment_intent' AND i.id::text = t.ref_id
     LEFT JOIN ${payouts} p ON t.ref_type = 'payout' AND p.id::text = t.ref_id
+    LEFT JOIN ${cashShiftVariancePostings} v
+      ON t.ref_type = 'cashier_shift' AND v.ledger_transaction_id = t.id
     WHERE a.kind = 'house_psp_clearing'
       AND t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz
     ORDER BY t.created_at, t.id

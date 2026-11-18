@@ -48,6 +48,8 @@ export const ledgerOwnerType = pgEnum('ledger_owner_type', ['user', 'house']);
  *   (taken from the player's cash at request time, so they cannot be bet;
  *   moved to the provider's clearing account when paid, back to the player
  *   when rejected, cancelled or failed).
+ * - house_cash_variance: cash shops counted short (debit) or over (credit) at shift close, booked
+ *   when a supervisor approves it (cashier desk); kept out of house_revenue (GGR stays clean).
  */
 export const ledgerAccountKind = pgEnum('ledger_account_kind', [
   'player_cash',
@@ -60,6 +62,7 @@ export const ledgerAccountKind = pgEnum('ledger_account_kind', [
   'house_promotions',
   'house_jackpot',
   'house_withdrawals_pending',
+  'house_cash_variance',
 ]);
 
 export const ledgerTransactionType = pgEnum('ledger_transaction_type', [

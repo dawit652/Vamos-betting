@@ -8,6 +8,7 @@ import {
   cashWithdrawal,
   checkCashCode,
   expireUncollectedCashPayouts,
+  postShiftVariance,
   closeShift,
   createCashCode,
   findDeskPayout,
@@ -732,6 +733,65 @@ describe('uncollected approved cash withdrawals', () => {
         maxAgeMs: 7 * DAY,
       }),
     ).toBe(0);
+  });
+});
+
+describe("booking a closed shift's cash difference", () => {
+  it('a supervisor (not the cashier) books it once against house:cash_variance; the books reconcile', async () => {
+    const cashier = await staff();
+    const supervisor = await staff('finance');
+    const shift = await shiftFor(cashier, birr(500));
+    const { userId } = await createPlayer(handle.db);
+    await deposit(cashier, shift.id, userId, birr(100));
+    const post = (supervisorId: string) =>
+      handle.db.transaction((tx) =>
+        postShiftVariance(tx, { shiftId: shift.id, supervisorId, now: NOW }),
+      );
+    // An open shift has no difference to book yet.
+    expect(await refusal(post(supervisor))).toEqual({ status: 409, code: 'shift_not_closed' });
+    // Expected 600, counted 570: 30 short.
+    await handle.db.transaction((tx) =>
+      closeShift(tx, { staffId: cashier, shiftId: shift.id, countedCash: birr(570), now: NOW }),
+    );
+    expect(await refusal(post(cashier))).toEqual({ status: 403, code: 'cashier_four_eyes' });
+    const varianceBefore = await getBalance(handle.db, { kind: 'house_cash_variance' }).catch(
+      () => 0n,
+    );
+    const pspBefore = await getBalance(handle.db, { kind: 'house_psp_clearing', provider: 'cash' });
+    const booked = await post(supervisor);
+    expect(booked).toMatchObject({ shiftId: shift.id, amount: -birr(30), postedBy: supervisor });
+    expect(await getBalance(handle.db, { kind: 'house_cash_variance' })).toBe(
+      varianceBefore - birr(30),
+    );
+    expect(await getBalance(handle.db, { kind: 'house_psp_clearing', provider: 'cash' })).toBe(
+      pspBefore + birr(30),
+    );
+    expect(await refusal(post(supervisor))).toEqual({
+      status: 409,
+      code: 'variance_already_posted',
+    });
+    // The PSP checks accept the booking (it matches its shift row) and find nothing else.
+    const result = await runReconciliationChecks(handle.db, {
+      businessDate: businessDateOf(NOW),
+      balanceAfterGraceMs: 0,
+    });
+    expect(result.mismatches.filter((m) => m.check.startsWith('psp_'))).toEqual([]);
+  });
+
+  it('a shift whose count matched has nothing to book', async () => {
+    const cashier = await staff();
+    const supervisor = await staff('finance');
+    const shift = await shiftFor(cashier, birr(200));
+    await handle.db.transaction((tx) =>
+      closeShift(tx, { staffId: cashier, shiftId: shift.id, countedCash: birr(200), now: NOW }),
+    );
+    expect(
+      await refusal(
+        handle.db.transaction((tx) =>
+          postShiftVariance(tx, { shiftId: shift.id, supervisorId: supervisor, now: NOW }),
+        ),
+      ),
+    ).toEqual({ status: 409, code: 'no_variance' });
   });
 });
 

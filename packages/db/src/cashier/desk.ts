@@ -13,7 +13,13 @@ import { enqueueOutbox } from '../platform/outbox';
 import { getActiveExclusion } from '../rg/exclusions';
 import { assertDepositAllowed, lockUser } from '../rg/limits';
 import { adminUsers, kycProfiles, users } from '../schema/accounts';
-import { cashOperations, cashierShifts, cashierShops, cashierStaffShops } from '../schema/cashier';
+import {
+  cashOperations,
+  cashShiftVariancePostings,
+  cashierShifts,
+  cashierShops,
+  cashierStaffShops,
+} from '../schema/cashier';
 import { paymentIntents } from '../schema/payments';
 
 /**
@@ -31,6 +37,7 @@ export const CASHIER_AUDIT = {
   shiftOpened: 'cashier.shift_opened',
   shiftClosed: 'cashier.shift_closed',
   shiftForceClosed: 'cashier.shift_force_closed',
+  shiftVariancePosted: 'cashier.shift_variance_posted',
   deposit: 'cashier.deposit',
   withdrawal: 'cashier.withdrawal',
   withdrawalForReview: 'cashier.withdrawal_for_review',
@@ -509,6 +516,86 @@ export async function recentDeposits(
     createdAt: row.createdAt,
     completedAt: row.completedAt,
   }));
+}
+
+/** A closed shift's booked cash difference, or null (postShiftVariance). */
+export type ShiftVariancePosting = typeof cashShiftVariancePostings.$inferSelect;
+
+export async function getShiftVariancePosting(
+  exec: DbExecutor,
+  shiftId: string,
+): Promise<ShiftVariancePosting | null> {
+  const [row] = await exec
+    .select()
+    .from(cashShiftVariancePostings)
+    .where(eq(cashShiftVariancePostings.shiftId, shiftId));
+  return row ?? null;
+}
+
+/**
+ * Books a closed shift's cash difference (cashier phase "variance posting"; the owner's default of
+ * 18 Nov: a shop loss or gain approved by a supervisor). variance = counted − expected (fixed at
+ * the close); one `adjustment` posting: the cash the shops hold (`house:psp:cash`) moves by the
+ * difference, against `house:cash_variance` (never GGR). Once per shift (409
+ * `variance_already_posted`); the shift must be closed with a count (409 `shift_not_closed`) and
+ * have a difference (409 `no_variance`); four eyes: the shift's own cashier may not book it (403
+ * `cashier_four_eyes`). Audited.
+ */
+export async function postShiftVariance(
+  tx: DbTransaction,
+  input: { shiftId: string; supervisorId: string; now: Date; ip?: string | null },
+): Promise<ShiftVariancePosting> {
+  const [shift] = await tx
+    .select()
+    .from(cashierShifts)
+    .where(eq(cashierShifts.id, input.shiftId))
+    .for('update');
+  if (!shift) throw domainNotFound('Shift');
+  if (shift.status !== 'closed' || shift.countedCash === null || shift.expectedCash === null) {
+    throw domainConflict('shift_not_closed', 'Close the shift with a cash count first.');
+  }
+  if (shift.staffId === input.supervisorId) {
+    throw domainForbidden('cashier_four_eyes', 'Another supervisor must book your own shift.');
+  }
+  if ((await getShiftVariancePosting(tx, shift.id)) !== null) {
+    throw domainConflict('variance_already_posted', 'This difference is already booked.');
+  }
+  const variance = shift.countedCash - shift.expectedCash;
+  if (variance === 0n) throw domainConflict('no_variance', 'The count matched: nothing to book.');
+  const posting = await postTransaction(tx, {
+    type: 'adjustment',
+    idempotencyKey: `cash_shift_variance:${shift.id}`,
+    refType: 'cashier_shift',
+    refId: shift.id,
+    description: variance < 0n ? 'cash shift short' : 'cash shift over',
+    actor: { type: 'admin', id: input.supervisorId },
+    createdAt: input.now,
+    entries: [
+      { account: { kind: 'house_psp_clearing', provider: CASH_PROVIDER }, amount: -variance },
+      { account: { kind: 'house_cash_variance' }, amount: variance },
+    ],
+  });
+  const [row] = await tx
+    .insert(cashShiftVariancePostings)
+    .values({
+      shiftId: shift.id,
+      amount: variance,
+      ledgerTransactionId: posting.transactionId,
+      postedBy: input.supervisorId,
+      postedAt: input.now,
+    })
+    .returning();
+  if (!row) throw new Error('variance posting insert returned no row');
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.supervisorId,
+    action: CASHIER_AUDIT.shiftVariancePosted,
+    targetType: 'cashier_shift',
+    targetId: shift.id,
+    metadata: { variance, ledgerTransactionId: posting.transactionId, shopId: shift.shopId },
+    ip: input.ip ?? null,
+  });
+  return row;
 }
 
 /** The staff member's open shift, if any. */
