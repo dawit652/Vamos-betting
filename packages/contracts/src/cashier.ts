@@ -308,3 +308,36 @@ export const CashWithdrawalResponse = z.discriminatedUnion('outcome', [
   }),
 ]);
 export type CashWithdrawalResponse = z.infer<typeof CashWithdrawalResponse>;
+
+/** POST /admin/cashier/players/:id/pin-reset (cashier.desk): the ID number on the player's card. */
+export const DeskPinResetRequest = z
+  .object({
+    idNumber: z
+      .string()
+      .trim()
+      .transform((value) => value.replace(/[\s-]/g, ''))
+      .pipe(z.string().regex(/^(\d{12}|\d{16})$/, 'the 12-digit FIN or the 16-digit FAN')),
+  })
+  .strict();
+export type DeskPinResetRequest = z.infer<typeof DeskPinResetRequest>;
+
+export const DeskPinResetView = z.object({
+  id: z.string(),
+  userId: z.string(),
+  status: z.enum(['requested', 'approved', 'issued', 'rejected', 'expired']),
+  playerPhone: z.string().optional(),
+  requestedByName: z.string().optional(),
+  createdAt: IsoDateTime,
+  approvedAt: IsoDateTime.nullable(),
+});
+export type DeskPinResetView = z.infer<typeof DeskPinResetView>;
+export const DeskPinResetResponse = z.object({ reset: DeskPinResetView.nullable() });
+export type DeskPinResetResponse = z.infer<typeof DeskPinResetResponse>;
+/** GET /admin/cashier/pin-resets (users.status): requests waiting or approved. */
+export const DeskPinResetListResponse = z.object({ resets: z.array(DeskPinResetView) });
+export type DeskPinResetListResponse = z.infer<typeof DeskPinResetListResponse>;
+/** POST /admin/cashier/pin-resets/:id/decision (users.status). */
+export const DeskPinResetDecisionRequest = z.object({ approve: z.boolean() }).strict();
+/** POST /admin/cashier/pin-resets/:id/issue (cashier.desk): the one-time code, shown once. */
+export const DeskPinResetCodeResponse = z.object({ code: z.string(), expiresAt: IsoDateTime });
+export type DeskPinResetCodeResponse = z.infer<typeof DeskPinResetCodeResponse>;

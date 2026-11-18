@@ -1,7 +1,10 @@
 import { ApiErrorSchema } from '@vamos/contracts';
+import { auditLog, kycProfiles } from '@vamos/db/schema';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
-import { createTestContext, type TestContext } from './helpers';
+import { idNumberHash } from '../src/modules/kyc/service';
+import { createTestContext, post, registerAndLogin, type TestContext } from './helpers';
 
 /**
  * Many shops (the owner runs more than 40): with more than one active shop a cashier must be
@@ -134,5 +137,68 @@ describe('cashiers and their shops', () => {
     expect(errorCode(again.body)).toBe('variance_already_posted');
     const detail = await asStaff(ctx, finance, 'GET', `/admin/cashier/shifts/${shiftId}`);
     expect(detail.json()).toMatchObject({ variancePosting: { amount: '2500' } });
+  });
+
+  it('a PIN reset at the desk: the ID checked, a supervisor approves, the desk prints the code, the player resets', async () => {
+    const player = await registerAndLogin(ctx);
+    await ctx.deps.db.insert(kycProfiles).values({
+      userId: player.userId,
+      status: 'verified',
+      provider: 'mock',
+      idNumberLast4: '9012',
+      idNumberHash: idNumberHash(ctx.deps.config.sessionSecret, '123456789012'),
+      verifiedName: 'Abebe Kebede',
+      submittedAt: ctx.clock.now,
+    });
+    const ask = (idNumber: string) =>
+      asStaff(ctx, cashier, 'POST', `/admin/cashier/players/${player.userId}/pin-reset`, {
+        idNumber,
+      });
+
+    // A wrong ID number: refused and on record.
+    const wrong = await ask('1111 2222 3333');
+    expect(wrong.statusCode).toBe(422);
+    expect(errorCode(wrong.body)).toBe('id_mismatch');
+    const audits = await ctx.deps.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.targetId, player.userId));
+    expect(audits.map((a) => a.action)).toContain('cashier.pin_reset_id_mismatch');
+
+    const asked = await ask('1234 5678 9012');
+    expect(asked.statusCode, asked.body).toBe(200);
+    const resetId = asked.json<{ reset: { id: string; status: string } }>().reset.id;
+    expect(asked.json()).toMatchObject({ reset: { status: 'requested' } });
+    const issue = () => asStaff(ctx, cashier, 'POST', `/admin/cashier/pin-resets/${resetId}/issue`);
+    expect(errorCode((await issue()).body)).toBe('pin_reset_not_approved');
+
+    // Supervisors with users.status decide; finance has no say; the cashier cannot.
+    const decide = (staff: StaffSession) =>
+      asStaff(ctx, staff, 'POST', `/admin/cashier/pin-resets/${resetId}/decision`, {
+        approve: true,
+      });
+    expect((await decide(finance)).statusCode).toBe(403);
+    expect((await decide(cashier)).statusCode).toBe(403);
+    const list = await asStaff(ctx, admin, 'GET', '/admin/cashier/pin-resets');
+    expect(list.json<{ resets: Array<{ id: string }> }>().resets.map((r) => r.id)).toContain(
+      resetId,
+    );
+    const approved = await decide(admin);
+    expect(approved.statusCode, approved.body).toBe(200);
+
+    // The desk issues the code once; the player sets a new PIN with it on "Forgot PIN".
+    const issued = await issue();
+    expect(issued.statusCode, issued.body).toBe(200);
+    const { code } = issued.json<{ code: string }>();
+    expect(code).toMatch(/^\d{6}$/);
+    expect(errorCode((await issue()).body)).toBe('pin_reset_not_approved');
+    const reset = await post(ctx, '/auth/password/reset', {
+      phone: player.phone,
+      code,
+      newPassword: '5739',
+    });
+    expect(reset.statusCode, reset.body).toBeLessThan(300);
+    const login = await post(ctx, '/auth/login', { phone: player.phone, password: '5739' });
+    expect(login.statusCode, login.body).toBe(200);
   });
 });

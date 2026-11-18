@@ -25,6 +25,11 @@ import {
   ShopSummaryResponse,
   CashierDepositsResponse,
   CashReceiptPrintResponse,
+  DeskPinResetCodeResponse,
+  DeskPinResetDecisionRequest,
+  DeskPinResetListResponse,
+  DeskPinResetRequest,
+  DeskPinResetResponse,
   type CashierShiftView,
   type CashOperationView,
   type CashReceiptView,
@@ -62,6 +67,13 @@ import {
   printReceipt,
   getShiftVariancePosting,
   postShiftVariance,
+  decideDeskPinReset,
+  findOpenDeskPinReset,
+  issueDeskPinReset,
+  listOpenDeskPinResets,
+  PIN_RESET_AUDIT,
+  requestDeskPinReset,
+  DomainError,
   writeAudit,
   type CashierShift,
   type CashierShop,
@@ -72,7 +84,9 @@ import {
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { cashCodeHash } from '../../lib/cash-code';
-import { badRequest, notFound, parseInput } from '../../lib/errors';
+import { badRequest, conflict, notFound, parseInput } from '../../lib/errors';
+import { createOtpChallenge } from '../../lib/otp';
+import { idNumberHash } from '../kyc/service';
 import { requireStaff, staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, wire } from './common';
 
@@ -326,6 +340,137 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       return wire(CashierDepositsResponse, {
         deposits: deposits.map((d) => ({ ...d, reference: d.id.slice(0, 8).toUpperCase() })),
       });
+    },
+  );
+
+  // ---------------------------------------------------------------- assisted PIN reset (phase 2)
+
+  const pinResetView = (r: {
+    id: string;
+    userId: string;
+    status: string;
+    createdAt: Date;
+    approvedAt: Date | null;
+    playerPhone?: string;
+    requestedByName?: string;
+  }) => ({
+    id: r.id,
+    userId: r.userId,
+    status: r.status as 'requested' | 'approved' | 'issued' | 'rejected' | 'expired',
+    ...(r.playerPhone === undefined ? {} : { playerPhone: r.playerPhone }),
+    ...(r.requestedByName === undefined ? {} : { requestedByName: r.requestedByName }),
+    createdAt: r.createdAt,
+    approvedAt: r.approvedAt,
+  });
+
+  /** The cashier asks a PIN reset for a player whose ID card they checked (four eyes follow). */
+  app.post<IdParams>(
+    '/admin/cashier/players/:id/pin-reset',
+    {
+      config: { staff: 'cashier.desk', ...perStaff('cashier-lookup', CASHIER_RATE_LIMITS.lookup) },
+    },
+    async (request) => {
+      const userId = parseUuid(request.params.id, 'Player');
+      const input = parseInput(DeskPinResetRequest, request.body);
+      const actor = staffActor(request);
+      const shift = await getOpenShift(deps.db, actor.adminId);
+      try {
+        const reset = await inTx(deps, (tx) =>
+          requestDeskPinReset(tx, {
+            userId,
+            staffId: actor.adminId,
+            shopId: shift?.shopId ?? null,
+            idNumberHash: idNumberHash(deps.config.sessionSecret, input.idNumber),
+            now: deps.clock(),
+            ip: actor.ip ?? null,
+          }),
+        );
+        return wire(DeskPinResetResponse, { reset: pinResetView(reset) });
+      } catch (error) {
+        // A wrong ID number is on record (its own transaction: the request's rolled back).
+        if (error instanceof DomainError && error.code === 'id_mismatch') {
+          await writeAudit(deps.db, {
+            actorType: 'admin',
+            actorId: actor.adminId,
+            action: PIN_RESET_AUDIT.idMismatch,
+            targetType: 'user',
+            targetId: userId,
+            ip: actor.ip ?? null,
+          });
+        }
+        throw error;
+      }
+    },
+  );
+
+  /** The player's open request (the desk polls it while a supervisor decides). */
+  app.get<IdParams>(
+    '/admin/cashier/players/:id/pin-reset',
+    { config: { staff: 'cashier.desk' } },
+    async (request) => {
+      const userId = parseUuid(request.params.id, 'Player');
+      const reset = await findOpenDeskPinReset(deps.db, userId);
+      return wire(DeskPinResetResponse, { reset: reset === null ? null : pinResetView(reset) });
+    },
+  );
+
+  app.get('/admin/cashier/pin-resets', { config: { staff: 'users.status' } }, async () => {
+    const resets = await listOpenDeskPinResets(deps.db);
+    return wire(DeskPinResetListResponse, { resets: resets.map(pinResetView) });
+  });
+
+  /** A supervisor (users.status, not the cashier who asked) approves or rejects. */
+  app.post<IdParams>(
+    '/admin/cashier/pin-resets/:id/decision',
+    { config: { staff: 'users.status' } },
+    async (request) => {
+      const resetId = parseUuid(request.params.id, 'PIN reset');
+      const input = parseInput(DeskPinResetDecisionRequest, request.body);
+      const actor = staffActor(request);
+      const reset = await inTx(deps, (tx) =>
+        decideDeskPinReset(tx, {
+          resetId,
+          supervisorId: actor.adminId,
+          approve: input.approve,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      return wire(DeskPinResetResponse, { reset: pinResetView(reset) });
+    },
+  );
+
+  /**
+   * The desk issues an approved request: the ordinary one-time reset code (as the Telegram reset
+   * makes it), returned once to be printed for the player, who sets a new PIN on "Forgot PIN".
+   */
+  app.post<IdParams>(
+    '/admin/cashier/pin-resets/:id/issue',
+    { config: { staff: 'cashier.desk' } },
+    async (request) => {
+      const resetId = parseUuid(request.params.id, 'PIN reset');
+      const actor = staffActor(request);
+      const now = deps.clock();
+      const result = await inTx(deps, async (tx) => {
+        const issued = await issueDeskPinReset(tx, {
+          resetId,
+          staffId: actor.adminId,
+          supervisor: supervisor(request),
+          now,
+          ip: actor.ip ?? null,
+        });
+        if (issued.outcome === 'expired') return null;
+        const otp = await createOtpChallenge(tx, {
+          secret: deps.config.sessionSecret,
+          phone: issued.phone,
+          purpose: 'password_reset',
+          now,
+          requesterKey: `desk:${actor.adminId}`,
+        });
+        return { code: otp.code, expiresAt: otp.expiresAt };
+      });
+      if (result === null) throw conflict('pin_reset_expired', 'The approval expired: ask again.');
+      return wire(DeskPinResetCodeResponse, result);
     },
   );
 
