@@ -105,6 +105,22 @@ export const CashierPlayerView = z.object({
 export type CashierPlayerView = z.infer<typeof CashierPlayerView>;
 
 export const CashierPlayerResponse = z.object({ player: CashierPlayerView });
+
+/** GET /admin/cashier/players/:id/deposits (cashier.desk): the player's latest deposits. */
+export const CashierDepositView = z.object({
+  id: z.string(),
+  /** The first 8 characters of the id, upper case: what staff quote to each other. */
+  reference: z.string(),
+  provider: z.string(),
+  amount: Santim,
+  status: z.enum(['created', 'pending', 'succeeded', 'failed', 'expired']),
+  flagged: z.boolean(),
+  createdAt: IsoDateTime,
+  completedAt: IsoDateTime.nullable(),
+});
+export type CashierDepositView = z.infer<typeof CashierDepositView>;
+export const CashierDepositsResponse = z.object({ deposits: z.array(CashierDepositView) });
+export type CashierDepositsResponse = z.infer<typeof CashierDepositsResponse>;
 export type CashierPlayerResponse = z.infer<typeof CashierPlayerResponse>;
 
 /**

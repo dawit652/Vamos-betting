@@ -20,9 +20,7 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
    `odds_approval` and `ratings_uncalibrated` items fall, locked matches with a fresh Hulusport
    board open in leagues with "Auto open" on); the X6b alarm lines (`"alarm":"login_failures_`).
 2. **Cashier dashboard, next phases** (`docs/plans/cashier-dashboard.md` "Next phases"; money path:
-   Opus high, reviewed by a second model): 1 failed automatic deposit (a cashier-readable list of
-   the found player's recent deposits with their state, and a supervisor link to the SMS rail
-   queue; needs a read-only API with the `cashier.desk` permission), 2 assisted PIN reset with ID
+   Opus high, reviewed by a second model): 1 failed automatic deposit (done 18 Nov), 2 assisted PIN reset with ID
    check and four eyes, 3 variance posting into the ledger, 4 original receipt printed once (needs a
    migration: next free number after 0059), 5 uncollected approved cash withdrawals, 7 walk-in
    tickets (owner decision). Phase 6 (grouped shift totals) is done, and many shops (the owner runs

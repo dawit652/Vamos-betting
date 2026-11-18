@@ -463,6 +463,53 @@ export async function shopDaySummary(
   });
 }
 
+/** One of a player's deposits as the desk shows it (recentDeposits). */
+export interface DeskDeposit {
+  id: string;
+  provider: string;
+  amount: bigint;
+  status: 'created' | 'pending' | 'succeeded' | 'failed' | 'expired';
+  /** Waiting for staff (an SMS that did not match, another payer's phone...). */
+  flagged: boolean;
+  createdAt: Date;
+  completedAt: Date | null;
+}
+
+/**
+ * A player's latest deposits, newest first (cashier phase "failed automatic deposit"): a player
+ * who says an online payment did not arrive is shown its state at the desk; the desk never credits
+ * it (a flagged one is for staff on the SMS rail review queue, through the existing tools).
+ */
+export async function recentDeposits(
+  exec: DbExecutor,
+  userId: string,
+  limit = 10,
+): Promise<DeskDeposit[]> {
+  const rows = await exec
+    .select({
+      id: paymentIntents.id,
+      provider: paymentIntents.provider,
+      amount: paymentIntents.amount,
+      status: paymentIntents.status,
+      flaggedAt: paymentIntents.flaggedAt,
+      createdAt: paymentIntents.createdAt,
+      completedAt: paymentIntents.completedAt,
+    })
+    .from(paymentIntents)
+    .where(eq(paymentIntents.userId, userId))
+    .orderBy(desc(paymentIntents.createdAt), desc(paymentIntents.id))
+    .limit(limit);
+  return rows.map((row) => ({
+    id: row.id,
+    provider: row.provider,
+    amount: row.amount,
+    status: row.status,
+    flagged: row.flaggedAt !== null,
+    createdAt: row.createdAt,
+    completedAt: row.completedAt,
+  }));
+}
+
 /** The staff member's open shift, if any. */
 export async function getOpenShift(
   exec: DbExecutor,

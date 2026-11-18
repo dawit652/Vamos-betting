@@ -99,9 +99,11 @@ account with its shop from the command line (`admin-create`), and per-shop expor
 
 ## Next phases (in order)
 
-1. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
-   flagged deposits) rather than a new credit path; a supervisor-only "credit by provider
-   reference" if still needed.
+1. **Failed automatic deposit: done 18 Nov.** The desk shows the found player's latest deposits and
+   their state (credited, waiting, under review, failed, expired; `GET
+/admin/cashier/players/:id/deposits`, cashier.desk, audited `cashier.player_deposits_viewed`);
+   it never credits an online deposit; supervisors get links to the SMS rail page and the player
+   page. A supervisor-only "credit by provider reference" was not needed.
 2. **Assisted PIN reset** at the desk with an ID check and four eyes.
 3. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
    (`adjustment`, house cash vs revenue); today the variance is recorded and shown, not posted.

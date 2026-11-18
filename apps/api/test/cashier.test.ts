@@ -128,6 +128,23 @@ describe('a shift at the desk', () => {
     expect(first.statusCode, first.body).toBe(200);
     const { receipt, replayed } = CashDepositResponse.parse(first.json());
     expect(replayed).toBe(false);
+
+    // The desk sees the player's latest deposits and their state (a failed online one would show
+    // here; the desk never credits it). Support, without the desk, cannot.
+    const listed = await asStaff(
+      ctx,
+      cashier,
+      'GET',
+      `/admin/cashier/players/${player.userId}/deposits`,
+    );
+    expect(listed.statusCode, listed.body).toBe(200);
+    expect(listed.json()).toMatchObject({
+      deposits: [{ provider: 'cash', status: 'succeeded', flagged: false }],
+    });
+    expect(
+      (await asStaff(ctx, support, 'GET', `/admin/cashier/players/${player.userId}/deposits`))
+        .statusCode,
+    ).toBe(403);
     expect(receipt.operation).toMatchObject({ kind: 'deposit', amount: '25000', reprints: 0 });
     expect(receipt.operation.reference).toBe(`R${receipt.operation.receiptNo}`);
     expect(receipt.playerPhone).toBe(`${player.phone.slice(0, 5)}****${player.phone.slice(-4)}`);

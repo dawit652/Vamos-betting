@@ -10,7 +10,10 @@ import type {
   CashierShiftResponse,
   CashierShiftView,
   SetPlayerStatusResponse,
+  CashierDepositsResponse,
+  CashierDepositView,
 } from '@vamos/contracts';
+import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
 import { ShiftReport } from '@/components/shift-report';
@@ -304,6 +307,7 @@ function PlayerDesk({
                     : ` until ${formatDateTime(player.exclusion.endsAt)}`
                 }.`}
           </p>
+          <RecentDeposits playerId={player.id} supervisor={desk.supervisor} />
           {blocked ? (
             <Notice>This player cannot be served.</Notice>
           ) : (
@@ -422,6 +426,76 @@ function Operations({ desk }: { desk: CashierDeskResponse }) {
 }
 
 /** The cashier desk: open a shift, serve players with cash deposits and receipts, close with a count. */
+/** What a deposit's state means to the player at the desk. */
+function depositState(d: CashierDepositView): string {
+  if (d.flagged) return 'Under review by staff';
+  switch (d.status) {
+    case 'succeeded':
+      return 'Credited';
+    case 'created':
+    case 'pending':
+      return 'Waiting for the payment';
+    case 'failed':
+      return 'Failed';
+    case 'expired':
+      return 'Expired (not paid in time)';
+  }
+}
+
+/**
+ * The found player's latest deposits ("my online payment did not arrive"): the desk sees the state
+ * and never credits an online deposit itself; a supervisor checks it on the SMS rail page.
+ */
+function RecentDeposits({ playerId, supervisor }: { playerId: string; supervisor: boolean }) {
+  const { data, error, loading } = useFetch<CashierDepositsResponse>(
+    `/admin/cashier/players/${playerId}/deposits`,
+  );
+  const trouble = (data?.deposits ?? []).some((d) => d.flagged || d.status !== 'succeeded');
+  return (
+    <section data-testid="cashier-deposits">
+      <h3>Recent deposits</h3>
+      <Loading loading={loading && data === null} error={error} />
+      {data !== null && data.deposits.length === 0 && <p className="muted small">None yet.</p>}
+      {data !== null && data.deposits.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>How</th>
+              <th>Amount</th>
+              <th>State</th>
+              <th>Ref.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.deposits.map((d) => (
+              <tr key={d.id}>
+                <td>{formatDateTime(d.createdAt)}</td>
+                <td>{d.provider}</td>
+                <td>{formatEtb(d.amount)}</td>
+                <td>{depositState(d)}</td>
+                <td>{d.reference}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {trouble && (
+        <p className="muted small">
+          A payment the player made online and that is not credited is never paid in cash here: a
+          supervisor checks it{supervisor ? ' ' : '.'}
+          {supervisor && (
+            <>
+              on the <Link href="/sms">SMS rail page</Link> or the{' '}
+              <Link href={`/users/${playerId}`}>player page</Link>.
+            </>
+          )}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default function CashierPage() {
   const { data, error, loading, reload } = useFetch<CashierDeskResponse>('/admin/cashier/desk');
   const [closedShift, setClosed] = useState<{

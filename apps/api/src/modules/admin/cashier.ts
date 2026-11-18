@@ -23,6 +23,7 @@ import {
   CashierStaffListResponse,
   ShopSummaryQuery,
   ShopSummaryResponse,
+  CashierDepositsResponse,
   type CashierShiftView,
   type CashOperationView,
   type CashReceiptView,
@@ -56,6 +57,7 @@ import {
   getStaffShop,
   listCashierStaff,
   shopDaySummary,
+  recentDeposits,
   writeAudit,
   type CashierShift,
   type CashierShop,
@@ -289,6 +291,35 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       });
       if (player === null) throw notFound('Player');
       return wire(CashierPlayerResponse, { player });
+    },
+  );
+
+  /**
+   * A player's latest deposits at the desk ("my online payment did not arrive"): their state only;
+   * a flagged or failed one is resolved by staff with the existing tools (SMS rail review queue,
+   * the player page), never credited at the desk. Audited, as lookups are.
+   */
+  app.get<IdParams>(
+    '/admin/cashier/players/:id/deposits',
+    {
+      config: { staff: 'cashier.desk', ...perStaff('cashier-lookup', CASHIER_RATE_LIMITS.lookup) },
+    },
+    async (request) => {
+      const userId = parseUuid(request.params.id, 'Player');
+      const actor = staffActor(request);
+      const deposits = await recentDeposits(deps.db, userId);
+      await writeAudit(deps.db, {
+        actorType: 'admin',
+        actorId: actor.adminId,
+        action: 'cashier.player_deposits_viewed',
+        targetType: 'user',
+        targetId: userId,
+        metadata: { count: deposits.length },
+        ip: actor.ip ?? null,
+      });
+      return wire(CashierDepositsResponse, {
+        deposits: deposits.map((d) => ({ ...d, reference: d.id.slice(0, 8).toUpperCase() })),
+      });
     },
   );
 
