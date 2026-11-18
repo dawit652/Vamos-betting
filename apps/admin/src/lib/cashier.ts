@@ -27,3 +27,15 @@ export function receiptPath(id: string, mode: 'print' | 'copy' | 'view' = 'view'
   const base = `/cashier/receipt/${id}`;
   return mode === 'print' ? `${base}?print=1` : mode === 'copy' ? `${base}?copy=1` : base;
 }
+
+const REVIEW_REASONS: Readonly<Record<string, string>> = {
+  above_auto_approve_threshold: 'above the automatic approval limit',
+  aml_review: 'anti-money-laundering review',
+  active_exclusion: 'the player is self-excluded',
+};
+
+/** A reviewer-readable reason a cash withdrawal waits for the back office. */
+export function reviewReasonLabel(reason: string | null): string {
+  if (reason === null) return 'needs review';
+  return REVIEW_REASONS[reason] ?? reason.replace(/_/g, ' ');
+}

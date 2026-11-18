@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { hasVariance, receiptClass, receiptPath, receiptTitle, varianceLabel } from './cashier';
+import {
+  hasVariance,
+  receiptClass,
+  receiptPath,
+  receiptTitle,
+  reviewReasonLabel,
+  varianceLabel,
+} from './cashier';
 
 describe('cashier helpers', () => {
   it('titles a receipt by kind', () => {
@@ -26,5 +33,13 @@ describe('cashier helpers', () => {
     expect(receiptPath('a')).toBe('/cashier/receipt/a');
     expect(receiptPath('a', 'print')).toBe('/cashier/receipt/a?print=1');
     expect(receiptPath('a', 'copy')).toBe('/cashier/receipt/a?copy=1');
+  });
+});
+
+describe('reviewReasonLabel', () => {
+  it('words the known reasons and humanizes the rest', () => {
+    expect(reviewReasonLabel('aml_review')).toBe('anti-money-laundering review');
+    expect(reviewReasonLabel('some_new_reason')).toBe('some new reason');
+    expect(reviewReasonLabel(null)).toBe('needs review');
   });
 });

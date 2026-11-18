@@ -141,6 +141,7 @@ export interface StaffApi {
   session: StaffSessionResponse;
   get(path: string): ReturnType<APIRequestContext['get']>;
   post(path: string, data?: unknown): ReturnType<APIRequestContext['post']>;
+  put(path: string, data: unknown): ReturnType<APIRequestContext['put']>;
 }
 
 /** The staff API for an already signed-in request context (a browser context's `request`). */
@@ -158,6 +159,11 @@ function bindStaffApi(request: APIRequestContext, session: StaffSessionResponse)
       request.post(`${API_URL}${path}`, {
         headers: { [STAFF_CSRF_HEADER]: session.csrfToken },
         data: data ?? {},
+      }),
+    put: (path, data) =>
+      request.put(`${API_URL}${path}`, {
+        headers: { [STAFF_CSRF_HEADER]: session.csrfToken },
+        data,
       }),
   };
 }

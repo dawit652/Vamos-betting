@@ -3,6 +3,7 @@
 import type {
   CashDepositResponse,
   CashOperationView,
+  CashWithdrawalResponse,
   CashierDeskResponse,
   CashierPlayerResponse,
   CashierPlayerView,
@@ -14,7 +15,7 @@ import { useFetch } from '@/components/hooks';
 import { ShiftReport } from '@/components/shift-report';
 import { Badge, Loading, Notice, PageHeader } from '@/components/ui';
 import { api } from '@/lib/api';
-import { hasVariance, receiptPath } from '@/lib/cashier';
+import { hasVariance, receiptPath, reviewReasonLabel } from '@/lib/cashier';
 import { ApiClientError, describeError } from '@/lib/errors';
 import { formatDateTime, formatEtb, parseEtbToSantim } from '@/lib/format';
 
@@ -132,6 +133,10 @@ function PlayerDesk({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [wAmount, setWAmount] = useState('');
+  const [wCode, setWCode] = useState('');
+  const [wKey, setWKey] = useState(() => crypto.randomUUID());
+  const [review, setReview] = useState<string | null>(null);
   const shop = desk.shops.find((s) => s.id === shift.shopId);
 
   const find = async (event: FormEvent) => {
@@ -139,6 +144,7 @@ function PlayerDesk({
     setBusy(true);
     setError(null);
     setDone(null);
+    setReview(null);
     try {
       const res = await api<CashierPlayerResponse>('/admin/cashier/players', {
         query: { phone: phone.trim() },
@@ -146,6 +152,9 @@ function PlayerDesk({
       setPlayer(res.player);
       setAmount('');
       setKey(crypto.randomUUID());
+      setWAmount('');
+      setWCode('');
+      setWKey(crypto.randomUUID());
     } catch (e) {
       setPlayer(null);
       setError(
@@ -186,6 +195,59 @@ function PlayerDesk({
         query: { phone: phone.trim() },
       });
       setPlayer(fresh.player);
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const withdraw = async (event: FormEvent) => {
+    event.preventDefault();
+    if (player === null || busy) return;
+    const santim = parseEtbToSantim(wAmount);
+    if (santim === null || santim === '0') return setError('Enter the amount in ETB.');
+    if (!/^\d{6}$/.test(wCode)) return setError("Enter the player's 6-digit shop code.");
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    setReview(null);
+    try {
+      const res = await api<CashWithdrawalResponse>('/admin/cashier/withdrawals', {
+        method: 'POST',
+        body: {
+          shiftId: shift.id,
+          userId: player.id,
+          amount: santim,
+          code: wCode,
+          idempotencyKey: wKey,
+        },
+      });
+      // Paid or sent to review: both finish the request, so the key is renewed (an error keeps it).
+      setWKey(crypto.randomUUID());
+      setWCode('');
+      if (res.outcome === 'paid') {
+        const { operation } = res.receipt;
+        setDone(
+          `Pay ${formatEtb(operation.amount)} to the player. Receipt ${operation.reference}${
+            res.replayed ? ' (already recorded)' : ''
+          }`,
+        );
+        setWAmount('');
+        window.open(receiptPath(operation.id, 'print'), '_blank');
+        onDeposit();
+        const fresh = await api<CashierPlayerResponse>('/admin/cashier/players', {
+          query: { phone: phone.trim() },
+        });
+        setPlayer(fresh.player);
+      } else {
+        setReview(
+          `Not paid: this withdrawal of ${formatEtb(res.amount)} needs approval by the back office (${reviewReasonLabel(
+            res.reviewReason,
+          )}). The money is on hold. The player comes back with a new code once it is approved.`,
+        );
+        setWAmount('');
+      }
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -250,8 +312,44 @@ function PlayerDesk({
               )}
             </form>
           )}
+          {!blocked && (
+            <form className="inline-form" onSubmit={(e) => void withdraw(e)}>
+              <input
+                aria-label="Withdrawal amount (ETB)"
+                placeholder="Withdrawal (ETB)"
+                inputMode="decimal"
+                value={wAmount}
+                onChange={(e) => setWAmount(e.target.value)}
+              />
+              <input
+                aria-label="Player's shop code"
+                placeholder="Player's shop code"
+                inputMode="numeric"
+                maxLength={6}
+                autoComplete="off"
+                value={wCode}
+                onChange={(e) => setWCode(e.target.value.replace(/\D/g, ''))}
+              />
+              <button
+                type="submit"
+                className="primary"
+                disabled={busy || wAmount.trim() === '' || wCode.length !== 6}
+              >
+                Pay cash withdrawal
+              </button>
+              <span className="muted small">
+                KYC <Badge value={player.kycStatus} />
+                {player.name !== null &&
+                  ` · Check the player's ID: the name must match ${player.name}`}
+              </span>
+              {player.kycStatus !== 'verified' && (
+                <Notice>The player must verify their identity before withdrawing.</Notice>
+              )}
+            </form>
+          )}
         </div>
       )}
+      {review !== null && <Notice kind="info">{review}</Notice>}
       {done !== null && <Notice kind="ok">{done}</Notice>}
       {error !== null && <Notice>{error}</Notice>}
     </section>
