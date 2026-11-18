@@ -59,7 +59,10 @@ export function CashAtShop() {
       {live ? (
         <div className="space-y-1 text-center" aria-live="polite">
           <p className="text-xxs text-muted">{t('account.payments.cashAtShop.codeLabel')}</p>
-          <p className="font-mono text-4xl font-bold tracking-widest tabular-nums">
+          <p
+            data-testid="shop-code"
+            className="font-mono text-4xl font-bold tracking-widest tabular-nums"
+          >
             {spaced(issued.code)}
           </p>
           <p className="text-muted">
