@@ -25,6 +25,7 @@ import { and, desc, eq, gt, isNull, ne } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AppDeps } from '../../deps';
 import { clientAddressKey } from '../../lib/client-address';
+import { recordLoginFailure } from '../../lib/login-alarm';
 import { randomToken, safeEqualHex, sha256Hex } from '../../lib/crypto';
 import {
   AppError,
@@ -335,6 +336,12 @@ async function auditLoginFailure(
   user: { id: string } | null,
   phone: string | null,
 ): Promise<void> {
+  // X6b: an attack spread over many numbers, or a flood from one address, raises an alarm.
+  await recordLoginFailure(deps.redis, meta.log, {
+    phone,
+    address: clientAddressKey(meta.ip),
+    now: deps.clock(),
+  });
   await writeAudit(deps.db, {
     actorType: 'user',
     actorId: user?.id ?? null,

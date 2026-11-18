@@ -59,3 +59,9 @@ start, its middle) are valid again. The cost: the PINs an attacker tries first o
 (1212, 2000, 6969, 1122, years) now exist, so the per-number login limits (6 per 15 minutes, 15 a
 day) are what holds guessing back, and the failed-login alarm (X6b: one PIN tried on many numbers)
 matters more. Every PIN refused now was refused before, so no player is sent to the reset.
+
+**18 Nov 2026: the failed-login alarm (X6b) is built.** `recordLoginFailure`
+(`apps/api/src/lib/login-alarm.ts`) counts every failed player login in a 15-minute window (Redis,
+numbers hashed) and writes one `error` log line with an `alarm` field per kind and window: 60
+failures in all, 30 distinct numbers, or 10 numbers from one address. A Redis error never fails the
+login. Tests: `apps/api/test/login-alarm.test.ts`.
