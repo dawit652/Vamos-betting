@@ -1,4 +1,5 @@
 import {
+  BlockPlayerRequest,
   CashDepositRequest,
   CashDepositResponse,
   CashierDeskResponse,
@@ -15,6 +16,7 @@ import {
   CloseShiftRequest,
   maskPhone,
   OpenShiftRequest,
+  SetPlayerStatusResponse,
   UpdateCashierShopRequest,
   type CashierShiftView,
   type CashOperationView,
@@ -25,11 +27,13 @@ import {
   cashWithdrawal,
   checkCashCode,
   closeShift,
+  findDeskPayout,
   findDeskPlayer,
   findOperationByKey,
   getOpenShift,
   getReceipt,
   getShift,
+  isSupervisorRole,
   listShiftOperations,
   listShifts,
   listShops,
@@ -37,8 +41,10 @@ import {
   loadGameSettings,
   openShift,
   recordReprint,
+  setPlayerStatus,
   shiftTotals,
   updateShop,
+  writeAudit,
   type CashierShift,
   type CashierShop,
   type DbExecutor,
@@ -57,8 +63,27 @@ import { inTx, parseUuid, wire } from './common';
  * the caller and shape the answers.
  */
 
-/** Roles that may work above a shop's threshold and see any receipt. */
-const SUPERVISORS: ReadonlySet<string> = new Set(['admin', 'finance']);
+/**
+ * Per staff member and minute: looking players up (a cashier probing numbers is limited and every
+ * lookup is audited) and paying cash (shop codes cannot be tried at speed).
+ */
+export const CASHIER_RATE_LIMITS = { lookup: 60, deposit: 60, withdrawal: 20 } as const;
+
+function perStaff(name: string, max: number) {
+  return {
+    rateLimit: {
+      max,
+      timeWindow: 60_000,
+      hook: 'preHandler' as const,
+      keyGenerator: (request: FastifyRequest) => {
+        const auth = request.staffAuth;
+        return auth !== null && auth.status === 'ok'
+          ? `${name}|staff|${auth.staff.id}`
+          : `${name}|ip|${request.ip}`;
+      },
+    },
+  };
+}
 
 type IdParams = { Params: { id: string } };
 
@@ -139,7 +164,7 @@ function receiptView(receipt: Receipt): CashReceiptView {
 
 export default async function adminCashierRoutes(app: FastifyInstance): Promise<void> {
   const { deps } = app;
-  const supervisor = (request: FastifyRequest) => SUPERVISORS.has(requireStaff(request).role);
+  const supervisor = (request: FastifyRequest) => isSupervisorRole(requireStaff(request).role);
 
   /** The shift's view with its shop's and staff member's names. */
   const namedShiftView = async (exec: DbExecutor, shift: CashierShift) => {
@@ -202,85 +227,155 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
     },
   );
 
-  app.get('/admin/cashier/players', { config: { staff: 'cashier.desk' } }, async (request) => {
-    const query = parseInput(CashierPlayerQuery, request.query);
-    const player = await findDeskPlayer(deps.db, query.phone, deps.clock());
-    if (player === null) throw notFound('Player');
-    return wire(CashierPlayerResponse, { player });
-  });
-
-  app.post('/admin/cashier/deposits', { config: { staff: 'cashier.desk' } }, async (request) => {
-    const input = parseInput(CashDepositRequest, request.body);
-    const actor = staffActor(request);
-    const result = await inTx(deps, async (tx) => {
-      const { payments } = await loadGameSettings(tx);
-      const { operation, replayed } = await cashDeposit(tx, {
-        staffId: actor.adminId,
-        shiftId: input.shiftId,
-        userId: input.userId,
-        amount: BigInt(input.amount),
-        idempotencyKey: input.idempotencyKey,
-        rules: payments,
-        now: deps.clock(),
+  app.get(
+    '/admin/cashier/players',
+    {
+      config: { staff: 'cashier.desk', ...perStaff('cashier-lookup', CASHIER_RATE_LIMITS.lookup) },
+    },
+    async (request) => {
+      const query = parseInput(CashierPlayerQuery, request.query);
+      const actor = staffActor(request);
+      const player = await findDeskPlayer(deps.db, query.phone, deps.clock());
+      // Every lookup is on record (who looked whom up), found or not.
+      await writeAudit(deps.db, {
+        actorType: 'admin',
+        actorId: actor.adminId,
+        action: 'cashier.player_lookup',
+        ...(player === null ? {} : { targetType: 'user', targetId: player.id }),
+        metadata: { found: player !== null },
         ip: actor.ip ?? null,
       });
-      const receipt = await getReceipt(tx, operation.id);
-      if (receipt === null) throw new Error('receipt missing after a deposit');
-      return { receipt: receiptView(receipt), replayed };
-    });
-    return wire(CashDepositResponse, result);
-  });
+      if (player === null) throw notFound('Player');
+      return wire(CashierPlayerResponse, { player });
+    },
+  );
 
-  app.post('/admin/cashier/withdrawals', { config: { staff: 'cashier.desk' } }, async (request) => {
-    const input = parseInput(CashWithdrawalRequest, request.body);
-    const actor = staffActor(request);
-    const now = deps.clock();
-    // A replay answers with its receipt before the code is checked (the code is spent by then).
-    const done = await findOperationByKey(deps.db, input.idempotencyKey);
-    if (
-      done !== null &&
-      done.kind === 'withdrawal' &&
-      done.userId === input.userId &&
-      done.amount === BigInt(input.amount) &&
-      done.staffId === actor.adminId
-    ) {
-      const receipt = await getReceipt(deps.db, done.id);
-      if (receipt === null) throw notFound('Receipt');
-      return wire(CashWithdrawalResponse, {
-        outcome: 'paid',
-        receipt: receiptView(receipt),
-        replayed: true,
+  /** The desk blocks a player (fraud, a stolen phone, at the player's request); unblocking is users.status. */
+  app.post<IdParams>(
+    '/admin/cashier/players/:id/block',
+    { config: { staff: 'cashier.desk' } },
+    async (request) => {
+      const userId = parseUuid(request.params.id, 'Player');
+      const input = parseInput(BlockPlayerRequest, request.body);
+      const actor = staffActor(request);
+      const result = await inTx(deps, (tx) =>
+        setPlayerStatus(tx, {
+          userId,
+          status: 'suspended',
+          reason: input.reason,
+          adminId: actor.adminId,
+          via: 'cashier_desk',
+          ip: actor.ip ?? null,
+        }),
+      );
+      return wire(SetPlayerStatusResponse, result);
+    },
+  );
+
+  app.post(
+    '/admin/cashier/deposits',
+    {
+      config: {
+        staff: 'cashier.desk',
+        ...perStaff('cashier-deposit', CASHIER_RATE_LIMITS.deposit),
+      },
+    },
+    async (request) => {
+      const input = parseInput(CashDepositRequest, request.body);
+      const actor = staffActor(request);
+      const result = await inTx(deps, async (tx) => {
+        const { payments } = await loadGameSettings(tx);
+        const { operation, replayed } = await cashDeposit(tx, {
+          staffId: actor.adminId,
+          shiftId: input.shiftId,
+          userId: input.userId,
+          amount: BigInt(input.amount),
+          idempotencyKey: input.idempotencyKey,
+          rules: payments,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        });
+        const receipt = await getReceipt(tx, operation.id);
+        if (receipt === null) throw new Error('receipt missing after a deposit');
+        return { receipt: receiptView(receipt), replayed };
       });
-    }
-    const codeHash = cashCodeHash(deps.config.sessionSecret, input.userId, input.code);
-    // Its own transaction: a wrong code's try counts even when nothing else happens.
-    const codeId = await checkCashCode(deps.db, { userId: input.userId, codeHash, now });
-    const result = await inTx(deps, async (tx) => {
-      const { payments } = await loadGameSettings(tx);
-      const { amlRules } = await loadComplianceSettings(tx);
-      const outcome = await cashWithdrawal(tx, {
-        staffId: actor.adminId,
-        shiftId: input.shiftId,
+      return wire(CashDepositResponse, result);
+    },
+  );
+
+  app.post(
+    '/admin/cashier/withdrawals',
+    {
+      config: {
+        staff: 'cashier.desk',
+        ...perStaff('cashier-withdrawal', CASHIER_RATE_LIMITS.withdrawal),
+      },
+    },
+    async (request) => {
+      const input = parseInput(CashWithdrawalRequest, request.body);
+      const actor = staffActor(request);
+      const now = deps.clock();
+      // A replay answers with its receipt before the code is checked (the code is spent by then).
+      const done = await findOperationByKey(deps.db, input.idempotencyKey);
+      if (
+        done !== null &&
+        done.kind === 'withdrawal' &&
+        done.userId === input.userId &&
+        done.amount === BigInt(input.amount) &&
+        done.staffId === actor.adminId
+      ) {
+        const receipt = await getReceipt(deps.db, done.id);
+        if (receipt === null) throw notFound('Receipt');
+        return wire(CashWithdrawalResponse, {
+          outcome: 'paid',
+          receipt: receiptView(receipt),
+          replayed: true,
+        });
+      }
+      // A retry after a `review` answer (the code is spent by then): the same answer again.
+      const requested = await findDeskPayout(deps.db, {
         userId: input.userId,
-        amount: BigInt(input.amount),
         idempotencyKey: input.idempotencyKey,
-        code: { id: codeId, hash: codeHash },
-        rules: payments,
-        amlRules,
-        now,
-        ip: actor.ip ?? null,
       });
-      if (outcome.outcome === 'review') return outcome;
-      const receipt = await getReceipt(tx, outcome.operation.id);
-      if (receipt === null) throw new Error('receipt missing after a withdrawal');
-      return {
-        outcome: 'paid' as const,
-        receipt: receiptView(receipt),
-        replayed: outcome.replayed,
-      };
-    });
-    return wire(CashWithdrawalResponse, result);
-  });
+      if (requested !== null && requested.status === 'requested') {
+        return wire(CashWithdrawalResponse, {
+          outcome: 'review',
+          payoutId: requested.id,
+          amount: requested.amount,
+          reviewReason: requested.reviewReason,
+          replayed: true,
+        });
+      }
+      const codeHash = cashCodeHash(deps.config.sessionSecret, input.userId, input.code);
+      // Its own transaction: a wrong code's try counts even when nothing else happens.
+      const codeId = await checkCashCode(deps.db, { userId: input.userId, codeHash, now });
+      const result = await inTx(deps, async (tx) => {
+        const { payments } = await loadGameSettings(tx);
+        const { amlRules } = await loadComplianceSettings(tx);
+        const outcome = await cashWithdrawal(tx, {
+          staffId: actor.adminId,
+          shiftId: input.shiftId,
+          userId: input.userId,
+          amount: BigInt(input.amount),
+          idempotencyKey: input.idempotencyKey,
+          code: { id: codeId, hash: codeHash },
+          rules: payments,
+          amlRules,
+          now,
+          ip: actor.ip ?? null,
+        });
+        if (outcome.outcome === 'review') return outcome;
+        const receipt = await getReceipt(tx, outcome.operation.id);
+        if (receipt === null) throw new Error('receipt missing after a withdrawal');
+        return {
+          outcome: 'paid' as const,
+          receipt: receiptView(receipt),
+          replayed: outcome.replayed,
+        };
+      });
+      return wire(CashWithdrawalResponse, result);
+    },
+  );
 
   /** A receipt: its cashier's, or any for a supervisor; 404 otherwise. */
   const readReceipt = async (exec: DbExecutor, request: FastifyRequest<IdParams>) => {

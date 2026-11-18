@@ -9,7 +9,8 @@ import {
   domainNotFound,
   domainUnprocessable,
 } from '../errors';
-import type { DbTransaction } from '../ledger/types';
+import type { DbExecutor, DbTransaction } from '../ledger/types';
+import { amlHoldsWithdrawals } from '../compliance/aml';
 import { markPayoutPaid, requestWithdrawal } from '../payments/withdrawals';
 import { writeAudit } from '../platform/audit';
 import { lockUser } from '../rg/limits';
@@ -23,6 +24,7 @@ import {
   isSupervisorRole,
   lockOwnOpenShift,
   nextReceiptNo,
+  shiftPlayerTotal,
   type CashOperation,
 } from './desk';
 
@@ -184,14 +186,17 @@ export type CashWithdrawalResult =
  * checkCashCode, in its own transaction):
  * 1. a replayed desk key returns its receipt (422 `idempotency_key_reused` if it differs);
  * 2. the shift is locked (404 unless the caller's, 409 `shift_not_open`); 403
- *    `cashier_approval_required` above the shop's threshold unless a supervisor;
+ *    `cashier_approval_required` when this amount plus what the desk already paid the player in
+ *    this shift is above the shop's threshold, unless a supervisor;
  * 3. the player's approved `cash` payout waiting at the desk, if any, is paid first (409
  *    `cash_payout_waiting`, details `{ amount }`, for another amount); else a new withdrawal is
  *    requested with provider `cash` and every online rule;
  * 4. the code is used (in this transaction: a refusal above leaves it live);
  * 5. a request held for review is answered `review` (the hold stays; the back office reviews it);
- * 6. an approved one is paid: 409 `cashier_four_eyes` when the caller approved it, then
- *    markPayoutPaid (provider reference R<receipt number>), the receipt and the audit record.
+ * 6. an approved one is paid: 409 `cashier_four_eyes` when the caller approved it; the player is
+ *    checked again (403 `account_disabled`, 409 `aml_review_pending`: it may have waited since its
+ *    approval); then markPayoutPaid (provider reference R<receipt number>), the receipt and the
+ *    audit record.
  */
 export async function cashWithdrawal(
   tx: DbTransaction,
@@ -248,12 +253,23 @@ export async function cashWithdrawal(
     .where(eq(adminUsers.id, input.staffId))
     .limit(1);
   if (!staff) throw domainNotFound('Staff member');
-  if (amount > shop.approvalThreshold && !isSupervisorRole(staff.role)) {
-    throw domainForbidden(
-      'cashier_approval_required',
-      'This amount is above what a cashier may pay alone. A supervisor must pay it.',
-      { threshold: toWire(shop.approvalThreshold), amount: toWire(amount) },
-    );
+  if (!isSupervisorRole(staff.role)) {
+    const already = await shiftPlayerTotal(tx, {
+      shiftId: shift.id,
+      userId: input.userId,
+      kind: 'withdrawal',
+    });
+    if (already + amount > shop.approvalThreshold) {
+      throw domainForbidden(
+        'cashier_approval_required',
+        'This amount is above what a cashier may pay alone. A supervisor must pay it.',
+        {
+          threshold: toWire(shop.approvalThreshold),
+          amount: toWire(amount),
+          alreadyThisShift: toWire(already),
+        },
+      );
+    }
   }
 
   await lockUser(tx, input.userId);
@@ -355,6 +371,23 @@ export async function cashWithdrawal(
       'You approved this withdrawal: another staff member must pay it.',
     );
   }
+  // An approved withdrawal may have waited: the player is checked again before cash leaves.
+  const [current] = await tx
+    .select({ status: users.status })
+    .from(users)
+    .where(eq(users.id, input.userId))
+    .limit(1);
+  if (current?.status !== 'active') {
+    throw domainForbidden('account_disabled', 'This account is disabled. It cannot be paid.', {
+      status: current?.status ?? null,
+    });
+  }
+  if (await amlHoldsWithdrawals(tx, input.userId)) {
+    throw domainConflict(
+      'aml_review_pending',
+      'Compliance must review this player before any cash is paid.',
+    );
+  }
 
   const receiptNo = await nextReceiptNo(tx);
   await markPayoutPaid(tx, {
@@ -362,6 +395,7 @@ export async function cashWithdrawal(
     providerRef: `R${receiptNo}`,
     now,
     admin: { adminId: input.staffId, ip: input.ip ?? null },
+    cashDesk: true,
   });
   const [operation] = await tx
     .insert(cashOperations)
@@ -395,4 +429,22 @@ export async function cashWithdrawal(
     ip: input.ip ?? null,
   });
   return { outcome: 'paid', operation, replayed: false };
+}
+
+/** The payout a desk key requested, if any (a retry after a `review` answer finds it). */
+export async function findDeskPayout(
+  exec: DbExecutor,
+  input: { userId: string; idempotencyKey: string },
+): Promise<typeof payouts.$inferSelect | null> {
+  const [row] = await exec
+    .select()
+    .from(payouts)
+    .where(
+      and(
+        eq(payouts.userId, input.userId),
+        eq(payouts.idempotencyKey, `cashier:${input.idempotencyKey.trim()}`),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
 }

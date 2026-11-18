@@ -46,7 +46,11 @@ export function isSupervisorRole(role: string): boolean {
   return SUPERVISOR_ROLES.has(role);
 }
 
-/** The next receipt number (taken before the receipt's row, so other rows can carry it). */
+/**
+ * The next receipt number (taken before the receipt's row, so other rows can carry it). A number
+ * taken by an operation that was then refused is not reused: a gap in the numbers is a refused
+ * operation, never a missing receipt.
+ */
 export async function nextReceiptNo(tx: DbTransaction): Promise<number> {
   const [next] = await tx
     .execute<{ n: string }>(
@@ -55,6 +59,27 @@ export async function nextReceiptNo(tx: DbTransaction): Promise<number> {
     .then((result) => result.rows);
   if (!next) throw new Error('no receipt number');
   return Number(next.n);
+}
+
+/**
+ * What the desk already took from (deposits) or paid to (withdrawals) one player in one shift. The
+ * shop's approval threshold counts it too, so splitting an amount does not avoid the supervisor.
+ */
+export async function shiftPlayerTotal(
+  exec: DbExecutor,
+  input: { shiftId: string; userId: string; kind: 'deposit' | 'withdrawal' },
+): Promise<bigint> {
+  const [row] = await exec
+    .select({ total: sql<string>`COALESCE(sum(${cashOperations.amount}), 0)::text` })
+    .from(cashOperations)
+    .where(
+      and(
+        eq(cashOperations.shiftId, input.shiftId),
+        eq(cashOperations.userId, input.userId),
+        eq(cashOperations.kind, input.kind),
+      ),
+    );
+  return BigInt(row?.total ?? '0');
 }
 
 /** The operation a desk key made, if any. */
@@ -419,8 +444,9 @@ export interface CashDepositResult {
  *    player or amount differ);
  * 2. the shift is locked (409 `shift_not_open`; 404 unless it is the caller's);
  * 3. 422 `deposit_amount_out_of_range` outside the payment rules' [minDeposit, maxDeposit];
- * 4. 403 `cashier_approval_required` above the shop's approval threshold unless the staff member
- *    is a supervisor (finance, admin);
+ * 4. 403 `cashier_approval_required` when this amount plus what the desk already took from the
+ *    player in this shift is above the shop's approval threshold, unless the staff member is a
+ *    supervisor (finance, admin);
  * 5. lockUser, then assertDepositAllowed: 403 for a disabled or excluded player, 422
  *    `deposit_limit_exceeded` over a deposit limit (cash counts like any deposit);
  * 6. the `cash` payment intent, succeeded, with the ordinary deposit posting; the receipt
@@ -494,12 +520,23 @@ export async function cashDeposit(
     .where(eq(adminUsers.id, input.staffId))
     .limit(1);
   if (!staff) throw domainNotFound('Staff member');
-  if (amount > shop.approvalThreshold && !SUPERVISOR_ROLES.has(staff.role)) {
-    throw domainForbidden(
-      'cashier_approval_required',
-      'This amount is above what a cashier may take alone. A supervisor must take it.',
-      { threshold: toWire(shop.approvalThreshold), amount: toWire(amount) },
-    );
+  if (!SUPERVISOR_ROLES.has(staff.role)) {
+    const already = await shiftPlayerTotal(tx, {
+      shiftId: shift.id,
+      userId: input.userId,
+      kind: 'deposit',
+    });
+    if (already + amount > shop.approvalThreshold) {
+      throw domainForbidden(
+        'cashier_approval_required',
+        'This amount is above what a cashier may take alone. A supervisor must take it.',
+        {
+          threshold: toWire(shop.approvalThreshold),
+          amount: toWire(amount),
+          alreadyThisShift: toWire(already),
+        },
+      );
+    }
   }
 
   await lockUser(tx, input.userId);

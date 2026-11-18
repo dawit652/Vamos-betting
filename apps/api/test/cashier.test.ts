@@ -11,7 +11,8 @@ import {
   DepositsResponse,
 } from '@vamos/contracts';
 import { getPlayerBalances, postTransaction } from '@vamos/db';
-import { kycProfiles } from '@vamos/db/schema';
+import { auditLog, kycProfiles } from '@vamos/db/schema';
+import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
@@ -413,5 +414,125 @@ describe('cash withdrawals', () => {
     await asStaff(ctx, finance, 'POST', `/admin/cashier/shifts/${shift.id}/close`, {
       countedCash: shift.openingFloat,
     });
+  });
+});
+
+describe('review fixes at the desk', () => {
+  async function verifiedPlayerWith(amount: bigint) {
+    const player = await registerAndLogin(ctx);
+    await ctx.deps.db.insert(kycProfiles).values({
+      userId: player.userId,
+      status: 'verified',
+      provider: 'mock',
+      idNumberLast4: '1234',
+      verifiedName: 'Abebe Kebede',
+      submittedAt: ctx.clock.now,
+    });
+    await ctx.deps.db.transaction((tx) =>
+      postTransaction(tx, {
+        type: 'demo_topup',
+        idempotencyKey: `test:${randomUUID()}`,
+        entries: [
+          { account: { kind: 'house_demo_funding' }, amount: -amount },
+          { account: { kind: 'player_cash', userId: player.userId }, amount },
+        ],
+      }),
+    );
+    return player;
+  }
+  const makeCode = async (player: Awaited<ReturnType<typeof registerAndLogin>>) => {
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/payments/cash-codes',
+      headers: { cookie: player.cookie, 'x-csrf-token': player.csrfToken },
+    });
+    return CashCodeResponse.parse(response.json()).code;
+  };
+
+  it('a retry after a review answer gets the same answer, not a code error', async () => {
+    const player = await verifiedPlayerWith(1_000_000n);
+    const shift = await openShift(finance);
+    const shopCode = await makeCode(player);
+    const body = {
+      shiftId: shift.id,
+      userId: player.userId,
+      amount: '600000',
+      code: shopCode,
+      idempotencyKey: `desk-${randomUUID()}`,
+    };
+    const first = await asStaff(ctx, finance, 'POST', '/admin/cashier/withdrawals', body);
+    expect(CashWithdrawalResponse.parse(first.json())).toMatchObject({ outcome: 'review' });
+    const again = await asStaff(ctx, finance, 'POST', '/admin/cashier/withdrawals', body);
+    expect(again.statusCode, again.body).toBe(200);
+    expect(CashWithdrawalResponse.parse(again.json())).toMatchObject({
+      outcome: 'review',
+      replayed: true,
+    });
+    await asStaff(ctx, finance, 'POST', `/admin/cashier/shifts/${shift.id}/close`, {
+      countedCash: shift.openingFloat,
+    });
+  });
+
+  it('the desk blocks a player; only users.status unblocks; lookups are audited', async () => {
+    const player = await registerAndLogin(ctx);
+    const found = await asStaff(
+      ctx,
+      cashier,
+      'GET',
+      `/admin/cashier/players?phone=${encodeURIComponent(player.phone)}`,
+    );
+    expect(found.statusCode).toBe(200);
+    const [lookup] = await ctx.deps.db
+      .select({ actorId: auditLog.actorId })
+      .from(auditLog)
+      .where(
+        and(eq(auditLog.action, 'cashier.player_lookup'), eq(auditLog.targetId, player.userId)),
+      );
+    expect(lookup?.actorId).toBe(cashier.id);
+
+    const blocked = await asStaff(
+      ctx,
+      cashier,
+      'POST',
+      `/admin/cashier/players/${player.userId}/block`,
+      {
+        reason: 'phone reported stolen',
+      },
+    );
+    expect(blocked.statusCode, blocked.body).toBe(200);
+    expect(blocked.json()).toEqual({ status: 'suspended', changed: true });
+    // Blocked: their session stops working.
+    const me = await ctx.app.inject({
+      method: 'GET',
+      url: '/me',
+      headers: { cookie: player.cookie },
+    });
+    expect(me.statusCode).toBe(401);
+    // A cashier cannot unblock; compliance can.
+    const unblock = { status: 'active', reason: 'owner confirmed the phone' };
+    expect(
+      (await asStaff(ctx, cashier, 'POST', `/admin/users/${player.userId}/status`, unblock))
+        .statusCode,
+    ).toBe(403);
+    const done = await asStaff(
+      ctx,
+      compliance,
+      'POST',
+      `/admin/users/${player.userId}/status`,
+      unblock,
+    );
+    expect(done.statusCode, done.body).toBe(200);
+    expect(done.json()).toEqual({ status: 'active', changed: true });
+  });
+
+  it('paying cash is rate limited per staff member', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 21; i += 1) {
+      const response = await asStaff(ctx, cashier, 'POST', '/admin/cashier/withdrawals', {});
+      statuses.push(response.statusCode);
+    }
+    // Earlier tests in this file used part of this minute's budget: at most 20 get through.
+    expect(statuses.filter((status) => status !== 429).length).toBeLessThanOrEqual(20);
+    expect(statuses.at(-1)).toBe(429);
   });
 });

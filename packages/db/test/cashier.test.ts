@@ -9,6 +9,7 @@ import {
   checkCashCode,
   closeShift,
   createCashCode,
+  findDeskPayout,
   findDeskPlayer,
   getOpenShift,
   getReceipt,
@@ -22,7 +23,12 @@ import {
 import { runReconciliationChecks } from '../src/compliance/index';
 import { DomainError } from '../src/errors';
 import { getBalance } from '../src/ledger/index';
-import { approveWithdrawal, claimDuePayouts, DEPOSIT_SUCCEEDED } from '../src/payments/index';
+import {
+  approveWithdrawal,
+  claimDuePayouts,
+  DEPOSIT_SUCCEEDED,
+  markPayoutPaid,
+} from '../src/payments/index';
 import {
   adminUsers,
   auditLog,
@@ -560,5 +566,93 @@ describe('cash withdrawals', () => {
     expect(
       await refusal(withdraw(cashier, shift.id, userId, birr(10_001), { code: '777777' })),
     ).toEqual({ status: 403, code: 'cashier_approval_required' });
+  });
+});
+
+describe('review findings', () => {
+  const hash = (code: string) => createHash('sha256').update(code).digest('hex');
+  const makeCode = (userId: string, code: string) =>
+    handle.db.transaction((tx) => createCashCode(tx, { userId, codeHash: hash(code), now: NOW }));
+  async function withdraw(
+    staffId: string,
+    shiftId: string,
+    userId: string,
+    amount: bigint,
+    code: string,
+    key = `desk-${randomUUID()}`,
+  ) {
+    const codeId = await checkCashCode(handle.db, { userId, codeHash: hash(code), now: NOW });
+    return handle.db.transaction((tx) =>
+      cashWithdrawal(tx, {
+        staffId,
+        shiftId,
+        userId,
+        amount,
+        idempotencyKey: key,
+        code: { id: codeId, hash: hash(code) },
+        rules: RULES,
+        now: NOW,
+      }),
+    );
+  }
+
+  it('the threshold counts what the desk already took from the player in the shift', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier);
+    const { userId } = await createPlayer(handle.db);
+    await deposit(cashier, shift.id, userId, birr(6_000));
+    expect(await refusal(deposit(cashier, shift.id, userId, birr(5_000)))).toEqual({
+      status: 403,
+      code: 'cashier_approval_required',
+    });
+    // Another player is not affected; up to the threshold is fine.
+    const other = (await createPlayer(handle.db)).userId;
+    await deposit(cashier, shift.id, other, birr(5_000));
+    await deposit(cashier, shift.id, userId, birr(4_000));
+  });
+
+  it('an approved withdrawal waiting at the desk is not paid to a blocked account', async () => {
+    const cashier = await staff();
+    const supervisor = await staff('finance');
+    const shift = await shiftFor(cashier);
+    const { userId } = await createPlayer(handle.db, { kyc: 'verified', name: 'Hana G.' });
+    await deposit(cashier, shift.id, userId, birr(6_000));
+    await makeCode(userId, '101010');
+    const key = `desk-${randomUUID()}`;
+    const held = await withdraw(cashier, shift.id, userId, birr(5_000), '101010', key);
+    if (held.outcome !== 'review') throw new Error('expected review');
+    // A retry of that request finds it by its desk key.
+    expect((await findDeskPayout(handle.db, { userId, idempotencyKey: key }))?.id).toBe(
+      held.payoutId,
+    );
+    await handle.db.transaction((tx) =>
+      approveWithdrawal(tx, { payoutId: held.payoutId, adminId: supervisor, now: NOW }),
+    );
+    // The back office cannot settle a cash payout: only the desk pays it, with a receipt.
+    expect(
+      await refusal(
+        handle.db.transaction((tx) =>
+          markPayoutPaid(tx, {
+            payoutId: held.payoutId,
+            now: NOW,
+            admin: { adminId: supervisor },
+          }),
+        ),
+      ),
+    ).toEqual({ status: 409, code: 'cash_payout_desk_only' });
+
+    await handle.db.update(users).set({ status: 'suspended' }).where(eq(users.id, userId));
+    await makeCode(userId, '202020').catch(() => undefined);
+    // A blocked account cannot make a code; with one made before, the desk still refuses.
+    await handle.db.update(users).set({ status: 'active' }).where(eq(users.id, userId));
+    await makeCode(userId, '303030');
+    await handle.db.update(users).set({ status: 'suspended' }).where(eq(users.id, userId));
+    expect(await refusal(withdraw(cashier, shift.id, userId, birr(5_000), '303030'))).toEqual({
+      status: 403,
+      code: 'account_disabled',
+    });
+    expect(
+      (await handle.db.select().from(payouts).where(eq(payouts.id, held.payoutId)))[0]?.status,
+    ).toBe('approved');
   });
 });
