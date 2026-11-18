@@ -6,7 +6,7 @@ branch name: start it from `origin/claude/happy-keller-i7cvrh` (or whichever is 
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Live
 server runs `47c3126`; pushed and not yet deployed: team logos, cashier desk phases 1 and 2
-(migrations 0056, 0057, 0058 run on deploy).
+(migrations 0056 to 0059 run on deploy).
 Deploy is done by the owner (PowerShell command in the last session: `ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
@@ -22,8 +22,7 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
 3. **Cashier dashboard**: phases 1 and 2 built and reviewed by a second model (desk, shifts, cash
    deposits, cash withdrawals with a player-made shop code, receipts, player blocking; cash is the
    payment provider `cash`). Next, in order: `docs/plans/cashier-dashboard.md` "Next phases"
-   (force-close of a forgotten shift and a guard on closed shifts, failed automatic deposit,
-   assisted PIN reset, variance posting, original receipt once, uncollected approved cash
+   (failed automatic deposit, assisted PIN reset, variance posting, original receipt once, uncollected approved cash
    withdrawals, grouped shift totals, walk-in tickets). Money path: Opus high. Owner decisions
    still open (shops, limits, printer, walk-in tickets); today's defaults are settings. On the live
    server a cashier account is made with `admin-create.js --role cashier` (deployment.md).

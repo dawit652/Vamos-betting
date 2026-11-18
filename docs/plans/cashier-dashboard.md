@@ -72,21 +72,23 @@ blocks (`POST /admin/cashier/players/:id/block`, reason required), unblocking ne
 (admin, compliance; `POST /admin/users/:id/status`). A blocked player cannot sign in, deposit, bet
 or withdraw.
 
+Also built 18 Nov: a supervisor closes a shift its cashier left open
+(`POST /admin/cashier/shifts/:id/force-close`, the shift page), and database triggers (migration
+`0059`) refuse any change to a closed shift and to a receipt except counting a copy.
+
 ## Next phases (in order)
 
-1. **Supervisor force-close of a forgotten shift**, and a database guard so a closed shift and its
-   receipts cannot be updated (review finding 7; today only DELETE is revoked).
-2. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
+1. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
    flagged deposits) rather than a new credit path; a supervisor-only "credit by provider
    reference" if still needed.
-3. **Assisted PIN reset** at the desk with an ID check and four eyes.
-4. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
+2. **Assisted PIN reset** at the desk with an ID check and four eyes.
+3. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
    (`adjustment`, house cash vs revenue); today the variance is recorded and shown, not posted.
-5. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
-6. **Uncollected approved cash withdrawals**: the money stays on hold until the player collects it
+4. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
+5. **Uncollected approved cash withdrawals**: the money stays on hold until the player collects it
    or cancels it online (finance can also fail it to give it back); consider an expiry.
-7. Shift reports: one grouped query instead of one per shift (review finding 8, small).
-8. Retail walk-in tickets (largest; later).
+6. Shift reports: one grouped query instead of one per shift (review finding 8, small).
+7. Retail walk-in tickets (largest; later).
 
 ## Rules for every session of this work
 
