@@ -105,8 +105,14 @@ account with its shop from the command line (`admin-create`), and per-shop expor
    it never credits an online deposit; supervisors get links to the SMS rail page and the player
    page. A supervisor-only "credit by provider reference" was not needed.
 2. **Assisted PIN reset** at the desk with an ID check and four eyes.
-3. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
-   (`adjustment`, house cash vs revenue); today the variance is recorded and shown, not posted.
+3. **Variance posting** (owner's default 18 Nov: a shop loss or gain, approved by a supervisor). Design:
+   a new ledger account kind `house_cash_variance` (GGR in `house_revenue` stays clean for tax), a
+   table `cash_shift_variance_postings` (shift_id primary key: once per shift; closed shifts cannot
+   change, so the posting is its own row), service `postShiftVariance` (closed shift with a count,
+   variance = counted − expected, not zero; the supervisor is not the shift's cashier; one
+   `adjustment` posting: `house:psp:cash` −variance, `house_cash_variance` +variance), route
+   `POST /admin/cashier/shifts/:id/variance` (finance/admin), a "Book the difference" button on the
+   shift page. Migration 0062 (enum value and table).
 4. **Original receipt printed once: done 18 Nov** (migration `0061_receipt_original_once`):
    `cash_operations.original_printed_at` is set by the first print (`POST
 /admin/cashier/receipts/:id/print`, audited `cashier.receipt_printed`); every later print, also
