@@ -9,11 +9,12 @@ import type {
   CashierPlayerView,
   CashierShiftResponse,
   CashierShiftView,
+  SetPlayerStatusResponse,
 } from '@vamos/contracts';
 import { useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
 import { ShiftReport } from '@/components/shift-report';
-import { Badge, Loading, Notice, PageHeader } from '@/components/ui';
+import { Badge, Loading, Notice, PageHeader, ReasonAction } from '@/components/ui';
 import { api } from '@/lib/api';
 import { hasVariance, receiptPath, reviewReasonLabel } from '@/lib/cashier';
 import { ApiClientError, describeError } from '@/lib/errors';
@@ -255,6 +256,18 @@ function PlayerDesk({
     }
   };
 
+  const blockPlayer = async (reason: string) => {
+    if (player === null) return;
+    await api<SetPlayerStatusResponse>(`/admin/cashier/players/${player.id}/block`, {
+      method: 'POST',
+      body: { reason },
+    });
+    const fresh = await api<CashierPlayerResponse>('/admin/cashier/players', {
+      query: { phone: phone.trim() },
+    });
+    setPlayer(fresh.player);
+  };
+
   const blocked = player !== null && (player.status !== 'active' || player.exclusion !== null);
   return (
     <section>
@@ -346,6 +359,17 @@ function PlayerDesk({
                 <Notice>The player must verify their identity before withdrawing.</Notice>
               )}
             </form>
+          )}
+          {player.status === 'active' && (
+            <div className="actions">
+              <ReasonAction
+                label="Block player"
+                submitLabel="Confirm block"
+                prompt="Reason (phone reported stolen, suspected fraud, the player asked)"
+                danger
+                onSubmit={blockPlayer}
+              />
+            </div>
           )}
         </div>
       )}
