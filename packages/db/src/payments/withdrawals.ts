@@ -16,6 +16,7 @@ import {
   isNotNull,
   isNull,
   lte,
+  ne,
   notInArray,
   or,
   sql,
@@ -874,6 +875,8 @@ export async function claimDuePayouts(
         isNull(payouts.flaggedAt),
         // Paid by hand by an operator: no provider to send them to.
         eq(payouts.manual, false),
+        // Paid in cash at a shop's desk (cashier/withdrawals.ts): never sent by the worker.
+        ne(payouts.provider, 'cash'),
         or(isNull(payouts.nextAttemptAt), lte(payouts.nextAttemptAt, options.now)),
       ),
     )

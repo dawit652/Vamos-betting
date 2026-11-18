@@ -157,3 +157,28 @@ export const cashOperations = pgTable(
     ),
   ],
 );
+
+/**
+ * One-time codes a player makes on their own phone to withdraw cash at a shop's desk (the cashier
+ * never learns a PIN). Only an HMAC of the code is stored; a newer code retires the older ones; a
+ * code dies after its expiry, its use, or too many wrong tries (attempts are counted in their own
+ * transaction, so a failed withdrawal cannot hide them).
+ */
+export const cashWithdrawalCodes = pgTable(
+  'cash_withdrawal_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index('cash_withdrawal_codes_user_idx').on(t.userId, t.createdAt),
+    check('cash_withdrawal_codes_attempts', sql`${t.attempts} >= 0`),
+  ],
+);

@@ -1,11 +1,14 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { birr, businessDateOf } from '@vamos/core';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   CASH_PROVIDER,
   cashDeposit,
+  cashWithdrawal,
+  checkCashCode,
   closeShift,
+  createCashCode,
   findDeskPlayer,
   getOpenShift,
   getReceipt,
@@ -19,12 +22,13 @@ import {
 import { runReconciliationChecks } from '../src/compliance/index';
 import { DomainError } from '../src/errors';
 import { getBalance } from '../src/ledger/index';
-import { DEPOSIT_SUCCEEDED } from '../src/payments/index';
+import { approveWithdrawal, claimDuePayouts, DEPOSIT_SUCCEEDED } from '../src/payments/index';
 import {
   adminUsers,
   auditLog,
   cashOperations,
   paymentIntents,
+  payouts,
   rgExclusions,
   rgLimits,
   users,
@@ -386,3 +390,175 @@ async function cashOperationsTotal(): Promise<bigint> {
     .where(eq(cashOperations.kind, 'deposit'));
   return rows.reduce((sum, row) => sum + row.amount, 0n);
 }
+
+describe('cash withdrawals', () => {
+  // The API keys this with its secret; any hex hash will do here.
+  const hash = (code: string) => createHash('sha256').update(code).digest('hex');
+  const makeCode = (userId: string, code = '123456') =>
+    handle.db.transaction((tx) => createCashCode(tx, { userId, codeHash: hash(code), now: NOW }));
+  async function withdraw(
+    staffId: string,
+    shiftId: string,
+    userId: string,
+    amount: bigint,
+    options: { code?: string; key?: string } = {},
+  ) {
+    const code = options.code ?? '123456';
+    const codeId = await checkCashCode(handle.db, { userId, codeHash: hash(code), now: NOW });
+    return handle.db.transaction((tx) =>
+      cashWithdrawal(tx, {
+        staffId,
+        shiftId,
+        userId,
+        amount,
+        idempotencyKey: options.key ?? `desk-${randomUUID()}`,
+        code: { id: codeId, hash: hash(code) },
+        rules: RULES,
+        now: NOW,
+      }),
+    );
+  }
+  async function payout(id: string) {
+    const [row] = await handle.db.select().from(payouts).where(eq(payouts.id, id));
+    return row!;
+  }
+
+  it('pays at once when the online rules approve it, with the hold moved to the cash drawer', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier, birr(1_000));
+    const { userId } = await createPlayer(handle.db, { kyc: 'verified', name: 'Abebe Kebede' });
+    await deposit(cashier, shift.id, userId, birr(2_000));
+    await makeCode(userId);
+
+    const result = await withdraw(cashier, shift.id, userId, birr(500));
+    if (result.outcome !== 'paid') throw new Error(`expected paid, got ${result.outcome}`);
+    expect(result.operation).toMatchObject({ kind: 'withdrawal', amount: birr(500) });
+    expect(await cashOf(handle.db, userId)).toBe(birr(1_500));
+    expect(await payout(result.operation.payoutId!)).toMatchObject({
+      provider: 'cash',
+      status: 'paid',
+      providerRef: `R${result.operation.receiptNo}`,
+    });
+    expect((await shiftTotals(handle.db, shift)).expectedCash).toBe(birr(2_500));
+    const receipt = await getReceipt(handle.db, result.operation.id);
+    expect(receipt?.operation.kind).toBe('withdrawal');
+    await expectBooksBalanced(handle.db);
+
+    // The code is spent.
+    expect(await refusal(withdraw(cashier, shift.id, userId, birr(100)))).toEqual({
+      status: 400,
+      code: 'cash_code_invalid',
+    });
+  });
+
+  it('counts every wrong code; a code dies after five wrong tries', async () => {
+    const { userId } = await createPlayer(handle.db, { kyc: 'verified', name: 'Almaz T.' });
+    await makeCode(userId, '111111');
+    const left: number[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      try {
+        await checkCashCode(handle.db, { userId, codeHash: hash('222222'), now: NOW });
+      } catch (error) {
+        left.push(((error as DomainError).details as { attemptsLeft: number }).attemptsLeft);
+      }
+    }
+    expect(left).toEqual([4, 3, 2, 1, 0]);
+    expect(
+      await refusal(checkCashCode(handle.db, { userId, codeHash: hash('111111'), now: NOW })),
+    ).toEqual({ status: 400, code: 'cash_code_invalid' });
+    // A newer code retires the older one.
+    await makeCode(userId, '333333');
+    await makeCode(userId, '444444');
+    expect(
+      await refusal(checkCashCode(handle.db, { userId, codeHash: hash('333333'), now: NOW })),
+    ).toEqual({ status: 400, code: 'cash_code_invalid' });
+    expect(
+      await checkCashCode(handle.db, { userId, codeHash: hash('444444'), now: NOW }),
+    ).toBeTruthy();
+  });
+
+  it('follows the online rules; above auto-approval it waits for review and is paid on the next visit', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier);
+
+    // No verified identity: refused, and the code stays live (nothing was written).
+    const unverified = (await createPlayer(handle.db, { kyc: 'none' })).userId;
+    await deposit(cashier, shift.id, unverified, birr(300));
+    await makeCode(unverified);
+    expect(await refusal(withdraw(cashier, shift.id, unverified, birr(100)))).toEqual({
+      status: 403,
+      code: 'kyc_required',
+    });
+    expect(
+      await checkCashCode(handle.db, { userId: unverified, codeHash: hash('123456'), now: NOW }),
+    ).toBeTruthy();
+
+    // At or above autoApproveBelow (ETB 5,000): held for review, the money on hold.
+    const { userId } = await createPlayer(handle.db, { kyc: 'verified', name: 'Kebede A.' });
+    await deposit(cashier, shift.id, userId, birr(6_000));
+    await makeCode(userId);
+    const held = await withdraw(cashier, shift.id, userId, birr(5_000));
+    if (held.outcome !== 'review') throw new Error('expected review');
+    expect(held.reviewReason).toBe('above_auto_approve_threshold');
+    expect(await cashOf(handle.db, userId)).toBe(birr(1_000));
+    expect((await payout(held.payoutId)).status).toBe('requested');
+
+    // Approved by finance: the payout worker never takes a cash payout.
+    const supervisor = await staff('finance');
+    await handle.db.transaction((tx) =>
+      approveWithdrawal(tx, { payoutId: held.payoutId, adminId: supervisor, now: NOW }),
+    );
+    const claimed = await handle.db.transaction((tx) =>
+      claimDuePayouts(tx, { now: NOW, limit: 100 }),
+    );
+    expect(claimed.map((row) => row.id)).not.toContain(held.payoutId);
+
+    // Next visit, new code: the waiting payout is paid first, for its own amount.
+    await makeCode(userId, '654321');
+    expect(
+      await refusal(withdraw(cashier, shift.id, userId, birr(4_000), { code: '654321' })),
+    ).toEqual({ status: 409, code: 'cash_payout_waiting' });
+    // The supervisor who approved it may not pay it (four eyes).
+    const theirShift = await shiftFor(supervisor);
+    expect(
+      await refusal(withdraw(supervisor, theirShift.id, userId, birr(5_000), { code: '654321' })),
+    ).toEqual({ status: 409, code: 'cashier_four_eyes' });
+    const paid = await withdraw(cashier, shift.id, userId, birr(5_000), { code: '654321' });
+    expect(paid.outcome).toBe('paid');
+    expect((await payout(held.payoutId)).status).toBe('paid');
+    expect(await cashOf(handle.db, userId)).toBe(birr(1_000));
+    await expectBooksBalanced(handle.db);
+  });
+
+  it('a replayed desk key gives the same receipt; the threshold binds cashiers', async () => {
+    const cashier = await staff();
+    const shift = await shiftFor(cashier);
+    const { userId } = await createPlayer(handle.db, { kyc: 'verified', name: 'Tigist M.' });
+    await deposit(cashier, shift.id, userId, birr(1_000));
+    await makeCode(userId);
+    const key = `desk-${randomUUID()}`;
+    const first = await withdraw(cashier, shift.id, userId, birr(200), { key });
+    const again = await handle.db.transaction((tx) =>
+      cashWithdrawal(tx, {
+        staffId: cashier,
+        shiftId: shift.id,
+        userId,
+        amount: birr(200),
+        idempotencyKey: key,
+        code: { id: randomUUID(), hash: hash('000000') },
+        rules: RULES,
+        now: NOW,
+      }),
+    );
+    expect(again).toMatchObject({ outcome: 'paid', replayed: true });
+    if (first.outcome === 'paid' && again.outcome === 'paid') {
+      expect(again.operation.id).toBe(first.operation.id);
+    }
+    expect(await cashOf(handle.db, userId)).toBe(birr(800));
+
+    await makeCode(userId, '777777');
+    expect(
+      await refusal(withdraw(cashier, shift.id, userId, birr(10_001), { code: '777777' })),
+    ).toEqual({ status: 403, code: 'cashier_approval_required' });
+  });
+});

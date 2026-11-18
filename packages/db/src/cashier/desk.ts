@@ -31,12 +31,44 @@ export const CASHIER_AUDIT = {
   shiftOpened: 'cashier.shift_opened',
   shiftClosed: 'cashier.shift_closed',
   deposit: 'cashier.deposit',
+  withdrawal: 'cashier.withdrawal',
+  withdrawalForReview: 'cashier.withdrawal_for_review',
+  codeMade: 'cashier.code_made',
   receiptReprinted: 'cashier.receipt_reprinted',
   shopUpdated: 'cashier.shop_updated',
 } as const;
 
 /** Roles that may work above a shop's approval threshold (the supervisors). */
 const SUPERVISOR_ROLES: ReadonlySet<string> = new Set(['admin', 'finance']);
+
+/** Whether a staff role may work above a shop's approval threshold. */
+export function isSupervisorRole(role: string): boolean {
+  return SUPERVISOR_ROLES.has(role);
+}
+
+/** The next receipt number (taken before the receipt's row, so other rows can carry it). */
+export async function nextReceiptNo(tx: DbTransaction): Promise<number> {
+  const [next] = await tx
+    .execute<{ n: string }>(
+      sql`SELECT nextval(pg_get_serial_sequence('cash_operations', 'receipt_no'))::text AS n`,
+    )
+    .then((result) => result.rows);
+  if (!next) throw new Error('no receipt number');
+  return Number(next.n);
+}
+
+/** The operation a desk key made, if any. */
+export async function findOperationByKey(
+  exec: DbExecutor,
+  idempotencyKey: string,
+): Promise<CashOperation | null> {
+  const [row] = await exec
+    .select()
+    .from(cashOperations)
+    .where(eq(cashOperations.idempotencyKey, idempotencyKey.trim()))
+    .limit(1);
+  return row ?? null;
+}
 
 export type CashierShop = typeof cashierShops.$inferSelect;
 export type CashierShift = typeof cashierShifts.$inferSelect;
@@ -221,7 +253,7 @@ export async function openShift(
 }
 
 /** Locks the staff member's shift (FOR UPDATE): 404 unless it is theirs, 409 unless open. */
-async function lockOwnOpenShift(
+export async function lockOwnOpenShift(
   tx: DbTransaction,
   shiftId: string,
   staffId: string,
@@ -481,13 +513,7 @@ export async function cashDeposit(
 
   const intentId = randomUUID();
   const operationId = randomUUID();
-  const [next] = await tx
-    .execute<{ n: string }>(
-      sql`SELECT nextval(pg_get_serial_sequence('cash_operations', 'receipt_no'))::text AS n`,
-    )
-    .then((result) => result.rows);
-  if (!next) throw new Error('no receipt number');
-  const receiptNo = Number(next.n);
+  const receiptNo = await nextReceiptNo(tx);
   const reference = `R${receiptNo}`;
 
   const posting = await postTransaction(tx, {
