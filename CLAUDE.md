@@ -81,3 +81,9 @@ The account is on the Pro plan with a tight 5-hour limit, so always match the mo
 - Run a single short command yourself when that is cheaper than starting an agent.
 - At most two agents at a time; check usage between waves and stop starting new work near the 5-hour limit.
 - Agents never commit; the main session verifies (typecheck, lint, tests) and commits only when asked.
+- **After a 5-hour limit reset (owner's rule, 18 Nov 2026): start cheap.** The first task after the
+  limit must not burn tokens: no re-reading of the repository, the long plans or old transcripts;
+  read only `git status`, `git log --oneline -5` and the latest handover section, then continue the
+  one task in hand with the cheapest model that fits. Do not restart agents that stopped at the
+  limit, rerun full test suites or rebuild unless the next commit needs it, and start no new work
+  on your own: wait for the owner's next message.
