@@ -3,9 +3,9 @@
 Owner's request of 17 Nov 2026: a cashier dashboard where operators pay players' withdrawals in
 cash, deposit cash for players (also when an automatic deposit failed to arrive), control players,
 and print receipts on a betting (thermal) printer, with the other features and parameters a betting
-shop needs. Status: **phase 1 built 17 Nov 2026** (desk, shifts, cash deposits, receipts; see
-"As built"); cash withdrawals next. It moves money: Opus, high effort, reviewed by a second model
-before any deploy.
+shop needs. Status: **phases 1 and 2 built 17–18 Nov 2026** (desk, shifts, cash deposits, cash
+withdrawals, receipts; see "As built"); the rest under "Next phases". It moves money: Opus, high
+effort, reviewed by a second model before real cashiers use it.
 
 ## As built (phase 1, 17 Nov 2026)
 
@@ -40,23 +40,40 @@ receipts (58 mm as a setting), walk-in tickets later.
 - **Demo**: `cashier@demo.vamos.test` (demo mode only, like the other demo staff). On the live
   server a cashier account is made with `pnpm admin:create` and role `cashier`.
 
+## As built (phase 2, 18 Nov 2026): cash withdrawals
+
+- The player makes a one-time six-digit **shop code** on their own phone (withdraw page, "Withdraw
+  cash at a shop"; `POST /payments/cash-codes`): 15 minutes, five tries, a newer code retires the
+  older; only an HMAC is stored (`cash_withdrawal_codes`, migration `0058`). The cashier never
+  learns a PIN.
+- Desk (`POST /admin/cashier/withdrawals`, `packages/db/src/cashier/withdrawals.ts`): the code is
+  checked in its own transaction (wrong tries always count), then the ordinary
+  `requestWithdrawal` with provider `cash` (KYC with a verified name, deposit and settlement
+  checks, min/max, daily cap, wagering, AML). Approved at once (below `autoApproveBelow`, no
+  exclusion, no AML hold): paid at the desk with `markPayoutPaid` (hold to `house:psp:cash`,
+  reference R<receipt>), receipt with a signature line. Otherwise it waits in the back office's
+  withdrawal review queue with the money on hold; once approved, the player comes back with a new
+  code and the desk pays that amount (`cash_payout_waiting` for another amount). The approver never
+  pays it (four eyes); the shop threshold binds cashiers; the payout worker never takes a `cash`
+  payout.
+- Tests: `packages/db/test/cashier.test.ts`, `apps/api/test/cashier.test.ts`, e2e
+  `e2e/tests/cashier.spec.ts`.
+
 ## Next phases (in order)
 
-1. **Cash withdrawal at the desk.** The player makes a one-time withdrawal code on their own phone
-   (logged in: "Withdraw at a shop"), so the cashier never learns a PIN; at the desk: phone + code
-   - amount → `requestWithdrawal` with provider `cash` (all online rules) → paid at once when
-     auto-approved and under the shop threshold, else refused with the reason. The payout worker
-     must never take a `cash` payout (`claimDuePayouts`: exclude provider `cash`). Receipt with a
-     signature line.
-2. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
+1. **Failed automatic deposit**: link the desk to the existing tools (SMS rail review queue,
    flagged deposits) rather than a new credit path; a supervisor-only "credit by provider
    reference" if still needed.
-3. **Player control** at the desk (block/unblock with reason, audited) and assisted PIN reset
+2. **Player control** at the desk (block/unblock with reason, audited) and assisted PIN reset
    with ID check and four eyes.
-4. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
+3. **Variance posting**: a supervisor approves a closed shift's variance into the ledger
    (`adjustment`, house cash vs revenue); today the variance is recorded and shown, not posted.
-5. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
+4. **Original receipt printed once** (server-side flag) and silent ESC/POS printing if wanted.
+5. **Uncollected approved cash withdrawals**: today the money stays on hold until the player
+   collects it or cancels it online; consider an expiry that returns it.
 6. Retail walk-in tickets (largest; later).
+7. Before real cashiers: a review of the cashier money path by a second model
+   (`packages/db/src/cashier/*`, `apps/api/src/modules/admin/cashier.ts`).
 
 ## Rules for every session of this work
 

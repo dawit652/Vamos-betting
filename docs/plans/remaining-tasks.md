@@ -1,11 +1,12 @@
-# Remaining tasks (read this first; updated 17 Nov 2026)
+# Remaining tasks (read this first; updated 18 Nov 2026)
 
-Latest work: branch `claude/happy-keller-i7cvrh` (17 Nov; it continues
+Latest work: branch `claude/happy-keller-i7cvrh` (18 Nov; it continues
 `claude/eager-cerf-ox9vkq`, which stops at the plan docs). A new session may be given another
-branch name: start it from the latest of these. It holds the server's own branch
+branch name: start it from `origin/claude/happy-keller-i7cvrh` (or whichever is newer). It holds the server's own branch
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Live
-server runs `47c3126`; pushed and not yet deployed: everything up to the team logos.
+server runs `47c3126`; pushed and not yet deployed: team logos, cashier desk phases 1 and 2
+(migrations 0056, 0057, 0058 run on deploy).
 Deploy is done by the owner (PowerShell command in the last session: `ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
@@ -18,10 +19,13 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
 2. **Team logos: check on live after the owner deploys** (built 17 Nov, `docs/plans/team-logos.md`
    "As built"). Logos appear only with `SCRAPER_SECRET_API_FOOTBALL` set on the server; the
    scraper logs `team logo download failed` or `team logos skipped` when something is wrong.
-3. **Cashier dashboard**: phase 1 built 17 Nov (desk, shifts, cash deposits, receipts; cash is
-   the payment provider `cash`). Next: cash withdrawal with a player-made code, then the other
-   phases in `docs/plans/cashier-dashboard.md` ("Next phases"). Money path: Opus high. Owner
-   decisions still open (shops, limits, printer, walk-in tickets); defaults are settings.
+3. **Cashier dashboard**: phases 1 and 2 built (desk, shifts, cash deposits, cash withdrawals
+   with a player-made shop code, receipts; cash is the payment provider `cash`). Next, in order:
+   `docs/plans/cashier-dashboard.md` "Next phases" (failed automatic deposit, player control,
+   variance posting, original receipt once, uncollected approved cash withdrawals, walk-in
+   tickets, a second-model review before real cashiers). Money path: Opus high. Owner decisions
+   still open (shops, limits, printer, walk-in tickets); today's defaults are settings. On the live
+   server a cashier account is made with `admin-create.js --role cashier` (deployment.md).
 4. **X6b failed-login alarm** (open): many failed logins or many numbers tried in 15 minutes
    raise an alarm (`apps/api/src/lib/rate-limits.ts`, alarms are `error` log lines with `alarm`).
 5. **X11 rule O1h, locked odds** (open, money path): `docs/plans/scale-and-payments-handover.md`
