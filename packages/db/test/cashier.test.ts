@@ -699,6 +699,21 @@ describe('uncollected approved cash withdrawals', () => {
     const statusOf = async () =>
       (await handle.db.select().from(payouts).where(eq(payouts.id, held.payoutId)))[0]?.status;
 
+    // Flagged for staff (AML, review), it is the staff's to decide: never returned by age.
+    await handle.db
+      .update(payouts)
+      .set({ flaggedAt: NOW, flagReason: 'aml_hold' })
+      .where(eq(payouts.id, held.payoutId));
+    await expireUncollectedCashPayouts(handle.db, {
+      now: new Date(NOW.getTime() + 30 * DAY),
+      maxAgeMs: 7 * DAY,
+    });
+    expect(await statusOf()).toBe('approved');
+    await handle.db
+      .update(payouts)
+      .set({ flaggedAt: null, flagReason: null })
+      .where(eq(payouts.id, held.payoutId));
+
     // Within the period (and with the setting at 0) nothing happens.
     expect(
       await expireUncollectedCashPayouts(handle.db, {

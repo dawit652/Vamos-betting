@@ -94,8 +94,8 @@ The owner runs **more than 40 shops** (answered 18 Nov). Added:
 ?day=YYYY-MM-DD`, cashier.reports, Addis Ababa day): open shifts, deposits, withdrawals and net
   cash per shop in two grouped queries.
 
-Still open for many shops: cash limits per cashier per day (owner decision), creating a cashier
-account with its shop from the command line (`admin-create`), and per-shop exports.
+Creating a cashier with its shop: `admin-create --role cashier --shop <code>` (done 18 Nov). Still
+open for many shops: cash limits per cashier per day (owner decision) and per-shop exports.
 
 ## Next phases (in order)
 
@@ -104,14 +104,21 @@ account with its shop from the command line (`admin-create`), and per-shop expor
 /admin/cashier/players/:id/deposits`, cashier.desk, audited `cashier.player_deposits_viewed`);
    it never credits an online deposit; supervisors get links to the SMS rail page and the player
    page. A supervisor-only "credit by provider reference" was not needed.
-2. **Assisted PIN reset: done 18 Nov** (owner's default). The desk checks the player's ID card
-   against the verified KYC record (keyed hash of the ID number; a mismatch is audited), a supervisor
-   with users.status (admin, compliance; never the cashier who asked) approves on the Cash shifts
-   page ("PIN resets waiting"), then the desk shows the ORDINARY one-time reset code (made as the
-   Telegram reset makes it) for the player, who sets a new PIN on "Forgot PIN". The desk never sees
-   the PIN. Migration `0063_cash_pin_resets`; `packages/db/src/cashier/pin-reset.ts`; routes
-   `/admin/cashier/players/:id/pin-reset`, `/admin/cashier/pin-resets`, `.../:id/decision`,
-   `.../:id/issue`; the desk section "PIN reset (ID check)" for a verified, active player.
+2. **Assisted PIN reset: built 18 Nov, SWITCHED OFF (`CASHIER_PIN_RESET=off`, the default).** The
+   second-model review of 18 Nov found that the desk is handed the one-time reset code: a dishonest
+   cashier could type it with a PIN of their choice before the player does, and the supervisor's
+   approval does not prevent that. Built so far: the desk checks the ID card against the verified KYC
+   record (keyed hash; a mismatch audited), needs an open shift, a supervisor with users.status (not
+   the cashier) approves on the Cash shifts page, then the desk would get the ordinary reset code
+   (migration `0063_cash_pin_resets`; `packages/db/src/cashier/pin-reset.ts`; routes under
+   `/admin/cashier/players/:id/pin-reset` and `/admin/cashier/pin-resets`). **To do before switching
+   on (Opus, high):** only the player's own device may use the code. The player starts on their phone
+   ("Forgot PIN", "Reset at a shop"): the site keeps a random secret in the browser and shows a short
+   desk code; the cashier types that desk code with the ID number; after the approval the server makes
+   the reset code with `binding` = the browser secret's hash (`createOtpChallenge` binding, compared
+   by `consumeOtp`), and only that browser, proving the secret, receives it and sets the PIN. The desk
+   never sees a code that sets a PIN. Also from the review: a per-player budget for wrong ID numbers
+   (5 a day) and one identical answer for "no verified ID" and "wrong ID".
 3. **Variance posting: done 18 Nov** (owner's default: a shop loss or gain, approved by a
    supervisor; migration `0062_cash_shift_variance`): ledger account kind `house_cash_variance`
    (GGR in `house_revenue` stays clean); `cash_shift_variance_postings` (once per shift);

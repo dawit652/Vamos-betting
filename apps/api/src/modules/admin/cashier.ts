@@ -227,6 +227,7 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       shift: shift === null ? null : await namedShiftView(deps.db, shift),
       operations,
       supervisor: supervisor(request),
+      pinResetEnabled: deps.config.payments.deskPinReset,
     });
   });
 
@@ -370,16 +371,20 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       config: { staff: 'cashier.desk', ...perStaff('cashier-lookup', CASHIER_RATE_LIMITS.lookup) },
     },
     async (request) => {
+      // Off until only the player's own device can use the code (review of 18 Nov).
+      if (!deps.config.payments.deskPinReset) throw notFound('PIN reset');
       const userId = parseUuid(request.params.id, 'Player');
       const input = parseInput(DeskPinResetRequest, request.body);
       const actor = staffActor(request);
       const shift = await getOpenShift(deps.db, actor.adminId);
+      // Asked at a shop: with an open shift (review finding 5).
+      if (shift === null) throw conflict('shift_not_open', 'Open your shift first.');
       try {
         const reset = await inTx(deps, (tx) =>
           requestDeskPinReset(tx, {
             userId,
             staffId: actor.adminId,
-            shopId: shift?.shopId ?? null,
+            shopId: shift.shopId,
             idNumberHash: idNumberHash(deps.config.sessionSecret, input.idNumber),
             now: deps.clock(),
             ip: actor.ip ?? null,
@@ -448,8 +453,12 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
     '/admin/cashier/pin-resets/:id/issue',
     { config: { staff: 'cashier.desk' } },
     async (request) => {
+      if (!deps.config.payments.deskPinReset) throw notFound('PIN reset');
       const resetId = parseUuid(request.params.id, 'PIN reset');
       const actor = staffActor(request);
+      if ((await getOpenShift(deps.db, actor.adminId)) === null) {
+        throw conflict('shift_not_open', 'Open your shift first.');
+      }
       const now = deps.clock();
       const result = await inTx(deps, async (tx) => {
         const issued = await issueDeskPinReset(tx, {

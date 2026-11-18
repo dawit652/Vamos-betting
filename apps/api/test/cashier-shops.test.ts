@@ -18,7 +18,8 @@ let finance: StaffSession;
 let admin: StaffSession;
 
 beforeAll(async () => {
-  ctx = await createTestContext();
+  // The desk PIN reset is off by default (review of 18 Nov); this file tests it switched on.
+  ctx = await createTestContext({ CASHIER_PIN_RESET: 'on' });
   await seedStaff(ctx);
   cashier = await staffLogin(ctx, 'cashier');
   finance = await staffLogin(ctx, 'finance');
@@ -154,6 +155,12 @@ describe('cashiers and their shops', () => {
       asStaff(ctx, cashier, 'POST', `/admin/cashier/players/${player.userId}/pin-reset`, {
         idNumber,
       });
+    // Only at a shop: without an open shift the desk cannot ask (review finding 5).
+    expect(errorCode((await ask('1234 5678 9012')).body)).toBe('shift_not_open');
+    const deskNow = await asStaff(ctx, cashier, 'GET', '/admin/cashier/desk');
+    expect(deskNow.json()).toMatchObject({ pinResetEnabled: true });
+    const [myShop] = await deskShops(cashier);
+    expect((await open(cashier, myShop!.id)).statusCode).toBeLessThan(300);
 
     // A wrong ID number: refused and on record.
     const wrong = await ask('1111 2222 3333');

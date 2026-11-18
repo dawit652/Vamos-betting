@@ -290,6 +290,47 @@ function PinResetsWaiting() {
   );
 }
 
+/** The day table as CSV (one row per shop; amounts in ETB with two decimals). */
+export function shopDayCsv(data: ShopSummaryResponse): string {
+  const quote = (value: string) => `"${value.replace(/"/g, '""')}"`;
+  const rows = [
+    [
+      'day',
+      'shop',
+      'name',
+      'active',
+      'open_shifts',
+      'deposits',
+      'deposits_etb',
+      'withdrawals',
+      'withdrawals_etb',
+      'net_etb',
+    ],
+    ...data.shops.map((shop) => [
+      data.day,
+      shop.code,
+      shop.name,
+      shop.active ? 'yes' : 'no',
+      String(shop.openShifts),
+      String(shop.deposits.count),
+      formatSantim(shop.deposits.total),
+      String(shop.withdrawals.count),
+      formatSantim(shop.withdrawals.total),
+      formatSantim(shop.net),
+    ]),
+  ];
+  return `${rows.map((row) => row.map(quote).join(',')).join('\n')}\n`;
+}
+
+function downloadCsv(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 /** Every shop's cash on one day, in one table (the owner runs more than 40 shops). */
 function ShopDay() {
   const [day, setDay] = useState('');
@@ -305,6 +346,14 @@ function ShopDay() {
         <input type="date" aria-label="Day" value={day} onChange={(e) => setDay(e.target.value)} />
       </label>
       <Loading loading={loading && data === null} error={error} />
+      {data !== null && (
+        <button
+          type="button"
+          onClick={() => downloadCsv(`shops-${data.day}.csv`, shopDayCsv(data))}
+        >
+          Download CSV
+        </button>
+      )}
       {data !== null && (
         <div className="table-wrap">
           <table>

@@ -69,6 +69,8 @@ export const CashierDeskResponse = z.object({
   operations: z.array(CashOperationView),
   /** The caller may work above a shop's threshold (finance, admin). */
   supervisor: z.boolean(),
+  /** The desk PIN reset is switched on (CASHIER_PIN_RESET=on). */
+  pinResetEnabled: z.boolean(),
 });
 export type CashierDeskResponse = z.infer<typeof CashierDeskResponse>;
 

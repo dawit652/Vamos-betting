@@ -472,6 +472,8 @@ export async function expireUncollectedCashPayouts(
         eq(payouts.provider, CASH_PROVIDER),
         eq(payouts.status, 'approved'),
         lt(payouts.approvedAt, cutoff),
+        // One flagged for staff (AML, review) is the staff's to decide, never returned by age.
+        isNull(payouts.flaggedAt),
       ),
     )
     .orderBy(asc(payouts.approvedAt), asc(payouts.id))
@@ -479,10 +481,20 @@ export async function expireUncollectedCashPayouts(
   let expired = 0;
   for (const { id } of due) {
     try {
-      const change = await db.transaction((tx) =>
-        markPayoutFailed(tx, { payoutId: id, reason: 'cash_not_collected', now: input.now }),
-      );
-      if (change.changed) expired += 1;
+      const change = await db.transaction(async (tx) => {
+        // Read again under the payout's lock: still approved, unflagged and old enough.
+        const [current] = await tx.select().from(payouts).where(eq(payouts.id, id)).for('update');
+        if (
+          current?.status !== 'approved' ||
+          current.flaggedAt !== null ||
+          current.approvedAt === null ||
+          current.approvedAt >= cutoff
+        ) {
+          return null;
+        }
+        return markPayoutFailed(tx, { payoutId: id, reason: 'cash_not_collected', now: input.now });
+      });
+      if (change?.changed === true) expired += 1;
     } catch (error) {
       // Paid at the desk (or closed) in between: nothing to give back.
       if (error instanceof DomainError) continue;

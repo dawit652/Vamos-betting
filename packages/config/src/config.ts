@@ -441,6 +441,12 @@ const envSchema = z.object({
    * balance after this many days (the worker fails it: the hold is returned); 0 keeps it forever.
    */
   CASH_WITHDRAWAL_COLLECT_DAYS: z.coerce.number().int().min(0).max(365).default(7),
+  /**
+   * The desk PIN reset (cashier phase 2). Off by default: the second-model review of 18 Nov found
+   * that the desk sees the one-time code, so a cashier could set the PIN first; it stays off until
+   * only the player's own device can use the code (docs/plans/cashier-dashboard.md).
+   */
+  CASHIER_PIN_RESET: z.enum(['off', 'on']).default('off'),
   PAYOUT_REQUIRE_PROOF: bool.default(false),
   /** Licensed mode without PAYOUT_REQUIRE_PROOF: an explicit, logged waiver. */
   PAYOUT_PROOF_WAIVED: bool.default(false),
@@ -718,6 +724,8 @@ export interface PaymentProvidersConfig {
   mock: { webhookSecret: string };
   /** CASH_WITHDRAWAL_COLLECT_DAYS in milliseconds; 0: an approved cash withdrawal never expires. */
   cashCollectMs: number;
+  /** CASHIER_PIN_RESET=on: the desk PIN reset's request and issue routes work (default off). */
+  deskPinReset: boolean;
   chapa: { baseUrl: string; secretKey: string | undefined; webhookSecret: string | undefined };
   telebirr: {
     baseUrl: string | undefined;
@@ -1025,6 +1033,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       },
       mock: { webhookSecret: e.MOCK_PAYMENT_WEBHOOK_SECRET },
       cashCollectMs: e.CASH_WITHDRAWAL_COLLECT_DAYS * 86_400_000,
+      deskPinReset: e.CASHIER_PIN_RESET === 'on',
       chapa: {
         baseUrl: e.CHAPA_BASE_URL,
         secretKey: e.CHAPA_SECRET_KEY,

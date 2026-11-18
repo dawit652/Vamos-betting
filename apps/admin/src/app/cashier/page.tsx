@@ -310,9 +310,9 @@ function PlayerDesk({
                 }.`}
           </p>
           <RecentDeposits playerId={player.id} supervisor={desk.supervisor} />
-          {player.kycStatus === 'verified' && player.status === 'active' && (
-            <DeskPinReset playerId={player.id} />
-          )}
+          {desk.pinResetEnabled &&
+            player.kycStatus === 'verified' &&
+            player.status === 'active' && <DeskPinReset playerId={player.id} />}
           {blocked ? (
             <Notice>This player cannot be served.</Notice>
           ) : (

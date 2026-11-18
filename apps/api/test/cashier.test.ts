@@ -131,6 +131,8 @@ describe('a shift at the desk', () => {
 
     // The desk sees the player's latest deposits and their state (a failed online one would show
     // here; the desk never credits it). Support, without the desk, cannot.
+    // The desk PIN reset is off by default (review of 18 Nov: the desk would see the code).
+    expect((await desk(cashier)).pinResetEnabled).toBe(false);
     const listed = await asStaff(
       ctx,
       cashier,
