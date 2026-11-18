@@ -655,6 +655,17 @@ jk bb as ac ca cd ud sv fsv vfb vfl tsg ssc`, with a number just before one at t
 - **O1 Calibrated teams.** Both teams' `ratings` must carry `matches >=
 MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   ratings are never used to price real bets.
+- **O1h Board backing (18 Nov 2026, the owner's locked odds).** Teams that are not both calibrated
+  and a fresh Hulusport board linked to the event (switch `hulusport_pricing` on,
+  BOARD_PRICES_MAX_AGE_MS) that explains its own 1X2 and goal line (`boardGoalsFit`, the conditions
+  of O5): the WHOLE book is priced from the board's expected goals (`priceFootball`, then the
+  factory's markets from the same goals, then `boardRule` over the markets the board quotes), key
+  `brd1|<digest>` (`isBoardPricedKey`). It counts as a market price that backs opening: the re-price
+  takes it (A-1 waives the bound for the first one on a closed match without bets), the hand-over
+  closes `ratings_uncalibrated` and asks to open, F7b and a person may open it (O1m's
+  `backedByMarket` and `assertScrapedEventMayOpen` accept the board key in any competition), and A2
+  suspends it (`market_lapsed`) as soon as the board is no longer fresh. Calibrated teams keep the
+  model with `boardRule`.
 - **O1m Market backing (2026-11, R-1 of `docs/feed-quality-plan.md`).** Opening betting (F7b, a
   trader's "Open betting" and the Trading switch) needs O1 **or** O1m. O1m: its competition's policy
   takes market prices, the event's stored prices

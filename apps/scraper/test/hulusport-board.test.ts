@@ -1,4 +1,4 @@
-import { BOARD_KEY_MARKER, hasBoardPrices } from '@vamos/core';
+import { BOARD_KEY_MARKER, hasBoardPrices, isBoardPricedKey } from '@vamos/core';
 import { getHulusportPricing, latestBoardOdds, setHulusportPricing } from '@vamos/db';
 import { priceBoardMarket } from '@vamos/feed';
 import { apiFootballFixturesUrl } from '@vamos/scraper';
@@ -160,11 +160,13 @@ describe('Hulusport prices from the mr-x board', () => {
       });
       expect(linked?.sourceKey).toBe('hulusport:2281709');
 
+      // Calibrated teams (O1): the model, with the board over the markets it quotes.
+      const calibrated = { attack: 1.1, defence: 0.95, matches: 12 };
       const input = {
         competitionPricingSource: 'model' as const,
         eventId,
-        homeRatings: null,
-        awayRatings: null,
+        homeRatings: calibrated,
+        awayRatings: { ...calibrated, attack: 0.9 },
         minRatingMatches: 1,
         now: h.now(),
       };
@@ -193,11 +195,24 @@ describe('Hulusport prices from the mr-x board', () => {
         );
       }
 
-      // Stale: back to our own prices.
+      // Rule O1h: teams NOT calibrated: the whole book from the board's expected goals (no market
+      // priced from empty ratings), backing opening, with the board's own 1X2 over it.
+      const uncalibrated = { ...input, homeRatings: null, awayRatings: null };
+      const o1h = await priceEvent(h.ctx.db, uncalibrated);
+      expect(isBoardPricedKey(o1h.key)).toBe(true);
+      expect(o1h).toMatchObject({ source: 'market', backsOpening: true, calibrated: true });
+      expect(o1h.key).toContain(BOARD_KEY_MARKER);
+      expect(o1h.markets.find((m) => m.type === '1x2')!.selections).toEqual(expected.selections);
+      expect(o1h.markets.length).toBeGreaterThan(5);
+
+      // Stale: back to our own prices (and for uncalibrated teams, the model's, which cannot open).
       h.advance(31 * MINUTE);
       const stale = await priceEvent(h.ctx.db, { ...input, now: h.now() });
       expect(stale.board).toBeUndefined();
       expect(stale.key).toBe(off.key);
+      const staleO1h = await priceEvent(h.ctx.db, { ...uncalibrated, now: h.now() });
+      expect(isBoardPricedKey(staleO1h.key)).toBe(false);
+      expect(staleO1h).toMatchObject({ source: 'model', calibrated: false, backsOpening: false });
     },
     TEST_TIMEOUT,
   );

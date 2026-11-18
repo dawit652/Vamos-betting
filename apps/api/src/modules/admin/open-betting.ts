@@ -1,4 +1,5 @@
 import {
+  isBoardPricedKey,
   MARKET_PRICING_KEY_PREFIX,
   marketConsensus,
   SCRAPED_FEED_PROVIDER,
@@ -7,7 +8,9 @@ import {
 import {
   consensusRows,
   getCompetitionPolicy,
+  getHulusportPricing,
   getTeamRatings,
+  latestBoardOdds,
   latestMarketOdds,
   listEventPricing,
   marketsWithSelections,
@@ -15,7 +18,9 @@ import {
   type DbTransaction,
 } from '@vamos/db';
 import { events, teams } from '@vamos/db/schema';
+import { boardGoalsFit, type BoardMarketInput } from '@vamos/feed';
 import {
+  BOARD_PRICES_MAX_AGE_MS,
   checkMarkets,
   isCalibrated,
   MARKET_ODDS_MAX_AGE_MS,
@@ -55,6 +60,19 @@ async function backedByMarket(
   });
   const x12 = marketConsensus(consensusRows(rows)).find((c) => c.market === '1x2');
   return marketBacksOpening(x12?.bookmakers);
+}
+
+/**
+ * Rule O1h for a person: the event's stored prices were made from the Hulusport board (its pricing
+ * stamp is a board-priced key), the switch is on, and the board linked to it is still fresh and
+ * explains its own prices (boardGoalsFit), as the scraper requires before it opens one.
+ */
+async function backedByBoard(exec: DbExecutor, eventId: string, now: Date): Promise<boolean> {
+  const stamp = (await listEventPricing(exec, [eventId])).get(eventId);
+  if (!isBoardPricedKey(stamp?.ratingsKey)) return false;
+  if (!(await getHulusportPricing(exec)).enabled) return false;
+  const board = await latestBoardOdds(exec, { eventId, now, maxAgeMs: BOARD_PRICES_MAX_AGE_MS });
+  return board !== null && boardGoalsFit(board.markets as BoardMarketInput[]) !== null;
 }
 
 /**
@@ -102,13 +120,18 @@ export async function assertScrapedEventMayOpen(
   const unreviewed = [event.homeTeamId, event.awayTeamId].filter(
     (id) => !isCalibrated(rated.get(id)?.ratings ?? null, minRatingMatches),
   );
-  if (unreviewed.length > 0 && !(await backedByMarket(tx, eventId, event.competitionId, now))) {
+  if (
+    unreviewed.length > 0 &&
+    !(await backedByMarket(tx, eventId, event.competitionId, now)) &&
+    !(await backedByBoard(tx, eventId, now))
+  ) {
     const labels = await teamLabels(tx, unreviewed);
     const names = unreviewed.map((id) => labels.get(id) ?? id);
     throw unprocessable(
       'teams_uncalibrated',
       `Betting cannot open until the ratings of ${names.join(' and ')} have been reviewed, ` +
-        'or the prices come from at least 3 bookmakers including a sharp one',
+        'or the prices come from at least 3 bookmakers including a sharp one, or from a fresh ' +
+        'Hulusport board',
       { teams: unreviewed.map((id, index) => ({ id, name: names[index] })) },
     );
   }

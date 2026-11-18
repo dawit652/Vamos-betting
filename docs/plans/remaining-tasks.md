@@ -1,7 +1,7 @@
 # Remaining tasks (read this first; updated 18 Nov 2026)
 
-Latest work: branch `claude/happy-keller-i7cvrh` (18 Nov; it continues
-`claude/eager-cerf-ox9vkq`, which stops at the plan docs). A new session may be given another
+Latest work: branch `claude/eager-cerf-ox9vkq` (18 Nov: it now holds `claude/happy-keller-i7cvrh`
+too, merged by the first account). A new session may be given another
 branch name: start it from `origin/claude/happy-keller-i7cvrh` (or whichever is newer). It holds the server's own branch
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Live
@@ -26,12 +26,16 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
    withdrawals, grouped shift totals, walk-in tickets). Money path: Opus high. Owner decisions
    still open (shops, limits, printer, walk-in tickets); today's defaults are settings. On the live
    server a cashier account is made with `admin-create.js --role cashier` (deployment.md).
-4. **X6b failed-login alarm** (open): many failed logins or many numbers tried in 15 minutes
-   raise an alarm (`apps/api/src/lib/rate-limits.ts`, alarms are `error` log lines with `alarm`).
-5. **X11 rule O1h, locked odds** (open, money path): `docs/plans/scale-and-payments-handover.md`
-   "Locked odds"; `apps/scraper/src/pipeline/auto-open.ts`, `reprice.ts`.
-6. **Next.js security upgrade** (16.4.2 → patched; CI's dependency audit fails until done): ask
-   the owner yes/no first. The local `next build` stops once with a security message: run it again.
+4. **X6b failed-login alarm: done 18 Nov** (`apps/api/src/lib/login-alarm.ts`): 60 failed player
+   logins, 30 numbers, or 10 numbers from one address in 15 minutes write one `error` line with
+   `alarm: login_failures_total | _numbers | _address` per window (numbers hashed). Not yet an owner
+   alert (Telegram/SMS): add one in the worker's owner-alert list if the owner wants it.
+5. **X11 rule O1h, locked odds: done 18 Nov** (docs/scraper.md "O1h"): uncalibrated matches with a fresh
+   Hulusport board are priced entirely from the board, handed over and opened like a strong market,
+   suspended when the board goes stale. After the deploy, watch `odds_approval` and
+   `ratings_uncalibrated` fall; a league's "Auto open" switch decides whether F7b opens them alone.
+6. **Next.js security upgrade: done 18 Nov** (16.4.5, owner's yes, `d2c5f42`); CI's dependency audit
+   passes again.
 
 ## Owner decisions still open
 

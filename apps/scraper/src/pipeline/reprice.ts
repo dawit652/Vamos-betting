@@ -4,7 +4,12 @@ import {
   syncMarketStaleAlarm,
   syncOutOfLineAlarm,
 } from './credit-alarms';
-import { anyMarketKey, SCRAPED_FEED_PROVIDER, type ScrapePricingSource } from '@vamos/core';
+import {
+  anyMarketKey,
+  isBoardPricedKey,
+  SCRAPED_FEED_PROVIDER,
+  type ScrapePricingSource,
+} from '@vamos/core';
 import {
   closeReviewItemsBySubject,
   getCompetitionPolicy,
@@ -953,6 +958,16 @@ async function suspensionCause(
 ): Promise<ScrapeSuspension | null> {
   if (input.held) return 'reprice_held';
   const { policy, now } = input;
+  // O1h: prices made from the board stand only while the board is fresh, at any time before kickoff
+  // (the model cannot stand in: these teams are not calibrated). Priced again without ratings, the
+  // event is board-priced only while a fresh board explains its prices.
+  if (isBoardPricedKey(input.ratingsKey)) {
+    const fresh = await priceEvent(
+      exec,
+      pricingInput(ctx, policy, input.eventId, null, null, now, true),
+    );
+    return isBoardPricedKey(fresh.key) ? null : 'market_lapsed';
+  }
   if (
     policy.pricingSource !== 'market' ||
     !isMarketKey(input.ratingsKey) ||
