@@ -25,9 +25,15 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
    and the ID number, a supervisor approves, only that browser sets the PIN; no code ever shown at the
    desk). Also: a per-player budget of wrong ID numbers and one identical answer for "no verified ID"
    and "wrong ID". The built parts (migration 0063, `pin-reset.ts`, the routes, the screens) stay.
-3. **Walk-in tickets** (cashier phase 7): waits for the owner's decision (anonymous bets at a shop
+3. **Half-time score missing at settlement** (owner decision needed, then Opus, money path): the
+   scraper log shows `cannot result market ... (h2_btts): the half-time score is required` when
+   API-Football gives no half-time score. With the factory's markets on many matches this recurs;
+   those markets stay open for a person (Feed page lists the match). Options: void the half-time-
+   dependent markets automatically with stakes refunded, or keep waiting for a person. Live server
+   deployed `80c8a73` on 18 Nov 10:35 (67 migrations).
+4. **Walk-in tickets** (cashier phase 7): waits for the owner's decision (anonymous bets at a shop
    touch KYC and licensing rules).
-4. Smaller: cash limits per cashier per day (owner's numbers); a reassigned cashier's open shift is
+5. Smaller: cash limits per cashier per day (owner's numbers); a reassigned cashier's open shift is
    not closed (review note, minor).
 
 Done on 18 Nov by the first account (no need to re-read): Next.js 16.4.5; X6b; X11 rule O1h; cashier
