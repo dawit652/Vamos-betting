@@ -73,12 +73,90 @@ function ShopForm({ shop, onSaved }: { shop: CashierShopView; onSaved: () => voi
   );
 }
 
+/** Adds a shop: a short code for receipts and reports (bole-02), its name and address. */
+function NewShopForm({ onSaved }: { onSaved: () => void }) {
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [width, setWidth] = useState<58 | 80>(80);
+  const [threshold, setThreshold] = useState('10000');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const approvalThreshold = parseEtbToSantim(threshold);
+    if (!/^[a-z0-9-]{2,32}$/.test(code.trim().toLowerCase())) {
+      return setError('The code is 2 to 32 letters, digits or -, for example bole-02.');
+    }
+    if (approvalThreshold === null || approvalThreshold === '0') {
+      return setError('Enter the approval threshold in ETB.');
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api('/admin/cashier/shops', {
+        method: 'POST',
+        body: { code, name, address, receiptWidthMm: width, approvalThreshold },
+      });
+      setCode('');
+      setName('');
+      setAddress('');
+      onSaved();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="inline-form" onSubmit={(e) => void submit(e)} aria-label="Add a shop">
+      <input
+        aria-label="New shop code"
+        placeholder="code (bole-02)"
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+      />
+      <input
+        aria-label="New shop name"
+        placeholder="name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <input
+        aria-label="New shop address"
+        placeholder="address"
+        value={address}
+        onChange={(e) => setAddress(e.target.value)}
+      />
+      <select
+        aria-label="New shop receipt width"
+        value={width}
+        onChange={(e) => setWidth(e.target.value === '58' ? 58 : 80)}
+      >
+        <option value={80}>80 mm</option>
+        <option value={58}>58 mm</option>
+      </select>
+      <input
+        aria-label="New shop approval threshold (ETB)"
+        inputMode="decimal"
+        value={threshold}
+        onChange={(e) => setThreshold(e.target.value)}
+      />
+      <button type="submit" disabled={busy}>
+        Add shop
+      </button>
+      {error !== null && <Notice>{error}</Notice>}
+    </form>
+  );
+}
+
 function Shops() {
   const { data, error, loading, reload } =
     useFetch<CashierShopListResponse>('/admin/cashier/shops');
   return (
     <section>
-      <h2>Shops</h2>
+      <h2>Shops{data ? ` (${data.shops.length})` : ''}</h2>
+      <NewShopForm onSaved={reload} />
       <Loading loading={loading && data === null} error={error} />
       {data?.shops.map((shop) => (
         <ShopForm key={`${shop.id}-${shop.name}-${shop.address}`} shop={shop} onSaved={reload} />

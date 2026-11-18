@@ -167,6 +167,22 @@ export const UpdateCashierShopRequest = z
   .strict();
 export type UpdateCashierShopRequest = z.infer<typeof UpdateCashierShopRequest>;
 
+/** POST /admin/cashier/shops (settings.edit): a new shop, active. */
+export const CreateCashierShopRequest = z
+  .object({
+    code: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z0-9-]{2,32}$/, 'use 2 to 32 letters, digits or -'),
+    name: z.string().trim().min(2).max(80),
+    address: z.string().trim().max(200),
+    receiptWidthMm: z.union([z.literal(58), z.literal(80)]),
+    approvalThreshold: PositiveSantim,
+  })
+  .strict();
+export type CreateCashierShopRequest = z.infer<typeof CreateCashierShopRequest>;
+
 export const CashierShopResponse = z.object({ shop: CashierShopView });
 
 /** GET /admin/cashier/shops (cashier.reports): every shop, the closed ones too. */

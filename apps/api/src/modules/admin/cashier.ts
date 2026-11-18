@@ -18,6 +18,7 @@ import {
   OpenShiftRequest,
   SetPlayerStatusResponse,
   UpdateCashierShopRequest,
+  CreateCashierShopRequest,
   type CashierShiftView,
   type CashOperationView,
   type CashReceiptView,
@@ -46,6 +47,7 @@ import {
   shiftTotals,
   shiftTotalsMany,
   updateShop,
+  createShop,
   writeAudit,
   type CashierShift,
   type CashierShop,
@@ -479,6 +481,29 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
     const shops = await listShops(deps.db);
     return wire(CashierShopListResponse, { shops: shops.map(shopView) });
   });
+
+  app.post(
+    '/admin/cashier/shops',
+    { config: { staff: 'settings.edit' } },
+    async (request, reply) => {
+      const input = parseInput(CreateCashierShopRequest, request.body);
+      const actor = staffActor(request);
+      const shop = await inTx(deps, (tx) =>
+        createShop(tx, {
+          code: input.code,
+          name: input.name,
+          address: input.address,
+          receiptWidthMm: input.receiptWidthMm,
+          approvalThreshold: BigInt(input.approvalThreshold),
+          adminId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      reply.code(201);
+      return wire(CashierShopResponse, { shop: shopView(shop) });
+    },
+  );
 
   app.put<IdParams>(
     '/admin/cashier/shops/:id',

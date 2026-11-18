@@ -37,6 +37,7 @@ export const CASHIER_AUDIT = {
   codeMade: 'cashier.code_made',
   receiptReprinted: 'cashier.receipt_reprinted',
   shopUpdated: 'cashier.shop_updated',
+  shopCreated: 'cashier.shop_created',
 } as const;
 
 /** Roles that may work above a shop's approval threshold (the supervisors). */
@@ -122,6 +123,64 @@ export async function listShops(exec: DbExecutor): Promise<CashierShop[]> {
 export async function getShop(exec: DbExecutor, shopId: string): Promise<CashierShop | null> {
   const [row] = await exec.select().from(cashierShops).where(eq(cashierShops.id, shopId)).limit(1);
   return row ?? null;
+}
+
+/**
+ * Adds a shop (settings.edit; the owner runs more than 40): its `code` (2 to 32 of a-z, 0-9 and -,
+ * unique, shown on receipts and reports), name, address, receipt width and approval threshold.
+ * A code already in use is a 409. Audited.
+ */
+export async function createShop(
+  tx: DbTransaction,
+  input: {
+    code: string;
+    name: string;
+    address: string;
+    receiptWidthMm: 58 | 80;
+    approvalThreshold: bigint;
+    adminId: string;
+    now: Date;
+    ip?: string | null;
+  },
+): Promise<CashierShop> {
+  assertSantim(input.approvalThreshold, 'approvalThreshold');
+  let created: CashierShop | undefined;
+  try {
+    [created] = await tx
+      .insert(cashierShops)
+      .values({
+        code: input.code,
+        name: input.name,
+        address: input.address,
+        receiptWidthMm: input.receiptWidthMm,
+        approvalThreshold: input.approvalThreshold,
+        active: true,
+        createdAt: input.now,
+        updatedAt: input.now,
+      })
+      .returning();
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      throw domainConflict('shop_code_taken', `A shop with the code "${input.code}" exists.`);
+    }
+    throw error;
+  }
+  if (!created) throw new Error('cashier_shops insert returned no row');
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.adminId,
+    action: CASHIER_AUDIT.shopCreated,
+    targetType: 'cashier_shop',
+    targetId: created.id,
+    metadata: {
+      code: created.code,
+      name: created.name,
+      receiptWidthMm: created.receiptWidthMm,
+      approvalThreshold: created.approvalThreshold,
+    },
+    ip: input.ip ?? null,
+  });
+  return created;
 }
 
 /** Changes a shop's receipt header and desk parameters (settings.edit); audited. */

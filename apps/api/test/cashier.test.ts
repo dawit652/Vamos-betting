@@ -266,6 +266,35 @@ describe('shop settings', () => {
     const all = await asStaff(ctx, compliance, 'GET', '/admin/cashier/shops');
     expect(all.statusCode).toBe(200);
   });
+
+  it('adds shops (the owner runs more than 40): only settings.edit, a code once', async () => {
+    const body = {
+      code: 'Bole-02',
+      name: 'Nahubet Bole 2',
+      address: 'Bole, Addis Ababa',
+      receiptWidthMm: 80,
+      approvalThreshold: '1000000',
+    };
+    expect((await asStaff(ctx, finance, 'POST', '/admin/cashier/shops', body)).statusCode).toBe(
+      403,
+    );
+    const created = await asStaff(ctx, admin, 'POST', '/admin/cashier/shops', body);
+    expect(created.statusCode, created.body).toBe(201);
+    // The code is stored lower case; the new shop is active and on the list, and opens shifts.
+    expect(created.json()).toMatchObject({ shop: { code: 'bole-02', active: true } });
+    const again = await asStaff(ctx, admin, 'POST', '/admin/cashier/shops', body);
+    expect(again.statusCode).toBe(409);
+    expect(again.json()).toMatchObject({ error: { code: 'shop_code_taken' } });
+    const bad = await asStaff(ctx, admin, 'POST', '/admin/cashier/shops', {
+      ...body,
+      code: 'no spaces!',
+    });
+    expect(bad.statusCode).toBe(400);
+    const list = await asStaff(ctx, compliance, 'GET', '/admin/cashier/shops');
+    expect(
+      list.json<{ shops: Array<{ code: string }> }>().shops.map((shop) => shop.code),
+    ).toContain('bole-02');
+  });
 });
 
 describe('cash withdrawals', () => {
