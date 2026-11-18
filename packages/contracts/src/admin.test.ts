@@ -60,6 +60,7 @@ describe('the staff permission matrix', () => {
     expect(holders('cashier.desk')).toEqual(['admin', 'cashier', 'finance']);
     expect(holders('cashier.reports')).toEqual(['admin', 'compliance', 'finance']);
     expect(permissionsOf('cashier')).toEqual(['cashier.desk']);
+    expect(holders('users.status')).toEqual(['admin', 'compliance']);
   });
 
   it('keeps support away from trading, money and settings changes', () => {

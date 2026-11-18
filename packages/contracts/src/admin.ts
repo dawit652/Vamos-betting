@@ -74,6 +74,8 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  * - reconciliation.run: run a reconciliation now, upload a PSP statement
  *   [POST /admin/compliance/reconciliation-runs, /psp-statements]
  * - aml.review: AML flags and their review [/admin/compliance/aml-flags*]
+ * - users.status: block or unblock a player, with a reason [POST /admin/users/:id/status]
+ *   (a cashier may block, not unblock, at the desk: POST /admin/cashier/players/:id/block)
  * - cashier.desk: a shop's desk: open and close one's own shift, find a player, take cash
  *   deposits, print receipts [/admin/cashier/*, except the reports and the shop settings]
  * - cashier.reports: every shift and its operations [GET /admin/cashier/shifts*]
@@ -106,6 +108,7 @@ export const STAFF_PERMISSIONS = [
   'aml.review',
   'cashier.desk',
   'cashier.reports',
+  'users.status',
 ] as const;
 export const StaffPermissionSchema = z.enum(STAFF_PERMISSIONS);
 export type StaffPermission = z.infer<typeof StaffPermissionSchema>;
@@ -138,6 +141,7 @@ export const PERMISSION_ROLES: Readonly<Record<StaffPermission, readonly StaffRo
   // A cashier holds only the desk; supervisors (finance, admin) may work a desk too.
   'cashier.desk': ['admin', 'finance', 'cashier'],
   'cashier.reports': ['admin', 'finance', 'compliance'],
+  'users.status': ['admin', 'compliance'],
 };
 
 /** Whether `role` holds `permission` (false for anything unknown). */
@@ -1509,3 +1513,25 @@ export type UpdateStaffRequest = z.infer<typeof UpdateStaffRequest>;
 /** POST /admin/staff/:id/reset-password (ends the account's sessions). */
 export const ResetStaffPasswordRequest = z.object({ password: z.string().min(12).max(128) });
 export type ResetStaffPasswordRequest = z.infer<typeof ResetStaffPasswordRequest>;
+
+// ---------------------------------------------------------------------------
+// Blocking a player (users.status; a cashier may block at the desk).
+
+/** POST /admin/users/:id/status: block (`suspended`) or unblock (`active`) a player. */
+export const SetPlayerStatusRequest = z
+  .object({
+    status: z.enum(['active', 'suspended']),
+    reason: z.string().trim().min(3).max(500),
+  })
+  .strict();
+export type SetPlayerStatusRequest = z.infer<typeof SetPlayerStatusRequest>;
+
+/** POST /admin/cashier/players/:id/block: the desk blocks a player (unblocking is users.status). */
+export const BlockPlayerRequest = z.object({ reason: z.string().trim().min(3).max(500) }).strict();
+export type BlockPlayerRequest = z.infer<typeof BlockPlayerRequest>;
+
+export const SetPlayerStatusResponse = z.object({
+  status: z.enum(['active', 'suspended']),
+  changed: z.boolean(),
+});
+export type SetPlayerStatusResponse = z.infer<typeof SetPlayerStatusResponse>;
