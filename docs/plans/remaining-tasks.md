@@ -2,11 +2,12 @@
 
 Latest work: branch `claude/eager-cerf-ox9vkq` (18 Nov: it now holds `claude/happy-keller-i7cvrh`
 too, merged by the first account). A new session may be given another
-branch name: start it from `origin/claude/happy-keller-i7cvrh` (or whichever is newer). It holds the server's own branch
+branch name: start it from `origin/claude/eager-cerf-ox9vkq` (or whichever is newer). It holds the server's own branch
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Live
 server runs `47c3126`; pushed and not yet deployed: team logos, cashier desk phases 1 and 2
-(migrations 0056 to 0059 run on deploy).
+(migrations 0056 to 0059 run on deploy), and on 18 Nov the failed-login alarm (X6b), rule O1h
+(locked odds) and Next.js 16.4.5 (`0998108`).
 Deploy is done by the owner (PowerShell command in the last session: `ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
