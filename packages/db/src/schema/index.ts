@@ -24,3 +24,4 @@ export * from './channels';
 export * from './scrape';
 export * from './smsrail';
 export * from './cashier';
+export * from './retail';

@@ -21,6 +21,8 @@ import { payouts } from '../schema/payments';
 import {
   CASH_PROVIDER,
   CASHIER_AUDIT,
+  assertPlayerCashAllowed,
+  assertShopOperates,
   getShop,
   isSupervisorRole,
   lockOwnOpenShift,
@@ -247,7 +249,8 @@ export async function cashWithdrawal(
 
   const shop = await getShop(tx, shift.shopId);
   if (shop === null) throw domainNotFound('Shop');
-  if (!shop.active) throw domainConflict('shop_inactive', 'This shop is closed.');
+  assertShopOperates(shop);
+  assertPlayerCashAllowed(shop);
   const [staff] = await tx
     .select({ role: adminUsers.role })
     .from(adminUsers)

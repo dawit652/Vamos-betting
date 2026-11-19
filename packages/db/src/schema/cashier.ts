@@ -15,6 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { adminUsers, users } from './accounts';
 import { paymentIntents, payouts } from './payments';
+import { agents } from './retail';
 
 /**
  * Cashier desk (owner, 17 Nov 2026; docs/plans/cashier-dashboard.md). Staff in a betting shop take
@@ -36,6 +37,12 @@ export const cashierShops = pgTable(
   'cashier_shops',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    /** The agent that runs the shop (agent 1000 is Nahubet HQ; docs/plans/agent-shops.md). */
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'restrict' }),
+    /** The shop's number within its agent, printed as `<agent>-<nn>` (1001-01). */
+    number: integer('number').notNull(),
     /** Short stable name (receipts, reports). */
     code: text('code').notNull(),
     name: text('name').notNull(),
@@ -55,6 +62,8 @@ export const cashierShops = pgTable(
   },
   (t) => [
     uniqueIndex('cashier_shops_code_uq').on(t.code),
+    uniqueIndex('cashier_shops_agent_number_uq').on(t.agentId, t.number),
+    check('cashier_shops_number_range', sql`${t.number} BETWEEN 1 AND 999`),
     check('cashier_shops_code_format', sql`${t.code} ~ '^[a-z0-9-]{2,32}$'`),
     check('cashier_shops_receipt_width', sql`${t.receiptWidthMm} IN (58, 80)`),
     check('cashier_shops_threshold_positive', sql`${t.approvalThreshold} > 0`),

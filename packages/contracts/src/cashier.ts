@@ -16,6 +16,13 @@ const NonNegativeSantim = Santim.refine(
 
 export const CashierShopView = z.object({
   id: z.string(),
+  /** The agent that runs the shop (docs/plans/agent-shops.md; agent 1000 is Nahubet HQ). */
+  agentId: z.string(),
+  agentNumber: z.number().int(),
+  agentName: z.string(),
+  /** The shop's number within its agent, and the printed label (`1001-01`). */
+  number: z.number().int(),
+  label: z.string(),
   code: z.string(),
   name: z.string(),
   address: z.string(),

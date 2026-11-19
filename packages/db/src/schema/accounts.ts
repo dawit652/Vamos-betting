@@ -195,6 +195,11 @@ export const adminUsers = pgTable(
     email: text('email').notNull().unique(),
     passwordHash: text('password_hash').notNull(),
     displayName: text('display_name').notNull(),
+    /**
+     * Mobile number (E.164, `+2519…`): required for new cashiers (and agent owners), optional for
+     * office staff (owner, 19 Nov 2026: every agent's people have a name and a phone number).
+     */
+    phone: text('phone'),
     role: adminRole('role').notNull(),
     /**
      * TOTP secret, AES-256-GCM encrypted with ADMIN_TOTP_KEY and bound to the
@@ -243,6 +248,10 @@ export const adminUsers = pgTable(
   (t) => [
     check('admin_users_email_lower', sql`${t.email} = lower(${t.email})`),
     check('admin_users_failed_attempts', sql`${t.failedLoginAttempts} >= 0`),
+    check(
+      'admin_users_phone_format',
+      sql`${t.phone} IS NULL OR ${t.phone} ~ '^\\+251[79][0-9]{8}$'`,
+    ),
   ],
 );
 

@@ -2,11 +2,14 @@
  * Creates a back-office staff account and prints its TOTP enrolment.
  *
  *   pnpm admin:create --email ops@example.et --name "Abebe K." --role admin
- *   pnpm admin:create --email desk1@example.et --name "Hana T." --role cashier --shop bole-02
+ *   pnpm admin:create --email desk1@example.et --name "Hana T." --role cashier --shop 1001-01 \
+ *     --phone 0911223344
  *
  * `--shop <code>` (cashiers only) assigns the new cashier to that shop at once (the owner runs more
  * than 40 shops; a cashier opens shifts only at their shop). The shop must exist and be active: it is
- * checked before the account is created.
+ * checked before the account is created; a shop's printed number (`1001-01`) or its code works.
+ * `--phone <mobile>`: the staff member's mobile number, required for a cashier (owner, 19 Nov 2026:
+ * every agent's people have a name and a phone number).
  * Roles: admin, trader, finance, kyc, support, compliance. The password comes
  * from the ADMIN_PASSWORD environment variable (at least 12 characters);
  * without it a random one is generated and printed once, and must be
@@ -24,11 +27,14 @@ import { createDb } from '../client';
 import { DomainError } from '../errors';
 import { writeAudit } from '../platform/audit';
 import { cashierShops, cashierStaffShops } from '../schema/cashier';
-import { eq } from 'drizzle-orm';
+import { agents } from '../schema/retail';
+import { parseShopLabel } from '@vamos/core';
+import { and, eq, or } from 'drizzle-orm';
 
 const USAGE =
   'usage: pnpm admin:create --email <email> --name <display name> --role <' +
-  `${STAFF_ROLES.join('|')}> [--shop <shop code>]  (password: ADMIN_PASSWORD env, else generated)`;
+  `${STAFF_ROLES.join('|')}> [--shop <shop number or code>] [--phone <mobile>]  ` +
+  '(--phone is required for a cashier; password: ADMIN_PASSWORD env, else generated)';
 
 function fail(message: string): never {
   console.error(message);
@@ -41,6 +47,7 @@ const { values } = parseArgs({
     name: { type: 'string' },
     role: { type: 'string' },
     shop: { type: 'string' },
+    phone: { type: 'string' },
     help: { type: 'boolean' },
   },
   strict: true,
@@ -53,6 +60,7 @@ if (!values.email || !values.name || !values.role) fail(USAGE);
 if (!(STAFF_ROLES as readonly string[]).includes(values.role)) fail(USAGE);
 if (values.shop !== undefined && values.role !== 'cashier')
   fail('--shop is for --role cashier only');
+if (values.role === 'cashier' && !values.phone?.trim()) fail('a cashier needs --phone <mobile>');
 
 loadDotEnv();
 const config = loadConfig();
@@ -61,10 +69,21 @@ try {
   // The shop first: a wrong code must not leave a cashier account without its shop.
   let shopId: string | null = null;
   if (values.shop !== undefined) {
+    const wanted = values.shop.trim().toLowerCase();
+    const label = parseShopLabel(wanted);
     const [shop] = await handle.db
       .select({ id: cashierShops.id, active: cashierShops.active })
       .from(cashierShops)
-      .where(eq(cashierShops.code, values.shop.trim().toLowerCase()));
+      .innerJoin(agents, eq(agents.id, cashierShops.agentId))
+      .where(
+        label === null
+          ? eq(cashierShops.code, wanted)
+          : or(
+              eq(cashierShops.code, wanted),
+              and(eq(agents.number, label.agentNumber), eq(cashierShops.number, label.shopNumber)),
+            ),
+      )
+      .limit(1);
     if (!shop || !shop.active) fail(`no active shop with the code "${values.shop}"`);
     shopId = shop.id;
   }
@@ -81,6 +100,7 @@ try {
       email: values.email,
       displayName: values.name,
       role: values.role as StaffRole,
+      ...(values.phone === undefined ? {} : { phone: values.phone }),
       ...(password === undefined ? {} : { password }),
       requirePasswordChange: password === undefined,
       actor: { type: 'system', via: 'cli' },

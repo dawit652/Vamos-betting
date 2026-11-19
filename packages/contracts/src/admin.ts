@@ -80,6 +80,9 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  *   deposits, print receipts [/admin/cashier/*, except the reports and the shop settings]
  * - cashier.reports: every shift and its operations [GET /admin/cashier/shifts*]
  *   (the shop's name, address and limits change with settings.edit)
+ * - agents.view: agents, their shops and cashiers [GET /admin/agents*]
+ * - agents.manage: add and change agents, add their shops, block or unblock an agent
+ *   [POST/PATCH /admin/agents*]
  * (COMPLIANCE_ROUTE_PERMISSIONS in compliance.ts lists every compliance route.)
  */
 export const STAFF_PERMISSIONS = [
@@ -109,6 +112,8 @@ export const STAFF_PERMISSIONS = [
   'cashier.desk',
   'cashier.reports',
   'users.status',
+  'agents.view',
+  'agents.manage',
 ] as const;
 export const StaffPermissionSchema = z.enum(STAFF_PERMISSIONS);
 export type StaffPermission = z.infer<typeof StaffPermissionSchema>;
@@ -142,6 +147,9 @@ export const PERMISSION_ROLES: Readonly<Record<StaffPermission, readonly StaffRo
   'cashier.desk': ['admin', 'finance', 'cashier'],
   'cashier.reports': ['admin', 'finance', 'compliance'],
   'users.status': ['admin', 'compliance'],
+  // Agent shops (docs/plans/agent-shops.md): the admin has the last word over every agent.
+  'agents.view': ['admin', 'finance', 'compliance'],
+  'agents.manage': ['admin'],
 };
 
 /** Whether `role` holds `permission` (false for anything unknown). */
@@ -1465,6 +1473,8 @@ export const StaffUserView = z.object({
   id: z.string(),
   email: z.string(),
   displayName: z.string(),
+  /** Mobile number (E.164) or null; cashiers and agent owners have one. */
+  phone: z.string().nullable(),
   role: StaffRoleSchema,
   disabledAt: z.string().nullable(),
   lastLoginAt: z.string().nullable(),
@@ -1479,13 +1489,23 @@ export type StaffUserView = z.infer<typeof StaffUserView>;
 export const StaffListResponse = z.object({ items: z.array(StaffUserView) });
 export type StaffListResponse = z.infer<typeof StaffListResponse>;
 
-/** POST /admin/staff: without a password one is generated and returned once. */
-export const CreateStaffRequest = z.object({
-  email: z.email().max(254),
-  displayName: z.string().trim().min(1).max(100),
-  role: StaffRoleSchema,
-  password: z.string().min(12).max(128).optional(),
-});
+/**
+ * POST /admin/staff: without a password one is generated and returned once. A cashier needs a
+ * mobile number (owner, 19 Nov 2026); any Ethiopian form, stored as E.164 (422
+ * `invalid_staff_phone` otherwise).
+ */
+export const CreateStaffRequest = z
+  .object({
+    email: z.email().max(254),
+    displayName: z.string().trim().min(1).max(100),
+    role: StaffRoleSchema,
+    password: z.string().min(12).max(128).optional(),
+    phone: z.string().trim().max(32).optional(),
+  })
+  .refine((value) => value.role !== 'cashier' || (value.phone ?? '') !== '', {
+    message: 'a cashier needs a mobile number',
+    path: ['phone'],
+  });
 export type CreateStaffRequest = z.infer<typeof CreateStaffRequest>;
 
 /** A TOTP secret to enrol (shown once): type `secret` in, or render `uri` as a QR code. */
@@ -1504,10 +1524,14 @@ export const UpdateStaffRequest = z
   .object({
     role: StaffRoleSchema.optional(),
     displayName: z.string().trim().min(1).max(100).optional(),
+    /** A new mobile number, or null to remove it. */
+    phone: z.string().trim().max(32).nullable().optional(),
   })
-  .refine((value) => value.role !== undefined || value.displayName !== undefined, {
-    message: 'change the role or the display name',
-  });
+  .refine(
+    (value) =>
+      value.role !== undefined || value.displayName !== undefined || value.phone !== undefined,
+    { message: 'change the role, the display name or the phone' },
+  );
 export type UpdateStaffRequest = z.infer<typeof UpdateStaffRequest>;
 
 /** POST /admin/staff/:id/reset-password (ends the account's sessions). */

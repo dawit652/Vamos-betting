@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { normalizeEthiopianMsisdn } from '@vamos/core';
 import { isCommonPassword } from '@vamos/core/common-passwords';
 import { and, asc, desc, eq, gt, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import type { Database } from '../client';
@@ -124,6 +125,8 @@ export interface StaffUserView {
   id: string;
   email: string;
   displayName: string;
+  /** Mobile number (E.164) or null: cashiers and agent owners have one. */
+  phone: string | null;
   role: StaffRole;
   disabledAt: Date | null;
   lastLoginAt: Date | null;
@@ -221,6 +224,19 @@ function checkedEmail(email: string): string {
   return normalized;
 }
 
+/** A staff mobile number normalised to E.164 (`+2519…`), null for none; 422 when not a mobile. */
+function checkedPhone(phone: string | null | undefined): string | null {
+  if (phone === undefined || phone === null || phone.trim() === '') return null;
+  const normalised = normalizeEthiopianMsisdn(phone);
+  if (normalised === null) {
+    throw domainUnprocessable(
+      'invalid_staff_phone',
+      'Use an Ethiopian mobile number (09… or 07…).',
+    );
+  }
+  return normalised;
+}
+
 function checkedDisplayName(name: string): string {
   const trimmed = name.trim();
   if (trimmed.length === 0 || trimmed.length > STAFF_DISPLAY_NAME_MAX_LENGTH) {
@@ -304,6 +320,7 @@ function staffView(row: typeof adminUsers.$inferSelect): StaffUserView {
     id: row.id,
     email: row.email,
     displayName: row.displayName,
+    phone: row.phone,
     role: row.role,
     disabledAt: row.disabledAt,
     lastLoginAt: row.lastLoginAt,
@@ -376,6 +393,8 @@ export interface CreateStaffUserInput {
   role: StaffRole;
   /** Omitted: a random password is generated and returned. */
   password?: string;
+  /** Mobile number in any Ethiopian form (normalised to E.164); omitted or null for none. */
+  phone?: string | null;
   /**
    * Whether the new staff member must change the password at first sign-in.
    * Always so when an admin creates the account (they know the password);
@@ -406,6 +425,7 @@ export async function createStaffUser(
   const email = checkedEmail(input.email);
   const displayName = checkedDisplayName(input.displayName);
   const role = checkedRole(input.role);
+  const phone = checkedPhone(input.phone);
   const actor = auditActor(input.actor);
   let generatedPassword: string | null = null;
   if (input.password === undefined) {
@@ -431,6 +451,7 @@ export async function createStaffUser(
         email,
         passwordHash,
         displayName,
+        phone,
         role,
         totpSecretEnc: stored,
         totpEnrolledAt: now,
@@ -455,6 +476,7 @@ export async function createStaffUser(
         email,
         role,
         displayName,
+        phone,
         ...(input.actor.type === 'system' ? { via: input.actor.via } : {}),
       },
     });
@@ -567,6 +589,8 @@ export async function updateStaffUser(
     adminUserId: string;
     role?: StaffRole;
     displayName?: string;
+    /** A new mobile number, or null to remove it; omitted to keep it. */
+    phone?: string | null;
     actor: StaffAccountActor;
     now: Date;
   },
@@ -575,16 +599,19 @@ export async function updateStaffUser(
   const role = input.role === undefined ? undefined : checkedRole(input.role);
   const displayName =
     input.displayName === undefined ? undefined : checkedDisplayName(input.displayName);
+  const phone = input.phone === undefined ? undefined : checkedPhone(input.phone);
   const user = await lockStaffUser(tx, input.adminUserId);
   const roleChanged = role !== undefined && role !== user.role;
   const nameChanged = displayName !== undefined && displayName !== user.displayName;
-  if (!roleChanged && !nameChanged) return staffView(user);
+  const phoneChanged = phone !== undefined && phone !== user.phone;
+  if (!roleChanged && !nameChanged && !phoneChanged) return staffView(user);
   if (roleChanged) await assertNotLastAdmin(tx, user);
   const [row] = await tx
     .update(adminUsers)
     .set({
       ...(roleChanged ? { role } : {}),
       ...(nameChanged ? { displayName } : {}),
+      ...(phoneChanged ? { phone } : {}),
       updatedAt: input.now,
     })
     .where(eq(adminUsers.id, user.id))
@@ -597,8 +624,8 @@ export async function updateStaffUser(
     targetType: 'admin_user',
     targetId: user.id,
     metadata: {
-      before: { role: user.role, displayName: user.displayName },
-      after: { role: row.role, displayName: row.displayName },
+      before: { role: user.role, displayName: user.displayName, phone: user.phone },
+      after: { role: row.role, displayName: row.displayName, phone: row.phone },
       revokedSessions: revoked,
     },
   });

@@ -46,6 +46,7 @@ import {
   getOpenShift,
   getReceipt,
   getShift,
+  getShop,
   isSupervisorRole,
   listShiftOperations,
   listShifts,
@@ -76,8 +77,8 @@ import {
   DomainError,
   writeAudit,
   type CashierShift,
-  type CashierShop,
   type DbExecutor,
+  type ShopWithAgent,
   type Receipt,
   type ShiftTotals,
 } from '@vamos/db';
@@ -125,9 +126,15 @@ const ShiftListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
-function shopView(shop: CashierShop) {
+/** A shop as the back office shows it, with its agent and printed number (`1001-01`). */
+export function shopView(shop: ShopWithAgent) {
   return {
     id: shop.id,
+    agentId: shop.agentId,
+    agentNumber: shop.agentNumber,
+    agentName: shop.agentName,
+    number: shop.number,
+    label: shop.label,
     code: shop.code,
     name: shop.name,
     address: shop.address,
@@ -740,8 +747,8 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
     async (request, reply) => {
       const input = parseInput(CreateCashierShopRequest, request.body);
       const actor = staffActor(request);
-      const shop = await inTx(deps, (tx) =>
-        createShop(tx, {
+      const shop = await inTx(deps, async (tx) => {
+        const created = await createShop(tx, {
           code: input.code,
           name: input.name,
           address: input.address,
@@ -750,8 +757,11 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
           adminId: actor.adminId,
           now: deps.clock(),
           ip: actor.ip ?? null,
-        }),
-      );
+        });
+        const withAgent = await getShop(tx, created.id);
+        if (withAgent === null) throw notFound('Shop');
+        return withAgent;
+      });
       reply.code(201);
       return wire(CashierShopResponse, { shop: shopView(shop) });
     },
@@ -807,8 +817,8 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       const shopId = parseUuid(request.params.id, 'Shop');
       const input = parseInput(UpdateCashierShopRequest, request.body);
       const actor = staffActor(request);
-      const shop = await inTx(deps, (tx) =>
-        updateShop(tx, {
+      const shop = await inTx(deps, async (tx) => {
+        const updated = await updateShop(tx, {
           shopId,
           name: input.name,
           address: input.address,
@@ -818,8 +828,11 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
           adminId: actor.adminId,
           now: deps.clock(),
           ip: actor.ip ?? null,
-        }),
-      );
+        });
+        const withAgent = await getShop(tx, updated.id);
+        if (withAgent === null) throw notFound('Shop');
+        return withAgent;
+      });
       return wire(CashierShopResponse, { shop: shopView(shop) });
     },
   );

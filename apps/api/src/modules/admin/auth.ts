@@ -226,6 +226,7 @@ export default async function adminAuthRoutes(app: FastifyInstance): Promise<voi
       displayName: input.displayName,
       role: input.role,
       ...(input.password === undefined ? {} : { password: input.password }),
+      ...(input.phone === undefined ? {} : { phone: input.phone }),
       actor: accountActor(request),
     });
     return reply.status(201).send(wire(CreateStaffResponse, created));
@@ -254,6 +255,7 @@ export default async function adminAuthRoutes(app: FastifyInstance): Promise<voi
           adminUserId,
           ...(input.role === undefined ? {} : { role: input.role }),
           ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+          ...(input.phone === undefined ? {} : { phone: input.phone }),
           actor,
           now,
         }),

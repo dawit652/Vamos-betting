@@ -1,5 +1,11 @@
-import { normalizeEthiopianMsisdn, toWire, type PaymentRules } from '@vamos/core';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import {
+  formatShopLabel,
+  MAX_SHOP_NUMBER,
+  normalizeEthiopianMsisdn,
+  toWire,
+  type PaymentRules,
+} from '@vamos/core';
+import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { isUniqueViolation } from '../catalog/errors';
 import { domainConflict, domainForbidden, domainNotFound, domainUnprocessable } from '../errors';
@@ -21,6 +27,7 @@ import {
   cashierStaffShops,
 } from '../schema/cashier';
 import { paymentIntents } from '../schema/payments';
+import { agents } from '../schema/retail';
 
 /**
  * The cashier desk (docs/plans/cashier-dashboard.md). Cash is the payment provider `cash`: a desk
@@ -125,13 +132,76 @@ function assertSantim(amount: bigint, label: string, allowZero = false): void {
 
 // ---------------------------------------------------------------------------------------- shops
 
-export async function listShops(exec: DbExecutor): Promise<CashierShop[]> {
-  return exec.select().from(cashierShops).orderBy(asc(cashierShops.code));
+/**
+ * A shop with its agent (docs/plans/agent-shops.md): agent 1000 is Nahubet HQ (`agentIsHouse`),
+ * whose shops' cash is Nahubet's; `label` is the printed number, e.g. `1001-01`.
+ */
+export type ShopWithAgent = CashierShop & {
+  agentNumber: number;
+  agentName: string;
+  agentStatus: 'active' | 'blocked';
+  agentIsHouse: boolean;
+  label: string;
+};
+
+const SHOP_WITH_AGENT = {
+  ...getTableColumns(cashierShops),
+  agentNumber: agents.number,
+  agentName: agents.name,
+  agentStatus: agents.status,
+  agentIsHouse: agents.isHouse,
+};
+
+function withLabel(row: Omit<ShopWithAgent, 'label'>): ShopWithAgent {
+  return { ...row, label: formatShopLabel(row.agentNumber, row.number) };
 }
 
-export async function getShop(exec: DbExecutor, shopId: string): Promise<CashierShop | null> {
-  const [row] = await exec.select().from(cashierShops).where(eq(cashierShops.id, shopId)).limit(1);
-  return row ?? null;
+/** Every shop with its agent, by agent number then shop number. */
+export async function listShops(exec: DbExecutor): Promise<ShopWithAgent[]> {
+  const rows = await exec
+    .select(SHOP_WITH_AGENT)
+    .from(cashierShops)
+    .innerJoin(agents, eq(agents.id, cashierShops.agentId))
+    .orderBy(asc(agents.number), asc(cashierShops.number));
+  return rows.map(withLabel);
+}
+
+export async function getShop(exec: DbExecutor, shopId: string): Promise<ShopWithAgent | null> {
+  const [row] = await exec
+    .select(SHOP_WITH_AGENT)
+    .from(cashierShops)
+    .innerJoin(agents, eq(agents.id, cashierShops.agentId))
+    .where(eq(cashierShops.id, shopId))
+    .limit(1);
+  return row === undefined ? null : withLabel(row);
+}
+
+/**
+ * A shop works only while it is open and its agent is not blocked (the admin blocks an agent at
+ * any time; owner, 19 Nov 2026): 409 `shop_inactive` / `agent_blocked`.
+ */
+export function assertShopOperates(shop: ShopWithAgent): void {
+  if (!shop.active) throw domainConflict('shop_inactive', 'This shop is closed.');
+  if (shop.agentStatus === 'blocked') {
+    throw domainConflict(
+      'agent_blocked',
+      "This shop's agent is blocked: it cannot work until an admin unblocks it.",
+    );
+  }
+}
+
+/**
+ * Player cash (deposits and withdrawals for online players) moves the agent's prepaid balance at an
+ * independent agent's shop, which arrives with phase 2 of docs/plans/agent-shops.md. Until then
+ * only Nahubet HQ's shops, whose cash is Nahubet's, take player cash: 409 `agent_player_cash_off`.
+ */
+export function assertPlayerCashAllowed(shop: ShopWithAgent): void {
+  if (!shop.agentIsHouse) {
+    throw domainConflict(
+      'agent_player_cash_off',
+      "Player cash is not available at this agent's shops yet.",
+    );
+  }
 }
 
 /**
@@ -142,7 +212,10 @@ export async function getShop(exec: DbExecutor, shopId: string): Promise<Cashier
 export async function createShop(
   tx: DbTransaction,
   input: {
-    code: string;
+    /** The agent that runs it; omitted or null for Nahubet HQ. */
+    agentId?: string | null;
+    /** Omitted: the shop's printed number (`1001-01`). */
+    code?: string;
     name: string;
     address: string;
     receiptWidthMm: 58 | 80;
@@ -153,12 +226,34 @@ export async function createShop(
   },
 ): Promise<CashierShop> {
   assertSantim(input.approvalThreshold, 'approvalThreshold');
+  // The agent row is locked: two shops added at once for one agent get different numbers.
+  const [agent] = await tx
+    .select({ id: agents.id, number: agents.number })
+    .from(agents)
+    .where(
+      input.agentId === undefined || input.agentId === null
+        ? eq(agents.isHouse, true)
+        : eq(agents.id, input.agentId),
+    )
+    .for('update');
+  if (agent === undefined) throw domainNotFound('Agent');
+  const [highest] = await tx
+    .select({ number: sql<number | null>`max(${cashierShops.number})` })
+    .from(cashierShops)
+    .where(eq(cashierShops.agentId, agent.id));
+  const number = Number(highest?.number ?? 0) + 1;
+  if (number > MAX_SHOP_NUMBER) {
+    throw domainConflict('agent_shop_limit', `An agent can have at most ${MAX_SHOP_NUMBER} shops.`);
+  }
+  const code = input.code ?? formatShopLabel(agent.number, number);
   let created: CashierShop | undefined;
   try {
     [created] = await tx
       .insert(cashierShops)
       .values({
-        code: input.code,
+        agentId: agent.id,
+        number,
+        code,
         name: input.name,
         address: input.address,
         receiptWidthMm: input.receiptWidthMm,
@@ -170,7 +265,7 @@ export async function createShop(
       .returning();
   } catch (error) {
     if (isUniqueViolation(error)) {
-      throw domainConflict('shop_code_taken', `A shop with the code "${input.code}" exists.`);
+      throw domainConflict('shop_code_taken', `A shop with the code "${code}" exists.`);
     }
     throw error;
   }
@@ -183,6 +278,8 @@ export async function createShop(
     targetId: created.id,
     metadata: {
       code: created.code,
+      agentId: agent.id,
+      label: formatShopLabel(agent.number, number),
       name: created.name,
       receiptWidthMm: created.receiptWidthMm,
       approvalThreshold: created.approvalThreshold,
@@ -631,7 +728,7 @@ export async function openShift(
   assertSantim(input.openingFloat, 'openingFloat', true);
   const shop = await getShop(tx, input.shopId);
   if (shop === null) throw domainNotFound('Shop');
-  if (!shop.active) throw domainConflict('shop_inactive', 'This shop is closed.');
+  assertShopOperates(shop);
   await assertMayWorkAt(tx, input.staffId, shop.id);
   if ((await getOpenShift(tx, input.staffId)) !== null) {
     throw domainConflict('shift_already_open', 'You already have an open shift. Close it first.');
@@ -964,7 +1061,8 @@ export async function cashDeposit(
   if (late !== null) return late;
   const shop = await getShop(tx, shift.shopId);
   if (shop === null) throw domainNotFound('Shop');
-  if (!shop.active) throw domainConflict('shop_inactive', 'This shop is closed.');
+  assertShopOperates(shop);
+  assertPlayerCashAllowed(shop);
 
   if (amount < input.rules.minDeposit || amount > input.rules.maxDeposit) {
     throw domainUnprocessable(
@@ -1089,7 +1187,7 @@ export async function cashDeposit(
 
 export interface Receipt {
   operation: CashOperation;
-  shop: CashierShop;
+  shop: ShopWithAgent;
   staffName: string;
   player: { phone: string; name: string | null };
   /** The provider reference the player sees in their history (R<receipt number>). */
@@ -1102,6 +1200,10 @@ export async function getReceipt(exec: DbExecutor, operationId: string): Promise
     .select({
       operation: cashOperations,
       shop: cashierShops,
+      agentNumber: agents.number,
+      agentName: agents.name,
+      agentStatus: agents.status,
+      agentIsHouse: agents.isHouse,
       staffName: adminUsers.displayName,
       phone: users.phone,
       fullName: users.fullName,
@@ -1109,6 +1211,7 @@ export async function getReceipt(exec: DbExecutor, operationId: string): Promise
     })
     .from(cashOperations)
     .innerJoin(cashierShops, eq(cashierShops.id, cashOperations.shopId))
+    .innerJoin(agents, eq(agents.id, cashierShops.agentId))
     .innerJoin(adminUsers, eq(adminUsers.id, cashOperations.staffId))
     .innerJoin(users, eq(users.id, cashOperations.userId))
     .leftJoin(kycProfiles, eq(kycProfiles.userId, users.id))
@@ -1117,7 +1220,13 @@ export async function getReceipt(exec: DbExecutor, operationId: string): Promise
   if (!row) return null;
   return {
     operation: row.operation,
-    shop: row.shop,
+    shop: withLabel({
+      ...row.shop,
+      agentNumber: row.agentNumber,
+      agentName: row.agentName,
+      agentStatus: row.agentStatus,
+      agentIsHouse: row.agentIsHouse,
+    }),
     staffName: row.staffName,
     player: {
       phone: row.phone,

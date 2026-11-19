@@ -25,6 +25,7 @@ export * from './market-consensus';
 export * from './consensus-tolerance';
 export * from './best-price';
 export * from './phone';
+export * from './retail';
 export * from './age';
 export * from './codes';
 export * from './oddspolicy';
