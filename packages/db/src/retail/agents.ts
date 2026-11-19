@@ -322,3 +322,41 @@ export async function isOwnerAgentActive(exec: DbExecutor, staffId: string): Pro
   const agent = await getOwnerAgent(exec, staffId);
   return agent !== null && agent.status === 'active' && !agent.isHouse;
 }
+
+/**
+ * Switches player cash (deposits and withdrawals for online players) on or off at an agent's
+ * shops (agents.manage; agent-shops.md phase 2 step 4): with it on, the agent's prepaid balance
+ * pays player deposits and receives the cash withdrawals the shops pay out. Nahubet HQ always
+ * has it (409 `agent_is_house`). Audited; the same setting again changes nothing.
+ */
+export async function setAgentPlayerCash(
+  tx: DbTransaction,
+  input: { agentId: string; enabled: boolean; adminId: string; now: Date; ip?: string | null },
+): Promise<Agent> {
+  const [current] = await tx
+    .select()
+    .from(agents)
+    .where(eq(agents.id, input.agentId))
+    .for('update');
+  if (!current) throw domainNotFound('Agent');
+  if (current.isHouse) {
+    throw domainConflict('agent_is_house', "Nahubet HQ's shops always take player cash.");
+  }
+  if (current.playerCashEnabled === input.enabled) return current;
+  const [updated] = await tx
+    .update(agents)
+    .set({ playerCashEnabled: input.enabled, updatedAt: input.now })
+    .where(eq(agents.id, current.id))
+    .returning();
+  if (!updated) throw new Error('agent update returned no row');
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.adminId,
+    action: 'agent.player_cash_switched',
+    targetType: 'agent',
+    targetId: current.id,
+    metadata: { enabled: input.enabled },
+    ip: input.ip ?? null,
+  });
+  return updated;
+}

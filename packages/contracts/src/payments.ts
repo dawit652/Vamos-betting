@@ -29,7 +29,12 @@ export type PaymentProviderName = z.infer<typeof PaymentProviderNameSchema>;
  * The provider a deposit or withdrawal record carries: an online provider, or `cash` (taken or
  * paid at a shop's desk, docs/plans/cashier-dashboard.md). Never something a player requests.
  */
-export const PaymentRecordProviderSchema = z.enum([...PaymentProviderNameSchema.options, 'cash']);
+export const PaymentRecordProviderSchema = z.enum([
+  ...PaymentProviderNameSchema.options,
+  'cash',
+  // Player cash at an agent's shop: the agent's prepaid balance pays (agent-shops.md phase 2).
+  'agent_cash',
+]);
 export type PaymentRecordProvider = z.infer<typeof PaymentRecordProviderSchema>;
 
 /** A positive amount of santim (decimal string). */

@@ -9,6 +9,7 @@ import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { isUniqueViolation } from '../catalog/errors';
 import { domainConflict, domainForbidden, domainNotFound, domainUnprocessable } from '../errors';
+import { InsufficientFundsError } from '../ledger/errors';
 import { postTransaction } from '../ledger/post';
 import { getPlayerBalances } from '../ledger/queries';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
@@ -141,6 +142,8 @@ export type ShopWithAgent = CashierShop & {
   agentName: string;
   agentStatus: 'active' | 'blocked';
   agentIsHouse: boolean;
+  /** Player cash (deposits, withdrawals) switched on at this agent's shops (phase 2). */
+  agentPlayerCash: boolean;
   label: string;
 };
 
@@ -150,6 +153,7 @@ const SHOP_WITH_AGENT = {
   agentName: agents.name,
   agentStatus: agents.status,
   agentIsHouse: agents.isHouse,
+  agentPlayerCash: agents.playerCashEnabled,
 };
 
 function withLabel(row: Omit<ShopWithAgent, 'label'>): ShopWithAgent {
@@ -191,17 +195,26 @@ export function assertShopOperates(shop: ShopWithAgent): void {
 }
 
 /**
- * Player cash (deposits and withdrawals for online players) moves the agent's prepaid balance at an
- * independent agent's shop, which arrives with phase 2 of docs/plans/agent-shops.md. Until then
- * only Nahubet HQ's shops, whose cash is Nahubet's, take player cash: 409 `agent_player_cash_off`.
+ * Player cash (deposits and withdrawals for online players): Nahubet HQ's shops always (their cash
+ * is Nahubet's, provider `cash`); an agent's shops only while an admin has switched it on for the
+ * agent (agent-shops.md phase 2 step 4): the money moves the agent's prepaid balance (provider
+ * `agent_cash`). Otherwise 409 `agent_player_cash_off`.
  */
 export function assertPlayerCashAllowed(shop: ShopWithAgent): void {
-  if (!shop.agentIsHouse) {
+  if (!shop.agentIsHouse && !shop.agentPlayerCash) {
     throw domainConflict(
       'agent_player_cash_off',
-      "Player cash is not available at this agent's shops yet.",
+      "Player cash is switched off at this agent's shops.",
     );
   }
+}
+
+/** Player cash at an agent's shop: the agent's balance pays, not Nahubet's cash. */
+export const AGENT_CASH_PROVIDER = 'agent_cash';
+
+/** The provider of player cash at this shop: `cash` at HQ, `agent_cash` at an agent's shop. */
+export function playerCashProvider(shop: ShopWithAgent): string {
+  return shop.agentIsHouse ? CASH_PROVIDER : AGENT_CASH_PROVIDER;
 }
 
 /**
@@ -1126,20 +1139,40 @@ export async function cashDeposit(
   const receiptNo = await nextReceiptNo(tx);
   const reference = `R${receiptNo}`;
 
-  const posting = await postTransaction(tx, {
-    type: 'deposit',
-    idempotencyKey: depositLedgerKey(intentId),
-    refType: 'payment_intent',
-    refId: intentId,
-    description: `Cash deposit, receipt ${reference}`,
-    actor: { type: 'admin', id: input.staffId },
-    createdAt: now,
-    entries: depositEntries(CASH_PROVIDER, input.userId, amount),
-  });
+  // HQ: Nahubet's cash (house:psp:cash). An agent's shop: the cash stays in the agent's drawer and
+  // the agent's prepaid balance pays the player (never below zero: 409 agent_balance_low).
+  const provider = playerCashProvider(shop);
+  let posting;
+  try {
+    posting = await postTransaction(tx, {
+      type: 'deposit',
+      idempotencyKey: depositLedgerKey(intentId),
+      refType: 'payment_intent',
+      refId: intentId,
+      description: `Cash deposit, receipt ${reference}`,
+      actor: { type: 'admin', id: input.staffId },
+      createdAt: now,
+      entries: shop.agentIsHouse
+        ? depositEntries(CASH_PROVIDER, input.userId, amount)
+        : [
+            { account: { kind: 'agent_balance', agentId: shop.agentId }, amount: -amount },
+            { account: { kind: 'player_cash', userId: input.userId }, amount },
+          ],
+    });
+  } catch (error) {
+    if (error instanceof InsufficientFundsError) {
+      throw domainConflict(
+        'agent_balance_low',
+        "The agent's balance is too low for this deposit. The agent tops up at Nahubet first.",
+        { balance: toWire(error.available), amount: toWire(amount) },
+      );
+    }
+    throw error;
+  }
   await tx.insert(paymentIntents).values({
     id: intentId,
     userId: input.userId,
-    provider: CASH_PROVIDER,
+    provider,
     amount,
     phone: player.phone,
     status: 'succeeded',
@@ -1176,7 +1209,7 @@ export async function cashDeposit(
     payload: {
       intentId,
       userId: input.userId,
-      provider: CASH_PROVIDER,
+      provider,
       amount,
       providerRef: reference,
     },
@@ -1214,6 +1247,7 @@ export async function getReceipt(exec: DbExecutor, operationId: string): Promise
       agentName: agents.name,
       agentStatus: agents.status,
       agentIsHouse: agents.isHouse,
+      agentPlayerCash: agents.playerCashEnabled,
       staffName: adminUsers.displayName,
       phone: users.phone,
       fullName: users.fullName,
@@ -1236,6 +1270,7 @@ export async function getReceipt(exec: DbExecutor, operationId: string): Promise
       agentName: row.agentName,
       agentStatus: row.agentStatus,
       agentIsHouse: row.agentIsHouse,
+      agentPlayerCash: row.agentPlayerCash,
     }),
     staffName: row.staffName,
     player: {

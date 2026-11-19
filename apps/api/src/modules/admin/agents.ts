@@ -1,5 +1,6 @@
 import {
   AgentDetailResponse,
+  AgentPlayerCashRequest,
   AgentListResponse,
   AgentResponse,
   AgentStatusRequest,
@@ -35,6 +36,7 @@ import {
   listShops,
   revokeShopDevice,
   setAgentBlocked,
+  setAgentPlayerCash,
   updateAgent,
 } from '@vamos/db';
 import type { FastifyInstance } from 'fastify';
@@ -117,6 +119,26 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
       devices,
     });
   });
+
+  app.post<IdParams>(
+    '/admin/agents/:id/player-cash',
+    { config: { staff: 'agents.manage' } },
+    async (request) => {
+      const agentId = parseUuid(request.params.id, 'Agent');
+      const input = parseInput(AgentPlayerCashRequest, request.body);
+      const actor = staffActor(request);
+      const agent = await inTx(deps, (tx) =>
+        setAgentPlayerCash(tx, {
+          agentId,
+          enabled: input.enabled,
+          adminId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      return wire(AgentResponse, { agent });
+    },
+  );
 
   // The agent balance (phase 2): one admin records a top-up or take-back, another person
   // approves or rejects it (four eyes, also checked in the database); the approval posts it.

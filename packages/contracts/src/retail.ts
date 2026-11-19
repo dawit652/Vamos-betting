@@ -233,3 +233,7 @@ export type DecideAgentTopupRequest = z.infer<typeof DecideAgentTopupRequest>;
 
 export const AgentTopupResponse = z.object({ topup: AgentTopupView, changed: z.boolean() });
 export type AgentTopupResponse = z.infer<typeof AgentTopupResponse>;
+
+/** POST /admin/agents/:id/player-cash (agents.manage): player cash at the agent's shops on or off. */
+export const AgentPlayerCashRequest = z.object({ enabled: z.boolean() }).strict();
+export type AgentPlayerCashRequest = z.infer<typeof AgentPlayerCashRequest>;

@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { toWire, type AmlRules, type PaymentRules } from '@vamos/core';
-import { and, asc, desc, eq, gt, isNull, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt } from 'drizzle-orm';
 import type { Database } from '../client';
 import {
   DomainError,
@@ -12,23 +12,28 @@ import {
 } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { amlHoldsWithdrawals } from '../compliance/aml';
-import { markPayoutFailed, markPayoutPaid, requestWithdrawal } from '../payments/withdrawals';
+import {
+  DESK_PROVIDERS,
+  markPayoutFailed,
+  markPayoutPaid,
+  requestWithdrawal,
+} from '../payments/withdrawals';
 import { writeAudit } from '../platform/audit';
 import { lockUser } from '../rg/limits';
 import { adminUsers, users } from '../schema/accounts';
 import { cashOperations, cashWithdrawalCodes } from '../schema/cashier';
 import { payouts } from '../schema/payments';
 import {
-  CASH_PROVIDER,
-  CASHIER_AUDIT,
   assertPlayerCashAllowed,
   assertShopOperates,
+  CASHIER_AUDIT,
+  type CashOperation,
   getShop,
   isSupervisorRole,
   lockOwnOpenShift,
   nextReceiptNo,
+  playerCashProvider,
   shiftPlayerTotal,
-  type CashOperation,
 } from './desk';
 
 /**
@@ -251,6 +256,7 @@ export async function cashWithdrawal(
   if (shop === null) throw domainNotFound('Shop');
   assertShopOperates(shop);
   assertPlayerCashAllowed(shop);
+  const provider = playerCashProvider(shop);
   const [staff] = await tx
     .select({ role: adminUsers.role })
     .from(adminUsers)
@@ -290,7 +296,8 @@ export async function cashWithdrawal(
     .where(
       and(
         eq(payouts.userId, input.userId),
-        eq(payouts.provider, CASH_PROVIDER),
+        // A waiting payout is paid at a shop of its kind: HQ (`cash`) or an agent's (`agent_cash`).
+        eq(payouts.provider, provider),
         eq(payouts.status, 'approved'),
         isNull(payouts.flaggedAt),
       ),
@@ -326,7 +333,7 @@ export async function cashWithdrawal(
       userId: input.userId,
       amount,
       phone: player.phone,
-      provider: CASH_PROVIDER,
+      provider,
       idempotencyKey: `cashier:${key}`,
       now,
       rules: input.rules,
@@ -400,6 +407,8 @@ export async function cashWithdrawal(
     now,
     admin: { adminId: input.staffId, ip: input.ip ?? null },
     cashDesk: true,
+    // An agent's shop paid the cash out of its own drawer: the agent's balance grows by it.
+    ...(shop.agentIsHouse ? {} : { paidTo: { kind: 'agent_balance', agentId: shop.agentId } }),
   });
   const [operation] = await tx
     .insert(cashOperations)
@@ -472,7 +481,7 @@ export async function expireUncollectedCashPayouts(
     .from(payouts)
     .where(
       and(
-        eq(payouts.provider, CASH_PROVIDER),
+        inArray(payouts.provider, [...DESK_PROVIDERS]),
         eq(payouts.status, 'approved'),
         lt(payouts.approvedAt, cutoff),
         // One flagged for staff (AML, review) is the staff's to decide, never returned by age.

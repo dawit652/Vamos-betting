@@ -134,3 +134,30 @@ describe('agent top-ups', () => {
     expect(detail.topups[0]).toMatchObject({ status: 'rejected', bankReference: 'CBE-123456' });
   });
 });
+
+describe('player cash at an agent shop', () => {
+  it('only agents.manage switches it, never for Nahubet HQ', async () => {
+    const agent = await newAgent('Player Cash Route Agent');
+    const on = await asStaff(ctx, admin, 'POST', `/admin/agents/${agent.id}/player-cash`, {
+      enabled: true,
+    });
+    expect(on.statusCode, on.body).toBe(200);
+    expect(AgentResponse.parse(on.json()).agent.playerCashEnabled).toBe(true);
+    expect(
+      (
+        await asStaff(ctx, finance, 'POST', `/admin/agents/${agent.id}/player-cash`, {
+          enabled: false,
+        })
+      ).statusCode,
+    ).toBe(403);
+    const list = AgentListResponse.parse(
+      (await asStaff(ctx, admin, 'GET', '/admin/agents')).json(),
+    );
+    const hq = list.items.find((a) => a.number === 1000)!;
+    const house = await asStaff(ctx, admin, 'POST', `/admin/agents/${hq.id}/player-cash`, {
+      enabled: false,
+    });
+    expect(house.statusCode).toBe(409);
+    expect(code(house.body)).toBe('agent_is_house');
+  });
+});

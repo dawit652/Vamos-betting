@@ -16,7 +16,6 @@ import {
   isNotNull,
   isNull,
   lte,
-  ne,
   notInArray,
   or,
   sql,
@@ -31,7 +30,7 @@ import {
 } from '../errors';
 import { InsufficientFundsError } from '../ledger/errors';
 import { postTransaction } from '../ledger/post';
-import type { DbExecutor, DbTransaction } from '../ledger/types';
+import type { AccountRef, DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { toJsonSafe } from '../platform/json';
 import { enqueueOutbox } from '../platform/outbox';
@@ -171,6 +170,12 @@ export interface PayoutChange {
 
 const wire = (amount: bigint): string => toWire(amount);
 const isOpen = (payout: Payout) => payout.status === 'approved' || payout.status === 'processing';
+
+/**
+ * Paid in cash at a shop's desk, never by the payout worker or the back office's settle:
+ * `cash` (Nahubet HQ's shops) and `agent_cash` (an agent's shop, out of the agent's drawer).
+ */
+export const DESK_PROVIDERS: ReadonlySet<string> = new Set(['cash', 'agent_cash']);
 
 /**
  * 409 `manual_payout` for a payout an operator pays by hand (SMS rail): it
@@ -876,7 +881,7 @@ export async function claimDuePayouts(
         // Paid by hand by an operator: no provider to send them to.
         eq(payouts.manual, false),
         // Paid in cash at a shop's desk (cashier/withdrawals.ts): never sent by the worker.
-        ne(payouts.provider, 'cash'),
+        notInArray(payouts.provider, [...DESK_PROVIDERS]),
         or(isNull(payouts.nextAttemptAt), lte(payouts.nextAttemptAt, options.now)),
       ),
     )
@@ -967,13 +972,19 @@ export async function markPayoutPaid(
     admin?: AdminActor;
     /** The cashier desk paying a `cash` payout (cashier/withdrawals.ts), with its receipt. */
     cashDesk?: boolean;
+    /**
+     * The desk only: the account the paid money goes to instead of the provider's clearing
+     * account. An agent's shop pays out of its own drawer: `agent:<id>:balance` (agent-shops.md
+     * phase 2 step 4, provider `agent_cash`).
+     */
+    paidTo?: AccountRef;
   },
 ): Promise<PayoutChange> {
   const payout = await lockPayout(tx, input.payoutId);
   if (payout.status === 'paid') return { payout, changed: false };
   assertNotManual(payout);
   // Cash is paid only at a desk, with a shift and a receipt: never settled from the back office.
-  if (payout.provider === 'cash' && input.cashDesk !== true) {
+  if (DESK_PROVIDERS.has(payout.provider) && input.cashDesk !== true) {
     throw domainConflict(
       'cash_payout_desk_only',
       "A cash withdrawal is paid at a shop's desk, with a receipt.",
@@ -998,7 +1009,13 @@ export async function markPayoutPaid(
     refId: payout.id,
     description: `Withdrawal paid via ${payout.provider}`,
     actor: input.admin ? { type: 'admin', id: input.admin.adminId } : { type: 'system' },
-    entries: withdrawalPaidEntries(payout.provider, payout.amount),
+    entries:
+      input.paidTo !== undefined && input.cashDesk === true
+        ? [
+            { account: { kind: 'house_withdrawals_pending' }, amount: -payout.amount },
+            { account: input.paidTo, amount: payout.amount },
+          ]
+        : withdrawalPaidEntries(payout.provider, payout.amount),
   });
   const updated = await updatePayout(tx, payout.id, {
     status: 'paid',
