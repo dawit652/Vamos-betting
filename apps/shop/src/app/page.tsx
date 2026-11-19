@@ -1,16 +1,30 @@
 'use client';
 
 import type {
+  CashDepositRequest,
+  CashDepositResponse,
+  CashierPlayerResponse,
+  CashierPlayerView,
   CashierShiftView,
+  CashWithdrawalRequest,
+  CashWithdrawalResponse,
   ShopDeskResponse,
   ShopOpenShiftRequest,
   ShopShiftResponse,
 } from '@vamos/contracts';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
 import { api } from '@/lib/api';
-import { describeError } from '@/lib/errors';
-import { cashToSantim } from '@/lib/forms';
+import { ApiClientError, describeError } from '@/lib/errors';
+import {
+  cashToSantim,
+  playerServable,
+  positiveCashToSantim,
+  receiptPath,
+  reviewReasonLabel,
+} from '@/lib/forms';
 import { formatDateTime, formatEtb } from '@/lib/format';
 import { TEXT } from '@/lib/text';
 
@@ -33,7 +47,7 @@ export default function DeskPage() {
       </div>
     );
   }
-  const { shift, operations } = desk.data;
+  const { shift, operations, playerCash, agentBalance } = desk.data;
   return (
     <>
       <h1 className="no-print">{TEXT.deskTitle}</h1>
@@ -56,6 +70,12 @@ export default function DeskPage() {
               setClosed(result);
               desk.reload();
             }}
+          />
+          <PlayerDesk
+            shift={shift}
+            playerCash={playerCash}
+            agentBalance={agentBalance}
+            onChanged={desk.reload}
           />
           <Receipts operations={operations} />
         </>
@@ -259,6 +279,8 @@ function Receipts({ operations }: { operations: ShopDeskResponse['operations'] }
                 <th>{TEXT.colKind}</th>
                 <th className="num">{TEXT.colAmount}</th>
                 <th>{TEXT.colPlayer}</th>
+                <th className="num">{TEXT.colCopies}</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -269,10 +291,320 @@ function Receipts({ operations }: { operations: ShopDeskResponse['operations'] }
                   <td>{TEXT.kind[op.kind] ?? op.kind}</td>
                   <td className="num">{formatEtb(op.amount)}</td>
                   <td>{op.playerPhone}</td>
+                  <td className="num">{op.reprints}</td>
+                  <td>
+                    <Link href={receiptPath(op.id)}>{TEXT.receiptLink}</Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Players' cash at the counter: find the player by phone, take a deposit, pay a withdrawal. Each
+ * form keeps its idempotency key until the request finished (paid or sent to review), so a retry
+ * after an error or a double click reuses it and can never record the cash twice.
+ */
+function PlayerDesk({
+  shift,
+  playerCash,
+  agentBalance,
+  onChanged,
+}: {
+  shift: CashierShiftView;
+  playerCash: boolean;
+  agentBalance: string | null;
+  onChanged: () => void;
+}) {
+  const router = useRouter();
+  const [phone, setPhone] = useState('');
+  const [player, setPlayer] = useState<CashierPlayerView | null>(null);
+  const [amount, setAmount] = useState('');
+  const [depositKey, setDepositKey] = useState(() => `desk-${crypto.randomUUID()}`);
+  const [wAmount, setWAmount] = useState('');
+  const [wCode, setWCode] = useState('');
+  const [withdrawKey, setWithdrawKey] = useState(() => `desk-${crypto.randomUUID()}`);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [review, setReview] = useState<string | null>(null);
+
+  async function lookup(query: string): Promise<CashierPlayerView> {
+    const res = await api<CashierPlayerResponse>('/shop/desk/players', {
+      query: { phone: query },
+    });
+    return res.player;
+  }
+
+  async function find(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setReview(null);
+    try {
+      setPlayer(await lookup(phone.trim()));
+      setAmount('');
+      setDepositKey(`desk-${crypto.randomUUID()}`);
+      setWAmount('');
+      setWCode('');
+      setWithdrawKey(`desk-${crypto.randomUUID()}`);
+    } catch (e) {
+      setPlayer(null);
+      setError(
+        e instanceof ApiClientError && e.status === 404
+          ? TEXT.playerNotFound
+          : describeError(e, TEXT.deskErrors),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deposit(event: FormEvent) {
+    event.preventDefault();
+    if (player === null || busy) return;
+    const santim = positiveCashToSantim(amount);
+    if (santim === null) {
+      setError(TEXT.amountInvalid);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setReview(null);
+    const body: CashDepositRequest = {
+      shiftId: shift.id,
+      userId: player.id,
+      amount: santim,
+      idempotencyKey: depositKey,
+    };
+    try {
+      const res = await api<CashDepositResponse>('/shop/desk/deposits', {
+        method: 'POST',
+        body,
+      });
+      // Only a finished deposit retires the key: a retry after an error reuses it.
+      setDepositKey(`desk-${crypto.randomUUID()}`);
+      onChanged();
+      router.push(receiptPath(res.receipt.operation.id, 'print'));
+    } catch (e) {
+      setError(describeError(e, TEXT.deskErrors));
+      setBusy(false);
+    }
+  }
+
+  async function withdraw(event: FormEvent) {
+    event.preventDefault();
+    if (player === null || busy) return;
+    const santim = positiveCashToSantim(wAmount);
+    if (santim === null) {
+      setError(TEXT.amountInvalid);
+      return;
+    }
+    if (!/^\d{6}$/.test(wCode)) {
+      setError(TEXT.codeInvalidShop);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setReview(null);
+    const body: CashWithdrawalRequest = {
+      shiftId: shift.id,
+      userId: player.id,
+      amount: santim,
+      code: wCode,
+      idempotencyKey: withdrawKey,
+    };
+    try {
+      const res = await api<CashWithdrawalResponse>('/shop/desk/withdrawals', {
+        method: 'POST',
+        body,
+      });
+      // Paid or sent to review both finish the request, so the key is renewed (an error keeps it).
+      setWithdrawKey(`desk-${crypto.randomUUID()}`);
+      setWCode('');
+      setWAmount('');
+      onChanged();
+      if (res.outcome === 'paid') {
+        router.push(receiptPath(res.receipt.operation.id, 'print'));
+        return;
+      }
+      setReview(
+        `${TEXT.withdrawReviewPrefix} ${formatEtb(res.amount)} (${reviewReasonLabel(
+          res.reviewReason,
+        )}) ${TEXT.withdrawReviewSuffix}`,
+      );
+      setPlayer(await lookup(phone.trim()));
+    } catch (e) {
+      setError(describeError(e, TEXT.deskErrors));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!playerCash) {
+    return (
+      <section className="card" aria-labelledby="players" data-testid="desk-players">
+        <h2 id="players">{TEXT.playersTitle}</h2>
+        <p className="notice" role="status" data-testid="player-cash-off">
+          {TEXT.playerCashOff}
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card" aria-labelledby="players" data-testid="desk-players">
+      <h2 id="players">{TEXT.playersTitle}</h2>
+      {agentBalance === null ? null : (
+        <p data-testid="desk-agent-balance">
+          <strong>
+            {TEXT.agentBalance}: {formatEtb(agentBalance)}
+          </strong>{' '}
+          <span className="muted small">{TEXT.agentBalanceNote}</span>
+        </p>
+      )}
+      <form onSubmit={(e) => void find(e)} aria-label="Find player">
+        <label htmlFor="player-phone">
+          {TEXT.playerPhone}
+          <input
+            id="player-phone"
+            data-testid="player-phone"
+            type="tel"
+            inputMode="tel"
+            autoComplete="off"
+            placeholder={TEXT.playerPhonePlaceholder}
+            required
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+        </label>
+        <button type="submit" data-testid="player-lookup" disabled={busy || phone.trim() === ''}>
+          {busy ? TEXT.playerLooking : TEXT.playerLookup}
+        </button>
+      </form>
+      {error === null ? null : (
+        <p className="error" role="alert" data-testid="desk-error">
+          {error}
+        </p>
+      )}
+      {review === null ? null : (
+        <p className="notice" role="status" data-testid="withdraw-review">
+          {review}
+        </p>
+      )}
+      {player === null ? null : (
+        <div data-testid="player-card">
+          <dl className="summary">
+            <div>
+              <dt>{TEXT.colPlayer}</dt>
+              <dd>
+                {player.name ?? TEXT.playerNoName} · {player.phone}
+              </dd>
+            </div>
+            <div>
+              <dt>{TEXT.playerStatus}</dt>
+              <dd>{player.status}</dd>
+            </div>
+            <div>
+              <dt>{TEXT.playerKyc}</dt>
+              <dd>{player.kycStatus}</dd>
+            </div>
+            <div>
+              <dt>{TEXT.playerCash}</dt>
+              <dd>{formatEtb(player.cash)}</dd>
+            </div>
+            <div>
+              <dt>{TEXT.playerBonus}</dt>
+              <dd>{formatEtb(player.bonus)}</dd>
+            </div>
+          </dl>
+          <p className="muted small">
+            {player.exclusion === null
+              ? TEXT.playerNoExclusion
+              : `${TEXT.playerExcluded} (${player.exclusion.kind})${
+                  player.exclusion.endsAt === null
+                    ? ''
+                    : ` ${TEXT.playerUntil} ${formatDateTime(player.exclusion.endsAt)}`
+                }.`}
+          </p>
+          {!playerServable(player) ? (
+            <p className="error" role="alert">
+              {TEXT.playerBlocked}
+            </p>
+          ) : (
+            <>
+              <form onSubmit={(e) => void deposit(e)} aria-label="Cash deposit">
+                <h3>{TEXT.depositTitle}</h3>
+                <label htmlFor="deposit-amount">
+                  {TEXT.depositAmount}
+                  <input
+                    id="deposit-amount"
+                    data-testid="deposit-amount"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="primary"
+                  data-testid="deposit-submit"
+                  disabled={busy || amount.trim() === ''}
+                >
+                  {busy ? TEXT.depositBusy : TEXT.depositButton}
+                </button>
+              </form>
+              <form onSubmit={(e) => void withdraw(e)} aria-label="Cash withdrawal">
+                <h3>{TEXT.withdrawTitle}</h3>
+                <label htmlFor="withdraw-amount">
+                  {TEXT.withdrawAmount}
+                  <input
+                    id="withdraw-amount"
+                    data-testid="withdraw-amount"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={wAmount}
+                    onChange={(e) => setWAmount(e.target.value)}
+                  />
+                </label>
+                <label htmlFor="withdraw-code">
+                  {TEXT.withdrawCode}
+                  <input
+                    id="withdraw-code"
+                    data-testid="withdraw-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    autoComplete="off"
+                    value={wCode}
+                    onChange={(e) => setWCode(e.target.value.replace(/\D/g, ''))}
+                  />
+                </label>
+                {player.name === null ? null : (
+                  <p className="muted small">
+                    {TEXT.withdrawNameCheck} {player.name}
+                  </p>
+                )}
+                {player.kycStatus === 'verified' ? null : (
+                  <p className="error" role="alert">
+                    {TEXT.withdrawKycNeeded}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  className="primary"
+                  data-testid="withdraw-submit"
+                  disabled={busy || wAmount.trim() === '' || wCode.length !== 6}
+                >
+                  {busy ? TEXT.depositBusy : TEXT.withdrawButton}
+                </button>
+              </form>
+            </>
+          )}
         </div>
       )}
     </section>

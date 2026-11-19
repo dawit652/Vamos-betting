@@ -277,6 +277,12 @@ th.num {
   margin: 8px 0;
 }
 
+.receipt .receipt-amount {
+  font-size: 1.6em;
+  font-weight: 700;
+  margin: 8px 0;
+}
+
 .receipt .receipt-copy {
   border: 2px solid #000;
   font-weight: 700;
