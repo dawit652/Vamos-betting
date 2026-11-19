@@ -176,6 +176,7 @@ describe('agent owner accounts', () => {
     expect(overview.statusCode, overview.body).toBe(200);
     expect(ShopOwnerResponse.parse(overview.json())).toMatchObject({
       agent: { id: owner.agent.id },
+      balance: '0',
       shops: [],
       cashiers: [],
       devices: [],

@@ -116,6 +116,8 @@ export type ShopShiftResponse = z.infer<typeof ShopShiftResponse>;
  */
 export const ShopOwnerResponse = z.object({
   agent: AgentView,
+  /** The agent's prepaid balance (santim). */
+  balance: z.string(),
   shops: z.array(CashierShopView),
   cashiers: z.array(AgentCashierView),
   devices: z.array(ShopDeviceView),

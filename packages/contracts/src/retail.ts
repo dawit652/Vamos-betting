@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CreateStaffResponse } from './admin';
 import { CashierShopView } from './cashier';
-import { IsoDateTime } from './common';
+import { IsoDateTime, Santim } from './common';
 import { PositiveSantim } from './payments';
 
 /**
@@ -37,6 +37,8 @@ export const AgentSummaryView = AgentView.extend({
   shops: z.number().int(),
   openShops: z.number().int(),
   cashiers: z.number().int(),
+  /** The prepaid balance (santim); null for Nahubet HQ, which has none. */
+  balance: Santim.nullable(),
 });
 export type AgentSummaryView = z.infer<typeof AgentSummaryView>;
 
@@ -82,6 +84,28 @@ export const ShopDeviceView = z.object({
 });
 export type ShopDeviceView = z.infer<typeof ShopDeviceView>;
 
+/**
+ * A top-up (`in`: the agent paid Nahubet) or take-back (`out`: Nahubet paid the agent back),
+ * recorded by one person and approved or rejected by another (docs/plans/agent-shops.md phase 2).
+ */
+export const AgentTopupView = z.object({
+  id: z.string(),
+  direction: z.enum(['in', 'out']),
+  amount: Santim,
+  method: z.enum(['cash', 'bank']),
+  bankReference: z.string().nullable(),
+  note: z.string().nullable(),
+  status: z.enum(['requested', 'approved', 'rejected']),
+  requestedBy: z.string(),
+  requestedByName: z.string(),
+  requestedAt: IsoDateTime,
+  decidedBy: z.string().nullable(),
+  decidedByName: z.string().nullable(),
+  decidedAt: IsoDateTime.nullable(),
+  decisionNote: z.string().nullable(),
+});
+export type AgentTopupView = z.infer<typeof AgentTopupView>;
+
 /** The agent owner's account (role `agent_owner`, the shop app only). */
 export const AgentOwnerAccountView = z.object({
   id: z.string(),
@@ -99,6 +123,10 @@ export const AgentDetailResponse = z.object({
   agent: AgentView,
   /** Null until made (never for Nahubet HQ). */
   owner: AgentOwnerAccountView.nullable(),
+  /** The prepaid balance (santim); null for Nahubet HQ. */
+  balance: Santim.nullable(),
+  /** Top-ups and take-backs, newest first (the last 50). */
+  topups: z.array(AgentTopupView),
   shops: z.array(CashierShopView),
   cashiers: z.array(AgentCashierView),
   devices: z.array(ShopDeviceView),
@@ -172,3 +200,36 @@ export type CreateAgentOwnerRequest = z.infer<typeof CreateAgentOwnerRequest>;
 
 export const CreateAgentOwnerResponse = CreateStaffResponse;
 export type CreateAgentOwnerResponse = z.infer<typeof CreateAgentOwnerResponse>;
+
+/**
+ * POST /admin/agents/:id/topups (agents.manage): a top-up (`in`) or take-back (`out`) waiting for
+ * a second person. A bank transfer needs its reference (used once). 409 `agent_balance_low`,
+ * `bank_reference_used`, `agent_is_house`.
+ */
+export const RecordAgentTopupRequest = z
+  .object({
+    direction: z.enum(['in', 'out']),
+    amount: PositiveSantim,
+    method: z.enum(['cash', 'bank']),
+    bankReference: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9/_.-]{3,64}$/)
+      .optional(),
+    note: z.string().trim().max(500).optional(),
+  })
+  .strict()
+  .refine((value) => (value.method === 'bank') === (value.bankReference !== undefined), {
+    message: 'a bank transfer needs its reference; cash has none',
+    path: ['bankReference'],
+  });
+export type RecordAgentTopupRequest = z.infer<typeof RecordAgentTopupRequest>;
+
+/** POST /admin/agent-topups/:id/approve | reject (withdrawals.approve; never the recorder). */
+export const DecideAgentTopupRequest = z
+  .object({ note: z.string().trim().max(500).optional() })
+  .strict();
+export type DecideAgentTopupRequest = z.infer<typeof DecideAgentTopupRequest>;
+
+export const AgentTopupResponse = z.object({ topup: AgentTopupView, changed: z.boolean() });
+export type AgentTopupResponse = z.infer<typeof AgentTopupResponse>;

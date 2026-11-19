@@ -3,6 +3,9 @@ import {
   AgentListResponse,
   AgentResponse,
   AgentStatusRequest,
+  AgentTopupResponse,
+  DecideAgentTopupRequest,
+  RecordAgentTopupRequest,
   CashierShopResponse,
   CreateAgentOwnerRequest,
   CreateAgentOwnerResponse,
@@ -17,8 +20,14 @@ import {
   createAgent,
   createAgentOwnerAccount,
   createShop,
+  decideAgentTopup,
   getAgent,
+  getAgentBalance,
   getAgentOwnerAccount,
+  listAgentBalances,
+  listAgentTopups,
+  recordAgentTopup,
+  type AgentTopupRow,
   getShop,
   listAgentCashiers,
   listAgentDevices,
@@ -40,13 +49,39 @@ import { inTx, parseUuid, wire } from './common';
  * any time. `agents.view` reads (admin, finance, compliance); `agents.manage` changes (admin).
  * The rules live in @vamos/db (retail/agents.ts, createShop); these routes shape the answers.
  */
+/** A top-up as the back office shows it. */
+function topupView(row: AgentTopupRow) {
+  return {
+    id: row.id,
+    direction: row.direction,
+    amount: row.amount,
+    method: row.method,
+    bankReference: row.bankReference,
+    note: row.note,
+    status: row.status,
+    requestedBy: row.requestedBy,
+    requestedByName: row.requestedByName,
+    requestedAt: row.requestedAt,
+    decidedBy: row.decidedBy,
+    decidedByName: row.decidedByName,
+    decidedAt: row.decidedAt,
+    decisionNote: row.decisionNote,
+  };
+}
+
 export default async function adminAgentRoutes(app: FastifyInstance): Promise<void> {
   const { deps } = app;
   type IdParams = { Params: { id: string } };
 
-  app.get('/admin/agents', { config: { staff: 'agents.view' } }, async () =>
-    wire(AgentListResponse, { items: await listAgents(deps.db) }),
-  );
+  app.get('/admin/agents', { config: { staff: 'agents.view' } }, async () => {
+    const [items, balances] = await Promise.all([listAgents(deps.db), listAgentBalances(deps.db)]);
+    return wire(AgentListResponse, {
+      items: items.map((agent) => ({
+        ...agent,
+        balance: agent.isHouse ? null : (balances.get(agent.id) ?? 0n),
+      })),
+    });
+  });
 
   app.post('/admin/agents', { config: { staff: 'agents.manage' } }, async (request, reply) => {
     const input = parseInput(CreateAgentRequest, request.body);
@@ -71,14 +106,83 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
     const cashiers = await listAgentCashiers(deps.db, agentId);
     const devices = await listAgentDevices(deps.db, agentId);
     const owner = await getAgentOwnerAccount(deps.db, agentId);
+    const topups = await listAgentTopups(deps.db, { agentId, limit: 50 });
     return wire(AgentDetailResponse, {
       agent,
       owner,
+      balance: agent.isHouse ? null : await getAgentBalance(deps.db, agentId),
+      topups: topups.map(topupView),
       shops: shops.map(shopView),
       cashiers,
       devices,
     });
   });
+
+  // The agent balance (phase 2): one admin records a top-up or take-back, another person
+  // approves or rejects it (four eyes, also checked in the database); the approval posts it.
+  app.post<IdParams>(
+    '/admin/agents/:id/topups',
+    { config: { staff: 'agents.manage' } },
+    async (request, reply) => {
+      const agentId = parseUuid(request.params.id, 'Agent');
+      const input = parseInput(RecordAgentTopupRequest, request.body);
+      const actor = staffActor(request);
+      const topup = await inTx(deps, async (tx) => {
+        const made = await recordAgentTopup(tx, {
+          agentId,
+          direction: input.direction,
+          amount: BigInt(input.amount),
+          method: input.method,
+          bankReference: input.bankReference ?? null,
+          note: input.note ?? null,
+          adminId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        });
+        const [row] = (await listAgentTopups(tx, { agentId, limit: 50 })).filter(
+          (item) => item.id === made.id,
+        );
+        if (row === undefined) throw notFound('Top-up');
+        return row;
+      });
+      reply.code(201);
+      return wire(AgentTopupResponse, { topup: topupView(topup), changed: true });
+    },
+  );
+
+  for (const [path, decision] of [
+    ['approve', 'approve'],
+    ['reject', 'reject'],
+  ] as const) {
+    app.post<IdParams>(
+      `/admin/agent-topups/:id/${path}`,
+      { config: { staff: 'withdrawals.approve' } },
+      async (request) => {
+        const topupId = parseUuid(request.params.id, 'Top-up');
+        const input = parseInput(DecideAgentTopupRequest, request.body ?? {});
+        const actor = staffActor(request);
+        const result = await inTx(deps, async (tx) => {
+          const decided = await decideAgentTopup(tx, {
+            topupId,
+            decision,
+            note: input.note ?? null,
+            adminId: actor.adminId,
+            now: deps.clock(),
+            ip: actor.ip ?? null,
+          });
+          const [row] = (
+            await listAgentTopups(tx, { agentId: decided.topup.agentId, limit: 200 })
+          ).filter((item) => item.id === topupId);
+          if (row === undefined) throw notFound('Top-up');
+          return { topup: row, changed: decided.changed };
+        });
+        return wire(AgentTopupResponse, {
+          topup: topupView(result.topup),
+          changed: result.changed,
+        });
+      },
+    );
+  }
 
   // The agent owner's account for the shop app (phase 1b step 1): the generated password and the
   // authenticator secret are in this answer only.

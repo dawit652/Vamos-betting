@@ -14,6 +14,7 @@ import {
   changeOwnStaffPassword,
   closeShift,
   getAgent,
+  getAgentBalance,
   getOpenShift,
   getOwnerAgent,
   getShop,
@@ -261,6 +262,7 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     const shops = (await listShops(deps.db)).filter((shop) => shop.agentId === agent.id);
     return wire(ShopOwnerResponse, {
       agent,
+      balance: (await getAgentBalance(deps.db, agent.id)).toString(),
       shops: shops.map(shopView),
       cashiers: await listAgentCashiers(deps.db, agent.id),
       devices: await listAgentDevices(deps.db, agent.id),

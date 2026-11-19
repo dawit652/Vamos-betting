@@ -1,5 +1,5 @@
 import { toWire } from '@vamos/core';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { isUniqueViolation } from '../catalog/errors';
 import { domainConflict, domainNotFound } from '../errors';
@@ -10,6 +10,7 @@ import type { AccountRef, DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
 import { adminUsers } from '../schema/accounts';
+import { ledgerAccounts } from '../schema/ledger';
 import { agents, agentTopups } from '../schema/retail';
 
 /**
@@ -284,4 +285,15 @@ export async function listAgentTopups(
     requestedByName: row.requestedByName,
     decidedByName: row.decidedByName ?? null,
   }));
+}
+
+/** Every agent's balance (agents without a balance account yet are absent: 0). */
+export async function listAgentBalances(exec: DbExecutor): Promise<Map<string, bigint>> {
+  const rows = await exec
+    .select({ agentId: ledgerAccounts.agentId, balance: ledgerAccounts.balance })
+    .from(ledgerAccounts)
+    .where(isNotNull(ledgerAccounts.agentId));
+  const balances = new Map<string, bigint>();
+  for (const row of rows) if (row.agentId !== null) balances.set(row.agentId, row.balance);
+  return balances;
 }
