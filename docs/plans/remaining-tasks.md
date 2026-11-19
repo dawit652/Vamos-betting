@@ -23,13 +23,12 @@ free number is **0067**. Deploy is done by the owner (`ssh -t root@<server>` +
    revokes a shop's computer on the agent's page; migration 0065). Step 3a, the sign-in on an
    approved device and shop sessions, is built in `packages/db` (`loginStaff` with `channel:
 'shop'`, `requestShopDeviceWithPassword`, `authenticateStaffSession({ channel })`; commit
-   `6795a21`). **Next: step 3b**, the API's `/shop` scope: a session plugin like
-   `apps/api/src/plugins/staff-session.ts` (cookie `vamos_shop`, path `/shop`, CSRF header
-   `x-shop-csrf-token`, `authenticateStaffSession` with `channel: 'shop'`), routes `POST
-/shop/devices/request` (sets the httpOnly `vamos_device` cookie with a 32-byte random secret,
-   stores only `hashDeviceSecret`), `POST /shop/auth/login` (reads that cookie), `POST
-/shop/auth/logout`, `GET /shop/me`, a password change without a TOTP code (current password
-   on the approved device: a cashier made by an admin must change the generated password), then
+   `6795a21`). Step 3b, the API's `/shop` scope, is built (commit `7cf8186`: `POST /shop/devices/request`
+   sets the device cookie, `POST /shop/auth/login`, `GET /shop/me`, `POST /shop/auth/password`,
+   `POST /shop/auth/logout`; `SHOP_WEB_URL` gets CORS on `/shop/*`). **Next: step 3c**, the
+   desk routes under `/shop/desk/*` (shift open and close, find a player, player cash at HQ
+   shops, receipts) on the same `packages/db` services as `/admin/cashier/*`, every one refused
+   with 403 `password_change_required` until the cashier replaced an admin-chosen password, then
    the shop app `apps/shop` at shop.nahubet.com (the owner must add that
    DNS record) with the agent owner accounts, then phases 2 to 4
    (agent balance, selling tickets, paying tickets: the money path, Opus high effort), 5 (live
