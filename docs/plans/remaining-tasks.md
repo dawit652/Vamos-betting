@@ -1,4 +1,4 @@
-# Remaining tasks (read this first; updated 18 Nov 2026)
+# Remaining tasks (read this first; updated 19 Nov 2026)
 
 Latest work: branch `claude/eager-cerf-ox9vkq` (18 Nov: it now holds `claude/happy-keller-i7cvrh`
 too, merged by the first account). A new session may be given another
@@ -14,6 +14,11 @@ Deploy is done by the owner (PowerShell command in the last session: `ssh -t roo
 
 ## Next, in order
 
+0. **Agent shops (owner's interview of 19 Nov 2026):** independent agents with a prepaid balance
+   sell and pay walk-in sport tickets on a printer; the admin controls every agent. Plan and the
+   owner's answers: `docs/plans/agent-shops.md`. Waiting for the owner's go; phase 0 (staff screen,
+   printer card) first. The mr-y request (Narobet game links) was declined on 19 Nov: it runs on the
+   owner's own Narobet account and bypasses the ledger.
 1. **After the owner deploys `ed60961` or later, check on live** (read-only queries, the owner runs
    them): migrations 59 + 8 applied; the Telegram PIN reset; team logos (need
    `SCRAPER_SECRET_API_FOOTBALL`; scraper log `team logos`); rule O1h (open `odds_approval` and
