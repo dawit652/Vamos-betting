@@ -1,26 +1,36 @@
 import {
   ShopDeviceAskRequest,
   ShopDeviceAskResponse,
+  CloseShiftRequest,
+  ShopDeskResponse,
   ShopLoginRequest,
+  ShopOpenShiftRequest,
   ShopPasswordChangeRequest,
   ShopSessionResponse,
+  ShopShiftResponse,
 } from '@vamos/contracts';
 import {
   changeOwnStaffPassword,
+  closeShift,
+  getOpenShift,
   getShop,
   getStaffShop,
   hashDeviceSecret,
+  listShiftOperations,
+  listShifts,
   loginStaff,
   logoutStaff,
+  openShift,
   normalizeStaffEmail,
   requestShopDeviceWithPassword,
   warmUpStaffPasswordHashing,
+  type CashierShift,
   type DbExecutor,
   type StaffPrincipal,
 } from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
-import { parseInput, unauthorized } from '../../lib/errors';
+import { forbidden, parseInput, unauthorized } from '../../lib/errors';
 import { enforceLimit } from '../../lib/rate-limits';
 import {
   clearShopCookie,
@@ -31,8 +41,8 @@ import {
   shopSessionPlugin,
 } from '../../plugins/shop-session';
 import { apiPasswordHasher, staffAuthDeps } from '../../plugins/staff-session';
-import { shopView } from '../admin/cashier';
-import { wire } from '../admin/common';
+import { operationView, shiftView, shopView } from '../admin/cashier';
+import { inTx, parseUuid, wire } from '../admin/common';
 
 /**
  * The shop app's API (docs/plans/agent-shops.md phase 1b): a device asks to be registered (the
@@ -171,5 +181,79 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     await logoutStaff(deps, { sessionId: staff.sessionId, adminUserId: staff.id, ip: request.ip });
     clearShopCookie(reply, deps.config);
     return { ok: true };
+  });
+
+  // The desk (phase 1b step 3c): the cashier's shift at their own shop. Player cash and tickets
+  // come with phases 2 and 3; an admin-chosen password is replaced first.
+  const requireDeskStaff = (request: FastifyRequest): StaffPrincipal => {
+    const staff = requireShopStaff(request);
+    if (staff.passwordChangeRequired) {
+      throw forbidden(
+        'password_change_required',
+        'Change the password you were given before using the desk.',
+      );
+    }
+    return staff;
+  };
+  const namedShiftView = async (exec: DbExecutor, shift: CashierShift) => {
+    const [named] = await listShifts(exec, { shiftId: shift.id, limit: 1 });
+    return shiftView(exec, shift, {
+      shopName: named?.shopName ?? '',
+      staffName: named?.staffName ?? '',
+    });
+  };
+  const deskShop = async (exec: DbExecutor, staff: StaffPrincipal) => {
+    const shopId = await getStaffShop(exec, staff.id);
+    const shop = shopId === null ? null : await getShop(exec, shopId);
+    if (shop === null) throw unauthorized('Sign in to the shop app on a registered device.');
+    return shop;
+  };
+
+  app.get('/shop/desk', async (request) => {
+    const staff = requireDeskStaff(request);
+    const shop = await deskShop(deps.db, staff);
+    const shift = await getOpenShift(deps.db, staff.id);
+    const operations =
+      shift === null ? [] : (await listShiftOperations(deps.db, shift.id)).map(operationView);
+    return wire(ShopDeskResponse, {
+      shop: shopView(shop),
+      shift: shift === null ? null : await namedShiftView(deps.db, shift),
+      operations,
+    });
+  });
+
+  app.post('/shop/desk/shifts', async (request) => {
+    const staff = requireDeskStaff(request);
+    const input = parseInput(ShopOpenShiftRequest, request.body);
+    const shop = await deskShop(deps.db, staff);
+    const shift = await inTx(deps, async (tx) => {
+      const opened = await openShift(tx, {
+        staffId: staff.id,
+        shopId: shop.id,
+        openingFloat: BigInt(input.openingFloat),
+        now: deps.clock(),
+        ip: request.ip,
+      });
+      return namedShiftView(tx, opened);
+    });
+    return wire(ShopShiftResponse, { shift });
+  });
+
+  app.post<{ Params: { id: string } }>('/shop/desk/shifts/:id/close', async (request) => {
+    const staff = requireDeskStaff(request);
+    const shiftId = parseUuid(request.params.id, 'Shift');
+    const input = parseInput(CloseShiftRequest, request.body);
+    const shift = await inTx(deps, async (tx) => {
+      const { shift: closed } = await closeShift(tx, {
+        staffId: staff.id,
+        shiftId,
+        countedCash: BigInt(input.countedCash),
+        note: input.note ?? null,
+        now: deps.clock(),
+        ip: request.ip,
+      });
+      return namedShiftView(tx, closed);
+    });
+    return wire(ShopShiftResponse, { shift });
   });
 }

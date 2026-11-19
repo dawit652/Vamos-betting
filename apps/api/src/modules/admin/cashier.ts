@@ -144,7 +144,8 @@ export function shopView(shop: ShopWithAgent) {
   };
 }
 
-async function shiftView(
+/** A shift as the desks show it (the back office's and the shop app's). */
+export async function shiftView(
   exec: DbExecutor,
   shift: CashierShift,
   names: { shopName: string; staffName: string },
@@ -173,7 +174,8 @@ async function shiftView(
   });
 }
 
-function operationView(op: {
+/** A desk operation (receipt) as the desks show it. */
+export function operationView(op: {
   id: string;
   receiptNo: number;
   kind: 'deposit' | 'withdrawal';

@@ -3,8 +3,10 @@ import {
   CashierShopResponse,
   CreateStaffResponse,
   SHOP_CSRF_HEADER,
+  ShopDeskResponse,
   ShopDeviceAskResponse,
   ShopSessionResponse,
+  ShopShiftResponse,
   STAFF_SESSION_COOKIE,
 } from '@vamos/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -128,8 +130,12 @@ describe('/shop', () => {
     });
     expect(asAdmin.statusCode).toBe(401);
 
-    // A password the admin chose is replaced on the device (no TOTP code here).
+    // A password the admin chose is replaced on the device (no TOTP code here); until then the
+    // desk is closed.
     const csrf = { [SHOP_CSRF_HEADER]: session.csrfToken };
+    const early = await ctx.app.inject({ method: 'GET', url: '/shop/desk', headers: { cookie } });
+    expect(early.statusCode).toBe(403);
+    expect(early.json()).toMatchObject({ error: { code: 'password_change_required' } });
     const weak = await post(
       '/shop/auth/password',
       { currentPassword: 'wrong password!!', newPassword: 'a brand new shop password 7' },
@@ -148,6 +154,29 @@ describe('/shop', () => {
       (await ctx.app.inject({ method: 'GET', url: '/shop/me', headers: { cookie } })).json(),
     );
     expect(after.staff.passwordChangeRequired).toBe(false);
+
+    // The desk: no shift, open one at the cashier's own shop, see it, close it.
+    const desk = () =>
+      ctx.app
+        .inject({ method: 'GET', url: '/shop/desk', headers: { cookie } })
+        .then((r) => ShopDeskResponse.parse(r.json()));
+    expect((await desk()).shift).toBeNull();
+    const opened = await post('/shop/desk/shifts', { openingFloat: '50000' }, cookie, csrf);
+    expect(opened.statusCode).toBe(200);
+    const { shift } = ShopShiftResponse.parse(opened.json());
+    expect(shift).toMatchObject({ shopId: shop.id, status: 'open', openingFloat: '50000' });
+    expect((await desk()).shift?.id).toBe(shift.id);
+    const closed = await post(
+      `/shop/desk/shifts/${shift.id}/close`,
+      { countedCash: '50000' },
+      cookie,
+      csrf,
+    );
+    expect(ShopShiftResponse.parse(closed.json()).shift).toMatchObject({
+      status: 'closed',
+      variance: '0',
+    });
+    expect((await desk()).shift).toBeNull();
 
     // Sign-out needs the CSRF token, then the session is gone.
     expect((await post('/shop/auth/logout', {}, cookie)).statusCode).toBe(403);

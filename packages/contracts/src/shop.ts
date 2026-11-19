@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CashierShopView } from './cashier';
+import { CashierShiftView, CashierShopView, CashOperationView, OpenShiftRequest } from './cashier';
 import { IsoDateTime } from './common';
 
 /**
@@ -65,3 +65,25 @@ export const ShopPasswordChangeRequest = z
   })
   .strict();
 export type ShopPasswordChangeRequest = z.infer<typeof ShopPasswordChangeRequest>;
+
+/**
+ * GET /shop/desk: the cashier's shop, their open shift (or null) and its receipts. Every
+ * /shop/desk route answers 403 `password_change_required` until an admin-chosen password is
+ * replaced (POST /shop/auth/password).
+ */
+export const ShopDeskResponse = z.object({
+  shop: CashierShopView,
+  shift: CashierShiftView.nullable(),
+  operations: z.array(CashOperationView),
+});
+export type ShopDeskResponse = z.infer<typeof ShopDeskResponse>;
+
+/** POST /shop/desk/shifts: opens a shift at the cashier's own shop with the counted float. */
+export const ShopOpenShiftRequest = z
+  .object({ openingFloat: OpenShiftRequest.shape.openingFloat })
+  .strict();
+export type ShopOpenShiftRequest = z.infer<typeof ShopOpenShiftRequest>;
+
+/** POST /shop/desk/shifts/:id/close: the counted cash and an optional note (CloseShiftRequest). */
+export const ShopShiftResponse = z.object({ shift: CashierShiftView });
+export type ShopShiftResponse = z.infer<typeof ShopShiftResponse>;
