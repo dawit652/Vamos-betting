@@ -242,7 +242,8 @@ password, label}`; the API sets the httpOnly cookie `vamos_device` with the secr
    `packages/db` services (shift, player cash at HQ shops, receipts); `/admin/cashier/*` stays for
    HQ supervisors (finance, admin), and the `cashier` role leaves `cashier.desk` once the shop app
    is live.
-4. **The shop app** `apps/shop` (Next.js, port 3002), built like `apps/admin` (`src/lib/api.ts`,
+4. **The shop app: built** (`e653a9c`), except its production infra (the Dockerfile target,
+   compose service, Caddy site, env and deploy-script entries listed here). `apps/shop` (Next.js, port 3002), built like `apps/admin` (`src/lib/api.ts`,
    `config.ts` with `NEXT_PUBLIC_SHOP_API_URL`, session provider, login page): pages Sign in, Desk
    (shift, player cash), Receipt, Printer (the test print and the guide now on the admin desk), in
    English and Amharic (`packages/i18n`). Infra: a build target in `infra/docker/Dockerfile`, a

@@ -26,14 +26,17 @@ free number is **0067**. Deploy is done by the owner (`ssh -t root@<server>` +
    `6795a21`). Step 3b, the API's `/shop` scope, is built (commit `7cf8186`: `POST /shop/devices/request`
    sets the device cookie, `POST /shop/auth/login`, `GET /shop/me`, `POST /shop/auth/password`,
    `POST /shop/auth/logout`; `SHOP_WEB_URL` gets CORS on `/shop/*`). Step 3c, the desk under `/shop/desk` (shifts at
-   the cashier's own shop), is built (`680308c`). **Next:** the shop app `apps/shop` (a Next.js
-   app on port 3002: sign-in, register this device, forced password change, the desk, the printer
-   page; if a folder `apps/shop` exists without a commit, it is unfinished work of the first
-   account: check it builds and its e2e `e2e/tests/shop-app.spec.ts` passes, or start over), then
-   its infra (a Dockerfile target, a `shop` service in `infra/docker-compose.prod.yml`, a Caddy
-   site, `SHOP_WEB_URL` and `NEXT_PUBLIC_SHOP_API_URL`, the service in
-   `infra/scripts/deploy-full.sh`; a missing `SHOP_DOMAIN` must not break the live Caddy: keep the
-   site out until the owner sets it), the e2e stack script, then the agent owner accounts, then phases 2 to 4
+   the cashier's own shop), is built (`680308c`). The shop app `apps/shop` is built (`e653a9c`: sign-in, register this device, forced
+   password change, the desk with shifts, the printer page; English and Amharic; its e2e spec
+   `e2e/tests/shop-app.spec.ts`; `e2e/scripts/stack.sh` builds and starts it on :3002). **Next:**
+   its production infra: a `shop` target in `infra/docker/Dockerfile` (like `admin`, with
+   `NEXT_PUBLIC_SHOP_API_URL` as a build argument), a `shop` service in
+   `infra/docker-compose.prod.yml` (healthcheck like `admin`), a `{$SHOP_DOMAIN}` site in the
+   Caddyfiles, `SHOP_DOMAIN` / `SHOP_WEB_URL` in `infra/env.prod.example` and the deployment guide,
+   and the service in `infra/scripts/deploy-full.sh`. Care: an unset `SHOP_DOMAIN` must not break
+   the live Caddy or the deploy (keep the site and service out, e.g. a compose profile, until the
+   owner sets the DNS record and the variables); test the compose file with `docker compose config`
+   and the CI docker job. Then the agent owner accounts (plan, Phase 1b design step 1), then phases 2 to 4
    (agent balance, selling tickets, paying tickets: the money path, Opus high effort), 5 (live
    monitor, alerts, weekly commission) and 6 (Android POS once the owner picks a model). The mr-y
    request (Narobet game links) was declined on 19 Nov: it runs on the owner's own Narobet account
