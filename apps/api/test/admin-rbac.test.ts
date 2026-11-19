@@ -4,13 +4,18 @@ import {
   PERMISSION_ROLES,
   STAFF_CSRF_HEADER,
   STAFF_PERMISSIONS,
-  STAFF_ROLES,
   type StaffRole,
 } from '@vamos/contracts';
 import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listAdminRoutes, type AdminRouteInfo } from '../src/modules/admin/common';
-import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
+import {
+  BACK_OFFICE_ROLES,
+  asStaff,
+  seedStaff,
+  staffLogin,
+  type StaffSession,
+} from './admin-helpers';
 import {
   createTestContext,
   registerAndLogin,
@@ -22,8 +27,6 @@ let ctx: TestContext;
 let player: LoggedInUser;
 const staff = new Map<StaffRole, StaffSession>();
 const ABSENT_ID = '00000000-0000-4000-8000-000000000000';
-/** Every role but the agent owner, who never signs in to the back office (shop app only). */
-const BACK_OFFICE_ROLES = STAFF_ROLES.filter((role) => role !== 'agent_owner');
 
 beforeAll(async () => {
   ctx = await createTestContext();

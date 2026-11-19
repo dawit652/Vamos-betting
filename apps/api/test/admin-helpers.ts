@@ -1,4 +1,9 @@
-import { StaffSessionResponse, STAFF_CSRF_HEADER, STAFF_SESSION_COOKIE } from '@vamos/contracts';
+import {
+  STAFF_CSRF_HEADER,
+  STAFF_ROLES,
+  STAFF_SESSION_COOKIE,
+  StaffSessionResponse,
+} from '@vamos/contracts';
 import { seedDemoStaff, type StaffRole } from '@vamos/db';
 import { DEMO_STAFF_PASSWORD, DEMO_STAFF_TOTP_SECRET } from '@vamos/db/demo-staff';
 import { base32Decode, totpCode } from '@vamos/db/totp';
@@ -89,3 +94,8 @@ export function asStaff(
     ...(payload === undefined ? {} : { payload: payload as InjectOptions['payload'] }),
   });
 }
+
+/** Every role that signs in to the back office: all but the agent owner (the shop app only). */
+export const BACK_OFFICE_ROLES = STAFF_ROLES.filter(
+  (role): role is Exclude<StaffRole, 'agent_owner'> => role !== 'agent_owner',
+);
