@@ -224,7 +224,8 @@ password, label}`; the API sets the httpOnly cookie `vamos_device` with the secr
 3. **Shop sessions and routes.** **3a built** (`6795a21`): the sign-in and the sessions in
    `packages/db`, as described here. **3b built** (`7cf8186`): the `/shop` scope (`apps/api/src/plugins/shop-session.ts`,
    `apps/api/src/modules/shop/routes.ts`): device request, sign-in, me, password, sign-out,
-   CORS for `SHOP_WEB_URL`. **3c next**: the desk routes under `/shop/desk/*`. Do not write a
+   CORS for `SHOP_WEB_URL`. **3c built** (`680308c`): `GET /shop/desk`, `POST /shop/desk/shifts`, `POST
+/shop/desk/shifts/:id/close`. Do not write a
    second sign-in: extend `loginStaff` in `packages/db/src/backoffice/staff-auth.ts` with a
    `channel` (`admin` | `shop`) and a second factor (`totp` code | `device` secret hash), so the
    address throttle, the account backoff, the audit and the re-check under the row lock

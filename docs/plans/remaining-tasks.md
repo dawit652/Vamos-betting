@@ -25,12 +25,15 @@ free number is **0067**. Deploy is done by the owner (`ssh -t root@<server>` +
 'shop'`, `requestShopDeviceWithPassword`, `authenticateStaffSession({ channel })`; commit
    `6795a21`). Step 3b, the API's `/shop` scope, is built (commit `7cf8186`: `POST /shop/devices/request`
    sets the device cookie, `POST /shop/auth/login`, `GET /shop/me`, `POST /shop/auth/password`,
-   `POST /shop/auth/logout`; `SHOP_WEB_URL` gets CORS on `/shop/*`). **Next: step 3c**, the
-   desk routes under `/shop/desk/*` (shift open and close, find a player, player cash at HQ
-   shops, receipts) on the same `packages/db` services as `/admin/cashier/*`, every one refused
-   with 403 `password_change_required` until the cashier replaced an admin-chosen password, then
-   the shop app `apps/shop` at shop.nahubet.com (the owner must add that
-   DNS record) with the agent owner accounts, then phases 2 to 4
+   `POST /shop/auth/logout`; `SHOP_WEB_URL` gets CORS on `/shop/*`). Step 3c, the desk under `/shop/desk` (shifts at
+   the cashier's own shop), is built (`680308c`). **Next:** the shop app `apps/shop` (a Next.js
+   app on port 3002: sign-in, register this device, forced password change, the desk, the printer
+   page; if a folder `apps/shop` exists without a commit, it is unfinished work of the first
+   account: check it builds and its e2e `e2e/tests/shop-app.spec.ts` passes, or start over), then
+   its infra (a Dockerfile target, a `shop` service in `infra/docker-compose.prod.yml`, a Caddy
+   site, `SHOP_WEB_URL` and `NEXT_PUBLIC_SHOP_API_URL`, the service in
+   `infra/scripts/deploy-full.sh`; a missing `SHOP_DOMAIN` must not break the live Caddy: keep the
+   site out until the owner sets it), the e2e stack script, then the agent owner accounts, then phases 2 to 4
    (agent balance, selling tickets, paying tickets: the money path, Opus high effort), 5 (live
    monitor, alerts, weekly commission) and 6 (Android POS once the owner picks a model). The mr-y
    request (Narobet game links) was declined on 19 Nov: it runs on the owner's own Narobet account
