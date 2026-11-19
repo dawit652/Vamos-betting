@@ -191,6 +191,29 @@ describe('loadConfig', () => {
     ).toEqual([]);
   });
 
+  it('takes an empty SHOP_WEB_URL as unset and keeps the shop app on its own origin', () => {
+    // Compose passes `SHOP_WEB_URL=` until the shop app is set up: the API must still start.
+    expect(problemsOf({ SHOP_WEB_URL: '' })).toEqual([]);
+    expect(loadConfig({ SHOP_WEB_URL: '' }).web.shopUrl).toBeNull();
+    expect(loadConfig({ SHOP_WEB_URL: 'http://localhost:3002' }).web.shopUrl).toBe(
+      'http://localhost:3002',
+    );
+    expect(
+      problemsOf({
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://admin.nahubet.com',
+        SHOP_WEB_URL: 'https://admin.nahubet.com',
+      }).join('\n'),
+    ).toMatch(/SHOP_WEB_URL/);
+    expect(
+      problemsOf({
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://admin.nahubet.com',
+        SHOP_WEB_URL: 'https://shop.nahubet.com',
+      }),
+    ).toEqual([]);
+  });
+
   it('requires PASSWORD_PEPPER (32+ characters, not the session secret) in production', () => {
     const production = {
       NODE_ENV: 'production',

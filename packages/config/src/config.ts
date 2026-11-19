@@ -192,7 +192,8 @@ const envSchema = z.object({
   PUBLIC_WEB_URL: z.url().default('http://localhost:3000'),
   ADMIN_WEB_URL: z.url().default('http://localhost:3001'),
   /** The shop app's origin (docs/plans/agent-shops.md phase 1b); unset: /shop/* takes no CORS. */
-  SHOP_WEB_URL: z.url().optional(),
+  // Empty (compose passes `SHOP_WEB_URL=` while the shop app is not set up) is the same as unset.
+  SHOP_WEB_URL: secret.pipe(z.url().optional()),
   PUBLIC_API_URL: z.url().default('http://localhost:4000'),
 
   DATABASE_URL: z.string().min(1).default('postgres://vamos:vamos@localhost:5432/vamos'),
