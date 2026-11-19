@@ -14,33 +14,30 @@ free number is **0067**. Deploy is done by the owner (`ssh -t root@<server>` +
 
 ## Next, in order
 
-0. **Agent shops** (owner's interview and "build it", 19 Nov 2026). The plan, the owner's answers
-   and the status of every phase: `docs/plans/agent-shops.md` (read its "Phases" first). Built:
-   phase 0 (Staff screen, printer card) and phase 1a (agents numbered from 1001 with the owner's
-   name and phone, shops numbered `1001-01` under their agent, a phone for every new cashier, the
-   Agents pages, blocking an agent; player cash at an independent agent's shop is refused until
-   phase 2). **Phase 1b in progress:** shop devices, back-office side, built (an admin approves or
-   revokes a shop's computer on the agent's page; migration 0065). Step 3a, the sign-in on an
-   approved device and shop sessions, is built in `packages/db` (`loginStaff` with `channel:
-'shop'`, `requestShopDeviceWithPassword`, `authenticateStaffSession({ channel })`; commit
-   `6795a21`). Step 3b, the API's `/shop` scope, is built (commit `7cf8186`: `POST /shop/devices/request`
-   sets the device cookie, `POST /shop/auth/login`, `GET /shop/me`, `POST /shop/auth/password`,
-   `POST /shop/auth/logout`; `SHOP_WEB_URL` gets CORS on `/shop/*`). Step 3c, the desk under `/shop/desk` (shifts at
-   the cashier's own shop), is built (`680308c`). The shop app `apps/shop` is built (`e653a9c`: sign-in, register this device, forced
-   password change, the desk with shifts, the printer page; English and Amharic; its e2e spec
-   `e2e/tests/shop-app.spec.ts`; `e2e/scripts/stack.sh` builds and starts it on :3002). **Next:**
-   its production infra: a `shop` target in `infra/docker/Dockerfile` (like `admin`, with
-   `NEXT_PUBLIC_SHOP_API_URL` as a build argument), a `shop` service in
-   `infra/docker-compose.prod.yml` (healthcheck like `admin`), a `{$SHOP_DOMAIN}` site in the
-   Caddyfiles, `SHOP_DOMAIN` / `SHOP_WEB_URL` in `infra/env.prod.example` and the deployment guide,
-   and the service in `infra/scripts/deploy-full.sh`. Care: an unset `SHOP_DOMAIN` must not break
-   the live Caddy or the deploy (keep the site and service out, e.g. a compose profile, until the
-   owner sets the DNS record and the variables); test the compose file with `docker compose config`
-   and the CI docker job. Then the agent owner accounts (plan, Phase 1b design step 1), then phases 2 to 4
-   (agent balance, selling tickets, paying tickets: the money path, Opus high effort), 5 (live
-   monitor, alerts, weekly commission) and 6 (Android POS once the owner picks a model). The mr-y
-   request (Narobet game links) was declined on 19 Nov: it runs on the owner's own Narobet account
-   and bypasses the ledger.
+0. **Agent shops** (owner's interview and "build it", 19 Nov 2026). The plan, the owner's
+   answers and every phase's design and status: `docs/plans/agent-shops.md`.
+   - **Built, pushed, not deployed:** phase 0 (Staff screen `ac8a780`, printer card `df646e4`);
+     phase 1a (agents numbered from 1001 with the owner's name and phone, shops `1001-01`, a phone
+     for every new cashier, the Agents pages, blocking: `dce8e5d`, `80c103e`, `0a155f3`); phase 1b
+     so far: shop devices an admin approves (`37636ca`), the sign-in on an approved device and
+     shop sessions (`6795a21`), the `/shop` API with the desk's shifts (`7cf8186`, `680308c`), the
+     shop app `apps/shop` (`e653a9c`; e2e `e2e/tests/shop-app.spec.ts`, started by
+     `e2e/scripts/stack.sh`) and its production infra, off by default (`2ae3742`). Player cash at
+     an independent agent's shop is refused until phase 2.
+   - **Next, in order:**
+     1. Agent owner accounts (plan, "Phase 1b design" step 1): role `agent_owner`, one owner
+        account per agent made on the agent's page, owner pages in the shop app (their shops,
+        cashiers, devices asked).
+     2. Switching the shop app on in production, with the owner (`docs/deployment.md`, "Shop
+        app"): build the shop image once (never built: no docker daemon in the cloud container),
+        add `shop` to `SERVICES` in `infra/scripts/deploy-full.sh`.
+     3. Phase 2, the agent balance (plan, "Phase 2 design"; money path: main session, Opus, high).
+     4. Phase 3, selling tickets at the counter, and phase 4, paying them (money path).
+     5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
+   - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
+     rate, agent licensing with the regulator.
+   - The mr-y request (Narobet game links) was declined on 19 Nov: it runs on the owner's own
+     Narobet account and bypasses the ledger.
 1. **After the owner deploys the next build, check on live** (read-only queries, the owner runs
    them; `80c8a73` was deployed and checked on 18 Nov: 67 migrations, the team-logos task
    registered): migration 0064 applied (`SELECT number, name FROM agents` shows 1000 Nahubet HQ);
