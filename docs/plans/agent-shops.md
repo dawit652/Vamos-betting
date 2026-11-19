@@ -312,6 +312,34 @@ posts today with `house:psp:cash`).
    rule), four eyes refused for the same admin, idempotent approval, player cash refused with the
    switch off or the balance too low, reconciliation clean after a day of agent operations.
 
+### Step 4 design detail (player cash at an agent's shop; written 19 Nov from the code)
+
+Reconciliation (`packages/db/src/compliance/reconciliation.ts`, `checkPayments`) requires every
+succeeded payment intent and paid payout to have exactly one PSP clearing entry of its provider
+(`psp_records`, `psp_daily_totals`). Player cash at an agent's shop moves the agent's balance, not a
+PSP clearing account, so it gets its own provider name **`agent_cash`** (add it to
+`PaymentRecordProviderSchema` in `packages/contracts/src/payments.ts`):
+
+- **Deposit** (`cashDeposit` in `packages/db/src/cashier/desk.ts`): at an agent's shop with
+  `player_cash_enabled` (else 409 `agent_player_cash_off`, as today), the intent has provider
+  `agent_cash` and posts `agent:<id>:balance −amount, user:<id>:cash +amount` (type `deposit`, so
+  deposit limits count it); `InsufficientFundsError` → 409 `agent_balance_low`; DEPOSIT_SUCCEEDED
+  as today (AML, notices). HQ shops keep provider `cash` and `house:psp:cash`.
+- **Withdrawal** (`cashWithdrawal` in `packages/db/src/cashier/withdrawals.ts`): `requestWithdrawal`
+  with provider `agent_cash` at an agent's shop; paying it posts
+  `house_withdrawals_pending −amount, agent:<id>:balance +amount` (the agent paid the cash out of
+  their drawer). `markPayoutPaid` gets an optional `paidTo: AccountRef` used instead of the
+  provider's clearing account (only with `cashDesk: true`); `cash_payout_desk_only` and
+  `claimDuePayouts` treat `agent_cash` like `cash`. A waiting approved payout is paid only at a shop
+  of its kind (`cash` at HQ shops, `agent_cash` at agent shops).
+- **Reconciliation:** exclude provider `agent_cash` from `psp_records` and `psp_daily_totals`, and add
+  a check `agent_cash_records`: every succeeded `agent_cash` intent has exactly one
+  `agent_balance` entry of −amount in its transaction, every paid `agent_cash` payout one of
+  +amount, and every `agent_balance` posting belongs to an approved top-up, such an intent or such
+  a payout.
+- **Tests:** deposit refused with the switch off and above the balance; deposit and withdrawal move
+  the balance; replay; reconciliation clean after a day of agent player cash.
+
 ## Defaults chosen here (all adjustable by an admin)
 
 Maximum win per ticket ETB 500,000 (as online today); maximum stake ETB 100,000 (as online); HQ
