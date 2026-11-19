@@ -633,6 +633,13 @@ export async function updateStaffUser(
   const nameChanged = displayName !== undefined && displayName !== user.displayName;
   const phoneChanged = phone !== undefined && phone !== user.phone;
   if (!roleChanged && !nameChanged && !phoneChanged) return staffView(user);
+  // An agent owner is made on the agent's page and linked to it: the role never changes either way.
+  if (roleChanged && (role === 'agent_owner' || user.role === 'agent_owner')) {
+    throw domainConflict(
+      'owner_role_fixed',
+      "An agent owner's role does not change; owners are made on their agent's page.",
+    );
+  }
   if (roleChanged) await assertNotLastAdmin(tx, user);
   const [row] = await tx
     .update(adminUsers)

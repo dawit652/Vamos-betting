@@ -1,4 +1,6 @@
 import { eq } from 'drizzle-orm';
+import type { DbExecutor } from '../ledger/types';
+import { adminUsers } from '../schema/accounts';
 import {
   createStaffUser,
   type CreateStaffUserResult,
@@ -67,4 +69,42 @@ export async function createAgentOwnerAccount(
       });
     },
   });
+}
+
+export interface AgentOwnerAccount {
+  id: string;
+  email: string;
+  displayName: string;
+  disabled: boolean;
+  passwordChangeRequired: boolean;
+  lastLoginAt: Date | null;
+}
+
+/** The agent's owner account, or null when none was made. */
+export async function getAgentOwnerAccount(
+  exec: DbExecutor,
+  agentId: string,
+): Promise<AgentOwnerAccount | null> {
+  const [row] = await exec
+    .select({
+      id: adminUsers.id,
+      email: adminUsers.email,
+      displayName: adminUsers.displayName,
+      disabledAt: adminUsers.disabledAt,
+      passwordChangeRequired: adminUsers.passwordChangeRequired,
+      lastLoginAt: adminUsers.lastLoginAt,
+    })
+    .from(agents)
+    .innerJoin(adminUsers, eq(adminUsers.id, agents.ownerStaffId))
+    .where(eq(agents.id, agentId))
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.displayName,
+    disabled: row.disabledAt !== null,
+    passwordChangeRequired: row.passwordChangeRequired,
+    lastLoginAt: row.lastLoginAt,
+  };
 }

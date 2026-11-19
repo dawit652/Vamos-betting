@@ -5,6 +5,7 @@ import {
   ShopDeskResponse,
   ShopLoginRequest,
   ShopOpenShiftRequest,
+  ShopOwnerResponse,
   ShopPasswordChangeRequest,
   ShopSessionResponse,
   ShopShiftResponse,
@@ -12,9 +13,14 @@ import {
 import {
   changeOwnStaffPassword,
   closeShift,
+  getAgent,
   getOpenShift,
+  getOwnerAgent,
   getShop,
   getStaffShop,
+  listAgentCashiers,
+  listAgentDevices,
+  listShops,
   hashDeviceSecret,
   listShiftOperations,
   listShifts,
@@ -57,27 +63,51 @@ function bodyEmail(request: FastifyRequest): string {
   return typeof body?.email === 'string' ? normalizeStaffEmail(body.email).slice(0, 254) : '';
 }
 
-/** The session answer: the cashier, their shop (label, paper width) and the session times. */
+/**
+ * The session answer: a cashier with their shop (label, paper width) and its agent, or an agent
+ * owner with their agent (no shop, no device), and the session times.
+ */
 async function shopSessionBody(exec: DbExecutor, staff: StaffPrincipal) {
+  const person = {
+    id: staff.id,
+    email: staff.email,
+    displayName: staff.displayName,
+    passwordChangeRequired: staff.passwordChangeRequired,
+  };
+  const times = {
+    csrfToken: staff.csrfToken,
+    expiresAt: staff.expiresAt,
+    idleExpiresAt: staff.idleExpiresAt,
+  };
+  if (staff.role === 'agent_owner') {
+    const agent = await getOwnerAgent(exec, staff.id);
+    if (agent === null) throw unauthorized('Sign in to the shop app.');
+    return {
+      staff: { ...person, role: 'agent_owner' as const },
+      agent: { id: agent.id, number: agent.number, name: agent.name },
+      shop: null,
+      deviceId: null,
+      ...times,
+    };
+  }
   const shopId = await getStaffShop(exec, staff.id);
   const shop = shopId === null ? null : await getShop(exec, shopId);
-  if (shop === null || staff.role !== 'cashier' || typeof staff.deviceId !== 'string') {
+  const agent = shop === null ? null : await getAgent(exec, shop.agentId);
+  if (
+    shop === null ||
+    agent === null ||
+    staff.role !== 'cashier' ||
+    typeof staff.deviceId !== 'string'
+  ) {
     // The session check already refuses this; a race (unassigned meanwhile) ends here.
     throw unauthorized('Sign in to the shop app on a registered device.');
   }
   return {
-    staff: {
-      id: staff.id,
-      email: staff.email,
-      displayName: staff.displayName,
-      role: 'cashier' as const,
-      passwordChangeRequired: staff.passwordChangeRequired,
-    },
+    staff: { ...person, role: 'cashier' as const },
+    agent: { id: agent.id, number: agent.number, name: agent.name },
     shop: shopView(shop),
     deviceId: staff.deviceId,
-    csrfToken: staff.csrfToken,
-    expiresAt: staff.expiresAt,
-    idleExpiresAt: staff.idleExpiresAt,
+    ...times,
   };
 }
 
@@ -131,7 +161,8 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     const { staff, session } = await loginStaff(authDeps, {
       email: input.email,
       password: input.password,
-      code: '',
+      // An agent owner types the authenticator code; a cashier's device cookie is the factor.
+      code: input.code ?? '',
       channel: 'shop',
       deviceSecretHash,
       ip: request.ip,
@@ -166,7 +197,8 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
         adminUserId: staff.id,
         sessionId: staff.sessionId,
         currentPassword: input.currentPassword,
-        code: '',
+        // Needed from an agent owner; a cashier's device already proved the second factor.
+        code: input.code ?? '',
         newPassword: input.newPassword,
         channel: 'shop',
         ip: request.ip,
@@ -187,6 +219,9 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
   // come with phases 2 and 3; an admin-chosen password is replaced first.
   const requireDeskStaff = (request: FastifyRequest): StaffPrincipal => {
     const staff = requireShopStaff(request);
+    if (staff.role !== 'cashier') {
+      throw forbidden('cashier_only', 'The desk is for cashiers.');
+    }
     if (staff.passwordChangeRequired) {
       throw forbidden(
         'password_change_required',
@@ -209,6 +244,28 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     if (shop === null) throw unauthorized('Sign in to the shop app on a registered device.');
     return shop;
   };
+
+  // The agent owner's overview (phase 1b step 1): their agent, its shops, cashiers and devices.
+  app.get('/shop/owner', async (request) => {
+    const staff = requireShopStaff(request);
+    if (staff.role !== 'agent_owner')
+      throw forbidden('owner_only', 'This page is for agent owners.');
+    if (staff.passwordChangeRequired) {
+      throw forbidden(
+        'password_change_required',
+        'Change the password you were given before using the shop app.',
+      );
+    }
+    const agent = await getOwnerAgent(deps.db, staff.id);
+    if (agent === null) throw unauthorized('Sign in to the shop app.');
+    const shops = (await listShops(deps.db)).filter((shop) => shop.agentId === agent.id);
+    return wire(ShopOwnerResponse, {
+      agent,
+      shops: shops.map(shopView),
+      cashiers: await listAgentCashiers(deps.db, agent.id),
+      devices: await listAgentDevices(deps.db, agent.id),
+    });
+  });
 
   app.get('/shop/desk', async (request) => {
     const staff = requireDeskStaff(request);

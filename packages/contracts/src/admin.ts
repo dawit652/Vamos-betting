@@ -41,9 +41,15 @@ export const STAFF_ROLES = [
   'support',
   'compliance',
   'cashier',
+  // An agent's owner: made on the agent's page, works in the shop app only (no permission here).
+  'agent_owner',
 ] as const;
 export const StaffRoleSchema = z.enum(STAFF_ROLES);
 export type StaffRole = z.infer<typeof StaffRoleSchema>;
+
+/** The roles the Staff screen gives; agent owners are made on their agent's page. */
+export const StaffAssignableRoleSchema = StaffRoleSchema.exclude(['agent_owner']);
+export type StaffAssignableRole = z.infer<typeof StaffAssignableRoleSchema>;
 
 /**
  * What each permission allows (routes in brackets):
@@ -1498,7 +1504,7 @@ export const CreateStaffRequest = z
   .object({
     email: z.email().max(254),
     displayName: z.string().trim().min(1).max(100),
-    role: StaffRoleSchema,
+    role: StaffAssignableRoleSchema,
     password: z.string().min(12).max(128).optional(),
     phone: z.string().trim().max(32).optional(),
   })
@@ -1522,7 +1528,7 @@ export type CreateStaffResponse = z.infer<typeof CreateStaffResponse>;
 /** PATCH /admin/staff/:id: a role change ends the account's sessions (409 `last_admin`). */
 export const UpdateStaffRequest = z
   .object({
-    role: StaffRoleSchema.optional(),
+    role: StaffAssignableRoleSchema.optional(),
     displayName: z.string().trim().min(1).max(100).optional(),
     /** A new mobile number, or null to remove it. */
     phone: z.string().trim().max(32).nullable().optional(),

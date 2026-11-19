@@ -32,8 +32,10 @@ describe('the staff permission matrix', () => {
       [...PERMISSION_ROLES[permission]].sort();
     // The cashier (a shop's desk, 17 Nov 2026) sees no business totals.
     expect(holders('dashboard.view')).toEqual(
-      [...STAFF_ROLES].filter((role) => role !== 'cashier').sort(),
+      [...STAFF_ROLES].filter((role) => role !== 'cashier' && role !== 'agent_owner').sort(),
     );
+    // Agent owners work in the shop app only: no back-office permission at all.
+    expect(permissionsOf('agent_owner')).toEqual([]);
     expect(holders('kyc.review')).toEqual(['admin', 'kyc']);
     for (const permission of [
       'trading.view',

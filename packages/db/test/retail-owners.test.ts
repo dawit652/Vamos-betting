@@ -164,10 +164,17 @@ describe('an agent owner account', () => {
     expect(row).toEqual({ channel: 'shop', deviceId: null });
 
     // The session works in the shop app only, and stops when the agent is blocked.
-    const check = () => authenticateStaffSession(deps(), { token: session.token, channel: 'shop' });
+    const check = () =>
+      authenticateStaffSession(deps(), { token: session.token, channel: 'shop', checkCsrf: false });
     expect((await check()).status).toBe('ok');
     expect(
-      (await authenticateStaffSession(deps(), { token: session.token, channel: 'admin' })).status,
+      (
+        await authenticateStaffSession(deps(), {
+          token: session.token,
+          channel: 'admin',
+          checkCsrf: false,
+        })
+      ).status,
     ).toBe('none');
     await handle.db.transaction((tx) =>
       setAgentBlocked(tx, {

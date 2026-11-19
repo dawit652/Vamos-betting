@@ -75,8 +75,10 @@ describe('navigation by role', () => {
     expect(homeFor([])).toBe('/account');
   });
 
-  it('every role but the cashier sees the dashboard, and an unknown role sees nothing', () => {
-    for (const role of STAFF_ROLES.filter((r) => r !== 'cashier'))
+  it('every role but the cashier and the agent owner sees the dashboard; an unknown role sees nothing', () => {
+    // The agent owner works in the shop app only and never signs in here.
+    expect(labels('agent_owner')).toEqual([]);
+    for (const role of STAFF_ROLES.filter((r) => r !== 'cashier' && r !== 'agent_owner'))
       expect(labels(role)).toContain('Dashboard');
     expect(navFor([])).toEqual([]);
   });

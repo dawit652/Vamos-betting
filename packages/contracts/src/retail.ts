@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CreateStaffResponse } from './admin';
 import { CashierShopView } from './cashier';
 import { IsoDateTime } from './common';
 import { PositiveSantim } from './payments';
@@ -81,9 +82,23 @@ export const ShopDeviceView = z.object({
 });
 export type ShopDeviceView = z.infer<typeof ShopDeviceView>;
 
-/** GET /admin/agents/:id (agents.view): the agent, its shops, cashiers and devices. */
+/** The agent owner's account (role `agent_owner`, the shop app only). */
+export const AgentOwnerAccountView = z.object({
+  id: z.string(),
+  email: z.string(),
+  displayName: z.string(),
+  disabled: z.boolean(),
+  /** The generated password is not replaced yet (it stops working 72 hours after it was made). */
+  passwordChangeRequired: z.boolean(),
+  lastLoginAt: IsoDateTime.nullable(),
+});
+export type AgentOwnerAccountView = z.infer<typeof AgentOwnerAccountView>;
+
+/** GET /admin/agents/:id (agents.view): the agent, its owner account, shops, cashiers and devices. */
 export const AgentDetailResponse = z.object({
   agent: AgentView,
+  /** Null until made (never for Nahubet HQ). */
+  owner: AgentOwnerAccountView.nullable(),
   shops: z.array(CashierShopView),
   cashiers: z.array(AgentCashierView),
   devices: z.array(ShopDeviceView),
@@ -146,3 +161,14 @@ export const ShopDeviceResponse = z.object({
   device: ShopDeviceView.omit({ shopLabel: true, shopName: true, requestedByName: true }),
 });
 export type ShopDeviceResponse = z.infer<typeof ShopDeviceResponse>;
+
+/**
+ * POST /admin/agents/:id/owner-account (agents.manage): the owner's account for the shop app, with
+ * the agent's owner name and phone. The answer shows the generated password and the authenticator
+ * secret once. 409 `agent_owner_exists`, `agent_is_house`, `staff_email_taken`.
+ */
+export const CreateAgentOwnerRequest = z.object({ email: z.email().max(254) }).strict();
+export type CreateAgentOwnerRequest = z.infer<typeof CreateAgentOwnerRequest>;
+
+export const CreateAgentOwnerResponse = CreateStaffResponse;
+export type CreateAgentOwnerResponse = z.infer<typeof CreateAgentOwnerResponse>;

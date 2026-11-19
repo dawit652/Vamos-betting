@@ -22,11 +22,13 @@ let ctx: TestContext;
 let player: LoggedInUser;
 const staff = new Map<StaffRole, StaffSession>();
 const ABSENT_ID = '00000000-0000-4000-8000-000000000000';
+/** Every role but the agent owner, who never signs in to the back office (shop app only). */
+const BACK_OFFICE_ROLES = STAFF_ROLES.filter((role) => role !== 'agent_owner');
 
 beforeAll(async () => {
   ctx = await createTestContext();
   await seedStaff(ctx);
-  for (const role of STAFF_ROLES) staff.set(role, await staffLogin(ctx, role));
+  for (const role of BACK_OFFICE_ROLES) staff.set(role, await staffLogin(ctx, role));
   player = await registerAndLogin(ctx);
 });
 
@@ -109,7 +111,7 @@ describe('admin RBAC', () => {
   it('answers 403 forbidden to each role lacking the permission, and lets the others through', async () => {
     let checked = 0;
     for (const route of permissionRoutes()) {
-      for (const role of STAFF_ROLES) {
+      for (const role of BACK_OFFICE_ROLES) {
         const session = staff.get(role)!;
         const response = await call(route, {
           cookie: session.cookie,
@@ -130,9 +132,9 @@ describe('admin RBAC', () => {
         checked += 1;
       }
     }
-    expect(checked).toBe(permissionRoutes().length * STAFF_ROLES.length);
+    expect(checked).toBe(permissionRoutes().length * BACK_OFFICE_ROLES.length);
     // The matrix denies something to everyone but the admin.
-    for (const role of STAFF_ROLES.filter((r) => r !== 'admin')) {
+    for (const role of BACK_OFFICE_ROLES.filter((r) => r !== 'admin')) {
       expect(
         STAFF_PERMISSIONS.some((p) => !PERMISSION_ROLES[p].includes(role)),
         role,

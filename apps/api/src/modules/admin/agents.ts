@@ -4,6 +4,8 @@ import {
   AgentResponse,
   AgentStatusRequest,
   CashierShopResponse,
+  CreateAgentOwnerRequest,
+  CreateAgentOwnerResponse,
   CreateAgentRequest,
   CreateAgentShopRequest,
   ShopDeviceResponse,
@@ -13,8 +15,10 @@ import {
 import {
   approveShopDevice,
   createAgent,
+  createAgentOwnerAccount,
   createShop,
   getAgent,
+  getAgentOwnerAccount,
   getShop,
   listAgentCashiers,
   listAgentDevices,
@@ -26,7 +30,7 @@ import {
 } from '@vamos/db';
 import type { FastifyInstance } from 'fastify';
 import { notFound, parseInput } from '../../lib/errors';
-import { staffActor } from '../../plugins/staff-session';
+import { staffActor, staffAuthDeps } from '../../plugins/staff-session';
 import { shopView } from './cashier';
 import { inTx, parseUuid, wire } from './common';
 
@@ -66,8 +70,35 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
     const shops = (await listShops(deps.db)).filter((shop) => shop.agentId === agentId);
     const cashiers = await listAgentCashiers(deps.db, agentId);
     const devices = await listAgentDevices(deps.db, agentId);
-    return wire(AgentDetailResponse, { agent, shops: shops.map(shopView), cashiers, devices });
+    const owner = await getAgentOwnerAccount(deps.db, agentId);
+    return wire(AgentDetailResponse, {
+      agent,
+      owner,
+      shops: shops.map(shopView),
+      cashiers,
+      devices,
+    });
   });
+
+  // The agent owner's account for the shop app (phase 1b step 1): the generated password and the
+  // authenticator secret are in this answer only.
+  app.post<IdParams>(
+    '/admin/agents/:id/owner-account',
+    { config: { staff: 'agents.manage' } },
+    async (request, reply) => {
+      const agentId = parseUuid(request.params.id, 'Agent');
+      const input = parseInput(CreateAgentOwnerRequest, request.body);
+      const actor = staffActor(request);
+      const made = await createAgentOwnerAccount(staffAuthDeps(deps), {
+        agentId,
+        email: input.email,
+        adminId: actor.adminId,
+        ip: actor.ip ?? null,
+      });
+      reply.code(201);
+      return wire(CreateAgentOwnerResponse, made);
+    },
+  );
 
   app.patch<IdParams>(
     '/admin/agents/:id',
