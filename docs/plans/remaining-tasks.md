@@ -1,14 +1,15 @@
 # Remaining tasks (read this first; updated 19 Nov 2026)
 
-Latest work: branch `claude/eager-cerf-ox9vkq`. A new session may be given another branch name:
-start it from `origin/claude/eager-cerf-ox9vkq` (or whichever is newer). It holds the server's own
+Latest work: branch `claude/happy-keller-i7cvrh` (19 Nov; it continues
+`claude/eager-cerf-ox9vkq`). A new session may be given another branch name: start it from
+whichever of the two is newer. It holds the server's own
 branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
 receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (`dce8e5d`
-database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices` and `0066_shop_sessions` run on the next deploy
+database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices` and `0066_shop_sessions` and `0067_agent_owners` run on the next deploy
 (every existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next
-free number is **0067**. Deploy is done by the owner (`ssh -t root@<server>` +
+free number is **0068**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
@@ -25,9 +26,10 @@ free number is **0067**. Deploy is done by the owner (`ssh -t root@<server>` +
      `e2e/scripts/stack.sh`) and its production infra, off by default (`2ae3742`). Player cash at
      an independent agent's shop is refused until phase 2.
    - **Next, in order:**
-     1. Agent owner accounts (plan, "Phase 1b design" step 1): role `agent_owner`, one owner
-        account per agent made on the agent's page, owner pages in the shop app (their shops,
-        cashiers, devices asked).
+     1. Agent owner accounts: **built 19 Nov** (migration `0067_agent_owners`, `e447fe4`,
+        `0217525`, the pages next): made on the agent page, shop-app sign-in with password and
+        authenticator, the owner overview page. Still open: owners adding and blocking their own
+        cashiers (today admins do it).
      2. Switching the shop app on in production, with the owner (`docs/deployment.md`, "Shop
         app"): build the shop image once (never built: no docker daemon in the cloud container),
         add `shop` to `SERVICES` in `infra/scripts/deploy-full.sh`.

@@ -196,7 +196,15 @@ New accounts: one balance per agent (what Nahubet owes the agent; never below ze
 
 Build in this order; each step is committed and pushed on its own.
 
-1. **Agent owner accounts.** Migration 0065: `ALTER TYPE admin_role ADD VALUE 'agent_owner'` and
+1. **Agent owner accounts. Built 19 Nov** (migration `0067_agent_owners`; database and API in
+   `e447fe4` and `0217525`; pages with the next commit): `createAgentOwnerAccount`
+   (`packages/db/src/retail/owners.ts`) makes the account linked to the agent in one transaction;
+   the shop app's authenticator sign-in is for owners only, its device sign-in for cashiers, and
+   owners never sign in to the back office; an owner's shop session has no device and works while
+   the agent is not blocked; `GET /shop/owner` (their agent, shops, cashiers, devices); the desk
+   refuses owners (`cashier_only`); the Staff screen cannot give the role and it never changes
+   (`owner_role_fixed`). Not built yet: owners adding or blocking their own cashiers (admins do it).
+   The original design follows. Migration 0065: `ALTER TYPE admin_role ADD VALUE 'agent_owner'` and
    `agents.owner_staff_id uuid NULL REFERENCES admin_users(id)` (one owner account per agent, unique).
    `POST /admin/agents/:id/owner-account {email}` (agents.manage) calls `createStaffUser` with role
    `agent_owner`, the agent's owner name as display name and the owner phone, links it, and shows
