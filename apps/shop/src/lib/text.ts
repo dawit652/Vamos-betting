@@ -110,6 +110,9 @@ export const TEXT = {
   ownerTitle: 'Overview · አጠቃላይ',
   ownerAgent: 'Agent',
   ownerStatus: 'Status',
+  ownerBalance: 'Balance · ቀሪ ሂሳብ',
+  ownerBalanceNote:
+    'Top-ups are recorded and approved by Nahubet. · ገንዘብ መጨመር በናሁቤት ይመዘገባል እና ይጸድቃል።',
   statusActive: 'Active',
   statusBlocked: 'Blocked',
   ownerShops: 'Shops · ሱቆች',

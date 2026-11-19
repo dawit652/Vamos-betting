@@ -39,3 +39,11 @@ export function sortShops<T extends { agentNumber: number; number: number }>(
 }
 
 export const PERCENT_HINT = 'Use a percent from 0 to 100, at most 2 decimals';
+
+/** Below this balance (ETB 1,000, in santim) the agents list flags the agent as low. */
+export const LOW_BALANCE_SANTIM = 100_000n;
+
+/** True when an agent's balance (santim string) is known and under the low-balance line. */
+export function isLowBalance(balance: string | null): boolean {
+  return balance !== null && BigInt(balance) < LOW_BALANCE_SANTIM;
+}

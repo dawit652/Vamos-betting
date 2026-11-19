@@ -4,7 +4,7 @@ import type { ShopOwnerResponse } from '@vamos/contracts';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useFetch } from '@/components/hooks';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, formatEtb } from '@/lib/format';
 import { TEXT } from '@/lib/text';
 
 /** The agent owner's read-only overview: the agent's shops, cashiers and devices. */
@@ -32,7 +32,7 @@ export default function OwnerPage() {
       </div>
     );
   }
-  const { agent, shops, cashiers, devices } = owner.data;
+  const { agent, balance, shops, cashiers, devices } = owner.data;
   return (
     <>
       <h1>{TEXT.ownerTitle}</h1>
@@ -46,6 +46,10 @@ export default function OwnerPage() {
         <p>
           {TEXT.ownerStatus}: {agent.status === 'active' ? TEXT.statusActive : TEXT.statusBlocked}
         </p>
+        <p>
+          {TEXT.ownerBalance}: <strong data-testid="owner-balance">{formatEtb(balance)}</strong>
+        </p>
+        <p className="muted small">{TEXT.ownerBalanceNote}</p>
       </div>
 
       <h2>

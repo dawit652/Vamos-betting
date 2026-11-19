@@ -4,9 +4,11 @@ import type {
   AgentCommissionKind,
   AgentDetailResponse,
   AgentOwnerAccountView,
+  AgentTopupView,
   AgentView,
   CashierShopView,
   CreateAgentOwnerResponse,
+  RecordAgentTopupRequest,
   ShopDeviceView,
   UpdateAgentRequest,
 } from '@vamos/contracts';
@@ -449,6 +451,212 @@ function Devices({
   );
 }
 
+const TOPUP_TONES = { requested: 'warn', approved: 'good', rejected: 'bad' } as const;
+
+/** Record a top-up or take-back; a second person approves it below (four eyes). */
+function RecordTopup({ agentId, onRecorded }: { agentId: string; onRecorded: () => void }) {
+  const [direction, setDirection] = useState<'in' | 'out'>('in');
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState<'cash' | 'bank'>('cash');
+  const [reference, setReference] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const santim = parseEtbToSantim(amount);
+    if (santim === null || santim === '0') return setError('Enter the amount in ETB, above zero.');
+    const body: RecordAgentTopupRequest = { direction, amount: santim, method };
+    if (method === 'bank') body.bankReference = reference.trim();
+    if (note.trim() !== '') body.note = note.trim();
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/admin/agents/${agentId}/topups`, { method: 'POST', body });
+      setAmount('');
+      setReference('');
+      setNote('');
+      onRecorded();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      className="card"
+      autoComplete="off"
+      aria-label="Record a top-up or take-back"
+      onSubmit={submit}
+    >
+      <h3>Record a top-up or take-back</h3>
+      <div className="row">
+        <Field label="Kind">
+          <select value={direction} onChange={(e) => setDirection(e.target.value as 'in' | 'out')}>
+            <option value="in">Top-up: the agent paid us</option>
+            <option value="out">Take-back: we pay the agent back</option>
+          </select>
+        </Field>
+        <Field label="Amount (ETB)">
+          <input
+            required
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </Field>
+        <Field label="Method">
+          <select value={method} onChange={(e) => setMethod(e.target.value as 'cash' | 'bank')}>
+            <option value="cash">Cash at HQ</option>
+            <option value="bank">Bank transfer</option>
+          </select>
+        </Field>
+        {method === 'bank' && (
+          <Field label="Bank reference">
+            <input
+              required
+              minLength={3}
+              maxLength={64}
+              pattern="[A-Za-z0-9/_.\-]{3,64}"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+            />
+          </Field>
+        )}
+        <Field label="Note (optional)">
+          <input maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+      </div>
+      {error !== null && <Notice>{error}</Notice>}
+      <p>
+        <button type="submit" className="primary" disabled={busy}>
+          Record
+        </button>
+      </p>
+    </form>
+  );
+}
+
+/** The agent's prepaid balance and its top-ups and take-backs (phase 2). */
+function Balance({
+  agentId,
+  balance,
+  topups,
+  manage,
+  onChanged,
+}: {
+  agentId: string;
+  balance: string;
+  topups: AgentTopupView[];
+  manage: boolean;
+  onChanged: () => void;
+}) {
+  const { can, staff } = useSession();
+  const decide = async (topup: AgentTopupView, action: 'approve' | 'reject', note: string) => {
+    await api(`/admin/agent-topups/${topup.id}/${action}`, {
+      method: 'POST',
+      body: note.trim() === '' ? {} : { note: note.trim() },
+    });
+    onChanged();
+  };
+  const canDecide = can('withdrawals.approve');
+  return (
+    <>
+      <h2>Balance</h2>
+      <p>
+        <strong style={{ fontSize: '1.8rem' }} data-testid="agent-balance">
+          {formatEtb(balance)}
+        </strong>
+      </p>
+      <p className="muted small">
+        One person records, another approves (four eyes). An approved top-up adds to the balance; a
+        take-back takes from it and can never take it below zero.
+      </p>
+      {manage && <RecordTopup agentId={agentId} onRecorded={onChanged} />}
+      <div className="table-wrap">
+        <table data-testid="agent-topups">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Kind</th>
+              <th>Amount</th>
+              <th>Method</th>
+              <th>Status</th>
+              <th>Recorded by</th>
+              <th>Decided by</th>
+              {canDecide && <th />}
+            </tr>
+          </thead>
+          <tbody>
+            {topups.map((t) => (
+              <tr key={t.id}>
+                <td>{formatDateTime(t.requestedAt)}</td>
+                <td>{t.direction === 'in' ? 'Top-up' : 'Take-back'}</td>
+                <td>{formatEtb(t.amount)}</td>
+                <td>
+                  {t.method === 'cash' ? 'Cash' : 'Bank'}
+                  {t.bankReference !== null && <div className="muted small">{t.bankReference}</div>}
+                </td>
+                <td>
+                  <Badge value={t.status} tone={TOPUP_TONES[t.status]} />
+                </td>
+                <td>
+                  {t.requestedByName}
+                  {t.note !== null && <div className="muted small">{t.note}</div>}
+                </td>
+                <td>
+                  {t.decidedByName === null ? (
+                    '—'
+                  ) : (
+                    <>
+                      {t.decidedByName}
+                      <div className="muted small">{formatDateTime(t.decidedAt)}</div>
+                      {t.decisionNote !== null && (
+                        <div className="muted small">{t.decisionNote}</div>
+                      )}
+                    </>
+                  )}
+                </td>
+                {canDecide && (
+                  <td>
+                    {t.status === 'requested' && t.requestedBy !== staff?.id && (
+                      <div className="actions">
+                        <ReasonAction
+                          label="Approve"
+                          optional
+                          prompt="Note (optional)"
+                          onSubmit={(note) => decide(t, 'approve', note)}
+                        />
+                        <ReasonAction
+                          label="Reject"
+                          danger
+                          optional
+                          prompt="Note (optional)"
+                          onSubmit={(note) => decide(t, 'reject', note)}
+                        />
+                      </div>
+                    )}
+                  </td>
+                )}
+              </tr>
+            ))}
+            {topups.length === 0 && (
+              <tr>
+                <td colSpan={canDecide ? 8 : 7} className="muted">
+                  No top-ups yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, error, loading, reload } = useFetch<AgentDetailResponse>(`/admin/agents/${id}`);
@@ -511,6 +719,16 @@ export default function AgentDetailPage() {
               </div>
             )}
           </section>
+
+          {data.balance !== null && (
+            <Balance
+              agentId={agent.id}
+              balance={data.balance}
+              topups={data.topups}
+              manage={manage}
+              onChanged={reload}
+            />
+          )}
 
           <OwnerAccount agent={agent} owner={data.owner} manage={manage} onChanged={reload} />
           {manage && <EditAgent key={agent.updatedAt} agent={agent} onSaved={reload} />}

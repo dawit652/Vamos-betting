@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { commissionText, localPhone, sortAgents, sortShops } from './agents';
+import {
+  LOW_BALANCE_SANTIM,
+  commissionText,
+  isLowBalance,
+  localPhone,
+  sortAgents,
+  sortShops,
+} from './agents';
 
 describe('commissionText', () => {
   it('names the percent and the base', () => {
@@ -47,5 +54,15 @@ describe('sorting', () => {
       { agentNumber: 1001, number: 2 },
       { agentNumber: 1002, number: 1 },
     ]);
+  });
+});
+
+describe('isLowBalance', () => {
+  it('flags balances under ETB 1,000 only', () => {
+    expect(LOW_BALANCE_SANTIM).toBe(100_000n);
+    expect(isLowBalance('0')).toBe(true);
+    expect(isLowBalance('99999')).toBe(true);
+    expect(isLowBalance('100000')).toBe(false);
+    expect(isLowBalance(null)).toBe(false);
   });
 });

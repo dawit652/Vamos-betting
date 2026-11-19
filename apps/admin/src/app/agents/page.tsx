@@ -13,11 +13,12 @@ import {
   COMMISSION_KIND_LABELS,
   PERCENT_HINT,
   commissionText,
+  isLowBalance,
   localPhone,
   sortAgents,
 } from '@/lib/agents';
 import { describeError } from '@/lib/errors';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, formatEtb } from '@/lib/format';
 
 function AddAgent() {
   const router = useRouter();
@@ -123,6 +124,7 @@ export default function AgentsPage() {
                 <th>Status</th>
                 <th>Shops</th>
                 <th>Cashiers</th>
+                <th>Balance</th>
                 <th>Commission</th>
                 <th>Created</th>
               </tr>
@@ -156,6 +158,16 @@ export default function AgentsPage() {
                   </td>
                   <td>{`${a.openShops}/${a.shops}`}</td>
                   <td>{a.cashiers}</td>
+                  <td>
+                    {a.balance === null ? (
+                      '–'
+                    ) : (
+                      <>
+                        {formatEtb(a.balance)}{' '}
+                        {isLowBalance(a.balance) && <Badge value="low" tone="warn" />}
+                      </>
+                    )}
+                  </td>
                   <td>{commissionText(a)}</td>
                   <td>{formatDateTime(a.createdAt)}</td>
                 </tr>
