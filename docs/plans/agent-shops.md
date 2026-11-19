@@ -349,6 +349,79 @@ PSP clearing account, so it gets its own provider name **`agent_cash`** (add it 
 - **Tests:** deposit refused with the switch off and above the balance; deposit and withdrawal move
   the balance; replay; reconciliation clean after a day of agent player cash.
 
+## Phase 3 design (selling tickets; money path, main session on Opus, high effort)
+
+Written 19 Nov from the code. A shop ticket **is a bet** (`bets`, `placeBet`, `settlePlacedBet`),
+so odds checks, limits, liability caps, idempotency, voids, tax and result corrections are the
+online ones. What differs is who stands behind it and where the money comes from and goes to.
+
+**Who bets.** Each agent (Nahubet HQ 1000 included) has one counter bettor: a `users` row with
+`users.shop_agent_id` = the agent (unique; null for every player). It is never a player: phone
+`shop:<agent number>` (no digits a person can type), a password hash nothing matches, status
+active. Player lists, notifications (bet results), marketing SMS and the registration counts leave
+these rows out. Its bets serialise on its user lock (one agent's shops queue on one row).
+
+**Money** (accounts in `packages/db/src/ledger/`):
+
+| What happens            | Type                   | Entries                                                          |
+| ----------------------- | ---------------------- | ---------------------------------------------------------------- |
+| Ticket sold, agent shop | `bet_stake`            | agent:<id>:balance −stake, house:stakes +stake (409 balance low) |
+| Ticket sold, HQ shop    | `bet_stake`            | house:retail_cash −stake, house:stakes +stake                    |
+| Ticket cancelled        | `retail_ticket_cancel` | house:stakes −stake, the same account +stake                     |
+| Settled won             | `bet_payout`           | house:retail_payable +net, tax payable +tax, stakes, revenue     |
+| Settled void            | `bet_refund`           | house:stakes −stake, house:retail_payable +stake                 |
+| Settled lost            | `bet_payout`           | as online (stakes → revenue)                                     |
+
+`house:retail_cash` (new, may go negative) is the ticket cash in HQ's own drawers: the PSP
+clearing account `house:psp:cash` reconciles against player deposits and payouts only. Nothing a
+ticket wins ever reaches a wallet or the agent's balance at settlement: it waits in
+`house:retail_payable` (new) until the shop pays the holder (phase 4: retail payable → the agent's
+balance or HQ's retail cash). Settlement must therefore route shop tickets this way **from
+phase 3 on**, even though paying comes in phase 4; corrections reverse and repost as online.
+
+**Step 1, database** (migration `0070_retail_tickets`; `packages/db/src/retail/tickets.ts`):
+
+- Enum values: `bet_channel` `shop`; `bet_status` `cancelled`; `ledger_account_kind`
+  `house_retail_payable`, `house_retail_cash`; `ledger_transaction_type` `retail_ticket_cancel`
+  (checks in the same migration compare `::text`).
+- `users.shop_agent_id` (above); `agents.ticket_limits` jsonb (an admin's overrides of the
+  defaults); the defaults in a new settings key `retail_tickets` (max win ETB 500,000, max stake
+  ETB 100,000, min stake and most matches and min odds as online, sales per day none, cancel
+  window 5 minutes, HQ approval above ETB 10,000, expiry 30 days).
+- `retail_tickets`: id, `bet_id` (unique), agent, shop, cashier, shift, optional customer phone,
+  stake, status (`sold`, `cancelled`; phase 4 adds paid and expired), who and when cancelled and
+  why, print count and the original's time. Never deleted. The ticket number and barcode are the
+  bet's short id.
+- `placeBet` gains a funding option (default: the player's wallet, unchanged): `retail` names
+  the account the stake comes from, refuses any live or started leg (409 `selection_unavailable`,
+  reason `started`: shops sell prematch only), uses channel `shop`, writes the cashier as the
+  audit actor, and maps a low balance to 409 `agent_balance_low`.
+- `sellRetailTicket`: the cashier's own open shift at an operating shop of an active agent; the
+  agent's limits merged into the bet rules (so the max win is in the bet's terms and settlement
+  caps by it); sales per day per agent; then `placeBet` and the `retail_tickets` row, audited,
+  outbox `retail.ticket_sold`.
+- `cancelRetailTicket`: the cashier within the cancel window after the sale, later the agent owner
+  or an admin; always before the first kick-off and while the bet is open; posts the stake back,
+  bet → `cancelled`, ticket → `cancelled`; once only (row lock, the same answer again).
+- Settlement (`settle.ts`): channel `shop` uses the retail posting above; the result notification
+  is skipped for counter bettors.
+- Shift totals and the close count include tickets sold minus cancelled; reconciliation checks
+  `retail_payable` (settled shop tickets' net payouts, minus paid from phase 4) and `retail_cash`.
+- Tests (real Postgres): sale from the balance and refusal when low; limits; prematch only;
+  replay; cancel window, kick-off and roles; won/void/lost settlement and a correction; shift
+  totals; reconciliation clean; a property that balance + stakes + payable is conserved.
+
+**Step 2, API:** `/shop/desk/tickets/check` (each leg's state: started or suspended in red,
+changed odds), `POST /shop/desk/tickets` (sell, idempotency key), `GET /shop/desk/tickets/:id`,
+`POST /shop/desk/tickets/:id/cancel`; building by Game ID + pick (`packages/core/src/textcommand.ts`
+`PICK_CODES`) and by booking code (`loadBookingCode`); the owner and admin cancel routes; an
+admin's limits per agent and the `retail_tickets` settings.
+
+**Step 3, shop app:** the sell screen (Game ID + pick, booking code, a match list), the check
+before printing (remove started matches, accept changed odds), the printed ticket in English and
+Amharic with a Code128 barcode drawn as SVG (a pure encoder in `packages/core` with tests),
+cancel. **Step 4:** e2e, docs.
+
 ## Defaults chosen here (all adjustable by an admin)
 
 Maximum win per ticket ETB 500,000 (as online today); maximum stake ETB 100,000 (as online); HQ
