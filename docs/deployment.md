@@ -93,22 +93,25 @@ docker compose run --rm -e ADMIN_PASSWORD='<12+ chars>' migrate \
   node dist/ops/admin-create.js --email you@example.et --name "Your Name" --role admin
 ```
 
-A cashier account for one shop (the shop's code from the back office, Cashier, Shifts, Shops): with
-more than one active shop a cashier opens shifts only at their shop, so give `--shop` (or pick the
-shop later in the Cashiers table):
+Staff accounts are easiest to add in the back office (Staff, Add a staff account; admins only).
+From the server, a cashier account for one shop (the shop's number, e.g. `1001-01`, or its code,
+from the back office, Agents): with more than one active shop a cashier opens shifts only at their
+shop, so give `--shop` (or pick the shop later on the Staff page). A cashier needs a mobile number
+(`--phone`):
 
 ```bash
 docker compose run --rm -e ADMIN_PASSWORD='<12+ chars>' migrate \
-  node dist/ops/admin-create.js --email desk1@example.et --name "Hana T." --role cashier --shop bole-02
+  node dist/ops/admin-create.js --email desk1@example.et --name "Hana T." --role cashier \
+  --shop 1001-01 --phone 0911223344
 ```
 
 Validated on 2026-10-19 with Docker Engine 29.8 (all four images built, stack booted, `scripts/smoke.sh
 --production --worker http://localhost:4100` passed 13 checks, `/ready` on the API skipped as 404 at that
 time). The Caddy proxy profile and a restore from the dumps were not exercised in that run.
 
-**Lost password or authenticator, or retiring an account.** The back office has no staff screen, and the
-password reset by SMS needs a real SMS gateway, so recover a staff account from the server with `admin-reset`
-(audited, refused for the only enabled admin when disabling):
+**Lost password or authenticator, or retiring an account.** An admin does it in the back office (Staff,
+the account: Reset password, Reset authenticator, Disable). When no admin can sign in, recover an account
+from the server with `admin-reset` (audited, refused for the only enabled admin when disabling):
 
 ```bash
 docker compose run --rm -e ADMIN_PASSWORD='<12+ chars>' migrate node dist/ops/admin-reset.js --email you@example.et --action password

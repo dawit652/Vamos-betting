@@ -1,29 +1,36 @@
 # Remaining tasks (read this first; updated 19 Nov 2026)
 
-Latest work: branch `claude/eager-cerf-ox9vkq` (18 Nov: it now holds `claude/happy-keller-i7cvrh`
-too, merged by the first account). A new session may be given another
-branch name: start it from `origin/claude/eager-cerf-ox9vkq` (or whichever is newer). It holds the server's own branch
-(`live/nahubet-new-2026-11-15`); check with
-`git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Live
-server runs `9a4e399` or the other account's later deploy; pushed and NOT deployed: everything up to
-`ed60961` and this file (team logos, the whole cashier desk, the failed-login alarm X6b, rule O1h,
-Next.js 16.4.5). Migrations 0056 to 0063 run on the deploy; the next free number is **0064**.
-Deploy is done by the owner (PowerShell command in the last session: `ssh -t root@<server>` +
+Latest work: branch `claude/eager-cerf-ox9vkq`. A new session may be given another branch name:
+start it from `origin/claude/eager-cerf-ox9vkq` (or whichever is newer). It holds the server's own
+branch (`live/nahubet-new-2026-11-15`); check with
+`git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
+server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
+receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (the next
+commit: agents, shop numbers, staff phones). Migration `0064_agents` runs on the next deploy (every
+existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next free
+number is **0065**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
 ## Next, in order
 
-0. **Agent shops (owner's interview of 19 Nov 2026):** independent agents with a prepaid balance
-   sell and pay walk-in sport tickets on a printer; the admin controls every agent. Plan and the
-   owner's answers: `docs/plans/agent-shops.md`. Waiting for the owner's go; phase 0 (staff screen,
-   printer card) first. The mr-y request (Narobet game links) was declined on 19 Nov: it runs on the
-   owner's own Narobet account and bypasses the ledger.
-1. **After the owner deploys `ed60961` or later, check on live** (read-only queries, the owner runs
-   them): migrations 59 + 8 applied; the Telegram PIN reset; team logos (need
-   `SCRAPER_SECRET_API_FOOTBALL`; scraper log `team logos`); rule O1h (open `odds_approval` and
-   `ratings_uncalibrated` fall); the X6b alarm lines (`"alarm":"login_failures_`); the cashier desk:
-   add the shops, `admin-create --role cashier --shop <code>`, a test shift with a deposit.
+0. **Agent shops** (owner's interview and "build it", 19 Nov 2026). The plan, the owner's answers
+   and the status of every phase: `docs/plans/agent-shops.md` (read its "Phases" first). Built:
+   phase 0 (Staff screen, printer card) and phase 1a (agents numbered from 1001 with the owner's
+   name and phone, shops numbered `1001-01` under their agent, a phone for every new cashier, the
+   Agents pages, blocking an agent; player cash at an independent agent's shop is refused until
+   phase 2). **Next: phase 1b** (agent owner accounts, shop devices approved by an admin, the shop
+   app `apps/shop` at shop.nahubet.com; the owner must add that DNS record), then phases 2 to 4
+   (agent balance, selling tickets, paying tickets: the money path, Opus high effort), 5 (live
+   monitor, alerts, weekly commission) and 6 (Android POS once the owner picks a model). The mr-y
+   request (Narobet game links) was declined on 19 Nov: it runs on the owner's own Narobet account
+   and bypasses the ledger.
+1. **After the owner deploys the next build, check on live** (read-only queries, the owner runs
+   them; `80c8a73` was deployed and checked on 18 Nov: 67 migrations, the team-logos task
+   registered): migration 0064 applied (`SELECT number, name FROM agents` shows 1000 Nahubet HQ);
+   the Staff and Agents pages open for an admin; add an agent, its shop and a cashier with a phone;
+   a test shift with a deposit at an HQ shop; team logos after their 6-hour run (scraper log `team
+logos`); the X6b alarm lines (`"alarm":"login_failures_`).
 2. **Desk PIN reset redesign** (Opus, high; security), then switch `CASHIER_PIN_RESET=on`: the code
    must only work from the player's own device. The design is in `docs/plans/cashier-dashboard.md`
    "Assisted PIN reset" (player starts on the phone, a browser secret, the cashier types the desk code

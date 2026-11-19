@@ -5,7 +5,11 @@ Owner's request (19 Nov 2026): the admin adds admins, and cashiers for every sho
 tickets on a connected printer (sample: a Narobet "Betting Slip"); the admin has ultimate power and
 controls every branch. Interviewed on 19 Nov 2026; the answers are below.
 
-Status: **plan, waiting for the owner's go.** Phase 0 can start at once.
+Status (19 Nov 2026): the owner said "build it". **Phase 0 built**: the receipt printer card and
+test print (`df646e4`), the Staff screen (`ac8a780`). **Phase 1a built** (the commit after
+`ac8a780`): agents with numbers, owner name and phone, shops numbered under their agent, staff
+phone numbers, the Agents pages, blocking. **Next: phase 1b** (devices, agent owner accounts, the
+shop app); see "Phases" for what each step holds.
 
 ## Owner's decisions (interview of 19 Nov 2026)
 
@@ -27,6 +31,7 @@ Status: **plan, waiting for the owner's go.** Phase 0 can start at once.
 | Ticket expiry      | Adjustable in the admin dashboard.                                                                                                                         |
 | Ticket text        | English and Amharic.                                                                                                                                       |
 | Agent and shop IDs | Automatic numbers with names: agent 1001, its shops 1001-01, 1001-02.                                                                                      |
+| Names and phones   | Every agent has its owner's full name and mobile number; every cashier has a mobile number (owner's message during the build, 19 Nov 2026).                |
 
 ## Review and test of today's dashboards (19 Nov 2026)
 
@@ -161,11 +166,23 @@ New accounts: one balance per agent (what Nahubet owes the agent; never below ze
 
 ## Phases (each one deployable, with its tests)
 
-0. **Staff screen and printer** (small, no money): Staff page in the back office (list; add admin,
-   finance and the other roles, the authenticator secret shown once; disable, enable, reset the
-   password); the "Receipt printer" card and test print page on today's desk.
-1. **Agents, shops and people:** migration (agents, shop numbers, devices, `agent_owner`), Agents
-   pages, blocking, device approval, the shop app with sign-in.
+0. **Staff screen and printer** (small, no money): **built** (`df646e4`, `ac8a780`).
+1. **Agents, shops and people.**
+   - **1a, built:** migration `0064_agents` (table `agents`, HQ = 1000 holding every existing
+     shop, `cashier_shops.agent_id` and `number`, `admin_users.phone`); `packages/db/src/retail/`
+     (createAgent, listAgents, updateAgent, setAgentBlocked, listAgentCashiers); `createShop`
+     numbers shops per agent; `assertShopOperates` (closed shop or blocked agent: 409) and
+     `assertPlayerCashAllowed` (player cash only at HQ shops until phase 2: 409
+     `agent_player_cash_off`); routes `/admin/agents*` (`agents.view`, `agents.manage`); a cashier
+     needs a phone (API and `admin-create --phone`); back-office Agents pages; tests in
+     `packages/db/test/retail-agents.test.ts`, `apps/api/test/admin-agents.test.ts`,
+     `e2e/tests/agents.spec.ts`.
+   - **1b, next:** the `agent_owner` role and an owner account per agent (created from the
+     agent's page, phone required); `shop_devices` (a device asks, an admin approves, revoke; the
+     device keeps a random secret in a cookie; cashiers sign in only on an approved device of their
+     shop); blocking an agent or shop ends its staff sessions; the shop app `apps/shop`
+     (shop.nahubet.com: sign-in, the desk moved there, Printer page) with its compose service,
+     Caddy site and deploy-script entry.
 2. **Agent balance:** accounts, top-ups with four eyes, balance pages; player cash at the shop
    moved to the agent balance with the per-agent switch. Money path.
 3. **Selling:** sell screen (three ways), removing started matches, limits, the ticket placed from
@@ -174,6 +191,47 @@ New accounts: one balance per agent (what Nahubet owes the agent; never below ze
    job, the payout slip. Money path.
 5. **Control:** live monitor, alerts, weekly statements and commission, exports.
 6. **Android POS**, once the model is chosen.
+
+## Phase 1b design (for the next session)
+
+Build in this order; each step is committed and pushed on its own.
+
+1. **Agent owner accounts.** Migration 0065: `ALTER TYPE admin_role ADD VALUE 'agent_owner'` and
+   `agents.owner_staff_id uuid NULL REFERENCES admin_users(id)` (one owner account per agent, unique).
+   `POST /admin/agents/:id/owner-account {email}` (agents.manage) calls `createStaffUser` with role
+   `agent_owner`, the agent's owner name as display name and the owner phone, links it, and shows
+   the one-time password and authenticator secret on the agent page (reuse
+   `apps/admin/src/components/staff-secret.tsx`). `agent_owner` holds no back-office permission
+   (`PERMISSION_ROLES`): owners work in the shop app only. Add `agent_owner` to `STAFF_ROLES` only
+   where the Staff screen should offer it (probably not: owners are made from the agent page).
+2. **Shop devices.** Table `shop_devices` (id, shop_id, label, secret_hash unique (sha256 of a
+   32-byte random secret), status `pending|approved|revoked`, requested_by, approved_by,
+   approved_at, revoked_at, last_seen_at, user_agent, created_at); `REVOKE DELETE` from vamos_app.
+   A device asks after its cashier's password is checked (`POST /shop/devices/request {email,
+password, label}`; the API sets the httpOnly cookie `vamos_device` with the secret, path `/shop`,
+   SameSite=Strict, Secure in production). Back office: the agent page lists devices per shop with
+   Approve / Revoke (agents.manage, audited). A cashier signs in to the shop app only with an
+   approved device of their own shop; every shop request re-checks the device, the shop, the agent
+   and the account, so blocking or revoking takes effect at once.
+3. **Shop sessions and routes.** A separate session scope `/shop/*` (cookie `vamos_shop`, CSRF header
+   `x-shop-csrf-token`), reusing the staff session store with a `channel = 'shop'` marker.
+   Cashier sign-in: email or phone + password + approved device; agent owner: password +
+   authenticator (+ device if the owner wants it later). `GET /shop/me` returns the staff member,
+   agent and shop (label, paper width). The desk routes move to `/shop/desk/*` on the same
+   `packages/db` services (shift, player cash at HQ shops, receipts); `/admin/cashier/*` stays for
+   HQ supervisors (finance, admin), and the `cashier` role leaves `cashier.desk` once the shop app
+   is live.
+4. **The shop app** `apps/shop` (Next.js, port 3002), built like `apps/admin` (`src/lib/api.ts`,
+   `config.ts` with `NEXT_PUBLIC_SHOP_API_URL`, session provider, login page): pages Sign in, Desk
+   (shift, player cash), Receipt, Printer (the test print and the guide now on the admin desk), in
+   English and Amharic (`packages/i18n`). Infra: a build target in `infra/docker/Dockerfile`, a
+   `shop` service in `infra/docker-compose.prod.yml` (healthcheck like `admin`), a
+   `{$SHOP_DOMAIN}` site in `infra/caddy/Caddyfile` (and the scale/streams variants), `SHOP_DOMAIN`
+   in `infra/env.prod.example`, and the service in `infra/scripts/deploy-full.sh`. The owner adds
+   the DNS record and `SHOP_DOMAIN=shop.nahubet.com` to `/opt/nahubet-new/infra/.env.prod`.
+5. **Tests:** db (devices, owner link, blocked agent ends the shop session), API (`/shop/*` with and
+   without an approved device, revoked device, blocked agent), e2e (a cashier asks a device, the
+   admin approves, the cashier signs in to the shop app and opens a shift).
 
 ## Defaults chosen here (all adjustable by an admin)
 
