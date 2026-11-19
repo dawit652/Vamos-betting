@@ -1,8 +1,12 @@
-/** Browser-visible API base URL, inlined at build time (NEXT_PUBLIC_SHOP_API_URL). */
-export const API_URL = (process.env.NEXT_PUBLIC_SHOP_API_URL || 'http://localhost:4000').replace(
-  /\/$/,
-  '',
-);
+/**
+ * Browser-visible API base URL, inlined at build time: NEXT_PUBLIC_SHOP_API_URL, else the API's
+ * public URL that every app image gets (NEXT_PUBLIC_API_URL, infra/docker-compose.prod.yml).
+ */
+export const API_URL = (
+  process.env.NEXT_PUBLIC_SHOP_API_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://localhost:4000'
+).replace(/\/$/, '');
 
 export type QueryValue = string | number | boolean | null | undefined;
 export type Query = Readonly<Record<string, QueryValue>>;

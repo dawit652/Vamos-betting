@@ -43,6 +43,8 @@ x-app-env: &app-env
   TRUST_PROXY: '${TRUST_PROXY:-}'
   PUBLIC_WEB_URL: '${PUBLIC_WEB_URL:?set PUBLIC_WEB_URL}'
   ADMIN_WEB_URL: '${ADMIN_WEB_URL:?set ADMIN_WEB_URL}'
+  # The shop app's origin (https://shop.example.et) once it is set up; empty: no CORS for /shop/*.
+  SHOP_WEB_URL: '${SHOP_WEB_URL:-}'
   PUBLIC_API_URL: '${PUBLIC_API_URL:?set PUBLIC_API_URL}'
   PAYMENT_CALLBACK_BASE_URL:
   DATABASE_URL: 'postgres://vamos_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-vamos}'
@@ -384,6 +386,36 @@ services:
         condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3001/login']
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+
+  # The shop app (agent shops' counter screen; docs/plans/agent-shops.md). Off until it is set up:
+  # COMPOSE_PROFILES=shop (with SHOP_WEB_URL and the proxy site; docs/deployment.md, "Shop app").
+  shop:
+    image: vamos-shop:${VAMOS_VERSION:-local}
+    profiles: [shop]
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile
+      target: shop
+      args: *build-args
+    <<: *hardening
+    # The code is root-owned in the image; only Next's cache directory is writable (uid 1000 = node).
+    read_only: true
+    tmpfs: ['/tmp', '/app/apps/shop/.next/cache:uid=1000,gid=1000,mode=0700']
+    environment:
+      - PORT=3002
+      - NODE_ENV=production
+    ports:
+      - '${BIND_ADDRESS:-127.0.0.1}:${SHOP_PORT:-3002}:3002'
+    networks: [vamos]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3002/login']
       interval: 15s
       timeout: 5s
       retries: 4

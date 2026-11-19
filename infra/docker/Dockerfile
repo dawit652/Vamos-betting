@@ -60,6 +60,7 @@ COPY apps/worker/package.json apps/worker/package.json
 COPY apps/scraper/package.json apps/scraper/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/admin/package.json apps/admin/package.json
+COPY apps/shop/package.json apps/shop/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/core/package.json packages/core/package.json
@@ -92,6 +93,13 @@ RUN cd node_modules/.pnpm && rm -rf @next+swc-linux-*-gnu@* \
 FROM manifests AS deps-admin
 RUN pnpm install --offline --frozen-lockfile --prod --filter "@vamos/admin..."
 # Alpine is musl: drop the glibc builds of Next's compiler and sharp that pnpm also installs.
+RUN cd node_modules/.pnpm && rm -rf @next+swc-linux-*-gnu@* \
+    @img+sharp-libvips-linux-x64@* @img+sharp-libvips-linux-arm64@* \
+    @img+sharp-linux-x64@* @img+sharp-linux-arm64@*
+
+# The shop app (agent shops' counter screen, docs/plans/agent-shops.md): built like the back office.
+FROM manifests AS deps-shop
+RUN pnpm install --offline --frozen-lockfile --prod --filter "@vamos/shop..."
 RUN cd node_modules/.pnpm && rm -rf @next+swc-linux-*-gnu@* \
     @img+sharp-libvips-linux-x64@* @img+sharp-libvips-linux-arm64@* \
     @img+sharp-linux-x64@* @img+sharp-linux-arm64@*
@@ -132,6 +140,12 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
     NEXT_PUBLIC_OPERATING_MODE=${NEXT_PUBLIC_OPERATING_MODE}
 RUN test -n "$NEXT_PUBLIC_API_URL" || { echo "build-arg NEXT_PUBLIC_API_URL is required (https://api.example.et)" >&2; exit 1; }
 RUN pnpm --filter @vamos/admin build
+
+FROM build AS build-shop
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+RUN test -n "$NEXT_PUBLIC_API_URL" || { echo "build-arg NEXT_PUBLIC_API_URL is required (https://api.example.et)" >&2; exit 1; }
+RUN pnpm --filter @vamos/shop build
 
 # ---------------------------------------------------------------------------------------------
 # Runtime images.
@@ -225,3 +239,20 @@ EXPOSE 3001
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
     CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/login" || exit 1
 CMD ["node", "node_modules/next/dist/bin/next", "start", "--port", "3001"]
+
+FROM runtime AS shop
+ENV PORT=3002
+COPY package.json pnpm-workspace.yaml ./
+COPY --from=deps-shop /app/node_modules ./node_modules
+COPY --from=deps-shop /app/apps/shop/node_modules ./apps/shop/node_modules
+COPY --from=build-shop /app/apps/shop/.next ./apps/shop/.next
+COPY apps/shop/package.json apps/shop/next.config.ts ./apps/shop/
+USER root
+RUN rm -rf /app/apps/shop/.next/cache && mkdir /app/apps/shop/.next/cache \
+    && chown node:node /app/apps/shop/.next/cache
+USER node
+WORKDIR /app/apps/shop
+EXPOSE 3002
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
+    CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/login" || exit 1
+CMD ["node", "node_modules/next/dist/bin/next", "start", "--port", "3002"]

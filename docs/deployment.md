@@ -610,6 +610,43 @@ E2E_SCREENSHOTS_DIR=/tmp/vamos-shots pnpm e2e:deployment
 It uses a fresh random player each run (the play-money rows stay in the demo database). If `STAFF_ALLOWLIST`
 is set, run it from an allowed address.
 
+## Shop app (agent shops, docs/plans/agent-shops.md)
+
+The counter screen of agent shops (`apps/shop`, port 3002): cashiers sign in with their password
+on a computer or POS terminal an admin approved (back office, Agents, the agent, Devices). It is
+**off by default**: the compose service `shop` belongs to the profile `shop`, so a deploy without
+that profile builds and starts exactly what it did before.
+
+To switch it on:
+
+1. DNS: an A record `shop.nahubet.com` to the server.
+2. `/opt/nahubet-new/infra/.env.prod`: `SHOP_WEB_URL=https://shop.nahubet.com` (the API gives this
+   origin CORS on `/shop/*`, and it must differ from the player and back-office origins) and
+   `COMPOSE_PROFILES=shop` (or `shop,proxy` when the Caddy profile runs). The image takes the API
+   address from `PUBLIC_API_URL`, like the back office.
+3. The reverse proxy: a site like the back office's, in the Caddyfile the server uses
+   (`infra/caddy/Caddyfile` for the `proxy` profile), then check it before reloading:
+
+   ```
+   shop.nahubet.com {
+   	import common
+   	reverse_proxy shop:3002 {
+   		header_up X-Forwarded-Proto {scheme}
+   	}
+   }
+   ```
+
+   ```bash
+   docker compose exec proxy caddy validate --config /etc/caddy/Caddyfile
+   ```
+
+4. Deploy as usual (`infra/scripts/deploy-full.sh`); then `docker compose ps shop` is healthy and
+   `https://shop.nahubet.com/login` answers. The deploy script does not yet keep a rollback image
+   for `shop` (its `SERVICES` list): add it there once the shop app runs in production.
+
+The shop app has no staff screens of its own: agents, shops, cashiers and devices are managed in
+the back office.
+
 ## Competition logos and Top leagues (owner's choice, 16 Nov 2026)
 
 - **Top leagues: a fixed list.** The desktop left column and the phone "Top leagues" panel (the
