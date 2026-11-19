@@ -8,7 +8,8 @@ import {
   type StaffListResponse,
 } from '@vamos/contracts';
 import Link from 'next/link';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useMemo, useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
 import { StaffSecret } from '@/components/staff-secret';
 import {
@@ -23,6 +24,7 @@ import {
 } from '@/components/ui';
 import { api } from '@/lib/api';
 import { describeError } from '@/lib/errors';
+import { localPhone, sortShops } from '@/lib/agents';
 import { formatDateTime } from '@/lib/format';
 import { filterStaff, sortStaff, staffStatus } from '@/lib/staff';
 
@@ -35,13 +37,18 @@ function AddStaff({ onCreated }: { onCreated: (created: Created) => void }) {
   const shops = useFetch<CashierShopListResponse>('/admin/cashier/shops');
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [role, setRole] = useState<CreateStaffRequest['role']>('support');
+  // The agent page links here with ?role=cashier&shopId=<id> to add a cashier to that shop.
+  const params = useSearchParams();
+  const [role, setRole] = useState<CreateStaffRequest['role']>(
+    STAFF_ROLES.find((r) => r === params.get('role')) ?? 'support',
+  );
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
-  const [shopId, setShopId] = useState('');
+  const [shopId, setShopId] = useState(params.get('shopId') ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const activeShops = (shops.data?.shops ?? []).filter((shop) => shop.active);
+  const activeShops = sortShops((shops.data?.shops ?? []).filter((shop) => shop.active));
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -55,6 +62,7 @@ function AddStaff({ onCreated }: { onCreated: (created: Created) => void }) {
         email: email.trim(),
         displayName: displayName.trim(),
         role,
+        ...(phone.trim() === '' ? {} : { phone: phone.trim() }),
         ...(password === '' ? {} : { password }),
       };
       const response = await api<CreateStaffResponse>('/admin/staff', { method: 'POST', body });
@@ -71,6 +79,7 @@ function AddStaff({ onCreated }: { onCreated: (created: Created) => void }) {
       }
       setEmail('');
       setDisplayName('');
+      setPhone('');
       setPassword('');
       setShopId('');
       onCreated({ response, shopError });
@@ -114,13 +123,23 @@ function AddStaff({ onCreated }: { onCreated: (created: Created) => void }) {
             ))}
           </select>
         </Field>
+        <Field label="Phone">
+          <input
+            type="tel"
+            placeholder="09… or 07…"
+            required={role === 'cashier'}
+            maxLength={32}
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+        </Field>
         {role === 'cashier' && (
           <Field label="Shop">
             <select value={shopId} onChange={(e) => setShopId(e.target.value)}>
               <option value="">No shop yet</option>
               {activeShops.map((shop) => (
                 <option key={shop.id} value={shop.id}>
-                  {shop.name} ({shop.code})
+                  {shop.label} · {shop.agentName} · {shop.name}
                 </option>
               ))}
             </select>
@@ -209,6 +228,7 @@ export default function StaffPage() {
               <tr>
                 <th>Name</th>
                 <th>Email</th>
+                <th>Phone</th>
                 <th>Role</th>
                 <th>Status</th>
                 <th>Authenticator</th>
@@ -225,6 +245,7 @@ export default function StaffPage() {
                       <Link href={`/staff/${u.id}`}>{u.displayName}</Link>
                     </td>
                     <td>{u.email}</td>
+                    <td>{localPhone(u.phone)}</td>
                     <td>{u.role}</td>
                     <td>
                       <Badge value={status.text} tone={status.tone} />
@@ -241,7 +262,7 @@ export default function StaffPage() {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted">
+                  <td colSpan={8} className="muted">
                     No staff accounts match.
                   </td>
                 </tr>
@@ -250,12 +271,14 @@ export default function StaffPage() {
           </table>
         </div>
       )}
-      <AddStaff
-        onCreated={(c) => {
-          setCreated(c);
-          reload();
-        }}
-      />
+      <Suspense fallback={null}>
+        <AddStaff
+          onCreated={(c) => {
+            setCreated(c);
+            reload();
+          }}
+        />
+      </Suspense>
     </>
   );
 }

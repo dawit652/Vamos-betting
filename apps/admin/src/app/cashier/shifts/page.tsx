@@ -48,6 +48,7 @@ function ShopForm({ shop, onSaved }: { shop: CashierShopView; onSaved: () => voi
   };
   return (
     <form className="inline-form" onSubmit={(e) => void submit(e)}>
+      <strong>{shop.label}</strong>
       <input aria-label="Shop name" value={name} onChange={(e) => setName(e.target.value)} />
       <input aria-label="Address" value={address} onChange={(e) => setAddress(e.target.value)} />
       <select
@@ -206,7 +207,7 @@ function Cashiers({ shops }: { shops: CashierShopView[] }) {
                       .filter((shop) => shop.active || shop.id === person.shopId)
                       .map((shop) => (
                         <option key={shop.id} value={shop.id}>
-                          {shop.code} · {shop.name}
+                          {shop.label} {shop.name}
                         </option>
                       ))}
                   </select>
@@ -227,6 +228,9 @@ function Shops() {
     <section>
       <h2>Shops{data ? ` (${data.shops.length})` : ''}</h2>
       <NewShopForm onSaved={reload} />
+      <p className="small muted">
+        Shops of independent agents are added on the agent&apos;s page (Agents).
+      </p>
       <Loading loading={loading && data === null} error={error} />
       {data?.shops.map((shop) => (
         <ShopForm key={`${shop.id}-${shop.name}-${shop.address}`} shop={shop} onSaved={reload} />

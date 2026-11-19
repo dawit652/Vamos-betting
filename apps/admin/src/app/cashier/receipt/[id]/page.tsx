@@ -100,6 +100,7 @@ function Receipt() {
       </div>
       <div className={receiptClass(shop.receiptWidthMm)} data-testid="receipt">
         <strong>{shop.name}</strong>
+        <div>Shop {shop.label}</div>
         <div>{shop.address}</div>
         <hr />
         {isCopy && <div className="receipt-copy">COPY</div>}

@@ -21,6 +21,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/manual-payouts', label: 'Manual payouts', permission: 'payouts.settle_manual' },
   { href: '/cashier', label: 'Cashier desk', permission: 'cashier.desk' },
   { href: '/cashier/shifts', label: 'Cash shifts', permission: 'cashier.reports' },
+  { href: '/agents', label: 'Agents', permission: 'agents.view' },
   { href: '/sms', label: 'SMS rail', permission: 'sms.review' },
   { href: '/jackpots', label: 'Jackpots', permission: 'jackpots.view' },
   { href: '/compliance/reconciliation', label: 'Reconciliation', permission: 'reports.view' },

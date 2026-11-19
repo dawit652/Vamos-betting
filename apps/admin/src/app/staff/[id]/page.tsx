@@ -26,6 +26,7 @@ import {
 } from '@/components/ui';
 import { api } from '@/lib/api';
 import { describeError } from '@/lib/errors';
+import { localPhone, sortShops } from '@/lib/agents';
 import { formatDateTime } from '@/lib/format';
 import { isLocked, staffStatus } from '@/lib/staff';
 
@@ -96,13 +97,13 @@ function Shop({ user }: { user: StaffUserView }) {
           <Field label="Shop">
             <select value={value} onChange={(e) => setChoice(e.target.value)}>
               <option value="">No shop yet</option>
-              {shops.data.shops
-                .filter((shop) => shop.active || shop.id === current)
-                .map((shop) => (
+              {sortShops(shops.data.shops.filter((shop) => shop.active || shop.id === current)).map(
+                (shop) => (
                   <option key={shop.id} value={shop.id}>
-                    {shop.name} ({shop.code})
+                    {shop.label} · {shop.agentName} · {shop.name}
                   </option>
-                ))}
+                ),
+              )}
             </select>
           </Field>
         </SaveForm>
@@ -116,11 +117,12 @@ export default function StaffDetailPage() {
   const { data: user, error, loading, reload } = useFetch<StaffUserView>(`/admin/staff/${id}`);
   const [name, setName] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [phone, setPhone] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [secret, setSecret] = useState<TotpEnrolmentView | null>(null);
 
-  const patch = async (body: { displayName?: string; role?: string }) => {
+  const patch = async (body: { displayName?: string; role?: string; phone?: string | null }) => {
     await api<StaffUserView>(`/admin/staff/${id}`, { method: 'PATCH', body });
     reload();
   };
@@ -158,6 +160,7 @@ export default function StaffDetailPage() {
                 ['Name', user.displayName],
                 ['Email', user.email],
                 ['Role', user.role],
+                ['Phone', localPhone(user.phone)],
                 ['Status', <Badge key="s" {...badgeOf(user, now)} />],
                 [
                   'Authenticator',
@@ -184,6 +187,29 @@ export default function StaffDetailPage() {
                   maxLength={100}
                   value={name ?? user.displayName}
                   onChange={(e) => setName(e.target.value)}
+                />
+              </Field>
+            </SaveForm>
+          </section>
+
+          <h2>Phone</h2>
+          <section className="panel">
+            <SaveForm
+              label="Change phone"
+              note="A cashier must keep a phone number."
+              action={async () => {
+                const value = (phone ?? user.phone ?? '').trim();
+                await patch({ phone: value === '' ? null : value });
+                setPhone(null);
+              }}
+            >
+              <Field label="Phone">
+                <input
+                  type="tel"
+                  placeholder="09… or 07…"
+                  maxLength={32}
+                  value={phone ?? user.phone ?? ''}
+                  onChange={(e) => setPhone(e.target.value)}
                 />
               </Field>
             </SaveForm>

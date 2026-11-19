@@ -50,7 +50,7 @@ function OpenShiftForm({ desk, onDone }: { desk: CashierDeskResponse; onDone: ()
       <select aria-label="Shop" value={shopId} onChange={(e) => setShopId(e.target.value)}>
         {desk.shops.map((s) => (
           <option key={s.id} value={s.id}>
-            {s.name}
+            {s.label} {s.name}
           </option>
         ))}
       </select>

@@ -54,6 +54,13 @@ describe('navigation by role', () => {
     expect(permissionForPath('/cashier/shifts/abc/report')).toBe('cashier.reports');
   });
 
+  it('Agents follows agents.view: admin, finance and compliance', () => {
+    for (const role of ['admin', 'finance', 'compliance']) expect(labels(role)).toContain('Agents');
+    for (const role of ['cashier', 'support', 'trader'])
+      expect(labels(role)).not.toContain('Agents');
+    expect(permissionForPath('/agents/abc')).toBe('agents.view');
+  });
+
   it('the staff pages follow staff.manage, which only the admin holds', () => {
     expect(labels('admin')).toContain('Staff');
     for (const role of ['finance', 'support', 'cashier'])
