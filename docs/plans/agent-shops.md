@@ -279,11 +279,15 @@ below:** top-ups post against `house:agent_funding`, not `house:psp:cash`, becau
 clearing accounts reconcile against player deposits and payouts only (a top-up there would show
 as a reconciliation mismatch). **Step 4 built 19 Nov** (`078dbfa`, `9e5c943`; full checks
 passed), exactly as in "Step 4 design detail" below: provider `agent_cash`, the admin's switch on
-the agent page, the reconciliation check `agent_cash_records`. **Next:** the shop app's desk for
-player cash (lookups, deposits, withdrawals, receipts at `/shop/desk/*`), reusing the shared
-functions of `apps/api/src/modules/admin/desk-operations.ts` (`906526b`, not wired yet: wire the
-admin desk `/admin/cashier/*` to them too, so both keep one code path), and the desk showing the
-agent balance; then the reconciliation of agent balances against top-ups once tickets move them.
+the agent page, the reconciliation check `agent_cash_records`. **The shop app's desk for player
+cash built 19 Nov** (API `54d8aca`, screens next): `/shop/desk/players`, `deposits`,
+`withdrawals`, `receipts` (print, reprint), on the same functions as the back office's desk
+(`apps/api/src/modules/admin/desk-operations.ts`, both desks now call them). The shop app's
+cashier is never a supervisor (above the shop's threshold the back office takes it; only their own
+receipts), works only their own open shift at their own shop (409 `shift_other_shop`), shares the
+back office's per-cashier rate limits, and sees whether player cash is on and the agent's balance
+(`GET /shop/desk`: `playerCash`, `agentBalance`). **Next:** the reconciliation of agent balances
+against top-ups once tickets move them (phases 3 and 4).
 
 Read `packages/db/src/ledger/` first (`accountKey`, `HOUSE_KEYS`, `postTransaction`, the
 `ledger_accounts` checks) and `packages/db/src/cashier/desk.ts` (`cashDeposit`: how a desk deposit
