@@ -675,7 +675,9 @@ export default function CashierPage() {
       ) : (
         <>
           <section className="card" data-testid="shift-summary">
-            <h2>{shift.shopName}</h2>
+            <h2>
+              {shift.shopLabel} {shift.shopName}
+            </h2>
             <p className="muted small">
               Opened {formatDateTime(shift.openedAt)} · opening float{' '}
               {formatEtb(shift.openingFloat)}

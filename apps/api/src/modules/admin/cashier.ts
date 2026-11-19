@@ -148,7 +148,7 @@ export function shopView(shop: ShopWithAgent) {
 export async function shiftView(
   exec: DbExecutor,
   shift: CashierShift,
-  names: { shopName: string; staffName: string },
+  names: { shopName: string; shopLabel: string; staffName: string },
   /** Already read for many shifts at once (shiftTotalsMany); read here when not given. */
   known?: ShiftTotals,
 ): Promise<CashierShiftView> {
@@ -159,6 +159,7 @@ export async function shiftView(
     id: shift.id,
     shopId: shift.shopId,
     shopName: names.shopName,
+    shopLabel: names.shopLabel,
     staffId: shift.staffId,
     staffName: names.staffName,
     status: shift.status,
@@ -217,6 +218,7 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
     const [named] = await listShifts(exec, { shiftId: shift.id, limit: 1 });
     return shiftView(exec, shift, {
       shopName: named?.shopName ?? '',
+      shopLabel: named?.shopLabel ?? '',
       staffName: named?.staffName ?? '',
     });
   };

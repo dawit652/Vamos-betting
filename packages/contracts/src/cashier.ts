@@ -37,6 +37,8 @@ export const CashierShiftView = z.object({
   id: z.string(),
   shopId: z.string(),
   shopName: z.string(),
+  /** The shop's printed number, e.g. `1001-01`. */
+  shopLabel: z.string(),
   staffId: z.string(),
   staffName: z.string(),
   status: z.enum(['open', 'closed']),
@@ -231,6 +233,8 @@ export const ShopSummaryQuery = z
 export const ShopDayView = z.object({
   shopId: z.string(),
   code: z.string(),
+  /** The printed number, e.g. `1001-01`. */
+  label: z.string(),
   name: z.string(),
   active: z.boolean(),
   openShifts: z.number().int(),

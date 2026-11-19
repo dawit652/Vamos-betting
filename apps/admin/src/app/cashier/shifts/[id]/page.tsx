@@ -101,7 +101,7 @@ export default function CashShiftPage() {
   const { shift, operations } = data;
   return (
     <>
-      <PageHeader title={`Shift at ${shift.shopName}`}>
+      <PageHeader title={`Shift at ${shift.shopLabel} ${shift.shopName}`}>
         <Link href={`/cashier/shifts/${shift.id}/report`} target="_blank">
           Shift report
         </Link>

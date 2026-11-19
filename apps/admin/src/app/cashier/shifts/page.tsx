@@ -301,6 +301,7 @@ export function shopDayCsv(data: ShopSummaryResponse): string {
     [
       'day',
       'shop',
+      'number',
       'name',
       'active',
       'open_shifts',
@@ -313,6 +314,7 @@ export function shopDayCsv(data: ShopSummaryResponse): string {
     ...data.shops.map((shop) => [
       data.day,
       shop.code,
+      shop.label,
       shop.name,
       shop.active ? 'yes' : 'no',
       String(shop.openShifts),
@@ -374,7 +376,8 @@ function ShopDay() {
               {data.shops.map((shop) => (
                 <tr key={shop.shopId}>
                   <td>
-                    {shop.code} · {shop.name} {!shop.active && <Badge value="closed" tone="warn" />}
+                    {shop.label} · {shop.name}{' '}
+                    {!shop.active && <Badge value="closed" tone="warn" />}
                   </td>
                   <td>{shop.openShifts}</td>
                   <td>
@@ -429,7 +432,9 @@ export default function CashShiftsPage() {
             {data?.shifts.map((s) => (
               <tr key={s.id}>
                 <td>
-                  <Link href={`/cashier/shifts/${s.id}`}>{s.shopName}</Link>
+                  <Link href={`/cashier/shifts/${s.id}`}>
+                    {s.shopLabel} {s.shopName}
+                  </Link>
                 </td>
                 <td>{s.staffName}</td>
                 <td>{formatDateTime(s.openedAt)}</td>

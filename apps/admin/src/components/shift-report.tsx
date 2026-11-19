@@ -19,7 +19,9 @@ export function ShiftReport({
   );
   return (
     <div className="receipt receipt-80" data-testid="shift-report">
-      <strong>{shift.shopName}</strong>
+      <strong>
+        {shift.shopLabel} {shift.shopName}
+      </strong>
       <div>{closed ? 'Z REPORT (shift closed)' : 'X REPORT (shift open)'}</div>
       <hr />
       {row('Cashier', shift.staffName)}

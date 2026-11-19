@@ -507,6 +507,8 @@ function totalsOf(
 export interface ShopDaySummary {
   shopId: string;
   code: string;
+  /** The printed number, e.g. `1001-01`. */
+  label: string;
   name: string;
   active: boolean;
   /** Shifts open now (whatever day they opened). */
@@ -558,6 +560,7 @@ export async function shopDaySummary(
     return {
       shopId: shop.id,
       code: shop.code,
+      label: shop.label,
       name: shop.name,
       active: shop.active,
       openShifts: open.find((r) => r.shopId === shop.id)?.count ?? 0,
@@ -912,8 +915,8 @@ export async function forceCloseShift(
 export async function listShifts(
   exec: DbExecutor,
   options: { shopId?: string; staffId?: string; shiftId?: string; limit: number },
-): Promise<Array<CashierShift & { staffName: string; shopName: string }>> {
-  return exec
+): Promise<Array<CashierShift & { staffName: string; shopName: string; shopLabel: string }>> {
+  const rows = await exec
     .select({
       id: cashierShifts.id,
       shopId: cashierShifts.shopId,
@@ -927,10 +930,13 @@ export async function listShifts(
       closeNote: cashierShifts.closeNote,
       staffName: adminUsers.displayName,
       shopName: cashierShops.name,
+      agentNumber: agents.number,
+      shopNumber: cashierShops.number,
     })
     .from(cashierShifts)
     .innerJoin(adminUsers, eq(adminUsers.id, cashierShifts.staffId))
     .innerJoin(cashierShops, eq(cashierShops.id, cashierShifts.shopId))
+    .innerJoin(agents, eq(agents.id, cashierShops.agentId))
     .where(
       and(
         options.shopId === undefined ? undefined : eq(cashierShifts.shopId, options.shopId),
@@ -940,6 +946,10 @@ export async function listShifts(
     )
     .orderBy(desc(cashierShifts.openedAt), desc(cashierShifts.id))
     .limit(options.limit);
+  return rows.map(({ agentNumber, shopNumber, ...row }) => ({
+    ...row,
+    shopLabel: formatShopLabel(agentNumber, shopNumber),
+  }));
 }
 
 // -------------------------------------------------------------------------------------- players

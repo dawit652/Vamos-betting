@@ -199,6 +199,7 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     const [named] = await listShifts(exec, { shiftId: shift.id, limit: 1 });
     return shiftView(exec, shift, {
       shopName: named?.shopName ?? '',
+      shopLabel: named?.shopLabel ?? '',
       staffName: named?.staffName ?? '',
     });
   };
