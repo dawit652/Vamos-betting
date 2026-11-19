@@ -1371,10 +1371,16 @@ export async function changeOwnStaffPassword(
     adminUserId: string;
     sessionId: string;
     currentPassword: string;
+    /** The TOTP code (the back office); not used on a shop session. */
     code: string;
     newPassword: string;
     ip?: string | null;
     clientKey?: string | null;
+    /**
+     * `shop`: the shop app, whose session already proved an approved device of the cashier's own
+     * shop: the current password alone re-authenticates (cashiers only). Default `admin`.
+     */
+    channel?: StaffSessionChannel;
   },
 ): Promise<StaffUserView> {
   const user = await readStaffRow(deps.db, input.adminUserId);
@@ -1390,7 +1396,7 @@ export async function changeOwnStaffPassword(
     user,
     clientKey,
     input.currentPassword,
-    { kind: 'totp', code: input.code.trim() },
+    input.channel === 'shop' ? { kind: 'password' } : { kind: 'totp', code: input.code.trim() },
     now,
   );
   const passwordHash = check.ok ? await deps.passwords.hash(input.newPassword) : null;

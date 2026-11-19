@@ -15,3 +15,4 @@ export * from './channels';
 export * from './feed';
 export * from './cashier';
 export * from './retail';
+export * from './shop';

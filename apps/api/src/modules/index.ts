@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppDeps } from '../deps';
 import adminRoutes from './admin/routes';
+import shopRoutes from './shop/routes';
 import authRoutes from './auth/routes';
 import bettingRoutes from './betting/routes';
 import liveRoutes from './catalog/live';
@@ -54,6 +55,8 @@ export async function registerModules(app: FastifyInstance, deps: AppDeps): Prom
   await app.register(channelRoutes);
   // The back office: staff sessions and RBAC of their own (plugins/staff-session.ts).
   await app.register(adminRoutes);
+  // The shop app (docs/plans/agent-shops.md phase 1b): shop sessions of their own.
+  await app.register(shopRoutes);
   if (devInboxEnabled(deps)) {
     await app.register(devRoutes);
   }

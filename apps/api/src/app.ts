@@ -88,7 +88,17 @@ export function isAdminPath(url: string): boolean {
  * read the staff CSRF token from `/admin/session` and drive the staff API.
  */
 export function corsOriginsFor(config: AppConfig, url: string): string[] {
+  if (isShopPath(url)) {
+    // The shop app (docs/plans/agent-shops.md phase 1b): its own origin, /shop/* only.
+    return config.web.shopUrl === null ? [] : [new URL(config.web.shopUrl).origin];
+  }
   return [new URL(isAdminPath(url) ? config.web.adminUrl : config.web.publicUrl).origin];
+}
+
+/** Whether `url` is in the shop app's API (/shop/*). */
+export function isShopPath(url: string): boolean {
+  const path = url.split(/[?#]/, 1)[0] ?? '';
+  return path === '/shop' || path.startsWith('/shop/');
 }
 
 interface LoggedRequest {

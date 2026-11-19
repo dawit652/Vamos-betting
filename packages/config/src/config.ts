@@ -191,6 +191,8 @@ const envSchema = z.object({
   PLAYER_SESSION_IDLE_MINUTES: z.coerce.number().int().min(0).max(525_600).default(0),
   PUBLIC_WEB_URL: z.url().default('http://localhost:3000'),
   ADMIN_WEB_URL: z.url().default('http://localhost:3001'),
+  /** The shop app's origin (docs/plans/agent-shops.md phase 1b); unset: /shop/* takes no CORS. */
+  SHOP_WEB_URL: z.url().optional(),
   PUBLIC_API_URL: z.url().default('http://localhost:4000'),
 
   DATABASE_URL: z.string().min(1).default('postgres://vamos:vamos@localhost:5432/vamos'),
@@ -523,7 +525,7 @@ export interface AppConfig {
   worker: { healthHost: string; healthPort: number };
   /** OpenTelemetry tracing: on only when `otlpEndpoint` is set. */
   telemetry: { otlpEndpoint: string | undefined; serviceName: string | undefined };
-  web: { publicUrl: string; adminUrl: string };
+  web: { publicUrl: string; adminUrl: string; shopUrl: string | null };
   databaseUrl: string;
   /** DB_POOL_MAX: the size of one API process's database pool. */
   dbPoolMax: number;
@@ -951,7 +953,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     worker: { healthHost: e.WORKER_HEALTH_HOST, healthPort: e.WORKER_HEALTH_PORT },
     telemetry: { otlpEndpoint: e.OTEL_EXPORTER_OTLP_ENDPOINT, serviceName: e.OTEL_SERVICE_NAME },
-    web: { publicUrl: e.PUBLIC_WEB_URL, adminUrl: e.ADMIN_WEB_URL },
+    web: {
+      publicUrl: e.PUBLIC_WEB_URL,
+      adminUrl: e.ADMIN_WEB_URL,
+      shopUrl: e.SHOP_WEB_URL ?? null,
+    },
     databaseUrl: e.DATABASE_URL,
     dbPoolMax: e.DB_POOL_MAX,
     redisUrl: e.REDIS_URL,
@@ -1081,6 +1087,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     // the player site cannot drive the staff API. One shared origin would undo that.
     problems.push('ADMIN_WEB_URL must be on a different origin from PUBLIC_WEB_URL');
   }
+  if (
+    config.web.shopUrl !== null &&
+    [config.web.publicUrl, config.web.adminUrl].some(
+      (url) => new URL(url).origin === new URL(config.web.shopUrl ?? url).origin,
+    )
+  ) {
+    // CORS gives the shop app /shop/* only: sharing an origin would let one app drive the other's API.
+    problems.push('SHOP_WEB_URL must be on its own origin (not PUBLIC_WEB_URL or ADMIN_WEB_URL)');
+  }
   if (config.nodeEnv === 'production') {
     // CORS allows exactly these origins with credentials, and the session cookies are Secure in
     // production: plain http would leak them (and browsers drop Secure cookies over http).
@@ -1088,6 +1103,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       ['PUBLIC_WEB_URL', config.web.publicUrl],
       ['ADMIN_WEB_URL', config.web.adminUrl],
       ['PUBLIC_API_URL', config.api.publicUrl],
+      ...(config.web.shopUrl === null ? [] : [['SHOP_WEB_URL', config.web.shopUrl] as const]),
     ] as const) {
       if (!isProductionSafeUrl(url)) {
         problems.push(`${name} must be an https URL in production (got ${url})`);
