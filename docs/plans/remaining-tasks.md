@@ -5,8 +5,8 @@ start it from `origin/claude/eager-cerf-ox9vkq` (or whichever is newer). It hold
 branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
-receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (the next
-commit: agents, shop numbers, staff phones). Migration `0064_agents` runs on the next deploy (every
+receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (`dce8e5d`
+database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migration `0064_agents` runs on the next deploy (every
 existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next free
 number is **0065**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project

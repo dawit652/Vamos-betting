@@ -6,9 +6,9 @@ tickets on a connected printer (sample: a Narobet "Betting Slip"); the admin has
 controls every branch. Interviewed on 19 Nov 2026; the answers are below.
 
 Status (19 Nov 2026): the owner said "build it". **Phase 0 built**: the receipt printer card and
-test print (`df646e4`), the Staff screen (`ac8a780`). **Phase 1a built** (the commit after
-`ac8a780`): agents with numbers, owner name and phone, shops numbered under their agent, staff
-phone numbers, the Agents pages, blocking. **Next: phase 1b** (devices, agent owner accounts, the
+test print (`df646e4`), the Staff screen (`ac8a780`). **Phase 1a built** (`dce8e5d`
+database and API, `80c103e` screens): agents with numbers, owner name and phone, shops numbered
+under their agent, staff phone numbers, the Agents pages, blocking. **Next: phase 1b** (devices, agent owner accounts, the
 shop app); see "Phases" for what each step holds.
 
 ## Owner's decisions (interview of 19 Nov 2026)
@@ -232,6 +232,11 @@ password, label}`; the API sets the httpOnly cookie `vamos_device` with the secr
 5. **Tests:** db (devices, owner link, blocked agent ends the shop session), API (`/shop/*` with and
    without an approved device, revoked device, blocked agent), e2e (a cashier asks a device, the
    admin approves, the cashier signs in to the shop app and opens a shift).
+6. **Small leftovers of 1a:** the desk's shift heading and the "Shops on <day>" table on Cash
+   shifts still show the shop name or code without its number: add `shopLabel` to
+   `CashierShiftView` and `label` to `ShopDayView` (contracts, `shiftView` / `shopDaySummary`),
+   then show them. The e2e agents spec closes the shop it adds (an open second shop would stop the
+   demo cashier without a shop from opening a shift in `cashier.spec.ts`).
 
 ## Defaults chosen here (all adjustable by an admin)
 
