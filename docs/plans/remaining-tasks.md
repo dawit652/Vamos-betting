@@ -26,10 +26,10 @@ free number is **0068**. Deploy is done by the owner (`ssh -t root@<server>` +
      `e2e/scripts/stack.sh`) and its production infra, off by default (`2ae3742`). Player cash at
      an independent agent's shop is refused until phase 2.
    - **Next, in order:**
-     1. Agent owner accounts: **built 19 Nov** (migration `0067_agent_owners`, `e447fe4`,
-        `0217525`, the pages next): made on the agent page, shop-app sign-in with password and
-        authenticator, the owner overview page. Still open: owners adding and blocking their own
-        cashiers (today admins do it).
+     1. Agent owner accounts: **built and pushed 19 Nov** (migration `0067_agent_owners`; database
+        `e447fe4`, API `0217525`, pages `24b1562`, `fd707ae`; e2e `e2e/tests/shop-owner.spec.ts`; full
+        checks passed). Still open, small: owners adding and blocking their own cashiers (today
+        admins do it on the agent page).
      2. Switching the shop app on in production, with the owner (`docs/deployment.md`, "Shop
         app"): build the shop image once (never built: no docker daemon in the cloud container),
         add `shop` to `SERVICES` in `infra/scripts/deploy-full.sh`.
