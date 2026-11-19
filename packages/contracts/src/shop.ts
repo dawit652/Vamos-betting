@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CashierShiftView, CashierShopView, CashOperationView, OpenShiftRequest } from './cashier';
-import { IsoDateTime } from './common';
+import { IsoDateTime, Santim } from './common';
 import { AgentCashierView, AgentView, ShopDeviceView } from './retail';
 
 /** An authenticator code: six digits. */
@@ -96,6 +96,13 @@ export const ShopDeskResponse = z.object({
   shop: CashierShopView,
   shift: CashierShiftView.nullable(),
   operations: z.array(CashOperationView),
+  /**
+   * Whether players' deposits and withdrawals are taken here: always at Nahubet HQ's shops; at an
+   * agent's once an admin switched it on (409 `agent_player_cash_off` otherwise).
+   */
+  playerCash: z.boolean(),
+  /** The agent's balance (an agent's shop): deposits above it are refused. Null at HQ shops. */
+  agentBalance: Santim.nullable(),
 });
 export type ShopDeskResponse = z.infer<typeof ShopDeskResponse>;
 

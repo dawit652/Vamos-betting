@@ -1,4 +1,9 @@
 import {
+  CashDepositRequest,
+  CashierPlayerQuery,
+  CashReceiptPrintResponse,
+  CashReceiptResponse,
+  CashWithdrawalRequest,
   ShopDeviceAskRequest,
   ShopDeviceAskResponse,
   CloseShiftRequest,
@@ -37,7 +42,7 @@ import {
 } from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
-import { forbidden, parseInput, unauthorized } from '../../lib/errors';
+import { conflict, forbidden, parseInput, unauthorized } from '../../lib/errors';
 import { enforceLimit } from '../../lib/rate-limits';
 import {
   clearShopCookie,
@@ -48,8 +53,23 @@ import {
   shopSessionPlugin,
 } from '../../plugins/shop-session';
 import { apiPasswordHasher, staffAuthDeps } from '../../plugins/staff-session';
-import { operationView, shiftView, shopView } from '../admin/cashier';
+import {
+  CASHIER_RATE_LIMITS,
+  operationView,
+  receiptView,
+  shiftView,
+  shopView,
+} from '../admin/cashier';
 import { inTx, parseUuid, wire } from '../admin/common';
+import {
+  deskDeposit,
+  deskLookup,
+  deskPrint,
+  deskReceipt,
+  deskReprint,
+  deskWithdrawal,
+  type DeskActor,
+} from '../admin/desk-operations';
 
 /**
  * The shop app's API (docs/plans/agent-shops.md phase 1b): a device asks to be registered (the
@@ -279,6 +299,10 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
       shop: shopView(shop),
       shift: shift === null ? null : await namedShiftView(deps.db, shift),
       operations,
+      // Player cash: always at Nahubet HQ's shops; at an agent's once an admin switched it on.
+      playerCash: shop.agentIsHouse || shop.agentPlayerCash,
+      // An agent's deposits are paid from its balance: the cashier sees how much is left.
+      agentBalance: shop.agentIsHouse ? null : await getAgentBalance(deps.db, shop.agentId),
     });
   });
 
@@ -315,5 +339,84 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
       return namedShiftView(tx, closed);
     });
     return wire(ShopShiftResponse, { shift });
+  });
+
+  // Player cash at the shop's desk (docs/plans/agent-shops.md phase 2): the same code path as the
+  // back office's desk (desk-operations.ts). The shop app's cashier is never a supervisor: above
+  // the shop's threshold a deposit or withdrawal waits for the back office, and a cashier sees
+  // only their own receipts. Limited per cashier like the back office's desk (shared counters).
+  const deskLimit = (name: string, max: number) => {
+    const limiter = app.createRateLimit({
+      max,
+      timeWindow: 60_000,
+      keyGenerator: (request) => `${name}|staff|${requireShopStaff(request).id}`,
+    });
+    return {
+      preHandler: async (request: FastifyRequest, reply: FastifyReply) => {
+        requireDeskStaff(request);
+        await enforceLimit(limiter, request, reply);
+      },
+    };
+  };
+  const cashier = (request: FastifyRequest): DeskActor => ({
+    staffId: requireDeskStaff(request).id,
+    ip: request.ip,
+    supervisor: false,
+  });
+  /** A shift the cashier opened at another shop never takes this shop's cash. */
+  const checkShiftShop = async (staff: StaffPrincipal, shiftId: string) => {
+    const shop = await deskShop(deps.db, staff);
+    const open = await getOpenShift(deps.db, staff.id);
+    if (open !== null && open.id === shiftId && open.shopId !== shop.id) {
+      throw conflict('shift_other_shop', 'This shift was opened at another shop. Close it first.');
+    }
+  };
+
+  app.get(
+    '/shop/desk/players',
+    deskLimit('cashier-lookup', CASHIER_RATE_LIMITS.lookup),
+    async (request) => {
+      const query = parseInput(CashierPlayerQuery, request.query);
+      return deskLookup(deps, cashier(request), query.phone);
+    },
+  );
+
+  app.post(
+    '/shop/desk/deposits',
+    deskLimit('cashier-deposit', CASHIER_RATE_LIMITS.deposit),
+    async (request) => {
+      const input = parseInput(CashDepositRequest, request.body);
+      await checkShiftShop(requireDeskStaff(request), input.shiftId);
+      return deskDeposit(deps, cashier(request), input, receiptView);
+    },
+  );
+
+  app.post(
+    '/shop/desk/withdrawals',
+    deskLimit('cashier-withdrawal', CASHIER_RATE_LIMITS.withdrawal),
+    async (request) => {
+      const input = parseInput(CashWithdrawalRequest, request.body);
+      await checkShiftShop(requireDeskStaff(request), input.shiftId);
+      return deskWithdrawal(deps, cashier(request), input, receiptView);
+    },
+  );
+
+  type IdParams = { Params: { id: string } };
+  app.get<IdParams>('/shop/desk/receipts/:id', async (request) => {
+    const id = parseUuid(request.params.id, 'Receipt');
+    const receipt = await deskReceipt(deps.db, cashier(request), id);
+    return wire(CashReceiptResponse, { receipt: receiptView(receipt) });
+  });
+
+  app.post<IdParams>('/shop/desk/receipts/:id/print', async (request) => {
+    const id = parseUuid(request.params.id, 'Receipt');
+    const { receipt, copy } = await deskPrint(deps, cashier(request), id);
+    return wire(CashReceiptPrintResponse, { receipt: receiptView(receipt), copy });
+  });
+
+  app.post<IdParams>('/shop/desk/receipts/:id/reprint', async (request) => {
+    const id = parseUuid(request.params.id, 'Receipt');
+    const receipt = await deskReprint(deps, cashier(request), id);
+    return wire(CashReceiptResponse, { receipt: receiptView(receipt) });
   });
 }
