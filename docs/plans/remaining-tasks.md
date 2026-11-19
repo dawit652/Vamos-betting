@@ -34,10 +34,12 @@ free number is **0069**. Deploy is done by the owner (`ssh -t root@<server>` +
         app"): build the shop image once (never built: no docker daemon in the cloud container),
         add `shop` to `SERVICES` in `infra/scripts/deploy-full.sh`.
      3. Phase 2, the agent balance (plan, "Phase 2 design"; money path: main session, Opus,
-        high): **steps 1–3 built 19 Nov** (migration `0068_agent_balance`, `6b813e1`, `5911deb`,
-        screens next): the agent's ledger account, top-ups and take-backs with four eyes, balances
-        on the pages. **Next: step 4**, player cash at an agent's shop (deposit from the agent's
-        balance, withdrawal into it, refused when the switch is off or the balance too low).
+        high): **steps 1–3 built and pushed 19 Nov, full checks passed** (migration
+        `0068_agent_balance`; database `6b813e1`, API `5911deb`, screens `33c0c52`, e2e
+        `e2e/tests/agent-topups.spec.ts`): the agent's ledger account, top-ups and take-backs with
+        four eyes, balances on the Agents pages and the owner's overview. **Next: step 4**, player
+        cash at an agent's shop, exactly as in the plan's "Step 4 design detail" (provider
+        `agent_cash`, `markPayoutPaid` `paidTo`, the reconciliation check `agent_cash_records`).
      4. Phase 3, selling tickets at the counter, and phase 4, paying them (money path).
      5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
