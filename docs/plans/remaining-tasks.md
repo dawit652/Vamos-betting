@@ -51,10 +51,10 @@ site) posts instead of putting the password in the URL when its script has not l
         four eyes, balances on the Agents pages and the owner's overview. **Step 4 built and
         pushed 19 Nov** (`078dbfa`, `9e5c943`; full checks passed): player cash at an agent's shop
         (provider `agent_cash`, an admin's switch per agent, reconciliation `agent_cash_records`).
-        **The shop app's desk for player cash built 19 Nov** (API `54d8aca`; screens and e2e
-        next in the same batch): lookups, deposits, withdrawals with the shop code, receipts,
-        the agent balance on the desk; one code path with the back office's desk (plan, "Phase 2
-        design", status). Phase 2 is then complete.
+        **The shop app's desk for player cash built 19 Nov** (API `54d8aca`, screens and e2e
+        `e2e/tests/shop-desk-cash.spec.ts`; full checks passed): lookups, deposits, withdrawals
+        with the shop code, receipts, the agent balance on the desk; one code path with the back
+        office's desk (plan, "Phase 2 design", status). **Phase 2 is complete.**
      4. Phase 3, selling tickets at the counter, and phase 4, paying them (money path).
      5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax

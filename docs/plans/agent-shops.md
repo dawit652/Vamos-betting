@@ -280,7 +280,8 @@ clearing accounts reconcile against player deposits and payouts only (a top-up t
 as a reconciliation mismatch). **Step 4 built 19 Nov** (`078dbfa`, `9e5c943`; full checks
 passed), exactly as in "Step 4 design detail" below: provider `agent_cash`, the admin's switch on
 the agent page, the reconciliation check `agent_cash_records`. **The shop app's desk for player
-cash built 19 Nov** (API `54d8aca`, screens next): `/shop/desk/players`, `deposits`,
+cash built 19 Nov** (API `54d8aca`; screens and the receipt page in the shop app, e2e
+`e2e/tests/shop-desk-cash.spec.ts`): `/shop/desk/players`, `deposits`,
 `withdrawals`, `receipts` (print, reprint), on the same functions as the back office's desk
 (`apps/api/src/modules/admin/desk-operations.ts`, both desks now call them). The shop app's
 cashier is never a supervisor (above the shop's threshold the back office takes it; only their own
