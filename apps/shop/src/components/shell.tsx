@@ -27,10 +27,16 @@ export function Shell({ children }: { children: ReactNode }) {
     <>
       <header className="topbar no-print">
         <div>
-          <strong data-testid="shop-label">
-            {`${session.agent.number} · ${session.agent.name}`}
-            {session.shop === null ? '' : ` · ${session.shop.label} · ${session.shop.name}`}
-          </strong>
+          {session.shop === null ? (
+            <strong data-testid="agent-label">{`${session.agent.number} · ${session.agent.name}`}</strong>
+          ) : (
+            <>
+              <strong data-testid="shop-label">{`${session.shop.label} · ${session.shop.name}`}</strong>
+              <div className="muted small" data-testid="agent-label">
+                {`${session.agent.number} · ${session.agent.name}`}
+              </div>
+            </>
+          )}
           <div className="muted small" data-testid="cashier-name">
             {owner ? TEXT.owner : TEXT.cashier}: {session.staff.displayName}
           </div>
