@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { adminUsers } from './accounts';
 
 /**
  * Agent shops (owner, 19 Nov 2026; docs/plans/agent-shops.md). An agent is an independent business
@@ -43,6 +44,8 @@ export const agents = pgTable(
     playerCashEnabled: boolean('player_cash_enabled').notNull().default(false),
     /** Nahubet HQ (exactly one, number 1000). */
     isHouse: boolean('is_house').notNull().default(false),
+    /** The owner's account (role `agent_owner`, shop app only); one per agent, never for HQ. */
+    ownerStaffId: uuid('owner_staff_id').references(() => adminUsers.id, { onDelete: 'restrict' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -65,5 +68,9 @@ export const agents = pgTable(
       sql`(${t.status} = 'blocked') = (${t.blockedAt} IS NOT NULL)`,
     ),
     check('agents_house_not_blocked', sql`NOT (${t.isHouse} AND ${t.status} = 'blocked')`),
+    uniqueIndex('agents_owner_staff_uq')
+      .on(t.ownerStaffId)
+      .where(sql`${t.ownerStaffId} IS NOT NULL`),
+    check('agents_house_no_owner', sql`NOT (${t.isHouse} AND ${t.ownerStaffId} IS NOT NULL)`),
   ],
 );

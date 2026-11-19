@@ -470,6 +470,13 @@
       "when": 1795109140073,
       "tag": "0066_shop_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1795112039491,
+      "tag": "0067_agent_owners",
+      "breakpoints": true
     }
   ]
 }

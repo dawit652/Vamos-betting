@@ -30,6 +30,8 @@ export const adminRole = pgEnum('admin_role', [
   'compliance',
   // A betting shop's desk: cash deposits and withdrawals, receipts (docs/plans/cashier-dashboard.md).
   'cashier',
+  // An agent's owner (docs/plans/agent-shops.md): works in the shop app only, never the back office.
+  'agent_owner',
 ]);
 
 export const ledgerOwnerType = pgEnum('ledger_owner_type', ['user', 'house']);

@@ -313,6 +313,8 @@ export const adminSessions = pgTable(
   (t) => [
     index('admin_sessions_user_idx').on(t.adminUserId),
     check('admin_sessions_channel', sql`${t.channel} IN ('admin', 'shop')`),
-    check('admin_sessions_shop_device', sql`(${t.channel} = 'shop') = (${t.deviceId} IS NOT NULL)`),
+    // A cashier's shop session carries its approved device; an agent owner's (password and
+    // authenticator) has none; a back-office session never has one.
+    check('admin_sessions_shop_device', sql`${t.channel} = 'shop' OR ${t.deviceId} IS NULL`),
   ],
 );

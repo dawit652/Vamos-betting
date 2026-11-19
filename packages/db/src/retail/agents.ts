@@ -307,3 +307,18 @@ export async function setAgentBlocked(
   });
   return after;
 }
+
+/** The agent whose owner account this is (any status), or null. */
+export async function getOwnerAgent(exec: DbExecutor, staffId: string): Promise<Agent | null> {
+  const [row] = await exec.select().from(agents).where(eq(agents.ownerStaffId, staffId)).limit(1);
+  return row ?? null;
+}
+
+/**
+ * Whether an agent owner's shop-app session may work: the account owns an agent that is not
+ * blocked (checked on every request, so blocking the agent signs its owner out at once).
+ */
+export async function isOwnerAgentActive(exec: DbExecutor, staffId: string): Promise<boolean> {
+  const agent = await getOwnerAgent(exec, staffId);
+  return agent !== null && agent.status === 'active' && !agent.isHouse;
+}
