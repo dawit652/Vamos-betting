@@ -10,9 +10,12 @@ import type { PaymentIntent, Payout } from '@vamos/db';
 
 const iso = (date: Date | null): string | null => (date === null ? null : date.toISOString());
 
-/** The collection accounts of the SMS rail provider, when it runs (for the deposit's account). */
+/**
+ * The collection accounts of the SMS rail provider, when it runs (for the deposit's account): the
+ * known ones, so a deposit given an account that was deleted since still shows where it was sent.
+ */
 export interface CollectionAccountLookup {
-  collectionAccounts: readonly CollectionAccount[];
+  knownCollectionAccounts: readonly CollectionAccount[];
 }
 
 /** A deposit intent as the player sees it; `sms` names the account of an SMS deposit. */
@@ -23,7 +26,7 @@ export function depositView(
   const account =
     intent.collectionAccount === null
       ? undefined
-      : sms?.collectionAccounts.find((a) => a.id === intent.collectionAccount);
+      : sms?.knownCollectionAccounts.find((a) => a.id === intent.collectionAccount);
   return {
     id: intent.id,
     // Rows are only created for providers of the registry (PAYMENT_PROVIDER_NAMES).

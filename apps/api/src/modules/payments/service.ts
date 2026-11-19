@@ -217,6 +217,10 @@ export async function createPlayerDeposit(
     if (request.institution !== undefined && collectionAccounts.length === 0) {
       throw badRequest('unknown_institution', 'No collection account at that institution.');
     }
+    // Every account deleted in the back office: no deposit is given an account nobody shows.
+    if (rail !== null && collectionAccounts.length === 0) {
+      throw conflict('no_collection_account', 'SMS deposits are paused: no account is open.');
+    }
     const sms = await withTxRetry(deps.db, async (tx) => {
       const settings = await loadGameSettings(tx);
       return createSmsDepositIntent(tx, {

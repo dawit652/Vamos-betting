@@ -28,8 +28,23 @@ export interface SmsRailProviderOptions {
   gatewaySecret?: string | undefined;
   /** SMS_GATEWAY_ALLOWLIST: addresses the gateway may post from (empty: any). */
   gatewayAllowlist?: readonly string[];
-  /** Where players pay; each institution must have a parser spec. */
+  /**
+   * SMS_COLLECTION_ACCOUNTS (or the demo accounts): where players pay until the back office's
+   * list is loaded (setCollectionAccounts), and what fills that list while it is empty. May be
+   * empty. Each institution must have a parser spec.
+   */
   collectionAccounts: readonly CollectionAccount[];
+}
+
+/** The back office's collection accounts as the rail uses them (@vamos/db loadRailAccounts). */
+export interface CollectionAccountSet {
+  /** Offered to new deposits. */
+  active: readonly CollectionAccount[];
+  /**
+   * The active ones and those deleted lately: SMS, receipts and open deposits on them still
+   * count, so money already sent to a deleted account is still credited.
+   */
+  known: readonly CollectionAccount[];
 }
 
 const digest = (value: string) => createHash('sha256').update(value, 'utf8').digest();
@@ -45,18 +60,14 @@ export class SmsRailProvider implements PaymentProvider {
   readonly name = NAME;
   readonly capabilities: ProviderCapabilities = { deposits: true, payouts: true, manual: true };
   readonly mode: 'simulated' | 'live';
-  readonly collectionAccounts: readonly CollectionAccount[];
+  /** The accounts of SMS_COLLECTION_ACCOUNTS (or the demo ones): they fill an empty list once. */
+  readonly configuredAccounts: readonly CollectionAccount[];
   readonly gatewayAllowlist: readonly string[];
   readonly #secretDigest: Buffer | null;
+  #active: readonly CollectionAccount[];
+  #known: readonly CollectionAccount[];
 
   constructor(options: SmsRailProviderOptions) {
-    if (options.collectionAccounts.length === 0) {
-      throw new ProviderNotConfiguredError(
-        NAME,
-        'the SMS rail needs at least one collection account',
-        ['SMS_COLLECTION_ACCOUNTS'],
-      );
-    }
     for (const account of options.collectionAccounts) {
       if (institutionById(account.institution) === null) {
         throw new ProviderNotConfiguredError(
@@ -74,7 +85,9 @@ export class SmsRailProvider implements PaymentProvider {
       );
     }
     this.mode = options.mode;
-    this.collectionAccounts = options.collectionAccounts.map((account) => ({ ...account }));
+    this.configuredAccounts = options.collectionAccounts.map((account) => ({ ...account }));
+    this.#active = this.configuredAccounts;
+    this.#known = this.configuredAccounts;
     this.gatewayAllowlist = [...(options.gatewayAllowlist ?? [])];
     this.#secretDigest =
       options.mode === 'live' && options.gatewaySecret ? digest(options.gatewaySecret) : null;
@@ -96,16 +109,39 @@ export class SmsRailProvider implements PaymentProvider {
     return this.gatewayAllowlist.length === 0 || this.gatewayAllowlist.includes(ip);
   }
 
-  /** Our collection account numbers at an institution (the receipt verifier's receivers). */
-  collectionAccountsAt(institution: string): string[] {
-    return this.collectionAccounts
-      .filter((a) => a.institution === institution)
-      .map((a) => a.account);
+  /** The accounts offered to new deposits (the back office's active list once loaded). */
+  get collectionAccounts(): readonly CollectionAccount[] {
+    return this.#active;
   }
 
-  /** The ids of the collection accounts (each has its own space of exact amounts). */
+  /** The active accounts and those deleted lately (SMS and receipts on them still count). */
+  get knownCollectionAccounts(): readonly CollectionAccount[] {
+    return this.#known;
+  }
+
+  /**
+   * Replaces the accounts with the back office's list. An account of an institution without a
+   * parser is left out (the back office refuses to add one); every active account is known.
+   */
+  setCollectionAccounts(set: CollectionAccountSet): void {
+    const usable = (account: CollectionAccount) => institutionById(account.institution) !== null;
+    const active = set.active.filter(usable).map((account) => ({ ...account }));
+    const known = [...active];
+    for (const account of set.known) {
+      if (usable(account) && !known.some((k) => k.id === account.id)) known.push({ ...account });
+    }
+    this.#active = active;
+    this.#known = known;
+  }
+
+  /** Our collection account numbers at an institution (the receipt verifier's receivers). */
+  collectionAccountsAt(institution: string): string[] {
+    return this.#known.filter((a) => a.institution === institution).map((a) => a.account);
+  }
+
+  /** The ids of the known collection accounts (each has its own space of exact amounts). */
   get collectionAccountIds(): string[] {
-    return this.collectionAccounts.map((a) => a.id);
+    return this.#known.map((a) => a.id);
   }
 
   /**
@@ -113,7 +149,7 @@ export class SmsRailProvider implements PaymentProvider {
    * not given or not listed, the account only if the institution has exactly one; else null.
    */
   collectionAccountIdAt(institution: string, receiver?: string | null): string | null {
-    const at = this.collectionAccounts.filter((a) => a.institution === institution);
+    const at = this.#known.filter((a) => a.institution === institution);
     const named = receiver ? at.find((a) => a.account === receiver) : undefined;
     if (named !== undefined) return named.id;
     return at.length === 1 ? at[0]!.id : null;

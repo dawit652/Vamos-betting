@@ -492,7 +492,7 @@ describe('the watch', () => {
 
   it('builds no tasks without the sms provider', () => {
     expect(smsRailTasks(t.ctx)).toEqual([]);
-    expect(smsRailTasks({ ...t.ctx, payments: withLive(t.ctx.payments) })).toHaveLength(3);
+    expect(smsRailTasks({ ...t.ctx, payments: withLive(t.ctx.payments) })).toHaveLength(4);
   });
 });
 

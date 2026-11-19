@@ -785,7 +785,7 @@ export function licensedModeViolations(config: AppConfig): string[] {
 }
 
 /** Case, spacing and punctuation do not distinguish two spellings of one legal name. */
-function normalizeLegalName(name: string): string {
+export function normalizeLegalName(name: string): string {
   return name
     .normalize('NFKC')
     .toUpperCase()
@@ -821,9 +821,8 @@ function smsRailLicensedViolations(_config: AppConfig): string[] {
       'OPERATOR_LEGAL_NAME is required: live collection accounts must be in the operator’s name',
     );
   }
-  if (sms.collectionAccounts.length === 0) {
-    problems.push('SMS_COLLECTION_ACCOUNTS must list the live collection accounts');
-  }
+  // SMS_COLLECTION_ACCOUNTS may be empty: the accounts can be managed in the back office instead
+  // (it only fills an empty list there). Accounts listed here must still be the operator's.
   const legal = normalizeLegalName(sms.operatorLegalName ?? '');
   for (const account of sms.collectionAccounts) {
     if (legal.length > 0 && normalizeLegalName(account.name) !== legal) {

@@ -16,3 +16,4 @@ export * from './feed';
 export * from './cashier';
 export * from './retail';
 export * from './shop';
+export * from './collection-accounts';

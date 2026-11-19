@@ -11,6 +11,7 @@ export {
   isDevAdminTotpKey,
   licensedModeViolations,
   loadConfig,
+  normalizeLegalName,
   parseAdminTotpKey,
   parseTrustProxy,
   scraperUserAgent,

@@ -18,6 +18,7 @@ import {
   recordReceiptCheck,
   smsRailHealth,
   listSilentCollectionAccounts,
+  syncRailAccounts,
   type ReceiptCheckStatus,
 } from '@vamos/db';
 import { SmsRailProvider } from '@vamos/payments';
@@ -44,6 +45,8 @@ import type { TaskContext } from './context';
 export const RECEIPT_AUDIT_INTERVAL_MS = 30_000;
 export const BALANCE_RECONCILE_INTERVAL_MS = 60 * 60_000;
 export const SMS_RAIL_WATCH_INTERVAL_MS = 5 * 60_000;
+/** The back office's collection accounts are reloaded this often. */
+export const COLLECTION_ACCOUNT_SYNC_INTERVAL_MS = 30_000;
 /** The window the balance reconciliation sums over. */
 export const BALANCE_WINDOW_MS = 24 * 60 * 60_000;
 /** Redis key prefix of the last balance reconciliation per institution (read by the API). */
@@ -270,7 +273,8 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
   // is not judged, so a forwarder without heartbeats gets no false alarm.
   if (provider.mode === 'live') {
     const alarmMs = ctx.smsHeartbeatAlarmMs ?? DEFAULT_HEARTBEAT_ALARM_MS;
-    for (const account of provider.collectionAccountIds) {
+    // Active accounts only: a deleted account's handset may be switched off for good.
+    for (const account of provider.collectionAccounts.map((a) => a.id)) {
       const beat = parseSmsHeartbeat(await ctx.redis.get(smsHeartbeatKey(account)));
       if (beat === null) continue;
       const missed = smsHeartbeatLate(beat, now, alarmMs);
@@ -409,6 +413,7 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
 }
 
 export interface SmsRailTaskOptions {
+  accountSyncIntervalMs?: number;
   receiptAuditIntervalMs?: number;
   balanceIntervalMs?: number;
   watchIntervalMs?: number;
@@ -419,8 +424,17 @@ export function smsRailTasks(
   ctx: SmsRailTaskContext,
   options: SmsRailTaskOptions = {},
 ): IntervalTask[] {
-  if (smsProvider(ctx) === null) return [];
+  const provider = smsProvider(ctx);
+  if (provider === null) return [];
   return [
+    // The back office's collection accounts (the API loads them too): new, edited and deleted
+    // accounts reach the watch and the receipt audit within this interval.
+    intervalTask({
+      name: 'sms-collection-accounts',
+      intervalMs: options.accountSyncIntervalMs ?? COLLECTION_ACCOUNT_SYNC_INTERVAL_MS,
+      logger: ctx.logger,
+      run: () => syncRailAccounts(ctx.db, provider, ctx.clock()),
+    }),
     intervalTask({
       name: 'sms-receipt-audit',
       intervalMs: options.receiptAuditIntervalMs ?? RECEIPT_AUDIT_INTERVAL_MS,

@@ -72,7 +72,7 @@ describe('SmsRailProvider', () => {
     expect(locked.gatewayAddressAllowed('10.0.0.1')).toBe(false);
   });
 
-  it('refuses unknown institutions, no accounts and a weak live secret', () => {
+  it('refuses unknown institutions and a weak live secret; no accounts is allowed', () => {
     expect(
       () =>
         new SmsRailProvider({
@@ -82,9 +82,10 @@ describe('SmsRailProvider', () => {
           ],
         }),
     ).toThrow(ProviderNotConfiguredError);
-    expect(() => new SmsRailProvider({ mode: 'simulated', collectionAccounts: [] })).toThrow(
-      ProviderNotConfiguredError,
-    );
+    // The back office's list may hold the accounts instead of SMS_COLLECTION_ACCOUNTS.
+    expect(
+      new SmsRailProvider({ mode: 'simulated', collectionAccounts: [] }).collectionAccounts,
+    ).toEqual([]);
     expect(
       () =>
         new SmsRailProvider({
@@ -102,6 +103,39 @@ describe('SmsRailProvider', () => {
     });
     expect(provider.collectionAccountsAt('telebirr')).toEqual(['0900000000']);
     expect(provider.collectionAccountsAt('awash')).toEqual([]);
+  });
+
+  it('takes the back office list: active ones are offered, deleted ones still count for SMS', () => {
+    const provider = new SmsRailProvider({
+      mode: 'simulated',
+      collectionAccounts: DEMO_COLLECTION_ACCOUNTS,
+    });
+    const awash = {
+      id: 'awash:01320000001',
+      institution: 'awash',
+      account: '01320000001',
+      name: 'A',
+    };
+    const old = {
+      id: 'cbe:1000000000099',
+      institution: 'cbe',
+      account: '1000000000099',
+      name: 'B',
+    };
+    const unknown = {
+      id: 'nosuchbank:12345',
+      institution: 'nosuchbank',
+      account: '12345',
+      name: 'X',
+    };
+    provider.setCollectionAccounts({ active: [awash, unknown], known: [old, awash] });
+    expect(provider.configuredAccounts).toHaveLength(DEMO_COLLECTION_ACCOUNTS.length);
+    expect(provider.collectionAccounts.map((a) => a.id)).toEqual([awash.id]);
+    expect(provider.knownCollectionAccounts.map((a) => a.id)).toEqual([awash.id, old.id]);
+    expect(provider.collectionAccountIds).toEqual([awash.id, old.id]);
+    expect(provider.collectionAccountsAt('cbe')).toEqual(['1000000000099']);
+    expect(provider.collectionAccountIdAt('cbe')).toBe(old.id);
+    expect(provider.collectionAccountsAt('telebirr')).toEqual([]);
   });
 
   it('is built by the factory from the config (simulated in demo mode)', () => {

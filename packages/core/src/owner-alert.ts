@@ -64,6 +64,12 @@ export type OwnerAlertInput =
   | { alarm: 'manual_payout_waiting' }
   /** An operator claimed a manual payout over 30 minutes ago and has not settled, released or failed it. */
   | { alarm: 'manual_payout_claim_idle' }
+  /** A collection account (where players send deposits) was added, approved, changed or deleted. */
+  | {
+      alarm: 'collection_account_changed';
+      account: string;
+      change: 'requested' | 'approved' | 'edited' | 'deleted';
+    }
   /** The weekly market family job moved a family (plan task 2.5). */
   | {
       alarm: 'market_family_moved';
@@ -247,6 +253,20 @@ function build(input: OwnerAlertInput): OwnerAlert {
         message:
           'A claimed manual payout has had no result for over 30 minutes. It stays with its operator; nothing was recorded or changed.',
       };
+    case 'collection_account_changed': {
+      const account = nameOf(input.account, 'A collection account');
+      return {
+        key: `collection_account_changed|${subjectOf(input.account)}|${input.change}`,
+        message:
+          input.change === 'requested'
+            ? `A new collection account ${account} was added in the back office. Players are not shown it until a second person approves it.`
+            : input.change === 'approved'
+              ? `The collection account ${account} was approved in the back office. Players are now shown it for deposits.`
+              : input.change === 'edited'
+                ? `The name or hint of the collection account ${account} was changed in the back office. Its number stays the same.`
+                : `The collection account ${account} was deleted in the back office. No new deposits go to it, and money already sent there is still credited.`,
+      };
+    }
     case 'market_family_moved': {
       const family = nameOf(input.family, 'A market family');
       return {

@@ -169,3 +169,20 @@ export {
   type ManualPayoutActor,
   type SettleManualPayoutInput,
 } from './manualpayouts';
+export {
+  COLLECTION_ACCOUNT_AUDIT,
+  DELETED_ACCOUNT_GRACE_MS,
+  decideCollectionAccount,
+  deleteCollectionAccount,
+  editCollectionAccount,
+  listCollectionAccounts,
+  loadRailAccounts,
+  normalizeCollectionAccountNumber,
+  requestCollectionAccount,
+  seedCollectionAccounts,
+  syncRailAccounts,
+  type CollectionAccountRecord,
+  type RailAccountsSink,
+  type CollectionAccountRow,
+  type CollectionAccountStatus,
+} from './collectionaccounts';

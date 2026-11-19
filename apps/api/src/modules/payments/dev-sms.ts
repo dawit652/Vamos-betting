@@ -120,7 +120,9 @@ export default async function devSmsRoutes(app: FastifyInstance): Promise<void> 
       const provider = smsProviderOf(deps);
       // The account the server gave the deposit is the one the player pays (the first account
       // when the deposit names none, or the one at the institution the caller asked for).
-      const assigned = provider?.collectionAccounts.find((a) => a.id === intent.collectionAccount);
+      const assigned = provider?.knownCollectionAccounts.find(
+        (a) => a.id === intent.collectionAccount,
+      );
       const institution =
         input.institution ??
         assigned?.institution ??

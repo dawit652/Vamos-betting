@@ -7,9 +7,9 @@ branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
 receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (`dce8e5d`
-database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners` and `0068_agent_balance` run on the next deploy
+database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners`, `0068_agent_balance` and `0069_collection_accounts` run on the next deploy
 (every existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next
-free number is **0069**. Deploy is done by the owner (`ssh -t root@<server>` +
+free number is **0070**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
@@ -37,20 +37,31 @@ free number is **0069**. Deploy is done by the owner (`ssh -t root@<server>` +
         high): **steps 1–3 built and pushed 19 Nov, full checks passed** (migration
         `0068_agent_balance`; database `6b813e1`, API `5911deb`, screens `33c0c52`, e2e
         `e2e/tests/agent-topups.spec.ts`): the agent's ledger account, top-ups and take-backs with
-        four eyes, balances on the Agents pages and the owner's overview. **Next: step 4**, player
-        cash at an agent's shop, exactly as in the plan's "Step 4 design detail" (provider
-        `agent_cash`, `markPayoutPaid` `paidTo`, the reconciliation check `agent_cash_records`).
+        four eyes, balances on the Agents pages and the owner's overview. **Step 4 built and
+        pushed 19 Nov** (`078dbfa`, `9e5c943`; full checks passed): player cash at an agent's shop
+        (provider `agent_cash`, an admin's switch per agent, reconciliation `agent_cash_records`).
+        **Next:** the shop app's desk for player cash (`/shop/desk/*`) on the shared functions of
+        `apps/api/src/modules/admin/desk-operations.ts` (`906526b`, not wired yet), and the desk
+        showing the agent balance (plan, "Phase 2 design", status).
      4. Phase 3, selling tickets at the counter, and phase 4, paying them (money path).
      5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
      rate, agent licensing with the regulator.
    - The mr-y request (Narobet game links) was declined on 19 Nov: it runs on the owner's own
      Narobet account and bypasses the ledger.
+     0b. **Deposit accounts in the back office** (owner's request 19 Nov: admins add, edit and delete
+     the bank and wallet accounts players deposit to): built (migration `0069_collection_accounts`,
+     `packages/db/src/payments/collectionaccounts.ts`, routes `/admin/collection-accounts`, page
+     `/collection-accounts`; runbook `docs/runbooks/sms-rail.md` "Deposit accounts"). A new account
+     needs a second person's approval before players see it; numbers never change; deleting keeps
+     crediting money already sent for 7 days; the owner is texted on each change. The first start
+     after the deploy fills the list from `SMS_COLLECTION_ACCOUNTS`; after that the page is the list.
 1. **After the owner deploys the next build, check on live** (read-only queries, the owner runs
    them; `80c8a73` was deployed and checked on 18 Nov: 67 migrations, the team-logos task
    registered): migration 0064 applied (`SELECT number, name FROM agents` shows 1000 Nahubet HQ);
    the Staff and Agents pages open for an admin; add an agent, its shop and a cashier with a phone;
-   a test shift with a deposit at an HQ shop; team logos after their 6-hour run (scraper log `team
+   a test shift with a deposit at an HQ shop; the Deposit accounts page lists exactly the accounts of
+   `SMS_COLLECTION_ACCOUNTS` (filled on the first start) and the deposit screen still shows them; team logos after their 6-hour run (scraper log `team
 logos`); the X6b alarm lines (`"alarm":"login_failures_`).
 2. **Desk PIN reset redesign** (Opus, high; security), then switch `CASHIER_PIN_RESET=on`: the code
    must only work from the player's own device. The design is in `docs/plans/cashier-dashboard.md`

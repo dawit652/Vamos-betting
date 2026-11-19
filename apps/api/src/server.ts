@@ -6,12 +6,15 @@ import {
   startTelemetry,
   type AppConfig,
 } from '@vamos/config';
-import { claimOperatingMode, OperatingModeMismatchError } from '@vamos/db';
-import { PaymentProviderError } from '@vamos/payments';
+import { claimOperatingMode, OperatingModeMismatchError, syncRailAccounts } from '@vamos/db';
+import { PaymentProviderError, SmsRailProvider } from '@vamos/payments';
 import { buildApp } from './app';
 import { createDefaultDeps, ProviderNotImplementedError, type DefaultDeps } from './deps';
 import { createApiShutdown } from './lib/shutdown';
 import { apiConfigProblems } from './startup';
+
+/** How often the API reloads the collection accounts from the database. */
+const COLLECTION_ACCOUNT_SYNC_MS = 15_000;
 
 function refuseToStart(message: string): never {
   console.error(`[vamos-api] refusing to start.\n${message}`);
@@ -68,6 +71,28 @@ async function main(): Promise<void> {
     );
   }
   if (telemetry.enabled) app.log.info('tracing on (OpenTelemetry, OTLP over HTTP)');
+
+  // The SMS rail's collection accounts are managed in the back office: load them before taking
+  // requests, then every few seconds (another API process may have changed them).
+  const rail = deps.payments.get('sms');
+  if (rail instanceof SmsRailProvider) {
+    const sync = () => syncRailAccounts(deps.db, rail, deps.clock());
+    try {
+      await sync();
+    } catch (error) {
+      app.log.error(
+        { err: error },
+        'could not load the collection accounts: SMS_COLLECTION_ACCOUNTS is used until the next try',
+      );
+    }
+    const timer = setInterval(() => {
+      sync().catch((error: unknown) =>
+        app.log.warn({ err: error }, 'collection accounts: reload failed'),
+      );
+    }, COLLECTION_ACCOUNT_SYNC_MS);
+    timer.unref();
+    app.addHook('onClose', async () => clearInterval(timer));
+  }
 
   const shutdown = createApiShutdown({
     app,

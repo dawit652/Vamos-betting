@@ -30,6 +30,33 @@ claims and settles manual payouts; `withdrawals.approve` approves withdrawals as
 Back office: **SMS rail** (`/sms`: health panel, review queue, all messages) and **Manual payouts**
 (`/manual-payouts`).
 
+## Deposit accounts (back office)
+
+The collection accounts players send money to are managed in the back office: **Deposit accounts**
+(`/collection-accounts`, linked from the SMS rail page). `SMS_COLLECTION_ACCOUNTS` only fills the empty list
+once, at the first start after migration 0069; after that the list in the back office is what counts, and
+changing the environment variable later changes nothing: edit the list instead.
+
+- **Add** (admin, `settings.edit`): pick the bank or wallet (only those the rail has an SMS parser for), type
+  the number (spaces and dashes are dropped) and the holder name. In licensed mode the holder name must be
+  `OPERATOR_LEGAL_NAME` (spelling, case and punctuation aside): personal accounts are refused.
+- **Approve** (finance or another admin, `withdrawals.approve`): a new account is shown to players only once
+  a second person approves it. The person who added it cannot (409 `four_eyes`, also checked by the
+  database). Approve only after checking, on a bank statement or the wallet app, that the number is the
+  company's.
+- **Edit** (admin): the holder name and the hint players see. The bank and number never change: for a new
+  number, add it as a new account (it is approved like any other) and delete the old one.
+- **Delete** (admin): players are no longer shown the account, at once in the API process that made the
+  change and within 15 seconds in any other. Money already sent to it is still credited: its SMS, receipts
+  and open deposits count for 7 more days. Rows are never removed (the history stays). With every account
+  deleted, SMS deposits pause (409 `no_collection_account`).
+- Every change is in the audit log (`collection_account.*`), and, when owner alerts are configured
+  (`OWNER_ALERT_PHONES`, `TELEGRAM_OWNER_CHAT_IDS`), the owner is texted when an account is added, approved,
+  edited or deleted. An alert about an account nobody asked for: delete it and check the audit log.
+- The **rail id** shown for each account (`<institution>:<number>`) is what the handset's forwarder sends as
+  `"account"` (see "The handset" below). Before a second account is approved, every forwarder (the existing
+  one too) must send its own; SMS naming an account that is not approved yet are refused (400).
+
 In demo mode the rail is **simulated** (`SMS_RAIL_MODE=simulated`, demo collection accounts, play money):
 the deposit screen offers "Demo: play the bank" and the dev SMS simulator sends the SMS. The database
 refuses simulator SMS in a licensed database. Licensed mode only **warns** at start (it does not refuse) about
@@ -134,13 +161,14 @@ drift: write it down so the next person recognises it.
 - **One account per handset.** Each collection account has its own space of exact amounts (99 open
   deposits of one amount per account), and the server gives a new deposit the account with the most free
   amounts. A message only pays a deposit of the account it arrived on, so the forwarder on each handset
-  must add `"account": "<id>"` to its JSON: the `id` of that account in `SMS_COLLECTION_ACCOUNTS`
-  (default `<institution>:<account>`, e.g. `telebirr:0911000001`). With one account configured the field
+  must add `"account": "<id>"` to its JSON: the account's rail id on the **Deposit accounts** page
+  (`<institution>:<account>`, e.g. `telebirr:0911000001`; an account filled from `SMS_COLLECTION_ACCOUNTS`
+  keeps the `id` it had there). With one account (deleted ones of the last 7 days count) the field
   may be left out. With several and no `account`, the message is kept in the review queue as unmatched
   (never matched on a guess); an `account` the server does not know is refused with 400
   `unknown_collection_account`. Set the field on every forwarder **before** adding a second account.
-  Do not change an account's `id`, or take an account out of the list, while deposits to it are open: their
-  payments would wait in the review queue (staff can credit them by hand).
+  A deleted account still takes its SMS for 7 days, so payments already sent to it are credited; after that
+  its forwarder is refused (400) and the handset can be switched off.
 - Allowed senders only: the collection institutions' SMS numbers (`127` / `telebirr`, `CBE`). Do not forward
   personal messages.
 - If the forwarder has fixed egress addresses, list them in `SMS_GATEWAY_ALLOWLIST`; requests from other
