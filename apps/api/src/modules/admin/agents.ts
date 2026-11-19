@@ -6,16 +6,21 @@ import {
   CashierShopResponse,
   CreateAgentRequest,
   CreateAgentShopRequest,
+  ShopDeviceResponse,
+  ShopDeviceRevokeRequest,
   UpdateAgentRequest,
 } from '@vamos/contracts';
 import {
+  approveShopDevice,
   createAgent,
   createShop,
   getAgent,
   getShop,
   listAgentCashiers,
+  listAgentDevices,
   listAgents,
   listShops,
+  revokeShopDevice,
   setAgentBlocked,
   updateAgent,
 } from '@vamos/db';
@@ -60,7 +65,8 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
     if (agent === null) throw notFound('Agent');
     const shops = (await listShops(deps.db)).filter((shop) => shop.agentId === agentId);
     const cashiers = await listAgentCashiers(deps.db, agentId);
-    return wire(AgentDetailResponse, { agent, shops: shops.map(shopView), cashiers });
+    const devices = await listAgentDevices(deps.db, agentId);
+    return wire(AgentDetailResponse, { agent, shops: shops.map(shopView), cashiers, devices });
   });
 
   app.patch<IdParams>(
@@ -137,6 +143,45 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
       });
       reply.code(201);
       return wire(CashierShopResponse, { shop: shopView(shop) });
+    },
+  );
+
+  // Shop devices (phase 1b): an admin approves a waiting device or revokes one, with a reason.
+  app.post<IdParams>(
+    '/admin/shop-devices/:id/approve',
+    { config: { staff: 'agents.manage' } },
+    async (request) => {
+      const deviceId = parseUuid(request.params.id, 'Device');
+      const actor = staffActor(request);
+      const device = await inTx(deps, (tx) =>
+        approveShopDevice(tx, {
+          deviceId,
+          adminId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      return wire(ShopDeviceResponse, { device });
+    },
+  );
+
+  app.post<IdParams>(
+    '/admin/shop-devices/:id/revoke',
+    { config: { staff: 'agents.manage' } },
+    async (request) => {
+      const deviceId = parseUuid(request.params.id, 'Device');
+      const input = parseInput(ShopDeviceRevokeRequest, request.body);
+      const actor = staffActor(request);
+      const device = await inTx(deps, (tx) =>
+        revokeShopDevice(tx, {
+          deviceId,
+          adminId: actor.adminId,
+          reason: input.reason,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      return wire(ShopDeviceResponse, { device });
     },
   );
 }

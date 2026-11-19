@@ -59,11 +59,34 @@ export const AgentCashierView = z.object({
 });
 export type AgentCashierView = z.infer<typeof AgentCashierView>;
 
-/** GET /admin/agents/:id (agents.view): the agent, its shops and the cashiers of its shops. */
+/**
+ * A shop device (phase 1b): a counter computer or POS terminal that asked to be registered; the shop
+ * app signs a cashier in only on an approved device of their own shop.
+ */
+export const ShopDeviceView = z.object({
+  id: z.string(),
+  shopId: z.string(),
+  shopLabel: z.string(),
+  shopName: z.string(),
+  label: z.string(),
+  status: z.enum(['pending', 'approved', 'revoked']),
+  requestedBy: z.string(),
+  requestedByName: z.string(),
+  requestedAt: IsoDateTime,
+  userAgent: z.string(),
+  approvedAt: IsoDateTime.nullable(),
+  revokedAt: IsoDateTime.nullable(),
+  revokedReason: z.string().nullable(),
+  lastSeenAt: IsoDateTime.nullable(),
+});
+export type ShopDeviceView = z.infer<typeof ShopDeviceView>;
+
+/** GET /admin/agents/:id (agents.view): the agent, its shops, cashiers and devices. */
 export const AgentDetailResponse = z.object({
   agent: AgentView,
   shops: z.array(CashierShopView),
   cashiers: z.array(AgentCashierView),
+  devices: z.array(ShopDeviceView),
 });
 export type AgentDetailResponse = z.infer<typeof AgentDetailResponse>;
 
@@ -112,3 +135,14 @@ export const CreateAgentShopRequest = z
   })
   .strict();
 export type CreateAgentShopRequest = z.infer<typeof CreateAgentShopRequest>;
+
+/** POST /admin/shop-devices/:id/approve and /revoke (agents.manage); revoking needs a reason. */
+export const ShopDeviceRevokeRequest = z
+  .object({ reason: z.string().trim().min(3).max(500) })
+  .strict();
+export type ShopDeviceRevokeRequest = z.infer<typeof ShopDeviceRevokeRequest>;
+
+export const ShopDeviceResponse = z.object({
+  device: ShopDeviceView.omit({ shopLabel: true, shopName: true, requestedByName: true }),
+});
+export type ShopDeviceResponse = z.infer<typeof ShopDeviceResponse>;

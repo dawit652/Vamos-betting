@@ -5,6 +5,7 @@ import type {
   AgentDetailResponse,
   AgentView,
   CashierShopView,
+  ShopDeviceView,
   UpdateAgentRequest,
 } from '@vamos/contracts';
 import { formatBpsPercent, parsePercentBps } from '@vamos/core';
@@ -235,6 +236,106 @@ function ToggleShop({ shop, onDone }: { shop: CashierShopView; onDone: () => voi
   );
 }
 
+const DEVICE_TONES = { pending: 'warn', approved: 'good', revoked: 'bad' } as const;
+
+/**
+ * The agent's shop devices (phase 1b): a cashier's computer or POS terminal asks once; an admin
+ * approves it or revokes it with a reason. The shop app signs cashiers in only on approved devices.
+ */
+function Devices({
+  devices,
+  manage,
+  onChanged,
+}: {
+  devices: ShopDeviceView[];
+  manage: boolean;
+  onChanged: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const approve = async (device: ShopDeviceView) => {
+    if (!window.confirm(`Approve "${device.label}" for shop ${device.shopLabel}?`)) return;
+    setError(null);
+    try {
+      await api(`/admin/shop-devices/${device.id}/approve`, { method: 'POST', body: {} });
+      onChanged();
+    } catch (e) {
+      setError(describeError(e));
+    }
+  };
+  return (
+    <>
+      <h2>Devices ({devices.length})</h2>
+      <p className="muted small">
+        The shop app works only on devices approved here. Approve a device only when the shop told
+        you its name; revoke a lost or replaced one at once.
+      </p>
+      {error !== null && <Notice>{error}</Notice>}
+      <div className="table-wrap">
+        <table data-testid="agent-devices">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Shop</th>
+              <th>Asked by</th>
+              <th>Asked</th>
+              <th>Status</th>
+              <th>Last used</th>
+              {manage && <th />}
+            </tr>
+          </thead>
+          <tbody>
+            {devices.map((d) => (
+              <tr key={d.id}>
+                <td>
+                  {d.label}
+                  <div className="muted small">{d.userAgent}</div>
+                </td>
+                <td>{`${d.shopLabel} ${d.shopName}`}</td>
+                <td>{d.requestedByName}</td>
+                <td>{formatDateTime(d.requestedAt)}</td>
+                <td>
+                  <Badge value={d.status} tone={DEVICE_TONES[d.status]} />
+                  {d.revokedReason !== null && <div className="muted small">{d.revokedReason}</div>}
+                </td>
+                <td>{formatDateTime(d.lastSeenAt)}</td>
+                {manage && (
+                  <td>
+                    {d.status === 'pending' && (
+                      <button type="button" onClick={() => void approve(d)}>
+                        Approve
+                      </button>
+                    )}{' '}
+                    {d.status !== 'revoked' && (
+                      <ReasonAction
+                        label="Revoke"
+                        danger
+                        onSubmit={async (reason) => {
+                          await api(`/admin/shop-devices/${d.id}/revoke`, {
+                            method: 'POST',
+                            body: { reason },
+                          });
+                          onChanged();
+                        }}
+                      />
+                    )}
+                  </td>
+                )}
+              </tr>
+            ))}
+            {devices.length === 0 && (
+              <tr>
+                <td colSpan={manage ? 7 : 6} className="muted">
+                  No device has asked yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, error, loading, reload } = useFetch<AgentDetailResponse>(`/admin/agents/${id}`);
@@ -403,6 +504,7 @@ export default function AgentDetailPage() {
               ))}
             </p>
           )}
+          <Devices devices={data.devices} manage={manage} onChanged={reload} />
         </>
       )}
     </>

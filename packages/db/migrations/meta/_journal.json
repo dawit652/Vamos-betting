@@ -456,6 +456,13 @@
       "when": 1795105738445,
       "tag": "0064_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1795108797862,
+      "tag": "0065_shop_devices",
+      "breakpoints": true
     }
   ]
 }

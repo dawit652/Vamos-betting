@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   AgentDetailResponse,
   AgentListResponse,
@@ -5,7 +6,9 @@ import {
   CashierShopListResponse,
   CashierShopResponse,
   CreateStaffResponse,
+  ShopDeviceResponse,
 } from '@vamos/contracts';
+import { assignStaffShop, hashDeviceSecret, requestShopDevice } from '@vamos/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
 import { createTestContext, type TestContext } from './helpers';
@@ -157,5 +160,69 @@ describe('staff phone numbers', () => {
     expect(user.phone).toBe('+251911998877');
     const cleared = await asStaff(ctx, admin, 'PATCH', `/admin/staff/${user.id}`, { phone: null });
     expect(cleared.json()).toMatchObject({ phone: null });
+  });
+});
+
+describe('shop devices', () => {
+  it('are listed on the agent, approved and revoked by an admin, never by finance', async () => {
+    const { agent } = AgentResponse.parse(
+      (
+        await asStaff(ctx, admin, 'POST', '/admin/agents', {
+          ...newAgent,
+          name: 'Device Agent',
+        })
+      ).json(),
+    );
+    const { shop } = CashierShopResponse.parse(
+      (
+        await asStaff(ctx, admin, 'POST', `/admin/agents/${agent.id}/shops`, {
+          name: 'Device shop',
+          address: '',
+          receiptWidthMm: 80,
+          approvalThreshold: '1000000',
+        })
+      ).json(),
+    );
+    const desk = CreateStaffResponse.parse(
+      (
+        await asStaff(ctx, admin, 'POST', '/admin/staff', {
+          email: 'device-desk@example.com',
+          displayName: 'Device Desk',
+          role: 'cashier',
+          phone: '0911445566',
+        })
+      ).json(),
+    ).user;
+    const now = ctx.clock.now;
+    await ctx.deps.db.transaction((tx) =>
+      assignStaffShop(tx, { staffId: desk.id, shopId: shop.id, adminId: admin.id, now }),
+    );
+    const device = await ctx.deps.db.transaction((tx) =>
+      requestShopDevice(tx, {
+        staffId: desk.id,
+        label: 'Counter PC',
+        secretHash: hashDeviceSecret(randomBytes(32).toString('base64url')),
+        userAgent: 'test',
+        now,
+      }),
+    );
+    const detail = AgentDetailResponse.parse(
+      (await asStaff(ctx, finance, 'GET', `/admin/agents/${agent.id}`)).json(),
+    );
+    expect(detail.devices).toEqual([
+      expect.objectContaining({ id: device.id, status: 'pending', shopLabel: shop.label }),
+    ]);
+    expect(
+      (await asStaff(ctx, finance, 'POST', `/admin/shop-devices/${device.id}/approve`)).statusCode,
+    ).toBe(403);
+    const approved = await asStaff(ctx, admin, 'POST', `/admin/shop-devices/${device.id}/approve`);
+    expect(ShopDeviceResponse.parse(approved.json()).device.status).toBe('approved');
+    const revoked = await asStaff(ctx, admin, 'POST', `/admin/shop-devices/${device.id}/revoke`, {
+      reason: 'laptop replaced',
+    });
+    expect(ShopDeviceResponse.parse(revoked.json()).device).toMatchObject({
+      status: 'revoked',
+      revokedReason: 'laptop replaced',
+    });
   });
 });

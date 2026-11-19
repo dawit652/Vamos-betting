@@ -209,7 +209,10 @@ Build in this order; each step is committed and pushed on its own.
    4:** an owner can sign in only to the shop app, and a generated password stops working 72 hours
    after creation unless it is changed at the first sign-in, so owner accounts made before the shop
    app exists would expire unused.
-2. **Shop devices.** Table `shop_devices` (id, shop_id, label, secret_hash unique (sha256 of a
+2. **Shop devices. Back-office side built** (migration `0065_shop_devices`,
+   `packages/db/src/retail/devices.ts`, `POST /admin/shop-devices/:id/approve|revoke`, the agent
+   page's Devices section, `packages/db/test/retail-devices.test.ts`); the request route
+   `POST /shop/devices/request` and the cookie come with step 3. Table `shop_devices` (id, shop_id, label, secret_hash unique (sha256 of a
    32-byte random secret), status `pending|approved|revoked`, requested_by, approved_by,
    approved_at, revoked_at, last_seen_at, user_agent, created_at); `REVOKE DELETE` from vamos_app.
    A device asks after its cashier's password is checked (`POST /shop/devices/request {email,
@@ -218,7 +221,16 @@ password, label}`; the API sets the httpOnly cookie `vamos_device` with the secr
    Approve / Revoke (agents.manage, audited). A cashier signs in to the shop app only with an
    approved device of their own shop; every shop request re-checks the device, the shop, the agent
    and the account, so blocking or revoking takes effect at once.
-3. **Shop sessions and routes.** A separate session scope `/shop/*` (cookie `vamos_shop`, CSRF header
+3. **Shop sessions and routes** (next; security-critical, main session on Opus). Do not write a
+   second sign-in: extend `loginStaff` in `packages/db/src/backoffice/staff-auth.ts` with a
+   `channel` (`admin` | `shop`) and a second factor (`totp` code | `device` secret hash), so the
+   address throttle, the account backoff, the audit and the re-check under the row lock
+   (`commitAttempt`, `recheckAttempt`) stay one code path. For a device: `verifyAttempt` checks
+   `findApprovedStaffDevice` and the shop (`assertShopOperates`) instead of the code, a wrong
+   device counts as a failure (`device` reason in `COUNTED_FAILURES`), and `totpLastStep` is not
+   touched. `admin_sessions` gets `channel` and `device_id`; `authenticateStaffSession` takes the
+   channel it serves and refuses the other one; a shop session also re-checks its device, shop and
+   agent on every request. A separate session scope `/shop/*` (cookie `vamos_shop`, CSRF header
    `x-shop-csrf-token`), reusing the staff session store with a `channel = 'shop'` marker.
    Cashier sign-in: email or phone + password + approved device; agent owner: password +
    authenticator (+ device if the owner wants it later). `GET /shop/me` returns the staff member,

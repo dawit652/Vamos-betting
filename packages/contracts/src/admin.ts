@@ -81,8 +81,8 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  * - cashier.reports: every shift and its operations [GET /admin/cashier/shifts*]
  *   (the shop's name, address and limits change with settings.edit)
  * - agents.view: agents, their shops and cashiers [GET /admin/agents*]
- * - agents.manage: add and change agents, add their shops, block or unblock an agent
- *   [POST/PATCH /admin/agents*]
+ * - agents.manage: add and change agents, add their shops, block or unblock an agent, approve or
+ *   revoke shop devices [POST/PATCH /admin/agents*, POST /admin/shop-devices/*]
  * (COMPLIANCE_ROUTE_PERMISSIONS in compliance.ts lists every compliance route.)
  */
 export const STAFF_PERMISSIONS = [
