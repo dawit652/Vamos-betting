@@ -65,6 +65,10 @@ export const ledgerAccountKind = pgEnum('ledger_account_kind', [
   'house_jackpot',
   'house_withdrawals_pending',
   'house_cash_variance',
+  // An agent's prepaid balance: what Nahubet owes the agent; never below zero (agent-shops.md).
+  'agent_balance',
+  // The cash and bank money agents paid to Nahubet for their balances (top-ups, take-backs).
+  'house_agent_funding',
 ]);
 
 export const ledgerTransactionType = pgEnum('ledger_transaction_type', [
@@ -82,6 +86,9 @@ export const ledgerTransactionType = pgEnum('ledger_transaction_type', [
   'adjustment',
   'jackpot_entry',
   'jackpot_prize',
+  // An agent's top-up (money in) or take-back (money out), approved by a second person.
+  'agent_topup',
+  'agent_take_back',
 ]);
 
 export const actorType = pgEnum('actor_type', ['user', 'admin', 'system']);

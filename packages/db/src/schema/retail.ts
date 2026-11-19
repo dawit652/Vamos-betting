@@ -1,7 +1,9 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   check,
+  index,
   integer,
   pgEnum,
   pgTable,
@@ -72,5 +74,67 @@ export const agents = pgTable(
       .on(t.ownerStaffId)
       .where(sql`${t.ownerStaffId} IS NOT NULL`),
     check('agents_house_no_owner', sql`NOT (${t.isHouse} AND ${t.ownerStaffId} IS NOT NULL)`),
+  ],
+);
+
+/** A top-up: the agent paid Nahubet (`in`), or Nahubet paid the agent back (`out`, a take-back). */
+export const agentTopupDirection = pgEnum('agent_topup_direction', ['in', 'out']);
+export const agentTopupMethod = pgEnum('agent_topup_method', ['cash', 'bank']);
+export const agentTopupStatus = pgEnum('agent_topup_status', ['requested', 'approved', 'rejected']);
+
+/**
+ * Money between an agent and Nahubet (docs/plans/agent-shops.md, phase 2): recorded by one admin,
+ * approved or rejected by another person (four eyes). The approval posts the agent's balance in
+ * the same transaction; a rejection posts nothing.
+ */
+export const agentTopups = pgTable(
+  'agent_topups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'restrict' }),
+    direction: agentTopupDirection('direction').notNull(),
+    amount: bigint('amount', { mode: 'bigint' }).notNull(),
+    method: agentTopupMethod('method').notNull(),
+    /** The bank's transfer reference (bank only): one transfer is never recorded twice. */
+    bankReference: text('bank_reference'),
+    note: text('note'),
+    status: agentTopupStatus('status').notNull().default('requested'),
+    requestedBy: uuid('requested_by')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'restrict' }),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull(),
+    decidedBy: uuid('decided_by').references(() => adminUsers.id, { onDelete: 'restrict' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    /** The posting of an approved one. */
+    ledgerTransactionId: uuid('ledger_transaction_id'),
+  },
+  (t) => [
+    index('agent_topups_agent_idx').on(t.agentId, t.requestedAt),
+    index('agent_topups_requested_idx')
+      .on(t.requestedAt)
+      .where(sql`${t.status} = 'requested'`),
+    uniqueIndex('agent_topups_bank_reference_uq')
+      .on(t.bankReference)
+      .where(sql`${t.method} = 'bank' AND ${t.status} <> 'rejected'`),
+    check('agent_topups_amount_positive', sql`${t.amount} > 0`),
+    check(
+      'agent_topups_bank_reference',
+      sql`(${t.method} = 'bank') = (${t.bankReference} IS NOT NULL)`,
+    ),
+    check(
+      'agent_topups_four_eyes',
+      sql`${t.decidedBy} IS NULL OR ${t.decidedBy} <> ${t.requestedBy}`,
+    ),
+    check(
+      'agent_topups_decided',
+      sql`(${t.status} = 'requested') = (${t.decidedBy} IS NULL AND ${t.decidedAt} IS NULL)`,
+    ),
+    check(
+      'agent_topups_posted',
+      sql`(${t.status} = 'approved') = (${t.ledgerTransactionId} IS NOT NULL)`,
+    ),
   ],
 );

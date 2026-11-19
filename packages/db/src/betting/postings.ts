@@ -118,6 +118,7 @@ export async function loadPostingEntries(
       kind: ledgerAccounts.kind,
       userId: ledgerAccounts.userId,
       provider: ledgerAccounts.provider,
+      agentId: ledgerAccounts.agentId,
       amount: ledgerEntries.amount,
     })
     .from(ledgerTransactions)
@@ -136,6 +137,10 @@ export async function loadPostingEntries(
       if (row.provider === null)
         throw new Error(`PSP account without a provider (${idempotencyKey})`);
       account = { kind: row.kind, provider: row.provider };
+    } else if (row.kind === 'agent_balance') {
+      if (row.agentId === null)
+        throw new Error(`agent account without an agent (${idempotencyKey})`);
+      account = { kind: row.kind, agentId: row.agentId };
     } else {
       account = { kind: row.kind };
     }
