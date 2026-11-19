@@ -592,6 +592,30 @@ function RecentDeposits({ playerId, supervisor }: { playerId: string; supervisor
   );
 }
 
+function PrinterCard({ desk }: { desk: CashierDeskResponse }) {
+  const shop = desk.shops.find((s) => s.id === desk.shift?.shopId);
+  return (
+    <section className="card" data-testid="printer-card">
+      <h2>Receipt printer</h2>
+      <p>
+        Paper: <strong>{shop?.receiptWidthMm ?? 80} mm</strong> roll (an administrator changes it
+        under Cash shifts, Shops).
+      </p>
+      <p>
+        <Link href="/cashier/test-print" target="_blank">
+          Print a test receipt
+        </Link>
+      </p>
+      <p className="muted small">
+        The desk prints through this computer&apos;s own printer: install the thermal printer&apos;s
+        driver in Windows (Xprinter, Epson TM or similar) and set it as the default printer. In the
+        print dialog choose margins None and scale 100%. To print without the dialog, start the
+        browser with <code>--kiosk-printing</code>.
+      </p>
+    </section>
+  );
+}
+
 export default function CashierPage() {
   const { data, error, loading, reload } = useFetch<CashierDeskResponse>('/admin/cashier/desk');
   const [closedShift, setClosed] = useState<{
@@ -672,6 +696,7 @@ export default function CashierPage() {
               }}
             />
           </section>
+          <PrinterCard desk={data} />
           <PlayerDesk desk={data} shift={shift} onDeposit={reload} />
           <Operations desk={data} />
         </>
