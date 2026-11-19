@@ -199,6 +199,28 @@ importers:
         specifier: 8.5.1
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.31)(tsx@4.23.15)(typescript@6.0.3)
 
+  apps/shop:
+    dependencies:
+      '@vamos/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      next:
+        specifier: 16.4.5
+        version: 16.4.5(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.56.1)(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react:
+        specifier: 19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: 19.3.0
+        version: 19.3.0(react@19.3.0)
+    devDependencies:
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+
   apps/web:
     dependencies:
       '@vamos/contracts':

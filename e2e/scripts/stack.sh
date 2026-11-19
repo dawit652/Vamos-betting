@@ -6,7 +6,7 @@
 # services), migrated and seeded (pnpm db:migrate && pnpm db:seed).
 #
 # Usage: e2e/scripts/stack.sh build|start|stop|status
-#   build  builds the API, worker, web app and admin app (pnpm build does this too)
+#   build  builds the API, worker, web app, admin app and shop app (pnpm build does this too)
 #   start  starts the four in the background and waits until they answer
 #   stop   stops what `start` started
 #
@@ -20,6 +20,9 @@ STATE_DIR="$REPO_ROOT/e2e/.stack"
 API_URL="${E2E_API_URL:-http://localhost:4000}"
 WEB_URL="${E2E_WEB_URL:-http://localhost:3000}"
 ADMIN_URL="${E2E_ADMIN_URL:-http://localhost:3001}"
+# The shop app (docs/plans/agent-shops.md phase 1b): the API gives this origin CORS on /shop/*.
+SHOP_URL="${E2E_SHOP_URL:-http://localhost:3002}"
+export SHOP_WEB_URL="${SHOP_WEB_URL:-$SHOP_URL}"
 START_TIMEOUT_S="${E2E_START_TIMEOUT_S:-60}"
 
 export OPERATING_MODE="${OPERATING_MODE:-demo}"
@@ -93,11 +96,11 @@ stop_one() {
 
 case "${1:-}" in
   build)
-    pnpm --dir "$REPO_ROOT" --filter @vamos/api --filter @vamos/worker --filter @vamos/web --filter @vamos/admin build
+    pnpm --dir "$REPO_ROOT" --filter @vamos/api --filter @vamos/worker --filter @vamos/web --filter @vamos/admin --filter @vamos/shop build
     ;;
   start)
     mkdir -p "$STATE_DIR"
-    for required in apps/api/dist/server.js apps/worker/dist/main.js apps/web/.next/BUILD_ID apps/admin/.next/BUILD_ID; do
+    for required in apps/api/dist/server.js apps/worker/dist/main.js apps/web/.next/BUILD_ID apps/admin/.next/BUILD_ID apps/shop/.next/BUILD_ID; do
       [[ -e "$REPO_ROOT/$required" ]] || {
         echo "missing $required: run e2e/scripts/stack.sh build first" >&2
         exit 1
@@ -109,9 +112,12 @@ case "${1:-}" in
     launch web apps/web env PORT="${WEB_URL##*:}" node server.mjs
     # The back office (staff UI): next start; it calls the API from the browser.
     launch admin apps/admin env PORT="${ADMIN_URL##*:}" pnpm exec next start --port "${ADMIN_URL##*:}"
+    # The shop app (agent shops' counter screen): next start; it calls the API's /shop/* routes.
+    launch shop apps/shop env PORT="${SHOP_URL##*:}" pnpm exec next start --port "${SHOP_URL##*:}"
     wait_for api "$API_URL/health"
     wait_for web "$WEB_URL/"
     wait_for admin "$ADMIN_URL/login"
+    wait_for shop "$SHOP_URL/login"
     running worker || {
       echo "worker exited:" >&2
       tail -n 30 "$STATE_DIR/worker.log" >&2
@@ -120,13 +126,14 @@ case "${1:-}" in
     echo "worker: running (SIM_SPEED=$SIM_SPEED, a rolling fixture every $FEED_ROLLING_EVERY_MINUTES min)"
     ;;
   stop)
+    stop_one shop
     stop_one admin
     stop_one web
     stop_one worker
     stop_one api
     ;;
   status)
-    for name in api worker web admin; do
+    for name in api worker web admin shop; do
       if running "$name"; then echo "$name: running (pid $(cat "$STATE_DIR/$name.pid"))"; else echo "$name: stopped"; fi
     done
     ;;

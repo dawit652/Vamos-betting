@@ -279,7 +279,7 @@ posts today with `house:psp:cash`).
    transaction, plus an outbox event. Rejection posts nothing. All audited.
 3. **The agent takes money back** (closing, or too much prepaid): the same four-eyes flow the
    other way, refused above the balance.
-4. **Player cash at an agent's shop** (switch `players_cash_enabled` per agent, `agents.manage`):
+4. **Player cash at an agent's shop** (switch `player_cash_enabled` per agent, `agents.manage`):
    `assertPlayerCashAllowed` lets an agent shop through only when the switch is on; a deposit
    posts `agent:<id>:balance` → `user:<id>:cash` (refused above the balance: 409
    `agent_balance_low`), a cash withdrawal pays out of the player's withdrawal hold into

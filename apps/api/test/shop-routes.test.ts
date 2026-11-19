@@ -210,6 +210,21 @@ describe('/shop', () => {
     ).toBe(401);
   });
 
+  it('lets the shop origin send its CSRF header in a preflight', async () => {
+    const preflight = await ctx.app.inject({
+      method: 'OPTIONS',
+      url: '/shop/auth/logout',
+      headers: {
+        origin: 'http://shop.localhost:3002',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': `content-type, ${SHOP_CSRF_HEADER}`,
+      },
+    });
+    expect(preflight.statusCode).toBeLessThan(300);
+    expect(preflight.headers['access-control-allow-origin']).toBe('http://shop.localhost:3002');
+    expect(String(preflight.headers['access-control-allow-headers'])).toContain(SHOP_CSRF_HEADER);
+  });
+
   it('gives the shop origin, and only it, CORS on /shop', () => {
     const config = ctx.deps.config;
     expect(corsOriginsFor(config, '/shop/me')).toEqual(['http://shop.localhost:3002']);

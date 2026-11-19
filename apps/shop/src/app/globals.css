@@ -1,0 +1,304 @@
+/*
+ * The shop app: large, plain and touch-friendly, for a counter PC or a small POS screen.
+ * Light only (a bright shop, and the receipt prints black on white).
+ */
+:root {
+  --bg: #f1f4f2;
+  --panel: #ffffff;
+  --ink: #121a16;
+  --muted: #55645d;
+  --line: #cfd8d3;
+  --accent: #0b7a47;
+  --accent-ink: #ffffff;
+  --danger: #b3261e;
+  --danger-soft: #fdecea;
+  --ok-soft: #e2f2ea;
+  color-scheme: light;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Noto Sans Ethiopic',
+    sans-serif;
+  font-size: 18px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+a {
+  color: var(--accent);
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0 0 12px;
+}
+
+h2 {
+  font-size: 1.25rem;
+  margin: 0 0 12px;
+}
+
+.pad {
+  padding: 20px;
+}
+
+.narrow {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.topbar .muted {
+  color: #d5eadf;
+}
+
+.topbar nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.topbar nav a {
+  color: var(--accent-ink);
+  text-decoration: none;
+  padding: 12px 16px;
+  border-radius: 8px;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.topbar nav a[aria-current='page'] {
+  background: rgb(255 255 255 / 0.2);
+  font-weight: 700;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 0 auto 20px;
+  max-width: 900px;
+}
+
+.narrow .card {
+  max-width: none;
+}
+
+form {
+  display: grid;
+  gap: 14px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+input,
+textarea {
+  font: inherit;
+  min-height: 52px;
+  padding: 10px 14px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+input:focus,
+textarea:focus {
+  outline: 3px solid var(--accent);
+  border-color: var(--accent);
+}
+
+button {
+  font: inherit;
+  min-height: 52px;
+  padding: 10px 22px;
+  border-radius: 8px;
+  border: 2px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+.topbar button {
+  background: transparent;
+  border-color: rgb(255 255 255 / 0.6);
+  color: var(--accent-ink);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-weight: 600;
+}
+
+.notice {
+  background: var(--ok-soft);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-weight: 600;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.summary div {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.summary dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.summary dd {
+  margin: 4px 0 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+td.num,
+th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.variance-bad {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+/* Receipts print alone on thermal paper (80 or 58 mm roll). */
+@page receipt80 {
+  size: 80mm auto;
+  margin: 2mm;
+}
+
+@page receipt58 {
+  size: 58mm auto;
+  margin: 2mm;
+}
+
+.receipt-80 {
+  page: receipt80;
+  width: 76mm;
+}
+
+.receipt-58 {
+  page: receipt58;
+  width: 54mm;
+}
+
+.receipt {
+  margin: 0 auto;
+  padding: 8px;
+  background: #fff;
+  color: #000;
+  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: 13px;
+  text-align: center;
+  border: 1px dashed var(--line);
+}
+
+.receipt hr {
+  border: 0;
+  border-top: 1px dashed #000;
+  margin: 8px 0;
+}
+
+.receipt .receipt-copy {
+  border: 2px solid #000;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 2px 0;
+  margin: 6px 0;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .pad {
+    padding: 0;
+  }
+
+  .receipt {
+    border: 0;
+  }
+}

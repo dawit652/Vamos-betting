@@ -13,7 +13,7 @@ import {
   type Telemetry,
   type TrustProxySetting,
 } from '@vamos/config';
-import { STAFF_CSRF_HEADER, type HealthResponse } from '@vamos/contracts';
+import { SHOP_CSRF_HEADER, STAFF_CSRF_HEADER, type HealthResponse } from '@vamos/contracts';
 import { DomainError } from '@vamos/db';
 import Fastify, {
   LogController,
@@ -255,6 +255,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       'authorization',
       CSRF_HEADER,
       STAFF_CSRF_HEADER,
+      // The shop app's unsafe calls (docs/plans/agent-shops.md phase 1b).
+      SHOP_CSRF_HEADER,
       'x-request-id',
       IDEMPOTENCY_KEY_HEADER,
     ],
