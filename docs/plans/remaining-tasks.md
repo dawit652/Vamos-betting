@@ -6,9 +6,9 @@ branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
 receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (`dce8e5d`
-database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents` and `0065_shop_devices` run on the next deploy
+database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices` and `0066_shop_sessions` run on the next deploy
 (every existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next
-free number is **0066**. Deploy is done by the owner (`ssh -t root@<server>` +
+free number is **0067**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
@@ -20,9 +20,17 @@ free number is **0066**. Deploy is done by the owner (`ssh -t root@<server>` +
    name and phone, shops numbered `1001-01` under their agent, a phone for every new cashier, the
    Agents pages, blocking an agent; player cash at an independent agent's shop is refused until
    phase 2). **Phase 1b in progress:** shop devices, back-office side, built (an admin approves or
-   revokes a shop's computer on the agent's page; migration 0065). **Next: 1b step 3**, the shop
-   sign-in with an approved device (security-critical; the design in the plan says exactly how to
-   extend `loginStaff`), then the shop app `apps/shop` at shop.nahubet.com (the owner must add that
+   revokes a shop's computer on the agent's page; migration 0065). Step 3a, the sign-in on an
+   approved device and shop sessions, is built in `packages/db` (`loginStaff` with `channel:
+'shop'`, `requestShopDeviceWithPassword`, `authenticateStaffSession({ channel })`; commit
+   `6795a21`). **Next: step 3b**, the API's `/shop` scope: a session plugin like
+   `apps/api/src/plugins/staff-session.ts` (cookie `vamos_shop`, path `/shop`, CSRF header
+   `x-shop-csrf-token`, `authenticateStaffSession` with `channel: 'shop'`), routes `POST
+/shop/devices/request` (sets the httpOnly `vamos_device` cookie with a 32-byte random secret,
+   stores only `hashDeviceSecret`), `POST /shop/auth/login` (reads that cookie), `POST
+/shop/auth/logout`, `GET /shop/me`, a password change without a TOTP code (current password
+   on the approved device: a cashier made by an admin must change the generated password), then
+   the shop app `apps/shop` at shop.nahubet.com (the owner must add that
    DNS record) with the agent owner accounts, then phases 2 to 4
    (agent balance, selling tickets, paying tickets: the money path, Opus high effort), 5 (live
    monitor, alerts, weekly commission) and 6 (Android POS once the owner picks a model). The mr-y

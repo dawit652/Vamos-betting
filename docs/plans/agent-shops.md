@@ -221,7 +221,8 @@ password, label}`; the API sets the httpOnly cookie `vamos_device` with the secr
    Approve / Revoke (agents.manage, audited). A cashier signs in to the shop app only with an
    approved device of their own shop; every shop request re-checks the device, the shop, the agent
    and the account, so blocking or revoking takes effect at once.
-3. **Shop sessions and routes** (next; security-critical, main session on Opus). Do not write a
+3. **Shop sessions and routes.** **3a built** (`6795a21`): the sign-in and the sessions in
+   `packages/db`, as described here. **3b next**: the API's `/shop` scope and routes. Do not write a
    second sign-in: extend `loginStaff` in `packages/db/src/backoffice/staff-auth.ts` with a
    `channel` (`admin` | `shop`) and a second factor (`totp` code | `device` secret hash), so the
    address throttle, the account backoff, the audit and the re-check under the row lock
