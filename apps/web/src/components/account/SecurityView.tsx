@@ -78,7 +78,7 @@ function ChangePasswordForm({ onChanged }: { onChanged: () => void }) {
   const error = (field: PasswordField) => (fields[field] ? t(fields[field]) : undefined);
 
   return (
-    <form noValidate onSubmit={submit} className="card mx-3 space-y-3">
+    <form method="post" noValidate onSubmit={submit} className="card mx-3 space-y-3">
       <h2 className="text-sm font-bold">{t('account.security.passwordTitle')}</h2>
       <p className="text-muted">{t('account.security.passwordIntro')}</p>
       {notice ? <Alert tone={notice.tone}>{t(notice.key, notice.vars)}</Alert> : null}

@@ -33,7 +33,7 @@ export default function LoginPage() {
   return (
     <div className="card">
       <h1>{TEXT.appName}</h1>
-      <form onSubmit={(e) => void submit(e)} aria-label="Sign in">
+      <form method="post" onSubmit={(e) => void submit(e)} aria-label="Sign in">
         <label htmlFor="email">
           {TEXT.email}
           <input

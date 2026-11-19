@@ -43,7 +43,7 @@ export default function RegisterDevicePage() {
           {TEXT.registerDone}
         </p>
       ) : (
-        <form onSubmit={(e) => void submit(e)} aria-label="Register this device">
+        <form method="post" onSubmit={(e) => void submit(e)} aria-label="Register this device">
           <label htmlFor="email">
             {TEXT.email}
             <input

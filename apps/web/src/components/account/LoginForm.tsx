@@ -68,7 +68,7 @@ export function LoginForm({ next, passwordChanged }: { next: string; passwordCha
   };
 
   return (
-    <form noValidate onSubmit={submit} className="card mx-3 space-y-3">
+    <form method="post" noValidate onSubmit={submit} className="card mx-3 space-y-3">
       {passwordChanged ? <Alert tone="success">{t('account.login.passwordChanged')}</Alert> : null}
       {formError ? <Alert>{t(formError)}</Alert> : null}
       {resetRequired ? (

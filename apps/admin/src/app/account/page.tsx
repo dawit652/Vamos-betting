@@ -82,7 +82,13 @@ function PasswordForm() {
   }
 
   return (
-    <form onSubmit={submit} className="card" autoComplete="off" aria-label="Change password">
+    <form
+      method="post"
+      onSubmit={submit}
+      className="card"
+      autoComplete="off"
+      aria-label="Change password"
+    >
       <h2>Change password</h2>
       <p className="muted small">Your other sessions are signed out.</p>
       <Field label="Current password">
@@ -190,7 +196,7 @@ function AuthenticatorForm() {
     <section className="card" aria-label="Authenticator app">
       <h2>Authenticator app</h2>
       {enrolment === null ? (
-        <form onSubmit={start} autoComplete="off">
+        <form method="post" onSubmit={start} autoComplete="off">
           <p className="muted small">
             Move sign-in to a new secret only you hold. The current one keeps working until you
             confirm the new one.
@@ -218,7 +224,7 @@ function AuthenticatorForm() {
           </button>
         </form>
       ) : (
-        <form onSubmit={confirm} autoComplete="off">
+        <form method="post" onSubmit={confirm} autoComplete="off">
           <p>
             Add this secret to your authenticator app (type it in, or open the link on the phone),
             then enter the code it shows. It expires in 10 minutes.
@@ -355,7 +361,7 @@ function SessionsCard() {
         </p>
       )}
       {target !== undefined && (
-        <form onSubmit={submit} autoComplete="off" aria-label="Confirm sign-out">
+        <form method="post" onSubmit={submit} autoComplete="off" aria-label="Confirm sign-out">
           <p className="small">
             {target === null ? 'Sign out every other session.' : 'Sign out the chosen session.'}{' '}
             Confirm with your password and a code.

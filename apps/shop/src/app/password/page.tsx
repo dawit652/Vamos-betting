@@ -55,7 +55,7 @@ export default function PasswordPage() {
       <p className={session?.staff.passwordChangeRequired === true ? 'notice' : 'muted'}>
         {session?.staff.passwordChangeRequired === true ? TEXT.passwordForced : TEXT.passwordHint}
       </p>
-      <form onSubmit={(e) => void submit(e)} aria-label="Change password">
+      <form method="post" onSubmit={(e) => void submit(e)} aria-label="Change password">
         <label htmlFor="current">
           {TEXT.currentPassword}
           <input

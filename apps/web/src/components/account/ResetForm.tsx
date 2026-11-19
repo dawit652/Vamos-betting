@@ -80,7 +80,7 @@ export function ResetForm() {
   const error = (field: ResetField) => (fields[field] ? t(fields[field]) : undefined);
 
   return (
-    <form noValidate onSubmit={submit} className="card mx-3 space-y-3">
+    <form method="post" noValidate onSubmit={submit} className="card mx-3 space-y-3">
       <p className="text-muted">{t('account.reset.intro')}</p>
       <DemoOtpHint phone={normalizePhone(phone)} />
       {formError ? <Alert>{t(formError)}</Alert> : null}
