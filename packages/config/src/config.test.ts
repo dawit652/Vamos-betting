@@ -824,6 +824,16 @@ describe('the SMS deposit rail', () => {
     ]);
   });
 
+  it('never gives licensed mode the demo collection accounts, even on the simulated rail', () => {
+    const config = loadConfig({
+      ...LICENSED_ENV,
+      PAYMENT_PROVIDERS: 'sms',
+      SMS_RAIL_MODE: 'simulated',
+    });
+    expect(config.mode).toBe('licensed');
+    expect(config.payments.sms.collectionAccounts).toEqual([]);
+  });
+
   it('refuses the live rail and real collection accounts in demo mode', () => {
     expect(problemsOf({ PAYMENT_PROVIDERS: 'sms', SMS_RAIL_MODE: 'live' }).join('\n')).toMatch(
       /demo mode only allows the "mock" payment provider and the simulated SMS rail \(got: sms\)/,

@@ -37,6 +37,12 @@ The collection accounts players send money to are managed in the back office: **
 once, at the first start after migration 0069; after that the list in the back office is what counts, and
 changing the environment variable later changes nothing: edit the list instead.
 
+- **As many accounts as you need**, at any bank or wallet the rail can read, several at one institution
+  too: there is no limit. Each has its own space of exact amounts, and a new deposit goes to the emptiest
+  account of the institution the player picks.
+- **Licensed mode** (the server): real money. The demo accounts of the simulated rail are never shown to
+  players or stored in a licensed database; with no account open, SMS deposits pause and the API logs a
+  warning at start.
 - **Add** (admin, `settings.edit`): pick the bank or wallet (only those the rail has an SMS parser for), type
   the number (spaces and dashes are dropped) and the holder name. In licensed mode the holder name must be
   `OPERATOR_LEGAL_NAME` (spelling, case and punctuation aside): personal accounts are refused.

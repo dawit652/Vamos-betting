@@ -56,6 +56,8 @@ export const CollectionAccountListResponse = z.object({
   requiredName: z.string().nullable(),
   /** Whether the SMS rail runs (PAYMENT_PROVIDERS has sms): without it players see none. */
   railEnabled: z.boolean(),
+  /** licensed: real money, the accounts are the company's; demo: play money. */
+  operatingMode: z.enum(['demo', 'licensed']),
 });
 export type CollectionAccountListResponse = z.infer<typeof CollectionAccountListResponse>;
 

@@ -847,26 +847,24 @@ export function defaultCollectionAccountId(institution: string, account: string)
   return `${institution}:${account}`;
 }
 
-const COLLECTION_ACCOUNTS_SCHEMA = z
-  .array(
-    z.object({
-      id: z
-        .string()
-        .trim()
-        .regex(/^[A-Za-z0-9:_+.-]{1,64}$/, 'an id of letters, digits and : _ + . -')
-        .optional(),
-      institution: z
-        .string()
-        .regex(/^[a-z]{2,20}$/, 'an institution id such as "telebirr" or "cbe"'),
-      account: z
-        .string()
-        .trim()
-        .regex(/^\+?[0-9A-Za-z -]{5,30}$/, 'a phone or account number'),
-      name: z.string().trim().min(2).max(120),
-      hint: z.string().trim().max(120).optional(),
-    }),
-  )
-  .max(10);
+// No cap on the number: the back office takes as many accounts as the operator has, and this
+// only fills it once.
+const COLLECTION_ACCOUNTS_SCHEMA = z.array(
+  z.object({
+    id: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9:_+.-]{1,64}$/, 'an id of letters, digits and : _ + . -')
+      .optional(),
+    institution: z.string().regex(/^[a-z]{2,20}$/, 'an institution id such as "telebirr" or "cbe"'),
+    account: z
+      .string()
+      .trim()
+      .regex(/^\+?[0-9A-Za-z -]{5,30}$/, 'a phone or account number'),
+    name: z.string().trim().min(2).max(120),
+    hint: z.string().trim().max(120).optional(),
+  }),
+);
 
 /** Parses SMS_COLLECTION_ACCOUNTS (JSON); a ConfigError for anything else. */
 function parseCollectionAccounts(raw: string | undefined): CollectionAccount[] {
@@ -1020,9 +1018,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         mode: e.SMS_RAIL_MODE,
         gatewaySecret: e.SMS_GATEWAY_SECRET,
         gatewayAllowlist: e.SMS_GATEWAY_ALLOWLIST,
-        // Demo accounts only for the simulated rail: the live rail never shows them to players.
+        // Demo accounts only for the simulated rail in demo mode: neither the live rail nor
+        // licensed mode ever shows them to players (licensed: the back office's accounts only).
         collectionAccounts:
-          e.SMS_RAIL_MODE === 'simulated' && e.SMS_COLLECTION_ACCOUNTS === undefined
+          e.OPERATING_MODE === 'demo' &&
+          e.SMS_RAIL_MODE === 'simulated' &&
+          e.SMS_COLLECTION_ACCOUNTS === undefined
             ? DEMO_COLLECTION_ACCOUNTS.map((a) => ({ ...a }))
             : parseCollectionAccounts(e.SMS_COLLECTION_ACCOUNTS),
         operatorLegalName: e.OPERATOR_LEGAL_NAME,

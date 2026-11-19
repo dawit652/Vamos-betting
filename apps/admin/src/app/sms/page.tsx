@@ -6,6 +6,7 @@ import type {
   StaffSmsListResponse,
   StaffSmsView,
 } from '@vamos/contracts';
+import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
 import { useSession } from '@/components/session';
@@ -239,7 +240,9 @@ export default function SmsPage() {
   });
   return (
     <>
-      <PageHeader title="SMS rail" />
+      <PageHeader title="SMS rail">
+        <Link href="/collection-accounts">Deposit accounts</Link>
+      </PageHeader>
       <Health />
       <DefList
         rows={[

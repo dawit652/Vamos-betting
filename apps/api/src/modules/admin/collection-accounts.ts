@@ -87,6 +87,7 @@ export default async function adminCollectionAccountRoutes(app: FastifyInstance)
       institutions: INSTITUTIONS.map((spec) => ({ id: spec.id, name: spec.name, kind: spec.kind })),
       requiredName: requiredHolderName(deps),
       railEnabled: smsProviderOf(deps) !== null,
+      operatingMode: deps.config.mode,
     });
   });
 

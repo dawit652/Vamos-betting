@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { DEMO_COLLECTION_ACCOUNTS } from '@vamos/config';
 import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DomainError } from '../src/errors';
@@ -13,7 +14,7 @@ import {
   requestCollectionAccount,
   seedCollectionAccounts,
 } from '../src/payments/index';
-import { OWNER_ALERT } from '../src/platform/index';
+import { claimOperatingMode, OWNER_ALERT } from '../src/platform/index';
 import { adminUsers, auditLog, collectionAccounts, outboxEvents } from '../src/schema/index';
 import { createTestDatabase } from '../src/testing';
 import { dropTestDatabase } from './helpers';
@@ -279,6 +280,57 @@ describe('collection accounts', () => {
     const withdrawn = await request({ institution: 'telebirr', account: '0911000556' });
     await remove(withdrawn.id);
     expect(ids((await rail()).known)).not.toContain('telebirr:0911000556');
+  });
+
+  it('takes as many accounts as the admin adds, at one bank or many', async () => {
+    const numbers = Array.from({ length: 25 }, (_, i) => `0133${String(i).padStart(7, '0')}`);
+    for (const [i, number] of numbers.entries()) {
+      const added = await request({
+        institution: i % 2 === 0 ? 'awash' : 'abyssinia',
+        account: number,
+      });
+      await decide(added.id, 'approve');
+    }
+    const active = ids((await rail()).active);
+    for (const [i, number] of numbers.entries()) {
+      expect(active).toContain(`${i % 2 === 0 ? 'awash' : 'abyssinia'}:${number}`);
+    }
+  });
+
+  it('a licensed database never takes the demo accounts', async () => {
+    const licensed = await createTestDatabase();
+    try {
+      await claimOperatingMode(licensed.db, 'licensed');
+      const real = {
+        id: 'cbe:1000999988887',
+        institution: 'cbe',
+        account: '1000999988887',
+        name: 'Op',
+      };
+      expect(
+        await licensed.db.transaction((tx) =>
+          seedCollectionAccounts(tx, [...DEMO_COLLECTION_ACCOUNTS, real], NOW),
+        ),
+      ).toBe(1);
+      expect(ids((await loadRailAccounts(licensed.db, NOW)).active)).toEqual([real.id]);
+      const typed = await refusal(
+        licensed.db.transaction((tx) =>
+          requestCollectionAccount(tx, {
+            institution: 'telebirr',
+            account: '0900000000',
+            name: 'Op',
+            legalName: null,
+            adminId: admin,
+            now: NOW,
+            ownerAlerts: NO_ALERTS,
+          }),
+        ),
+      ).catch(() => null);
+      // The admin row lives in the other database: the refusal comes before any insert.
+      expect(typed).toEqual({ status: 400, code: 'collection_account_demo' });
+    } finally {
+      await dropTestDatabase(licensed);
+    }
   });
 
   it('the database keeps four eyes even past the service', async () => {

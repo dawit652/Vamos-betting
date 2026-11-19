@@ -23,6 +23,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/cashier/shifts', label: 'Cash shifts', permission: 'cashier.reports' },
   { href: '/agents', label: 'Agents', permission: 'agents.view' },
   { href: '/sms', label: 'SMS rail', permission: 'sms.review' },
+  { href: '/collection-accounts', label: 'Deposit accounts', permission: 'sms.review' },
   { href: '/jackpots', label: 'Jackpots', permission: 'jackpots.view' },
   { href: '/compliance/reconciliation', label: 'Reconciliation', permission: 'reports.view' },
   { href: '/compliance/aml', label: 'AML flags', permission: 'aml.review' },

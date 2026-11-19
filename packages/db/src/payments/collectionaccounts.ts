@@ -1,4 +1,9 @@
-import { normalizeLegalName, type CollectionAccount, type OwnerAlertTargets } from '@vamos/config';
+import {
+  DEMO_COLLECTION_ACCOUNTS,
+  normalizeLegalName,
+  type CollectionAccount,
+  type OwnerAlertTargets,
+} from '@vamos/config';
 import { institutionById } from '@vamos/core';
 import { and, desc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
@@ -7,6 +12,7 @@ import type { Database } from '../client';
 import { domainBadRequest, domainConflict, domainNotFound } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
+import { getDatabaseOperatingMode } from '../platform/operating-mode';
 import { enqueueOwnerAlert } from '../platform/owner-alerts';
 import { adminUsers } from '../schema/accounts';
 import { collectionAccounts } from '../schema/smsrail';
@@ -126,11 +132,16 @@ const closed = (row: CollectionAccountRecord) =>
     status: row.status,
   });
 
+const isDemoAccount = (account: CollectionAccount) =>
+  DEMO_COLLECTION_ACCOUNTS.some(
+    (demo) => demo.institution === account.institution && demo.account === account.account,
+  );
+
 /**
  * Fills an empty table with the configured accounts (SMS_COLLECTION_ACCOUNTS, or the demo ones of
- * the simulated rail), as active accounts nobody added. Once the table has any row, even a deleted
- * one, it does nothing. Concurrent starts wait on one lock, so the accounts go in once. Returns
- * how many went in.
+ * the simulated rail in demo mode), as active accounts nobody added. A licensed database never
+ * takes the demo accounts. Once the table has any row, even a deleted one, it does nothing.
+ * Concurrent starts wait on one lock, so the accounts go in once. Returns how many went in.
  */
 export async function seedCollectionAccounts(
   tx: DbTransaction,
@@ -144,9 +155,11 @@ export async function seedCollectionAccounts(
     .from(collectionAccounts)
     .limit(1);
   if (existing) return 0;
+  const licensed = (await getDatabaseOperatingMode(tx)) === 'licensed';
   const added: string[] = [];
   for (const [index, account] of accounts.entries()) {
     if (institutionById(account.institution) === null) continue;
+    if (licensed && isDemoAccount(account)) continue;
     const rows = await tx
       .insert(collectionAccounts)
       .values({
@@ -278,7 +291,7 @@ interface ChangeContext {
 /**
  * Adds an account waiting for a second person's approval. The institution must have an SMS parser
  * (400 `unknown_institution`); the number is stored without spaces or dashes (400
- * `collection_account_number`); with `legalName` (licensed, live rail) the holder name must be it
+ * `collection_account_number`); with `legalName` (licensed mode) the holder name must be it
  * (400 `collection_account_not_operator`). One live row per account: 409
  * `collection_account_exists`.
  */
@@ -289,7 +302,7 @@ export async function requestCollectionAccount(
     account: string;
     name: string;
     hint?: string | null;
-    /** OPERATOR_LEGAL_NAME when the holder name must be it (licensed, live rail); else null. */
+    /** OPERATOR_LEGAL_NAME when the holder name must be it (licensed mode); else null. */
     legalName: string | null;
   },
 ): Promise<CollectionAccountRecord> {
@@ -301,6 +314,12 @@ export async function requestCollectionAccount(
       'collection_account_number',
       'The account number has 5 to 30 letters or digits (a leading + is allowed).',
     );
+  }
+  if (
+    isDemoAccount({ id: '', institution, account, name: '' }) &&
+    (await getDatabaseOperatingMode(tx)) === 'licensed'
+  ) {
+    throw domainBadRequest('collection_account_demo', 'This is a demo account number.');
   }
   const name = checkName(input.name, input.legalName);
   const hint = checkHint(input.hint);

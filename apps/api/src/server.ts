@@ -85,6 +85,11 @@ async function main(): Promise<void> {
         'could not load the collection accounts: SMS_COLLECTION_ACCOUNTS is used until the next try',
       );
     }
+    if (config.mode === 'licensed' && rail.collectionAccounts.length === 0) {
+      app.log.warn(
+        'licensed mode: no collection account is open, so SMS deposits are paused (add one on the Deposit accounts page)',
+      );
+    }
     const timer = setInterval(() => {
       sync().catch((error: unknown) =>
         app.log.warn({ err: error }, 'collection accounts: reload failed'),

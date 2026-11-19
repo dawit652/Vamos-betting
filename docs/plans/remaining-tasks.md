@@ -13,6 +13,17 @@ free number is **0070**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
+**Also built 19 Nov, not deployed: Deposit accounts** (owner's request: admins add, edit and delete
+the bank and wallet accounts players deposit to, as many as they need): migration
+`0069_collection_accounts`, `packages/db/src/payments/collectionaccounts.ts`, routes
+`/admin/collection-accounts`, page `/collection-accounts`; runbook `docs/runbooks/sms-rail.md`
+"Deposit accounts". A new account needs a second person's approval before players see it; numbers
+never change; deleting keeps crediting money already sent for 7 days; the owner is texted on each
+change. The first start after the deploy fills the list from `SMS_COLLECTION_ACCOUNTS`; after that
+the page is the list. The server stays in **licensed mode** (owner's rule, 19 Nov): licensed mode
+never shows or stores the demo accounts. Also: every password form (back office, shop app, player
+site) posts instead of putting the password in the URL when its script has not loaded yet.
+
 ## Next, in order
 
 0. **Agent shops** (owner's interview and "build it", 19 Nov 2026). The plan, the owner's
@@ -49,13 +60,6 @@ free number is **0070**. Deploy is done by the owner (`ssh -t root@<server>` +
      rate, agent licensing with the regulator.
    - The mr-y request (Narobet game links) was declined on 19 Nov: it runs on the owner's own
      Narobet account and bypasses the ledger.
-     0b. **Deposit accounts in the back office** (owner's request 19 Nov: admins add, edit and delete
-     the bank and wallet accounts players deposit to): built (migration `0069_collection_accounts`,
-     `packages/db/src/payments/collectionaccounts.ts`, routes `/admin/collection-accounts`, page
-     `/collection-accounts`; runbook `docs/runbooks/sms-rail.md` "Deposit accounts"). A new account
-     needs a second person's approval before players see it; numbers never change; deleting keeps
-     crediting money already sent for 7 days; the owner is texted on each change. The first start
-     after the deploy fills the list from `SMS_COLLECTION_ACCOUNTS`; after that the page is the list.
 1. **After the owner deploys the next build, check on live** (read-only queries, the owner runs
    them; `80c8a73` was deployed and checked on 18 Nov: 67 migrations, the team-logos task
    registered): migration 0064 applied (`SELECT number, name FROM agents` shows 1000 Nahubet HQ);

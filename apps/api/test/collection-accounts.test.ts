@@ -64,7 +64,7 @@ describe('collection accounts in the back office', () => {
       'telebirr:0900000000',
     ]);
     expect(body.accounts.every((a) => a.status === 'active' && a.createdBy === null)).toBe(true);
-    expect(body).toMatchObject({ requiredName: null, railEnabled: true });
+    expect(body).toMatchObject({ requiredName: null, railEnabled: true, operatingMode: 'demo' });
     expect(body.institutions.map((i) => i.id)).toContain('awash');
     expect((await asStaff(ctx, support, 'GET', '/admin/collection-accounts')).statusCode).toBe(403);
   });
