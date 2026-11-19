@@ -463,6 +463,13 @@
       "when": 1795108797862,
       "tag": "0065_shop_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1795109140073,
+      "tag": "0066_shop_sessions",
+      "breakpoints": true
     }
   ]
 }

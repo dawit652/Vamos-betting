@@ -270,3 +270,31 @@ export async function touchShopDevice(
       ),
     );
 }
+
+/**
+ * Whether a shop session's device still works: approved, at the shop the cashier is assigned to,
+ * that shop open and its agent not blocked. Checked on every shop request.
+ */
+export async function isShopDeviceUsable(
+  exec: DbExecutor,
+  input: { staffId: string; deviceId: string },
+): Promise<boolean> {
+  const shopId = await getStaffShop(exec, input.staffId);
+  if (shopId === null) return false;
+  const [row] = await exec
+    .select({ id: shopDevices.id })
+    .from(shopDevices)
+    .innerJoin(cashierShops, eq(cashierShops.id, shopDevices.shopId))
+    .innerJoin(agents, eq(agents.id, cashierShops.agentId))
+    .where(
+      and(
+        eq(shopDevices.id, input.deviceId),
+        eq(shopDevices.shopId, shopId),
+        eq(shopDevices.status, 'approved'),
+        eq(cashierShops.active, true),
+        eq(agents.status, 'active'),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}

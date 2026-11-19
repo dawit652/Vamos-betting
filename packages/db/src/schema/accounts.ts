@@ -301,6 +301,18 @@ export const adminSessions = pgTable(
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /**
+     * Where the session works: `admin` (the back office, signed in with a TOTP code) or `shop` (the
+     * shop app, signed in on an approved shop device; docs/plans/agent-shops.md phase 1b). A session
+     * never works on the other side.
+     */
+    channel: text('channel').notNull().default('admin'),
+    /** The approved shop device a `shop` session was opened on (shop_devices.id). */
+    deviceId: uuid('device_id'),
   },
-  (t) => [index('admin_sessions_user_idx').on(t.adminUserId)],
+  (t) => [
+    index('admin_sessions_user_idx').on(t.adminUserId),
+    check('admin_sessions_channel', sql`${t.channel} IN ('admin', 'shop')`),
+    check('admin_sessions_shop_device', sql`(${t.channel} = 'shop') = (${t.deviceId} IS NOT NULL)`),
+  ],
 );

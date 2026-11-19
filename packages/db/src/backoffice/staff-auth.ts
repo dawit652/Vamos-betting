@@ -14,6 +14,13 @@ import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { adminLoginThrottles, adminSessions, adminUsers } from '../schema/accounts';
 import { adminRole } from '../schema/enums';
+import { getShop } from '../cashier/desk';
+import {
+  findApprovedStaffDevice,
+  isShopDeviceUsable,
+  requestShopDevice,
+  type ShopDevice,
+} from '../retail/devices';
 import { decryptTotpSecret, encryptTotpSecret, TotpSecretError } from './secret-box';
 import { base32Encode, TOTP_SECRET_BYTES, totpUri, verifyTotp } from './totp';
 
@@ -154,7 +161,14 @@ export interface StaffPrincipal {
   expiresAt: Date;
   /** When the session ends without further requests. */
   idleExpiresAt: Date;
+  /** `admin` (back office) or `shop` (the shop app, on an approved device). */
+  channel?: StaffSessionChannel;
+  /** The approved shop device of a `shop` session. */
+  deviceId?: string | null;
 }
+
+/** Where a staff session works (docs/plans/agent-shops.md phase 1b): never on the other side. */
+export type StaffSessionChannel = 'admin' | 'shop';
 
 export interface IssuedStaffSession {
   id: string;
@@ -176,12 +190,19 @@ export interface TotpEnrolment {
 export interface StaffLoginInput {
   email: string;
   password: string;
-  /** The 6-digit TOTP code. */
+  /** The 6-digit TOTP code (the back office; ignored by the shop app). */
   code: string;
   ip?: string | null;
   /** The client address the per-address lockout counts by (default: `ip`). */
   clientKey?: string | null;
   userAgent?: string | null;
+  /**
+   * `shop`: the shop app, where an approved device of the cashier's own shop
+   * (`deviceSecretHash`, hashDeviceSecret of its cookie) is the second factor instead of the
+   * TOTP code. Default `admin`.
+   */
+  channel?: StaffSessionChannel;
+  deviceSecretHash?: string | null;
 }
 
 export interface StaffLoginResult {
@@ -828,19 +849,36 @@ type LoginFailureReason =
   | 'totp_not_enrolled'
   | 'totp_unreadable'
   | 'totp_invalid'
-  | 'totp_replay';
+  | 'totp_replay'
+  /** The shop app: no approved device of the cashier's own shop behind the cookie. */
+  | 'device_unknown'
+  /** The shop app: the device's shop is closed or its agent blocked. */
+  | 'shop_closed'
+  /** The shop app is for cashiers only. */
+  | 'channel_role';
 
 /** Reasons that count toward the lockout. */
 const COUNTED_FAILURES: ReadonlySet<LoginFailureReason> = new Set([
   'password',
   'totp_invalid',
   'totp_replay',
+  'device_unknown',
 ]);
 
 type AdminUserRow = typeof adminUsers.$inferSelect;
 type ThrottleRow = typeof adminLoginThrottles.$inferSelect;
 
-type FactorCheck = { ok: true; step: number } | { ok: false; reason: LoginFailureReason };
+/**
+ * The accepted second factor: a TOTP step (`step`), or an approved shop device (`deviceId`, the
+ * shop app), or neither for a password-only check (a shop device asking to be registered).
+ */
+type FactorCheck =
+  | { ok: true; step: number | null; deviceId: string | null }
+  | { ok: false; reason: LoginFailureReason };
+
+/** What proves the attempt besides the password. */
+type StaffFactor =
+  { kind: 'totp'; code: string } | { kind: 'device'; secretHash: string } | { kind: 'password' };
 
 const isFuture = (date: Date | null | undefined, now: Date): boolean =>
   date !== null && date !== undefined && date.getTime() > now.getTime();
@@ -896,7 +934,7 @@ async function verifyAttempt(
   user: AdminUserRow,
   clientKey: string,
   password: string,
-  code: string,
+  factor: StaffFactor,
   now: Date,
 ): Promise<FactorCheck> {
   const throttle = await readThrottle(deps.db, user.id, clientKey);
@@ -917,6 +955,22 @@ async function verifyAttempt(
   ) {
     return { ok: false, reason: 'password_expired' };
   }
+  if (factor.kind !== 'totp') {
+    // The shop app (docs/plans/agent-shops.md phase 1b): cashiers only; the second factor is an
+    // approved device of the cashier's own shop, whose shop works.
+    if (user.role !== 'cashier') return { ok: false, reason: 'channel_role' };
+    if (factor.kind === 'password') return { ok: true, step: null, deviceId: null };
+    const device = /^[0-9a-f]{64}$/.test(factor.secretHash)
+      ? await findApprovedStaffDevice(deps.db, { staffId: user.id, secretHash: factor.secretHash })
+      : null;
+    if (device === null) return { ok: false, reason: 'device_unknown' };
+    const shop = await getShop(deps.db, device.shopId);
+    if (shop === null || !shop.active || shop.agentStatus === 'blocked') {
+      return { ok: false, reason: 'shop_closed' };
+    }
+    return { ok: true, step: null, deviceId: device.id };
+  }
+  const code = factor.code;
   if (user.totpSecretEnc === null) return { ok: false, reason: 'totp_not_enrolled' };
   let secret: Buffer;
   try {
@@ -930,7 +984,7 @@ async function verifyAttempt(
     const replay = verifyTotp(secret, code, now.getTime()) !== null;
     return { ok: false, reason: replay ? 'totp_replay' : 'totp_invalid' };
   }
-  return { ok: true, step };
+  return { ok: true, step, deviceId: null };
 }
 
 /**
@@ -953,7 +1007,9 @@ function recheckAttempt(
   if (isFuture(throttle?.lockedUntil, now)) return 'locked';
   if (backoffRefuses(row, throttle, now)) return 'account_backoff';
   if (!check.ok) return check.reason;
-  if (row.totpLastStep !== null && check.step <= row.totpLastStep) return 'totp_replay';
+  if (check.step !== null && row.totpLastStep !== null && check.step <= row.totpLastStep) {
+    return 'totp_replay';
+  }
   return null;
 }
 
@@ -974,7 +1030,12 @@ async function commitAttempt<T>(
     /** Where the attempt came from, when not the sign-in form (audit metadata). */
     context?: string;
   },
-  onSuccess: (tx: DbTransaction, row: AdminUserRow, step: number) => Promise<T>,
+  onSuccess: (
+    tx: DbTransaction,
+    row: AdminUserRow,
+    step: number | null,
+    deviceId: string | null,
+  ) => Promise<T>,
 ): Promise<{ ok: true; value: T } | { ok: false }> {
   const { before, check, clientKey, now, ip } = attempt;
   return deps.db.transaction(async (tx): Promise<{ ok: true; value: T } | { ok: false }> => {
@@ -1007,7 +1068,7 @@ async function commitAttempt<T>(
           eq(adminLoginThrottles.clientKey, clientKey),
         ),
       );
-    return { ok: true, value: await onSuccess(tx, row, check.step) };
+    return { ok: true, value: await onSuccess(tx, row, check.step, check.deviceId) };
   });
 }
 
@@ -1049,7 +1110,12 @@ export async function loginStaff(
     );
     throw staffInvalidCredentialsError();
   }
-  const check = await verifyAttempt(deps, user, clientKey, password, code, now);
+  const channel: StaffSessionChannel = input.channel === 'shop' ? 'shop' : 'admin';
+  const factor: StaffFactor =
+    channel === 'shop'
+      ? { kind: 'device', secretHash: input.deviceSecretHash ?? '' }
+      : { kind: 'totp', code };
+  const check = await verifyAttempt(deps, user, clientKey, password, factor, now);
   // A hash made before the pepper was set is replaced on this successful sign-in (hashed here,
   // outside the transaction; commitAttempt makes sure the stored hash did not change meanwhile).
   const rehashed =
@@ -1059,7 +1125,14 @@ export async function loginStaff(
   const outcome = await commitAttempt(
     deps,
     { before: user, check, clientKey, now, ip },
-    async (tx, row, step): Promise<StaffLoginResult> => {
+    async (tx, row, step, deviceId): Promise<StaffLoginResult> => {
+      // A device revoked (or its shop closed) while this attempt was checked opens nothing.
+      if (
+        channel === 'shop' &&
+        (deviceId === null || !(await isShopDeviceUsable(tx, { staffId: row.id, deviceId })))
+      ) {
+        throw staffInvalidCredentialsError();
+      }
       // A password that no longer meets the rules (a common one, ASVS 2.1.7) must be
       // replaced before anything but the session and self-service routes.
       const weakPassword = staffPasswordWeakness(password, row.email) !== null;
@@ -1069,7 +1142,7 @@ export async function loginStaff(
         .set({
           failedLoginAttempts: 0,
           lockedUntil: null,
-          totpLastStep: step,
+          ...(step === null ? {} : { totpLastStep: step }),
           lastLoginAt: now,
           passwordChangeRequired,
           ...(rehashed === null ? {} : { passwordHash: rehashed }),
@@ -1081,6 +1154,8 @@ export async function loginStaff(
         now,
         ip,
         userAgent: input.userAgent ?? null,
+        channel,
+        deviceId: channel === 'shop' ? deviceId : null,
       });
       await writeAudit(tx, {
         actorType: 'admin',
@@ -1088,7 +1163,11 @@ export async function loginStaff(
         action: 'staff.login',
         targetType: 'admin_user',
         targetId: row.id,
-        metadata: { sessionId: session.id, ...(weakPassword ? { weakPassword: true } : {}) },
+        metadata: {
+          sessionId: session.id,
+          ...(channel === 'shop' ? { channel, deviceId } : {}),
+          ...(weakPassword ? { weakPassword: true } : {}),
+        },
         ip,
       });
       return {
@@ -1103,8 +1182,79 @@ export async function loginStaff(
           csrfToken: session.csrfToken,
           expiresAt: session.expiresAt,
           idleExpiresAt: session.idleExpiresAt,
+          channel,
+          deviceId: channel === 'shop' ? deviceId : null,
         },
       };
+    },
+  );
+  if (!outcome.ok) throw staffInvalidCredentialsError();
+  return outcome.value;
+}
+
+/**
+ * The shop app (docs/plans/agent-shops.md phase 1b): a cashier's device asks to be registered at
+ * the cashier's shop. The email and password are checked like a sign-in (the same address
+ * lockout, account backoff and audit, `context: shop_device`; cashiers only) and then
+ * requestShopDevice runs in the same transaction; no session is opened. 401
+ * `invalid_credentials` for any sign-in failure; requestShopDevice's refusals (409, 422) pass
+ * through.
+ */
+export async function requestShopDeviceWithPassword(
+  deps: StaffAuthDeps,
+  input: {
+    email: string;
+    password: string;
+    label: string;
+    secretHash: string;
+    userAgent?: string | null;
+    ip?: string | null;
+    clientKey?: string | null;
+  },
+): Promise<ShopDevice> {
+  const email = typeof input.email === 'string' ? normalizeStaffEmail(input.email) : '';
+  const password = typeof input.password === 'string' ? input.password : '';
+  const ip = input.ip ?? null;
+  const clientKey = clientKeyOf(input);
+  const now = deps.clock();
+  const context = 'shop_device';
+  const [user] =
+    email.length === 0 || email.length > STAFF_EMAIL_MAX_LENGTH
+      ? []
+      : await deps.db.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
+  if (user === undefined) {
+    await dummyVerify(deps.passwords, password);
+    await deps.db.transaction((tx) =>
+      recordLoginFailure(tx, {
+        user: undefined,
+        throttle: undefined,
+        clientKey,
+        email,
+        reason: 'unknown_email',
+        now,
+        ip,
+        context,
+      }),
+    );
+    throw staffInvalidCredentialsError();
+  }
+  const check = await verifyAttempt(deps, user, clientKey, password, { kind: 'password' }, now);
+  const outcome = await commitAttempt(
+    deps,
+    { before: user, check, clientKey, now, ip, context },
+    async (tx, row) => {
+      await tx
+        .update(adminUsers)
+        .set({ failedLoginAttempts: 0, lockedUntil: null, updatedAt: now })
+        .where(eq(adminUsers.id, row.id));
+      return requestShopDevice(tx, {
+        staffId: row.id,
+        label: input.label,
+        secretHash: input.secretHash,
+        userAgent: input.userAgent ?? '',
+        now,
+        ip,
+      });
     },
   );
   if (!outcome.ok) throw staffInvalidCredentialsError();
@@ -1240,7 +1390,7 @@ export async function changeOwnStaffPassword(
     user,
     clientKey,
     input.currentPassword,
-    input.code.trim(),
+    { kind: 'totp', code: input.code.trim() },
     now,
   );
   const passwordHash = check.ok ? await deps.passwords.hash(input.newPassword) : null;
@@ -1254,7 +1404,7 @@ export async function changeOwnStaffPassword(
           passwordHash: passwordHash ?? row.passwordHash,
           passwordChangeRequired: false,
           passwordExpiresAt: null,
-          totpLastStep: step,
+          ...(step === null ? {} : { totpLastStep: step }),
           failedLoginAttempts: 0,
           lockedUntil: null,
           updatedAt: now,
@@ -1294,7 +1444,14 @@ export async function startOwnStaffTotpEnrolment(
   const now = deps.clock();
   const clientKey = clientKeyOf(input);
   const ip = input.ip ?? null;
-  const check = await verifyAttempt(deps, user, clientKey, input.password, input.code.trim(), now);
+  const check = await verifyAttempt(
+    deps,
+    user,
+    clientKey,
+    input.password,
+    { kind: 'totp', code: input.code.trim() },
+    now,
+  );
   const { stored, enrolment } = newEnrolment(deps, user.id, user.email);
   const outcome = await commitAttempt(
     deps,
@@ -1305,7 +1462,7 @@ export async function startOwnStaffTotpEnrolment(
         .set({
           totpPendingSecretEnc: stored,
           totpPendingAt: now,
-          totpLastStep: step,
+          ...(step === null ? {} : { totpLastStep: step }),
           failedLoginAttempts: 0,
           lockedUntil: null,
           updatedAt: now,
@@ -1405,8 +1562,20 @@ export async function confirmOwnStaffTotpEnrolment(
 export async function createStaffSession(
   tx: DbTransaction,
   deps: Pick<StaffAuthDeps, 'randomBytes'>,
-  input: { adminUserId: string; now: Date; ip?: string | null; userAgent?: string | null },
+  input: {
+    adminUserId: string;
+    now: Date;
+    ip?: string | null;
+    userAgent?: string | null;
+    /** Default `admin`; a `shop` session carries its approved device. */
+    channel?: StaffSessionChannel;
+    deviceId?: string | null;
+  },
 ): Promise<IssuedStaffSession> {
+  const channel = input.channel ?? 'admin';
+  if ((channel === 'shop') !== (typeof input.deviceId === 'string')) {
+    throw new Error('a shop session needs its device, an admin session has none');
+  }
   const token = deps.randomBytes(32).toString('base64url');
   if (!TOKEN_RE.test(token)) throw new RangeError('randomBytes returned too few bytes');
   const csrfToken = staffCsrfTokenFor(token);
@@ -1424,6 +1593,8 @@ export async function createStaffSession(
       createdAt: now,
       lastSeenAt: now,
       expiresAt,
+      channel,
+      deviceId: channel === 'shop' ? (input.deviceId ?? null) : null,
     })
     .returning({ id: adminSessions.id });
   if (row === undefined) throw new Error('admin_sessions insert returned no row');
@@ -1451,8 +1622,19 @@ export type StaffSessionCheck =
  */
 export async function authenticateStaffSession(
   deps: Pick<StaffAuthDeps, 'db' | 'clock'>,
-  input: { token: string | null | undefined; csrfToken?: string | null; checkCsrf: boolean },
+  input: {
+    token: string | null | undefined;
+    csrfToken?: string | null;
+    checkCsrf: boolean;
+    /**
+     * The side asking (default `admin`): a session of the other side is `none`. A `shop` session
+     * also needs its device approved, the device's shop open and its agent not blocked, and the
+     * cashier still at that shop (checked on every request: a block or a revoke works at once).
+     */
+    channel?: StaffSessionChannel;
+  },
 ): Promise<StaffSessionCheck> {
+  const channel = input.channel ?? 'admin';
   const { token } = input;
   if (typeof token !== 'string' || !TOKEN_RE.test(token)) return { status: 'none' };
   const now = deps.clock();
@@ -1470,12 +1652,21 @@ export async function authenticateStaffSession(
       role: adminUsers.role,
       passwordChangeRequired: adminUsers.passwordChangeRequired,
       disabledAt: adminUsers.disabledAt,
+      channel: adminSessions.channel,
+      deviceId: adminSessions.deviceId,
     })
     .from(adminSessions)
     .innerJoin(adminUsers, eq(adminUsers.id, adminSessions.adminUserId))
     .where(eq(adminSessions.tokenHash, sha256Hex(token)))
     .limit(1);
-  if (row === undefined || !isLive(row, now)) return { status: 'none' };
+  if (row === undefined || !isLive(row, now) || row.channel !== channel) return { status: 'none' };
+  if (
+    channel === 'shop' &&
+    (row.deviceId === null ||
+      !(await isShopDeviceUsable(deps.db, { staffId: row.id, deviceId: row.deviceId })))
+  ) {
+    return { status: 'none' };
+  }
 
   if (input.checkCsrf) {
     const csrf = typeof input.csrfToken === 'string' ? input.csrfToken : '';
@@ -1506,6 +1697,8 @@ export async function authenticateStaffSession(
       idleExpiresAt: new Date(
         Math.min(lastSeenAt.getTime() + STAFF_SESSION_IDLE_MS, row.expiresAt.getTime()),
       ),
+      channel,
+      deviceId: row.deviceId,
     },
   };
 }
@@ -1647,14 +1840,26 @@ export async function revokeOwnStaffSessions(
   const now = deps.clock();
   const clientKey = clientKeyOf(input);
   const ip = input.ip ?? null;
-  const check = await verifyAttempt(deps, user, clientKey, input.password, input.code.trim(), now);
+  const check = await verifyAttempt(
+    deps,
+    user,
+    clientKey,
+    input.password,
+    { kind: 'totp', code: input.code.trim() },
+    now,
+  );
   const outcome = await commitAttempt(
     deps,
     { before: user, check, clientKey, now, ip, context: 'sessions_revoke' },
     async (tx, row, step) => {
       await tx
         .update(adminUsers)
-        .set({ totpLastStep: step, failedLoginAttempts: 0, lockedUntil: null, updatedAt: now })
+        .set({
+          ...(step === null ? {} : { totpLastStep: step }),
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          updatedAt: now,
+        })
         .where(eq(adminUsers.id, row.id));
       const target =
         input.targetSessionId === undefined || !UUID_RE.test(input.targetSessionId)
