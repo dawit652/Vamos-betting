@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  STAFF_ROLES,
+  StaffAssignableRoleSchema,
   type CashierShopListResponse,
   type CashierStaffListResponse,
   type StaffUserView,
@@ -224,7 +224,7 @@ export default function StaffDetailPage() {
             >
               <Field label="Role">
                 <select value={role ?? user.role} onChange={(e) => setRole(e.target.value)}>
-                  {STAFF_ROLES.map((r) => (
+                  {StaffAssignableRoleSchema.options.map((r) => (
                     <option key={r} value={r}>
                       {r}
                     </option>

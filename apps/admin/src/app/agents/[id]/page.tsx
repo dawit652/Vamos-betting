@@ -3,8 +3,10 @@
 import type {
   AgentCommissionKind,
   AgentDetailResponse,
+  AgentOwnerAccountView,
   AgentView,
   CashierShopView,
+  CreateAgentOwnerResponse,
   ShopDeviceView,
   UpdateAgentRequest,
 } from '@vamos/contracts';
@@ -14,6 +16,7 @@ import { useParams } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
 import { useSession } from '@/components/session';
+import { StaffSecret } from '@/components/staff-secret';
 import { Badge, DefList, Field, Loading, Notice, PageHeader, ReasonAction } from '@/components/ui';
 import { api } from '@/lib/api';
 import {
@@ -236,6 +239,116 @@ function ToggleShop({ shop, onDone }: { shop: CashierShopView; onDone: () => voi
   );
 }
 
+/**
+ * The agent owner's account (one per agent). An owner works in the shop app only; the password
+ * made here is shown once and stops working after 72 hours unless it is replaced at first sign-in.
+ */
+function OwnerAccount({
+  agent,
+  owner,
+  manage,
+  onChanged,
+}: {
+  agent: AgentView;
+  owner: AgentOwnerAccountView | null;
+  manage: boolean;
+  onChanged: () => void;
+}) {
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<CreateAgentOwnerResponse | null>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await api<CreateAgentOwnerResponse>(
+        `/admin/agents/${agent.id}/owner-account`,
+        { method: 'POST', body: { email: email.trim() } },
+      );
+      setEmail('');
+      setCreated(response);
+      onChanged();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <h2>Owner account</h2>
+      {created !== null && (
+        <StaffSecret
+          name={created.user.displayName}
+          generatedPassword={created.generatedPassword}
+          totp={created.totp}
+          onDone={() => setCreated(null)}
+        />
+      )}
+      {agent.isHouse ? (
+        <p className="muted">Nahubet HQ has no owner account.</p>
+      ) : owner !== null ? (
+        <section className="panel">
+          <DefList
+            rows={[
+              ['Email', owner.email],
+              ['Name', owner.displayName],
+              [
+                'Password',
+                owner.passwordChangeRequired ? 'Must change the generated password' : 'Changed',
+              ],
+              ['Last sign-in', formatDateTime(owner.lastLoginAt)],
+            ]}
+          />
+          {owner.disabled && (
+            <p>
+              <Badge value="Disabled" tone="bad" />
+            </p>
+          )}
+        </section>
+      ) : (
+        manage && (
+          <form
+            className="card"
+            autoComplete="off"
+            aria-label="Make the owner's account"
+            onSubmit={submit}
+          >
+            <h3>Make the owner's account</h3>
+            <div className="row">
+              <Field label="Owner's email">
+                <input
+                  type="email"
+                  required
+                  maxLength={254}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </Field>
+            </div>
+            {error !== null && <Notice>{error}</Notice>}
+            <p>
+              <button type="submit" className="primary" disabled={busy}>
+                Make account
+              </button>
+            </p>
+          </form>
+        )
+      )}
+      {!agent.isHouse && (
+        <p className="muted small">
+          The owner signs in to the shop app with this email, the password and the authenticator
+          code. The password stops working after 72 hours unless it is changed at the first sign-in.
+        </p>
+      )}
+    </>
+  );
+}
+
 const DEVICE_TONES = { pending: 'warn', approved: 'good', revoked: 'bad' } as const;
 
 /**
@@ -399,6 +512,7 @@ export default function AgentDetailPage() {
             )}
           </section>
 
+          <OwnerAccount agent={agent} owner={data.owner} manage={manage} onChanged={reload} />
           {manage && <EditAgent key={agent.updatedAt} agent={agent} onSaved={reload} />}
           {manage && <AddShop agentId={agent.id} onAdded={reload} />}
 

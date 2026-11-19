@@ -10,6 +10,7 @@ export default function LoginPage() {
   const { login } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,7 +19,8 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await login({ email, password });
+      // The code is for agent owners; a cashier leaves it empty.
+      await login({ email, password, ...(/^\d{6}$/.test(code) ? { code } : {}) });
     } catch (e) {
       // The API answers 401 for anything wrong, a device not approved yet included.
       setError(
@@ -52,6 +54,17 @@ export default function LoginPage() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <label htmlFor="code">
+          {TEXT.authCode}
+          <input
+            id="code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
           />
         </label>
         {error === null ? null : (

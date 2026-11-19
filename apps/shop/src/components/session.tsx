@@ -1,6 +1,6 @@
 'use client';
 
-import type { ShopSessionResponse } from '@vamos/contracts';
+import type { ShopLoginRequest, ShopSessionResponse } from '@vamos/contracts';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   createContext,
@@ -24,7 +24,7 @@ type State =
 interface SessionValue {
   state: State;
   session: ShopSessionResponse | null;
-  login: (input: { email: string; password: string }) => Promise<void>;
+  login: (input: ShopLoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   /** Reads the session again (after the password change). */
   refresh: () => Promise<void>;
@@ -75,6 +75,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     pathname,
     state.status,
     session?.staff.passwordChangeRequired ?? false,
+    session?.staff.role ?? 'cashier',
   );
   useEffect(() => {
     if (target !== null) router.replace(target);

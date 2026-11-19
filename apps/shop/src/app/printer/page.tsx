@@ -14,6 +14,8 @@ export default function PrinterPage() {
   const { session } = useSession();
   if (session === null) return null;
   const { shop } = session;
+  // Owners have no shop (the guard sends them to /owner); only a cashier prints here.
+  if (shop === null) return null;
   const width = shop.receiptWidthMm;
   return (
     <>

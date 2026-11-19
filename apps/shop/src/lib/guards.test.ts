@@ -33,4 +33,14 @@ describe('route guard', () => {
     expect(isPublicPath('/login')).toBe(true);
     expect(isPublicPath('/')).toBe(false);
   });
+
+  it('keeps agent owners on /owner and /password, and cashiers off /owner', () => {
+    expect(redirectFor('/', 'ready', false, 'agent_owner')).toBe('/owner');
+    expect(redirectFor('/printer', 'ready', false, 'agent_owner')).toBe('/owner');
+    expect(redirectFor('/login', 'ready', false, 'agent_owner')).toBe('/owner');
+    expect(redirectFor('/owner', 'ready', false, 'agent_owner')).toBeNull();
+    expect(redirectFor('/password', 'ready', false, 'agent_owner')).toBeNull();
+    expect(redirectFor('/owner', 'ready', true, 'agent_owner')).toBe('/password');
+    expect(redirectFor('/owner', 'ready', false, 'cashier')).toBe('/');
+  });
 });

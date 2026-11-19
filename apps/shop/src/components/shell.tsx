@@ -11,21 +11,28 @@ export function Shell({ children }: { children: ReactNode }) {
   const { session, logout } = useSession();
   const pathname = usePathname();
   if (session === null) return <main className="pad narrow">{children}</main>;
-  const links: ReadonlyArray<readonly [string, string]> = [
-    ['/', TEXT.navDesk],
-    ['/printer', TEXT.navPrinter],
-    ['/password', TEXT.navPassword],
-  ];
+  const owner = session.staff.role === 'agent_owner';
+  const links: ReadonlyArray<readonly [string, string]> = owner
+    ? [
+        ['/owner', TEXT.navOverview],
+        ['/password', TEXT.navPassword],
+      ]
+    : [
+        ['/', TEXT.navDesk],
+        ['/printer', TEXT.navPrinter],
+        ['/password', TEXT.navPassword],
+      ];
   const forced = session.staff.passwordChangeRequired;
   return (
     <>
       <header className="topbar no-print">
         <div>
           <strong data-testid="shop-label">
-            {session.shop.label} · {session.shop.name}
+            {`${session.agent.number} · ${session.agent.name}`}
+            {session.shop === null ? '' : ` · ${session.shop.label} · ${session.shop.name}`}
           </strong>
           <div className="muted small" data-testid="cashier-name">
-            {TEXT.cashier}: {session.staff.displayName}
+            {owner ? TEXT.owner : TEXT.cashier}: {session.staff.displayName}
           </div>
         </div>
         {forced ? null : (

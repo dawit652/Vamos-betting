@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  STAFF_ROLES,
+  StaffAssignableRoleSchema,
   type CashierShopListResponse,
   type CreateStaffRequest,
   type CreateStaffResponse,
@@ -40,7 +40,7 @@ function AddStaff({ onCreated }: { onCreated: (created: Created) => void }) {
   // The agent page links here with ?role=cashier&shopId=<id> to add a cashier to that shop.
   const params = useSearchParams();
   const [role, setRole] = useState<CreateStaffRequest['role']>(
-    STAFF_ROLES.find((r) => r === params.get('role')) ?? 'support',
+    StaffAssignableRoleSchema.options.find((r) => r === params.get('role')) ?? 'support',
   );
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -116,7 +116,7 @@ function AddStaff({ onCreated }: { onCreated: (created: Created) => void }) {
             value={role}
             onChange={(e) => setRole(e.target.value as CreateStaffRequest['role'])}
           >
-            {STAFF_ROLES.map((r) => (
+            {StaffAssignableRoleSchema.options.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>
@@ -209,7 +209,7 @@ export default function StaffPage() {
         <Field label="Filter by role">
           <select value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="">All roles</option>
-            {STAFF_ROLES.map((r) => (
+            {StaffAssignableRoleSchema.options.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>

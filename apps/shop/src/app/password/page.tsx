@@ -12,9 +12,11 @@ import { TEXT } from '@/lib/text';
 export default function PasswordPage() {
   const { session, refresh } = useSession();
   const router = useRouter();
+  const owner = session?.staff.role === 'agent_owner';
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [repeat, setRepeat] = useState('');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,14 +27,22 @@ export default function PasswordPage() {
       setError(problem);
       return;
     }
+    if (owner && !/^\d{6}$/.test(code)) {
+      setError(TEXT.codeInvalid);
+      return;
+    }
     setBusy(true);
     setError(null);
-    const body: ShopPasswordChangeRequest = { currentPassword: current, newPassword: next };
+    const body: ShopPasswordChangeRequest = {
+      currentPassword: current,
+      newPassword: next,
+      ...(owner ? { code } : {}),
+    };
     try {
       await api<{ ok: true }>('/shop/auth/password', { method: 'POST', body });
       // The session no longer asks for a change; the guard would send us away from here anyway.
       await refresh();
-      router.replace('/');
+      router.replace(owner ? '/owner' : '/');
     } catch (e) {
       setError(describeError(e, TEXT.passwordErrors));
       setBusy(false);
@@ -83,6 +93,20 @@ export default function PasswordPage() {
             onChange={(e) => setRepeat(e.target.value)}
           />
         </label>
+        {owner && (
+          <label htmlFor="code">
+            {TEXT.authCodeRequired}
+            <input
+              id="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            />
+          </label>
+        )}
         {error === null ? null : (
           <p className="error" role="alert">
             {error}
