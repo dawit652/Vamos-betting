@@ -253,11 +253,44 @@ password, label}`; the API sets the httpOnly cookie `vamos_device` with the secr
 5. **Tests:** db (devices, owner link, blocked agent ends the shop session), API (`/shop/*` with and
    without an approved device, revoked device, blocked agent), e2e (a cashier asks a device, the
    admin approves, the cashier signs in to the shop app and opens a shift).
-6. **Small leftovers of 1a:** the desk's shift heading and the "Shops on <day>" table on Cash
+6. **Small leftovers of 1a (done in `0a155f3`):** the desk's shift heading and the "Shops on <day>" table on Cash
    shifts still show the shop name or code without its number: add `shopLabel` to
    `CashierShiftView` and `label` to `ShopDayView` (contracts, `shiftView` / `shopDaySummary`),
    then show them. The e2e agents spec closes the shop it adds (an open second shop would stop the
    demo cashier without a shop from opening a shift in `cashier.spec.ts`).
+
+## Phase 2 design (agent balance; money path, main session on Opus, high effort)
+
+Read `packages/db/src/ledger/` first (`accountKey`, `HOUSE_KEYS`, `postTransaction`, the
+`ledger_accounts` checks) and `packages/db/src/cashier/desk.ts` (`cashDeposit`: how a desk deposit
+posts today with `house:psp:cash`).
+
+1. **Account.** A ledger account per agent: `AccountRef { kind: 'agent_balance'; agentId }`, key
+   `agent:<uuid>:balance`, `allowNegative: false` (prepaid: never below zero). The
+   `ledger_accounts` owner check allows `user` or `house` today: either add an `agent` owner type
+   with an `agent_id` column (migration; the cleaner choice) or keep `house` with the agent in the
+   key. Nahubet HQ (agent 1000) has no balance account: its shops keep `house:psp:cash`.
+2. **Top-ups (four eyes; owner: cash or bank at HQ only).** Table `agent_topups` (agent, amount,
+   method `cash` | `bank`, bank reference, requested_by, approved_by, status `requested` |
+   `approved` | `rejected`, timestamps; `REVOKE UPDATE, DELETE` except the status columns, or an
+   append-only decision row). An admin records it (`agents.manage`); a second admin or finance
+   approves (`withdrawals.approve`, never the one who recorded it); the approval posts
+   `house:psp:cash` → `agent:<id>:balance` with the idempotency key `agent-topup:<id>` in the same
+   transaction, plus an outbox event. Rejection posts nothing. All audited.
+3. **The agent takes money back** (closing, or too much prepaid): the same four-eyes flow the
+   other way, refused above the balance.
+4. **Player cash at an agent's shop** (switch `players_cash_enabled` per agent, `agents.manage`):
+   `assertPlayerCashAllowed` lets an agent shop through only when the switch is on; a deposit
+   posts `agent:<id>:balance` → `user:<id>:cash` (refused above the balance: 409
+   `agent_balance_low`), a cash withdrawal pays out of the player's withdrawal hold into
+   `agent:<id>:balance`; HQ shops keep posting to `house:psp:cash` as today. The receipts, shift
+   totals and the reconciliation's `movementProblem` must know the new account.
+5. **Back office:** the agent page shows the balance, the top-up list with Record / Approve /
+   Reject, and the ledger lines of the agent; the Agents list shows each balance and a low-balance
+   mark. The shop app's desk shows the balance (read-only).
+6. **Tests:** postings sum to zero and the balance never goes negative (property test on the core
+   rule), four eyes refused for the same admin, idempotent approval, player cash refused with the
+   switch off or the balance too low, reconciliation clean after a day of agent operations.
 
 ## Defaults chosen here (all adjustable by an admin)
 
