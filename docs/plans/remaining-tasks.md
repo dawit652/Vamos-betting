@@ -7,9 +7,9 @@ branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
 receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (`dce8e5d`
-database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions` and `0067_agent_owners` run on the next deploy
+database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners` and `0068_agent_balance` run on the next deploy
 (every existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next
-free number is **0068**. Deploy is done by the owner (`ssh -t root@<server>` +
+free number is **0069**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
@@ -33,7 +33,11 @@ free number is **0068**. Deploy is done by the owner (`ssh -t root@<server>` +
      2. Switching the shop app on in production, with the owner (`docs/deployment.md`, "Shop
         app"): build the shop image once (never built: no docker daemon in the cloud container),
         add `shop` to `SERVICES` in `infra/scripts/deploy-full.sh`.
-     3. Phase 2, the agent balance (plan, "Phase 2 design"; money path: main session, Opus, high).
+     3. Phase 2, the agent balance (plan, "Phase 2 design"; money path: main session, Opus,
+        high): **steps 1–3 built 19 Nov** (migration `0068_agent_balance`, `6b813e1`, `5911deb`,
+        screens next): the agent's ledger account, top-ups and take-backs with four eyes, balances
+        on the pages. **Next: step 4**, player cash at an agent's shop (deposit from the agent's
+        balance, withdrawal into it, refused when the switch is off or the balance too low).
      4. Phase 3, selling tickets at the counter, and phase 4, paying them (money path).
      5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax

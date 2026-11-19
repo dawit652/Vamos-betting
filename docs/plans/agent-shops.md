@@ -270,6 +270,17 @@ password, label}`; the API sets the httpOnly cookie `vamos_device` with the secr
 
 ## Phase 2 design (agent balance; money path, main session on Opus, high effort)
 
+**Status 19 Nov:** steps 1, 2 and 3 built (migration `0068_agent_balance`; database `6b813e1`,
+API `5911deb`, screens next): the account `agent:<id>:balance` (kind `agent_balance`,
+`ledger_accounts.agent_id`, never below zero), top-ups and take-backs in `agent_topups`
+(`packages/db/src/retail/topups.ts`; four eyes in the service and a database check; one bank
+reference once), balances on the Agents pages and the owner's overview. **Changed from the design
+below:** top-ups post against `house:agent_funding`, not `house:psp:cash`, because the PSP
+clearing accounts reconcile against player deposits and payouts only (a top-up there would show
+as a reconciliation mismatch). **Next:** step 4 (player cash at an agent's shop) and the desk
+showing the balance; the reconciliation check of agent balances against top-ups once tickets and
+player cash move them too.
+
 Read `packages/db/src/ledger/` first (`accountKey`, `HOUSE_KEYS`, `postTransaction`, the
 `ledger_accounts` checks) and `packages/db/src/cashier/desk.ts` (`cashDeposit`: how a desk deposit
 posts today with `house:psp:cash`).
