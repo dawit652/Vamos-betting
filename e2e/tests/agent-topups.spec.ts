@@ -64,6 +64,11 @@ test('an admin records a top-up, finance approves it, the balance grows', async 
 
     await admin.reload();
     await expect(admin.getByTestId('agent-balance')).toContainText('ETB 5,000.00');
+
+    // Player cash at the agent's shops: off until an admin switches it on.
+    await expect(admin.getByText('Player cash at shops')).toBeVisible();
+    await admin.getByRole('button', { name: 'Switch on' }).click();
+    await expect(admin.getByText("On: the agent's balance pays player deposits")).toBeVisible();
   } finally {
     await adminContext.close();
     await financeContext.close();

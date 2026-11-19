@@ -19,7 +19,16 @@ import { useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
 import { useSession } from '@/components/session';
 import { StaffSecret } from '@/components/staff-secret';
-import { Badge, DefList, Field, Loading, Notice, PageHeader, ReasonAction } from '@/components/ui';
+import {
+  ActionButton,
+  Badge,
+  DefList,
+  Field,
+  Loading,
+  Notice,
+  PageHeader,
+  ReasonAction,
+} from '@/components/ui';
 import { api } from '@/lib/api';
 import {
   COMMISSION_KIND_LABELS,
@@ -695,7 +704,27 @@ export default function AgentDetailPage() {
                 ],
                 [
                   'Player cash at shops',
-                  agent.playerCashEnabled ? 'On' : 'Off — starts with the agent balance (phase 2)',
+                  agent.isHouse ? (
+                    'Always on (Nahubet HQ)'
+                  ) : (
+                    <span key="pc">
+                      {agent.playerCashEnabled
+                        ? "On: the agent's balance pays player deposits"
+                        : 'Off'}{' '}
+                      {manage && (
+                        <ActionButton
+                          label={agent.playerCashEnabled ? 'Switch off' : 'Switch on'}
+                          onAction={async () => {
+                            await api(`/admin/agents/${agent.id}/player-cash`, {
+                              method: 'POST',
+                              body: { enabled: !agent.playerCashEnabled },
+                            });
+                            reload();
+                          }}
+                        />
+                      )}
+                    </span>
+                  ),
                 ],
                 ['Created', formatDateTime(agent.createdAt)],
               ]}
