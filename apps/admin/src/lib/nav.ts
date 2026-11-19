@@ -25,6 +25,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/jackpots', label: 'Jackpots', permission: 'jackpots.view' },
   { href: '/compliance/reconciliation', label: 'Reconciliation', permission: 'reports.view' },
   { href: '/compliance/aml', label: 'AML flags', permission: 'aml.review' },
+  { href: '/staff', label: 'Staff', permission: 'staff.manage' },
   { href: '/settings', label: 'Settings', permission: 'settings.view' },
   { href: '/channels', label: 'Channels', permission: 'settings.view' },
   { href: '/audit', label: 'Audit log', permission: 'audit.view' },

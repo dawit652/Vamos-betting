@@ -54,6 +54,13 @@ describe('navigation by role', () => {
     expect(permissionForPath('/cashier/shifts/abc/report')).toBe('cashier.reports');
   });
 
+  it('the staff pages follow staff.manage, which only the admin holds', () => {
+    expect(labels('admin')).toContain('Staff');
+    for (const role of ['finance', 'support', 'cashier'])
+      expect(labels(role)).not.toContain('Staff');
+    expect(permissionForPath('/staff/abc')).toBe('staff.manage');
+  });
+
   it('homeFor is the first visible page, else the account page', () => {
     expect(homeFor(['cashier.desk'])).toBe('/cashier');
     expect(homeFor(permissionsOf('admin'))).toBe('/');
