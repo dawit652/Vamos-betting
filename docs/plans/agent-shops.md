@@ -202,8 +202,13 @@ Build in this order; each step is committed and pushed on its own.
    `agent_owner`, the agent's owner name as display name and the owner phone, links it, and shows
    the one-time password and authenticator secret on the agent page (reuse
    `apps/admin/src/components/staff-secret.tsx`). `agent_owner` holds no back-office permission
-   (`PERMISSION_ROLES`): owners work in the shop app only. Add `agent_owner` to `STAFF_ROLES` only
-   where the Staff screen should offer it (probably not: owners are made from the agent page).
+   (`PERMISSION_ROLES`): owners work in the shop app only. Adding `agent_owner` to the contracts'
+   `STAFF_ROLES` touches `packages/contracts/src/admin.test.ts` and `apps/admin/src/lib/nav.test.ts`
+   ("every role but the cashier sees the dashboard": the owner neither) and the Staff screen's role
+   selects (leave the owner out: owners are made from the agent page). **Ship this step with step
+   4:** an owner can sign in only to the shop app, and a generated password stops working 72 hours
+   after creation unless it is changed at the first sign-in, so owner accounts made before the shop
+   app exists would expire unused.
 2. **Shop devices.** Table `shop_devices` (id, shop_id, label, secret_hash unique (sha256 of a
    32-byte random secret), status `pending|approved|revoked`, requested_by, approved_by,
    approved_at, revoked_at, last_seen_at, user_agent, created_at); `REVOKE DELETE` from vamos_app.
