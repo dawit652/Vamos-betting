@@ -1,8 +1,9 @@
 # Remaining tasks (read this first; updated 19 Nov 2026)
 
-Latest work: branch `claude/happy-keller-i7cvrh` (19 Nov; it continues
-`claude/eager-cerf-ox9vkq`). A new session may be given another branch name: start it from
-whichever of the two is newer. It holds the server's own
+**Start here (20 Nov, end of the first account's week):** the newest work is on
+`claude/eager-cerf-ox9vkq` at `e9e38cf` or later (it contains all of `claude/happy-keller-i7cvrh`,
+`052ca46`, which is behind). A new session given another branch name starts from
+`origin/claude/eager-cerf-ox9vkq`. Next task: the phase 5 screens (item 0, step 5 below). It holds the server's own
 branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
