@@ -183,6 +183,8 @@ export interface OwnerAlertSmsJobData {
   message: string;
   /** ISO time the alarm was raised; the deduplication window runs on it. */
   raisedAt: string;
+  /** The alarm's own least time between two texts (OWNER_ALERT_POLICY); absent for older rows. */
+  repeatMs?: number;
 }
 
 /** Data of an `sms` job. */
@@ -368,6 +370,7 @@ const ownerAlertPayload = z.object({
   key: nonEmpty.max(400),
   message: nonEmpty.max(160),
   raisedAt: nonEmpty,
+  repeatMs: z.number().int().min(0).default(0),
 });
 
 /** An alert to the owner's phone: the `sms` consumer sends it (or does nothing with alerts off). */
@@ -379,6 +382,7 @@ const ownerAlertRoute: OutboxRoute = (row) => {
     key: payload.key,
     message: payload.message,
     raisedAt: payload.raisedAt,
+    repeatMs: payload.repeatMs,
   };
   return { queue: QUEUE_NAMES.sms, name: row.type, data };
 };

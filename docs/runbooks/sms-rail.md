@@ -73,6 +73,16 @@ SMS-rail settings that are not production-ready: the simulated rail, a missing g
 
 Alarms are `error` log lines with an `alarm` field; wire the log-based alerts to these names.
 
+**What reaches the owner's phone and Telegram** (owner's rule, 20 Nov 2026: only what is important,
+never every few minutes; `OWNER_ALERT_POLICY` in `packages/core/src/owner-alert.ts`): deposits not
+crediting (`sms_gateway_silent`, `sms_account_silent`) and withdrawals waiting over 2 hours
+(`manual_payout_waiting`) at most every 6 hours while they last; too little money to pay
+(`payout_float_low`) every 12 hours; contradicted deposits (`sms_receipt_rejected`, one summary for
+all of them) and balance drift (`sms_balance_drift`) once a day; every collection account change.
+Staff's alarms (`sms_handset_heartbeat_missed`, `sms_handset_battery_low`, `sms_review_backlog`,
+`manual_payout_claim_idle`) stay log lines and panels: they are not texted.
+`OWNER_ALERT_MIN_INTERVAL_MINUTES` can only make the gaps longer.
+
 | `alarm`                        | Meaning                                                                                                                                                                                                                                                         | Do                                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `sms_receipt_rejected`         | A **credited** telebirr SMS is contradicted by the receipt page (not found, other receiver…)                                                                                                                                                                    | [Receipt alarm](#receipt-alarm-a-possibly-forged-sms). SEV1 until explained                |

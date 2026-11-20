@@ -1,5 +1,5 @@
 import { ownerAlertTargetCount, type OwnerAlertTargets } from '@vamos/config';
-import { buildOwnerAlert, type OwnerAlertInput } from '@vamos/core';
+import { buildOwnerAlert, OWNER_ALERT_POLICY, type OwnerAlertInput } from '@vamos/core';
 import type { DbExecutor } from '../ledger/types';
 import { enqueueOutbox } from './outbox';
 
@@ -14,6 +14,8 @@ export interface OwnerAlertPayload {
   message: string;
   /** ISO time the alarm was raised: the dedupe window runs on this, not on delivery time. */
   raisedAt: string;
+  /** The alarm's least time between two texts (OWNER_ALERT_POLICY): the sender keeps to it. */
+  repeatMs?: number;
 }
 
 /**
@@ -30,11 +32,15 @@ export async function enqueueOwnerAlert(
   now: Date,
 ): Promise<boolean> {
   if (ownerAlertTargetCount(ownerAlerts) === 0) return false;
+  // Staff-only alarms are never texted to the owner (OWNER_ALERT_POLICY).
+  const policy = OWNER_ALERT_POLICY[input.alarm];
+  if (!policy.send) return false;
   const alert = buildOwnerAlert(input);
   const payload: OwnerAlertPayload = {
     key: alert.key,
     message: alert.message,
     raisedAt: now.toISOString(),
+    repeatMs: policy.repeatMs,
   };
   await enqueueOutbox(exec, {
     type: OWNER_ALERT,

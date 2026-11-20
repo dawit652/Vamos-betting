@@ -184,10 +184,12 @@ function build(input: OwnerAlertInput): OwnerAlert {
         message: `A bookmaker odds request cost ${wholeNumber(input.cost, 0)} credits instead of ${wholeNumber(input.expected, 0)}. Reading carries on.`,
       };
     case 'sms_receipt_rejected':
+      // One key for every SMS (not one per SMS): a summary at most once per repeat window, never a
+      // text per deposit.
       return {
-        key: `sms_receipt_rejected|${subjectOf(input.smsId)}`,
+        key: 'sms_receipt_rejected',
         message:
-          "A credited SMS deposit is contradicted by the institution's receipt. It stays credited and is held for staff.",
+          "An SMS deposit contradicted by the institution's receipt was found: it stays credited and is held for staff on the SMS rail page.",
       };
     case 'sms_balance_drift': {
       const institution = nameOf(input.institution, 'The collection account');
@@ -280,6 +282,54 @@ function build(input: OwnerAlertInput): OwnerAlert {
       };
     }
   }
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * Which alarms reach the owner's phone and Telegram, and how often at most (owner's rule, 20 Nov
+ * 2026: "just notify when it's important", after alerts every few minutes about deposits and
+ * withdrawals). `send: false` alarms stay log lines and back-office panels for staff. `repeatMs` is
+ * the least time between two alerts of one key while the condition lasts (the configured
+ * OWNER_ALERT_MIN_INTERVAL_MINUTES only ever lengthens it).
+ */
+export const OWNER_ALERT_POLICY: Readonly<
+  Record<OwnerAlertInput['alarm'], { send: boolean; repeatMs: number }>
+> = {
+  // Money: deposits not crediting, contradicted or mismatched; withdrawals that cannot be paid or
+  // wait too long; a change to where players send money.
+  sms_gateway_silent: { send: true, repeatMs: 6 * HOUR_MS },
+  sms_account_silent: { send: true, repeatMs: 6 * HOUR_MS },
+  sms_receipt_rejected: { send: true, repeatMs: 24 * HOUR_MS },
+  sms_balance_drift: { send: true, repeatMs: 24 * HOUR_MS },
+  payout_float_low: { send: true, repeatMs: 12 * HOUR_MS },
+  manual_payout_waiting: { send: true, repeatMs: 6 * HOUR_MS },
+  collection_account_changed: { send: true, repeatMs: 0 },
+  // Staff's daily work, on the SMS rail and manual payout pages: not texted.
+  sms_handset_heartbeat_missed: { send: false, repeatMs: 0 },
+  sms_handset_battery_low: { send: false, repeatMs: 0 },
+  sms_review_backlog: { send: false, repeatMs: 0 },
+  manual_payout_claim_idle: { send: false, repeatMs: 0 },
+  // The odds sources and their paid credits (unchanged).
+  ladder_shadow_failed: { send: true, repeatMs: 0 },
+  source_broken: { send: true, repeatMs: 0 },
+  source_stale: { send: true, repeatMs: 0 },
+  budget_low: { send: true, repeatMs: 0 },
+  budget_exhausted: { send: true, repeatMs: 0 },
+  budget_projection: { send: true, repeatMs: 0 },
+  unauthorized: { send: true, repeatMs: 0 },
+  rate_limit_low: { send: true, repeatMs: 0 },
+  unexpected_cost: { send: true, repeatMs: 0 },
+  market_family_moved: { send: true, repeatMs: 0 },
+};
+
+/** Whether an alarm is texted at all, and the least time between two texts of one key. */
+export function ownerAlertDelivery(
+  input: OwnerAlertInput,
+  configuredIntervalMs: number,
+): { send: boolean; intervalMs: number } {
+  const policy = OWNER_ALERT_POLICY[input.alarm];
+  return { send: policy.send, intervalMs: Math.max(configuredIntervalMs, policy.repeatMs) };
 }
 
 /**

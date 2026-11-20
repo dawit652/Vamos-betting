@@ -34,7 +34,8 @@ export async function processOwnerAlertJob(
   }
   const parsed = Date.parse(data.raisedAt);
   const raisedAt = Number.isNaN(parsed) ? ctx.clock().getTime() : parsed;
-  const intervalMs = alerts.minIntervalMinutes * 60_000;
+  // The alarm's own repeat window (owner's rule: only what matters, not every few minutes).
+  const intervalMs = Math.max(alerts.minIntervalMinutes * 60_000, data.repeatMs ?? 0);
   if (!(await claimAlertSlot(ctx.redis, 'sent', data.key, raisedAt, intervalMs))) {
     ctx.logger.info(
       {
