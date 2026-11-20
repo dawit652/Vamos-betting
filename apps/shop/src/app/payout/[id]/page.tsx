@@ -108,7 +108,9 @@ function Slip() {
           <div className="ticket-cancelled">{TEXT.payNothing}</div>
         )}
         <div className="small">{TEXT.payoutSlipAmount}</div>
-        <div className="slip-sign">{TEXT.payoutSlipReceived}</div>
+        <div className="slip-sign">
+          {TEXT.payoutSlipReceived} · {TEXT.payoutSlipReceivedAm}
+        </div>
         <hr />
         <div className="small">{TEXT.payoutSlipFooter}</div>
       </div>

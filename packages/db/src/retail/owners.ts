@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { DbExecutor } from '../ledger/types';
 import { adminUsers } from '../schema/accounts';
 import {
@@ -8,6 +8,7 @@ import {
 } from '../backoffice/staff-auth';
 import { domainConflict, domainNotFound } from '../errors';
 import { writeAudit } from '../platform/audit';
+import { auditLog } from '../schema/platform';
 import { agents } from '../schema/retail';
 import { getAgent } from './agents';
 
@@ -107,4 +108,25 @@ export async function getAgentOwnerAccount(
     passwordChangeRequired: row.passwordChangeRequired,
     lastLoginAt: row.lastLoginAt,
   };
+}
+
+/**
+ * Who blocked a staff account (the actor of its latest `staff.disabled` audit row; setStaffDisabled
+ * writes one in the same transaction as every block), or null when it was never blocked. An owner
+ * may unblock only a cashier the owner blocked: head office's blocks stay with head office.
+ */
+export async function staffBlockedBy(exec: DbExecutor, staffId: string): Promise<string | null> {
+  const [row] = await exec
+    .select({ actorId: auditLog.actorId })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.targetType, 'admin_user'),
+        eq(auditLog.targetId, staffId),
+        eq(auditLog.action, 'staff.disabled'),
+      ),
+    )
+    .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
+    .limit(1);
+  return row?.actorId ?? null;
 }

@@ -22,9 +22,9 @@ Oct 27, 2026 · @Which Version Of Claude Are U
    after a 5-hour limit, cheaply: `git log --oneline -3` and the first paragraph of
    `docs/plans/remaining-tasks.md`, nothing else; no test runs, builds or e2e before the first
    change). Now: newest branch `claude/happy-keller-i7cvrh` (contains `claude/eager-cerf-ox9vkq`);
-   agent shops phases 0-5 built and pushed, not deployed (migrations up to 0074); owner alerts
-   only for what is important (`OWNER_ALERT_POLICY`); next: the small gaps in
-   `docs/plans/remaining-tasks.md` item 0, step 5, or what the owner asks.
+   agent shops phases 0-5 built and pushed, not deployed (migrations up to 0074), small gaps
+   closed 20 Nov; owner alerts only for what is important (`OWNER_ALERT_POLICY`); next: phase 6
+   once the owner picks a POS model, or what the owner asks.
 
 ## Overview
 

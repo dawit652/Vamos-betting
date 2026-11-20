@@ -2,12 +2,17 @@ import {
   AgentDetailResponse,
   AgentResponse,
   ApiErrorSchema,
+  CashierShopResponse,
+  RetailAlertThresholds,
+  ShopOwnerCashierResponse,
   CreateAgentOwnerResponse,
   SHOP_CSRF_HEADER,
   ShopOwnerResponse,
   ShopSessionResponse,
 } from '@vamos/contracts';
 import { base32Decode, totpCode } from '@vamos/db';
+import { adminUsers } from '@vamos/db/schema';
+import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
@@ -198,5 +203,122 @@ describe('agent owner accounts', () => {
       (await ctx.app.inject({ method: 'GET', url: '/shop/me', headers: { cookie: freshCookie } }))
         .statusCode,
     ).toBe(401);
+  });
+
+  it("adds and blocks the owner's own cashiers, never another agent's", async () => {
+    const owner = await agentWithOwner('Owner Cashier Agent');
+    const other = await agentWithOwner('Owner Cashier Other');
+    const shopOf = async (agentId: string, name: string) =>
+      CashierShopResponse.parse(
+        (
+          await asStaff(ctx, admin, 'POST', `/admin/agents/${agentId}/shops`, {
+            name,
+            address: '',
+            receiptWidthMm: 80,
+            approvalThreshold: '1000000',
+          })
+        ).json(),
+      ).shop;
+    const mine = await shopOf(owner.agent.id, 'Owner Cashier Shop');
+    const theirs = await shopOf(other.agent.id, 'Other Cashier Shop');
+
+    // Sign in, replace the generated password, sign in again.
+    const first = await post('/shop/auth/login', {
+      email: owner.email,
+      password: owner.password,
+      code: nextCode(owner.secret),
+    });
+    const firstCookie = first.cookies.find((c) => c.name.endsWith('vamos_shop'))!;
+    const newPassword = 'a long owner password 2026';
+    await post(
+      '/shop/auth/password',
+      { currentPassword: owner.password, newPassword, code: nextCode(owner.secret) },
+      {
+        cookie: `${firstCookie.name}=${firstCookie.value}`,
+        [SHOP_CSRF_HEADER]: ShopSessionResponse.parse(first.json()).csrfToken,
+      },
+    );
+    const login = await post('/shop/auth/login', {
+      email: owner.email,
+      password: newPassword,
+      code: nextCode(owner.secret),
+    });
+    expect(login.statusCode, login.body).toBe(200);
+    const shopCookie = login.cookies.find((c) => c.name.endsWith('vamos_shop'))!;
+    const headers = {
+      cookie: `${shopCookie.name}=${shopCookie.value}`,
+      [SHOP_CSRF_HEADER]: ShopSessionResponse.parse(login.json()).csrfToken,
+    };
+    const cashier = (shopId: string) => ({
+      shopId,
+      email: `cashier-${randomUUID().slice(0, 8)}@agents.example.com`,
+      displayName: 'Counter Cashier',
+      phone: '0911556677',
+      password: 'a counter password 2026',
+    });
+
+    const foreign = await post('/shop/owner/cashiers', cashier(theirs.id), headers);
+    expect(foreign.statusCode).toBe(404);
+    const made = await post('/shop/owner/cashiers', cashier(mine.id), headers);
+    expect(made.statusCode, made.body).toBe(201);
+    const created = ShopOwnerCashierResponse.parse(made.json()).cashier;
+    expect(created).toMatchObject({ shopId: mine.id, disabledAt: null });
+    // The cashier replaces the owner's password at first sign-in (as with an admin's).
+    const detail = await asStaff(ctx, admin, 'GET', `/admin/staff/${created.staffId}`);
+    expect(detail.json()).toMatchObject({ role: 'cashier', disabledAt: null });
+    const [row] = await ctx.deps.db
+      .select({ passwordChangeRequired: adminUsers.passwordChangeRequired })
+      .from(adminUsers)
+      .where(eq(adminUsers.id, created.staffId));
+    expect(row?.passwordChangeRequired).toBe(true);
+
+    const blocked = await post(`/shop/owner/cashiers/${created.staffId}/block`, {}, headers);
+    expect(blocked.statusCode, blocked.body).toBe(200);
+    expect(ShopOwnerCashierResponse.parse(blocked.json()).cashier.disabledAt).not.toBeNull();
+    const unblocked = await post(`/shop/owner/cashiers/${created.staffId}/unblock`, {}, headers);
+    expect(ShopOwnerCashierResponse.parse(unblocked.json()).cashier.disabledAt).toBeNull();
+    // Head office's block stays with head office: the owner cannot undo it.
+    const office = await asStaff(ctx, admin, 'POST', `/admin/staff/${created.staffId}/disable`);
+    expect(office.statusCode, office.body).toBe(200);
+    const undo = await post(`/shop/owner/cashiers/${created.staffId}/unblock`, {}, headers);
+    expect(undo.statusCode).toBe(403);
+    expect(code(undo.body)).toBe('blocked_by_head_office');
+    await asStaff(ctx, admin, 'POST', `/admin/staff/${created.staffId}/enable`);
+    // Someone who is not their cashier: not found.
+    expect(
+      (await post(`/shop/owner/cashiers/${other.staffId}/block`, {}, headers)).statusCode,
+    ).toBe(404);
+  });
+});
+
+describe('shop alert thresholds', () => {
+  it('an admin sets the big-win and low-balance thresholds; finance reads them', async () => {
+    const read = await asStaff(ctx, finance, 'GET', '/admin/retail/alert-thresholds');
+    expect(RetailAlertThresholds.parse(read.json())).toEqual({
+      bigWin: '10000000',
+      lowBalance: '100000',
+    });
+    expect(
+      (
+        await asStaff(ctx, finance, 'PUT', '/admin/retail/alert-thresholds', {
+          bigWin: '5000000',
+          lowBalance: '50000',
+        })
+      ).statusCode,
+    ).toBe(403);
+    const bad = await asStaff(ctx, admin, 'PUT', '/admin/retail/alert-thresholds', {
+      bigWin: '0',
+      lowBalance: '50000',
+    });
+    expect(bad.statusCode).toBe(400);
+    const set = await asStaff(ctx, admin, 'PUT', '/admin/retail/alert-thresholds', {
+      bigWin: '5000000',
+      lowBalance: '50000',
+    });
+    expect(set.statusCode, set.body).toBe(200);
+    expect(RetailAlertThresholds.parse(set.json())).toEqual({
+      bigWin: '5000000',
+      lowBalance: '50000',
+    });
   });
 });

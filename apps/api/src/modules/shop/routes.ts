@@ -1,4 +1,6 @@
 import {
+  ShopOwnerCashierResponse,
+  ShopOwnerCreateCashierRequest,
   ShopPayTicketRequest,
   ShopPayTicketResponse,
   ShopBookingResponse,
@@ -27,9 +29,15 @@ import {
   ShopSessionResponse,
   ShopShiftResponse,
   AgentStatementListResponse,
+  EventListQuery,
+  type EventListResponse,
 } from '@vamos/contracts';
 import { parsePick, retailBetRules } from '@vamos/core';
 import {
+  assignStaffShop,
+  createStaffUser,
+  setStaffDisabled,
+  staffBlockedBy,
   findTicketByNumber,
   payRetailTicket,
   agentTicketLimits,
@@ -71,6 +79,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
 import { conflict, forbidden, notFound, parseInput, unauthorized } from '../../lib/errors';
 import { cachedGameSettings } from '../betting/service';
+import { listEvents } from '../catalog/queries';
 import { quoteView } from '../betting/views';
 import { ticketView } from './ticket-views';
 import { enforceLimit } from '../../lib/rate-limits';
@@ -540,6 +549,23 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     return wire(ShopTicketResponse, { ticket: await viewOf(row), replayed });
   });
 
+  /**
+   * The Sell page's list of matches: the public catalogue's upcoming football of the next 48 hours,
+   * soonest first. A route of its own because the shop app's origin may only call `/shop/*`.
+   */
+  const SELLABLE_MATCHES = EventListQuery.parse({
+    sport: 'football',
+    filter: 'upcoming',
+    startsWithinHours: 48,
+    limit: 100,
+  });
+  app.get('/shop/desk/matches', async (request): Promise<EventListResponse> => {
+    requireDeskStaff(request);
+    return listEvents(deps.db, SELLABLE_MATCHES, deps.clock(), {
+      factoryMarkets: deps.config.features.factoryMarkets,
+    });
+  });
+
   app.get('/shop/desk/tickets', async (request) => {
     const staff = requireDeskStaff(request);
     const shift = await getOpenShift(deps.db, staff.id);
@@ -705,4 +731,94 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     if (row === null) throw notFound('Ticket');
     return wire(ShopTicketResponse, { ticket: await viewOf(row), replayed: false });
   });
+
+  // The owner's own cashiers (agent-shops.md, small gap after phase 5): the owner adds a cashier to
+  // one of their shops and blocks or unblocks them. Never another agent's people, never a role
+  // other than cashier; an admin still approves each device.
+  const ownerAgent = async (request: FastifyRequest) => {
+    const staff = requireShopStaff(request);
+    if (staff.role !== 'agent_owner') throw forbidden('owner_only', 'This is for agent owners.');
+    if (staff.passwordChangeRequired) {
+      throw forbidden(
+        'password_change_required',
+        'Change the password you were given before using the shop app.',
+      );
+    }
+    const agent = await getOwnerAgent(deps.db, staff.id);
+    if (agent === null) throw unauthorized('Sign in to the shop app.');
+    return { staff, agent };
+  };
+  const ownerCashier = async (agentId: string, staffId: string) => {
+    const cashier = (await listAgentCashiers(deps.db, agentId)).find((c) => c.staffId === staffId);
+    if (cashier === undefined) throw notFound('Cashier');
+    return cashier;
+  };
+  const ownerStaffLimit = app.createRateLimit({
+    ...authLimits.staffLoginPerEmail,
+    keyGenerator: (request) => `shop-owner-staff|${requireShopStaff(request).id}`,
+  });
+
+  app.post(
+    '/shop/owner/cashiers',
+    {
+      preHandler: async (request: FastifyRequest, reply: FastifyReply) => {
+        await enforceLimit(ownerStaffLimit, request, reply);
+      },
+    },
+    async (request, reply) => {
+      const { staff, agent } = await ownerAgent(request);
+      const input = parseInput(ShopOwnerCreateCashierRequest, request.body);
+      const shop = await getShop(deps.db, input.shopId);
+      if (shop === null || shop.agentId !== agent.id) throw notFound('Shop');
+      const { user } = await createStaffUser(authDeps, {
+        email: input.email,
+        displayName: input.displayName,
+        role: 'cashier',
+        password: input.password,
+        phone: input.phone,
+        actor: { type: 'admin', adminId: staff.id, ip: request.ip },
+        inTransaction: async (tx, row) => {
+          await assignStaffShop(tx, {
+            staffId: row.id,
+            shopId: shop.id,
+            adminId: staff.id,
+            now: deps.clock(),
+            ip: request.ip,
+          });
+        },
+      });
+      reply.code(201);
+      return wire(ShopOwnerCashierResponse, { cashier: await ownerCashier(agent.id, user.id) });
+    },
+  );
+
+  for (const [path, disabled] of [
+    ['block', true],
+    ['unblock', false],
+  ] as const) {
+    app.post<IdParams>(`/shop/owner/cashiers/:id/${path}`, async (request) => {
+      const { staff, agent } = await ownerAgent(request);
+      const cashierId = parseUuid(request.params.id, 'Cashier');
+      const cashier = await ownerCashier(agent.id, cashierId);
+      if (
+        !disabled &&
+        cashier.disabledAt !== null &&
+        (await staffBlockedBy(deps.db, cashierId)) !== staff.id
+      ) {
+        throw forbidden(
+          'blocked_by_head_office',
+          'Head office blocked this cashier: only head office can unblock them.',
+        );
+      }
+      await inTx(deps, (tx) =>
+        setStaffDisabled(tx, {
+          adminUserId: cashierId,
+          disabled,
+          actor: { type: 'admin', adminId: staff.id, ip: request.ip },
+          now: deps.clock(),
+        }),
+      );
+      return wire(ShopOwnerCashierResponse, { cashier: await ownerCashier(agent.id, cashierId) });
+    });
+  }
 }

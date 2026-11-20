@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { birr } from '@vamos/core';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assignStaffShop, createShop, openShift } from '../src/cashier/index';
 import {
@@ -9,14 +10,17 @@ import {
   decideAgentTopup,
   hashDeviceSecret,
   listRetailAlerts,
+  loadRetailAlertRules,
   recordAgentTopup,
   requestShopDevice,
   RETAIL_ALERT_RULES,
+  RETAIL_ALERT_SETTING_KEY,
   scanRetailAlerts,
   sellRetailTicket,
+  setRetailAlertThresholds,
   type RetailAlertRules,
 } from '../src/retail/index';
-import { adminUsers } from '../src/schema/index';
+import { adminUsers, auditLog, settings as settingsTable } from '../src/schema/index';
 import type { CatalogIds } from '../src/catalog/index';
 import type { GameSettings } from '../src/settings/index';
 import { createBettingDatabase, createEvent, type TestDb } from './betting-fixtures';
@@ -208,5 +212,45 @@ describe('retail alerts', () => {
     expect(open.some((a) => a.id === low!.id)).toBe(false);
     const all = await listRetailAlerts(handle.db, { open: false, limit: 500 });
     expect(all.some((a) => a.id === low!.id)).toBe(true);
+  });
+
+  it("use an admin's thresholds over the defaults; a malformed setting keeps them", async () => {
+    expect(await loadRetailAlertRules(handle.db)).toEqual(RETAIL_ALERT_RULES);
+    await expect(
+      handle.db.transaction((tx) =>
+        setRetailAlertThresholds(tx, {
+          bigWin: 0n,
+          lowBalance: 1n,
+          adminId: admin,
+          now: new Date(),
+        }),
+      ),
+    ).rejects.toThrow(RangeError);
+
+    const set = await handle.db.transaction((tx) =>
+      setRetailAlertThresholds(tx, {
+        bigWin: birr(250_000),
+        lowBalance: birr(2_500),
+        adminId: admin,
+        now: new Date(),
+      }),
+    );
+    expect(set).toEqual({ ...RETAIL_ALERT_RULES, bigWin: birr(250_000), lowBalance: birr(2_500) });
+    expect(await loadRetailAlertRules(handle.db)).toEqual(set);
+    const audits = await handle.db
+      .select({ metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.action, 'retail.alert_thresholds_set'));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.metadata).toMatchObject({
+      before: { bigWin: RETAIL_ALERT_RULES.bigWin.toString() },
+      after: { bigWin: '25000000', lowBalance: '250000' },
+    });
+
+    await handle.db
+      .update(settingsTable)
+      .set({ value: { bigWin: '-5', lowBalance: 'lots' } })
+      .where(eq(settingsTable.key, RETAIL_ALERT_SETTING_KEY));
+    expect(await loadRetailAlertRules(handle.db)).toEqual(RETAIL_ALERT_RULES);
   });
 });

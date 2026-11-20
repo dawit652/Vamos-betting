@@ -153,7 +153,12 @@ export const TEXT = {
     booking_code_not_found: 'No booking code like that.',
     booking_code_expired: 'This booking code has expired.',
   } as Readonly<Record<string, string>>,
-  matchesListSoon: 'Picking from the match list is not built yet: use Game ID or a booking code.',
+  matchesTitle: 'Matches · ጨዋታዎች',
+  matchesSearch: 'Search a team',
+  matchesLoading: 'Loading matches…',
+  matchesNone: 'No upcoming matches.',
+  matchesShowMore: 'Show more',
+  matchesNote: 'Prematch football in the next 48 hours. Started matches are not listed.',
   slipTitle: 'Ticket · ትኬት',
   slipEmpty: 'No matches yet.',
   legRemove: 'Remove',
@@ -213,6 +218,8 @@ export const TEXT = {
   ticketNetPay: 'Net pay',
   ticketFooter:
     'Ticket pays whoever holds it. Prematch only. Paid at the shop that sold it. Unpaid winning tickets expire.',
+  // Amharic: a native speaker still has to review this wording.
+  ticketFooterAm: 'ትኬቱ ለያዘው ሰው ይከፈላል። ከጨዋታ በፊት ብቻ። በሸጠው ሱቅ ይከፈላል። ያልተከፈሉ አሸናፊ ትኬቶች ጊዜያቸው ያልፋል።',
   ticketErrors: {
     ticket_cancelled: 'This ticket is cancelled.',
     cancel_window_passed:
@@ -259,6 +266,8 @@ export const TEXT = {
   payoutSlipPaid: 'Paid',
   payoutSlipAmount: 'Amount paid',
   payoutSlipReceived: 'Received by the holder',
+  // Amharic: a native speaker still has to review this wording.
+  payoutSlipReceivedAm: 'በያዡ ተቀብሏል',
   payoutSlipPrint: 'Print · አትም',
   payoutSlipFooter: 'Payout of a winning ticket. Keep this slip with the ticket.',
 
@@ -306,6 +315,26 @@ export const TEXT = {
     revoked: 'Revoked',
   } as Readonly<Record<string, string>>,
   noneYet: 'None yet.',
+  ownerAddCashier: 'Add a cashier · ገንዘብ ተቀባይ ጨምር',
+  ownerAddCashierNote:
+    'The cashier changes this password at the first sign-in and can sign in only on a device that an admin approves.',
+  ownerCashierShop: 'Shop',
+  ownerCashierName: 'Name',
+  ownerCashierEmail: 'Email',
+  ownerCashierPhone: 'Phone',
+  ownerCashierPassword: 'Password (12 characters or more)',
+  ownerShowPassword: 'Show password',
+  ownerCashierAdd: 'Add cashier',
+  ownerCashierAdded: 'Cashier added.',
+  ownerNeedShop: 'Add a shop first: the back office adds shops.',
+  ownerBlock: 'Block',
+  ownerUnblock: 'Unblock',
+  ownerBlockConfirm: (name: string) => `Block ${name}? They cannot sign in until unblocked.`,
+  ownerUnblockConfirm: (name: string) => `Unblock ${name}?`,
+  ownerCashierErrors: {
+    staff_email_taken: 'This email already has an account.',
+    weak_password: 'The password is too weak. Use 12 characters or more that are hard to guess.',
+  } as Readonly<Record<string, string>>,
   ownerStatements: 'Weekly statements · ሳምንታዊ መግለጫ',
   ownerStatementsNote:
     'Weeks run Monday to Monday. Commission is paid by Nahubet outside this app.',

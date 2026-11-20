@@ -203,7 +203,11 @@ Build in this order; each step is committed and pushed on its own.
    owners never sign in to the back office; an owner's shop session has no device and works while
    the agent is not blocked; `GET /shop/owner` (their agent, shops, cashiers, devices); the desk
    refuses owners (`cashier_only`); the Staff screen cannot give the role and it never changes
-   (`owner_role_fixed`). Not built yet: owners adding or blocking their own cashiers (admins do it).
+   (`owner_role_fixed`). **Built 20 Nov:** owners add a cashier to one of their shops and block or
+   unblock their own cashiers on the owner page (`POST /shop/owner/cashiers`,
+   `/shop/owner/cashiers/:id/block|unblock`; never another agent's; blocking ends the cashier's
+   sessions; an owner unblocks only a cashier the owner blocked, head office's blocks stay with
+   head office (`blocked_by_head_office`); e2e `e2e/tests/shop-owner-cashiers.spec.ts`).
    The original design follows. Migration 0065: `ALTER TYPE admin_role ADD VALUE 'agent_owner'` and
    `agents.owner_staff_id uuid NULL REFERENCES admin_users(id)` (one owner account per agent, unique).
    `POST /admin/agents/:id/owner-account {email}` (agents.manage) calls `createStaffUser` with role
@@ -432,9 +436,10 @@ before printing with "Remove all started" and "Accept new odds", `/ticket/[id]` 
 shop's paper width with the Code128 barcode (`packages/core/src/code128.ts`,
 `apps/shop/src/components/barcode.tsx`), cancel while the window is open, the shift's tickets on
 the desk; back office: the "Ticket limits" card on the agent page; e2e
-`e2e/tests/shop-tickets.spec.ts`). **Not built:** picking matches from a list on the sell screen
-(Game ID and booking codes cover selling); the printed footer is English only (no Amharic rules
-text yet). **Phase 3 is complete apart from those two.**
+`e2e/tests/shop-tickets.spec.ts`). **Added 20 Nov:** the sell screen's match list (upcoming
+football of the next 48 hours from `GET /shop/desk/matches`, search by team, a pick adds the leg)
+and the printed footer in Amharic too (a native speaker still has to review the wording).
+**Phase 3 is complete.**
 
 **Step 2, API (as designed):** `/shop/desk/tickets/check` (each leg's state: started or suspended in red,
 changed odds), `POST /shop/desk/tickets` (sell, idempotency key), `GET /shop/desk/tickets/:id`,
@@ -558,8 +563,11 @@ posting. Weeks are Monday 00:00 to Monday 00:00, Addis Ababa time (UTC+3), like 
 Build order: 1, 2, 3, 4; each step committed with its tests. **Built 20 Nov:** the backend (the
 first account's steps 1-4: `ae65e0d`, `683dc51`, `7de5bc7`, `12c1bbe`) and the screens (back
 office `/statements`, `/retail-monitor`, `/retail-alerts`, the agent page's weekly statements, the
-owner's statements in the shop app; e2e `e2e/tests/agent-statements.spec.ts`). The alert
-thresholds are constants for now (ETB 100,000 big win, ETB 1,000 low balance).
+owner's statements in the shop app; e2e `e2e/tests/agent-statements.spec.ts`). The big-win and
+low-balance thresholds (defaults ETB 100,000 and ETB 1,000) are settings since 20 Nov: settings
+key `retail_alerts`, `GET`/`PUT /admin/retail/alert-thresholds` (agents.manage, audited), the form
+on `/retail-alerts`; the worker reads them on every scan. The HQ payout approval has its own e2e
+(`e2e/tests/shop-payout-approval.spec.ts`).
 
 ## Defaults chosen here (all adjustable by an admin)
 

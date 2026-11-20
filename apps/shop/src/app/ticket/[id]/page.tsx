@@ -229,6 +229,9 @@ function Ticket() {
         <Barcode text={ticket.number} />
         <hr />
         <div className="small">{TEXT.ticketFooter}</div>
+        <div className="small" lang="am">
+          {TEXT.ticketFooterAm}
+        </div>
       </div>
     </div>
   );

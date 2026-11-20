@@ -3,6 +3,7 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { domainNotFound } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
+import { settings } from '../schema/platform';
 import { retailAlerts } from '../schema/retail-alerts';
 
 /**
@@ -289,4 +290,69 @@ export async function acknowledgeRetailAlert(
     ip: input.ip ?? null,
   });
   return after;
+}
+
+/** `settings.key` of the thresholds an admin can change (big win, low balance). */
+export const RETAIL_ALERT_SETTING_KEY = 'retail_alerts';
+
+const SANTIM_TEXT = /^\d{1,15}$/;
+
+/**
+ * The scan's rules with the admin's thresholds (settings `retail_alerts`: `bigWin`, `lowBalance`,
+ * santim strings) over RETAIL_ALERT_RULES. A missing or malformed value keeps the default.
+ */
+export async function loadRetailAlertRules(exec: DbExecutor): Promise<RetailAlertRules> {
+  const [row] = await exec
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, RETAIL_ALERT_SETTING_KEY))
+    .limit(1);
+  const value = (row?.value ?? {}) as Record<string, unknown>;
+  const santim = (raw: unknown, fallback: bigint): bigint =>
+    typeof raw === 'string' && SANTIM_TEXT.test(raw) && BigInt(raw) > 0n ? BigInt(raw) : fallback;
+  return {
+    ...RETAIL_ALERT_RULES,
+    bigWin: santim(value.bigWin, RETAIL_ALERT_RULES.bigWin),
+    lowBalance: santim(value.lowBalance, RETAIL_ALERT_RULES.lowBalance),
+  };
+}
+
+/**
+ * Sets the thresholds (an admin, agents.manage): both above zero (RangeError otherwise). Audited
+ * with before and after.
+ */
+export async function setRetailAlertThresholds(
+  tx: DbTransaction,
+  input: { bigWin: bigint; lowBalance: bigint; adminId: string; now: Date; ip?: string | null },
+): Promise<RetailAlertRules> {
+  if (input.bigWin <= 0n || input.lowBalance <= 0n) {
+    throw new RangeError('the thresholds must be above zero');
+  }
+  const before = await loadRetailAlertRules(tx);
+  const value = { bigWin: input.bigWin.toString(), lowBalance: input.lowBalance.toString() };
+  await tx
+    .insert(settings)
+    .values({
+      key: RETAIL_ALERT_SETTING_KEY,
+      value,
+      updatedAt: input.now,
+      updatedBy: input.adminId,
+    })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value, updatedAt: input.now, updatedBy: input.adminId },
+    });
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.adminId,
+    action: 'retail.alert_thresholds_set',
+    targetType: 'setting',
+    targetId: RETAIL_ALERT_SETTING_KEY,
+    metadata: {
+      before: { bigWin: before.bigWin, lowBalance: before.lowBalance },
+      after: value,
+    },
+    ip: input.ip ?? null,
+  });
+  return loadRetailAlertRules(tx);
 }

@@ -1,6 +1,8 @@
 'use client';
 
 import type {
+  EventListResponse,
+  EventSummary,
   ShopBookingResponse,
   ShopDeskResponse,
   ShopPicksResponse,
@@ -15,7 +17,8 @@ import { useFetch } from '@/components/hooks';
 import { api } from '@/lib/api';
 import { describeError } from '@/lib/errors';
 import { positiveCashToSantim } from '@/lib/forms';
-import { formatEtb } from '@/lib/format';
+import { formatDateTime, formatEtb } from '@/lib/format';
+import { filterMatchesByTeam, MATCHES_PAGE, sellableMatches } from '@/lib/matches';
 import { TEXT } from '@/lib/text';
 import {
   formatOddsMilli,
@@ -201,7 +204,7 @@ function Seller({ shiftId }: { shiftId: string }) {
       <h1>{TEXT.sellTitle}</h1>
       <AddByGame onAdd={addLegs} />
       <AddByBooking onAdd={addLegs} />
-      <p className="muted small">{TEXT.matchesListSoon}</p>
+      <MatchesPanel onAdd={addLegs} />
 
       <section className="card" aria-labelledby="slip">
         <h2 id="slip">{TEXT.slipTitle}</h2>
@@ -514,5 +517,88 @@ function AddByBooking({ onAdd }: { onAdd: (legs: SlipLeg[]) => void }) {
         </button>
       </form>
     </section>
+  );
+}
+
+/** Upcoming prematch football (the next 48 hours): a pick button adds that selection. */
+function MatchesPanel({ onAdd }: { onAdd: (legs: SlipLeg[]) => void }) {
+  const list = useFetch<EventListResponse>('/shop/desk/matches');
+  const [search, setSearch] = useState('');
+  const [shown, setShown] = useState(MATCHES_PAGE);
+  // Read once per load: a list left open is re-filtered by the check, which refuses started matches.
+  const [now] = useState(() => Date.now());
+  const matches = filterMatchesByTeam(sellableMatches(list.data?.items ?? [], now), search);
+
+  return (
+    <section className="card" aria-labelledby="matches" data-testid="matches-panel">
+      <h2 id="matches">{TEXT.matchesTitle}</h2>
+      <p className="muted small">{TEXT.matchesNote}</p>
+      <label htmlFor="matches-search">
+        {TEXT.matchesSearch}
+        <input
+          id="matches-search"
+          data-testid="matches-search"
+          autoComplete="off"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setShown(MATCHES_PAGE);
+          }}
+        />
+      </label>
+      {list.error !== null && (
+        <p className="error" role="alert">
+          {list.error}
+        </p>
+      )}
+      {list.data === null && list.error === null && (
+        <p className="muted" role="status">
+          {TEXT.matchesLoading}
+        </p>
+      )}
+      {list.data !== null && matches.length === 0 && <p className="muted">{TEXT.matchesNone}</p>}
+      <ul className="slip">
+        {matches.slice(0, shown).map((e) => (
+          <MatchRow key={e.id} event={e} onAdd={onAdd} />
+        ))}
+      </ul>
+      {matches.length > shown && (
+        <button
+          type="button"
+          data-testid="matches-more"
+          onClick={() => setShown(shown + MATCHES_PAGE)}
+        >
+          {TEXT.matchesShowMore}
+        </button>
+      )}
+    </section>
+  );
+}
+
+function MatchRow({ event, onAdd }: { event: EventSummary; onAdd: (legs: SlipLeg[]) => void }) {
+  const picks = (event.mainMarket?.selections ?? []).filter((s) => s.open);
+  return (
+    <li className="slip-leg" data-testid="match-row">
+      <div className="muted small">
+        {event.competition.name.en} · #{event.gameId} · {formatDateTime(event.startTime)}
+      </div>
+      <div>
+        <strong>
+          {event.home.name.en} - {event.away.name.en}
+        </strong>
+      </div>
+      <div className="row">
+        {picks.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            data-testid="match-pick"
+            onClick={() => onAdd([{ selectionId: s.id, oddsMilli: s.oddsMilli }])}
+          >
+            {s.code} · {formatOddsMilli(s.oddsMilli)}
+          </button>
+        ))}
+      </div>
+    </li>
   );
 }

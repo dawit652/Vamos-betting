@@ -407,3 +407,10 @@ export type RetailAlertListResponse = z.infer<typeof RetailAlertListResponse>;
 /** POST /admin/retail/alerts/:id/acknowledge (agents.view): seen by staff (audited). */
 export const RetailAlertResponse = z.object({ alert: RetailAlertView });
 export type RetailAlertResponse = z.infer<typeof RetailAlertResponse>;
+
+/**
+ * GET|PUT /admin/retail/alert-thresholds (read: agents.view; set: agents.manage): when a big win
+ * and a low agent balance raise an alert (santim strings, above zero).
+ */
+export const RetailAlertThresholds = z.object({ bigWin: Santim, lowBalance: Santim }).strict();
+export type RetailAlertThresholds = z.infer<typeof RetailAlertThresholds>;

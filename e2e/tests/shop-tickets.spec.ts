@@ -154,6 +154,17 @@ test('a cashier sells a ticket by Game ID, prints it with a barcode and cancels 
       .click();
     await expect(shop.getByTestId('sell-page')).toBeVisible();
 
+    // The match list: search the home team; a pick adds that leg (removed again here).
+    const panel = shop.getByTestId('matches-panel');
+    await panel.getByTestId('matches-search').fill(event!.home.name.en);
+    const listed = panel.getByTestId('match-row').filter({ hasText: `#${event!.gameId}` });
+    await expect(listed).toHaveCount(1);
+    await listed.getByTestId('match-pick').first().click();
+    await expect(shop.getByTestId('slip-leg')).toHaveCount(1);
+    await expect(shop.getByTestId('slip-leg')).toContainText(event!.gameId);
+    await shop.getByTestId('leg-remove').click();
+    await expect(shop.getByTestId('slip-leg')).toHaveCount(0);
+
     // Build the ticket from a Game ID and the pick 1, check it, sell it.
     await shop.getByTestId('pick-game').fill(event!.gameId);
     await shop.getByTestId('pick-code').fill('1');

@@ -16,6 +16,7 @@ import {
   AgentTopupResponse,
   DecideAgentTopupRequest,
   RecordAgentTopupRequest,
+  RetailAlertThresholds,
   RetailPayoutListResponse,
   ShopTicketCancelRequest,
   ShopTicketResponse,
@@ -32,6 +33,8 @@ import {
 } from '@vamos/contracts';
 import { parseRetailTicketLimits, serializeRetailTicketLimits } from '@vamos/core';
 import {
+  loadRetailAlertRules,
+  setRetailAlertThresholds,
   decideRetailPayout,
   listWaitingRetailPayouts,
   agentTicketLimits,
@@ -591,6 +594,37 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
         }),
       );
       return wire(RetailAlertResponse, { alert });
+    },
+  );
+
+  // The thresholds of two shop alerts (big win, low agent balance), changed by an admin.
+  app.get('/admin/retail/alert-thresholds', { config: { staff: 'agents.view' } }, async () => {
+    const rules = await loadRetailAlertRules(deps.db);
+    return wire(RetailAlertThresholds, { bigWin: rules.bigWin, lowBalance: rules.lowBalance });
+  });
+
+  app.put(
+    '/admin/retail/alert-thresholds',
+    { config: { staff: 'agents.manage' } },
+    async (request) => {
+      const input = parseInput(RetailAlertThresholds, request.body);
+      const actor = staffActor(request);
+      try {
+        const rules = await inTx(deps, (tx) =>
+          setRetailAlertThresholds(tx, {
+            bigWin: BigInt(input.bigWin),
+            lowBalance: BigInt(input.lowBalance),
+            adminId: actor.adminId,
+            now: deps.clock(),
+            ip: actor.ip ?? null,
+          }),
+        );
+        return wire(RetailAlertThresholds, { bigWin: rules.bigWin, lowBalance: rules.lowBalance });
+      } catch (error) {
+        if (error instanceof RangeError)
+          throw badRequest('alert_thresholds_invalid', error.message);
+        throw error;
+      }
     },
   );
 }

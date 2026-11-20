@@ -1,4 +1,4 @@
-import { scanRetailAlerts } from '@vamos/db';
+import { loadRetailAlertRules, scanRetailAlerts } from '@vamos/db';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import type { TaskContext } from './context';
 
@@ -11,7 +11,10 @@ export const RETAIL_ALERTS_INTERVAL_MS = 5 * 60_000;
  * repository's alarm convention; staff acknowledge them in the back office.
  */
 export async function runRetailAlerts(ctx: TaskContext): Promise<number> {
-  const raised = await ctx.db.transaction((tx) => scanRetailAlerts(tx, ctx.clock()));
+  // The admin's thresholds (big win, low balance) over the defaults.
+  const raised = await ctx.db.transaction(async (tx) =>
+    scanRetailAlerts(tx, ctx.clock(), await loadRetailAlertRules(tx)),
+  );
   for (const alert of raised) {
     ctx.logger.error(
       {

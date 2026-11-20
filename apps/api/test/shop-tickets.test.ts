@@ -5,6 +5,7 @@ import {
   ApiErrorSchema,
   CashierShopResponse,
   CreateStaffResponse,
+  EventListResponse,
   SHOP_CSRF_HEADER,
   ShopDeskResponse,
   ShopDeviceAskResponse,
@@ -190,6 +191,19 @@ const sell = (desk: Desk, stake: string, key = randomUUID()) =>
   });
 
 describe('shop tickets through the shop app', () => {
+  it("lists the next 48 hours' upcoming matches to a signed-in cashier only", async () => {
+    const { desk } = await agentDesk('Ticket Matches Agent', '100000');
+    const listed = await asDesk(desk, 'GET', '/shop/desk/matches');
+    expect(listed.statusCode, listed.body).toBe(200);
+    const { items } = EventListResponse.parse(listed.json());
+    expect(items.map((e) => e.id)).toContain(match.eventId);
+    expect(items.every((e) => e.status === 'scheduled')).toBe(true);
+    expect(items.find((e) => e.id === match.eventId)?.mainMarket?.selections.length).toBe(3);
+
+    const anonymous = await ctx.app.inject({ method: 'GET', url: '/shop/desk/matches' });
+    expect(anonymous.statusCode).toBe(401);
+  });
+
   it('builds by Game ID and pick, checks before printing, sells, lists, prints and cancels', async () => {
     const { desk } = await agentDesk('Ticket Route Agent', '500000');
 

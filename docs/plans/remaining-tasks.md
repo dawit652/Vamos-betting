@@ -3,7 +3,8 @@
 **Start here (20 Nov):** the newest work is on `claude/happy-keller-i7cvrh` (it contains all of
 `claude/eager-cerf-ox9vkq`, `166ceb2`). A new session given another branch name starts from the
 newer of the two. **Phases 0-5 of the agent shops are built, pushed, not deployed** (phase 5's
-screens built 20 Nov). Next: the small gaps listed under item 0, step 5. It holds the server's own
+screens and the small gaps closed 20 Nov). Next: phase 6 once the owner picks a POS model, or what
+the owner asks. It holds the server's own
 branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
@@ -46,8 +47,7 @@ alarms stay log lines and panels. Live after the next deploy.
    - **Next, in order:**
      1. Agent owner accounts: **built and pushed 19 Nov** (migration `0067_agent_owners`; database
         `e447fe4`, API `0217525`, pages `24b1562`, `fd707ae`; e2e `e2e/tests/shop-owner.spec.ts`; full
-        checks passed). Still open, small: owners adding and blocking their own cashiers (today
-        admins do it on the agent page).
+        checks passed). Owners add and block their own cashiers too (20 Nov).
      2. Switching the shop app on in production, with the owner (`docs/deployment.md`, "Shop
         app"): build the shop image once (never built: no docker daemon in the cloud container),
         add `shop` to `SERVICES` in `infra/scripts/deploy-full.sh`.
@@ -64,8 +64,8 @@ alarms stay log lines and panels. Live after the next deploy.
         office's desk (plan, "Phase 2 design", status). **Phase 2 is complete.**
      4. **Phase 3, selling tickets: built 20 Nov** (plan, "Phase 3 design"; steps 1-3: database,
         API, the shop app's sell screen and printed ticket with a Code128 barcode, cancel, the
-        admin's ticket limits; e2e `e2e/tests/shop-tickets.spec.ts`). Not built: picking matches
-        from a list (Game ID and booking codes work), the Amharic footer text.
+        admin's ticket limits; e2e `e2e/tests/shop-tickets.spec.ts`). The match list and the
+        Amharic footer added 20 Nov.
         **Phase 4, paying tickets: built 20 Nov** (plan, "Phase 4 design"; database, API, the
         shop app's pay screen and payout slip, the back office's waiting payouts with four eyes,
         the worker's hourly expiry task; e2e `e2e/tests/shop-payouts.spec.ts`). Phases 1-4 of the
@@ -75,10 +75,10 @@ alarms stay log lines and panels. Live after the next deploy.
         weekly statements, the owner's statements in the shop app), the live monitor (0073
         indexes; `/retail-monitor`, refreshed every 15 s), alerts (0074, worker `retail-alerts`;
         `/retail-alerts` with Acknowledge); e2e `e2e/tests/agent-statements.spec.ts`.
-        **Small gaps left:** agent owners adding and blocking their own cashiers; choosing
-        matches from a list on the Sell page; the ticket footer in Amharic; an e2e test of the
-        HQ payout approval; the retail alert thresholds as settings (fixed today: ETB 100,000 big
-        win, ETB 1,000 low balance). Then phase 6 (Android POS, once the owner picks a model).
+        **The small gaps are closed (20 Nov):** owners add and block their own cashiers; the
+        Sell page's match list (`GET /shop/desk/matches`); the Amharic ticket footer; an e2e of
+        the HQ payout approval; the alert thresholds as settings (`/retail-alerts` form). Next:
+        phase 6 (Android POS, once the owner picks a model).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
      rate, agent licensing with the regulator.
    - The mr-y request (Narobet game links) was declined on 19 Nov: it runs on the owner's own

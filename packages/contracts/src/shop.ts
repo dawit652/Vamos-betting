@@ -130,3 +130,24 @@ export const ShopOwnerResponse = z.object({
   devices: z.array(ShopDeviceView),
 });
 export type ShopOwnerResponse = z.infer<typeof ShopOwnerResponse>;
+
+/**
+ * POST /shop/owner/cashiers (agent owner): a cashier for one of the owner's own shops, with a
+ * password the owner chooses; the cashier replaces it at first sign-in, and signs in only on a
+ * device an admin approved. 409 `staff_email_taken`, 422 `weak_password`, 404 for another agent's
+ * shop.
+ */
+export const ShopOwnerCreateCashierRequest = z
+  .object({
+    shopId: z.uuid(),
+    email: z.string().trim().max(254),
+    displayName: z.string().trim().min(2).max(100),
+    phone: z.string().trim().min(9).max(20),
+    password: z.string().min(12).max(200),
+  })
+  .strict();
+export type ShopOwnerCreateCashierRequest = z.infer<typeof ShopOwnerCreateCashierRequest>;
+
+/** The created, blocked or unblocked cashier (POST /shop/owner/cashiers/:id/block | unblock). */
+export const ShopOwnerCashierResponse = z.object({ cashier: AgentCashierView });
+export type ShopOwnerCashierResponse = z.infer<typeof ShopOwnerCashierResponse>;
