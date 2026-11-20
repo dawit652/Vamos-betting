@@ -89,13 +89,13 @@ export const RECONCILIATION_CHECKS = [
   'house_stakes',
   'house_jackpot',
   'house_withdrawals_pending',
+  'retail_payable',
+  'retail_cash',
   'psp_movements',
   'psp_records',
   'psp_daily_totals',
   'sms_credits',
   'agent_cash_records',
-  'retail_payable',
-  'retail_cash',
 ] as const;
 export type ReconciliationCheck = (typeof RECONCILIATION_CHECKS)[number] | 'psp_statement';
 
