@@ -2,6 +2,28 @@
 
 Oct 27, 2026 · @Which Version Of Claude Are U
 
+## After a 5-hour limit or a restart: the token budget (owner's rule, read this first)
+
+The first reply after a limit reset, a restart or a summarised conversation costs as little as
+possible:
+
+1. **At most three cheap commands before answering:** `git status --short`,
+   `git log --oneline -3`, and the "Where we are" item below (or the first 15 lines of
+   `docs/plans/remaining-tasks.md`). Nothing else: no reading of code, plans, long docs or old
+   transcripts; trust the conversation summary and the handover.
+2. **Do only what the owner's message asks.** No new work of your own, no re-checking of finished
+   work (CI, tests, deploys already reported green), no restarting agents or background runs that
+   stopped at the limit.
+3. **No builds, e2e runs, full test suites, screenshots or agents** in that first reply. Later,
+   only when the next commit needs them: test what you change, the full checks once before a push.
+4. **Operations questions** (deploy, sign-in, server commands, settings): answer from
+   `docs/deployment.md` and `docs/runbooks/` with a targeted `grep`, not by reading code.
+5. **Short answers:** a few lines, no recap of earlier work, no long command output pasted back.
+6. **Cheapest model that fits** (see "Working with Claude Code"): Haiku (`quick-task`) for checks,
+   Sonnet (`routine-coder`) for routine edits, Opus only for money, security and design.
+7. **Lose nothing at a cut-off:** after every push, update "Where we are" in one or two lines, so
+   the next session starts from it.
+
 ## Start here (every session, to save tokens)
 
 1. Read only `docs/plans/remaining-tasks.md` (short), then the plan doc of the task you take. Do
@@ -11,21 +33,22 @@ Oct 27, 2026 · @Which Version Of Claude Are U
 3. One build and one e2e run per batch of changes; reuse a running stack (`e2e/scripts/stack.sh`).
 4. Short answers to the owner; never re-explain earlier work.
 5. Near the end of the 5-hour window: stop new work, commit and push, and update
-   `docs/plans/remaining-tasks.md` in a few lines. After a limit reset or a restart, do not resume
-   on your own: wait for the owner's next message.
+   `docs/plans/remaining-tasks.md` in a few lines. After a limit reset or a restart, follow "The
+   token budget" above and do not resume on your own: wait for the owner's next message.
 6. Always build on top of the server's branch: before every push,
    `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor FETCH_HEAD HEAD`
    must succeed (else merge it in first). Every plan in `docs/plans/` says so too.
 7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
    `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
-8. **Where we are** (owner's rule, 20 Nov 2026: update this item first every time a session starts
-   after a 5-hour limit, cheaply: `git log --oneline -3` and the first paragraph of
-   `docs/plans/remaining-tasks.md`, nothing else; no test runs, builds or e2e before the first
-   change). Now: newest branch `claude/happy-keller-i7cvrh` (contains `claude/eager-cerf-ox9vkq`);
-   agent shops phases 0-5 built and pushed, not deployed (migrations up to 0075), small gaps
-   closed 20 Nov; desk PIN reset redesigned 20 Nov (only the player's phone sets the PIN; off
-   until `CASHIER_PIN_RESET=on`); owner alerts only for what is important; next: phase 6 once the
-   owner picks a POS model, or what the owner asks.
+8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
+   **Deployed 20 Nov:** `1918eb6` (licensed mode, smoke test 13 passed; migrations up to 0075).
+   Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
+   `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if
+   it is ahead (`git fetch origin <other> && git merge --ff-only FETCH_HEAD`). Built: agent shops
+   phases 0-5 (the shop app is deployed but not switched on: `docs/deployment.md`, "Shop app"),
+   the desk PIN reset redesign (off until `CASHIER_PIN_RESET=on`), quieter owner alerts. Next:
+   switching the shop app on with the owner, phase 6 once the owner picks a POS model, or what the
+   owner asks.
 
 ## Overview
 
@@ -106,9 +129,5 @@ The account is on the Pro plan with a tight 5-hour limit, so always match the mo
 - Run a single short command yourself when that is cheaper than starting an agent.
 - At most two agents at a time; check usage between waves and stop starting new work near the 5-hour limit.
 - Agents never commit; the main session verifies (typecheck, lint, tests) and commits only when asked.
-- **After a 5-hour limit reset (owner's rule, 18 Nov 2026): start cheap.** The first task after the
-  limit must not burn tokens: no re-reading of the repository, the long plans or old transcripts;
-  read only `git status`, `git log --oneline -5` and the latest handover section, then continue the
-  one task in hand with the cheapest model that fits. Do not restart agents that stopped at the
-  limit, rerun full test suites or rebuild unless the next commit needs it, and start no new work
-  on your own: wait for the owner's next message.
+- **After a 5-hour limit reset:** follow "After a 5-hour limit or a restart: the token budget" at
+  the top of this file.
