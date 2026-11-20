@@ -1,4 +1,14 @@
 import {
+  ShopBookingResponse,
+  ShopPicksRequest,
+  ShopPicksResponse,
+  ShopSellTicketRequest,
+  ShopTicketCancelRequest,
+  ShopTicketCheckRequest,
+  ShopTicketCheckResponse,
+  ShopTicketListResponse,
+  ShopTicketPrintResponse,
+  ShopTicketResponse,
   CashDepositRequest,
   CashierPlayerQuery,
   CashReceiptPrintResponse,
@@ -15,7 +25,18 @@ import {
   ShopSessionResponse,
   ShopShiftResponse,
 } from '@vamos/contracts';
+import { parsePick, retailBetRules } from '@vamos/core';
 import {
+  agentTicketLimits,
+  cancelRetailTicket,
+  getRetailTicket,
+  listShiftTickets,
+  loadBookingCode,
+  loadGameSettings,
+  printRetailTicket,
+  quoteSlip,
+  resolveTextBetLegs,
+  sellRetailTicket,
   changeOwnStaffPassword,
   closeShift,
   getAgent,
@@ -42,7 +63,10 @@ import {
 } from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
-import { conflict, forbidden, parseInput, unauthorized } from '../../lib/errors';
+import { conflict, forbidden, notFound, parseInput, unauthorized } from '../../lib/errors';
+import { cachedGameSettings } from '../betting/service';
+import { quoteView } from '../betting/views';
+import { ticketView } from './ticket-views';
 import { enforceLimit } from '../../lib/rate-limits';
 import {
   clearShopCookie,
@@ -418,5 +442,203 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     const id = parseUuid(request.params.id, 'Receipt');
     const receipt = await deskReprint(deps, cashier(request), id);
     return wire(CashReceiptResponse, { receipt: receiptView(receipt) });
+  });
+
+  // Tickets at the counter (docs/plans/agent-shops.md phase 3): the same bet placement and
+  // settlement as online, the stake from the agent's balance, prematch only.
+  const ticketLimit = deskLimit('cashier-ticket', 120);
+  const ticketRow = async (staff: StaffPrincipal, id: string) => {
+    const row = await getRetailTicket(deps.db, parseUuid(id, 'Ticket'));
+    if (row === null || row.staffId !== staff.id) throw notFound('Ticket');
+    return row;
+  };
+  const viewOf = async (row: NonNullable<Awaited<ReturnType<typeof getRetailTicket>>>) =>
+    ticketView(deps.db, row, {
+      cashOut: (await cachedGameSettings(deps)).cashOut,
+      now: deps.clock(),
+    });
+
+  app.post('/shop/desk/tickets/check', ticketLimit, async (request) => {
+    const staff = requireDeskStaff(request);
+    const input = parseInput(ShopTicketCheckRequest, request.body);
+    const shop = await deskShop(deps.db, staff);
+    const agent = await getAgent(deps.db, shop.agentId);
+    if (agent === null) throw notFound('Agent');
+    const settings = await cachedGameSettings(deps);
+    const now = deps.clock();
+    const slip = await quoteSlip(deps.db, {
+      legs: input.legs.map((leg) => ({
+        selectionId: leg.selectionId,
+        ...(leg.oddsMilli === undefined ? {} : { oddsMilli: leg.oddsMilli }),
+      })),
+      stake: BigInt(input.stake),
+      settings: {
+        ...settings,
+        betRules: retailBetRules(settings.betRules, agentTicketLimits(agent, settings.betRules)),
+      },
+      now,
+    });
+    // A shop sells prematch only: a live match, or one past its kick-off, is to be removed.
+    for (const leg of slip.legs) {
+      const selection = leg.selection;
+      if (
+        leg.available &&
+        selection !== null &&
+        (leg.isLive || selection.startTime.getTime() <= now.getTime())
+      ) {
+        leg.available = false;
+        leg.reason = 'event_started';
+      }
+    }
+    return wire(ShopTicketCheckResponse, quoteView(slip));
+  });
+
+  app.post('/shop/desk/tickets', ticketLimit, async (request) => {
+    const staff = requireDeskStaff(request);
+    const input = parseInput(ShopSellTicketRequest, request.body);
+    await checkShiftShop(staff, input.shiftId);
+    const { ticket, replayed } = await inTx(deps, async (tx) =>
+      sellRetailTicket(tx, {
+        staffId: staff.id,
+        shiftId: input.shiftId,
+        legs: input.legs,
+        stake: BigInt(input.stake),
+        policy: input.oddsChangePolicy,
+        customerPhone: input.customerPhone ?? null,
+        idempotencyKey: input.idempotencyKey,
+        settings: await loadGameSettings(tx),
+        now: deps.clock(),
+        randomBytes: deps.randomBytes,
+        ip: request.ip,
+      }),
+    );
+    const row = await getRetailTicket(deps.db, ticket.id);
+    if (row === null) throw notFound('Ticket');
+    return wire(ShopTicketResponse, { ticket: await viewOf(row), replayed });
+  });
+
+  app.get('/shop/desk/tickets', async (request) => {
+    const staff = requireDeskStaff(request);
+    const shift = await getOpenShift(deps.db, staff.id);
+    const tickets = shift === null ? [] : await listShiftTickets(deps.db, shift.id);
+    return wire(ShopTicketListResponse, {
+      tickets: tickets.map((ticket) => ({
+        id: ticket.id,
+        number: ticket.number,
+        status: ticket.status,
+        stake: ticket.stake,
+        soldAt: ticket.soldAt,
+      })),
+    });
+  });
+
+  app.get<IdParams>('/shop/desk/tickets/:id', async (request) => {
+    const staff = requireDeskStaff(request);
+    return wire(ShopTicketResponse, {
+      ticket: await viewOf(await ticketRow(staff, request.params.id)),
+      replayed: false,
+    });
+  });
+
+  app.post<IdParams>('/shop/desk/tickets/:id/print', async (request) => {
+    const staff = requireDeskStaff(request);
+    const id = parseUuid(request.params.id, 'Ticket');
+    const { copy } = await inTx(deps, (tx) =>
+      printRetailTicket(tx, { ticketId: id, staffId: staff.id, now: deps.clock(), ip: request.ip }),
+    );
+    return wire(ShopTicketPrintResponse, {
+      ticket: await viewOf(await ticketRow(staff, id)),
+      copy,
+    });
+  });
+
+  app.post<IdParams>('/shop/desk/tickets/:id/cancel', async (request) => {
+    const staff = requireDeskStaff(request);
+    const id = parseUuid(request.params.id, 'Ticket');
+    const input = parseInput(ShopTicketCancelRequest, request.body ?? {});
+    await inTx(deps, (tx) =>
+      cancelRetailTicket(tx, {
+        ticketId: id,
+        actor: { staffId: staff.id, role: 'cashier' },
+        reason: input.reason ?? null,
+        now: deps.clock(),
+        ip: request.ip,
+      }),
+    );
+    return wire(ShopTicketResponse, {
+      ticket: await viewOf(await ticketRow(staff, id)),
+      replayed: false,
+    });
+  });
+
+  // Building a ticket: Game ID + pick (the SMS syntax), or a booking code made online.
+  app.post('/shop/desk/tickets/picks', ticketLimit, async (request) => {
+    requireDeskStaff(request);
+    const input = parseInput(ShopPicksRequest, request.body);
+    const now = deps.clock();
+    const legs = [];
+    for (const entry of input.picks) {
+      const pick = parsePick(entry.pick);
+      if (pick === null) {
+        legs.push({ ...entry, selectionId: null, oddsMilli: null, refusal: 'pick_not_offered' });
+        continue;
+      }
+      const resolved = await resolveTextBetLegs(deps.db, [{ gameId: entry.gameId, pick }], now);
+      if (!resolved.ok) {
+        legs.push({ ...entry, selectionId: null, oddsMilli: null, refusal: resolved.refusal.code });
+        continue;
+      }
+      const leg = resolved.legs[0]!;
+      legs.push({
+        ...entry,
+        selectionId: leg.selectionId,
+        oddsMilli: leg.oddsMilli,
+        // Shops sell prematch only.
+        refusal: leg.live ? 'event_started' : null,
+      });
+    }
+    return wire(ShopPicksResponse, { legs });
+  });
+
+  app.get<{ Params: { code: string } }>(
+    '/shop/desk/booking-codes/:code',
+    ticketLimit,
+    async (request) => {
+      requireDeskStaff(request);
+      const booking = await loadBookingCode(deps.db, request.params.code, deps.clock());
+      return wire(ShopBookingResponse, {
+        legs: booking.legs.flatMap((leg) =>
+          leg.currentOddsMilli === null
+            ? []
+            : [{ selectionId: leg.selectionId, oddsMilli: leg.currentOddsMilli }],
+        ),
+      });
+    },
+  );
+
+  // The agent's owner cancels a ticket of their shops after the cashier's window, before kick-off.
+  app.post<IdParams>('/shop/owner/tickets/:id/cancel', async (request) => {
+    const staff = requireShopStaff(request);
+    if (staff.role !== 'agent_owner') throw forbidden('owner_only', 'This is for agent owners.');
+    if (staff.passwordChangeRequired) {
+      throw forbidden(
+        'password_change_required',
+        'Change the password you were given before using the shop app.',
+      );
+    }
+    const id = parseUuid(request.params.id, 'Ticket');
+    const input = parseInput(ShopTicketCancelRequest, request.body ?? {});
+    await inTx(deps, (tx) =>
+      cancelRetailTicket(tx, {
+        ticketId: id,
+        actor: { staffId: staff.id, role: 'owner' },
+        reason: input.reason ?? null,
+        now: deps.clock(),
+        ip: request.ip,
+      }),
+    );
+    const row = await getRetailTicket(deps.db, id);
+    if (row === null) throw notFound('Ticket');
+    return wire(ShopTicketResponse, { ticket: await viewOf(row), replayed: false });
   });
 }

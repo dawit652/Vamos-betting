@@ -416,7 +416,18 @@ phase 3 on**, even though paying comes in phase 4; corrections reverse and repos
 counts as started at its kick-off or as soon as it is no longer scheduled (live early). Not done
 yet: the admin's settings screen for the global defaults (they are constants until step 2).
 
-**Step 2, API:** `/shop/desk/tickets/check` (each leg's state: started or suspended in red,
+**Step 2 built 20 Nov** (contracts `packages/contracts/src/retail-tickets.ts`; routes in
+`apps/api/src/modules/shop/routes.ts` and `admin/agents.ts`; views `shop/ticket-views.ts`; tests
+`apps/api/test/shop-tickets.test.ts`): `POST /shop/desk/tickets/check` (live or started matches
+come back unavailable with reason `event_started`), `/shop/desk/tickets/picks` (Game ID + pick),
+`GET /shop/desk/booking-codes/:code`, `POST /shop/desk/tickets` (sell), `GET /shop/desk/tickets`
+(the shift's) and `/:id` (own only), `/:id/print` (original once, then counted copies; never a
+cancelled one), `/:id/cancel`; `POST /shop/owner/tickets/:id/cancel`;
+`GET|PUT /admin/agents/:id/ticket-limits` (view: agents.view; set: agents.manage) and
+`POST /admin/retail-tickets/:id/cancel` (agents.manage). A ticket's bet view never offers a
+cash-out. **Next: step 3** (the shop app's sell screen and printed ticket).
+
+**Step 2, API (as designed):** `/shop/desk/tickets/check` (each leg's state: started or suspended in red,
 changed odds), `POST /shop/desk/tickets` (sell, idempotency key), `GET /shop/desk/tickets/:id`,
 `POST /shop/desk/tickets/:id/cancel`; building by Game ID + pick (`packages/core/src/textcommand.ts`
 `PICK_CODES`) and by booking code (`loadBookingCode`); the owner and admin cancel routes; an

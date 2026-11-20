@@ -59,8 +59,11 @@ site) posts instead of putting the password in the URL when its script has not l
         built 20 Nov** (database: a shop ticket is a bet of the agent's counter bettor, staked from
         its balance or HQ's retail cash, cancelled by the cashier within 5 minutes or the owner or
         an admin before kick-off, won into `house:retail_payable`; shift totals and reconciliation
-        count it). **Next: step 2** (the `/shop/desk/tickets` API), step 3 (sell screen, printed
-        ticket with barcode), step 4 (e2e). Then phase 4, paying tickets (money path).
+        count it). **Step 2 built 20 Nov** (the ticket API: check, picks, booking codes, sell,
+        list, view, print, cancel; owner and admin cancel; an admin's limits per agent; plan
+        "Phase 3 design"). **Next: step 3** (the shop app's sell screen and the printed ticket with
+        a Code128 barcode; a routine-coder task with a spec), then step 4 (e2e). Then phase 4,
+        paying tickets (money path).
      5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
      rate, agent licensing with the regulator.

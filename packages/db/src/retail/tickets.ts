@@ -7,21 +7,22 @@ import {
   resolveRetailTicketLimits,
   retailBetRules,
   retailCancelRefusal,
+  serializeRetailTicketLimits,
   toWire,
   type OddsChangePolicy,
   type RetailCancelRole,
 } from '@vamos/core';
-import { and, eq, gte, min, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, min, sql } from 'drizzle-orm';
 import { placeBet, type GameSettingsForBets, type SlipLegInput } from '../betting/place';
 import type { UserBet } from '../betting/types';
 import { assertShopOperates, getShop, lockOwnOpenShift, type ShopWithAgent } from '../cashier/desk';
 import { domainConflict, domainNotFound } from '../errors';
 import { postTransaction } from '../ledger/post';
-import type { AccountRef, DbTransaction } from '../ledger/types';
+import type { AccountRef, DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
 import { lockUser } from '../rg/limits';
-import { users } from '../schema/accounts';
+import { adminUsers, users } from '../schema/accounts';
 import { betLegs, bets } from '../schema/betting';
 import { events } from '../schema/catalog';
 import { agents } from '../schema/retail';
@@ -364,4 +365,108 @@ export async function cancelRetailTicket(
     payload: { ticketId: ticket.id, betId: bet.id, agentId: ticket.agentId, stake: ticket.stake },
   });
   return { ticket, changed: true };
+}
+
+/** A ticket with where it was sold and who sold it (the ticket's view and print). */
+export type RetailTicketRow = RetailTicket & {
+  shop: ShopWithAgent;
+  staffName: string;
+};
+
+/** A ticket by id with its shop and cashier, or null. */
+export async function getRetailTicket(
+  exec: DbExecutor,
+  ticketId: string,
+): Promise<RetailTicketRow | null> {
+  const [row] = await exec
+    .select({ ticket: retailTickets, staffName: adminUsers.displayName })
+    .from(retailTickets)
+    .innerJoin(adminUsers, eq(adminUsers.id, retailTickets.staffId))
+    .where(eq(retailTickets.id, ticketId))
+    .limit(1);
+  if (!row) return null;
+  const shop = await getShop(exec, row.ticket.shopId);
+  if (shop === null) return null;
+  return { ...row.ticket, shop, staffName: row.staffName };
+}
+
+/** A shift's tickets with their numbers (the bets' short ids), newest first. */
+export async function listShiftTickets(
+  exec: DbExecutor,
+  shiftId: string,
+): Promise<Array<RetailTicket & { number: string }>> {
+  const rows = await exec
+    .select({ ticket: retailTickets, number: bets.shortId })
+    .from(retailTickets)
+    .innerJoin(bets, eq(bets.id, retailTickets.betId))
+    .where(eq(retailTickets.shiftId, shiftId))
+    .orderBy(desc(retailTickets.soldAt), desc(retailTickets.id));
+  return rows.map((row) => ({ ...row.ticket, number: row.number }));
+}
+
+/**
+ * Sets an agent's ticket limits (an admin; agents.manage): the overrides replace the previous ones
+ * whole, validated (RangeError for anything malformed). Audited with before and after.
+ */
+export async function setAgentTicketLimits(
+  tx: DbTransaction,
+  input: { agentId: string; limits: unknown; adminId: string; now: Date; ip?: string | null },
+) {
+  const parsed = parseRetailTicketLimits(input.limits);
+  const [before] = await tx.select().from(agents).where(eq(agents.id, input.agentId)).for('update');
+  if (!before) throw domainNotFound('Agent');
+  const stored = serializeRetailTicketLimits(parsed);
+  const [agent] = await tx
+    .update(agents)
+    .set({ ticketLimits: stored, updatedAt: input.now })
+    .where(eq(agents.id, before.id))
+    .returning();
+  if (!agent) throw new Error('agent update returned no row');
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.adminId,
+    action: 'agent.ticket_limits_set',
+    targetType: 'agent',
+    targetId: agent.id,
+    metadata: { before: before.ticketLimits, after: stored },
+    ip: input.ip ?? null,
+  });
+  return agent;
+}
+
+/**
+ * Records a print of a ticket by the cashier who sold it (404 for anyone else): the first is the
+ * original, every later one a counted copy. A cancelled ticket is never printed (409
+ * `ticket_cancelled`). Audited.
+ */
+export async function printRetailTicket(
+  tx: DbTransaction,
+  input: { ticketId: string; staffId: string; now: Date; ip?: string | null },
+): Promise<{ ticket: RetailTicket; copy: boolean }> {
+  const [current] = await tx
+    .select()
+    .from(retailTickets)
+    .where(eq(retailTickets.id, input.ticketId))
+    .for('update');
+  if (!current || current.staffId !== input.staffId) throw domainNotFound('Ticket');
+  if (current.status === 'cancelled') {
+    throw domainConflict('ticket_cancelled', 'This ticket was cancelled: it is not printed.');
+  }
+  const copy = current.originalPrintedAt !== null;
+  const [ticket] = await tx
+    .update(retailTickets)
+    .set(copy ? { reprints: sql`${retailTickets.reprints} + 1` } : { originalPrintedAt: input.now })
+    .where(eq(retailTickets.id, current.id))
+    .returning();
+  if (!ticket) throw new Error('shop ticket update returned no row');
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.staffId,
+    action: copy ? 'retail.ticket_reprinted' : 'retail.ticket_printed',
+    targetType: 'retail_ticket',
+    targetId: ticket.id,
+    metadata: { reprints: ticket.reprints },
+    ip: input.ip ?? null,
+  });
+  return { ticket, copy };
 }

@@ -7,6 +7,10 @@ import {
   AgentTopupResponse,
   DecideAgentTopupRequest,
   RecordAgentTopupRequest,
+  ShopTicketCancelRequest,
+  ShopTicketResponse,
+  TicketLimitsRequest,
+  TicketLimitsResponse,
   CashierShopResponse,
   CreateAgentOwnerRequest,
   CreateAgentOwnerResponse,
@@ -16,7 +20,13 @@ import {
   ShopDeviceRevokeRequest,
   UpdateAgentRequest,
 } from '@vamos/contracts';
+import { parseRetailTicketLimits, serializeRetailTicketLimits } from '@vamos/core';
 import {
+  agentTicketLimits,
+  cancelRetailTicket,
+  getRetailTicket,
+  loadGameSettings,
+  setAgentTicketLimits,
   approveShopDevice,
   createAgent,
   createAgentOwnerAccount,
@@ -40,8 +50,9 @@ import {
   updateAgent,
 } from '@vamos/db';
 import type { FastifyInstance } from 'fastify';
-import { notFound, parseInput } from '../../lib/errors';
+import { badRequest, notFound, parseInput } from '../../lib/errors';
 import { staffActor, staffAuthDeps } from '../../plugins/staff-session';
+import { ticketView } from '../shop/ticket-views';
 import { shopView } from './cashier';
 import { inTx, parseUuid, wire } from './common';
 
@@ -339,6 +350,75 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
         }),
       );
       return wire(ShopDeviceResponse, { device });
+    },
+  );
+
+  // Shop tickets (phase 3): an admin's ticket limits per agent, and cancelling a ticket before its
+  // first kick-off (after the cashier's window, as the agent's owner may).
+  const limitsView = async (agentId: string) => {
+    const agent = await getAgent(deps.db, agentId);
+    if (agent === null) throw notFound('Agent');
+    const settings = await loadGameSettings(deps.db);
+    return wire(TicketLimitsResponse, {
+      overrides: serializeRetailTicketLimits(parseRetailTicketLimits(agent.ticketLimits)),
+      effective: agentTicketLimits(agent, settings.betRules),
+    });
+  };
+
+  app.get<IdParams>(
+    '/admin/agents/:id/ticket-limits',
+    { config: { staff: 'agents.view' } },
+    async (request) => limitsView(parseUuid(request.params.id, 'Agent')),
+  );
+
+  app.put<IdParams>(
+    '/admin/agents/:id/ticket-limits',
+    { config: { staff: 'agents.manage' } },
+    async (request) => {
+      const agentId = parseUuid(request.params.id, 'Agent');
+      const input = parseInput(TicketLimitsRequest, request.body);
+      const actor = staffActor(request);
+      try {
+        await inTx(deps, (tx) =>
+          setAgentTicketLimits(tx, {
+            agentId,
+            limits: input,
+            adminId: actor.adminId,
+            now: deps.clock(),
+            ip: actor.ip ?? null,
+          }),
+        );
+      } catch (error) {
+        if (error instanceof RangeError) throw badRequest('ticket_limits_invalid', error.message);
+        throw error;
+      }
+      return limitsView(agentId);
+    },
+  );
+
+  app.post<IdParams>(
+    '/admin/retail-tickets/:id/cancel',
+    { config: { staff: 'agents.manage' } },
+    async (request) => {
+      const ticketId = parseUuid(request.params.id, 'Ticket');
+      const input = parseInput(ShopTicketCancelRequest, request.body ?? {});
+      const actor = staffActor(request);
+      await inTx(deps, (tx) =>
+        cancelRetailTicket(tx, {
+          ticketId,
+          actor: { staffId: actor.adminId, role: 'admin' },
+          reason: input.reason ?? null,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      const row = await getRetailTicket(deps.db, ticketId);
+      if (row === null) throw notFound('Ticket');
+      const settings = await loadGameSettings(deps.db);
+      return wire(ShopTicketResponse, {
+        ticket: await ticketView(deps.db, row, { cashOut: settings.cashOut, now: deps.clock() }),
+        replayed: false,
+      });
     },
   );
 }
