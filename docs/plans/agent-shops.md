@@ -494,8 +494,14 @@ back up.
 `findTicketByNumber`, `payRetailTicket` (the selling shop only, paid once, `approval_required`
 above the agent's HQ limit), `decideRetailPayout` (four eyes), `listWaitingRetailPayouts`,
 `expireRetailTickets`; settlement blocks a correction of a paid ticket; shift totals and
-reconciliation count payouts; tests in `packages/db/test/retail-tickets.test.ts`). **Next: step
-2** below.
+reconciliation count payouts; tests in `packages/db/test/retail-tickets.test.ts`). **Step 2
+built 20 Nov:** `GET /shop/desk/tickets/lookup?number=` (only the cashier's own agent's tickets),
+`POST /shop/desk/tickets/payouts` (paid, or `approval_required`), the ticket view's `payState`,
+`payAmount`, `paidAt` (the payout slip prints from it), `GET /admin/retail-payouts` and
+`POST /admin/retail-payouts/:id/approve|refuse` (withdrawals.approve), and the worker's hourly
+`retail-ticket-expiry` task (`apps/worker/src/tasks/retail-expiry.ts`); tests in
+`apps/api/test/shop-tickets.test.ts`. **Next: step 3** (the pay screen and slip, the back
+office's waiting payouts page) and e2e.
 
 **Step 2, API:** `GET /shop/desk/tickets/lookup?number=` (any ticket of the shop's agent: its
 state), `POST /shop/desk/tickets/payouts` (pay, idempotency key), the payout slip

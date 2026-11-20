@@ -35,7 +35,28 @@ export async function ticketView(
       cancellableUntil = new Date(until);
     }
   }
+  // The pay screen's state (phase 4).
+  const won = bet.status === 'won' || bet.status === 'void';
+  const payState =
+    row.status === 'cancelled' || row.status === 'paid' || row.status === 'expired'
+      ? row.status
+      : won
+        ? row.approvalRequestedAt !== null && row.approvedAt === null
+          ? 'awaiting_approval'
+          : 'payable'
+        : bet.status === 'lost'
+          ? 'lost'
+          : 'open';
+  const payAmount =
+    payState === 'paid'
+      ? row.paidAmount
+      : payState === 'payable' || payState === 'awaiting_approval'
+        ? bet.settledNetPayout
+        : null;
   return wire(ShopTicketView, {
+    payState,
+    payAmount,
+    paidAt: row.paidAt,
     id: row.id,
     number: bet.shortId,
     status: row.status,

@@ -1,4 +1,6 @@
 import {
+  ShopPayTicketRequest,
+  ShopPayTicketResponse,
   ShopBookingResponse,
   ShopPicksRequest,
   ShopPicksResponse,
@@ -27,6 +29,8 @@ import {
 } from '@vamos/contracts';
 import { parsePick, retailBetRules } from '@vamos/core';
 import {
+  findTicketByNumber,
+  payRetailTicket,
   agentTicketLimits,
   cancelRetailTicket,
   getRetailTicket,
@@ -615,6 +619,47 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
       });
     },
   );
+
+  // Paying tickets (phase 4): a ticket looked up by its number (scanned or typed) and paid at the
+  // shop that sold it. A cashier only finds their own agent's tickets.
+  app.get<{ Querystring: { number?: string } }>(
+    '/shop/desk/tickets/lookup',
+    ticketLimit,
+    async (request) => {
+      const staff = requireDeskStaff(request);
+      const number = typeof request.query.number === 'string' ? request.query.number : '';
+      const shop = await deskShop(deps.db, staff);
+      const found = await findTicketByNumber(deps.db, number);
+      if (found === null || found.ticket.agentId !== shop.agentId) throw notFound('Ticket');
+      const row = await getRetailTicket(deps.db, found.ticket.id);
+      if (row === null) throw notFound('Ticket');
+      return wire(ShopTicketResponse, { ticket: await viewOf(row), replayed: false });
+    },
+  );
+
+  app.post('/shop/desk/tickets/payouts', ticketLimit, async (request) => {
+    const staff = requireDeskStaff(request);
+    const input = parseInput(ShopPayTicketRequest, request.body);
+    await checkShiftShop(staff, input.shiftId);
+    const result = await inTx(deps, (tx) =>
+      payRetailTicket(tx, {
+        number: input.number,
+        staffId: staff.id,
+        shiftId: input.shiftId,
+        idempotencyKey: input.idempotencyKey,
+        now: deps.clock(),
+        ip: request.ip,
+      }),
+    );
+    const row = await getRetailTicket(deps.db, result.ticket.id);
+    if (row === null) throw notFound('Ticket');
+    return wire(ShopPayTicketResponse, {
+      outcome: result.outcome,
+      amount: result.amount,
+      replayed: result.outcome === 'paid' ? result.replayed : false,
+      ticket: await viewOf(row),
+    });
+  });
 
   // The agent's owner cancels a ticket of their shops after the cashier's window, before kick-off.
   app.post<IdParams>('/shop/owner/tickets/:id/cancel', async (request) => {

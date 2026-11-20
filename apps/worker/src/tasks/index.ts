@@ -45,6 +45,7 @@ import { createResetCodeRequester } from '../telegram/reset';
 import { telegramBotTask, type TelegramBotTaskOptions } from '../telegram/task';
 import { userNotifyTask, type UserNotifyOptions } from './user-notify';
 import { ussdPruneTask, type UssdPruneOptions } from './ussd-prune';
+import { retailExpiryTask } from './retail-expiry';
 import {
   settlementSweepTask,
   settlementTask,
@@ -133,6 +134,7 @@ export function createTasks(
     amlEvaluateTask(ctx, options.amlEvaluate),
     amlSweepTask(ctx, options.amlSweep),
     ussdPruneTask(ctx, options.ussdPrune),
+    retailExpiryTask(ctx),
     retentionPruneTask(ctx, options.retentionPrune),
     // The SMS rail's receipt audit, balance reconciliation and watch (only with `sms`).
     ...smsRailTasks(ctx, options.smsRail),

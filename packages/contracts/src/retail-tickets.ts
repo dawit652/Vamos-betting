@@ -54,7 +54,23 @@ export const ShopSellTicketRequest = z
   .strict();
 export type ShopSellTicketRequest = z.infer<typeof ShopSellTicketRequest>;
 
-export const ShopTicketStatusSchema = z.enum(['sold', 'cancelled']);
+export const ShopTicketStatusSchema = z.enum(['sold', 'cancelled', 'paid', 'expired']);
+
+/**
+ * What the pay screen shows (phase 4): open (not settled), lost, payable (won or void: `payAmount`
+ * is due), awaiting_approval (above the agent's HQ limit, an admin approves first), paid,
+ * expired, cancelled.
+ */
+export const TicketPayStateSchema = z.enum([
+  'open',
+  'lost',
+  'payable',
+  'awaiting_approval',
+  'paid',
+  'expired',
+  'cancelled',
+]);
+export type TicketPayState = z.infer<typeof TicketPayStateSchema>;
 
 export const ShopTicketView = z.object({
   id: z.uuid(),
@@ -74,8 +90,53 @@ export const ShopTicketView = z.object({
   shop: CashierShopView,
   cashierName: z.string(),
   bet: BetView,
+  /** Phase 4: the pay screen's state, what is due or was paid, and when it was paid. */
+  payState: TicketPayStateSchema,
+  payAmount: Santim.nullable(),
+  paidAt: IsoDateTime.nullable(),
 });
 export type ShopTicketView = z.infer<typeof ShopTicketView>;
+
+/**
+ * POST /shop/desk/tickets/payouts: pays a won or void ticket at the shop that sold it, in the
+ * cashier's open shift. `paid`: hand over `amount` and print the slip; `approval_required`: above
+ * the agent's HQ limit an admin approves first (nothing paid). 409 `ticket_other_shop`,
+ * `ticket_not_payable` (details.state), `shift_not_open`.
+ */
+export const ShopPayTicketRequest = z
+  .object({
+    shiftId: z.uuid(),
+    number: z.string().trim().min(4).max(20),
+    idempotencyKey: z
+      .string()
+      .trim()
+      .min(8)
+      .max(100)
+      .regex(/^[A-Za-z0-9_-]+$/),
+  })
+  .strict();
+export type ShopPayTicketRequest = z.infer<typeof ShopPayTicketRequest>;
+
+export const ShopPayTicketResponse = z.object({
+  outcome: z.enum(['paid', 'approval_required']),
+  amount: Santim,
+  replayed: z.boolean(),
+  ticket: ShopTicketView,
+});
+export type ShopPayTicketResponse = z.infer<typeof ShopPayTicketResponse>;
+
+/** GET /admin/retail-payouts (withdrawals.approve): payouts waiting for an admin, oldest first. */
+export const RetailPayoutWaitingView = z.object({
+  ticketId: z.uuid(),
+  number: z.string(),
+  amount: Santim,
+  shopId: z.uuid(),
+  agentId: z.uuid(),
+  requestedAt: IsoDateTime,
+  requestedBy: z.uuid().nullable(),
+});
+export const RetailPayoutListResponse = z.object({ payouts: z.array(RetailPayoutWaitingView) });
+export type RetailPayoutListResponse = z.infer<typeof RetailPayoutListResponse>;
 
 export const ShopTicketResponse = z.object({ ticket: ShopTicketView, replayed: z.boolean() });
 export type ShopTicketResponse = z.infer<typeof ShopTicketResponse>;

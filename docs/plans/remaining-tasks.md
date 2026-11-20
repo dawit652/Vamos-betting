@@ -63,9 +63,11 @@ site) posts instead of putting the password in the URL when its script has not l
         high): **step 1 built 20 Nov** (migration `0071_retail_payouts`, `retail/payouts.ts`: pay
         at the selling shop once, HQ approval above the agent's limit with four eyes, expiry into
         revenue, settlement never takes back a paid ticket, shift totals and reconciliation).
-        **Next: step 2** (the API: lookup by number, pay, payout slip, the back office's waiting
-        payouts), step 3 (the pay screen and slip; the back office list), step 4 (the worker's
-        daily expiry task calling `expireRetailTickets`, e2e).
+        **Step 2 built 20 Nov** (lookup by number, pay, the back office's waiting payouts with
+        approve/refuse, the worker's hourly expiry task). **Next: step 3** (the shop app's pay
+        screen: scan or type the number, show its state, pay, print the payout slip from the
+        ticket view's `payAmount`/`paidAt`; the back office's waiting-payouts page; e2e; a
+        routine-coder task with the routes listed in the plan, "Phase 4 design").
      5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
      rate, agent licensing with the regulator.

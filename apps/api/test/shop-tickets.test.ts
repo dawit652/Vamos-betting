@@ -15,9 +15,11 @@ import {
   ShopTicketListResponse,
   ShopTicketPrintResponse,
   ShopTicketResponse,
+  ShopPayTicketResponse,
+  RetailPayoutListResponse,
   TicketLimitsResponse,
 } from '@vamos/contracts';
-import type { Database } from '@vamos/db';
+import { resultEvent, settleEventBets, type Database } from '@vamos/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
 import {
@@ -41,7 +43,7 @@ const PASSWORD = 'shop desk password 2026';
 const NEW_PASSWORD = 'a brand new shop password 7';
 const NOW = new Date('2026-11-20T09:00:00.000Z');
 const minutes = (n: number) => new Date(NOW.getTime() + n * 60_000);
-const match = { home: '', draw: '', gameId: 0, startedHome: '' };
+const match = { home: '', draw: '', gameId: 0, startedHome: '', eventId: '' };
 
 beforeAll(async () => {
   ctx = await createTestContext({ SHOP_WEB_URL: 'http://shop.localhost:3002' });
@@ -67,6 +69,7 @@ beforeAll(async () => {
   match.home = market.selectionIds['1']!;
   match.draw = market.selectionIds['X']!;
   match.gameId = event.gameId;
+  match.eventId = event.id;
   const started = await insertEvent(db, { ...base, startTime: minutes(-10), status: 'live' });
   match.startedHome = (await insertMarket(db, started.id, '1x2', null, ONE_X_TWO)).selectionIds[
     '1'
@@ -300,5 +303,66 @@ describe('shop tickets through the shop app', () => {
     });
     expect(byAdmin.statusCode, byAdmin.body).toBe(200);
     expect(ShopTicketResponse.parse(byAdmin.json()).ticket.status).toBe('cancelled');
+  });
+
+  it('pays a winner at the shop that sold it; above the HQ limit finance approves first', async () => {
+    const { agent, desk } = await agentDesk('Ticket Payout Agent', '500000');
+    await asStaff(ctx, admin, 'PUT', `/admin/agents/${agent.id}/ticket-limits`, {
+      hqApprovalAbove: '15000',
+    });
+    const small = ShopTicketResponse.parse((await sell(desk, '5000')).json()).ticket;
+    const big = ShopTicketResponse.parse((await sell(desk, '10000')).json()).ticket;
+    await db.transaction((tx) =>
+      resultEvent(tx, match.eventId, { status: 'finished', score: { home: 2, away: 0 } }),
+    );
+    await db.transaction((tx) => settleEventBets(tx, match.eventId, ctx.clock.now));
+
+    const looked = await asDesk(
+      desk,
+      'GET',
+      `/shop/desk/tickets/lookup?number=${small.number.toLowerCase()}`,
+    );
+    expect(looked.statusCode, looked.body).toBe(200);
+    const smallNow = ShopTicketResponse.parse(looked.json()).ticket;
+    expect(smallNow).toMatchObject({ payState: 'payable' });
+    const pay = (number: string, key = randomUUID()) =>
+      asDesk(desk, 'POST', '/shop/desk/tickets/payouts', {
+        shiftId: desk.shiftId,
+        number,
+        idempotencyKey: `payout-${key}`,
+      });
+    const key = randomUUID();
+    const paid = await pay(small.number, key);
+    expect(paid.statusCode, paid.body).toBe(200);
+    expect(ShopPayTicketResponse.parse(paid.json())).toMatchObject({
+      outcome: 'paid',
+      amount: smallNow.payAmount,
+      ticket: { status: 'paid', payState: 'paid' },
+    });
+    expect(ShopPayTicketResponse.parse((await pay(small.number, key)).json()).replayed).toBe(true);
+    const again = await pay(small.number);
+    expect(again.statusCode).toBe(409);
+    expect(code(again.body)).toBe('ticket_not_payable');
+
+    // Another agent's cashier finds nothing.
+    const { desk: stranger } = await agentDesk('Ticket Payout Stranger', '100000');
+    expect(
+      (await asDesk(stranger, 'GET', `/shop/desk/tickets/lookup?number=${small.number}`))
+        .statusCode,
+    ).toBe(404);
+
+    // Above the HQ limit: waits for finance, then pays.
+    const waiting = ShopPayTicketResponse.parse((await pay(big.number)).json());
+    expect(waiting).toMatchObject({
+      outcome: 'approval_required',
+      ticket: { payState: 'awaiting_approval' },
+    });
+    const list = RetailPayoutListResponse.parse(
+      (await asStaff(ctx, finance, 'GET', '/admin/retail-payouts')).json(),
+    );
+    expect(list.payouts.map((p) => p.ticketId)).toContain(big.id);
+    const approved = await asStaff(ctx, finance, 'POST', `/admin/retail-payouts/${big.id}/approve`);
+    expect(approved.statusCode, approved.body).toBe(200);
+    expect(ShopPayTicketResponse.parse((await pay(big.number)).json()).outcome).toBe('paid');
   });
 });

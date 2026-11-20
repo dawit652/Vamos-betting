@@ -315,7 +315,14 @@ export async function expireRetailTickets(
     .from(retailTickets)
     .innerJoin(bets, eq(bets.id, retailTickets.betId))
     .innerJoin(agents, eq(agents.id, retailTickets.agentId))
-    .where(and(eq(retailTickets.status, 'sold'), sql`${bets.status} IN ('won', 'void')`))
+    .where(
+      and(
+        eq(retailTickets.status, 'sold'),
+        sql`${bets.status} IN ('won', 'void')`,
+        // Due: its last match kicked off more than the agent's expiry days ago.
+        sql`(SELECT max(${events.startTime}) FROM ${betLegs} JOIN ${events} ON ${events.id} = ${betLegs.eventId} WHERE ${betLegs.betId} = ${retailTickets.betId}) + make_interval(days => COALESCE((${agents.ticketLimits}->>'expiryDays')::int, 30)) <= ${input.now.toISOString()}::timestamptz`,
+      ),
+    )
     .limit(input.limit ?? 200)
     .for('update', { of: retailTickets, skipLocked: true });
   let expired = 0;
