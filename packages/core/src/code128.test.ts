@@ -11,7 +11,7 @@ import {
 /** Reads modules back to text (a scanner's job), checking start, check symbol and stop. */
 function decode(modules: string): string {
   const widths: number[] = [];
-  for (let i = 0; i < modules.length; ) {
+  for (let i = 0; i < modules.length;) {
     let j = i;
     while (j < modules.length && modules[j] === modules[i]) j += 1;
     widths.push(j - i);

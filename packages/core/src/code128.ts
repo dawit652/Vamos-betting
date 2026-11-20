@@ -5,6 +5,7 @@
  */
 
 /** Bar and space widths (in modules) of the 107 Code 128 symbols; 106 is the stop. */
+// prettier-ignore
 const PATTERNS: readonly string[] = [
   '212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212',
   '221213', '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221',
@@ -18,7 +19,7 @@ const PATTERNS: readonly string[] = [
   '121142', '121241', '114212', '124112', '124211', '411212', '421112', '421211', '212141',
   '214121', '412121', '111143', '111341', '131141', '114113', '114311', '411113', '411311',
   '113141', '114131', '311141', '411131', '211412', '211214', '211232', '2331112',
-]; // prettier-ignore
+];
 
 const START_B = 104;
 const STOP = 106;
@@ -61,7 +62,7 @@ export function code128Modules(text: string): string {
 export function code128Bars(text: string): Array<[number, number]> {
   const modules = code128Modules(text);
   const bars: Array<[number, number]> = [];
-  for (let i = 0; i < modules.length; ) {
+  for (let i = 0; i < modules.length;) {
     if (modules[i] === '1') {
       let j = i;
       while (j < modules.length && modules[j] === '1') j += 1;
