@@ -4,6 +4,7 @@ import {
   AgentDetailResponse,
   AgentStatementListResponse,
   AgentStatementResponse,
+  RetailMonitorResponse,
   AgentListResponse,
   AgentResponse,
   CashierShopListResponse,
@@ -288,5 +289,20 @@ describe('weekly statements', () => {
     });
     expect(twice.statusCode).toBe(409);
     expect((await asStaff(ctx, cashier, 'GET', '/admin/agent-statements')).statusCode).toBe(403);
+  });
+});
+
+describe('the live monitor', () => {
+  it('answers every agent with its day and balance (none for HQ), for agents.view only', async () => {
+    const response = await asStaff(ctx, finance, 'GET', '/admin/retail/monitor?limit=20');
+    expect(response.statusCode).toBe(200);
+    const body = RetailMonitorResponse.parse(response.json());
+    const hq = body.agents.find((a) => a.isHouse);
+    expect(hq).toMatchObject({ agentNumber: 1000, balance: null });
+    expect(body.agents.some((a) => !a.isHouse && a.balance !== null)).toBe(true);
+    expect((await asStaff(ctx, cashier, 'GET', '/admin/retail/monitor')).statusCode).toBe(403);
+    expect((await asStaff(ctx, admin, 'GET', '/admin/retail/monitor?limit=500')).statusCode).toBe(
+      400,
+    );
   });
 });

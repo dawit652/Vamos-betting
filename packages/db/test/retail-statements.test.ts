@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { birr, businessWeekStartOf } from '@vamos/core';
+import { birr, businessDateOf, businessDayWindow, businessWeekStartOf } from '@vamos/core';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { settleEventBets } from '../src/betting/index';
@@ -14,6 +14,8 @@ import {
   generateAgentStatements,
   lastStatementWeek,
   listAgentStatements,
+  listMonitorAgentDays,
+  listMonitorTickets,
   markAgentStatementPaid,
   payRetailTicket,
   recordAgentTopup,
@@ -305,5 +307,48 @@ describe('the week a statement is due for', () => {
     // Monday 23 Nov 01:00 Addis: due.
     expect(lastStatementWeek(new Date('2026-11-22T22:00:00.000Z'))).toBe('2026-11-16');
     expect(lastStatementWeek(new Date('2026-11-26T12:00:00.000Z'))).toBe('2026-11-16');
+  });
+});
+
+describe('the live monitor', () => {
+  it("lists the newest tickets with their shop and cashier, and each agent's day", async () => {
+    const desk = await counter(birr(500));
+    const match = await createEvent(handle.db, ids);
+    const first = await sell(desk, birr(10), match.home, 2000);
+    const second = await sell(desk, birr(7), match.away, 3500);
+    await handle.db.transaction((tx) =>
+      cancelRetailTicket(tx, {
+        ticketId: second.ticket.id,
+        actor: { staffId: desk.cashier, role: 'cashier' },
+        now: new Date(),
+      }),
+    );
+    const tickets = await listMonitorTickets(handle.db, { agentId: desk.agentId, limit: 10 });
+    expect(tickets.map((t) => t.id)).toEqual([second.ticket.id, first.ticket.id]);
+    expect(tickets[1]).toMatchObject({
+      number: first.bet.shortId,
+      shopLabel: desk.shop.code,
+      stake: birr(10),
+      possibleWin: first.bet.potentialNetPayout,
+      status: 'sold',
+    });
+    expect(tickets[0]!.status).toBe('cancelled');
+    expect(await listMonitorTickets(handle.db, { staffId: desk.cashier, limit: 1 })).toHaveLength(
+      1,
+    );
+
+    const days = await listMonitorAgentDays(
+      handle.db,
+      businessDayWindow(businessDateOf(new Date())),
+    );
+    expect(days.find((d) => d.agentId === desk.agentId)).toEqual({
+      agentId: desk.agentId,
+      ticketsSold: 2,
+      soldStakes: birr(17),
+      ticketsCancelled: 1,
+      cancelledStakes: birr(7),
+      ticketsPaid: 0,
+      paidAmount: 0n,
+    });
   });
 });

@@ -88,6 +88,14 @@ export const retailTickets = pgTable(
     index('retail_tickets_shift_idx').on(t.shiftId),
     index('retail_tickets_agent_sold_idx').on(t.agentId, t.soldAt),
     index('retail_tickets_shop_sold_idx').on(t.shopId, t.soldAt),
+    // The live monitor (phase 5): every shop's newest tickets and the day's counters.
+    index('retail_tickets_sold_at_idx').on(t.soldAt),
+    index('retail_tickets_cancelled_at_idx')
+      .on(t.cancelledAt)
+      .where(sql`${t.cancelledAt} IS NOT NULL`),
+    index('retail_tickets_paid_at_idx')
+      .on(t.paidAt)
+      .where(sql`${t.paidAt} IS NOT NULL`),
     check('retail_tickets_stake_positive', sql`${t.stake} > 0`),
     check('retail_tickets_reprints_non_negative', sql`${t.reprints} >= 0`),
     // New enum values are compared as text: they cannot be used in the migration that adds them.

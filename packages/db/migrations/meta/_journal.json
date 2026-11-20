@@ -512,6 +512,13 @@
       "when": 1795145436811,
       "tag": "0072_agent_statements",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795146106120,
+      "tag": "0073_retail_monitor_indexes",
+      "breakpoints": true
     }
   ]
 }

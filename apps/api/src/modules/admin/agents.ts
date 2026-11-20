@@ -1,4 +1,6 @@
 import {
+  RetailMonitorQuery,
+  RetailMonitorResponse,
   AgentDetailResponse,
   AgentStatementListResponse,
   AgentStatementPaidRequest,
@@ -40,13 +42,15 @@ import {
   createShop,
   decideAgentTopup,
   getAgent,
+  listAgentBalances,
+  listMonitorAgentDays,
+  listMonitorTickets,
   getAgentStatement,
   lastStatementWeek,
   listAgentStatements,
   markAgentStatementPaid,
   getAgentBalance,
   getAgentOwnerAccount,
-  listAgentBalances,
   listAgentTopups,
   recordAgentTopup,
   type AgentTopupRow,
@@ -60,7 +64,7 @@ import {
   setAgentPlayerCash,
   updateAgent,
 } from '@vamos/db';
-import { isBusinessWeekStart } from '@vamos/core';
+import { businessDateOf, businessDayWindow, isBusinessWeekStart } from '@vamos/core';
 import type { FastifyInstance } from 'fastify';
 import { badRequest, notFound, parseInput } from '../../lib/errors';
 import { staffActor, staffAuthDeps } from '../../plugins/staff-session';
@@ -522,4 +526,41 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
       return wire(AgentStatementResponse, { statement });
     },
   );
+
+  // The live monitor (phase 5 step 3): the newest tickets of every shop, and every agent's
+  // business day (Addis Ababa calendar) with its balance now. The page polls it.
+  app.get('/admin/retail/monitor', { config: { staff: 'agents.view' } }, async (request) => {
+    const query = parseInput(RetailMonitorQuery, request.query);
+    const day = businessDateOf(deps.clock());
+    const [tickets, days, all, balances] = await Promise.all([
+      listMonitorTickets(deps.db, {
+        ...(query.agentId === undefined ? {} : { agentId: query.agentId }),
+        ...(query.shopId === undefined ? {} : { shopId: query.shopId }),
+        ...(query.staffId === undefined ? {} : { staffId: query.staffId }),
+        limit: query.limit,
+      }),
+      listMonitorAgentDays(deps.db, businessDayWindow(day)),
+      listAgents(deps.db),
+      listAgentBalances(deps.db),
+    ]);
+    const byAgent = new Map(days.map((d) => [d.agentId, d]));
+    const agentsView = all.map((agent) => {
+      const counters = byAgent.get(agent.id);
+      return {
+        agentId: agent.id,
+        agentNumber: agent.number,
+        agentName: agent.name,
+        isHouse: agent.isHouse,
+        status: agent.status,
+        balance: agent.isHouse ? null : (balances.get(agent.id) ?? 0n),
+        ticketsSold: counters?.ticketsSold ?? 0,
+        soldStakes: counters?.soldStakes ?? 0n,
+        ticketsCancelled: counters?.ticketsCancelled ?? 0,
+        cancelledStakes: counters?.cancelledStakes ?? 0n,
+        ticketsPaid: counters?.ticketsPaid ?? 0,
+        paidAmount: counters?.paidAmount ?? 0n,
+      };
+    });
+    return wire(RetailMonitorResponse, { day, tickets, agents: agentsView });
+  });
 }

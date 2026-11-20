@@ -305,3 +305,65 @@ export type AgentStatementPaidRequest = z.infer<typeof AgentStatementPaidRequest
 
 export const AgentStatementResponse = z.object({ statement: AgentStatementView });
 export type AgentStatementResponse = z.infer<typeof AgentStatementResponse>;
+
+// ---------------------------------------------------------------------------
+// The live monitor of the agent shops (docs/plans/agent-shops.md, "Phase 5 design", step 3).
+
+export const MonitorTicketView = z.object({
+  id: z.string(),
+  /** The ticket's number (printed and in the barcode). */
+  number: z.string(),
+  agentId: z.string(),
+  agentNumber: z.number().int(),
+  agentName: z.string(),
+  shopId: z.string(),
+  shopLabel: z.string(),
+  shopName: z.string(),
+  staffId: z.string(),
+  staffName: z.string(),
+  stake: Santim,
+  /** The possible net payout (after tax), as printed. */
+  possibleWin: Santim,
+  status: z.enum(['sold', 'cancelled', 'paid', 'expired']),
+  betStatus: z.string(),
+  soldAt: IsoDateTime,
+  paidAmount: Santim.nullable(),
+});
+export type MonitorTicketView = z.infer<typeof MonitorTicketView>;
+
+/** One agent's business day at the counters, with its balance now. */
+export const MonitorAgentView = z.object({
+  agentId: z.string(),
+  agentNumber: z.number().int(),
+  agentName: z.string(),
+  isHouse: z.boolean(),
+  status: z.enum(['active', 'blocked']),
+  /** Null for Nahubet HQ (no balance: its cash is Nahubet's). */
+  balance: Santim.nullable(),
+  ticketsSold: z.number().int(),
+  soldStakes: Santim,
+  ticketsCancelled: z.number().int(),
+  cancelledStakes: Santim,
+  ticketsPaid: z.number().int(),
+  paidAmount: Santim,
+});
+export type MonitorAgentView = z.infer<typeof MonitorAgentView>;
+
+/** GET /admin/retail/monitor (agents.view): the newest tickets and every agent's business day. */
+export const RetailMonitorQuery = z
+  .object({
+    agentId: z.uuid().optional(),
+    shopId: z.uuid().optional(),
+    staffId: z.uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+  })
+  .strict();
+export type RetailMonitorQuery = z.infer<typeof RetailMonitorQuery>;
+
+export const RetailMonitorResponse = z.object({
+  /** The Addis Ababa calendar day the agents' figures cover. */
+  day: z.string(),
+  tickets: z.array(MonitorTicketView),
+  agents: z.array(MonitorAgentView),
+});
+export type RetailMonitorResponse = z.infer<typeof RetailMonitorResponse>;
