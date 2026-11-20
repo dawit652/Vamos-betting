@@ -2,6 +2,7 @@
 
 import type {
   AgentCommissionKind,
+  AgentStatementListResponse,
   AgentDetailResponse,
   AgentOwnerAccountView,
   AgentTopupView,
@@ -789,6 +790,52 @@ function LimitsForm({
   );
 }
 
+/** The agent's last weekly statements (compact; the Statements page has every agent's week). */
+function WeeklyStatements({ agentId }: { agentId: string }) {
+  const { data, error } = useFetch<AgentStatementListResponse>(
+    `/admin/agents/${agentId}/statements`,
+  );
+  return (
+    <div className="card" data-testid="agent-statements-card">
+      <h2>Weekly statements</h2>
+      {error !== null && <Notice>{error}</Notice>}
+      {data !== null && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Week</th>
+                <th>Sold</th>
+                <th>GGR</th>
+                <th>Commission</th>
+                <th>Paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.weekStart}</td>
+                  <td>{formatEtb(s.soldStakes)}</td>
+                  <td>{formatEtb(s.ggr)}</td>
+                  <td>{formatEtb(s.commission)}</td>
+                  <td>{s.paidAt === null ? 'Unpaid' : `Paid ${formatDateTime(s.paidAt)}`}</td>
+                </tr>
+              ))}
+              {data.items.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    No statements yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, error, loading, reload } = useFetch<AgentDetailResponse>(`/admin/agents/${id}`);
@@ -990,6 +1037,7 @@ export default function AgentDetailPage() {
             </p>
           )}
           <Devices devices={data.devices} manage={manage} onChanged={reload} />
+          {!data.agent.isHouse && <WeeklyStatements agentId={data.agent.id} />}
         </>
       )}
     </>

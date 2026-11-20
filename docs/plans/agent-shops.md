@@ -555,7 +555,11 @@ posting. Weeks are Monday 00:00 to Monday 00:00, Addis Ababa time (UTC+3), like 
    also one `error` log line with an `alarm` field (the repository's alarm convention). A
    back-office Alerts page lists them with Acknowledge.
 
-Build order: 1, 2, 3, 4; each step committed with its tests.
+Build order: 1, 2, 3, 4; each step committed with its tests. **Built 20 Nov:** the backend (the
+first account's steps 1-4: `ae65e0d`, `683dc51`, `7de5bc7`, `12c1bbe`) and the screens (back
+office `/statements`, `/retail-monitor`, `/retail-alerts`, the agent page's weekly statements, the
+owner's statements in the shop app; e2e `e2e/tests/agent-statements.spec.ts`). The alert
+thresholds are constants for now (ETB 100,000 big win, ETB 1,000 low balance).
 
 ## Defaults chosen here (all adjustable by an admin)
 

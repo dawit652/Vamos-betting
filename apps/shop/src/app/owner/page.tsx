@@ -1,6 +1,6 @@
 'use client';
 
-import type { ShopOwnerResponse } from '@vamos/contracts';
+import type { AgentStatementListResponse, ShopOwnerResponse } from '@vamos/contracts';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useFetch } from '@/components/hooks';
@@ -10,6 +10,7 @@ import { TEXT } from '@/lib/text';
 /** The agent owner's read-only overview: the agent's shops, cashiers and devices. */
 export default function OwnerPage() {
   const owner = useFetch<ShopOwnerResponse>('/shop/owner');
+  const statements = useFetch<AgentStatementListResponse>('/shop/owner/statements');
   const router = useRouter();
   const needsPassword = owner.error === TEXT.passwordChangeRequired;
   // The API refuses with 403 password_change_required until the generated password is replaced.
@@ -147,6 +148,53 @@ export default function OwnerPage() {
               <tr>
                 <td colSpan={5} className="muted">
                   {TEXT.noneYet}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <h2>{TEXT.ownerStatements}</h2>
+      <p className="muted small">{TEXT.ownerStatementsNote}</p>
+      {statements.error !== null && (
+        <p className="error" role="alert">
+          {statements.error}
+        </p>
+      )}
+      <div className="table-wrap">
+        <table data-testid="owner-statements">
+          <thead>
+            <tr>
+              <th>{TEXT.colWeek}</th>
+              <th>{TEXT.colSold}</th>
+              <th>{TEXT.colCancelled}</th>
+              <th>{TEXT.colGgr}</th>
+              <th>{TEXT.colPaidOut}</th>
+              <th>{TEXT.colCommission}</th>
+              <th>{TEXT.colStatus}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(statements.data?.items ?? []).map((s) => (
+              <tr key={s.id}>
+                <td>{s.weekStart}</td>
+                <td>{formatEtb(s.soldStakes)}</td>
+                <td>{formatEtb(s.cancelledStakes)}</td>
+                <td>{formatEtb(s.ggr)}</td>
+                <td>{formatEtb(s.paidAmount)}</td>
+                <td>{formatEtb(s.commission)}</td>
+                <td>
+                  {s.paidAt === null
+                    ? TEXT.commissionUnpaid
+                    : `${TEXT.commissionPaid} ${formatDateTime(s.paidAt)}`}
+                </td>
+              </tr>
+            ))}
+            {statements.data !== null && statements.data.items.length === 0 && (
+              <tr>
+                <td colSpan={7} className="muted">
+                  {TEXT.noStatementsYet}
                 </td>
               </tr>
             )}

@@ -306,6 +306,18 @@ export const TEXT = {
     revoked: 'Revoked',
   } as Readonly<Record<string, string>>,
   noneYet: 'None yet.',
+  ownerStatements: 'Weekly statements · ሳምንታዊ መግለጫ',
+  ownerStatementsNote:
+    'Weeks run Monday to Monday. Commission is paid by Nahubet outside this app.',
+  colWeek: 'Week',
+  colSold: 'Sold',
+  colCancelled: 'Cancelled',
+  colGgr: 'GGR',
+  colPaidOut: 'Paid out',
+  colCommission: 'Commission',
+  commissionPaid: 'Paid',
+  commissionUnpaid: 'Not paid yet',
+  noStatementsYet: 'No statements yet. The first one appears after the first full week.',
   ownerDevicesNote: 'Nahubet approves new devices in the back office.',
 
   networkError: 'The server could not be reached. Check the internet connection.',

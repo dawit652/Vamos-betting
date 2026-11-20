@@ -1,9 +1,9 @@
-# Remaining tasks (read this first; updated 19 Nov 2026)
+# Remaining tasks (read this first; updated 20 Nov 2026)
 
-**Start here (20 Nov, end of the first account's week):** the newest work is on
-`claude/eager-cerf-ox9vkq` at `e9e38cf` or later (it contains all of `claude/happy-keller-i7cvrh`,
-`052ca46`, which is behind). A new session given another branch name starts from
-`origin/claude/eager-cerf-ox9vkq`. Next task: the phase 5 screens (item 0, step 5 below). It holds the server's own
+**Start here (20 Nov):** the newest work is on `claude/happy-keller-i7cvrh` (it contains all of
+`claude/eager-cerf-ox9vkq`, `166ceb2`). A new session given another branch name starts from the
+newer of the two. **Phases 0-5 of the agent shops are built, pushed, not deployed** (phase 5's
+screens built 20 Nov). Next: the small gaps listed under item 0, step 5. It holds the server's own
 branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
@@ -25,10 +25,11 @@ the page is the list. The server stays in **licensed mode** (owner's rule, 19 No
 never shows or stores the demo accounts. Also: every password form (back office, shop app, player
 site) posts instead of putting the password in the URL when its script has not loaded yet.
 
-**Handover (20 Nov, end of the first account's window):** branch `claude/happy-keller-i7cvrh`
-holds everything, pushed, full checks passed. Built since the last deploy: deposit accounts in
-the back office (0069), player cash at agent shops and the shop app's desk (phase 2), selling
-tickets (phase 3, 0070) and paying them (phase 4, 0071). The next session starts with agent-shop phase 5 (item 0 below, sub-item 5: live monitor, alerts, weekly commission) or whatever the owner asks; read only this file and the plan section it names.
+**Owner alerts (20 Nov, owner: "just notify when it's important"):** Telegram and SMS alerts
+about deposits and withdrawals came every few minutes. `OWNER_ALERT_POLICY`
+(`packages/core/src/owner-alert.ts`, runbook `docs/runbooks/sms-rail.md` "Alarms") now texts only
+money alarms, each at most every 6-24 hours, and one summary for contradicted deposits; staff's
+alarms stay log lines and panels. Live after the next deploy.
 
 ## Next, in order
 
@@ -69,14 +70,15 @@ tickets (phase 3, 0070) and paying them (phase 4, 0071). The next session starts
         shop app's pay screen and payout slip, the back office's waiting payouts with four eyes,
         the worker's hourly expiry task; e2e `e2e/tests/shop-payouts.spec.ts`). Phases 1-4 of the
         agent shops are complete and pushed; none is deployed.
-     5. **Phase 5 (plan, "Phase 5 design"): backend built and pushed 20 Nov** — weekly
-        statements and commission (migration 0072, `ae65e0d`; API `683dc51`), the live monitor
-        API (migration 0073 indexes, `7de5bc7`), alerts (migration 0074, worker `retail-alerts`,
-        API, `12c1bbe`). **Screens in progress:** the back office's Statements page (CSV, mark
-        paid), the agent page's weekly statements, the owner's statements in the shop app, the
-        Monitor page and the Alerts page. If uncommitted files under `apps/admin`, `apps/shop` or
-        `e2e/tests/agent-statements.spec.ts` exist, they are unfinished work: check them or start
-        over. Then phase 6 (Android POS, once the owner picks a model).
+     5. **Phase 5 (plan, "Phase 5 design"): built 20 Nov** — weekly statements and commission
+        (migration 0072; back office `/statements` with CSV and "Mark paid", the agent page's
+        weekly statements, the owner's statements in the shop app), the live monitor (0073
+        indexes; `/retail-monitor`, refreshed every 15 s), alerts (0074, worker `retail-alerts`;
+        `/retail-alerts` with Acknowledge); e2e `e2e/tests/agent-statements.spec.ts`.
+        **Small gaps left:** agent owners adding and blocking their own cashiers; choosing
+        matches from a list on the Sell page; the ticket footer in Amharic; an e2e test of the
+        HQ payout approval; the retail alert thresholds as settings (fixed today: ETB 100,000 big
+        win, ETB 1,000 low balance). Then phase 6 (Android POS, once the owner picks a model).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
      rate, agent licensing with the regulator.
    - The mr-y request (Narobet game links) was declined on 19 Nov: it runs on the owner's own
