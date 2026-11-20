@@ -20,6 +20,11 @@ import type {
   RgLimitsRequest,
   RgLimitsResponse,
   SessionResponse,
+  ShopPinResetCompleteRequest,
+  ShopPinResetStartRequest,
+  ShopPinResetStartResponse,
+  ShopPinResetStatusRequest,
+  ShopPinResetStatusResponse,
   SubmitKycRequest,
   UpdateMeRequest,
   VerifyOtpRequest,
@@ -43,6 +48,13 @@ export const authApi = {
   forgotPassword: (body: ForgotPasswordRequest) =>
     api.post<OtpSentResponse>('/auth/password/forgot', body),
   resetPassword: (body: ResetPasswordRequest) => api.post<OkResponse>('/auth/password/reset', body),
+  /** "Reset at a shop": the secret stays on this phone; only its hash goes to the start. */
+  shopResetStart: (body: ShopPinResetStartRequest) =>
+    api.post<ShopPinResetStartResponse>('/auth/password/shop-reset', body),
+  shopResetStatus: (body: ShopPinResetStatusRequest) =>
+    api.post<ShopPinResetStatusResponse>('/auth/password/shop-reset/status', body),
+  shopResetComplete: (body: ShopPinResetCompleteRequest) =>
+    api.post<OkResponse>('/auth/password/shop-reset/complete', body),
 };
 
 /** POST /me/exclusions answer (201). */

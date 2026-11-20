@@ -12,7 +12,6 @@ import type {
   SetPlayerStatusResponse,
   CashierDepositsResponse,
   CashierDepositView,
-  DeskPinResetCodeResponse,
   DeskPinResetResponse,
 } from '@vamos/contracts';
 import Link from 'next/link';
@@ -432,89 +431,78 @@ function Operations({ desk }: { desk: CashierDeskResponse }) {
 
 /** The cashier desk: open a shift, serve players with cash deposits and receipts, close with a count. */
 /**
- * PIN reset at the desk (for a player without SMS or Telegram): the cashier types the ID number from
- * the player's card (checked against the verified ID), a supervisor approves, then the desk shows the
- * one-time code to give the player, who sets a new PIN on "Forgot PIN". The desk never sees the PIN.
+ * PIN reset at a shop (for a player without SMS or Telegram): the player starts on their own phone
+ * ("Forgot PIN", "Reset at a shop") and reads out the desk code; the cashier types it with the ID
+ * number from the card (checked against the verified ID); a supervisor approves; then only the
+ * player's phone sets the new PIN. The desk never gets a code that sets a PIN, and never the PIN.
  */
 function DeskPinReset({ playerId }: { playerId: string }) {
   const { data, reload } = useFetch<DeskPinResetResponse>(
     `/admin/cashier/players/${playerId}/pin-reset`,
   );
+  const [deskCode, setDeskCode] = useState('');
   const [idNumber, setIdNumber] = useState('');
-  const [code, setCode] = useState<DeskPinResetCodeResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const run = async (work: () => Promise<void>) => {
-    setBusy(true);
-    setFailure(null);
-    try {
-      await work();
-    } catch (e) {
-      setFailure(describeError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
   const ask = (event: FormEvent) => {
     event.preventDefault();
-    void run(async () => {
-      await api(`/admin/cashier/players/${playerId}/pin-reset`, {
-        method: 'POST',
-        body: { idNumber },
-      });
-      setIdNumber('');
-      reload();
-    });
-  };
-  const issue = (resetId: string) =>
-    void run(async () => {
-      setCode(
-        await api<DeskPinResetCodeResponse>(`/admin/cashier/pin-resets/${resetId}/issue`, {
+    setBusy(true);
+    setFailure(null);
+    void (async () => {
+      try {
+        await api(`/admin/cashier/players/${playerId}/pin-reset`, {
           method: 'POST',
-          body: {},
-        }),
-      );
-      reload();
-    });
+          body: { deskCode, idNumber },
+        });
+        setDeskCode('');
+        setIdNumber('');
+        reload();
+      } catch (e) {
+        setFailure(describeError(e));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
   const reset = data?.reset ?? null;
   return (
     <section data-testid="cashier-pin-reset">
-      <h3>PIN reset (ID check)</h3>
-      {code !== null ? (
-        <div>
-          <p>
-            Give the player this code: <strong className="receipt-code">{code.code}</strong>
-          </p>
-          <p className="small">
-            On Nahubet, Forgot PIN: the phone number, this code and a new PIN, before{' '}
-            {formatDateTime(code.expiresAt)}. The code works once.
-          </p>
-        </div>
-      ) : reset === null ? (
-        <form className="inline-form" onSubmit={ask}>
+      <h3>PIN reset (desk code and ID check)</h3>
+      {reset === null ? (
+        <form className="inline-form" onSubmit={ask} aria-label="Ask a PIN reset">
+          <input
+            aria-label="Desk code on the player's phone"
+            placeholder="Desk code (8 digits)"
+            inputMode="numeric"
+            autoComplete="off"
+            value={deskCode}
+            onChange={(e) => setDeskCode(e.target.value)}
+          />
           <input
             aria-label="ID number on the card"
             placeholder="ID number (FIN or FAN)"
             inputMode="numeric"
+            autoComplete="off"
             value={idNumber}
             onChange={(e) => setIdNumber(e.target.value)}
           />
-          <button type="submit" disabled={busy || idNumber.trim() === ''}>
+          <button type="submit" disabled={busy || deskCode.trim() === '' || idNumber.trim() === ''}>
             Ask a PIN reset
           </button>
         </form>
-      ) : reset.status === 'requested' ? (
-        <p className="small">
-          Waiting for a supervisor to approve.{' '}
+      ) : (
+        <p className="small" data-testid="cashier-pin-reset-state">
+          {reset.status === 'requested'
+            ? 'Waiting for a supervisor to approve.'
+            : 'Approved: the player now sets the new PIN on their own phone, within 30 minutes. There is nothing to hand over.'}{' '}
           <button type="button" onClick={reload} disabled={busy}>
             Check again
           </button>
         </p>
-      ) : (
-        <p>
-          <button type="button" className="primary" onClick={() => issue(reset.id)} disabled={busy}>
-            Show the code for the player
-          </button>
+      )}
+      {reset === null && (
+        <p className="muted small">
+          The player opens Forgot PIN, Reset at a shop, on their phone and reads out the desk code.
         </p>
       )}
       {failure !== null && <Notice>{failure}</Notice>}

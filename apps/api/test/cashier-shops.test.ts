@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { ApiErrorSchema } from '@vamos/contracts';
 import { auditLog, kycProfiles } from '@vamos/db/schema';
 import { eq } from 'drizzle-orm';
@@ -140,7 +141,7 @@ describe('cashiers and their shops', () => {
     expect(detail.json()).toMatchObject({ variancePosting: { amount: '2500' } });
   });
 
-  it('a PIN reset at the desk: the ID checked, a supervisor approves, the desk prints the code, the player resets', async () => {
+  it("a PIN reset at a shop: the player's phone starts, the desk checks the code and the ID, a supervisor approves, only that phone sets the PIN", async () => {
     const player = await registerAndLogin(ctx);
     await ctx.deps.db.insert(kycProfiles).values({
       userId: player.userId,
@@ -151,33 +152,66 @@ describe('cashiers and their shops', () => {
       verifiedName: 'Abebe Kebede',
       submittedAt: ctx.clock.now,
     });
-    const ask = (idNumber: string) =>
+    // The player's phone keeps a secret and sends only its SHA-256.
+    const secret = randomBytes(32).toString('base64url');
+    const secretHash = createHash('sha256').update(secret).digest('hex');
+    const started = await post(ctx, '/auth/password/shop-reset', {
+      phone: player.phone,
+      secretHash,
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const { deskCode } = started.json<{ deskCode: string }>();
+    expect(deskCode).toMatch(/^\d{8}$/);
+    // A number without an account gets the same answer.
+    const stranger = await post(ctx, '/auth/password/shop-reset', {
+      phone: `09${String(Date.now()).slice(-8)}`,
+      secretHash: createHash('sha256').update(randomBytes(32).toString('base64url')).digest('hex'),
+    });
+    expect(stranger.statusCode, stranger.body).toBe(200);
+    expect(stranger.json()).toMatchObject({ deskCode: expect.stringMatching(/^\d{8}$/) });
+    const status = async () =>
+      (await post(ctx, '/auth/password/shop-reset/status', { secret })).json<{
+        state: string;
+        deskCode: string;
+      }>();
+    expect(await status()).toMatchObject({ state: 'waiting_desk', deskCode });
+
+    const ask = (code: string, idNumber: string) =>
       asStaff(ctx, cashier, 'POST', `/admin/cashier/players/${player.userId}/pin-reset`, {
+        deskCode: code,
         idNumber,
       });
     // Only at a shop: without an open shift the desk cannot ask (review finding 5).
-    expect(errorCode((await ask('1234 5678 9012')).body)).toBe('shift_not_open');
+    expect(errorCode((await ask(deskCode, '1234 5678 9012')).body)).toBe('shift_not_open');
     const deskNow = await asStaff(ctx, cashier, 'GET', '/admin/cashier/desk');
     expect(deskNow.json()).toMatchObject({ pinResetEnabled: true });
     const [myShop] = await deskShops(cashier);
     expect((await open(cashier, myShop!.id)).statusCode).toBeLessThan(300);
 
-    // A wrong ID number: refused and on record.
-    const wrong = await ask('1111 2222 3333');
-    expect(wrong.statusCode).toBe(422);
-    expect(errorCode(wrong.body)).toBe('id_mismatch');
+    // A wrong ID number and a wrong desk code get the same answer, each a try on record.
+    const otherCode = deskCode === '00000000' ? '00000001' : '00000000';
+    for (const [code, idNumber] of [
+      [deskCode, '1111 2222 3333'],
+      [otherCode, '1234 5678 9012'],
+    ] as const) {
+      const refused = await ask(code, idNumber);
+      expect(refused.statusCode).toBe(422);
+      expect(errorCode(refused.body)).toBe('pin_reset_no_match');
+    }
     const audits = await ctx.deps.db
       .select()
       .from(auditLog)
       .where(eq(auditLog.targetId, player.userId));
-    expect(audits.map((a) => a.action)).toContain('cashier.pin_reset_id_mismatch');
+    expect(audits.filter((a) => a.action === 'cashier.pin_reset_id_mismatch')).toHaveLength(2);
 
-    const asked = await ask('1234 5678 9012');
+    const asked = await ask(`${deskCode.slice(0, 4)} ${deskCode.slice(4)}`, '1234 5678 9012');
     expect(asked.statusCode, asked.body).toBe(200);
     const resetId = asked.json<{ reset: { id: string; status: string } }>().reset.id;
     expect(asked.json()).toMatchObject({ reset: { status: 'requested' } });
-    const issue = () => asStaff(ctx, cashier, 'POST', `/admin/cashier/pin-resets/${resetId}/issue`);
-    expect(errorCode((await issue()).body)).toBe('pin_reset_not_approved');
+    expect((await status()).state).toBe('waiting_approval');
+    const complete = (withSecret: string) =>
+      post(ctx, '/auth/password/shop-reset/complete', { secret: withSecret, newPassword: '5739' });
+    expect(errorCode((await complete(secret)).body)).toBe('pin_reset_not_approved');
 
     // Supervisors with users.status decide; finance has no say; the cashier cannot.
     const decide = (staff: StaffSession) =>
@@ -192,19 +226,18 @@ describe('cashiers and their shops', () => {
     );
     const approved = await decide(admin);
     expect(approved.statusCode, approved.body).toBe(200);
+    expect((await status()).state).toBe('approved');
 
-    // The desk issues the code once; the player sets a new PIN with it on "Forgot PIN".
-    const issued = await issue();
-    expect(issued.statusCode, issued.body).toBe(200);
-    const { code } = issued.json<{ code: string }>();
-    expect(code).toMatch(/^\d{6}$/);
-    expect(errorCode((await issue()).body)).toBe('pin_reset_not_approved');
-    const reset = await post(ctx, '/auth/password/reset', {
-      phone: player.phone,
-      code,
-      newPassword: '5739',
-    });
-    expect(reset.statusCode, reset.body).toBeLessThan(300);
+    // The desk has nothing that sets a PIN; another browser cannot; the player's phone does, once.
+    expect(
+      (await asStaff(ctx, cashier, 'POST', `/admin/cashier/pin-resets/${resetId}/issue`))
+        .statusCode,
+    ).toBe(404);
+    expect((await complete(randomBytes(32).toString('base64url'))).statusCode).toBe(404);
+    const done = await complete(secret);
+    expect(done.statusCode, done.body).toBe(200);
+    expect(errorCode((await complete(secret)).body)).toBe('pin_reset_used');
+    expect((await status()).state).toBe('done');
     const login = await post(ctx, '/auth/login', { phone: player.phone, password: '5739' });
     expect(login.statusCode, login.body).toBe(200);
   });

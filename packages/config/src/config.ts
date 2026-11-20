@@ -727,7 +727,7 @@ export interface PaymentProvidersConfig {
   mock: { webhookSecret: string };
   /** CASH_WITHDRAWAL_COLLECT_DAYS in milliseconds; 0: an approved cash withdrawal never expires. */
   cashCollectMs: number;
-  /** CASHIER_PIN_RESET=on: the desk PIN reset's request and issue routes work (default off). */
+  /** CASHIER_PIN_RESET=on: Forgot PIN at a shop (the player's phone and the desk's request; default off). */
   deskPinReset: boolean;
   chapa: { baseUrl: string; secretKey: string | undefined; webhookSecret: string | undefined };
   telebirr: {

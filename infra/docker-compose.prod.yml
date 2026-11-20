@@ -62,6 +62,8 @@ x-app-env: &app-env
   KYC_PROVIDER: '${KYC_PROVIDER:-mock}'
   SMS_PROVIDER: '${SMS_PROVIDER:-mock}'
   REGISTRATION_SMS_VERIFICATION: '${REGISTRATION_SMS_VERIFICATION:-required}'
+  # Forgot PIN at a shop (docs/plans/cashier-dashboard.md, "Assisted PIN reset"): off by default.
+  CASHIER_PIN_RESET: '${CASHIER_PIN_RESET:-off}'
   # Alerts to the owner's phone (plan task 1.11): off while the list is empty.
   OWNER_ALERT_PHONES: '${OWNER_ALERT_PHONES:-}'
   OWNER_ALERT_MIN_INTERVAL_MINUTES: '${OWNER_ALERT_MIN_INTERVAL_MINUTES:-30}'
@@ -351,6 +353,8 @@ services:
       - API_INTERNAL_URL=http://api:4000
       # Run-time setting (no rebuild): the Telegram link in the footer. Empty = no link.
       - TELEGRAM_PUBLIC_URL=${TELEGRAM_PUBLIC_URL:-}
+      # Run-time setting: "Reset at a shop" on Forgot PIN, with the API's same switch.
+      - CASHIER_PIN_RESET=${CASHIER_PIN_RESET:-off}
     ports:
       - '${BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000'
     networks: [vamos]

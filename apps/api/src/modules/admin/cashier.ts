@@ -23,7 +23,6 @@ import {
   ShopSummaryResponse,
   CashierDepositsResponse,
   CashReceiptPrintResponse,
-  DeskPinResetCodeResponse,
   DeskPinResetDecisionRequest,
   DeskPinResetListResponse,
   DeskPinResetRequest,
@@ -57,11 +56,8 @@ import {
   postShiftVariance,
   decideDeskPinReset,
   findOpenDeskPinReset,
-  issueDeskPinReset,
   listOpenDeskPinResets,
-  PIN_RESET_AUDIT,
   requestDeskPinReset,
-  DomainError,
   writeAudit,
   type CashierShift,
   type DbExecutor,
@@ -71,8 +67,7 @@ import {
 } from '@vamos/db';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { badRequest, conflict, notFound, parseInput } from '../../lib/errors';
-import { createOtpChallenge } from '../../lib/otp';
+import { badRequest, conflict, notFound, parseInput, unprocessable } from '../../lib/errors';
 import { idNumberHash } from '../kyc/service';
 import {
   deskDeposit,
@@ -364,14 +359,19 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
     approvedAt: r.approvedAt,
   });
 
-  /** The cashier asks a PIN reset for a player whose ID card they checked (four eyes follow). */
+  /**
+   * The cashier asks a PIN reset for the player in front of them: the desk code from the player's
+   * phone and the number on their ID card (four eyes follow; only that phone sets the PIN). A
+   * wrong desk code, no verified ID and a wrong ID number get the same answer, each a try of the
+   * day on record (five a day per player).
+   */
   app.post<IdParams>(
     '/admin/cashier/players/:id/pin-reset',
     {
       config: { staff: 'cashier.desk', ...perStaff('cashier-lookup', CASHIER_RATE_LIMITS.lookup) },
     },
     async (request) => {
-      // Off until only the player's own device can use the code (review of 18 Nov).
+      // Off until the owner switches it on (CASHIER_PIN_RESET=on).
       if (!deps.config.payments.deskPinReset) throw notFound('PIN reset');
       const userId = parseUuid(request.params.id, 'Player');
       const input = parseInput(DeskPinResetRequest, request.body);
@@ -379,32 +379,24 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
       const shift = await getOpenShift(deps.db, actor.adminId);
       // Asked at a shop: with an open shift (review finding 5).
       if (shift === null) throw conflict('shift_not_open', 'Open your shift first.');
-      try {
-        const reset = await inTx(deps, (tx) =>
-          requestDeskPinReset(tx, {
-            userId,
-            staffId: actor.adminId,
-            shopId: shift.shopId,
-            idNumberHash: idNumberHash(deps.config.sessionSecret, input.idNumber),
-            now: deps.clock(),
-            ip: actor.ip ?? null,
-          }),
+      const result = await inTx(deps, (tx) =>
+        requestDeskPinReset(tx, {
+          userId,
+          staffId: actor.adminId,
+          shopId: shift.shopId,
+          deskCode: input.deskCode,
+          idNumberHash: idNumberHash(deps.config.sessionSecret, input.idNumber),
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      if (result.outcome === 'no_match') {
+        throw unprocessable(
+          'pin_reset_no_match',
+          "The desk code or the ID number does not match this player's verified ID.",
         );
-        return wire(DeskPinResetResponse, { reset: pinResetView(reset) });
-      } catch (error) {
-        // A wrong ID number is on record (its own transaction: the request's rolled back).
-        if (error instanceof DomainError && error.code === 'id_mismatch') {
-          await writeAudit(deps.db, {
-            actorType: 'admin',
-            actorId: actor.adminId,
-            action: PIN_RESET_AUDIT.idMismatch,
-            targetType: 'user',
-            targetId: userId,
-            ip: actor.ip ?? null,
-          });
-        }
-        throw error;
       }
+      return wire(DeskPinResetResponse, { reset: pinResetView(result.reset) });
     },
   );
 
@@ -442,44 +434,6 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
         }),
       );
       return wire(DeskPinResetResponse, { reset: pinResetView(reset) });
-    },
-  );
-
-  /**
-   * The desk issues an approved request: the ordinary one-time reset code (as the Telegram reset
-   * makes it), returned once to be printed for the player, who sets a new PIN on "Forgot PIN".
-   */
-  app.post<IdParams>(
-    '/admin/cashier/pin-resets/:id/issue',
-    { config: { staff: 'cashier.desk' } },
-    async (request) => {
-      if (!deps.config.payments.deskPinReset) throw notFound('PIN reset');
-      const resetId = parseUuid(request.params.id, 'PIN reset');
-      const actor = staffActor(request);
-      if ((await getOpenShift(deps.db, actor.adminId)) === null) {
-        throw conflict('shift_not_open', 'Open your shift first.');
-      }
-      const now = deps.clock();
-      const result = await inTx(deps, async (tx) => {
-        const issued = await issueDeskPinReset(tx, {
-          resetId,
-          staffId: actor.adminId,
-          supervisor: supervisor(request),
-          now,
-          ip: actor.ip ?? null,
-        });
-        if (issued.outcome === 'expired') return null;
-        const otp = await createOtpChallenge(tx, {
-          secret: deps.config.sessionSecret,
-          phone: issued.phone,
-          purpose: 'password_reset',
-          now,
-          requesterKey: `desk:${actor.adminId}`,
-        });
-        return { code: otp.code, expiresAt: otp.expiresAt };
-      });
-      if (result === null) throw conflict('pin_reset_expired', 'The approval expired: ask again.');
-      return wire(DeskPinResetCodeResponse, result);
     },
   );
 

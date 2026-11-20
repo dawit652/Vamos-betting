@@ -55,3 +55,6 @@ export const domainGone = (code: string, message: string, details?: unknown) =>
 /** 422 */
 export const domainUnprocessable = (code: string, message: string, details?: unknown) =>
   new DomainError(422, code, message, details);
+/** 429 */
+export const domainTooManyRequests = (code: string, message: string, details?: unknown) =>
+  new DomainError(429, code, message, details);

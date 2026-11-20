@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { expect, test, devices, type Page } from '@playwright/test';
 import { ADMIN_URL, WEB_URL } from '../support/env';
 import { ADULT_DATE_OF_BIRTH, randomPhone } from '../support/phone';
-import { loginApi, loginInBrowser } from '../support/staff';
+import { assignDemoCashierToHq, loginApi, loginInBrowser } from '../support/staff';
 import { balanceChip, registerAndVerify } from '../support/ui';
 
 /**
@@ -20,9 +20,14 @@ test.beforeEach(async ({ context }) => {
 test('a cashier takes a cash deposit, prints the receipt and closes the shift', async ({
   page,
   browser,
+  playwright,
 }) => {
   const phone = randomPhone();
   await registerAndVerify(page, phone);
+  // Other specs add shops: the demo cashier works at the HQ shop.
+  const adminRequest = await playwright.request.newContext();
+  await assignDemoCashierToHq(await loginApi(adminRequest, 'admin'));
+  await adminRequest.dispose();
 
   const staff = await browser.newContext({ ...devices['Desktop Chrome'], baseURL: ADMIN_URL });
   const desk = await staff.newPage();
@@ -118,6 +123,7 @@ test('a verified player gets a shop code on the phone and the cashier pays cash 
   // The money comes from a cash deposit; its wagering rule is turned off for this test.
   const adminRequest = await playwright.request.newContext();
   const admin = await loginApi(adminRequest, 'admin');
+  await assignDemoCashierToHq(admin);
   const before = (
     (await (await admin.get('/admin/settings')).json()) as {
       settings: { payments: Record<string, unknown> };

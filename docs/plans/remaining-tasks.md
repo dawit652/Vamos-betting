@@ -9,9 +9,9 @@ branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
 receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (`dce8e5d`
-database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners`, `0068_agent_balance`, `0069_collection_accounts`, `0070_retail_tickets`, `0071_retail_payouts`, `0072_agent_statements`, `0073_retail_monitor_indexes` and `0074_retail_alerts` run on the next deploy
+database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners`, `0068_agent_balance`, `0069_collection_accounts`, `0070_retail_tickets`, `0071_retail_payouts`, `0072_agent_statements`, `0073_retail_monitor_indexes`, `0074_retail_alerts` and `0075_shop_pin_reset_starts` run on the next deploy
 (every existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next
-free number is **0075**. Deploy is done by the owner (`ssh -t root@<server>` +
+free number is **0076**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
@@ -90,12 +90,11 @@ alarms stay log lines and panels. Live after the next deploy.
    a test shift with a deposit at an HQ shop; the Deposit accounts page lists exactly the accounts of
    `SMS_COLLECTION_ACCOUNTS` (filled on the first start) and the deposit screen still shows them; team logos after their 6-hour run (scraper log `team
 logos`); the X6b alarm lines (`"alarm":"login_failures_`).
-2. **Desk PIN reset redesign** (Opus, high; security), then switch `CASHIER_PIN_RESET=on`: the code
-   must only work from the player's own device. The design is in `docs/plans/cashier-dashboard.md`
-   "Assisted PIN reset" (player starts on the phone, a browser secret, the cashier types the desk code
-   and the ID number, a supervisor approves, only that browser sets the PIN; no code ever shown at the
-   desk). Also: a per-player budget of wrong ID numbers and one identical answer for "no verified ID"
-   and "wrong ID". The built parts (migration 0063, `pin-reset.ts`, the routes, the screens) stay.
+2. **Desk PIN reset redesign: built 20 Nov, off until the owner switches it on.** Only the
+   player's own phone sets the PIN (desk code from the phone, ID check, supervisor approval; plan
+   `docs/plans/cashier-dashboard.md`, phase 2; migration 0075; e2e `shop-pin-reset.spec.ts`). To
+   switch on: `CASHIER_PIN_RESET=on` in the licensed env file, then deploy (the API and the web
+   both read it). Owner's choice; nothing else is needed.
 3. **Half-time score missing at settlement** (owner decision needed, then Opus, money path): the
    scraper log shows `cannot result market ... (h2_btts): the half-time score is required` when
    API-Football gives no half-time score. With the factory's markets on many matches this recurs;

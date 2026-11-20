@@ -152,10 +152,80 @@ export const cashShiftVariancePostings = pgTable('cash_shift_variance_postings',
 });
 
 /**
- * A PIN reset asked at a shop desk (cashier phase "assisted PIN reset"): the cashier checked the
- * player's ID against the verified KYC record, a supervisor approves (four eyes), then the desk
- * issues the ordinary one-time reset code (printed instead of sent by SMS) that the player uses on
- * "Forgot PIN". At most one open (requested or approved) request per player.
+ * A PIN reset at a shop, started on the player's own phone ("Forgot PIN", "Reset at a shop"; the
+ * review of 18 Nov 2026): the browser keeps a random secret and sends only its SHA-256, the site
+ * shows the desk code, which the player tells the cashier with the ID card. Only a browser proving
+ * the secret sets the new PIN, after a supervisor approved the desk's request (cash_pin_resets).
+ * The phone may or may not have an account: the player sees the same either way. Never deleted.
+ *
+ * status: waiting (not at a desk yet, until expires_at), linked (the desk's request names it in
+ * cash_pin_resets.start_id), done (the PIN was set), closed (expired unused).
+ */
+export const pinResetStarts = pgTable(
+  'pin_reset_starts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The number the player typed, normalised. */
+    phone: text('phone').notNull(),
+    /** SHA-256 (hex) of the secret the browser keeps; the secret itself never leaves it before. */
+    secretHash: text('secret_hash').notNull(),
+    /** Eight digits the player tells the cashier. */
+    deskCode: text('desk_code').notNull(),
+    status: text('status').notNull().default('waiting'),
+    /** Rate-limit key of the client address that started it. */
+    requesterKey: text('requester_key'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    /** A waiting start is taken to a desk before this. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    check('pin_reset_starts_status', sql`${t.status} IN ('waiting', 'linked', 'done', 'closed')`),
+    check('pin_reset_starts_done', sql`(${t.status} = 'done') = (${t.completedAt} IS NOT NULL)`),
+    check('pin_reset_starts_desk_code', sql`${t.deskCode} ~ '^[0-9]{8}$'`),
+    uniqueIndex('pin_reset_starts_secret_uq').on(t.secretHash),
+    uniqueIndex('pin_reset_starts_desk_code_uq')
+      .on(t.deskCode)
+      .where(sql`${t.status} = 'waiting'`),
+    index('pin_reset_starts_phone_idx').on(t.phone, t.createdAt),
+    index('pin_reset_starts_requester_idx').on(t.requesterKey, t.createdAt),
+  ],
+);
+
+/**
+ * A desk code or ID number that matched no verified ID of the player (the review of 18 Nov: five a
+ * day per player, then the desk is refused until the oldest ages out). Why is kept for staff with
+ * audit access; the desk always got the same answer. Never deleted.
+ */
+export const cashPinResetTries = pgTable(
+  'cash_pin_reset_tries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => adminUsers.id),
+    shopId: uuid('shop_id').references(() => cashierShops.id),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    check(
+      'cash_pin_reset_tries_reason',
+      sql`${t.reason} IN ('desk_code', 'no_verified_id', 'id_number')`,
+    ),
+    index('cash_pin_reset_tries_user_idx').on(t.userId, t.createdAt),
+  ],
+);
+
+/**
+ * A PIN reset asked at a shop desk (cashier phase "assisted PIN reset"): the cashier typed the desk
+ * code from the player's phone and checked the ID card against the verified KYC record, a
+ * supervisor approves (four eyes), then only the player's browser that started it (start_id)
+ * sets the new PIN; the desk never sees a code. At most one open (requested or approved) request
+ * per player. Status `issued`: the player's browser set the PIN.
  */
 export const cashPinResets = pgTable(
   'cash_pin_resets',
@@ -173,8 +243,13 @@ export const cashPinResets = pgTable(
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     issuedAt: timestamp('issued_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    /** The player's start (their phone's secret); null only on requests from before 0075. */
+    startId: uuid('start_id').references(() => pinResetStarts.id),
   },
   (t) => [
+    uniqueIndex('cash_pin_resets_start_uq')
+      .on(t.startId)
+      .where(sql`${t.startId} IS NOT NULL`),
     check(
       'cash_pin_resets_status',
       sql`${t.status} IN ('requested', 'approved', 'issued', 'rejected', 'expired')`,

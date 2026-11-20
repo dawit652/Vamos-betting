@@ -39,6 +39,8 @@ export FEATURE_USSD="$USSD_ENABLED"
 # The SMS deposit rail, simulated (demo mode: the dev SMS simulator plays the bank), next to the mock
 # provider, so sms-rail.spec.ts can deposit through it and staff can work its review queue.
 export PAYMENT_PROVIDERS="${PAYMENT_PROVIDERS:-mock,sms}"
+# Forgot PIN at a shop (e2e/tests/shop-pin-reset.spec.ts): the API and the web read it.
+export CASHIER_PIN_RESET="${CASHIER_PIN_RESET:-on}"
 
 running() {
   local pidfile="$STATE_DIR/$1.pid"

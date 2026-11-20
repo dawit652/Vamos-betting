@@ -526,6 +526,13 @@
       "when": 1795146275528,
       "tag": "0074_retail_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1795170239842,
+      "tag": "0075_shop_pin_reset_starts",
+      "breakpoints": true
     }
   ]
 }

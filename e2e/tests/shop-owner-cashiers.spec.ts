@@ -33,6 +33,7 @@ test('an owner adds a cashier, blocks and unblocks it', async ({ browser }) => {
   const ownerEmail = `e2e-owner-c-${suffix}@demo.vamos.test`;
   const ownPassword = `Own-${suffix}-owner-pw!`;
   const cashierName = `E2E Added ${suffix}`;
+  let agentUrl: string | null = null;
   try {
     await loginInBrowser(admin, 'admin');
     await admin
@@ -49,6 +50,7 @@ test('an owner adds a cashier, blocks and unblocks it', async ({ browser }) => {
     await expect(
       admin.getByRole('heading', { name: new RegExp(`^Agent \\d+ – ${agentName}$`) }),
     ).toBeVisible();
+    agentUrl = admin.url();
 
     const shopForm = admin.getByRole('form', { name: 'Add a shop' });
     await shopForm.getByLabel('Shop name').fill('E2E Owner Shop');
@@ -118,6 +120,19 @@ test('an owner adds a cashier, blocks and unblocks it', async ({ browser }) => {
     await expect(row).toContainText('Active');
     await expect(row.getByTestId('owner-cashier-block')).toBeVisible();
   } finally {
+    // Close the shop again so a second open shop does not stop other specs' cashiers.
+    if (agentUrl !== null) {
+      try {
+        await admin.goto(agentUrl);
+        const close = admin.getByRole('button', { name: 'Close shop' });
+        await close.waitFor({ timeout: 10_000 });
+        admin.once('dialog', (dialog) => void dialog.accept());
+        await close.click();
+        await expect(admin.getByRole('button', { name: 'Reopen shop' })).toBeVisible();
+      } catch {
+        // The test already failed; nothing more to clean up.
+      }
+    }
     await staff.close();
     await office.close();
   }

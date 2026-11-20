@@ -16,10 +16,17 @@ import type {
   ResendOtpRequest,
   ResetPasswordRequest,
   RevokeSessionsRequest,
+  ShopPinResetCompleteRequest,
   RevokeSessionsResponse,
   VerifyOtpRequest,
 } from '@vamos/contracts';
-import { writeAudit, type DbExecutor } from '@vamos/db';
+import {
+  completeShopPinReset,
+  pinResetSecretHash,
+  shopPinResetStatus,
+  writeAudit,
+  type DbExecutor,
+} from '@vamos/db';
 import { sessions, users } from '@vamos/db/schema';
 import { and, desc, eq, gt, isNull, ne } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
@@ -616,6 +623,65 @@ export async function resetPassword(
     deliver: () => notifySecurityEvent(deps, phone, 'password_changed', reset.locale, meta.log),
   };
 }
+
+/**
+ * Sets a new password from the player's own browser after a shop's approved PIN reset ("Forgot
+ * PIN", "Reset at a shop"): the browser proves the secret it kept since the start, so nobody at the
+ * desk can set it. Revokes every session of the account; the caller sends the notice (`deliver`)
+ * after answering. 404 for an unknown secret; 409 `pin_reset_used`, `pin_reset_not_approved` or
+ * `pin_reset_expired` (the approval is used within 30 minutes) otherwise.
+ */
+export async function resetPasswordAtShop(
+  deps: AppDeps,
+  input: ShopPinResetCompleteRequest,
+  meta: RequestMeta,
+): Promise<PasswordChanged & { phone: string }> {
+  const secretHash = pinResetSecretHash(input.secret);
+  const found = await shopPinResetStatus(deps.db, { secretHash, now: deps.clock() });
+  if (found === null) throw notFound('PIN reset');
+  // Before the costly hash: only an approved reset goes on (checked again under lock below).
+  if (found.state === 'done') {
+    throw conflict('pin_reset_used', 'This PIN reset was used already.');
+  }
+  if (found.state === 'expired') throw shopResetExpired();
+  if (found.state !== 'approved') {
+    throw conflict('pin_reset_not_approved', 'The shop has not approved this PIN reset yet.');
+  }
+  assertPasswordAcceptable(input.newPassword, found.phone);
+  const passwordHash = await hashPassword(input.newPassword, deps.config.passwordPepper);
+  const now = deps.clock();
+  const changed = await deps.db.transaction(async (tx) => {
+    const taken = await completeShopPinReset(tx, { secretHash, now, ip: meta.ip });
+    if (taken.outcome === 'expired') return null;
+    const [user] = await tx
+      .select({ locale: users.locale })
+      .from(users)
+      .where(eq(users.id, taken.userId));
+    await tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, taken.userId));
+    const revokedSessions = await revokeAllUserSessions(tx, taken.userId, now);
+    await writeAudit(tx, {
+      actorType: 'user',
+      actorId: taken.userId,
+      action: 'user.password_reset',
+      targetType: 'user',
+      targetId: taken.userId,
+      metadata: { revokedSessions, via: 'shop', resetId: taken.resetId },
+      ip: meta.ip,
+    });
+    return { userId: taken.userId, phone: taken.phone, locale: toLocale(user?.locale) };
+  });
+  // The expiry mark committed; the player asks at the shop again.
+  if (changed === null) throw shopResetExpired();
+  await announceSessionRevoked(deps, changed.userId, null);
+  return {
+    phone: changed.phone,
+    deliver: () =>
+      notifySecurityEvent(deps, changed.phone, 'password_changed', changed.locale, meta.log),
+  };
+}
+
+const shopResetExpired = () =>
+  conflict('pin_reset_expired', 'This PIN reset expired. Ask at the shop again.');
 
 /** 403 `reauth_failed`: the password re-entered to confirm a change is not the account's. */
 const reauthFailed = () =>

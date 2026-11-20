@@ -322,9 +322,17 @@ export const CashWithdrawalResponse = z.discriminatedUnion('outcome', [
 ]);
 export type CashWithdrawalResponse = z.infer<typeof CashWithdrawalResponse>;
 
-/** POST /admin/cashier/players/:id/pin-reset (cashier.desk): the ID number on the player's card. */
+/**
+ * POST /admin/cashier/players/:id/pin-reset (cashier.desk): the desk code on the player's phone
+ * ("Forgot PIN", "Reset at a shop") and the ID number on the player's card.
+ */
 export const DeskPinResetRequest = z
   .object({
+    deskCode: z
+      .string()
+      .trim()
+      .transform((value) => value.replace(/[\s-]/g, ''))
+      .pipe(z.string().regex(/^\d{8}$/, "the 8-digit desk code on the player's phone")),
     idNumber: z
       .string()
       .trim()
@@ -351,6 +359,3 @@ export const DeskPinResetListResponse = z.object({ resets: z.array(DeskPinResetV
 export type DeskPinResetListResponse = z.infer<typeof DeskPinResetListResponse>;
 /** POST /admin/cashier/pin-resets/:id/decision (users.status). */
 export const DeskPinResetDecisionRequest = z.object({ approve: z.boolean() }).strict();
-/** POST /admin/cashier/pin-resets/:id/issue (cashier.desk): the one-time code, shown once. */
-export const DeskPinResetCodeResponse = z.object({ code: z.string(), expiresAt: IsoDateTime });
-export type DeskPinResetCodeResponse = z.infer<typeof DeskPinResetCodeResponse>;

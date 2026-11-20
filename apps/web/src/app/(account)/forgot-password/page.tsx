@@ -5,6 +5,7 @@ import { accountPaths } from '@/components/account/paths';
 import { BackLink, PageTitle } from '@/components/account/ui';
 import { getT } from '@/i18n/server';
 import { routes } from '@/lib/routes';
+import { shopPinResetEnabled } from '@/lib/shop-reset';
 import { telegramUrl } from '@/lib/telegram';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -39,6 +40,17 @@ export default async function ForgotPasswordPage() {
           </a>
           <Link href={accountPaths.resetPassword} className="btn btn-outline w-full">
             {t('account.forgot.haveCode')}
+          </Link>
+        </section>
+      ) : null}
+      {shopPinResetEnabled() ? (
+        <section aria-labelledby="forgot-shop" className="card mx-3 mt-4 space-y-3">
+          <h2 id="forgot-shop" className="font-bold">
+            {t('account.shopReset.linkTitle')}
+          </h2>
+          <p className="text-sm text-muted">{t('account.shopReset.linkHint')}</p>
+          <Link href={accountPaths.resetAtShop} className="btn btn-outline w-full">
+            {t('account.shopReset.link')}
           </Link>
         </section>
       ) : null}

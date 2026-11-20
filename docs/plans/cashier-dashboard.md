@@ -104,21 +104,31 @@ open for many shops: cash limits per cashier per day (owner decision) and per-sh
 /admin/cashier/players/:id/deposits`, cashier.desk, audited `cashier.player_deposits_viewed`);
    it never credits an online deposit; supervisors get links to the SMS rail page and the player
    page. A supervisor-only "credit by provider reference" was not needed.
-2. **Assisted PIN reset: built 18 Nov, SWITCHED OFF (`CASHIER_PIN_RESET=off`, the default).** The
-   second-model review of 18 Nov found that the desk is handed the one-time reset code: a dishonest
-   cashier could type it with a PIN of their choice before the player does, and the supervisor's
-   approval does not prevent that. Built so far: the desk checks the ID card against the verified KYC
-   record (keyed hash; a mismatch audited), needs an open shift, a supervisor with users.status (not
-   the cashier) approves on the Cash shifts page, then the desk would get the ordinary reset code
-   (migration `0063_cash_pin_resets`; `packages/db/src/cashier/pin-reset.ts`; routes under
-   `/admin/cashier/players/:id/pin-reset` and `/admin/cashier/pin-resets`). **To do before switching
-   on (Opus, high):** only the player's own device may use the code. The player starts on their phone
-   ("Forgot PIN", "Reset at a shop"): the site keeps a random secret in the browser and shows a short
-   desk code; the cashier types that desk code with the ID number; after the approval the server makes
-   the reset code with `binding` = the browser secret's hash (`createOtpChallenge` binding, compared
-   by `consumeOtp`), and only that browser, proving the secret, receives it and sets the PIN. The desk
-   never sees a code that sets a PIN. Also from the review: a per-player budget for wrong ID numbers
-   (5 a day) and one identical answer for "no verified ID" and "wrong ID".
+2. **Assisted PIN reset: redesigned and built 20 Nov; still OFF until the owner switches it on
+   (`CASHIER_PIN_RESET=on` in the env file; the API and the player site both read it).** The
+   second-model review of 18 Nov found that the desk was handed the one-time reset code (a dishonest
+   cashier could set a PIN of their choice). Now only the player's own phone can set the PIN:
+   - The player opens Forgot PIN, "Reset at a shop" (`/reset-at-shop`): the browser makes a random
+     secret (32 bytes, kept in its localStorage) and sends only its SHA-256 with the phone number
+     (`POST /auth/password/shop-reset`); the site shows an 8-digit desk code (24 hours). The answer
+     is the same whether or not the number has an account. Limits: 3 starts per number and client
+     address an hour, 10 per number, 60 per address (carrier addresses are shared).
+   - The cashier (open shift) finds the player and types the desk code with the number on the ID
+     card (`POST /admin/cashier/players/:id/pin-reset`). A wrong desk code, no verified ID and a
+     wrong ID number get one answer (`pin_reset_no_match`); each is a try on record
+     (`cash_pin_reset_tries`, why kept for audit) and five a day per player stop the desk (429
+     `pin_reset_limit`).
+   - A supervisor with users.status (never the cashier who asked) approves on the Cash shifts page,
+     as before.
+   - The phone polls `POST /auth/password/shop-reset/status` (the secret in the body, never in a
+     URL) and, once approved, sets the new PIN within 30 minutes (`POST
+/auth/password/shop-reset/complete`): every session revoked, the sign-in lock lifted, the
+     "PIN changed" SMS. The desk's old "issue code" route is gone.
+     Code: migration `0075_shop_pin_reset_starts` (`pin_reset_starts`, `cash_pin_reset_tries`,
+     `cash_pin_resets.start_id`), `packages/db/src/cashier/pin-reset.ts`, `resetPasswordAtShop` in
+     the API's auth service, the web's `ShopResetFlow`, the desk card; tests
+     `packages/db/test/cashier-pin-reset.test.ts`, `apps/api/test/cashier-shops.test.ts`, e2e
+     `e2e/tests/shop-pin-reset.spec.ts` (the e2e stack runs with the switch on).
 3. **Variance posting: done 18 Nov** (owner's default: a shop loss or gain, approved by a
    supervisor; migration `0062_cash_shift_variance`): ledger account kind `house_cash_variance`
    (GGR in `house_revenue` stays clean); `cash_shift_variance_postings` (once per shift);

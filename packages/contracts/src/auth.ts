@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { IsoDateTime } from './common';
 
 /** Any common way of writing an Ethiopian mobile number; normalised server-side. */
 export const PhoneInput = z.string().trim().min(9).max(20);
@@ -116,6 +117,56 @@ export const ResetPasswordRequest = z.object({
   newPassword: Password,
 });
 export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequest>;
+
+/**
+ * Forgot PIN at a shop (no SMS or Telegram; cashier phase "assisted PIN reset"): the browser keeps a
+ * random secret (base64url, 43 characters for 32 bytes) and sends only its SHA-256 (hex) to start.
+ * The secret itself goes in the bodies of the status and the completion, never in a URL.
+ */
+export const ShopPinResetSecret = z
+  .string()
+  .min(32)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/, 'base64url');
+/** POST /auth/password/shop-reset */
+export const ShopPinResetStartRequest = z
+  .object({
+    phone: PhoneInput,
+    secretHash: z.string().regex(/^[0-9a-f]{64}$/, 'SHA-256 in hex'),
+  })
+  .strict();
+export type ShopPinResetStartRequest = z.infer<typeof ShopPinResetStartRequest>;
+/** The same answer whether or not the number has an account. */
+export const ShopPinResetStartResponse = z.object({
+  /** Eight digits the player tells the cashier. */
+  deskCode: z.string(),
+  expiresAt: IsoDateTime,
+});
+export type ShopPinResetStartResponse = z.infer<typeof ShopPinResetStartResponse>;
+/** POST /auth/password/shop-reset/status */
+export const ShopPinResetStatusRequest = z.object({ secret: ShopPinResetSecret }).strict();
+export type ShopPinResetStatusRequest = z.infer<typeof ShopPinResetStatusRequest>;
+export const ShopPinResetState = z.enum([
+  'waiting_desk',
+  'waiting_approval',
+  'approved',
+  'rejected',
+  'expired',
+  'done',
+]);
+export type ShopPinResetState = z.infer<typeof ShopPinResetState>;
+export const ShopPinResetStatusResponse = z.object({
+  state: ShopPinResetState,
+  deskCode: z.string(),
+  /** When the current step ends (null once it is over). */
+  until: IsoDateTime.nullable(),
+});
+export type ShopPinResetStatusResponse = z.infer<typeof ShopPinResetStatusResponse>;
+/** POST /auth/password/shop-reset/complete: after the approval, from the browser that started. */
+export const ShopPinResetCompleteRequest = z
+  .object({ secret: ShopPinResetSecret, newPassword: Password })
+  .strict();
+export type ShopPinResetCompleteRequest = z.infer<typeof ShopPinResetCompleteRequest>;
 
 const SessionUserView = z.object({
   id: z.string(),

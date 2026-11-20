@@ -178,4 +178,13 @@ describe('locking a player out (A3)', () => {
     expect(over.statusCode).toBe(429);
     expect(over.json().error.code).toBe('otp_limit');
   }, 60_000);
+  it('keeps "Reset at a shop" closed while CASHIER_PIN_RESET is off (the default)', async () => {
+    for (const [url, body] of [
+      ['/auth/password/shop-reset', { phone: '0911223344', secretHash: 'a'.repeat(64) }],
+      ['/auth/password/shop-reset/status', { secret: 'b'.repeat(43) }],
+      ['/auth/password/shop-reset/complete', { secret: 'b'.repeat(43), newPassword: '5739' }],
+    ] as const) {
+      expect((await post(ctx, url, body)).statusCode, url).toBe(404);
+    }
+  });
 });
