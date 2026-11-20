@@ -11,6 +11,10 @@ import { getBalance } from '../src/ledger/index';
 import {
   cancelRetailTicket,
   createAgent,
+  decideRetailPayout,
+  expireRetailTickets,
+  findTicketByNumber,
+  payRetailTicket,
   decideAgentTopup,
   getAgentBalance,
   recordAgentTopup,
@@ -325,6 +329,132 @@ describe('settling shop tickets', () => {
   });
 });
 
+describe('paying shop tickets (phase 4)', () => {
+  const pay = (desk: Counter, number: string, key = `payout-${randomUUID()}`, staffId?: string) =>
+    handle.db.transaction((tx) =>
+      payRetailTicket(tx, {
+        number,
+        staffId: staffId ?? desk.cashier,
+        shiftId: desk.shift.id,
+        idempotencyKey: key,
+        now: new Date(),
+      }),
+    );
+
+  it("pays a winner once at the shop that sold it, into the agent's balance", async () => {
+    const desk = await counter({ balance: birr(1_000) });
+    const event = await createEvent(handle.db, ids);
+    const winner = await sell(desk, birr(100), [{ selectionId: event.home, oddsMilli: 2000 }]);
+    const loser = await sell(desk, birr(100), [{ selectionId: event.away, oddsMilli: 3500 }]);
+    expect(await refusal(pay(desk, winner.bet.shortId))).toEqual({
+      status: 409,
+      code: 'ticket_not_payable',
+    });
+    await finish(handle.db, event.eventId, 2, 1);
+    await settle(event.eventId);
+    const found = await findTicketByNumber(handle.db, winner.bet.shortId.toLowerCase());
+    expect(found).toMatchObject({ state: 'payable' });
+    const net = found!.amount;
+    expect(await refusal(pay(desk, loser.bet.shortId))).toEqual({
+      status: 409,
+      code: 'ticket_not_payable',
+    });
+
+    // Another shop of another agent: not here.
+    const elsewhere = await counter({ balance: birr(100) });
+    expect(await refusal(pay(elsewhere, winner.bet.shortId))).toEqual({
+      status: 409,
+      code: 'ticket_other_shop',
+    });
+
+    const payableBefore = await getBalance(handle.db, RETAIL_PAYABLE);
+    const key = `payout-${randomUUID()}`;
+    const paid = await pay(desk, winner.bet.shortId, key);
+    expect(paid).toMatchObject({ outcome: 'paid', amount: net, replayed: false });
+    expect(await getBalance(handle.db, RETAIL_PAYABLE)).toBe(payableBefore - net);
+    expect(await getAgentBalance(handle.db, desk.agentId)).toBe(birr(800) + net);
+    expect((await pay(desk, winner.bet.shortId, key)).outcome).toBe('paid');
+    expect(await getAgentBalance(handle.db, desk.agentId)).toBe(birr(800) + net);
+    expect(await refusal(pay(desk, winner.bet.shortId))).toEqual({
+      status: 409,
+      code: 'ticket_not_payable',
+    });
+    const [shift] = await handle.db
+      .select()
+      .from(cashierShifts)
+      .where(eq(cashierShifts.id, desk.shift.id));
+    const totals = await shiftTotals(handle.db, shift!);
+    expect(totals.tickets).toMatchObject({ paidCount: 1, paid: net });
+    expect(totals.expectedCash).toBe(birr(500) + birr(200) - net);
+
+    // A correction after the payout is blocked for the paid ticket (the money left with its
+    // holder); the other ticket, now a winner, owes its payout as usual.
+    await finish(handle.db, event.eventId, 0, 1);
+    await settle(event.eventId);
+    expect((await getBetById(handle.db, winner.bet.id))?.status).toBe('won');
+    const nowWinning = await findTicketByNumber(handle.db, loser.bet.shortId);
+    expect(nowWinning?.state).toBe('payable');
+    expect(await getBalance(handle.db, RETAIL_PAYABLE)).toBe(
+      payableBefore - net + nowWinning!.amount,
+    );
+  });
+
+  it('above the HQ limit a second person approves first', async () => {
+    const desk = await counter({ balance: birr(5_000), limits: { hqApprovalAbove: birr(50) } });
+    const event = await createEvent(handle.db, ids);
+    const winner = await sell(desk, birr(100), [{ selectionId: event.home, oddsMilli: 2000 }]);
+    await finish(handle.db, event.eventId, 1, 0);
+    await settle(event.eventId);
+    const waiting = await pay(desk, winner.bet.shortId);
+    expect(waiting.outcome).toBe('approval_required');
+    expect((await findTicketByNumber(handle.db, winner.bet.shortId))?.state).toBe(
+      'awaiting_approval',
+    );
+    expect(
+      await refusal(
+        handle.db.transaction((tx) =>
+          decideRetailPayout(tx, {
+            ticketId: winner.ticket.id,
+            decision: 'approve',
+            adminId: desk.cashier,
+            now: new Date(),
+          }),
+        ),
+      ),
+    ).toEqual({ status: 409, code: 'four_eyes' });
+    await handle.db.transaction((tx) =>
+      decideRetailPayout(tx, {
+        ticketId: winner.ticket.id,
+        decision: 'approve',
+        adminId: admin,
+        now: new Date(),
+      }),
+    );
+    expect((await pay(desk, winner.bet.shortId)).outcome).toBe('paid');
+  });
+
+  it('a winner not paid within the expiry days expires into revenue', async () => {
+    const desk = await counter({ balance: birr(1_000), limits: { expiryDays: 1 } });
+    const kickoff = new Date(Date.now() + 3 * 3600_000);
+    const event = await createEvent(handle.db, ids, { startTime: kickoff });
+    const winner = await sell(desk, birr(100), [{ selectionId: event.home, oddsMilli: 2000 }]);
+    await finish(handle.db, event.eventId, 3, 0);
+    await settle(event.eventId);
+    const net = (await findTicketByNumber(handle.db, winner.bet.shortId))!.amount;
+    const payable = await getBalance(handle.db, RETAIL_PAYABLE);
+    const soon = await handle.db.transaction((tx) => expireRetailTickets(tx, { now: new Date() }));
+    expect(soon).toBe(0);
+    const later = new Date(kickoff.getTime() + 2 * 86_400_000);
+    expect(await handle.db.transaction((tx) => expireRetailTickets(tx, { now: later }))).toBe(1);
+    expect((await findTicketByNumber(handle.db, winner.bet.shortId))?.state).toBe('expired');
+    expect(await getBalance(handle.db, RETAIL_PAYABLE)).toBe(payable - net);
+    expect(await refusal(pay(desk, winner.bet.shortId))).toEqual({
+      status: 409,
+      code: 'ticket_not_payable',
+    });
+  });
+});
+
 describe('the drawer, HQ shops and reconciliation', () => {
   it("counts tickets in the shift's expected cash; an HQ shop sells from its retail cash", async () => {
     const hq = await counter({ hq: true });
@@ -345,6 +475,8 @@ describe('the drawer, HQ shops and reconciliation', () => {
       sold: birr(200),
       cancelledCount: 1,
       cancelled: birr(120),
+      paidCount: 0,
+      paid: 0n,
     });
     expect(totals.expectedCash).toBe(birr(500) + birr(80));
   });

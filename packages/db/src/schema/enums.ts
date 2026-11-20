@@ -95,6 +95,9 @@ export const ledgerTransactionType = pgEnum('ledger_transaction_type', [
   'agent_take_back',
   // A shop ticket cancelled before its first kick-off: the stake goes back where it came from.
   'retail_ticket_cancel',
+  // A won or void shop ticket paid at the counter (phase 4), or expired unpaid.
+  'retail_ticket_payout',
+  'retail_ticket_expiry',
 ]);
 
 export const actorType = pgEnum('actor_type', ['user', 'admin', 'system']);

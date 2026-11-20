@@ -25,7 +25,13 @@ import { agents } from './retail';
  * status: sold (the stake left the agent's balance, or entered HQ's retail cash), cancelled (before
  * its first kick-off; the stake went back). Phase 4 adds paid and expired.
  */
-export const retailTicketStatus = pgEnum('retail_ticket_status', ['sold', 'cancelled']);
+export const retailTicketStatus = pgEnum('retail_ticket_status', [
+  'sold',
+  'cancelled',
+  // Phase 4: paid to its holder at the shop that sold it; or not paid in time.
+  'paid',
+  'expired',
+]);
 
 export const retailTickets = pgTable(
   'retail_tickets',
@@ -59,6 +65,23 @@ export const retailTickets = pgTable(
     /** The original's first print; later prints are counted copies. */
     originalPrintedAt: timestamp('original_printed_at', { withTimezone: true }),
     reprints: integer('reprints').notNull().default(0),
+    /** Paid to its holder (phase 4): when, by whom, in which shift, how much and the posting. */
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    paidBy: uuid('paid_by').references(() => adminUsers.id, { onDelete: 'restrict' }),
+    paidShiftId: uuid('paid_shift_id').references(() => cashierShifts.id, { onDelete: 'restrict' }),
+    paidAmount: bigint('paid_amount', { mode: 'bigint' }),
+    payoutTransactionId: uuid('payout_transaction_id'),
+    /** The desk's key of the payout: the same key again answers with the same payout. */
+    payoutIdempotencyKey: text('payout_idempotency_key'),
+    /** Above the agent's HQ limit a payout waits for an admin (four eyes against the asker). */
+    approvalRequestedAt: timestamp('approval_requested_at', { withTimezone: true }),
+    approvalRequestedBy: uuid('approval_requested_by').references(() => adminUsers.id, {
+      onDelete: 'restrict',
+    }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    approvedBy: uuid('approved_by').references(() => adminUsers.id, { onDelete: 'restrict' }),
+    /** Not paid within the agent's expiry days after its last match. */
+    expiredAt: timestamp('expired_at', { withTimezone: true }),
   },
   (t) => [
     uniqueIndex('retail_tickets_bet_uq').on(t.betId),
@@ -67,6 +90,26 @@ export const retailTickets = pgTable(
     index('retail_tickets_shop_sold_idx').on(t.shopId, t.soldAt),
     check('retail_tickets_stake_positive', sql`${t.stake} > 0`),
     check('retail_tickets_reprints_non_negative', sql`${t.reprints} >= 0`),
+    // New enum values are compared as text: they cannot be used in the migration that adds them.
+    check(
+      'retail_tickets_paid',
+      sql`(${t.status}::text = 'paid') = (${t.paidAt} IS NOT NULL AND ${t.paidBy} IS NOT NULL AND ${t.paidShiftId} IS NOT NULL AND ${t.paidAmount} IS NOT NULL AND ${t.payoutTransactionId} IS NOT NULL)`,
+    ),
+    check('retail_tickets_paid_amount', sql`${t.paidAmount} IS NULL OR ${t.paidAmount} > 0`),
+    check(
+      'retail_tickets_expired',
+      sql`(${t.status}::text = 'expired') = (${t.expiredAt} IS NOT NULL)`,
+    ),
+    check(
+      'retail_tickets_approval_four_eyes',
+      sql`${t.approvedBy} IS NULL OR ${t.approvalRequestedBy} IS NULL OR ${t.approvedBy} <> ${t.approvalRequestedBy}`,
+    ),
+    uniqueIndex('retail_tickets_payout_key_uq')
+      .on(t.payoutIdempotencyKey)
+      .where(sql`${t.payoutIdempotencyKey} IS NOT NULL`),
+    index('retail_tickets_approval_idx')
+      .on(t.approvalRequestedAt)
+      .where(sql`${t.approvalRequestedAt} IS NOT NULL AND ${t.approvedAt} IS NULL`),
     check(
       'retail_tickets_cancelled',
       sql`(${t.status} = 'cancelled') = (${t.cancelledAt} IS NOT NULL AND ${t.cancelledBy} IS NOT NULL)`,

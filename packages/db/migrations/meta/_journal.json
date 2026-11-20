@@ -498,6 +498,13 @@
       "when": 1795122857391,
       "tag": "0070_retail_tickets",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795141510078,
+      "tag": "0071_retail_payouts",
+      "breakpoints": true
     }
   ]
 }

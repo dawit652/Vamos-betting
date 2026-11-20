@@ -357,24 +357,27 @@ async function checkHouseAccounts(exec: DbExecutor): Promise<CheckResult[]> {
     })
     .from(payouts)
     .where(sql`${payouts.status}::text IN (${openStatuses})`);
-  // Shop tickets (agent-shops.md phase 3): what won and void tickets are owed until a shop pays
-  // them (none is paid before phase 4), and the ticket cash in HQ's own drawers (negative: cash
-  // in hand) = stakes of HQ tickets that still stand.
+  // Shop tickets (agent-shops.md phases 3 and 4): what won and void tickets still owe (not paid,
+  // not expired), and the ticket cash in HQ's own drawers (negative: cash in hand) = stakes of HQ
+  // tickets that stand, minus what HQ shops paid out.
   const [owed] = await exec
     .select({
       n: sql<number>`count(*)::int`,
       total: sql<string>`COALESCE(sum(${bets.settledNetPayout}), 0)::text`,
     })
     .from(bets)
-    .where(sql`${bets.channel}::text = 'shop' AND ${bets.status} IN ('won', 'void')`);
+    .innerJoin(retailTickets, eq(retailTickets.betId, bets.id))
+    .where(
+      sql`${bets.channel}::text = 'shop' AND ${bets.status} IN ('won', 'void') AND ${retailTickets.status}::text = 'sold'`,
+    );
   const [hqTickets] = await exec
     .select({
       n: sql<number>`count(*)::int`,
-      total: sql<string>`(-COALESCE(sum(${retailTickets.stake}), 0))::text`,
+      total: sql<string>`(COALESCE(sum(${retailTickets.paidAmount}), 0) - COALESCE(sum(${retailTickets.stake}) FILTER (WHERE ${retailTickets.status}::text <> 'cancelled'), 0))::text`,
     })
     .from(retailTickets)
     .innerJoin(agents, eq(agents.id, retailTickets.agentId))
-    .where(sql`${agents.isHouse} AND ${retailTickets.status} = 'sold'`);
+    .where(sql`${agents.isHouse}`);
   const compare = async (
     check: ReconciliationCheck,
     key: string,
@@ -716,11 +719,13 @@ async function checkAgentCash(exec: DbExecutor, date: string, cap: number): Prom
     payout_amount: string | null;
     ticket_stake: string | null;
     ticket_status: string | null;
+    ticket_paid: string | null;
   }>(sql`
     SELECT t.id::text AS tx_id, t.type::text AS type, t.ref_type, e.amount::text AS amount,
       g.amount::text AS topup_amount, g.direction::text AS topup_direction,
       i.amount::text AS intent_amount, p.amount::text AS payout_amount,
-      r.stake::text AS ticket_stake, r.status::text AS ticket_status
+      r.stake::text AS ticket_stake, r.status::text AS ticket_status,
+      r.paid_amount::text AS ticket_paid
     FROM ${ledgerEntries} e
     JOIN ${ledgerAccounts} a ON a.id = e.account_id
     JOIN ${ledgerTransactions} t ON t.id = e.transaction_id
@@ -749,7 +754,12 @@ async function checkAgentCash(exec: DbExecutor, date: string, cap: number): Prom
         (row.type === 'bet_stake' && amount === -stake) ||
         (row.type === 'retail_ticket_cancel' &&
           row.ticket_status === 'cancelled' &&
-          amount === stake);
+          amount === stake) ||
+        // A ticket paid at the agent's shop: the agent paid the holder, its balance grows.
+        (row.type === 'retail_ticket_payout' &&
+          row.ticket_status === 'paid' &&
+          row.ticket_paid !== null &&
+          amount === BigInt(row.ticket_paid));
     }
     if (ok) continue;
     note({

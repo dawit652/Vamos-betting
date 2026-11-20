@@ -18,6 +18,7 @@ import {
   settlementPosting,
   type SettlementAmounts,
 } from './postings';
+import { retailTicketPaid } from '../retail/payouts';
 import type { BetRow } from './queries';
 import { parseTerms, type BetStatus } from './types';
 
@@ -261,6 +262,19 @@ export async function settlePlacedBet(
         : settlementPosting(bet.userId, bet.stake, desired);
   let version = bet.settlementVersion;
   if (current !== null) {
+    // A shop ticket already paid at the counter: its money left with the holder, so a corrected
+    // result is never taken back out of retail payable (which holds other tickets' money). The
+    // correction is blocked and reported for staff, as a player's that would overdraw them is.
+    if (bet.channel === 'shop' && (await retailTicketPaid(tx, betId))) {
+      return blockCorrection(tx, bet, {
+        now,
+        legsChanged,
+        current,
+        corrected: desired?.status ?? 'open',
+        shortfall: current.netPayout,
+        result,
+      });
+    }
     const previous = await loadPostingEntries(tx, settlementLedgerKey(betId, version));
     if (previous === null) {
       throw new Error(`settled bet ${betId} has no posting ${settlementLedgerKey(betId, version)}`);

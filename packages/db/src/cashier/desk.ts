@@ -122,9 +122,19 @@ export type CashOperation = typeof cashOperations.$inferSelect;
 export interface ShiftTotals {
   deposits: { count: number; total: bigint };
   withdrawals: { count: number; total: bigint };
-  /** Shop tickets sold in the shift (phase 3), and those of them cancelled since. */
-  tickets: { soldCount: number; sold: bigint; cancelledCount: number; cancelled: bigint };
-  /** Opening float + deposits − withdrawals + tickets sold − tickets cancelled. */
+  /**
+   * Shop tickets sold in the shift (phase 3), those of them cancelled since, and the tickets paid
+   * out in the shift (phase 4; any shift's tickets, paid from this drawer).
+   */
+  tickets: {
+    soldCount: number;
+    sold: bigint;
+    cancelledCount: number;
+    cancelled: bigint;
+    paidCount: number;
+    paid: bigint;
+  };
+  /** Opening float + deposits − withdrawals + tickets sold − cancelled − tickets paid out. */
   expectedCash: bigint;
 }
 
@@ -514,7 +524,21 @@ export async function shiftTotalsMany(
       ),
     )
     .groupBy(retailTickets.shiftId, retailTickets.status);
-  for (const shift of shifts) out.set(shift.id, totalsOf(shift, rows, ticketRows));
+  const paidRows = await exec
+    .select({
+      shiftId: sql<string>`${retailTickets.paidShiftId}`,
+      count: sql<number>`count(*)::int`,
+      total: sql<string>`COALESCE(sum(${retailTickets.paidAmount}), 0)::text`,
+    })
+    .from(retailTickets)
+    .where(
+      inArray(
+        retailTickets.paidShiftId,
+        shifts.map((shift) => shift.id),
+      ),
+    )
+    .groupBy(retailTickets.paidShiftId);
+  for (const shift of shifts) out.set(shift.id, totalsOf(shift, rows, ticketRows, paidRows));
   return out;
 }
 
@@ -522,6 +546,7 @@ function totalsOf(
   shift: CashierShift,
   rows: ReadonlyArray<{ shiftId: string; kind: string; count: number; total: string }>,
   ticketRows: ReadonlyArray<{ shiftId: string; status: string; count: number; total: string }>,
+  paidRows: ReadonlyArray<{ shiftId: string; count: number; total: string }>,
 ): ShiftTotals {
   const of = (kind: 'deposit' | 'withdrawal') => {
     const row = rows.find((r) => r.shiftId === shift.id && r.kind === kind);
@@ -529,7 +554,15 @@ function totalsOf(
   };
   const deposits = of('deposit');
   const withdrawals = of('withdrawal');
-  const tickets = { soldCount: 0, sold: 0n, cancelledCount: 0, cancelled: 0n };
+  const paidRow = paidRows.find((row) => row.shiftId === shift.id);
+  const tickets = {
+    soldCount: 0,
+    sold: 0n,
+    cancelledCount: 0,
+    cancelled: 0n,
+    paidCount: paidRow?.count ?? 0,
+    paid: BigInt(paidRow?.total ?? '0'),
+  };
   for (const row of ticketRows) {
     if (row.shiftId !== shift.id) continue;
     // Every ticket was sold first; a cancelled one is counted in both.
@@ -545,7 +578,12 @@ function totalsOf(
     withdrawals,
     tickets,
     expectedCash:
-      shift.openingFloat + deposits.total - withdrawals.total + tickets.sold - tickets.cancelled,
+      shift.openingFloat +
+      deposits.total -
+      withdrawals.total +
+      tickets.sold -
+      tickets.cancelled -
+      tickets.paid,
   };
 }
 

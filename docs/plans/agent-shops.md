@@ -427,6 +427,15 @@ cancelled one), `/:id/cancel`; `POST /shop/owner/tickets/:id/cancel`;
 `POST /admin/retail-tickets/:id/cancel` (agents.manage). A ticket's bet view never offers a
 cash-out. **Next: step 3** (the shop app's sell screen and printed ticket).
 
+**Step 3 built 20 Nov** (shop app: `/sell` with Game ID + pick and booking codes, the check
+before printing with "Remove all started" and "Accept new odds", `/ticket/[id]` printable at the
+shop's paper width with the Code128 barcode (`packages/core/src/code128.ts`,
+`apps/shop/src/components/barcode.tsx`), cancel while the window is open, the shift's tickets on
+the desk; back office: the "Ticket limits" card on the agent page; e2e
+`e2e/tests/shop-tickets.spec.ts`). **Not built:** picking matches from a list on the sell screen
+(Game ID and booking codes cover selling); the printed footer is English only (no Amharic rules
+text yet). **Phase 3 is complete apart from those two.**
+
 **Step 2, API (as designed):** `/shop/desk/tickets/check` (each leg's state: started or suspended in red,
 changed odds), `POST /shop/desk/tickets` (sell, idempotency key), `GET /shop/desk/tickets/:id`,
 `POST /shop/desk/tickets/:id/cancel`; building by Game ID + pick (`packages/core/src/textcommand.ts`
@@ -437,6 +446,62 @@ admin's limits per agent and the `retail_tickets` settings.
 before printing (remove started matches, accept changed odds), the printed ticket in English and
 Amharic with a Code128 barcode drawn as SVG (a pure encoder in `packages/core` with tests),
 cancel. **Step 4:** e2e, docs.
+
+## Phase 4 design (paying tickets; money path, main session on Opus, high effort)
+
+Written 20 Nov from the code, after phase 3 steps 1 and 2. Settlement already sends what a shop
+ticket wins (or a void stake) to `house:retail_payable` (phase 3); paying takes it out to the cash
+account of the shop that pays.
+
+| What happens                  | Type                   | Entries                                            |
+| ----------------------------- | ---------------------- | -------------------------------------------------- |
+| Paid at the agent's shop      | `retail_ticket_payout` | house:retail_payable −net, agent:<id>:balance +net |
+| Paid at an HQ shop            | `retail_ticket_payout` | house:retail_payable −net, house:retail_cash +net  |
+| Winning ticket expired unpaid | `retail_ticket_expiry` | house:retail_payable −net, house:revenue +net      |
+
+The agent paid the holder cash from its drawer, so Nahubet owes the agent that much: its balance
+grows (the mirror of a sale). HQ's retail cash is cash in hand (negative), so paying out moves it
+back up.
+
+**Step 1, database** (migration `0071_retail_payouts`; `packages/db/src/retail/payouts.ts`):
+
+- Enum values: `retail_ticket_status` `paid`, `expired`; `ledger_transaction_type`
+  `retail_ticket_payout`, `retail_ticket_expiry` (checks compare `::text` in the same migration).
+- `retail_tickets` columns: `paid_at`, `paid_by`, `paid_shift_id`, `paid_amount`,
+  `payout_transaction_id`; HQ approval: `approval_requested_at`, `approved_by`, `approved_at`
+  (four eyes: the approver is never the cashier who asks); `expired_at`. Checks: paid ⇔ paid_at,
+  paid_by, paid_shift_id and payout_transaction_id set; approved_by ≠ paid_by.
+- `findTicketByNumber(exec, number)` (the bet's short id, case and spaces ignored) → the ticket and
+  its state for the pay screen: open (not settled), lost, won or void (payable: the net to pay),
+  paid, expired, cancelled, waiting for HQ.
+- `payRetailTicket(tx, { number, staffId, shiftId, idempotencyKey, now })`: the cashier's own open
+  shift at **the shop that sold it** (409 `ticket_other_shop`: "paid at the shop that sold it");
+  the bet `won` or `void` (409 `ticket_not_payable` with its state); not paid or expired (paid
+  once: the ticket's row lock; the same key again answers with the same payout); above the agent's
+  `hqApprovalAbove` it needs an approval first (409 `hq_approval_required`, recording the request
+  once); posts the payout above for the bet's `settled_net_payout`, sets paid fields, audited,
+  outbox `retail.ticket_paid`. A correction that later turns a paid ticket into a loser is blocked
+  by settlement (retail payable never below zero) and reported, as for players.
+- `decideRetailPayout(tx, { ticketId, decision, adminId })`: an admin approves or refuses a waiting
+  payout (four eyes against the requesting cashier).
+- `expireRetailTickets(tx, { now })` (worker, daily): won or void tickets not paid within the
+  agent's `expiryDays` after their last match → `retail_ticket_expiry`, status `expired`.
+- Shift totals: payouts paid in the shift leave the drawer (expected cash − paid). Reconciliation:
+  `retail_payable` = settled net of won/void shop tickets − paid − expired; the agent-balance check
+  accepts `retail_ticket_payout` postings that match a paid ticket.
+
+**Step 1 built 20 Nov** (migration `0071_retail_payouts`; `packages/db/src/retail/payouts.ts`:
+`findTicketByNumber`, `payRetailTicket` (the selling shop only, paid once, `approval_required`
+above the agent's HQ limit), `decideRetailPayout` (four eyes), `listWaitingRetailPayouts`,
+`expireRetailTickets`; settlement blocks a correction of a paid ticket; shift totals and
+reconciliation count payouts; tests in `packages/db/test/retail-tickets.test.ts`). **Next: step
+2** below.
+
+**Step 2, API:** `GET /shop/desk/tickets/lookup?number=` (any ticket of the shop's agent: its
+state), `POST /shop/desk/tickets/payouts` (pay, idempotency key), the payout slip
+(`/shop/desk/tickets/:id/payout-slip` data for printing), `/admin/retail-payouts` (waiting list,
+approve, refuse). **Step 3:** the pay screen (scan or type; barcode scanners type the number and
+Enter), the payout slip, the back office's waiting list. **Step 4:** the worker's expiry task, e2e.
 
 ## Defaults chosen here (all adjustable by an admin)
 
