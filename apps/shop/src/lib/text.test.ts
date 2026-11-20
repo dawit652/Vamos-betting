@@ -8,7 +8,6 @@ describe('text', () => {
     expect(TEXT.registerDone).toBe(
       "Asked. An admin must approve this device on the agent's page; then sign in.",
     );
-    expect(TEXT.sellingSoon).toBe('Selling tickets comes soon.');
     expect(TEXT.signIn).toBe('Sign in · ግባ');
     expect(TEXT.testReceiptTitle).toBe('TEST PRINT · Not a receipt');
     expect(TEXT.testReceiptChars).toBe('0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ');

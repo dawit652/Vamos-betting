@@ -10,6 +10,8 @@ import type {
   CreateAgentOwnerResponse,
   RecordAgentTopupRequest,
   ShopDeviceView,
+  TicketLimitsRequest,
+  TicketLimitsResponse,
   UpdateAgentRequest,
 } from '@vamos/contracts';
 import { formatBpsPercent, parsePercentBps } from '@vamos/core';
@@ -39,6 +41,14 @@ import {
 } from '@/lib/agents';
 import { describeError } from '@/lib/errors';
 import { formatDateTime, formatEtb, parseEtbToSantim } from '@/lib/format';
+import {
+  LIMIT_LABELS,
+  COUNT_LIMITS,
+  MONEY_LIMITS,
+  limitFields,
+  limitsRequest,
+  type LimitFields,
+} from '@/lib/ticket-limits';
 
 function StatusBadge({ agent }: { agent: AgentView }) {
   return agent.status === 'active' ? (
@@ -666,6 +676,119 @@ function Balance({
   );
 }
 
+/**
+ * The agent's ticket limits (docs/plans/agent-shops.md phase 3): what is in force, and for
+ * `agents.manage` holders the overrides. An empty field takes the default again.
+ */
+function TicketLimits({ agentId, manage }: { agentId: string; manage: boolean }) {
+  const limits = useFetch<TicketLimitsResponse>(`/admin/agents/${agentId}/ticket-limits`);
+  if (limits.data === null) {
+    return (
+      <section className="card" data-testid="ticket-limits-card">
+        <h2>Ticket limits</h2>
+        <Loading loading={limits.loading} error={limits.error} />
+      </section>
+    );
+  }
+  return (
+    <LimitsForm
+      key={JSON.stringify(limits.data.overrides)}
+      agentId={agentId}
+      manage={manage}
+      data={limits.data}
+      onSaved={limits.reload}
+    />
+  );
+}
+
+function effectiveText(name: keyof LimitFields, effective: TicketLimitsResponse['effective']) {
+  if (name === 'dailySales') {
+    return effective.dailySales === null ? 'no limit' : formatEtb(effective.dailySales);
+  }
+  const value = effective[name];
+  return typeof value === 'string' ? formatEtb(value) : String(value);
+}
+
+function LimitsForm({
+  agentId,
+  manage,
+  data,
+  onSaved,
+}: {
+  agentId: string;
+  manage: boolean;
+  data: TicketLimitsResponse;
+  onSaved: () => void;
+}) {
+  const [fields, setFields] = useState<LimitFields>(() => limitFields(data.overrides));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const result = limitsRequest(fields);
+    if (!result.ok) return setError(result.error);
+    const body: TicketLimitsRequest = result.body;
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await api(`/admin/agents/${agentId}/ticket-limits`, { method: 'PUT', body });
+      setSaved(true);
+      onSaved();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const names = [...MONEY_LIMITS, ...COUNT_LIMITS] as const;
+  return (
+    <form
+      className="card"
+      autoComplete="off"
+      aria-label="Ticket limits"
+      data-testid="ticket-limits-card"
+      onSubmit={submit}
+    >
+      <h2>Ticket limits</h2>
+      <p className="muted">
+        In force now is shown under each field. A field left empty uses the default.
+      </p>
+      <div className="row">
+        {names.map((name) => (
+          <Field key={name} label={LIMIT_LABELS[name]}>
+            <input
+              inputMode={MONEY_LIMITS.some((m) => m === name) ? 'decimal' : 'numeric'}
+              disabled={!manage}
+              placeholder={effectiveText(name, data.effective)}
+              value={fields[name]}
+              onChange={(e) => setFields({ ...fields, [name]: e.target.value })}
+            />
+            <small className="muted">Now: {effectiveText(name, data.effective)}</small>
+          </Field>
+        ))}
+      </div>
+      {error !== null && <Notice>{error}</Notice>}
+      {saved && <Notice kind="ok">Saved.</Notice>}
+      {manage && (
+        <p>
+          <button
+            type="submit"
+            className="primary"
+            disabled={busy}
+            data-testid="ticket-limits-save"
+          >
+            Save limits
+          </button>
+        </p>
+      )}
+    </form>
+  );
+}
+
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, error, loading, reload } = useFetch<AgentDetailResponse>(`/admin/agents/${id}`);
@@ -762,6 +885,7 @@ export default function AgentDetailPage() {
           <OwnerAccount agent={agent} owner={data.owner} manage={manage} onChanged={reload} />
           {manage && <EditAgent key={agent.updatedAt} agent={agent} onSaved={reload} />}
           {manage && <AddShop agentId={agent.id} onAdded={reload} />}
+          <TicketLimits agentId={agent.id} manage={manage} />
 
           <h2>Shops ({shops.length})</h2>
           <div className="table-wrap">

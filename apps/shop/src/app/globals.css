@@ -308,3 +308,91 @@ th.num {
     border: 0;
   }
 }
+/* The sell page's slip and the printed ticket. */
+textarea {
+  width: 100%;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.slip {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.slip-leg {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.slip-bad {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.odds-changed {
+  background: #fff2b3;
+  font-weight: 700;
+  padding: 0 4px;
+}
+
+.receipt.ticket {
+  text-align: left;
+}
+
+.ticket .ticket-logo {
+  font-size: 1.4em;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ticket .ticket-leg {
+  margin-bottom: 8px;
+}
+
+.ticket .ticket-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ticket .ticket-net {
+  font-weight: 700;
+  font-size: 1.15em;
+}
+
+.ticket .ticket-cancelled {
+  border: 3px solid #000;
+  font-size: 1.5em;
+  font-weight: 700;
+  text-align: center;
+  padding: 6px 0;
+  margin: 8px 0;
+}
+
+.ticket .receipt-copy {
+  text-align: center;
+}
+
+.barcode {
+  text-align: center;
+}
+
+.barcode svg {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+}
+
+.barcode .barcode-text {
+  letter-spacing: 0.15em;
+  margin-top: 2px;
+}

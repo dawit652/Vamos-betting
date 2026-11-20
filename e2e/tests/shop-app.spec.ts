@@ -145,7 +145,10 @@ test('a cashier registers a device, is approved, changes the password and sees t
     await expect(shop).toHaveURL(`${SHOP_URL}/`);
     await expect(shop.getByTestId('shop-label')).toHaveText(`${shopLabel} · E2E Counter Shop`);
     await expect(shop.getByTestId('cashier-name')).toContainText(cashierName);
-    await expect(shop.getByText('Selling tickets comes soon.')).toBeVisible();
+    // Selling tickets is on its own page (phase 3).
+    await expect(
+      shop.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^Sell/ }),
+    ).toBeVisible();
 
     // The desk: open a shift with a float, then close it with the counted cash.
     const open = shop.getByRole('form', { name: 'Open shift' });

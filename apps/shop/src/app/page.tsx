@@ -9,6 +9,7 @@ import type {
   CashWithdrawalRequest,
   CashWithdrawalResponse,
   ShopDeskResponse,
+  ShopTicketListResponse,
   ShopOpenShiftRequest,
   ShopShiftResponse,
 } from '@vamos/contracts';
@@ -27,6 +28,7 @@ import {
 } from '@/lib/forms';
 import { formatDateTime, formatEtb } from '@/lib/format';
 import { TEXT } from '@/lib/text';
+import { ticketPath } from '@/lib/tickets';
 
 export default function DeskPage() {
   const desk = useFetch<ShopDeskResponse>('/shop/desk');
@@ -77,10 +79,10 @@ export default function DeskPage() {
             agentBalance={agentBalance}
             onChanged={desk.reload}
           />
+          <Tickets />
           <Receipts operations={operations} />
         </>
       )}
-      <p className="muted">{TEXT.sellingSoon}</p>
     </>
   );
 }
@@ -259,6 +261,51 @@ function ClosedSummary({ shift }: { shift: CashierShiftView }) {
           {TEXT.variance}: {formatEtb(shift.variance)}
         </span>
       </p>
+    </section>
+  );
+}
+
+/** The open shift's tickets (the sell page lands on the ticket after each sale). */
+function Tickets() {
+  const list = useFetch<ShopTicketListResponse>('/shop/desk/tickets');
+  const tickets = list.data?.tickets ?? [];
+  return (
+    <section className="card" aria-labelledby="tickets" data-testid="desk-tickets">
+      <h2 id="tickets">{TEXT.ticketsTitle}</h2>
+      {list.error !== null ? (
+        <p className="error" role="alert">
+          {list.error}
+        </p>
+      ) : tickets.length === 0 ? (
+        <p className="muted">{list.loading ? TEXT.loading : TEXT.noTickets}</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{TEXT.colTime}</th>
+                <th>{TEXT.colTicket}</th>
+                <th className="num">{TEXT.colStake}</th>
+                <th>{TEXT.colStatus}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {tickets.map((t) => (
+                <tr key={t.id}>
+                  <td>{formatDateTime(t.soldAt)}</td>
+                  <td>{t.number}</td>
+                  <td className="num">{formatEtb(t.stake)}</td>
+                  <td>{TEXT.ticketStatus[t.status] ?? t.status}</td>
+                  <td>
+                    <Link href={ticketPath(t.id)}>{TEXT.ticketLink}</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

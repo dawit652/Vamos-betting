@@ -3,7 +3,7 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  transpilePackages: ['@vamos/contracts'],
+  transpilePackages: ['@vamos/contracts', '@vamos/core'],
   // Extra hosts allowed to load the dev server (a counter PC on the LAN), comma-separated.
   allowedDevOrigins: process.env.DEV_ALLOWED_ORIGINS?.split(',').filter(Boolean) ?? [],
   async headers() {

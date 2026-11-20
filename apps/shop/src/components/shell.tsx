@@ -19,6 +19,7 @@ export function Shell({ children }: { children: ReactNode }) {
       ]
     : [
         ['/', TEXT.navDesk],
+        ['/sell', TEXT.navSell],
         ['/printer', TEXT.navPrinter],
         ['/password', TEXT.navPassword],
       ];
