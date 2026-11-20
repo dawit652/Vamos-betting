@@ -396,3 +396,46 @@ textarea {
   letter-spacing: 0.15em;
   margin-top: 2px;
 }
+
+.pay-banner {
+  border-radius: 8px;
+  padding: 14px;
+  margin: 12px 0;
+  font-size: 1.4em;
+  font-weight: 700;
+  text-align: center;
+  border: 2px solid var(--border, #999);
+}
+
+.pay-banner.pay-good {
+  background: var(--ok-soft);
+  border-color: var(--accent);
+}
+
+.pay-banner.pay-warn {
+  background: #fff4d6;
+  border-color: #c58b00;
+}
+
+.pay-banner.pay-bad {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.pay-amount {
+  font-size: 1.6em;
+}
+
+.ticket .slip-amount {
+  font-size: 1.6em;
+  font-weight: 700;
+  text-align: center;
+  margin: 8px 0;
+}
+
+.ticket .slip-sign {
+  margin-top: 28px;
+  border-top: 1px solid #000;
+  padding-top: 4px;
+}

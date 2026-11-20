@@ -24,6 +24,11 @@ the page is the list. The server stays in **licensed mode** (owner's rule, 19 No
 never shows or stores the demo accounts. Also: every password form (back office, shop app, player
 site) posts instead of putting the password in the URL when its script has not loaded yet.
 
+**Handover (20 Nov, end of the first account's window):** branch `claude/happy-keller-i7cvrh`
+holds everything, pushed, full checks passed. Built since the last deploy: deposit accounts in
+the back office (0069), player cash at agent shops and the shop app's desk (phase 2), selling
+tickets (phase 3, 0070) and paying them (phase 4, 0071). The next session starts with agent-shop phase 5 (item 0 below, sub-item 5: live monitor, alerts, weekly commission) or whatever the owner asks; read only this file and the plan section it names.
+
 ## Next, in order
 
 0. **Agent shops** (owner's interview and "build it", 19 Nov 2026). The plan, the owner's
@@ -59,15 +64,10 @@ site) posts instead of putting the password in the URL when its script has not l
         API, the shop app's sell screen and printed ticket with a Code128 barcode, cancel, the
         admin's ticket limits; e2e `e2e/tests/shop-tickets.spec.ts`). Not built: picking matches
         from a list (Game ID and booking codes work), the Amharic footer text.
-        **Phase 4, paying tickets** (plan, "Phase 4 design"; money path, main session on Opus,
-        high): **step 1 built 20 Nov** (migration `0071_retail_payouts`, `retail/payouts.ts`: pay
-        at the selling shop once, HQ approval above the agent's limit with four eyes, expiry into
-        revenue, settlement never takes back a paid ticket, shift totals and reconciliation).
-        **Step 2 built 20 Nov** (lookup by number, pay, the back office's waiting payouts with
-        approve/refuse, the worker's hourly expiry task). **Next: step 3** (the shop app's pay
-        screen: scan or type the number, show its state, pay, print the payout slip from the
-        ticket view's `payAmount`/`paidAt`; the back office's waiting-payouts page; e2e; a
-        routine-coder task with the routes listed in the plan, "Phase 4 design").
+        **Phase 4, paying tickets: built 20 Nov** (plan, "Phase 4 design"; database, API, the
+        shop app's pay screen and payout slip, the back office's waiting payouts with four eyes,
+        the worker's hourly expiry task; e2e `e2e/tests/shop-payouts.spec.ts`). Phases 1-4 of the
+        agent shops are complete and pushed; none is deployed.
      5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
      rate, agent licensing with the regulator.

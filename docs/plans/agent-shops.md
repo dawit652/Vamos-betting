@@ -501,7 +501,11 @@ built 20 Nov:** `GET /shop/desk/tickets/lookup?number=` (only the cashier's own 
 `POST /admin/retail-payouts/:id/approve|refuse` (withdrawals.approve), and the worker's hourly
 `retail-ticket-expiry` task (`apps/worker/src/tasks/retail-expiry.ts`); tests in
 `apps/api/test/shop-tickets.test.ts`. **Next: step 3** (the pay screen and slip, the back
-office's waiting payouts page) and e2e.
+office's waiting payouts page) and e2e. **Step 3 built 20 Nov** (shop app `/pay`: scan or type
+the number, the state banner, Pay with confirm, `/payout/[id]` slip with barcode; back office
+`/retail-payouts`: approve or refuse; e2e `e2e/tests/shop-payouts.spec.ts` sells a ticket, waits
+for the simulator's result and pays it or shows it lost). **Phase 4 is complete.** Not covered by
+e2e: the HQ-approval path through the screens (API and database tests cover it).
 
 **Step 2, API:** `GET /shop/desk/tickets/lookup?number=` (any ticket of the shop's agent: its
 state), `POST /shop/desk/tickets/payouts` (pay, idempotency key), the payout slip

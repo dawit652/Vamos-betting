@@ -25,6 +25,8 @@ describe('navigation by role', () => {
   it('trader sees trading and risk, finance sees withdrawals, kyc sees the queue', () => {
     expect(labels('trader')).toEqual(expect.arrayContaining(['Trading', 'Risk']));
     expect(labels('finance')).toContain('Withdrawals');
+    expect(labels('finance')).toContain('Ticket payouts');
+    expect(labels('support')).not.toContain('Ticket payouts');
     expect(labels('kyc')).toContain('KYC queue');
     expect(labels('compliance')).toContain('Audit log');
   });
