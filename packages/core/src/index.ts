@@ -53,3 +53,4 @@ export * from './countrycodes';
 export * from './amharic-names';
 export * from './smsheartbeat';
 export * from './pin';
+export * from './retailtickets';

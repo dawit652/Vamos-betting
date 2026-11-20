@@ -86,6 +86,8 @@ export const RECONCILIATION_CHECK_NAMES = [
   'psp_daily_totals',
   'sms_credits',
   'agent_cash_records',
+  'retail_payable',
+  'retail_cash',
   /** Checked by runs before the daily summaries were removed; kept so their records still read. */
   'daily_summary',
   'psp_statement',

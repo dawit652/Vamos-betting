@@ -69,6 +69,10 @@ export const ledgerAccountKind = pgEnum('ledger_account_kind', [
   'agent_balance',
   // The cash and bank money agents paid to Nahubet for their balances (top-ups, take-backs).
   'house_agent_funding',
+  // What won (or void) shop tickets are owed until a shop pays them; never below zero (phase 3).
+  'house_retail_payable',
+  // Ticket cash in Nahubet HQ's own drawers (an agent's tickets use its balance instead).
+  'house_retail_cash',
 ]);
 
 export const ledgerTransactionType = pgEnum('ledger_transaction_type', [
@@ -89,6 +93,8 @@ export const ledgerTransactionType = pgEnum('ledger_transaction_type', [
   // An agent's top-up (money in) or take-back (money out), approved by a second person.
   'agent_topup',
   'agent_take_back',
+  // A shop ticket cancelled before its first kick-off: the stake goes back where it came from.
+  'retail_ticket_cancel',
 ]);
 
 export const actorType = pgEnum('actor_type', ['user', 'admin', 'system']);

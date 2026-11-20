@@ -13,6 +13,8 @@ export const BET_STATUS_LABEL: Readonly<Record<BetStatus, MessageKey>> = {
   void: 'account.myBets.status.void',
   cashed_out: 'account.myBets.status.cashed_out',
   rejected: 'account.myBets.status.rejected',
+  // Shop tickets only (never a player's own bet): shown like a void bet, the stake went back.
+  cancelled: 'account.myBets.status.void',
 };
 
 export const LEG_STATE_LABEL: Readonly<Record<LegState, MessageKey>> = {
@@ -30,6 +32,7 @@ const STATUS_TONE: Readonly<Record<BetStatus, Tone>> = {
   lost: 'negative',
   void: 'muted',
   rejected: 'muted',
+  cancelled: 'muted',
 };
 
 const LEG_TONE: Readonly<Record<LegState, Tone>> = {
@@ -81,6 +84,7 @@ export function betPayout(bet: Pick<BetView, 'status' | 'stake' | 'potentialNet'
       return { label: 'account.myBets.paidOut', amount: bet.settledNet ?? '0' };
     case 'void':
     case 'rejected':
+    case 'cancelled':
       return { label: 'account.myBets.refunded', amount: bet.settledNet ?? bet.stake };
   }
 }

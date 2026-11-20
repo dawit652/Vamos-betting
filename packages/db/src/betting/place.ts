@@ -21,7 +21,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { type DomainError, domainConflict, domainUnprocessable } from '../errors';
 import { InsufficientFundsError } from '../ledger/errors';
 import { postTransaction } from '../ledger/post';
-import type { DbExecutor, DbTransaction } from '../ledger/types';
+import type { AccountRef, DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
 import { lockUser, assertStakeAllowed } from '../rg/limits';
@@ -54,8 +54,20 @@ export interface SlipLegInput {
   oddsMilli: number;
 }
 
+/**
+ * Where a bet's stake comes from. `wallet` (the default): the player's cash. `retail`: a ticket sold
+ * at a shop's counter (docs/plans/agent-shops.md phase 3): the bettor is the agent's counter
+ * bettor, the stake leaves `account` (the agent's balance, or HQ's retail cash), only legs whose
+ * match has not started are taken (shops sell prematch only), the channel is `shop` and the
+ * cashier is the actor.
+ */
+export type BetFunding =
+  { kind: 'wallet' } | { kind: 'retail'; account: AccountRef; staffId: string };
+
 export interface PlaceBetInput {
   userId: string;
+  /** Default: the player's wallet. */
+  funding?: BetFunding;
   legs: readonly SlipLegInput[];
   /** Santim. */
   stake: bigint;
@@ -160,10 +172,15 @@ function requestErrors(input: PlaceBetInput): SlipError[] {
   );
 }
 
-function sameRequest(input: PlaceBetInput, bet: BetRow, legs: (typeof betLegs.$inferSelect)[]) {
+function sameRequest(
+  input: PlaceBetInput,
+  channel: BetChannel,
+  bet: BetRow,
+  legs: (typeof betLegs.$inferSelect)[],
+) {
   if (bet.stake !== input.stake) return false;
   if (bet.oddsChangePolicy !== input.policy) return false;
-  if (bet.channel !== (input.channel ?? 'web')) return false;
+  if (bet.channel !== channel) return false;
   if (legs.length !== input.legs.length) return false;
   return legs.every((leg, i) => {
     const requested = input.legs[i];
@@ -234,7 +251,8 @@ async function insertBetRow(
  */
 export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise<PlaceBetResult> {
   const { userId, stake, policy, now, settings } = input;
-  const channel = input.channel ?? 'web';
+  const retail = input.funding?.kind === 'retail' ? input.funding : null;
+  const channel: BetChannel = retail !== null ? 'shop' : (input.channel ?? 'web');
   const early = requestErrors(input);
   if (early.some((error) => RULE_FREE_SLIP_ERRORS.has(error.code))) {
     throw slipInvalidError(early);
@@ -253,7 +271,7 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
       .from(betLegs)
       .where(eq(betLegs.betId, existing.id))
       .orderBy(asc(betLegs.position));
-    if (!sameRequest(input, existing, legs)) {
+    if (!sameRequest(input, channel, existing, legs)) {
       throw domainUnprocessable(
         'idempotency_key_reused',
         'This Idempotency-Key was already used for a different bet.',
@@ -281,6 +299,20 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
     { lock: 'share' },
   );
   const unavailable = unavailableLegs(input.legs, snapshots, now);
+  if (retail !== null) {
+    // A shop sells prematch only: a match that is live or past its kick-off is refused even when
+    // it still takes live bets online.
+    for (const leg of input.legs) {
+      const snapshot = snapshotOf(snapshots, leg.selectionId);
+      if (
+        snapshot !== undefined &&
+        !unavailable.some((u) => u.selectionId === leg.selectionId) &&
+        (snapshot.eventStatus === 'live' || snapshot.startTime.getTime() <= now.getTime())
+      ) {
+        unavailable.push({ selectionId: leg.selectionId, reason: 'event_started' });
+      }
+    }
+  }
   if (unavailable.length > 0) throw selectionUnavailableError(unavailable);
   const resolved = input.legs.map((leg) => {
     const snapshot = snapshotOf(snapshots, leg.selectionId);
@@ -395,8 +427,9 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
     },
   });
   await writeAudit(tx, {
-    actorType: 'user',
-    actorId: userId,
+    // A shop ticket's actor is the cashier who sold it.
+    actorType: retail !== null ? 'admin' : 'user',
+    actorId: retail !== null ? retail.staffId : userId,
     action: BET_PLACED,
     targetType: 'bet',
     targetId: betId,
@@ -432,9 +465,16 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
       idempotencyKey: stakeLedgerKey(userId, input.idempotencyKey),
       refType: 'bet',
       refId: betId,
-      description: `Bet stake (${quote.betType})`,
-      actor: { type: 'user', id: userId },
-      entries: stakeEntries(userId, stake),
+      description:
+        retail !== null ? `Shop ticket stake (${quote.betType})` : `Bet stake (${quote.betType})`,
+      actor: retail !== null ? { type: 'admin', id: retail.staffId } : { type: 'user', id: userId },
+      entries:
+        retail !== null
+          ? [
+              { account: retail.account, amount: -stake },
+              { account: { kind: 'house_stakes' }, amount: stake },
+            ]
+          : stakeEntries(userId, stake),
     });
     if (!posting.created) {
       // Bets and their stake postings commit together, so this key cannot exist without the bet.
@@ -442,6 +482,13 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
     }
   } catch (error) {
     if (error instanceof InsufficientFundsError) {
+      if (retail !== null) {
+        throw domainConflict(
+          'agent_balance_low',
+          "The agent's balance is too low for this ticket. The agent tops up at Nahubet first.",
+          { balance: toWire(error.available), stake: toWire(stake) },
+        );
+      }
       throw domainUnprocessable('insufficient_funds', 'Your balance is too low for this stake.', {
         balance: toWire(error.available),
         stake: toWire(stake),

@@ -355,11 +355,11 @@ Written 19 Nov from the code. A shop ticket **is a bet** (`bets`, `placeBet`, `s
 so odds checks, limits, liability caps, idempotency, voids, tax and result corrections are the
 online ones. What differs is who stands behind it and where the money comes from and goes to.
 
-**Who bets.** Each agent (Nahubet HQ 1000 included) has one counter bettor: a `users` row with
-`users.shop_agent_id` = the agent (unique; null for every player). It is never a player: phone
-`shop:<agent number>` (no digits a person can type), a password hash nothing matches, status
-active. Player lists, notifications (bet results), marketing SMS and the registration counts leave
-these rows out. Its bets serialise on its user lock (one agent's shops queue on one row).
+**Who bets.** Each agent (Nahubet HQ 1000 included) has one counter bettor: a `users` row that
+`agents.counter_user_id` points to (made with the agent's first ticket). It is never a player:
+phone `shop:<agent number>` (no digits a person can type), a password hash nothing matches,
+status active. Its bets serialise on its user lock (one agent's shops queue on one row). Result
+messages to it go nowhere (it never signs in; SMS texts only go to SMS and USSD bets).
 
 **Money** (accounts in `packages/db/src/ledger/`):
 
@@ -384,10 +384,10 @@ phase 3 on**, even though paying comes in phase 4; corrections reverse and repos
 - Enum values: `bet_channel` `shop`; `bet_status` `cancelled`; `ledger_account_kind`
   `house_retail_payable`, `house_retail_cash`; `ledger_transaction_type` `retail_ticket_cancel`
   (checks in the same migration compare `::text`).
-- `users.shop_agent_id` (above); `agents.ticket_limits` jsonb (an admin's overrides of the
-  defaults); the defaults in a new settings key `retail_tickets` (max win ETB 500,000, max stake
-  ETB 100,000, min stake and most matches and min odds as online, sales per day none, cancel
-  window 5 minutes, HQ approval above ETB 10,000, expiry 30 days).
+- `agents.counter_user_id` (above); `agents.ticket_limits` jsonb (an admin's overrides of the
+  defaults in `packages/core/src/retailtickets.ts`: max win ETB 500,000, max stake ETB 100,000
+  (never above the max win), min stake and most matches and min odds as online, sales per day
+  none, cancel window 5 minutes, HQ approval above ETB 10,000, expiry 30 days).
 - `retail_tickets`: id, `bet_id` (unique), agent, shop, cashier, shift, optional customer phone,
   stake, status (`sold`, `cancelled`; phase 4 adds paid and expired), who and when cancelled and
   why, print count and the original's time. Never deleted. The ticket number and barcode are the
@@ -410,6 +410,11 @@ phase 3 on**, even though paying comes in phase 4; corrections reverse and repos
 - Tests (real Postgres): sale from the balance and refusal when low; limits; prematch only;
   replay; cancel window, kick-off and roles; won/void/lost settlement and a correction; shift
   totals; reconciliation clean; a property that balance + stakes + payable is conserved.
+
+**Step 1 built 20 Nov** (migration `0070_retail_tickets`; `packages/db/src/retail/tickets.ts`,
+`packages/core/src/retailtickets.ts`; tests `packages/db/test/retail-tickets.test.ts`). A match
+counts as started at its kick-off or as soon as it is no longer scheduled (live early). Not done
+yet: the admin's settings screen for the global defaults (they are constants until step 2).
 
 **Step 2, API:** `/shop/desk/tickets/check` (each leg's state: started or suspended in red,
 changed odds), `POST /shop/desk/tickets` (sell, idempotency key), `GET /shop/desk/tickets/:id`,

@@ -5,6 +5,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -12,7 +13,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { adminUsers } from './accounts';
+import { adminUsers, users } from './accounts';
 
 /**
  * Agent shops (owner, 19 Nov 2026; docs/plans/agent-shops.md). An agent is an independent business
@@ -48,11 +49,24 @@ export const agents = pgTable(
     isHouse: boolean('is_house').notNull().default(false),
     /** The owner's account (role `agent_owner`, shop app only); one per agent, never for HQ. */
     ownerStaffId: uuid('owner_staff_id').references(() => adminUsers.id, { onDelete: 'restrict' }),
+    /**
+     * The agent's counter bettor (phase 3): the `users` row its shop tickets are bets of. Never a
+     * player: phone `shop:<number>`, a password hash nothing matches. Made with the first ticket.
+     */
+    counterUserId: uuid('counter_user_id').references(() => users.id, { onDelete: 'restrict' }),
+    /**
+     * An admin's ticket limits for this agent (RetailTicketLimits overrides in @vamos/core):
+     * absent fields take the defaults.
+     */
+    ticketLimits: jsonb('ticket_limits').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('agents_number_uq').on(t.number),
+    uniqueIndex('agents_counter_user_uq')
+      .on(t.counterUserId)
+      .where(sql`${t.counterUserId} IS NOT NULL`),
     uniqueIndex('agents_house_uq')
       .on(t.isHouse)
       .where(sql`${t.isHouse}`),

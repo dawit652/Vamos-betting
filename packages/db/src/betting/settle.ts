@@ -14,6 +14,7 @@ import {
   negateEntries,
   reversalLedgerKey,
   settlementLedgerKey,
+  retailSettlementPosting,
   settlementPosting,
   type SettlementAmounts,
 } from './postings';
@@ -251,7 +252,13 @@ export async function settlePlacedBet(
     return result('unchanged', legsChanged);
   }
 
-  const next = desired === null ? null : settlementPosting(bet.userId, bet.stake, desired);
+  // A shop ticket's winnings wait in retail payable for the shop to pay (agent-shops.md phase 3).
+  const next =
+    desired === null
+      ? null
+      : bet.channel === 'shop'
+        ? retailSettlementPosting(bet.stake, desired)
+        : settlementPosting(bet.userId, bet.stake, desired);
   let version = bet.settlementVersion;
   if (current !== null) {
     const previous = await loadPostingEntries(tx, settlementLedgerKey(betId, version));

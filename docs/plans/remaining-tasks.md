@@ -7,9 +7,9 @@ branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
 receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (`dce8e5d`
-database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners`, `0068_agent_balance` and `0069_collection_accounts` run on the next deploy
+database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners`, `0068_agent_balance`, `0069_collection_accounts` and `0070_retail_tickets` run on the next deploy
 (every existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next
-free number is **0070**. Deploy is done by the owner (`ssh -t root@<server>` +
+free number is **0071**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
@@ -55,7 +55,12 @@ site) posts instead of putting the password in the URL when its script has not l
         `e2e/tests/shop-desk-cash.spec.ts`; full checks passed): lookups, deposits, withdrawals
         with the shop code, receipts, the agent balance on the desk; one code path with the back
         office's desk (plan, "Phase 2 design", status). **Phase 2 is complete.**
-     4. Phase 3, selling tickets at the counter, and phase 4, paying them (money path).
+     4. Phase 3, selling tickets at the counter (design in the plan, "Phase 3 design"): **step 1
+        built 20 Nov** (database: a shop ticket is a bet of the agent's counter bettor, staked from
+        its balance or HQ's retail cash, cancelled by the cashier within 5 minutes or the owner or
+        an admin before kick-off, won into `house:retail_payable`; shift totals and reconciliation
+        count it). **Next: step 2** (the `/shop/desk/tickets` API), step 3 (sell screen, printed
+        ticket with barcode), step 4 (e2e). Then phase 4, paying tickets (money path).
      5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
      rate, agent licensing with the regulator.

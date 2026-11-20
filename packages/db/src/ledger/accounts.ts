@@ -16,6 +16,8 @@ const HOUSE_KEYS = {
   house_withdrawals_pending: 'house:withdrawals_pending',
   house_cash_variance: 'house:cash_variance',
   house_agent_funding: 'house:agent_funding',
+  house_retail_payable: 'house:retail_payable',
+  house_retail_cash: 'house:retail_cash',
 } as const;
 
 /**
@@ -97,7 +99,9 @@ function accountAttributes(ref: AccountRef): AccountAttributes {
     agentId: null,
     kind: ref.kind,
     provider: ref.kind === 'house_psp_clearing' ? ref.provider : null,
-    allowNegative: true,
+    // What ticket holders are owed: like a wallet, never below zero (a correction after a ticket
+    // was paid is blocked, as a player's is).
+    allowNegative: ref.kind !== 'house_retail_payable',
   };
 }
 

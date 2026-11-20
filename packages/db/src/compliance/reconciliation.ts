@@ -18,7 +18,8 @@ import {
 import { jackpotEntries } from '../schema/jackpots';
 import { ledgerAccounts, ledgerEntries, ledgerTransactions } from '../schema/ledger';
 import { paymentIntents, payouts } from '../schema/payments';
-import { agentTopups } from '../schema/retail';
+import { agents, agentTopups } from '../schema/retail';
+import { retailTickets } from '../schema/retail-tickets';
 import { receivedSms } from '../schema/smsrail';
 
 /**
@@ -93,6 +94,8 @@ export const RECONCILIATION_CHECKS = [
   'psp_daily_totals',
   'sms_credits',
   'agent_cash_records',
+  'retail_payable',
+  'retail_cash',
 ] as const;
 export type ReconciliationCheck = (typeof RECONCILIATION_CHECKS)[number] | 'psp_statement';
 
@@ -354,6 +357,24 @@ async function checkHouseAccounts(exec: DbExecutor): Promise<CheckResult[]> {
     })
     .from(payouts)
     .where(sql`${payouts.status}::text IN (${openStatuses})`);
+  // Shop tickets (agent-shops.md phase 3): what won and void tickets are owed until a shop pays
+  // them (none is paid before phase 4), and the ticket cash in HQ's own drawers (negative: cash
+  // in hand) = stakes of HQ tickets that still stand.
+  const [owed] = await exec
+    .select({
+      n: sql<number>`count(*)::int`,
+      total: sql<string>`COALESCE(sum(${bets.settledNetPayout}), 0)::text`,
+    })
+    .from(bets)
+    .where(sql`${bets.channel}::text = 'shop' AND ${bets.status} IN ('won', 'void')`);
+  const [hqTickets] = await exec
+    .select({
+      n: sql<number>`count(*)::int`,
+      total: sql<string>`(-COALESCE(sum(${retailTickets.stake}), 0))::text`,
+    })
+    .from(retailTickets)
+    .innerJoin(agents, eq(agents.id, retailTickets.agentId))
+    .where(sql`${agents.isHouse} AND ${retailTickets.status} = 'sold'`);
   const compare = async (
     check: ReconciliationCheck,
     key: string,
@@ -390,6 +411,18 @@ async function checkHouseAccounts(exec: DbExecutor): Promise<CheckResult[]> {
       'house:withdrawals_pending',
       held,
       'open payouts (requested, approved, processing)',
+    ),
+    await compare(
+      'retail_payable',
+      'house:retail_payable',
+      owed,
+      'net payouts of won and void shop tickets not paid yet',
+    ),
+    await compare(
+      'retail_cash',
+      'house:retail_cash',
+      hqTickets,
+      "stakes of HQ shops' tickets that stand (cash in hand, negative)",
     ),
   ];
 }
@@ -681,10 +714,13 @@ async function checkAgentCash(exec: DbExecutor, date: string, cap: number): Prom
     topup_direction: string | null;
     intent_amount: string | null;
     payout_amount: string | null;
+    ticket_stake: string | null;
+    ticket_status: string | null;
   }>(sql`
     SELECT t.id::text AS tx_id, t.type::text AS type, t.ref_type, e.amount::text AS amount,
       g.amount::text AS topup_amount, g.direction::text AS topup_direction,
-      i.amount::text AS intent_amount, p.amount::text AS payout_amount
+      i.amount::text AS intent_amount, p.amount::text AS payout_amount,
+      r.stake::text AS ticket_stake, r.status::text AS ticket_status
     FROM ${ledgerEntries} e
     JOIN ${ledgerAccounts} a ON a.id = e.account_id
     JOIN ${ledgerTransactions} t ON t.id = e.transaction_id
@@ -693,6 +729,7 @@ async function checkAgentCash(exec: DbExecutor, date: string, cap: number): Prom
       AND i.status = 'succeeded'
     LEFT JOIN ${payouts} p ON p.paid_ledger_transaction_id = t.id AND p.provider = 'agent_cash'
       AND p.status = 'paid'
+    LEFT JOIN ${retailTickets} r ON t.ref_type = 'bet' AND r.bet_id::text = t.ref_id::text
     WHERE a.kind::text = 'agent_balance'
       AND t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz
   `);
@@ -705,6 +742,14 @@ async function checkAgentCash(exec: DbExecutor, date: string, cap: number): Prom
       ok = row.type === 'deposit' && amount === -BigInt(row.intent_amount);
     } else if (row.payout_amount !== null) {
       ok = row.type === 'withdrawal' && amount === BigInt(row.payout_amount);
+    } else if (row.ticket_stake !== null) {
+      // A shop ticket's stake left the balance; a cancelled one came back.
+      const stake = BigInt(row.ticket_stake);
+      ok =
+        (row.type === 'bet_stake' && amount === -stake) ||
+        (row.type === 'retail_ticket_cancel' &&
+          row.ticket_status === 'cancelled' &&
+          amount === stake);
     }
     if (ok) continue;
     note({
@@ -714,7 +759,7 @@ async function checkAgentCash(exec: DbExecutor, date: string, cap: number): Prom
       expected: null,
       actual: row.amount,
       details: {
-        problem: 'an agent balance posting without its top-up, deposit or payout',
+        problem: 'an agent balance posting without its top-up, deposit, payout or shop ticket',
         type: row.type,
         refType: row.ref_type,
       },

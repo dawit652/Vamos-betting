@@ -35,12 +35,15 @@ export const betStatus = pgEnum('bet_status', [
   'void',
   'cashed_out',
   'rejected',
+  // A shop ticket cancelled before its first kick-off: the stake went back (phase 3).
+  'cancelled',
 ]);
 
 /** OddsChangePolicy in @vamos/core. */
 export const oddsChangePolicy = pgEnum('odds_change_policy', ['none', 'higher', 'any']);
 
-export const betChannel = pgEnum('bet_channel', ['web', 'sms', 'ussd']);
+// `shop`: a ticket sold at a shop's counter (docs/plans/agent-shops.md phase 3).
+export const betChannel = pgEnum('bet_channel', ['web', 'sms', 'ussd', 'shop']);
 
 /** LegState in @vamos/core. */
 export const betLegState = pgEnum('bet_leg_state', ['open', 'won', 'lost', 'void']);

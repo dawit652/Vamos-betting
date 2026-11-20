@@ -459,7 +459,7 @@ export function balanceBody(
 }
 
 export type ChannelBetStatus =
-  'pending_acceptance' | 'open' | 'won' | 'lost' | 'void' | 'cashed_out' | 'rejected';
+  'pending_acceptance' | 'open' | 'won' | 'lost' | 'void' | 'cashed_out' | 'rejected' | 'cancelled';
 
 export interface BetLine {
   shortId: string;
@@ -489,6 +489,8 @@ function betLineText(bet: BetLine, locale: ChannelLocale): string {
     void: { en: `${id} void, refunded ${stake}`, am: `${id} ተሰርዟል፣ ተመላሽ ${stake}` },
     cashed_out: { en: `${id} cashed out ${paid}`, am: `${id} ቀድሞ ተከፍሏል ${paid}` },
     rejected: { en: `${id} rejected, refunded ${stake}`, am: `${id} ውድቅ ሆኗል፣ ተመላሽ ${stake}` },
+    // A shop ticket's status (never a player's own bet list, kept for completeness).
+    cancelled: { en: `${id} cancelled, refunded ${stake}`, am: `${id} ተሰርዟል፣ ተመላሽ ${stake}` },
   };
   return pickText(text[bet.status], locale);
 }

@@ -25,4 +25,5 @@ export * from './scrape';
 export * from './smsrail';
 export * from './cashier';
 export * from './retail';
+export * from './retail-tickets';
 export * from './devices';

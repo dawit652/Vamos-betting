@@ -1,0 +1,75 @@
+import { sql } from 'drizzle-orm';
+import {
+  bigint,
+  check,
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import { adminUsers } from './accounts';
+import { bets } from './betting';
+import { cashierShifts, cashierShops } from './cashier';
+import { agents } from './retail';
+
+/**
+ * Tickets sold at a shop's counter (docs/plans/agent-shops.md phase 3). A ticket is a bet of the
+ * agent's counter bettor (`agents.counter_user_id`): its legs, odds, terms, status and settlement
+ * live in `bets`; this row says where it was sold and by whom, and its life at the shop. The
+ * ticket's number and barcode are the bet's short id. Never deleted.
+ *
+ * status: sold (the stake left the agent's balance, or entered HQ's retail cash), cancelled (before
+ * its first kick-off; the stake went back). Phase 4 adds paid and expired.
+ */
+export const retailTicketStatus = pgEnum('retail_ticket_status', ['sold', 'cancelled']);
+
+export const retailTickets = pgTable(
+  'retail_tickets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    betId: uuid('bet_id')
+      .notNull()
+      .references(() => bets.id, { onDelete: 'restrict' }),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'restrict' }),
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => cashierShops.id, { onDelete: 'restrict' }),
+    /** The cashier who sold it. */
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'restrict' }),
+    /** The cashier's shift: its expected cash counts the ticket. */
+    shiftId: uuid('shift_id')
+      .notNull()
+      .references(() => cashierShifts.id, { onDelete: 'restrict' }),
+    /** The customer's phone when they gave it (optional: a ticket pays whoever holds it). */
+    customerPhone: text('customer_phone'),
+    stake: bigint('stake', { mode: 'bigint' }).notNull(),
+    status: retailTicketStatus('status').notNull().default('sold'),
+    soldAt: timestamp('sold_at', { withTimezone: true }).notNull(),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelledBy: uuid('cancelled_by').references(() => adminUsers.id, { onDelete: 'restrict' }),
+    cancelReason: text('cancel_reason'),
+    /** The original's first print; later prints are counted copies. */
+    originalPrintedAt: timestamp('original_printed_at', { withTimezone: true }),
+    reprints: integer('reprints').notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex('retail_tickets_bet_uq').on(t.betId),
+    index('retail_tickets_shift_idx').on(t.shiftId),
+    index('retail_tickets_agent_sold_idx').on(t.agentId, t.soldAt),
+    index('retail_tickets_shop_sold_idx').on(t.shopId, t.soldAt),
+    check('retail_tickets_stake_positive', sql`${t.stake} > 0`),
+    check('retail_tickets_reprints_non_negative', sql`${t.reprints} >= 0`),
+    check(
+      'retail_tickets_cancelled',
+      sql`(${t.status} = 'cancelled') = (${t.cancelledAt} IS NOT NULL AND ${t.cancelledBy} IS NOT NULL)`,
+    ),
+  ],
+);
