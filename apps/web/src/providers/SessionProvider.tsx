@@ -62,6 +62,14 @@ const WALLET_REFRESH_ON_FOCUS_MS = 30_000;
 
 const SessionContext = createContext<SessionValue | null>(null);
 
+/**
+ * A first load that meets network trouble (slow mobile data) asks again this many times, 1.5 s
+ * apart and longer each time, before it shows the player as signed out: the session cookie is
+ * there, and a signed-in player must stay signed in (owner, 17 Nov 2026).
+ */
+const FIRST_LOAD_RETRIES = 3;
+const FIRST_LOAD_RETRY_MS = 1_500;
+
 export function SessionProvider({
   hasSessionCookie,
   children,
@@ -79,6 +87,8 @@ export function SessionProvider({
   useEffect(() => {
     statusRef.current = state.status;
   }, [state.status]);
+  const firstLoadRetries = useRef(0);
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
 
   const refresh = useCallback(async () => {
     const run = ++generation.current;
@@ -98,12 +108,21 @@ export function SessionProvider({
       if (run !== generation.current) return;
       if (isApiClientError(error) && error.status === 401) {
         setState(ANONYMOUS);
+      } else if (statusRef.current === 'loading' && firstLoadRetries.current < FIRST_LOAD_RETRIES) {
+        firstLoadRetries.current += 1;
+        setTimeout(
+          () => void refreshRef.current?.(),
+          FIRST_LOAD_RETRY_MS * firstLoadRetries.current,
+        );
       } else {
-        // Network trouble: keep what we had; a first load falls back to anonymous.
+        // Network trouble: keep what we had; a first load falls back to anonymous at last.
         setState((prev) => (prev.status === 'loading' ? ANONYMOUS : prev));
       }
     }
   }, []);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
 
   const refreshWallet = useCallback(async () => {
     try {

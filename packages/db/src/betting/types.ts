@@ -24,6 +24,7 @@ export const CLOSED_BET_STATUSES = [
   'void',
   'cashed_out',
   'rejected',
+  'cancelled',
 ] as const satisfies BetStatus[];
 /** Statuses with a settlement posting in the ledger. */
 export const SETTLED_BET_STATUSES = ['won', 'lost', 'void'] as const satisfies BetStatus[];

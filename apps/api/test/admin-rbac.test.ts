@@ -4,13 +4,18 @@ import {
   PERMISSION_ROLES,
   STAFF_CSRF_HEADER,
   STAFF_PERMISSIONS,
-  STAFF_ROLES,
   type StaffRole,
 } from '@vamos/contracts';
 import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listAdminRoutes, type AdminRouteInfo } from '../src/modules/admin/common';
-import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
+import {
+  BACK_OFFICE_ROLES,
+  asStaff,
+  seedStaff,
+  staffLogin,
+  type StaffSession,
+} from './admin-helpers';
 import {
   createTestContext,
   registerAndLogin,
@@ -26,7 +31,7 @@ const ABSENT_ID = '00000000-0000-4000-8000-000000000000';
 beforeAll(async () => {
   ctx = await createTestContext();
   await seedStaff(ctx);
-  for (const role of STAFF_ROLES) staff.set(role, await staffLogin(ctx, role));
+  for (const role of BACK_OFFICE_ROLES) staff.set(role, await staffLogin(ctx, role));
   player = await registerAndLogin(ctx);
 });
 
@@ -109,7 +114,7 @@ describe('admin RBAC', () => {
   it('answers 403 forbidden to each role lacking the permission, and lets the others through', async () => {
     let checked = 0;
     for (const route of permissionRoutes()) {
-      for (const role of STAFF_ROLES) {
+      for (const role of BACK_OFFICE_ROLES) {
         const session = staff.get(role)!;
         const response = await call(route, {
           cookie: session.cookie,
@@ -130,9 +135,9 @@ describe('admin RBAC', () => {
         checked += 1;
       }
     }
-    expect(checked).toBe(permissionRoutes().length * STAFF_ROLES.length);
+    expect(checked).toBe(permissionRoutes().length * BACK_OFFICE_ROLES.length);
     // The matrix denies something to everyone but the admin.
-    for (const role of STAFF_ROLES.filter((r) => r !== 'admin')) {
+    for (const role of BACK_OFFICE_ROLES.filter((r) => r !== 'admin')) {
       expect(
         STAFF_PERMISSIONS.some((p) => !PERMISSION_ROLES[p].includes(role)),
         role,

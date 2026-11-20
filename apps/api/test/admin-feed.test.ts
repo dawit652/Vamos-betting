@@ -23,7 +23,6 @@ import {
   ReviewDetailResponse,
   ReviewListResponse,
   SetSourceEnabledResponse,
-  STAFF_ROLES,
   UpdateCompetitionPolicyResponse,
   type StaffRole,
 } from '@vamos/contracts';
@@ -67,7 +66,13 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { listAdminRoutes } from '../src/modules/admin/common';
-import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
+import {
+  BACK_OFFICE_ROLES,
+  asStaff,
+  seedStaff,
+  staffLogin,
+  type StaffSession,
+} from './admin-helpers';
 import {
   insertCategory,
   insertCompetition,
@@ -99,7 +104,7 @@ beforeAll(async () => {
   ctx = await createTestContext();
   db = ctx.db.db;
   await seedStaff(ctx);
-  for (const role of STAFF_ROLES) staff.set(role, await staffLogin(ctx, role));
+  for (const role of BACK_OFFICE_ROLES) staff.set(role, await staffLogin(ctx, role));
   player = await registerAndLogin(ctx);
 
   await insertSport(db, 'football', { en: 'Football' }, 10);
@@ -307,7 +312,7 @@ describe('/admin/feed RBAC', () => {
         headers: { authorization: `Bearer ${player.sessionToken}` },
       });
       expect(asPlayer.statusCode, url).toBe(401);
-      for (const role of STAFF_ROLES) {
+      for (const role of BACK_OFFICE_ROLES) {
         // An empty body: refused by validation (400) once past the guard.
         const response = await asStaff(
           ctx,
@@ -890,7 +895,7 @@ describe('POST /admin/feed/review/:id/resolve', () => {
     expect(errorOf(wrong).code).toBe('decision_not_allowed');
 
     const fresh = await openItem('unknown_team', payload('Quiet Town'));
-    for (const role of STAFF_ROLES.filter((r) => r !== 'admin' && r !== 'trader')) {
+    for (const role of BACK_OFFICE_ROLES.filter((r) => r !== 'admin' && r !== 'trader')) {
       const refused = await resolve(role, fresh, {
         decision: 'add_team',
         name: { en: 'Quiet Town' },

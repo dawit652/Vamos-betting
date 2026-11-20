@@ -334,35 +334,35 @@
     {
       "idx": 47,
       "version": "7",
-      "when": 1794520036529,
+      "when": 1794652000000,
       "tag": "0047_scrape_apifootball_adapter",
       "breakpoints": true
     },
     {
       "idx": 48,
       "version": "7",
-      "when": 1794520268684,
+      "when": 1794652060000,
       "tag": "0048_market_price_valid_until",
       "breakpoints": true
     },
     {
       "idx": 49,
       "version": "7",
-      "when": 1794520891233,
+      "when": 1794652120000,
       "tag": "0049_scrape_trust_and_ladder_shadow",
       "breakpoints": true
     },
     {
       "idx": 50,
       "version": "7",
-      "when": 1794549854974,
+      "when": 1794652180000,
       "tag": "0050_scrape_policy_factory_markets",
       "breakpoints": true
     },
     {
       "idx": 51,
       "version": "7",
-      "when": 1794566974309,
+      "when": 1794652240000,
       "tag": "0051_market_family_state",
       "breakpoints": true
     },
@@ -371,6 +371,167 @@
       "version": "7",
       "when": 1794717372510,
       "tag": "0052_users_date_of_birth_optional",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794799944070,
+      "tag": "0053_sms_collection_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794800742241,
+      "tag": "0054_received_sms_reparse",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794854007784,
+      "tag": "0055_scrape_board",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794938940774,
+      "tag": "0056_team_logos",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794941935863,
+      "tag": "0057_cashier_desk",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794960974322,
+      "tag": "0058_cash_withdrawal_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794963157854,
+      "tag": "0059_cashier_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794967133934,
+      "tag": "0060_cashier_staff_shops",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794968708940,
+      "tag": "0061_receipt_original_once",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794969726948,
+      "tag": "0062_cash_shift_variance",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794970316226,
+      "tag": "0063_cash_pin_resets",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1795105738445,
+      "tag": "0064_agents",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1795108797862,
+      "tag": "0065_shop_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1795109140073,
+      "tag": "0066_shop_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1795112039491,
+      "tag": "0067_agent_owners",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1795114045987,
+      "tag": "0068_agent_balance",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1795116988250,
+      "tag": "0069_collection_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1795122857391,
+      "tag": "0070_retail_tickets",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795141510078,
+      "tag": "0071_retail_payouts",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795145436811,
+      "tag": "0072_agent_statements",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795146106120,
+      "tag": "0073_retail_monitor_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1795146275528,
+      "tag": "0074_retail_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1795170239842,
+      "tag": "0075_shop_pin_reset_starts",
       "breakpoints": true
     }
   ]

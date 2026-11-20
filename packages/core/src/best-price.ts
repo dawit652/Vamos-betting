@@ -169,3 +169,26 @@ export function uncappedPricingKey(key: string): string {
   const at = key.indexOf(CAP_KEY_MARKER);
   return at < 0 ? key : key.slice(0, at);
 }
+
+/**
+ * Marks the part of a pricing key added when some markets of the event take a competitor board's
+ * prices (Hulusport, docs/plans/hulusport-feed.md): `<key>|hl:<digest of those markets>`, before
+ * any O7 cap part. A move of the board alone then changes the key, and so the prices.
+ */
+export const BOARD_KEY_MARKER = '|hl:';
+
+/**
+ * Rule O1h: prefix of the pricing key of an event whose teams are not calibrated and whose prices
+ * come from a competitor board's expected goals (the whole book, not only the markets it quotes).
+ */
+export const BOARD_PRICING_KEY_PREFIX = 'brd1';
+
+/** True for a pricing key of rule O1h (BOARD_PRICING_KEY_PREFIX). */
+export function isBoardPricedKey(key: string | null | undefined): boolean {
+  return typeof key === 'string' && key.startsWith(`${BOARD_PRICING_KEY_PREFIX}|`);
+}
+
+/** True for a pricing key whose prices include a competitor board's (BOARD_KEY_MARKER). */
+export function hasBoardPrices(key: string | null | undefined): boolean {
+  return typeof key === 'string' && key.includes(BOARD_KEY_MARKER);
+}

@@ -1,4 +1,5 @@
-import { DEFAULT_PAYMENT_RULES, santimToBirrString } from '@vamos/core';
+import { randomUUID } from 'node:crypto';
+import { DEFAULT_PAYMENT_RULES, santimToBirrString, smsHeartbeatKey } from '@vamos/core';
 import { createSmsDepositIntent, ingestSms, schema } from '@vamos/db';
 import {
   SmsRailProvider,
@@ -18,6 +19,7 @@ import {
   runSmsRailWatch,
   smsRailTasks,
 } from '../src/tasks/smsrail';
+import { createEvent, fundedUser, place, testSettings } from './betting';
 import { createWorkerTestContext, SETUP_TIMEOUT, type WorkerTestContext } from './helpers';
 
 let t: WorkerTestContext;
@@ -32,8 +34,18 @@ const live = new SmsRailProvider({
   mode: 'live',
   gatewaySecret: 'w'.repeat(40),
   collectionAccounts: [
-    { institution: 'telebirr', account: '0911678426', name: 'Vamos Betting PLC' },
-    { institution: 'cbe', account: '1000123456789', name: 'Vamos Betting PLC' },
+    {
+      id: 'telebirr:0911678426',
+      institution: 'telebirr',
+      account: '0911678426',
+      name: 'Vamos Betting PLC',
+    },
+    {
+      id: 'cbe:1000123456789',
+      institution: 'cbe',
+      account: '1000123456789',
+      name: 'Vamos Betting PLC',
+    },
   ],
 });
 
@@ -214,9 +226,273 @@ describe('the watch', () => {
     expect(quiet.silent).toBe(false);
   });
 
+  it('raises sms_account_silent for an account with players waiting and no message from its handset, once per 30 minutes', async () => {
+    const MIN = 60_000;
+    const telebirr = 'telebirr:0911678426';
+    t.clock.set(new Date('2027-06-01T07:00:00Z')); // 10:00 EAT
+    const player = await createPlayer();
+    await t.db.db.transaction((tx) =>
+      createSmsDepositIntent(tx, {
+        userId: player.userId,
+        amount: 12_000n,
+        idempotencyKey: `silent-${Math.random()}`,
+        now: t.ctx.clock(),
+        rules: { ...DEFAULT_PAYMENT_RULES },
+        collectionAccounts: [telebirr],
+      }),
+    );
+    const { logger, alarms } = capture();
+    const ctx: TaskContext = { ...t.ctx, payments: withLive(t.ctx.payments), logger };
+
+    // The deposit is new: nobody has waited long enough.
+    t.clock.set(new Date('2027-06-01T07:10:00Z'));
+    expect((await runSmsRailWatch(ctx)).silentAccounts).toEqual([]);
+
+    // 45 minutes with nothing from the handset: the account is silent; the CBE account, which
+    // nobody waits on, is not. The line is raised once per 30 minutes.
+    t.clock.set(new Date(Date.UTC(2027, 5, 1, 7, 45)));
+    expect((await runSmsRailWatch(ctx)).silentAccounts).toEqual([telebirr]);
+    expect(alarms.filter((a) => a === 'sms_account_silent')).toHaveLength(1);
+    t.clock.set(new Date(Date.UTC(2027, 5, 1, 7, 45) + 5 * MIN));
+    expect((await runSmsRailWatch(ctx)).silentAccounts).toEqual([telebirr]);
+    expect(alarms.filter((a) => a === 'sms_account_silent')).toHaveLength(1);
+    t.clock.set(new Date(Date.UTC(2027, 5, 1, 7, 45) + 31 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(alarms.filter((a) => a === 'sms_account_silent')).toHaveLength(2);
+
+    // The simulated rail has no handset to be silent.
+    const quiet = await runSmsRailWatch({ ...t.ctx, logger });
+    expect(quiet.silentAccounts).toEqual([]);
+  });
+
+  it('judges handset heartbeats: none ever, stale, fresh, low battery, simulated rail', async () => {
+    const MIN = 60_000;
+    const telebirr = 'telebirr:0911678426';
+    const cbe = 'cbe:1000123456789';
+    const keys = [smsHeartbeatKey(telebirr), smsHeartbeatKey(cbe)];
+    const start = new Date('2027-07-01T07:00:00Z');
+    const beat = (at: Date, battery: number | null, charging: boolean | null) =>
+      JSON.stringify({ at: at.toISOString(), battery, charging });
+    await t.redis.del(...keys);
+    const { logger, alarms } = capture();
+    const ctx: TaskContext = {
+      ...t.ctx,
+      payments: withLive(t.ctx.payments),
+      logger,
+      smsHeartbeatAlarmMs: 20 * MIN,
+    };
+    const count = (name: string) => alarms.filter((a) => a === name).length;
+
+    // No heartbeat ever: not judged.
+    t.clock.set(start);
+    let findings = await runSmsRailWatch(ctx);
+    expect(findings.heartbeatMissed).toEqual([]);
+    expect(findings.batteryLow).toEqual([]);
+
+    // Fresh: no alarm.
+    await t.redis.set(keys[0]!, beat(start, 64, true));
+    t.clock.set(new Date(start.getTime() + 10 * MIN));
+    findings = await runSmsRailWatch(ctx);
+    expect(findings.heartbeatMissed).toEqual([]);
+
+    // Stale: one alarm per 30 minutes; the account that never sent one is still not judged.
+    t.clock.set(new Date(start.getTime() + 25 * MIN));
+    expect((await runSmsRailWatch(ctx)).heartbeatMissed).toEqual([telebirr]);
+    expect(count('sms_handset_heartbeat_missed')).toBe(1);
+    t.clock.set(new Date(start.getTime() + 30 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(count('sms_handset_heartbeat_missed')).toBe(1);
+    t.clock.set(new Date(start.getTime() + 57 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(count('sms_handset_heartbeat_missed')).toBe(2);
+
+    // The simulated rail has no handset.
+    expect((await runSmsRailWatch({ ...t.ctx, logger })).heartbeatMissed).toEqual([]);
+
+    // Battery 10 and not charging: alarm; charging: none.
+    const later = new Date(start.getTime() + 2 * 60 * MIN);
+    t.clock.set(later);
+    await t.redis.set(keys[1]!, beat(later, 10, false));
+    findings = await runSmsRailWatch(ctx);
+    expect(findings.batteryLow).toEqual([cbe]);
+    expect(count('sms_handset_battery_low')).toBe(1);
+    await t.redis.set(keys[1]!, beat(later, 10, true));
+    expect((await runSmsRailWatch(ctx)).batteryLow).toEqual([]);
+    await t.redis.del(...keys);
+  });
+
+  it('raises manual_payout_claim_idle once per payout per 30 minutes while a claim has no result', async () => {
+    const MIN = 60_000;
+    const start = new Date('2027-05-10T07:00:00Z');
+    const insertPayout = async (
+      values: Partial<typeof schema.payouts.$inferInsert> & {
+        status: typeof schema.payouts.$inferInsert.status;
+      },
+    ) => {
+      const player = await createPlayer();
+      const [account] = await t.db.db
+        .insert(schema.payoutAccounts)
+        .values({
+          userId: player.userId,
+          institution: 'telebirr',
+          account: player.phone,
+          accountName: 'Test Player',
+          createdAt: start,
+          updatedAt: start,
+        })
+        .returning({ id: schema.payoutAccounts.id });
+      const [row] = await t.db.db
+        .insert(schema.payouts)
+        .values({
+          userId: player.userId,
+          provider: 'sms',
+          amount: 600_000n,
+          phone: player.phone,
+          recipientName: 'Test Player',
+          idempotencyKey: `idle-${player.userId}`,
+          holdLedgerTransactionId: randomUUID(),
+          manual: true,
+          payoutAccountId: account!.id,
+          destinationInstitution: 'telebirr',
+          destinationAccount: player.phone,
+          destinationName: 'Test Player',
+          approvedBy: 'admin-a',
+          approvedAt: new Date(start.getTime() - 120 * MIN),
+          requestedAt: new Date(start.getTime() - 130 * MIN),
+          updatedAt: start,
+          ...values,
+        })
+        .returning({ id: schema.payouts.id });
+      return row!.id;
+    };
+    const claimed = (minutesAgo: number) => ({
+      status: 'processing' as const,
+      payingBy: 'op-b',
+      processingAt: new Date(start.getTime() - minutesAgo * MIN),
+    });
+    const old = await insertPayout(claimed(40));
+    const fresh = await insertPayout(claimed(10));
+    // Approved and unclaimed (even for hours) is the other alarm's business, not this one's.
+    await insertPayout({ status: 'approved' });
+
+    const lines: string[] = [];
+    const noop = () => undefined;
+    const logger = {
+      error: (obj: { alarm?: string; payoutId?: string }) => {
+        if (obj?.alarm === 'manual_payout_claim_idle') lines.push(obj.payoutId!);
+      },
+      warn: noop,
+      info: noop,
+      debug: noop,
+      trace: noop,
+      fatal: noop,
+      child: () => logger,
+    } as unknown as Logger;
+    const ctx: TaskContext = { ...t.ctx, payments: withLive(t.ctx.payments), logger };
+
+    t.clock.set(start);
+    const first = await runSmsRailWatch(ctx);
+    expect(first.idleClaims).toEqual([old]);
+    expect(lines).toEqual([old]);
+    // The watch runs every five minutes: no second line for the same payout inside 30 minutes.
+    t.clock.set(new Date(start.getTime() + 5 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(lines).toEqual([old]);
+    // The fresh claim turns 30 minutes old at +20 minutes, and gets its own line.
+    t.clock.set(new Date(start.getTime() + 25 * MIN));
+    expect((await runSmsRailWatch(ctx)).idleClaims.sort()).toEqual([old, fresh].sort());
+    expect(lines).toEqual([old, fresh]);
+    // 30 minutes after its first line the old claim is raised again.
+    t.clock.set(new Date(start.getTime() + 31 * MIN));
+    await runSmsRailWatch(ctx);
+    expect(lines).toEqual([old, fresh, old]);
+    // Released (back to approved) or paid, a claim is no longer idle.
+    await t.db.db
+      .update(schema.payouts)
+      .set({ status: 'approved', payingBy: null })
+      .where(eq(schema.payouts.id, old));
+    await t.db.db
+      .update(schema.payouts)
+      .set({
+        status: 'failed',
+        payingBy: null,
+        failureReason: 'x',
+        reversalLedgerTransactionId: randomUUID(),
+      })
+      .where(eq(schema.payouts.id, fresh));
+    t.clock.set(new Date(start.getTime() + 90 * MIN));
+    expect((await runSmsRailWatch(ctx)).idleClaims).toEqual([]);
+    expect(lines).toEqual([old, fresh, old]);
+  });
+
+  it('raises payout_float_low once per 30 minutes while the last known balance is below the forecast', async () => {
+    const MIN = 60_000;
+    const start = new Date('2028-03-01T10:00:00Z');
+    t.clock.set(start);
+    // A bet of 100 ETB at 2.0 on a match that starts in 3 hours (ends within the 6 hour horizon).
+    const event = await createEvent(t);
+    const userId = await fundedUser(t.db.db, 1_000_000n);
+    await place(t.db.db, userId, {
+      stake: 10_000n,
+      legs: [{ selectionId: event.home, oddsMilli: 2000 }],
+      settings: await testSettings(t.db.db),
+      now: start,
+    });
+    const lines: Array<Record<string, unknown>> = [];
+    const logger = {
+      error: (obj: Record<string, unknown>) => {
+        if (obj?.alarm === 'payout_float_low') lines.push(obj);
+      },
+      warn: () => undefined,
+      info: () => undefined,
+      debug: () => undefined,
+      trace: () => undefined,
+      fatal: () => undefined,
+      child: () => logger,
+    } as unknown as Logger;
+    const ctx: TaskContext = {
+      ...t.ctx,
+      payments: withLive(t.ctx.payments),
+      logger,
+      floatForecast: {
+        eventDurationMs: 2 * 3_600_000,
+        horizonMs: 6 * 3_600_000,
+        withdrawnShareBps: 10_000,
+      },
+    };
+
+    // No balance known: nothing to compare.
+    expect((await runSmsRailWatch(ctx)).floatLow).toEqual([]);
+
+    // The handset reports 5 ETB: far below what the bet could pay.
+    await creditedSms(500n);
+    const first = await runSmsRailWatch(ctx);
+    expect(first.floatLow).toEqual(['telebirr']);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      alarm: 'payout_float_low',
+      institution: 'telebirr',
+      balance: '500',
+    });
+    expect(BigInt(lines[0]!.expectedWithdrawals as string)).toBeGreaterThan(500n);
+
+    // Still low five minutes later: no second line inside 30 minutes, the finding stays.
+    t.clock.set(new Date(start.getTime() + 5 * MIN));
+    expect((await runSmsRailWatch(ctx)).floatLow).toEqual(['telebirr']);
+    expect(lines).toHaveLength(1);
+
+    // A top-up shows in the next SMS balance: the alarm clears.
+    t.clock.set(new Date(start.getTime() + 10 * MIN));
+    await creditedSms(100_000_000n);
+    expect((await runSmsRailWatch(ctx)).floatLow).toEqual([]);
+
+    // The simulated rail has no real balances to compare.
+    expect((await runSmsRailWatch({ ...ctx, payments: t.ctx.payments })).floatLow).toEqual([]);
+  });
+
   it('builds no tasks without the sms provider', () => {
     expect(smsRailTasks(t.ctx)).toEqual([]);
-    expect(smsRailTasks({ ...t.ctx, payments: withLive(t.ctx.payments) })).toHaveLength(3);
+    expect(smsRailTasks({ ...t.ctx, payments: withLive(t.ctx.payments) })).toHaveLength(4);
   });
 });
 

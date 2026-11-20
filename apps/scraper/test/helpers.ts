@@ -34,7 +34,7 @@ export const HOUR = 3_600_000;
 export const URL_A = 'https://raw.githubusercontent.com/test/en1.json';
 export const URL_B = 'https://api.example.com/events';
 
-export type Hit = { status: number; body: string; headers?: Record<string, string> };
+export type Hit = { status: number; body: string | Uint8Array; headers?: Record<string, string> };
 
 export interface Harness {
   ctx: ScraperContext;
@@ -82,6 +82,8 @@ export interface HarnessOptions {
   factoryMarkets?: boolean;
   /** OWNER_ALERT_PHONES (plan task 1.11), comma separated; default unset (alerts off). */
   ownerAlertPhones?: string;
+  /** SCRAPER_HULUSPORT_URL (the mr-x board); default unset. */
+  hulusportUrl?: string;
 }
 
 // --- documents -----------------------------------------------------------------
@@ -192,6 +194,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     ...(options.ownerAlertPhones === undefined
       ? {}
       : { OWNER_ALERT_PHONES: options.ownerAlertPhones }),
+    ...(options.hulusportUrl === undefined ? {} : { SCRAPER_HULUSPORT_URL: options.hulusportUrl }),
   });
 
   let clock = new Date(T0);

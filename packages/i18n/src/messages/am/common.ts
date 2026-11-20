@@ -40,6 +40,9 @@ export const common: Messages['common'] = {
     tennis: 'ቴኒስ',
     volleyball: 'መረብ ኳስ',
   },
+  telegram: {
+    join: 'በቴሌግራም ይቀላቀሉን',
+  },
   actions: {
     save: 'አስቀምጥ',
     cancel: 'ሰርዝ',

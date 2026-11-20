@@ -6,13 +6,18 @@
   "type": "module",
   "scripts": {
     "bet-placement": "tsx bet-placement.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "deposits": "tsx deposits.ts",
+    "pages": "tsx pages.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "house-stakes": "tsx house-stakes.ts"
   },
   "devDependencies": {
     "@types/autocannon": "7.12.7",
     "@vamos/config": "workspace:*",
+    "@vamos/contracts": "workspace:*",
     "@vamos/db": "workspace:*",
     "autocannon": "8.0.0",
+    "ioredis": "5.11.1",
     "drizzle-orm": "0.45.3"
   }
 }

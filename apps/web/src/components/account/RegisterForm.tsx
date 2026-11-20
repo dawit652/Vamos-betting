@@ -10,12 +10,11 @@ import { IS_DEMO } from '@/lib/mode';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { formErrors, retryAfterSeconds } from './errors';
-import { PasswordInput, PasswordStrengthMeter, PhoneInput } from './inputs';
+import { PhoneInput, PinInput } from './inputs';
 import { accountPaths, afterSignUp, loginHref } from './paths';
 import { setPendingRegistration } from './pending';
 import { Alert, Field, describedBy } from './ui';
 import {
-  MIN_PASSWORD_LENGTH,
   hasErrors,
   normalizePhone,
   validateRegister,
@@ -26,8 +25,7 @@ import {
 const ERRORS = {
   paths: {
     phone: ['phone', 'account.validation.phone'],
-    password: ['password', 'account.validation.passwordShort'],
-    acceptTerms: ['acceptTerms', 'account.validation.terms'],
+    password: ['password', 'account.validation.pinFormat'],
   },
   codes: {
     invalid_phone: { field: 'phone', key: 'account.validation.phone' },
@@ -43,7 +41,6 @@ export function RegisterForm({ next }: { next: string }) {
   const session = useSession();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [acceptTerms, setAcceptTerms] = useState(false);
   const [fields, setFields] = useState<FieldErrors<RegisterField>>({});
   const [formError, setFormError] = useState<MessageKey | null>(null);
   const [busy, setBusy] = useState(false);
@@ -62,7 +59,7 @@ export function RegisterForm({ next }: { next: string }) {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || cooldown > 0) return;
-    const local = validateRegister({ phone, password, acceptTerms });
+    const local = validateRegister({ phone, password });
     setFields(local);
     setFormError(null);
     if (hasErrors(local)) return;
@@ -115,7 +112,7 @@ export function RegisterForm({ next }: { next: string }) {
   const error = (field: RegisterField) => (fields[field] ? t(fields[field]) : undefined);
 
   return (
-    <form noValidate onSubmit={submit} className="card mx-3 space-y-3">
+    <form method="post" noValidate onSubmit={submit} className="card mx-3 space-y-3">
       <p className="text-muted">{t('account.register.intro')}</p>
       {formError ? <Alert>{t(formError)}</Alert> : null}
       {cooldown > 0 ? (
@@ -136,48 +133,43 @@ export function RegisterForm({ next }: { next: string }) {
           {...describedBy('reg-phone', error('phone'), true)}
         />
       </Field>
+      {fields.phone === 'account.errors.phoneTaken' ? (
+        // Already registered (owner, 17 Nov 2026): log in, or set a new PIN when it is forgotten.
+        <div className="flex gap-2">
+          <Link href={loginHref(next)} className="btn btn-primary flex-1">
+            {t('account.login.submit')}
+          </Link>
+          <Link href={routes.forgotPassword} className="btn btn-outline flex-1">
+            {t('account.login.forgot')}
+          </Link>
+        </div>
+      ) : null}
       <Field
         id="reg-password"
-        label={t('account.fields.password')}
-        hint={t('account.fields.passwordHint')}
+        label={t('account.fields.pin')}
+        hint={t('account.fields.pinHint')}
         error={error('password')}
       >
-        <PasswordInput
+        <PinInput
           id="reg-password"
           name="password"
           autoComplete="new-password"
-          minLength={MIN_PASSWORD_LENGTH}
-          maxLength={128}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
           {...describedBy('reg-password', error('password'), true)}
         />
-        <PasswordStrengthMeter password={password} />
       </Field>
       <Alert tone="info">{t('account.register.ageNotice')}</Alert>
       <div className="space-y-1">
-        <label className="flex items-start gap-2">
-          <input
-            type="checkbox"
-            name="acceptTerms"
-            className="mt-0.5 size-5 flex-none accent-brand"
-            checked={acceptTerms}
-            onChange={(e) => setAcceptTerms(e.target.checked)}
-            {...describedBy('reg-terms', error('acceptTerms'))}
-          />
-          <span>{t('account.register.acceptTerms')}</span>
-        </label>
-        {error('acceptTerms') ? (
-          <p id="reg-terms-error" className="text-xs font-semibold text-down">
-            {error('acceptTerms')}
-          </p>
-        ) : null}
+        <p id="reg-consent" className="text-sm">
+          {t('account.register.acceptTerms')}
+        </p>
         <Link
           href={routes.terms}
           target="_blank"
           prefetch={false}
-          className="ml-7 inline-block text-xs font-semibold text-brand underline"
+          className="inline-block text-xs font-semibold text-brand underline"
         >
           {t('account.register.readTerms')}
         </Link>
@@ -185,12 +177,17 @@ export function RegisterForm({ next }: { next: string }) {
           href={routes.privacy}
           target="_blank"
           prefetch={false}
-          className="ml-7 inline-block text-xs font-semibold text-brand underline"
+          className="ml-3 inline-block text-xs font-semibold text-brand underline"
         >
           {t('account.register.readPrivacy')}
         </Link>
       </div>
-      <button type="submit" className="btn btn-accent w-full" disabled={busy || cooldown > 0}>
+      <button
+        type="submit"
+        className="btn btn-accent w-full"
+        disabled={busy || cooldown > 0}
+        aria-describedby="reg-consent"
+      >
         {busy ? t('common.actions.loading') : t('account.register.submit')}
       </button>
       {IS_DEMO ? (

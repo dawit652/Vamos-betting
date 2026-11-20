@@ -70,6 +70,7 @@ export const sportsbook = {
   },
   markets: {
     more: '+{count} markets',
+    moreOptions: '{count} more options',
     none: 'No markets are open right now.',
     suspended: 'Suspended',
     count: '{count} markets',
@@ -100,11 +101,15 @@ export const sportsbook = {
     matches: '{count} matches',
     topLeagues: 'Top leagues',
   },
+  sidebar: {
+    topMatches: 'Top Matches',
+  },
   search: {
     title: 'Search',
     open: 'Search teams and leagues',
     label: 'Team or league',
     placeholder: 'e.g. Arsenal or Premier League',
+    sidebarPlaceholder: 'Search matches...',
     submit: 'Search',
     tooShort: 'Type at least 2 letters to search.',
     leagues: 'Leagues',

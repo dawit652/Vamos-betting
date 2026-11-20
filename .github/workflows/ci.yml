@@ -72,7 +72,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm db:migrate
       - run: pnpm test
-      - name: Backup script test (stub docker, real age)
+      - name: Infra script tests (backup and worker watchdog; stub docker, real age)
         run: sudo apt-get install -y --no-install-recommends age && pnpm test:infra
       - run: pnpm build
 
@@ -164,6 +164,23 @@ jobs:
             -e API_DOMAIN=api.nahubet.example.com -e ADMIN_DOMAIN=admin.nahubet.example.com \
             -e STAFF_ALLOWLIST=10.0.0.0/8 \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Validate the scale-out overlay (Caddyfile.scale, compose merge, PgBouncer image)
+        run: |
+          docker run --rm -v "$PWD/infra/caddy/Caddyfile.scale:/etc/caddy/Caddyfile:ro" \
+            -e ACME_EMAIL=ops@example.et -e WEB_DOMAIN=nahubet.example.com \
+            -e API_DOMAIN=api.nahubet.example.com -e ADMIN_DOMAIN=admin.nahubet.example.com \
+            -e STAFF_ALLOWLIST=10.0.0.0/8 \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml --profile proxy config -q
+          docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml build pgbouncer
+      - name: Validate the streams overlay (Caddyfile.streams, compose merge)
+        run: |
+          docker run --rm -v "$PWD/infra/caddy/Caddyfile.streams:/etc/caddy/Caddyfile:ro" \
+            -e ACME_EMAIL=ops@example.et -e WEB_DOMAIN=nahubet.example.com \
+            -e API_DOMAIN=api.nahubet.example.com -e ADMIN_DOMAIN=admin.nahubet.example.com \
+            -e STAFF_ALLOWLIST=10.0.0.0/8 \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.streams.yml --profile proxy config -q
       - name: Build the images (api, worker, scraper, web, admin)
         run: docker compose build
       - name: Start postgres, redis, migrate, api, worker, scraper, web and admin

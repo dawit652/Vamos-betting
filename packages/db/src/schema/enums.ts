@@ -28,6 +28,10 @@ export const adminRole = pgEnum('admin_role', [
   'kyc',
   'support',
   'compliance',
+  // A betting shop's desk: cash deposits and withdrawals, receipts (docs/plans/cashier-dashboard.md).
+  'cashier',
+  // An agent's owner (docs/plans/agent-shops.md): works in the shop app only, never the back office.
+  'agent_owner',
 ]);
 
 export const ledgerOwnerType = pgEnum('ledger_owner_type', ['user', 'house']);
@@ -46,6 +50,8 @@ export const ledgerOwnerType = pgEnum('ledger_owner_type', ['user', 'house']);
  *   (taken from the player's cash at request time, so they cannot be bet;
  *   moved to the provider's clearing account when paid, back to the player
  *   when rejected, cancelled or failed).
+ * - house_cash_variance: cash shops counted short (debit) or over (credit) at shift close, booked
+ *   when a supervisor approves it (cashier desk); kept out of house_revenue (GGR stays clean).
  */
 export const ledgerAccountKind = pgEnum('ledger_account_kind', [
   'player_cash',
@@ -58,6 +64,15 @@ export const ledgerAccountKind = pgEnum('ledger_account_kind', [
   'house_promotions',
   'house_jackpot',
   'house_withdrawals_pending',
+  'house_cash_variance',
+  // An agent's prepaid balance: what Nahubet owes the agent; never below zero (agent-shops.md).
+  'agent_balance',
+  // The cash and bank money agents paid to Nahubet for their balances (top-ups, take-backs).
+  'house_agent_funding',
+  // What won (or void) shop tickets are owed until a shop pays them; never below zero (phase 3).
+  'house_retail_payable',
+  // Ticket cash in Nahubet HQ's own drawers (an agent's tickets use its balance instead).
+  'house_retail_cash',
 ]);
 
 export const ledgerTransactionType = pgEnum('ledger_transaction_type', [
@@ -75,6 +90,14 @@ export const ledgerTransactionType = pgEnum('ledger_transaction_type', [
   'adjustment',
   'jackpot_entry',
   'jackpot_prize',
+  // An agent's top-up (money in) or take-back (money out), approved by a second person.
+  'agent_topup',
+  'agent_take_back',
+  // A shop ticket cancelled before its first kick-off: the stake goes back where it came from.
+  'retail_ticket_cancel',
+  // A won or void shop ticket paid at the counter (phase 4), or expired unpaid.
+  'retail_ticket_payout',
+  'retail_ticket_expiry',
 ]);
 
 export const actorType = pgEnum('actor_type', ['user', 'admin', 'system']);

@@ -9,7 +9,9 @@ import { generateOtpCode, hashOtpCode, otpSentBody } from '../src/lib/otp';
 import {
   assertPasswordAcceptable,
   hashPassword,
+  meetsPasswordPolicy,
   passwordWeakness,
+  pinWeakness,
   verifyPassword,
 } from '../src/lib/passwords';
 import { MockKycVerifier } from '../src/providers/kyc';
@@ -150,24 +152,74 @@ describe('passwords', () => {
     expect(passwordWeakness('Abebe-bikila-1960', phone)).toBeNull();
   });
 
-  it('needs at least 12 characters for new passwords, but existing ones still log in (ASVS 2.1.1)', () => {
-    const register = {
-      phone: '0911234567',
-      dateOfBirth: '1990-01-01',
-      acceptTerms: true,
-    } as const;
-    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$xy7q-9k' }).success).toBe(false);
-    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$xy7q-9kz' }).success).toBe(true);
-    // A run of spaces counts once.
-    expect(RegisterRequest.safeParse({ ...register, password: 'Ab3$  xy7q-9' }).success).toBe(
-      false,
-    );
+  it('takes a 4-digit PIN for new passwords, while any password still logs in', () => {
+    const register = { phone: '0911234567', acceptTerms: true } as const;
+    for (const pin of ['4826', '0397', '9150']) {
+      expect(RegisterRequest.safeParse({ ...register, password: pin }).success, pin).toBe(true);
+    }
+    for (const bad of ['482', '48260', 'abcd', '48 2', '４８２６', '', 'Abebe-bikila-1960']) {
+      expect(RegisterRequest.safeParse({ ...register, password: bad }).success, bad).toBe(false);
+    }
     const reset = { phone: '0911234567', code: '123456' };
+    expect(ResetPasswordRequest.safeParse({ ...reset, newPassword: '4826' }).success).toBe(true);
     expect(ResetPasswordRequest.safeParse({ ...reset, newPassword: 'Ab3$xy7q' }).success).toBe(
       false,
     );
-    // A 6-character password chosen under the old rule keeps working.
+    // A password chosen under an older rule keeps working at login.
     expect(LoginRequest.safeParse({ phone: '0911234567', password: 'Ab3$xy' }).success).toBe(true);
+  });
+
+  it('refuses only the easiest PINs: one digit four times, runs, the end of the phone', () => {
+    const phone = '+251911234567';
+    for (const pin of ['0000', '1111', '9999']) {
+      expect(pinWeakness(pin, phone), pin).toMatch(/same digit/);
+    }
+    for (const pin of ['0123', '1234', '6789', '9876', '3210', '4321', '7890']) {
+      expect(pinWeakness(pin, phone), pin).toMatch(/in a row/);
+    }
+    expect(pinWeakness('0397', '+251911200397')).toMatch(/last 4 digits of your phone number/);
+    expect(pinWeakness('3456', '+251911203456')).toMatch(/in a row/);
+    // Allowed (owner, 16 Nov 2026): years, pairs, mirrors, keypad shapes, other digits of the number.
+    for (const pin of ['1950', '1987', '1990', '2016', '1212', '6969', '1122', '1221', '2000']) {
+      expect(pinWeakness(pin, phone), pin).toBeNull();
+    }
+    for (const pin of ['2580', '1004', '1470', '1112', '0911', '9112', '4826', '9150', '7031']) {
+      expect(pinWeakness(pin, phone), pin).toBeNull();
+    }
+    // passwordWeakness sends a PIN to these rules, and assertPasswordAcceptable throws on them.
+    expect(passwordWeakness('1234', phone)).toMatch(/in a row/);
+    expect(() => assertPasswordAcceptable('0000', phone)).toThrow(
+      expect.objectContaining({ statusCode: 400, code: 'weak_password' }),
+    );
+    expect(() => assertPasswordAcceptable('1212', phone)).not.toThrow();
+  });
+
+  it('lets a good PIN or an older long password keep signing in, nothing weaker', () => {
+    const phone = '+251911234567';
+    expect(meetsPasswordPolicy('4826', phone)).toBe(true);
+    expect(meetsPasswordPolicy('1234', phone)).toBe(false);
+    expect(meetsPasswordPolicy('4567', phone)).toBe(false);
+    // Made under the 12-character rule: no forced reset.
+    expect(meetsPasswordPolicy('Abebe-bikila-1960', phone)).toBe(true);
+    // Shorter than that, common, or the phone: reset with an SMS code first.
+    expect(meetsPasswordPolicy('Ab3$xy7q', phone)).toBe(false);
+    expect(meetsPasswordPolicy('123456789012', phone)).toBe(false);
+    expect(meetsPasswordPolicy('0911234567', phone)).toBe(false);
+  });
+
+  it('every non-weak PIN is a valid new password, and the weak ones are a small share', () => {
+    const phone = '+251911234567';
+    let weak = 0;
+    for (let n = 0; n < 10_000; n += 1) {
+      const pin = String(n).padStart(4, '0');
+      expect(
+        RegisterRequest.safeParse({ phone: '0911234567', password: pin, acceptTerms: true })
+          .success,
+      ).toBe(true);
+      if (pinWeakness(pin, phone) !== null) weak += 1;
+    }
+    // Repeats (10) and runs (20, also round the 0); this number's end (4567) is a run already.
+    expect(weak).toBe(30);
   });
 });
 

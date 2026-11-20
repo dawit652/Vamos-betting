@@ -8,6 +8,7 @@ import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
 import { OPEN_PAYOUT_STATUSES } from '../payments/types';
 import { bets } from '../schema/betting';
+import { cashShiftVariancePostings } from '../schema/cashier';
 import {
   complianceCursors,
   reconciliationMismatches,
@@ -17,6 +18,9 @@ import {
 import { jackpotEntries } from '../schema/jackpots';
 import { ledgerAccounts, ledgerEntries, ledgerTransactions } from '../schema/ledger';
 import { paymentIntents, payouts } from '../schema/payments';
+import { agents, agentTopups } from '../schema/retail';
+import { retailTickets } from '../schema/retail-tickets';
+import { receivedSms } from '../schema/smsrail';
 
 /**
  * Reconciliation (worker daily, and on demand from the back office): every
@@ -39,11 +43,18 @@ import { paymentIntents, payouts } from '../schema/payments';
  * Payment providers, for one business day (ledger posting time):
  * - psp_movements: every house_psp_clearing posting belongs to a succeeded
  *   deposit intent (−amount, same provider, its ledger transaction) or a paid
- *   payout (+amount), and nothing else moves those accounts;
+ *   payout (+amount), or is the booked cash difference of a closed cashier
+ *   shift (`cash` only, −variance, its cash_shift_variance_postings row), and
+ *   nothing else moves those accounts;
  * - psp_records: every intent that succeeded and payout paid that day has
  *   exactly that PSP clearing entry;
  * - psp_daily_totals: per provider, Σ succeeded intents = deposits through
  *   its clearing account and Σ paid payouts = withdrawals through it;
+ * SMS rail, for the same day (the credit's time):
+ * - sms_credits: every received SMS that credited a deposit names a succeeded `sms`
+ *   deposit of the same player and amount that has its ledger transaction, and every
+ *   succeeded `sms` deposit is backed by a received SMS that matched it (or flagged it, and
+ *   staff then credited it): a missing credit and a credit without a message both show;
  * Imported PSP statements are matched line by line in psp-statements.ts
  * (their own runs, kind `psp_statement`).
  *
@@ -78,9 +89,13 @@ export const RECONCILIATION_CHECKS = [
   'house_stakes',
   'house_jackpot',
   'house_withdrawals_pending',
+  'retail_payable',
+  'retail_cash',
   'psp_movements',
   'psp_records',
   'psp_daily_totals',
+  'sms_credits',
+  'agent_cash_records',
 ] as const;
 export type ReconciliationCheck = (typeof RECONCILIATION_CHECKS)[number] | 'psp_statement';
 
@@ -342,6 +357,27 @@ async function checkHouseAccounts(exec: DbExecutor): Promise<CheckResult[]> {
     })
     .from(payouts)
     .where(sql`${payouts.status}::text IN (${openStatuses})`);
+  // Shop tickets (agent-shops.md phases 3 and 4): what won and void tickets still owe (not paid,
+  // not expired), and the ticket cash in HQ's own drawers (negative: cash in hand) = stakes of HQ
+  // tickets that stand, minus what HQ shops paid out.
+  const [owed] = await exec
+    .select({
+      n: sql<number>`count(*)::int`,
+      total: sql<string>`COALESCE(sum(${bets.settledNetPayout}), 0)::text`,
+    })
+    .from(bets)
+    .innerJoin(retailTickets, eq(retailTickets.betId, bets.id))
+    .where(
+      sql`${bets.channel}::text = 'shop' AND ${bets.status} IN ('won', 'void') AND ${retailTickets.status}::text = 'sold'`,
+    );
+  const [hqTickets] = await exec
+    .select({
+      n: sql<number>`count(*)::int`,
+      total: sql<string>`(COALESCE(sum(${retailTickets.paidAmount}), 0) - COALESCE(sum(${retailTickets.stake}) FILTER (WHERE ${retailTickets.status}::text <> 'cancelled'), 0))::text`,
+    })
+    .from(retailTickets)
+    .innerJoin(agents, eq(agents.id, retailTickets.agentId))
+    .where(sql`${agents.isHouse}`);
   const compare = async (
     check: ReconciliationCheck,
     key: string,
@@ -379,6 +415,18 @@ async function checkHouseAccounts(exec: DbExecutor): Promise<CheckResult[]> {
       held,
       'open payouts (requested, approved, processing)',
     ),
+    await compare(
+      'retail_payable',
+      'house:retail_payable',
+      owed,
+      'net payouts of won and void shop tickets not paid yet',
+    ),
+    await compare(
+      'retail_cash',
+      'house:retail_cash',
+      hqTickets,
+      "stakes of HQ shops' tickets that stand (cash in hand, negative)",
+    ),
   ];
 }
 
@@ -399,11 +447,20 @@ interface PspMovementRow extends Record<string, unknown> {
   payout_amount: string | null;
   payout_provider: string | null;
   payout_tx: string | null;
+  /** A cashier shift's booked cash difference (adjustment postings with ref_type cashier_shift). */
+  variance_amount: string | null;
 }
 
 /** Why a PSP clearing posting does not belong to its intent or payout (null when it does). */
 function movementProblem(row: PspMovementRow): string | null {
   const amount = BigInt(row.amount);
+  if (row.type === 'adjustment' && row.ref_type === 'cashier_shift') {
+    if (row.provider !== 'cash') return 'a cash shift difference moved another provider';
+    if (row.variance_amount === null) return 'no booked shift difference for this posting';
+    if (amount !== -BigInt(row.variance_amount))
+      return 'the amount differs from the shift difference';
+    return null;
+  }
   if (row.type === 'deposit') {
     if (row.intent_id === null) return 'no deposit intent for this posting';
     if (row.intent_status !== 'succeeded')
@@ -438,12 +495,15 @@ async function checkPayments(exec: DbExecutor, date: string, cap: number): Promi
       i.id::text AS intent_id, i.status::text AS intent_status, i.amount::text AS intent_amount,
       i.provider AS intent_provider, i.ledger_transaction_id::text AS intent_tx,
       p.id::text AS payout_id, p.status::text AS payout_status, p.amount::text AS payout_amount,
-      p.provider AS payout_provider, p.paid_ledger_transaction_id::text AS payout_tx
+      p.provider AS payout_provider, p.paid_ledger_transaction_id::text AS payout_tx,
+      v.amount::text AS variance_amount
     FROM ${ledgerEntries} e
     JOIN ${ledgerAccounts} a ON a.id = e.account_id
     JOIN ${ledgerTransactions} t ON t.id = e.transaction_id
     LEFT JOIN ${paymentIntents} i ON t.ref_type = 'payment_intent' AND i.id::text = t.ref_id
     LEFT JOIN ${payouts} p ON t.ref_type = 'payout' AND p.id::text = t.ref_id
+    LEFT JOIN ${cashShiftVariancePostings} v
+      ON t.ref_type = 'cashier_shift' AND v.ledger_transaction_id = t.id
     WHERE a.kind = 'house_psp_clearing'
       AND t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz
     ORDER BY t.created_at, t.id
@@ -500,7 +560,7 @@ async function checkPayments(exec: DbExecutor, date: string, cap: number): Promi
       FROM ${ledgerEntries} e JOIN ${ledgerAccounts} a ON a.id = e.account_id
       WHERE e.transaction_id = i.ledger_transaction_id AND a.kind = 'house_psp_clearing'
     ) x ON true
-    WHERE i.status = 'succeeded'
+    WHERE i.status = 'succeeded' AND i.provider <> 'agent_cash'
       AND ((t.id IS NOT NULL AND t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz)
         OR (t.id IS NULL AND i.completed_at >= ${from}::timestamptz AND i.completed_at < ${to}::timestamptz))
     UNION ALL
@@ -514,7 +574,7 @@ async function checkPayments(exec: DbExecutor, date: string, cap: number): Promi
       FROM ${ledgerEntries} e JOIN ${ledgerAccounts} a ON a.id = e.account_id
       WHERE e.transaction_id = p.paid_ledger_transaction_id AND a.kind = 'house_psp_clearing'
     ) x ON true
-    WHERE p.status = 'paid'
+    WHERE p.status = 'paid' AND p.provider <> 'agent_cash'
       AND ((t.id IS NOT NULL AND t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz)
         OR (t.id IS NULL AND p.completed_at >= ${from}::timestamptz AND p.completed_at < ${to}::timestamptz))
   `);
@@ -581,6 +641,247 @@ async function checkPayments(exec: DbExecutor, date: string, cap: number): Promi
 }
 
 /**
+ * Player cash at agents' shops and the agents' balances (agent-shops.md phase 2), for one business
+ * day (ledger posting time): every succeeded `agent_cash` deposit has exactly one agent balance
+ * entry of −amount in its ledger transaction and every paid `agent_cash` payout one of +amount;
+ * and every agent balance posting belongs to such a deposit or payout, or to an approved top-up
+ * or take-back of the same amount. (These deposits and payouts touch no PSP clearing account, so
+ * psp_records and psp_daily_totals leave them out.)
+ */
+async function checkAgentCash(exec: DbExecutor, date: string, cap: number): Promise<CheckResult> {
+  const { start, end } = businessDayWindow(date);
+  const from = start.toISOString();
+  const to = end.toISOString();
+  const mismatches: MismatchInput[] = [];
+  let total = 0;
+  const note = (input: MismatchInput) => {
+    total += 1;
+    if (mismatches.length < cap) mismatches.push(input);
+  };
+  const records = await exec.execute<{
+    kind: 'deposit' | 'payout';
+    id: string;
+    amount: string;
+    tx_id: string | null;
+    entries: number;
+    entry_total: string | null;
+  }>(sql`
+    SELECT 'deposit' AS kind, i.id::text AS id, i.amount::text AS amount,
+      i.ledger_transaction_id::text AS tx_id, x.n AS entries, x.total::text AS entry_total
+    FROM ${paymentIntents} i
+    JOIN ${ledgerTransactions} t ON t.id = i.ledger_transaction_id
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS n, sum(e.amount) AS total
+      FROM ${ledgerEntries} e JOIN ${ledgerAccounts} a ON a.id = e.account_id
+      WHERE e.transaction_id = i.ledger_transaction_id AND a.kind::text = 'agent_balance'
+    ) x ON true
+    WHERE i.status = 'succeeded' AND i.provider = 'agent_cash'
+      AND t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz
+    UNION ALL
+    SELECT 'payout' AS kind, p.id::text AS id, p.amount::text AS amount,
+      p.paid_ledger_transaction_id::text AS tx_id, x.n AS entries, x.total::text AS entry_total
+    FROM ${payouts} p
+    JOIN ${ledgerTransactions} t ON t.id = p.paid_ledger_transaction_id
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS n, sum(e.amount) AS total
+      FROM ${ledgerEntries} e JOIN ${ledgerAccounts} a ON a.id = e.account_id
+      WHERE e.transaction_id = p.paid_ledger_transaction_id AND a.kind::text = 'agent_balance'
+    ) x ON true
+    WHERE p.status = 'paid' AND p.provider = 'agent_cash'
+      AND t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz
+  `);
+  for (const row of records.rows) {
+    const expected = row.kind === 'deposit' ? -BigInt(row.amount) : BigInt(row.amount);
+    if (Number(row.entries ?? 0) === 1 && BigInt(row.entry_total ?? '0') === expected) continue;
+    note({
+      check: 'agent_cash_records',
+      subjectType: row.kind === 'deposit' ? 'payment_intent' : 'payout',
+      subjectId: row.id,
+      expected: expected.toString(),
+      actual: row.entry_total,
+      details: {
+        problem:
+          Number(row.entries ?? 0) === 1
+            ? 'its agent balance entry has another amount'
+            : 'its ledger transaction has no single agent balance entry',
+        ledgerTransactionId: row.tx_id,
+      },
+    });
+  }
+  const movements = await exec.execute<{
+    tx_id: string;
+    type: string;
+    ref_type: string | null;
+    amount: string;
+    topup_amount: string | null;
+    topup_direction: string | null;
+    intent_amount: string | null;
+    payout_amount: string | null;
+    ticket_stake: string | null;
+    ticket_status: string | null;
+    ticket_paid: string | null;
+  }>(sql`
+    SELECT t.id::text AS tx_id, t.type::text AS type, t.ref_type, e.amount::text AS amount,
+      g.amount::text AS topup_amount, g.direction::text AS topup_direction,
+      i.amount::text AS intent_amount, p.amount::text AS payout_amount,
+      r.stake::text AS ticket_stake, r.status::text AS ticket_status,
+      r.paid_amount::text AS ticket_paid
+    FROM ${ledgerEntries} e
+    JOIN ${ledgerAccounts} a ON a.id = e.account_id
+    JOIN ${ledgerTransactions} t ON t.id = e.transaction_id
+    LEFT JOIN ${agentTopups} g ON g.ledger_transaction_id = t.id AND g.status = 'approved'
+    LEFT JOIN ${paymentIntents} i ON i.ledger_transaction_id = t.id AND i.provider = 'agent_cash'
+      AND i.status = 'succeeded'
+    LEFT JOIN ${payouts} p ON p.paid_ledger_transaction_id = t.id AND p.provider = 'agent_cash'
+      AND p.status = 'paid'
+    LEFT JOIN ${retailTickets} r ON t.ref_type = 'bet' AND r.bet_id::text = t.ref_id::text
+    WHERE a.kind::text = 'agent_balance'
+      AND t.created_at >= ${from}::timestamptz AND t.created_at < ${to}::timestamptz
+  `);
+  for (const row of movements.rows) {
+    const amount = BigInt(row.amount);
+    let ok = false;
+    if (row.topup_amount !== null) {
+      ok = amount === (row.topup_direction === 'in' ? 1n : -1n) * BigInt(row.topup_amount);
+    } else if (row.intent_amount !== null) {
+      ok = row.type === 'deposit' && amount === -BigInt(row.intent_amount);
+    } else if (row.payout_amount !== null) {
+      ok = row.type === 'withdrawal' && amount === BigInt(row.payout_amount);
+    } else if (row.ticket_stake !== null) {
+      // A shop ticket's stake left the balance; a cancelled one came back.
+      const stake = BigInt(row.ticket_stake);
+      ok =
+        (row.type === 'bet_stake' && amount === -stake) ||
+        (row.type === 'retail_ticket_cancel' &&
+          row.ticket_status === 'cancelled' &&
+          amount === stake) ||
+        // A ticket paid at the agent's shop: the agent paid the holder, its balance grows.
+        (row.type === 'retail_ticket_payout' &&
+          row.ticket_status === 'paid' &&
+          row.ticket_paid !== null &&
+          amount === BigInt(row.ticket_paid));
+    }
+    if (ok) continue;
+    note({
+      check: 'agent_cash_records',
+      subjectType: 'ledger_transaction',
+      subjectId: row.tx_id,
+      expected: null,
+      actual: row.amount,
+      details: {
+        problem: 'an agent balance posting without its top-up, deposit, payout or shop ticket',
+        type: row.type,
+        refType: row.ref_type,
+      },
+    });
+  }
+  return result(
+    'agent_cash_records',
+    records.rows.length + movements.rows.length,
+    total,
+    mismatches,
+  );
+}
+
+interface SmsCreditRow extends Record<string, unknown> {
+  sms_id: string | null;
+  sms_status: string | null;
+  sms_reference: string | null;
+  sms_amount: string | null;
+  sms_user: string | null;
+  intent_id: string | null;
+  intent_status: string | null;
+  intent_provider: string | null;
+  intent_amount: string | null;
+  intent_user: string | null;
+  intent_tx: string | null;
+}
+
+/**
+ * The SMS rail's evidence against its ledger credits (see the header): two passes over the
+ * day, one from the messages that say they credited, one from the deposits that were credited.
+ */
+async function checkSmsCredits(exec: DbExecutor, date: string, cap: number): Promise<CheckResult> {
+  const { start, end } = businessDayWindow(date);
+  const from = start.toISOString();
+  const to = end.toISOString();
+  const mismatches: MismatchInput[] = [];
+  let total = 0;
+  const note = (input: MismatchInput) => {
+    total += 1;
+    if (mismatches.length < cap) mismatches.push(input);
+  };
+
+  const credited = await exec.execute<SmsCreditRow>(sql`
+    SELECT s.id::text AS sms_id, s.status::text AS sms_status, s.reference AS sms_reference,
+      s.amount::text AS sms_amount, s.matched_user_id::text AS sms_user,
+      i.id::text AS intent_id, i.status::text AS intent_status, i.provider AS intent_provider,
+      i.amount::text AS intent_amount, i.user_id::text AS intent_user,
+      i.ledger_transaction_id::text AS intent_tx
+    FROM ${receivedSms} s
+    LEFT JOIN ${paymentIntents} i ON i.id = s.matched_intent_id
+    WHERE s.status IN ('matched', 'credited_by_staff')
+      AND COALESCE(i.completed_at, s.updated_at) >= ${from}::timestamptz
+      AND COALESCE(i.completed_at, s.updated_at) < ${to}::timestamptz
+    ORDER BY s.created_at, s.id
+  `);
+  for (const row of credited.rows) {
+    let problem: string | null = null;
+    if (row.intent_id === null) problem = 'the message says it credited a deposit, but names none';
+    else if (row.intent_status !== 'succeeded') {
+      problem = `the deposit it credited is ${row.intent_status ?? '?'}, not succeeded`;
+    } else if (row.intent_provider !== 'sms')
+      problem = 'the deposit it credited is not an SMS deposit';
+    else if (row.intent_tx === null) problem = 'the deposit it credited has no ledger transaction';
+    else if (row.intent_user !== row.sms_user) problem = 'the deposit belongs to another player';
+    else if (BigInt(row.intent_amount ?? '0') !== BigInt(row.sms_amount ?? '-1')) {
+      problem = 'the deposit amount differs from the amount received';
+    }
+    if (problem === null) continue;
+    note({
+      check: 'sms_credits',
+      subjectType: 'received_sms',
+      subjectId: row.sms_id ?? '?',
+      expected: row.sms_amount,
+      actual: row.intent_status === 'succeeded' ? row.intent_amount : null,
+      details: { problem, reference: row.sms_reference, intentId: row.intent_id },
+    });
+  }
+
+  const deposits = await exec.execute<SmsCreditRow>(sql`
+    SELECT i.id::text AS intent_id, i.amount::text AS intent_amount, i.user_id::text AS intent_user
+    FROM ${paymentIntents} i
+    WHERE i.provider = 'sms' AND i.status = 'succeeded'
+      AND i.completed_at >= ${from}::timestamptz AND i.completed_at < ${to}::timestamptz
+      AND NOT EXISTS (
+        SELECT 1 FROM ${receivedSms} s
+        WHERE s.matched_intent_id = i.id OR s.flagged_intent_id = i.id
+      )
+    ORDER BY i.completed_at, i.id
+  `);
+  for (const row of deposits.rows) {
+    note({
+      check: 'sms_credits',
+      subjectType: 'payment_intent',
+      subjectId: row.intent_id ?? '?',
+      expected: null,
+      actual: row.intent_amount,
+      details: {
+        problem: 'an SMS deposit was credited with no received SMS behind it',
+        userId: row.intent_user,
+      },
+    });
+  }
+  const creditedDeposits = await countOf(
+    exec,
+    sql`SELECT count(*)::int AS n FROM ${paymentIntents} i
+      WHERE i.provider = 'sms' AND i.status = 'succeeded'
+        AND i.completed_at >= ${from}::timestamptz AND i.completed_at < ${to}::timestamptz`,
+  );
+  return result('sms_credits', credited.rows.length + creditedDeposits, total, mismatches);
+}
+
+/**
  * How old (by its transaction's start) an entry must be before the
  * balance_after checkpoint moves past it. Entry ids are taken when a row is
  * inserted but become visible at commit, so a ledger transaction still open
@@ -630,6 +931,8 @@ export async function runReconciliationChecks(
     await checkAccounts(exec, cap, 'player'),
     ...(await checkHouseAccounts(exec)),
     ...(await checkPayments(exec, input.businessDate, cap)),
+    await checkSmsCredits(exec, input.businessDate, cap),
+    await checkAgentCash(exec, input.businessDate, cap),
   ];
   return {
     checks: results.map((check) => check.summary),

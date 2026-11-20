@@ -2,25 +2,74 @@
 
 Oct 27, 2026 · @Which Version Of Claude Are U
 
+## After a 5-hour limit or a restart: the token budget (owner's rule, read this first)
+
+The first reply after a limit reset, a restart or a summarised conversation costs as little as
+possible:
+
+1. **At most three cheap commands before answering:** `git status --short`,
+   `git log --oneline -3`, and the "Where we are" item below (or the first 15 lines of
+   `docs/plans/remaining-tasks.md`). Nothing else: no reading of code, plans, long docs or old
+   transcripts; trust the conversation summary and the handover.
+2. **Do only what the owner's message asks.** No new work of your own, no re-checking of finished
+   work (CI, tests, deploys already reported green), no restarting agents or background runs that
+   stopped at the limit.
+3. **No builds, e2e runs, full test suites, screenshots or agents** in that first reply. Later,
+   only when the next commit needs them: test what you change, the full checks once before a push.
+4. **Operations questions** (deploy, sign-in, server commands, settings): answer from
+   `docs/deployment.md` and `docs/runbooks/` with a targeted `grep`, not by reading code.
+5. **Short answers:** a few lines, no recap of earlier work, no long command output pasted back.
+6. **Cheapest model that fits** (see "Working with Claude Code"): Haiku (`quick-task`) for checks,
+   Sonnet (`routine-coder`) for routine edits, Opus only for money, security and design.
+7. **Lose nothing at a cut-off:** after every push, update "Where we are" in one or two lines, so
+   the next session starts from it.
+
+## Start here (every session, to save tokens)
+
+1. Read only `docs/plans/remaining-tasks.md` (short), then the plan doc of the task you take. Do
+   not read the long handover, progress or architecture docs unless that task needs a section.
+2. Read code with targeted `grep` and line ranges, not whole files. No screenshots and no full
+   test suites unless the change needs them: test what you change; full checks before a push.
+3. One build and one e2e run per batch of changes; reuse a running stack (`e2e/scripts/stack.sh`).
+4. Short answers to the owner; never re-explain earlier work.
+5. Near the end of the 5-hour window: stop new work, commit and push, and update
+   `docs/plans/remaining-tasks.md` in a few lines. After a limit reset or a restart, follow "The
+   token budget" above and do not resume on your own: wait for the owner's next message.
+6. Always build on top of the server's branch: before every push,
+   `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor FETCH_HEAD HEAD`
+   must succeed (else merge it in first). Every plan in `docs/plans/` says so too.
+7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
+   `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
+8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
+   **Deployed 20 Nov:** `1918eb6` (licensed mode, smoke test 13 passed; migrations up to 0075).
+   Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
+   `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if
+   it is ahead (`git fetch origin <other> && git merge --ff-only FETCH_HEAD`). Built: agent shops
+   phases 0-5 (the shop app is deployed but not switched on: `docs/deployment.md`, "Shop app"),
+   the desk PIN reset redesign (off until `CASHIER_PIN_RESET=on`), quieter owner alerts. Next:
+   switching the shop app on with the owner, phase 6 once the owner picks a POS model, or what the
+   owner asks.
+
 ## Overview
 
 Vamos Betting is a mobile-first sportsbook for Costa Rica, modelled on Betika: a TypeScript pnpm monorepo. Money stays in Ethiopian birr (ETB) and deposits and payouts go through telebirr, CBE (SMS rail) and Chapa.
 
-| Path                 | Package            | What it holds                                                                                    |
-| -------------------- | ------------------ | ------------------------------------------------------------------------------------------------ |
-| `apps/api`           | `@vamos/api`       | REST + SSE API (Fastify), :4000                                                                  |
-| `apps/worker`        | `@vamos/worker`    | Feed ingest, live simulator, settlement, payouts, notifications, reporting, SMS rail checks      |
-| `apps/web`           | `@vamos/web`       | Player PWA (Next.js), Betika-style lite mobile web, :3000                                        |
-| `apps/admin`         | `@vamos/admin`     | Back office: trading, risk, KYC, finance, compliance, SMS rail, manual payouts, :3001            |
-| `packages/core`      | `@vamos/core`      | Pure domain logic: money, odds, betslip, bonus, tax, cash-out, jackpot, SMS parsing and matching |
-| `packages/db`        | `@vamos/db`        | Drizzle schema, migrations, seed and the services that write money (PostgreSQL 16)               |
-| `packages/contracts` | `@vamos/contracts` | Zod request/response contracts shared by api, web and admin                                      |
-| `packages/payments`  | `@vamos/payments`  | Provider adapters (mock, Chapa, telebirr, SMS rail) and the receipt verifier; no database        |
-| `packages/feed`      | `@vamos/feed`      | Odds feed interface, mock Poisson pricing and live match simulator                               |
-| `packages/config`    | `@vamos/config`    | Environment loading and the operating-mode guard                                                 |
-| `packages/i18n`      | `@vamos/i18n`      | UI messages: Amharic, English, Afaan Oromo, Tigrinya                                             |
-| `e2e`                | `@vamos/e2e`       | Playwright end-to-end specs                                                                      |
-| `infra`, `scripts`   |                    | Docker, Caddy, ops scripts, load tests, SBOM                                                     |
+| Path                 | Package               | What it holds                                                                                                                             |
+| -------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api`           | `@vamos/api`          | REST + SSE API (Fastify), :4000                                                                                                           |
+| `apps/worker`        | `@vamos/worker`       | Feed ingest, live simulator, settlement, payouts, notifications, reporting, SMS rail checks                                               |
+| `apps/web`           | `@vamos/web`          | Player PWA (Next.js), Betika-style lite mobile web, :3000                                                                                 |
+| `apps/admin`         | `@vamos/admin`        | Back office: trading, risk, KYC, finance, compliance, SMS rail, manual payouts, :3001                                                     |
+| `apps/payout-agent`  | `@vamos/payout-agent` | The payout sender's agent (types a wallet's USSD menu through a modem); simulator-tested, not wired: `docs/plans/payout-sender-design.md` |
+| `packages/core`      | `@vamos/core`         | Pure domain logic: money, odds, betslip, bonus, tax, cash-out, jackpot, SMS parsing and matching                                          |
+| `packages/db`        | `@vamos/db`           | Drizzle schema, migrations, seed and the services that write money (PostgreSQL 16)                                                        |
+| `packages/contracts` | `@vamos/contracts`    | Zod request/response contracts shared by api, web and admin                                                                               |
+| `packages/payments`  | `@vamos/payments`     | Provider adapters (mock, Chapa, telebirr, SMS rail) and the receipt verifier; no database                                                 |
+| `packages/feed`      | `@vamos/feed`         | Odds feed interface, mock Poisson pricing and live match simulator                                                                        |
+| `packages/config`    | `@vamos/config`       | Environment loading and the operating-mode guard                                                                                          |
+| `packages/i18n`      | `@vamos/i18n`         | UI messages: Amharic, English, Afaan Oromo, Tigrinya                                                                                      |
+| `e2e`                | `@vamos/e2e`          | Playwright end-to-end specs                                                                                                               |
+| `infra`, `scripts`   |                       | Docker, Caddy, ops scripts, load tests, SBOM                                                                                              |
 
 ## Commands
 
@@ -48,14 +97,14 @@ Node 22 and pnpm 10. Run these from the repository root.
 - Domain math lives in `packages/core` (pure, no I/O) and must have unit + property tests.
 - API input is validated with zod contracts from `packages/contracts` via `parseInput`.
 - Integration tests use a real Postgres (`createTestDatabase` from `@vamos/db/testing`).
-- **Scraper.** Scraped results reach `resultEvent` only through the gates (`applyConfirmedResult` in
-  `apps/scraper`); no code path may cancel, void or abandon an event from scraped data. See `docs/scraper.md`.
-- Excluded by policy: casino/crash/virtual games, crypto, payouts to third-party wallets.
+- **Scraper.** Scraped data and automated feeds may update results, void/cancel events, or adjust markets directly when configured
+- **Hulusport prices** (owner's decision, 14 Nov 2026; `docs/plans/hulusport-feed.md`): the scraper reads Hulusport's board from the owner's mr-x service (`SCRAPER_HULUSPORT_URL`). Only while the back office switch `hulusport_pricing` is on (off by default) do markets we already price take Hulusport's fresh prices, with its margin replaced by ours. Stale prices or the switch off bring our own prices back. Hulusport matches in leagues we do not list become events of their own (feed_provider `hulusport`, priced from the board alone, suspended when stale; results from API-Football when SCRAPER_SECRET_API_FOOTBALL is set, else by hand), never in a league or with a team of our own catalogue.
+- included by policy: casino/crash/virtual games, crypto, payouts to third-party wallets.
 
 ## Payments
 
 - **Providers:** `chapa`, `telebirr`, and `sms`, the SMS deposit rail ported from Melabingo (`docs/plans/melabingo-payments-port.md`, operations in `docs/runbooks/sms-rail.md`).
-- **SMS rail deposits.** The exact amount (requested + 1–50 santim, unique among open deposits) is the reference. Only an SMS the gateway forwarded (or the dev simulator) or a receipt the institution served can credit; what a player pastes is only a lookup key. A credit only pays a deposit created before the money moved (core `smsPaidBy`). Another payer's phone or another amount is flagged for staff, never credited. A debit SMS never credits; it only proposes a manual payout.
+- **SMS rail deposits.** The exact amount (requested + 1–99 santim, never a whole birr, unique among open deposits) is the reference. Only an SMS the gateway forwarded (or the dev simulator) or a receipt the institution served can credit; what a player pastes is only a lookup key. A credit only pays a deposit created before the money moved (core `smsPaidBy`). Another payer's phone or another amount is flagged for staff, never credited. A debit SMS never credits; it only proposes a manual payout.
 - **Manual payouts (four eyes):** the approver never claims or settles; only the operator who claimed a payout settles, releases or fails it. The worker never touches manual payouts.
 - **Payout destinations:** the player's currently registered phone wallet, or a bank account in their KYC name confirmed with an SMS code. Nothing else.
 - **Fixtures:** SMS parsers and receipt readers are tested against `packages/core/src/smsparse.fixtures.ts` and `packages/payments/src/receipts/fixtures.ts`; a new message shape gets a scrubbed fixture and a test.
@@ -80,3 +129,5 @@ The account is on the Pro plan with a tight 5-hour limit, so always match the mo
 - Run a single short command yourself when that is cheaper than starting an agent.
 - At most two agents at a time; check usage between waves and stop starting new work near the 5-hour limit.
 - Agents never commit; the main session verifies (typecheck, lint, tests) and commits only when asked.
+- **After a 5-hour limit reset:** follow "After a 5-hour limit or a restart: the token budget" at
+  the top of this file.

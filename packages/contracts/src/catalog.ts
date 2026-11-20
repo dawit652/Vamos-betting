@@ -52,6 +52,11 @@ export const TeamView = z.object({
   id: z.string(),
   name: LocalizedNameSchema,
   shortName: z.string(),
+  /**
+   * Present when the team has a logo (GET /teams/:id/logo): a version to put in the image URL, so a
+   * new logo is not hidden by a cached one. Absent: show a flag or the initials.
+   */
+  logo: z.string().optional(),
 });
 
 export const EventSummary = z.object({
@@ -74,6 +79,11 @@ export const EventSummary = z.object({
   mainMarket: MarketView.nullable(),
   /** Number of other open markets ("+N markets"). */
   marketCount: z.number().int(),
+  /**
+   * Number of selections of exactly the markets marketCount counts (Hulusport-style "503+" badge).
+   * Optional so an older API answer still parses.
+   */
+  optionCount: z.number().int().optional(),
 });
 export type EventSummary = z.infer<typeof EventSummary>;
 

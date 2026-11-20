@@ -77,7 +77,10 @@ async function placeSingle(
 ): Promise<string> {
   await page.goto(`/event/${event.id}`);
   // The first open accordion holds the main market (1X2, money line or winner).
-  const buttons = page.locator('main details[open]').first().locator('button.odds-btn:enabled');
+  const buttons = page
+    .locator('main details[open]:not(.rail-panel)')
+    .first()
+    .locator('button.odds-btn:enabled');
   await expect(buttons).toHaveCount(event.mainMarket!.selections.length);
   await pick(buttons.nth(index));
   await page.getByRole('button', { name: 'Betslip: 1 selections' }).click();

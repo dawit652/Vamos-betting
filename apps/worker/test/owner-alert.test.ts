@@ -151,7 +151,13 @@ describe('the owner.alert outbox route', () => {
       .where(eq(schema.outboxEvents.id, id));
     const job = routes[0]!(row!, new Date());
     expect(job).toMatchObject({ queue: 'sms', name: OWNER_ALERT });
-    expect(job!.data).toEqual({ outboxId: id.toString(), type: OWNER_ALERT, ...payload });
+    // Rows written before the alert policy carry no repeat window: 0, the configured interval.
+    expect(job!.data).toEqual({
+      outboxId: id.toString(),
+      type: OWNER_ALERT,
+      ...payload,
+      repeatMs: 0,
+    });
     await publishAll();
   });
 
@@ -318,19 +324,22 @@ describe('raiseOwnerAlert (worker code)', () => {
     const ctx = withAlerts();
     const input = { alarm: 'manual_payout_waiting' } as const;
     expect(await raiseOwnerAlert(ctx, input)).toBe(true);
-    for (const minutes of [5, 10, 15, 20, 25, 29]) {
+    // A money alarm repeats at most every 6 hours while its condition lasts (owner, 20 Nov: not
+    // every few minutes), whatever the shorter configured interval.
+    for (const minutes of [3, 6, 30, 60, 180, 359]) {
       t.clock.set(new Date(start.getTime() + minutes * MINUTE));
       expect(await raiseOwnerAlert(ctx, input)).toBe(false);
     }
-    // Another alarm is its own key.
-    expect(await raiseOwnerAlert(ctx, { alarm: 'sms_review_backlog' })).toBe(true);
-    t.clock.set(new Date(start.getTime() + 30 * MINUTE));
+    // A staff-only alarm is never texted; another money alarm is its own key.
+    expect(await raiseOwnerAlert(ctx, { alarm: 'sms_review_backlog' })).toBe(false);
+    expect(await raiseOwnerAlert(ctx, { alarm: 'sms_gateway_silent' })).toBe(true);
+    t.clock.set(new Date(start.getTime() + 360 * MINUTE));
     expect(await raiseOwnerAlert(ctx, input)).toBe(true);
 
     const rows = await unpublishedAlerts();
     expect(rows.map((r) => (r.payload as { key: string }).key)).toEqual([
       'manual_payout_waiting',
-      'sms_review_backlog',
+      'sms_gateway_silent',
       'manual_payout_waiting',
     ]);
     expect(rows[0]).toMatchObject({
@@ -340,6 +349,7 @@ describe('raiseOwnerAlert (worker code)', () => {
     expect(rows[0]!.payload).toEqual({
       ...buildOwnerAlert(input),
       raisedAt: start.toISOString(),
+      repeatMs: 6 * 60 * MINUTE,
     });
     await publishAll();
   });
@@ -349,7 +359,14 @@ describe('raiseOwnerAlert (worker code)', () => {
     const live = new SmsRailProvider({
       mode: 'live',
       gatewaySecret: 'w'.repeat(40),
-      collectionAccounts: [{ institution: 'telebirr', account: '0911678426', name: 'Vamos PLC' }],
+      collectionAccounts: [
+        {
+          id: 'telebirr:0911678426',
+          institution: 'telebirr',
+          account: '0911678426',
+          name: 'Vamos PLC',
+        },
+      ],
     });
     const payments: PaymentProviderRegistry = {
       names: [...t.ctx.payments.names, 'sms'],
@@ -409,6 +426,7 @@ describe('an alarm in the scraper reaches the owner', () => {
       const alertsTo = async (phone: string) =>
         (await ownerSms(phone)).filter((m) => m.template === OWNER_ALERT_TEMPLATE);
       const before = (await alertsTo(OWNER_A)).length;
+      const beforeB = (await alertsTo(OWNER_B)).length;
       // The scraper's alarm: it opens the review item and, in the same transaction, the alert.
       await t.db.db.transaction((tx) =>
         raiseUnauthorized(tx, {
@@ -427,12 +445,15 @@ describe('an alarm in the scraper reaches the owner', () => {
         key: 'unauthorized|theoddsapi',
         message: 'The bookmaker odds API refused our key: reads with that key are stopped.',
         raisedAt: now.toISOString(),
+        repeatMs: 0,
       });
 
       const summary = await dispatcher.run();
       expect(summary).toMatchObject({ claimed: 1, published: 1, jobs: 1, failed: 0 });
-      await waitForSms(OWNER_A, 1);
-      await waitForSms(OWNER_B, 1);
+      // Earlier tests of this file left alerts for both numbers: wait for THIS one. Waiting for
+      // "at least one" returned at once, and the assertion below then raced the SMS consumer.
+      await waitForSms(OWNER_A, before + 1);
+      await waitForSms(OWNER_B, beforeB + 1);
       const sent = await alertsTo(OWNER_A);
       expect(sent).toHaveLength(before + 1);
       expect(sent.at(-1)).toMatchObject({

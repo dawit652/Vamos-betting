@@ -14,6 +14,7 @@ import {
   FeedCompetitionsResponse,
   FeedHealthResponse,
   hasPermission,
+  HulusportPricingResponse,
   isRepriceItem,
   MapBatchRequest,
   OpenBatchRequest,
@@ -39,6 +40,7 @@ import {
   type ReviewItemView,
   ReviewListQuery,
   ReviewListResponse,
+  SetHulusportPricingRequest,
   SetSourceEnabledRequest,
   SetSourceEnabledResponse,
   UpdateCompetitionPolicyRequest,
@@ -54,6 +56,7 @@ import {
   familyMarginBps,
   familyMarginClass,
   MARKET_FAMILIES,
+  hasBoardPrices,
   MARKET_PRICING_KEY_PREFIX,
   anyMarketKey,
   type SportCode,
@@ -68,8 +71,11 @@ import {
   addTeamAlias,
   addTeamWithAlias,
   apiCreditUsage,
+  boardEventsSummary,
+  boardOddsSummary,
   countReviewItemsByKind,
   DomainError,
+  getHulusportPricing,
   getReviewItem,
   getSource,
   getTeamRatings,
@@ -91,6 +97,7 @@ import {
   ScrapeReviewStateError,
   setCompetitionPolicy,
   setEventBettingOpen,
+  setHulusportPricing,
   setSourceEnabled,
   setTeamRatings,
   sourceHealth,
@@ -106,6 +113,7 @@ import {
 } from '@vamos/db';
 import { competitions, events, teams } from '@vamos/db/schema';
 import {
+  BOARD_PRICES_MAX_AGE_MS,
   checkReprice,
   createAdapter,
   creditKeyOf,
@@ -580,6 +588,85 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
   );
 
   // -------------------------------------------------------------------------
+  // Hulusport prices (docs/plans/hulusport-feed.md): the switch, and what the board delivers.
+
+  const hulusportView = async (exec: DbExecutor, now: Date) => {
+    const [pricing, board, listed] = await Promise.all([
+      getHulusportPricing(exec),
+      boardOddsSummary(exec, { now, maxAgeMs: BOARD_PRICES_MAX_AGE_MS, limit: 50 }),
+      boardEventsSummary(exec, { now, resultLagMs: 2 * 3_600_000, limit: 50 }),
+    ]);
+    return wire(HulusportPricingResponse, {
+      enabled: pricing.enabled,
+      updatedAt: pricing.updatedAt?.toISOString() ?? null,
+      updatedBy: pricing.updatedBy,
+      maxAgeMinutes: Math.round(BOARD_PRICES_MAX_AGE_MS / 60_000),
+      board: {
+        upcoming: board.upcoming,
+        linked: board.linked,
+        fresh: board.fresh,
+        lastReadAt: board.lastReadAt?.toISOString() ?? null,
+        newestPricesAt: board.newestPricesAt?.toISOString() ?? null,
+        unlinked: board.unlinked.map((row) => ({
+          competition: row.competitionRaw,
+          home: row.homeRaw,
+          away: row.awayRaw,
+          kickoff: row.kickoff.toISOString(),
+          teamsResolved: row.teamsResolved,
+        })),
+      },
+      events: {
+        upcoming: listed.upcoming,
+        bettingOpen: listed.bettingOpen,
+        awaitingResultTotal: listed.awaitingResultTotal,
+        awaitingResult: listed.awaitingResult.map((row) => ({
+          eventId: row.eventId,
+          gameId: row.gameId,
+          competition: row.competition,
+          home: row.home,
+          away: row.away,
+          kickoff: row.kickoff.toISOString(),
+        })),
+      },
+    });
+  };
+
+  app.get('/admin/feed/hulusport', { config: { staff: 'trading.view' } }, async () =>
+    hulusportView(deps.db, deps.clock()),
+  );
+
+  /**
+   * Turns Hulusport prices on or off. Turning them on changes where prices come from, so it needs
+   * `settings.edit`; turning them off (back to our own prices) is a kill switch a trader with
+   * `trading.status` may also use, as for a competition's policy.
+   */
+  app.put(
+    '/admin/feed/hulusport',
+    { config: { staff: 'settings.edit', staffOr: 'trading.status' } },
+    async (request) => {
+      const staff = requireStaff(request);
+      let input: SetHulusportPricingRequest;
+      if (hasPermission(staff.role, 'settings.edit')) {
+        input = parseInput(SetHulusportPricingRequest, request.body);
+      } else {
+        // Without settings access only a valid request that turns the prices off is allowed.
+        const parsed = SetHulusportPricingRequest.safeParse(request.body);
+        if (!parsed.success || parsed.data.enabled) {
+          throw forbidden('forbidden', 'Your role does not allow this.', {
+            permission: 'settings.edit',
+          });
+        }
+        input = parsed.data;
+      }
+      const actor = staffActor(request);
+      return inTx(deps, async (tx) => {
+        await setHulusportPricing(tx, input.enabled, actor);
+        return hulusportView(tx, deps.clock());
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // Review queue.
 
   app.get('/admin/feed/review', { config: { staff: 'trading.view' } }, async (request) => {
@@ -821,9 +908,13 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             // newer proposal replaces it (the scraper refreshes the open item).
             const rated = await getTeamRatings(tx, [event!.homeTeamId, event!.awayTeamId]);
             let currentKey: string;
-            if (payload.ratingsKey.startsWith(`${MARKET_PRICING_KEY_PREFIX}|`)) {
+            if (
+              payload.ratingsKey.startsWith(`${MARKET_PRICING_KEY_PREFIX}|`) ||
+              hasBoardPrices(payload.ratingsKey)
+            ) {
               // A market proposal is current while it is the one the scraper last raised for the
-              // event (a newer proposal replaces it; applying or auto re-pricing clears it).
+              // event (a newer proposal replaces it; applying or auto re-pricing clears it). So is
+              // a proposal with a competitor board's prices: the ratings alone cannot remake it.
               const held = (await listEventPricing(tx, [event!.id])).get(event!.id)?.heldKey;
               if (
                 held !== heldKeyOf(payload.ratingsKey, true) &&

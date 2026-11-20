@@ -6,6 +6,7 @@ import type {
   FeedCompetitionsResponse,
   FeedHealthResponse,
   FeedReviewKind,
+  HulusportPricingResponse,
   SetSourceEnabledResponse,
   SourceHealthView,
   UpdateCompetitionPolicyResponse,
@@ -229,6 +230,138 @@ function CreditPanel({ credit }: { credit: CreditKeyView }) {
   );
 }
 
+/**
+ * Hulusport prices (docs/plans/hulusport-feed.md): the on/off switch and what the mr-x board
+ * delivers. On, every match with fresh Hulusport prices takes them (with our margin) for the
+ * markets it already has; off, or when the prices go stale, our own prices come back.
+ */
+function HulusportPanel() {
+  const { can } = useSession();
+  const view = useFetch<HulusportPricingResponse>('/admin/feed/hulusport');
+  const data = view.data;
+  const toggle = async () => {
+    if (data === null) return;
+    await api<HulusportPricingResponse>('/admin/feed/hulusport', {
+      method: 'PUT',
+      body: { enabled: !data.enabled },
+    });
+    view.reload();
+  };
+  // Turning on needs settings access; turning off (back to our prices) trading access is enough.
+  const allowed = data !== null && (data.enabled ? can('trading.status') : can('settings.edit'));
+  return (
+    <>
+      <h2>mr-x prices</h2>
+      <Loading loading={view.loading && data === null} error={view.error} />
+      {data !== null && (
+        <section className="panel" aria-label="mr-x prices" style={{ marginBottom: 12 }}>
+          <p>
+            <Badge
+              value={data.enabled ? 'On: mr-x prices' : 'Off: our own prices'}
+              tone={data.enabled ? 'warn' : 'good'}
+            />{' '}
+            {allowed ? (
+              <ActionButton
+                label={data.enabled ? 'Switch to our prices' : 'Use mr-x prices'}
+                onAction={toggle}
+              />
+            ) : (
+              <span className="muted small">no access</span>
+            )}
+          </p>
+          <p className="muted small">
+            {data.updatedAt === null
+              ? 'Never switched.'
+              : `Last switched ${formatDateTime(data.updatedAt)} by ${data.updatedBy ?? ''}.`}{' '}
+            mr-x prices older than {data.maxAgeMinutes} minutes are not used.
+          </p>
+          <p>
+            Board last read: {ageText(data.board.lastReadAt)}. Newest mr-x price:{' '}
+            {ageText(data.board.newestPricesAt)}. Upcoming matches: {data.board.upcoming}, linked to
+            our matches: {data.board.linked}, with fresh prices: {data.board.fresh}.
+          </p>
+          <p>
+            mr-x-only matches on the site: {data.events.upcoming} upcoming,{' '}
+            {data.events.bettingOpen} open for betting. Their results are entered by hand.
+          </p>
+          {data.events.awaitingResultTotal > 0 && (
+            <details open>
+              <summary>
+                <Badge
+                  value={`${data.events.awaitingResultTotal} waiting for a result`}
+                  tone="warn"
+                />
+              </summary>
+              <p className="muted small">
+                Open a match and enter its final score (and half-time score) to settle its bets.
+              </p>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kickoff</th>
+                      <th>Game</th>
+                      <th>League</th>
+                      <th>Match</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.events.awaitingResult.map((e) => (
+                      <tr key={e.eventId}>
+                        <td>{formatDateTime(e.kickoff)}</td>
+                        <td>
+                          <Link href={`/trading/${e.eventId}`}>{e.gameId}</Link>
+                        </td>
+                        <td>{e.competition}</td>
+                        <td>
+                          {e.home} v {e.away}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+          {data.board.unlinked.length > 0 && (
+            <details>
+              <summary>Not linked ({data.board.unlinked.length} shown)</summary>
+              <p className="muted small">
+                Add an alias under Aliases for a team name we do not know; a match whose names are
+                known but that we do not list is simply not priced from mr-x.
+              </p>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kickoff</th>
+                      <th>mr-x league</th>
+                      <th>Match</th>
+                      <th>Names known</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.board.unlinked.map((m) => (
+                      <tr key={`${m.kickoff}|${m.home}|${m.away}`}>
+                        <td>{formatDateTime(m.kickoff)}</td>
+                        <td>{m.competition}</td>
+                        <td>
+                          {m.home} v {m.away}
+                        </td>
+                        <td>{m.teamsResolved ? 'yes (we do not list it)' : 'no'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+        </section>
+      )}
+    </>
+  );
+}
+
 export default function FeedOverviewPage() {
   const health = useFetch<FeedHealthResponse>('/admin/feed/health');
   const competitions = useFetch<FeedCompetitionsResponse>('/admin/feed/competitions');
@@ -247,6 +380,7 @@ export default function FeedOverviewPage() {
         <Link href="/feed/aliases">Aliases</Link>
         <Link href="/feed/families">Market families</Link>
       </PageHeader>
+      <HulusportPanel />
       <Loading loading={health.loading && data === null} error={health.error} />
       {data !== null && (
         <>

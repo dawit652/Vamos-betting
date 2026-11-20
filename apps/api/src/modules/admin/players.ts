@@ -8,6 +8,8 @@ import {
   PlayerDetailView,
   PlayerListResponse,
   PlayerSearchQuery,
+  SetPlayerStatusRequest,
+  SetPlayerStatusResponse,
 } from '@vamos/contracts';
 import {
   getDashboard,
@@ -15,6 +17,7 @@ import {
   listKycQueue,
   reviewKyc,
   searchPlayers,
+  setPlayerStatus,
   writeAudit,
   type LimitShape,
   type LimitSlotState,
@@ -126,6 +129,27 @@ export default async function adminPlayerRoutes(app: FastifyInstance): Promise<v
     });
     return wire(KycQueueResponse, page);
   });
+
+  app.post<{ Params: { id: string } }>(
+    '/admin/users/:id/status',
+    { config: { staff: 'users.status' } },
+    async (request) => {
+      const userId = parseUuid(request.params.id, 'User');
+      const input = parseInput(SetPlayerStatusRequest, request.body);
+      const actor = staffActor(request);
+      const result = await inTx(deps, (tx) =>
+        setPlayerStatus(tx, {
+          userId,
+          status: input.status,
+          reason: input.reason,
+          adminId: actor.adminId,
+          via: 'back_office',
+          ip: actor.ip ?? null,
+        }),
+      );
+      return wire(SetPlayerStatusResponse, result);
+    },
+  );
 
   app.post<{ Params: { userId: string } }>(
     '/admin/kyc/:userId/review',

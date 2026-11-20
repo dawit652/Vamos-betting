@@ -32,6 +32,7 @@ import { payouts } from '@vamos/db/schema';
 import {
   paymentWebhookUrl,
   PaymentProviderError,
+  SmsRailProvider,
   WebhookVerificationError,
   type PaymentProvider,
   type ProviderCapabilities,
@@ -49,7 +50,7 @@ import {
   unprocessable,
 } from '../../lib/errors';
 import { cachedGameSettings } from '../betting/service';
-import { smsRailOptions } from './smsrail';
+import { smsProviderOf, smsRailOptions } from './smsrail';
 import { depositView, withdrawalView } from './views';
 
 type Deps = Pick<AppDeps, 'config' | 'db' | 'clock' | 'payments'>;
@@ -209,6 +210,17 @@ export async function createPlayerDeposit(
     if (request.phone !== undefined) {
       throw badRequest('phone_not_applicable', 'SMS rail deposits are not tied to a phone.');
     }
+    const rail = provider instanceof SmsRailProvider ? provider : null;
+    const institution = request.institution ?? rail?.collectionAccounts[0]?.institution;
+    const collectionAccounts =
+      rail?.collectionAccounts.filter((a) => a.institution === institution).map((a) => a.id) ?? [];
+    if (request.institution !== undefined && collectionAccounts.length === 0) {
+      throw badRequest('unknown_institution', 'No collection account at that institution.');
+    }
+    // Every account deleted in the back office: no deposit is given an account nobody shows.
+    if (rail !== null && collectionAccounts.length === 0) {
+      throw conflict('no_collection_account', 'SMS deposits are paused: no account is open.');
+    }
     const sms = await withTxRetry(deps.db, async (tx) => {
       const settings = await loadGameSettings(tx);
       return createSmsDepositIntent(tx, {
@@ -218,9 +230,15 @@ export async function createPlayerDeposit(
         now,
         rules: settings.payments,
         ip: command.ip ?? null,
+        // Each collection account has its own amounts: the deposit is given the emptiest one of
+        // the institution the player chose (never an account of another institution).
+        collectionAccounts,
       });
     });
-    return { deposit: depositView(sms.intent), replayed: sms.replayed };
+    return {
+      deposit: depositView(sms.intent, provider instanceof SmsRailProvider ? provider : null),
+      replayed: sms.replayed,
+    };
   }
   const created = await withTxRetry(deps.db, async (tx) => {
     const settings = await loadGameSettings(tx);
@@ -244,23 +262,24 @@ export async function createPlayerDeposit(
 
 /** GET /payments/deposits/:id; 404 for an unknown id or another player's deposit. */
 export async function getPlayerDeposit(
-  deps: Pick<AppDeps, 'db'>,
+  deps: Pick<AppDeps, 'db' | 'payments'>,
   userId: string,
   depositId: string,
 ): Promise<DepositView> {
   const intent = await getUserDepositIntent(deps.db, userId, parseId(depositId, 'Deposit'));
   if (intent === null) throw notFound('Deposit');
-  return depositView(intent);
+  return depositView(intent, smsProviderOf(deps));
 }
 
 /** GET /payments/deposits: the player's latest deposits. */
 export async function listPlayerDeposits(
-  deps: Pick<AppDeps, 'db'>,
+  deps: Pick<AppDeps, 'db' | 'payments'>,
   userId: string,
   limit: number,
 ): Promise<DepositsResponse> {
   const rows = await listUserDepositIntents(deps.db, userId, { limit });
-  return { items: rows.map(depositView) };
+  const sms = smsProviderOf(deps);
+  return { items: rows.map((row) => depositView(row, sms)) };
 }
 
 export interface RequestWithdrawalCommand {

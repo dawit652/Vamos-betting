@@ -187,7 +187,14 @@ export function TransferPanel({
   const [selected, setSelected] = useState(0);
   const transfer = deposit.transfer;
   if (transfer === null) return null;
-  const method = rail.methods[selected] ?? rail.methods[0];
+  // The server gave this deposit one account (its amount is only matched there): show that one,
+  // with its institution's way to pay, and no tabs. Without one, every account is offered.
+  const assigned = transfer.account ?? null;
+  const assignedMethod =
+    assigned === null
+      ? undefined
+      : rail.methods.find((m) => m.institution === assigned.institution);
+  const method = assigned === null ? (rail.methods[selected] ?? rail.methods[0]) : assignedMethod;
   const { birr, santim } = splitSendAmount(transfer.sendAmount);
   const amountText = formatSantim(transfer.sendAmount);
   return (
@@ -209,7 +216,7 @@ export function TransferPanel({
         />
       </div>
 
-      {rail.methods.length > 1 ? (
+      {assigned === null && rail.methods.length > 1 ? (
         <div
           role="tablist"
           aria-label={t('account.payments.deposit.transfer.payWith')}
@@ -230,12 +237,13 @@ export function TransferPanel({
         </div>
       ) : null}
 
-      {method ? (
+      {method || assigned ? (
         <div className="card space-y-2">
           <p className="text-xxs font-semibold uppercase text-muted">
-            {t('account.payments.deposit.transfer.sendTo')} · {method.name}
+            {t('account.payments.deposit.transfer.sendTo')}
+            {method ? ` · ${method.name}` : ''}
           </p>
-          {method.accounts.map((account) => (
+          {(assigned ? [assigned] : (method?.accounts ?? [])).map((account) => (
             <div key={account.account} className="space-y-1">
               <Copyable
                 label={t('account.payments.deposit.transfer.account')}
@@ -248,17 +256,22 @@ export function TransferPanel({
               {account.hint ? <p className="text-xxs text-muted">{account.hint}</p> : null}
             </div>
           ))}
-          {method.ussd !== null ? (
+          {assigned ? (
+            <p className="text-xxs font-semibold">
+              {t('account.payments.deposit.transfer.onlyThisAccount')}
+            </p>
+          ) : null}
+          {method?.ussd ? (
             <a href={ussdHref(method.ussd)} className="btn btn-accent w-full">
               {t('account.payments.deposit.transfer.dial', { code: method.ussd })}
             </a>
           ) : null}
-          {method.appName !== null ? (
+          {method?.appName ? (
             <p className="text-center text-xxs text-muted">
               {t('account.payments.deposit.transfer.app', { app: method.appName })}
             </p>
           ) : null}
-          {method.kind === 'bank' ? (
+          {method?.kind === 'bank' ? (
             <p className="text-xxs text-muted">{t('account.payments.deposit.transfer.anyBank')}</p>
           ) : null}
         </div>

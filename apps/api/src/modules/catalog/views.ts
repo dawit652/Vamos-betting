@@ -6,6 +6,7 @@ import type {
   SelectionView,
 } from '@vamos/contracts';
 import {
+  amharicName,
   factoryMarketName,
   factoryMarketSortOrder,
   factorySelectionLabel,
@@ -41,6 +42,8 @@ export interface TeamRow {
   id: string;
   name: LocalizedNameValue;
   shortName: string;
+  /** When the team's logo was stored (team_logos); null or absent: no logo. */
+  logoAt?: Date | null;
 }
 
 export interface EventRow {
@@ -102,10 +105,14 @@ export function mainMarketType(sport: SportCode): MarketTypeCode {
   return type;
 }
 
-/** A copy holding only the known language keys (jsonb may carry anything). */
+/**
+ * A copy holding only the known language keys (jsonb may carry anything). A team, competition or
+ * country with no Amharic gets it from amharicName (@vamos/core; the feeds give English only, and
+ * the owner wants every name in Amharic for an Amharic page); one written in Amharic stays.
+ */
 export function localized(name: LocalizedNameValue): LocalizedNameValue {
   const result: LocalizedNameValue = { en: name.en };
-  if (name.am !== undefined) result.am = name.am;
+  result.am = name.am !== undefined && name.am.trim() !== '' ? name.am : amharicName(name.en);
   if (name.om !== undefined) result.om = name.om;
   if (name.ti !== undefined) result.ti = name.ti;
   return result;
@@ -329,10 +336,17 @@ function scoreOf(
 }
 
 function teamView(team: TeamRow): EventSummary['home'] {
-  return { id: team.id, name: localized(team.name), shortName: team.shortName };
+  return {
+    id: team.id,
+    name: localized(team.name),
+    shortName: team.shortName,
+    ...(team.logoAt ? { logo: String(team.logoAt.getTime()) } : {}),
+  };
 }
 
-function summaryFields(event: EventRow): Omit<EventSummary, 'mainMarket' | 'marketCount'> {
+function summaryFields(
+  event: EventRow,
+): Omit<EventSummary, 'mainMarket' | 'marketCount' | 'optionCount'> {
   return {
     id: event.id,
     gameId: formatGameId(event.gameId),
@@ -367,7 +381,8 @@ export function findMainMarket(
 /**
  * A list row. `markets` are all of the event's markets; `mainSelections`
  * the selections of its main market. marketCount counts the other markets
- * that are open or suspended ("+N markets").
+ * that are open or suspended ("+N markets"); optionCount sums the selections of
+ * those same markets, from `selectionCounts` (market id to number of selections).
  */
 export function eventSummaryView(
   event: EventRow,
@@ -376,18 +391,28 @@ export function eventSummaryView(
   now: Date,
   mainType?: MarketTypeCode,
   options: ViewOptions = {},
+  selectionCounts?: ReadonlyMap<string, number>,
 ): EventSummary {
   const main = findMainMarket(event, markets, mainType);
-  const marketCount = markets.filter(
+  const counted = markets.filter(
     (market) =>
       market !== main &&
       LISTED_MARKET_STATUSES.has(market.status) &&
       isDisplayableMarket(event.sport, market, options),
-  ).length;
+  );
+  const marketCount = counted.length;
   return {
     ...summaryFields(event),
     mainMarket: main === null ? null : marketView(event, main, mainSelections, now),
     marketCount,
+    ...(selectionCounts === undefined
+      ? {}
+      : {
+          optionCount: counted.reduce(
+            (sum, market) => sum + (selectionCounts.get(market.id) ?? 0),
+            0,
+          ),
+        }),
   };
 }
 
@@ -413,6 +438,7 @@ export function eventDetailView(
     now,
     undefined,
     options,
+    new Map([...selectionsByMarket].map(([id, rows]) => [id, rows.length])),
   );
   const htScore =
     event.status === 'scheduled' || event.htScoreHome === null || event.htScoreAway === null

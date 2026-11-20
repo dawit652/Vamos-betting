@@ -1,19 +1,29 @@
 import {
+  DEFAULT_FLOAT_FORECAST_RULES,
   RECEIPT_VERIFIABLE_INSTITUTIONS,
+  parseSmsHeartbeat,
+  smsHandsetBatteryLow,
+  smsHeartbeatKey,
+  smsHeartbeatLate,
+  floatIsLow,
   reconcileBalances,
   type BalanceReconciliation,
 } from '@vamos/core';
 import {
   listBalanceInstitutions,
   listBalanceObservations,
+  listIdleManualClaims,
+  loadFloatForecast,
   listSmsDueForReceiptCheck,
   recordReceiptCheck,
   smsRailHealth,
+  listSilentCollectionAccounts,
+  syncRailAccounts,
   type ReceiptCheckStatus,
 } from '@vamos/db';
 import { SmsRailProvider } from '@vamos/payments';
 import { intervalTask, type IntervalTask } from '../lib/interval';
-import { raiseOwnerAlert } from '../lib/owner-alert';
+import { claimAlertSlot, raiseOwnerAlert } from '../lib/owner-alert';
 import { withTxRetry } from '../lib/retry';
 import type { TaskContext } from './context';
 
@@ -26,7 +36,8 @@ import type { TaskContext } from './context';
  *   what the messages say (the only check for CBE, whose receipt page is
  *   unreachable); drift is logged as an alarm and kept for the health panel;
  * - the watch: no SMS from the handset for a while during active hours, a
- *   growing review queue, a manual payout waiting too long.
+ *   growing review queue, a manual payout waiting too long, and the payout float: a collection
+ *   account whose last known balance is below the withdrawals the open bets are expected to cause.
  * Alarms are `error` log lines with `alarm` set, for the log-based alerts; each also raises an
  * owner alert (an `owner.alert` outbox row, plan task 1.11) when OWNER_ALERT_PHONES is set.
  */
@@ -34,6 +45,8 @@ import type { TaskContext } from './context';
 export const RECEIPT_AUDIT_INTERVAL_MS = 30_000;
 export const BALANCE_RECONCILE_INTERVAL_MS = 60 * 60_000;
 export const SMS_RAIL_WATCH_INTERVAL_MS = 5 * 60_000;
+/** The back office's collection accounts are reloaded this often. */
+export const COLLECTION_ACCOUNT_SYNC_INTERVAL_MS = 30_000;
 /** The window the balance reconciliation sums over. */
 export const BALANCE_WINDOW_MS = 24 * 60 * 60_000;
 /** Redis key prefix of the last balance reconciliation per institution (read by the API). */
@@ -171,19 +184,46 @@ const SILENCE_ALARM_MS = 30 * 60_000;
 const REVIEW_BACKLOG_ALARM = 10;
 const REVIEW_AGE_ALARM_MS = 15 * 60_000;
 const MANUAL_PAYOUT_AGE_ALARM_MS = 2 * 60 * 60_000;
+/** A claimed payout with no settle, release or fail for this long is idle; its alarm repeats at this pace. */
+const MANUAL_PAYOUT_CLAIM_IDLE_MS = 30 * 60_000;
+
+/** The sms_account_silent line repeats at this pace while the account stays silent. */
+const ACCOUNT_SILENCE_ALARM_REPEAT_MS = 30 * 60_000;
+
+/** The payout_float_low line repeats at this pace while the balance stays below the forecast. */
+const PAYOUT_FLOAT_ALARM_REPEAT_MS = 30 * 60_000;
+
+/** The handset heartbeat alarms repeat at this pace while the condition holds. */
+const HANDSET_ALARM_REPEAT_MS = 30 * 60_000;
+const DEFAULT_HEARTBEAT_ALARM_MS = 20 * 60_000;
 
 export interface SmsRailWatchFindings {
   silent: boolean;
+  /** Collection accounts with waiting deposits and no message from their handset for 30 minutes. */
+  silentAccounts: string[];
   reviewBacklog: boolean;
   slowPayouts: boolean;
+  /** Ids of claimed payouts idle for over 30 minutes. */
+  idleClaims: string[];
+  /** Institutions whose last known balance is below the float forecast. */
+  floatLow: string[];
+  /** Accounts whose handset sent heartbeats before and has now been quiet past the alarm window. */
+  heartbeatMissed: string[];
+  /** Accounts whose last heartbeat reported a battery under 15% and not charging. */
+  batteryLow: string[];
 }
 
 /** The watch: logs an alarm for each condition that needs a person. */
 export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFindings> {
   const findings: SmsRailWatchFindings = {
     silent: false,
+    silentAccounts: [],
     reviewBacklog: false,
     slowPayouts: false,
+    idleClaims: [],
+    floatLow: [],
+    heartbeatMissed: [],
+    batteryLow: [],
   };
   const provider = smsProvider(ctx);
   if (provider === null) return findings;
@@ -199,6 +239,83 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
         'no SMS from the collection handset for 30 minutes during active hours',
       );
       await raiseOwnerAlert(ctx, { alarm: 'sms_gateway_silent' });
+    }
+    // One account's handset can be dead while the others still forward: the global silence above
+    // would never see it. Only an account with players waiting on it counts (a quiet one is fine).
+    const silentAccounts = await listSilentCollectionAccounts(ctx.db, {
+      accounts: provider.collectionAccountIds,
+      now,
+      silenceMs: SILENCE_ALARM_MS,
+    });
+    for (const silent of silentAccounts) {
+      findings.silentAccounts.push(silent.account);
+      const first = await claimAlertSlot(
+        ctx.redis,
+        'raised',
+        `log|sms_account_silent|${silent.account}`,
+        now.getTime(),
+        ACCOUNT_SILENCE_ALARM_REPEAT_MS,
+      ).catch(() => true);
+      if (!first) continue;
+      ctx.logger.error(
+        {
+          alarm: 'sms_account_silent',
+          account: silent.account,
+          lastGatewaySmsAt: silent.lastGatewaySmsAt?.toISOString() ?? null,
+          waitingDeposits: silent.waitingDeposits,
+        },
+        'no SMS from this collection account’s handset for 30 minutes while players wait on deposits to it',
+      );
+      await raiseOwnerAlert(ctx, { alarm: 'sms_account_silent', account: silent.account });
+    }
+  }
+  // The forwarder's heartbeat tells a quiet phone from a dead one. An account that never sent one
+  // is not judged, so a forwarder without heartbeats gets no false alarm.
+  if (provider.mode === 'live') {
+    const alarmMs = ctx.smsHeartbeatAlarmMs ?? DEFAULT_HEARTBEAT_ALARM_MS;
+    // Active accounts only: a deleted account's handset may be switched off for good.
+    for (const account of provider.collectionAccounts.map((a) => a.id)) {
+      const beat = parseSmsHeartbeat(await ctx.redis.get(smsHeartbeatKey(account)));
+      if (beat === null) continue;
+      const missed = smsHeartbeatLate(beat, now, alarmMs);
+      // A stale battery reading says nothing about the phone now: only a fresh beat counts.
+      const low = !missed && smsHandsetBatteryLow(beat);
+      for (const [active, alarm, list, text] of [
+        [
+          missed,
+          'sms_handset_heartbeat_missed',
+          findings.heartbeatMissed,
+          'no heartbeat from this collection account’s handset: it may be off or offline',
+        ],
+        [
+          low,
+          'sms_handset_battery_low',
+          findings.batteryLow,
+          'this collection account’s handset reports a low battery and is not charging',
+        ],
+      ] as const) {
+        if (!active) continue;
+        list.push(account);
+        const first = await claimAlertSlot(
+          ctx.redis,
+          'raised',
+          `log|${alarm}|${account}`,
+          now.getTime(),
+          HANDSET_ALARM_REPEAT_MS,
+        ).catch(() => true);
+        if (!first) continue;
+        ctx.logger.error(
+          {
+            alarm,
+            account,
+            lastHeartbeatAt: beat.at,
+            battery: beat.battery,
+            charging: beat.charging,
+          },
+          text,
+        );
+        await raiseOwnerAlert(ctx, { alarm, account });
+      }
     }
   }
   if (
@@ -233,10 +350,70 @@ export async function runSmsRailWatch(ctx: TaskContext): Promise<SmsRailWatchFin
     );
     await raiseOwnerAlert(ctx, { alarm: 'manual_payout_waiting' });
   }
+  const idle = await listIdleManualClaims(ctx.db, {
+    claimedBefore: new Date(now.getTime() - MANUAL_PAYOUT_CLAIM_IDLE_MS),
+  });
+  for (const claim of idle) {
+    findings.idleClaims.push(claim.id);
+    // The watch runs every few minutes: one line per payout per 30 minutes. If Redis is
+    // down the line is logged every pass, which is noisier but never silent.
+    const first = await claimAlertSlot(
+      ctx.redis,
+      'raised',
+      `log|manual_payout_claim_idle|${claim.id}`,
+      now.getTime(),
+      MANUAL_PAYOUT_CLAIM_IDLE_MS,
+    ).catch(() => true);
+    if (!first) continue;
+    ctx.logger.error(
+      {
+        alarm: 'manual_payout_claim_idle',
+        payoutId: claim.id,
+        heldBy: claim.payingBy,
+        claimedAt: claim.processingAt.toISOString(),
+      },
+      'a claimed manual payout has had no settle, release or fail for more than 30 minutes',
+    );
+    await raiseOwnerAlert(ctx, { alarm: 'manual_payout_claim_idle' });
+  }
+  // The payout float: only on the live rail (the simulator's balances are made up). One line per
+  // institution per 30 minutes while it stays low.
+  if (provider.mode === 'live') {
+    const rules = ctx.floatForecast ?? DEFAULT_FLOAT_FORECAST_RULES;
+    const { forecast, balances } = await loadFloatForecast(ctx.db, { now, rules });
+    const collecting = new Set(provider.collectionAccounts.map((a) => a.institution));
+    for (const last of balances) {
+      if (!collecting.has(last.institution) || !floatIsLow(last.balance, forecast)) continue;
+      findings.floatLow.push(last.institution);
+      const first = await claimAlertSlot(
+        ctx.redis,
+        'raised',
+        `log|payout_float_low|${last.institution}`,
+        now.getTime(),
+        PAYOUT_FLOAT_ALARM_REPEAT_MS,
+      ).catch(() => true);
+      if (!first) continue;
+      ctx.logger.error(
+        {
+          alarm: 'payout_float_low',
+          institution: last.institution,
+          balance: last.balance.toString(),
+          balanceAt: last.at.toISOString(),
+          expectedWithdrawals: forecast.expectedWithdrawals.toString(),
+          possiblePayouts: forecast.possiblePayouts.toString(),
+          betsCounted: forecast.betsCounted,
+          horizonMs: rules.horizonMs,
+        },
+        'a collection account’s last known balance is below the withdrawals the open bets are expected to cause',
+      );
+      await raiseOwnerAlert(ctx, { alarm: 'payout_float_low', institution: last.institution });
+    }
+  }
   return findings;
 }
 
 export interface SmsRailTaskOptions {
+  accountSyncIntervalMs?: number;
   receiptAuditIntervalMs?: number;
   balanceIntervalMs?: number;
   watchIntervalMs?: number;
@@ -247,8 +424,17 @@ export function smsRailTasks(
   ctx: SmsRailTaskContext,
   options: SmsRailTaskOptions = {},
 ): IntervalTask[] {
-  if (smsProvider(ctx) === null) return [];
+  const provider = smsProvider(ctx);
+  if (provider === null) return [];
   return [
+    // The back office's collection accounts (the API loads them too): new, edited and deleted
+    // accounts reach the watch and the receipt audit within this interval.
+    intervalTask({
+      name: 'sms-collection-accounts',
+      intervalMs: options.accountSyncIntervalMs ?? COLLECTION_ACCOUNT_SYNC_INTERVAL_MS,
+      logger: ctx.logger,
+      run: () => syncRailAccounts(ctx.db, provider, ctx.clock()),
+    }),
     intervalTask({
       name: 'sms-receipt-audit',
       intervalMs: options.receiptAuditIntervalMs ?? RECEIPT_AUDIT_INTERVAL_MS,

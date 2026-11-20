@@ -42,6 +42,10 @@
 		not remote_ip {$STAFF_ALLOWLIST:0.0.0.0/0 ::/0}
 	}
 	respond @staff_denied "Forbidden" 403
+	# The metrics endpoint is for the host's own scraper (docs/deployment.md, "Metrics"): the
+	# public host answers 404 as if it did not exist, whatever the token.
+	@metrics path /metrics /metrics/*
+	respond @metrics "Not found" 404
 	# SSE (/live/stream, /me/stream): flush every write instead of buffering.
 	reverse_proxy api:4000 {
 		flush_interval -1

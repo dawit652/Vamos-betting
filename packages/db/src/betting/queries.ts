@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { domainBadRequest } from '../errors';
 import type { DbExecutor } from '../ledger/types';
 import { betLegs, bets } from '../schema/betting';
-import { isUuid, loadSelectionSnapshots } from './selections';
+import { isUuid, loadSelectionSnapshots, type SelectionSnapshot } from './selections';
 import {
   CLOSED_BET_STATUSES,
   OPEN_BET_STATUSES,
@@ -34,6 +34,19 @@ export async function toUserBets(exec: DbExecutor, rows: readonly BetRow[]): Pro
     exec,
     legRows.map((leg) => leg.selectionId),
   );
+  return assembleUserBets(rows, legRows, snapshots);
+}
+
+/**
+ * Builds bet views from rows already loaded (pure): `legRows` ordered by bet and position, and
+ * the snapshots of their selections keyed by selection id. Keeps the order of `rows`; throws when
+ * a leg's selection has no snapshot.
+ */
+export function assembleUserBets(
+  rows: readonly BetRow[],
+  legRows: readonly BetLegRow[],
+  snapshots: ReadonlyMap<string, SelectionSnapshot>,
+): UserBet[] {
   const legsByBet = new Map<string, UserBetLeg[]>();
   for (const leg of legRows) {
     const selection = snapshots.get(leg.selectionId);

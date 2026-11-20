@@ -13,6 +13,7 @@ import { parseInput } from '../../lib/errors';
 import {
   ACCOUNT_RATE_LIMIT_PER_MINUTE,
   enforceLimit,
+  loginPhoneLimitKey,
   perPlayerRateLimit,
 } from '../../lib/rate-limits';
 import { requireUser } from '../../plugins/session';
@@ -29,11 +30,20 @@ export const DATA_EXPORTS_PER_HOUR = 5;
 /**
  * Password checks of the account security routes (change the password, end
  * other sessions) per player: one budget for both, like sign-in attempts.
+ * Each check also counts against the player's number in the sign-in limits
+ * (AuthLimits.loginPerPhone and loginPerPhoneDaily), which are the tighter
+ * ones: a 4-digit PIN must not get more guesses through a stolen session than
+ * through the login form.
  */
 export const REAUTH_LIMIT = { max: 10, timeWindow: 15 * MINUTE_MS } as const;
 
-function requestMeta(request: FastifyRequest): RequestMeta {
-  return { ip: request.ip, userAgent: request.headers['user-agent'] ?? null, log: request.log };
+function requestMeta(request: FastifyRequest, countPinCheck?: () => Promise<void>): RequestMeta {
+  return {
+    ip: request.ip,
+    userAgent: request.headers['user-agent'] ?? null,
+    log: request.log,
+    ...(countPinCheck === undefined ? {} : { countPinCheck }),
+  };
 }
 
 /**
@@ -41,16 +51,33 @@ function requestMeta(request: FastifyRequest): RequestMeta {
  * password change and the sessions (/me/password, /me/sessions).
  */
 export default async function meRoutes(app: FastifyInstance): Promise<void> {
-  const { deps } = app;
+  const { deps, authLimits } = app;
 
   const reauth = app.createRateLimit({
     ...REAUTH_LIMIT,
     keyGenerator: (request) =>
       `me-reauth|${request.user === null ? clientAddressKey(request.ip) : request.user.id}`,
   });
+  // The sign-in limits of the player's number, with the same keys and windows as POST
+  // /auth/login, so both count in one budget: before 16 Nov the password had 12+ characters
+  // and REAUTH_LIMIT alone sufficed; a 4-digit PIN would fall in days to 10 checks per 15 minutes.
+  const phoneOf = (request: FastifyRequest) => request.user?.phone ?? 'invalid';
+  const reauthPerPhone = app.createRateLimit({
+    ...authLimits.loginPerPhone,
+    keyGenerator: (request) => loginPhoneLimitKey(deps.redis, phoneOf(request)),
+  });
+  const reauthPerPhoneDaily = app.createRateLimit({
+    ...authLimits.loginPerPhoneDaily,
+    keyGenerator: (request) => loginPhoneLimitKey(deps.redis, phoneOf(request), 'day'),
+  });
   const reauthLimit = async (request: FastifyRequest, reply: FastifyReply) => {
     requireUser(request);
     await enforceLimit(reauth, request, reply);
+  };
+  /** Counted by the service right before it compares the PIN (not for malformed requests). */
+  const pinCheckCounter = (request: FastifyRequest, reply: FastifyReply) => async () => {
+    await enforceLimit(reauthPerPhone, request, reply);
+    await enforceLimit(reauthPerPhoneDaily, request, reply);
   };
 
   app.get('/me', { preHandler: app.requireAuth }, async (request): Promise<MeResponse> => {
@@ -87,10 +114,15 @@ export default async function meRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/me/password',
     { preHandler: [app.requireAuth, reauthLimit] },
-    async (request): Promise<OkResponse> => {
+    async (request, reply): Promise<OkResponse> => {
       const user = requireUser(request);
       const input = parseInput(ChangePasswordRequest, request.body);
-      const { deliver } = await changePassword(deps, user, input, requestMeta(request));
+      const { deliver } = await changePassword(
+        deps,
+        user,
+        input,
+        requestMeta(request, pinCheckCounter(request, reply)),
+      );
       app.background.run('password_changed_sms', deliver);
       return { ok: true };
     },
@@ -105,10 +137,15 @@ export default async function meRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/me/sessions/revoke',
     { preHandler: [app.requireAuth, reauthLimit] },
-    async (request): Promise<RevokeSessionsResponse> => {
+    async (request, reply): Promise<RevokeSessionsResponse> => {
       const user = requireUser(request);
       const input = parseInput(RevokeSessionsRequest, request.body);
-      return revokeSessions(deps, user, input, requestMeta(request));
+      return revokeSessions(
+        deps,
+        user,
+        input,
+        requestMeta(request, pinCheckCounter(request, reply)),
+      );
     },
   );
 }

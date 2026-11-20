@@ -1,9 +1,13 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  BOARD_KEY_MARKER,
   bestBookPrices,
   bestPriceKey,
   capAtBestPrice,
+  cappedPricingKey,
+  hasBoardPrices,
+  uncappedPricingKey,
   type BestBookPrices,
   type CappableMarket,
 } from './best-price';
@@ -240,5 +244,29 @@ describe('capAtBestPrice', () => {
         ),
       );
     });
+  });
+});
+
+describe('hasBoardPrices', () => {
+  it('finds the board marker before or after an O7 cap part, and nothing else', () => {
+    const base = 'mkt1|1x2=2000,3400,3900';
+    const board = `${base}${BOARD_KEY_MARKER}0123456789abcdef`;
+    expect(hasBoardPrices(base)).toBe(false);
+    expect(hasBoardPrices(board)).toBe(true);
+    const capped = cappedPricingKey(board, [
+      {
+        market: '1x2',
+        line: null,
+        selection: '1',
+        ourOddsMilli: 2100,
+        bestOddsMilli: 2050,
+        bestBookmaker: 'u:pinnacle',
+      },
+    ]);
+    expect(hasBoardPrices(capped)).toBe(true);
+    // The cap part comes off; the board part stays (it changes what the prices are).
+    expect(uncappedPricingKey(capped)).toBe(board);
+    expect(hasBoardPrices(null)).toBe(false);
+    expect(hasBoardPrices(undefined)).toBe(false);
   });
 });

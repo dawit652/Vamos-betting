@@ -8,6 +8,7 @@ import {
 import type { FastifyBaseLogger, FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { Redis } from 'ioredis';
 import { serviceUnavailable } from '../../lib/errors';
+import { registerStreamGauge } from '../../plugins/metrics';
 import { isSessionActive, requireUser } from '../../plugins/session';
 import { HEARTBEAT_MS, MAX_BUFFERED_BYTES, PING_FRAME, RETRY_MS } from '../catalog/live';
 import { sessionRevokedOf } from './control';
@@ -276,6 +277,7 @@ const userStreamRoutes: FastifyPluginAsync<UserStreamOptions> = async (app, opti
   const recheckMs = options.sessionRecheckMs ?? SESSION_RECHECK_MS;
   const streams = new Set<PassThrough>();
   HUBS.set(app.server, hub);
+  registerStreamGauge(app, 'me', () => streams.size);
 
   // Open streams would keep server.close() waiting: end them first.
   app.addHook('preClose', async () => {

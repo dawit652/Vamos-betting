@@ -8,9 +8,11 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { users } from './accounts';
+import { agents } from './retail';
 import { actorType, ledgerAccountKind, ledgerOwnerType, ledgerTransactionType } from './enums';
 
 /**
@@ -26,6 +28,8 @@ export const ledgerAccounts = pgTable(
     key: text('key').notNull().unique(),
     ownerType: ledgerOwnerType('owner_type').notNull(),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'restrict' }),
+    /** The agent of an `agent_balance` account (owner type `house`: Nahubet owes the agent). */
+    agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'restrict' }),
     kind: ledgerAccountKind('kind').notNull(),
     /** Payment provider for house_psp_clearing accounts. */
     provider: text('provider'),
@@ -44,6 +48,14 @@ export const ledgerAccounts = pgTable(
       'ledger_accounts_owner',
       sql`(${t.ownerType} = 'user' AND ${t.userId} IS NOT NULL) OR (${t.ownerType} = 'house' AND ${t.userId} IS NULL)`,
     ),
+    // ::text: the kind is new in the same migration (an enum value cannot be used there).
+    check(
+      'ledger_accounts_agent',
+      sql`(${t.kind}::text = 'agent_balance') = (${t.agentId} IS NOT NULL)`,
+    ),
+    uniqueIndex('ledger_accounts_agent_uq')
+      .on(t.agentId)
+      .where(sql`${t.agentId} IS NOT NULL`),
   ],
 );
 

@@ -84,7 +84,7 @@ export const paymentIntents = pgTable(
     currency: text('currency').notNull().default('ETB'),
     /**
      * SMS rail: the amount the player asked to deposit. `amount` is then the
-     * exact amount they were told to send (requested + 1–50 santim, unique
+     * exact amount they were told to send (requested + 1–99 santim, unique
      * among open SMS deposits: the santim are the payment reference). Null
      * for other providers.
      */
@@ -94,6 +94,12 @@ export const paymentIntents = pgTable(
     status: paymentIntentStatus('status').notNull().default('created'),
     /** The provider's reference (DepositInitiation.providerRef); unique per provider. */
     providerRef: text('provider_ref'),
+    /**
+     * SMS rail: the collection account (SMS_COLLECTION_ACCOUNTS id) the player was told to pay.
+     * Each account has its own space of exact amounts. Null: a deposit from before accounts were
+     * recorded (an SMS on any account can still pay it).
+     */
+    collectionAccount: text('collection_account'),
     initiationKind: depositInitiationKind('initiation_kind'),
     redirectUrl: text('redirect_url'),
     instructions: text('instructions'),
@@ -142,8 +148,9 @@ export const paymentIntents = pgTable(
     // SMS rail: the exact amount is the payment reference, so no two open
     // SMS deposits may share one (allocateSmsAmount also keeps it reserved
     // for a while after expiry; this is the backstop).
+    // One exact amount per collection account (null counts as one account of its own).
     uniqueIndex('payment_intents_sms_amount_open_uq')
-      .on(t.amount)
+      .on(sql`coalesce(${t.collectionAccount}, '')`, t.amount)
       .where(sql`${t.provider} = 'sms' AND ${t.status} IN ('created', 'pending')`),
     index('payment_intents_sms_open_idx')
       .on(t.amount)

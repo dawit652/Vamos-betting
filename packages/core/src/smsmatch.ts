@@ -11,16 +11,22 @@ import type { ParsedSms } from './smsparse';
  * Nothing to copy or paste, and matching is exact rather than fuzzy.
  */
 
-/** Widest santim offset a reserved amount carries (money the player pays on top). */
-export const MAX_SANTIM_OFFSET = 50;
+/**
+ * Widest santim offset a reserved amount carries (money the player pays on top).
+ * 99: a whole-birr request keeps its birr figure (100 becomes 100.01 to 100.99).
+ */
+export const MAX_SANTIM_OFFSET = 99;
+
+const SANTIM_PER_BIRR = 100n;
 
 /**
  * Reserves the amount a new deposit must be sent as: `base` plus 1 to
- * MAX_SANTIM_OFFSET santim, never a round number another player might send by
- * chance. `taken` holds the amounts of the open SMS deposits; `randomOffset`
- * returns an integer in 1..MAX_SANTIM_OFFSET (the caller injects a CSPRNG).
- * Null when every offset for this base is taken: the deposit is refused
- * (ask for another amount), never given a colliding reference.
+ * MAX_SANTIM_OFFSET santim, never a whole-birr amount, which another payer
+ * might send by chance (a request of 100.01 skips 101.00). `taken` holds the
+ * amounts of the open SMS deposits; `randomOffset` returns an integer in
+ * 1..MAX_SANTIM_OFFSET (the caller injects a CSPRNG). Null when every usable
+ * offset for this base is taken: the deposit is refused (ask for another
+ * amount), never given a colliding reference.
  */
 export function allocateSmsAmount(
   base: Santim,
@@ -35,15 +41,58 @@ export function allocateSmsAmount(
   for (let step = 0; step < MAX_SANTIM_OFFSET; step++) {
     const offset = ((start - 1 + step) % MAX_SANTIM_OFFSET) + 1;
     const candidate = base + BigInt(offset);
+    if (candidate % SANTIM_PER_BIRR === 0n) continue;
     if (!taken.has(candidate)) return candidate;
   }
   return null;
+}
+
+/**
+ * A collection account: one handset and SIM that receives deposits, with its own
+ * space of exact amounts. Absent or null on rows from before accounts were
+ * recorded (they match, and block amounts, on every account).
+ */
+export type CollectionAccountId = string | null | undefined;
+
+/**
+ * The amounts an allocation on `account` must avoid: those of the open deposits
+ * of that account, and of deposits without an account (older rows, which an SMS
+ * on any account can still pay). The same amount on two accounts is fine: an
+ * SMS only matches deposits of the account it arrived on. Without an account
+ * (null) every open amount is taken, as before accounts existed.
+ */
+export function takenAmounts(
+  open: readonly { amount: Santim; collectionAccountId?: CollectionAccountId }[],
+  account: CollectionAccountId,
+): Set<Santim> {
+  const taken = new Set<Santim>();
+  for (const deposit of open) {
+    const owner = deposit.collectionAccountId ?? null;
+    if (account === null || account === undefined || owner === null || owner === account)
+      taken.add(deposit.amount);
+  }
+  return taken;
+}
+
+/**
+ * How many amounts `allocateSmsAmount` could still hand out for `base` given
+ * `taken` (the caller offers the account with the most). 0: that account is full for this base.
+ */
+export function countFreeSmsAmounts(base: Santim, taken: ReadonlySet<Santim>): number {
+  let free = 0;
+  for (let offset = 1; offset <= MAX_SANTIM_OFFSET; offset++) {
+    const candidate = base + BigInt(offset);
+    if (candidate % SANTIM_PER_BIRR !== 0n && !taken.has(candidate)) free++;
+  }
+  return free;
 }
 
 /** An open SMS deposit, as the matcher sees it. */
 export interface OpenSmsDeposit {
   intentId: string;
   userId: string;
+  /** The account the player was told to pay (null or absent: an older deposit). */
+  collectionAccountId?: CollectionAccountId;
   /** The exact amount the player was told to send. */
   amount: Santim;
   /** The player's registered phone (E.164). */
@@ -81,19 +130,29 @@ export type SmsDepositMatch =
  * deposit (the gateway path) or only the pasting player's own (the checker
  * path, so pasted text can only ever settle the paster's deposit).
  *
- * 1. Only a credit can match.
+ * 1. Only a credit can match, and only on deposits of the account it arrived on.
  * 2. The exact reserved amount matching one open deposit is the designed path.
  * 3. Otherwise the sender's phone, when it names exactly one open deposit
  *    (players send 100 when told 100.37).
  * Anything else is ambiguous or unmatched and goes to a person.
  */
 export function matchSmsDeposit(
-  sms: Pick<ParsedSms, 'direction' | 'amount' | 'counterpartyPhone'>,
+  sms: Pick<ParsedSms, 'direction' | 'amount' | 'counterpartyPhone'> & {
+    /** The collection account the SMS arrived on (null or absent: unknown). */
+    collectionAccountId?: CollectionAccountId;
+  },
   open: readonly OpenSmsDeposit[],
   now: Date,
 ): SmsDepositMatch {
   if (sms.direction !== 'credit') return { type: 'unmatched', reason: 'not_a_credit' };
-  const live = open.filter((deposit) => deposit.expiresAt.getTime() > now.getTime());
+  const account = sms.collectionAccountId ?? null;
+  // An SMS pays only deposits of its own account, or deposits that have none (older rows).
+  // An SMS of unknown account pays only those: it can never credit a deposit that names an account.
+  const live = open.filter((deposit) => {
+    if (deposit.expiresAt.getTime() <= now.getTime()) return false;
+    const owner = deposit.collectionAccountId ?? null;
+    return owner === null || owner === account;
+  });
   if (live.length === 0) return { type: 'unmatched', reason: 'no_open_deposit' };
 
   const exact = live.filter((deposit) => deposit.amount === sms.amount);
@@ -178,6 +237,29 @@ export function smsPaidBy(input: {
   return new Date(bound);
 }
 
+/**
+ * The latest claim an outgoing (debit) SMS can be the transfer of: a manual
+ * payout claimed after the money moved was not paid by it (an operator who
+ * claims a payout and points at an older transfer of the same amount settles
+ * nothing). The mirror of smsPaidBy for deposits: the money must have moved
+ * at or after the claim minus SMS_INSTITUTION_CLOCK_SKEW_MS by every clock the
+ * SMS carries, the institution's (a date without a time counts as the end of
+ * its day), the handset's (with its larger skew) and our own receive time.
+ * A payout passes when `claimedAt <= latestClaimForSms(sms)`.
+ */
+export function latestClaimForSms(input: {
+  occurredAt: Date | null;
+  deviceReceivedAt: Date | null;
+  /** When we received the SMS (received_sms.received_at, our clock). */
+  receivedAt: Date;
+}): Date {
+  return smsPaidBy({
+    occurredAt: input.occurredAt,
+    deviceReceivedAt: input.deviceReceivedAt,
+    now: new Date(input.receivedAt.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS),
+  });
+}
+
 /** A payout waiting to be paid by hand, as the proposer sees it. */
 export interface ManualPayoutCandidate {
   payoutId: string;
@@ -192,8 +274,10 @@ export type PayoutProposal =
   | { type: 'ambiguous' };
 
 /**
- * Which approved payout an outgoing (debit) SMS from a collection account
- * appears to have paid. It only proposes: settling stays a staff action under
+ * Which claimed payout an outgoing (debit) SMS from a collection account
+ * appears to have paid. The caller passes only payouts that were claimed
+ * (`processing`) no later than latestClaimForSms: an unclaimed payout has not
+ * been sent by anyone, and a transfer older than the claim did not pay it. It only proposes: settling stays a staff action under
  * the four-eyes rule, because whoever holds the handset could otherwise mark
  * payouts as paid with no money moving (and the player's money is already
  * held, so a false settlement takes it for good).

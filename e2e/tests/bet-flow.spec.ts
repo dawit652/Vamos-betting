@@ -83,7 +83,9 @@ test('register, top up, place a 3-leg multi and see it settled', async ({ page }
     for (const [index, event] of events.entries()) {
       await page.goto(`/event/${event.id}`);
       // The first open accordion holds the main market (1X2, money line or winner).
-      const button = page.locator('main details[open] button.odds-btn:enabled').first();
+      const button = page
+        .locator('main details[open]:not(.rail-panel) button.odds-btn:enabled')
+        .first();
       await pick(button);
       await expect(
         page.getByRole('button', { name: `Betslip: ${index + 1} selections` }),

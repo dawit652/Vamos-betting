@@ -22,7 +22,8 @@ export const Stake = Santim.refine((value) => !value.startsWith('-') && /[1-9]/.
 export const OddsChangePolicySchema = z.enum(['none', 'higher', 'any']);
 export type OddsChangePolicy = z.infer<typeof OddsChangePolicySchema>;
 
-export const BetChannelSchema = z.enum(['web', 'sms', 'ussd']);
+/** `shop`: a ticket sold at a shop's counter (agent-shops.md phase 3). */
+export const BetChannelSchema = z.enum(['web', 'sms', 'ussd', 'shop']);
 export type BetChannel = z.infer<typeof BetChannelSchema>;
 
 export const BetStatusSchema = z.enum([
@@ -33,6 +34,8 @@ export const BetStatusSchema = z.enum([
   'void',
   'cashed_out',
   'rejected',
+  /** A shop ticket cancelled before its first kick-off (the stake went back). */
+  'cancelled',
 ]);
 export type BetStatus = z.infer<typeof BetStatusSchema>;
 

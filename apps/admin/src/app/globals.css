@@ -1,13 +1,32 @@
+/*
+ * The back office shares the player app's palette (apps/web/src/app/globals.css):
+ * dark slate with one green accent by default, a light theme one click away
+ * (`<html data-theme>`, from the `vamos_admin_theme` cookie; see layout.tsx).
+ */
 :root {
-  --bg: #f5f6f8;
-  --panel: #fff;
-  --ink: #1b1f24;
-  --muted: #5d6673;
-  --line: #dde1e7;
-  --accent: #0b6b3a;
-  --danger: #b3261e;
-  --warn: #8a5a00;
-  color-scheme: light;
+  --bg: #0a100e;
+  --panel: #121a17;
+  --raised: #1b2622;
+  --ink: #eef4f1;
+  --muted: #8c9e96;
+  --line: #243029;
+  --accent: #22d07f;
+  --accent-ink: #04130c;
+  --accent-soft: #11291f;
+  --danger: #ff6b5c;
+  --danger-ink: #2a0703;
+  --danger-soft: #3a1612;
+  --warn: #ffdc73;
+  --warn-soft: #2b2408;
+  --info: #8fbcff;
+  --info-soft: #10203a;
+  --chrome: #0d1613;
+  --chrome-ink: #e8f0ec;
+  --chrome-muted: #9fb6a9;
+  --chrome-active: #1b2622;
+  --demo-bg: #ffd43b;
+  --demo-ink: #1a1500;
+  color-scheme: dark;
   font-family:
     system-ui,
     -apple-system,
@@ -15,6 +34,30 @@
     Roboto,
     sans-serif;
   font-size: 15px;
+}
+
+:root[data-theme='light'] {
+  --bg: #eff3f1;
+  --panel: #ffffff;
+  --raised: #edf1ee;
+  --ink: #121a16;
+  --muted: #5c6b64;
+  --line: #dde4e0;
+  --accent: #0b7a47;
+  --accent-ink: #ffffff;
+  --accent-soft: #e2f2ea;
+  --danger: #b3261e;
+  --danger-ink: #ffffff;
+  --danger-soft: #fdecea;
+  --warn: #7a5200;
+  --warn-soft: #fff1c2;
+  --info: #1a4b8c;
+  --info-soft: #eaf1fb;
+  --chrome: #0a5c36;
+  --chrome-ink: #ffffff;
+  --chrome-muted: #cfe6da;
+  --chrome-active: rgb(255 255 255 / 0.15);
+  color-scheme: light;
 }
 
 * {
@@ -60,8 +103,9 @@ h2 {
 }
 
 .sidebar {
-  background: #14231b;
-  color: #e8f0ec;
+  background: var(--chrome);
+  color: var(--chrome-ink);
+  border-right: 1px solid var(--line);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -75,15 +119,15 @@ h2 {
 }
 
 .sidebar nav a {
-  color: #cfe0d7;
+  color: var(--chrome-muted);
   text-decoration: none;
   padding: 8px 10px;
   border-radius: 6px;
 }
 
 .sidebar nav a[aria-current='page'] {
-  background: #23402f;
-  color: #fff;
+  background: var(--chrome-active);
+  color: var(--chrome-ink);
 }
 
 .brand {
@@ -92,8 +136,9 @@ h2 {
 }
 
 .demo-badge {
-  background: #f2c94c;
-  color: #3b2b00;
+  background: var(--demo-bg);
+  color: var(--demo-ink);
+  font-weight: 700;
   border-radius: 4px;
   padding: 3px 6px;
   font-size: 0.78rem;
@@ -107,7 +152,17 @@ h2 {
 }
 
 .who .muted {
-  color: #9fb6a9;
+  color: var(--chrome-muted);
+}
+
+.who a {
+  color: var(--chrome-ink);
+}
+
+.who button {
+  background: transparent;
+  border-color: rgb(255 255 255 / 0.25);
+  color: var(--chrome-ink);
 }
 
 .content {
@@ -159,6 +214,13 @@ h2 {
   gap: 4px;
   font-size: 0.85rem;
   color: var(--muted);
+  /* A select with long options (shop · agent · name) must not widen the page on a phone. */
+  min-width: 0;
+  max-width: 100%;
+}
+
+select {
+  max-width: 100%;
 }
 
 .check {
@@ -179,12 +241,23 @@ button {
   padding: 7px 9px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--raised);
   color: var(--ink);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 button {
   cursor: pointer;
+  font-weight: 600;
 }
 
 button:disabled {
@@ -194,7 +267,7 @@ button:disabled {
 
 button.primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   border-color: var(--accent);
 }
 
@@ -205,7 +278,7 @@ button.danger {
 
 button.danger:is(button[type='submit']) {
   background: var(--danger);
-  color: #fff;
+  color: var(--danger-ink);
 }
 
 textarea {
@@ -223,18 +296,18 @@ textarea {
 }
 
 .notice.error {
-  background: #fdecea;
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
 .notice.ok {
-  background: #e6f4ea;
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
 .notice.info {
-  background: #eaf1fb;
-  color: #1a4b8c;
+  background: var(--info-soft);
+  color: var(--info);
 }
 
 table {
@@ -262,6 +335,11 @@ th {
   font-size: 0.78rem;
   text-transform: uppercase;
   color: var(--muted);
+  background: var(--raised);
+}
+
+tbody tr:hover {
+  background: var(--raised);
 }
 
 td.num,
@@ -275,21 +353,22 @@ th.num {
   padding: 1px 8px;
   border-radius: 999px;
   font-size: 0.78rem;
-  background: #e8eaee;
+  font-weight: 600;
+  background: var(--raised);
 }
 
 .badge.good {
-  background: #dff3e6;
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
 .badge.bad {
-  background: #fbe3e1;
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
 .badge.warn {
-  background: #fdf0d2;
+  background: var(--warn-soft);
   color: var(--warn);
 }
 
@@ -354,8 +433,50 @@ th.num {
 }
 
 .tabs button[aria-pressed='true'] {
-  background: var(--ink);
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Manual payouts: the operator's pick list, one column with large tap targets. */
+.pick-list section {
+  margin-bottom: 16px;
+}
+
+.pick-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.pick-destination,
+.pick-amount {
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+}
+
+.pick-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pick-copy button,
+button.big {
+  min-height: 44px;
+  padding: 10px 14px;
+}
+
+.pick-copy button {
+  flex: 1 1 140px;
+}
+
+.claim-next {
+  margin: 12px 0;
 }
 
 @media (max-width: 800px) {
@@ -366,5 +487,88 @@ th.num {
   .sidebar nav {
     flex-direction: row;
     flex-wrap: wrap;
+  }
+}
+
+/* Cashier desk: receipts print alone on thermal paper (80 or 58 mm roll). */
+@page receipt80 {
+  size: 80mm auto;
+  margin: 2mm;
+}
+
+@page receipt58 {
+  size: 58mm auto;
+  margin: 2mm;
+}
+
+.receipt-80 {
+  page: receipt80;
+  width: 76mm;
+}
+
+.receipt-58 {
+  page: receipt58;
+  width: 54mm;
+}
+
+.receipt {
+  margin: 0 auto;
+  padding: 8px;
+  background: #fff;
+  color: #000;
+  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: 13px;
+  text-align: center;
+}
+
+.receipt hr {
+  border: 0;
+  border-top: 1px dashed #000;
+  margin: 8px 0;
+}
+
+.receipt .receipt-amount {
+  font-size: 1.6em;
+  font-weight: 700;
+  margin: 8px 0;
+}
+
+.receipt .receipt-copy {
+  border: 2px solid #000;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  padding: 2px 0;
+  margin: 6px 0;
+}
+
+.receipt .receipt-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+
+.variance-bad {
+  color: #c62828;
+  font-weight: 700;
+}
+
+@media print {
+  aside.sidebar,
+  .no-print {
+    display: none !important;
+  }
+
+  .layout {
+    display: block;
+  }
+
+  .content {
+    padding: 0;
+    margin: 0;
+  }
+
+  body {
+    background: #fff;
   }
 }

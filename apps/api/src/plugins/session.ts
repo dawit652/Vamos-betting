@@ -23,10 +23,24 @@ export const CSRF_COOKIE = 'vamos_csrf';
 export const SECURE_SESSION_COOKIE = `__Host-${SESSION_COOKIE}`;
 export const SECURE_CSRF_COOKIE = `__Host-${CSRF_COOKIE}`;
 export const CSRF_HEADER = 'x-csrf-token';
-/** A session ends this long after sign-in, however active (ASVS 3.3.2, level 2: 12 hours). */
-export const SESSION_ABSOLUTE_MS = 12 * 60 * 60_000;
-/** A session ends after this long without a request (ASVS 3.3.2, level 2: 30 minutes). */
-export const SESSION_IDLE_MS = 30 * 60_000;
+/**
+ * How long a player session lasts: config `api.playerSession` (PLAYER_SESSION_HOURS, default a
+ * year, and PLAYER_SESSION_IDLE_MINUTES, default none). The owner's choice (16 Nov 2026): a player
+ * stays signed in until they sign out. This is longer than ASVS 3.3.2 level 2 (12 hours, 30
+ * minutes idle); signing out, a password change or reset, self-exclusion and a disabled account
+ * still end sessions at once, a new device is told by SMS, and money only ever leaves to the
+ * player's own registered wallet or KYC-named bank account. Staff sessions keep the strict limits.
+ */
+export interface PlayerSessionLifetime {
+  absoluteMs: number;
+  /** Null: no idle limit. */
+  idleMs: number | null;
+}
+
+/** The player session lifetime of a configuration. */
+export function playerSessionLifetime(config: Pick<AppConfig, 'api'>): PlayerSessionLifetime {
+  return config.api.playerSession;
+}
 /** `last_seen_at` is written at most this often per session. */
 const LAST_SEEN_RESOLUTION_MS = 60_000;
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -78,40 +92,43 @@ export function csrfTokenFor(sessionToken: string): string {
   return createHmac('sha256', sessionToken).update('vamos:player-csrf:v1').digest('base64url');
 }
 
-/** When a session last seen at `lastSeenAt` ends without further requests. */
-function idleExpiry(lastSeenAt: Date, expiresAt: Date): Date {
-  return new Date(Math.min(lastSeenAt.getTime() + SESSION_IDLE_MS, expiresAt.getTime()));
+/** When a session last seen at `lastSeenAt` ends without further requests (its end if no idle limit). */
+function idleExpiry(lastSeenAt: Date, expiresAt: Date, lifetime: PlayerSessionLifetime): Date {
+  if (lifetime.idleMs === null) return expiresAt;
+  return new Date(Math.min(lastSeenAt.getTime() + lifetime.idleMs, expiresAt.getTime()));
 }
 
 /**
  * Whether a session row still authenticates at `now`: not revoked, before its
- * absolute end and used within SESSION_IDLE_MS.
+ * absolute end and, with an idle limit, used within it.
  */
 export function sessionLive(
   row: { revokedAt: Date | null; expiresAt: Date; lastSeenAt: Date },
   now: Date,
+  lifetime: PlayerSessionLifetime,
 ): boolean {
   const t = now.getTime();
   return (
     row.revokedAt === null &&
     t < row.expiresAt.getTime() &&
-    t - row.lastSeenAt.getTime() < SESSION_IDLE_MS
+    (lifetime.idleMs === null || t - row.lastSeenAt.getTime() < lifetime.idleMs)
   );
 }
 
 /**
- * Creates a session for `userId` (SESSION_ABSOLUTE_MS, idle SESSION_IDLE_MS).
+ * Creates a session for `userId` (config `api.playerSession`).
  * Run it in the transaction that authenticates the user.
  */
 export async function createSession(
   exec: DbExecutor,
-  deps: Pick<AppDeps, 'clock' | 'randomBytes'>,
+  deps: Pick<AppDeps, 'clock' | 'randomBytes' | 'config'>,
   input: { userId: string; ip?: string | null; userAgent?: string | null },
 ): Promise<IssuedSession> {
   const now = deps.clock();
+  const lifetime = playerSessionLifetime(deps.config);
   const token = randomToken(deps.randomBytes);
   const csrfToken = csrfTokenFor(token);
-  const expiresAt = new Date(now.getTime() + SESSION_ABSOLUTE_MS);
+  const expiresAt = new Date(now.getTime() + lifetime.absoluteMs);
   const [row] = await exec
     .insert(sessions)
     .values({
@@ -126,7 +143,13 @@ export async function createSession(
     })
     .returning({ id: sessions.id });
   if (!row) throw new Error('sessions insert returned no row');
-  return { id: row.id, token, csrfToken, expiresAt, idleExpiresAt: idleExpiry(now, expiresAt) };
+  return {
+    id: row.id,
+    token,
+    csrfToken,
+    expiresAt,
+    idleExpiresAt: idleExpiry(now, expiresAt, lifetime),
+  };
 }
 
 export async function revokeSession(exec: DbExecutor, sessionId: string, now: Date): Promise<void> {
@@ -237,7 +260,7 @@ export function sessionStateBody(user: SessionUser | null): SessionStateResponse
  * Long-lived streams call it to end when the player logs out.
  */
 export async function isSessionActive(
-  deps: Pick<AppDeps, 'db' | 'clock'>,
+  deps: Pick<AppDeps, 'db' | 'clock' | 'config'>,
   sessionId: string,
 ): Promise<boolean> {
   const [row] = await deps.db
@@ -251,7 +274,11 @@ export async function isSessionActive(
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(eq(sessions.id, sessionId))
     .limit(1);
-  return row !== undefined && sessionLive(row, deps.clock()) && row.status === 'active';
+  return (
+    row !== undefined &&
+    sessionLive(row, deps.clock(), playerSessionLifetime(deps.config)) &&
+    row.status === 'active'
+  );
 }
 
 /** The authenticated player, or a 401 `unauthorized`. */
@@ -275,9 +302,9 @@ function readCredential(request: FastifyRequest, cookieName: string): Credential
 }
 
 /**
- * Resolves the session behind the request. Revoked or expired sessions (12
- * hours after sign-in, or 30 minutes without a request) and users who are no
- * longer active count as unauthenticated. Cookie-based requests with an
+ * Resolves the session behind the request. Revoked or expired sessions (after
+ * config `api.playerSession`) and users who are no longer active count as
+ * unauthenticated. Cookie-based requests with an
  * unsafe method must echo the CSRF token in `x-csrf-token` (403
  * `csrf_invalid`); bearer requests cannot be forged cross-site and are exempt.
  * /admin requests are never authenticated as a player.
@@ -307,7 +334,8 @@ async function authenticate(deps: AppDeps, request: FastifyRequest): Promise<Ses
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(eq(sessions.tokenHash, sha256Hex(credential.token)))
     .limit(1);
-  if (!row || !sessionLive(row, now) || row.status !== 'active') {
+  const lifetime = playerSessionLifetime(deps.config);
+  if (!row || !sessionLive(row, now, lifetime) || row.status !== 'active') {
     return null;
   }
 
@@ -333,7 +361,7 @@ async function authenticate(deps: AppDeps, request: FastifyRequest): Promise<Ses
     sessionId: row.sessionId,
     csrfToken: csrfTokenFor(credential.token),
     expiresAt: row.expiresAt,
-    idleExpiresAt: idleExpiry(lastSeenAt, row.expiresAt),
+    idleExpiresAt: idleExpiry(lastSeenAt, row.expiresAt, lifetime),
   };
 }
 

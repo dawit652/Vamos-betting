@@ -88,6 +88,12 @@ export const MARKET_CLOSE_LEAD_MS = 5 * MINUTE_MS;
 /** A price row is linked to the event of the same competition and teams that starts within this of its kickoff. */
 export const MARKET_ODDS_LINK_WINDOW_MS = 6 * HOUR_MS;
 /**
+ * A competitor board's prices (Hulusport via mr-x, docs/plans/hulusport-feed.md) confirmed upstream
+ * or read by us longer ago than this are not used: the event goes back to our own prices. mr-x
+ * reads each match about every 7 minutes.
+ */
+export const BOARD_PRICES_MAX_AGE_MS = 30 * MINUTE_MS;
+/**
  * A2: an event priced from the market that starts within MARKET_LAPSE_LEAD_MS stays bettable only
  * while the market prices it from prices listed in the last MARKET_LAPSE_MAX_AGE_MS; otherwise the
  * re-pricing pass suspends its markets (`market_lapsed`) until a fresh market prices it again.

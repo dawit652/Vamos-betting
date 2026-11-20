@@ -67,6 +67,29 @@ export function settlementPosting(
   stake: bigint,
   settlement: SettlementAmounts,
 ): SettlementPosting {
+  return settlementPostingTo(cash(userId), stake, settlement);
+}
+
+/** What won and void shop tickets are owed until a shop pays them (agent-shops.md phase 3). */
+export const RETAIL_PAYABLE: AccountRef = { kind: 'house_retail_payable' };
+
+/**
+ * The settlement posting of a shop ticket (channel `shop`): as settlementPosting, but what it wins
+ * (or a void stake) goes to `house:retail_payable`, never to a wallet or the agent's balance; the
+ * shop pays the holder from there (phase 4).
+ */
+export function retailSettlementPosting(
+  stake: bigint,
+  settlement: SettlementAmounts,
+): SettlementPosting {
+  return settlementPostingTo(RETAIL_PAYABLE, stake, settlement);
+}
+
+function settlementPostingTo(
+  payee: AccountRef,
+  stake: bigint,
+  settlement: SettlementAmounts,
+): SettlementPosting {
   const { status, grossPayout, taxAmount, netPayout } = settlement;
   if (stake <= 0n) throw new RangeError('stake must be positive');
   if (grossPayout < 0n || taxAmount < 0n || netPayout < 0n) {
@@ -79,7 +102,7 @@ export function settlementPosting(
     case 'won': {
       if (grossPayout < stake) throw new RangeError('a won bet pays at least its stake');
       const entries: PostingEntry[] = [
-        { account: cash(userId), amount: netPayout },
+        { account: payee, amount: netPayout },
         { account: { kind: 'house_tax_payable' }, amount: taxAmount },
         { account: { kind: 'house_stakes' }, amount: -stake },
         { account: { kind: 'house_revenue' }, amount: -(grossPayout - stake) },
@@ -99,7 +122,13 @@ export function settlementPosting(
       if (grossPayout !== stake || taxAmount !== 0n) {
         throw new RangeError('a void bet refunds exactly its stake');
       }
-      return { type: 'bet_refund', entries: refundEntries(userId, stake) };
+      return {
+        type: 'bet_refund',
+        entries: [
+          { account: { kind: 'house_stakes' }, amount: -stake },
+          { account: payee, amount: stake },
+        ],
+      };
   }
 }
 
@@ -118,6 +147,7 @@ export async function loadPostingEntries(
       kind: ledgerAccounts.kind,
       userId: ledgerAccounts.userId,
       provider: ledgerAccounts.provider,
+      agentId: ledgerAccounts.agentId,
       amount: ledgerEntries.amount,
     })
     .from(ledgerTransactions)
@@ -136,6 +166,10 @@ export async function loadPostingEntries(
       if (row.provider === null)
         throw new Error(`PSP account without a provider (${idempotencyKey})`);
       account = { kind: row.kind, provider: row.provider };
+    } else if (row.kind === 'agent_balance') {
+      if (row.agentId === null)
+        throw new Error(`agent account without an agent (${idempotencyKey})`);
+      account = { kind: row.kind, agentId: row.agentId };
     } else {
       account = { kind: row.kind };
     }

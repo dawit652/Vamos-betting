@@ -1,6 +1,10 @@
 'use client';
 
-import type { StaffWithdrawalListResponse, StaffWithdrawalView } from '@vamos/contracts';
+import type {
+  ClaimManualPayoutBatchResponse,
+  StaffWithdrawalListResponse,
+  StaffWithdrawalView,
+} from '@vamos/contracts';
 import { useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
 import { useSession } from '@/components/session';
@@ -8,6 +12,7 @@ import { ActionButton, Badge, Loading, Notice, PageHeader, ReasonAction } from '
 import { api } from '@/lib/api';
 import { describeError } from '@/lib/errors';
 import { formatDateTime, formatEtb } from '@/lib/format';
+import { claimRefusalText, pickList, plainBirr } from '@/lib/pick-list';
 
 /**
  * Record the payout as sent: the outgoing SMS proposed for it (one tap, the
@@ -143,6 +148,116 @@ function PayoutRow({ w, reload }: { w: StaffWithdrawalView; reload: () => void }
   );
 }
 
+/** Copies `text` to the clipboard and says so for a moment. */
+function CopyButton({ label, text }: { label: string; text: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  return (
+    <button
+      type="button"
+      className="copy"
+      onClick={() => {
+        navigator.clipboard.writeText(text).then(
+          () => setState('copied'),
+          () => setState('failed'),
+        );
+        setTimeout(() => setState('idle'), 1500);
+      }}
+    >
+      {state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : label}
+    </button>
+  );
+}
+
+/**
+ * The payouts this operator claimed, by institution, oldest first: what to
+ * send where, with the destination and the exact amount one tap from the
+ * clipboard. Settling stays in the table below.
+ */
+function PickList({ items, staffId }: { items: StaffWithdrawalView[]; staffId?: string }) {
+  const groups = pickList(items, staffId);
+  if (groups.length === 0) return <p className="muted">You have not claimed any payout.</p>;
+  return (
+    <div className="pick-list" data-testid="pick-list">
+      {groups.map((group) => (
+        <section key={group.institution}>
+          <h3>
+            {group.institution} <span className="muted small">({group.items.length})</span>
+          </h3>
+          {group.items.map((w) => {
+            const plain = plainBirr(w.amount);
+            return (
+              <div className="pick-row" key={w.id} data-testid={`pick-${w.id}`}>
+                <div>
+                  <strong className="pick-destination">{w.destination?.account ?? '–'}</strong>
+                  {w.destination?.kind === 'bank' && (
+                    <div className="small">{w.destination.name}</div>
+                  )}
+                </div>
+                <div className="pick-amount">{formatEtb(w.amount)}</div>
+                <div className="pick-copy">
+                  {w.destination !== null && (
+                    <CopyButton label="Copy number" text={w.destination.account} />
+                  )}
+                  {plain !== null && <CopyButton label={`Copy ${plain}`} text={plain} />}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** Claims the oldest approved payouts nobody holds and lists the ones that were refused. */
+function ClaimNext({ onDone }: { onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refused, setRefused] = useState<{ payoutId: string; reason?: string }[]>([]);
+  const [claimed, setClaimed] = useState<number | null>(null);
+  const claim = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await api<ClaimManualPayoutBatchResponse>(
+        '/admin/manual-payouts/claim-batch',
+        { method: 'POST', body: { limit: 10 } },
+      );
+      setClaimed(response.results.filter((r) => r.claimed).length);
+      setRefused(response.results.filter((r) => !r.claimed));
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      // Also after an error: rows claimed before a fault are committed, so the list must reload.
+      onDone();
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="claim-next">
+      <button type="button" className="primary big" disabled={busy} onClick={() => void claim()}>
+        Claim next 10
+      </button>
+      {error !== null && <Notice>{error}</Notice>}
+      {claimed !== null && (
+        <Notice kind="ok">
+          Claimed {claimed}
+          {refused.length > 0 ? `, refused ${refused.length}` : ''}.
+        </Notice>
+      )}
+      {refused.length > 0 && (
+        <ul data-testid="claim-refused">
+          {refused.map((r) => (
+            <li key={r.payoutId}>
+              <code>{r.payoutId.slice(0, 8)}</code> {claimRefusalText(r.reason)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /**
  * Manual payouts (SMS rail): approved withdrawals an operator sends by hand
  * from a collection account. Claim one before sending (so nobody else sends
@@ -150,6 +265,7 @@ function PayoutRow({ w, reload }: { w: StaffWithdrawalView; reload: () => void }
  * The person who approved a withdrawal can never pay it.
  */
 export default function ManualPayoutsPage() {
+  const { staff } = useSession();
   const { data, error, loading, reload } =
     useFetch<StaffWithdrawalListResponse>('/admin/manual-payouts');
   return (
@@ -159,7 +275,11 @@ export default function ManualPayoutsPage() {
         Claim a payout, send exactly the amount from the collection account to the destination
         shown, then settle it with the outgoing SMS or the transfer reference.
       </p>
+      <ClaimNext onDone={reload} />
+      <h2>Your pick list</h2>
+      <PickList items={data?.items ?? []} staffId={staff?.id} />
       <Loading loading={loading && data === null} error={error} />
+      <h2>Queue</h2>
       <div className="table-wrap">
         <table>
           <thead>

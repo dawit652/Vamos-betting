@@ -160,6 +160,7 @@ describe('createTasks', () => {
     'bet-acceptance-sweep',
     'payouts',
     'payout-sweep',
+    'cash-collect',
     'deposit-reconcile',
     'sms-notify',
     'user-notify',
@@ -168,6 +169,9 @@ describe('createTasks', () => {
     'aml-evaluate',
     'aml-sweep',
     'ussd-session-prune',
+    'retail-ticket-expiry',
+    'agent-statements',
+    'retail-alerts',
     'retention-prune',
     'outbox-dispatch',
   ];

@@ -65,6 +65,7 @@ export const sportsbook: Messages['sportsbook'] = {
   },
   markets: {
     more: '+{count} ገበያዎች',
+    moreOptions: '{count} ተጨማሪ አማራጮች',
     none: 'አሁን ክፍት ገበያ የለም።',
     suspended: 'ታግዷል',
     count: '{count} ገበያዎች',
@@ -96,11 +97,15 @@ export const sportsbook: Messages['sportsbook'] = {
     matches: '{count} ጨዋታዎች',
     topLeagues: 'ምርጥ ሊጎች',
   },
+  sidebar: {
+    topMatches: 'ምርጥ ጨዋታዎች',
+  },
   search: {
     title: 'ፍለጋ',
     open: 'ቡድኖችንና ሊጎችን ይፈልጉ',
     label: 'ቡድን ወይም ሊግ',
     placeholder: 'ለምሳሌ አርሰናል ወይም ፕሪሚየር ሊግ',
+    sidebarPlaceholder: 'ጨዋታዎችን ይፈልጉ...',
     submit: 'ፈልግ',
     tooShort: 'ለመፈለግ ቢያንስ 2 ፊደላት ይጻፉ።',
     leagues: 'ሊጎች',

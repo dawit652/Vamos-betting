@@ -9,11 +9,10 @@ import { authApi } from '@/lib/api/account';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { formErrors } from './errors';
-import { DemoOtpHint, OtpInput, PasswordInput, PasswordStrengthMeter, PhoneInput } from './inputs';
+import { DemoOtpHint, OtpInput, PhoneInput, PinInput } from './inputs';
 import { getPendingResetPhone, setPendingResetPhone } from './pending';
 import { Alert, Field, describedBy } from './ui';
 import {
-  MIN_PASSWORD_LENGTH,
   cleanOtp,
   hasErrors,
   normalizePhone,
@@ -28,7 +27,7 @@ const ERRORS = {
   paths: {
     phone: ['phone', 'account.validation.phone'],
     code: ['code', 'account.validation.otp'],
-    newPassword: ['newPassword', 'account.validation.passwordShort'],
+    newPassword: ['newPassword', 'account.validation.pinFormat'],
   },
   codes: {
     invalid_phone: { field: 'phone', key: 'account.validation.phone' },
@@ -81,7 +80,7 @@ export function ResetForm() {
   const error = (field: ResetField) => (fields[field] ? t(fields[field]) : undefined);
 
   return (
-    <form noValidate onSubmit={submit} className="card mx-3 space-y-3">
+    <form method="post" noValidate onSubmit={submit} className="card mx-3 space-y-3">
       <p className="text-muted">{t('account.reset.intro')}</p>
       <DemoOtpHint phone={normalizePhone(phone)} />
       {formError ? <Alert>{t(formError)}</Alert> : null}
@@ -107,29 +106,26 @@ export function ResetForm() {
       </Field>
       <Field
         id="reset-password"
-        label={t('account.fields.newPassword')}
-        hint={t('account.fields.passwordHint')}
+        label={t('account.fields.newPin')}
+        hint={t('account.fields.pinHint')}
         error={error('newPassword')}
       >
-        <PasswordInput
+        <PinInput
           id="reset-password"
           name="newPassword"
           autoComplete="new-password"
-          minLength={MIN_PASSWORD_LENGTH}
-          maxLength={128}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           required
           {...describedBy('reset-password', error('newPassword'), true)}
         />
-        <PasswordStrengthMeter password={newPassword} />
       </Field>
       <Field
         id="reset-confirm"
-        label={t('account.fields.confirmPassword')}
+        label={t('account.fields.confirmPin')}
         error={error('confirmPassword')}
       >
-        <PasswordInput
+        <PinInput
           id="reset-confirm"
           name="confirmPassword"
           autoComplete="new-password"

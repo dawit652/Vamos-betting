@@ -626,6 +626,35 @@ describe('limits', () => {
     });
   });
 
+  it('an image request takes raster images only, as bytes, still under robots.txt', async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2]);
+    const image = { ...item('/teams/42.png'), accept: 'image' as const };
+    for (const ct of ['image/png', 'image/jpeg', 'image/webp', 'image/gif; q=1']) {
+      const { fetcher, f } = setup(() => res(png, 200, { 'content-type': ct }));
+      const r = await fetcher.fetch(image, CTX);
+      expect(r).toMatchObject({ kind: 'ok', status: 200 });
+      if (r.kind === 'ok') expect([...r.body]).toEqual([...png]);
+      expect(f.calls[0]?.headers.accept).toBe('image/png,image/jpeg,image/webp,image/gif');
+    }
+    for (const ct of ['image/svg+xml', 'text/html; charset=utf-8', 'application/json']) {
+      expect(
+        await setup(() => res('<svg/>', 200, { 'content-type': ct })).fetcher.fetch(image, CTX),
+      ).toEqual({ kind: 'refused', reason: 'content_type_not_allowed' });
+    }
+    const robots = setup(
+      (u) =>
+        u.pathname === '/robots.txt'
+          ? res('User-agent: *\nDisallow: /teams', 200, { 'content-type': 'text/plain' })
+          : res(png, 200, { 'content-type': 'image/png' }),
+      { robots: 'enforce' },
+    );
+    expect(await robots.fetcher.fetch(image, CTX)).toMatchObject({
+      kind: 'blocked',
+      reason: 'robots',
+    });
+    expect(robots.f.paths()).toEqual(['/robots.txt']);
+  });
+
   it('refuses on a declared Content-Length above the cap, before reading', async () => {
     const { fetcher } = setup(() => res('abc', 200, { 'content-length': '100000000' }), {
       maxBytes: 1000,

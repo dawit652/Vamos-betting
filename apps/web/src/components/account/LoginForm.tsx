@@ -68,7 +68,7 @@ export function LoginForm({ next, passwordChanged }: { next: string; passwordCha
   };
 
   return (
-    <form noValidate onSubmit={submit} className="card mx-3 space-y-3">
+    <form method="post" noValidate onSubmit={submit} className="card mx-3 space-y-3">
       {passwordChanged ? <Alert tone="success">{t('account.login.passwordChanged')}</Alert> : null}
       {formError ? <Alert>{t(formError)}</Alert> : null}
       {resetRequired ? (
@@ -92,13 +92,16 @@ export function LoginForm({ next, passwordChanged }: { next: string; passwordCha
       </Field>
       <Field
         id="login-password"
-        label={t('account.fields.password')}
+        label={t('account.fields.pinLogin')}
         error={fields.password && t(fields.password)}
       >
         <PasswordInput
           id="login-password"
           name="password"
           autoComplete="current-password"
+          // No number pad here: passwords made before the PIN (16 Nov 2026) have letters and
+          // still sign in, and a number pad cannot type them. New PINs are typed on the
+          // registration and reset forms, which do show the number pad.
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required

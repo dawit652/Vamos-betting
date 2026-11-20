@@ -120,12 +120,14 @@ describe('factory markets in the catalogue', () => {
     const count = async () => {
       const response = await ctx.app.inject({ method: 'GET', url: '/events?sport=football' });
       const list = EventListResponse.parse(response.json());
-      return list.items.find((e) => e.id === eventId)!.marketCount;
+      const row = list.items.find((e) => e.id === eventId)!;
+      return [row.marketCount, row.optionCount];
     };
+    // Options are the selections of exactly the counted markets: btts (2), htft (2), multigoals 1-3 (2).
     flag(false);
-    expect(await count()).toBe(1);
+    expect(await count()).toEqual([1, 2]);
     flag(true);
-    expect(await count()).toBe(3);
+    expect(await count()).toEqual([3, 6]);
     const byGame = await ctx.app.inject({ method: 'GET', url: `/events/by-game-id/${gameId}` });
     expect(byGame.statusCode).toBe(200);
   });

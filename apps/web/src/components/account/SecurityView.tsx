@@ -10,23 +10,17 @@ import { errorMessageKey } from '@/lib/api/errors';
 import { routes } from '@/lib/routes';
 import { formatDateTime } from './dates';
 import { formErrors } from './errors';
-import { PasswordInput, PasswordStrengthMeter } from './inputs';
+import { PasswordInput, PinInput } from './inputs';
 import { deviceLabel, exportFileName } from './security';
 import { Alert, Field, Skeleton, describedBy } from './ui';
-import {
-  MAX_PASSWORD_LENGTH,
-  MIN_PASSWORD_LENGTH,
-  hasErrors,
-  passwordError,
-  type FieldErrors,
-} from './validation';
+import { MAX_PASSWORD_LENGTH, hasErrors, pinError, type FieldErrors } from './validation';
 
 type PasswordField = 'currentPassword' | 'newPassword' | 'confirmPassword';
 
 const PASSWORD_ERRORS = {
   paths: {
     currentPassword: ['currentPassword', 'account.validation.passwordRequired'],
-    newPassword: ['newPassword', 'account.validation.passwordShort'],
+    newPassword: ['newPassword', 'account.validation.pinFormat'],
   },
   codes: {
     reauth_failed: { field: 'currentPassword', key: 'account.security.wrongPassword' },
@@ -56,7 +50,7 @@ function ChangePasswordForm({ onChanged }: { onChanged: () => void }) {
     if (busy) return;
     const local: FieldErrors<PasswordField> = {};
     if (currentPassword === '') local.currentPassword = 'account.validation.passwordRequired';
-    const weak = passwordError(newPassword);
+    const weak = pinError(newPassword);
     if (weak) local.newPassword = weak;
     else if (confirmPassword !== newPassword) {
       local.confirmPassword = 'account.validation.passwordMismatch';
@@ -84,7 +78,7 @@ function ChangePasswordForm({ onChanged }: { onChanged: () => void }) {
   const error = (field: PasswordField) => (fields[field] ? t(fields[field]) : undefined);
 
   return (
-    <form noValidate onSubmit={submit} className="card mx-3 space-y-3">
+    <form method="post" noValidate onSubmit={submit} className="card mx-3 space-y-3">
       <h2 className="text-sm font-bold">{t('account.security.passwordTitle')}</h2>
       <p className="text-muted">{t('account.security.passwordIntro')}</p>
       {notice ? <Alert tone={notice.tone}>{t(notice.key, notice.vars)}</Alert> : null}
@@ -106,29 +100,26 @@ function ChangePasswordForm({ onChanged }: { onChanged: () => void }) {
       </Field>
       <Field
         id="security-new"
-        label={t('account.fields.newPassword')}
-        hint={t('account.fields.passwordHint')}
+        label={t('account.fields.newPin')}
+        hint={t('account.fields.pinHint')}
         error={error('newPassword')}
       >
-        <PasswordInput
+        <PinInput
           id="security-new"
           name="newPassword"
           autoComplete="new-password"
-          minLength={MIN_PASSWORD_LENGTH}
-          maxLength={MAX_PASSWORD_LENGTH}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           required
           {...describedBy('security-new', error('newPassword'), true)}
         />
-        <PasswordStrengthMeter password={newPassword} />
       </Field>
       <Field
         id="security-confirm"
-        label={t('account.fields.confirmPassword')}
+        label={t('account.fields.confirmPin')}
         error={error('confirmPassword')}
       >
-        <PasswordInput
+        <PinInput
           id="security-confirm"
           name="confirmPassword"
           autoComplete="new-password"

@@ -36,7 +36,7 @@ export interface StaffBetSummary {
   phone: string;
   betType: 'single' | 'multi';
   status: BetStatus;
-  channel: 'web' | 'sms' | 'ussd';
+  channel: 'web' | 'sms' | 'ussd' | 'shop';
   stake: bigint;
   totalOddsMilli: bigint;
   potentialGrossPayout: bigint;

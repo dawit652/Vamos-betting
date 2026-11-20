@@ -1,4 +1,9 @@
+import { createHash } from 'node:crypto';
 import {
+  anyMarketKey,
+  BOARD_KEY_MARKER,
+  BOARD_PRICING_KEY_PREFIX,
+  isBoardPricedKey,
   bestBookPrices,
   capAtBestPrice,
   cappedPricingKey,
@@ -13,6 +18,9 @@ import {
 } from '@vamos/core';
 import {
   consensusRows,
+  getHulusportPricing,
+  latestBoardOdds,
+  type LatestBoardOdds,
   latestMarketOdds,
   listEventPricing,
   loadFactoryPricingPlan,
@@ -23,12 +31,19 @@ import {
   fitGoalsToMarket,
   MAX_MARKET_FIT_RESIDUAL,
   marketPricingKey,
+  matchStrengths,
+  priceBoardMarkets,
   priceFactoryMarkets,
+  boardConsensus,
+  boardGoalsFit,
   priceFixture,
+  priceFootball,
   priceFootballFromMarket,
+  type BoardMarketInput,
   type TeamRatings,
 } from '@vamos/feed';
 import {
+  BOARD_PRICES_MAX_AGE_MS,
   checkMarkets,
   isCalibrated,
   isHalfTimeMarket,
@@ -159,6 +174,8 @@ export interface EventPrice {
   outOfLine: readonly OutOfLineSelection[];
   /** Rule O7: the cap was on and lowered at least one price (`outOfLine` lists them). */
   capped?: true;
+  /** Some markets take a competitor board's prices (boardRule): which board, how many, how fresh. */
+  board?: { name: 'hulusport'; markets: number; pricesAt: Date };
 }
 
 /** True for a pricing key that comes from the market (the stamp column holds either form). */
@@ -177,15 +194,63 @@ export async function priceEvent(exec: DbExecutor, input: EventPriceInput): Prom
             maxAgeMs: input.maxAgeMs ?? MARKET_ODDS_MAX_AGE_MS,
           }),
         );
-  // Plan task 2.5: the factory's margins and families, only when its markets can be priced.
-  const needsPlan =
-    input.factoryMarkets === true &&
-    input.competitionPricingSource === 'market' &&
-    input.eventId !== null &&
-    input.factoryPlan === undefined;
+  // Plan task 2.5: the factory's margins and families, only when its markets can be priced (from
+  // the market, or from the model since 16 Nov 2026).
+  const needsPlan = input.factoryMarkets === true && input.factoryPlan === undefined;
   const plan = needsPlan ? await loadFactoryPricingPlan(exec) : input.factoryPlan;
-  const price = await halfTimeRule(exec, input, priceBook(input, rows, plan));
+  // Our own prices (with the factory's markets), then the Hulusport board's prices over the
+  // markets we already price, then the half-time rule.
+  const own = priceBook(input, rows, plan, await o1hBoard(exec, input));
+  const price = await halfTimeRule(exec, input, await boardRule(exec, input, own));
   return capRule(price, rows, input.capAtBestPrice === true);
+}
+
+/**
+ * Hulusport's prices (owner's decision of 14 Nov 2026, docs/plans/hulusport-feed.md), while the
+ * back office switch `hulusport_pricing` is on: every market of our prices that the board also
+ * quotes, fresh (BOARD_PRICES_MAX_AGE_MS) and as a complete book, takes the board's prices with
+ * the board's margin replaced by ours (priceBoardMarkets). Only markets we already price are
+ * replaced, never added: the catalogue never removes a market a later price leaves out, so a
+ * board-only line would keep an old price once the board dropped it. Nothing changes without the
+ * board's 1X2 (the main market), for a new event, or when the board links the event twice.
+ *
+ * The rest of the rules apply unchanged afterwards: O6 (half-time markets), O7 (out of line against
+ * the best book price, and the cap), and when re-pricing, the bounds of O3. The key carries the
+ * board part (BOARD_KEY_MARKER and a digest of the board markets used), so a move of the board
+ * re-prices, and switching off or a stale board goes back to our own prices through the same bounds.
+ */
+async function boardRule(
+  exec: DbExecutor,
+  input: EventPriceInput,
+  price: EventPrice,
+): Promise<EventPrice> {
+  if (input.eventId === null) return price;
+  if (!(await getHulusportPricing(exec)).enabled) return price;
+  const board = await latestBoardOdds(exec, {
+    eventId: input.eventId,
+    now: input.now,
+    maxAgeMs: BOARD_PRICES_MAX_AGE_MS,
+  });
+  if (board === null) return price;
+  const ours = new Set(price.markets.map((m) => anyMarketKey(m.type, m.line)));
+  const replacing = new Map(
+    priceBoardMarkets(board.markets as BoardMarketInput[])
+      .filter((m) => ours.has(anyMarketKey(m.type, m.line)))
+      .map((m) => [anyMarketKey(m.type, m.line), m] as const),
+  );
+  if (!replacing.has(anyMarketKey('1x2'))) return price;
+  const markets = price.markets.map((m) => replacing.get(anyMarketKey(m.type, m.line)) ?? m);
+  const digest = createHash('sha256')
+    .update(JSON.stringify([...replacing.entries()].sort(([a], [b]) => (a < b ? -1 : 1))))
+    .digest('hex')
+    .slice(0, 16);
+  return {
+    ...price,
+    markets,
+    key: `${price.key}${BOARD_KEY_MARKER}${digest}`,
+    pricesSane: checkMarkets(markets).ok,
+    board: { name: 'hulusport', markets: replacing.size, pricesAt: board.pricesAt },
+  };
 }
 
 /** Rule O6 on the prices (see priceEvent). */
@@ -236,6 +301,7 @@ function priceBook(
   input: EventPriceInput,
   rows: readonly MarketPriceRow[],
   plan: FactoryPricingPlan | undefined,
+  board: LatestBoardOdds | null,
 ): EventPrice {
   let fallback: EventPrice['fallback'];
   if (input.competitionPricingSource === 'market' && input.eventId !== null) {
@@ -243,11 +309,27 @@ function priceBook(
     if (market.kind === 'priced') return market.price;
     fallback = market.reason;
   }
-  const markets = priceFixture('football', input.homeRatings ?? null, input.awayRatings ?? null);
+  // Rule O1h: teams the model cannot price yet, and a fresh board that explains its own prices.
+  if (board !== null) {
+    const fromBoard = boardPrice(board, input.factoryMarkets === true ? (plan ?? null) : null);
+    if (fromBoard !== null) return fromBoard;
+  }
+  const own = priceFixture('football', input.homeRatings ?? null, input.awayRatings ?? null);
+  // The factory's markets from the model's own expected goals (owner's request of 16 Nov 2026: about
+  // 500 options per match on the leagues whose "Market factory markets" switch is on, whatever
+  // their prices come from). The key says so, as for the market path, so switching it on or off,
+  // or a change of the factory's margins or families, re-prices each event once.
+  const factory = input.factoryMarkets === true ? (plan ?? null) : null;
+  let markets: PricedMarket[] = own;
+  if (factory !== null) {
+    const goals = matchStrengths('football', input.homeRatings ?? null, input.awayRatings ?? null);
+    markets = [...own, ...factoryMarketsFrom(goals.home, goals.away, factory)];
+  }
+  const key = ratingsKey(input.homeRatings, input.awayRatings);
   return {
     source: 'model',
     markets,
-    key: ratingsKey(input.homeRatings, input.awayRatings),
+    key: factory === null ? key : `${key}${factoryKeySuffix(factory)}`,
     calibrated:
       isCalibrated(input.homeRatings ?? null, input.minRatingMatches) &&
       isCalibrated(input.awayRatings ?? null, input.minRatingMatches),
@@ -255,6 +337,65 @@ function priceBook(
     backsOpening: false,
     outOfLine: [],
     ...(fallback === undefined ? {} : { fallback }),
+  };
+}
+
+/**
+ * Rule O1h (16-18 Nov 2026, the owner's locked odds): the fresh Hulusport board linked to an event
+ * whose teams are NOT both calibrated, while the switch `hulusport_pricing` is on; null otherwise
+ * (calibrated teams keep the model, with boardRule over the markets the board quotes).
+ */
+async function o1hBoard(exec: DbExecutor, input: EventPriceInput): Promise<LatestBoardOdds | null> {
+  if (input.eventId === null) return null;
+  if (
+    isCalibrated(input.homeRatings ?? null, input.minRatingMatches) &&
+    isCalibrated(input.awayRatings ?? null, input.minRatingMatches)
+  ) {
+    return null;
+  }
+  if (!(await getHulusportPricing(exec)).enabled) return null;
+  return latestBoardOdds(exec, {
+    eventId: input.eventId,
+    now: input.now,
+    maxAgeMs: BOARD_PRICES_MAX_AGE_MS,
+  });
+}
+
+/**
+ * Rule O1h: the WHOLE book of an event from the expected goals that explain the board's own 1X2
+ * and goal line (boardGoalsFit, the conditions of O5), so no market is priced from empty ratings:
+ * today's markets as priceFootball prices them, then the factory's from the same goals. Treated as
+ * a market price that backs opening (one strong source, as for the board-only matches the owner
+ * accepted on 14 Nov 2026): the hand-over, F7b and a person may open it while the stored prices
+ * are these very prices, and rule A2 suspends it once the board is no longer fresh. boardRule then
+ * puts the board's own prices (with our margin) over the markets it quotes. Null without a fit.
+ */
+function boardPrice(board: LatestBoardOdds, factory: FactoryPricingPlan | null): EventPrice | null {
+  const books = board.markets as BoardMarketInput[];
+  const fit = boardGoalsFit(books);
+  if (fit === null || fit.totalsLine === null) return null;
+  const own: PricedMarket[] = priceFootball(fit.lambdaHome, fit.lambdaAway);
+  const markets =
+    factory === null
+      ? own
+      : [...own, ...factoryMarketsFrom(fit.lambdaHome, fit.lambdaAway, factory)];
+  const digest = createHash('sha256')
+    .update(JSON.stringify(boardConsensus(books)))
+    .digest('hex')
+    .slice(0, 16);
+  const key = `${BOARD_PRICING_KEY_PREFIX}|${digest}`;
+  return {
+    source: 'market',
+    markets,
+    key: factory === null ? key : `${key}${factoryKeySuffix(factory)}`,
+    calibrated: true,
+    pricesSane: checkMarkets(markets).ok,
+    residual: fit.residual,
+    books: 1,
+    bookmakers: ['hulusport'],
+    backsOpening: true,
+    totalsLine: fit.totalsLine,
+    outOfLine: [],
   };
 }
 
@@ -267,9 +408,11 @@ function priceBook(
  * market and one of the stamp.
  */
 export async function backedByMarket(exec: DbExecutor, input: EventPriceInput): Promise<boolean> {
-  if (input.competitionPricingSource !== 'market' || input.eventId === null) return false;
+  if (input.eventId === null) return false;
   const price = await priceEvent(exec, input);
   if (price.source !== 'market' || !price.backsOpening) return false;
+  // O1h: board-priced prices back opening in any competition; O1m only where the market is asked.
+  if (input.competitionPricingSource !== 'market' && !isBoardPricedKey(price.key)) return false;
   const stamp = (await listEventPricing(exec, [input.eventId])).get(input.eventId);
   return stamp?.ratingsKey === price.key;
 }
@@ -343,7 +486,7 @@ export function factoryKeySuffix(plan: Pick<FactoryPricingPlan, 'tag'>): string 
  * class and family, without the families the weekly job suspended or turned off (their stored
  * markets are then suspended by the feed: upsertFixture's factoryComplete).
  */
-function factoryMarketsFrom(
+export function factoryMarketsFrom(
   lambdaHome: number,
   lambdaAway: number,
   plan: FactoryPricingPlan,

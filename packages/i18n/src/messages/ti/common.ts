@@ -13,4 +13,7 @@ export const common: DeepPartial<Messages['common']> = {
   rg: {
     ageNotice: 'ንዕድመኦም 21 ን ልዕሊኡን ጥራይ። ብሓላፍነት ተወራረዱ።',
   },
+  telegram: {
+    join: 'ኣብ ቴሌግራም ተጸምበሩና',
+  },
 };

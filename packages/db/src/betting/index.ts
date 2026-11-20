@@ -22,6 +22,7 @@ export {
   selectionUnavailableError,
   slipInvalidError,
   type GameSettingsForBets,
+  type BetFunding,
   type PlaceBetInput,
   type PlaceBetResult,
   type QuotedLeg,

@@ -6,7 +6,8 @@ import { readOtp } from './otp';
  * `vamos_locale=en` cookie in a beforeEach).
  */
 
-export const PASSWORD = 'e2e-secret-123';
+/** A valid, not-easy 4-digit PIN (phone.ts never generates a number ending in it). */
+export const PASSWORD = '4826';
 
 /** The balance chip in the header ("Balance: ETB 1,000.00"). */
 export function balanceChip(page: Page): Locator {
@@ -26,15 +27,14 @@ export async function pick(button: Locator): Promise<void> {
 }
 
 /**
- * Registers a new player (phone, password, the 21+ and terms checkbox: the form
- * asks no date of birth) and verifies the phone with the OTP read from the dev
+ * Registers a new player (phone and PIN; tapping Register confirms 21+ and the
+ * terms, and the form asks no date of birth) and verifies the phone with the OTP read from the dev
  * SMS inbox, then waits for the wallet with its welcome note.
  */
 export async function registerAndVerify(page: Page, phone: string): Promise<void> {
   await page.goto('/register');
   await page.locator('#reg-phone').fill(phone);
   await page.locator('#reg-password').fill(PASSWORD);
-  await page.locator('input[name="acceptTerms"]').check();
   await page.getByRole('button', { name: 'Register', exact: true }).click();
 
   await page.waitForURL('**/verify');

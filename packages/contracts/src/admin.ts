@@ -33,9 +33,23 @@ import { WalletTransaction } from './wallet';
 // Roles and permissions (the one RBAC matrix: the API guards with it, the
 // admin UI builds its navigation from it).
 
-export const STAFF_ROLES = ['admin', 'trader', 'finance', 'kyc', 'support', 'compliance'] as const;
+export const STAFF_ROLES = [
+  'admin',
+  'trader',
+  'finance',
+  'kyc',
+  'support',
+  'compliance',
+  'cashier',
+  // An agent's owner: made on the agent's page, works in the shop app only (no permission here).
+  'agent_owner',
+] as const;
 export const StaffRoleSchema = z.enum(STAFF_ROLES);
 export type StaffRole = z.infer<typeof StaffRoleSchema>;
+
+/** The roles the Staff screen gives; agent owners are made on their agent's page. */
+export const StaffAssignableRoleSchema = StaffRoleSchema.exclude(['agent_owner']);
+export type StaffAssignableRole = z.infer<typeof StaffAssignableRoleSchema>;
 
 /**
  * What each permission allows (routes in brackets):
@@ -66,6 +80,15 @@ export type StaffRole = z.infer<typeof StaffRoleSchema>;
  * - reconciliation.run: run a reconciliation now, upload a PSP statement
  *   [POST /admin/compliance/reconciliation-runs, /psp-statements]
  * - aml.review: AML flags and their review [/admin/compliance/aml-flags*]
+ * - users.status: block or unblock a player, with a reason [POST /admin/users/:id/status]
+ *   (a cashier may block, not unblock, at the desk: POST /admin/cashier/players/:id/block)
+ * - cashier.desk: a shop's desk: open and close one's own shift, find a player, take cash
+ *   deposits, print receipts [/admin/cashier/*, except the reports and the shop settings]
+ * - cashier.reports: every shift and its operations [GET /admin/cashier/shifts*]
+ *   (the shop's name, address and limits change with settings.edit)
+ * - agents.view: agents, their shops and cashiers [GET /admin/agents*]
+ * - agents.manage: add and change agents, add their shops, block or unblock an agent, approve or
+ *   revoke shop devices [POST/PATCH /admin/agents*, POST /admin/shop-devices/*]
  * (COMPLIANCE_ROUTE_PERMISSIONS in compliance.ts lists every compliance route.)
  */
 export const STAFF_PERMISSIONS = [
@@ -92,6 +115,11 @@ export const STAFF_PERMISSIONS = [
   'reports.view',
   'reconciliation.run',
   'aml.review',
+  'cashier.desk',
+  'cashier.reports',
+  'users.status',
+  'agents.view',
+  'agents.manage',
 ] as const;
 export const StaffPermissionSchema = z.enum(STAFF_PERMISSIONS);
 export type StaffPermission = z.infer<typeof StaffPermissionSchema>;
@@ -121,6 +149,13 @@ export const PERMISSION_ROLES: Readonly<Record<StaffPermission, readonly StaffRo
   'reports.view': ['admin', 'compliance', 'finance'],
   'reconciliation.run': ['admin', 'compliance', 'finance'],
   'aml.review': ['admin', 'compliance'],
+  // A cashier holds only the desk; supervisors (finance, admin) may work a desk too.
+  'cashier.desk': ['admin', 'finance', 'cashier'],
+  'cashier.reports': ['admin', 'finance', 'compliance'],
+  'users.status': ['admin', 'compliance'],
+  // Agent shops (docs/plans/agent-shops.md): the admin has the last word over every agent.
+  'agents.view': ['admin', 'finance', 'compliance'],
+  'agents.manage': ['admin'],
 };
 
 /** Whether `role` holds `permission` (false for anything unknown). */
@@ -985,6 +1020,8 @@ export const StaffSmsView = z.object({
   id: z.string(),
   source: z.enum(['gateway', 'simulator', 'receipt']),
   sender: z.string().nullable(),
+  /** The collection account (SMS_COLLECTION_ACCOUNTS id) whose handset received it; null when unknown. */
+  collectionAccount: z.string().nullable(),
   rawText: z.string(),
   institution: z.string().nullable(),
   direction: z.enum(['credit', 'debit']).nullable(),
@@ -1040,6 +1077,16 @@ export const SmsRailHealthResponse = z.object({
   oldestManualPayoutApprovedAt: z.string().nullable(),
   receiptVerify: z.enum(['off', 'audit']),
   receiptBreaker: z.enum(['closed', 'open', 'half_open']).nullable(),
+  /** The last forwarder heartbeat of each collection account that has sent one; `late` is past the alarm window. */
+  heartbeats: z.array(
+    z.object({
+      account: z.string(),
+      at: z.string(),
+      battery: z.number().int().nullable(),
+      charging: z.boolean().nullable(),
+      late: z.boolean(),
+    }),
+  ),
   /**
    * The last balance reconciliation per collection institution (the worker,
    * hourly over 24 hours): `drift` is actual − expected movement; negative
@@ -1055,8 +1102,48 @@ export const SmsRailHealthResponse = z.object({
       observations: z.number().int(),
     }),
   ),
+  /**
+   * The payout float forecast (plan task C10): what players are expected to withdraw within the
+   * horizon (a share of the possible payouts of open bets whose last match ends by then) against
+   * the last balance each collection institution's SMS reported. `low` is the `payout_float_low`
+   * alarm condition (balance below the forecast).
+   */
+  payoutFloat: z.object({
+    horizonHours: z.number().int(),
+    withdrawnPercent: z.number().int(),
+    expectedWithdrawals: Santim,
+    possiblePayouts: Santim,
+    betsCounted: z.number().int(),
+    balances: z.array(
+      z.object({
+        institution: z.string(),
+        balance: Santim,
+        at: IsoDateTime,
+        low: z.boolean(),
+      }),
+    ),
+  }),
 });
 export type SmsRailHealthResponse = z.infer<typeof SmsRailHealthResponse>;
+
+/**
+ * POST /admin/manual-payouts/claim-batch: claim the oldest approved payouts
+ * nobody holds (`limit`, default 10), or exactly the given `ids`. Each goes
+ * through the single claim's rules, so some may be refused.
+ */
+export const ClaimManualPayoutBatchRequest = z.object({
+  limit: z.number().int().min(1).max(20).default(10),
+  ids: z.array(Uuid).max(20).optional(),
+});
+export type ClaimManualPayoutBatchRequest = z.infer<typeof ClaimManualPayoutBatchRequest>;
+
+/** `reason` is the single claim's refusal code (e.g. `manual_payout_approver_cannot_pay`). */
+export const ClaimManualPayoutBatchResponse = z.object({
+  results: z.array(
+    z.object({ payoutId: Uuid, claimed: z.boolean(), reason: z.string().optional() }),
+  ),
+});
+export type ClaimManualPayoutBatchResponse = z.infer<typeof ClaimManualPayoutBatchResponse>;
 
 /** POST /admin/manual-payouts/:id/release: hand a claimed payout back unpaid. */
 export const ReleaseManualPayoutRequest = z.object({ note: AuditText });
@@ -1392,6 +1479,8 @@ export const StaffUserView = z.object({
   id: z.string(),
   email: z.string(),
   displayName: z.string(),
+  /** Mobile number (E.164) or null; cashiers and agent owners have one. */
+  phone: z.string().nullable(),
   role: StaffRoleSchema,
   disabledAt: z.string().nullable(),
   lastLoginAt: z.string().nullable(),
@@ -1406,13 +1495,23 @@ export type StaffUserView = z.infer<typeof StaffUserView>;
 export const StaffListResponse = z.object({ items: z.array(StaffUserView) });
 export type StaffListResponse = z.infer<typeof StaffListResponse>;
 
-/** POST /admin/staff: without a password one is generated and returned once. */
-export const CreateStaffRequest = z.object({
-  email: z.email().max(254),
-  displayName: z.string().trim().min(1).max(100),
-  role: StaffRoleSchema,
-  password: z.string().min(12).max(128).optional(),
-});
+/**
+ * POST /admin/staff: without a password one is generated and returned once. A cashier needs a
+ * mobile number (owner, 19 Nov 2026); any Ethiopian form, stored as E.164 (422
+ * `invalid_staff_phone` otherwise).
+ */
+export const CreateStaffRequest = z
+  .object({
+    email: z.email().max(254),
+    displayName: z.string().trim().min(1).max(100),
+    role: StaffAssignableRoleSchema,
+    password: z.string().min(12).max(128).optional(),
+    phone: z.string().trim().max(32).optional(),
+  })
+  .refine((value) => value.role !== 'cashier' || (value.phone ?? '') !== '', {
+    message: 'a cashier needs a mobile number',
+    path: ['phone'],
+  });
 export type CreateStaffRequest = z.infer<typeof CreateStaffRequest>;
 
 /** A TOTP secret to enrol (shown once): type `secret` in, or render `uri` as a QR code. */
@@ -1429,14 +1528,40 @@ export type CreateStaffResponse = z.infer<typeof CreateStaffResponse>;
 /** PATCH /admin/staff/:id: a role change ends the account's sessions (409 `last_admin`). */
 export const UpdateStaffRequest = z
   .object({
-    role: StaffRoleSchema.optional(),
+    role: StaffAssignableRoleSchema.optional(),
     displayName: z.string().trim().min(1).max(100).optional(),
+    /** A new mobile number, or null to remove it. */
+    phone: z.string().trim().max(32).nullable().optional(),
   })
-  .refine((value) => value.role !== undefined || value.displayName !== undefined, {
-    message: 'change the role or the display name',
-  });
+  .refine(
+    (value) =>
+      value.role !== undefined || value.displayName !== undefined || value.phone !== undefined,
+    { message: 'change the role, the display name or the phone' },
+  );
 export type UpdateStaffRequest = z.infer<typeof UpdateStaffRequest>;
 
 /** POST /admin/staff/:id/reset-password (ends the account's sessions). */
 export const ResetStaffPasswordRequest = z.object({ password: z.string().min(12).max(128) });
 export type ResetStaffPasswordRequest = z.infer<typeof ResetStaffPasswordRequest>;
+
+// ---------------------------------------------------------------------------
+// Blocking a player (users.status; a cashier may block at the desk).
+
+/** POST /admin/users/:id/status: block (`suspended`) or unblock (`active`) a player. */
+export const SetPlayerStatusRequest = z
+  .object({
+    status: z.enum(['active', 'suspended']),
+    reason: z.string().trim().min(3).max(500),
+  })
+  .strict();
+export type SetPlayerStatusRequest = z.infer<typeof SetPlayerStatusRequest>;
+
+/** POST /admin/cashier/players/:id/block: the desk blocks a player (unblocking is users.status). */
+export const BlockPlayerRequest = z.object({ reason: z.string().trim().min(3).max(500) }).strict();
+export type BlockPlayerRequest = z.infer<typeof BlockPlayerRequest>;
+
+export const SetPlayerStatusResponse = z.object({
+  status: z.enum(['active', 'suspended']),
+  changed: z.boolean(),
+});
+export type SetPlayerStatusResponse = z.infer<typeof SetPlayerStatusResponse>;

@@ -6,6 +6,7 @@ import type {
   StaffSmsListResponse,
   StaffSmsView,
 } from '@vamos/contracts';
+import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
 import { useSession } from '@/components/session';
@@ -93,6 +94,9 @@ function SmsRow({ sms, reload }: { sms: StaffSmsView; reload: () => void }) {
       <td>
         {sms.institution ?? sms.sender ?? '–'}
         <div className="muted small">{sms.source}</div>
+        {sms.collectionAccount !== null && (
+          <div className="muted small">to {sms.collectionAccount}</div>
+        )}
       </td>
       <td>{sms.direction ?? '–'}</td>
       <td className="num">{sms.amount === null ? '–' : formatEtb(sms.amount)}</td>
@@ -121,6 +125,16 @@ function SmsRow({ sms, reload }: { sms: StaffSmsView; reload: () => void }) {
           <div className="actions">
             {CREDITABLE.includes(sms.status) && sms.direction === 'credit' && (
               <CreditForm sms={sms} onDone={reload} />
+            )}
+            {sms.status === 'unparsed' && (
+              <button
+                type="button"
+                onClick={() => {
+                  void api(`/admin/sms/${sms.id}/reparse`, { method: 'POST' }).then(reload, reload);
+                }}
+              >
+                Read again
+              </button>
             )}
             {CLOSABLE.includes(sms.status) && (
               <ReasonAction
@@ -153,6 +167,11 @@ function SmsRow({ sms, reload }: { sms: StaffSmsView; reload: () => void }) {
   );
 }
 
+function heartbeatAgo(at: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60_000));
+  return minutes < 60 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`;
+}
+
 function Health() {
   const { data } = useFetch<SmsRailHealthResponse>('/admin/sms/health');
   if (data === null) return null;
@@ -176,12 +195,33 @@ function Health() {
           : { hint: `oldest ${formatDateTime(data.oldestManualPayoutApprovedAt)}` })}
       />
       {data.receiptBreaker !== null && <Stat label="Receipt page" value={data.receiptBreaker} />}
+      {data.heartbeats.map((h) => (
+        <Stat
+          key={`heartbeat-${h.account}`}
+          label={`Handset ${h.account}`}
+          value={`${heartbeatAgo(h.at)}${h.battery === null ? '' : `, ${h.battery}%`}${h.charging === null ? '' : h.charging ? ', charging' : ', not charging'}`}
+          {...(h.late ? { tone: 'warn' as const } : {})}
+        />
+      ))}
       {data.balance.map((b) => (
         <Stat
           key={b.institution}
           label={`Balance check · ${b.institution}`}
           value={b.status === 'drift' ? `drift ${formatEtb(b.drift)}` : humanize(b.status)}
           hint={`${b.observations} SMS · ${formatDateTime(b.checkedAt)}`}
+        />
+      ))}
+      <Stat
+        label={`Expected withdrawals · next ${data.payoutFloat.horizonHours} h`}
+        value={formatEtb(data.payoutFloat.expectedWithdrawals)}
+        hint={`${data.payoutFloat.withdrawnPercent}% of ${formatEtb(data.payoutFloat.possiblePayouts)} possible payouts of ${data.payoutFloat.betsCounted} open bets`}
+      />
+      {data.payoutFloat.balances.map((b) => (
+        <Stat
+          key={`float-${b.institution}`}
+          label={`Last known balance · ${b.institution}`}
+          value={formatEtb(b.balance)}
+          hint={`${b.low ? 'BELOW the forecast, top up · ' : ''}as of ${formatDateTime(b.at)}`}
         />
       ))}
     </div>
@@ -200,7 +240,9 @@ export default function SmsPage() {
   });
   return (
     <>
-      <PageHeader title="SMS rail" />
+      <PageHeader title="SMS rail">
+        <Link href="/collection-accounts">Deposit accounts</Link>
+      </PageHeader>
       <Health />
       <DefList
         rows={[

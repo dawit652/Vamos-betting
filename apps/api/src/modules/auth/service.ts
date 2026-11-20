@@ -16,15 +16,23 @@ import type {
   ResendOtpRequest,
   ResetPasswordRequest,
   RevokeSessionsRequest,
+  ShopPinResetCompleteRequest,
   RevokeSessionsResponse,
   VerifyOtpRequest,
 } from '@vamos/contracts';
-import { writeAudit, type DbExecutor } from '@vamos/db';
+import {
+  completeShopPinReset,
+  pinResetSecretHash,
+  shopPinResetStatus,
+  writeAudit,
+  type DbExecutor,
+} from '@vamos/db';
 import { sessions, users } from '@vamos/db/schema';
 import { and, desc, eq, gt, isNull, ne } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AppDeps } from '../../deps';
 import { clientAddressKey } from '../../lib/client-address';
+import { recordLoginFailure } from '../../lib/login-alarm';
 import { randomToken, safeEqualHex, sha256Hex } from '../../lib/crypto';
 import {
   AppError,
@@ -38,6 +46,7 @@ import { toLocale, type Locale } from '../../lib/locale';
 import {
   consumeOtp,
   createOtpChallenge,
+  TELEGRAM_REQUESTER_PREFIX,
   otpExpired,
   otpSentBody,
   sendOtpSms,
@@ -55,7 +64,8 @@ import {
   createSession,
   revokeAllUserSessions,
   revokeSession,
-  SESSION_IDLE_MS,
+  playerSessionLifetime,
+  type PlayerSessionLifetime,
   type IssuedSession,
   type SessionUser,
 } from '../../plugins/session';
@@ -68,6 +78,12 @@ export interface RequestMeta {
   ip: string;
   userAgent: string | null;
   log?: FastifyBaseLogger;
+  /**
+   * Counts one PIN check against the player's number (the sign-in limits of POST /auth/login),
+   * throwing 429 when the number has none left. Called right before a signed-in player's
+   * current PIN is compared, so only requests that actually test a PIN use the budget.
+   */
+  countPinCheck?: () => Promise<void>;
 }
 
 type UserRow = typeof users.$inferSelect;
@@ -327,6 +343,12 @@ async function auditLoginFailure(
   user: { id: string } | null,
   phone: string | null,
 ): Promise<void> {
+  // X6b: an attack spread over many numbers, or a flood from one address, raises an alarm.
+  await recordLoginFailure(deps.redis, meta.log, {
+    phone,
+    address: clientAddressKey(meta.ip),
+    now: deps.clock(),
+  });
   await writeAudit(deps.db, {
     actorType: 'user',
     actorId: user?.id ?? null,
@@ -491,6 +513,48 @@ export async function requestPasswordReset(
   return { response: otpSentBody(deps, phone, otp, 'password_reset'), deliver };
 }
 
+/** What the Telegram bot gets when it asks for a reset code for a proven number. */
+export type TelegramResetCode =
+  { status: 'sent'; code: string; expiresAt: Date } | { status: 'no_account' };
+
+/**
+ * A PIN reset code for a number the Telegram bot has proven (the person shared their own contact,
+ * which Telegram verified), to be sent in that chat instead of by SMS (owner, 17 Nov 2026: the live
+ * server has no SMS gateway). The same challenge, limits and expiry as the SMS reset
+ * (createOtpChallenge; the chat is the requester), confirmed on the reset page as usual.
+ * "no_account" tells the owner of that number only, so it leaks nothing.
+ */
+export async function issueTelegramResetCode(
+  deps: AppDeps,
+  input: { phone: string; chatId: number },
+  meta: RequestMeta,
+): Promise<TelegramResetCode> {
+  const phone = requirePhone(input.phone);
+  const now = deps.clock();
+  const user = await findUserByPhone(deps.db, phone);
+  if (user === null || user.status !== 'active') return { status: 'no_account' };
+  const issued = await deps.db.transaction(async (tx) => {
+    const otp = await createOtpChallenge(tx, {
+      secret: deps.config.sessionSecret,
+      phone,
+      purpose: 'password_reset',
+      now,
+      requesterKey: `${TELEGRAM_REQUESTER_PREFIX}${input.chatId}`,
+    });
+    await writeAudit(tx, {
+      actorType: 'user',
+      actorId: user.id,
+      action: 'user.password_reset_requested',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { phone: maskMsisdn(phone), channel: 'telegram' },
+      ip: meta.ip,
+    });
+    return otp;
+  });
+  return { status: 'sent', code: issued.code, expiresAt: issued.expiresAt };
+}
+
 /** A committed password change: `deliver` sends the player's notice (never throws). */
 export interface PasswordChanged {
   deliver: () => Promise<void>;
@@ -560,6 +624,65 @@ export async function resetPassword(
   };
 }
 
+/**
+ * Sets a new password from the player's own browser after a shop's approved PIN reset ("Forgot
+ * PIN", "Reset at a shop"): the browser proves the secret it kept since the start, so nobody at the
+ * desk can set it. Revokes every session of the account; the caller sends the notice (`deliver`)
+ * after answering. 404 for an unknown secret; 409 `pin_reset_used`, `pin_reset_not_approved` or
+ * `pin_reset_expired` (the approval is used within 30 minutes) otherwise.
+ */
+export async function resetPasswordAtShop(
+  deps: AppDeps,
+  input: ShopPinResetCompleteRequest,
+  meta: RequestMeta,
+): Promise<PasswordChanged & { phone: string }> {
+  const secretHash = pinResetSecretHash(input.secret);
+  const found = await shopPinResetStatus(deps.db, { secretHash, now: deps.clock() });
+  if (found === null) throw notFound('PIN reset');
+  // Before the costly hash: only an approved reset goes on (checked again under lock below).
+  if (found.state === 'done') {
+    throw conflict('pin_reset_used', 'This PIN reset was used already.');
+  }
+  if (found.state === 'expired') throw shopResetExpired();
+  if (found.state !== 'approved') {
+    throw conflict('pin_reset_not_approved', 'The shop has not approved this PIN reset yet.');
+  }
+  assertPasswordAcceptable(input.newPassword, found.phone);
+  const passwordHash = await hashPassword(input.newPassword, deps.config.passwordPepper);
+  const now = deps.clock();
+  const changed = await deps.db.transaction(async (tx) => {
+    const taken = await completeShopPinReset(tx, { secretHash, now, ip: meta.ip });
+    if (taken.outcome === 'expired') return null;
+    const [user] = await tx
+      .select({ locale: users.locale })
+      .from(users)
+      .where(eq(users.id, taken.userId));
+    await tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, taken.userId));
+    const revokedSessions = await revokeAllUserSessions(tx, taken.userId, now);
+    await writeAudit(tx, {
+      actorType: 'user',
+      actorId: taken.userId,
+      action: 'user.password_reset',
+      targetType: 'user',
+      targetId: taken.userId,
+      metadata: { revokedSessions, via: 'shop', resetId: taken.resetId },
+      ip: meta.ip,
+    });
+    return { userId: taken.userId, phone: taken.phone, locale: toLocale(user?.locale) };
+  });
+  // The expiry mark committed; the player asks at the shop again.
+  if (changed === null) throw shopResetExpired();
+  await announceSessionRevoked(deps, changed.userId, null);
+  return {
+    phone: changed.phone,
+    deliver: () =>
+      notifySecurityEvent(deps, changed.phone, 'password_changed', changed.locale, meta.log),
+  };
+}
+
+const shopResetExpired = () =>
+  conflict('pin_reset_expired', 'This PIN reset expired. Ask at the shop again.');
+
 /** 403 `reauth_failed`: the password re-entered to confirm a change is not the account's. */
 const reauthFailed = () =>
   forbidden('reauth_failed', 'The password you entered is not correct. Please try again.');
@@ -577,6 +700,8 @@ async function verifyCurrentPassword(
   purpose: 'password_change' | 'sessions_revoke',
   meta: RequestMeta,
 ): Promise<string> {
+  // Before the comparison, so a number out of guesses learns nothing about this one.
+  await meta.countPinCheck?.();
   const [row] = await deps.db
     .select({ passwordHash: users.passwordHash })
     .from(users)
@@ -655,14 +780,26 @@ export async function changePassword(
   };
 }
 
-/** The player's live sessions other than `user`'s (optionally one of them) as of `now`. */
-function otherLiveSessions(user: SessionUser, now: Date, sessionId?: string) {
+/** Sessions used within the idle limit (none: every session counts). */
+function seenWithinIdle(now: Date, lifetime: PlayerSessionLifetime) {
+  return lifetime.idleMs === null
+    ? undefined
+    : gt(sessions.lastSeenAt, new Date(now.getTime() - lifetime.idleMs));
+}
+
+/**
+ * The player's sessions other than `user`'s (optionally one of them) that are not revoked and
+ * not past their absolute end as of `now`. Idle ones are included on purpose: an idle limit is
+ * read from the configuration at every request, so a session idle today is live again the day
+ * the limit is raised or switched off (as on 16 Nov 2026, from 30 minutes to none). Ending
+ * sessions must not skip it.
+ */
+function otherUnendedSessions(user: SessionUser, now: Date, sessionId?: string) {
   return and(
     eq(sessions.userId, user.id),
     ne(sessions.id, user.sessionId),
     isNull(sessions.revokedAt),
     gt(sessions.expiresAt, now),
-    gt(sessions.lastSeenAt, new Date(now.getTime() - SESSION_IDLE_MS)),
     ...(sessionId === undefined ? [] : [eq(sessions.id, sessionId)]),
   );
 }
@@ -676,14 +813,14 @@ async function revokeOtherUserSessions(
   const rows = await tx
     .update(sessions)
     .set({ revokedAt: now })
-    .where(otherLiveSessions(user, now, sessionId))
+    .where(otherUnendedSessions(user, now, sessionId))
     .returning({ id: sessions.id });
   return rows.map((row) => row.id);
 }
 
 /** GET /me/sessions: the player's live sessions, most recently used first (ASVS 3.3.4). */
 export async function listSessions(
-  deps: Pick<AppDeps, 'db' | 'clock'>,
+  deps: Pick<AppDeps, 'db' | 'clock' | 'config'>,
   user: SessionUser,
 ): Promise<PlayerSessionsResponse> {
   const now = deps.clock();
@@ -702,7 +839,7 @@ export async function listSessions(
         eq(sessions.userId, user.id),
         isNull(sessions.revokedAt),
         gt(sessions.expiresAt, now),
-        gt(sessions.lastSeenAt, new Date(now.getTime() - SESSION_IDLE_MS)),
+        seenWithinIdle(now, playerSessionLifetime(deps.config)),
       ),
     )
     .orderBy(desc(sessions.lastSeenAt))

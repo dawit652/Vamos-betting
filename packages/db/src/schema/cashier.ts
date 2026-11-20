@@ -1,0 +1,345 @@
+import { sql } from 'drizzle-orm';
+import {
+  bigint,
+  bigserial,
+  boolean,
+  check,
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import { adminUsers, users } from './accounts';
+import { paymentIntents, payouts } from './payments';
+import { agents } from './retail';
+
+/**
+ * Cashier desk (owner, 17 Nov 2026; docs/plans/cashier-dashboard.md). Staff in a betting shop take
+ * cash deposits for players and pay cash withdrawals, during a shift that opens with a counted
+ * float and closes with a cash count, and print a receipt for every operation.
+ *
+ * Cash is a payment provider named `cash`: a cash deposit is a payment intent of provider `cash`
+ * credited at once (its ledger posting is the ordinary deposit, `house:psp:cash` -amount, player
+ * cash +amount), a cash withdrawal an ordinary payout of provider `cash` paid at the desk. So
+ * deposit limits, AML, the player's history, notifications and reconciliation treat cash like any
+ * other provider. These tables add what only the desk knows: the shop, the shift and the receipt.
+ */
+
+export const cashShiftStatus = pgEnum('cash_shift_status', ['open', 'closed']);
+export const cashOperationKind = pgEnum('cash_operation_kind', ['deposit', 'withdrawal']);
+
+/** A betting shop: its receipt header and its desk parameters. */
+export const cashierShops = pgTable(
+  'cashier_shops',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The agent that runs the shop (agent 1000 is Nahubet HQ; docs/plans/agent-shops.md). */
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'restrict' }),
+    /** The shop's number within its agent, printed as `<agent>-<nn>` (1001-01). */
+    number: integer('number').notNull(),
+    /** Short stable name (receipts, reports). */
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    address: text('address').notNull().default(''),
+    /** Receipt paper width in millimetres (thermal printers: 80 or 58). */
+    receiptWidthMm: integer('receipt_width_mm').notNull().default(80),
+    /**
+     * Above this amount (santim) a cashier may not take a deposit or pay a withdrawal alone: a
+     * supervisor (finance or admin) does it. Default ETB 10,000.
+     */
+    approvalThreshold: bigint('approval_threshold', { mode: 'bigint' })
+      .notNull()
+      .default(sql`1000000`),
+    active: boolean('active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('cashier_shops_code_uq').on(t.code),
+    uniqueIndex('cashier_shops_agent_number_uq').on(t.agentId, t.number),
+    check('cashier_shops_number_range', sql`${t.number} BETWEEN 1 AND 999`),
+    check('cashier_shops_code_format', sql`${t.code} ~ '^[a-z0-9-]{2,32}$'`),
+    check('cashier_shops_receipt_width', sql`${t.receiptWidthMm} IN (58, 80)`),
+    check('cashier_shops_threshold_positive', sql`${t.approvalThreshold} > 0`),
+  ],
+);
+
+/**
+ * Which shop a cashier works at (the owner runs more than 40 shops). One row per cashier: a cashier
+ * opens shifts only at this shop. A cashier without a row may work while only one shop is active
+ * (a single-shop setup); supervisors (finance, admin) are not assigned and open shifts anywhere.
+ */
+export const cashierStaffShops = pgTable(
+  'cashier_staff_shops',
+  {
+    staffId: uuid('staff_id')
+      .primaryKey()
+      .references(() => adminUsers.id, { onDelete: 'cascade' }),
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => cashierShops.id),
+    assignedBy: uuid('assigned_by').references(() => adminUsers.id),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cashier_staff_shops_shop_idx').on(t.shopId)],
+);
+
+/**
+ * One staff member's time at a shop's desk. Expected cash = opening float + deposits − withdrawals
+ * of the shift; the close stores the count and the expected figure (the difference is the
+ * variance, reviewed by finance).
+ */
+export const cashierShifts = pgTable(
+  'cashier_shifts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => cashierShops.id, { onDelete: 'restrict' }),
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'restrict' }),
+    status: cashShiftStatus('status').notNull().default('open'),
+    /** Cash counted into the drawer when the shift opened (santim). */
+    openingFloat: bigint('opening_float', { mode: 'bigint' }).notNull(),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull(),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    /** Cash counted at the close (santim). */
+    countedCash: bigint('counted_cash', { mode: 'bigint' }),
+    /** Opening float + deposits − withdrawals of the shift, fixed at the close (santim). */
+    expectedCash: bigint('expected_cash', { mode: 'bigint' }),
+    closeNote: text('close_note'),
+  },
+  (t) => [
+    // A staff member works one desk at a time.
+    uniqueIndex('cashier_shifts_open_staff_uq')
+      .on(t.staffId)
+      .where(sql`${t.status} = 'open'`),
+    index('cashier_shifts_shop_opened_idx').on(t.shopId, t.openedAt),
+    check('cashier_shifts_float_non_negative', sql`${t.openingFloat} >= 0`),
+    check(
+      'cashier_shifts_count_non_negative',
+      sql`${t.countedCash} IS NULL OR ${t.countedCash} >= 0`,
+    ),
+    check(
+      'cashier_shifts_closed',
+      sql`(${t.status} = 'closed') = (${t.closedAt} IS NOT NULL AND ${t.countedCash} IS NOT NULL AND ${t.expectedCash} IS NOT NULL)`,
+    ),
+  ],
+);
+
+/**
+ * A closed shift's cash difference booked in the ledger (cashier phase "variance posting"): once per
+ * shift (the shift is closed and cannot change, so the booking is its own row). `amount` is
+ * counted − expected: negative when the drawer was short.
+ */
+export const cashShiftVariancePostings = pgTable('cash_shift_variance_postings', {
+  shiftId: uuid('shift_id')
+    .primaryKey()
+    .references(() => cashierShifts.id),
+  amount: bigint('amount', { mode: 'bigint' }).notNull(),
+  ledgerTransactionId: uuid('ledger_transaction_id').notNull(),
+  postedBy: uuid('posted_by')
+    .notNull()
+    .references(() => adminUsers.id),
+  postedAt: timestamp('posted_at', { withTimezone: true }).notNull(),
+});
+
+/**
+ * A PIN reset at a shop, started on the player's own phone ("Forgot PIN", "Reset at a shop"; the
+ * review of 18 Nov 2026): the browser keeps a random secret and sends only its SHA-256, the site
+ * shows the desk code, which the player tells the cashier with the ID card. Only a browser proving
+ * the secret sets the new PIN, after a supervisor approved the desk's request (cash_pin_resets).
+ * The phone may or may not have an account: the player sees the same either way. Never deleted.
+ *
+ * status: waiting (not at a desk yet, until expires_at), linked (the desk's request names it in
+ * cash_pin_resets.start_id), done (the PIN was set), closed (expired unused).
+ */
+export const pinResetStarts = pgTable(
+  'pin_reset_starts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The number the player typed, normalised. */
+    phone: text('phone').notNull(),
+    /** SHA-256 (hex) of the secret the browser keeps; the secret itself never leaves it before. */
+    secretHash: text('secret_hash').notNull(),
+    /** Eight digits the player tells the cashier. */
+    deskCode: text('desk_code').notNull(),
+    status: text('status').notNull().default('waiting'),
+    /** Rate-limit key of the client address that started it. */
+    requesterKey: text('requester_key'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    /** A waiting start is taken to a desk before this. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    check('pin_reset_starts_status', sql`${t.status} IN ('waiting', 'linked', 'done', 'closed')`),
+    check('pin_reset_starts_done', sql`(${t.status} = 'done') = (${t.completedAt} IS NOT NULL)`),
+    check('pin_reset_starts_desk_code', sql`${t.deskCode} ~ '^[0-9]{8}$'`),
+    uniqueIndex('pin_reset_starts_secret_uq').on(t.secretHash),
+    uniqueIndex('pin_reset_starts_desk_code_uq')
+      .on(t.deskCode)
+      .where(sql`${t.status} = 'waiting'`),
+    index('pin_reset_starts_phone_idx').on(t.phone, t.createdAt),
+    index('pin_reset_starts_requester_idx').on(t.requesterKey, t.createdAt),
+  ],
+);
+
+/**
+ * A desk code or ID number that matched no verified ID of the player (the review of 18 Nov: five a
+ * day per player, then the desk is refused until the oldest ages out). Why is kept for staff with
+ * audit access; the desk always got the same answer. Never deleted.
+ */
+export const cashPinResetTries = pgTable(
+  'cash_pin_reset_tries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => adminUsers.id),
+    shopId: uuid('shop_id').references(() => cashierShops.id),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    check(
+      'cash_pin_reset_tries_reason',
+      sql`${t.reason} IN ('desk_code', 'no_verified_id', 'id_number')`,
+    ),
+    index('cash_pin_reset_tries_user_idx').on(t.userId, t.createdAt),
+  ],
+);
+
+/**
+ * A PIN reset asked at a shop desk (cashier phase "assisted PIN reset"): the cashier typed the desk
+ * code from the player's phone and checked the ID card against the verified KYC record, a
+ * supervisor approves (four eyes), then only the player's browser that started it (start_id)
+ * sets the new PIN; the desk never sees a code. At most one open (requested or approved) request
+ * per player. Status `issued`: the player's browser set the PIN.
+ */
+export const cashPinResets = pgTable(
+  'cash_pin_resets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    shopId: uuid('shop_id').references(() => cashierShops.id),
+    requestedBy: uuid('requested_by')
+      .notNull()
+      .references(() => adminUsers.id),
+    status: text('status').notNull(),
+    approvedBy: uuid('approved_by').references(() => adminUsers.id),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    issuedAt: timestamp('issued_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    /** The player's start (their phone's secret); null only on requests from before 0075. */
+    startId: uuid('start_id').references(() => pinResetStarts.id),
+  },
+  (t) => [
+    uniqueIndex('cash_pin_resets_start_uq')
+      .on(t.startId)
+      .where(sql`${t.startId} IS NOT NULL`),
+    check(
+      'cash_pin_resets_status',
+      sql`${t.status} IN ('requested', 'approved', 'issued', 'rejected', 'expired')`,
+    ),
+    uniqueIndex('cash_pin_resets_open_uq')
+      .on(t.userId)
+      .where(sql`${t.status} IN ('requested', 'approved')`),
+    index('cash_pin_resets_status_idx').on(t.status, t.createdAt),
+  ],
+);
+
+/** Every cash operation at a desk: its receipt. The money moved through the intent or payout. */
+export const cashOperations = pgTable(
+  'cash_operations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The receipt number printed on the receipt. */
+    receiptNo: bigserial('receipt_no', { mode: 'number' }).notNull(),
+    shiftId: uuid('shift_id')
+      .notNull()
+      .references(() => cashierShifts.id, { onDelete: 'restrict' }),
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => cashierShops.id, { onDelete: 'restrict' }),
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    kind: cashOperationKind('kind').notNull(),
+    amount: bigint('amount', { mode: 'bigint' }).notNull(),
+    /** Deposits: the `cash` payment intent credited by this operation. */
+    paymentIntentId: uuid('payment_intent_id').references(() => paymentIntents.id, {
+      onDelete: 'restrict',
+    }),
+    /** Withdrawals: the `cash` payout paid by this operation. */
+    payoutId: uuid('payout_id').references(() => payouts.id, { onDelete: 'restrict' }),
+    /** The desk's key for this operation (one per receipt): a replay returns the same receipt. */
+    idempotencyKey: text('idempotency_key').notNull(),
+    /** Times the receipt was printed after the first print (reprints say COPY). */
+    reprints: integer('reprints').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    /**
+     * When the ORIGINAL receipt was printed (cashier phase "original receipt once"): set once by the
+     * first print; every later print is a counted copy (reprints). The guard refuses to change it.
+     */
+    originalPrintedAt: timestamp('original_printed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('cash_operations_receipt_no_uq').on(t.receiptNo),
+    uniqueIndex('cash_operations_idempotency_uq').on(t.idempotencyKey),
+    uniqueIndex('cash_operations_intent_uq')
+      .on(t.paymentIntentId)
+      .where(sql`${t.paymentIntentId} IS NOT NULL`),
+    uniqueIndex('cash_operations_payout_uq')
+      .on(t.payoutId)
+      .where(sql`${t.payoutId} IS NOT NULL`),
+    index('cash_operations_shift_idx').on(t.shiftId, t.createdAt),
+    index('cash_operations_user_idx').on(t.userId, t.createdAt),
+    check('cash_operations_amount_positive', sql`${t.amount} > 0`),
+    check('cash_operations_reprints_non_negative', sql`${t.reprints} >= 0`),
+    check(
+      'cash_operations_money_row',
+      sql`(${t.kind} = 'deposit' AND ${t.paymentIntentId} IS NOT NULL AND ${t.payoutId} IS NULL) OR (${t.kind} = 'withdrawal' AND ${t.payoutId} IS NOT NULL AND ${t.paymentIntentId} IS NULL)`,
+    ),
+  ],
+);
+
+/**
+ * One-time codes a player makes on their own phone to withdraw cash at a shop's desk (the cashier
+ * never learns a PIN). Only an HMAC of the code is stored; a newer code retires the older ones; a
+ * code dies after its expiry, its use, or too many wrong tries (attempts are counted in their own
+ * transaction, so a failed withdrawal cannot hide them).
+ */
+export const cashWithdrawalCodes = pgTable(
+  'cash_withdrawal_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index('cash_withdrawal_codes_user_idx').on(t.userId, t.createdAt),
+    check('cash_withdrawal_codes_attempts', sql`${t.attempts} >= 0`),
+  ],
+);

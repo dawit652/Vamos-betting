@@ -589,15 +589,15 @@ do, in one line of at most 160 characters with no personal data (`buildOwnerAler
 Nothing the alarming code does changes; the alert is added in the same transaction that opens the item
 (a small one of its own where the alarm was only a log line).
 
-| Alarm                                                                                                            | Written when                                               | Alert key                                    |
-| ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------- |
-| `source_broken` (shape, or invalid configuration)                                                                | the item opens                                             | `source_broken\|<source id>`                 |
-| `source_stale` (S5)                                                                                              | the item opens                                             | `source_stale\|<source id>`                  |
-| `budget_low`, `budget_exhausted`, `budget_projection`, `unauthorized`, `unexpected_cost` (4.8)                   | the item opens, or `budget_low` becomes `budget_exhausted` | `<reason>\|<credit key>`                     |
-| `rate_limit_low` (6.7a)                                                                                          | the item opens                                             | `rate_limit_low\|<key variable>`             |
-| `ladder_shadow_failed`                                                                                           | once per pass that fails                                   | `ladder_shadow_failed`                       |
-| `market_family_moved` (6.5a)                                                                                     | the weekly family job suspends, returns or ends a family   | `market_family_moved\|<family>\|<week>`      |
-| `sms_receipt_rejected`, `sms_balance_drift`, `sms_gateway_silent`, `sms_review_backlog`, `manual_payout_waiting` | the check finds it, at most once per interval and key      | `<alarm>` (plus the SMS, or the institution) |
+| Alarm                                                                                                                                        | Written when                                               | Alert key                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------- |
+| `source_broken` (shape, or invalid configuration)                                                                                            | the item opens                                             | `source_broken\|<source id>`                 |
+| `source_stale` (S5)                                                                                                                          | the item opens                                             | `source_stale\|<source id>`                  |
+| `budget_low`, `budget_exhausted`, `budget_projection`, `unauthorized`, `unexpected_cost` (4.8)                                               | the item opens, or `budget_low` becomes `budget_exhausted` | `<reason>\|<credit key>`                     |
+| `rate_limit_low` (6.7a)                                                                                                                      | the item opens                                             | `rate_limit_low\|<key variable>`             |
+| `ladder_shadow_failed`                                                                                                                       | once per pass that fails                                   | `ladder_shadow_failed`                       |
+| `market_family_moved` (6.5a)                                                                                                                 | the weekly family job suspends, returns or ends a family   | `market_family_moved\|<family>\|<week>`      |
+| `sms_receipt_rejected`, `sms_balance_drift`, `sms_gateway_silent`, `sms_review_backlog`, `manual_payout_waiting`, `manual_payout_claim_idle` | the check finds it, at most once per interval and key      | `<alarm>` (plus the SMS, or the institution) |
 
 `market_stale` and `odds_out_of_line` are per match and do not alert. Deduplication: the worker texts one
 key at most once per `OWNER_ALERT_MIN_INTERVAL_MINUTES` (default 30), counted from the time the alarm was
@@ -655,6 +655,17 @@ jk bb as ac ca cd ud sv fsv vfb vfl tsg ssc`, with a number just before one at t
 - **O1 Calibrated teams.** Both teams' `ratings` must carry `matches >=
 MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   ratings are never used to price real bets.
+- **O1h Board backing (18 Nov 2026, the owner's locked odds).** Teams that are not both calibrated
+  and a fresh Hulusport board linked to the event (switch `hulusport_pricing` on,
+  BOARD_PRICES_MAX_AGE_MS) that explains its own 1X2 and goal line (`boardGoalsFit`, the conditions
+  of O5): the WHOLE book is priced from the board's expected goals (`priceFootball`, then the
+  factory's markets from the same goals, then `boardRule` over the markets the board quotes), key
+  `brd1|<digest>` (`isBoardPricedKey`). It counts as a market price that backs opening: the re-price
+  takes it (A-1 waives the bound for the first one on a closed match without bets), the hand-over
+  closes `ratings_uncalibrated` and asks to open, F7b and a person may open it (O1m's
+  `backedByMarket` and `assertScrapedEventMayOpen` accept the board key in any competition), and A2
+  suspends it (`market_lapsed`) as soon as the board is no longer fresh. Calibrated teams keep the
+  model with `boardRule`.
 - **O1m Market backing (2026-11, R-1 of `docs/feed-quality-plan.md`).** Opening betting (F7b, a
   trader's "Open betting" and the Trading switch) needs O1 **or** O1m. O1m: its competition's policy
   takes market prices, the event's stored prices
@@ -924,6 +935,17 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   closed in one transaction that locks the event row, then its items, and checks the conditions
   again. Nothing else changes (no event, market, price, bet or `scrape_event_pricing`), and a second
   pass closes nothing.
+- **Q2 Stale review items.** The second part of the sweeper (`sweepStaleReviewItems`, right after Q1
+  in the promotion pass). Two cases, same style as Q1 (resolution `auto: <reason>`, resolved by the
+  scraper, audit `scrape.review.swept` with `rule: 'Q2'` per item, a transaction per subject or item
+  that locks and reads again, idempotent, nothing else changes):
+  `source_disabled`: `source_broken` and `source_stale` items on `source|<id>` whose `scrape_sources`
+  row does not exist or has `enabled = false` (other subjects, such as credit alarms, are left
+  alone); `name_not_seen`: `unknown_team` and `unknown_competition` items with
+  `updated_at < now - NAME_NOT_SEEN_MS` (7 days; `openReviewItem` moves `updated_at` on every sighting,
+  so no source showed the name for a week). The items are resolved, not dismissed: no
+  `payload.dismissals` is added, so a name that appears again opens a new item and N4 auto-aliasing
+  treats it as new.
 - **M1 Prices at betting close (2026-11, M-1 of `docs/feed-quality-plan.md`; measurement only).** The
   promotion pass (`captureClosePrices`, after F7b) records once, for every scraped, scheduled,
   unresulted event with betting open whose betting closes within `CLOSE_CAPTURE_WINDOW_MS` (10 min;

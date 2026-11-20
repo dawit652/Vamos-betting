@@ -5,16 +5,22 @@ import {
   RegisterRequest,
   ResendOtpRequest,
   ResetPasswordRequest,
+  ShopPinResetCompleteRequest,
+  ShopPinResetStartRequest,
+  ShopPinResetStatusRequest,
   VerifyOtpRequest,
   type OkResponse,
   type OtpSentResponse,
   type RegisterResponse,
   type SessionResponse,
   type SessionStateResponse,
+  type ShopPinResetStartResponse,
+  type ShopPinResetStatusResponse,
 } from '@vamos/contracts';
+import { pinResetSecretHash, shopPinResetStatus, startShopPinReset } from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
-import { parseInput } from '../../lib/errors';
+import { notFound, parseInput } from '../../lib/errors';
 import { warmUpPasswordHashing } from '../../lib/passwords';
 import { randomToken } from '../../lib/crypto';
 import { enforceLimit, loginPhoneLimitKey, restartLoginPhoneLimit } from '../../lib/rate-limits';
@@ -31,7 +37,9 @@ import {
   registerUser,
   requestPasswordReset,
   resendOtp,
+  requirePhone,
   resetPassword,
+  resetPasswordAtShop,
   verifyRegistration,
   type OtpDispatch,
   type RequestMeta,
@@ -87,6 +95,12 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     ...authLimits.loginPerPhone,
     keyGenerator: (request) => loginPhoneLimitKey(deps.redis, bodyPhone(request) ?? 'invalid'),
   });
+  // And per day: PINs have 10,000 values, so a number gets a handful of guesses a day.
+  const loginPerPhoneDaily = app.createRateLimit({
+    ...authLimits.loginPerPhoneDaily,
+    keyGenerator: (request) =>
+      loginPhoneLimitKey(deps.redis, bodyPhone(request) ?? 'invalid', 'day'),
+  });
 
   const clientLimit = async (request: FastifyRequest, reply: FastifyReply) => {
     await enforceLimit(perClient, request, reply);
@@ -94,7 +108,10 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   const loginLimits = async (request: FastifyRequest, reply: FastifyReply) => {
     await enforceLimit(perClient, request, reply);
     // A malformed number cannot match an account; it shares no budget with real ones.
-    if (bodyPhone(request) !== null) await enforceLimit(loginPerPhone, request, reply);
+    if (bodyPhone(request) !== null) {
+      await enforceLimit(loginPerPhone, request, reply);
+      await enforceLimit(loginPerPhoneDaily, request, reply);
+    }
   };
 
   /** Answers with the body and sends the SMS, if any, after the response. */
@@ -183,17 +200,101 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       // Whoever holds the SMS code is the owner: lift the per-number login lock a
       // stranger may hold with wrong passwords, so the new password works at once.
       const phone = bodyPhone(request);
-      if (phone !== null) {
-        await restartLoginPhoneLimit(
-          deps.redis,
-          phone,
-          authLimits.loginPerPhone,
-          randomToken(deps.randomBytes, 9),
-        );
-      }
+      if (phone !== null) await liftLoginLock(phone);
       // Every session of the account was revoked, including any on this device.
       clearSessionCookies(reply, deps.config);
       return { ok: true };
     },
   );
+
+  // Forgot PIN at a shop (cashier phase "assisted PIN reset", redesigned after the review of
+  // 18 Nov): off until CASHIER_PIN_RESET=on. The browser keeps a secret and sends only its hash
+  // to start; the secret goes in the bodies of the status and the completion, never in a URL.
+  const shopReset = () => {
+    if (!deps.config.payments.deskPinReset) throw notFound('PIN reset');
+  };
+  // The phone polls its status: a budget of its own, not the sign-in pages' one.
+  const shopResetStatusLimit = app.createRateLimit({
+    max: 600,
+    timeWindow: 15 * MINUTE_MS,
+    keyGenerator: (request) => `shop-reset-status|${clientAddressKey(request.ip)}`,
+  });
+  const shopResetCompleteLimit = app.createRateLimit({
+    max: 20,
+    timeWindow: HOUR_MS,
+    keyGenerator: (request) => `shop-reset-complete|${clientAddressKey(request.ip)}`,
+  });
+
+  /** The same answer whether or not the number has an account. */
+  app.post(
+    '/auth/password/shop-reset',
+    { preHandler: clientLimit, config: phoneRateLimit(5, HOUR_MS) },
+    async (request): Promise<ShopPinResetStartResponse> => {
+      shopReset();
+      const input = parseInput(ShopPinResetStartRequest, request.body);
+      const phone = requirePhone(input.phone);
+      const start = await deps.db.transaction((tx) =>
+        startShopPinReset(tx, {
+          phone,
+          secretHash: input.secretHash,
+          requesterKey: clientAddressKey(request.ip),
+          now: deps.clock(),
+        }),
+      );
+      return { deskCode: start.deskCode, expiresAt: start.expiresAt.toISOString() };
+    },
+  );
+
+  app.post(
+    '/auth/password/shop-reset/status',
+    {
+      preHandler: async (request: FastifyRequest, reply: FastifyReply) => {
+        await enforceLimit(shopResetStatusLimit, request, reply);
+      },
+    },
+    async (request): Promise<ShopPinResetStatusResponse> => {
+      shopReset();
+      const input = parseInput(ShopPinResetStatusRequest, request.body);
+      const status = await shopPinResetStatus(deps.db, {
+        secretHash: pinResetSecretHash(input.secret),
+        now: deps.clock(),
+      });
+      if (status === null) throw notFound('PIN reset');
+      return {
+        state: status.state,
+        deskCode: status.deskCode,
+        until: status.until === null ? null : status.until.toISOString(),
+      };
+    },
+  );
+
+  app.post(
+    '/auth/password/shop-reset/complete',
+    {
+      preHandler: async (request: FastifyRequest, reply: FastifyReply) => {
+        await enforceLimit(perClient, request, reply);
+        await enforceLimit(shopResetCompleteLimit, request, reply);
+      },
+    },
+    async (request, reply): Promise<OkResponse> => {
+      shopReset();
+      const input = parseInput(ShopPinResetCompleteRequest, request.body);
+      const { deliver, phone } = await resetPasswordAtShop(deps, input, requestMeta(request));
+      app.background.run('password_changed_sms', deliver);
+      // The shop checked the ID and a supervisor approved: the new PIN works at once.
+      await liftLoginLock(phone);
+      clearSessionCookies(reply, deps.config);
+      return { ok: true };
+    },
+  );
+
+  /** Restarts the number's sign-in counts (after a reset by its owner). */
+  async function liftLoginLock(phone: string): Promise<void> {
+    // The epoch must outlive the longer (daily) window counted under the previous one.
+    const longer =
+      authLimits.loginPerPhoneDaily.timeWindow > authLimits.loginPerPhone.timeWindow
+        ? authLimits.loginPerPhoneDaily
+        : authLimits.loginPerPhone;
+    await restartLoginPhoneLimit(deps.redis, phone, longer, randomToken(deps.randomBytes, 9));
+  }
 }

@@ -1,6 +1,12 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { buildOwnerAlert, OWNER_ALERT_MAX_LENGTH, type OwnerAlertInput } from './owner-alert';
+import {
+  buildOwnerAlert,
+  OWNER_ALERT_MAX_LENGTH,
+  OWNER_ALERT_POLICY,
+  ownerAlertDelivery,
+  type OwnerAlertInput,
+} from './owner-alert';
 
 /** One input per alarm (with both reasons or directions where the wording differs). */
 const SAMPLES: readonly OwnerAlertInput[] = [
@@ -27,9 +33,18 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   { alarm: 'sms_receipt_rejected', smsId: '0b0c7f5e-3c55-4a8e-9d36-3f1b6a5a8e11' },
   { alarm: 'sms_balance_drift', institution: 'telebirr', direction: 'credited_more_than_arrived' },
   { alarm: 'sms_balance_drift', institution: 'cbe', direction: 'missed_incoming' },
+  { alarm: 'payout_float_low', institution: 'telebirr' },
   { alarm: 'sms_gateway_silent' },
+  { alarm: 'sms_account_silent', account: 'telebirr:0911000001' },
+  { alarm: 'sms_handset_heartbeat_missed', account: 'telebirr:0911000001' },
+  { alarm: 'sms_handset_battery_low', account: 'telebirr:0911000001' },
   { alarm: 'sms_review_backlog' },
   { alarm: 'manual_payout_waiting' },
+  { alarm: 'manual_payout_claim_idle' },
+  { alarm: 'collection_account_changed', account: 'cbe:1000123456789', change: 'requested' },
+  { alarm: 'collection_account_changed', account: 'cbe:1000123456789', change: 'approved' },
+  { alarm: 'collection_account_changed', account: 'cbe:1000123456789', change: 'edited' },
+  { alarm: 'collection_account_changed', account: 'cbe:1000123456789', change: 'deleted' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'suspend', week: '2026-W45' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'return', week: '2026-W48' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'off', week: '2026-W52' },
@@ -153,7 +168,41 @@ describe('buildOwnerAlert', () => {
     });
     expect(message).not.toMatch(/\d{5,}/);
     expect(message).not.toContain('0b0c7f5e');
-    expect(key).toContain('0b0c7f5e');
+    // One key for every contradicted SMS: a summary, never a text per deposit (owner, 20 Nov).
+    expect(key).toBe('sms_receipt_rejected');
+  });
+
+  it('texts only the important alarms, and money alarms at most every few hours', () => {
+    const minute = 60_000;
+    const hour = 60 * minute;
+    for (const alarm of [
+      'sms_handset_heartbeat_missed',
+      'sms_handset_battery_low',
+      'sms_review_backlog',
+      'manual_payout_claim_idle',
+    ] as const) {
+      expect(OWNER_ALERT_POLICY[alarm].send, alarm).toBe(false);
+    }
+    for (const alarm of [
+      'sms_gateway_silent',
+      'sms_account_silent',
+      'manual_payout_waiting',
+      'payout_float_low',
+      'sms_receipt_rejected',
+      'sms_balance_drift',
+    ] as const) {
+      expect(OWNER_ALERT_POLICY[alarm].send, alarm).toBe(true);
+      expect(OWNER_ALERT_POLICY[alarm].repeatMs, alarm).toBeGreaterThanOrEqual(6 * hour);
+    }
+    // A configured interval only ever lengthens the alarm's own window.
+    expect(ownerAlertDelivery({ alarm: 'sms_gateway_silent' }, 3 * minute)).toEqual({
+      send: true,
+      intervalMs: 6 * hour,
+    });
+    expect(ownerAlertDelivery({ alarm: 'sms_gateway_silent' }, 12 * hour).intervalMs).toBe(
+      12 * hour,
+    );
+    expect(ownerAlertDelivery({ alarm: 'sms_review_backlog' }, 30 * minute).send).toBe(false);
   });
 
   it('uses the singular for one day', () => {
@@ -198,6 +247,10 @@ describe('buildOwnerAlert', () => {
         ),
       }),
       fc.record({ alarm: fc.constant('sms_receipt_rejected' as const), smsId: textArb }),
+      fc.record({ alarm: fc.constant('payout_float_low' as const), institution: textArb }),
+      fc.record({ alarm: fc.constant('sms_account_silent' as const), account: textArb }),
+      fc.record({ alarm: fc.constant('sms_handset_heartbeat_missed' as const), account: textArb }),
+      fc.record({ alarm: fc.constant('sms_handset_battery_low' as const), account: textArb }),
     );
     fc.assert(
       fc.property(inputArb, (input) => {

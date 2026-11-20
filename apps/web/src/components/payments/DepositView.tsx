@@ -201,6 +201,9 @@ function DepositForm({
   const providers = options.providers.filter((p) => p.deposits).map((p) => p.name);
   const defaultProvider = pickProvider(options, 'deposits');
   const [provider, setProvider] = useState<PaymentProviderName | null>(defaultProvider);
+  // SMS rail: the institution the player pays through; the server picks an account within it.
+  const methods = options.smsRail?.methods ?? [];
+  const [institution, setInstitution] = useState<string | null>(methods[0]?.institution ?? null);
   const [input, setInput] = useState(formatWholeBirr(DEPOSIT_QUICK_AMOUNTS[1] ?? '10000'));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Message | null>(null);
@@ -225,9 +228,17 @@ function DepositForm({
     setAmountError(undefined);
     setError(null);
     setBusy(true);
-    const key = depositKeys.get(`${provider}:${checked.amount}`);
+    const chosen = provider === 'sms' && institution !== null ? institution : undefined;
+    const key = depositKeys.get(`${provider}:${chosen ?? ''}:${checked.amount}`);
     try {
-      const deposit = await paymentsApi.createDeposit({ amount: checked.amount, provider }, key);
+      const deposit = await paymentsApi.createDeposit(
+        {
+          amount: checked.amount,
+          provider,
+          ...(chosen === undefined ? {} : { institution: chosen }),
+        },
+        key,
+      );
       depositKeys.clear();
       onCreated(deposit);
     } catch (e) {
@@ -309,6 +320,22 @@ function DepositForm({
           onChange={setProvider}
         />
       </Field>
+      {provider === 'sms' && methods.length > 1 ? (
+        <Field id="deposit-institution" label={t('account.payments.deposit.transfer.payWith')}>
+          <select
+            id="deposit-institution"
+            className="input"
+            value={institution ?? ''}
+            onChange={(event) => setInstitution(event.target.value)}
+          >
+            {methods.map((m) => (
+              <option key={m.institution} value={m.institution}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
       {error ? <Alert>{t(error.key, error.vars)}</Alert> : null}
       <button type="submit" className="btn btn-accent w-full" disabled={busy}>
         {busy

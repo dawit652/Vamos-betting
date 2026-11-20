@@ -18,11 +18,20 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/risk', label: 'Risk', permission: 'risk.view' },
   { href: '/bets', label: 'Bets', permission: 'bets.view' },
   { href: '/withdrawals', label: 'Withdrawals', permission: 'withdrawals.view' },
+  { href: '/retail-payouts', label: 'Ticket payouts', permission: 'withdrawals.approve' },
   { href: '/manual-payouts', label: 'Manual payouts', permission: 'payouts.settle_manual' },
+  { href: '/cashier', label: 'Cashier desk', permission: 'cashier.desk' },
+  { href: '/cashier/shifts', label: 'Cash shifts', permission: 'cashier.reports' },
+  { href: '/agents', label: 'Agents', permission: 'agents.view' },
+  { href: '/statements', label: 'Statements', permission: 'agents.view' },
+  { href: '/retail-monitor', label: 'Shop monitor', permission: 'agents.view' },
+  { href: '/retail-alerts', label: 'Shop alerts', permission: 'agents.view' },
   { href: '/sms', label: 'SMS rail', permission: 'sms.review' },
+  { href: '/collection-accounts', label: 'Deposit accounts', permission: 'sms.review' },
   { href: '/jackpots', label: 'Jackpots', permission: 'jackpots.view' },
   { href: '/compliance/reconciliation', label: 'Reconciliation', permission: 'reports.view' },
   { href: '/compliance/aml', label: 'AML flags', permission: 'aml.review' },
+  { href: '/staff', label: 'Staff', permission: 'staff.manage' },
   { href: '/settings', label: 'Settings', permission: 'settings.view' },
   { href: '/channels', label: 'Channels', permission: 'settings.view' },
   { href: '/audit', label: 'Audit log', permission: 'audit.view' },
@@ -49,4 +58,9 @@ export function permissionForPath(pathname: string): string | null {
 export function canView(permissions: readonly string[], pathname: string): boolean {
   const needed = permissionForPath(pathname);
   return needed === null || permissions.includes(needed);
+}
+
+/** Where a staff member lands after sign-in: the first page they can see, else their account. */
+export function homeFor(permissions: readonly string[]): string {
+  return navFor(permissions)[0]?.href ?? '/account';
 }

@@ -1,5 +1,5 @@
-import type { OwnerAlertsConfig } from '@vamos/config';
-import { buildOwnerAlert, type OwnerAlertInput } from '@vamos/core';
+import { ownerAlertTargetCount, type OwnerAlertTargets } from '@vamos/config';
+import { buildOwnerAlert, OWNER_ALERT_POLICY, type OwnerAlertInput } from '@vamos/core';
 import type { DbExecutor } from '../ledger/types';
 import { enqueueOutbox } from './outbox';
 
@@ -14,27 +14,33 @@ export interface OwnerAlertPayload {
   message: string;
   /** ISO time the alarm was raised: the dedupe window runs on this, not on delivery time. */
   raisedAt: string;
+  /** The alarm's least time between two texts (OWNER_ALERT_POLICY): the sender keeps to it. */
+  repeatMs?: number;
 }
 
 /**
  * Raises an alert for an alarm: writes an `owner.alert` outbox row. Call it with the transaction
  * that opens the alarm's review item (or its own small one where the alarm was only a log line), so
- * the alert exists if and only if the alarm does. It writes nothing while no owner number is
- * configured (OWNER_ALERT_PHONES empty, the default), so a deployment without alerts is unchanged.
+ * the alert exists if and only if the alarm does. It writes nothing while no owner number or
+ * Telegram chat is configured (OWNER_ALERT_PHONES and TELEGRAM_OWNER_CHAT_IDS empty, the default), so a deployment without alerts is unchanged.
  * Returns whether a row was written. The worker texts every number once per key and interval.
  */
 export async function enqueueOwnerAlert(
   exec: DbExecutor,
-  ownerAlerts: Pick<OwnerAlertsConfig, 'phones'>,
+  ownerAlerts: OwnerAlertTargets,
   input: OwnerAlertInput,
   now: Date,
 ): Promise<boolean> {
-  if (ownerAlerts.phones.length === 0) return false;
+  if (ownerAlertTargetCount(ownerAlerts) === 0) return false;
+  // Staff-only alarms are never texted to the owner (OWNER_ALERT_POLICY).
+  const policy = OWNER_ALERT_POLICY[input.alarm];
+  if (!policy.send) return false;
   const alert = buildOwnerAlert(input);
   const payload: OwnerAlertPayload = {
     key: alert.key,
     message: alert.message,
     raisedAt: now.toISOString(),
+    repeatMs: policy.repeatMs,
   };
   await enqueueOutbox(exec, {
     type: OWNER_ALERT,

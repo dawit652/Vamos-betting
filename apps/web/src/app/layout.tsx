@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from 'next';
 import { cookies } from 'next/headers';
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import { BetslipHost } from '@/components/betslip/BetslipHost';
 import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
 import { DemoBanner } from '@/components/shell/DemoBanner';
 import { Footer } from '@/components/shell/Footer';
 import { Header } from '@/components/shell/Header';
+import { NavigationProgress } from '@/components/shell/NavigationProgress';
 import { pickNamespaces } from '@/i18n/ClientMessages';
 import { withoutBetslipMessages } from '@/i18n/subsets';
 import { getLocale, getMessages } from '@/i18n/server';
@@ -77,6 +78,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           messages={withoutBetslipMessages(pickNamespaces(messages, ROOT_CLIENT_NAMESPACES))}
           hasSessionCookie={cookieStore.has(CSRF_COOKIE)}
         >
+          <Suspense fallback={null}>
+            <NavigationProgress />
+          </Suspense>
           <div className="sticky top-0 z-30">
             <Header theme={theme} />
             <DemoBanner />
