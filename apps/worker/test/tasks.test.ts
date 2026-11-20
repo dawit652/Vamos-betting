@@ -171,6 +171,7 @@ describe('createTasks', () => {
     'ussd-session-prune',
     'retail-ticket-expiry',
     'agent-statements',
+    'retail-alerts',
     'retention-prune',
     'outbox-dispatch',
   ];

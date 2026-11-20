@@ -1,4 +1,7 @@
 import {
+  RetailAlertListResponse,
+  RetailAlertQuery,
+  RetailAlertResponse,
   RetailMonitorQuery,
   RetailMonitorResponse,
   AgentDetailResponse,
@@ -42,6 +45,8 @@ import {
   createShop,
   decideAgentTopup,
   getAgent,
+  acknowledgeRetailAlert,
+  listRetailAlerts,
   listAgentBalances,
   listMonitorAgentDays,
   listMonitorTickets,
@@ -563,4 +568,29 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
     });
     return wire(RetailMonitorResponse, { day, tickets, agents: agentsView });
   });
+
+  // Alerts (phase 5 step 4): raised by the worker; whoever watches the shops acknowledges them.
+  app.get('/admin/retail/alerts', { config: { staff: 'agents.view' } }, async (request) => {
+    const query = parseInput(RetailAlertQuery, request.query);
+    const items = await listRetailAlerts(deps.db, { open: query.open === 'true', limit: 500 });
+    return wire(RetailAlertListResponse, { items });
+  });
+
+  app.post<IdParams>(
+    '/admin/retail/alerts/:id/acknowledge',
+    { config: { staff: 'agents.view' } },
+    async (request) => {
+      const alertId = parseUuid(request.params.id, 'Alert');
+      const actor = staffActor(request);
+      const alert = await inTx(deps, (tx) =>
+        acknowledgeRetailAlert(tx, {
+          alertId,
+          staffId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      return wire(RetailAlertResponse, { alert });
+    },
+  );
 }

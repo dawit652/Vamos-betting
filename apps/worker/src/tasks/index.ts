@@ -46,6 +46,7 @@ import { telegramBotTask, type TelegramBotTaskOptions } from '../telegram/task';
 import { userNotifyTask, type UserNotifyOptions } from './user-notify';
 import { ussdPruneTask, type UssdPruneOptions } from './ussd-prune';
 import { agentStatementsTask } from './agent-statements';
+import { retailAlertsTask } from './retail-alerts';
 import { retailExpiryTask } from './retail-expiry';
 import {
   settlementSweepTask,
@@ -138,6 +139,8 @@ export function createTasks(
     retailExpiryTask(ctx),
     // Agents' weekly statements (Monday to Sunday, Addis Ababa time), made once the week closed.
     agentStatementsTask(ctx),
+    // Alerts about the agent shops (big wins, repeated picks, cancels, late tickets, balances...).
+    retailAlertsTask(ctx),
     retentionPruneTask(ctx, options.retentionPrune),
     // The SMS rail's receipt audit, balance reconciliation and watch (only with `sms`).
     ...smsRailTasks(ctx, options.smsRail),

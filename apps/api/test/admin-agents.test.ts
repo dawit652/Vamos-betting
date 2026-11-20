@@ -4,6 +4,8 @@ import {
   AgentDetailResponse,
   AgentStatementListResponse,
   AgentStatementResponse,
+  RetailAlertListResponse,
+  RetailAlertResponse,
   RetailMonitorResponse,
   AgentListResponse,
   AgentResponse,
@@ -15,6 +17,8 @@ import {
 import {
   assignStaffShop,
   generateAgentStatements,
+  RETAIL_ALERT_RULES,
+  scanRetailAlerts,
   hashDeviceSecret,
   requestShopDevice,
 } from '@vamos/db';
@@ -304,5 +308,39 @@ describe('the live monitor', () => {
     expect((await asStaff(ctx, admin, 'GET', '/admin/retail/monitor?limit=500')).statusCode).toBe(
       400,
     );
+  });
+});
+
+describe('retail alerts', () => {
+  it('lists the open alerts and lets whoever watches the shops acknowledge one', async () => {
+    // An agent with an open shop and no balance: a low-balance alert.
+    const { agent } = AgentResponse.parse(
+      (
+        await asStaff(ctx, admin, 'POST', '/admin/agents', { ...newAgent, name: 'Alert Agent' })
+      ).json(),
+    );
+    await asStaff(ctx, admin, 'POST', `/admin/agents/${agent.id}/shops`, {
+      name: 'Alert shop',
+      address: '',
+      receiptWidthMm: 80,
+      approvalThreshold: '1000000',
+    });
+    await ctx.deps.db.transaction((tx) => scanRetailAlerts(tx, ctx.clock.now, RETAIL_ALERT_RULES));
+    const open = RetailAlertListResponse.parse(
+      (await asStaff(ctx, finance, 'GET', '/admin/retail/alerts')).json(),
+    );
+    const low = open.items.find((a) => a.kind === 'low_balance' && a.agentId === agent.id);
+    expect(low).toMatchObject({ acknowledgedAt: null });
+    const done = await asStaff(ctx, finance, 'POST', `/admin/retail/alerts/${low!.id}/acknowledge`);
+    expect(RetailAlertResponse.parse(done.json()).alert.acknowledgedBy).toBe(finance.id);
+    const after = RetailAlertListResponse.parse(
+      (await asStaff(ctx, finance, 'GET', '/admin/retail/alerts')).json(),
+    );
+    expect(after.items.some((a) => a.id === low!.id)).toBe(false);
+    const all = RetailAlertListResponse.parse(
+      (await asStaff(ctx, finance, 'GET', '/admin/retail/alerts?open=false')).json(),
+    );
+    expect(all.items.some((a) => a.id === low!.id)).toBe(true);
+    expect((await asStaff(ctx, cashier, 'GET', '/admin/retail/alerts')).statusCode).toBe(403);
   });
 });

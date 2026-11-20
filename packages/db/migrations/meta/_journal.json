@@ -519,6 +519,13 @@
       "when": 1795146106120,
       "tag": "0073_retail_monitor_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1795146275528,
+      "tag": "0074_retail_alerts",
+      "breakpoints": true
     }
   ]
 }

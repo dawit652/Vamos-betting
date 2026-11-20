@@ -367,3 +367,43 @@ export const RetailMonitorResponse = z.object({
   agents: z.array(MonitorAgentView),
 });
 export type RetailMonitorResponse = z.infer<typeof RetailMonitorResponse>;
+
+// ---------------------------------------------------------------------------
+// Alerts about the agent shops (docs/plans/agent-shops.md, "Phase 5 design", step 4).
+
+export const RetailAlertKindSchema = z.enum([
+  'big_win',
+  'repeated_picks',
+  'many_cancels',
+  'late_ticket',
+  'low_balance',
+  'payout_waiting',
+  'device_waiting',
+]);
+export type RetailAlertKind = z.infer<typeof RetailAlertKindSchema>;
+
+export const RetailAlertView = z.object({
+  id: z.string(),
+  kind: RetailAlertKindSchema,
+  agentId: z.string().nullable(),
+  shopId: z.string().nullable(),
+  /** What it is about: ticket number and amounts, cashier, device, balance (by kind). */
+  details: z.record(z.string(), z.unknown()),
+  createdAt: IsoDateTime,
+  acknowledgedAt: IsoDateTime.nullable(),
+  acknowledgedBy: z.string().nullable(),
+});
+export type RetailAlertView = z.infer<typeof RetailAlertView>;
+
+/** GET /admin/retail/alerts?open=true|false (agents.view): newest first, open only by default. */
+export const RetailAlertQuery = z
+  .object({ open: z.enum(['true', 'false']).default('true') })
+  .strict();
+export type RetailAlertQuery = z.infer<typeof RetailAlertQuery>;
+
+export const RetailAlertListResponse = z.object({ items: z.array(RetailAlertView) });
+export type RetailAlertListResponse = z.infer<typeof RetailAlertListResponse>;
+
+/** POST /admin/retail/alerts/:id/acknowledge (agents.view): seen by staff (audited). */
+export const RetailAlertResponse = z.object({ alert: RetailAlertView });
+export type RetailAlertResponse = z.infer<typeof RetailAlertResponse>;
