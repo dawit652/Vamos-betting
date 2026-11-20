@@ -8,6 +8,9 @@ import {
   businessDaysBetween,
   businessDayWindow,
   isBusinessDate,
+  businessWeekStartOf,
+  businessWeekWindow,
+  isBusinessWeekStart,
 } from './businessday';
 
 describe('business days (Africa/Addis_Ababa, UTC+3)', () => {
@@ -63,6 +66,41 @@ describe('business days (Africa/Addis_Ababa, UTC+3)', () => {
         expect(businessDateOf(end)).toBe(addBusinessDays(date, 1));
         expect(isBusinessDate(date)).toBe(true);
       }),
+    );
+  });
+});
+
+describe('business weeks', () => {
+  it('start on the Monday of the Addis Ababa calendar', () => {
+    // Sunday 2026-11-15 20:59 UTC is still Sunday 23:59 in Addis; 21:00 UTC is Monday 00:00.
+    expect(businessWeekStartOf(new Date('2026-11-15T20:59:59.999Z'))).toBe('2026-11-09');
+    expect(businessWeekStartOf(new Date('2026-11-15T21:00:00.000Z'))).toBe('2026-11-16');
+    expect(businessWeekStartOf(new Date('2026-11-19T12:00:00.000Z'))).toBe('2026-11-16');
+    expect(isBusinessWeekStart('2026-11-16')).toBe(true);
+    expect(isBusinessWeekStart('2026-11-17')).toBe(false);
+    expect(isBusinessWeekStart('2026-02-30')).toBe(false);
+  });
+
+  it('last seven days from Monday 00:00 Addis time', () => {
+    expect(businessWeekWindow('2026-11-16')).toEqual({
+      start: new Date('2026-11-15T21:00:00.000Z'),
+      end: new Date('2026-11-22T21:00:00.000Z'),
+    });
+    expect(() => businessWeekWindow('2026-11-17')).toThrow(RangeError);
+  });
+
+  it('put every instant inside the window of its own week', () => {
+    fc.assert(
+      fc.property(
+        fc.date({ min: new Date('1971-01-01'), max: new Date('2100-01-01'), noInvalidDate: true }),
+        (instant) => {
+          const week = businessWeekStartOf(instant);
+          expect(isBusinessWeekStart(week)).toBe(true);
+          const { start, end } = businessWeekWindow(week);
+          expect(start.getTime() <= instant.getTime()).toBe(true);
+          expect(instant.getTime() < end.getTime()).toBe(true);
+        },
+      ),
     );
   });
 });

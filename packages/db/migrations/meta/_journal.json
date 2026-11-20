@@ -505,6 +505,13 @@
       "when": 1795141510078,
       "tag": "0071_retail_payouts",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795145436811,
+      "tag": "0072_agent_statements",
+      "breakpoints": true
     }
   ]
 }

@@ -513,6 +513,50 @@ state), `POST /shop/desk/tickets/payouts` (pay, idempotency key), the payout sli
 approve, refuse). **Step 3:** the pay screen (scan or type; barcode scanners type the number and
 Enter), the payout slip, the back office's waiting list. **Step 4:** the worker's expiry task, e2e.
 
+## Phase 5 design (statements and commission, live monitor, alerts; written 20 Nov from the code)
+
+The owner's answers settle the money side: commission is set per agent, counted weekly, and **paid
+by the admin outside the system** (the top-up question's "commission into balance" was not chosen;
+top-ups are cash or bank at HQ only). So a statement is a report plus a "paid" record: no ledger
+posting. Weeks are Monday 00:00 to Monday 00:00, Addis Ababa time (UTC+3), like the cash reports.
+
+1. **Statements (database and worker).** Table `agent_statements` (agent, `week_start` date, unique
+   together; the figures below, fixed when made; the agent's commission kind and basis points at
+   that moment; the commission; `paid_at`, `paid_by`, `paid_reference`; never deleted, only the
+   paid columns change, once). Figures, all santim, for the agent's shops in the week:
+   - tickets sold (count, stakes) by `retail_tickets.sold_at`; cancelled (count, stakes) by
+     `cancelled_at`;
+   - settled: the stakes and the gross payouts (`bets.settled_gross_payout`) of the agent's tickets
+     whose bet settled in the week (`bets.settled_at`), voids left out of both; **GGR** = settled
+     stakes - settled gross payouts (can be negative);
+   - paid at the counter (count, `paid_amount`) by `paid_at`; expired winners (count, net payout) by
+     `expired_at`;
+   - player cash at the agent's shops (`cash_operations`, deposits and withdrawals) by `created_at`;
+   - the agent balance at the week's start and end (the ledger entries of `agent:<id>:balance`
+     before each moment).
+     Commission (pure, `packages/core`, unit and property tests): `stake` kind: (sold stakes -
+     cancelled stakes) x bps / 10000; `ggr` kind: max(0, GGR) x bps / 10000; rounded down. A worker
+     task makes last week's statements for every independent agent (not HQ) every hour from Monday
+     01:00 Addis time on (idempotent: one per agent and week), so a missed run catches up.
+2. **Back office.** `agents.view` reads, `agents.manage` marks paid: a Statements page (a week
+   picker, one row per agent with the figures and the commission, CSV export, "Mark paid" with the
+   payment reference, audited) and the agent page's last weeks. The owner's overview in the shop
+   app shows the owner's own statements (read-only).
+3. **Live monitor.** A back-office page polling every 15 s: the newest tickets of every shop
+   (filter by agent, shop, cashier: number, shop, cashier, stake, possible win, status, time) and
+   today's sales, cancels, payouts and balance per agent. Read-only queries on the indexes that
+   exist (`retail_tickets_agent_sold_idx`, `retail_tickets_shop_sold_idx`).
+4. **Alerts.** Table `retail_alerts` (kind, agent, shop, ticket or staff, details, a dedup key per
+   kind and subject and day, `acknowledged_at`/`by`); a worker task every 5 minutes raises: a
+   possible win above a threshold (setting, default ETB 100,000), the same selections sold 3 or more
+   times across shops within 2 hours, 5 or more cancels by one cashier in a day, a ticket sold within
+   2 minutes of its first kick-off, an agent balance below a threshold (setting, default ETB 1,000),
+   a payout waiting for HQ longer than 30 minutes, a device waiting for approval. Each new alert is
+   also one `error` log line with an `alarm` field (the repository's alarm convention). A
+   back-office Alerts page lists them with Acknowledge.
+
+Build order: 1, 2, 3, 4; each step committed with its tests.
+
 ## Defaults chosen here (all adjustable by an admin)
 
 Maximum win per ticket ETB 500,000 (as online today); maximum stake ETB 100,000 (as online); HQ

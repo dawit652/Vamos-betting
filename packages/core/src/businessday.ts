@@ -94,3 +94,36 @@ export function businessDatesBetween(from: string, to: string, maxDays = 3660): 
   for (let day = first; day <= last; day += 1) dates.push(dateOfEpochDay(day));
   return dates;
 }
+
+/** Days in a business week (Monday to Sunday, Addis Ababa calendar). */
+export const BUSINESS_WEEK_DAYS = 7;
+
+/** Monday (0) to Sunday (6) of an epoch day: 1970-01-01 was a Thursday (3). */
+function weekdayOf(day: number): number {
+  return (((day + 3) % 7) + 7) % 7;
+}
+
+/** True for a business date that is a Monday (the first day of a business week). */
+export function isBusinessWeekStart(text: unknown): text is string {
+  if (!isBusinessDate(text)) return false;
+  return weekdayOf(assertBusinessDate(text)) === 0;
+}
+
+/**
+ * The business week an instant falls in, named by its Monday (`YYYY-MM-DD`, Addis Ababa calendar):
+ * agents' weekly statements (docs/plans/agent-shops.md, phase 5) run Monday to Sunday.
+ */
+export function businessWeekStartOf(instant: Date): string {
+  const day = assertBusinessDate(businessDateOf(instant));
+  return dateOfEpochDay(day - weekdayOf(day));
+}
+
+/** The instants of the business week starting on Monday `weekStart`: [start, end), 7 days. */
+export function businessWeekWindow(weekStart: string): { start: Date; end: Date } {
+  const day = epochDay(weekStart);
+  if (day === null || day < 0 || weekdayOf(day) !== 0) {
+    throw new RangeError(`not a Monday (YYYY-MM-DD): ${weekStart}`);
+  }
+  const { start } = businessDayWindow(weekStart);
+  return { start, end: new Date(start.getTime() + BUSINESS_WEEK_DAYS * BUSINESS_DAY_MS) };
+}

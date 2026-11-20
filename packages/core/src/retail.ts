@@ -72,3 +72,26 @@ export function formatBpsPercent(bps: number): string {
   if (fraction === 0) return String(whole);
   return `${whole}.${String(fraction).padStart(2, '0').replace(/0$/, '')}`;
 }
+
+/** How an agent's commission is counted (the admin sets it per agent). */
+export type AgentCommissionKind = 'stake' | 'ggr';
+
+/**
+ * An agent's commission for one week (docs/plans/agent-shops.md, phase 5): `stake` = the stakes
+ * sold minus the stakes cancelled, `ggr` = the week's GGR (settled stakes minus settled gross
+ * payouts), nothing for a week below zero; times `bps` / 10000, rounded down. Never negative.
+ */
+export function agentCommission(input: {
+  kind: AgentCommissionKind;
+  bps: number;
+  soldStakes: bigint;
+  cancelledStakes: bigint;
+  ggr: bigint;
+}): bigint {
+  if (!Number.isInteger(input.bps) || input.bps < 0 || input.bps > 10_000) {
+    throw new RangeError(`bad commission basis points ${input.bps}`);
+  }
+  const base = input.kind === 'stake' ? input.soldStakes - input.cancelledStakes : input.ggr;
+  if (base <= 0n) return 0n;
+  return (base * BigInt(input.bps)) / 10_000n;
+}

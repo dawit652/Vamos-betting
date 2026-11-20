@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  agentCommission,
   FIRST_AGENT_NUMBER,
   formatBpsPercent,
   formatShopLabel,
@@ -77,6 +78,47 @@ describe('commission percent', () => {
       fc.property(fc.integer({ min: 0, max: 10_000 }), (bps) => {
         expect(parsePercentBps(formatBpsPercent(bps))).toBe(bps);
       }),
+    );
+  });
+});
+
+describe('agent commission', () => {
+  const week = { soldStakes: 100_000n, cancelledStakes: 10_000n, ggr: 25_000n };
+
+  it('counts stake commission on the stakes sold less the stakes cancelled', () => {
+    expect(agentCommission({ kind: 'stake', bps: 500, ...week })).toBe(4_500n);
+  });
+
+  it('counts GGR commission, with nothing for a losing week', () => {
+    expect(agentCommission({ kind: 'ggr', bps: 1_000, ...week })).toBe(2_500n);
+    expect(agentCommission({ kind: 'ggr', bps: 1_000, ...week, ggr: -40_000n })).toBe(0n);
+  });
+
+  it('rounds down and refuses basis points outside 0 to 10000', () => {
+    expect(agentCommission({ kind: 'ggr', bps: 333, ...week, ggr: 1_000n })).toBe(33n);
+    expect(() => agentCommission({ kind: 'ggr', bps: 10_001, ...week })).toThrow(RangeError);
+    expect(() => agentCommission({ kind: 'ggr', bps: 1.5, ...week })).toThrow(RangeError);
+  });
+
+  it('is never negative, never above the base, and grows with the basis points', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom<'stake' | 'ggr'>('stake', 'ggr'),
+        fc.integer({ min: 0, max: 10_000 }),
+        fc.integer({ min: 0, max: 10_000 }),
+        fc.bigInt({ min: 0n, max: 10n ** 12n }),
+        fc.bigInt({ min: 0n, max: 10n ** 12n }),
+        fc.bigInt({ min: -(10n ** 12n), max: 10n ** 12n }),
+        (kind, a, b, sold, cancelled, ggr) => {
+          const input = { kind, soldStakes: sold, cancelledStakes: cancelled, ggr };
+          const base = kind === 'stake' ? sold - cancelled : ggr;
+          const low = agentCommission({ ...input, bps: Math.min(a, b) });
+          const high = agentCommission({ ...input, bps: Math.max(a, b) });
+          expect(low >= 0n).toBe(true);
+          expect(low <= high).toBe(true);
+          expect(high <= (base > 0n ? base : 0n)).toBe(true);
+        },
+      ),
     );
   });
 });
