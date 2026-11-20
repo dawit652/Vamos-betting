@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto';
+import { businessWeekStartOf } from '@vamos/core';
 import {
   AgentDetailResponse,
+  AgentStatementListResponse,
+  AgentStatementResponse,
   AgentListResponse,
   AgentResponse,
   CashierShopListResponse,
@@ -8,7 +11,12 @@ import {
   CreateStaffResponse,
   ShopDeviceResponse,
 } from '@vamos/contracts';
-import { assignStaffShop, hashDeviceSecret, requestShopDevice } from '@vamos/db';
+import {
+  assignStaffShop,
+  generateAgentStatements,
+  hashDeviceSecret,
+  requestShopDevice,
+} from '@vamos/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
 import { createTestContext, type TestContext } from './helpers';
@@ -224,5 +232,61 @@ describe('shop devices', () => {
       status: 'revoked',
       revokedReason: 'laptop replaced',
     });
+  });
+});
+
+describe('weekly statements', () => {
+  it("lists a week for every agent, an agent's last weeks, and records the payment once", async () => {
+    const { agent } = AgentResponse.parse(
+      (
+        await asStaff(ctx, admin, 'POST', '/admin/agents', { ...newAgent, name: 'Weekly Agent' })
+      ).json(),
+    );
+    const week = businessWeekStartOf(ctx.clock.now);
+    const afterTheWeek = new Date(ctx.clock.now.getTime() + 8 * 24 * 3_600_000);
+    await ctx.deps.db.transaction((tx) =>
+      generateAgentStatements(tx, { weekStart: week, now: afterTheWeek }),
+    );
+    const list = AgentStatementListResponse.parse(
+      (await asStaff(ctx, finance, 'GET', `/admin/agent-statements?week=${week}`)).json(),
+    );
+    expect(list.weekStart).toBe(week);
+    const row = list.items.find((item) => item.agentId === agent.id);
+    expect(row).toMatchObject({
+      agentNumber: agent.number,
+      ticketsSold: 0,
+      ggr: '0',
+      commission: '0',
+      commissionKind: 'ggr',
+      commissionBps: 1_000,
+      paidAt: null,
+    });
+    const bad = await asStaff(ctx, admin, 'GET', '/admin/agent-statements?week=2026-11-17');
+    expect(bad.statusCode).toBe(400);
+    const mine = AgentStatementListResponse.parse(
+      (await asStaff(ctx, admin, 'GET', `/admin/agents/${agent.id}/statements`)).json(),
+    );
+    expect(mine.items.map((item) => item.weekStart)).toEqual([week]);
+
+    expect(
+      (
+        await asStaff(ctx, finance, 'POST', `/admin/agent-statements/${row!.id}/paid`, {
+          reference: 'TRX-1',
+        })
+      ).statusCode,
+    ).toBe(403);
+    const paid = await asStaff(ctx, admin, 'POST', `/admin/agent-statements/${row!.id}/paid`, {
+      reference: 'CBE-TRX-1',
+    });
+    expect(paid.statusCode).toBe(200);
+    expect(AgentStatementResponse.parse(paid.json()).statement).toMatchObject({
+      paidReference: 'CBE-TRX-1',
+      agentName: 'Weekly Agent',
+    });
+    const twice = await asStaff(ctx, admin, 'POST', `/admin/agent-statements/${row!.id}/paid`, {
+      reference: 'CBE-TRX-2',
+    });
+    expect(twice.statusCode).toBe(409);
+    expect((await asStaff(ctx, cashier, 'GET', '/admin/agent-statements')).statusCode).toBe(403);
   });
 });

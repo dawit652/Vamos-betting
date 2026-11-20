@@ -1,5 +1,9 @@
 import {
   AgentDetailResponse,
+  AgentStatementListResponse,
+  AgentStatementPaidRequest,
+  AgentStatementResponse,
+  AgentStatementWeekQuery,
   AgentPlayerCashRequest,
   AgentListResponse,
   AgentResponse,
@@ -36,6 +40,10 @@ import {
   createShop,
   decideAgentTopup,
   getAgent,
+  getAgentStatement,
+  lastStatementWeek,
+  listAgentStatements,
+  markAgentStatementPaid,
   getAgentBalance,
   getAgentOwnerAccount,
   listAgentBalances,
@@ -52,6 +60,7 @@ import {
   setAgentPlayerCash,
   updateAgent,
 } from '@vamos/db';
+import { isBusinessWeekStart } from '@vamos/core';
 import type { FastifyInstance } from 'fastify';
 import { badRequest, notFound, parseInput } from '../../lib/errors';
 import { staffActor, staffAuthDeps } from '../../plugins/staff-session';
@@ -468,4 +477,49 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
       },
     );
   }
+
+  // Weekly statements (phase 5): one week of every agent, one agent's last weeks, and the record
+  // of a commission paid outside the system (agents.manage, once, audited).
+  app.get('/admin/agent-statements', { config: { staff: 'agents.view' } }, async (request) => {
+    const query = parseInput(AgentStatementWeekQuery, request.query);
+    const weekStart = query.week ?? lastStatementWeek(deps.clock());
+    if (!isBusinessWeekStart(weekStart)) {
+      throw badRequest('invalid_week', 'A week starts on a Monday (YYYY-MM-DD).');
+    }
+    const items = await listAgentStatements(deps.db, { weekStart, limit: 1_000 });
+    return wire(AgentStatementListResponse, { weekStart, items });
+  });
+
+  app.get<IdParams>(
+    '/admin/agents/:id/statements',
+    { config: { staff: 'agents.view' } },
+    async (request) => {
+      const agentId = parseUuid(request.params.id, 'Agent');
+      const items = await listAgentStatements(deps.db, { agentId, limit: 12 });
+      return wire(AgentStatementListResponse, { weekStart: null, items });
+    },
+  );
+
+  app.post<IdParams>(
+    '/admin/agent-statements/:id/paid',
+    { config: { staff: 'agents.manage' } },
+    async (request) => {
+      const statementId = parseUuid(request.params.id, 'Statement');
+      const input = parseInput(AgentStatementPaidRequest, request.body);
+      const actor = staffActor(request);
+      const statement = await inTx(deps, async (tx) => {
+        await markAgentStatementPaid(tx, {
+          statementId,
+          reference: input.reference,
+          adminId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        });
+        const named = await getAgentStatement(tx, statementId);
+        if (named === null) throw notFound('Statement');
+        return named;
+      });
+      return wire(AgentStatementResponse, { statement });
+    },
+  );
 }

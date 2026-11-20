@@ -26,6 +26,7 @@ import {
   ShopPasswordChangeRequest,
   ShopSessionResponse,
   ShopShiftResponse,
+  AgentStatementListResponse,
 } from '@vamos/contracts';
 import { parsePick, retailBetRules } from '@vamos/core';
 import {
@@ -64,6 +65,7 @@ import {
   type CashierShift,
   type DbExecutor,
   type StaffPrincipal,
+  listAgentStatements,
 } from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
@@ -315,6 +317,23 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
       cashiers: await listAgentCashiers(deps.db, agent.id),
       devices: await listAgentDevices(deps.db, agent.id),
     });
+  });
+
+  // The owner's weekly statements (phase 5), read-only: the last 12 weeks of their agent.
+  app.get('/shop/owner/statements', async (request) => {
+    const staff = requireShopStaff(request);
+    if (staff.role !== 'agent_owner')
+      throw forbidden('owner_only', 'This page is for agent owners.');
+    if (staff.passwordChangeRequired) {
+      throw forbidden(
+        'password_change_required',
+        'Change the password you were given before using the shop app.',
+      );
+    }
+    const agent = await getOwnerAgent(deps.db, staff.id);
+    if (agent === null) throw unauthorized('Sign in to the shop app.');
+    const items = await listAgentStatements(deps.db, { agentId: agent.id, limit: 12 });
+    return wire(AgentStatementListResponse, { weekStart: null, items });
   });
 
   app.get('/shop/desk', async (request) => {

@@ -237,3 +237,71 @@ export type AgentTopupResponse = z.infer<typeof AgentTopupResponse>;
 /** POST /admin/agents/:id/player-cash (agents.manage): player cash at the agent's shops on or off. */
 export const AgentPlayerCashRequest = z.object({ enabled: z.boolean() }).strict();
 export type AgentPlayerCashRequest = z.infer<typeof AgentPlayerCashRequest>;
+
+// ---------------------------------------------------------------------------
+// Weekly statements (docs/plans/agent-shops.md, "Phase 5 design"): agents.view reads,
+// agents.manage records the commission's payment (made outside the system).
+
+export const AgentStatementView = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  agentNumber: z.number().int(),
+  agentName: z.string(),
+  /** The Monday the business week starts on (Addis Ababa calendar). */
+  weekStart: z.string(),
+  ticketsSold: z.number().int(),
+  soldStakes: Santim,
+  ticketsCancelled: z.number().int(),
+  cancelledStakes: Santim,
+  ticketsSettled: z.number().int(),
+  settledStakes: Santim,
+  settledPayouts: Santim,
+  /** Settled stakes - settled gross payouts: negative in a losing week. */
+  ggr: Santim,
+  ticketsPaid: z.number().int(),
+  paidAmount: Santim,
+  ticketsExpired: z.number().int(),
+  expiredAmount: Santim,
+  playerDeposits: z.number().int(),
+  playerCashIn: Santim,
+  playerWithdrawals: z.number().int(),
+  playerCashOut: Santim,
+  balanceStart: Santim,
+  balanceEnd: Santim,
+  commissionKind: AgentCommissionKindSchema,
+  commissionBps: z.number().int(),
+  commission: Santim,
+  createdAt: IsoDateTime,
+  paidAt: IsoDateTime.nullable(),
+  paidReference: z.string().nullable(),
+});
+export type AgentStatementView = z.infer<typeof AgentStatementView>;
+
+/**
+ * GET /admin/agent-statements?week=YYYY-MM-DD (one week, every agent; default: the last week
+ * due), GET /admin/agents/:id/statements and GET /shop/owner/statements (one agent's last weeks).
+ */
+export const AgentStatementListResponse = z.object({
+  weekStart: z.string().nullable(),
+  items: z.array(AgentStatementView),
+});
+export type AgentStatementListResponse = z.infer<typeof AgentStatementListResponse>;
+
+export const AgentStatementWeekQuery = z
+  .object({
+    week: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-DD')
+      .optional(),
+  })
+  .strict();
+export type AgentStatementWeekQuery = z.infer<typeof AgentStatementWeekQuery>;
+
+/** POST /admin/agent-statements/:id/paid: the commission was paid; its reference (once). */
+export const AgentStatementPaidRequest = z
+  .object({ reference: z.string().trim().min(3).max(100) })
+  .strict();
+export type AgentStatementPaidRequest = z.infer<typeof AgentStatementPaidRequest>;
+
+export const AgentStatementResponse = z.object({ statement: AgentStatementView });
+export type AgentStatementResponse = z.infer<typeof AgentStatementResponse>;

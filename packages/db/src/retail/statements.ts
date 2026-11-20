@@ -218,6 +218,22 @@ export async function listAgentStatements(
   }));
 }
 
+/** One statement with its agent's number and name, or null. */
+export async function getAgentStatement(
+  exec: DbExecutor,
+  statementId: string,
+): Promise<AgentStatementRow | null> {
+  const [row] = await exec
+    .select({ statement: agentStatements, agentNumber: agents.number, agentName: agents.name })
+    .from(agentStatements)
+    .innerJoin(agents, eq(agents.id, agentStatements.agentId))
+    .where(eq(agentStatements.id, statementId))
+    .limit(1);
+  return row === undefined
+    ? null
+    : { ...row.statement, agentNumber: row.agentNumber, agentName: row.agentName };
+}
+
 /**
  * Records that the admin paid a statement's commission outside the system, with the payment's
  * reference (3 to 100 characters): once (409 `statement_already_paid`). Audited.
