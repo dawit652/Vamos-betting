@@ -7,9 +7,9 @@ branch (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
 server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
 receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (`dce8e5d`
-database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners`, `0068_agent_balance`, `0069_collection_accounts`, `0070_retail_tickets` and `0071_retail_payouts` run on the next deploy
+database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners`, `0068_agent_balance`, `0069_collection_accounts`, `0070_retail_tickets`, `0071_retail_payouts`, `0072_agent_statements`, `0073_retail_monitor_indexes` and `0074_retail_alerts` run on the next deploy
 (every existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next
-free number is **0072**. Deploy is done by the owner (`ssh -t root@<server>` +
+free number is **0075**. Deploy is done by the owner (`ssh -t root@<server>` +
 `infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
 `vamos`). Never touch the live server yourself; never paste secrets.
 
@@ -68,7 +68,14 @@ tickets (phase 3, 0070) and paying them (phase 4, 0071). The next session starts
         shop app's pay screen and payout slip, the back office's waiting payouts with four eyes,
         the worker's hourly expiry task; e2e `e2e/tests/shop-payouts.spec.ts`). Phases 1-4 of the
         agent shops are complete and pushed; none is deployed.
-     5. Phase 5 (live monitor, alerts, weekly commission) and phase 6 (Android POS).
+     5. **Phase 5 (plan, "Phase 5 design"): backend built and pushed 20 Nov** — weekly
+        statements and commission (migration 0072, `ae65e0d`; API `683dc51`), the live monitor
+        API (migration 0073 indexes, `7de5bc7`), alerts (migration 0074, worker `retail-alerts`,
+        API, `12c1bbe`). **Screens in progress:** the back office's Statements page (CSV, mark
+        paid), the agent page's weekly statements, the owner's statements in the shop app, the
+        Monitor page and the Alerts page. If uncommitted files under `apps/admin`, `apps/shop` or
+        `e2e/tests/agent-statements.spec.ts` exist, they are unfinished work: check them or start
+        over. Then phase 6 (Android POS, once the owner picks a model).
    - **Waiting for the owner:** the DNS record shop.nahubet.com, the POS model, the winnings tax
      rate, agent licensing with the regulator.
    - The mr-y request (Narobet game links) was declined on 19 Nov: it runs on the owner's own
