@@ -430,6 +430,40 @@ export async function boardEventsWithoutResult(
     .limit(clampLimit(options.limit, 200, 1000));
 }
 
+export interface NarobetEventPendingResult {
+  eventId: string;
+  kickoff: Date;
+  /** API-Football's fixture id from the match's board row; null: unknown (a person decides). */
+  fixtureId: number | null;
+}
+
+/**
+ * Narobet-only events that should have a result by now (docs/plans/narobet-events.md): kickoff
+ * between `now - maxAgeMs` and `now - lagMs`, not resulted, soonest first, each with its fixture id.
+ */
+export async function narobetEventsWithoutResult(
+  exec: DbExecutor,
+  options: { now: Date; lagMs: number; maxAgeMs: number; limit: number },
+): Promise<NarobetEventPendingResult[]> {
+  // Qualified by hand: inside a subquery drizzle prints bare column names.
+  const fixtureId = sql<number | null>`(SELECT o.fixture_id FROM scrape_board_odds o
+      WHERE o.source_key = 'narobet:' || "events"."feed_ref")`;
+  return exec
+    .select({ eventId: events.id, kickoff: events.startTime, fixtureId })
+    .from(events)
+    .where(
+      and(
+        eq(events.feedProvider, 'narobet'),
+        inArray(events.status, ['scheduled', 'live']),
+        isNull(events.resultedAt),
+        lt(events.startTime, new Date(options.now.getTime() - options.lagMs)),
+        gt(events.startTime, new Date(options.now.getTime() - options.maxAgeMs)),
+      ),
+    )
+    .orderBy(asc(events.startTime))
+    .limit(clampLimit(options.limit, 200, 1000));
+}
+
 export interface BoardResultSighting {
   eventId: string;
   fixtureId: number;

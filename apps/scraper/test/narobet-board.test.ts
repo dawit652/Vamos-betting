@@ -1,11 +1,16 @@
 import { BOARD_KEY_MARKER, isBoardPricedKey } from '@vamos/core';
 import { latestBoardOdds, setBoardPricing, setNarobetEvents, upsertBoardOdds } from '@vamos/db';
 import { priceBoardMarket } from '@vamos/feed';
-import { MRZ_MATCHES_PATH, narobetPricesMaxAgeMs } from '@vamos/scraper';
+import {
+  apiFootballFixturesByIdsUrl,
+  MRZ_MATCHES_PATH,
+  narobetPricesMaxAgeMs,
+} from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
 import { priceEvent } from '../src/pipeline/event-pricing';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { sweepNarobetEvents } from '../src/pipeline/board-events';
+import { runNarobetResults } from '../src/tasks/board-results';
 import { readNarobetBoard } from '../src/tasks/narobet';
 import {
   ARSENAL_CHELSEA_JSON,
@@ -390,6 +395,96 @@ describe('Narobet-only matches', () => {
       await on({ enabled: true });
       const back = await readNarobetBoard(h.ctx, fetchImpl);
       expect(back.boardEvents).toMatchObject({ updated: 1 });
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+/**
+ * Results of Narobet-only matches (docs/plans/narobet-events.md): looked up at API-Football by the
+ * fixture id mr-z gave, settled once the score has stood for 15 minutes; left to a person when mr-z
+ * confirmed another 90-minute score, or when the match started before our betting closed.
+ */
+describe('Narobet-only results', () => {
+  const KEY = 'test-api-football-key';
+  const fixture = (id: number, date: Date, status = 'FT') => ({
+    fixture: { id, date: date.toISOString(), status: { short: status } },
+    league: { name: 'Premier League', country: 'Ethiopia' },
+    teams: { home: { name: 'Testland Rovers' }, away: { name: 'Mockville Athletic' } },
+    goals: { home: 2, away: 1 },
+    score: { halftime: { home: 1, away: 0 }, fulltime: { home: 2, away: 1 } },
+  });
+
+  async function listed(matches: Array<Record<string, unknown>>) {
+    h = await createHarness({ narobetUrl: MRZ, secrets: { SCRAPER_SECRET_API_FOOTBALL: KEY } });
+    await h.ctx.db.transaction((tx) => setNarobetEvents(tx, { enabled: true }, actor));
+    const { fetchImpl } = serveMrz(matches);
+    expect((await readNarobetBoard(h.ctx, fetchImpl)).boardEvents.created).toBe(matches.length);
+  }
+
+  const match = (id: string, apiId: number, home: string, away: string) =>
+    mrzMatch({ id, api_id: apiId, league_api_id: 363, country: 'Ethiopia', hom: home, awy: away });
+
+  it(
+    'settles by fixture id after 15 minutes; holds a score mr-z confirmed differently',
+    async () => {
+      await listed([
+        match('cm-r1', 7001, 'Testland Rovers', 'Mockville Athletic'),
+        match('cm-r2', 7002, 'Fakeburg United', 'Dummyton City'),
+      ]);
+      h.serve(
+        apiFootballFixturesByIdsUrl([7001, 7002]),
+        JSON.stringify({ errors: [], response: [fixture(7001, KICKOFF), fixture(7002, KICKOFF)] }),
+      );
+      // mr-z agrees on the first match and confirmed 1-1 for the second.
+      const mrz = async () =>
+        new Map([
+          [7001, { status: 'FT', home: 2, away: 1, confirmed: true }],
+          [7002, { status: 'FT', home: 1, away: 1, confirmed: true }],
+        ]);
+      h.at(new Date(KICKOFF.getTime() + 2 * 3_600_000 + MINUTE));
+      expect(await runNarobetResults(h.ctx, mrz)).toMatchObject({
+        pending: 2,
+        matched: 2,
+        confirming: 1,
+        applied: 0,
+        held: 1,
+      });
+      expect(h.requests.at(-1)?.headers['x-apisports-key']).toBe(KEY);
+
+      h.advance(16 * MINUTE);
+      expect(await runNarobetResults(h.ctx, mrz)).toMatchObject({ applied: 1, held: 1 });
+      const settled = await rows<{ feed_ref: string; status: string }>(
+        `SELECT feed_ref, status FROM events WHERE feed_provider = 'narobet' ORDER BY feed_ref`,
+      );
+      expect(settled).toEqual([
+        { feed_ref: 'cm-r1', status: 'finished' },
+        { feed_ref: 'cm-r2', status: 'scheduled' },
+      ]);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'leaves a match that started before our betting closed to a person',
+    async () => {
+      await listed([match('cm-r3', 7003, 'Sampleton FC', 'Placeholder Town')]);
+      // API-Football: it kicked off an hour before the time we showed.
+      h.serve(
+        apiFootballFixturesByIdsUrl([7003]),
+        JSON.stringify({
+          errors: [],
+          response: [fixture(7003, new Date(KICKOFF.getTime() - 3_600_000))],
+        }),
+      );
+      h.at(new Date(KICKOFF.getTime() + 2 * 3_600_000 + MINUTE));
+      expect(await runNarobetResults(h.ctx, async () => null)).toMatchObject({
+        matched: 1,
+        held: 1,
+        confirming: 0,
+      });
+      h.advance(16 * MINUTE);
+      expect((await runNarobetResults(h.ctx, async () => null)).applied).toBe(0);
     },
     TEST_TIMEOUT,
   );

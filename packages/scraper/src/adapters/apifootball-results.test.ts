@@ -1,7 +1,10 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  apiFootballFixturesByIdsUrl,
   apiFootballFixturesUrl,
+  decideNarobetResult,
+  LATE_KICKOFF_TOLERANCE_MS,
   matchApiFootballFixture,
   parseApiFootballFixtures,
   sameTeamName,
@@ -172,5 +175,73 @@ describe('matchApiFootballFixture', () => {
     expect(matchApiFootballFixture(match({ home: 'Banik Ostrava' }), fixtures)).toBeNull();
     const doubled: ApiFootballFixture[] = [...fixtures, { ...fixtures[0]!, id: 9 }];
     expect(matchApiFootballFixture(match(), doubled)).toBeNull();
+  });
+});
+
+describe('Narobet-only results by fixture id (docs/plans/narobet-events.md)', () => {
+  it('asks for 1 to 20 fixture ids in one request', () => {
+    expect(apiFootballFixturesByIdsUrl([1640380, 7])).toBe(
+      'https://v3.football.api-sports.io/fixtures?ids=1640380-7',
+    );
+    expect(() => apiFootballFixturesByIdsUrl([])).toThrow(RangeError);
+    expect(() => apiFootballFixturesByIdsUrl(Array.from({ length: 21 }, (_, i) => i + 1))).toThrow(
+      RangeError,
+    );
+    expect(() => apiFootballFixturesByIdsUrl([0])).toThrow(RangeError);
+  });
+
+  const start = new Date('2026-11-22T15:00:00Z');
+  const fixture = (over: Partial<ApiFootballFixture> = {}): ApiFootballFixture => ({
+    id: 5001,
+    kickoff: start,
+    home: 'Testland Rovers',
+    away: 'Mockville Athletic',
+    homeId: null,
+    awayId: null,
+    league: null,
+    country: null,
+    status: 'FT',
+    fullTime: { home: 2, away: 1 },
+    halfTime: { home: 1, away: 0 },
+    ...over,
+  });
+  const decide = (f: ApiFootballFixture, mrz: Parameters<typeof decideNarobetResult>[0]['mrz']) =>
+    decideNarobetResult({ startTime: start, closeLeadMs: 5 * 60_000, fixture: f, mrz });
+
+  it('applies a finished score, and waits for one that is not', () => {
+    expect(decide(fixture(), null)).toEqual({
+      kind: 'apply',
+      score: { home: 2, away: 1 },
+      halfTime: { home: 1, away: 0 },
+    });
+    expect(decide(fixture({ status: '2H' }), null)).toEqual({ kind: 'wait' });
+    expect(decide(fixture({ status: 'PST' }), null)).toEqual({ kind: 'wait' });
+    expect(decide(fixture({ fullTime: null }), null)).toEqual({ kind: 'wait' });
+  });
+
+  it('leaves a match that started before our betting closed to a person', () => {
+    // Betting closed at 14:55; a start up to 5 minutes before that is tolerated.
+    const tolerated = new Date(start.getTime() - 5 * 60_000 - LATE_KICKOFF_TOLERANCE_MS);
+    expect(decide(fixture({ kickoff: tolerated }), null).kind).toBe('apply');
+    const early = new Date(tolerated.getTime() - 1);
+    expect(decide(fixture({ kickoff: early }), null)).toEqual({ kind: 'late_kickoff' });
+    // A later real kickoff is no risk.
+    expect(decide(fixture({ kickoff: new Date(start.getTime() + 3_600_000) }), null).kind).toBe(
+      'apply',
+    );
+  });
+
+  it('holds a 90-minute score mr-z confirmed differently; otherwise mr-z does not block', () => {
+    const mrz = (home: number, away: number, confirmed = true) => ({
+      status: 'FT',
+      home,
+      away,
+      confirmed,
+    });
+    expect(decide(fixture(), mrz(2, 1)).kind).toBe('apply');
+    expect(decide(fixture(), mrz(1, 1))).toEqual({ kind: 'disagrees' });
+    expect(decide(fixture(), mrz(1, 1, false)).kind).toBe('apply');
+    // After extra time mr-z's score may include it: not compared.
+    expect(decide(fixture({ status: 'AET' }), mrz(3, 1)).kind).toBe('apply');
   });
 });

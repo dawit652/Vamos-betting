@@ -1,4 +1,5 @@
 import { type MarketTypeCode, parseLine } from '@vamos/core';
+import type { MrzResult } from './apifootball-results';
 import type { BoardMarket } from './hulusport';
 import { decimalToMilli } from './odds-price';
 
@@ -231,4 +232,44 @@ export function parseMrzMatches(body: string): MrzMatchList | null {
     else matches.push(match);
   }
   return { matches, rejected };
+}
+
+/**
+ * mr-z's finished matches changed since `since` (its own copy, no markets): the cross-check of a
+ * Narobet-only match's result (docs/plans/narobet-events.md). Reading it makes mr-z read nothing.
+ */
+export const mrzResultsPath = (since: Date): string =>
+  `/api/matches?sport=football&status=FINISHED&changed_since=${encodeURIComponent(since.toISOString())}&markets=none`;
+
+const score = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 99 ? value : null;
+
+/**
+ * mr-z's results by API-Football fixture id. Null when the document is not a list; an entry without
+ * a fixture id is skipped; a fixture id listed twice is dropped (nothing is guessed).
+ */
+export function parseMrzResults(body: string): Map<number, MrzResult> | null {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(body) as unknown;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(doc)) return null;
+  const out = new Map<number, MrzResult>();
+  const twice = new Set<number>();
+  for (const raw of doc) {
+    if (!isObject(raw)) continue;
+    const id = int(raw.api_id);
+    if (id === null) continue;
+    if (out.has(id)) twice.add(id);
+    out.set(id, {
+      status: text(raw.status_short),
+      home: score(raw.home_score),
+      away: score(raw.away_score),
+      confirmed: raw.result_confirmed === 1 || raw.result_confirmed === true,
+    });
+  }
+  for (const id of twice) out.delete(id);
+  return out;
 }

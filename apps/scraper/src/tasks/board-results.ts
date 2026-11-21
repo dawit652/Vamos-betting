@@ -1,6 +1,7 @@
 import {
   boardEventsWithoutResult,
   markBoardResultApplied,
+  narobetEventsWithoutResult,
   recordBoardResultSighting,
   resultEvent,
 } from '@vamos/db';
@@ -8,12 +9,19 @@ import {
   API_FOOTBALL_FINISHED,
   API_FOOTBALL_HOST,
   API_FOOTBALL_KEY_HEADER,
+  API_FOOTBALL_MAX_IDS,
   API_FOOTBALL_SECRET,
+  apiFootballFixturesByIdsUrl,
   apiFootballFixturesUrl,
   DAY_MS,
+  decideNarobetResult,
+  MARKET_CLOSE_LEAD_MS,
   matchApiFootballFixture,
+  mrzResultsPath,
   parseApiFootballFixtures,
+  parseMrzResults,
   type ApiFootballFixture,
+  type MrzResult,
 } from '@vamos/scraper';
 import type { ScraperContext } from '../context';
 import { intervalTask, type IntervalTask } from '../lib/interval';
@@ -127,63 +135,206 @@ export async function runBoardResults(ctx: ScraperContext): Promise<BoardResults
     ) {
       continue;
     }
-    const score = fixture.fullTime;
-    const half = fixture.halfTime;
-    try {
-      const outcome = await ctx.db.transaction(async (tx) => {
-        const seen = await recordBoardResultSighting(tx, {
-          eventId: event.eventId,
-          fixtureId: fixture.id,
-          status: fixture.status,
+    const done = await settleBoardResult(ctx, event.eventId, fixture, now, {});
+    if (done === 'confirming') summary.confirming += 1;
+    if (done === 'applied') summary.applied += 1;
+  }
+  ctx.logger.info({ ...summary }, 'hulusport results from api-football');
+  return summary;
+}
+
+/**
+ * Records a finished score and applies it once it has stood for BOARD_RESULT_CONFIRM_MS (the bets
+ * settle), audited as `scrape.board.result_applied`. A score the event cannot take (no half-time
+ * score for a half-time market) is left to a person.
+ */
+async function settleBoardResult(
+  ctx: ScraperContext,
+  eventId: string,
+  fixture: ApiFootballFixture,
+  now: Date,
+  audit: Record<string, unknown>,
+): Promise<'confirming' | 'applied' | 'refused'> {
+  const score = fixture.fullTime!;
+  const half = fixture.halfTime;
+  try {
+    const outcome = await ctx.db.transaction(async (tx) => {
+      const seen = await recordBoardResultSighting(tx, {
+        eventId,
+        fixtureId: fixture.id,
+        status: fixture.status,
+        home: score.home,
+        away: score.away,
+        htHome: half?.home ?? null,
+        htAway: half?.away ?? null,
+        seenAt: now,
+      });
+      if (now.getTime() - seen.firstSeenAt.getTime() < BOARD_RESULT_CONFIRM_MS) return null;
+      const result = await resultEvent(tx, eventId, {
+        status: 'finished',
+        score: {
           home: score.home,
           away: score.away,
           htHome: half?.home ?? null,
           htAway: half?.away ?? null,
-          seenAt: now,
-        });
-        if (now.getTime() - seen.firstSeenAt.getTime() < BOARD_RESULT_CONFIRM_MS) return null;
-        const result = await resultEvent(tx, event.eventId, {
-          status: 'finished',
-          score: {
-            home: score.home,
-            away: score.away,
-            htHome: half?.home ?? null,
-            htAway: half?.away ?? null,
-          },
-        });
-        await markBoardResultApplied(tx, event.eventId, now);
-        await auditScraper(tx, {
-          action: 'scrape.board.result_applied',
-          targetType: 'event',
-          targetId: event.eventId,
-          metadata: {
-            source: 'api-football',
-            fixtureId: fixture.id,
-            status: fixture.status,
-            score,
-            halfTime: half,
-            firstSeenAt: seen.firstSeenAt.toISOString(),
-            outcome: result.outcome,
-          },
-        });
-        return result;
+        },
       });
-      if (outcome === null) {
-        summary.confirming += 1;
-        continue;
-      }
-      summary.applied += 1;
-      await publishAfterCommit(ctx.redis, outcome.messages, ctx.channel, ctx.logger);
-    } catch (error) {
-      // A score the event cannot take (no half-time score for a half-time market): a person decides.
-      if (!(error instanceof RangeError)) throw error;
-      ctx.logger.warn(
-        { eventId: event.eventId, fixtureId: fixture.id, err: error.message },
-        'api-football result not applied',
-      );
-    }
+      await markBoardResultApplied(tx, eventId, now);
+      await auditScraper(tx, {
+        action: 'scrape.board.result_applied',
+        targetType: 'event',
+        targetId: eventId,
+        metadata: {
+          source: 'api-football',
+          fixtureId: fixture.id,
+          status: fixture.status,
+          score,
+          halfTime: half,
+          firstSeenAt: seen.firstSeenAt.toISOString(),
+          outcome: result.outcome,
+          ...audit,
+        },
+      });
+      return result;
+    });
+    if (outcome === null) return 'confirming';
+    await publishAfterCommit(ctx.redis, outcome.messages, ctx.channel, ctx.logger);
+    return 'applied';
+  } catch (error) {
+    // A score the event cannot take (no half-time score for a half-time market): a person decides.
+    if (!(error instanceof RangeError)) throw error;
+    ctx.logger.warn(
+      { eventId, fixtureId: fixture.id, err: error.message },
+      'api-football result not applied',
+    );
+    return 'refused';
   }
-  ctx.logger.info({ ...summary }, 'hulusport results from api-football');
+}
+
+export interface NarobetResultsSummary {
+  pending: number;
+  /** Found at API-Football by fixture id. */
+  matched: number;
+  confirming: number;
+  applied: number;
+  /** Left to a person: started before our betting closed, or mr-z confirmed another score. */
+  held: number;
+  failedRequests: number;
+}
+
+/** mr-z's stored results, for the cross-check; null when mr-z is not configured or did not answer. */
+async function readMrzResults(
+  ctx: ScraperContext,
+  since: Date,
+): Promise<Map<number, MrzResult> | null> {
+  const base = ctx.config.scraper.narobet.url;
+  if (base === null) return null;
+  try {
+    const response = await fetch(`${base}${mrzResultsPath(since)}`, {
+      headers: { accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return parseMrzResults(await response.text());
+  } catch (error) {
+    ctx.logger.warn({ err: (error as Error).message }, 'mr-z results not read: no cross-check');
+    return null;
+  }
+}
+
+/**
+ * Automatic results for the Narobet-only matches (docs/plans/narobet-events.md): each carries
+ * API-Football's fixture id, so it is looked up by it (`/fixtures?ids=`, API_FOOTBALL_MAX_IDS per
+ * request), never by names. decideNarobetResult decides: wait, apply (after BOARD_RESULT_CONFIRM_MS),
+ * or leave to a person (started before our betting closed; mr-z confirmed another 90-minute
+ * score). mr-z's results are its own stored copy: reading them makes mr-z read nothing.
+ */
+export async function runNarobetResults(
+  ctx: ScraperContext,
+  fetchMrzResults: (since: Date) => Promise<Map<number, MrzResult> | null> = (since) =>
+    readMrzResults(ctx, since),
+): Promise<NarobetResultsSummary> {
+  const now = ctx.clock();
+  const summary: NarobetResultsSummary = {
+    pending: 0,
+    matched: 0,
+    confirming: 0,
+    applied: 0,
+    held: 0,
+    failedRequests: 0,
+  };
+  const pending = await narobetEventsWithoutResult(ctx.db, {
+    now,
+    lagMs: BOARD_RESULT_LAG_MS,
+    maxAgeMs: BOARD_RESULT_WINDOW_MS,
+    limit: 500,
+  });
+  summary.pending = pending.length;
+  const ids = [...new Set(pending.flatMap((e) => (e.fixtureId === null ? [] : [e.fixtureId])))];
+  if (ids.length === 0) return summary;
+
+  const fixtures = new Map<number, ApiFootballFixture>();
+  for (let i = 0; i < ids.length; i += API_FOOTBALL_MAX_IDS) {
+    const url = apiFootballFixturesByIdsUrl(ids.slice(i, i + API_FOOTBALL_MAX_IDS));
+    await ctx.fetcher.forgetValidators(url);
+    const result = await ctx.fetcher.fetch(
+      {
+        url,
+        purpose: 'results',
+        auth: { header: API_FOOTBALL_KEY_HEADER, secret: API_FOOTBALL_SECRET },
+      },
+      { allowedHosts: [API_FOOTBALL_HOST], sourceKey: 'api-football-board-results' },
+    );
+    if (result.kind !== 'ok') {
+      summary.failedRequests += 1;
+      ctx.logger.warn(
+        { result: result.kind, reason: 'reason' in result ? result.reason : undefined },
+        'api-football results request failed',
+      );
+      continue;
+    }
+    const parsed = parseApiFootballFixtures(new TextDecoder().decode(result.body));
+    if (parsed === null || parsed.errors.length > 0) {
+      summary.failedRequests += 1;
+      ctx.logger.warn(
+        { errors: parsed?.errors ?? ['not a fixtures response'] },
+        'api-football results refused',
+      );
+      if (parsed === null) continue;
+    }
+    for (const fixture of parsed.fixtures) fixtures.set(fixture.id, fixture);
+  }
+
+  const mrz = await fetchMrzResults(new Date(now.getTime() - BOARD_RESULT_WINDOW_MS - DAY_MS));
+  for (const event of pending) {
+    if (event.fixtureId === null) continue;
+    const fixture = fixtures.get(event.fixtureId);
+    if (fixture === undefined) continue;
+    summary.matched += 1;
+    const decision = decideNarobetResult({
+      startTime: event.kickoff,
+      closeLeadMs: MARKET_CLOSE_LEAD_MS,
+      fixture,
+      mrz: mrz?.get(event.fixtureId) ?? null,
+    });
+    if (decision.kind === 'wait') continue;
+    if (decision.kind !== 'apply') {
+      summary.held += 1;
+      ctx.logger.warn(
+        { eventId: event.eventId, fixtureId: fixture.id, reason: decision.kind },
+        'narobet result left to a person',
+      );
+      continue;
+    }
+    const done = await settleBoardResult(ctx, event.eventId, fixture, now, {
+      board: 'narobet',
+      mrz: mrz === null ? 'not read' : mrz.has(event.fixtureId) ? 'agrees' : 'absent',
+    });
+    if (done === 'confirming') summary.confirming += 1;
+    if (done === 'applied') summary.applied += 1;
+  }
+  ctx.logger.info({ ...summary }, 'narobet results from api-football');
   return summary;
 }
 
@@ -193,7 +344,10 @@ export function boardResultsTask(ctx: ScraperContext): IntervalTask | null {
   return intervalTask({
     name: 'hulusport-results',
     intervalMs: BOARD_RESULTS_INTERVAL_MS,
-    run: () => runBoardResults(ctx),
+    run: async () => {
+      await runBoardResults(ctx);
+      await runNarobetResults(ctx);
+    },
     logger: ctx.logger,
   });
 }

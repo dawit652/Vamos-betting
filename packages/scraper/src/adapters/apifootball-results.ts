@@ -166,3 +166,84 @@ export function matchApiFootballFixture(
   );
   return candidates.length === 1 ? candidates[0]! : null;
 }
+
+/** At most this many fixture ids per `/fixtures?ids=` request (API-Football's limit). */
+export const API_FOOTBALL_MAX_IDS = 20;
+
+/** `/fixtures?ids=a-b-c`: the fixtures with these ids (1..API_FOOTBALL_MAX_IDS of them). */
+export function apiFootballFixturesByIdsUrl(ids: readonly number[]): string {
+  if (ids.length === 0 || ids.length > API_FOOTBALL_MAX_IDS) {
+    throw new RangeError(`between 1 and ${API_FOOTBALL_MAX_IDS} fixture ids per request`);
+  }
+  if (!ids.every((id) => Number.isSafeInteger(id) && id > 0)) {
+    throw new RangeError('fixture ids must be positive integers');
+  }
+  return `https://${API_FOOTBALL_HOST}/fixtures?ids=${ids.join('-')}`;
+}
+
+/** What mr-z stored about a finished match (its own copy of Narobet's result). */
+export interface MrzResult {
+  /** mr-z's status_short (FT, AET, PEN, ...), when given. */
+  status: string | null;
+  home: number | null;
+  away: number | null;
+  /** mr-z's result_confirmed. */
+  confirmed: boolean;
+}
+
+/**
+ * A real kickoff this much before our betting closed means bets may have been taken after the
+ * start: the result is left to a person, who voids the late bets.
+ */
+export const LATE_KICKOFF_TOLERANCE_MS = 5 * 60_000;
+
+export type NarobetResultDecision =
+  /** Not finished, or no 90-minute score yet. */
+  | { kind: 'wait' }
+  /** Started before our betting closed (by more than LATE_KICKOFF_TOLERANCE_MS): a person. */
+  | { kind: 'late_kickoff' }
+  /** mr-z's confirmed 90-minute score differs from API-Football's: a person. */
+  | { kind: 'disagrees' }
+  | { kind: 'apply'; score: Score; halfTime: Score | null };
+
+/**
+ * The result of a Narobet-only match (docs/plans/narobet-events.md), found by its API-Football
+ * fixture id: API-Football decides; mr-z's stored result is a check against errors (not an
+ * independent source: Narobet's data comes from API-Football). Pure: no I/O.
+ *
+ * - not finished (FT, AET, PEN) or no 90-minute score: wait;
+ * - API-Football's kickoff more than LATE_KICKOFF_TOLERANCE_MS before our betting closed
+ *   (`startTime - closeLeadMs`): a person (bets may have been taken after the start);
+ * - ended in 90 minutes (FT) and mr-z confirmed another score: a person. After extra time or
+ *   penalties mr-z's score may include extra time, so it is not compared;
+ * - else apply the 90-minute and half-time scores.
+ */
+export function decideNarobetResult(input: {
+  startTime: Date;
+  closeLeadMs: number;
+  fixture: ApiFootballFixture;
+  mrz: MrzResult | null;
+}): NarobetResultDecision {
+  const { fixture, mrz } = input;
+  if (
+    !(API_FOOTBALL_FINISHED as readonly string[]).includes(fixture.status) ||
+    fixture.fullTime === null
+  ) {
+    return { kind: 'wait' };
+  }
+  const closesAt = input.startTime.getTime() - input.closeLeadMs;
+  if (fixture.kickoff.getTime() < closesAt - LATE_KICKOFF_TOLERANCE_MS) {
+    return { kind: 'late_kickoff' };
+  }
+  if (
+    fixture.status === 'FT' &&
+    mrz !== null &&
+    mrz.confirmed &&
+    mrz.home !== null &&
+    mrz.away !== null &&
+    (mrz.home !== fixture.fullTime.home || mrz.away !== fixture.fullTime.away)
+  ) {
+    return { kind: 'disagrees' };
+  }
+  return { kind: 'apply', score: fixture.fullTime, halfTime: fixture.halfTime };
+}

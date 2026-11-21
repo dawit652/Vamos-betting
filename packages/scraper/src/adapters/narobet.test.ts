@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMrzMatches } from './narobet';
+import { mrzResultsPath, parseMrzMatches, parseMrzResults } from './narobet';
 
 /** One match as mr-z's /api/matches serves it (markets=all), synthetic prices. */
 const match = (overrides: Record<string, unknown> = {}) => ({
@@ -153,5 +153,32 @@ describe('mr-z matches (Narobet board)', () => {
     expect(parseMrzMatches('not json')).toBeNull();
     expect(parseMrzMatches(JSON.stringify({ error: 'boom' }))).toBeNull();
     expect(parseMrzMatches(JSON.stringify([]))).toEqual({ matches: [], rejected: 0 });
+  });
+});
+
+describe("mr-z's results (the cross-check of Narobet-only matches)", () => {
+  it('asks for finished matches changed since a time, without markets', () => {
+    expect(mrzResultsPath(new Date('2026-11-20T10:00:00Z'))).toBe(
+      '/api/matches?sport=football&status=FINISHED&changed_since=2026-11-20T10%3A00%3A00.000Z&markets=none',
+    );
+  });
+
+  it('reads scores by fixture id; drops a fixture listed twice and anything unreadable', () => {
+    const body = JSON.stringify([
+      { api_id: 1, status_short: 'FT', home_score: 2, away_score: 0, result_confirmed: 1 },
+      { api_id: 2, status_short: 'PEN', home_score: 0, away_score: 0, result_confirmed: 0 },
+      { api_id: 3, home_score: 1, away_score: 1, result_confirmed: 1 },
+      { api_id: 3, home_score: 2, away_score: 1, result_confirmed: 1 },
+      { api_id: null, home_score: 1 },
+      { api_id: 4, home_score: -1, away_score: 'x' },
+      'junk',
+    ]);
+    const results = parseMrzResults(body)!;
+    expect([...results.keys()].sort()).toEqual([1, 2, 4]);
+    expect(results.get(1)).toEqual({ status: 'FT', home: 2, away: 0, confirmed: true });
+    expect(results.get(2)?.confirmed).toBe(false);
+    expect(results.get(4)).toEqual({ status: null, home: null, away: null, confirmed: false });
+    expect(parseMrzResults('{"not":"a list"}')).toBeNull();
+    expect(parseMrzResults('nope')).toBeNull();
   });
 });
