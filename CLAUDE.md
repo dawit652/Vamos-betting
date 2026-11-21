@@ -48,11 +48,10 @@ possible:
    phases 0-5 (the shop app is deployed but not switched on: `docs/deployment.md`, "Shop app"),
    the desk PIN reset redesign (off until `CASHIER_PIN_RESET=on`), quieter owner alerts. Pushed,
    not deployed: Narobet prices through mr-z (migration 0076, switch `narobet_pricing` off;
-   `docs/plans/narobet-feed.md`). Planned, not built: Narobet-only matches for more leagues
-   (`docs/plans/narobet-events.md`; server checks done, waits for decisions D1-D5 and release 1's
-   deploy).
-   Next: that plan, switching the shop app on with the owner, phase 6 once the owner picks a POS
-   model, or what the owner asks.
+   `docs/plans/narobet-feed.md`), and Narobet-only matches for more leagues with the ETB 20,000 cap
+   per board match and results by API-Football fixture id (migration 0077, switch `narobet_events`
+   off; `docs/plans/narobet-events.md`). Next: the owner deploys and switches on, switching the
+   shop app on with the owner, phase 6 once the owner picks a POS model, or what the owner asks.
 
 ## Overview
 
@@ -103,6 +102,7 @@ Node 22 and pnpm 10. Run these from the repository root.
 - Integration tests use a real Postgres (`createTestDatabase` from `@vamos/db/testing`).
 - **Scraper.** Scraped data and automated feeds may update results, void/cancel events, or adjust markets directly when configured
 - **Hulusport prices** (owner's decision, 14 Nov 2026; `docs/plans/hulusport-feed.md`): the scraper reads Hulusport's board from the owner's mr-x service (`SCRAPER_HULUSPORT_URL`). Only while the back office switch `hulusport_pricing` is on (off by default) do markets we already price take Hulusport's fresh prices, with its margin replaced by ours. Stale prices or the switch off bring our own prices back. Hulusport matches in leagues we do not list become events of their own (feed_provider `hulusport`, priced from the board alone, suspended when stale; results from API-Football when SCRAPER_SECRET_API_FOOTBALL is set, else by hand), never in a league or with a team of our own catalogue.
+- **Narobet-only matches** (owner's decisions, 21 Nov 2026; `docs/plans/narobet-events.md`): while the back office switch `narobet_events` is on (off by default), mr-z's matches in leagues we do not list become events of their own (feed_provider `narobet`), up to 30 days ahead (changeable), never in our league or with our team, never club friendlies; results from API-Football by fixture id, cross-checked with mr-z. Every board's own match (Hulusport's, Narobet's) pays out at most `board_risk_limits` (ETB 20,000 per match by default, Settings). Nahubet never contacts Narobet, and nothing may make mr-z read Narobet more (owner: Narobet must not be affected).
 - included by policy: casino/crash/virtual games, crypto, payouts to third-party wallets.
 
 ## Payments

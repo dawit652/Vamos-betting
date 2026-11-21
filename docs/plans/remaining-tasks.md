@@ -1,18 +1,20 @@
 # Remaining tasks (read this first; updated 21 Nov 2026)
 
-**Start here (21 Nov):** the newest work is on `claude/happy-keller-i7cvrh` (it contains all of
-`claude/eager-cerf-ox9vkq`). The live server runs `1918eb6` (deployed by the owner 21 Nov,
+**Start here (21 Nov):** the newest work is on `claude/eager-cerf-ox9vkq` (it contains all of
+`claude/happy-keller-i7cvrh`; bring that branch up to it before working there). The live server runs `1918eb6` (deployed by the owner 21 Nov,
 migrations up to 0075: agent shops phases 0-5 and the shop PIN reset; the shop app itself is not
 switched on yet). **Pushed and NOT deployed:** Narobet prices through mr-z
 ([narobet-feed.md](narobet-feed.md): migration `0076_narobet_board`, switch `narobet_pricing` off
 by default, deploy steps there) and, in the mr-z repository, gentle polling (`7f129c6`, owner: "mr-z
-dont pull data aggresively"). The next free migration number is **0077**. The 30-day top leagues
-work was stopped by the owner (20 Nov) and not committed. **Planned 21 Nov, not built:**
-Narobet-only matches through mr-z, for more leagues on the site
-([narobet-events.md](narobet-events.md); owner: "go ahead", and Narobet must not be affected: no
-new request to Narobet). Server checks done 21 Nov (mr-z reads only its SQLite; the API-Football key is set); it waits for
-decisions D1-D5 and the deploy of release 1.
-Next: that plan, phase 6 once the owner picks a POS model, or what the owner asks. The branch holds the server's own branch
+dont pull data aggresively"). The 30-day top leagues
+work was stopped by the owner (20 Nov) and not committed. **Built 21 Nov, pushed, NOT deployed:**
+Narobet-only matches through mr-z, for more leagues on the site, with the ETB 20,000 cap per board
+match (a setting) and results by API-Football fixture id ([narobet-events.md](narobet-events.md):
+migration `0077_narobet_events`, switch `narobet_events` off, 30 days ahead; deploy and switch-on
+steps there). Narobet is not affected: Nahubet reads only mr-z's copy. Not built: listing our own
+seeded Ethiopian Premier League from Narobet (an owner decision). The next free migration number is
+**0078**. Next: the owner deploys and switches on, phase 6 once the owner picks a POS model, or
+what the owner asks. The branch holds the server's own branch
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Deploy is
 done by the owner (`ssh -t root@<server>` + `infra/scripts/deploy-full.sh`, licensed env file

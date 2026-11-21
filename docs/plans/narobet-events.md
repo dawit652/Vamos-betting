@@ -1,10 +1,57 @@
 # Narobet-only matches through mr-z (more leagues on nahubet.com)
 
-Written 21 November 2026. Status: **decided 21 Nov, being built.** Release 2 of
+Written 21 November 2026. Status: **built 21 Nov, switched off, not deployed.** Release 2 of
 [narobet-feed.md](narobet-feed.md). Before every push, build on top of the server's branch:
 `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor FETCH_HEAD HEAD`.
 The next free migration number was **0077** when this was written; restamp it if the server's
 branch has taken it.
+
+## What was built (21 Nov 2026)
+
+| Commit    | What                                                                                                        |
+| --------- | ----------------------------------------------------------------------------------------------------------- |
+| `0074743` | The board caps: at most ETB 20,000 paid out per Hulusport-only or Narobet-only match, a back-office setting |
+| `a42f2a2` | Narobet-only matches: migration `0077_narobet_events`, the switch `narobet_events`, the Feed panel          |
+| `ae6fb16` | Their results from API-Football by fixture id, cross-checked with mr-z                                      |
+
+Differences from the plan below:
+
+- **Our leagues** are those whose matches link to ours, whose "Country - League" name resolves to
+  one of our competitions, or whose API-Football id our own API-Football source follows
+  (`leagueIds` of an enabled `apifootball` source). The plain league name is not used, unlike
+  Hulusport's rule: mr-z's names carry no country, so "Premier League" would have blocked every
+  country's Premier League. Our teams still block a match of ours whatever its league is called.
+- **Our Ethiopian Premier League is seeded in the catalogue with its teams** (no source), so
+  Narobet's Ethiopian Premier League matches are skipped by the "never our team" rule. Listing
+  them would mean filling our own competition from Narobet: a decision for the owner, not built.
+- The mr-z cross-check reads finished matches changed in the last 4 days in one request per pass
+  (`changed_since`), and compares only matches that ended in 90 minutes (after extra time mr-z's
+  score may include it).
+
+## Deploy and switch on (the owner; never a session)
+
+1. Deploy as usual (`infra/scripts/deploy-full.sh`): it runs migrations 0076 and 0077. Release 1's
+   `SCRAPER_NAROBET_URL=http://mrz:3200` must be in `/opt/nahubet-new/infra/.env.prod`, and
+   `SCRAPER_SECRET_API_FOOTBALL` for the results (both checked 21 Nov).
+2. Back office → Settings → "Caps for Hulusport-only and Narobet-only matches": ETB 20,000 per
+   match unless changed.
+3. Back office → Feed → "mr-z prices": check that the board is read. Then "List them" under
+   "Narobet-only matches". At most 100 new matches are added per read (every 5 minutes), so a full
+   30 days fills in over a few hours. "Days ahead" changes the horizon (1-30) without a deploy.
+4. Turning it off ("Stop listing them", a trader may) suspends every upcoming Narobet-only match on
+   the next pass; bets already placed stay and settle as usual.
+
+## Running it
+
+- **Results waiting for a person** are listed in the panel ("waiting for a result"), each linked
+  to its trading page: a postponed, cancelled or abandoned match; one that started before our
+  betting closed (void the bets placed after the real kickoff); one whose 90-minute score mr-z
+  confirmed differently; and anything older than 3 days. Each log line says why
+  (`narobet result left to a person`, with `reason`).
+- **A suspected duplicate** (the same match listed by Hulusport and Narobet, or twice): suspend
+  one of them on its trading page and add a team alias under Aliases, so the next read links them.
+- **Load:** the panel shows how many upcoming matches are listed and open. If the server struggles,
+  shorten "Days ahead" first.
 
 ## Why
 

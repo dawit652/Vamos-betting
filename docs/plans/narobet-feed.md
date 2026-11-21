@@ -40,7 +40,7 @@ reads Narobet").
 
 - **Not done:** no whole-match pricing (rule O1h stays Hulusport's only), no Narobet-only events,
   and no results from mr-z. Release 2 (Narobet-only matches, results by API-Football fixture id) is
-  planned in [narobet-events.md](narobet-events.md).
+  built and switched off: [narobet-events.md](narobet-events.md).
 - **Kickoff confirmation (K2):** Narobet's data comes from API-Football, so it is not an
   independent second source for a kickoff time. Matches more than 72 hours away stay locked as
   before.

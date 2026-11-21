@@ -647,6 +647,12 @@ To switch it on:
 The shop app has no staff screens of its own: agents, shops, cashiers and devices are managed in
 the back office.
 
+## Narobet-only matches (more leagues through mr-z, 21 Nov 2026)
+
+Built and switched off. Deploy and switch-on steps, the ETB 20,000 cap per match (Settings, "Caps
+for Hulusport-only and Narobet-only matches") and what to do with results waiting for a person:
+[docs/plans/narobet-events.md](plans/narobet-events.md), "Deploy and switch on" and "Running it".
+
 ## Competition logos and Top leagues (owner's choice, 16 Nov 2026)
 
 - **Top leagues: a fixed list.** The desktop left column and the phone "Top leagues" panel (the
