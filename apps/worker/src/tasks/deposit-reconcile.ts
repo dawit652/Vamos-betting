@@ -6,6 +6,8 @@ import {
   scheduleDepositPoll,
   type DepositEventOutcome,
   type PaymentIntent,
+  reportServiceFailure,
+  reportServiceOk,
 } from '@vamos/db';
 import {
   eventFromStatusQuery,
@@ -98,11 +100,18 @@ async function reconcileOne(
   }
   summary.queried += 1;
   let result: ProviderStatusResult;
+  // Each call reports the provider's health (service-health task; docs/plans/
+  // counter-codes-and-deposit-recovery.md, G7).
+  const service = `payments:${intent.provider}`;
   try {
     result = await provider.queryDeposit(intent.providerRef);
+    await reportServiceOk(ctx.db, service, ctx.clock());
   } catch (error) {
     summary.queryFailed += 1;
     if (!(error instanceof PaymentProviderError)) throw error;
+    if (error.retryable) {
+      await reportServiceFailure(ctx.db, service, ctx.clock(), error.message);
+    }
     ctx.logger.warn(
       { err: error, intentId: intent.id, provider: intent.provider },
       'deposit status query failed',

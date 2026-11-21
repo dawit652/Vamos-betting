@@ -185,6 +185,10 @@ export interface OwnerAlertSmsJobData {
   raisedAt: string;
   /** The alarm's own least time between two texts (OWNER_ALERT_POLICY); absent for older rows. */
   repeatMs?: number;
+  /** `repeatMs` exactly, even below OWNER_ALERT_MIN_INTERVAL_MINUTES (service-down alerts). */
+  exactRepeat?: boolean;
+  /** Telegram only, no SMS. */
+  telegramOnly?: boolean;
 }
 
 /** Data of an `sms` job. */
@@ -371,6 +375,8 @@ const ownerAlertPayload = z.object({
   message: nonEmpty.max(160),
   raisedAt: nonEmpty,
   repeatMs: z.number().int().min(0).default(0),
+  exactRepeat: z.boolean().optional(),
+  telegramOnly: z.boolean().optional(),
 });
 
 /** An alert to the owner's phone: the `sms` consumer sends it (or does nothing with alerts off). */
@@ -383,6 +389,8 @@ const ownerAlertRoute: OutboxRoute = (row) => {
     message: payload.message,
     raisedAt: payload.raisedAt,
     repeatMs: payload.repeatMs,
+    ...(payload.exactRepeat === true ? { exactRepeat: true } : {}),
+    ...(payload.telegramOnly === true ? { telegramOnly: true } : {}),
   };
   return { queue: QUEUE_NAMES.sms, name: row.type, data };
 };

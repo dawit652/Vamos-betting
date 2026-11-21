@@ -547,6 +547,13 @@
       "when": 1795288049583,
       "tag": "0077_narobet_events",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1795291450608,
+      "tag": "0078_service_status",
+      "breakpoints": true
     }
   ]
 }

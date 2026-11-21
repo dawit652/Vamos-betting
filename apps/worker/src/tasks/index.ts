@@ -47,6 +47,7 @@ import { userNotifyTask, type UserNotifyOptions } from './user-notify';
 import { ussdPruneTask, type UssdPruneOptions } from './ussd-prune';
 import { agentStatementsTask } from './agent-statements';
 import { retailAlertsTask } from './retail-alerts';
+import { serviceHealthTask } from './service-health';
 import { retailExpiryTask } from './retail-expiry';
 import {
   settlementSweepTask,
@@ -141,6 +142,8 @@ export function createTasks(
     agentStatementsTask(ctx),
     // Alerts about the agent shops (big wins, repeated picks, cancels, late tickets, balances...).
     retailAlertsTask(ctx),
+    // A service down (payments, feeds, mr-x, mr-z): Telegram every 15 minutes, then "works again".
+    serviceHealthTask(ctx),
     retentionPruneTask(ctx, options.retentionPrune),
     // The SMS rail's receipt audit, balance reconciliation and watch (only with `sms`).
     ...smsRailTasks(ctx, options.smsRail),

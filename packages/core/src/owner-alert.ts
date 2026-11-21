@@ -76,7 +76,14 @@ export type OwnerAlertInput =
       family: string;
       move: 'suspend' | 'return' | 'off';
       week: string;
-    };
+    }
+  /**
+   * A service Nahubet depends on (a payment provider, a feed, mr-x, mr-z) has been failing for
+   * SERVICE_DOWN_AFTER_MS (docs/plans/counter-codes-and-deposit-recovery.md, G7).
+   */
+  | { alarm: 'service_down'; service: string; minutesDown: number; detail: string | null }
+  /** It works again: once per incident (the key carries when it went down). */
+  | { alarm: 'service_recovered'; service: string; minutesDown: number; downSinceMs: number };
 
 export interface OwnerAlert {
   /** The alarm's name plus its subject, e.g. `source_broken|odds-api`. Stable per condition. */
@@ -269,6 +276,18 @@ function build(input: OwnerAlertInput): OwnerAlert {
                 : `The collection account ${account} was deleted in the back office. No new deposits go to it, and money already sent there is still credited.`,
       };
     }
+    case 'service_down':
+      return {
+        key: `service_down|${input.service}`,
+        message: `${clip(input.service, NAME_MAX_LENGTH)} is down for ${input.minutesDown} min${
+          input.detail === null ? '' : `: ${input.detail}`
+        }. Repeated every 15 min until it works again.`,
+      };
+    case 'service_recovered':
+      return {
+        key: `service_recovered|${input.service}|${input.downSinceMs}`,
+        message: `${clip(input.service, NAME_MAX_LENGTH)} works again, after ${input.minutesDown} min down.`,
+      };
     case 'market_family_moved': {
       const family = nameOf(input.family, 'A market family');
       return {
@@ -293,9 +312,16 @@ const HOUR_MS = 3_600_000;
  * the least time between two alerts of one key while the condition lasts (the configured
  * OWNER_ALERT_MIN_INTERVAL_MINUTES only ever lengthens it).
  */
-export const OWNER_ALERT_POLICY: Readonly<
-  Record<OwnerAlertInput['alarm'], { send: boolean; repeatMs: number }>
-> = {
+export interface OwnerAlertRule {
+  send: boolean;
+  repeatMs: number;
+  /** `repeatMs` exactly, even below OWNER_ALERT_MIN_INTERVAL_MINUTES (the owner's own rhythm). */
+  exact?: boolean;
+  /** Telegram only, never an SMS (frequent alerts would cost an SMS each). */
+  telegramOnly?: boolean;
+}
+
+export const OWNER_ALERT_POLICY: Readonly<Record<OwnerAlertInput['alarm'], OwnerAlertRule>> = {
   // Money: deposits not crediting, contradicted or mismatched; withdrawals that cannot be paid or
   // wait too long; a change to where players send money.
   sms_gateway_silent: { send: true, repeatMs: 6 * HOUR_MS },
@@ -321,15 +347,24 @@ export const OWNER_ALERT_POLICY: Readonly<
   rate_limit_low: { send: true, repeatMs: 0 },
   unexpected_cost: { send: true, repeatMs: 0 },
   market_family_moved: { send: true, repeatMs: 0 },
+  // Services down (owner, 21 Nov 2026, decision O4): Telegram every 15 minutes while it lasts,
+  // then once "works again".
+  service_down: { send: true, repeatMs: 15 * 60_000, exact: true, telegramOnly: true },
+  service_recovered: { send: true, repeatMs: 0, telegramOnly: true },
 };
 
 /** Whether an alarm is texted at all, and the least time between two texts of one key. */
 export function ownerAlertDelivery(
   input: OwnerAlertInput,
   configuredIntervalMs: number,
-): { send: boolean; intervalMs: number } {
+): { send: boolean; intervalMs: number; telegramOnly: boolean } {
   const policy = OWNER_ALERT_POLICY[input.alarm];
-  return { send: policy.send, intervalMs: Math.max(configuredIntervalMs, policy.repeatMs) };
+  return {
+    send: policy.send,
+    intervalMs:
+      policy.exact === true ? policy.repeatMs : Math.max(configuredIntervalMs, policy.repeatMs),
+    telegramOnly: policy.telegramOnly === true,
+  };
 }
 
 /**

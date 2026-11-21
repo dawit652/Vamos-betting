@@ -8,6 +8,7 @@ export const CURRENCY = 'ETB' as const;
 export * from './money';
 export * from './odds';
 export * from './risk';
+export * from './service-health';
 export * from './rules';
 export * from './multibonus';
 export * from './tax';

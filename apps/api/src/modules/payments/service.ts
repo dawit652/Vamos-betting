@@ -27,6 +27,8 @@ import {
   requestWithdrawal,
   withTxRetry,
   type PaymentIntent,
+  reportServiceFailure,
+  reportServiceOk,
 } from '@vamos/db';
 import { payouts } from '@vamos/db/schema';
 import {
@@ -50,6 +52,9 @@ import {
   unprocessable,
 } from '../../lib/errors';
 import { cachedGameSettings } from '../betting/service';
+
+/** The payment providers that call an outside service: their calls report its health (G7). */
+const EXTERNAL_PROVIDERS: ReadonlySet<string> = new Set(['chapa', 'telebirr']);
 import { smsProviderOf, smsRailOptions } from './smsrail';
 import { depositView, withdrawalView } from './views';
 
@@ -155,6 +160,11 @@ async function initiateDeposit(
       returnUrl: depositReturnUrl(deps.config, intent.id),
       expiresAt: intent.expiresAt,
     });
+    // The provider answered: its health (service-health task; G7 of
+    // docs/plans/counter-codes-and-deposit-recovery.md).
+    if (EXTERNAL_PROVIDERS.has(provider.name)) {
+      await reportServiceOk(deps.db, `payments:${provider.name}`, deps.clock());
+    }
     return await withTxRetry(deps.db, (tx) =>
       markDepositInitiated(tx, {
         intentId: intent.id,
@@ -175,6 +185,9 @@ async function initiateDeposit(
       { err: error, intentId: intent.id, provider: provider.name, retryable: error.retryable },
       'deposit initiation failed',
     );
+    if (error.retryable && EXTERNAL_PROVIDERS.has(provider.name)) {
+      await reportServiceFailure(deps.db, `payments:${provider.name}`, deps.clock(), error.message);
+    }
     if (error.retryable) {
       throw serviceUnavailable(
         'payment_provider_unavailable',

@@ -113,3 +113,23 @@ export const databaseIdentity = pgTable(
   },
   (t) => [check('database_identity_singleton', sql`${t.id}`)],
 );
+
+/**
+ * The health of each service Nahubet depends on (docs/plans/counter-codes-and-deposit-recovery.md,
+ * G7): every call reports its outcome (recordServiceOk, recordServiceFailure); the worker's
+ * service-health task turns a long failure into a Telegram alert every 15 minutes and, when it
+ * works again, one "works again".
+ */
+export const serviceStatus = pgTable('service_status', {
+  /** A stable id, e.g. 'payments:chapa', 'mrz', 'source:theoddsapi'. */
+  service: text('service').primaryKey(),
+  lastOkAt: timestamp('last_ok_at', { withTimezone: true }),
+  /** The first failure since the last success; null while it works. */
+  failingSince: timestamp('failing_since', { withTimezone: true }),
+  lastFailureAt: timestamp('last_failure_at', { withTimezone: true }),
+  /** The last failure's reason, short and without personal data. */
+  lastError: text('last_error'),
+  /** The outage the owner was told about (when it began); null when none is open. */
+  alertedDownSince: timestamp('alerted_down_since', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

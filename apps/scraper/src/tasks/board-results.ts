@@ -3,6 +3,8 @@ import {
   markBoardResultApplied,
   narobetEventsWithoutResult,
   recordBoardResultSighting,
+  reportServiceFailure,
+  reportServiceOk,
   resultEvent,
 } from '@vamos/db';
 import {
@@ -345,8 +347,20 @@ export function boardResultsTask(ctx: ScraperContext): IntervalTask | null {
     name: 'hulusport-results',
     intervalMs: BOARD_RESULTS_INTERVAL_MS,
     run: async () => {
-      await runBoardResults(ctx);
-      await runNarobetResults(ctx);
+      const hulusport = await runBoardResults(ctx);
+      const narobet = await runNarobetResults(ctx);
+      // API-Football's health (service-health task, G7): failed requests, or a pass that asked.
+      const failed = hulusport.failedRequests + narobet.failedRequests;
+      if (failed > 0) {
+        await reportServiceFailure(
+          ctx.db,
+          'api-football',
+          ctx.clock(),
+          `${failed} result requests failed`,
+        );
+      } else if (hulusport.pending + narobet.pending > 0) {
+        await reportServiceOk(ctx.db, 'api-football', ctx.clock());
+      }
     },
     logger: ctx.logger,
   });

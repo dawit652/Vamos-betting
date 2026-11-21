@@ -48,6 +48,9 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'suspend', week: '2026-W45' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'return', week: '2026-W48' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'off', week: '2026-W52' },
+  { alarm: 'service_down', service: 'Chapa', minutesDown: 3, detail: null },
+  { alarm: 'service_down', service: 'mr-z (Narobet)', minutesDown: 47, detail: 'HTTP 502' },
+  { alarm: 'service_recovered', service: 'Chapa', minutesDown: 12, downSinceMs: 1_795_000_000_000 },
 ];
 
 /** Words of a request or an obligation, wherever they stand. */
@@ -198,11 +201,44 @@ describe('buildOwnerAlert', () => {
     expect(ownerAlertDelivery({ alarm: 'sms_gateway_silent' }, 3 * minute)).toEqual({
       send: true,
       intervalMs: 6 * hour,
+      telegramOnly: false,
     });
     expect(ownerAlertDelivery({ alarm: 'sms_gateway_silent' }, 12 * hour).intervalMs).toBe(
       12 * hour,
     );
     expect(ownerAlertDelivery({ alarm: 'sms_review_backlog' }, 30 * minute).send).toBe(false);
+  });
+
+  it('repeats a service-down alert every 15 minutes on Telegram only, then says it works again', () => {
+    const minute = 60_000;
+    const down = {
+      alarm: 'service_down' as const,
+      service: 'Chapa',
+      minutesDown: 18,
+      detail: 'payment initiation fails',
+    };
+    // Exactly 15 minutes, even when OWNER_ALERT_MIN_INTERVAL_MINUTES is longer.
+    expect(ownerAlertDelivery(down, 30 * minute)).toEqual({
+      send: true,
+      intervalMs: 15 * minute,
+      telegramOnly: true,
+    });
+    expect(buildOwnerAlert(down)).toEqual({
+      key: 'service_down|Chapa',
+      message:
+        'Chapa is down for 18 min: payment initiation fails. Repeated every 15 min until it works again.',
+    });
+    const back = {
+      alarm: 'service_recovered' as const,
+      service: 'Chapa',
+      minutesDown: 42,
+      downSinceMs: 1_795_000_000_000,
+    };
+    expect(buildOwnerAlert(back)).toEqual({
+      key: 'service_recovered|Chapa|1795000000000',
+      message: 'Chapa works again, after 42 min down.',
+    });
+    expect(ownerAlertDelivery(back, 30 * minute).telegramOnly).toBe(true);
   });
 
   it('uses the singular for one day', () => {

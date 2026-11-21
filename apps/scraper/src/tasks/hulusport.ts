@@ -1,6 +1,8 @@
 import {
   fillBoardCategoryCountries,
   findEventByTeams,
+  reportServiceFailure,
+  reportServiceOk,
   upsertBoardOdds,
   type BoardOddsInput,
 } from '@vamos/db';
@@ -93,6 +95,16 @@ export async function readHulusportBoard(
       { lastSuccessAt: board.lastSuccessAt?.toISOString() ?? null },
       'mr-x poller has not read Hulusport recently: its prices are expiring',
     );
+    // mr-x answers but reads nothing (the PC, its Chrome or the tunnel is off): a failure for the
+    // service-health task (docs/plans/counter-codes-and-deposit-recovery.md, G7).
+    await reportServiceFailure(
+      ctx.db,
+      'mrx',
+      now,
+      'mr-x has not read Hulusport lately (PC, Chrome or tunnel off?)',
+    );
+  } else {
+    await reportServiceOk(ctx.db, 'mrx', now);
   }
 
   const index = await aliasIndexCache(ctx).get('football');
@@ -189,6 +201,9 @@ export function hulusportTask(ctx: ScraperContext): IntervalTask | null {
     run: async () => {
       try {
         await readHulusportBoard(ctx);
+      } catch (error) {
+        await reportServiceFailure(ctx.db, 'mrx', ctx.clock(), (error as Error).message);
+        throw error;
       } finally {
         // Also after a failed read: stale prices must not stay open.
         await sweepBoardEvents(ctx, ctx.clock());

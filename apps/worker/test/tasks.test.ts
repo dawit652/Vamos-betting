@@ -172,6 +172,7 @@ describe('createTasks', () => {
     'retail-ticket-expiry',
     'agent-statements',
     'retail-alerts',
+    'service-health',
     'retention-prune',
     'outbox-dispatch',
   ];

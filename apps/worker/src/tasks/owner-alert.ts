@@ -34,8 +34,12 @@ export async function processOwnerAlertJob(
   }
   const parsed = Date.parse(data.raisedAt);
   const raisedAt = Number.isNaN(parsed) ? ctx.clock().getTime() : parsed;
-  // The alarm's own repeat window (owner's rule: only what matters, not every few minutes).
-  const intervalMs = Math.max(alerts.minIntervalMinutes * 60_000, data.repeatMs ?? 0);
+  // The alarm's own repeat window (owner's rule: only what matters, not every few minutes); a
+  // service-down alert keeps its own 15 minutes exactly (owner, 21 Nov 2026).
+  const intervalMs =
+    data.exactRepeat === true
+      ? (data.repeatMs ?? 0)
+      : Math.max(alerts.minIntervalMinutes * 60_000, data.repeatMs ?? 0);
   if (!(await claimAlertSlot(ctx.redis, 'sent', data.key, raisedAt, intervalMs))) {
     ctx.logger.info(
       {
@@ -47,10 +51,10 @@ export async function processOwnerAlertJob(
     );
     return { sent: false, reason: 'suppressed' };
   }
+  // Service alerts go to Telegram only (one every 15 minutes would cost an SMS each).
+  const phones = data.telegramOnly === true ? [] : alerts.phones;
   const results = await Promise.allSettled(
-    alerts.phones.map((to) =>
-      ctx.sms.send({ to, body: data.message, template: OWNER_ALERT_TEMPLATE }),
-    ),
+    phones.map((to) => ctx.sms.send({ to, body: data.message, template: OWNER_ALERT_TEMPLATE })),
   );
   // The same text to the owner's Telegram chats (when the bot is configured).
   const telegram = ctx.telegram;

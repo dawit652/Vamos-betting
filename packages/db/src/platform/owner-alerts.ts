@@ -16,6 +16,10 @@ export interface OwnerAlertPayload {
   raisedAt: string;
   /** The alarm's least time between two texts (OWNER_ALERT_POLICY): the sender keeps to it. */
   repeatMs?: number;
+  /** `repeatMs` exactly, even below OWNER_ALERT_MIN_INTERVAL_MINUTES (service-down alerts). */
+  exactRepeat?: boolean;
+  /** Telegram only, no SMS (service alerts every 15 minutes). */
+  telegramOnly?: boolean;
 }
 
 /**
@@ -41,6 +45,8 @@ export async function enqueueOwnerAlert(
     message: alert.message,
     raisedAt: now.toISOString(),
     repeatMs: policy.repeatMs,
+    ...(policy.exact === true ? { exactRepeat: true } : {}),
+    ...(policy.telegramOnly === true ? { telegramOnly: true } : {}),
   };
   await enqueueOutbox(exec, {
     type: OWNER_ALERT,

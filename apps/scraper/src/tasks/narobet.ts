@@ -1,4 +1,11 @@
-import { boardOddsTimes, findEventByTeams, upsertBoardOdds, type BoardOddsInput } from '@vamos/db';
+import {
+  boardOddsTimes,
+  findEventByTeams,
+  reportServiceFailure,
+  reportServiceOk,
+  upsertBoardOdds,
+  type BoardOddsInput,
+} from '@vamos/db';
 import {
   MARKET_ODDS_LINK_WINDOW_MS,
   MRZ_MATCHES_PATH,
@@ -164,6 +171,31 @@ export async function readNarobetBoard(
   return summary;
 }
 
+/**
+ * Whether mr-z itself still reads Narobet: its `/api/health` answers from its own database (503 when
+ * its poller has not finished a cycle lately). Null when it is fine, else why. Local only: this
+ * makes mr-z read nothing from Narobet.
+ */
+export async function mrzPollerProblem(
+  ctx: ScraperContext,
+  fetchImpl: FetchLike = fetch,
+): Promise<string | null> {
+  const base = ctx.config.scraper.narobet.url;
+  if (base === null) return null;
+  try {
+    const response = await fetchImpl(`${base}/api/health`, {
+      headers: { accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (response.status === 503) return 'mr-z has not read Narobet lately';
+    if (!response.ok) return `mr-z health: HTTP ${response.status}`;
+    return null;
+  } catch (error) {
+    return `mr-z health: ${(error as Error).message}`;
+  }
+}
+
 /** The interval task, or null when SCRAPER_NAROBET_URL is not set. */
 export function narobetTask(ctx: ScraperContext): IntervalTask | null {
   const { url, intervalMs } = ctx.config.scraper.narobet;
@@ -174,6 +206,13 @@ export function narobetTask(ctx: ScraperContext): IntervalTask | null {
     run: async () => {
       try {
         await readNarobetBoard(ctx);
+        // mr-z's health (service-health task, docs/plans/counter-codes-and-deposit-recovery.md G7).
+        const problem = await mrzPollerProblem(ctx);
+        if (problem === null) await reportServiceOk(ctx.db, 'mrz', ctx.clock());
+        else await reportServiceFailure(ctx.db, 'mrz', ctx.clock(), problem);
+      } catch (error) {
+        await reportServiceFailure(ctx.db, 'mrz', ctx.clock(), (error as Error).message);
+        throw error;
       } finally {
         // Also after a failed read: stale prices must not stay open.
         await sweepNarobetEvents(ctx, ctx.clock());
