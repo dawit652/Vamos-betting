@@ -349,26 +349,35 @@ export function parseGameSettings(raw: Partial<Record<GameSettingKey, unknown>>)
  * need nothing else (live bet acceptance), so an invalid unrelated setting cannot stop them.
  */
 export async function loadRiskLimits(exec: DbExecutor): Promise<RiskLimits> {
-  return loadCaps(exec, 'riskLimits');
+  return (await loadRiskCaps(exec)).riskLimits;
 }
 
-/** Only the board caps (`board_risk_limits`), parsed like parseGameSettings does. */
-export async function loadBoardRiskLimits(exec: DbExecutor): Promise<RiskLimits> {
-  return loadCaps(exec, 'boardRiskLimits');
-}
-
-async function loadCaps(
+/**
+ * The plain caps and the board caps (`risk_limits`, `board_risk_limits`) in one statement, parsed
+ * like parseGameSettings does: for live bet acceptance.
+ */
+export async function loadRiskCaps(
   exec: DbExecutor,
-  field: 'riskLimits' | 'boardRiskLimits',
-): Promise<RiskLimits> {
-  const key = GAME_SETTING_KEYS[field];
-  const [row] = await exec
-    .select({ value: sql<string>`${settings.value}::text` })
+): Promise<{ riskLimits: RiskLimits; boardRiskLimits: RiskLimits }> {
+  const plain = GAME_SETTING_KEYS.riskLimits;
+  const board = GAME_SETTING_KEYS.boardRiskLimits;
+  const rows = await exec
+    .select({ key: settings.key, value: sql<string>`${settings.value}::text` })
     .from(settings)
-    .where(inArray(settings.key, [key]))
-    .limit(1);
-  const stored: unknown = row === undefined ? undefined : JSON.parse(row.value);
-  return parseWith(RiskLimitsSchema, key, overDefault(DEFAULT_GAME_SETTINGS[field], stored));
+    .where(inArray(settings.key, [plain, board]));
+  const stored = new Map(rows.map((row) => [row.key, JSON.parse(row.value) as unknown]));
+  return {
+    riskLimits: parseWith(
+      RiskLimitsSchema,
+      plain,
+      overDefault(DEFAULT_GAME_SETTINGS.riskLimits, stored.get(plain)),
+    ),
+    boardRiskLimits: parseWith(
+      RiskLimitsSchema,
+      board,
+      overDefault(DEFAULT_GAME_SETTINGS.boardRiskLimits, stored.get(board)),
+    ),
+  };
 }
 
 /**

@@ -2,8 +2,6 @@ import type { LiabilityExposure } from '@vamos/core';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { DbTransaction } from '../ledger/types';
 import { betLegs, bets } from '../schema/betting';
-import { events } from '../schema/catalog';
-import { BOARD_FEED_PROVIDERS } from '../scrape/board-events';
 import { OPEN_BET_STATUSES } from './types';
 
 /**
@@ -32,23 +30,6 @@ function distinct(ids: readonly string[]): string[] {
  * deadlock. Nothing else takes these locks, and a match's rows are not locked, so the feed and
  * traders are not held up.
  */
-/**
- * Which of these matches are a competitor board's own (feed provider in BOARD_FEED_PROVIDERS):
- * those take the board caps (`board_risk_limits`, `liabilityBreach`'s `board`).
- */
-export async function boardEventIds(
-  tx: DbTransaction,
-  eventIds: readonly string[],
-): Promise<Set<string>> {
-  const ids = distinct(eventIds);
-  if (ids.length === 0) return new Set();
-  const rows = await tx
-    .select({ id: events.id })
-    .from(events)
-    .where(and(inArray(events.id, ids), inArray(events.feedProvider, [...BOARD_FEED_PROVIDERS])));
-  return new Set(rows.map((row) => row.id));
-}
-
 export async function lockEventsForRisk(
   tx: DbTransaction,
   eventIds: readonly string[],

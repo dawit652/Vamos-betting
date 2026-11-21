@@ -32,6 +32,7 @@
             },
             "eventId": "<event 0>",
             "eventStatus": "scheduled",
+            "feedProvider": "test-feed",
             "gameId": "<game id>",
             "homeTeam": {
               "en": "Arsenal"
@@ -183,6 +184,7 @@
             },
             "eventId": "<event 0>",
             "eventStatus": "scheduled",
+            "feedProvider": "test-feed",
             "gameId": "<game id>",
             "homeTeam": {
               "en": "Arsenal"

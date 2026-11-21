@@ -4,7 +4,6 @@ import {
   BET_SHORT_ID_LENGTH,
   encodeCode,
   formatBirr,
-  hasRiskLimits,
   largestStakeWithin,
   isFactoryOnlyMarketType,
   liabilityBreach,
@@ -31,7 +30,8 @@ import type { GameSettings } from '../settings/index';
 import { BET_PLACED } from './events';
 import { stakeEntries, stakeLedgerKey } from './postings';
 import { assembleUserBets, type BetRow } from './queries';
-import { boardEventIds, lockEventsForRisk, openLiabilities } from './risk';
+import { BOARD_FEED_PROVIDERS } from '../scrape/board-events';
+import { lockEventsForRisk, openLiabilities } from './risk';
 import {
   loadSelectionSnapshots,
   snapshotOf,
@@ -362,6 +362,13 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
         .filter(({ snapshot }) => isFactoryOnlyMarketType(snapshot.marketType))
         .map(({ snapshot }) => snapshot.selectionId),
     ),
+    // A competitor board's own matches take the board caps too (read with the selections: no
+    // extra statement).
+    boardEvents: new Set(
+      resolved
+        .filter(({ snapshot }) => BOARD_FEED_PROVIDERS.includes(snapshot.feedProvider))
+        .map(({ snapshot }) => snapshot.eventId),
+    ),
   });
 
   const betId = randomUUID();
@@ -529,16 +536,13 @@ async function assertWithinRiskLimits(
     >;
     /** Selections of factory markets, capped lower (selectionLiabilityCap). */
     factorySelections: ReadonlySet<string>;
+    /** The bet's matches that are a competitor board's own (board caps). */
+    boardEvents: ReadonlySet<string>;
   },
 ): Promise<void> {
-  const { legs, stake, quote, settings, factorySelections } = input;
+  const { legs, stake, quote, settings, factorySelections, boardEvents } = input;
   const limits = settings.riskLimits;
   const eventIds = legs.map((leg) => leg.eventId);
-  // A match's feed provider never changes, so this needs no lock. Looked up only while a board
-  // cap is set.
-  const boardEvents = hasRiskLimits(settings.boardRiskLimits)
-    ? await boardEventIds(tx, eventIds)
-    : new Set<string>();
   const board = {
     limits: settings.boardRiskLimits,
     events: boardEvents,

@@ -1,6 +1,5 @@
 import {
   applyOddsChangePolicy,
-  hasRiskLimits,
   isFactoryOnlyMarketType,
   liabilityBreach,
   needsLiabilityCheck,
@@ -12,12 +11,13 @@ import { postTransaction } from '../ledger/post';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { enqueueOutbox } from '../platform/outbox';
 import { betLegs, bets } from '../schema/betting';
-import { loadBoardRiskLimits, loadMarketFamilies, loadRiskLimits } from '../settings/index';
+import { BOARD_FEED_PROVIDERS } from '../scrape/board-events';
+import { loadMarketFamilies, loadRiskCaps } from '../settings/index';
 import { BET_ACCEPTED, BET_REJECTED } from './events';
 import { potentialOf } from './place';
 import { refundEntries, rejectionLedgerKey } from './postings';
 import { getBetById } from './queries';
-import { boardEventIds, lockEventsForRisk, openLiabilities } from './risk';
+import { lockEventsForRisk, openLiabilities } from './risk';
 import { loadSelectionSnapshots, unavailableReason } from './selections';
 import { settlePlacedBet } from './settle';
 import { parseTerms, type UserBet } from './types';
@@ -156,17 +156,18 @@ export async function acceptPendingBet(
     // Refused as `odds_changed`: at the new price the bet no longer fits.
     const increase = quote.grossPayout - bet.potentialGrossPayout;
     if (increase > 0n) {
-      const limits = await loadRiskLimits(tx);
+      const { riskLimits: limits, boardRiskLimits } = await loadRiskCaps(tx);
       // A competitor board's own matches also take the board caps, as at placement.
-      const boardLimits = await loadBoardRiskLimits(tx);
-      const boardEvents = hasRiskLimits(boardLimits)
-        ? await boardEventIds(
-            tx,
-            legs.map((leg) => leg.eventId),
-          )
-        : new Set<string>();
+      const boardEvents = new Set(
+        legs
+          .filter((leg) => {
+            const provider = snapshots.get(leg.selectionId)?.feedProvider;
+            return provider !== undefined && BOARD_FEED_PROVIDERS.includes(provider);
+          })
+          .map((leg) => leg.eventId),
+      );
       const board = {
-        limits: boardLimits,
+        limits: boardRiskLimits,
         events: boardEvents,
         selections: new Set(
           legs.filter((leg) => boardEvents.has(leg.eventId)).map((leg) => leg.selectionId),
