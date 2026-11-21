@@ -22,9 +22,9 @@ codes for players without login and the code on the ticket; a 6-digit payout cod
 shop ticket; a 6-digit cash withdrawal code for logged-in players; provider re-check and manual
 deposit with four eyes; "My deposit did not arrive" claims (app and Telegram); a "Money not
 credited" page with suggested players; frequent Telegram alerts when a service is down (every 15
-minutes, then "recovered"); completing the shop app. Build order in that file: steps 1 (service
-health alerts) and 2 (numeric booking codes, the code on the ticket) need no decision; the rest
-waits for the owner's decisions O1-O5 there. Then: the owner deploys and switches on the Narobet
+minutes, then "recovered"); completing the shop app. Build order in that file; the owner decided O1-O5 on 21 Nov (payout code printed at sale; cash
+withdrawal at any shop with player cash on; the bot may store deposit claims; alerts every 15
+minutes; **one admin credits a manual deposit, no second approval**). Then: the owner deploys and switches on the Narobet
 work, phase 6 once the owner picks a POS model, or what the owner asks. The branch holds the server's own branch
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Deploy is

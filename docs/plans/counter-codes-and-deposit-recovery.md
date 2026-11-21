@@ -1,6 +1,6 @@
 # Counter codes, deposit recovery and service alerts (plan)
 
-Written 21 November 2026. Status: **planned, not built.** Before every push, build on top of the
+Written 21 November 2026. Status: **decided 21 Nov (O1-O5 below), being built.** Before every push, build on top of the
 server's branch: `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor
 FETCH_HEAD HEAD`. The next free migration number is **0078**.
 
@@ -79,25 +79,26 @@ FETCH_HEAD HEAD`. The next free migration number is **0078**.
   per shop, refunded to the wallet when it expires unused.
 - Builds on the existing player cash withdrawal (`cashWithdrawal`, provider `agent_cash`), which
   today starts at the counter.
-- Decision O2 below: at any shop with player cash on, or only one agent the player picks.
+- Decision O2: at any shop with player cash on.
 
 ### G5. A deposit that did not arrive (logged-in players)
 
 1. **Re-check with the provider (Chapa, telebirr):** a button on the deposit in the back office asks
    the provider for the transaction's status (by our reference). If the provider says it was paid,
    the normal success path credits it: no hand-typed amount.
-2. **Manual deposit, four eyes:** for a payment the provider cannot confirm automatically. One staff
-   member proposes it (player, amount, provider, the provider's transaction id, a reason); **another**
-   approves it. The transaction id is unique, so the same money is never credited twice. Posted
-   through the application as a deposit (ledger, AML and limits as for any deposit), audited, and
-   the player is told by SMS or Telegram.
+2. **Manual deposit (one admin, decision O5):** for a payment the provider cannot confirm
+   automatically. An admin enters the player, amount, provider, the provider's transaction id and a
+   reason, and credits it in one step. The transaction id is unique, so the same money is never
+   credited twice. Posted through the application as a deposit (ledger, AML and limits as for any
+   deposit), audited, and the player is told by SMS or Telegram; the safeguards under "Decisions"
+   apply.
 3. **"My deposit did not arrive"** in the app (logged in): provider, amount, time, the transaction
    id or the bank SMS reference. It creates a **deposit claim** in a back-office queue, and the
    system pairs it at once with any unmatched SMS or unconfirmed provider payment (same reference,
-   same amount, payer phone = the player's phone). A unique pair is one click (four eyes).
+   same amount, payer phone = the player's phone). A unique pair is one click for an admin.
 4. **Telegram:** a "Deposit problem" button on the bot. It asks for the phone number, amount and
    reference, creates the same claim and posts it to the admin chats. This makes the bot store what
-   a player sends: decision O3.
+   a player sends: decision O3, allowed (phone, amount, reference; kept 90 days).
 
 ### G6. Money sent but not credited, mapped to the player
 
@@ -108,7 +109,7 @@ A back-office page **"Money not credited"** (Finance):
 - each with a **suggested player** and the reason: the payer's phone is a registered player's
   phone; that player has an open or expired deposit of a near amount within a day; that player
   filed a claim (G5.3);
-- staff confirm and credit (four eyes). **Never credited automatically**: the SMS rail's rule
+- an admin confirms and credits (one step, decision O5). **Never credited automatically**: the SMS rail's rule
   stays (another payer's phone or another amount is flagged for staff, never credited).
 - A daily line in the owner's Telegram summary: how much money waits, and the oldest.
 
@@ -158,15 +159,21 @@ statements, live monitor, alerts, PIN reset at a shop). Left:
 - **Weekly owner summary on Telegram:** money waiting, claims solved, top-selling shops, services
   down and for how long.
 
-## Decisions for the owner
+## Decisions (the owner, 21 Nov 2026)
 
-| #   | Question                                             | Recommended                                                     |
-| --- | ---------------------------------------------------- | --------------------------------------------------------------- |
-| O1  | When is the payout code made?                        | Printed on the ticket at sale (works with no phone and offline) |
-| O2  | Logged-in cash withdrawal: which shops?              | Any shop with player cash on                                    |
-| O3  | May the Telegram bot store a player's deposit claim? | Yes: phone, amount, reference only; kept 90 days                |
-| O4  | How often to repeat a service-down alert?            | Every 15 minutes, plus "recovered"                              |
-| O5  | Who approves a manual deposit?                       | A second admin (four eyes), never the one who proposed it       |
+| #   | Question                                             | Decided                                                      |
+| --- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| O1  | When is the payout code made?                        | Printed on the ticket at sale                                |
+| O2  | Logged-in cash withdrawal: which shops?              | Any shop with player cash on                                 |
+| O3  | May the Telegram bot store a player's deposit claim? | Yes: phone, amount and reference only, kept 90 days          |
+| O4  | How often to repeat a service-down alert?            | Every 15 minutes, plus "recovered"                           |
+| O5  | Who approves a manual deposit?                       | **One admin is enough, no second approval** (owner's choice) |
+
+**O5 without a second approver**, the remaining safeguards (adjustable, nothing blocks the admin):
+only staff with the admin role may credit (never a cashier); the provider's transaction id is unique,
+so the same money is never credited twice; a reason is required; every credit is audited and listed
+in the owner's daily Telegram summary; a credit above ETB 5,000 (a setting) also sends the owner a
+Telegram message at once. G5.2 follows this: "propose" and "approve" are one step.
 
 ## Build order (one commit each, with tests; the full checks once before each push)
 
@@ -175,10 +182,10 @@ statements, live monitor, alerts, PIN reset at a shop). Left:
 | 1    | G7 service health monitor, Telegram rhythm, health page               | Main session             |
 | 2    | G1 numeric booking codes (web, shop) and G2 the code on the ticket    | `routine-coder` + review |
 | 3    | G3 payout code (sale, Pay, reprint, lock) and the public ticket check | Main session (money)     |
-| 4    | G5.1-2 provider re-check and manual deposit with four eyes            | Main session (money)     |
+| 4    | G5.1-2 provider re-check and manual deposit (one admin, O5)           | Main session (money)     |
 | 5    | G6 "Money not credited" with suggested players; G5.3 claims           | Main session             |
-| 6    | G5.4 Telegram "Deposit problem" (after O3)                            | `routine-coder` + review |
-| 7    | G4 withdrawal code (after O2)                                         | Main session (money)     |
+| 6    | G5.4 Telegram "Deposit problem" (O3: allowed)                         | `routine-coder` + review |
+| 7    | G4 withdrawal code (O2: any shop with player cash on)                 | Main session (money)     |
 | 8    | G8 shift report print; phase 6 when the POS model is chosen           | `routine-coder`          |
 
-Steps 1 and 2 need no decision and can start at once.
+Every decision is made: build the steps in this order.
