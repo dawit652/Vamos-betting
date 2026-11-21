@@ -359,11 +359,46 @@ export const NarobetPricingResponse = z.object({
   ),
   /** What the scraper last read from mr-z (the same counts as Hulusport's board). */
   board: HulusportBoardView,
+  /**
+   * Narobet matches Nahubet does not list, shown as matches of their own (switch `narobet_events`,
+   * docs/plans/narobet-events.md): off by default; listed up to `horizonDays` ahead.
+   */
+  events: z.object({
+    enabled: z.boolean(),
+    horizonDays: z.number().int().min(1).max(30),
+    updatedAt: IsoDateTime.nullable(),
+    updatedBy: z.string().nullable(),
+    upcoming: z.number().int().nonnegative(),
+    bettingOpen: z.number().int().nonnegative(),
+    /** Kicked off more than two hours ago and no result yet. */
+    awaitingResultTotal: z.number().int().nonnegative(),
+    awaitingResult: z.array(
+      z.object({
+        eventId: z.string(),
+        gameId: z.number().int(),
+        competition: z.string(),
+        home: z.string(),
+        away: z.string(),
+        kickoff: IsoDateTime,
+      }),
+    ),
+  }),
 });
 export type NarobetPricingResponse = z.infer<typeof NarobetPricingResponse>;
 
 export const SetNarobetPricingRequest = z.strictObject({ enabled: z.boolean() });
 export type SetNarobetPricingRequest = z.infer<typeof SetNarobetPricingRequest>;
+
+/** PUT /admin/feed/narobet/events: the switch and/or the horizon (1..30 days). */
+export const SetNarobetEventsRequest = z
+  .strictObject({
+    enabled: z.boolean().optional(),
+    horizonDays: z.number().int().min(1).max(30).optional(),
+  })
+  .refine((body) => body.enabled !== undefined || body.horizonDays !== undefined, {
+    message: 'enabled or horizonDays is required',
+  });
+export type SetNarobetEventsRequest = z.infer<typeof SetNarobetEventsRequest>;
 
 // ---------------------------------------------------------------------------
 // Competition policy (GET /admin/feed/competitions, PUT /admin/feed/competitions/:id).

@@ -419,6 +419,52 @@ describe('Narobet prices (docs/plans/narobet-feed.md)', () => {
     expect(off.enabled).toBe(false);
     expect(await auditActions('scrape.narobet_pricing.updated')).toHaveLength(2);
   });
+
+  it('Narobet-only matches: off by default, 30 days; on or a new horizon needs settings.edit, off trading.status', async () => {
+    const view = NarobetPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'GET', '/admin/feed/narobet')),
+    );
+    expect(view.events).toMatchObject({
+      enabled: false,
+      horizonDays: 30,
+      upcoming: 0,
+      awaitingResultTotal: 0,
+    });
+
+    for (const body of [
+      { enabled: true },
+      { horizonDays: 7 },
+      { enabled: false, horizonDays: 7 },
+    ]) {
+      const refused = await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/narobet/events', body);
+      expect(refused.statusCode).toBe(403);
+    }
+    for (const body of [{}, { horizonDays: 0 }, { horizonDays: 31 }, { enabled: 'yes' }]) {
+      const bad = await asStaff(ctx, as('admin'), 'PUT', '/admin/feed/narobet/events', body);
+      expect(bad.statusCode).toBe(400);
+    }
+
+    const on = NarobetPricingResponse.parse(
+      expectOk(
+        await asStaff(ctx, as('admin'), 'PUT', '/admin/feed/narobet/events', {
+          enabled: true,
+          horizonDays: 7,
+        }),
+      ),
+    );
+    expect(on.events).toMatchObject({ enabled: true, horizonDays: 7 });
+    expect(on.events.updatedBy).not.toBeNull();
+    // The price switch is a separate one.
+    expect(on.enabled).toBe(false);
+
+    const off = NarobetPricingResponse.parse(
+      expectOk(
+        await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/narobet/events', { enabled: false }),
+      ),
+    );
+    expect(off.events).toMatchObject({ enabled: false, horizonDays: 7 });
+    expect(await auditActions('scrape.narobet_events.updated')).toHaveLength(2);
+  });
 });
 
 describe('market families (task A12)', () => {

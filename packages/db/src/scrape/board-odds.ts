@@ -32,6 +32,8 @@ export interface BoardOddsInput {
   pricesAt: Date;
   /** When we read them. */
   observedAt: Date;
+  /** API-Football's fixture id, when the board carries it (Narobet). */
+  fixtureId?: number | null;
 }
 
 const WRITE_CHUNK = 200;
@@ -71,7 +73,7 @@ export async function upsertBoardOdds(
   for (let i = 0; i < rows.length; i += WRITE_CHUNK) {
     await tx
       .insert(scrapeBoardOdds)
-      .values(rows.slice(i, i + WRITE_CHUNK).map((r) => ({ ...r })))
+      .values(rows.slice(i, i + WRITE_CHUNK).map((r) => ({ ...r, fixtureId: r.fixtureId ?? null })))
       .onConflictDoUpdate({
         target: scrapeBoardOdds.sourceKey,
         set: {
@@ -85,6 +87,7 @@ export async function upsertBoardOdds(
           markets: sql`excluded.markets`,
           pricesAt: sql`excluded.prices_at`,
           observedAt: sql`excluded.observed_at`,
+          fixtureId: sql`excluded.fixture_id`,
         },
         setWhere: sql`excluded.observed_at >= ${scrapeBoardOdds.observedAt}`,
       });
@@ -173,6 +176,30 @@ export async function freshBoardKeys(
       ),
     );
   return new Set(rows.map((r) => r.key));
+}
+
+/** When the prices of these board keys were confirmed upstream and read, and the kickoff stored. */
+export async function boardOddsTimes(
+  exec: DbExecutor,
+  sourceKeys: readonly string[],
+): Promise<Map<string, { pricesAt: Date; observedAt: Date; kickoff: Date }>> {
+  const out = new Map<string, { pricesAt: Date; observedAt: Date; kickoff: Date }>();
+  const keys = [...new Set(sourceKeys)];
+  for (let i = 0; i < keys.length; i += 1000) {
+    const rows = await exec
+      .select({
+        key: scrapeBoardOdds.sourceKey,
+        pricesAt: scrapeBoardOdds.pricesAt,
+        observedAt: scrapeBoardOdds.observedAt,
+        kickoff: scrapeBoardOdds.kickoff,
+      })
+      .from(scrapeBoardOdds)
+      .where(inArray(scrapeBoardOdds.sourceKey, keys.slice(i, i + 1000)));
+    for (const r of rows) {
+      out.set(r.key, { pricesAt: r.pricesAt, observedAt: r.observedAt, kickoff: r.kickoff });
+    }
+  }
+  return out;
 }
 
 /** Deletes rows no read has listed since `olderThan`, at most `limit` per call, oldest first. */
@@ -286,9 +313,10 @@ export async function boardOddsSummary(
         ofBoard,
         upcoming,
         isNull(scrapeBoardOdds.eventId),
-        // A match listed as a board event of its own is not "not linked".
-        sql`NOT EXISTS (SELECT 1 FROM events e WHERE e.feed_provider = 'hulusport'
-              AND 'hulusport:' || e.feed_ref = ${scrapeBoardOdds.sourceKey})`,
+        // A match listed as a board event of its own is not "not linked" (the board's events have
+        // the board's name as feed provider, and source keys '<board>:<feed ref>').
+        sql`NOT EXISTS (SELECT 1 FROM events e WHERE e.feed_provider = ${board}
+              AND ${board} || ':' || e.feed_ref = ${scrapeBoardOdds.sourceKey})`,
       ),
     )
     .orderBy(asc(scrapeBoardOdds.kickoff), asc(scrapeBoardOdds.sourceKey))
@@ -368,6 +396,104 @@ export async function setBoardPricing(
     metadata: { before: { enabled: before.enabled }, after: { enabled } },
   });
   return getBoardPricing(tx, board);
+}
+
+// ---------------------------------------------------------------------------
+// Narobet-only matches (settings key `narobet_events`, docs/plans/narobet-events.md)
+
+export const NAROBET_EVENTS_SETTING = 'narobet_events';
+/** How far ahead Narobet-only matches are listed by default (owner, 21 Nov 2026: 30 days). */
+export const NAROBET_EVENTS_DEFAULT_HORIZON_DAYS = 30;
+/** mr-z reads Narobet 30 days ahead: a longer horizon would list nothing more. */
+export const NAROBET_EVENTS_MAX_HORIZON_DAYS = 30;
+
+export interface NarobetEventsSwitch {
+  /** On: Narobet matches Nahubet does not list become events of their own. Off (the default): not. */
+  enabled: boolean;
+  /** How many days ahead they are listed (1..NAROBET_EVENTS_MAX_HORIZON_DAYS). */
+  horizonDays: number;
+  updatedAt: Date | null;
+  updatedBy: string | null;
+}
+
+function horizonOf(value: unknown): number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= NAROBET_EVENTS_MAX_HORIZON_DAYS
+    ? value
+    : NAROBET_EVENTS_DEFAULT_HORIZON_DAYS;
+}
+
+/** The switch; no row, or anything but `enabled: true`, is off (fail closed). */
+export async function getNarobetEvents(exec: DbExecutor): Promise<NarobetEventsSwitch> {
+  const [row] = await exec
+    .select({ value: settings.value, updatedAt: settings.updatedAt, updatedBy: settings.updatedBy })
+    .from(settings)
+    .where(eq(settings.key, NAROBET_EVENTS_SETTING));
+  if (row === undefined) {
+    return {
+      enabled: false,
+      horizonDays: NAROBET_EVENTS_DEFAULT_HORIZON_DAYS,
+      updatedAt: null,
+      updatedBy: null,
+    };
+  }
+  const value = (row.value ?? {}) as { enabled?: unknown; horizonDays?: unknown };
+  return {
+    enabled: typeof value === 'object' && value.enabled === true,
+    horizonDays: horizonOf(value.horizonDays),
+    updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy,
+  };
+}
+
+/**
+ * Turns Narobet-only matches on or off and/or sets how many days ahead they are listed, audited
+ * (`scrape.narobet_events.updated`) with before and after; a call that changes nothing writes
+ * nothing. A horizon outside 1..NAROBET_EVENTS_MAX_HORIZON_DAYS is refused (RangeError).
+ */
+export async function setNarobetEvents(
+  tx: DbTransaction,
+  change: { enabled?: boolean; horizonDays?: number },
+  actor: ScrapeActor,
+): Promise<NarobetEventsSwitch> {
+  if (change.horizonDays !== undefined && horizonOf(change.horizonDays) !== change.horizonDays) {
+    throw new RangeError(`horizonDays must be an integer 1..${NAROBET_EVENTS_MAX_HORIZON_DAYS}`);
+  }
+  await tx
+    .insert(settings)
+    .values({
+      key: NAROBET_EVENTS_SETTING,
+      value: { enabled: false, horizonDays: NAROBET_EVENTS_DEFAULT_HORIZON_DAYS },
+      updatedBy: actorLabel(actor),
+    })
+    .onConflictDoNothing();
+  await tx
+    .select({ key: settings.key })
+    .from(settings)
+    .where(eq(settings.key, NAROBET_EVENTS_SETTING))
+    .for('update');
+  const before = await getNarobetEvents(tx);
+  const after = {
+    enabled: change.enabled ?? before.enabled,
+    horizonDays: change.horizonDays ?? before.horizonDays,
+  };
+  if (after.enabled === before.enabled && after.horizonDays === before.horizonDays) return before;
+  await tx
+    .update(settings)
+    .set({ value: after, updatedAt: sql`now()`, updatedBy: actorLabel(actor) })
+    .where(eq(settings.key, NAROBET_EVENTS_SETTING));
+  await auditScrape(tx, actor, {
+    action: `scrape.${NAROBET_EVENTS_SETTING}.updated`,
+    targetType: 'setting',
+    targetId: NAROBET_EVENTS_SETTING,
+    metadata: {
+      before: { enabled: before.enabled, horizonDays: before.horizonDays },
+      after,
+    },
+  });
+  return getNarobetEvents(tx);
 }
 
 /** The Hulusport switch (unchanged callers). */

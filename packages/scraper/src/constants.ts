@@ -115,6 +115,21 @@ export function narobetPricesMaxAgeMs(kickoff: Date, now: Date): number {
   return NAROBET_PRICES_MAX_AGE_FAR_MS;
 }
 /**
+ * Narobet-only matches (docs/plans/narobet-events.md): at most this many new events per read of
+ * mr-z, so the first fill of 30 days spreads over a few hours instead of landing at once.
+ */
+export const NAROBET_EVENTS_MAX_NEW_PER_READ = 100;
+/**
+ * A Narobet-only match gets the market factory's markets (about 500 options) only this close to its
+ * kickoff; further out it has Narobet's own markets only (our server's load at 30 days ahead).
+ */
+export const NAROBET_FACTORY_WITHIN_MS = 72 * HOUR_MS;
+/**
+ * API-Football leagues never listed from Narobet, by the owner's decision D5 (21 Nov 2026): club
+ * friendlies (667, "Friendlies Clubs"). National-team (10) and women's (666) friendlies stay.
+ */
+export const NAROBET_EXCLUDED_LEAGUE_IDS: ReadonlySet<number> = new Set([667]);
+/**
  * A2: an event priced from the market that starts within MARKET_LAPSE_LEAD_MS stays bettable only
  * while the market prices it from prices listed in the last MARKET_LAPSE_MAX_AGE_MS; otherwise the
  * re-pricing pass suspends its markets (`market_lapsed`) until a fresh market prices it again.

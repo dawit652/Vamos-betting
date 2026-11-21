@@ -42,6 +42,7 @@ import {
   ReviewListQuery,
   ReviewListResponse,
   SetHulusportPricingRequest,
+  SetNarobetEventsRequest,
   SetNarobetPricingRequest,
   SetSourceEnabledRequest,
   SetSourceEnabledResponse,
@@ -78,6 +79,7 @@ import {
   countReviewItemsByKind,
   DomainError,
   getBoardPricing,
+  getNarobetEvents,
   getHulusportPricing,
   getReviewItem,
   getSource,
@@ -99,6 +101,7 @@ import {
   ScrapeAliasConflictError,
   ScrapeReviewStateError,
   setBoardPricing,
+  setNarobetEvents,
   setCompetitionPolicy,
   setEventBettingOpen,
   setHulusportPricing,
@@ -676,7 +679,7 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
   // Narobet prices (docs/plans/narobet-feed.md): the switch, and what mr-z's board delivers.
 
   const narobetView = async (exec: DbExecutor, now: Date) => {
-    const [pricing, board] = await Promise.all([
+    const [pricing, board, eventsSwitch, listed] = await Promise.all([
       getBoardPricing(exec, 'narobet'),
       boardOddsSummary(exec, {
         now,
@@ -684,6 +687,13 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
         steps: NAROBET_FRESHNESS_STEPS,
         limit: 50,
         board: 'narobet',
+      }),
+      getNarobetEvents(exec),
+      boardEventsSummary(exec, {
+        now,
+        resultLagMs: 2 * 3_600_000,
+        limit: 50,
+        feedProvider: 'narobet',
       }),
     ]);
     return wire(NarobetPricingResponse, {
@@ -709,6 +719,23 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
           away: row.awayRaw,
           kickoff: row.kickoff.toISOString(),
           teamsResolved: row.teamsResolved,
+        })),
+      },
+      events: {
+        enabled: eventsSwitch.enabled,
+        horizonDays: eventsSwitch.horizonDays,
+        updatedAt: eventsSwitch.updatedAt?.toISOString() ?? null,
+        updatedBy: eventsSwitch.updatedBy,
+        upcoming: listed.upcoming,
+        bettingOpen: listed.bettingOpen,
+        awaitingResultTotal: listed.awaitingResultTotal,
+        awaitingResult: listed.awaitingResult.map((row) => ({
+          eventId: row.eventId,
+          gameId: row.gameId,
+          competition: row.competition,
+          home: row.home,
+          away: row.away,
+          kickoff: row.kickoff.toISOString(),
         })),
       },
     });
@@ -740,6 +767,46 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
       const actor = staffActor(request);
       return inTx(deps, async (tx) => {
         await setBoardPricing(tx, 'narobet', input.enabled, actor);
+        return narobetView(tx, deps.clock());
+      });
+    },
+  );
+
+  /**
+   * Narobet-only matches (docs/plans/narobet-events.md): turning them on or changing the horizon
+   * needs settings.edit; turning them off needs only trading.status, like the price switches.
+   */
+  app.put(
+    '/admin/feed/narobet/events',
+    { config: { staff: 'settings.edit', staffOr: 'trading.status' } },
+    async (request) => {
+      const staff = requireStaff(request);
+      let input: SetNarobetEventsRequest;
+      if (hasPermission(staff.role, 'settings.edit')) {
+        input = parseInput(SetNarobetEventsRequest, request.body);
+      } else {
+        const parsed = SetNarobetEventsRequest.safeParse(request.body);
+        if (
+          !parsed.success ||
+          parsed.data.enabled !== false ||
+          parsed.data.horizonDays !== undefined
+        ) {
+          throw forbidden('forbidden', 'Your role does not allow this.', {
+            permission: 'settings.edit',
+          });
+        }
+        input = parsed.data;
+      }
+      const actor = staffActor(request);
+      return inTx(deps, async (tx) => {
+        await setNarobetEvents(
+          tx,
+          {
+            ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+            ...(input.horizonDays === undefined ? {} : { horizonDays: input.horizonDays }),
+          },
+          actor,
+        );
         return narobetView(tx, deps.clock());
       });
     },

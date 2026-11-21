@@ -1,16 +1,23 @@
 import { createHash } from 'node:crypto';
 import { countryCodeOfName } from '@vamos/core';
-import { and, asc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { categories, competitions, events, teams } from '../schema/catalog';
-import { scrapeBoardCompetitions, scrapeBoardResults, scrapeBoardTeams } from '../schema/scrape';
+import {
+  scrapeBoardCompetitions,
+  scrapeBoardResults,
+  scrapeBoardTeams,
+  scrapeSources,
+} from '../schema/scrape';
+import type { BoardName } from './board-odds';
 import { clampLimit } from './common';
 
 /**
- * Matches of a competitor board (Hulusport, docs/plans/hulusport-feed.md) that Nahubet does not list
- * itself become events of their own: feed_provider BOARD_FEED_PROVIDER, in competitions and with
- * teams the scraper creates for them (scrape_board_competitions, scrape_board_teams). These are the
- * catalogue writes; the decisions are in apps/scraper (pipeline/board-events.ts).
+ * Matches of a competitor board (Hulusport, docs/plans/hulusport-feed.md; Narobet, docs/plans/
+ * narobet-events.md) that Nahubet does not list itself become events of their own: feed_provider
+ * the board's name, in competitions and with teams the scraper creates for them
+ * (scrape_board_competitions, scrape_board_teams). These are the catalogue writes; the decisions
+ * are in apps/scraper (pipeline/board-events.ts).
  */
 
 export const BOARD_FEED_PROVIDER = 'hulusport';
@@ -23,6 +30,15 @@ export const BOARD_FEED_PROVIDERS: readonly string[] = ['hulusport', 'narobet'];
 const SPORT = 'football';
 /** Board competitions sort after Nahubet's own. */
 const BOARD_SORT_ORDER = 1000;
+/**
+ * The slug prefix of a board's competitions (their league keys are the board's own ids, which may
+ * clash between boards). Categories are shared: one per country, `hl-<country>`, whichever board
+ * made it first.
+ */
+const COMPETITION_SLUG_PREFIX: Readonly<Record<BoardName, string>> = {
+  hulusport: 'hl',
+  narobet: 'nb',
+};
 
 /** ASCII slug: accents dropped, anything else not a letter or digit becomes one dash. */
 export function boardSlug(text: string): string {
@@ -43,38 +59,46 @@ export interface BoardCatalog {
   teamByName: Map<string, string>;
   competitionIds: Set<string>;
   teamIds: Set<string>;
+  /**
+   * The teams every board created (this board's and the others'): a board match may use another
+   * board's team, so a club both boards list is one team, and one match is never listed twice.
+   */
+  anyBoardTeamIds: Set<string>;
 }
 
 /** What the board created so far (small tables: read whole once per pass). */
-export async function loadBoardCatalog(
-  exec: DbExecutor,
-  board: 'hulusport',
-): Promise<BoardCatalog> {
+export async function loadBoardCatalog(exec: DbExecutor, board: BoardName): Promise<BoardCatalog> {
   const [comps, teamRows] = await Promise.all([
     exec
       .select({ key: scrapeBoardCompetitions.leagueKey, id: scrapeBoardCompetitions.competitionId })
       .from(scrapeBoardCompetitions)
       .where(eq(scrapeBoardCompetitions.board, board)),
     exec
-      .select({ name: scrapeBoardTeams.rawName, id: scrapeBoardTeams.teamId })
-      .from(scrapeBoardTeams)
-      .where(eq(scrapeBoardTeams.board, board)),
+      .select({
+        board: scrapeBoardTeams.board,
+        name: scrapeBoardTeams.rawName,
+        id: scrapeBoardTeams.teamId,
+      })
+      .from(scrapeBoardTeams),
   ]);
+  const own = teamRows.filter((r) => r.board === board);
   return {
     competitionByLeague: new Map(comps.map((r) => [r.key, r.id])),
-    teamByName: new Map(teamRows.map((r) => [r.name, r.id])),
+    teamByName: new Map(own.map((r) => [r.name, r.id])),
     competitionIds: new Set(comps.map((r) => r.id)),
-    teamIds: new Set(teamRows.map((r) => r.id)),
+    teamIds: new Set(own.map((r) => r.id)),
+    anyBoardTeamIds: new Set(teamRows.map((r) => r.id)),
   };
 }
 
 /**
  * The competition of a board league, created on first sight: in a category named after the league's
- * country or region (`group`; 'Other' when unknown), slug `hl-<league key>`, sorted after ours.
+ * country or region (`group`; 'Other' when unknown), slug `<board prefix>-<league key>` (`hl-` for
+ * Hulusport, `nb-` for Narobet), sorted after ours.
  */
 export async function ensureBoardCompetition(
   tx: DbTransaction,
-  input: { board: 'hulusport'; leagueKey: string; name: string; group: string | null },
+  input: { board: BoardName; leagueKey: string; name: string; group: string | null },
 ): Promise<string> {
   const [mapped] = await tx
     .select({ id: scrapeBoardCompetitions.competitionId })
@@ -102,7 +126,7 @@ export async function ensureBoardCompetition(
     .select({ id: categories.id })
     .from(categories)
     .where(and(eq(categories.sportId, SPORT), eq(categories.slug, categorySlug)));
-  const slug = `hl-${boardSlug(input.leagueKey)}`;
+  const slug = `${COMPETITION_SLUG_PREFIX[input.board]}-${boardSlug(input.leagueKey)}`;
   // Many leagues share a name ("Premier League"). A second competition with a name the catalogue
   // already has would make that name ambiguous for every source that resolves it by name, so the
   // board's league takes its country, then its key, until the name is free.
@@ -176,7 +200,7 @@ export async function fillBoardCategoryCountries(exec: DbExecutor): Promise<numb
  */
 export async function ensureBoardTeam(
   tx: DbTransaction,
-  input: { board: 'hulusport'; rawName: string },
+  input: { board: BoardName; rawName: string },
 ): Promise<string> {
   const [mapped] = await tx
     .select({ id: scrapeBoardTeams.teamId })
@@ -210,8 +234,12 @@ export interface BoardEventRow {
   bettingOpen: boolean;
 }
 
-/** Scheduled, unresulted board events that start after `after`. */
-export async function listBoardEvents(exec: DbExecutor, after: Date): Promise<BoardEventRow[]> {
+/** Scheduled, unresulted board events (default Hulusport's) that start after `after`. */
+export async function listBoardEvents(
+  exec: DbExecutor,
+  after: Date,
+  feedProvider: string = BOARD_FEED_PROVIDER,
+): Promise<BoardEventRow[]> {
   return exec
     .select({
       eventId: events.id,
@@ -222,13 +250,80 @@ export async function listBoardEvents(exec: DbExecutor, after: Date): Promise<Bo
     .from(events)
     .where(
       and(
-        eq(events.feedProvider, BOARD_FEED_PROVIDER),
+        eq(events.feedProvider, feedProvider),
         eq(events.status, 'scheduled'),
         isNull(events.resultedAt),
         gt(events.startTime, after),
       ),
     )
     .orderBy(asc(events.startTime));
+}
+
+export interface BoardEventNear {
+  eventId: string;
+  feedProvider: string;
+  feedRef: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  home: string;
+  away: string;
+  startTime: Date;
+  /** Its open markets (0: suspended whole, by the feed or a trader). */
+  openMarkets: number;
+}
+
+/**
+ * Every board's unresulted events (scheduled or live) starting in [from, to]: what a new board
+ * match is compared with, so that one match is never listed twice (docs/plans/narobet-events.md).
+ */
+export async function listBoardEventsBetween(
+  exec: DbExecutor,
+  window: { from: Date; to: Date },
+): Promise<BoardEventNear[]> {
+  const home = sql<string>`(SELECT t.name->>'en' FROM teams t WHERE t.id = ${events.homeTeamId})`;
+  const away = sql<string>`(SELECT t.name->>'en' FROM teams t WHERE t.id = ${events.awayTeamId})`;
+  return exec
+    .select({
+      eventId: events.id,
+      feedProvider: events.feedProvider,
+      feedRef: events.feedRef,
+      homeTeamId: events.homeTeamId,
+      awayTeamId: events.awayTeamId,
+      home,
+      away,
+      startTime: events.startTime,
+      // Qualified by hand: inside a subquery drizzle prints a bare "id", which would be markets.id.
+      openMarkets: sql<number>`(SELECT count(*) FROM markets m
+          WHERE m.event_id = "events"."id" AND m.status = 'open')`.mapWith(Number),
+    })
+    .from(events)
+    .where(
+      and(
+        inArray(events.feedProvider, [...BOARD_FEED_PROVIDERS]),
+        inArray(events.status, ['scheduled', 'live']),
+        isNull(events.resultedAt),
+        gte(events.startTime, window.from),
+        lte(events.startTime, window.to),
+      ),
+    );
+}
+
+/**
+ * The API-Football leagues Nahubet follows itself: the `leagueIds` of every enabled API-Football
+ * source. A board league with one of these ids is ours, never a board's.
+ */
+export async function followedApiFootballLeagueIds(exec: DbExecutor): Promise<Set<number>> {
+  const rows = await exec
+    .select({ config: scrapeSources.config })
+    .from(scrapeSources)
+    .where(and(eq(scrapeSources.adapter, 'apifootball'), eq(scrapeSources.enabled, true)));
+  const ids = new Set<number>();
+  for (const row of rows) {
+    const list = (row.config as { leagueIds?: unknown }).leagueIds;
+    if (!Array.isArray(list)) continue;
+    for (const id of list) if (Number.isSafeInteger(id)) ids.add(id as number);
+  }
+  return ids;
 }
 
 export interface BoardEventsSummary {
@@ -251,8 +346,9 @@ export interface BoardEventsSummary {
 /** What the back office shows about board events: how many, and which wait for a person's result. */
 export async function boardEventsSummary(
   exec: DbExecutor,
-  options: { now: Date; resultLagMs: number; limit: number },
+  options: { now: Date; resultLagMs: number; limit: number; feedProvider?: string },
 ): Promise<BoardEventsSummary> {
+  const provider = options.feedProvider ?? BOARD_FEED_PROVIDER;
   const nowIso = options.now.toISOString();
   const [counts] = await exec
     .select({
@@ -266,9 +362,9 @@ export async function boardEventsSummary(
         ),
     })
     .from(events)
-    .where(and(eq(events.feedProvider, BOARD_FEED_PROVIDER), eq(events.status, 'scheduled')));
+    .where(and(eq(events.feedProvider, provider), eq(events.status, 'scheduled')));
   const overdue = and(
-    eq(events.feedProvider, BOARD_FEED_PROVIDER),
+    eq(events.feedProvider, provider),
     inArray(events.status, ['scheduled', 'live']),
     isNull(events.resultedAt),
     lt(events.startTime, new Date(options.now.getTime() - options.resultLagMs)),

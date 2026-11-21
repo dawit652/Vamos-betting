@@ -540,6 +540,13 @@
       "when": 1795231136260,
       "tag": "0076_narobet_board",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1795288049583,
+      "tag": "0077_narobet_events",
+      "breakpoints": true
     }
   ]
 }

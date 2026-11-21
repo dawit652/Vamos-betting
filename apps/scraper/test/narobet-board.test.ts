@@ -1,10 +1,11 @@
 import { BOARD_KEY_MARKER, isBoardPricedKey } from '@vamos/core';
-import { latestBoardOdds, setBoardPricing, upsertBoardOdds } from '@vamos/db';
+import { latestBoardOdds, setBoardPricing, setNarobetEvents, upsertBoardOdds } from '@vamos/db';
 import { priceBoardMarket } from '@vamos/feed';
 import { MRZ_MATCHES_PATH, narobetPricesMaxAgeMs } from '@vamos/scraper';
 import { afterEach, describe, expect, it } from 'vitest';
 import { priceEvent } from '../src/pipeline/event-pricing';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
+import { sweepNarobetEvents } from '../src/pipeline/board-events';
 import { readNarobetBoard } from '../src/tasks/narobet';
 import {
   ARSENAL_CHELSEA_JSON,
@@ -100,7 +101,14 @@ describe('Narobet odds from mr-z', () => {
 
       const summary = await readNarobetBoard(h.ctx, fetchImpl);
       expect(seen).toEqual([`${MRZ}${MRZ_MATCHES_PATH}`]);
-      expect(summary).toEqual({ matches: 2, linked: 1, unresolved: 1, skipped: 2, rejected: 1 });
+      expect(summary).toEqual({
+        matches: 2,
+        linked: 1,
+        unresolved: 1,
+        skipped: 2,
+        rejected: 1,
+        boardEvents: { created: 0, updated: 0, skipped: 0, unchanged: 0, deferred: 0 },
+      });
 
       const narobet = await latestBoardOdds(h.ctx.db, {
         eventId,
@@ -125,7 +133,7 @@ describe('Narobet odds from mr-z', () => {
         { source_key: 'narobet:cm-ars-che', board: 'narobet', event_id: eventId },
         { source_key: 'narobet:cm-unknown', board: 'narobet', event_id: null },
       ]);
-      // Reading creates no event (Narobet-only matches are never listed).
+      // Reading creates no event while the switch narobet_events is off (the default).
       expect(await h.count(`SELECT count(*) AS n FROM events`)).toBe(1);
     },
     TEST_TIMEOUT,
@@ -239,6 +247,149 @@ describe('Narobet odds from mr-z', () => {
       const stale = await priceEvent(h.ctx.db, input);
       expect(stale.board).toBeUndefined();
       expect(stale.key).toBe(off.key);
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+/**
+ * Narobet-only matches (docs/plans/narobet-events.md): while the switch `narobet_events` is on, a
+ * Narobet match in a league Nahubet does not list becomes an event of its own (feed provider
+ * `narobet`), never in our league or with our team, never a club friendly, never without
+ * API-Football's ids, never twice. Everything is SYNTHETIC.
+ */
+describe('Narobet-only matches', () => {
+  const on = (change: { enabled?: boolean; horizonDays?: number } = { enabled: true }) =>
+    h.ctx.db.transaction((tx) => setNarobetEvents(tx, change, actor));
+
+  /** A match of a league Nahubet does not list, between two clubs it does not know. */
+  const foreign = (overrides: Record<string, unknown> = {}) =>
+    mrzMatch({
+      id: 'cm-nb-1',
+      api_id: 5001,
+      league_api_id: 363,
+      country: 'Ethiopia',
+      league: 'Premier League',
+      hom: 'Testland Rovers',
+      awy: 'Mockville Athletic',
+      ...overrides,
+    });
+
+  const narobetEvents = () =>
+    rows<{ feed_ref: string; competition: string; category: string; home: string; away: string }>(
+      `SELECT e.feed_ref, c.name->>'en' AS competition, cat.name->>'en' AS category,
+              th.name->>'en' AS home, ta.name->>'en' AS away
+         FROM events e JOIN competitions c ON c.id = e.competition_id
+         JOIN categories cat ON cat.id = c.category_id
+         JOIN teams th ON th.id = e.home_team_id JOIN teams ta ON ta.id = e.away_team_id
+        WHERE e.feed_provider = 'narobet' ORDER BY e.feed_ref`,
+    );
+
+  it(
+    'lists a match of a league we do not list, and only such matches',
+    async () => {
+      await createdEvent();
+      await on();
+      const { fetchImpl } = serveMrz([
+        mrzMatch({}), // ours: links to our event, so league 39 is ours
+        mrzMatch({ id: 'cm-39-other', api_id: 1002, hom: 'Nobody United', awy: 'Nowhere Town' }),
+        foreign(),
+        foreign({
+          id: 'cm-friendly',
+          api_id: 5002,
+          league_api_id: 667,
+          league: 'Friendlies Clubs',
+        }),
+        foreign({ id: 'cm-no-ids', api_id: null, hom: 'Fakeburg United', awy: 'Dummyton City' }),
+        foreign({ id: 'cm-twice-a', api_id: 5003, hom: 'Sampleton FC', awy: 'Placeholder Town' }),
+        foreign({ id: 'cm-twice-b', api_id: 5003, hom: 'Sampleton FC', awy: 'Placeholder Town' }),
+      ]);
+
+      const summary = await readNarobetBoard(h.ctx, fetchImpl);
+      expect(summary.boardEvents).toEqual({
+        created: 1,
+        updated: 0,
+        skipped: 5,
+        unchanged: 0,
+        deferred: 0,
+      });
+      expect(await narobetEvents()).toEqual([
+        {
+          feed_ref: 'cm-nb-1',
+          // Our catalogue already has a "Premier League": the country is added.
+          competition: 'Premier League (Ethiopia)',
+          category: 'Ethiopia',
+          home: 'Testland Rovers',
+          away: 'Mockville Athletic',
+        },
+      ]);
+      const [event] = await rows<{ id: string; betting_open: boolean }>(
+        `SELECT id, betting_open FROM events WHERE feed_provider = 'narobet'`,
+      );
+      const open = await h.count(
+        `SELECT count(*) AS n FROM markets WHERE event_id = '${event!.id}' AND status = 'open'`,
+      );
+      expect(open).toBeGreaterThan(0);
+      // The fixture id is kept with the board row (results are looked up by it).
+      const [row] = await rows<{ fixture_id: number }>(
+        `SELECT fixture_id FROM scrape_board_odds WHERE source_key = 'narobet:cm-nb-1'`,
+      );
+      expect(row?.fixture_id).toBe(5001);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    're-prices only what mr-z re-read, never lists one match twice, and keeps to the horizon',
+    async () => {
+      await createdEvent();
+      await on();
+      const first = serveMrz([foreign()]);
+      expect((await readNarobetBoard(h.ctx, first.fetchImpl)).boardEvents.created).toBe(1);
+
+      // The same read again: mr-z has not re-read the match, so its event is left alone.
+      h.advance(5 * MINUTE);
+      const again = await readNarobetBoard(h.ctx, first.fetchImpl);
+      expect(again.boardEvents).toMatchObject({ created: 0, updated: 0, unchanged: 1 });
+
+      // mr-z re-read it: re-priced. A second listing of the same two clubs is not listed.
+      const reread = serveMrz([
+        foreign({ detail_at: new Date(h.now().getTime() - MINUTE).toISOString() }),
+        foreign({ id: 'cm-nb-copy', api_id: 5009 }),
+      ]);
+      const third = await readNarobetBoard(h.ctx, reread.fetchImpl);
+      expect(third.boardEvents).toMatchObject({ created: 0, updated: 1, skipped: 1 });
+      expect((await narobetEvents()).map((e) => e.feed_ref)).toEqual(['cm-nb-1']);
+
+      // A horizon of one day: a match four days out is not listed.
+      await on({ horizonDays: 1 });
+      const far = serveMrz([foreign({ id: 'cm-nb-far', api_id: 5010, hom: 'Faraway Wanderers' })]);
+      expect((await readNarobetBoard(h.ctx, far.fetchImpl)).boardEvents.created).toBe(0);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'switched off: nothing new, and the sweep suspends what was listed',
+    async () => {
+      await createdEvent();
+      await on();
+      const { fetchImpl } = serveMrz([foreign()]);
+      await readNarobetBoard(h.ctx, fetchImpl);
+      await on({ enabled: false });
+      expect(await sweepNarobetEvents(h.ctx, h.now())).toBe(1);
+      const open = await h.count(
+        `SELECT count(*) AS n FROM markets m JOIN events e ON e.id = m.event_id
+          WHERE e.feed_provider = 'narobet' AND m.status = 'open'`,
+      );
+      expect(open).toBe(0);
+      const later = serveMrz([foreign({ id: 'cm-nb-2', api_id: 5020, hom: 'Lateville Rangers' })]);
+      expect((await readNarobetBoard(h.ctx, later.fetchImpl)).boardEvents.created).toBe(0);
+
+      // Back on: the suspended event re-opens on the next read, although mr-z did not re-read it.
+      await on({ enabled: true });
+      const back = await readNarobetBoard(h.ctx, fetchImpl);
+      expect(back.boardEvents).toMatchObject({ updated: 1 });
     },
     TEST_TIMEOUT,
   );

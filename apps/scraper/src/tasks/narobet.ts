@@ -1,4 +1,4 @@
-import { findEventByTeams, upsertBoardOdds, type BoardOddsInput } from '@vamos/db';
+import { boardOddsTimes, findEventByTeams, upsertBoardOdds, type BoardOddsInput } from '@vamos/db';
 import {
   MARKET_ODDS_LINK_WINDOW_MS,
   MRZ_MATCHES_PATH,
@@ -7,6 +7,12 @@ import {
 } from '@vamos/scraper';
 import type { ScraperContext } from '../context';
 import { intervalTask, type IntervalTask } from '../lib/interval';
+import {
+  sweepNarobetEvents,
+  syncNarobetEvents,
+  type NarobetEntry,
+  type NarobetEventsSummary,
+} from '../pipeline/board-events';
 import { aliasIndexCache, resolveNames, type UnknownName } from '../pipeline/run-source';
 
 /**
@@ -15,7 +21,9 @@ import { aliasIndexCache, resolveNames, type UnknownName } from '../pipeline/run
  * Nahubet event with the same two teams and a kickoff within MARKET_ODDS_LINK_WINDOW_MS. Nothing here
  * changes a price: the pricing step uses Narobet's board only while the back office switch
  * `narobet_pricing` is on, and only for markets Nahubet already prices (event-pricing.ts,
- * boardRule). Unlike Hulusport's board, a match Nahubet does not list never becomes an event.
+ * boardRule). A match Nahubet does not list becomes an event of its own only while the switch
+ * `narobet_events` is on (docs/plans/narobet-events.md; pipeline/board-events.ts). Only mr-z talks
+ * to Narobet: this reads mr-z's own copy, and nothing here makes mr-z read more.
  *
  * Team names resolve as every source's do (rule N2: aliases, catalogue names, the name without its
  * legal form). Narobet's data comes from API-Football, whose names the catalogue mostly uses already;
@@ -35,6 +43,8 @@ export interface NarobetReadSummary {
   skipped: number;
   /** Entries of mr-z's answer that could not be read. */
   rejected: number;
+  /** Matches Nahubet does not list, as events of their own (pipeline/board-events.ts). */
+  boardEvents: NarobetEventsSummary;
 }
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
@@ -51,6 +61,7 @@ export async function readNarobetBoard(
     unresolved: 0,
     skipped: 0,
     rejected: 0,
+    boardEvents: { created: 0, updated: 0, skipped: 0, unchanged: 0, deferred: 0 },
   };
   if (base === null) return summary;
   const response = await fetchImpl(`${base}${MRZ_MATCHES_PATH}`, {
@@ -69,7 +80,13 @@ export async function readNarobetBoard(
   const now = ctx.clock();
   summary.rejected = list.rejected;
   const index = await aliasIndexCache(ctx).get('football');
+  // What the last read stored: a match mr-z has not re-read since is not re-priced.
+  const before = await boardOddsTimes(
+    ctx.db,
+    list.matches.map((m) => `${NAROBET_BOARD}:${m.id}`),
+  );
   const rows: BoardOddsInput[] = [];
+  const entries: NarobetEntry[] = [];
   for (const match of list.matches) {
     if (
       match.pricesAt === null ||
@@ -112,8 +129,21 @@ export async function readNarobetBoard(
     }
     if (eventId !== null) summary.linked += 1;
     const sameTeam = ids.homeTeamId !== null && ids.homeTeamId === ids.awayTeamId;
+    const sourceKey = `${NAROBET_BOARD}:${match.id}`;
+    const previous = before.get(sourceKey);
+    entries.push({
+      match,
+      competitionId: ids.competitionId,
+      homeTeamId: sameTeam ? null : ids.homeTeamId,
+      awayTeamId: sameTeam ? null : ids.awayTeamId,
+      eventId,
+      reprice:
+        previous === undefined ||
+        previous.pricesAt.getTime() !== match.pricesAt.getTime() ||
+        previous.kickoff.getTime() !== match.kickoff.getTime(),
+    });
     rows.push({
-      sourceKey: `${NAROBET_BOARD}:${match.id}`,
+      sourceKey,
       board: 'narobet',
       competitionRaw: competition,
       homeRaw: match.home,
@@ -125,9 +155,11 @@ export async function readNarobetBoard(
       markets: match.markets.map((m) => ({ type: m.type, line: m.line, prices: m.prices })),
       pricesAt: match.pricesAt,
       observedAt: now,
+      fixtureId: match.apiId,
     });
   }
   await ctx.db.transaction((tx) => upsertBoardOdds(tx, rows));
+  summary.boardEvents = await syncNarobetEvents(ctx, entries, now);
   ctx.logger.info({ ...summary }, 'narobet board read');
   return summary;
 }
@@ -140,7 +172,12 @@ export function narobetTask(ctx: ScraperContext): IntervalTask | null {
     name: 'narobet',
     intervalMs,
     run: async () => {
-      await readNarobetBoard(ctx);
+      try {
+        await readNarobetBoard(ctx);
+      } finally {
+        // Also after a failed read: stale prices must not stay open.
+        await sweepNarobetEvents(ctx, ctx.clock());
+      }
     },
     logger: ctx.logger,
   });

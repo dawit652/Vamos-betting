@@ -371,7 +371,8 @@ const minutesText = (minutes: number) =>
  * Narobet prices through mr-z (docs/plans/narobet-feed.md): the on/off switch and what mr-z's board
  * delivers. On, a match we already price takes Narobet's fresh prices (with our margin) for the
  * markets it already has, unless fresh mr-x prices come first; off, or when the prices go stale,
- * our own prices come back. Narobet never adds a match of its own.
+ * our own prices come back. Narobet-only matches (docs/plans/narobet-events.md) have a switch of
+ * their own and a horizon in days.
  */
 function NarobetPanel() {
   const { can } = useSession();
@@ -387,6 +388,16 @@ function NarobetPanel() {
   };
   // Turning on needs settings access; turning off (back to our prices) trading access is enough.
   const allowed = data !== null && (data.enabled ? can('trading.status') : can('settings.edit'));
+  const [horizon, setHorizon] = useState('');
+  const setEvents = async (body: { enabled?: boolean; horizonDays?: number }) => {
+    await api<NarobetPricingResponse>('/admin/feed/narobet/events', { method: 'PUT', body });
+    setHorizon('');
+    view.reload();
+  };
+  const eventsAllowed =
+    data !== null && (data.events.enabled ? can('trading.status') : can('settings.edit'));
+  const horizonDays = Number.parseInt(horizon, 10);
+  const horizonValid = Number.isInteger(horizonDays) && horizonDays >= 1 && horizonDays <= 30;
   return (
     <>
       <h2>mr-z prices</h2>
@@ -427,12 +438,99 @@ function NarobetPanel() {
             {ageText(data.board.newestPricesAt)}. Upcoming matches: {data.board.upcoming}, linked to
             our matches: {data.board.linked}, with fresh prices: {data.board.fresh}.
           </p>
+          <h3>Narobet-only matches</h3>
+          <p>
+            <Badge
+              value={
+                data.events.enabled
+                  ? `On: listed up to ${data.events.horizonDays} days ahead`
+                  : 'Off: not listed'
+              }
+              tone={data.events.enabled ? 'warn' : 'good'}
+            />{' '}
+            {eventsAllowed ? (
+              <ActionButton
+                label={data.events.enabled ? 'Stop listing them' : 'List them'}
+                onAction={() => setEvents({ enabled: !data.events.enabled })}
+              />
+            ) : (
+              <span className="muted small">no access</span>
+            )}
+          </p>
+          <p className="muted small">
+            Narobet matches in leagues we do not list, priced from mr-z with our margin, never with
+            our league or team and never club friendlies. Each pays out at most the cap under
+            Settings, &ldquo;Caps for Hulusport-only and Narobet-only matches&rdquo;. Results come
+            from API-Football.{' '}
+            {data.events.updatedAt === null
+              ? 'Never switched.'
+              : `Last changed ${formatDateTime(data.events.updatedAt)} by ${data.events.updatedBy ?? ''}.`}
+          </p>
+          {can('settings.edit') && (
+            <p>
+              <label>
+                Days ahead (1-30){' '}
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={horizon}
+                  placeholder={String(data.events.horizonDays)}
+                  onChange={(e) => setHorizon(e.target.value)}
+                  style={{ width: 70 }}
+                />
+              </label>{' '}
+              {horizonValid && (
+                <ActionButton label="Save" onAction={() => setEvents({ horizonDays })} />
+              )}
+            </p>
+          )}
+          <p>
+            Upcoming Narobet-only matches: {data.events.upcoming}, with betting open:{' '}
+            {data.events.bettingOpen}.
+          </p>
+          {data.events.awaitingResultTotal > 0 && (
+            <details open>
+              <summary>
+                <Badge
+                  value={`${data.events.awaitingResultTotal} waiting for a result`}
+                  tone="warn"
+                />
+              </summary>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kickoff</th>
+                      <th>Game</th>
+                      <th>League</th>
+                      <th>Match</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.events.awaitingResult.map((e) => (
+                      <tr key={e.eventId}>
+                        <td>{formatDateTime(e.kickoff)}</td>
+                        <td>
+                          <Link href={`/trading/${e.eventId}`}>{e.gameId}</Link>
+                        </td>
+                        <td>{e.competition}</td>
+                        <td>
+                          {e.home} v {e.away}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
           {data.board.unlinked.length > 0 && (
             <details>
               <summary>Not linked ({data.board.unlinked.length} shown)</summary>
               <p className="muted small">
-                Add an alias under Aliases for a team name we do not know; a match whose names are
-                known but that we do not list is simply not priced from mr-z.
+                Add an alias under Aliases for a team name we do not know. A match we do not list is
+                priced from mr-z only as a Narobet-only match (above).
               </p>
               <div className="table-wrap">
                 <table>

@@ -815,6 +815,11 @@ export const scrapeBoardOdds = pgTable(
     pricesAt: timestamp('prices_at', { withTimezone: true }).notNull(),
     /** When we last read the row. */
     observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+    /**
+     * API-Football's fixture id, when the board carries it (Narobet's matches do): the results of a
+     * Narobet-only match are looked up by it (docs/plans/narobet-events.md).
+     */
+    fixtureId: integer('fixture_id'),
   },
   (t) => [
     index('scrape_board_odds_event_idx').on(t.eventId, t.pricesAt),
@@ -846,7 +851,7 @@ export const scrapeBoardCompetitions = pgTable(
   (t) => [
     primaryKey({ columns: [t.board, t.leagueKey] }),
     uniqueIndex('scrape_board_competitions_competition_uq').on(t.competitionId),
-    check('scrape_board_competitions_board', sql`${t.board} IN ('hulusport')`),
+    check('scrape_board_competitions_board', sql`${t.board} IN ('hulusport', 'narobet')`),
   ],
 );
 
@@ -868,7 +873,7 @@ export const scrapeBoardTeams = pgTable(
   (t) => [
     primaryKey({ columns: [t.board, t.rawName] }),
     uniqueIndex('scrape_board_teams_team_uq').on(t.teamId),
-    check('scrape_board_teams_board', sql`${t.board} IN ('hulusport')`),
+    check('scrape_board_teams_board', sql`${t.board} IN ('hulusport', 'narobet')`),
   ],
 );
 
