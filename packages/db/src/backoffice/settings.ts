@@ -41,6 +41,7 @@ export type StaffSettingKey =
   | 'responsible_gambling'
   | 'payments'
   | 'risk_limits'
+  | 'board_risk_limits'
   | 'market_families'
   | 'multi_bonus'
   | 'jackpot_template';
@@ -53,6 +54,7 @@ export const STAFF_SETTING_KEYS: readonly StaffSettingKey[] = [
   'responsible_gambling',
   'payments',
   'risk_limits',
+  'board_risk_limits',
   'market_families',
   'multi_bonus',
   'jackpot_template',
@@ -97,6 +99,8 @@ const PLAIN_SETTINGS = {
   },
   payments: { key: GAME_SETTING_KEYS.payments, schema: PaymentRulesSchema },
   risk_limits: { key: GAME_SETTING_KEYS.riskLimits, schema: RiskLimitsSchema },
+  // The caps of a competitor board's own matches (docs/plans/narobet-events.md, decision D4).
+  board_risk_limits: { key: GAME_SETTING_KEYS.boardRiskLimits, schema: RiskLimitsSchema },
   // Plan task 2.5: margins per family apply at the next re-price, the factory share at the next bet.
   market_families: { key: GAME_SETTING_KEYS.marketFamilies, schema: MarketFamiliesSchema },
 } as const satisfies Record<

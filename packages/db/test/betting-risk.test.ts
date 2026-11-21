@@ -12,7 +12,7 @@ import {
   type CatalogIds,
   type GameSettings,
 } from '../src/index';
-import { betLegs, bets, ledgerTransactions } from '../src/schema/index';
+import { betLegs, bets, events, ledgerTransactions } from '../src/schema/index';
 import {
   createBettingDatabase,
   createEvent,
@@ -480,5 +480,137 @@ describe('live bets accepted at a better price', () => {
       acceptPendingBet(tx, bet.id, new Date(now.getTime() + defaults.liveBetDelayMs)),
     );
     expect(result.outcome).toBe('accepted');
+  });
+});
+
+/**
+ * The board caps (settings `board_risk_limits`, docs/plans/narobet-events.md decision D4): a
+ * competitor board's own match (feed provider `hulusport` or `narobet`) pays out at most ETB 20,000
+ * by default, on top of the plain caps. Staff change or clear it in the back office.
+ */
+describe('board caps', () => {
+  afterEach(async () => {
+    await handle.db.transaction(async (tx) => {
+      await setSetting(tx, 'risk_limits', NONE, 'test');
+      await setSetting(
+        tx,
+        'board_risk_limits',
+        { maxSelectionLiability: null, maxEventLiability: birr(20_000) },
+        'test',
+      );
+    });
+  });
+
+  /** A match of a board's own (Hulusport's or Narobet's). */
+  async function boardEvent(provider: 'hulusport' | 'narobet' = 'narobet'): Promise<TestEvent> {
+    const event = await createEvent(handle.db, ids);
+    await handle.db
+      .update(events)
+      .set({ feedProvider: provider })
+      .where(eq(events.id, event.eventId));
+    return event;
+  }
+
+  it('caps a board match at ETB 20,000 by default, and no other match', async () => {
+    const s = await loadGameSettings(handle.db);
+    expect(s.boardRiskLimits).toEqual({
+      maxSelectionLiability: null,
+      maxEventLiability: birr(20_000),
+    });
+    const board = await boardEvent();
+    const error = await domainError(home(board, birr(10_001), s, await player(birr(30_000))));
+    // 20 002 > 20 000: the largest stake that fits at 2.000 is 10 000.
+    expect(error).toMatchObject({ status: 422, code: 'liability_limit' });
+    expect(error.details).toEqual({ maxStake: toWire(birr(10_000)) });
+    await home(board, birr(10_000), s, await player(birr(30_000)));
+    expect((await liabilityOf(board)).event).toBe(birr(20_000));
+
+    // Our own match has no cap (risk_limits is empty).
+    const ours = await createEvent(handle.db, ids);
+    await home(ours, birr(15_000), s, await player(birr(30_000)));
+    expect((await liabilityOf(ours)).event).toBe(birr(30_000));
+  });
+
+  it('counts every open bet on the match, on Hulusport matches as on Narobet ones', async () => {
+    const s = await loadGameSettings(handle.db);
+    const board = await boardEvent('hulusport');
+    await home(board, birr(6_000), s, await player(birr(30_000))); // pays 12 000
+    const error = await domainError(home(board, birr(6_000), s, await player(birr(30_000))));
+    expect(error.code).toBe('liability_limit');
+    expect(error.details).toEqual({ maxStake: toWire(birr(4_000)) });
+  });
+
+  it('counts an accumulator in full on its board match', async () => {
+    const s = await loadGameSettings(handle.db);
+    const board = await boardEvent();
+    const ours = await createEvent(handle.db, ids);
+    const error = await domainError(
+      place(handle.db, await player(birr(30_000)), {
+        stake: birr(6_000), // 2.000 x 2.000: pays 24 000
+        legs: [
+          { selectionId: board.home, oddsMilli: 2000 },
+          { selectionId: ours.home, oddsMilli: 2000 },
+        ],
+        settings: s,
+      }),
+    );
+    expect(error.code).toBe('liability_limit');
+    expect((await liabilityOf(board)).event).toBe(0n);
+  });
+
+  it('takes the stricter of the plain and the board cap', async () => {
+    await handle.db.transaction((tx) =>
+      setSetting(tx, 'risk_limits', { ...NONE, maxEventLiability: birr(5_000) }, 'test'),
+    );
+    const s = await loadGameSettings(handle.db);
+    const board = await boardEvent();
+    const error = await domainError(home(board, birr(3_000), s, await player()));
+    expect(error.details).toEqual({ maxStake: toWire(birr(2_500)) });
+  });
+
+  it('follows the setting: staff raise it, or clear it', async () => {
+    const board = await boardEvent();
+    await handle.db.transaction((tx) =>
+      setSetting(
+        tx,
+        'board_risk_limits',
+        { maxSelectionLiability: null, maxEventLiability: birr(50_000) },
+        'test',
+      ),
+    );
+    const raised = await loadGameSettings(handle.db);
+    await home(board, birr(20_000), raised, await player(birr(30_000))); // pays 40 000
+    await handle.db.transaction((tx) =>
+      setSetting(
+        tx,
+        'board_risk_limits',
+        { maxSelectionLiability: null, maxEventLiability: null },
+        'test',
+      ),
+    );
+    const cleared = await loadGameSettings(handle.db);
+    await home(board, birr(25_000), cleared, await player(birr(30_000))); // 90 000 open, no cap
+    expect((await liabilityOf(board)).event).toBe(birr(90_000));
+  });
+
+  it('applies to a live bet accepted at a better price', async () => {
+    const board = await boardEvent();
+    await goLive(handle.db, board.eventId);
+    const s = await loadGameSettings(handle.db);
+    const userId = await player(birr(30_000));
+    const now = new Date();
+    const { bet } = await place(handle.db, userId, {
+      stake: birr(9_000),
+      legs: [{ selectionId: board.home, oddsMilli: 2000 }],
+      policy: 'higher',
+      settings: s,
+      now,
+    }); // pays 18 000: 2 000 of room left
+    await reprice(handle.db, board.home, 2500); // would pay 22 500
+    const result = await handle.db.transaction((tx) =>
+      acceptPendingBet(tx, bet.id, new Date(now.getTime() + defaults.liveBetDelayMs)),
+    );
+    expect(result).toMatchObject({ outcome: 'rejected', reason: 'odds_changed' });
+    expect(await getBalance(handle.db, cash(userId))).toBe(birr(30_000));
   });
 });

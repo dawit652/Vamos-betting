@@ -1384,6 +1384,8 @@ export const GameSettingsView = z.object({
   jackpots: z.object({ daily9: JackpotTemplateView, weekly13: JackpotTemplateView }),
   payments: PaymentRulesView,
   riskLimits: RiskLimitsView,
+  /** The caps of a competitor board's own matches (Hulusport's, Narobet's), on top of riskLimits. */
+  boardRiskLimits: RiskLimitsView,
   marketFamilies: MarketFamiliesView,
 });
 export type GameSettingsView = z.infer<typeof GameSettingsView>;
@@ -1406,6 +1408,7 @@ export const StaffSettingKeySchema = z.enum([
   'responsible_gambling',
   'payments',
   'risk_limits',
+  'board_risk_limits',
   'market_families',
   'multi_bonus',
   'jackpot_template',
@@ -1425,6 +1428,7 @@ export const STAFF_SETTING_VALUE_SCHEMAS = {
   responsible_gambling: ResponsibleGamblingView,
   payments: PaymentRulesView,
   risk_limits: RiskLimitsView,
+  board_risk_limits: RiskLimitsView,
   market_families: MarketFamiliesView,
   multi_bonus: MultiBonusView,
   jackpot_template: JackpotTemplateView,

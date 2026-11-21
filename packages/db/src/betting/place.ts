@@ -8,6 +8,7 @@ import {
   largestStakeWithin,
   isFactoryOnlyMarketType,
   liabilityBreach,
+  needsLiabilityCheck,
   quoteBet,
   toWire,
   validateSlip,
@@ -30,7 +31,7 @@ import type { GameSettings } from '../settings/index';
 import { BET_PLACED } from './events';
 import { stakeEntries, stakeLedgerKey } from './postings';
 import { assembleUserBets, type BetRow } from './queries';
-import { lockEventsForRisk, openLiabilities } from './risk';
+import { boardEventIds, lockEventsForRisk, openLiabilities } from './risk';
 import {
   loadSelectionSnapshots,
   snapshotOf,
@@ -45,7 +46,13 @@ const MAX_SHORT_ID_ATTEMPTS = 8;
 
 export type GameSettingsForBets = Pick<
   GameSettings,
-  'betRules' | 'multiBonus' | 'tax' | 'liveBetDelayMs' | 'riskLimits' | 'marketFamilies'
+  | 'betRules'
+  | 'multiBonus'
+  | 'tax'
+  | 'liveBetDelayMs'
+  | 'riskLimits'
+  | 'boardRiskLimits'
+  | 'marketFamilies'
 >;
 
 export interface SlipLegInput {
@@ -502,8 +509,10 @@ export async function placeBet(tx: DbTransaction, input: PlaceBetInput): Promise
 
 /**
  * Rule L1: the new bet's potential gross payout, added to the open liability of each of its
- * selections and matches, must stay within the caps (`settings.riskLimits`; null = no cap).
- * Does nothing, and takes no lock, when no cap is set. Otherwise it locks the matches of the bet
+ * selections and matches, must stay within the caps (`settings.riskLimits`; null = no cap). A
+ * competitor board's own match (Hulusport's, Narobet's) also takes the board caps
+ * (`settings.boardRiskLimits`, ETB 20,000 per match by default): the stricter cap wins.
+ * Does nothing, and takes no lock, when no cap applies. Otherwise it locks the matches of the bet
  * (lockEventsForRisk) and sums the open bets under that lock (openLiabilities), so the answer
  * holds when this transaction commits. Over a cap: 422 `liability_limit` with the largest stake
  * that fits. The lock is held until the caller's transaction ends.
@@ -516,7 +525,7 @@ async function assertWithinRiskLimits(
     quote: BetQuote;
     settings: Pick<
       GameSettingsForBets,
-      'betRules' | 'multiBonus' | 'tax' | 'riskLimits' | 'marketFamilies'
+      'betRules' | 'multiBonus' | 'tax' | 'riskLimits' | 'boardRiskLimits' | 'marketFamilies'
     >;
     /** Selections of factory markets, capped lower (selectionLiabilityCap). */
     factorySelections: ReadonlySet<string>;
@@ -524,8 +533,20 @@ async function assertWithinRiskLimits(
 ): Promise<void> {
   const { legs, stake, quote, settings, factorySelections } = input;
   const limits = settings.riskLimits;
-  if (!hasRiskLimits(limits)) return;
   const eventIds = legs.map((leg) => leg.eventId);
+  // A match's feed provider never changes, so this needs no lock. Looked up only while a board
+  // cap is set.
+  const boardEvents = hasRiskLimits(settings.boardRiskLimits)
+    ? await boardEventIds(tx, eventIds)
+    : new Set<string>();
+  const board = {
+    limits: settings.boardRiskLimits,
+    events: boardEvents,
+    selections: new Set(
+      legs.filter((leg) => boardEvents.has(leg.eventId)).map((leg) => leg.selectionId),
+    ),
+  };
+  if (!needsLiabilityCheck(limits, board)) return;
   await lockEventsForRisk(tx, eventIds);
   const open = await openLiabilities(tx, {
     selectionIds: legs.map((leg) => leg.selectionId),
@@ -538,6 +559,7 @@ async function assertWithinRiskLimits(
     factorySelections,
     // Plan task 2.5: the factory share of the selection cap is a setting (default a quarter).
     factoryShareBps: settings.marketFamilies.factoryLiabilityShareBps,
+    board,
   });
   if (breach === null) return;
   const { betRules, multiBonus, tax } = settings;

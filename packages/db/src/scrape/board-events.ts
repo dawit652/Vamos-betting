@@ -14,6 +14,12 @@ import { clampLimit } from './common';
  */
 
 export const BOARD_FEED_PROVIDER = 'hulusport';
+/**
+ * Every feed provider of a competitor board's own matches: Hulusport's (mr-x) and Narobet's (mr-z,
+ * docs/plans/narobet-events.md). Their matches take the board caps (`board_risk_limits`) when a bet
+ * is placed.
+ */
+export const BOARD_FEED_PROVIDERS: readonly string[] = ['hulusport', 'narobet'];
 const SPORT = 'football';
 /** Board competitions sort after Nahubet's own. */
 const BOARD_SORT_ORDER = 1000;

@@ -70,7 +70,8 @@ export interface SettingSpec {
     | 'live_bet_delay_ms'
     | 'responsible_gambling'
     | 'payments'
-    | 'risk_limits';
+    | 'risk_limits'
+    | 'board_risk_limits';
   title: string;
   /** Where the value sits in the GameSettingsView. */
   path: string;
@@ -183,6 +184,24 @@ export const SETTING_SPECS: readonly SettingSpec[] = [
       {
         name: 'maxEventLiability',
         label: 'Largest liability on one match (ETB, empty = no cap)',
+        kind: 'santim_optional',
+      },
+    ],
+  },
+  {
+    // docs/plans/narobet-events.md, decision D4 (owner, 21 Nov 2026): ETB 20,000 per match.
+    key: 'board_risk_limits',
+    title: 'Caps for Hulusport-only and Narobet-only matches',
+    path: 'boardRiskLimits',
+    fields: [
+      {
+        name: 'maxSelectionLiability',
+        label: 'Largest liability on one selection (ETB, empty = no cap)',
+        kind: 'santim_optional',
+      },
+      {
+        name: 'maxEventLiability',
+        label: 'Most paid out on one match (ETB, empty = no cap)',
         kind: 'santim_optional',
       },
     ],

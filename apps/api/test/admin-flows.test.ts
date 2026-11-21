@@ -565,6 +565,34 @@ describe('settings and withdrawals', () => {
     expect(cleared.settings.riskLimits).toEqual(none);
   });
 
+  it('edits the board caps (Hulusport and Narobet matches): ETB 20,000 per match by default', async () => {
+    const view = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.finance, 'GET', '/admin/settings')),
+    );
+    const byDefault = { maxSelectionLiability: null, maxEventLiability: '2000000' };
+    expect(view.settings.boardRiskLimits).toEqual(byDefault);
+    const caps = { maxSelectionLiability: null, maxEventLiability: '5000000' };
+    const updated = StaffSettingsResponse.parse(
+      expectOk(
+        await asStaff(ctx, s.admin, 'PUT', '/admin/settings/board_risk_limits', { value: caps }),
+      ),
+    );
+    expect(updated.settings.boardRiskLimits).toEqual(caps);
+    expect(await staffAudit(s.admin, 'board_risk_limits')).toEqual(['settings.updated']);
+    const refused = await asStaff(ctx, s.admin, 'PUT', '/admin/settings/board_risk_limits', {
+      value: { maxSelectionLiability: null, maxEventLiability: '0' },
+    });
+    expect(refused.statusCode).toBe(422);
+    expect(
+      (await asStaff(ctx, s.finance, 'PUT', '/admin/settings/board_risk_limits', { value: caps }))
+        .statusCode,
+    ).toBe(403);
+    // Back to the default, so the rest of this file is unaffected.
+    expectOk(
+      await asStaff(ctx, s.admin, 'PUT', '/admin/settings/board_risk_limits', { value: byDefault }),
+    );
+  });
+
   it('edits the market families (plan task 2.5): validated, audited, today by default', async () => {
     const view = StaffSettingsResponse.parse(
       expectOk(await asStaff(ctx, s.finance, 'GET', '/admin/settings')),

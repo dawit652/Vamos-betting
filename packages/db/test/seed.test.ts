@@ -28,6 +28,7 @@ afterAll(async () => {
 
 const SETTING_KEYS = [
   'bet_rules',
+  'board_risk_limits',
   'cash_out',
   'jackpots',
   'live_bet_delay_ms',
@@ -71,7 +72,7 @@ async function settingRows() {
 describe('seed', () => {
   it('opens every house account and writes the default settings on an empty database', async () => {
     const summary = await seed(handle.db);
-    expect(summary).toEqual({ houseAccounts: 7, settingsCreated: 10 });
+    expect(summary).toEqual({ houseAccounts: 7, settingsCreated: 11 });
 
     const accounts = await houseAccounts();
     expect(accounts.map((a) => a.key)).toEqual(
@@ -192,7 +193,7 @@ describe('seed', () => {
 
     const results = await Promise.all([seed(handle.db), seed(handle.db), seed(handle.db)]);
     for (const result of results) expect(result.houseAccounts).toBe(7);
-    expect(results.reduce((sum, r) => sum + (r.settingsCreated ?? 0), 0)).toBe(10);
+    expect(results.reduce((sum, r) => sum + (r.settingsCreated ?? 0), 0)).toBe(11);
 
     expect((await settingRows()).map((r) => r.key)).toEqual(SETTING_KEYS);
     expect(await houseAccounts()).toHaveLength(7);

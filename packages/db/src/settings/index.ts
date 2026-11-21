@@ -1,5 +1,6 @@
 import {
   DEFAULT_BET_RULES,
+  DEFAULT_BOARD_RISK_LIMITS,
   DEFAULT_CASH_OUT,
   DEFAULT_JACKPOTS,
   DEFAULT_LIVE_BET_DELAY_MS,
@@ -51,6 +52,11 @@ export interface GameSettings {
   /** House liability caps checked when a bet is placed (rule L1); no caps by default. */
   riskLimits: RiskLimits;
   /**
+   * The caps of a competitor board's own matches (Hulusport's and Narobet's), on top of
+   * `riskLimits` (the stricter cap wins); ETB 20,000 per match by default (owner, 21 Nov 2026).
+   */
+  boardRiskLimits: RiskLimits;
+  /**
    * Margins per class and family of the market factory, the factory selections' share of the
    * selection cap and the weekly family job's stake floor (plan task 2.5); today's by default.
    */
@@ -68,6 +74,7 @@ export const GAME_SETTING_KEYS = {
   jackpots: 'jackpots',
   payments: 'payments',
   riskLimits: 'risk_limits',
+  boardRiskLimits: 'board_risk_limits',
   marketFamilies: 'market_families',
 } as const satisfies Record<keyof GameSettings, string>;
 
@@ -83,6 +90,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   jackpots: DEFAULT_JACKPOTS,
   payments: DEFAULT_PAYMENT_RULES,
   riskLimits: DEFAULT_RISK_LIMITS,
+  boardRiskLimits: DEFAULT_BOARD_RISK_LIMITS,
   marketFamilies: DEFAULT_MARKET_FAMILIES,
 };
 
@@ -323,6 +331,11 @@ export function parseGameSettings(raw: Partial<Record<GameSettingKey, unknown>>)
       k.riskLimits,
       overDefault(defaults.riskLimits, raw[k.riskLimits]),
     ),
+    boardRiskLimits: parseWith(
+      RiskLimitsSchema,
+      k.boardRiskLimits,
+      overDefault(defaults.boardRiskLimits, raw[k.boardRiskLimits]),
+    ),
     marketFamilies: parseWith(
       MarketFamiliesSchema,
       k.marketFamilies,
@@ -336,14 +349,26 @@ export function parseGameSettings(raw: Partial<Record<GameSettingKey, unknown>>)
  * need nothing else (live bet acceptance), so an invalid unrelated setting cannot stop them.
  */
 export async function loadRiskLimits(exec: DbExecutor): Promise<RiskLimits> {
-  const key = GAME_SETTING_KEYS.riskLimits;
+  return loadCaps(exec, 'riskLimits');
+}
+
+/** Only the board caps (`board_risk_limits`), parsed like parseGameSettings does. */
+export async function loadBoardRiskLimits(exec: DbExecutor): Promise<RiskLimits> {
+  return loadCaps(exec, 'boardRiskLimits');
+}
+
+async function loadCaps(
+  exec: DbExecutor,
+  field: 'riskLimits' | 'boardRiskLimits',
+): Promise<RiskLimits> {
+  const key = GAME_SETTING_KEYS[field];
   const [row] = await exec
     .select({ value: sql<string>`${settings.value}::text` })
     .from(settings)
     .where(inArray(settings.key, [key]))
     .limit(1);
   const stored: unknown = row === undefined ? undefined : JSON.parse(row.value);
-  return parseWith(RiskLimitsSchema, key, overDefault(DEFAULT_GAME_SETTINGS.riskLimits, stored));
+  return parseWith(RiskLimitsSchema, key, overDefault(DEFAULT_GAME_SETTINGS[field], stored));
 }
 
 /**
