@@ -14,9 +14,10 @@ match (a setting) and results by API-Football fixture id ([narobet-events.md](na
 migration `0077_narobet_events`, switch `narobet_events` off, 30 days ahead; deploy and switch-on
 steps there). Narobet is not affected: Nahubet reads only mr-z's copy. Not built: listing our own
 seeded Ethiopian Premier League from Narobet (an owner decision). The next free migration number is
-**0078**.
+**0079**.
 
-**Next (owner's request of 21 Nov, planned, not built):**
+**Next (owner's request of 21 Nov; step 1 built: service-down alerts on Telegram every 15 minutes,
+migration 0078, `7f14b22`; next free migration 0079):**
 [counter-codes-and-deposit-recovery.md](counter-codes-and-deposit-recovery.md): 6-digit booking
 codes for players without login and the code on the ticket; a 6-digit payout code printed on each
 shop ticket; a 6-digit cash withdrawal code for logged-in players; provider re-check and manual

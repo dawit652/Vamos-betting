@@ -1,8 +1,8 @@
 # Counter codes, deposit recovery and service alerts (plan)
 
-Written 21 November 2026. Status: **decided 21 Nov (O1-O5 below), being built.** Before every push, build on top of the
+Written 21 November 2026. Status: **decided 21 Nov (O1-O5 below); step 1 built, steps 2-8 to build.** Before every push, build on top of the
 server's branch: `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor
-FETCH_HEAD HEAD`. The next free migration number is **0078**.
+FETCH_HEAD HEAD`. The next free migration number is **0079**.
 
 ## The owner's request (21 Nov 2026)
 
@@ -129,6 +129,21 @@ Alerting (a category of its own, next to the money alarms):
   `SERVICE_ALERT_REPEAT_MINUTES`;
 - "recovered after 42 minutes" when it comes back;
 - a back-office page **Service health**: green, red and since when, per service.
+
+**Step 1 built 21 Nov (`7f14b22`, migration `0078_service_status`):**
+
+- Watched: Chapa and telebirr (deposit initiation in the API, the worker's deposit re-check), mr-x
+  (also when it answers but has not read Hulusport: the PC, Chrome or tunnel is off), mr-z (also
+  when its own poller stopped, from its local `/api/health`), API-Football results, and every
+  enabled feed source (two failed runs in a row).
+- The worker's `service-health` task looks every minute. Down 3 minutes → Telegram to
+  `TELEGRAM_OWNER_CHAT_IDS`, repeated every 15 minutes exactly (even though
+  `OWNER_ALERT_MIN_INTERVAL_MINUTES` is 30), never by SMS; then "works again" once. Each new outage
+  is also an `error` log line with `alarm: service_down`.
+- Not yet: the back-office **Service health page** (the table `service_status` holds it all);
+  payouts' provider calls; the SMS handset keeps its own alarm (`sms_gateway_silent`, every 6 hours);
+  the database or Redis being down cannot be alerted this way (the alerts go through them).
+- Needs `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_IDS` on the server (docs/runbooks/telegram-bot.md).
 
 ### G8. Completing the agent shop app
 

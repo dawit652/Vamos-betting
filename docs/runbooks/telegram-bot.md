@@ -7,6 +7,11 @@ a bet, moves money, reads an account or stores who wrote to it.
   credit budget...) goes to the chats in `TELEGRAM_OWNER_CHAT_IDS`, next to the SMS to
   `OWNER_ALERT_PHONES`. Either list alone is enough. The same alert is sent at most once per
   `OWNER_ALERT_MIN_INTERVAL_MINUTES`.
+- **Services down** (owner, 21 Nov 2026): when a payment provider, mr-x, mr-z, API-Football or a
+  feed source has failed for 3 minutes, the owner chats get "… is down for N min" every 15 minutes
+  until it works again, then "… works again" once. Telegram only, never an SMS. What to do: the
+  message names the service and its last error; see `docs/plans/counter-codes-and-deposit-recovery.md`,
+  G7.
 - **Players** (`TELEGRAM_PLAYER_MENU=on`, the default): `/today`, `/live`, `/top`, `/leagues` and the
   menu buttons list football matches with the main odds, the number of options, and a button that
   opens the match on the website, where the bet is placed. Messages follow the language of the
