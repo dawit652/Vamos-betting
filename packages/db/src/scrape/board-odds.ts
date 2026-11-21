@@ -13,10 +13,13 @@ import { actorLabel, auditScrape, clampLimit, type ScrapeActor } from './common'
  * @vamos/scraper).
  */
 
+/** The competitor boards read as price sources: Hulusport (mr-x) and Narobet (mr-z). */
+export type BoardName = 'hulusport' | 'narobet';
+
 export interface BoardOddsInput {
-  /** The board's key for the match, e.g. 'hulusport:2281709'. */
+  /** The board's key for the match, e.g. 'hulusport:2281709' or 'narobet:<mr-z id>'. */
   sourceKey: string;
-  board: 'hulusport';
+  board: BoardName;
   competitionRaw: string;
   homeRaw: string;
   awayRaw: string;
@@ -122,13 +125,14 @@ export interface LatestBoardOdds {
 }
 
 /**
- * The board prices the pricing step may use for an event: the one row linked to it whose prices
- * were confirmed upstream and read by us within `maxAgeMs`. Two rows linked to one event (the board
- * lists the match twice) is a conflict: null, as with no row at all.
+ * The board prices the pricing step may use for an event: the one row of `board` (default
+ * Hulusport) linked to it whose prices were confirmed upstream and read by us within `maxAgeMs`.
+ * Two rows of that board linked to one event (the board lists the match twice) is a conflict: null,
+ * as with no row at all.
  */
 export async function latestBoardOdds(
   exec: DbExecutor,
-  query: { eventId: string; now: Date; maxAgeMs: number },
+  query: { eventId: string; now: Date; maxAgeMs: number; board?: BoardName },
 ): Promise<LatestBoardOdds | null> {
   const cutoff = new Date(query.now.getTime() - query.maxAgeMs);
   const rows = await exec
@@ -140,6 +144,8 @@ export async function latestBoardOdds(
     .from(scrapeBoardOdds)
     .where(
       and(
+        // One board at a time: a match on both boards is not a conflict.
+        eq(scrapeBoardOdds.board, query.board ?? 'hulusport'),
         eq(scrapeBoardOdds.eventId, query.eventId),
         gte(scrapeBoardOdds.pricesAt, cutoff),
         gte(scrapeBoardOdds.observedAt, cutoff),
@@ -211,12 +217,37 @@ export interface BoardOddsSummary {
   }>;
 }
 
-/** What the back office shows about the board. */
+/** What the back office shows about a board (default Hulusport). */
 export async function boardOddsSummary(
   exec: DbExecutor,
-  options: { now: Date; maxAgeMs: number; limit: number },
+  options: {
+    now: Date;
+    maxAgeMs: number;
+    limit: number;
+    board?: BoardName;
+    /**
+     * A graded freshness instead of one age (Narobet: by the time left to the kickoff): the first
+     * step whose `aheadMs` the kickoff is within gives the age; beyond the last step, `maxAgeMs`.
+     */
+    steps?: ReadonlyArray<{ aheadMs: number; maxAgeMs: number }>;
+  },
 ): Promise<BoardOddsSummary> {
   const cutoff = new Date(options.now.getTime() - options.maxAgeMs);
+  const board = options.board ?? 'hulusport';
+  const nowAt = sql`${options.now.toISOString()}::timestamptz`;
+  const ms = (n: number) => sql`(${n} * interval '1 millisecond')`;
+  // The oldest prices still fresh for this row's kickoff.
+  const freshFrom =
+    options.steps === undefined || options.steps.length === 0
+      ? sql`${cutoff.toISOString()}::timestamptz`
+      : sql`(${nowAt} - CASE ${sql.join(
+          options.steps.map(
+            (step) =>
+              sql`WHEN ${scrapeBoardOdds.kickoff} <= ${nowAt} + ${ms(step.aheadMs)} THEN ${ms(step.maxAgeMs)}`,
+          ),
+          sql` `,
+        )} ELSE ${ms(options.maxAgeMs)} END)`;
+  const ofBoard = eq(scrapeBoardOdds.board, board);
   const upcoming = gt(scrapeBoardOdds.kickoff, options.now);
   const [counts] = await exec
     .select({
@@ -229,7 +260,7 @@ export async function boardOddsSummary(
           Number,
         ),
       fresh:
-        sql<number>`count(*) FILTER (WHERE ${scrapeBoardOdds.kickoff} > ${options.now.toISOString()}::timestamptz AND ${scrapeBoardOdds.eventId} IS NOT NULL AND ${scrapeBoardOdds.pricesAt} >= ${cutoff.toISOString()}::timestamptz AND ${scrapeBoardOdds.observedAt} >= ${cutoff.toISOString()}::timestamptz)`.mapWith(
+        sql<number>`count(*) FILTER (WHERE ${scrapeBoardOdds.kickoff} > ${nowAt} AND ${scrapeBoardOdds.eventId} IS NOT NULL AND ${scrapeBoardOdds.pricesAt} >= ${freshFrom} AND ${scrapeBoardOdds.observedAt} >= ${freshFrom})`.mapWith(
           Number,
         ),
       lastReadAt: sql<Date | null>`max(${scrapeBoardOdds.observedAt})`.mapWith(
@@ -239,7 +270,8 @@ export async function boardOddsSummary(
         scrapeBoardOdds.pricesAt,
       ),
     })
-    .from(scrapeBoardOdds);
+    .from(scrapeBoardOdds)
+    .where(ofBoard);
   const unlinked = await exec
     .select({
       competitionRaw: scrapeBoardOdds.competitionRaw,
@@ -251,6 +283,7 @@ export async function boardOddsSummary(
     .from(scrapeBoardOdds)
     .where(
       and(
+        ofBoard,
         upcoming,
         isNull(scrapeBoardOdds.eventId),
         // A match listed as a board event of its own is not "not linked".
@@ -271,23 +304,32 @@ export async function boardOddsSummary(
 }
 
 // ---------------------------------------------------------------------------
-// The back office switch (settings key `hulusport_pricing`)
+// The back office switches (settings keys `hulusport_pricing` and `narobet_pricing`)
 
 export const HULUSPORT_PRICING_SETTING = 'hulusport_pricing';
+export const NAROBET_PRICING_SETTING = 'narobet_pricing';
 
-export interface HulusportPricing {
-  /** On: events with fresh Hulusport prices take them (with our margin). Off (the default): our own prices. */
+const PRICING_SETTING: Readonly<Record<BoardName, string>> = {
+  hulusport: HULUSPORT_PRICING_SETTING,
+  narobet: NAROBET_PRICING_SETTING,
+};
+
+export interface BoardPricing {
+  /** On: events with fresh prices of this board take them (with our margin). Off (the default): not. */
   enabled: boolean;
   updatedAt: Date | null;
   updatedBy: string | null;
 }
+/** The Hulusport switch (the name it had before Narobet). */
+export type HulusportPricing = BoardPricing;
 
-/** The switch; no row, or anything but `{ "enabled": true }`, is off (fail closed). */
-export async function getHulusportPricing(exec: DbExecutor): Promise<HulusportPricing> {
+/** A board's switch; no row, or anything but `{ "enabled": true }`, is off (fail closed). */
+export async function getBoardPricing(exec: DbExecutor, board: BoardName): Promise<BoardPricing> {
+  const key = PRICING_SETTING[board];
   const [row] = await exec
     .select({ value: settings.value, updatedAt: settings.updatedAt, updatedBy: settings.updatedBy })
     .from(settings)
-    .where(eq(settings.key, HULUSPORT_PRICING_SETTING));
+    .where(eq(settings.key, key));
   if (row === undefined) return { enabled: false, updatedAt: null, updatedBy: null };
   const value = row.value as { enabled?: unknown } | null;
   return {
@@ -297,36 +339,42 @@ export async function getHulusportPricing(exec: DbExecutor): Promise<HulusportPr
   };
 }
 
-/** Turns the switch on or off, audited with before and after; a call that changes nothing writes nothing. */
-export async function setHulusportPricing(
+/**
+ * Turns a board's switch on or off, audited (`scrape.<board>_pricing.updated`) with before and
+ * after; a call that changes nothing writes nothing.
+ */
+export async function setBoardPricing(
   tx: DbTransaction,
+  board: BoardName,
   enabled: boolean,
   actor: ScrapeActor,
-): Promise<HulusportPricing> {
+): Promise<BoardPricing> {
+  const key = PRICING_SETTING[board];
   await tx
     .insert(settings)
-    .values({
-      key: HULUSPORT_PRICING_SETTING,
-      value: { enabled: false },
-      updatedBy: actorLabel(actor),
-    })
+    .values({ key, value: { enabled: false }, updatedBy: actorLabel(actor) })
     .onConflictDoNothing();
-  await tx
-    .select({ key: settings.key })
-    .from(settings)
-    .where(eq(settings.key, HULUSPORT_PRICING_SETTING))
-    .for('update');
-  const before = await getHulusportPricing(tx);
+  await tx.select({ key: settings.key }).from(settings).where(eq(settings.key, key)).for('update');
+  const before = await getBoardPricing(tx, board);
   if (before.enabled === enabled) return before;
   await tx
     .update(settings)
     .set({ value: { enabled }, updatedAt: sql`now()`, updatedBy: actorLabel(actor) })
-    .where(eq(settings.key, HULUSPORT_PRICING_SETTING));
+    .where(eq(settings.key, key));
   await auditScrape(tx, actor, {
-    action: 'scrape.hulusport_pricing.updated',
+    action: `scrape.${key}.updated`,
     targetType: 'setting',
-    targetId: HULUSPORT_PRICING_SETTING,
+    targetId: key,
     metadata: { before: { enabled: before.enabled }, after: { enabled } },
   });
-  return getHulusportPricing(tx);
+  return getBoardPricing(tx, board);
 }
+
+/** The Hulusport switch (unchanged callers). */
+export const getHulusportPricing = (exec: DbExecutor): Promise<BoardPricing> =>
+  getBoardPricing(exec, 'hulusport');
+export const setHulusportPricing = (
+  tx: DbTransaction,
+  enabled: boolean,
+  actor: ScrapeActor,
+): Promise<BoardPricing> => setBoardPricing(tx, 'hulusport', enabled, actor);

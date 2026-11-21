@@ -800,7 +800,7 @@ export const scrapeBoardOdds = pgTable(
   'scrape_board_odds',
   {
     sourceKey: text('source_key').primaryKey(),
-    /** The board: 'hulusport'. */
+    /** The board: 'hulusport' (mr-x) or 'narobet' (mr-z, docs/plans/narobet-feed.md). */
     board: text('board').notNull(),
     competitionRaw: text('competition_raw').notNull(),
     homeRaw: text('home_raw').notNull(),
@@ -819,7 +819,7 @@ export const scrapeBoardOdds = pgTable(
   (t) => [
     index('scrape_board_odds_event_idx').on(t.eventId, t.pricesAt),
     index('scrape_board_odds_observed_idx').on(t.observedAt),
-    check('scrape_board_odds_board', sql`${t.board} IN ('hulusport')`),
+    check('scrape_board_odds_board', sql`${t.board} IN ('hulusport', 'narobet')`),
     check(
       'scrape_board_odds_teams_differ',
       sql`${t.homeTeamId} IS NULL OR ${t.awayTeamId} IS NULL OR ${t.homeTeamId} <> ${t.awayTeamId}`,

@@ -18,6 +18,7 @@ import {
   FeedCompetitionsResponse,
   FeedHealthResponse,
   MarketFamilyStatesResponse,
+  NarobetPricingResponse,
   ResetMarketFamilyResponse,
   ResolveReviewResponse,
   ReviewDetailResponse,
@@ -41,6 +42,7 @@ import {
 } from '@vamos/core';
 import {
   finishRun,
+  getHulusportPricing,
   loadAliasInputs,
   openReviewItem,
   recordEventHeld,
@@ -48,6 +50,7 @@ import {
   setSourceEnabled,
   setTeamRatings,
   startRun,
+  upsertBoardOdds,
   upsertMarketOdds,
   upsertSource,
   type Database,
@@ -341,6 +344,80 @@ describe('/admin/feed RBAC', () => {
     );
     expect(trader.statusCode).toBe(403);
     expect(errorOf(trader).details).toEqual({ permission: 'settings.edit' });
+  });
+});
+
+describe('Narobet prices (docs/plans/narobet-feed.md)', () => {
+  it('shows the switch (off by default) and mr-z board; turning it on needs settings.edit, off trading.status', async () => {
+    const now = ctx.clock.now;
+    const linked = await newEvent(10 * HOUR);
+    const row = (key: string, extra: { eventId: string | null; pricesAgoMs: number }) => ({
+      sourceKey: `narobet:${key}`,
+      board: 'narobet' as const,
+      competitionRaw: 'Ethiopia - Premier League',
+      homeRaw: 'Saint George',
+      awayRaw: key === 'unlinked' ? 'Nobody FC' : 'Fasil Kenema',
+      kickoff: linked.startTime,
+      homeTeamId: null,
+      awayTeamId: null,
+      eventId: extra.eventId,
+      markets: [
+        {
+          type: '1x2' as const,
+          line: null,
+          prices: [
+            { code: '1', priceMilli: 2000 },
+            { code: 'X', priceMilli: 3300 },
+            { code: '2', priceMilli: 3600 },
+          ],
+        },
+      ],
+      pricesAt: new Date(now.getTime() - extra.pricesAgoMs),
+      observedAt: now,
+    });
+    // Kickoff in 10 hours: Narobet prices up to 45 minutes old are used.
+    await db.transaction((tx) =>
+      upsertBoardOdds(tx, [
+        row('fresh', { eventId: linked.id, pricesAgoMs: 40 * MINUTE }),
+        row('stale', { eventId: linked.id, pricesAgoMs: 50 * MINUTE }),
+        row('unlinked', { eventId: null, pricesAgoMs: 5 * MINUTE }),
+      ]),
+    );
+
+    const view = NarobetPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'GET', '/admin/feed/narobet')),
+    );
+    expect(view).toMatchObject({ enabled: false, updatedAt: null, updatedBy: null });
+    expect(view.freshness).toEqual([
+      { withinMinutes: 180, maxAgeMinutes: 20 },
+      { withinMinutes: 1440, maxAgeMinutes: 45 },
+      { withinMinutes: null, maxAgeMinutes: 420 },
+    ]);
+    expect(view.board).toMatchObject({ upcoming: 3, linked: 2, fresh: 1 });
+    expect(view.board.unlinked.map((u) => u.away)).toEqual(['Nobody FC']);
+
+    // A trader may not turn it on, only off.
+    const refused = await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/narobet', {
+      enabled: true,
+    });
+    expect(refused.statusCode).toBe(403);
+    expect(errorOf(refused).details).toEqual({ permission: 'settings.edit' });
+
+    const on = NarobetPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('admin'), 'PUT', '/admin/feed/narobet', { enabled: true })),
+    );
+    expect(on.enabled).toBe(true);
+    expect(on.updatedBy).not.toBeNull();
+    const audits = await auditActions('scrape.narobet_pricing.updated');
+    expect(audits).toHaveLength(1);
+    // Hulusport's switch is a separate one.
+    expect((await getHulusportPricing(db)).enabled).toBe(false);
+
+    const off = NarobetPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/narobet', { enabled: false })),
+    );
+    expect(off.enabled).toBe(false);
+    expect(await auditActions('scrape.narobet_pricing.updated')).toHaveLength(2);
   });
 });
 

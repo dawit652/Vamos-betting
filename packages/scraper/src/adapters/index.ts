@@ -72,6 +72,8 @@ export type {
   HulusportListedMatch,
   HulusportMatch,
 } from './hulusport';
+export { MRZ_MATCHES_PATH, NAROBET_BOARD, parseMrzMatches } from './narobet';
+export type { MrzMatchList, NarobetMatch } from './narobet';
 export {
   API_FOOTBALL_FINISHED,
   API_FOOTBALL_HOST,

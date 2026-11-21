@@ -656,6 +656,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       priceExpiryMinutes: 0,
       factoryMarkets: false,
       hulusport: { url: null, intervalMs: 120_000 },
+      narobet: { url: null, intervalMs: 300_000 },
     });
     // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
     expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
@@ -680,6 +681,8 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       SCRAPER_FACTORY_MARKETS: 'on',
       SCRAPER_HULUSPORT_URL: ' http://127.0.0.1:3100/ ',
       SCRAPER_HULUSPORT_INTERVAL_SECONDS: '60',
+      SCRAPER_NAROBET_URL: 'http://mrz:3200/',
+      SCRAPER_NAROBET_INTERVAL_SECONDS: '600',
     });
     expect(config.scraper).toEqual({
       archiveDir: '/data/scraper',
@@ -698,6 +701,7 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       priceExpiryMinutes: 90,
       factoryMarkets: true,
       hulusport: { url: 'http://127.0.0.1:3100', intervalMs: 60_000 },
+      narobet: { url: 'http://mrz:3200', intervalMs: 600_000 },
     });
     // A blank contact (as in an env file) is "not set".
     expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();

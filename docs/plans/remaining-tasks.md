@@ -1,19 +1,19 @@
-# Remaining tasks (read this first; updated 20 Nov 2026)
+# Remaining tasks (read this first; updated 21 Nov 2026)
 
-**Start here (20 Nov):** the newest work is on `claude/happy-keller-i7cvrh` (it contains all of
-`claude/eager-cerf-ox9vkq`, `166ceb2`). A new session given another branch name starts from the
-newer of the two. **Phases 0-5 of the agent shops are built, pushed, not deployed** (phase 5's
-screens and the small gaps closed 20 Nov). Next: phase 6 once the owner picks a POS model, or what
-the owner asks. It holds the server's own
-branch (`live/nahubet-new-2026-11-15`); check with
-`git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. The live
-server runs `80c8a73` (deployed 18 Nov, migrations up to 0063). Pushed and NOT deployed: the
-receipt printer card (`df646e4`), the Staff screen (`ac8a780`) and agent shops phase 1a (`dce8e5d`
-database and API, `80c103e` the Agents pages and staff phones; docs `8d12201`). Migrations `0064_agents`, `0065_shop_devices`, `0066_shop_sessions`, `0067_agent_owners`, `0068_agent_balance`, `0069_collection_accounts`, `0070_retail_tickets`, `0071_retail_payouts`, `0072_agent_statements`, `0073_retail_monitor_indexes`, `0074_retail_alerts` and `0075_shop_pin_reset_starts` run on the next deploy
-(every existing shop becomes a shop of agent 1000 "Nahubet HQ", numbered 1000-01...); the next
-free number is **0076**. Deploy is done by the owner (`ssh -t root@<server>` +
-`infra/scripts/deploy-full.sh`, licensed env file `/opt/nahubet-new/infra/.env.prod`, project
-`vamos`). Never touch the live server yourself; never paste secrets.
+**Start here (21 Nov):** the newest work is on `claude/happy-keller-i7cvrh` (it contains all of
+`claude/eager-cerf-ox9vkq`). The live server runs `1918eb6` (deployed by the owner 21 Nov,
+migrations up to 0075: agent shops phases 0-5 and the shop PIN reset; the shop app itself is not
+switched on yet). **Pushed and NOT deployed:** Narobet prices through mr-z
+([narobet-feed.md](narobet-feed.md): migration `0076_narobet_board`, switch `narobet_pricing` off
+by default, deploy steps there) and, in the mr-z repository, gentle polling (`7f129c6`, owner: "mr-z
+dont pull data aggresively"). The next free migration number is **0077**. The 30-day top leagues
+work was stopped by the owner (20 Nov) and not committed. Next: phase 6 once the owner picks a POS
+model, or what the owner asks. The branch holds the server's own branch
+(`live/nahubet-new-2026-11-15`); check with
+`git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Deploy is
+done by the owner (`ssh -t root@<server>` + `infra/scripts/deploy-full.sh`, licensed env file
+`/opt/nahubet-new/infra/.env.prod`, project `vamos`). Never touch the live server yourself; never
+paste secrets.
 
 **Also built 19 Nov, not deployed: Deposit accounts** (owner's request: admins add, edit and delete
 the bank and wallet accounts players deposit to, as many as they need): migration
