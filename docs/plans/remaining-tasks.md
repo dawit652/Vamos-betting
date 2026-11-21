@@ -7,8 +7,11 @@ switched on yet). **Pushed and NOT deployed:** Narobet prices through mr-z
 ([narobet-feed.md](narobet-feed.md): migration `0076_narobet_board`, switch `narobet_pricing` off
 by default, deploy steps there) and, in the mr-z repository, gentle polling (`7f129c6`, owner: "mr-z
 dont pull data aggresively"). The next free migration number is **0077**. The 30-day top leagues
-work was stopped by the owner (20 Nov) and not committed. Next: phase 6 once the owner picks a POS
-model, or what the owner asks. The branch holds the server's own branch
+work was stopped by the owner (20 Nov) and not committed. **Planned 21 Nov, not built:**
+Narobet-only matches through mr-z, for more leagues on the site
+([narobet-events.md](narobet-events.md); owner: "go ahead", and Narobet must not be affected: no
+new request to Narobet). It waits for the owner's server checks (step 0) and decisions D1-D5.
+Next: that plan, phase 6 once the owner picks a POS model, or what the owner asks. The branch holds the server's own branch
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Deploy is
 done by the owner (`ssh -t root@<server>` + `infra/scripts/deploy-full.sh`, licensed env file
