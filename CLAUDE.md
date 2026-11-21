@@ -50,8 +50,10 @@ possible:
    not deployed: Narobet prices through mr-z (migration 0076, switch `narobet_pricing` off;
    `docs/plans/narobet-feed.md`), and Narobet-only matches for more leagues with the ETB 20,000 cap
    per board match and results by API-Football fixture id (migration 0077, switch `narobet_events`
-   off; `docs/plans/narobet-events.md`). Next: the owner deploys and switches on, switching the
-   shop app on with the owner, phase 6 once the owner picks a POS model, or what the owner asks.
+   off; `docs/plans/narobet-events.md`). Next: `docs/plans/counter-codes-and-deposit-recovery.md`
+   (owner, 21 Nov: 6-digit booking, payout and withdrawal codes, deposit recovery, service-down
+   alerts, completing the shop app; steps 1-2 need no decision), the owner deploys and switches on,
+   phase 6 once the owner picks a POS model, or what the owner asks.
 
 ## Overview
 

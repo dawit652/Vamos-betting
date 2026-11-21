@@ -13,8 +13,18 @@ match (a setting) and results by API-Football fixture id ([narobet-events.md](na
 migration `0077_narobet_events`, switch `narobet_events` off, 30 days ahead; deploy and switch-on
 steps there). Narobet is not affected: Nahubet reads only mr-z's copy. Not built: listing our own
 seeded Ethiopian Premier League from Narobet (an owner decision). The next free migration number is
-**0078**. Next: the owner deploys and switches on, phase 6 once the owner picks a POS model, or
-what the owner asks. The branch holds the server's own branch
+**0078**.
+
+**Next (owner's request of 21 Nov, planned, not built):**
+[counter-codes-and-deposit-recovery.md](counter-codes-and-deposit-recovery.md): 6-digit booking
+codes for players without login and the code on the ticket; a 6-digit payout code printed on each
+shop ticket; a 6-digit cash withdrawal code for logged-in players; provider re-check and manual
+deposit with four eyes; "My deposit did not arrive" claims (app and Telegram); a "Money not
+credited" page with suggested players; frequent Telegram alerts when a service is down (every 15
+minutes, then "recovered"); completing the shop app. Build order in that file: steps 1 (service
+health alerts) and 2 (numeric booking codes, the code on the ticket) need no decision; the rest
+waits for the owner's decisions O1-O5 there. Then: the owner deploys and switches on the Narobet
+work, phase 6 once the owner picks a POS model, or what the owner asks. The branch holds the server's own branch
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Deploy is
 done by the owner (`ssh -t root@<server>` + `infra/scripts/deploy-full.sh`, licensed env file
