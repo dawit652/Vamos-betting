@@ -7,7 +7,8 @@ switched on yet). **Pushed and NOT deployed:** Narobet prices through mr-z
 ([narobet-feed.md](narobet-feed.md): migration `0076_narobet_board`, switch `narobet_pricing` off
 by default, deploy steps there) and, in the mr-z repository, gentle polling (`7f129c6`, owner: "mr-z
 dont pull data aggresively"). The 30-day top leagues
-work was stopped by the owner (20 Nov) and not committed. **Built 21 Nov, pushed, NOT deployed:**
+work was stopped by the owner (20 Nov) and not committed. **Built 21 Nov, pushed, NOT deployed (full checks green at `d83959e`: format, lint, typecheck,
+every test):**
 Narobet-only matches through mr-z, for more leagues on the site, with the ETB 20,000 cap per board
 match (a setting) and results by API-Football fixture id ([narobet-events.md](narobet-events.md):
 migration `0077_narobet_events`, switch `narobet_events` off, 30 days ahead; deploy and switch-on
