@@ -87,6 +87,7 @@ export {
   COUNTED_BET_STATUSES,
   COUNTED_JACKPOT_ENTRY_STATUSES,
   getRemainingWagering,
+  getWithdrawable,
   loadWageringEvents,
   WAGERING_FUNDING_TYPES,
   WAGERING_STAKE_TYPES,

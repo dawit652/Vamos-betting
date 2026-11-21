@@ -24,7 +24,7 @@ FETCH_HEAD HEAD`. The next free migration number is **0079**.
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A code for a betslip without login    | Booking codes: `POST /booking-codes` works without login (`createSlipBookingCode`, user may be null), 6 symbols of `CODE_ALPHABET` (letters and digits), valid 72 hours. The shop's sell screen loads them (`loadBookingCode`). |
 | The number on the ticket's barcode    | Each ticket has a ticket number (12 random digits + a 4-character check), printed with a Code128 barcode (`packages/core/src/code128.ts`, `apps/shop/src/components/barcode.tsx`).                                              |
-| Paid only where it was bought         | A ticket is paid only at the shop that sold it (409 `ticket_other_shop`); big wins need HQ's approval.                                                                                                                          |
+| Paid only where it was bought         | A ticket is paid only at the shop that sold it (409 `ticket_other_shop`); any amount, no HQ approval (O6).                                                                                                                      |
 | Cash in and out for logged-in players | Player cash deposit and withdrawal at a shop, switched on per agent (`player_cash_enabled`), from the agent's balance.                                                                                                          |
 | Manual credit of a deposit            | **SMS rail only:** the review queue (`/sms`) lists unmatched and flagged incoming money, and staff press "Credit to player" (`creditSmsByStaff`).                                                                               |
 | Money sent but not credited           | **SMS rail only:** `unmatched` messages in the review queue, and the reconciliation check (a message that paid with no credit behind it).                                                                                       |
@@ -183,12 +183,33 @@ statements, live monitor, alerts, PIN reset at a shop). Left:
 | O3  | May the Telegram bot store a player's deposit claim? | Yes: phone, amount and reference only, kept 90 days          |
 | O4  | How often to repeat a service-down alert?            | Every 15 minutes, plus "recovered"                           |
 | O5  | Who approves a manual deposit?                       | **One admin is enough, no second approval** (owner's choice) |
+| O6  | Do cashiers need approval to pay?                    | **No**: any counter withdrawal and any winning ticket, alone |
+| O7  | What may a player withdraw?                          | **Winnings only**; deposited money is for betting            |
+| O8  | Head office cashiers                                 | HQ has its own cashiers, apart from the agents' (built)      |
+| O9  | Barcode or QR code                                   | Optional: every code can be typed (built)                    |
 
 **O5 without a second approver**, the remaining safeguards (adjustable, nothing blocks the admin):
 only staff with the admin role may credit (never a cashier); the provider's transaction id is unique,
 so the same money is never credited twice; a reason is required; every credit is audited and listed
 in the owner's daily Telegram summary; a credit above ETB 5,000 (a setting) also sends the owner a
 Telegram message at once. G5.2 follows this: "propose" and "approve" are one step.
+
+**O6 and O7 are built (21 Nov, second account):**
+
+- **O6, cashiers pay alone.** A counter cash withdrawal of any amount is paid at once: no supervisor
+  above the shop's threshold (deposits keep it) and no back-office review because of the amount (an
+  exclusion, an AML hold or a pending settlement correction still holds it). A winning shop ticket
+  of any amount is paid at once: the HQ approval, its back-office page "Ticket payouts", its routes
+  and the "HQ approval above" limit field are gone (`hqApprovalAbove` stays readable in saved
+  limits and is ignored). The shift totals and the owner's Telegram alerts still show big payouts.
+- **O7, winnings only.** What may be withdrawn is the cash balance less the deposits not yet played
+  through (core `withdrawableAmount`; `remainingWagering` is unchanged): deposit 1,000, stake 200,
+  win 600, and 600 may be withdrawn at once while 800 stays for betting. Online and at the counter
+  (422 `wagering_requirement_not_met`, details `{ remaining, withdrawable }`); `GET
+/payments/withdrawals` returns `withdrawable`, and the withdraw page shows it. A player under an
+  exclusion may still take out everything (to review), as before.
+- **For the steps below:** a manual deposit (step 4, O5) must post the ledger type `deposit`, so the
+  money counts as deposited (not withdrawable); any other credit type would count as winnings.
 
 ## Build order (one commit each, with tests; the full checks once before each push)
 

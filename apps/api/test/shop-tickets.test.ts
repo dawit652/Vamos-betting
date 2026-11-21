@@ -17,7 +17,6 @@ import {
   ShopTicketPrintResponse,
   ShopTicketResponse,
   ShopPayTicketResponse,
-  RetailPayoutListResponse,
   TicketLimitsResponse,
 } from '@vamos/contracts';
 import { resultEvent, settleEventBets, type Database } from '@vamos/db';
@@ -319,7 +318,7 @@ describe('shop tickets through the shop app', () => {
     expect(ShopTicketResponse.parse(byAdmin.json()).ticket.status).toBe('cancelled');
   });
 
-  it('pays a winner at the shop that sold it; above the HQ limit finance approves first', async () => {
+  it('pays a winner at the shop that sold it; big wins too, with no HQ approval (owner, 21 Nov)', async () => {
     const { agent, desk } = await agentDesk('Ticket Payout Agent', '500000');
     await asStaff(ctx, admin, 'PUT', `/admin/agents/${agent.id}/ticket-limits`, {
       hqApprovalAbove: '15000',
@@ -365,18 +364,11 @@ describe('shop tickets through the shop app', () => {
         .statusCode,
     ).toBe(404);
 
-    // Above the HQ limit: waits for finance, then pays.
-    const waiting = ShopPayTicketResponse.parse((await pay(big.number)).json());
-    expect(waiting).toMatchObject({
-      outcome: 'approval_required',
-      ticket: { payState: 'awaiting_approval' },
+    // Above an old "HQ approval" limit the cashier still pays at once; the approval routes are gone.
+    expect(ShopPayTicketResponse.parse((await pay(big.number)).json())).toMatchObject({
+      outcome: 'paid',
+      ticket: { status: 'paid', payState: 'paid' },
     });
-    const list = RetailPayoutListResponse.parse(
-      (await asStaff(ctx, finance, 'GET', '/admin/retail-payouts')).json(),
-    );
-    expect(list.payouts.map((p) => p.ticketId)).toContain(big.id);
-    const approved = await asStaff(ctx, finance, 'POST', `/admin/retail-payouts/${big.id}/approve`);
-    expect(approved.statusCode, approved.body).toBe(200);
-    expect(ShopPayTicketResponse.parse((await pay(big.number)).json()).outcome).toBe('paid');
+    expect((await asStaff(ctx, finance, 'GET', '/admin/retail-payouts')).statusCode).toBe(404);
   });
 });

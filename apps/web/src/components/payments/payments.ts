@@ -284,7 +284,7 @@ export function paymentErrorMessage(error: unknown): Message {
     case 'wagering_requirement_not_met':
       return {
         key: 'account.payments.errors.wagering',
-        vars: { remaining: formatSantim(detailString(error, 'remaining')) },
+        vars: { withdrawable: formatSantim(detailString(error, 'withdrawable')) },
       };
     case 'withdrawal_daily_cap_exceeded':
       return { key: 'account.payments.errors.dailyCap' };

@@ -154,7 +154,7 @@ test('finance approves a player withdrawal in the back office and it gets paid',
 
   await test.step('the player asks for a withdrawal of ETB 5,000: it waits for review', async () => {
     await page.goto('/wallet/withdraw');
-    await expect(page.getByText('You have bet your deposits at least once.')).toBeVisible();
+    await expect(page.getByText('Your whole balance can be withdrawn.')).toBeVisible();
     await page.locator('#withdraw-amount').fill(typedBirr(stake.toString()));
     await page.getByRole('button', { name: `Withdraw ETB ${birr(stake.toString())}` }).click();
     await expect(page.getByText(/^Withdrawal requested\./)).toBeVisible();

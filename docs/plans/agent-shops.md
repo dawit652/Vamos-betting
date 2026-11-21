@@ -483,12 +483,11 @@ back up.
   shift at **the shop that sold it** (409 `ticket_other_shop`: "paid at the shop that sold it");
   the bet `won` or `void` (409 `ticket_not_payable` with its state); not paid or expired (paid
   once: the ticket's row lock; the same key again answers with the same payout); above the agent's
-  `hqApprovalAbove` it needs an approval first (409 `hq_approval_required`, recording the request
-  once); posts the payout above for the bet's `settled_net_payout`, sets paid fields, audited,
+  `hqApprovalAbove` it needed an approval first (**removed 21 Nov 2026**, owner: cashiers pay any
+  winning ticket alone; docs/plans/counter-codes-and-deposit-recovery.md, O6); posts the payout above for the bet's `settled_net_payout`, sets paid fields, audited,
   outbox `retail.ticket_paid`. A correction that later turns a paid ticket into a loser is blocked
   by settlement (retail payable never below zero) and reported, as for players.
-- `decideRetailPayout(tx, { ticketId, decision, adminId })`: an admin approves or refuses a waiting
-  payout (four eyes against the requesting cashier).
+- ~~`decideRetailPayout`~~: removed 21 Nov 2026 with the HQ approval (O6).
 - `expireRetailTickets(tx, { now })` (worker, daily): won or void tickets not paid within the
   agent's `expiryDays` after their last match → `retail_ticket_expiry`, status `expired`.
 - Shift totals: payouts paid in the shift leave the drawer (expected cash − paid). Reconciliation:

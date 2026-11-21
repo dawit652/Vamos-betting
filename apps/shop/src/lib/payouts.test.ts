@@ -27,10 +27,9 @@ describe('state banner', () => {
   it('labels and colours every state', () => {
     expect(payStateLabel('payable')).toBe('Payable');
     expect(payStateLabel('open')).toBe('Not settled yet');
-    expect(payStateLabel('awaiting_approval')).toBe('Awaiting head office approval');
     expect(payStateTone('payable')).toBe('good');
     expect(payStateTone('lost')).toBe('bad');
-    expect(payStateTone('awaiting_approval')).toBe('warn');
+    expect(payStateTone('open')).toBe('warn');
     expect(payStateTone('paid')).toBe('muted');
   });
 

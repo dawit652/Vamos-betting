@@ -58,14 +58,12 @@ export const ShopTicketStatusSchema = z.enum(['sold', 'cancelled', 'paid', 'expi
 
 /**
  * What the pay screen shows (phase 4): open (not settled), lost, payable (won or void: `payAmount`
- * is due), awaiting_approval (above the agent's HQ limit, an admin approves first), paid,
- * expired, cancelled.
+ * is due; the cashier pays any amount alone, owner 21 Nov 2026), paid, expired, cancelled.
  */
 export const TicketPayStateSchema = z.enum([
   'open',
   'lost',
   'payable',
-  'awaiting_approval',
   'paid',
   'expired',
   'cancelled',
@@ -99,9 +97,8 @@ export type ShopTicketView = z.infer<typeof ShopTicketView>;
 
 /**
  * POST /shop/desk/tickets/payouts: pays a won or void ticket at the shop that sold it, in the
- * cashier's open shift. `paid`: hand over `amount` and print the slip; `approval_required`: above
- * the agent's HQ limit an admin approves first (nothing paid). 409 `ticket_other_shop`,
- * `ticket_not_payable` (details.state), `shift_not_open`.
+ * cashier's open shift: hand over `amount` and print the slip (any amount, no HQ approval: owner,
+ * 21 Nov 2026). 409 `ticket_other_shop`, `ticket_not_payable` (details.state), `shift_not_open`.
  */
 export const ShopPayTicketRequest = z
   .object({
@@ -118,25 +115,12 @@ export const ShopPayTicketRequest = z
 export type ShopPayTicketRequest = z.infer<typeof ShopPayTicketRequest>;
 
 export const ShopPayTicketResponse = z.object({
-  outcome: z.enum(['paid', 'approval_required']),
+  outcome: z.literal('paid'),
   amount: Santim,
   replayed: z.boolean(),
   ticket: ShopTicketView,
 });
 export type ShopPayTicketResponse = z.infer<typeof ShopPayTicketResponse>;
-
-/** GET /admin/retail-payouts (withdrawals.approve): payouts waiting for an admin, oldest first. */
-export const RetailPayoutWaitingView = z.object({
-  ticketId: z.uuid(),
-  number: z.string(),
-  amount: Santim,
-  shopId: z.uuid(),
-  agentId: z.uuid(),
-  requestedAt: IsoDateTime,
-  requestedBy: z.uuid().nullable(),
-});
-export const RetailPayoutListResponse = z.object({ payouts: z.array(RetailPayoutWaitingView) });
-export type RetailPayoutListResponse = z.infer<typeof RetailPayoutListResponse>;
 
 export const ShopTicketResponse = z.object({ ticket: ShopTicketView, replayed: z.boolean() });
 export type ShopTicketResponse = z.infer<typeof ShopTicketResponse>;
@@ -219,6 +203,7 @@ export const TicketLimitsRequest = z
     minLegOddsMilli: z.number().int().min(1000).max(1_000_000).optional(),
     dailySales: Santim.nullable().optional(),
     cancelMinutes: z.number().int().min(0).max(1440).optional(),
+    /** No longer used (owner, 21 Nov 2026: cashiers pay any winning ticket); kept so saved limits load. */
     hqApprovalAbove: Santim.optional(),
     expiryDays: z.number().int().min(1).max(3650).optional(),
   })

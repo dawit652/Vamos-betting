@@ -41,14 +41,15 @@ possible:
 7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
    `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
 8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
-   **Deployed 21 Nov:** `1918eb6` (licensed mode, smoke test 13 passed; migrations up to 0075).
+   **Deployed 21 Nov:** `69f71a8` (licensed mode, smoke test 13 passed; migrations up to 0076:
+   Narobet prices through mr-z, switch `narobet_pricing` off; `SCRAPER_NAROBET_URL` set).
    Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
    `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if
    it is ahead (`git fetch origin <other> && git merge --ff-only FETCH_HEAD`). Built: agent shops
    phases 0-5 (the shop app is deployed but not switched on: `docs/deployment.md`, "Shop app"),
    the desk PIN reset redesign (off until `CASHIER_PIN_RESET=on`), quieter owner alerts. Pushed,
-   not deployed: Narobet prices through mr-z (migration 0076, switch `narobet_pricing` off;
-   `docs/plans/narobet-feed.md`), and Narobet-only matches for more leagues with the ETB 20,000 cap
+   not deployed: owner's decisions O6 and O7 of 21 Nov (cashiers pay any amount alone; players
+   withdraw winnings only; `docs/plans/counter-codes-and-deposit-recovery.md`), and Narobet-only matches for more leagues with the ETB 20,000 cap
    per board match and results by API-Football fixture id (migration 0077, switch `narobet_events`
    off; `docs/plans/narobet-events.md`), and service-down alerts on Telegram every 15 minutes
    (migration 0078). Next: steps 2-8 of `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
@@ -113,6 +114,8 @@ Node 22 and pnpm 10. Run these from the repository root.
 - **SMS rail deposits.** The exact amount (requested + 1–99 santim, never a whole birr, unique among open deposits) is the reference. Only an SMS the gateway forwarded (or the dev simulator) or a receipt the institution served can credit; what a player pastes is only a lookup key. A credit only pays a deposit created before the money moved (core `smsPaidBy`). Another payer's phone or another amount is flagged for staff, never credited. A debit SMS never credits; it only proposes a manual payout.
 - **Manual payouts (four eyes):** the approver never claims or settles; only the operator who claimed a payout settles, releases or fails it. The worker never touches manual payouts.
 - **Payout destinations:** the player's currently registered phone wallet, or a bank account in their KYC name confirmed with an SMS code. Nothing else.
+- **Winnings only** (owner, 21 Nov 2026): a player may withdraw the cash balance less the deposits not yet played through (core `withdrawableAmount` over `remainingWagering`); deposited money is for betting. Every credit that is a deposit must post the ledger type `deposit` (or `demo_topup`), or it would count as winnings.
+- **Cashiers pay alone** (owner, 21 Nov 2026): a counter cash withdrawal or a winning shop ticket of any amount, with no supervisor, no HQ approval and no review for its size (exclusions, AML holds and settlement corrections still hold a withdrawal). Counter deposits keep the shop's supervisor threshold.
 - **Fixtures:** SMS parsers and receipt readers are tested against `packages/core/src/smsparse.fixtures.ts` and `packages/payments/src/receipts/fixtures.ts`; a new message shape gets a scrubbed fixture and a test.
 - **Alarms** on the SMS rail are `error` log lines with an `alarm` field (no metrics endpoint).
 

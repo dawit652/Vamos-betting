@@ -27,7 +27,6 @@ const STATE_LABELS: Readonly<Record<TicketPayState, string>> = {
   open: 'Not settled yet',
   lost: 'Lost',
   payable: 'Payable',
-  awaiting_approval: 'Awaiting head office approval',
   paid: 'Paid',
   expired: 'Expired',
   cancelled: 'Cancelled',
@@ -38,12 +37,11 @@ export function payStateLabel(state: TicketPayState): string {
   return STATE_LABELS[state];
 }
 
-/** The banner colour: green for money to hand over, amber while waiting, red for no money. */
+/** The banner colour: green for money to hand over, amber while not settled, red for no money. */
 export function payStateTone(state: TicketPayState): PayTone {
   switch (state) {
     case 'payable':
       return 'good';
-    case 'awaiting_approval':
     case 'open':
       return 'warn';
     case 'lost':
@@ -68,8 +66,6 @@ export function notPayableText(state: unknown): string {
       return 'This ticket expired unpaid.';
     case 'cancelled':
       return 'This ticket was cancelled.';
-    case 'awaiting_approval':
-      return 'This payout is waiting for head office approval.';
     default:
       return 'This ticket cannot be paid now.';
   }

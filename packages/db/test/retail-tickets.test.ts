@@ -11,7 +11,6 @@ import { getBalance } from '../src/ledger/index';
 import {
   cancelRetailTicket,
   createAgent,
-  decideRetailPayout,
   expireRetailTickets,
   findTicketByNumber,
   payRetailTicket,
@@ -20,7 +19,7 @@ import {
   recordAgentTopup,
   sellRetailTicket,
 } from '../src/retail/index';
-import { adminUsers, agents, cashierShifts, users } from '../src/schema/index';
+import { adminUsers, agents, cashierShifts, retailTickets, users } from '../src/schema/index';
 import type { GameSettings } from '../src/settings/index';
 import type { CatalogIds } from '../src/catalog/index';
 import {
@@ -399,38 +398,23 @@ describe('paying shop tickets (phase 4)', () => {
     );
   });
 
-  it('above the HQ limit a second person approves first', async () => {
+  it('the cashier pays a big win alone: no HQ approval (owner, 21 Nov 2026)', async () => {
+    // An old per-agent "HQ approval above" limit is ignored.
     const desk = await counter({ balance: birr(5_000), limits: { hqApprovalAbove: birr(50) } });
     const event = await createEvent(handle.db, ids);
     const winner = await sell(desk, birr(100), [{ selectionId: event.home, oddsMilli: 2000 }]);
+    const asked = await sell(desk, birr(100), [{ selectionId: event.home, oddsMilli: 2000 }]);
     await finish(handle.db, event.eventId, 1, 0);
     await settle(event.eventId);
-    const waiting = await pay(desk, winner.bet.shortId);
-    expect(waiting.outcome).toBe('approval_required');
-    expect((await findTicketByNumber(handle.db, winner.bet.shortId))?.state).toBe(
-      'awaiting_approval',
-    );
-    expect(
-      await refusal(
-        handle.db.transaction((tx) =>
-          decideRetailPayout(tx, {
-            ticketId: winner.ticket.id,
-            decision: 'approve',
-            adminId: desk.cashier,
-            now: new Date(),
-          }),
-        ),
-      ),
-    ).toEqual({ status: 409, code: 'four_eyes' });
-    await handle.db.transaction((tx) =>
-      decideRetailPayout(tx, {
-        ticketId: winner.ticket.id,
-        decision: 'approve',
-        adminId: admin,
-        now: new Date(),
-      }),
-    );
+    expect((await findTicketByNumber(handle.db, winner.bet.shortId))?.state).toBe('payable');
     expect((await pay(desk, winner.bet.shortId)).outcome).toBe('paid');
+    // A ticket whose approval was asked for before the rule changed is payable as well.
+    await handle.db
+      .update(retailTickets)
+      .set({ approvalRequestedAt: new Date(), approvalRequestedBy: desk.cashier })
+      .where(eq(retailTickets.id, asked.ticket.id));
+    expect((await findTicketByNumber(handle.db, asked.bet.shortId))?.state).toBe('payable');
+    expect((await pay(desk, asked.bet.shortId)).outcome).toBe('paid');
   });
 
   it('a winner not paid within the expiry days expires into revenue', async () => {

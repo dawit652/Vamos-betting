@@ -450,9 +450,10 @@ export const account = {
         kyc: 'Your identity must be verified.',
         kycTodo: 'Verify your identity first.',
         kycLink: 'Verify now',
-        wagering: 'Deposits must be bet at least once before you withdraw.',
-        wageringOk: 'You have bet your deposits at least once.',
-        wageringTodo: 'Bet ETB {remaining} more before you can withdraw.',
+        wagering: 'Only winnings can be withdrawn. Money you deposit is for betting.',
+        wageringOk: 'Your whole balance can be withdrawn.',
+        wageringTodo:
+          'You can withdraw up to ETB {withdrawable} now. ETB {remaining} of your deposits is for betting only.',
         ownPhone: 'Payouts go only to your own registered phone. No other numbers or wallets.',
         ownAccounts:
           'Payouts go only to you: your registered phone wallet, or a bank account in your own name.',
@@ -537,7 +538,8 @@ export const account = {
       providerUnavailable:
         'The payment provider did not answer. Try again in a moment: you will not be charged twice.',
       kycRequired: 'Verify your identity before you withdraw.',
-      wagering: 'Bet ETB {remaining} more before you can withdraw.',
+      wagering:
+        'You can withdraw up to ETB {withdrawable} now: only winnings can be withdrawn, deposits are for betting.',
       dailyCap: 'This would go over the daily withdrawal limit.',
       insufficientFunds: 'Your balance is too low for this amount.',
       notCancellable: 'This withdrawal can no longer be cancelled.',

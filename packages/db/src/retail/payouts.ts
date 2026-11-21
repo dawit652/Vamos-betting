@@ -1,11 +1,5 @@
-import {
-  BET_SHORT_ID_LENGTH,
-  DEFAULT_BET_RULES,
-  isValidCode,
-  normalizeCode,
-  toWire,
-} from '@vamos/core';
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { BET_SHORT_ID_LENGTH, isValidCode, normalizeCode, toWire } from '@vamos/core';
+import { and, eq, sql } from 'drizzle-orm';
 import { assertShopOperates, getShop, lockOwnOpenShift } from '../cashier/desk';
 import { domainConflict, domainNotFound } from '../errors';
 import { postTransaction } from '../ledger/post';
@@ -16,7 +10,7 @@ import { betLegs, bets } from '../schema/betting';
 import { events } from '../schema/catalog';
 import { agents } from '../schema/retail';
 import { retailTickets } from '../schema/retail-tickets';
-import { agentTicketLimits, ticketCashAccount, type RetailTicket } from './tickets';
+import { ticketCashAccount, type RetailTicket } from './tickets';
 
 /**
  * Paying shop tickets (docs/plans/agent-shops.md, "Phase 4 design"). Settlement put what a won or
@@ -37,8 +31,7 @@ export const retailPayoutLedgerKey = (betId: string) => `retail-payout:${betId}`
 export const retailExpiryLedgerKey = (betId: string) => `retail-expiry:${betId}`;
 
 /** What the pay screen shows for a ticket. */
-export type TicketPayState =
-  'open' | 'lost' | 'payable' | 'awaiting_approval' | 'paid' | 'expired' | 'cancelled';
+export type TicketPayState = 'open' | 'lost' | 'payable' | 'paid' | 'expired' | 'cancelled';
 
 export interface TicketForPayment {
   ticket: RetailTicket;
@@ -53,11 +46,9 @@ function stateOf(ticket: RetailTicket, betStatus: string): TicketPayState {
   if (ticket.status === 'cancelled') return 'cancelled';
   if (ticket.status === 'paid') return 'paid';
   if (ticket.status === 'expired') return 'expired';
-  if (betStatus === 'won' || betStatus === 'void') {
-    return ticket.approvalRequestedAt !== null && ticket.approvedAt === null
-      ? 'awaiting_approval'
-      : 'payable';
-  }
+  // Any won or void ticket is paid by the cashier alone (owner, 21 Nov 2026: no HQ approval, also
+  // for big wins; an approval asked for before then no longer holds the ticket back).
+  if (betStatus === 'won' || betStatus === 'void') return 'payable';
   if (betStatus === 'lost') return 'lost';
   return 'open';
 }
@@ -83,19 +74,18 @@ export async function findTicketByNumber(
   if (!row) return null;
   const state = stateOf(row.ticket, row.betStatus);
   const amount =
-    state === 'payable' || state === 'awaiting_approval'
-      ? (row.net ?? 0n)
-      : state === 'paid'
-        ? (row.ticket.paidAmount ?? 0n)
-        : 0n;
+    state === 'payable' ? (row.net ?? 0n) : state === 'paid' ? (row.ticket.paidAmount ?? 0n) : 0n;
   return { ticket: row.ticket, number: row.number, betStatus: row.betStatus, amount, state };
 }
 
-export type PayRetailTicketResult =
-  | { outcome: 'paid'; ticket: RetailTicket; amount: bigint; replayed: boolean }
-  | { outcome: 'approval_required'; ticket: RetailTicket; amount: bigint };
+export type PayRetailTicketResult = {
+  outcome: 'paid';
+  ticket: RetailTicket;
+  amount: bigint;
+  replayed: boolean;
+};
 
-const NOT_PAYABLE: Record<Exclude<TicketPayState, 'payable' | 'awaiting_approval'>, string> = {
+const NOT_PAYABLE: Record<Exclude<TicketPayState, 'payable'>, string> = {
   open: 'This ticket is not settled yet.',
   lost: 'This ticket lost: it pays nothing.',
   paid: 'This ticket was paid already.',
@@ -107,10 +97,9 @@ const NOT_PAYABLE: Record<Exclude<TicketPayState, 'payable' | 'awaiting_approval
  * Pays a won or void ticket at the counter of the shop that sold it, in the cashier's own open
  * shift (404 `Shift`, 409 `shift_not_open`; 409 `ticket_other_shop` at another shop). A ticket that
  * is open, lost, paid, expired or cancelled is 409 `ticket_not_payable` (its state in the details);
- * the same idempotency key again answers with the same payout. Above the agent's HQ limit the
- * payout waits for an admin: the request is recorded once and the answer is `approval_required`
- * (nothing paid). The posting moves the bet's net payout from retail payable to the shop's cash
- * account; audited, with an outbox event.
+ * the same idempotency key again answers with the same payout. The cashier pays any amount alone
+ * (owner, 21 Nov 2026: no HQ approval, also for big wins). The posting moves the bet's net payout
+ * from retail payable to the shop's cash account; audited, with an outbox event.
  */
 export async function payRetailTicket(
   tx: DbTransaction,
@@ -145,37 +134,12 @@ export async function payRetailTicket(
   const [bet] = await tx.select().from(bets).where(eq(bets.id, ticket.betId)).for('update');
   if (!bet) throw new Error(`bet ${ticket.betId} of ticket ${ticket.id} is missing`);
   const state = stateOf(ticket, bet.status);
-  if (state !== 'payable' && state !== 'awaiting_approval') {
+  if (state !== 'payable') {
     throw domainConflict('ticket_not_payable', NOT_PAYABLE[state], { state });
   }
   const amount = bet.settledNetPayout ?? 0n;
   if (amount <= 0n) {
     throw domainConflict('ticket_not_payable', 'This ticket pays nothing.', { state });
-  }
-
-  const [agent] = await tx.select().from(agents).where(eq(agents.id, ticket.agentId));
-  if (!agent) throw domainNotFound('Agent');
-  const limits = agentTicketLimits(agent, DEFAULT_BET_RULES);
-  if (amount > limits.hqApprovalAbove && ticket.approvedAt === null) {
-    if (ticket.approvalRequestedAt !== null) {
-      return { outcome: 'approval_required', ticket, amount };
-    }
-    const [asked] = await tx
-      .update(retailTickets)
-      .set({ approvalRequestedAt: input.now, approvalRequestedBy: input.staffId })
-      .where(eq(retailTickets.id, ticket.id))
-      .returning();
-    if (!asked) throw new Error('shop ticket update returned no row');
-    await writeAudit(tx, {
-      actorType: 'admin',
-      actorId: input.staffId,
-      action: 'retail.ticket_payout_approval_requested',
-      targetType: 'retail_ticket',
-      targetId: ticket.id,
-      metadata: { betId: bet.id, amount, limit: limits.hqApprovalAbove },
-      ip: input.ip ?? null,
-    });
-    return { outcome: 'approval_required', ticket: asked, amount };
   }
 
   const posting = await postTransaction(tx, {
@@ -221,78 +185,6 @@ export async function payRetailTicket(
     payload: { ticketId: paid.id, betId: bet.id, agentId: paid.agentId, amount },
   });
   return { outcome: 'paid', ticket: paid, amount, replayed: false };
-}
-
-/**
- * An admin approves (the cashier may then pay it) or refuses (it keeps waiting, the request
- * cleared) a payout above the agent's HQ limit. Four eyes: never the cashier who asked (409
- * `four_eyes`, also a database check). 409 `nothing_to_approve` when no request waits.
- */
-export async function decideRetailPayout(
-  tx: DbTransaction,
-  input: {
-    ticketId: string;
-    decision: 'approve' | 'refuse';
-    adminId: string;
-    now: Date;
-    ip?: string | null;
-  },
-): Promise<RetailTicket> {
-  const [ticket] = await tx
-    .select()
-    .from(retailTickets)
-    .where(eq(retailTickets.id, input.ticketId))
-    .for('update');
-  if (!ticket) throw domainNotFound('Ticket');
-  if (
-    ticket.approvalRequestedAt === null ||
-    ticket.approvedAt !== null ||
-    ticket.status !== 'sold'
-  ) {
-    throw domainConflict('nothing_to_approve', 'No payout of this ticket waits for approval.');
-  }
-  if (ticket.approvalRequestedBy === input.adminId) {
-    throw domainConflict('four_eyes', 'Another person must approve the payout you asked for.');
-  }
-  const [decided] = await tx
-    .update(retailTickets)
-    .set(
-      input.decision === 'approve'
-        ? { approvedAt: input.now, approvedBy: input.adminId }
-        : { approvalRequestedAt: null, approvalRequestedBy: null },
-    )
-    .where(eq(retailTickets.id, ticket.id))
-    .returning();
-  if (!decided) throw new Error('shop ticket update returned no row');
-  await writeAudit(tx, {
-    actorType: 'admin',
-    actorId: input.adminId,
-    action:
-      input.decision === 'approve'
-        ? 'retail.ticket_payout_approved'
-        : 'retail.ticket_payout_refused',
-    targetType: 'retail_ticket',
-    targetId: ticket.id,
-    metadata: { requestedBy: ticket.approvalRequestedBy },
-    ip: input.ip ?? null,
-  });
-  return decided;
-}
-
-/** Payouts waiting for an admin, oldest first, with what each pays. */
-export async function listWaitingRetailPayouts(exec: DbExecutor) {
-  return exec
-    .select({ ticket: retailTickets, number: bets.shortId, amount: bets.settledNetPayout })
-    .from(retailTickets)
-    .innerJoin(bets, eq(bets.id, retailTickets.betId))
-    .where(
-      and(
-        isNotNull(retailTickets.approvalRequestedAt),
-        isNull(retailTickets.approvedAt),
-        eq(retailTickets.status, 'sold'),
-      ),
-    )
-    .orderBy(retailTickets.approvalRequestedAt);
 }
 
 /**

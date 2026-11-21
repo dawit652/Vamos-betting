@@ -768,7 +768,8 @@ describe('withdrawals', () => {
     expect(wagering.statusCode).toBe(422);
     expect(apiError(wagering)).toMatchObject({
       code: 'wagering_requirement_not_met',
-      details: { remaining: '2000000' },
+      // Nothing won yet: deposited money is never withdrawn (owner, 21 Nov 2026).
+      details: { remaining: '2000000', withdrawable: '0' },
     });
     const list = WithdrawalsResponse.parse(
       (
@@ -780,6 +781,7 @@ describe('withdrawals', () => {
       ).json(),
     );
     expect(list.wageringRemaining).toBe('2000000');
+    expect(list.withdrawable).toBe('0');
 
     // From here on the deposits count as wagered (and the deposit-then-withdraw AML rule,
     // tested in 'AML on withdrawal requests', is off).

@@ -25,8 +25,8 @@ describe('navigation by role', () => {
   it('trader sees trading and risk, finance sees withdrawals, kyc sees the queue', () => {
     expect(labels('trader')).toEqual(expect.arrayContaining(['Trading', 'Risk']));
     expect(labels('finance')).toContain('Withdrawals');
-    expect(labels('finance')).toContain('Ticket payouts');
-    expect(labels('support')).not.toContain('Ticket payouts');
+    // No ticket payout approvals any more (owner, 21 Nov 2026: cashiers pay any winning ticket).
+    expect(labels('finance')).not.toContain('Ticket payouts');
     expect(labels('kyc')).toContain('KYC queue');
     expect(labels('compliance')).toContain('Audit log');
   });

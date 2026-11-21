@@ -7,20 +7,14 @@ export interface LimitFields {
   maxStake: string;
   maxWin: string;
   dailySales: string;
-  hqApprovalAbove: string;
   maxLegs: string;
   minLegOddsMilli: string;
   cancelMinutes: string;
   expiryDays: string;
 }
 
-export const MONEY_LIMITS = [
-  'minStake',
-  'maxStake',
-  'maxWin',
-  'dailySales',
-  'hqApprovalAbove',
-] as const;
+/** No "HQ approval above" any more: cashiers pay any winning ticket (owner, 21 Nov 2026). */
+export const MONEY_LIMITS = ['minStake', 'maxStake', 'maxWin', 'dailySales'] as const;
 export const COUNT_LIMITS = ['maxLegs', 'minLegOddsMilli', 'cancelMinutes', 'expiryDays'] as const;
 
 /** "123456" santim → "1234.56" birr for an input (no grouping, so it parses back). */
@@ -41,7 +35,6 @@ export function limitFields(overrides: TicketLimitsRequest): LimitFields {
     maxStake: money(overrides.maxStake),
     maxWin: money(overrides.maxWin),
     dailySales: money(overrides.dailySales),
-    hqApprovalAbove: money(overrides.hqApprovalAbove),
     maxLegs: count(overrides.maxLegs),
     minLegOddsMilli: count(overrides.minLegOddsMilli),
     cancelMinutes: count(overrides.cancelMinutes),
@@ -81,7 +74,6 @@ export const LIMIT_LABELS: Readonly<Record<keyof LimitFields, string>> = {
   maxStake: 'Maximum stake (ETB)',
   maxWin: 'Maximum win per ticket (ETB)',
   dailySales: 'Sales per day (ETB)',
-  hqApprovalAbove: 'HQ approval above (ETB)',
   maxLegs: 'Most matches per ticket',
   minLegOddsMilli: 'Minimum odds per match (1000 = 1.00)',
   cancelMinutes: 'Cashier cancel window (minutes)',

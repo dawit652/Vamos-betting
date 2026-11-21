@@ -41,18 +41,12 @@ export async function ticketView(
     row.status === 'cancelled' || row.status === 'paid' || row.status === 'expired'
       ? row.status
       : won
-        ? row.approvalRequestedAt !== null && row.approvedAt === null
-          ? 'awaiting_approval'
-          : 'payable'
+        ? 'payable' // the cashier pays any amount alone (owner, 21 Nov 2026)
         : bet.status === 'lost'
           ? 'lost'
           : 'open';
   const payAmount =
-    payState === 'paid'
-      ? row.paidAmount
-      : payState === 'payable' || payState === 'awaiting_approval'
-        ? bet.settledNetPayout
-        : null;
+    payState === 'paid' ? row.paidAmount : payState === 'payable' ? bet.settledNetPayout : null;
   return wire(ShopTicketView, {
     payState,
     payAmount,

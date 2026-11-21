@@ -15,7 +15,7 @@ import {
   cancelWithdrawal,
   createDepositIntent,
   createSmsDepositIntent,
-  getRemainingWagering,
+  getWithdrawable,
   SMS_PROVIDER,
   getUserDepositIntent,
   listUserDepositIntents,
@@ -352,9 +352,12 @@ export async function requestPlayerWithdrawal(
   return { withdrawal: withdrawalView(result.payout), replayed: result.replayed };
 }
 
-/** GET /payments/withdrawals: the player's latest withdrawals and the stakes still required. */
+/**
+ * GET /payments/withdrawals: the player's latest withdrawals, the deposits not yet played through
+ * and what may be withdrawn now (winnings only, owner 21 Nov 2026).
+ */
 export async function listPlayerWithdrawals(
-  deps: Pick<AppDeps, 'db'>,
+  deps: Pick<AppDeps, 'db' | 'clock'>,
   userId: string,
   limit: number,
 ): Promise<WithdrawalsResponse> {
@@ -362,12 +365,17 @@ export async function listPlayerWithdrawals(
     listUserPayouts(deps.db, userId, { limit }),
     loadGameSettings(deps.db),
   ]);
-  const remaining = await getRemainingWagering(
+  const { remaining, withdrawable } = await getWithdrawable(
     deps.db,
     userId,
     settings.payments.wageringMultiplierBps,
+    deps.clock(),
   );
-  return { items: rows.map(withdrawalView), wageringRemaining: toWire(remaining) };
+  return {
+    items: rows.map(withdrawalView),
+    wageringRemaining: toWire(remaining),
+    withdrawable: toWire(withdrawable),
+  };
 }
 
 /** GET /payments/withdrawals/:id; 404 for an unknown id or another player's withdrawal. */

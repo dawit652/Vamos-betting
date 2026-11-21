@@ -201,10 +201,12 @@ describe('paymentErrorMessage', () => {
       vars: { min: '10.00', max: '50,000.00' },
     });
     expect(
-      paymentErrorMessage(api('wagering_requirement_not_met', { remaining: '12550' })),
+      paymentErrorMessage(
+        api('wagering_requirement_not_met', { remaining: '12550', withdrawable: '60000' }),
+      ),
     ).toEqual({
       key: 'account.payments.errors.wagering',
-      vars: { remaining: '125.50' },
+      vars: { withdrawable: '600.00' },
     });
   });
   it('maps known codes and falls back to the generic message', () => {

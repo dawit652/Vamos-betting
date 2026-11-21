@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import {
   normalizeEthiopianMsisdn,
   payoutDestination,
+  santimToBirrString,
   toWire,
+  withdrawableAmount,
   type AmlRules,
   type PaymentRules,
 } from '@vamos/core';
@@ -30,6 +32,7 @@ import {
 } from '../errors';
 import { InsufficientFundsError } from '../ledger/errors';
 import { postTransaction } from '../ledger/post';
+import { getBalance } from '../ledger/queries';
 import type { AccountRef, DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { toJsonSafe } from '../platform/json';
@@ -153,6 +156,12 @@ export interface RequestWithdrawalInput {
    */
   amlRules?: AmlRules;
   ip?: string | null;
+  /**
+   * Paid in cash at a shop's counter (cashWithdrawal): the cashier pays any amount alone (owner,
+   * 21 Nov 2026), so the amount never sends it to review (`autoApproveBelow` does not apply). An
+   * exclusion, an AML hold or a pending settlement correction still does.
+   */
+  counter?: boolean;
 }
 
 export interface RequestWithdrawalResult {
@@ -386,8 +395,10 @@ async function flagPayout(
  * 6. 422 `withdrawal_amount_out_of_range` outside [minWithdrawal, maxWithdrawal];
  * 7. 422 `withdrawal_daily_cap_exceeded` when the open and paid withdrawals
  *    requested in the last 24 hours plus `amount` exceed dailyWithdrawalCap;
- * 8. 422 `wagering_requirement_not_met` (details `{ remaining }`) while the
- *    deposits are not wagered (see core `remainingWagering`), unless an
+ * 8. 422 `wagering_requirement_not_met` (details `{ remaining, withdrawable }`)
+ *    when `amount` is more than the winnings (owner, 21 Nov 2026: deposited
+ *    money is never withdrawn): the balance less the deposits not yet played
+ *    through (core `remainingWagering`, `withdrawableAmount`), unless an
  *    exclusion is active (see below);
  * 9. the hold: player_cash -amount, house_withdrawals_pending +amount
  *    (422 `insufficient_funds`), so the money cannot be bet or withdrawn twice;
@@ -395,7 +406,8 @@ async function flagPayout(
  *    evaluated (flags raised in this transaction); a player with an open or
  *    escalated high-severity flag is held for review (`aml_review`);
  * 11. the payout row: `approved` (by `system:auto`) when amount <
- *    autoApproveBelow, no exclusion is active and no AML hold applies,
+ *    autoApproveBelow (any amount at a shop's counter, `counter`), no
+ *    exclusion is active and no AML hold applies,
  *    else `requested` for manual review; outbox `payment.withdrawal_requested` (and
  *    `payment.withdrawal_approved` when auto-approved) and the audit record.
  *
@@ -555,11 +567,16 @@ export async function requestWithdrawal(
   if (exclusion === null) {
     const remaining = await getRemainingWagering(tx, userId, rules.wageringMultiplierBps);
     if (remaining > 0n) {
-      throw domainUnprocessable(
-        'wagering_requirement_not_met',
-        'Your deposits must be played through before you can withdraw.',
-        { remaining: wire(remaining) },
-      );
+      // Winnings only (owner, 21 Nov 2026). lockUser above keeps the balance and the stakes still.
+      const balance = await getBalance(tx, { kind: 'player_cash', userId });
+      const withdrawable = withdrawableAmount(balance, remaining);
+      if (amount > withdrawable) {
+        throw domainUnprocessable(
+          'wagering_requirement_not_met',
+          `Only winnings can be withdrawn: at most ETB ${santimToBirrString(withdrawable)} now. Deposited money is for betting.`,
+          { remaining: wire(remaining), withdrawable: wire(withdrawable) },
+        );
+      }
     }
   }
 
@@ -607,7 +624,7 @@ export async function requestWithdrawal(
       ? 'active_exclusion'
       : amlHold
         ? 'aml_review'
-        : amount >= rules.autoApproveBelow
+        : amount >= rules.autoApproveBelow && input.counter !== true
           ? 'above_auto_approve_threshold'
           : null;
   const autoApproved = reviewReason === null;

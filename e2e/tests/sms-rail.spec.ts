@@ -163,10 +163,10 @@ test('deposit by exact-amount transfer, staff credit a third-party payment, save
     await expect(page.getByLabel(/Commercial Bank of Ethiopia · 1000123456789/)).toBeEnabled();
   });
 
-  await test.step('a withdrawal still waits for the deposits to be played through', async () => {
+  await test.step('deposited money is not withdrawn: only winnings (owner, 21 Nov)', async () => {
     await page.locator('#withdraw-amount').fill(typedBirr('5000'));
     await page.getByRole('button', { name: 'Withdraw ETB 50.00' }).click();
-    await expect(page.getByText(/more before you can withdraw/).last()).toBeVisible();
+    await expect(page.getByText(/only winnings can be withdrawn/).last()).toBeVisible();
   });
 
   await test.step('a transfer deposit through the second institution shows its account', async () => {

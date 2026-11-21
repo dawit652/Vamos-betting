@@ -252,8 +252,6 @@ export const TEXT = {
   paySubmit: 'Pay',
   payConfirm: (amount: string) => `Hand over ${amount} to the holder of this ticket?`,
   payNothing: 'Nothing to hand over.',
-  payNeedsApproval:
-    'This amount needs head office approval first. Nothing is paid yet; ask again after it is approved.',
   payDone: (amount: string) => `Paid: hand over ${amount}`,
   payOpenSlip: 'Payout slip',
   payNumberShort: 'Enter the ticket number.',

@@ -72,6 +72,28 @@ afterAll(async () => {
 
 const RULES = rules();
 
+/**
+ * Cashiers pay any amount alone (owner, 21 Nov 2026): a counter withdrawal waits for the back office
+ * only for an exclusion, an AML hold or a settlement correction. The tests reach a waiting payout
+ * with a cool-off around the request; `lift` ends it again.
+ */
+async function coolOff(userId: string): Promise<{ lift: () => Promise<void> }> {
+  const [row] = await handle.db
+    .insert(rgExclusions)
+    .values({
+      userId,
+      kind: 'cool_off',
+      startsAt: new Date(NOW.getTime() - 60_000),
+      endsAt: new Date(NOW.getTime() + 86_400_000),
+    })
+    .returning();
+  return {
+    lift: async () => {
+      await handle.db.delete(rgExclusions).where(eq(rgExclusions.id, row!.id));
+    },
+  };
+}
+
 async function staff(role: 'cashier' | 'finance' | 'support' = 'cashier'): Promise<string> {
   const [row] = await handle.db
     .insert(adminUsers)
@@ -491,7 +513,7 @@ describe('cash withdrawals', () => {
     ).toBeTruthy();
   });
 
-  it('follows the online rules; above auto-approval it waits for review and is paid on the next visit', async () => {
+  it('follows the online rules; any amount is paid at once; one held for review is paid on the next visit', async () => {
     const cashier = await staff();
     const shift = await shiftFor(cashier);
 
@@ -507,13 +529,24 @@ describe('cash withdrawals', () => {
       await checkCashCode(handle.db, { userId: unverified, codeHash: hash('123456'), now: NOW }),
     ).toBeTruthy();
 
-    // At or above autoApproveBelow (ETB 5,000): held for review, the money on hold.
+    // At or above autoApproveBelow (ETB 5,000) the cashier still pays at once (owner, 21 Nov 2026).
     const { userId } = await createPlayer(handle.db, { kyc: 'verified', name: 'Kebede A.' });
     await deposit(cashier, shift.id, userId, birr(6_000));
     await makeCode(userId);
-    const held = await withdraw(cashier, shift.id, userId, birr(5_000));
+    const big = await withdraw(cashier, shift.id, userId, birr(5_000));
+    expect(big.outcome).toBe('paid');
+    expect(await cashOf(handle.db, userId)).toBe(birr(1_000));
+
+    // Held for review (here: a cool-off), the money on hold.
+    // (Topped up by a supervisor: the cashier's own deposits to the player are at the threshold.)
+    const funder = await staff('finance');
+    await deposit(funder, (await shiftFor(funder)).id, userId, birr(5_000));
+    await makeCode(userId, '121212');
+    const pause = await coolOff(userId);
+    const held = await withdraw(cashier, shift.id, userId, birr(5_000), { code: '121212' });
+    await pause.lift();
     if (held.outcome !== 'review') throw new Error('expected review');
-    expect(held.reviewReason).toBe('above_auto_approve_threshold');
+    expect(held.reviewReason).toBe('active_exclusion');
     expect(await cashOf(handle.db, userId)).toBe(birr(1_000));
     expect((await payout(held.payoutId)).status).toBe('requested');
 
@@ -544,7 +577,7 @@ describe('cash withdrawals', () => {
     await expectBooksBalanced(handle.db);
   });
 
-  it('a replayed desk key gives the same receipt; the threshold binds cashiers', async () => {
+  it('a replayed desk key gives the same receipt; a cashier pays above the threshold alone', async () => {
     const cashier = await staff();
     const shift = await shiftFor(cashier);
     const { userId } = await createPlayer(handle.db, { kyc: 'verified', name: 'Tigist M.' });
@@ -570,10 +603,14 @@ describe('cash withdrawals', () => {
     }
     expect(await cashOf(handle.db, userId)).toBe(birr(800));
 
+    // Above the shop's threshold (ETB 10,000 in the shift): no supervisor (owner, 21 Nov 2026).
+    const supervisor = await staff('finance');
+    const theirShift = await shiftFor(supervisor);
+    await deposit(supervisor, theirShift.id, userId, birr(10_000));
     await makeCode(userId, '777777');
-    expect(
-      await refusal(withdraw(cashier, shift.id, userId, birr(10_001), { code: '777777' })),
-    ).toEqual({ status: 403, code: 'cashier_approval_required' });
+    const paid = await withdraw(cashier, shift.id, userId, birr(10_001), { code: '777777' });
+    expect(paid.outcome).toBe('paid');
+    expect(await cashOf(handle.db, userId)).toBe(birr(800) + birr(10_000) - birr(10_001));
   });
 });
 
@@ -627,7 +664,9 @@ describe('review findings', () => {
     await deposit(cashier, shift.id, userId, birr(6_000));
     await makeCode(userId, '101010');
     const key = `desk-${randomUUID()}`;
+    const pause = await coolOff(userId);
     const held = await withdraw(cashier, shift.id, userId, birr(5_000), '101010', key);
+    await pause.lift();
     if (held.outcome !== 'review') throw new Error('expected review');
     // A retry of that request finds it by its desk key.
     expect((await findDeskPayout(handle.db, { userId, idempotencyKey: key }))?.id).toBe(
@@ -678,6 +717,7 @@ describe('uncollected approved cash withdrawals', () => {
       createCashCode(tx, { userId, codeHash: hash('404040'), now: NOW }),
     );
     const codeId = await checkCashCode(handle.db, { userId, codeHash: hash('404040'), now: NOW });
+    const pause = await coolOff(userId);
     const held = await handle.db.transaction((tx) =>
       cashWithdrawal(tx, {
         staffId: cashier,
@@ -690,6 +730,7 @@ describe('uncollected approved cash withdrawals', () => {
         now: NOW,
       }),
     );
+    await pause.lift();
     if (held.outcome !== 'review') throw new Error('expected review');
     await handle.db.transaction((tx) =>
       approveWithdrawal(tx, { payoutId: held.payoutId, adminId: supervisor, now: NOW }),

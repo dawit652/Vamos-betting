@@ -11,7 +11,7 @@ import {
   DepositsResponse,
 } from '@vamos/contracts';
 import { getPlayerBalances, postTransaction } from '@vamos/db';
-import { auditLog, kycProfiles } from '@vamos/db/schema';
+import { auditLog, kycProfiles, rgExclusions } from '@vamos/db/schema';
 import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -467,9 +467,10 @@ describe('cash withdrawals', () => {
     });
   });
 
-  it('a large withdrawal waits for review, like an online one', async () => {
+  it('a large withdrawal is paid at once: the cashier pays any amount alone (owner, 21 Nov)', async () => {
     const player = await verifiedPlayerWith(1_000_000n);
-    const shift = await openShift(finance);
+    // A float of ETB 10,000, so the drawer can count the ETB 6,000 out at the close.
+    const shift = await openShift(finance, '1000000');
     const shopCode = await makeCode(player);
     const response = await withdraw(finance, {
       shiftId: shift.id,
@@ -478,15 +479,11 @@ describe('cash withdrawals', () => {
       code: shopCode,
     });
     expect(response.statusCode, response.body).toBe(200);
-    expect(CashWithdrawalResponse.parse(response.json())).toMatchObject({
-      outcome: 'review',
-      amount: '600000',
-      reviewReason: 'above_auto_approve_threshold',
-    });
-    // Held for the back office review.
+    // Above the online auto-approval (ETB 5,000): still paid at the counter, no review.
+    expect(CashWithdrawalResponse.parse(response.json())).toMatchObject({ outcome: 'paid' });
     expect((await getPlayerBalances(ctx.deps.db, player.userId)).cash).toBe(400_000n);
     await asStaff(ctx, finance, 'POST', `/admin/cashier/shifts/${shift.id}/close`, {
-      countedCash: shift.openingFloat,
+      countedCash: (BigInt(shift.openingFloat) - 600_000n).toString(),
     });
   });
 });
@@ -527,6 +524,13 @@ describe('review fixes at the desk', () => {
     const player = await verifiedPlayerWith(1_000_000n);
     const shift = await openShift(finance);
     const shopCode = await makeCode(player);
+    // A counter withdrawal waits for review only for a hold such as an exclusion (a cool-off here).
+    await ctx.deps.db.insert(rgExclusions).values({
+      userId: player.userId,
+      kind: 'cool_off',
+      startsAt: new Date(ctx.clock.now.getTime() - 60_000),
+      endsAt: new Date(ctx.clock.now.getTime() + 86_400_000),
+    });
     const body = {
       shiftId: shift.id,
       userId: player.userId,
@@ -535,7 +539,10 @@ describe('review fixes at the desk', () => {
       idempotencyKey: `desk-${randomUUID()}`,
     };
     const first = await asStaff(ctx, finance, 'POST', '/admin/cashier/withdrawals', body);
-    expect(CashWithdrawalResponse.parse(first.json())).toMatchObject({ outcome: 'review' });
+    expect(CashWithdrawalResponse.parse(first.json())).toMatchObject({
+      outcome: 'review',
+      reviewReason: 'active_exclusion',
+    });
     const again = await asStaff(ctx, finance, 'POST', '/admin/cashier/withdrawals', body);
     expect(again.statusCode, again.body).toBe(200);
     expect(CashWithdrawalResponse.parse(again.json())).toMatchObject({

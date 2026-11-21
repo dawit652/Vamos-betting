@@ -1,12 +1,15 @@
 # Remaining tasks (read this first; updated 21 Nov 2026)
 
-**Start here (21 Nov):** the newest work is on `claude/eager-cerf-ox9vkq` (it contains all of
-`claude/happy-keller-i7cvrh`; bring that branch up to it before working there). The live server runs `1918eb6` (deployed by the owner 21 Nov,
-migrations up to 0075: agent shops phases 0-5 and the shop PIN reset; the shop app itself is not
-switched on yet). **Pushed and NOT deployed:** Narobet prices through mr-z
-([narobet-feed.md](narobet-feed.md): migration `0076_narobet_board`, switch `narobet_pricing` off
-by default, deploy steps there) and, in the mr-z repository, gentle polling (`7f129c6`, owner: "mr-z
-dont pull data aggresively"). The 30-day top leagues
+**Start here (21 Nov, late):** the newest work is on `claude/happy-keller-i7cvrh` (the second
+account; it contains all of `claude/eager-cerf-ox9vkq` up to `e8269a3`; bring that branch up to it
+with `git merge --ff-only` before working there). **Built there 21 Nov, pushed, NOT deployed:** the
+owner's decisions O6 (cashiers pay any counter withdrawal and any winning ticket alone: no
+supervisor, no HQ approval; the "Ticket payouts" page is gone) and O7 (players withdraw winnings
+only, never deposited money), in [counter-codes-and-deposit-recovery.md](counter-codes-and-deposit-recovery.md),
+"O6 and O7 are built". The live server runs `69f71a8` (deployed by the owner 21 Nov, migrations up
+to 0076: Narobet prices through mr-z, switch `narobet_pricing` off; `SCRAPER_NAROBET_URL` set; the
+shop app itself is not switched on yet). mr-z runs with gentle polling (`7f129c6`, owner: "mr-z
+dont pull data aggresively"; on the server 900 requests an hour, 40 details per cycle). The 30-day top leagues
 work was stopped by the owner (20 Nov) and not committed. **Built 21 Nov, pushed, NOT deployed (full checks green at `d83959e`: format, lint, typecheck,
 every test):**
 Narobet-only matches through mr-z, for more leagues on the site, with the ETB 20,000 cap per board

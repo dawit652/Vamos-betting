@@ -222,15 +222,25 @@ test('KYC, deposit, wager, withdraw, approve and see it paid', async ({
     lap('deposit', t0);
   });
 
-  await test.step('the withdrawal is refused until the deposit has been bet', async () => {
-    const remaining = (await myWithdrawals(page.request)).wageringRemaining;
-    expect(remaining).toBe(deposit.toString());
+  await test.step('deposited money is never withdrawn, only winnings (owner, 21 Nov)', async () => {
+    const list = await myWithdrawals(page.request);
+    expect(list.wageringRemaining).toBe(deposit.toString());
+    expect(list.withdrawable).toBe('0');
     await page.goto('/wallet/withdraw');
-    const text = `Bet ETB ${birr(remaining)} more before you can withdraw.`;
-    await expect(page.getByText(text)).toBeVisible(); // the rules card
+    // The rules card...
+    await expect(
+      page.getByText(
+        `You can withdraw up to ETB ${birr('0')} now. ETB ${birr(list.wageringRemaining)} of your deposits is for betting only.`,
+      ),
+    ).toBeVisible();
     await page.locator('#withdraw-amount').fill(typedBirr(stake.toString()));
     await page.getByRole('button', { name: `Withdraw ETB ${birr(stake.toString())}` }).click();
-    await expect(page.getByText(text)).toHaveCount(2); // ...and the API's refusal
+    // ...and the API's refusal.
+    await expect(
+      page.getByText(
+        `You can withdraw up to ETB ${birr('0')} now: only winnings can be withdrawn, deposits are for betting.`,
+      ),
+    ).toBeVisible();
     expect((await myWithdrawals(page.request)).items).toHaveLength(0);
   });
 
@@ -292,7 +302,7 @@ test('KYC, deposit, wager, withdraw, approve and see it paid', async ({
   await test.step(`request a withdrawal of ETB ${birr(stake.toString())}: it waits for review`, async () => {
     const t0 = Date.now();
     await page.goto('/wallet/withdraw');
-    await expect(page.getByText('You have bet your deposits at least once.')).toBeVisible();
+    await expect(page.getByText('Your whole balance can be withdrawn.')).toBeVisible();
     await page.locator('#withdraw-amount').fill(typedBirr(stake.toString()));
     await page.getByRole('button', { name: `Withdraw ETB ${birr(stake.toString())}` }).click();
     await expect(page.getByText(/^Withdrawal requested\./)).toBeVisible();

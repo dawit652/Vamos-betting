@@ -88,12 +88,8 @@ function Payer({ shiftId }: { shiftId: string }) {
       key.current = null;
       setError(null);
       setTicket(res.ticket);
-      if (res.outcome === 'paid') {
-        setMessage(TEXT.payDone(formatEtb(res.amount)));
-        router.push(payoutSlipPath(res.ticket.id, res.ticket.number, true));
-      } else {
-        setMessage(TEXT.payNeedsApproval);
-      }
+      setMessage(TEXT.payDone(formatEtb(res.amount)));
+      router.push(payoutSlipPath(res.ticket.id, res.ticket.number, true));
     } catch (e) {
       setError(payError(e));
     } finally {
@@ -154,12 +150,11 @@ function TicketCard({
       </div>
       <div data-testid="pay-state" className={`pay-banner pay-${payStateTone(payState)}`}>
         {payStateLabel(payState)}
-        {(payState === 'payable' || payState === 'awaiting_approval' || payState === 'paid') &&
-          ticket.payAmount !== null && (
-            <div className="pay-amount" data-testid="pay-amount">
-              {formatEtb(ticket.payAmount)}
-            </div>
-          )}
+        {(payState === 'payable' || payState === 'paid') && ticket.payAmount !== null && (
+          <div className="pay-amount" data-testid="pay-amount">
+            {formatEtb(ticket.payAmount)}
+          </div>
+        )}
         {payState === 'paid' && ticket.paidAt !== null && (
           <div className="small">{formatDateTime(ticket.paidAt)}</div>
         )}

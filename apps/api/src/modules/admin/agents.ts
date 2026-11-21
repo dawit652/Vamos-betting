@@ -17,7 +17,6 @@ import {
   DecideAgentTopupRequest,
   RecordAgentTopupRequest,
   RetailAlertThresholds,
-  RetailPayoutListResponse,
   ShopTicketCancelRequest,
   ShopTicketResponse,
   TicketLimitsRequest,
@@ -35,8 +34,6 @@ import { parseRetailTicketLimits, serializeRetailTicketLimits } from '@vamos/cor
 import {
   loadRetailAlertRules,
   setRetailAlertThresholds,
-  decideRetailPayout,
-  listWaitingRetailPayouts,
   agentTicketLimits,
   cancelRetailTicket,
   getRetailTicket,
@@ -445,50 +442,6 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
       });
     },
   );
-
-  // Shop ticket payouts above an agent's HQ limit (phase 4): finance or an admin approves (never
-  // the cashier who asked) or refuses; the cashier then pays it at the shop.
-  app.get('/admin/retail-payouts', { config: { staff: 'withdrawals.approve' } }, async () => {
-    const rows = await listWaitingRetailPayouts(deps.db);
-    return wire(RetailPayoutListResponse, {
-      payouts: rows.map((row) => ({
-        ticketId: row.ticket.id,
-        number: row.number,
-        amount: row.amount ?? 0n,
-        shopId: row.ticket.shopId,
-        agentId: row.ticket.agentId,
-        requestedAt: row.ticket.approvalRequestedAt,
-        requestedBy: row.ticket.approvalRequestedBy,
-      })),
-    });
-  });
-
-  for (const decision of ['approve', 'refuse'] as const) {
-    app.post<IdParams>(
-      `/admin/retail-payouts/:id/${decision}`,
-      { config: { staff: 'withdrawals.approve' } },
-      async (request) => {
-        const ticketId = parseUuid(request.params.id, 'Ticket');
-        const actor = staffActor(request);
-        await inTx(deps, (tx) =>
-          decideRetailPayout(tx, {
-            ticketId,
-            decision,
-            adminId: actor.adminId,
-            now: deps.clock(),
-            ip: actor.ip ?? null,
-          }),
-        );
-        const row = await getRetailTicket(deps.db, ticketId);
-        if (row === null) throw notFound('Ticket');
-        const settings = await loadGameSettings(deps.db);
-        return wire(ShopTicketResponse, {
-          ticket: await ticketView(deps.db, row, { cashOut: settings.cashOut, now: deps.clock() }),
-          replayed: false,
-        });
-      },
-    );
-  }
 
   // Weekly statements (phase 5): one week of every agent, one agent's last weeks, and the record
   // of a commission paid outside the system (agents.manage, once, audited).

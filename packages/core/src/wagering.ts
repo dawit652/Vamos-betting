@@ -10,7 +10,10 @@ import { BPS_DENOMINATOR, type Santim } from './money';
  * - a counted stake S (a bet stake that was not refunded, i.e. its bet is not
  *   void, rejected or still waiting for live acceptance, and not cashed out)
  *   sets R to max(0, R − S).
- * The player may withdraw only when R is 0 at the end of the walk.
+ * R is the deposited money not yet played through. Owner's rule (21 Nov 2026): only winnings can
+ * be withdrawn, never deposited money, so the player may withdraw up to balance − R
+ * (`withdrawableAmount`); R stays in the balance for betting. With R = 0 the whole balance is
+ * withdrawable.
  *
  * R never goes below zero, so turnover from before a deposit (or in excess of
  * what was required at the time) never pre-pays a later deposit: every
@@ -66,4 +69,16 @@ export function remainingWagering(events: Iterable<WageringEvent>, multiplierBps
   let remaining = 0n;
   for (const event of events) remaining = applyWageringEvent(remaining, event, multiplierBps);
   return remaining;
+}
+
+/**
+ * How much of the balance may be withdrawn now (owner, 21 Nov 2026: winnings only, never deposited
+ * money): the balance less `remaining`, the deposits not yet played through (remainingWagering),
+ * and never below zero. Example: deposit 1,000, stake 200 and win 600: balance 1,400, remaining
+ * 800, withdrawable 600.
+ */
+export function withdrawableAmount(balance: Santim, remaining: Santim): Santim {
+  if (remaining < 0n)
+    throw new RangeError(`remaining wagering must not be negative (got ${remaining})`);
+  return balance > remaining ? balance - remaining : 0n;
 }

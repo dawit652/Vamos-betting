@@ -1,6 +1,8 @@
-import { remainingWagering, type WageringEvent } from '@vamos/core';
+import { remainingWagering, withdrawableAmount, type WageringEvent } from '@vamos/core';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { accountKey } from '../ledger/accounts';
+import { getBalance } from '../ledger/queries';
+import { getActiveExclusion } from '../rg/exclusions';
 import type { DbExecutor, LedgerTransactionType } from '../ledger/types';
 import { bets } from '../schema/betting';
 import { jackpotEntries } from '../schema/jackpots';
@@ -110,4 +112,28 @@ export async function getRemainingWagering(
   multiplierBps: number,
 ): Promise<bigint> {
   return remainingWagering(await loadWageringEvents(exec, userId), multiplierBps);
+}
+
+/**
+ * What the player may withdraw now (owner, 21 Nov 2026: winnings only, never deposited money): the
+ * cash balance less the deposits not yet played through. While an exclusion is active the whole
+ * balance (requestWithdrawal waives the rule then and sends the withdrawal to review).
+ */
+export async function getWithdrawable(
+  exec: DbExecutor,
+  userId: string,
+  multiplierBps: number,
+  now: Date,
+): Promise<{ remaining: bigint; withdrawable: bigint; balance: bigint }> {
+  const [remaining, balance, exclusion] = await Promise.all([
+    getRemainingWagering(exec, userId, multiplierBps),
+    getBalance(exec, { kind: 'player_cash', userId }),
+    getActiveExclusion(exec, userId, now),
+  ]);
+  return {
+    remaining,
+    balance,
+    withdrawable:
+      exclusion === null ? withdrawableAmount(balance, remaining) : balance > 0n ? balance : 0n,
+  };
 }

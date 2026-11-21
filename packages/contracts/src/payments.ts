@@ -290,8 +290,9 @@ export type ConfirmPayoutAccountRequest = z.infer<typeof ConfirmPayoutAccountReq
  *   player's bets could not be posted yet (it would overdraw the balance);
  *   withdrawals wait until it is (details `{ betId }`);
  * - 422 payout_phone_mismatch, withdrawal_amount_out_of_range,
- *   withdrawal_daily_cap_exceeded, wagering_requirement_not_met (details
- *   `{ remaining }`), insufficient_funds, payment_provider_unavailable.
+ *   withdrawal_daily_cap_exceeded, wagering_requirement_not_met (more than the
+ *   winnings; details `{ remaining, withdrawable }`), insufficient_funds,
+ *   payment_provider_unavailable.
  */
 export const WithdrawalErrorCodeSchema = z.enum([
   'kyc_required',
@@ -388,8 +389,10 @@ export type WithdrawalView = z.infer<typeof WithdrawalView>;
 
 export const WithdrawalsResponse = z.object({
   items: z.array(WithdrawalView),
-  /** Stakes still needed before a withdrawal is allowed (0 = none). */
+  /** Deposited money not yet played through: it stays for betting (0 = none). */
   wageringRemaining: Santim,
+  /** What may be withdrawn now: winnings only, never deposited money (owner, 21 Nov 2026). */
+  withdrawable: Santim,
 });
 export type WithdrawalsResponse = z.infer<typeof WithdrawalsResponse>;
 

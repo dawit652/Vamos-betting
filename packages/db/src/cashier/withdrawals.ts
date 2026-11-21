@@ -29,11 +29,9 @@ import {
   CASHIER_AUDIT,
   type CashOperation,
   getShop,
-  isSupervisorRole,
   lockOwnOpenShift,
   nextReceiptNo,
   playerCashProvider,
-  shiftPlayerTotal,
 } from './desk';
 
 /**
@@ -193,14 +191,15 @@ export type CashWithdrawalResult =
  * Pays a player cash at the desk, in the caller's transaction (the code was checked first with
  * checkCashCode, in its own transaction):
  * 1. a replayed desk key returns its receipt (422 `idempotency_key_reused` if it differs);
- * 2. the shift is locked (404 unless the caller's, 409 `shift_not_open`); 403
- *    `cashier_approval_required` when this amount plus what the desk already paid the player in
- *    this shift is above the shop's threshold, unless a supervisor;
+ * 2. the shift is locked (404 unless the caller's, 409 `shift_not_open`). The cashier pays any
+ *    amount alone (owner, 21 Nov 2026): no supervisor, and the amount never sends it to review;
  * 3. the player's approved `cash` payout waiting at the desk, if any, is paid first (409
  *    `cash_payout_waiting`, details `{ amount }`, for another amount); else a new withdrawal is
- *    requested with provider `cash` and every online rule;
+ *    requested with provider `cash` and every online rule (winnings only, limits, the daily cap)
+ *    except the auto-approval amount;
  * 4. the code is used (in this transaction: a refusal above leaves it live);
- * 5. a request held for review is answered `review` (the hold stays; the back office reviews it);
+ * 5. a request held for review (an exclusion, an AML hold or a settlement correction) is answered
+ *    `review` (the hold stays; the back office reviews it);
  * 6. an approved one is paid: 409 `cashier_four_eyes` when the caller approved it; the player is
  *    checked again (403 `account_disabled`, 409 `aml_review_pending`: it may have waited since its
  *    approval); then markPayoutPaid (provider reference R<receipt number>), the receipt and the
@@ -258,29 +257,11 @@ export async function cashWithdrawal(
   assertPlayerCashAllowed(shop);
   const provider = playerCashProvider(shop);
   const [staff] = await tx
-    .select({ role: adminUsers.role })
+    .select({ id: adminUsers.id })
     .from(adminUsers)
     .where(eq(adminUsers.id, input.staffId))
     .limit(1);
   if (!staff) throw domainNotFound('Staff member');
-  if (!isSupervisorRole(staff.role)) {
-    const already = await shiftPlayerTotal(tx, {
-      shiftId: shift.id,
-      userId: input.userId,
-      kind: 'withdrawal',
-    });
-    if (already + amount > shop.approvalThreshold) {
-      throw domainForbidden(
-        'cashier_approval_required',
-        'This amount is above what a cashier may pay alone. A supervisor must pay it.',
-        {
-          threshold: toWire(shop.approvalThreshold),
-          amount: toWire(amount),
-          alreadyThisShift: toWire(already),
-        },
-      );
-    }
-  }
 
   await lockUser(tx, input.userId);
   const [player] = await tx
@@ -339,6 +320,7 @@ export async function cashWithdrawal(
       rules: input.rules,
       ...(input.amlRules === undefined ? {} : { amlRules: input.amlRules }),
       ip: input.ip ?? null,
+      counter: true,
     });
     payout = requested.payout;
     replayed = requested.replayed;
