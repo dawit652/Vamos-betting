@@ -121,9 +121,10 @@ next 3 days' list every cycle, so a new time arrives within about 10 minutes.
 - **Settling** uses Hulusport's rule (`resultEvent`): FT, AET and PEN give the 90-minute and
   half-time scores. They settle once the same score has stood for 15 minutes
   (`BOARD_RESULT_CONFIRM_MS`). Each applied result is audited as `scrape.board.result_applied`.
-- **mr-z cross-checks.** Read mr-z's stored result: status FINISHED, the score and
-  `result_confirmed`, from `/api/matches/:id`. This is local, with no Narobet traffic (step 0
-  confirms that).
+- **mr-z cross-checks.** Read mr-z's stored results in one local request per pass:
+  `/api/matches?sport=football&status=FINISHED&changed_since=<last pass>&markets=none`. That gives
+  the status, the score and `result_confirmed`. `/api/matches/:id` also takes API-Football's
+  fixture id. Both read mr-z's SQLite only, with no Narobet traffic (checked 21 Nov, step 0).
   - A confirmed mr-z score that differs from API-Football's stops the settlement and lists the
     match for a person.
   - A missing mr-z result does not block. Narobet's data comes from API-Football, so mr-z is a
@@ -167,9 +168,11 @@ The Feed page panel "mr-z prices" gains:
 ## Steps (build order; one commit each, with tests)
 
 0. **Server checks (the owner pastes the output; read-only):**
-   - `sed -n 60,140p /opt/mr-z/server.js`: `/api/matches` and `/api/matches/:id` must answer from
-     mr-z's SQLite only and never call Narobet. If either calls Narobet, change mr-z first, or read
-     results from the list only.
+   - **Done 21 Nov:** `sed -n 60,140p /opt/mr-z/server.js` shows that `/api/matches`,
+     `/api/matches/:id` and `/api/health` answer from mr-z's SQLite only and never call Narobet.
+     `/api/matches` filters by `status`, `confirmed`, `changed_since`, `from`/`to` (days),
+     `league_api_id`, `country` and `league`, and takes `markets=main|all|none|<list>` and
+     `limit`/`offset`.
    - `grep -c '^SCRAPER_SECRET_API_FOOTBALL=.' /opt/nahubet-new/infra/.env.prod` prints `1` when
      the results key is set. The command never prints the value.
    - Release 1 is deployed (migration 0076), and the panel's linked counts look right.
