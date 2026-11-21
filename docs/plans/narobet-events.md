@@ -1,6 +1,6 @@
 # Narobet-only matches through mr-z (more leagues on nahubet.com)
 
-Written 21 November 2026. Status: **planned, not built.** Release 2 of
+Written 21 November 2026. Status: **decided 21 Nov, being built.** Release 2 of
 [narobet-feed.md](narobet-feed.md). Before every push, build on top of the server's branch:
 `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor FETCH_HEAD HEAD`.
 The next free migration number was **0077** when this was written; restamp it if the server's
@@ -31,6 +31,10 @@ matches Nahubet does not have, as Hulusport's board already can
 2. **Every league** mr-z brings is listed. The owner gave the same rule for Hulusport on 14 Nov,
    and asked on 21 Nov that mr-z not be limited to a list of leagues.
 3. **Off by default**, behind a back-office switch, like every board feature.
+4. **The owner's decisions of 21 Nov** (see "Decisions"): a switch of its own; 30 days ahead,
+   because listing them adds nothing to Narobet's load; results from API-Football with mr-z as a
+   cross-check; at most ETB 20,000 paid out per single-source match; every league except club
+   friendlies.
 
 ## What players will see
 
@@ -40,8 +44,8 @@ Narobet matches in leagues Nahubet does not list appear as matches of their own:
 - **Teams:** mr-z's team names.
 - **Markets:** Narobet's markets as release 1 reads them, with our margin instead of Narobet's.
   These are 1X2, first-half 1X2 (rule O6 still applies), double chance, each over/under line,
-  both teams to score and draw no bet. The factory markets follow `SCRAPER_FACTORY_MARKETS`,
-  exactly as for Hulusport's matches.
+  both teams to score and draw no bet. Within 72 hours of the kickoff the factory markets follow
+  `SCRAPER_FACTORY_MARKETS`, as for Hulusport's matches.
 
 Betting is open while the prices are fresh and closes 5 minutes before the kickoff.
 
@@ -59,13 +63,29 @@ created only when all of these hold:
   City, US Open Cup, league 257). Without both ids the match is skipped;
 - its league is not one of ours, and neither of its teams is ours (see "Never a second copy");
 - its book has a complete 1X2 and passes `checkMarkets`;
+- its league is not API-Football's league 667, "Friendlies Clubs" (decision D5). National-team
+  friendlies (league 10) and women's friendlies (666) stay;
 - its prices are fresh by release 1's graded rule (`narobetPricesMaxAgeMs`): 20 minutes within 3
-  hours of the kickoff, 45 minutes within 24 hours;
-- its kickoff is more than `MIN_LEAD_MS` away and within the horizon (decision D2: 24 hours
-  recommended).
+  hours of the kickoff, 45 minutes within 24 hours, 7 hours further out;
+- its kickoff is more than `MIN_LEAD_MS` away and at most `horizonDays` ahead (decision D2: 30
+  days, a field of the switch's settings row, so the owner can shorten it without a deploy).
 
-At most **100 new events per read**. The first fill then spreads over about 45 minutes instead of
-landing all at once.
+Listing 30 days ahead adds nothing to Narobet's load: mr-z already reads 30 days ahead within its
+fixed limits, and Nahubet already reads mr-z's whole list. A far match appears only once mr-z has
+read its markets, and is suspended whenever they are older than the rule allows. Rule K2 (matches
+more than 72 hours away stay locked) applies to our own catalogue, not to board events: Hulusport's
+are open from creation too (owner's choice), and the real kickoff guard below covers a moved
+kickoff.
+
+**Our own server's load** grows with 30 days (perhaps a few thousand matches), so:
+
+- at most **100 new events per read**: the first fill spreads over a few hours instead of landing
+  at once;
+- an event is **re-priced only when mr-z re-read the match** (its `pricesAt` moved) or its kickoff
+  changed. mr-z re-reads far matches every 6 hours, so re-writing them every 5 minutes would be
+  waste. The sweep still runs on every read;
+- the **factory markets** (about 500 options, `SCRAPER_FACTORY_MARKETS`) are added only within 72
+  hours of the kickoff. Further out a match has Narobet's own markets only.
 
 ### Never a second copy of a match
 
@@ -108,7 +128,8 @@ again, but never a trader's suspension. After every read, also a failed one, the
   stale like any other.
 
 A moved kickoff follows mr-z: `upsertFixture` already updates the start time. mr-z re-reads the
-next 3 days' list every cycle, so a new time arrives within about 10 minutes.
+next 3 days' list every cycle, so a new time arrives within about 10 minutes; further out, within
+about an hour (mr-z re-reads the far days hourly).
 
 ## Results
 
@@ -144,12 +165,19 @@ next 3 days' list every cycle, so a new time arrives within about 10 minutes.
 Most of these leagues are small: lower divisions, cups and non-league football. Each match has one
 price source and one results source, and the risk of match fixing is higher there.
 
-Recommended (decision D4): a separate, lower liability cap for board events, both Hulusport's and
-Narobet's.
+Decided (D4, 21 Nov): **at most ETB 20,000 paid out per match**, for board events, both
+Hulusport's and Narobet's.
 
-- It is a settings row `board_risk_limits`, `{ maxEventLiability, maxSelectionLiability }`.
+- It is a settings row `board_risk_limits`, `{ maxEventLiability, maxSelectionLiability }`, with
+  `maxEventLiability` ETB 20,000 by default and `maxSelectionLiability` empty. The back office can
+  change both.
 - It is checked where `risk_limits` is checked today, by rule L1 (`packages/db/src/betting/risk.ts`,
-  `liabilityBreach` in `@vamos/core`), for events whose feed provider is a board.
+  `liabilityBreach` in `@vamos/core`), for events whose feed provider is a board. The stricter of
+  the two caps applies.
+- A match's liability is the sum of the possible payouts of its open bets, so the cap is the most
+  Nahubet can ever pay out on that match. An accumulator counts in full on each of its matches: a
+  ticket that could win more than ETB 20,000 is refused when it holds a board match, and a busy
+  match stops taking new bets when its possible payouts reach the cap.
 - The global limits are null by default, so today nothing caps a single small-league match.
 
 This is on the money path. Build it in the main session, with tests.
@@ -207,8 +235,8 @@ The Feed page panel "mr-z prices" gains:
 6. **Results:** API-Football by fixture ids (extend `packages/scraper/src/adapters/apifootball-results.ts`
    with a scrubbed fixture), the mr-z cross-check and the real kickoff guard. This is
    integration-tested against a real Postgres.
-7. **Board limits** (if D4 is yes): placement, the settings row, the back-office settings form and
-   its tests.
+7. **Board limits** (D4: ETB 20,000 per match): placement, the settings row, the back-office
+   settings form and its tests. Built first, so the switch can never be on without the cap.
 8. **Docs:** update [narobet-feed.md](narobet-feed.md), `docs/deployment.md` (deploy and
    switch-on) and `docs/runbooks/` (results waiting, a suspected duplicate, turning it off).
 
@@ -223,15 +251,15 @@ Who builds what:
 | 2–4                                        | Main session, or `routine-coder` with a review |
 | 5 (screens) and 8 (docs)                   | `routine-coder`                                |
 
-## Decisions for the owner
+## Decisions (the owner, 21 Nov 2026)
 
-| #   | Question                                     | Recommended                                                                                                    |
-| --- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| D1  | A switch of its own for Narobet-only matches | Yes: turn on prices (`narobet_pricing`) first, watch them, then `narobet_events`                               |
-| D2  | How far ahead to list them                   | 24 hours, where prices are at most 45 minutes old. 72 hours lists more, with prices up to 7 hours old          |
-| D3  | Who decides results                          | API-Football by fixture id, with mr-z as a cross-check. Without the key, a person enters every result          |
-| D4  | Lower limits for single-source matches       | Yes. The owner sets the maximum payout per match and per selection                                             |
-| D5  | Leagues left out even under "every league"   | None, except club friendlies (weak results data, high fixing risk). Youth, reserve and women's leagues stay in |
+| #   | Question                                     | Decided                                                                                                    |
+| --- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| D1  | A switch of its own for Narobet-only matches | Yes: turn on prices (`narobet_pricing`) first, watch them, then `narobet_events`                           |
+| D2  | How far ahead to list them                   | "If it doesn't affect [Narobet] it better be 30 days". It does not: 30 days, changeable in the back office |
+| D3  | Who decides results                          | API-Football by fixture id, with mr-z as a cross-check                                                     |
+| D4  | Lower limits for single-source matches       | Yes, ETB 20,000 per match                                                                                  |
+| D5  | Leagues left out even under "every league"   | Club friendlies only (API-Football league 667). Youth, reserve and women's leagues stay in                 |
 
 ## Load (Narobet not affected)
 
