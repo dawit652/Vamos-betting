@@ -49,7 +49,8 @@ possible:
    the desk PIN reset redesign (off until `CASHIER_PIN_RESET=on`), quieter owner alerts. Pushed,
    not deployed: Narobet prices through mr-z (migration 0076, switch `narobet_pricing` off;
    `docs/plans/narobet-feed.md`). Planned, not built: Narobet-only matches for more leagues
-   (`docs/plans/narobet-events.md`; waits for the owner's step 0 checks and decisions D1-D5).
+   (`docs/plans/narobet-events.md`; server checks done, waits for decisions D1-D5 and release 1's
+   deploy).
    Next: that plan, switching the shop app on with the owner, phase 6 once the owner picks a POS
    model, or what the owner asks.
 

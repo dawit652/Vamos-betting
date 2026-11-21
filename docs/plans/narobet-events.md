@@ -173,8 +173,8 @@ The Feed page panel "mr-z prices" gains:
      `/api/matches` filters by `status`, `confirmed`, `changed_since`, `from`/`to` (days),
      `league_api_id`, `country` and `league`, and takes `markets=main|all|none|<list>` and
      `limit`/`offset`.
-   - `grep -c '^SCRAPER_SECRET_API_FOOTBALL=.' /opt/nahubet-new/infra/.env.prod` prints `1` when
-     the results key is set. The command never prints the value.
+   - **Done 21 Nov:** `grep -c '^SCRAPER_SECRET_API_FOOTBALL=.' /opt/nahubet-new/infra/.env.prod`
+     printed `1`: the API-Football results key is set on the server.
    - Release 1 is deployed (migration 0076), and the panel's linked counts look right.
 1. **Migration (0077):**
    - allow board `narobet` in the checks of `scrape_board_competitions` and `scrape_board_teams`;

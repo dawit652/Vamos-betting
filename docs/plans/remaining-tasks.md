@@ -10,7 +10,8 @@ dont pull data aggresively"). The next free migration number is **0077**. The 30
 work was stopped by the owner (20 Nov) and not committed. **Planned 21 Nov, not built:**
 Narobet-only matches through mr-z, for more leagues on the site
 ([narobet-events.md](narobet-events.md); owner: "go ahead", and Narobet must not be affected: no
-new request to Narobet). It waits for the owner's server checks (step 0) and decisions D1-D5.
+new request to Narobet). Server checks done 21 Nov (mr-z reads only its SQLite; the API-Football key is set); it waits for
+decisions D1-D5 and the deploy of release 1.
 Next: that plan, phase 6 once the owner picks a POS model, or what the owner asks. The branch holds the server's own branch
 (`live/nahubet-new-2026-11-15`); check with
 `git merge-base --is-ancestor origin/live/nahubet-new-2026-11-15 HEAD` before every push. Deploy is
