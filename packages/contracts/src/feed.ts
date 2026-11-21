@@ -24,8 +24,8 @@ import { Id, IsoDateTime, OddsMilli, Santim } from './common';
  * - `PUT /admin/feed/competitions/:id` is listed with its strictest permission,
  *   `settings.edit`; a request that only turns flags off needs just
  *   `trading.status` (`competitionPolicyPermission`).
- * - `PUT /admin/feed/hulusport` likewise: turning Hulusport prices on needs `settings.edit`,
- *   turning them off (back to our own prices) just `trading.status`.
+ * - `PUT /admin/feed/hulusport` and `PUT /admin/feed/narobet` likewise: turning a board's prices on
+ *   needs `settings.edit`, turning them off (back to our own prices) just `trading.status`.
  */
 export const FEED_ROUTE_PERMISSIONS = {
   'GET /admin/feed/health': 'trading.view',
@@ -47,6 +47,8 @@ export const FEED_ROUTE_PERMISSIONS = {
   'POST /admin/feed/market-families/:family/reset': 'settings.edit',
   'GET /admin/feed/hulusport': 'trading.view',
   'PUT /admin/feed/hulusport': 'settings.edit',
+  'GET /admin/feed/narobet': 'trading.view',
+  'PUT /admin/feed/narobet': 'settings.edit',
 } as const satisfies Record<string, StaffPermission>;
 export type FeedRoute = keyof typeof FEED_ROUTE_PERMISSIONS;
 
@@ -333,6 +335,35 @@ export type HulusportPricingResponse = z.infer<typeof HulusportPricingResponse>;
 
 export const SetHulusportPricingRequest = z.strictObject({ enabled: z.boolean() });
 export type SetHulusportPricingRequest = z.infer<typeof SetHulusportPricingRequest>;
+
+// ---------------------------------------------------------------------------
+// Narobet prices (GET /admin/feed/narobet, PUT /admin/feed/narobet; docs/plans/narobet-feed.md).
+
+export const NarobetPricingResponse = z.object({
+  /**
+   * On: matches Nahubet already prices take Narobet's fresh prices for the markets we price, with
+   * our margin (Hulusport's come first while its switch is on). Off: our own prices.
+   */
+  enabled: z.boolean(),
+  updatedAt: IsoDateTime.nullable(),
+  updatedBy: z.string().nullable(),
+  /**
+   * How old Narobet prices may be, by the time left to the kickoff: a step applies to kickoffs
+   * within `withinMinutes`; the last step (`withinMinutes` null) to every later kickoff.
+   */
+  freshness: z.array(
+    z.object({
+      withinMinutes: z.number().int().positive().nullable(),
+      maxAgeMinutes: z.number().int().positive(),
+    }),
+  ),
+  /** What the scraper last read from mr-z (the same counts as Hulusport's board). */
+  board: HulusportBoardView,
+});
+export type NarobetPricingResponse = z.infer<typeof NarobetPricingResponse>;
+
+export const SetNarobetPricingRequest = z.strictObject({ enabled: z.boolean() });
+export type SetNarobetPricingRequest = z.infer<typeof SetNarobetPricingRequest>;
 
 // ---------------------------------------------------------------------------
 // Competition policy (GET /admin/feed/competitions, PUT /admin/feed/competitions/:id).

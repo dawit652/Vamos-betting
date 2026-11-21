@@ -376,6 +376,20 @@ const envSchema = z.object({
   ),
   /** Seconds between two reads of the mr-x board (30 to 3600, default 120). */
   SCRAPER_HULUSPORT_INTERVAL_SECONDS: z.coerce.number().int().min(30).max(3600).default(120),
+  /**
+   * The owner's mr-z service, which serves Narobet's odds (docs/plans/narobet-feed.md), e.g.
+   * `http://mrz:3200` on the server. Unset (the default): not read. Whether its prices are used is
+   * the back office switch `narobet_pricing`, not this setting.
+   */
+  SCRAPER_NAROBET_URL: secret.refine(
+    (value) => value === undefined || /^https?:\/\/[^/\s?#]+\/?$/.test(value),
+    { message: 'SCRAPER_NAROBET_URL must be an http(s) origin such as http://mrz:3200' },
+  ),
+  /**
+   * Seconds between two reads of mr-z (60 to 3600, default 300: mr-z re-reads a match at most
+   * every 10 minutes).
+   */
+  SCRAPER_NAROBET_INTERVAL_SECONDS: z.coerce.number().int().min(60).max(3600).default(300),
 
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
@@ -614,6 +628,8 @@ export interface ScraperConfig {
   factoryMarkets: boolean;
   /** The mr-x board of Hulusport prices (SCRAPER_HULUSPORT_*); `url` null: not read. */
   hulusport: { url: string | null; intervalMs: number };
+  /** The mr-z board of Narobet prices (SCRAPER_NAROBET_*); `url` null: not read. */
+  narobet: { url: string | null; intervalMs: number };
 }
 
 /** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -996,6 +1012,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         url:
           e.SCRAPER_HULUSPORT_URL === undefined ? null : e.SCRAPER_HULUSPORT_URL.replace(/\/$/, ''),
         intervalMs: e.SCRAPER_HULUSPORT_INTERVAL_SECONDS * 1000,
+      },
+      narobet: {
+        url: e.SCRAPER_NAROBET_URL === undefined ? null : e.SCRAPER_NAROBET_URL.replace(/\/$/, ''),
+        intervalMs: e.SCRAPER_NAROBET_INTERVAL_SECONDS * 1000,
       },
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },

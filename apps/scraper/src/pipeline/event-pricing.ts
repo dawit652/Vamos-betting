@@ -18,15 +18,17 @@ import {
 } from '@vamos/core';
 import {
   consensusRows,
+  getBoardPricing,
   getHulusportPricing,
   latestBoardOdds,
+  type BoardName,
   type LatestBoardOdds,
   latestMarketOdds,
   listEventPricing,
   loadFactoryPricingPlan,
   type DbExecutor,
 } from '@vamos/db';
-import { markets as marketsTable } from '@vamos/db/schema';
+import { events as eventsTable, markets as marketsTable } from '@vamos/db/schema';
 import {
   fitGoalsToMarket,
   MAX_MARKET_FIT_RESIDUAL,
@@ -49,6 +51,7 @@ import {
   isHalfTimeMarket,
   MARKET_ODDS_MAX_AGE_MS,
   marketBacksOpening,
+  narobetPricesMaxAgeMs,
   ratingsKey,
   withoutHalfTimeMarkets,
 } from '@vamos/scraper';
@@ -175,7 +178,7 @@ export interface EventPrice {
   /** Rule O7: the cap was on and lowered at least one price (`outOfLine` lists them). */
   capped?: true;
   /** Some markets take a competitor board's prices (boardRule): which board, how many, how fresh. */
-  board?: { name: 'hulusport'; markets: number; pricesAt: Date };
+  board?: { name: BoardName; markets: number; pricesAt: Date };
 }
 
 /** True for a pricing key that comes from the market (the stamp column holds either form). */
@@ -198,21 +201,28 @@ export async function priceEvent(exec: DbExecutor, input: EventPriceInput): Prom
   // the market, or from the model since 16 Nov 2026).
   const needsPlan = input.factoryMarkets === true && input.factoryPlan === undefined;
   const plan = needsPlan ? await loadFactoryPricingPlan(exec) : input.factoryPlan;
-  // Our own prices (with the factory's markets), then the Hulusport board's prices over the
-  // markets we already price, then the half-time rule.
+  // Our own prices (with the factory's markets), then a competitor board's prices (Hulusport, else
+  // Narobet) over the markets we already price, then the half-time rule.
   const own = priceBook(input, rows, plan, await o1hBoard(exec, input));
   const price = await halfTimeRule(exec, input, await boardRule(exec, input, own));
   return capRule(price, rows, input.capAtBestPrice === true);
 }
 
 /**
- * Hulusport's prices (owner's decision of 14 Nov 2026, docs/plans/hulusport-feed.md), while the
- * back office switch `hulusport_pricing` is on: every market of our prices that the board also
- * quotes, fresh (BOARD_PRICES_MAX_AGE_MS) and as a complete book, takes the board's prices with
- * the board's margin replaced by ours (priceBoardMarkets). Only markets we already price are
- * replaced, never added: the catalogue never removes a market a later price leaves out, so a
- * board-only line would keep an old price once the board dropped it. Nothing changes without the
- * board's 1X2 (the main market), for a new event, or when the board links the event twice.
+ * A competitor board's prices over the markets we already price. The boards are tried in this
+ * order, each only while its back office switch is on:
+ *
+ * - Hulusport (owner's decision of 14 Nov 2026, docs/plans/hulusport-feed.md; switch
+ *   `hulusport_pricing`), fresh within BOARD_PRICES_MAX_AGE_MS;
+ * - Narobet through mr-z (owner, 21 Nov 2026, docs/plans/narobet-feed.md; switch `narobet_pricing`),
+ *   fresh within narobetPricesMaxAgeMs of the event's kickoff.
+ *
+ * The first board that quotes the event's 1X2 wins: every market of our prices that it also quotes
+ * as a complete book takes its prices with its margin replaced by ours (priceBoardMarkets). Only
+ * markets we already price are replaced, never added: the catalogue never removes a market a later
+ * price leaves out, so a board-only line would keep an old price once the board dropped it. Nothing
+ * changes without a board's 1X2 (the main market), for a new event, or when a board links the event
+ * twice.
  *
  * The rest of the rules apply unchanged afterwards: O6 (half-time markets), O7 (out of line against
  * the best book price, and the cap), and when re-pricing, the bounds of O3. The key carries the
@@ -224,21 +234,44 @@ async function boardRule(
   input: EventPriceInput,
   price: EventPrice,
 ): Promise<EventPrice> {
-  if (input.eventId === null) return price;
-  if (!(await getHulusportPricing(exec)).enabled) return price;
-  const board = await latestBoardOdds(exec, {
-    eventId: input.eventId,
-    now: input.now,
-    maxAgeMs: BOARD_PRICES_MAX_AGE_MS,
-  });
-  if (board === null) return price;
+  const eventId = input.eventId;
+  if (eventId === null) return price;
+  for (const name of ['hulusport', 'narobet'] as const) {
+    if (!(await getBoardPricing(exec, name)).enabled) continue;
+    const maxAgeMs =
+      name === 'hulusport'
+        ? BOARD_PRICES_MAX_AGE_MS
+        : narobetPricesMaxAgeMs((await eventStart(exec, eventId)) ?? input.now, input.now);
+    const board = await latestBoardOdds(exec, { eventId, now: input.now, maxAgeMs, board: name });
+    if (board === null) continue;
+    const priced = withBoardPrices(price, board, name);
+    if (priced !== null) return priced;
+  }
+  return price;
+}
+
+/** The event's kickoff, or null when it is not found. */
+async function eventStart(exec: DbExecutor, eventId: string): Promise<Date | null> {
+  const [row] = await exec
+    .select({ startTime: eventsTable.startTime })
+    .from(eventsTable)
+    .where(eq(eventsTable.id, eventId));
+  return row?.startTime ?? null;
+}
+
+/** `price` with the board's prices over the markets it quotes; null without the board's 1X2. */
+function withBoardPrices(
+  price: EventPrice,
+  board: LatestBoardOdds,
+  name: BoardName,
+): EventPrice | null {
   const ours = new Set(price.markets.map((m) => anyMarketKey(m.type, m.line)));
   const replacing = new Map(
     priceBoardMarkets(board.markets as BoardMarketInput[])
       .filter((m) => ours.has(anyMarketKey(m.type, m.line)))
       .map((m) => [anyMarketKey(m.type, m.line), m] as const),
   );
-  if (!replacing.has(anyMarketKey('1x2'))) return price;
+  if (!replacing.has(anyMarketKey('1x2'))) return null;
   const markets = price.markets.map((m) => replacing.get(anyMarketKey(m.type, m.line)) ?? m);
   const digest = createHash('sha256')
     .update(JSON.stringify([...replacing.entries()].sort(([a], [b]) => (a < b ? -1 : 1))))
@@ -249,7 +282,7 @@ async function boardRule(
     markets,
     key: `${price.key}${BOARD_KEY_MARKER}${digest}`,
     pricesSane: checkMarkets(markets).ok,
-    board: { name: 'hulusport', markets: replacing.size, pricesAt: board.pricesAt },
+    board: { name, markets: replacing.size, pricesAt: board.pricesAt },
   };
 }
 

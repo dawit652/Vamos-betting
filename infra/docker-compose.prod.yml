@@ -131,6 +131,9 @@ x-app-env: &app-env
   # The mr-x board of Hulusport prices (docs/plans/hulusport-feed.md); empty: not read.
   SCRAPER_HULUSPORT_URL: '${SCRAPER_HULUSPORT_URL:-}'
   SCRAPER_HULUSPORT_INTERVAL_SECONDS: '${SCRAPER_HULUSPORT_INTERVAL_SECONDS:-120}'
+  # mr-z, Narobet's odds (docs/plans/narobet-feed.md): http://mrz:3200 on the server; empty: not read.
+  SCRAPER_NAROBET_URL: '${SCRAPER_NAROBET_URL:-}'
+  SCRAPER_NAROBET_INTERVAL_SECONDS: '${SCRAPER_NAROBET_INTERVAL_SECONDS:-300}'
   # Team logos from API-Football (docs/plans/team-logos.md): on with SCRAPER_SECRET_API_FOOTBALL.
   SCRAPER_TEAM_LOGOS: '${SCRAPER_TEAM_LOGOS:-on}'
 

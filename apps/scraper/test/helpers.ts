@@ -84,6 +84,8 @@ export interface HarnessOptions {
   ownerAlertPhones?: string;
   /** SCRAPER_HULUSPORT_URL (the mr-x board); default unset. */
   hulusportUrl?: string;
+  /** SCRAPER_NAROBET_URL (mr-z, docs/plans/narobet-feed.md); default unset. */
+  narobetUrl?: string;
 }
 
 // --- documents -----------------------------------------------------------------
@@ -195,6 +197,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       ? {}
       : { OWNER_ALERT_PHONES: options.ownerAlertPhones }),
     ...(options.hulusportUrl === undefined ? {} : { SCRAPER_HULUSPORT_URL: options.hulusportUrl }),
+    ...(options.narobetUrl === undefined ? {} : { SCRAPER_NAROBET_URL: options.narobetUrl }),
   });
 
   let clock = new Date(T0);

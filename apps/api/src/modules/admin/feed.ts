@@ -17,6 +17,7 @@ import {
   HulusportPricingResponse,
   isRepriceItem,
   MapBatchRequest,
+  NarobetPricingResponse,
   OpenBatchRequest,
   type OpenBatchResult,
   OpenBatchResponse,
@@ -41,6 +42,7 @@ import {
   ReviewListQuery,
   ReviewListResponse,
   SetHulusportPricingRequest,
+  SetNarobetPricingRequest,
   SetSourceEnabledRequest,
   SetSourceEnabledResponse,
   UpdateCompetitionPolicyRequest,
@@ -75,6 +77,7 @@ import {
   boardOddsSummary,
   countReviewItemsByKind,
   DomainError,
+  getBoardPricing,
   getHulusportPricing,
   getReviewItem,
   getSource,
@@ -95,6 +98,7 @@ import {
   resolveReviewItem,
   ScrapeAliasConflictError,
   ScrapeReviewStateError,
+  setBoardPricing,
   setCompetitionPolicy,
   setEventBettingOpen,
   setHulusportPricing,
@@ -124,6 +128,8 @@ import {
   isCalibrated,
   MIN_LEAD_MS,
   MIN_RATING_MATCHES,
+  NAROBET_FRESHNESS_STEPS,
+  NAROBET_PRICES_MAX_AGE_FAR_MS,
   normalizeName,
   ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
@@ -662,6 +668,79 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
       return inTx(deps, async (tx) => {
         await setHulusportPricing(tx, input.enabled, actor);
         return hulusportView(tx, deps.clock());
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Narobet prices (docs/plans/narobet-feed.md): the switch, and what mr-z's board delivers.
+
+  const narobetView = async (exec: DbExecutor, now: Date) => {
+    const [pricing, board] = await Promise.all([
+      getBoardPricing(exec, 'narobet'),
+      boardOddsSummary(exec, {
+        now,
+        maxAgeMs: NAROBET_PRICES_MAX_AGE_FAR_MS,
+        steps: NAROBET_FRESHNESS_STEPS,
+        limit: 50,
+        board: 'narobet',
+      }),
+    ]);
+    return wire(NarobetPricingResponse, {
+      enabled: pricing.enabled,
+      updatedAt: pricing.updatedAt?.toISOString() ?? null,
+      updatedBy: pricing.updatedBy,
+      freshness: [
+        ...NAROBET_FRESHNESS_STEPS.map((step) => ({
+          withinMinutes: Math.round(step.aheadMs / 60_000),
+          maxAgeMinutes: Math.round(step.maxAgeMs / 60_000),
+        })),
+        { withinMinutes: null, maxAgeMinutes: Math.round(NAROBET_PRICES_MAX_AGE_FAR_MS / 60_000) },
+      ],
+      board: {
+        upcoming: board.upcoming,
+        linked: board.linked,
+        fresh: board.fresh,
+        lastReadAt: board.lastReadAt?.toISOString() ?? null,
+        newestPricesAt: board.newestPricesAt?.toISOString() ?? null,
+        unlinked: board.unlinked.map((row) => ({
+          competition: row.competitionRaw,
+          home: row.homeRaw,
+          away: row.awayRaw,
+          kickoff: row.kickoff.toISOString(),
+          teamsResolved: row.teamsResolved,
+        })),
+      },
+    });
+  };
+
+  app.get('/admin/feed/narobet', { config: { staff: 'trading.view' } }, async () =>
+    narobetView(deps.db, deps.clock()),
+  );
+
+  /** Turns Narobet prices on or off, with the same permissions as Hulusport's switch. */
+  app.put(
+    '/admin/feed/narobet',
+    { config: { staff: 'settings.edit', staffOr: 'trading.status' } },
+    async (request) => {
+      const staff = requireStaff(request);
+      let input: SetNarobetPricingRequest;
+      if (hasPermission(staff.role, 'settings.edit')) {
+        input = parseInput(SetNarobetPricingRequest, request.body);
+      } else {
+        // Without settings access only a valid request that turns the prices off is allowed.
+        const parsed = SetNarobetPricingRequest.safeParse(request.body);
+        if (!parsed.success || parsed.data.enabled) {
+          throw forbidden('forbidden', 'Your role does not allow this.', {
+            permission: 'settings.edit',
+          });
+        }
+        input = parsed.data;
+      }
+      const actor = staffActor(request);
+      return inTx(deps, async (tx) => {
+        await setBoardPricing(tx, 'narobet', input.enabled, actor);
+        return narobetView(tx, deps.clock());
       });
     },
   );

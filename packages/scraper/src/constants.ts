@@ -93,6 +93,27 @@ export const MARKET_ODDS_LINK_WINDOW_MS = 6 * HOUR_MS;
  * reads each match about every 7 minutes.
  */
 export const BOARD_PRICES_MAX_AGE_MS = 30 * MINUTE_MS;
+
+/**
+ * How old Narobet's prices (mr-z, docs/plans/narobet-feed.md) may be for the pricing step, by the
+ * time left to the kickoff: mr-z re-reads a match's markets every 10 minutes in its last 3 hours,
+ * every 30 minutes in its last 24 hours and every 6 hours before that; each limit leaves slack for
+ * one late read. Older prices are not used: the event goes back to our own prices.
+ */
+export const NAROBET_FRESHNESS_STEPS: ReadonlyArray<{ aheadMs: number; maxAgeMs: number }> = [
+  { aheadMs: 3 * 60 * MINUTE_MS, maxAgeMs: 20 * MINUTE_MS },
+  { aheadMs: 24 * 60 * MINUTE_MS, maxAgeMs: 45 * MINUTE_MS },
+];
+/** Beyond the last of NAROBET_FRESHNESS_STEPS. */
+export const NAROBET_PRICES_MAX_AGE_FAR_MS = 7 * 60 * MINUTE_MS;
+
+export function narobetPricesMaxAgeMs(kickoff: Date, now: Date): number {
+  const ahead = kickoff.getTime() - now.getTime();
+  for (const step of NAROBET_FRESHNESS_STEPS) {
+    if (ahead <= step.aheadMs) return step.maxAgeMs;
+  }
+  return NAROBET_PRICES_MAX_AGE_FAR_MS;
+}
 /**
  * A2: an event priced from the market that starts within MARKET_LAPSE_LEAD_MS stays bettable only
  * while the market prices it from prices listed in the last MARKET_LAPSE_MAX_AGE_MS; otherwise the

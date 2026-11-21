@@ -1,0 +1,2 @@
+ALTER TABLE "scrape_board_odds" DROP CONSTRAINT "scrape_board_odds_board";--> statement-breakpoint
+ALTER TABLE "scrape_board_odds" ADD CONSTRAINT "scrape_board_odds_board" CHECK ("scrape_board_odds"."board" IN ('hulusport', 'narobet'));

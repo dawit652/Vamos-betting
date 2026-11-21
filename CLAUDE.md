@@ -41,13 +41,15 @@ possible:
 7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
    `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
 8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
-   **Deployed 20 Nov:** `1918eb6` (licensed mode, smoke test 13 passed; migrations up to 0075).
+   **Deployed 21 Nov:** `1918eb6` (licensed mode, smoke test 13 passed; migrations up to 0075).
    Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
    `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if
    it is ahead (`git fetch origin <other> && git merge --ff-only FETCH_HEAD`). Built: agent shops
    phases 0-5 (the shop app is deployed but not switched on: `docs/deployment.md`, "Shop app"),
-   the desk PIN reset redesign (off until `CASHIER_PIN_RESET=on`), quieter owner alerts. Next:
-   switching the shop app on with the owner, phase 6 once the owner picks a POS model, or what the
+   the desk PIN reset redesign (off until `CASHIER_PIN_RESET=on`), quieter owner alerts. Pushed,
+   not deployed: Narobet prices through mr-z (migration 0076, switch `narobet_pricing` off;
+   `docs/plans/narobet-feed.md`). Next: switching the shop app on with the owner, phase 6 once the
+   owner picks a POS model, or what the
    owner asks.
 
 ## Overview
