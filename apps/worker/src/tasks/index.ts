@@ -28,6 +28,7 @@ import {
   type JackpotSettlementSweepOptions,
 } from './jackpots';
 import { liveSimTask, type LiveSimOptions } from './live-sim';
+import { moneyNotCreditedTask } from './money-not-credited';
 import { reportCloseTask } from './report-close';
 import { outboxDispatchTask, type OutboxDispatchOptions } from './outbox-dispatch';
 import {
@@ -137,6 +138,7 @@ export function createTasks(
     reconciliationRequestTask(ctx),
     // Owner reports: closes each business day after midnight and re-checks the last ones.
     reportCloseTask(ctx),
+    moneyNotCreditedTask(ctx),
     amlEvaluateTask(ctx, options.amlEvaluate),
     amlSweepTask(ctx, options.amlSweep),
     ussdPruneTask(ctx, options.ussdPrune),

@@ -109,3 +109,25 @@ export const OwnerReportResponse = z.object({
   ),
 });
 export type OwnerReportResponse = z.infer<typeof OwnerReportResponse>;
+
+/**
+ * GET /admin/service-health (dashboard.view): each service Nahubet depends on, judged like the
+ * worker's watch (docs/plans/counter-codes-and-deposit-recovery.md, G7): up, down since when (3
+ * minutes failing, or a scheduled read that stopped), or unknown (never reported).
+ */
+export const ServiceHealthResponse = z.object({
+  checkedAt: IsoDateTime,
+  services: z.array(
+    z.object({
+      service: z.string(),
+      name: z.string(),
+      status: z.enum(['up', 'down', 'unknown']),
+      /** Down since (null unless down). */
+      since: IsoDateTime.nullable(),
+      lastOkAt: IsoDateTime.nullable(),
+      lastFailureAt: IsoDateTime.nullable(),
+      lastError: z.string().nullable(),
+    }),
+  ),
+});
+export type ServiceHealthResponse = z.infer<typeof ServiceHealthResponse>;

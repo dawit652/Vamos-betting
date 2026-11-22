@@ -1,29 +1,18 @@
-import { minutesSince, serviceHealth } from '@vamos/core';
+import {
+  minutesSince,
+  SERVICE_NAMES,
+  SERVICE_STALE_AFTER_MS as STALE_AFTER_MS,
+  serviceHealth,
+} from '@vamos/core';
 import { listServiceStatus, setServiceAlerted, sourceRunReports } from '@vamos/db';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import { raiseOwnerAlert } from '../lib/owner-alert';
 import type { TaskContext } from './context';
 
+export { SERVICE_NAMES };
+
 /** The services' health is looked at every minute. */
 export const SERVICE_HEALTH_INTERVAL_MS = 60_000;
-
-/** How each service is named in the owner's alerts (a feed source is named after the source). */
-export const SERVICE_NAMES: Readonly<Record<string, string>> = {
-  'payments:chapa': 'Chapa payments',
-  'payments:telebirr': 'telebirr payments',
-  mrx: 'mr-x (Hulusport board)',
-  mrz: 'mr-z (Narobet board)',
-  'api-football': 'API-Football results',
-};
-
-/**
- * Services read on a schedule: not succeeding for this long is an outage too (the reader stopped,
- * e.g. the scraper is down). mr-x and mr-z are read every few minutes.
- */
-const STALE_AFTER_MS: Readonly<Record<string, number>> = {
-  mrx: 30 * 60_000,
-  mrz: 30 * 60_000,
-};
 
 export interface ServiceHealthSummary {
   down: string[];

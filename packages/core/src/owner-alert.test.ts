@@ -210,6 +210,22 @@ describe('buildOwnerAlert', () => {
     expect(ownerAlertDelivery({ alarm: 'sms_review_backlog' }, 30 * minute).send).toBe(false);
   });
 
+  it('says once a day on Telegram how much money waits to be credited', () => {
+    const line = {
+      alarm: 'money_not_credited',
+      date: '2026-11-23',
+      count: 3,
+      amountEtb: '1250.00',
+      oldestDate: '2026-11-20',
+    } as const;
+    expect(buildOwnerAlert(line)).toEqual({
+      key: 'money_not_credited|2026-11-23',
+      message:
+        'Money not credited: 3 payment(s), ETB 1250.00, the oldest from 2026-11-20. Open Money not credited in the back office.',
+    });
+    expect(ownerAlertDelivery(line, 30 * 60_000)).toMatchObject({ send: true, telegramOnly: true });
+  });
+
   it('repeats a service-down alert every 15 minutes on Telegram only, then says it works again', () => {
     const minute = 60_000;
     const down = {

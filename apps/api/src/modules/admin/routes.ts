@@ -9,6 +9,7 @@ import adminCollectionAccountRoutes from './collection-accounts';
 import { guardAdminRoutes } from './common';
 import adminComplianceRoutes from './compliance';
 import adminReportRoutes from './reports';
+import adminServiceHealthRoutes from './service-health';
 import adminFeedRoutes from './feed';
 import adminJackpotRoutes from './jackpots';
 import adminPaymentRoutes from './payments';
@@ -41,5 +42,6 @@ export default async function adminRoutes(app: FastifyInstance): Promise<void> {
   await app.register(adminAuditRoutes);
   await app.register(adminComplianceRoutes);
   await app.register(adminReportRoutes);
+  await app.register(adminServiceHealthRoutes);
   await app.register(adminFeedRoutes);
 }

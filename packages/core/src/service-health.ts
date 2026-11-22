@@ -45,3 +45,26 @@ export function serviceHealth(
 export function minutesSince(since: Date, now: Date): number {
   return Math.max(1, Math.floor((now.getTime() - since.getTime()) / 60_000));
 }
+
+/** How each service is named in the owner's alerts (a feed source is named after the source). */
+export const SERVICE_NAMES: Readonly<Record<string, string>> = {
+  'payments:chapa': 'Chapa payments',
+  'payments:telebirr': 'telebirr payments',
+  mrx: 'mr-x (Hulusport board)',
+  mrz: 'mr-z (Narobet board)',
+  'api-football': 'API-Football results',
+};
+
+/**
+ * Services read on a schedule: not succeeding for this long is an outage too (the reader stopped,
+ * e.g. the scraper is down). mr-x and mr-z are read every few minutes.
+ */
+export const SERVICE_STALE_AFTER_MS: Readonly<Record<string, number>> = {
+  mrx: 30 * 60_000,
+  mrz: 30 * 60_000,
+};
+
+/** A service's name for people: its known name, or its id (a feed source is `source:<id>`). */
+export function serviceName(service: string): string {
+  return SERVICE_NAMES[service] ?? service;
+}

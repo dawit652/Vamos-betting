@@ -93,7 +93,19 @@ export type OwnerAlertInput =
    * An owner report failed one of its own checks (docs/plans/owner-reports.md): a closed day
    * changed after its close, or a day did not balance or roll forward when it was closed.
    */
-  | { alarm: 'report_check_failed'; date: string; checks: readonly string[] };
+  | { alarm: 'report_check_failed'; date: string; checks: readonly string[] }
+  /**
+   * The owner's daily line (docs/plans/counter-codes-and-deposit-recovery.md, G6): money that
+   * arrived but is not credited yet, how much and since when (Back office → Money not credited).
+   */
+  | {
+      alarm: 'money_not_credited';
+      /** The business day (Addis Ababa) of the line: one a day. */
+      date: string;
+      count: number;
+      amountEtb: string;
+      oldestDate: string;
+    };
 
 export interface OwnerAlert {
   /** The alarm's name plus its subject, e.g. `source_broken|odds-api`. Stable per condition. */
@@ -298,6 +310,11 @@ function build(input: OwnerAlertInput): OwnerAlert {
         key: `report_check_failed|${input.date}`,
         message: `The report of ${input.date} failed its checks (${clip(input.checks.join(', '), 80)}). Open Reports in the back office.`,
       };
+    case 'money_not_credited':
+      return {
+        key: `money_not_credited|${input.date}`,
+        message: `Money not credited: ${input.count} payment(s), ETB ${input.amountEtb}, the oldest from ${input.oldestDate}. Open Money not credited in the back office.`,
+      };
     case 'manual_deposit_credited':
       return {
         key: `manual_deposit_credited|${input.intentId}`,
@@ -375,6 +392,8 @@ export const OWNER_ALERT_POLICY: Readonly<Record<OwnerAlertInput['alarm'], Owner
   manual_deposit_credited: { send: true, repeatMs: 0 },
   // Reports that do not check out (owner, 22 Nov 2026: reports never make a mistake): money.
   report_check_failed: { send: true, repeatMs: 6 * HOUR_MS },
+  // Money waiting to be credited: one Telegram line a day (G6), never an SMS.
+  money_not_credited: { send: true, repeatMs: 20 * HOUR_MS, telegramOnly: true },
 };
 
 /** Whether an alarm is texted at all, and the least time between two texts of one key. */

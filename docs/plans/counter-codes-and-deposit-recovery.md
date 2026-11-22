@@ -185,8 +185,9 @@ first; and the open claims with the money they pair with. Crediting uses the exi
 take an optional `claimId` and answer the claim in the same transaction (409 `claim_other_player`
 when the money would go to another player): "Credit to this player" (the SMS credit) and "Credit
 by hand" (the manual deposit, `deposits.credit`). "Close" answers a claim without a credit, with a
-note (`POST /admin/deposit-claims/:id/close`). Nothing is credited automatically. **Not built yet:**
-the daily line in the owner's Telegram summary.
+note (`POST /admin/deposit-claims/:id/close`). Nothing is credited automatically. **The daily line**
+(built 22 Nov): from 09:00 Addis time, while money waits, one Telegram line a day to the owner chats
+(`money-not-credited` worker task, alarm `money_not_credited`, never an SMS).
 
 ### G7. Frequent Telegram alerts when a service fails
 
@@ -215,7 +216,10 @@ Alerting (a category of its own, next to the money alarms):
   `TELEGRAM_OWNER_CHAT_IDS`, repeated every 15 minutes exactly (even though
   `OWNER_ALERT_MIN_INTERVAL_MINUTES` is 30), never by SMS; then "works again" once. Each new outage
   is also an `error` log line with `alarm: service_down`.
-- Not yet: the back-office **Service health page** (the table `service_status` holds it all);
+- **Service health page built 22 Nov:** Back office → Service health (`dashboard.view`,
+  `GET /admin/service-health`): each service up, down since when or not reported yet, with its last
+  success and last error, judged by the worker's own rules (core `SERVICE_STALE_AFTER_MS`).
+- Not yet:
   payouts' provider calls; the SMS handset keeps its own alarm (`sms_gateway_silent`, every 6 hours);
   the database or Redis being down cannot be alerted this way (the alerts go through them).
 - Needs `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_IDS` on the server (docs/runbooks/telegram-bot.md).
@@ -290,7 +294,7 @@ Telegram message at once. G5.2 follows this: "propose" and "approve" are one ste
 
 | Step | What                                                                  | Who                               |
 | ---- | --------------------------------------------------------------------- | --------------------------------- |
-| 1    | G7 service health monitor, Telegram rhythm, health page               | Main session                      |
+| 1    | G7 service health monitor, Telegram rhythm, health page               | **Built 21-22 Nov**               |
 | 2    | G1 numeric booking codes (web, shop) and G2 the code on the ticket    | **Built 22 Nov**                  |
 | 3    | G3 payout code (sale, Pay, reprint, lock) and the public ticket check | **Built 22 Nov** (check page: 3b) |
 | 4    | G5.1-2 provider re-check and manual deposit (one admin, O5)           | Main session (money)              |
