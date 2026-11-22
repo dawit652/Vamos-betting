@@ -571,15 +571,20 @@ describe('F7b: after K1', () => {
   );
 
   it(
-    'F7b/K1/F4: on a source keyed by date (openfootball) the earlier observation stays behind; its F4 question keeps betting closed through a full pass although the kickoff is confirmed',
+    'F7b/K1/F4d: on a source keyed by date (openfootball) an earlier report closes betting (K1) and moves the event there (F4d); when the source goes back, a later move waits for a person and betting stays closed',
     async () => {
       const { eventId, feedRef } = await closedByK1();
+      // K1 closed betting first, then F4d moved the event to the earliest fresh kickoff.
+      expect((await eventRow(eventId)).start_time).toEqual(new Date('2026-11-01T20:00:00Z'));
+      expect(await audits('scrape.fixture.kickoff_moved')).toHaveLength(1);
       h.at(new Date(KICKOFF.getTime() - 48 * HOUR));
       await h.run('src-a');
-      // The earlier row is no longer listed, so it does not dissent: only the F4 question stops it.
-      expect(await assessNow(eventId)).toMatchObject({ confirmed: true, basis: 'C2' });
+      // The source gives 2 Nov 15:00 again: later than the start, so nothing agrees with it.
+      expect(await assessNow(eventId)).toMatchObject({ confirmed: false });
       await runPromotion(h.ctx);
       expect((await eventRow(eventId)).betting_open).toBe(false);
+      expect((await eventRow(eventId)).start_time).toEqual(new Date('2026-11-01T20:00:00Z'));
+      // F4c's question (the old row and the new one) stays with a person: a later move is not F4d's.
       expect(await openItems(feedRef, 'kickoff_change')).toHaveLength(1);
       expect(await openItems(`${feedRef}|earlier`, 'kickoff_change')).toHaveLength(1);
       expect(await audits('scrape.fixture.betting_opened')).toHaveLength(0);

@@ -18,7 +18,10 @@ account at a time.** Next free migration: **0085**.
   `18d99c8` (the review queue plan), `9b17600` (re-price rule A-2: a strong market replaces the
   stored prices whatever the move; held re-prices of such matches apply on the next pass),
   `c53b4f2` (sweeper Q2c: closes kickoff / fixture items of played, cancelled or gone matches) and
-  the auto-open `held` counts (why each waiting match stays closed, in the `auto open run` log).
+  the auto-open `held` counts (why each waiting match stays closed, in the `auto open run` log),
+  and rule F4d (D3: a kickoff disagreement is answered by the earliest kickoff a fresh source
+  gives: the start is kept or moved earlier, never later; K2 no longer lets a later report block
+  a confirmation; K1 still closes betting on an earlier report first).
   After the deploy, staff press **Read again** in Back office → SMS rail on the three unparsed
   messages (CBE 00:26 for the ETB 10.40 deposit; telebirr 00:35 and 00:42).
 - **Server state the owner set on 23 Nov:** switches `narobet_pricing` on (since 21 Nov) and
@@ -27,8 +30,9 @@ account at a time.** Next free migration: **0085**.
 - **Next (owner's request of 23 Nov): the review queue** (665 open items, many matches with
   betting closed): plan with the server's numbers, decisions D1-D7 and build order in
   [review-queue-automation.md](review-queue-automation.md). **The owner said go ("implement the
-  plan"): steps 1, 2 and the step 4 diagnostics are built; next step 3 (earliest fresh kickoff),
-  then 4a / 4b after the owner deploys and the study runs again (D4, D5).** D1 (extra time off for
+  plan"): steps 1, 2, 3 (F4d) and the step 4 diagnostics are built; next 4a / 4b after the owner
+  deploys and runs the study again (D4, D5, read the `held` counts first); step 5 stays with a
+  person, step 6 needs a settlement design.** D1 (extra time off for
   leagues, back office only, the owner's job) is the biggest win: with
   `extra_time` on everywhere no result is applied by itself. Warnings there: The Odds API credits
   run out in about 5 days; 129 matches priced above the best bookmaker price.

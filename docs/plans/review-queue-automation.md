@@ -1,6 +1,6 @@
 # Review queue: what can resolve by itself (plan)
 
-Written 23 Nov 2026 by the first account. **Status: the owner said go (23 Nov: "implement the plan"); steps 1, 2 and the step 4 diagnostics built, the rest in order.** The owner asked to
+Written 23 Nov 2026 by the first account. **Status: the owner said go (23 Nov: "implement the plan"); steps 1, 2, 3 (F4d) and the step 4 diagnostics built; next 4a / 4b after the owner deploys and the study runs again.** The owner asked to
 "optimize the algorithm to fix most of the issues by itself", then "before implementing make a
 plan". Every step below waits for the owner's go (decisions D1-D7 at the end). Build on top of the
 server's branch: before every push,
@@ -102,7 +102,7 @@ Tests (`apps/scraper/test/reprice-market.test.ts`): calibrated teams, strong mar
 → applied and the hold closed; weak market → held; model move → held; a pending hold is applied on
 the next pass without a new price. Expected: most of the 86.
 
-### Step 3. Kickoff disagreements: the earliest fresh time (money: needs D3)
+### Step 3. Kickoff disagreements: the earliest fresh time (built 23 Nov as F4d)
 
 Today `sources_disagree` holds the match closed until a person picks the time. Proposal: when the
 fresh independent sources disagree, move the match to the **earliest** fresh kickoff and let F7b

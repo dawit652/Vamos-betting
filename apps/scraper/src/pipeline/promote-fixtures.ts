@@ -6,6 +6,7 @@ import {
   listCurrentObservations,
   listScrapedEvents,
   listSourceKickoffFacts,
+  loadKickoffEvidence,
   lockEvent,
   recordEventPriced,
   setEventBettingOpen,
@@ -21,6 +22,7 @@ import {
   CONFLICT_AGREED_RESOLUTION,
   decideFixture,
   DAY_MS,
+  earliestFreshKickoff,
   findMissingFixtures,
   FIXTURE_HORIZON_MS,
   fixtureFeedRef,
@@ -53,6 +55,7 @@ import type { ScraperContext } from '../context';
 import { publishAfterCommit } from '../lib/publish';
 import { priceEvent, type PricedMarket } from './event-pricing';
 import { halfTimeCheck, type HalfTimeCheck } from './half-time';
+import { asStatements, loaderOptions } from './kickoff-safety';
 import {
   auditScraper,
   display,
@@ -86,6 +89,7 @@ export interface PromoteFixturesSummary {
 const KICKOFF_ITEM_AGREED = 'every source agrees with the kickoff of the event again';
 const KICKOFF_ITEM_MOVED = 'the sources moved the kickoff';
 const KICKOFF_ITEM_CLOSED = 'the event has a result or is no longer scheduled';
+const KICKOFF_ITEM_EARLIEST = 'the event starts at the earliest kickoff a fresh source gives (F4d)';
 
 /** Fixture observations are read from this far back (clusters straddle the start) ... */
 const LOOK_BACK_MS = 2 * DAY_MS;
@@ -164,6 +168,19 @@ export async function promoteFixtures(
     );
     summary.kickoffItemsClosed += closed.length;
   };
+  /** F4d: records a kickoff disagreement answered without a person; returns the live deltas. */
+  const recordAnswer = async (
+    feedRef: string,
+    answer: DisagreementAnswer,
+  ): Promise<LiveMessage[]> => {
+    if (answer.answer === 'keep') {
+      await closeKickoffItem(feedRef, KICKOFF_ITEM_EARLIEST);
+      return [];
+    }
+    summary.kickoffMoved += 1;
+    openKickoffItems.delete(feedRef);
+    return answer.messages;
+  };
   // F6c: the open fixture_conflict items, the subjects this pass raised one for again, and the
   // clusters the gate found in agreement (read after the loop, see `stepConflictItems`).
   const openConflicts = await openConflictItems(ctx);
@@ -196,9 +213,26 @@ export async function promoteFixtures(
         // Review finding 1: one decision for all the clusters of a fixture, taken once.
         if (several.first === index) {
           const decision = holdSeveralClusters(several.input);
-          noteRaised(decision);
-          await ctx.db.transaction((tx) => openGateReviews(tx, reviewsOf(decision), now));
-          summary.held += 1;
+          const input = several.input;
+          const target =
+            'event' in input ? events.find((e) => e.eventId === input.event.eventId) : undefined;
+          const answer =
+            target !== undefined && onlyKickoffDisagreement(decision, target.feedRef)
+              ? await answerDisagreement(ctx, target, policy, now)
+              : null;
+          if (target !== undefined && answer !== null) {
+            const answered = await recordAnswer(target.feedRef, answer);
+            summary.published += await publishAfterCommit(
+              ctx.redis,
+              answered,
+              ctx.channel,
+              ctx.logger,
+            );
+          } else {
+            noteRaised(decision);
+            await ctx.db.transaction((tx) => openGateReviews(tx, reviewsOf(decision), now));
+            summary.held += 1;
+          }
         }
         continue;
       }
@@ -271,11 +305,25 @@ export async function promoteFixtures(
           }
           break;
         }
-        case 'hold':
+        case 'hold': {
+          // F4d (D3): a kickoff disagreement the earliest fresh kickoff answers needs no person.
+          const target =
+            match.kind === 'existing'
+              ? events.find((e) => e.eventId === match.event.eventId)
+              : undefined;
+          const answer =
+            target !== undefined && onlyKickoffDisagreement(decision, target.feedRef)
+              ? await answerDisagreement(ctx, target, policy, now)
+              : null;
+          if (target !== undefined && answer !== null) {
+            messages = await recordAnswer(target.feedRef, answer);
+            break;
+          }
           noteRaised(decision);
           await ctx.db.transaction((tx) => openGateReviews(tx, reviewsOf(decision), now));
           summary.held += 1;
           break;
+        }
         case 'none':
           // F4: every source agrees with the event's kickoff, so a proposal to move it is stale.
           // (A closed event's item is closed after the loop, a postponed one's is kept.)
@@ -696,6 +744,70 @@ export async function pricingFor(
     pricesSane: price.pricesSane,
     halfTimeOmitted: price.halfTimeOmitted === true,
   };
+}
+
+type DisagreementAnswer = { answer: 'keep' } | { answer: 'moved'; messages: LiveMessage[] };
+
+/** A hold whose only question is F4's (or F4c's) `sources_disagree` about this event's kickoff. */
+function onlyKickoffDisagreement(decision: { action: string }, feedRef: string): boolean {
+  if (decision.action !== 'hold') return false;
+  const reviews = reviewsOf(decision);
+  const review = reviews[0];
+  if (reviews.length !== 1 || review === undefined) return false;
+  const reasons = review.payload.reasons;
+  return (
+    review.kind === 'kickoff_change' &&
+    review.subjectKey === feedRef &&
+    Array.isArray(reasons) &&
+    reasons.length === 1 &&
+    reasons[0] === 'sources_disagree'
+  );
+}
+
+/**
+ * Rule F4d (the owner's decision D3, 23 Nov 2026): answers a kickoff disagreement about one
+ * scheduled event with the earliest kickoff a fresh source gives (`earliestFreshKickoff`, on K2's
+ * evidence: the rows each source listed at its latest successful read, so a row a date-keyed source
+ * no longer lists does not count). Never in a switched-off competition (S4). `keep`: the start
+ * already is that kickoff; `moved`: moved to it (rule F4d, the move closes the item); null: a
+ * person decides (no answer, or the move was refused under the lock), the hold opens as before.
+ */
+async function answerDisagreement(
+  ctx: ScraperContext,
+  event: ScrapedEvent,
+  policy: CompetitionPolicy,
+  now: Date,
+): Promise<DisagreementAnswer | null> {
+  if (policy.enabled !== true) return null;
+  const evidence = (
+    await loadKickoffEvidence(ctx.db, { eventIds: [event.eventId], ...loaderOptions(now) })
+  ).get(event.eventId);
+  if (
+    evidence === undefined ||
+    evidence.event.status !== 'scheduled' ||
+    evidence.event.resultedAt !== null
+  ) {
+    return null;
+  }
+  const from = evidence.event.startTime;
+  const answer = earliestFreshKickoff({ start: from, now, statements: asStatements(evidence) });
+  if (answer.action === 'keep') return { answer: 'keep' };
+  if (answer.action === 'hold') return null;
+  const moved = await applyKickoff(
+    ctx,
+    {
+      action: 'update-kickoff',
+      eventId: event.eventId,
+      feedRef: event.feedRef,
+      from,
+      to: answer.to,
+      rule: 'F4d',
+      upstreams: answer.upstreams,
+    },
+    event,
+    now,
+  );
+  return moved.moved ? { answer: 'moved', messages: moved.messages } : null;
 }
 
 /** Why a trader is asked: the gate's reason codes, as text. */
