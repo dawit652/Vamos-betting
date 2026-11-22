@@ -102,8 +102,8 @@ export type EventListMarket = z.infer<typeof EventListMarket>;
 const HOUR_MS = 60 * 60_000;
 /** Africa/Addis_Ababa is UTC+3 all year (no daylight saving). */
 const ADDIS_ABABA_OFFSET_MS = 3 * HOUR_MS;
-/** The list's `day` may be today or up to this many days ahead (Addis Ababa calendar). */
-export const EVENT_DAY_MAX_AHEAD = 14;
+/** The list's `day` may be today or up to this many days ahead (Addis Ababa calendar; owner, 23 Nov 2026). */
+export const EVENT_DAY_MAX_AHEAD = 30;
 
 /** The Addis Ababa calendar date (YYYY-MM-DD) that is `daysAhead` days after the one containing `now`. */
 export function addisAbabaDate(now: Date, daysAhead = 0): string {
@@ -111,7 +111,7 @@ export function addisAbabaDate(now: Date, daysAhead = 0): string {
   return local.toISOString().slice(0, 10);
 }
 
-/** Whether `day` (already shaped YYYY-MM-DD) is a real date from today to today + 14 in Addis Ababa. */
+/** Whether `day` (already shaped YYYY-MM-DD) is a real date from today to today + EVENT_DAY_MAX_AHEAD in Addis Ababa. */
 export function isEventDayInRange(day: string, now: Date): boolean {
   return day >= addisAbabaDate(now) && day <= addisAbabaDate(now, EVENT_DAY_MAX_AHEAD);
 }

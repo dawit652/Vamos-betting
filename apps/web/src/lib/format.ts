@@ -75,6 +75,11 @@ export function formatWeekday(date: string, locale: Locale): string {
   }).format(new Date(`${date}T12:00:00+03:00`));
 }
 
+/** "Wed 26": the weekday and day of the month of an Addis Ababa date (the Upcoming day chips). */
+export function formatChipDay(date: string, locale: Locale): string {
+  return `${formatWeekday(date, locale)} ${Number(date.slice(8, 10))}`;
+}
+
 /** Calendar day in East Africa Time as a number of days since the epoch. */
 function eatDay(date: Date): number {
   // EAT is UTC+3 all year (no daylight saving).

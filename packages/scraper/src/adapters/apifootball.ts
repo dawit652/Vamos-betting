@@ -87,8 +87,11 @@ export const ApiFootballConfigSchema = z
     sport: sportSchema,
     /** Days before today (UTC) read each run: late results and corrections. */
     daysBack: z.number().int().min(0).max(3).default(1),
-    /** Days after today (UTC) read each run: upcoming fixtures. */
-    daysAhead: z.number().int().min(0).max(28).default(2),
+    /**
+     * Days after today (UTC) read each run: upcoming fixtures. Each day is one request on every
+     * run, so a long reach costs the API-Football plan's daily requests (owner may set up to 30).
+     */
+    daysAhead: z.number().int().min(0).max(30).default(2),
     /** Only these league ids are read; omitted, every league of the day. */
     leagueIds: z.array(z.number().int().min(1).max(10_000_000)).min(1).max(2000).optional(),
   })

@@ -137,11 +137,18 @@ test('the betslip drawer is in Amharic for an Amharic page', async ({ page, cont
   await expect(drawer).not.toContainText('sportsbook.betslip.');
 });
 
-test('the Today tab has day chips; a later day is the tab with ?day=', async ({ page }) => {
+test('Today has no day chips; Upcoming has 30 days, scrolled sideways, a day is ?day=', async ({
+  page,
+}) => {
+  // Today is today alone (owner, 23 Nov 2026): no Tomorrow, weekday or date chips.
   await page.goto('/?tab=today');
+  await expect(page.getByRole('navigation', { name: 'Match day' })).toHaveCount(0);
+
+  await page.goto('/?tab=upcoming');
   const days = page.getByRole('navigation', { name: 'Match day' });
-  await expect(days.getByRole('link')).toHaveCount(7);
-  await expect(days.getByRole('link', { name: 'Today' })).toHaveAttribute('aria-current', 'true');
+  await expect(days.getByRole('link')).toHaveCount(30);
+  // The whole 30 days are listed until a day is chosen.
+  await expect(days.locator('[aria-current="true"]')).toHaveCount(0);
 
   await days.getByRole('link', { name: 'Tomorrow' }).click();
   await page.waitForURL(/[?&]day=\d{4}-\d{2}-\d{2}/);
@@ -149,10 +156,9 @@ test('the Today tab has day chips; a later day is the tab with ?day=', async ({ 
     'aria-current',
     'true',
   );
-  await expect(days.getByRole('link', { name: 'Today' })).not.toHaveAttribute('aria-current');
-  // Still the Today tab.
+  // Still the Upcoming tab.
   await expect(
-    page.getByRole('navigation', { name: 'Match lists' }).getByRole('link', { name: 'Today' }),
+    page.getByRole('navigation', { name: 'Match lists' }).getByRole('link', { name: 'Upcoming' }),
   ).toHaveAttribute('aria-current', 'page');
   // Every row that is listed kicks off tomorrow (there may be none: then the list says so).
   const rows = page.locator('main li.list-row');
@@ -162,11 +168,11 @@ test('the Today tab has day chips; a later day is the tab with ?day=', async ({ 
     await expect(page.getByText('No matches to show right now.')).toBeVisible();
   }
 
-  // A day that is not offered falls back to today's list.
-  await page.goto('/?tab=today&day=2020-01-01');
+  // A day that is not offered falls back to the whole 30 days.
+  await page.goto('/?tab=upcoming&day=2020-01-01');
   await expect(
-    page.getByRole('navigation', { name: 'Match day' }).getByRole('link', { name: 'Today' }),
-  ).toHaveAttribute('aria-current', 'true');
+    page.getByRole('navigation', { name: 'Match day' }).locator('[aria-current="true"]'),
+  ).toHaveCount(0);
 });
 
 test('starts-within chips toggle, and day chips are gone from Highlights', async ({ page }) => {

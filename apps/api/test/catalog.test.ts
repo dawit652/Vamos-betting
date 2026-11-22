@@ -279,7 +279,8 @@ beforeAll(async () => {
     ...pl,
     homeTeamId: ids.chelsea,
     awayTeamId: ids.liverpool,
-    startTime: hours(80),
+    // Beyond the 30-day upcoming window (UPCOMING_WINDOW_MS).
+    startTime: hours(31 * 24),
   });
   ev.finished = await insertEvent(db, {
     ...pl,
@@ -403,7 +404,7 @@ async function allPages(
 }
 
 describe('GET /sports', () => {
-  it('lists active sports with live and next-72h scheduled counts', async () => {
+  it('lists active sports with live and next-30-day scheduled counts', async () => {
     const response = await get('/sports');
     expect(response.statusCode).toBe(200);
     expect(response.headers['cache-control']).toBe('public, max-age=5');
@@ -593,7 +594,7 @@ describe('GET /events', () => {
     expect(closed?.marketCount).toBe(0);
   });
 
-  it('filters upcoming: scheduled within 72h, in start order', async () => {
+  it('filters upcoming: scheduled within 30 days, in start order', async () => {
     expect(await listIds('/events?filter=upcoming')).toEqual([
       ev.soon.id,
       ev.caf.id,
@@ -642,7 +643,7 @@ describe('GET /events', () => {
     ]);
   });
 
-  it('filters by Addis Ababa day: today, a later day, and up to today + 14', async () => {
+  it('filters by Addis Ababa day: today, a later day, and up to today + 30', async () => {
     // Today's tab: live or scheduled today; upcoming never lists what has started.
     expect(await listIds('/events?filter=today&day=2026-10-08')).toEqual(
       await listIds('/events?filter=today'),
@@ -652,12 +653,27 @@ describe('GET /events', () => {
       ev.caf.id,
       ev.closedBetting.id,
     ]);
-    // 21:00 Addis on the 9th; the 11th is outside the 72h upcoming window's own reach.
+    // 21:00 Addis on the 9th.
     expect(await listIds('/events?filter=upcoming&day=2026-10-09')).toEqual([ev.tomorrow.id]);
     expect(await listIds('/events?filter=today&day=2026-10-09')).toEqual([ev.tomorrow.id]);
-    expect(await listIds('/events?filter=upcoming&day=2026-10-11')).toEqual([ev.far.id]);
-    expect(await listIds('/events?filter=upcoming&day=2026-10-12')).toEqual([]);
-    expect(await listIds('/events?filter=upcoming&day=2026-10-22')).toEqual([]); // today + 14
+    expect(await listIds('/events?filter=upcoming&day=2026-10-11')).toEqual([]);
+    expect(await listIds('/events?filter=upcoming&day=2026-11-07')).toEqual([]); // today + 30
+    // A match four weeks away is in Upcoming, on its day and in the whole 30-day list.
+    const inFourWeeks = await insertEvent(db, {
+      sportId: 'football',
+      competitionId: ids.caf,
+      homeTeamId: ids.ahly,
+      awayTeamId: ids.wydad,
+      startTime: hours(28 * 24),
+    });
+    try {
+      expect(await listIds('/events?filter=upcoming&day=2026-11-05')).toEqual([inFourWeeks.id]);
+      expect(await listIds('/events?filter=upcoming&competition=caf-champions-league')).toContain(
+        inFourWeeks.id,
+      );
+    } finally {
+      await db.delete(events).where(eq(events.id, inFourWeeks.id));
+    }
     // Midnight Addis is 21:00 UTC: the day boundaries follow the Addis calendar.
     const lateOnNinth = await insertEvent(db, {
       sportId: 'football',
@@ -797,9 +813,10 @@ describe('GET /events', () => {
       expect(await listIds('/events?filter=today&competition=caf-champions-league')).toEqual([
         atMidnight.id,
       ]);
+      // The CAF match kicked off at 15:00 UTC: by 20:59 it is no longer listed (not bettable,
+      // and API-Football never reports in-play), the later one still is.
       ctx.clock.now = new Date('2026-10-08T20:59:59.999Z');
       expect(await listIds('/events?filter=today&competition=caf-champions-league')).toEqual([
-        ev.caf.id,
         beforeMidnight.id,
       ]);
     } finally {
@@ -891,7 +908,7 @@ describe('GET /events', () => {
     }
     const days = [
       '2026-10-07', // yesterday (Addis)
-      '2026-10-23', // today + 15
+      '2026-11-08', // today + 31
       '2026-02-30', // not a calendar date
       '2026-1-9',
       '20261009',
@@ -1091,9 +1108,8 @@ describe('selection open flag', () => {
       const detail = EventDetail.parse((await get(`/events/${late.id}`)).json());
       expect(detail.status).toBe('scheduled');
       expect(detail.markets[0]?.selections.map((s) => s.open)).toEqual([false, false, false]);
-      const today = EventListResponse.parse((await get('/events?filter=today')).json());
-      const row = today.items.find((item) => item.id === late.id);
-      expect(row?.mainMarket?.selections.every((s) => !s.open)).toBe(true);
+      // Past its start it leaves the lists (owner, 23 Nov 2026), its page stays closed.
+      expect(await listIds('/events?filter=today')).not.toContain(late.id);
       expect(await listIds('/events?filter=highlights')).not.toContain(late.id);
       // Until its start time the same event is open.
       ctx.clock.now = minutes(-31);
@@ -1195,7 +1211,7 @@ describe('GET /search', () => {
       competitionId: ids.premier,
       homeTeamId: ids.wydad,
       awayTeamId: ids.ahly,
-      startTime: hours(15 * 24),
+      startTime: hours(31 * 24),
     });
     try {
       expect((await search('wydad ac')).events.map((e) => e.id)).toEqual([ev.caf.id]);

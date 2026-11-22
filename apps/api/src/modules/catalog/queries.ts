@@ -23,7 +23,7 @@ import {
   teams,
   teamLogos,
 } from '@vamos/db/schema';
-import { and, asc, eq, gte, inArray, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { badRequest } from '../../lib/errors';
 import {
@@ -40,8 +40,13 @@ import {
 } from './views';
 
 const HOUR_MS = 60 * 60_000;
-/** "Upcoming" (and a competition's event count) looks this far ahead. */
-export const UPCOMING_WINDOW_MS = 72 * HOUR_MS;
+/** "Upcoming" (and a competition's event count) looks this far ahead (owner, 23 Nov 2026: 30 days). */
+export const UPCOMING_WINDOW_MS = 30 * 24 * HOUR_MS;
+/**
+ * A match still marked live this long after its kick-off has ended in reality (its result is
+ * late): it is no longer listed (owner, 23 Nov 2026: finished matches disappear from the lists).
+ */
+export const LIVE_LISTED_FOR_MS = 4 * HOUR_MS;
 /** Highlights show scheduled events of featured competitions starting this soon. */
 export const HIGHLIGHTS_WINDOW_MS = 24 * HOUR_MS;
 /** Africa/Addis_Ababa is UTC+3 all year (no daylight saving). */
@@ -100,15 +105,27 @@ export function decodeEventCursor(cursor: string): EventCursor {
   return { startTime, id };
 }
 
-/** Scheduled and starting in [from, to), or live. */
+/** Live and kicked off within LIVE_LISTED_FOR_MS of `now` (an older "live" match has ended). */
+function liveNow(now: Date): SQL {
+  return and(
+    eq(events.status, 'live'),
+    gt(events.startTime, new Date(now.getTime() - LIVE_LISTED_FOR_MS)),
+  )!;
+}
+
+/**
+ * Scheduled and starting in [from, to), or live now. `from` is the present: a scheduled match
+ * whose kick-off has passed is not listed (it cannot be bet on, and API-Football never reports
+ * in-play, so it would stay until its result arrived: owner, 23 Nov 2026).
+ */
 function liveOrStartingBetween(from: Date, to: Date): SQL {
   return or(
-    eq(events.status, 'live'),
+    liveNow(from),
     and(eq(events.status, 'scheduled'), gte(events.startTime, from), lt(events.startTime, to)),
   )!;
 }
 
-/** GET /sports: active sports with their live and upcoming (next 72h) event counts. */
+/** GET /sports: active sports with their live and upcoming (next 30 days) event counts. */
 export async function listSports(db: DbExecutor, now: Date): Promise<SportsResponse> {
   const upcomingEnd = new Date(now.getTime() + UPCOMING_WINDOW_MS);
   const [sportRows, countRows] = await Promise.all([
@@ -381,7 +398,7 @@ function filterCondition(query: EventListQuery, now: Date, featuredOnly = true):
     const { start, end } = addisAbabaDayOf(query.day);
     return query.filter === 'today'
       ? and(
-          inArray(events.status, ['scheduled', 'live']),
+          liveOrStartingBetween(now, end),
           gte(events.startTime, start),
           lt(events.startTime, end),
         )!
@@ -397,9 +414,10 @@ function filterCondition(query: EventListQuery, now: Date, featuredOnly = true):
       return featuredOnly ? and(eq(competitions.featured, true), soon)! : soon;
     }
     case 'today': {
+      // Today's matches still to start, and those live now: nothing that has ended.
       const { start, end } = addisAbabaDay(now);
       return and(
-        inArray(events.status, ['scheduled', 'live']),
+        liveOrStartingBetween(now, end),
         gte(events.startTime, start),
         lt(events.startTime, end),
       )!;
@@ -411,7 +429,7 @@ function filterCondition(query: EventListQuery, now: Date, featuredOnly = true):
         lt(events.startTime, new Date(now.getTime() + UPCOMING_WINDOW_MS)),
       )!;
     case 'live':
-      return eq(events.status, 'live');
+      return liveNow(now);
     default: {
       const unreachable: never = query.filter;
       throw new RangeError(`unknown event filter: ${String(unreachable)}`);
@@ -449,11 +467,10 @@ async function countryCondition(
  * GET /events: a page of a sport's events of active competitions.
  * - highlights: featured competitions, live or starting within 24h (every competition when no
  *   featured one has such a match: highlightsHaveFeatured);
- * - today: scheduled or live, starting on today's Addis Ababa date (a
- *   scheduled event whose start has passed is listed, not bettable, until
- *   the feed reports its kick-off);
- * - upcoming: scheduled, starting within 72h;
- * - live: in play.
+ * - today: starting on today's Addis Ababa date and still to start, or live now (a scheduled
+ *   event whose start has passed, or a live one older than LIVE_LISTED_FOR_MS, is not listed);
+ * - upcoming: scheduled, starting within 30 days (UPCOMING_WINDOW_MS);
+ * - live: in play, kicked off within LIVE_LISTED_FOR_MS.
  * Ordered by (start time, id), which puts live events (already started)
  * first, and paged by keyset on the same pair.
  */
