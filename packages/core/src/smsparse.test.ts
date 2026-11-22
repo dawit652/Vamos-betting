@@ -153,6 +153,30 @@ describe('the live telebirr and CBE credits (22 Nov 2026)', () => {
     );
   });
 
+  it("reads telebirr's transfer out to a bank as a debit; its own number is not the recipient", () => {
+    for (const hint of ['127', null]) {
+      const sms = parseSms(TELEBIRR_SMS.debitToBankLive, hint)!;
+      expect(sms).toMatchObject({
+        institution: 'telebirr',
+        direction: 'debit',
+        amount: 1079n,
+        reference: 'DKB2CD3EFG',
+        counterpartyPhone: null,
+        balance: 123456n,
+      });
+      // 00:35:31 on 23 Nov in Addis Ababa.
+      expect(sms.occurredAt?.toISOString()).toBe('2026-11-22T21:35:00.000Z');
+    }
+  });
+
+  it("never reads the collection account's own number as the payer", () => {
+    const sms = parseSms(
+      'Dear Customer, your account 0911000000 has been credited with ETB 10.50 from SENDER NAME. Ref AB12345678',
+      'CBE',
+    );
+    expect(sms).toMatchObject({ direction: 'credit', amount: 1050n, counterpartyPhone: null });
+  });
+
   it('keeps a masked number only for credits, and needs four visible digits', () => {
     const debit = TELEBIRR_SMS.creditAmharicLive.replace('ተቀብለዋል', 'ልከዋል');
     expect(parseSms(debit, '127')).toMatchObject({ direction: 'debit', counterpartyPhone: null });

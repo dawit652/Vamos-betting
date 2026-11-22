@@ -22,6 +22,13 @@ export const TELEBIRR_SMS = {
    * numbers and the reference changed): a masked payer number, the reference after
    * "የሂሳብ እንቅስቃሴ ቁጥርዎ", the date after "በ".
    */
+  /**
+   * Money sent from the telebirr collection account to a bank account, as telebirr sends it
+   * (22 Nov 2026; numbers and references changed): the account's own number comes first and is
+   * not the recipient; the bank's FT number follows telebirr's reference; a fee and VAT follow.
+   */
+  debitToBankLive:
+    'ውድ  CUSTOMER \nከቴሌ ብር አካውንትዎ 251900000000 ለ Commercial Bank of Ethiopia አካውንት ቁጥር   1000000000000 10.79 ብር በቀን 23/11/2026 00:35:31 በተሳካ ሁኔታ አስተላልፈዋል፡፡ የቴሌብር ሂሳብ እንቅስቃሴ ቁጥርዎ  DKB2CD3EFG እና የባንክ ሂሳብ እንቅስቃሴ ቁጥርዎ FT26001XYZ99 ነው፡፡ የአገልግሎት ክፍያው 0.87 ብር ፤ የአገልግሎት ክፍያው 15% VAT 0.13 ብር ነዉ። ያለዎት ቀሪ ሂሳብ 1,234.56 ብር ነው፡፡ የክፍያ መረጃዎን ለማግኘት ማስፈንጠርያውን ይጫኑ፡ https://transactioninfo.ethiotelecom.et/receipt/DKB2CD3EFG\nበቴሌብር ስለተገለገሉ እናመሰግናለን፡፡',
   creditAmharicLive:
     'ውድ CUSTOMER \nከ sender name(2519****0000) 10.73 ብር በ 22/11/2026 23:53:23 ተቀብለዋል፡፡ የሂሳብ እንቅስቃሴ ቁጥርዎ DKA1BC2DEF ነዉ፡፡ አሁን ያለዎት ቀሪ ሂሳብ  1,234.56 ብር ነዉ፡፡ \nበቴሌብር ስለተገለገሉ እናመሰግናለን \nኢትዮ ቴሌኮም',
 } as const;

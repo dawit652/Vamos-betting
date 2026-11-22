@@ -86,8 +86,10 @@ export const INSTITUTIONS: readonly InstitutionSpec[] = [
     senders: ['telebirr', '127', 'ethiotelecom', 'ethio telecom'],
     referencePatterns: [
       /transaction\s+number\s+is\s*[:\s]*([A-Z0-9]{6,25})/i,
-      // The Amharic credit as telebirr sends it (22 Nov 2026): "የሂሳብ እንቅስቃሴ ቁጥርዎ DKM7JB8UWR ነዉ".
-      /የሂሳብ\s*እንቅስቃሴ\s*ቁጥርዎ?\s*[:\s]*([A-Z0-9]{6,25})/,
+      // The Amharic messages as telebirr sends them (22 Nov 2026): a credit's "የሂሳብ እንቅስቃሴ
+      // ቁጥርዎ DKM7JB8UWR ነዉ", a transfer out's "የቴሌብር ሂሳብ እንቅስቃሴ ቁጥርዎ DKN1JBRBE9" (that
+      // message also carries the receiving bank's FT number after "የባንክ ሂሳብ …": not ours).
+      /(?:የቴሌብር\s*ሂሳብ|የሂሳብ)\s*እንቅስቃሴ\s*ቁጥርዎ?\s*[:\s]*([A-Z0-9]{6,25})/,
     ],
     receiptPattern: /(https?:\/\/transactioninfo\.ethiotelecom\.et\/receipt\/([A-Z0-9]{6,25}))/i,
     // Public, no auth; an unknown reference returns a distinguishable page.
@@ -233,6 +235,8 @@ const DEBIT_MARKERS: readonly RegExp[] = [
   /ልከዋል/,
   /ከፍለዋል/,
   /ወጪ\s*(?:ተደርጓል|ሆኗል)/,
+  // telebirr's transfer out (22 Nov 2026): "… በተሳካ ሁኔታ አስተላልፈዋል" (you have transferred).
+  /አስተላልፈዋል/,
 ];
 
 const REFERENCE_PATTERNS: readonly RegExp[] = [
@@ -266,8 +270,13 @@ const FROM_NAME_AM = /ከ\s+([A-Za-zሀ-፿][A-Za-zሀ-፿ .'-]{1,60}?)\s*\(/;
 /** `\s+\d` stops the name before an account or phone number follows it. */
 const FROM_NAME = /from\s+([A-Za-zሀ-፿][A-Za-zሀ-፿ .'-]{1,60}?)(?:\s*\(|\s+on\s|\s*,|\.|\s+\d|$)/i;
 const DATE = /on\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})(?:\s+at\s+([\d:]+\s*(?:AM|PM)?))?/i;
-/** The Amharic "on 22/11/2026 23:53:23" (በ = on). */
-const DATE_AM = /በ\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?/;
+/** The Amharic "on 22/11/2026 23:53:23" (በ = on; a transfer out says በቀን, "on the date"). */
+const DATE_AM = /በ(?:ቀን)?\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?/;
+/**
+ * The collection account's own number ("ከቴሌ ብር አካውንትዎ 251911678426", "your account 09…"):
+ * never the other party, so it is blanked before a payer or recipient number is read.
+ */
+const OWN_ACCOUNT_PHONE = /(?:አካውንትዎ|your\s+account)\s*(?:\+?251|0)?[79]\d{8}(?!\d)/gi;
 const BALANCE_VALUE =
   /(?:balance|ቀሪ\s*ሂሳብ)\s*(?:is|:)?\s*(?:ETB|Birr|ብር)?\s*(\d[\d,]*(?:\.\d{1,2})?)/i;
 
@@ -380,7 +389,8 @@ export function parseSmsWithSpec(text: string, spec: InstitutionSpec): ParsedSms
 
   const balanceRaw = BALANCE_VALUE.exec(text)?.[1];
   const date = DATE.exec(text) ?? DATE_AM.exec(text);
-  const phoneDigits = PHONE.exec(text)?.[1];
+  const others = text.replace(OWN_ACCOUNT_PHONE, ' ');
+  const phoneDigits = PHONE.exec(others)?.[1];
   const fullPhone = phoneDigits ? normalizeEthiopianMsisdn(phoneDigits) : null;
   return {
     institution: spec.id,
@@ -395,7 +405,7 @@ export function parseSmsWithSpec(text: string, spec: InstitutionSpec): ParsedSms
       )?.trim() ?? null,
     // A masked payer number still tells a third party apart (smsPhoneFits); a debit keeps only a
     // full number, as a masked one proves nothing about where a payout went.
-    counterpartyPhone: fullPhone ?? (isCredit ? maskedPhone(text) : null),
+    counterpartyPhone: fullPhone ?? (isCredit ? maskedPhone(others) : null),
     balance: balanceRaw ? smsBirrToSantim(balanceRaw) : null,
     occurredAt: date ? parseSmsDate(date[1], date[2]) : null,
   };
