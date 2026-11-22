@@ -38,7 +38,9 @@ export interface ParsedSms {
   counterpartyName: string | null;
   /**
    * E.164, when the message carries one. Wallet-to-wallet transfers usually
-   * do; inter-bank transfers usually carry only a name.
+   * do; inter-bank transfers usually carry only a name. For a credit it may be
+   * masked as the institution printed it ("+2519****3670", telebirr's Amharic
+   * credit): compare it only with smsPhoneFits, never with `===`.
    */
   counterpartyPhone: string | null;
   /** The collection account's balance after this transaction, as the institution reports it. */
@@ -82,7 +84,11 @@ export const INSTITUTIONS: readonly InstitutionSpec[] = [
     name: 'telebirr',
     kind: 'wallet',
     senders: ['telebirr', '127', 'ethiotelecom', 'ethio telecom'],
-    referencePatterns: [/transaction\s+number\s+is\s*[:\s]*([A-Z0-9]{6,25})/i],
+    referencePatterns: [
+      /transaction\s+number\s+is\s*[:\s]*([A-Z0-9]{6,25})/i,
+      // The Amharic credit as telebirr sends it (22 Nov 2026): "የሂሳብ እንቅስቃሴ ቁጥርዎ DKM7JB8UWR ነዉ".
+      /የሂሳብ\s*እንቅስቃሴ\s*ቁጥርዎ?\s*[:\s]*([A-Z0-9]{6,25})/,
+    ],
     receiptPattern: /(https?:\/\/transactioninfo\.ethiotelecom\.et\/receipt\/([A-Z0-9]{6,25}))/i,
     // Public, no auth; an unknown reference returns a distinguishable page.
     receiptUrl: (reference) => `https://transactioninfo.ethiotelecom.et/receipt/${reference}`,
@@ -95,7 +101,10 @@ export const INSTITUTIONS: readonly InstitutionSpec[] = [
     // CBE links a receipt, but apps.cbe.com.et refuses connections from
     // outside its network, so CBE is not receipt-verifiable (no receiptUrl):
     // balance reconciliation covers it instead.
-    receiptPattern: /(https?:\/\/apps\.cbe\.com\.et[^\s]*?[?&]id=([A-Z0-9]{6,25}))/i,
+    // Current credits (22 Nov 2026) carry no "Ref No": their only reference is the token of the
+    // receipt link "https://mbreciept.cbe.com.et/v2-<token>" (read uppercase, like every reference).
+    receiptPattern:
+      /(https?:\/\/(?:apps\.cbe\.com\.et[^\s]*?[?&]id=|mbreciept\.cbe\.com\.et\/(?:v\d+-)?)([A-Z0-9]{6,25}))(?![A-Z0-9])/i,
   },
   {
     id: 'mpesa',
@@ -244,9 +253,20 @@ const BALANCE_CONTEXT = /(balance|bal\.?|ቀሪ\s*ሂሳብ|ቀሪ)\s*(?:is|of|:
 
 /** A mobile number not glued to other digits (account numbers contain 9-digit runs). */
 const PHONE = /(?<!\d)(?:\+?251|0)?([79]\d{8})(?!\d)/;
+/**
+ * A number the institution masked, "(2519****3670)": 251 or 0, then nine places of which some are
+ * `*` and at least four are digits. Kept for credits only, as "+2519****3670" (smsPhoneFits).
+ */
+const MASKED_PHONE = /(?<![\d*])(?:\+?251|0)([79*][\d*]{8})(?![\d*])/;
+/** CBE names the payer after the masked account: "from account 1********8946 (NAME)". */
+const FROM_ACCOUNT_NAME = /from\s+account\s+[\d*]+\s*\(([^()]{2,60})\)/i;
+/** The Amharic "from NAME(…)": "ከ naod getachew(2519****3670)". */
+const FROM_NAME_AM = /ከ\s+([A-Za-zሀ-፿][A-Za-zሀ-፿ .'-]{1,60}?)\s*\(/;
 /** `\s+\d` stops the name before an account or phone number follows it. */
 const FROM_NAME = /from\s+([A-Za-zሀ-፿][A-Za-zሀ-፿ .'-]{1,60}?)(?:\s*\(|\s+on\s|\s*,|\.|\s+\d|$)/i;
 const DATE = /on\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})(?:\s+at\s+([\d:]+\s*(?:AM|PM)?))?/i;
+/** The Amharic "on 22/11/2026 23:53:23" (በ = on). */
+const DATE_AM = /በ\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?/;
 const BALANCE_VALUE =
   /(?:balance|ቀሪ\s*ሂሳብ)\s*(?:is|:)?\s*(?:ETB|Birr|ብር)?\s*(\d[\d,]*(?:\.\d{1,2})?)/i;
 
@@ -317,6 +337,31 @@ function parseSmsDate(date: string | undefined, time: string | undefined): Date 
   return Number.isFinite(utc) ? new Date(utc) : null;
 }
 
+/** "+2519****3670" for a masked number with at least four visible digits, else null. */
+function maskedPhone(text: string): string | null {
+  const rest = MASKED_PHONE.exec(text)?.[1];
+  if (!rest || !rest.includes('*')) return null;
+  if ((rest.match(/\d/g) ?? []).length < 4) return null;
+  return `+251${rest}`;
+}
+
+/**
+ * Whether the payer number an SMS carries can be `phone` (E.164): equal for a full number,
+ * equal at every visible place for a masked one ("+2519****3670"). Null when the SMS carries
+ * none. False sends a credit to staff as a third-party payment, never to the player.
+ */
+export function smsPhoneFits(smsPhone: string | null, phone: string | null): boolean | null {
+  if (smsPhone === null) return null;
+  // A deposit without a phone cannot be the payer the SMS names (as before: flagged).
+  if (phone === null) return false;
+  if (!smsPhone.includes('*')) return smsPhone === phone;
+  if (smsPhone.length !== phone.length) return false;
+  for (let i = 0; i < smsPhone.length; i += 1) {
+    if (smsPhone[i] !== '*' && smsPhone[i] !== phone[i]) return false;
+  }
+  return true;
+}
+
 /**
  * Parses `text` as a message from `spec`. Null unless direction, amount and
  * reference are all unambiguous; the other fields degrade one by one.
@@ -333,15 +378,23 @@ export function parseSmsWithSpec(text: string, spec: InstitutionSpec): ParsedSms
   if (!reference || !REFERENCE_RE.test(reference)) return null;
 
   const balanceRaw = BALANCE_VALUE.exec(text)?.[1];
-  const date = DATE.exec(text);
+  const date = DATE.exec(text) ?? DATE_AM.exec(text);
   const phoneDigits = PHONE.exec(text)?.[1];
+  const fullPhone = phoneDigits ? normalizeEthiopianMsisdn(phoneDigits) : null;
   return {
     institution: spec.id,
     direction: isCredit ? 'credit' : 'debit',
     amount,
     reference,
-    counterpartyName: FROM_NAME.exec(text)?.[1]?.trim() ?? null,
-    counterpartyPhone: phoneDigits ? normalizeEthiopianMsisdn(phoneDigits) : null,
+    counterpartyName:
+      (
+        FROM_ACCOUNT_NAME.exec(text)?.[1] ??
+        FROM_NAME_AM.exec(text)?.[1] ??
+        FROM_NAME.exec(text)?.[1]
+      )?.trim() ?? null,
+    // A masked payer number still tells a third party apart (smsPhoneFits); a debit keeps only a
+    // full number, as a masked one proves nothing about where a payout went.
+    counterpartyPhone: fullPhone ?? (isCredit ? maskedPhone(text) : null),
     balance: balanceRaw ? smsBirrToSantim(balanceRaw) : null,
     occurredAt: date ? parseSmsDate(date[1], date[2]) : null,
   };
