@@ -62,8 +62,10 @@ possible:
    account: "My deposit did not arrive" claims and Back office → Money not credited (migration 0082),
    the owner's daily "money not credited" Telegram line, Back office → Service health, the shop's
    printed shift report, the Telegram "Deposit problem" (step 6, migration 0083) and the G4
-   withdrawal code (step 7, migration 0084; newest branch `claude/happy-keller-i7cvrh`; next free
-   migration 0085). The counter codes plan is built; next: the owner deploys (migrations 0077-0084) and
+   withdrawal code (step 7, migration 0084; both branches equal at `7a15b27` on 22 Nov evening;
+   next free migration 0085). **Work with one account at a time:** on 22 Nov both accounts built
+   steps 5-7 at once and the first account dropped its copies. The owner deploys with the
+   PowerShell line in `docs/plans/remaining-tasks.md`, "Deploy". The counter codes plan is built; next: the owner deploys (migrations 0077-0084) and
    `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
    21 Nov: 6-digit booking, payout and withdrawal codes, deposit recovery, the health page, completing
    the shop app; decisions O1-O5 made), the owner deploys; phase 6 supports many POS devices (owner, 22 Nov: `docs/plans/agent-shops.md`,

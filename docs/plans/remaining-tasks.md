@@ -1,5 +1,11 @@
 # Remaining tasks (read this first; updated 22 Nov 2026)
 
+**22 Nov, evening (first account):** both accounts built counter codes steps 5-7 at the same time.
+The first account dropped its own copies (never pushed) and took the second account's, so
+`claude/eager-cerf-ox9vkq` equals `claude/happy-keller-i7cvrh` at `7a15b27` plus this note (full
+checks green on it). **Work with one account at a time.** The owner's deploy line is under
+"Deploy" below.
+
 **Start here (22 Nov, newest):** the second account continues: the newest work is on
 `claude/happy-keller-i7cvrh` (it contains all of `claude/eager-cerf-ox9vkq` up to `55f91d0`; bring
 eager-cerf up to it with `git fetch origin claude/happy-keller-i7cvrh && git merge --ff-only
@@ -76,6 +82,20 @@ about deposits and withdrawals came every few minutes. `OWNER_ALERT_POLICY`
 (`packages/core/src/owner-alert.ts`, runbook `docs/runbooks/sms-rail.md` "Alarms") now texts only
 money alarms, each at most every 6-24 hours, and one summary for contradicted deposits; staff's
 alarms stay log lines and panels. Live after the next deploy.
+
+## Deploy (the owner does it; never from a session)
+
+From the owner's PC (PowerShell), one line: it logs in, starts the deploy in the background on the
+server and shows its log (Ctrl+C stops only the log, not the deploy):
+
+```powershell
+ssh -t root@13.140.208.4 "cd /opt/nahubet && git fetch origin claude/eager-cerf-ox9vkq && (nohup bash -c 'bash <(git show origin/claude/eager-cerf-ox9vkq:infra/scripts/deploy-full.sh) claude/eager-cerf-ox9vkq /opt/nahubet-new/infra/.env.prod vamos' > /root/deploy.log 2>&1 &) ; sleep 3 ; tail -f /root/deploy.log"
+```
+
+The deploy backs up the database, applies the new migrations (0077 to 0084 after the live
+`69f71a8`), runs the smoke test and rolls back by itself if it fails. Nothing new to set in the env
+file; the switches `narobet_events` and `hulusport_pricing` stay off until the owner turns them on
+in the back office; Telegram alerts need `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_IDS`.
 
 ## Next, in order
 
