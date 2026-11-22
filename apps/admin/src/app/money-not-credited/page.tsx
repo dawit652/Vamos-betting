@@ -270,7 +270,7 @@ export default function MoneyNotCreditedPage() {
           <p data-testid="money-waiting">
             {data.waiting.count === 0
               ? 'No money waits to be credited.'
-              : `${data.waiting.count} payment(s) wait: ${formatEtb(data.waiting.amount)}, the oldest from ${formatDateTime(data.waiting.oldestAt!)}.`}{' '}
+              : `${data.waiting.count} payment(s) wait: ${formatEtb(data.waiting.amount)}, the oldest from ${formatDateTime(data.waiting.oldestAt)}.`}{' '}
             Nothing here is credited automatically.
           </p>
           <h2>Money that arrived</h2>

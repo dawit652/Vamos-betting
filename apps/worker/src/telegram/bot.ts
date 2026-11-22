@@ -325,7 +325,7 @@ async function depositWithContact(
   const raw = contact.phone_number.trim();
   const phone = normalizeEthiopianMsisdn(raw.startsWith('+') ? raw : `+${raw}`);
   const done = { remove_keyboard: true } as const;
-  let userId: string | null = null;
+  let userId: string | null;
   try {
     userId = phone === null ? null : await deps.depositClaim!.playerByPhone(phone);
   } catch (error) {
