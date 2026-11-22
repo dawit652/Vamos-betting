@@ -57,7 +57,9 @@ possible:
    Narobet-only matches for more leagues with the ETB 20,000 cap
    per board match and results by API-Football fixture id (migration 0077, switch `narobet_events`
    off; `docs/plans/narobet-events.md`), and service-down alerts on Telegram every 15 minutes
-   (migration 0078). Next: steps 3-8 of `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
+   (migration 0078), the shop ticket payout code (migration 0081), the public ticket check and
+   manual deposits by one admin (steps 3, 3b, 4; newest branch `claude/eager-cerf-ox9vkq`; next free
+   migration 0082). Next: steps 5-8 of `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
    21 Nov: 6-digit booking, payout and withdrawal codes, deposit recovery, the health page, completing
    the shop app; decisions O1-O5 made), the owner deploys; phase 6 supports many POS devices (owner, 22 Nov: `docs/plans/agent-shops.md`,
    "Phase 6: many POS devices"), built after the owner buys a test unit or says go.

@@ -1,8 +1,16 @@
-# Remaining tasks (read this first; updated 21 Nov 2026)
+# Remaining tasks (read this first; updated 22 Nov 2026)
 
-**Start here (21 Nov, late):** the newest work is on `claude/happy-keller-i7cvrh` (the second
-account; it contains all of `claude/eager-cerf-ox9vkq` up to `e8269a3`; bring that branch up to it
-with `git merge --ff-only` before working there). **Step 2 of the counter codes is built (22 Nov):**
+**Start here (22 Nov, newest):** the newest work is on `claude/eager-cerf-ox9vkq` (the first
+account; it contains all of `claude/happy-keller-i7cvrh` up to `e05d762`; bring happy-keller up to
+it with `git fetch origin claude/eager-cerf-ox9vkq && git merge --ff-only FETCH_HEAD` before working
+there). **Counter codes steps 3, 3b and 4 are built (22 Nov, pushed, NOT deployed):** the payout code
+printed on each shop ticket and asked for at Pay (migration `0081_retail_ticket_payout_code`), the
+public ticket check (website `/ticket`, Telegram `/ticket`), and manual deposits by one admin
+(`deposits.credit`) with a re-check button ([counter-codes-and-deposit-recovery.md](counter-codes-and-deposit-recovery.md)).
+**Next free migration: 0082.** Next: steps 5-8 there (the "Money not credited" page with suggested
+players and deposit claims, the Telegram "Deposit problem", the cash withdrawal code, the shift
+report print), and the Service health page (step 1's page). Earlier on 21 Nov the first account
+also built: **Step 2 of the counter codes is built (22 Nov):**
 6-digit booking codes and the code printed on the shop ticket (migration
 `0079_retail_ticket_booking_code`; next free migration **0080**); next is step 3, the payout code.
 **Owner, 22 Nov:** owner reports (day, week, month, year) built: from the ledger, checking
