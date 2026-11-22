@@ -13,6 +13,7 @@ import {
   type RetailCancelRole,
 } from '@vamos/core';
 import { and, desc, eq, gte, min, sql } from 'drizzle-orm';
+import { bookingCodeForTicket } from '../betting/booking';
 import { placeBet, type GameSettingsForBets, type SlipLegInput } from '../betting/place';
 import type { UserBet } from '../betting/types';
 import { assertShopOperates, getShop, lockOwnOpenShift, type ShopWithAgent } from '../cashier/desk';
@@ -115,8 +116,9 @@ async function soldToday(tx: DbTransaction, agentId: string, now: Date): Promise
  * an operating shop of an active agent (409 `shop_inactive`, `agent_blocked`). The agent's limits
  * become the bet rules (stake, max win, matches, odds) and its sales per day are checked (409
  * `daily_sales_limit`); then placeBet with retail funding (409 `selection_unavailable` for a
- * started match, `odds_changed`, 422 `slip_invalid`, 409 `agent_balance_low`). The same
- * idempotency key again answers with the same ticket. Audited, with an outbox event.
+ * started match, `odds_changed`, 422 `slip_invalid`, 409 `agent_balance_low`). A booking code
+ * given is stored to be printed only when the ticket has exactly its matches (else the ticket shows
+ * none). The same idempotency key again answers with the same ticket. Audited, with an outbox event.
  */
 export async function sellRetailTicket(
   tx: DbTransaction,
@@ -127,6 +129,8 @@ export async function sellRetailTicket(
     stake: bigint;
     policy: OddsChangePolicy;
     customerPhone?: string | null;
+    /** The booking code the player brought, printed on the ticket (bookingCodeForTicket). */
+    bookingCode?: string | null;
     idempotencyKey: string;
     settings: GameSettingsForBets;
     now: Date;
@@ -144,6 +148,14 @@ export async function sellRetailTicket(
   const [agent] = await tx.select().from(agents).where(eq(agents.id, shop.agentId));
   if (!agent) throw domainNotFound('Agent');
   const limits = agentTicketLimits(agent, input.settings.betRules);
+  const bookingCode =
+    input.bookingCode === undefined || input.bookingCode === null || input.bookingCode.trim() === ''
+      ? null
+      : await bookingCodeForTicket(
+          tx,
+          input.bookingCode,
+          input.legs.map((leg) => leg.selectionId),
+        );
 
   const [existing] = await tx
     .select({ id: bets.id })
@@ -195,6 +207,7 @@ export async function sellRetailTicket(
       staffId: input.staffId,
       shiftId: shift.id,
       customerPhone: input.customerPhone?.trim() || null,
+      bookingCode,
       stake: input.stake,
       soldAt: input.now,
     })

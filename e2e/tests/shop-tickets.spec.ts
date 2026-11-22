@@ -1,14 +1,15 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { devices, expect, test, type Browser, type BrowserContext } from '@playwright/test';
 import { soonestEvents } from '../support/api';
-import { ADMIN_URL } from '../support/env';
+import { ADMIN_URL, API_URL } from '../support/env';
 import { loginApi, loginInBrowser, staffApiOf } from '../support/staff';
 
 /**
  * The shop app's ticket screens (docs/plans/agent-shops.md phase 3): a cashier with an open shift
  * sells an ETB 20 single from a Game ID and the pick `1`, lands on the printable ticket (number and
- * barcode, the original printed once), cancels it inside the cancel window and sees CANCELLED. The
- * agent, shop, cashier and balance are created here, so the spec needs no other spec's data.
+ * barcode, the original printed once), cancels it inside the cancel window and sees CANCELLED; then
+ * sells a ticket from a 6-digit booking code, which the ticket prints. The agent, shop, cashier and
+ * balance are created here, so the spec needs no other spec's data.
  */
 
 const SHOP_URL = (
@@ -141,11 +142,13 @@ test('a cashier sells a ticket by Game ID, prints it with a barcode and cancels 
     await expect(admin.getByTestId('ticket-limits-card')).toContainText('Maximum win per ticket');
     await expect(admin.getByTestId('ticket-limits-save')).toBeVisible();
 
-    // A prematch match that kicks off in a minute or more; window.print never opens a dialog.
+    // A prematch football match (the match list shows football only) that kicks off in a minute
+    // or more; window.print never opens a dialog.
     const [event] = await soonestEvents(counter.request, 1, {
       minLeadMs: 90_000,
       maxLeadMs: 10 * 60_000,
       timeoutMs: 90_000,
+      sport: 'football',
     });
     expect(event!.mainMarket!.selections.find((s) => s.code === '1' && s.open)).toBeDefined();
     await shop
@@ -204,6 +207,32 @@ test('a cashier sells a ticket by Game ID, prints it with a barcode and cancels 
     await shop.getByRole('link', { name: 'Back to the desk' }).click();
     const row = shop.getByTestId('desk-tickets').getByRole('row', { name: new RegExp(number) });
     await expect(row).toContainText('Cancelled');
+
+    // A player without an account made a 6-digit booking code online (owner, 21 Nov: G1 and G2):
+    // the cashier types it as the player says it, sells it, and the ticket prints it.
+    const home = event!.mainMarket!.selections.find((s) => s.code === '1')!;
+    const made = await counter.request.post(`${API_URL}/booking-codes`, {
+      data: { legs: [{ selectionId: home.id }] },
+    });
+    expect(made.status()).toBe(201);
+    const bookingCode = ((await made.json()) as { code: string }).code;
+    expect(bookingCode).toMatch(/^[1-9]\d{5}$/);
+    const said = `${bookingCode.slice(0, 3)} ${bookingCode.slice(3)}`;
+    await shop
+      .getByRole('navigation', { name: 'Main' })
+      .getByRole('link', { name: /^Sell/ })
+      .click();
+    await expect(shop.getByTestId('sell-page')).toBeVisible();
+    await shop.getByTestId('booking-code').fill(said);
+    await shop.getByTestId('booking-load').click();
+    await expect(shop.getByTestId('slip-leg')).toHaveCount(1);
+    await shop.getByTestId('slip-stake').fill('20');
+    await shop.getByTestId('slip-check').click();
+    await expect(shop.getByTestId('sell-submit')).toBeEnabled();
+    await shop.getByTestId('sell-submit').click();
+    await expect(shop.getByTestId('ticket-page')).toBeVisible();
+    await expect(shop.getByTestId('ticket-booking-code')).toContainText(`Booking code`);
+    await expect(shop.getByTestId('ticket-booking-code')).toContainText(said);
   } finally {
     // Close the shop again so a second open shop does not stop other specs' cashiers.
     if (agentUrl !== null) {

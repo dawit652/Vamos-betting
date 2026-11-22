@@ -2,7 +2,9 @@
 
 **Start here (21 Nov, late):** the newest work is on `claude/happy-keller-i7cvrh` (the second
 account; it contains all of `claude/eager-cerf-ox9vkq` up to `e8269a3`; bring that branch up to it
-with `git merge --ff-only` before working there). **Built there 21 Nov, pushed, NOT deployed:** the
+with `git merge --ff-only` before working there). **Step 2 of the counter codes is built (22 Nov):**
+6-digit booking codes and the code printed on the shop ticket (migration
+`0079_retail_ticket_booking_code`; next free migration **0080**); next is step 3, the payout code. **Built there 21 Nov, pushed, NOT deployed:** the
 owner's decisions O6 (cashiers pay any counter withdrawal and any winning ticket alone: no
 supervisor, no HQ approval; the "Ticket payouts" page is gone) and O7 (players withdraw winnings
 only, never deposited money), in [counter-codes-and-deposit-recovery.md](counter-codes-and-deposit-recovery.md),

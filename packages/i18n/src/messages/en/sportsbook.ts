@@ -193,6 +193,7 @@ export const sportsbook = {
       share: 'Share',
       load: 'Load code',
       code: 'Booking code',
+      tellCashier: 'Tell this number to the cashier to buy the ticket.',
       shareText: 'Booking code: {code}',
       copy: 'Copy',
       copied: 'Copied',

@@ -537,6 +537,7 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
         stake: BigInt(input.stake),
         policy: input.oddsChangePolicy,
         customerPhone: input.customerPhone ?? null,
+        bookingCode: input.bookingCode ?? null,
         idempotencyKey: input.idempotencyKey,
         settings: await loadGameSettings(tx),
         now: deps.clock(),

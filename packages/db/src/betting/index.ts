@@ -75,6 +75,7 @@ export {
   type PrepareCashOutInput,
 } from './cashout';
 export {
+  bookingCodeForTicket,
   BOOKING_CODE_TTL_MS,
   createBookingCode,
   loadBookingCode,

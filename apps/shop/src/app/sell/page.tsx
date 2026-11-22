@@ -92,14 +92,21 @@ function Seller({ shiftId }: { shiftId: string }) {
   const [selling, setSelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const key = useRef<{ signature: string; value: string } | null>(null);
+  const [booked, setBooked] = useState<{ code: string; ids: string[] } | null>(null);
 
   const stake = positiveCashToSantim(stakeText);
   const signature = slipSignature(legs, stake);
   const phoneDigits = phone.replace(/[\s-]/g, '');
   const phoneValid = phoneDigits === '' || /^\+?[0-9]{9,15}$/.test(phoneDigits);
 
-  /** Adds legs (skipping ones already there) and fetches a preview so names and prices show. */
-  function addLegs(add: SlipLeg[]) {
+  /**
+   * Adds legs (skipping ones already there) and fetches a preview so names and prices show. Legs
+   * from a booking code remember it: the ticket prints it when it has exactly those matches.
+   */
+  function addLegs(add: SlipLeg[], bookingCode?: string) {
+    if (bookingCode !== undefined) {
+      setBooked({ code: bookingCode, ids: add.map((l) => l.selectionId) });
+    }
     const known = new Set(legs.map((l) => l.selectionId));
     const fresh = add.filter(
       (l, i) =>
@@ -188,6 +195,7 @@ function Seller({ shiftId }: { shiftId: string }) {
       idempotencyKey: key.current.value,
     };
     if (phoneDigits !== '') body.customerPhone = phoneDigits;
+    if (booked !== null && sameSelections(legs, booked.ids)) body.bookingCode = booked.code;
     setSelling(true);
     setError(null);
     try {
@@ -461,8 +469,14 @@ function AddByGame({ onAdd }: { onAdd: (legs: SlipLeg[]) => void }) {
   );
 }
 
+/** True when the slip holds exactly these selections (a booking code's, to print its code). */
+function sameSelections(legs: readonly SlipLeg[], ids: readonly string[]): boolean {
+  const slip = new Set(legs.map((l) => l.selectionId));
+  return slip.size === new Set(ids).size && ids.every((id) => slip.has(id));
+}
+
 /** A booking code a player made online: its matches come with the prices stored in it. */
-function AddByBooking({ onAdd }: { onAdd: (legs: SlipLeg[]) => void }) {
+function AddByBooking({ onAdd }: { onAdd: (legs: SlipLeg[], bookingCode: string) => void }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -484,7 +498,7 @@ function AddByBooking({ onAdd }: { onAdd: (legs: SlipLeg[]) => void }) {
       const res = await api<ShopBookingResponse>(
         `/shop/desk/booking-codes/${encodeURIComponent(value)}`,
       );
-      onAdd(res.legs);
+      onAdd(res.legs, value);
       setCode('');
     } catch (e) {
       if (mounted.current) setError(describeError(e, TEXT.bookingErrors));

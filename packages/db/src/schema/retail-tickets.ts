@@ -56,6 +56,12 @@ export const retailTickets = pgTable(
       .references(() => cashierShifts.id, { onDelete: 'restrict' }),
     /** The customer's phone when they gave it (optional: a ticket pays whoever holds it). */
     customerPhone: text('customer_phone'),
+    /**
+     * The booking code the player brought (docs/plans/counter-codes-and-deposit-recovery.md, G2),
+     * printed on the ticket; null when the ticket was not built from one. Not an identifier: one
+     * code can be bought many times, and the barcode (the bet's short id) is what pays.
+     */
+    bookingCode: text('booking_code'),
     stake: bigint('stake', { mode: 'bigint' }).notNull(),
     status: retailTicketStatus('status').notNull().default('sold'),
     soldAt: timestamp('sold_at', { withTimezone: true }).notNull(),

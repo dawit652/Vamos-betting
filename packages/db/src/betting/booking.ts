@@ -1,14 +1,14 @@
 import {
-  BOOKING_CODE_LENGTH,
+  BOOKING_NUMBER_BYTES,
   DEFAULT_BET_RULES,
-  encodeCode,
-  isValidCode,
+  encodeBookingNumber,
+  isBookingCode,
   normalizeCode,
   validateSlip,
   type BetRules,
   type SlipError,
 } from '@vamos/core';
-import { eq } from 'drizzle-orm';
+import { eq, lte } from 'drizzle-orm';
 import { domainGone, DomainError } from '../errors';
 import type { DbExecutor } from '../ledger/types';
 import { bookingCodes } from '../schema/betting';
@@ -82,10 +82,12 @@ export interface CreateBookingCodeInput {
 }
 
 /**
- * Saves a betslip under a new BOOKING_CODE_LENGTH-symbol code. Every
- * selection must exist and be bettable now (409 `selection_unavailable`), and
- * the slip must be well formed: 1..maxLegs legs, no selection twice, one per
- * event (422 `slip_invalid`). A code collision draws a new code.
+ * Saves a betslip under a new 6-digit code (owner, 21 Nov 2026: easy to tell a
+ * cashier; core `encodeBookingNumber`). Every selection must exist and be
+ * bettable now (409 `selection_unavailable`), and the slip must be well formed:
+ * 1..maxLegs legs, no selection twice, one per event (422 `slip_invalid`). A
+ * code still in use draws a new code; an expired one is taken over (nothing
+ * prunes the table, so the 900,000 numbers are reused once their slips expire).
  */
 export async function createBookingCode(
   exec: DbExecutor,
@@ -125,11 +127,15 @@ export async function createBookingCode(
   const stored = legs.map((leg) => ({ selectionId: leg.selectionId }));
   const userId = input.userId !== undefined && isUuid(input.userId) ? input.userId : null;
   for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt += 1) {
-    const code = encodeCode(input.randomBytes(BOOKING_CODE_LENGTH), BOOKING_CODE_LENGTH);
+    const code = encodeBookingNumber(input.randomBytes(BOOKING_NUMBER_BYTES));
     const [row] = await exec
       .insert(bookingCodes)
       .values({ code, legs: stored, createdByUserId: userId, createdAt: now, expiresAt })
-      .onConflictDoNothing({ target: bookingCodes.code })
+      .onConflictDoUpdate({
+        target: bookingCodes.code,
+        set: { legs: stored, createdByUserId: userId, createdAt: now, expiresAt },
+        setWhere: lte(bookingCodes.expiresAt, now),
+      })
       .returning({ code: bookingCodes.code });
     if (row !== undefined) return { code: row.code, createdAt: now, expiresAt, legs };
   }
@@ -137,9 +143,10 @@ export async function createBookingCode(
 }
 
 /**
- * Loads a booking code (typed or pasted; normalised first) with the current
- * odds and availability of each leg. 404 `booking_code_not_found` for an
- * unknown or malformed code, 410 `booking_code_expired` after its expiry.
+ * Loads a booking code (typed or pasted; normalised first: a 6-digit number or
+ * an older letter code) with the current odds and availability of each leg.
+ * 404 `booking_code_not_found` for an unknown or malformed code, 410
+ * `booking_code_expired` after its expiry.
  */
 export async function loadBookingCode(
   exec: DbExecutor,
@@ -149,7 +156,7 @@ export async function loadBookingCode(
   const notFound = () =>
     new DomainError(404, 'booking_code_not_found', 'This booking code does not exist.');
   const code = typeof input === 'string' ? normalizeCode(input) : '';
-  if (!isValidCode(code, BOOKING_CODE_LENGTH)) throw notFound();
+  if (!isBookingCode(code)) throw notFound();
   const [row] = await exec.select().from(bookingCodes).where(eq(bookingCodes.code, code)).limit(1);
   if (row === undefined) throw notFound();
   if (row.expiresAt.getTime() <= now.getTime()) {
@@ -165,4 +172,30 @@ export async function loadBookingCode(
     expiresAt: row.expiresAt,
     legs: bookingLegs(ids, snapshots, now),
   };
+}
+
+/**
+ * The booking code a shop ticket prints (docs/plans/counter-codes-and-deposit-recovery.md, G2): the
+ * normalised code, when it exists and holds exactly the ticket's selections (expired or not: the
+ * player told it at the counter). Otherwise null: the ticket is sold all the same (a match of the
+ * code may have closed, or the cashier changed the slip) and simply shows no booking code, so a
+ * ticket never shows a code whose matches it does not have.
+ */
+export async function bookingCodeForTicket(
+  exec: DbExecutor,
+  input: string,
+  selectionIds: readonly string[],
+): Promise<string | null> {
+  const code = typeof input === 'string' ? normalizeCode(input) : '';
+  if (!isBookingCode(code)) return null;
+  const [row] = await exec
+    .select({ legs: bookingCodes.legs })
+    .from(bookingCodes)
+    .where(eq(bookingCodes.code, code))
+    .limit(1);
+  if (row === undefined) return null;
+  const booked = new Set(row.legs.map((leg) => leg.selectionId.toLowerCase()));
+  const ticket = new Set(selectionIds.map((id) => id.toLowerCase()));
+  if (booked.size !== ticket.size || [...ticket].some((id) => !booked.has(id))) return null;
+  return code;
 }

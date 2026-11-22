@@ -1,6 +1,6 @@
 # Counter codes, deposit recovery and service alerts (plan)
 
-Written 21 November 2026. Status: **decided 21 Nov (O1-O5 below); step 1 built, steps 2-8 to build.** Before every push, build on top of the
+Written 21 November 2026. Status: **decided 21 Nov (O1-O9 below); steps 1 and 2 built, steps 3-8 to build.** Before every push, build on top of the
 server's branch: `git fetch origin live/nahubet-new-2026-11-15 && git merge-base --is-ancestor
 FETCH_HEAD HEAD`. The next free migration number is **0079**.
 
@@ -45,6 +45,12 @@ FETCH_HEAD HEAD`. The next free migration number is **0079**.
   `packages/db/src/betting/booking.ts`, `apps/web/src/components/betslip/BookingCodePanel.tsx`,
   the shop's sell screen (accept both kinds).
 
+**Built 22 Nov (step 2):** core `encodeBookingNumber`, `isBookingCode`, `formatBookingCode` (unit and
+property tests); `createBookingCode` draws 100000-999999 and takes over a code whose slip has expired
+(nothing prunes `booking_codes`, so the numbers are reused); `loadBookingCode` takes both kinds; the
+betslip shows "482 913" with "Tell this number to the cashier to buy the ticket." (English, Amharic).
+The QR code was left out (optional, O9).
+
 ### G2. The number on the ticket
 
 - The ticket prints **"Booking code 482 913"** under the barcode.
@@ -52,6 +58,10 @@ FETCH_HEAD HEAD`. The next free migration number is **0079**.
   bought many times by many people, so it cannot identify a ticket.
 - Files: the ticket print layout in `apps/shop` (and the receipt in `packages/core` if it builds
   the lines); `retail_tickets` gets `booking_code` (nullable) at sale.
+- **Built 22 Nov (step 2):** migration `0079_retail_ticket_booking_code`; the sell screen remembers
+  the code it loaded and sends `bookingCode` when the slip still holds exactly its matches; the API
+  keeps it only then (`bookingCodeForTicket`: otherwise the ticket is sold without a code, never
+  refused); the ticket prints "Booking code · የቦታ ማስያዣ ኮድ 482 913" under the barcode.
 
 ### G3. A 6-digit payout code for players without login
 
@@ -216,7 +226,7 @@ Telegram message at once. G5.2 follows this: "propose" and "approve" are one ste
 | Step | What                                                                  | Who                      |
 | ---- | --------------------------------------------------------------------- | ------------------------ |
 | 1    | G7 service health monitor, Telegram rhythm, health page               | Main session             |
-| 2    | G1 numeric booking codes (web, shop) and G2 the code on the ticket    | `routine-coder` + review |
+| 2    | G1 numeric booking codes (web, shop) and G2 the code on the ticket    | **Built 22 Nov**         |
 | 3    | G3 payout code (sale, Pay, reprint, lock) and the public ticket check | Main session (money)     |
 | 4    | G5.1-2 provider re-check and manual deposit (one admin, O5)           | Main session (money)     |
 | 5    | G6 "Money not credited" with suggested players; G5.3 claims           | Main session             |

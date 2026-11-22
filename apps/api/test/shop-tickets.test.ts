@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import {
   AgentResponse,
   AgentTopupResponse,
+  BookingCodeResponse,
   ApiErrorSchema,
   CashierShopResponse,
   CreateStaffResponse,
   EventListResponse,
   SHOP_CSRF_HEADER,
+  ShopBookingResponse,
   ShopDeskResponse,
   ShopDeviceAskResponse,
   ShopPicksResponse,
@@ -190,6 +192,50 @@ const sell = (desk: Desk, stake: string, key = randomUUID()) =>
   });
 
 describe('shop tickets through the shop app', () => {
+  it('sells from a 6-digit booking code a player made without login; the ticket keeps the code', async () => {
+    const { desk } = await agentDesk('Ticket Booking Agent', '500000');
+    const book = async (selectionId: string) => {
+      const made = await ctx.app.inject({
+        method: 'POST',
+        url: '/booking-codes',
+        payload: { legs: [{ selectionId }] },
+      });
+      expect(made.statusCode, made.body).toBe(201);
+      return BookingCodeResponse.parse(made.json()).code;
+    };
+    const code = await book(match.home);
+    expect(code).toMatch(/^[1-9]\d{5}$/);
+
+    // The cashier types it as the player says it, with a space.
+    const said = `${code.slice(0, 3)} ${code.slice(3)}`;
+    const loaded = await asDesk(
+      desk,
+      'GET',
+      `/shop/desk/booking-codes/${encodeURIComponent(said)}`,
+    );
+    expect(loaded.statusCode, loaded.body).toBe(200);
+    expect(ShopBookingResponse.parse(loaded.json()).legs.map((l) => l.selectionId)).toEqual([
+      match.home,
+    ]);
+
+    const sellWith = (bookingCode: string) =>
+      asDesk(desk, 'POST', '/shop/desk/tickets', {
+        shiftId: desk.shiftId,
+        legs: [{ selectionId: match.home, oddsMilli: 1850 }],
+        stake: '10000',
+        bookingCode,
+        idempotencyKey: `ticket-${randomUUID()}`,
+      });
+    const sold = await sellWith(said);
+    expect(sold.statusCode, sold.body).toBe(200);
+    expect(ShopTicketResponse.parse(sold.json()).ticket.bookingCode).toBe(code);
+
+    // A code whose matches the ticket does not have exactly is not kept; the sale goes through.
+    const other = await sellWith(await book(match.draw));
+    expect(other.statusCode, other.body).toBe(200);
+    expect(ShopTicketResponse.parse(other.json()).ticket.bookingCode).toBeNull();
+  });
+
   it("lists the next 48 hours' upcoming matches to a signed-in cashier only", async () => {
     const { desk } = await agentDesk('Ticket Matches Agent', '100000');
     const listed = await asDesk(desk, 'GET', '/shop/desk/matches');

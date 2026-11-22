@@ -1,7 +1,7 @@
 'use client';
 
 import type { BookingCodeResponse, EventDetail } from '@vamos/contracts';
-import { BOOKING_CODE_LENGTH, isValidCode, normalizeCode } from '@vamos/core';
+import { formatBookingCode, isBookingCode, normalizeCode } from '@vamos/core';
 import { useState, type FormEvent } from 'react';
 import { useLocale, useT } from '@/i18n/client';
 import { bettingApi } from '@/lib/api/betting';
@@ -60,7 +60,7 @@ export function BookingCodePanel() {
   async function load(event: FormEvent) {
     event.preventDefault();
     const normalized = normalizeCode(code);
-    if (!isValidCode(normalized, BOOKING_CODE_LENGTH)) {
+    if (!isBookingCode(normalized)) {
       setMessage({ tone: 'error', text: t('sportsbook.betslip.booking.notFound') });
       return;
     }
@@ -141,7 +141,10 @@ export function BookingCodePanel() {
         <div className="card flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <p className="text-xxs text-muted">{t('sportsbook.betslip.booking.code')}</p>
-            <p className="font-mono text-xl font-bold tracking-widest">{current.code}</p>
+            <p className="font-mono text-2xl font-bold tracking-widest" data-testid="booking-code">
+              {formatBookingCode(current.code)}
+            </p>
+            <p className="text-xs font-semibold">{t('sportsbook.betslip.booking.tellCashier')}</p>
             <p className="text-xxs text-muted">
               {t('sportsbook.betslip.booking.validUntil', {
                 time: `${formatDayMonth(current.expiresAt)} ${formatTime(current.expiresAt, locale)}`,
@@ -152,7 +155,11 @@ export function BookingCodePanel() {
             type="button"
             className="btn btn-primary"
             onClick={() =>
-              void copy(t('sportsbook.betslip.booking.shareText', { code: current.code }))
+              void copy(
+                t('sportsbook.betslip.booking.shareText', {
+                  code: formatBookingCode(current.code),
+                }),
+              )
             }
           >
             {copied ? t('sportsbook.betslip.booking.copied') : t('sportsbook.betslip.booking.copy')}

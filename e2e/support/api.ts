@@ -44,9 +44,12 @@ export function getBet(request: APIRequestContext, id: string): Promise<BetView>
 }
 
 /** Scheduled events of every sport starting within 72 h, soonest first. */
-export async function upcomingEvents(request: APIRequestContext): Promise<EventSummary[]> {
+export async function upcomingEvents(
+  request: APIRequestContext,
+  sports: readonly string[] = SPORTS,
+): Promise<EventSummary[]> {
   const lists = await Promise.all(
-    SPORTS.map((sport) =>
+    sports.map((sport) =>
       getJson<EventListResponse>(request, `/events?sport=${sport}&filter=upcoming&limit=50`),
     ),
   );
@@ -77,12 +80,14 @@ function mainMarketOpen(event: EventSummary): boolean {
 export async function soonestEvents(
   request: APIRequestContext,
   count: number,
-  options: { minLeadMs: number; maxLeadMs: number; timeoutMs?: number },
+  /** `sport`: only that sport's events (the shop's match list shows football only). */
+  options: { minLeadMs: number; maxLeadMs: number; timeoutMs?: number; sport?: string },
 ): Promise<EventSummary[]> {
   const deadline = Date.now() + (options.timeoutMs ?? 90_000);
+  const sports = options.sport === undefined ? SPORTS : [options.sport];
   for (;;) {
     const now = Date.now();
-    const picked = (await upcomingEvents(request)).filter((event) => {
+    const picked = (await upcomingEvents(request, sports)).filter((event) => {
       const lead = Date.parse(event.startTime) - now;
       return lead >= options.minLeadMs && lead <= options.maxLeadMs && mainMarketOpen(event);
     });

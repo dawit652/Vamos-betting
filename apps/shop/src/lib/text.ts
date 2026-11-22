@@ -209,6 +209,8 @@ export const TEXT = {
   ticketCashier: 'Cashier',
   ticketSold: 'Sold',
   ticketNumber: 'Ticket',
+  /** Under the barcode: the code the player brought (the barcode is what pays). */
+  ticketBookingCode: 'Booking code · የቦታ ማስያዣ ኮድ',
   ticketGame: 'Game',
   ticketKickoff: 'Kick-off',
   ticketTotalOdds: 'Total odds',

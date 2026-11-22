@@ -188,6 +188,7 @@ export const sportsbook: Messages['sportsbook'] = {
       share: 'አጋራ',
       load: 'ኮድ ጫን',
       code: 'የቦታ ማስያዣ ኮድ',
+      tellCashier: 'ቲኬቱን ለመግዛት ይህን ቁጥር ለገንዘብ ተቀባዩ ይንገሩ።',
       shareText: 'የቦታ ማስያዣ ኮድ፦ {code}',
       copy: 'ቅዳ',
       copied: 'ተቀድቷል',

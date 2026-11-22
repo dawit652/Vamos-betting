@@ -61,6 +61,7 @@ export async function ticketView(
     cancelReason: row.cancelReason,
     cancellableUntil,
     customerPhone: row.customerPhone,
+    bookingCode: row.bookingCode,
     originalPrintedAt: row.originalPrintedAt,
     reprints: row.reprints,
     shop: shopView(row.shop),

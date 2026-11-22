@@ -1,6 +1,7 @@
 'use client';
 
 import type { ShopTicketPrintResponse, ShopTicketResponse, ShopTicketView } from '@vamos/contracts';
+import { formatBookingCode } from '@vamos/core';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -227,6 +228,11 @@ function Ticket() {
         </div>
         <hr />
         <Barcode text={ticket.number} />
+        {ticket.bookingCode !== null && (
+          <div className="small" data-testid="ticket-booking-code">
+            {TEXT.ticketBookingCode} {formatBookingCode(ticket.bookingCode)}
+          </div>
+        )}
         <hr />
         <div className="small">{TEXT.ticketFooter}</div>
         <div className="small" lang="am">

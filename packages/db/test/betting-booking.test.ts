@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { BOOKING_CODE_LENGTH, birr, isValidCode } from '@vamos/core';
+import { birr, isBookingNumber } from '@vamos/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   BOOKING_CODE_TTL_MS,
@@ -25,6 +25,7 @@ import {
   type TestEvent,
 } from './betting-fixtures';
 import { createUser, dropTestDatabase, fund } from './helpers';
+import { bookingCodes } from '../src/schema/betting';
 
 let handle: TestDb;
 let ids: CatalogIds;
@@ -64,20 +65,19 @@ const create = (
   });
 
 describe('booking codes', () => {
-  it('creates a 6-symbol code and loads it with current odds', async () => {
+  it('creates a 6-digit code and loads it with current odds', async () => {
     const userId = await createUser(handle.db);
     const now = new Date();
     const booked = await create([{ selectionId: a.home }, { selectionId: b.over }], {
       now,
       userId,
     });
-    expect(booked.code).toHaveLength(BOOKING_CODE_LENGTH);
-    expect(isValidCode(booked.code, BOOKING_CODE_LENGTH)).toBe(true);
+    expect(isBookingNumber(booked.code)).toBe(true);
     expect(booked.expiresAt).toEqual(new Date(now.getTime() + BOOKING_CODE_TTL_MS));
 
     await reprice(handle.db, b.over, 2050);
-    // Typed in lower case with a dash, as shared in a chat.
-    const typed = `${booked.code.slice(0, 3).toLowerCase()}-${booked.code.slice(3).toLowerCase()}`;
+    // Typed with a space or a dash, as said at a counter or shared in a chat.
+    const typed = `${booked.code.slice(0, 3)} -${booked.code.slice(3)}`;
     const loaded = await loadBookingCode(handle.db, typed, new Date());
     expect(loaded.code).toBe(booked.code);
     expect(
@@ -98,7 +98,7 @@ describe('booking codes', () => {
   });
 
   it('404 for unknown or malformed codes, 410 once expired', async () => {
-    for (const code of ['ZZZZZZ', 'abc', '', 'O0O0O0']) {
+    for (const code of ['ZZZZZZ', 'abc', '', 'O0O0O0', '012345', '1234567']) {
       expect(await domainError(loadBookingCode(handle.db, code, new Date()))).toMatchObject({
         status: 404,
         code: 'booking_code_not_found',
@@ -148,6 +148,38 @@ describe('booking codes', () => {
     });
     expect(calls).toBe(2);
     expect(second.code).not.toBe(first.code);
+  });
+
+  it('takes over a code whose slip has expired (the 900,000 numbers are reused)', async () => {
+    const fixed = Uint8Array.from([9, 8, 7, 6, 5, 4]);
+    const longAgo = new Date(Date.now() - BOOKING_CODE_TTL_MS - 60_000);
+    const old = await createBookingCode(handle.db, {
+      legs: [{ selectionId: b.home }],
+      now: longAgo,
+      randomBytes: () => fixed,
+    });
+    const now = new Date();
+    const fresh = await createBookingCode(handle.db, {
+      legs: [{ selectionId: a.draw }],
+      now,
+      randomBytes: () => fixed,
+    });
+    expect(fresh.code).toBe(old.code);
+    const loaded = await loadBookingCode(handle.db, fresh.code, now);
+    expect(loaded.legs.map((leg) => leg.selectionId)).toEqual([a.draw]);
+  });
+
+  it('still loads an older letter code until it expires', async () => {
+    const now = new Date();
+    await handle.db.insert(bookingCodes).values({
+      code: 'K7MX9P',
+      legs: [{ selectionId: a.home }],
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + 3_600_000),
+    });
+    const loaded = await loadBookingCode(handle.db, 'k7m x9p', now);
+    expect(loaded.code).toBe('K7MX9P');
+    expect(loaded.legs.map((leg) => leg.selectionId)).toEqual([a.home]);
   });
 });
 

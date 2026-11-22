@@ -44,6 +44,11 @@ export const ShopSellTicketRequest = z
       .trim()
       .regex(/^\+?[0-9]{9,15}$/)
       .optional(),
+    /**
+     * The booking code the player brought (6 digits, or an older letter code), printed on the
+     * ticket when the ticket has exactly its matches (otherwise the ticket shows none).
+     */
+    bookingCode: z.string().trim().min(4).max(16).optional(),
     idempotencyKey: z
       .string()
       .trim()
@@ -83,6 +88,8 @@ export const ShopTicketView = z.object({
   /** Until when the selling cashier may cancel it (null once it no longer can). */
   cancellableUntil: IsoDateTime.nullable(),
   customerPhone: z.string().nullable(),
+  /** The booking code the ticket was built from (printed under the barcode), or null. */
+  bookingCode: z.string().nullable(),
   originalPrintedAt: IsoDateTime.nullable(),
   reprints: z.number().int(),
   shop: CashierShopView,

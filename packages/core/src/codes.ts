@@ -63,6 +63,50 @@ export function isValidCode(input: string, length?: number): boolean {
 }
 
 /**
+ * New booking codes (owner, 21 Nov 2026; docs/plans/counter-codes-and-deposit-recovery.md, G1) are
+ * 6-digit numbers, easy to say at a counter and to type on a POS keypad. Older letter codes
+ * ({@link BOOKING_CODE_LENGTH} symbols of {@link CODE_ALPHABET}) keep loading until they expire.
+ */
+export const BOOKING_NUMBER_MIN = 100_000;
+export const BOOKING_NUMBER_MAX = 999_999;
+/** How many random bytes {@link encodeBookingNumber} reads. */
+export const BOOKING_NUMBER_BYTES = 6;
+const BOOKING_NUMBER_PATTERN = /^[1-9]\d{5}$/;
+
+/**
+ * A 6-digit booking code (BOOKING_NUMBER_MIN–BOOKING_NUMBER_MAX) from the first
+ * {@link BOOKING_NUMBER_BYTES} random bytes: the 48-bit number they make, reduced into the range.
+ * The reduction's bias is below 1e-8, and a booking code is not a secret (it only loads a betslip).
+ * Throws `RangeError` when fewer bytes are supplied.
+ */
+export function encodeBookingNumber(randomBytes: Uint8Array): string {
+  if (randomBytes.length < BOOKING_NUMBER_BYTES) {
+    throw new RangeError(`need ${BOOKING_NUMBER_BYTES} random bytes, got ${randomBytes.length}`);
+  }
+  let n = 0;
+  for (let i = 0; i < BOOKING_NUMBER_BYTES; i++) n = n * 256 + (randomBytes[i] ?? 0);
+  return String(BOOKING_NUMBER_MIN + (n % (BOOKING_NUMBER_MAX - BOOKING_NUMBER_MIN + 1)));
+}
+
+/** True when `input`, after {@link normalizeCode}, is a 6-digit booking code (no leading zero). */
+export function isBookingNumber(input: string): boolean {
+  return typeof input === 'string' && BOOKING_NUMBER_PATTERN.test(normalizeCode(input));
+}
+
+/** True for any booking code a player may bring: a 6-digit number or an older letter code. */
+export function isBookingCode(input: string): boolean {
+  return isBookingNumber(input) || isValidCode(input, BOOKING_CODE_LENGTH);
+}
+
+/** How a booking code is shown and printed: "482 913" for a number, an older code as it is. */
+export function formatBookingCode(code: string): string {
+  const normalized = normalizeCode(code);
+  return BOOKING_NUMBER_PATTERN.test(normalized)
+    ? `${normalized.slice(0, 3)} ${normalized.slice(3)}`
+    : normalized;
+}
+
+/**
  * Formats a Game ID (an integer 100–999999) as digits, zero-padded to at
  * least four: `123` → `'0123'`, `98765` → `'98765'`. Throws `RangeError`
  * otherwise.
