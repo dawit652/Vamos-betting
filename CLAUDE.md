@@ -47,8 +47,12 @@ possible:
    **Deployed 22 Nov 22:36:** `b94684f` (smoke 13 passed): reads the live telebirr (Amharic) and
    CBE credit SMS (incl. CBE's BranchReceipt FT credit from telebirr) that had stayed `unparsed`; staff press "Read again" on
    the unparsed messages (Back office → SMS rail). Pushed, not deployed: `1f9f4ea` (a transfer
-   deposit says "Waiting for your payment") and `8ea2ab5` (telebirr's Amharic transfer out is a
-   debit; the account's own number is never the payer or recipient). The SMS forwarder is connected (new
+   deposit says "Waiting for your payment"), `8ea2ab5` (telebirr's Amharic transfer out is a
+   debit; the account's own number is never the payer or recipient) and `b2c231f` (Today = today
+   only, no day chips, started matches leave; Upcoming = 30 days with a sideways day row; fixture
+   horizon 30 days). Open: why upcoming odds are locked (owner to run the per-league query; likely
+   competition policy auto_open off or review holds) and switching on `narobet_events` (mr-z's
+   30-day matches with odds, no API-Football cost). The SMS forwarder is connected (new
    `SMS_GATEWAY_SECRET`, accounts `cbe:1000438086378` and `telebirr:0911678426`).
    Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
    `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if
