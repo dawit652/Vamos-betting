@@ -41,8 +41,9 @@ possible:
 7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
    `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
 8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
-   **Deployed 21 Nov:** `69f71a8` (licensed mode, smoke test 13 passed; migrations up to 0076:
-   Narobet prices through mr-z, switch `narobet_pricing` off; `SCRAPER_NAROBET_URL` set).
+   **Deployed 22 Nov 19:02:** `7a15b27` (licensed mode, smoke test 13 passed; migrations up to
+   0084: everything listed below is now live; switches `narobet_events`, `narobet_pricing` and
+   `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).
    Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
    `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if
    it is ahead (`git fetch origin <other> && git merge --ff-only FETCH_HEAD`). Built: agent shops
