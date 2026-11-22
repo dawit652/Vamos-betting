@@ -43,6 +43,25 @@ export const common: Messages['common'] = {
   telegram: {
     join: 'በቴሌግራም ይቀላቀሉን',
   },
+  // UNREVIEWED: a native speaker still has to review this wording.
+  ticketCheck: {
+    title: 'የሱቅ ትኬት ያረጋግጡ',
+    intro: 'በትኬትዎ ባርኮድ ስር የታተመውን ቁጥር ይጻፉ።',
+    number: 'የትኬት ቁጥር',
+    submit: 'አረጋግጥ',
+    checking: 'በማረጋገጥ ላይ…',
+    notFound: 'በዚህ ቁጥር የሱቅ ትኬት የለም። ከባርኮዱ ስር ያለውን ቁጥር ያረጋግጡ።',
+    error: 'ትኬቱ አሁን ሊረጋገጥ አይችልም። ከአንድ ደቂቃ በኋላ እንደገና ይሞክሩ።',
+    soldAt: 'የተሸጠው በ{shop}',
+    open: 'ገና አልተወሰነም፤ ጨዋታዎቹ ገና ይካሄዳሉ።',
+    lost: 'ይህ ትኬት ተሸንፏል።',
+    payable: '{amount} አሸንፏል።',
+    payableHow: 'በሸጠው ሱቅ ({shop}) ይቀበሉ፤ ትኬቱን ይዘው በላዩ ላይ የታተመውን የክፍያ ኮድ ይናገሩ።',
+    paid: 'ተከፍሏል፦ {amount}።',
+    expired: 'ሳይወሰድ ጊዜው አልፏል።',
+    cancelled: 'ይህ ትኬት ተሰርዟል።',
+    secret: 'የክፍያ ኮድዎን ለማንም አያጋሩ፤ ኮዱና ትኬቱ ያለው ሰው ክፍያውን ሊወስድ ይችላል።',
+  },
   actions: {
     save: 'አስቀምጥ',
     cancel: 'ሰርዝ',

@@ -1,6 +1,7 @@
 import {
   CompetitionsResponse,
   EventListResponse,
+  PublicTicketStatusResponse,
   type EventSummary,
   type LocalizedNameValue,
 } from '@vamos/contracts';
@@ -27,6 +28,8 @@ export interface CatalogReader {
     limit: number;
   }): Promise<EventSummary[]>;
   featuredLeagues(): Promise<FeaturedLeague[]>;
+  /** A shop ticket's public state (GET /tickets/:number); null when no ticket has this number. */
+  ticket(number: string): Promise<PublicTicketStatusResponse | null>;
 }
 
 /** England, Scotland, Wales and Northern Ireland: subdivision flags (tag sequences), like the website. */
@@ -60,11 +63,12 @@ export function createCatalogReader(options: {
   const timeoutMs = options.timeoutMs ?? 5_000;
   const sport = options.sport ?? 'football';
 
-  async function get(path: string): Promise<unknown> {
+  async function get(path: string, options: { notFound?: 'null' } = {}): Promise<unknown> {
     const response = await fetchImpl(`${base}${path}`, {
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(timeoutMs),
     });
+    if (response.status === 404 && options.notFound === 'null') return null;
     if (!response.ok) throw new Error(`catalogue ${path}: HTTP ${response.status}`);
     return response.json();
   }
@@ -89,6 +93,10 @@ export function createCatalogReader(options: {
             eventCount: c.eventCount,
           })),
       );
+    },
+    async ticket(number) {
+      const data = await get(`/tickets/${encodeURIComponent(number)}`, { notFound: 'null' });
+      return data === null ? null : PublicTicketStatusResponse.parse(data);
     },
   };
 }

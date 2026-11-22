@@ -268,6 +268,17 @@ function botDeps(overrides: Partial<BotDeps> = {}) {
     featuredLeagues: async () => [
       { slug: 'premier-league', name: { en: 'Premier League' }, flag: '🇬🇧', eventCount: 9 },
     ],
+    ticket: async (number) =>
+      number.toUpperCase() === 'K7MX9P2A'
+        ? {
+            number: 'K7MX9P2A',
+            state: 'payable',
+            amount: '123450',
+            shop: { label: '1001-01', name: 'Piassa' },
+            soldAt: '2026-11-22T08:00:00.000Z',
+            paidAt: null,
+          }
+        : null,
   };
   const deps: BotDeps = {
     client: fake.client,
@@ -368,6 +379,20 @@ describe('telegram: the bot', () => {
     expect(sent.at(-1)!.text).toBe('This chat’s id: 7');
   });
 
+  it('checks a shop ticket by its number, never showing its payout code', async () => {
+    const { deps, sent } = botDeps();
+    await handleUpdate(deps, message(7, '/ticket k7mx 9p2a'));
+    expect(sent.at(-1)!.text).toBe(
+      'Ticket K7MX9P2A\nIt won: ETB 1,234.50. Collect it at 1001-01 Piassa, with the ticket and its payout code.',
+    );
+    await handleUpdate(deps, message(7, '/ticket ZZZZ2222'));
+    expect(sent.at(-1)!.text).toBe(
+      'No shop ticket has this number. Check the number under the barcode.',
+    );
+    await handleUpdate(deps, message(7, '/ticket'));
+    expect(sent.at(-1)!.text).toContain('/ticket K7MX9P2A');
+  });
+
   it('says so when the catalogue cannot be read', async () => {
     const { deps, sent } = botDeps({
       catalog: {
@@ -375,6 +400,9 @@ describe('telegram: the bot', () => {
           throw new Error('down');
         },
         featuredLeagues: async () => {
+          throw new Error('down');
+        },
+        ticket: async () => {
           throw new Error('down');
         },
       },

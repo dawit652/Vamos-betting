@@ -100,7 +100,11 @@ locked }`), and the fifth locks the ticket (409 `payout_code_locked`, audited
   holder's ID), a reason required, audited (`retail.payout_code_unlocked` / `_waived`). Not yet a
   button in the back office: call the route, or build the button with the public ticket check.
 - **Tickets sold before the code** (no hash) are paid as before.
-- **Not built yet:** the public "check my ticket" page and Telegram command (step 3b).
+- **Check a ticket without login (step 3b, built 22 Nov):** `GET /tickets/:number` (public, 30 a
+  minute per address, `no-store`) answers the state (open, lost, payable, paid, expired,
+  cancelled), the amount and the shop that pays it; never the payout code, the phone or the
+  cashier. The website's page `/ticket` (linked from Help; English and Amharic, Oromo and Tigrinya
+  fall back to English) and the bot's `/ticket <number>` use it.
 
 ### G4. A 6-digit withdrawal code for logged-in players (cash at a shop)
 

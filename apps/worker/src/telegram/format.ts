@@ -1,4 +1,8 @@
-import type { EventSummary, LocalizedNameValue } from '@vamos/contracts';
+import type {
+  EventSummary,
+  LocalizedNameValue,
+  PublicTicketStatusResponse,
+} from '@vamos/contracts';
 import { formatOdds } from '@vamos/core';
 import type { InlineButton, ReplyMarkup } from './client';
 
@@ -35,7 +39,7 @@ const TEXT = {
     more: 'more options',
     footer: '21+ only. Bet responsibly.',
     demo: 'DEMO: play money only.',
-    help: 'Commands: /today, /live, /top, /leagues, /share, /id',
+    help: 'Commands: /today, /live, /top, /leagues, /ticket <number>, /share, /id',
     chatId: 'This chat’s id:',
     live: 'LIVE',
     statusTitle: 'Nahubet status',
@@ -60,6 +64,17 @@ const TEXT = {
     menuShare: 'Share with friends',
     shareText: 'Nahubet on Telegram: today’s matches, live scores and odds. Join here:',
     shareIntro: 'Invite your friends: tap the button and choose who to send the Nahubet bot to.',
+    ticketAsk:
+      'Send /ticket and the number printed under the barcode, for example: /ticket K7MX9P2A',
+    ticketNotFound: 'No shop ticket has this number. Check the number under the barcode.',
+    ticketUnavailable: 'The ticket cannot be checked right now. Try again in a minute.',
+    ticketTitle: 'Ticket {number}',
+    ticketOpen: 'Not settled yet: its matches are still to be played.',
+    ticketLost: 'This ticket lost.',
+    ticketPayable: 'It won: {amount}. Collect it at {shop}, with the ticket and its payout code.',
+    ticketPaid: 'Paid ({amount}).',
+    ticketExpired: 'It expired without being collected.',
+    ticketCancelled: 'This ticket was cancelled.',
   },
   am: {
     welcome:
@@ -80,7 +95,7 @@ const TEXT = {
     more: 'ተጨማሪ አማራጮች',
     footer: 'ዕድሜ 21+ ብቻ። በኃላፊነት ይወራረዱ።',
     demo: 'ማሳያ፦ የጨዋታ ገንዘብ ብቻ።',
-    help: 'ትዕዛዞች፦ /today, /live, /top, /leagues, /share, /id',
+    help: 'ትዕዛዞች፦ /today, /live, /top, /leagues, /ticket <ቁጥር>, /share, /id',
     chatId: 'የዚህ ውይይት መለያ፦',
     live: 'ቀጥታ',
     statusTitle: 'የናሁቤት ሁኔታ',
@@ -103,6 +118,17 @@ const TEXT = {
     menuShare: 'ለጓደኞችዎ ያጋሩ',
     shareText: 'ናሁቤት በቴሌግራም፦ የዛሬ ጨዋታዎች፣ የቀጥታ ውጤቶችና ዕድሎች። እዚህ ይቀላቀሉ፦',
     shareIntro: 'ጓደኞችዎን ይጋብዙ፦ ቁልፉን ይጫኑና የናሁቤትን ቦት ለማን እንደሚልኩ ይምረጡ።',
+    // Amharic below: a native speaker still has to review this wording.
+    ticketAsk: '/ticket እና ከባርኮዱ በታች ያለውን ቁጥር ይላኩ፤ ለምሳሌ፦ /ticket K7MX9P2A',
+    ticketNotFound: 'በዚህ ቁጥር የሱቅ ትኬት የለም። ከባርኮዱ በታች ያለውን ቁጥር ያረጋግጡ።',
+    ticketUnavailable: 'ትኬቱ አሁን ሊረጋገጥ አይችልም። ከአንድ ደቂቃ በኋላ እንደገና ይሞክሩ።',
+    ticketTitle: 'ትኬት {number}',
+    ticketOpen: 'ገና አልተወሰነም፤ ጨዋታዎቹ ገና ይካሄዳሉ።',
+    ticketLost: 'ይህ ትኬት ተሸንፏል።',
+    ticketPayable: 'አሸንፏል፦ {amount}። በ{shop} ከትኬቱና ከክፍያ ኮዱ ጋር ይቀበሉ።',
+    ticketPaid: 'ተከፍሏል ({amount})።',
+    ticketExpired: 'ሳይወሰድ ጊዜው አልፏል።',
+    ticketCancelled: 'ይህ ትኬት ተሰርዟል።',
   },
 } as const;
 
@@ -331,4 +357,33 @@ export function resetCodeMessage(code: string, locale: BotLocale, webUrl: string
 export function startPayload(text: string | undefined): string | null {
   const match = /^\/start(?:@\w+)?\s+(\S+)/.exec(text?.trim() ?? '');
   return match === null ? null : match[1]!;
+}
+
+/** The argument after a command ("/ticket k7mx 9p2a" → "k7mx 9p2a"), or null. */
+export function commandArgument(text: string | undefined): string | null {
+  if (text === undefined) return null;
+  const match = /^\/[A-Za-z_]{1,32}(?:@\w+)?\s+(.+)$/s.exec(text.trim());
+  return match === null ? null : match[1]!.trim();
+}
+
+/** ETB with two decimals, from santim as a decimal string ("12345" → "ETB 123.45"). */
+function etb(santim: string): string {
+  const n = BigInt(santim);
+  return `ETB ${(n / 100n).toLocaleString('en-US')}.${String(n % 100n).padStart(2, '0')}`;
+}
+
+/** A shop ticket's public state for the bot (never its payout code). */
+export function ticketMessage(status: PublicTicketStatusResponse, locale: BotLocale): BotMessage {
+  const t = textOf(locale);
+  const amount = status.amount === null ? '' : etb(status.amount);
+  const shop = `${status.shop.label} ${status.shop.name}`;
+  const line = {
+    open: t.ticketOpen,
+    lost: t.ticketLost,
+    payable: t.ticketPayable.replace('{amount}', amount).replace('{shop}', shop),
+    paid: t.ticketPaid.replace('{amount}', amount),
+    expired: t.ticketExpired,
+    cancelled: t.ticketCancelled,
+  }[status.state];
+  return { text: `${t.ticketTitle.replace('{number}', status.number)}\n${line}` };
 }

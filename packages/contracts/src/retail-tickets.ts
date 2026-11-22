@@ -269,3 +269,20 @@ export const TicketLimitsResponse = z.object({
   }),
 });
 export type TicketLimitsResponse = z.infer<typeof TicketLimitsResponse>;
+
+/**
+ * GET /tickets/:number (public, no login; docs/plans/counter-codes-and-deposit-recovery.md, G3):
+ * a shop ticket's state for whoever holds it. Never the payout code, the customer's phone or the
+ * cashier. A ticket is paid only at the shop that sold it, named here.
+ */
+export const PublicTicketStatusResponse = z.object({
+  number: z.string(),
+  state: z.enum(['open', 'lost', 'payable', 'paid', 'expired', 'cancelled']),
+  /** What it pays now (payable) or paid (paid); null otherwise. */
+  amount: Santim.nullable(),
+  /** Where to collect: the shop that sold it. */
+  shop: z.object({ label: z.string(), name: z.string() }),
+  soldAt: IsoDateTime,
+  paidAt: IsoDateTime.nullable(),
+});
+export type PublicTicketStatusResponse = z.infer<typeof PublicTicketStatusResponse>;

@@ -85,6 +85,41 @@ export async function findTicketByNumber(
   return { ticket: row.ticket, number: row.number, betStatus: row.betStatus, amount, state };
 }
 
+export interface PublicTicketStatus {
+  number: string;
+  state: TicketPayState;
+  /** What it pays now (payable) or paid (paid); null otherwise. */
+  amount: bigint | null;
+  shopLabel: string;
+  shopName: string;
+  soldAt: Date;
+  paidAt: Date | null;
+}
+
+/**
+ * A shop ticket's state for its holder (the public check, docs/plans/
+ * counter-codes-and-deposit-recovery.md, G3): state, amount and the shop that pays it. Never the
+ * payout code, the customer's phone or the cashier. Null when no ticket has this number.
+ */
+export async function publicTicketStatus(
+  exec: DbExecutor,
+  number: string,
+): Promise<PublicTicketStatus | null> {
+  const found = await findTicketByNumber(exec, number);
+  if (found === null) return null;
+  const shop = await getShop(exec, found.ticket.shopId);
+  if (shop === null) return null;
+  return {
+    number: found.number,
+    state: found.state,
+    amount: found.state === 'payable' || found.state === 'paid' ? found.amount : null,
+    shopLabel: shop.label,
+    shopName: shop.name,
+    soldAt: found.ticket.soldAt,
+    paidAt: found.ticket.paidAt,
+  };
+}
+
 export type PayRetailTicketResult =
   | {
       outcome: 'paid';

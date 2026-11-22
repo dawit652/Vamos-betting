@@ -45,6 +45,25 @@ export const common = {
   telegram: {
     join: 'Join us on Telegram',
   },
+  ticketCheck: {
+    title: 'Check a shop ticket',
+    intro: 'Type the number printed under the barcode of your ticket.',
+    number: 'Ticket number',
+    submit: 'Check',
+    checking: 'Checking…',
+    notFound: 'No shop ticket has this number. Check the number under the barcode.',
+    error: 'The ticket cannot be checked right now. Try again in a minute.',
+    soldAt: 'Sold at {shop}',
+    open: 'Not settled yet: its matches are still to be played.',
+    lost: 'This ticket lost.',
+    payable: 'It won {amount}.',
+    payableHow:
+      'Collect it at the shop that sold it ({shop}): bring the ticket and say the payout code printed on it.',
+    paid: 'Paid: {amount}.',
+    expired: 'It expired without being collected.',
+    cancelled: 'This ticket was cancelled.',
+    secret: 'Never share your payout code: whoever has it with the ticket can collect the win.',
+  },
   actions: {
     save: 'Save',
     cancel: 'Cancel',

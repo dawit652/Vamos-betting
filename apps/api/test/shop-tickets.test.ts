@@ -17,6 +17,7 @@ import {
   ShopTicketCheckResponse,
   ShopTicketListResponse,
   ShopTicketPrintResponse,
+  PublicTicketStatusResponse,
   ShopSellTicketResponse,
   ShopTicketResponse,
   ShopPayTicketResponse,
@@ -398,6 +399,25 @@ describe('shop tickets through the shop app', () => {
     expect(looked.body).not.toContain(smallCode);
     const smallNow = ShopTicketResponse.parse(looked.json()).ticket;
     expect(smallNow).toMatchObject({ payState: 'payable' });
+
+    // The holder checks the ticket without logging in: its state, amount and shop, never the code.
+    const publicCheck = await ctx.app.inject({
+      method: 'GET',
+      url: `/tickets/${small.number.toLowerCase()}`,
+    });
+    expect(publicCheck.statusCode, publicCheck.body).toBe(200);
+    expect(PublicTicketStatusResponse.parse(publicCheck.json())).toMatchObject({
+      number: small.number,
+      state: 'payable',
+      amount: smallNow.payAmount,
+      shop: { label: smallNow.shop.label, name: smallNow.shop.name },
+      paidAt: null,
+    });
+    expect(publicCheck.body).not.toContain(smallCode);
+    expect(publicCheck.headers['cache-control']).toBe('no-store');
+    expect((await ctx.app.inject({ method: 'GET', url: '/tickets/ZZZZ2222' })).statusCode).toBe(
+      404,
+    );
     const pay = (number: string, key = randomUUID(), payoutCode?: string) =>
       asDesk(desk, 'POST', '/shop/desk/tickets/payouts', {
         shiftId: desk.shiftId,

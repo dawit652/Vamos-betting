@@ -5,6 +5,7 @@ import type { CatalogReader } from './catalog';
 import type { TelegramClient, TelegramMessage, TelegramUpdate } from './client';
 import {
   botLocale,
+  commandArgument,
   leaguesMessage,
   matchListMessage,
   menuMessage,
@@ -15,6 +16,7 @@ import {
   startPayload,
   statusMessage,
   textOf,
+  ticketMessage,
   type BotLocale,
   type BotMessage,
 } from './format';
@@ -124,6 +126,35 @@ async function leagues(deps: BotDeps, chatId: number, locale: BotLocale): Promis
   }
 }
 
+/**
+ * A shop ticket's state by its number (docs/plans/counter-codes-and-deposit-recovery.md, G3):
+ * read-only, through the API's public check; never the payout code.
+ */
+async function ticket(
+  deps: BotDeps,
+  chatId: number,
+  locale: BotLocale,
+  argument: string | null,
+): Promise<void> {
+  const t = textOf(locale);
+  const number = argument?.replace(/\s+/g, '') ?? '';
+  if (number === '' || number.length > 20) {
+    await send(deps, chatId, { text: t.ticketAsk });
+    return;
+  }
+  try {
+    const status = await deps.catalog.ticket(number);
+    await send(
+      deps,
+      chatId,
+      status === null ? { text: t.ticketNotFound } : ticketMessage(status, locale),
+    );
+  } catch (error) {
+    deps.logger.warn({ err: error }, 'telegram bot: the ticket could not be checked');
+    await send(deps, chatId, { text: t.ticketUnavailable });
+  }
+}
+
 /** Runs one player action ("today", "live", "top", "leagues", "start"…) for a chat. */
 async function act(
   deps: BotDeps,
@@ -131,6 +162,7 @@ async function act(
   locale: BotLocale,
   action: string,
   owner: boolean,
+  argument: string | null = null,
 ): Promise<void> {
   const t = textOf(locale);
   if (action === 'id') {
@@ -164,6 +196,8 @@ async function act(
       return matches(deps, chatId, locale, t.titleTop, { filter: 'highlights', limit: 10 });
     case 'leagues':
       return leagues(deps, chatId, locale);
+    case 'ticket':
+      return ticket(deps, chatId, locale, argument);
     case 'share':
       if (deps.botUsername !== undefined) {
         await send(deps, chatId, shareMessage(deps.botUsername, locale));
@@ -270,5 +304,5 @@ export async function handleUpdate(deps: BotDeps, update: TelegramUpdate): Promi
   if (!(await withinRate(deps, chatId))) return;
   const action =
     command === 'start' && startPayload(message.text) === 'reset' ? 'reset' : (command ?? 'start');
-  await act(deps, chatId, locale, action, owner);
+  await act(deps, chatId, locale, action, owner, commandArgument(message.text));
 }
