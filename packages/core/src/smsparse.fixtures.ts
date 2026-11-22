@@ -23,7 +23,7 @@ export const TELEBIRR_SMS = {
    * "የሂሳብ እንቅስቃሴ ቁጥርዎ", the date after "በ".
    */
   creditAmharicLive:
-    'ውድ CUSTOMER\nከ sender name(2519****0000) 10.73 ብር በ 22/11/2026 23:53:23 ተቀብለዋል። የሂሳብ እንቅስቃሴ ቁጥርዎ DKA1BC2DEF ነዉ። አሁን ያለዎት ቀሪ ሂሳብ 1,234.56 ብር ነዉ። በቴሌብር ስለተገለገሉ እናመሰግናለን ኢትዮ ቴሌኮም',
+    'ውድ CUSTOMER \nከ sender name(2519****0000) 10.73 ብር በ 22/11/2026 23:53:23 ተቀብለዋል፡፡ የሂሳብ እንቅስቃሴ ቁጥርዎ DKA1BC2DEF ነዉ፡፡ አሁን ያለዎት ቀሪ ሂሳብ  1,234.56 ብር ነዉ፡፡ \nበቴሌብር ስለተገለገሉ እናመሰግናለን \nኢትዮ ቴሌኮም',
 } as const;
 
 export const CBE_SMS = {
