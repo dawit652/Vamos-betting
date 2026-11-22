@@ -195,7 +195,7 @@ const NONE = { checked: 0, opened: 0, failed: 0, published: 0 };
 
 describe('F7b: automatic opening on a confirmed kickoff', () => {
   it(
-    'F7b: production case: one fresh source and one never-fresh source open betting 71 hours before kickoff, and only then',
+    'F7b: production case: one fresh source and one never-fresh source open betting once the kickoff has held for 24 hours, far ahead too (owner, 22 Nov: no 72-hour lock)',
     async () => {
       await start({ keepB: true });
       h.at(new Date(KICKOFF.getTime() - 13 * DAY));
@@ -216,17 +216,14 @@ describe('F7b: automatic opening on a confirmed kickoff', () => {
       const [item] = await openItems(feedRef, 'odds_approval');
       expect(item!.payload).toMatchObject({ reason: 'kickoff_unconfirmed' });
 
-      for (const at of [KICKOFF.getTime() - 7 * DAY, KICKOFF.getTime() - 73 * HOUR]) {
-        h.at(new Date(at));
-        await pass();
-        expect((await eventRow(eventId)).betting_open).toBe(false);
-        expect(await assessNow(eventId)).toMatchObject({
-          confirmed: false,
-          reasons: ['too_early_for_single_source'],
-        });
-      }
+      // 23 hours after the source first showed the kickoff: not stable yet.
+      h.at(new Date(KICKOFF.getTime() - 13 * DAY + 23 * HOUR));
+      await pass();
+      expect((await eventRow(eventId)).betting_open).toBe(false);
+      expect(await assessNow(eventId)).toMatchObject({ confirmed: false, reasons: ['not_stable'] });
 
-      h.at(new Date(KICKOFF.getTime() - 71 * HOUR));
+      // Held for 24 hours, 12 days before the match: C2 confirms it (the window is 30 days now).
+      h.at(new Date(KICKOFF.getTime() - 13 * DAY + 25 * HOUR));
       await h.run('src-a');
       await h.run('src-b');
       expect(await assessNow(eventId)).toMatchObject({ confirmed: true, basis: 'C2' });

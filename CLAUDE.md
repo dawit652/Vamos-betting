@@ -50,12 +50,15 @@ possible:
    the desk PIN reset redesign (off until `CASHIER_PIN_RESET=on`), quieter owner alerts. Pushed,
    not deployed: owner's decisions O6 and O7 of 21 Nov (cashiers pay any amount alone; players
    withdraw winnings only; `docs/plans/counter-codes-and-deposit-recovery.md`), step 2 of that plan
-   (6-digit booking codes, printed on the shop ticket; migration 0079), and Narobet-only matches for more leagues with the ETB 20,000 cap
+   (6-digit booking codes, printed on the shop ticket; migration 0079), the unlocked odds of matches
+   more than 72 hours away (owner, 22 Nov: kickoff rule C2 now 30 days; `docs/scraper.md`), and
+   Narobet-only matches for more leagues with the ETB 20,000 cap
    per board match and results by API-Football fixture id (migration 0077, switch `narobet_events`
    off; `docs/plans/narobet-events.md`), and service-down alerts on Telegram every 15 minutes
    (migration 0078). Next: steps 3-8 of `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
    21 Nov: 6-digit booking, payout and withdrawal codes, deposit recovery, the health page, completing
-   the shop app; decisions O1-O5 made), the owner deploys, phase 6 once a POS model is chosen.
+   the shop app; decisions O1-O5 made), the owner deploys; phase 6 supports many POS devices (owner, 22 Nov: `docs/plans/agent-shops.md`,
+   "Phase 6: many POS devices"), built after the owner buys a test unit or says go.
 
 ## Overview
 

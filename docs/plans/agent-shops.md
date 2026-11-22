@@ -13,25 +13,25 @@ shop app); see "Phases" for what each step holds.
 
 ## Owner's decisions (interview of 19 Nov 2026)
 
-| Topic              | Decision                                                                                                                                                   |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shops              | Independent agents. Each agent prepays Nahubet; the cash in the shop is the agent's.                                                                       |
-| Customers          | Anyone: a walk-in ticket is paid to whoever holds it; the customer's phone number is optional. Registered players are served too.                          |
-| Devices            | PC or laptop with a USB thermal printer, or an Android POS terminal (model not chosen). A barcode scanner is optional for each agent.                      |
-| Building a ticket  | Game ID + pick, booking code, and clicking matches. Matches that already started are shown, and the cashier removes them before printing.                  |
-| Agent money        | Prepaid balance, topped up only by cash or bank transfer at head office: an admin records it, a second admin approves.                                     |
-| Commission         | Type and percent set per agent by the admin; a weekly statement (Monday to Sunday); the admin pays it.                                                     |
-| Paying winners     | The shop that sold the ticket pays it; above a limit head office approves first.                                                                           |
-| Organisation       | An agent owner account (own shops, sales, balance, cashiers) plus cashiers; admins above everything.                                                       |
-| Admin controls     | Limits per agent; block an agent, shop or cashier at any time; registered devices only (an admin approves each); live monitor and alerts.                  |
-| Maximum win        | A maximum win per ticket, adjustable in the admin dashboard.                                                                                               |
-| Cancelling         | The cashier within 5 minutes of printing, later the agent owner or an admin; always before the first match starts. The stake goes back to the agent.       |
-| What shops sell    | Prematch only (no live bets, no cash-out at the counter).                                                                                                  |
-| Online players     | Cash deposit and cash withdrawal for player accounts, from the agent balance; the admin switches it on or off per agent. Agents also sell and pay tickets. |
-| Ticket expiry      | Adjustable in the admin dashboard.                                                                                                                         |
-| Ticket text        | English and Amharic.                                                                                                                                       |
-| Agent and shop IDs | Automatic numbers with names: agent 1001, its shops 1001-01, 1001-02.                                                                                      |
-| Names and phones   | Every agent has its owner's full name and mobile number; every cashier has a mobile number (owner's message during the build, 19 Nov 2026).                |
+| Topic              | Decision                                                                                                                                                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shops              | Independent agents. Each agent prepays Nahubet; the cash in the shop is the agent's.                                                                                                                                   |
+| Customers          | Anyone: a walk-in ticket is paid to whoever holds it; the customer's phone number is optional. Registered players are served too.                                                                                      |
+| Devices            | **Many kinds, not one model** (owner, 22 Nov 2026): PC or laptop with a USB thermal printer, Android POS terminals, phones and tablets. A barcode scanner is optional for each agent. See "Phase 6: many POS devices". |
+| Building a ticket  | Game ID + pick, booking code, and clicking matches. Matches that already started are shown, and the cashier removes them before printing.                                                                              |
+| Agent money        | Prepaid balance, topped up only by cash or bank transfer at head office: an admin records it, a second admin approves.                                                                                                 |
+| Commission         | Type and percent set per agent by the admin; a weekly statement (Monday to Sunday); the admin pays it.                                                                                                                 |
+| Paying winners     | The shop that sold the ticket pays it, any amount, with no head office approval (owner, 21 Nov 2026, O6).                                                                                                              |
+| Organisation       | An agent owner account (own shops, sales, balance, cashiers) plus cashiers; admins above everything.                                                                                                                   |
+| Admin controls     | Limits per agent; block an agent, shop or cashier at any time; registered devices only (an admin approves each); live monitor and alerts.                                                                              |
+| Maximum win        | A maximum win per ticket, adjustable in the admin dashboard.                                                                                                                                                           |
+| Cancelling         | The cashier within 5 minutes of printing, later the agent owner or an admin; always before the first match starts. The stake goes back to the agent.                                                                   |
+| What shops sell    | Prematch only (no live bets, no cash-out at the counter).                                                                                                                                                              |
+| Online players     | Cash deposit and cash withdrawal for player accounts, from the agent balance; the admin switches it on or off per agent. Agents also sell and pay tickets.                                                             |
+| Ticket expiry      | Adjustable in the admin dashboard.                                                                                                                                                                                     |
+| Ticket text        | English and Amharic.                                                                                                                                                                                                   |
+| Agent and shop IDs | Automatic numbers with names: agent 1001, its shops 1001-01, 1001-02.                                                                                                                                                  |
+| Names and phones   | Every agent has its owner's full name and mobile number; every cashier has a mobile number (owner's message during the build, 19 Nov 2026).                                                                            |
 
 ## Review and test of today's dashboards (19 Nov 2026)
 
@@ -190,7 +190,8 @@ New accounts: one balance per agent (what Nahubet owes the agent; never below ze
 4. **Paying:** settlement to retail payable, the pay screen (scan or type), HQ approval, the expiry
    job, the payout slip. Money path.
 5. **Control:** live monitor, alerts, weekly statements and commission, exports.
-6. **Android POS**, once the model is chosen.
+6. **Many POS devices** (owner, 22 Nov 2026: support several devices, not one model): see "Phase 6:
+   many POS devices" below.
 
 ## Phase 1b design (for the next session)
 
@@ -580,9 +581,27 @@ days after the last match; player cash at shops off for a new agent.
 - The winnings tax: a placeholder of 20% of net winnings above ETB 100 (Proclamation 1395/2025, to
   confirm), the same for shop tickets as online.
 - Agent licensing with the regulator before real money (licensed mode).
-- The Android POS model.
+- ~~The Android POS model~~: decided 22 Nov 2026, many devices (phase 6).
 - Later: may a registered player's winning ticket be paid into their online account instead of
   cash?
+
+## Phase 6: many POS devices (owner, 22 Nov 2026)
+
+The owner decided that the shop app supports several POS devices, not one model. One shop app (the
+web app the shops use today) runs on all of them; only printing and scanning differ by device:
+
+| Need   | Way                                                                                                             | Devices                                                                                                                     | State    |
+| ------ | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Print  | The system print dialog (or silent with Chrome's `--kiosk-printing`), 58 or 80 mm pages                         | PCs and laptops with a printer driver; Android terminals whose printer is in Android's print menu                           | Built    |
+| Print  | Direct thermal printing from Chrome (Web Bluetooth, WebUSB): the ticket drawn as an image, so Amharic prints    | Bluetooth 58/80 mm printers next to a phone or tablet; terminals whose built-in printer is a Bluetooth device; USB printers | To build |
+| Print  | A small Android app (a web view plus the maker's printer kit), only for a model the two ways above cannot reach | One model at a time, when an agent has one                                                                                  | Later    |
+| Scan   | Scanners that type like a keyboard (USB, Bluetooth, the scanner built into many terminals)                      | All                                                                                                                         | Built    |
+| Scan   | The camera (Chrome's barcode reader) on phones and terminals without a scanner                                  | Android phones and terminals                                                                                                | To build |
+| Screen | The shop app on 5 to 6 inch screens                                                                             | POS terminals and phones                                                                                                    | To check |
+
+The shop app's Printer page chooses the way per device (remembered on the device). Buy one or two
+test units before building the direct printing: an Android terminal with a built-in 58 mm printer
+and a cheap Bluetooth 58 mm printer, next to the PC with a USB 80 mm printer that works today.
 
 ## Rules for every session of this work
 

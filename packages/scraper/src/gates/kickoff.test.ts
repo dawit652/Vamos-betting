@@ -22,10 +22,10 @@ import {
 import { KICKOFF, makeEvent } from './testkit';
 
 const START = KICKOFF;
-/** Inside the lead window (72 h before the start), so C2 can apply. */
+/** Inside the lead window (KICKOFF_CONFIRM_LEAD_MS before the start), so C2 can apply. */
 const NEAR = START - 24 * HOUR_MS;
-/** Far from the start: only C1 or C3 can confirm. */
-const FAR = START - 10 * DAY_MS;
+/** Far from the start, beyond the lead window (30 days since 22 Nov 2026): only C1 or C3 confirm. */
+const FAR = START - KICKOFF_CONFIRM_LEAD_MS - 10 * DAY_MS;
 
 interface Spec {
   source?: string;
@@ -47,7 +47,7 @@ function st(spec: Spec = {}): KickoffStatement {
     kind: spec.kind ?? 'fixture',
     status: spec.status ?? 'scheduled',
     kickoff: new Date(START + (spec.offset ?? 0)),
-    changedAt: new Date(spec.changedAt ?? START - 20 * DAY_MS),
+    changedAt: new Date(spec.changedAt ?? FAR - 20 * DAY_MS),
     sourceFresh: spec.fresh ?? true,
   };
 }

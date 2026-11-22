@@ -348,9 +348,13 @@ Definitions (used by every rule below):
 
 | Constant                     | Value  | Used by    |
 | ---------------------------- | ------ | ---------- |
-| `KICKOFF_CONFIRM_LEAD_MS`    | 72 h   | C2         |
+| `KICKOFF_CONFIRM_LEAD_MS`    | 30 d   | C2         |
 | `KICKOFF_STABLE_MS`          | 24 h   | C2         |
 | `KICKOFF_EVIDENCE_WINDOW_MS` | 7 days | statements |
+
+`KICKOFF_CONFIRM_LEAD_MS` was 72 h until the owner's decision of 22 Nov 2026 to unlock the odds of
+matches more than 72 hours away: a single fresh source that has held the kickoff for 24 hours, with
+no source disagreeing, now confirms it up to 30 days ahead (every match we list).
 
 Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_MS`, `MIN_MATCH_DURATION_MS`,
 `MIN_LEAD_MS`.

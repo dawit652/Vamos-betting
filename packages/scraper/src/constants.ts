@@ -54,8 +54,13 @@ export const SOURCE_STALE_AFTER_MS = 48 * HOUR_MS;
 
 // --- Kickoff safety (docs/scraper.md 6.1a, docs/scraper-plan/kickoff-safety.md) -----------
 
-/** C2: a single fresh source can confirm a kickoff only this close to it (0 wrong opens at 72 h and 96 h). */
-export const KICKOFF_CONFIRM_LEAD_MS = 72 * HOUR_MS;
+/**
+ * C2: a single fresh source can confirm a kickoff only this close to it. Owner's decision of 22 Nov
+ * 2026: odds of matches more than 72 hours away are no longer locked, so the window covers every
+ * match we list (it was 72 h: 0 wrong opens measured at 72 h and 96 h). C2's other conditions stay:
+ * no source disagrees, the source is fresh, and its kickoff held for KICKOFF_STABLE_MS.
+ */
+export const KICKOFF_CONFIRM_LEAD_MS = 30 * DAY_MS;
 /** C2: the confirming statement must have held its value this long (insurance against a source mid-edit). */
 export const KICKOFF_STABLE_MS = 24 * HOUR_MS;
 /** A statement about an event has a kickoff at most this far from the event's start (largest measured early move 4.9 days). */
