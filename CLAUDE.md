@@ -44,6 +44,10 @@ possible:
    **Deployed 22 Nov 19:02:** `7a15b27` (licensed mode, smoke test 13 passed; migrations up to
    0084: everything listed below is now live; switches `narobet_events`, `narobet_pricing` and
    `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).
+   **Pushed 22 Nov, not deployed:** `802f880` reads the live telebirr (Amharic) and CBE credit SMS,
+   which stayed `unparsed` (no deposit credited); after deploying it, staff press "Read again" on
+   the unparsed messages (Back office → SMS rail). The SMS forwarder is connected (new
+   `SMS_GATEWAY_SECRET`, accounts `cbe:1000438086378` and `telebirr:0911678426`).
    Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
    `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if
    it is ahead (`git fetch origin <other> && git merge --ff-only FETCH_HEAD`). Built: agent shops
