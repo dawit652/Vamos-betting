@@ -5,10 +5,11 @@
 eager-cerf up to it with `git fetch origin claude/happy-keller-i7cvrh && git merge --ff-only
 FETCH_HEAD` before working there). **Counter codes step 5 is built (22 Nov, pushed, NOT deployed):**
 "My deposit did not arrive" claims on the Deposit page and Back office → Money not credited with
-suggested players (migration `0082_deposit_claims`; **next free migration: 0083**). Next: step 6
-(the Telegram "Deposit problem", O3), step 7 (the cash withdrawal code: `/payments/cash-codes`
-exists already, check what is left), step 8 (the shift report print), the Service health page, and
-the owner's daily "money not credited" line on Telegram.
+suggested players (migration `0082_deposit_claims`). Also built and pushed (22 Nov): the owner's
+daily "money not credited" Telegram line, Back office → Service health, the shop's printed shift
+report, and step 6, the Telegram "Deposit problem" (migration `0083_deposit_claim_source`; **next
+free migration: 0084**). Next: step 7, the G4 withdrawal code (amount in the app, a 24-hour code,
+paid by code at any shop with player cash on); phase 6 waits for the owner's POS.
 **Before that (22 Nov):** the first account's work on `claude/eager-cerf-ox9vkq`. **Counter codes steps 3, 3b and 4 are built (22 Nov, pushed, NOT deployed):** the payout code
 printed on each shop ticket and asked for at Pay (migration `0081_retail_ticket_payout_code`), the
 public ticket check (website `/ticket`, Telegram `/ticket`), and manual deposits by one admin

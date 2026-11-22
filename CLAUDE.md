@@ -59,8 +59,10 @@ possible:
    off; `docs/plans/narobet-events.md`), and service-down alerts on Telegram every 15 minutes
    (migration 0078), the shop ticket payout code (migration 0081), the public ticket check and
    manual deposits by one admin (steps 3, 3b, 4, by the first account), and step 5 by the second
-   account: "My deposit did not arrive" claims and Back office → Money not credited (migration 0082;
-   newest branch `claude/happy-keller-i7cvrh`; next free migration 0083). Next: steps 6-8 of
+   account: "My deposit did not arrive" claims and Back office → Money not credited (migration 0082),
+   the owner's daily "money not credited" Telegram line, Back office → Service health, the shop's
+   printed shift report, and the Telegram "Deposit problem" (step 6, migration 0083; newest branch
+   `claude/happy-keller-i7cvrh`; next free migration 0084). Next: step 7, the G4 withdrawal code, of
    `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
    21 Nov: 6-digit booking, payout and withdrawal codes, deposit recovery, the health page, completing
    the shop app; decisions O1-O5 made), the owner deploys; phase 6 supports many POS devices (owner, 22 Nov: `docs/plans/agent-shops.md`,
