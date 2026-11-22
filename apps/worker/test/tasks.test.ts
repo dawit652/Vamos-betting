@@ -166,6 +166,7 @@ describe('createTasks', () => {
     'user-notify',
     'reconciliation',
     'reconciliation-requests',
+    'report-close',
     'aml-evaluate',
     'aml-sweep',
     'ussd-session-prune',

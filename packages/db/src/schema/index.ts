@@ -29,3 +29,4 @@ export * from './retail-tickets';
 export * from './retail-statements';
 export * from './retail-alerts';
 export * from './devices';
+export * from './reports';

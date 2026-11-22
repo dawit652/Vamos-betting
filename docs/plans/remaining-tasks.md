@@ -5,7 +5,9 @@ account; it contains all of `claude/eager-cerf-ox9vkq` up to `e8269a3`; bring th
 with `git merge --ff-only` before working there). **Step 2 of the counter codes is built (22 Nov):**
 6-digit booking codes and the code printed on the shop ticket (migration
 `0079_retail_ticket_booking_code`; next free migration **0080**); next is step 3, the payout code.
-**Owner, 22 Nov:** odds of matches more than 72 hours away are unlocked (kickoff rule C2's window is
+**Owner, 22 Nov:** owner reports (day, week, month, year) built: from the ledger, checking
+themselves, Back office → Reports ([owner-reports.md](owner-reports.md), migration
+`0080_report_days`; next free migration **0081**). Odds of matches more than 72 hours away are unlocked (kickoff rule C2's window is
 30 days, `packages/scraper/src/constants.ts`, pushed, not deployed); phase 6 supports many POS devices
 (plan in [agent-shops.md](agent-shops.md), "Phase 6: many POS devices"). **Built there 21 Nov, pushed, NOT deployed:** the
 owner's decisions O6 (cashiers pay any counter withdrawal and any winning ticket alone: no

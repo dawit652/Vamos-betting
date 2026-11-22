@@ -83,7 +83,12 @@ export type OwnerAlertInput =
    */
   | { alarm: 'service_down'; service: string; minutesDown: number; detail: string | null }
   /** It works again: once per incident (the key carries when it went down). */
-  | { alarm: 'service_recovered'; service: string; minutesDown: number; downSinceMs: number };
+  | { alarm: 'service_recovered'; service: string; minutesDown: number; downSinceMs: number }
+  /**
+   * An owner report failed one of its own checks (docs/plans/owner-reports.md): a closed day
+   * changed after its close, or a day did not balance or roll forward when it was closed.
+   */
+  | { alarm: 'report_check_failed'; date: string; checks: readonly string[] };
 
 export interface OwnerAlert {
   /** The alarm's name plus its subject, e.g. `source_broken|odds-api`. Stable per condition. */
@@ -283,6 +288,11 @@ function build(input: OwnerAlertInput): OwnerAlert {
           input.detail === null ? '' : `: ${input.detail}`
         }. Repeated every 15 min until it works again.`,
       };
+    case 'report_check_failed':
+      return {
+        key: `report_check_failed|${input.date}`,
+        message: `The report of ${input.date} failed its checks (${clip(input.checks.join(', '), 80)}). Open Reports in the back office.`,
+      };
     case 'service_recovered':
       return {
         key: `service_recovered|${input.service}|${input.downSinceMs}`,
@@ -351,6 +361,8 @@ export const OWNER_ALERT_POLICY: Readonly<Record<OwnerAlertInput['alarm'], Owner
   // then once "works again".
   service_down: { send: true, repeatMs: 15 * 60_000, exact: true, telegramOnly: true },
   service_recovered: { send: true, repeatMs: 0, telegramOnly: true },
+  // Reports that do not check out (owner, 22 Nov 2026: reports never make a mistake): money.
+  report_check_failed: { send: true, repeatMs: 6 * HOUR_MS },
 };
 
 /** Whether an alarm is texted at all, and the least time between two texts of one key. */

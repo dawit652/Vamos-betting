@@ -51,7 +51,9 @@ possible:
    not deployed: owner's decisions O6 and O7 of 21 Nov (cashiers pay any amount alone; players
    withdraw winnings only; `docs/plans/counter-codes-and-deposit-recovery.md`), step 2 of that plan
    (6-digit booking codes, printed on the shop ticket; migration 0079), the unlocked odds of matches
-   more than 72 hours away (owner, 22 Nov: kickoff rule C2 now 30 days; `docs/scraper.md`), and
+   more than 72 hours away (owner, 22 Nov: kickoff rule C2 now 30 days; `docs/scraper.md`), owner
+   reports for day, week, month and year that check themselves (migration 0080;
+   `docs/plans/owner-reports.md`), and
    Narobet-only matches for more leagues with the ETB 20,000 cap
    per board match and results by API-Football fixture id (migration 0077, switch `narobet_events`
    off; `docs/plans/narobet-events.md`), and service-down alerts on Telegram every 15 minutes
@@ -119,6 +121,7 @@ Node 22 and pnpm 10. Run these from the repository root.
 - **Manual payouts (four eyes):** the approver never claims or settles; only the operator who claimed a payout settles, releases or fails it. The worker never touches manual payouts.
 - **Payout destinations:** the player's currently registered phone wallet, or a bank account in their KYC name confirmed with an SMS code. Nothing else.
 - **Winnings only** (owner, 21 Nov 2026): a player may withdraw the cash balance less the deposits not yet played through (core `withdrawableAmount` over `remainingWagering`); deposited money is for betting. The server runs in licensed mode, where every real deposit (Chapa, telebirr, the SMS rail, a counter deposit) posts the ledger type `deposit`; a new way of crediting a deposit must post `deposit` too, or it would count as winnings.
+- **Owner reports** (owner, 22 Nov 2026: "never make a mistake"; `docs/plans/owner-reports.md`): every figure comes from the ledger (core `summarizeReport`), periods in Ethiopian time are exact sums of their days, closed days are frozen in `report_days` (insert and read only), and every report runs five checks; a failed check alarms the owner. Never compute a report figure from anything but the ledger.
 - **Cashiers pay alone** (owner, 21 Nov 2026): a counter cash withdrawal or a winning shop ticket of any amount, with no supervisor, no HQ approval and no review for its size (exclusions, AML holds and settlement corrections still hold a withdrawal). Counter deposits keep the shop's supervisor threshold.
 - **Fixtures:** SMS parsers and receipt readers are tested against `packages/core/src/smsparse.fixtures.ts` and `packages/payments/src/receipts/fixtures.ts`; a new message shape gets a scrubbed fixture and a test.
 - **Alarms** on the SMS rail are `error` log lines with an `alarm` field (no metrics endpoint).

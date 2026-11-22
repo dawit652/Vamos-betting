@@ -17,6 +17,7 @@ export * from './compliance/index';
 export * from './channels/index';
 export * from './cashier/index';
 export * from './retail/index';
+export * from './reporting/index';
 export {
   isRetryableTxError,
   pgCode,
