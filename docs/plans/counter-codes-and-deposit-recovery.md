@@ -136,6 +136,25 @@ locked }`), and the fifth locks the ticket (409 `payout_code_locked`, audited
    reference, creates the same claim and posts it to the admin chats. This makes the bot store what
    a player sends: decision O3, allowed (phone, amount, reference; kept 90 days).
 
+**Built 22 Nov (step 4):**
+
+- **Re-check:** `POST /admin/deposits/:id/recheck` (withdrawals.approve) asks the provider now
+  (`queryDeposit`) and applies what it says through `applyDepositEvent`: a confirmed payment is
+  credited the normal way, once. The worker's `deposit-reconcile` keeps doing it on its own
+  schedule. Back office: "Re-check" next to an uncredited Chapa or telebirr deposit on the
+  player's page.
+- **Manual deposit (one admin, O5):** `POST /admin/users/:id/manual-deposits` with the new
+  permission `deposits.credit` (admin only; `creditDepositByAdmin` in
+  `packages/db/src/payments/manual-deposits.ts`). The player's own uncredited deposit is credited
+  as itself at its amount (ledger key `deposit:<its id>`: a late provider confirmation changes
+  nothing), or a new deposit at the amount that arrived. The provider's transaction id is usable
+  once per provider (payment event `manual:<id>`; 409 `already_credited`). Ledger type `deposit`
+  (O7: not withdrawable until played through), a reason required, audited
+  (`payment.deposit_credited_by_admin`), the player told (DEPOSIT_SUCCEEDED), and above ETB 5,000
+  (`MANUAL_DEPOSIT_ALERT_ABOVE`) the owner gets the alert `manual_deposit_credited`. Back office:
+  "Credit by hand" on an uncredited deposit, and the form "Credit a deposit by hand" for a payment
+  with no deposit, on the player's page.
+
 ### G6. Money sent but not credited, mapped to the player
 
 A back-office page **"Money not credited"** (Finance):

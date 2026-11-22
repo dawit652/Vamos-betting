@@ -51,6 +51,7 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   { alarm: 'service_down', service: 'Chapa', minutesDown: 3, detail: null },
   { alarm: 'service_down', service: 'mr-z (Narobet)', minutesDown: 47, detail: 'HTTP 502' },
   { alarm: 'service_recovered', service: 'Chapa', minutesDown: 12, downSinceMs: 1_795_000_000_000 },
+  { alarm: 'manual_deposit_credited', intentId: 'i-1', amountEtb: '6,000.00', provider: 'chapa' },
 ];
 
 /** Words of a request or an obligation, wherever they stand. */

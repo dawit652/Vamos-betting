@@ -85,6 +85,11 @@ export type OwnerAlertInput =
   /** It works again: once per incident (the key carries when it went down). */
   | { alarm: 'service_recovered'; service: string; minutesDown: number; downSinceMs: number }
   /**
+   * An admin credited a deposit by hand above MANUAL_DEPOSIT_ALERT_ABOVE (owner, 21 Nov 2026,
+   * decision O5: one admin, no second approval; the owner is told of the big ones).
+   */
+  | { alarm: 'manual_deposit_credited'; intentId: string; amountEtb: string; provider: string }
+  /**
    * An owner report failed one of its own checks (docs/plans/owner-reports.md): a closed day
    * changed after its close, or a day did not balance or roll forward when it was closed.
    */
@@ -293,6 +298,11 @@ function build(input: OwnerAlertInput): OwnerAlert {
         key: `report_check_failed|${input.date}`,
         message: `The report of ${input.date} failed its checks (${clip(input.checks.join(', '), 80)}). Open Reports in the back office.`,
       };
+    case 'manual_deposit_credited':
+      return {
+        key: `manual_deposit_credited|${input.intentId}`,
+        message: `An admin credited a ${input.provider} deposit of ETB ${input.amountEtb} by hand. See the audit log for who and why.`,
+      };
     case 'service_recovered':
       return {
         key: `service_recovered|${input.service}|${input.downSinceMs}`,
@@ -361,6 +371,8 @@ export const OWNER_ALERT_POLICY: Readonly<Record<OwnerAlertInput['alarm'], Owner
   // then once "works again".
   service_down: { send: true, repeatMs: 15 * 60_000, exact: true, telegramOnly: true },
   service_recovered: { send: true, repeatMs: 0, telegramOnly: true },
+  // Money: each big manual credit, once (its key carries the deposit).
+  manual_deposit_credited: { send: true, repeatMs: 0 },
   // Reports that do not check out (owner, 22 Nov 2026: reports never make a mistake): money.
   report_check_failed: { send: true, repeatMs: 6 * HOUR_MS },
 };

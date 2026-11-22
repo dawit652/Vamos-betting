@@ -104,6 +104,7 @@ export const STAFF_PERMISSIONS = [
   'bets.view',
   'withdrawals.view',
   'withdrawals.approve',
+  'deposits.credit',
   'payouts.settle_manual',
   'sms.review',
   'jackpots.view',
@@ -138,6 +139,8 @@ export const PERMISSION_ROLES: Readonly<Record<StaffPermission, readonly StaffRo
   'bets.view': ['admin', 'support', 'trader', 'compliance', 'finance'],
   'withdrawals.view': ['admin', 'finance', 'compliance'],
   'withdrawals.approve': ['admin', 'finance'],
+  // A deposit credited by hand: one admin, no second approval (owner, 21 Nov 2026, O5).
+  'deposits.credit': ['admin'],
   'payouts.settle_manual': ['admin', 'finance'],
   'sms.review': ['admin', 'finance', 'compliance'],
   'jackpots.view': ['admin', 'trader', 'compliance', 'support'],
@@ -998,6 +1001,48 @@ export const ResolveDepositRequest = z.object({
   note: AuditText,
 });
 export type ResolveDepositRequest = z.infer<typeof ResolveDepositRequest>;
+
+/**
+ * POST /admin/users/:id/manual-deposits (deposits.credit, the admin role; owner's decision O5: one
+ * admin, no second approval): a deposit that reached Nahubet but was not credited. With `intentId`
+ * the player's own deposit is credited at its amount; without, `amount` (what arrived) is required.
+ * 409 `already_credited` (the deposit, or this transaction id was used already).
+ */
+export const ManualDepositRequest = z
+  .object({
+    intentId: z.uuid().optional(),
+    provider: z.enum(['chapa', 'telebirr', 'sms']),
+    providerTransactionId: z.string().trim().min(4).max(64),
+    /** Santim as a decimal string, above zero. */
+    amount: Santim.refine((value) => /^[1-9]\d*$/.test(value), {
+      message: 'amount must be above zero',
+    }).optional(),
+    reason: AuditText,
+  })
+  .strict();
+export type ManualDepositRequest = z.infer<typeof ManualDepositRequest>;
+
+export const ManualDepositResponse = z.object({
+  deposit: z.object({
+    id: z.string(),
+    provider: z.string(),
+    amount: Santim,
+    status: z.string(),
+  }),
+  created: z.boolean(),
+});
+export type ManualDepositResponse = z.infer<typeof ManualDepositResponse>;
+
+/**
+ * POST /admin/deposits/:id/recheck (withdrawals.approve): asks the provider now about a deposit
+ * that has not been credited; a deposit the provider confirms is credited the normal way.
+ */
+export const RecheckDepositResponse = z.object({
+  /** What the provider said and what was done: credited, pending, failed, ignored, duplicate... */
+  outcome: z.string(),
+  status: z.string(),
+});
+export type RecheckDepositResponse = z.infer<typeof RecheckDepositResponse>;
 
 // ---------------------------------------------------------------------------
 // SMS rail (sms.review, payouts.settle_manual).

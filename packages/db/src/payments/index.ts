@@ -187,3 +187,4 @@ export {
   type CollectionAccountRow,
   type CollectionAccountStatus,
 } from './collectionaccounts';
+export * from './manual-deposits';
