@@ -1,6 +1,8 @@
 'use client';
 
 import type {
+  DeskWithdrawalCodePayResponse,
+  DeskWithdrawalCodeView,
   CashDepositResponse,
   CashOperationView,
   CashWithdrawalResponse,
@@ -388,6 +390,95 @@ function PlayerDesk({
   );
 }
 
+/**
+ * Withdrawal codes (docs/plans/counter-codes-and-deposit-recovery.md, G4): the player asked for
+ * the cash in the app; the code alone shows the amount, their name and masked phone, then Pay.
+ * Five wrong codes in a day lock the shop's code entry until the next day.
+ */
+function WithdrawalCodeCard({ shift, onPaid }: { shift: CashierShiftView; onPaid: () => void }) {
+  const [code, setCode] = useState('');
+  const [found, setFound] = useState<DeskWithdrawalCodeView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(() => `desk-${crypto.randomUUID()}`);
+
+  async function find(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setFound(null);
+    try {
+      setFound(
+        await api<DeskWithdrawalCodeView>('/admin/cashier/withdrawal-codes/lookup', {
+          method: 'POST',
+          body: { shiftId: shift.id, code: code.replace(/\s/g, '') },
+        }),
+      );
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pay() {
+    if (found === null || !window.confirm(`Pay ${formatEtb(found.amount)} in cash?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api<DeskWithdrawalCodePayResponse>('/admin/cashier/withdrawal-codes/pay', {
+        method: 'POST',
+        body: { shiftId: shift.id, code: code.replace(/\s/g, ''), idempotencyKey: key },
+      });
+      setKey(`desk-${crypto.randomUUID()}`);
+      setFound(null);
+      setCode('');
+      window.open(receiptPath(res.receipt.operation.id, 'print'), '_blank');
+      onPaid();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card" data-testid="withdrawal-code-card">
+      <h2>Withdrawal code</h2>
+      <p className="muted small">The player asked for cash in the app: type the code they say.</p>
+      <form className="inline-form" onSubmit={(e) => void find(e)}>
+        <input
+          aria-label="Withdrawal code"
+          placeholder="6-digit withdrawal code"
+          inputMode="numeric"
+          autoComplete="off"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+        />
+        <button type="submit" disabled={busy || code.replace(/\s/g, '').length !== 6}>
+          Find withdrawal
+        </button>
+      </form>
+      {error !== null && <Notice>{error}</Notice>}
+      {found !== null && (
+        <div data-testid="withdrawal-code-found">
+          <p>
+            <strong>{formatEtb(found.amount)}</strong> to {found.playerName ?? 'the player'} (
+            {found.phone}) · valid until {formatDateTime(found.expiresAt)}
+          </p>
+          {found.status === 'review' ? (
+            <Notice>This withdrawal is still being reviewed: it can be paid once approved.</Notice>
+          ) : (
+            <button type="button" className="primary" disabled={busy} onClick={() => void pay()}>
+              Pay {formatEtb(found.amount)}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Operations({ desk }: { desk: CashierDeskResponse }) {
   return (
     <>
@@ -687,6 +778,7 @@ export default function CashierPage() {
             />
           </section>
           <PrinterCard desk={data} />
+          <WithdrawalCodeCard shift={shift} onPaid={reload} />
           <PlayerDesk desk={data} shift={shift} onDeposit={reload} />
           <Operations desk={data} />
         </>

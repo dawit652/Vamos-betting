@@ -1,6 +1,8 @@
 'use client';
 
 import type {
+  DeskWithdrawalCodePayResponse,
+  DeskWithdrawalCodeView,
   CashDepositRequest,
   CashDepositResponse,
   CashierPlayerResponse,
@@ -73,6 +75,7 @@ export default function DeskPage() {
               desk.reload();
             }}
           />
+          {playerCash ? <WithdrawalCodeCard shift={shift} onPaid={desk.reload} /> : null}
           <PlayerDesk
             shift={shift}
             playerCash={playerCash}
@@ -366,6 +369,115 @@ function Receipts({ operations }: { operations: ShopDeskResponse['operations'] }
  * form keeps its idempotency key until the request finished (paid or sent to review), so a retry
  * after an error or a double click reuses it and can never record the cash twice.
  */
+/**
+ * Withdrawal codes (docs/plans/counter-codes-and-deposit-recovery.md, G4): the player asked for
+ * the cash in the app; the code alone shows the amount, their name and masked phone, then Pay.
+ */
+function WithdrawalCodeCard({ shift, onPaid }: { shift: CashierShiftView; onPaid: () => void }) {
+  const router = useRouter();
+  const [code, setCode] = useState('');
+  const [found, setFound] = useState<DeskWithdrawalCodeView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(() => `desk-${crypto.randomUUID()}`);
+  const digits = code.replace(/\s/g, '');
+
+  async function find(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setFound(null);
+    try {
+      setFound(
+        await api<DeskWithdrawalCodeView>('/shop/desk/withdrawal-codes/lookup', {
+          method: 'POST',
+          body: { shiftId: shift.id, code: digits },
+        }),
+      );
+    } catch (e) {
+      setError(describeError(e, TEXT.deskErrors));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pay() {
+    if (found === null || !window.confirm(TEXT.withdrawalCodeConfirm(formatEtb(found.amount))))
+      return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api<DeskWithdrawalCodePayResponse>('/shop/desk/withdrawal-codes/pay', {
+        method: 'POST',
+        body: { shiftId: shift.id, code: digits, idempotencyKey: key },
+      });
+      setKey(`desk-${crypto.randomUUID()}`);
+      onPaid();
+      router.push(receiptPath(res.receipt.operation.id, 'print'));
+    } catch (e) {
+      setError(describeError(e, TEXT.deskErrors));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card" aria-labelledby="withdrawal-code" data-testid="withdrawal-code-card">
+      <h2 id="withdrawal-code">{TEXT.withdrawalCodeTitle}</h2>
+      <p className="muted small">{TEXT.withdrawalCodeIntro}</p>
+      <form onSubmit={(e) => void find(e)} aria-label="Find withdrawal code">
+        <label htmlFor="withdrawal-code-input">
+          {TEXT.withdrawalCodeLabel}
+          <input
+            id="withdrawal-code-input"
+            data-testid="withdrawal-code-input"
+            inputMode="numeric"
+            autoComplete="off"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+          />
+        </label>
+        <button
+          type="submit"
+          data-testid="withdrawal-code-find"
+          disabled={busy || digits.length !== 6}
+        >
+          {TEXT.withdrawalCodeFind}
+        </button>
+      </form>
+      {error === null ? null : (
+        <p className="error" role="alert" data-testid="withdrawal-code-error">
+          {error}
+        </p>
+      )}
+      {found === null ? null : (
+        <div data-testid="withdrawal-code-found">
+          <p>
+            <strong>{formatEtb(found.amount)}</strong> · {found.playerName ?? '–'} · {found.phone}
+          </p>
+          <p className="muted small">
+            {TEXT.withdrawalCodeValidUntil}: {formatDateTime(found.expiresAt)}
+          </p>
+          {found.status === 'review' ? (
+            <p className="notice" role="status">
+              {TEXT.withdrawalCodeInReview}
+            </p>
+          ) : (
+            <button
+              type="button"
+              className="primary"
+              data-testid="withdrawal-code-pay"
+              disabled={busy}
+              onClick={() => void pay()}
+            >
+              {TEXT.paySubmit} {formatEtb(found.amount)}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function PlayerDesk({
   shift,
   playerCash,

@@ -1,4 +1,6 @@
 import {
+  DeskWithdrawalCodeLookupRequest,
+  DeskWithdrawalCodePayRequest,
   ShopOwnerCashierResponse,
   ShopOwnerCreateCashierRequest,
   ShopPayTicketRequest,
@@ -110,6 +112,8 @@ import {
   deskReprint,
   deskWithdrawal,
   type DeskActor,
+  deskWithdrawalCodeLookup,
+  deskWithdrawalCodePay,
 } from '../admin/desk-operations';
 
 /**
@@ -465,6 +469,27 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
       const input = parseInput(CashWithdrawalRequest, request.body);
       await checkShiftShop(requireDeskStaff(request), input.shiftId);
       return deskWithdrawal(deps, cashier(request), input, receiptView);
+    },
+  );
+
+  // Withdrawal codes (G4): the code alone finds the withdrawal the player asked for in the app.
+  app.post(
+    '/shop/desk/withdrawal-codes/lookup',
+    deskLimit('cashier-withdrawal', CASHIER_RATE_LIMITS.withdrawal),
+    async (request) => {
+      const input = parseInput(DeskWithdrawalCodeLookupRequest, request.body);
+      await checkShiftShop(requireDeskStaff(request), input.shiftId);
+      return deskWithdrawalCodeLookup(deps, cashier(request), input);
+    },
+  );
+
+  app.post(
+    '/shop/desk/withdrawal-codes/pay',
+    deskLimit('cashier-withdrawal', CASHIER_RATE_LIMITS.withdrawal),
+    async (request) => {
+      const input = parseInput(DeskWithdrawalCodePayRequest, request.body);
+      await checkShiftShop(requireDeskStaff(request), input.shiftId);
+      return deskWithdrawalCodePay(deps, cashier(request), input, receiptView);
     },
   );
 

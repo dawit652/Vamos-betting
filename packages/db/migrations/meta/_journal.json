@@ -589,6 +589,13 @@
       "when": 1795366755805,
       "tag": "0083_deposit_claim_source",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1795367654066,
+      "tag": "0084_withdrawal_codes",
+      "breakpoints": true
     }
   ]
 }

@@ -337,6 +337,80 @@ export const CashWithdrawalResponse = z.discriminatedUnion('outcome', [
 ]);
 export type CashWithdrawalResponse = z.infer<typeof CashWithdrawalResponse>;
 
+const DeskKey = z
+  .string()
+  .trim()
+  .min(8)
+  .max(100)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
+/**
+ * POST /payments/withdrawal-codes (the player, signed in; docs/plans/counter-codes-and-deposit-
+ * recovery.md, G4): cash at any shop with player cash on. The withdrawal is requested now (the money
+ * held; winnings only, limits, AML as online) and the code is shown this once; it is valid 24
+ * hours, and a newer code replaces the older (its money back). 422 as a withdrawal (amount, winnings
+ * only, KYC…), 409 `withdrawal_code_replayed` for the same key again.
+ */
+export const WithdrawalCodeRequest = z
+  .object({ amount: PositiveSantim, idempotencyKey: DeskKey })
+  .strict();
+export type WithdrawalCodeRequest = z.infer<typeof WithdrawalCodeRequest>;
+
+/** `ready`: payable now; `review`: the back office reviews the withdrawal first. */
+export const WithdrawalCodeStatusSchema = z.enum(['ready', 'review']);
+
+export const WithdrawalCodeResponse = z.object({
+  code: ShopCode,
+  amount: Santim,
+  expiresAt: IsoDateTime,
+  status: WithdrawalCodeStatusSchema,
+});
+export type WithdrawalCodeResponse = z.infer<typeof WithdrawalCodeResponse>;
+
+/** GET /payments/withdrawal-codes: the player's live code (never its digits), or null. */
+export const LiveWithdrawalCodeResponse = z.object({
+  live: z
+    .object({ amount: Santim, expiresAt: IsoDateTime, status: WithdrawalCodeStatusSchema })
+    .nullable(),
+});
+export type LiveWithdrawalCodeResponse = z.infer<typeof LiveWithdrawalCodeResponse>;
+
+/**
+ * POST /shop/desk/withdrawal-codes/lookup and /admin/cashier/withdrawal-codes/lookup: the code a
+ * player says, at the shop of the cashier's open shift. 422 `withdrawal_code_wrong` (details
+ * `{ attemptsLeft }`), 409 `withdrawal_codes_locked` after five wrong codes at the shop today.
+ */
+export const DeskWithdrawalCodeLookupRequest = z
+  .object({ shiftId: z.uuid(), code: ShopCode })
+  .strict();
+export type DeskWithdrawalCodeLookupRequest = z.infer<typeof DeskWithdrawalCodeLookupRequest>;
+
+export const DeskWithdrawalCodeView = z.object({
+  amount: Santim,
+  status: WithdrawalCodeStatusSchema,
+  playerName: z.string().nullable(),
+  /** Masked: enough to ask the player, not to copy. */
+  phone: z.string(),
+  expiresAt: IsoDateTime,
+});
+export type DeskWithdrawalCodeView = z.infer<typeof DeskWithdrawalCodeView>;
+
+/**
+ * POST /shop/desk/withdrawal-codes/pay and /admin/cashier/withdrawal-codes/pay: pays it from the
+ * drawer (any amount, the cashier alone). 409 `withdrawal_in_review`, `withdrawal_code_not_live`,
+ * `cashier_four_eyes`, `payout_flagged`; then print the receipt.
+ */
+export const DeskWithdrawalCodePayRequest = z
+  .object({ shiftId: z.uuid(), code: ShopCode, idempotencyKey: DeskKey })
+  .strict();
+export type DeskWithdrawalCodePayRequest = z.infer<typeof DeskWithdrawalCodePayRequest>;
+
+export const DeskWithdrawalCodePayResponse = z.object({
+  receipt: CashReceiptView,
+  replayed: z.boolean(),
+});
+export type DeskWithdrawalCodePayResponse = z.infer<typeof DeskWithdrawalCodePayResponse>;
+
 /**
  * POST /admin/cashier/players/:id/pin-reset (cashier.desk): the desk code on the player's phone
  * ("Forgot PIN", "Reset at a shop") and the ID number on the player's card.

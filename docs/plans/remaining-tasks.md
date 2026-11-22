@@ -8,8 +8,10 @@ FETCH_HEAD` before working there). **Counter codes step 5 is built (22 Nov, push
 suggested players (migration `0082_deposit_claims`). Also built and pushed (22 Nov): the owner's
 daily "money not credited" Telegram line, Back office → Service health, the shop's printed shift
 report, and step 6, the Telegram "Deposit problem" (migration `0083_deposit_claim_source`; **next
-free migration: 0084**). Next: step 7, the G4 withdrawal code (amount in the app, a 24-hour code,
-paid by code at any shop with player cash on); phase 6 waits for the owner's POS.
+free migration: 0084**), and step 7, the G4 withdrawal code (amount in the app, a 24-hour code,
+paid by the code alone at any shop with player cash on; migration `0084_withdrawal_codes`; **next free
+migration: 0085**). The counter codes plan is complete. Next: the owner deploys (migrations
+0077-0084); phase 6 waits for the owner's POS.
 **Before that (22 Nov):** the first account's work on `claude/eager-cerf-ox9vkq`. **Counter codes steps 3, 3b and 4 are built (22 Nov, pushed, NOT deployed):** the payout code
 printed on each shop ticket and asked for at Pay (migration `0081_retail_ticket_payout_code`), the
 public ticket check (website `/ticket`, Telegram `/ticket`), and manual deposits by one admin

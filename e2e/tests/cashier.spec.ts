@@ -149,19 +149,22 @@ test('a verified player gets a shop code on the phone and the cashier pays cash 
     await expect(desk.getByText(/ETB 300\.00 credited/)).toBeVisible();
     await (await depositTab).close();
 
-    // The player makes a shop code on their phone.
+    // The player asks for ETB 100 at a shop on their phone: a 24-hour withdrawal code (G4).
     await page.goto('/wallet/withdraw');
-    await page.getByRole('button', { name: 'Get a shop code' }).click();
+    await page.getByTestId('cash-code-amount').fill('100');
+    await page.getByRole('button', { name: 'Get a withdrawal code' }).click();
     const shown = page.getByTestId('shop-code');
     await expect(shown).toHaveText(/^\d{3} \d{3}$/);
+    await expect(page.getByTestId('shop-code-amount')).toHaveText('ETB 100.00');
     const code = ((await shown.textContent()) ?? '').replace(/\s/g, '');
 
-    // The cashier pays ETB 100 with it; the receipt has the signature line.
+    // The cashier types the code alone, sees the amount and pays; the receipt has the signature line.
+    await desk.getByLabel('Withdrawal code').fill(code);
+    await desk.getByRole('button', { name: 'Find withdrawal' }).click();
+    await expect(desk.getByTestId('withdrawal-code-found')).toContainText('ETB 100.00');
     const receiptTab = staff.waitForEvent('page');
-    await desk.getByLabel('Withdrawal amount (ETB)').fill('100');
-    await desk.getByLabel("Player's shop code").fill(code);
-    await desk.getByRole('button', { name: 'Pay cash withdrawal' }).click();
-    await expect(desk.getByText(/Pay ETB 100\.00 to the player\. Receipt R\d+/)).toBeVisible();
+    desk.once('dialog', (dialog) => void dialog.accept());
+    await desk.getByRole('button', { name: 'Pay ETB 100.00' }).click();
     const receipt = await receiptTab;
     await expect(receipt.getByTestId('receipt')).toContainText('CASH WITHDRAWAL');
     await expect(receipt.getByTestId('receipt')).toContainText('Player signature');

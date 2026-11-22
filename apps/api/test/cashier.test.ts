@@ -1,4 +1,8 @@
 import {
+  DeskWithdrawalCodePayResponse,
+  DeskWithdrawalCodeView,
+  LiveWithdrawalCodeResponse,
+  WithdrawalCodeResponse,
   ApiErrorSchema,
   CashDepositResponse,
   CashierDeskResponse,
@@ -400,6 +404,77 @@ describe('cash withdrawals', () => {
       idempotencyKey: `desk-${randomUUID()}`,
       ...body,
     });
+
+  it('a withdrawal code asked for in the app is paid by the code alone at the desk (G4)', async () => {
+    const player = await verifiedPlayerWith(300_000n);
+    const auth = { cookie: player.cookie, 'x-csrf-token': player.csrfToken };
+    expect(
+      (
+        await ctx.app.inject({
+          method: 'POST',
+          url: '/payments/withdrawal-codes',
+          payload: { amount: '120000', idempotencyKey: `code-${randomUUID()}` },
+        })
+      ).statusCode,
+    ).toBe(401);
+    const made = await ctx.app.inject({
+      method: 'POST',
+      url: '/payments/withdrawal-codes',
+      headers: auth,
+      payload: { amount: '120000', idempotencyKey: `code-${randomUUID()}` },
+    });
+    expect(made.statusCode, made.body).toBe(201);
+    const issued = WithdrawalCodeResponse.parse(made.json());
+    expect(issued).toMatchObject({ amount: '120000', status: 'ready' });
+    expect(issued.code).toMatch(/^[1-9]\d{5}$/);
+    const liveNow = async () =>
+      LiveWithdrawalCodeResponse.parse(
+        (
+          await ctx.app.inject({ method: 'GET', url: '/payments/withdrawal-codes', headers: auth })
+        ).json(),
+      );
+    const live = await liveNow();
+    expect(live.live).toMatchObject({ amount: '120000', status: 'ready' });
+    expect(JSON.stringify(live)).not.toContain(issued.code);
+
+    const shift = await openShift(cashier, '500000');
+    const lookup = await asStaff(ctx, cashier, 'POST', '/admin/cashier/withdrawal-codes/lookup', {
+      shiftId: shift.id,
+      code: issued.code,
+    });
+    expect(lookup.statusCode, lookup.body).toBe(200);
+    expect(DeskWithdrawalCodeView.parse(lookup.json())).toMatchObject({
+      amount: '120000',
+      status: 'ready',
+      playerName: 'Abebe Kebede',
+    });
+    const wrongCode = issued.code === '999999' ? '999998' : '999999';
+    const wrong = await asStaff(ctx, cashier, 'POST', '/admin/cashier/withdrawal-codes/lookup', {
+      shiftId: shift.id,
+      code: wrongCode,
+    });
+    expect(wrong.statusCode).toBe(422);
+    expect(code(wrong.body)).toBe('withdrawal_code_wrong');
+    const key = `desk-${randomUUID()}`;
+    const pay = () =>
+      asStaff(ctx, cashier, 'POST', '/admin/cashier/withdrawal-codes/pay', {
+        shiftId: shift.id,
+        code: issued.code,
+        idempotencyKey: key,
+      });
+    const paid = await pay();
+    expect(paid.statusCode, paid.body).toBe(200);
+    expect(DeskWithdrawalCodePayResponse.parse(paid.json())).toMatchObject({ replayed: false });
+    expect(DeskWithdrawalCodePayResponse.parse((await pay()).json()).replayed).toBe(true);
+    expect((await liveNow()).live).toBeNull();
+    // The drawer gave ETB 1,200: the shift closes with what is left.
+    const open = (await desk(cashier)).shift!;
+    expect(open.expectedCash).toBe('380000');
+    const closed = await asStaff(ctx, cashier, 'POST', `/admin/cashier/shifts/${open.id}/close`, {
+      countedCash: open.expectedCash,
+    });
+    expect(closed.statusCode, closed.body).toBe(200);
+  });
 
   it('the player makes a code; the desk pays with it once, prints a receipt; a wrong code counts', async () => {
     const player = await verifiedPlayerWith(200_000n);

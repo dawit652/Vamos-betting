@@ -16,11 +16,18 @@ import {
   type WithdrawalView,
   type WithdrawalsResponse,
   CreateDepositClaimRequest,
+  LiveWithdrawalCodeResponse,
+  WithdrawalCodeRequest,
+  WithdrawalCodeResponse,
   DepositClaimListResponse,
   DepositClaimResponse,
 } from '@vamos/contracts';
 import {
   createCashCode,
+  createWithdrawalCode,
+  getLiveWithdrawalCode,
+  loadComplianceSettings,
+  loadGameSettings,
   fileDepositClaim,
   listPlayerDepositClaims,
   withTxRetry,
@@ -28,7 +35,12 @@ import {
 } from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { cashCodeHash, newCashCode } from '../../lib/cash-code';
+import {
+  cashCodeHash,
+  newCashCode,
+  newWithdrawalCode,
+  withdrawalCodeHash,
+} from '../../lib/cash-code';
 import { clientAddressKey } from '../../lib/client-address';
 import { parseInput } from '../../lib/errors';
 import { IDEMPOTENT_REPLAYED_HEADER, readIdempotencyKey } from '../../lib/idempotency';
@@ -82,6 +94,18 @@ export const PAYMENT_RATE_LIMITS = {
   /** Per player: "My deposit did not arrive" (G5.3). */
   depositClaim: 5,
 } as const;
+
+/** A Postgres unique violation (23505), however the driver wrapped it. */
+function isUniqueViolation(error: unknown): boolean {
+  for (
+    let e: unknown = error;
+    e !== null && typeof e === 'object';
+    e = (e as { cause?: unknown }).cause
+  ) {
+    if ((e as { code?: unknown }).code === '23505') return true;
+  }
+  return false;
+}
 
 /** A claim as its player sees it (never the staff's note). */
 function claimView(claim: DepositClaim) {
@@ -442,6 +466,69 @@ export default async function paymentRoutes(app: FastifyInstance): Promise<void>
       const user = requireUser(request);
       const claims = await listPlayerDepositClaims(deps.db, user.id);
       return DepositClaimListResponse.parse({ claims: claims.map(claimView) });
+    },
+  );
+
+  // Withdrawal codes (G4): cash at any shop with player cash on. The withdrawal is requested now
+  // (the money held) and its 6-digit code shown this once; it lives 24 hours.
+  app.post(
+    '/payments/withdrawal-codes',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-withdrawal-code', PAYMENT_RATE_LIMITS.createCashCode),
+    },
+    async (request, reply): Promise<WithdrawalCodeResponse> => {
+      const user = requireUser(request);
+      const input = parseInput(WithdrawalCodeRequest, request.body);
+      // Six digits can clash with another live code: new digits, up to three times.
+      for (let attempt = 1; ; attempt += 1) {
+        const code = newWithdrawalCode();
+        try {
+          const made = await withTxRetry(deps.db, async (tx) => {
+            const { payments } = await loadGameSettings(tx);
+            const { amlRules } = await loadComplianceSettings(tx);
+            return createWithdrawalCode(tx, {
+              userId: user.id,
+              amount: BigInt(input.amount),
+              codeHash: withdrawalCodeHash(deps.config.sessionSecret, code),
+              idempotencyKey: input.idempotencyKey,
+              rules: payments,
+              amlRules,
+              now: deps.clock(),
+              ip: request.ip,
+            });
+          });
+          void reply.status(201);
+          return WithdrawalCodeResponse.parse({
+            code,
+            amount: made.payout.amount.toString(),
+            expiresAt: made.code.expiresAt.toISOString(),
+            status: made.payout.status === 'approved' ? 'ready' : 'review',
+          });
+        } catch (error) {
+          if (attempt < 3 && isUniqueViolation(error)) continue;
+          throw error;
+        }
+      }
+    },
+  );
+
+  app.get(
+    '/payments/withdrawal-codes',
+    { preHandler: app.requireAuth },
+    async (request): Promise<LiveWithdrawalCodeResponse> => {
+      const user = requireUser(request);
+      const live = await getLiveWithdrawalCode(deps.db, { userId: user.id, now: deps.clock() });
+      return LiveWithdrawalCodeResponse.parse({
+        live:
+          live === null
+            ? null
+            : {
+                amount: live.payout.amount.toString(),
+                expiresAt: live.code.expiresAt.toISOString(),
+                status: live.payout.status === 'approved' ? 'ready' : 'review',
+              },
+      });
     },
   );
 

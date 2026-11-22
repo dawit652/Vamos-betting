@@ -117,6 +117,20 @@ locked }`), and the fifth locks the ticket (409 `payout_code_locked`, audited
   today starts at the counter.
 - Decision O2: at any shop with player cash on.
 
+**Built 22 Nov (step 7, migration `0084_withdrawal_codes`):** "Withdraw cash at a shop" on the
+player's Withdraw page: the amount, then a 6-digit code shown once (`POST /payments/withdrawal-codes`;
+`GET` tells whether one is live, never its digits). The withdrawal is requested at once with
+provider `cash` and every online rule (winnings only, limits, the daily cap, AML, exclusions; the
+cashier pays any amount alone, so its size never sends it to review) and its money held. A newer
+code replaces the older (its withdrawal cancelled, the money back). At the desk (the shop app and the
+back office's Cashier desk) the cashier types the code alone: "Find" shows the amount, the player's
+name and masked phone (`…/withdrawal-codes/lookup`), "Pay" pays it from the drawer and prints the
+receipt (`…/withdrawal-codes/pay`; an agent's shop: the agent's balance grows by it, as for every
+counter withdrawal). Only a keyed hash of the code is stored. Five wrong codes at a shop in a day
+lock that shop's code entry until the next day (Addis Ababa). A code not used within 24 hours gives
+the money back (the worker's `cash-collect` task, hourly). The older desk form (phone, shop code,
+amount) still works for the codes made before.
+
 ### G5. A deposit that did not arrive (logged-in players)
 
 1. **Re-check with the provider (Chapa, telebirr):** a button on the deposit in the back office asks
@@ -311,7 +325,7 @@ Telegram message at once. G5.2 follows this: "propose" and "approve" are one ste
 | 4    | G5.1-2 provider re-check and manual deposit (one admin, O5)           | Main session (money)              |
 | 5    | G6 "Money not credited" with suggested players; G5.3 claims           | **Built 22 Nov**                  |
 | 6    | G5.4 Telegram "Deposit problem" (O3: allowed)                         | **Built 22 Nov**                  |
-| 7    | G4 withdrawal code (O2: any shop with player cash on)                 | Main session (money)              |
+| 7    | G4 withdrawal code (O2: any shop with player cash on)                 | **Built 22 Nov**                  |
 | 8    | G8 shift report print; phase 6 when the POS model is chosen           | `routine-coder`                   |
 
 Every decision is made: build the steps in this order.

@@ -1,4 +1,4 @@
-import { expireUncollectedCashPayouts } from '@vamos/db';
+import { expireUncollectedCashPayouts, expireWithdrawalCodes } from '@vamos/db';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import type { TaskContext } from './context';
 
@@ -14,14 +14,18 @@ export interface CashCollectOptions {
 /**
  * Cashier phase "uncollected approved cash withdrawals": an approved cash withdrawal not collected
  * at a shop within CASH_WITHDRAWAL_COLLECT_DAYS of its approval goes back to the player's balance
- * (expireUncollectedCashPayouts: the hold returned, the player notified, audited).
+ * (expireUncollectedCashPayouts: the hold returned, the player notified, audited); a withdrawal code
+ * not used within its 24 hours likewise (expireWithdrawalCodes).
  */
 export async function runCashCollect(ctx: TaskContext, maxAgeMs: number): Promise<number> {
   const expired = await expireUncollectedCashPayouts(ctx.db, { now: ctx.clock(), maxAgeMs });
   if (expired > 0) {
     ctx.logger.info({ expired }, 'uncollected cash withdrawals returned to the players');
   }
-  return expired;
+  // Withdrawal codes (G4) not used within their 24 hours: the money goes back to the player.
+  const codes = await expireWithdrawalCodes(ctx.db, { now: ctx.clock() });
+  if (codes > 0) ctx.logger.info({ codes }, 'expired withdrawal codes returned to the players');
+  return expired + codes;
 }
 
 export function cashCollectTask(ctx: TaskContext, options: CashCollectOptions): IntervalTask {

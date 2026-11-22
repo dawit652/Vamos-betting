@@ -61,8 +61,9 @@ possible:
    manual deposits by one admin (steps 3, 3b, 4, by the first account), and step 5 by the second
    account: "My deposit did not arrive" claims and Back office → Money not credited (migration 0082),
    the owner's daily "money not credited" Telegram line, Back office → Service health, the shop's
-   printed shift report, and the Telegram "Deposit problem" (step 6, migration 0083; newest branch
-   `claude/happy-keller-i7cvrh`; next free migration 0084). Next: step 7, the G4 withdrawal code, of
+   printed shift report, the Telegram "Deposit problem" (step 6, migration 0083) and the G4
+   withdrawal code (step 7, migration 0084; newest branch `claude/happy-keller-i7cvrh`; next free
+   migration 0085). The counter codes plan is built; next: the owner deploys (migrations 0077-0084) and
    `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
    21 Nov: 6-digit booking, payout and withdrawal codes, deposit recovery, the health page, completing
    the shop app; decisions O1-O5 made), the owner deploys; phase 6 supports many POS devices (owner, 22 Nov: `docs/plans/agent-shops.md`,
@@ -133,6 +134,10 @@ Node 22 and pnpm 10. Run these from the repository root.
   office → Money not credited suggests the player for money that arrived, and an admin credits it
   with the SMS credit or the manual deposit (`claimId` answers the claim in the same transaction)
   (`packages/db/src/payments/deposit-claims.ts`).
+- **Withdrawal codes** (G4, O2): a player asks for cash at a shop in the app (the amount, held at
+  once with every online rule); the 6-digit code alone, typed at any shop with player cash on, pays
+  it. One use, keyed hash only, five wrong codes a day lock a shop's code entry, unused after 24
+  hours the money goes back (`packages/db/src/cashier/withdrawal-codes.ts`).
 - **Shop ticket payout code** (owner, 21 Nov 2026, O1): printed once on the customer's ticket at sale, stored only as a salted hash, never on a screen or a reprint; paying asks for it, five wrong ones lock the ticket until HQ unlocks or waives it (`packages/db/src/retail/payout-code.ts`).
 - **Cashiers pay alone** (owner, 21 Nov 2026): a counter cash withdrawal or a winning shop ticket of any amount, with no supervisor, no HQ approval and no review for its size (exclusions, AML holds and settlement corrections still hold a withdrawal). Counter deposits keep the shop's supervisor threshold.
 - **Fixtures:** SMS parsers and receipt readers are tested against `packages/core/src/smsparse.fixtures.ts` and `packages/payments/src/receipts/fixtures.ts`; a new message shape gets a scrubbed fixture and a test.

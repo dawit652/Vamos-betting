@@ -10,3 +10,13 @@ export function newCashCode(): string {
 export function cashCodeHash(secret: string, userId: string, code: string): string {
   return hmacSha256Hex(secret, `cash:${userId}:${code.trim()}`);
 }
+
+/** A new withdrawal code (G4): six digits, no leading zero, read out at any shop's desk. */
+export function newWithdrawalCode(): string {
+  return randomInt(100_000, 1_000_000).toString();
+}
+
+/** Only this keyed hash of a withdrawal code is stored; the desk finds the code by it alone. */
+export function withdrawalCodeHash(secret: string, code: string): string {
+  return hmacSha256Hex(secret, `withdraw:${code.trim()}`);
+}

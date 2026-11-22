@@ -353,12 +353,14 @@ export const account = {
     cashAtShop: {
       title: 'Withdraw cash at a shop',
       intro:
-        'Get a shop code, then tell the cashier your phone number and the code. Bring your ID. The code works for 15 minutes.',
-      get: 'Get a shop code',
-      getNew: 'Get a new code',
-      codeLabel: 'Your shop code',
+        'Choose the amount and get a withdrawal code. At any Nahubet shop, tell the cashier the code and show your ID: you are paid in cash. The money is set aside now; the code works for 24 hours, then the money comes back to your balance.',
+      amount: 'Amount (ETB)',
+      get: 'Get a withdrawal code',
+      getNew: 'Get a new code (the old one stops working)',
+      codeLabel: 'Your withdrawal code',
       validUntil: 'Valid until {time}',
-      remaining: 'Time left: {time}',
+      review: 'We check this withdrawal first. The cashier can pay it once it is approved.',
+      live: 'You have a withdrawal code for {amount}, valid until {time}. Lost it? Get a new one.',
     },
     depositClaim: {
       title: 'My deposit did not arrive',

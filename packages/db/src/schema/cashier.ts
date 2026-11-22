@@ -4,6 +4,7 @@ import {
   bigserial,
   boolean,
   check,
+  date,
   index,
   integer,
   pgEnum,
@@ -57,6 +58,13 @@ export const cashierShops = pgTable(
       .notNull()
       .default(sql`1000000`),
     active: boolean('active').notNull().default(true),
+    /**
+     * Wrong withdrawal codes typed at this shop on `withdrawal_code_failure_day` (Addis Ababa;
+     * docs/plans/counter-codes-and-deposit-recovery.md, G4): at WITHDRAWAL_CODE_SHOP_ATTEMPTS the
+     * shop's code entry locks for the rest of that day.
+     */
+    withdrawalCodeFailures: integer('withdrawal_code_failures').notNull().default(0),
+    withdrawalCodeFailureDay: date('withdrawal_code_failure_day'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -336,10 +344,30 @@ export const cashWithdrawalCodes = pgTable(
     attempts: integer('attempts').notNull().default(0),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     usedAt: timestamp('used_at', { withTimezone: true }),
+    /**
+     * A withdrawal code (G4): the withdrawal requested in the app when the code was made (its money
+     * held at once) and its amount; the code alone, typed at any shop with player cash on, pays it.
+     * Null for the older shop codes (phone + code + amount at the desk).
+     */
+    payoutId: uuid('payout_id').references(() => payouts.id, { onDelete: 'restrict' }),
+    amount: bigint('amount', { mode: 'bigint' }),
+    /** Replaced by a newer code, or expired unused (its withdrawal returned to the player). */
+    closedAt: timestamp('closed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (t) => [
     index('cash_withdrawal_codes_user_idx').on(t.userId, t.createdAt),
     check('cash_withdrawal_codes_attempts', sql`${t.attempts} >= 0`),
+    check(
+      'cash_withdrawal_codes_payout_amount',
+      sql`(${t.payoutId} IS NULL) = (${t.amount} IS NULL)`,
+    ),
+    // A live withdrawal code is found by its keyed hash alone: one live code per hash.
+    uniqueIndex('cash_withdrawal_codes_live_hash_uq')
+      .on(t.codeHash)
+      .where(sql`${t.payoutId} IS NOT NULL AND ${t.usedAt} IS NULL AND ${t.closedAt} IS NULL`),
+    index('cash_withdrawal_codes_live_expiry_idx')
+      .on(t.expiresAt)
+      .where(sql`${t.payoutId} IS NOT NULL AND ${t.usedAt} IS NULL AND ${t.closedAt} IS NULL`),
   ],
 );

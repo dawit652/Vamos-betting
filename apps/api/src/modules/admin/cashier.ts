@@ -1,4 +1,6 @@
 import {
+  DeskWithdrawalCodeLookupRequest,
+  DeskWithdrawalCodePayRequest,
   BlockPlayerRequest,
   CashDepositRequest,
   CashDepositResponse,
@@ -77,6 +79,8 @@ import {
   deskReprint,
   deskWithdrawal,
   type DeskActor,
+  deskWithdrawalCodeLookup,
+  deskWithdrawalCodePay,
 } from './desk-operations';
 import { requireStaff, staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, wire } from './common';
@@ -485,6 +489,35 @@ export default async function adminCashierRoutes(app: FastifyInstance): Promise<
     async (request) => {
       const input = parseInput(CashWithdrawalRequest, request.body);
       return deskWithdrawal(deps, deskActor(request), input, receiptView);
+    },
+  );
+
+  // Withdrawal codes (G4): the code alone finds the withdrawal the player asked for in the app.
+  app.post(
+    '/admin/cashier/withdrawal-codes/lookup',
+    {
+      config: {
+        staff: 'cashier.desk',
+        ...perStaff('cashier-withdrawal', CASHIER_RATE_LIMITS.withdrawal),
+      },
+    },
+    async (request) => {
+      const input = parseInput(DeskWithdrawalCodeLookupRequest, request.body);
+      return deskWithdrawalCodeLookup(deps, deskActor(request), input);
+    },
+  );
+
+  app.post(
+    '/admin/cashier/withdrawal-codes/pay',
+    {
+      config: {
+        staff: 'cashier.desk',
+        ...perStaff('cashier-withdrawal', CASHIER_RATE_LIMITS.withdrawal),
+      },
+    },
+    async (request) => {
+      const input = parseInput(DeskWithdrawalCodePayRequest, request.body);
+      return deskWithdrawalCodePay(deps, deskActor(request), input, receiptView);
     },
   );
 

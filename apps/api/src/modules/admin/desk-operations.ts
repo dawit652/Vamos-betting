@@ -1,4 +1,8 @@
 import {
+  DeskWithdrawalCodePayResponse,
+  DeskWithdrawalCodeView,
+  type DeskWithdrawalCodeLookupRequest,
+  type DeskWithdrawalCodePayRequest,
   CashDepositResponse,
   CashierPlayerResponse,
   CashWithdrawalResponse,
@@ -12,6 +16,9 @@ import {
   findDeskPayout,
   findDeskPlayer,
   findOperationByKey,
+  findWithdrawalCodeAtShop,
+  getShift,
+  payWithdrawalCode,
   getReceipt,
   loadComplianceSettings,
   loadGameSettings,
@@ -22,7 +29,7 @@ import {
   type Receipt,
 } from '@vamos/db';
 import type { AppDeps } from '../../deps';
-import { cashCodeHash } from '../../lib/cash-code';
+import { cashCodeHash, withdrawalCodeHash } from '../../lib/cash-code';
 import { notFound } from '../../lib/errors';
 import { inTx, wire } from './common';
 
@@ -199,4 +206,73 @@ export async function deskReprint(deps: AppDeps, actor: DeskActor, operationId: 
     if (after === null) throw notFound('Receipt');
     return after;
   });
+}
+
+/** The caller's open shift (404 otherwise): withdrawal codes are typed at its shop. */
+async function ownOpenShift(deps: AppDeps, actor: DeskActor, shiftId: string) {
+  const shift = await getShift(deps.db, shiftId);
+  if (shift === null || shift.staffId !== actor.staffId || shift.status !== 'open') {
+    throw notFound('Shift');
+  }
+  return shift;
+}
+
+/**
+ * A withdrawal code (G4) the player says at the desk: its amount, whether it is payable, the
+ * player's name and masked phone. Wrong codes count against the shop (five a day lock it).
+ */
+export async function deskWithdrawalCodeLookup(
+  deps: AppDeps,
+  actor: DeskActor,
+  input: DeskWithdrawalCodeLookupRequest,
+) {
+  const shift = await ownOpenShift(deps, actor, input.shiftId);
+  const found = await findWithdrawalCodeAtShop(deps.db, {
+    shopId: shift.shopId,
+    codeHash: withdrawalCodeHash(deps.config.sessionSecret, input.code),
+    now: deps.clock(),
+  });
+  return wire(DeskWithdrawalCodeView, {
+    amount: found.amount,
+    status: found.status === 'approved' ? 'ready' : 'review',
+    playerName: found.playerName,
+    phone: found.maskedPhone,
+    expiresAt: found.expiresAt,
+  });
+}
+
+/** Pays a withdrawal code from the drawer; the same desk key again answers with its receipt. */
+export async function deskWithdrawalCodePay(
+  deps: AppDeps,
+  actor: DeskActor,
+  input: DeskWithdrawalCodePayRequest,
+  receiptView: ReceiptViewOf,
+) {
+  // A retry after the payment (the code is used by then) answers with the receipt.
+  const done = await findOperationByKey(deps.db, input.idempotencyKey);
+  if (done !== null && done.kind === 'withdrawal' && done.staffId === actor.staffId) {
+    const receipt = await getReceipt(deps.db, done.id);
+    if (receipt === null) throw notFound('Receipt');
+    return wire(DeskWithdrawalCodePayResponse, { receipt: receiptView(receipt), replayed: true });
+  }
+  const shift = await ownOpenShift(deps, actor, input.shiftId);
+  const found = await findWithdrawalCodeAtShop(deps.db, {
+    shopId: shift.shopId,
+    codeHash: withdrawalCodeHash(deps.config.sessionSecret, input.code),
+    now: deps.clock(),
+  });
+  const result = await inTx(deps, async (tx) => {
+    const paid = await payWithdrawalCode(tx, {
+      staffId: actor.staffId,
+      shiftId: shift.id,
+      codeId: found.codeId,
+      idempotencyKey: input.idempotencyKey,
+      now: deps.clock(),
+      ip: actor.ip,
+    });
+    const receipt = await getReceipt(tx, paid.operation.id);
+    if (receipt === null) throw new Error('receipt missing after a withdrawal');
+    return { receipt: receiptView(receipt), replayed: paid.replayed };
+  });
+  return wire(DeskWithdrawalCodePayResponse, result);
 }
