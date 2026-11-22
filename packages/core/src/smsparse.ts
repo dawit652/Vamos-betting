@@ -101,10 +101,11 @@ export const INSTITUTIONS: readonly InstitutionSpec[] = [
     // CBE links a receipt, but apps.cbe.com.et refuses connections from
     // outside its network, so CBE is not receipt-verifiable (no receiptUrl):
     // balance reconciliation covers it instead.
-    // Current credits (22 Nov 2026) carry no "Ref No": their only reference is the token of the
-    // receipt link "https://mbreciept.cbe.com.et/v2-<token>" (read uppercase, like every reference).
+    // Current credits (22 Nov 2026) carry no "Ref No": their only reference is in the receipt
+    // link, "https://mbreciept.cbe.com.et/v2-<token>" (a CBE transfer) or
+    // "https://apps.cbe.com.et:100/BranchReceipt/FT…&<account>" (from telebirr), read uppercase.
     receiptPattern:
-      /(https?:\/\/(?:apps\.cbe\.com\.et[^\s]*?[?&]id=|mbreciept\.cbe\.com\.et\/(?:v\d+-)?)([A-Z0-9]{6,25}))(?![A-Z0-9])/i,
+      /(https?:\/\/(?:apps\.cbe\.com\.et[^\s]*?[?&]id=|apps\.cbe\.com\.et(?::\d+)?\/BranchReceipt\/|mbreciept\.cbe\.com\.et\/(?:v\d+-)?)([A-Z0-9]{6,25}))(?![A-Z0-9])/i,
   },
   {
     id: 'mpesa',

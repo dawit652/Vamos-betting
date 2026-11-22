@@ -114,6 +114,19 @@ describe('the live telebirr and CBE credits (22 Nov 2026)', () => {
     }
   });
 
+  it("reads CBE's credit of money sent from telebirr by its BranchReceipt FT reference", () => {
+    for (const hint of ['CBE', null]) {
+      expect(parseSms(CBE_SMS.creditFromWalletLive, hint)).toMatchObject({
+        institution: 'cbe',
+        direction: 'credit',
+        amount: 1040n,
+        reference: 'FT26001ABC12',
+        counterpartyPhone: null,
+        balance: 123456n,
+      });
+    }
+  });
+
   it('a masked number fits only the phones that agree at every visible place', () => {
     expect(smsPhoneFits('+2519****0000', '+251911110000')).toBe(true);
     expect(smsPhoneFits('+2519****0000', '+251911110001')).toBe(false);

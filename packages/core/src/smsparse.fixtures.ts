@@ -37,6 +37,13 @@ export const CBE_SMS = {
    */
   creditLive:
     'Dear CUSTOMER NAME You have received ETB 50.28 from account 1********0000 (Sender Full Name) to your account 1********1111. Your current balance is ETB 1,234.56. Thanks for Banking with CBE. https://mbreciept.cbe.com.et/v2-abCDefGH12ijKL34mnOP for feedback: https://forms.gle/AbCdEf12345',
+  /**
+   * Money sent from telebirr to the CBE account, as CBE reports it (22 Nov 2026; name, accounts
+   * and the reference changed): one decimal, no thousands comma, the FT reference only in the
+   * BranchReceipt link.
+   */
+  creditFromWalletLive:
+    'Dear CUSTOMER NAME your Account 1****1111 has been credited with ETB 10.4. Your Current Balance is ETB 1234.56. Thank you for Banking with CBE! for Reciept https://apps.cbe.com.et:100/BranchReceipt/FT26001ABC12&11111111',
 } as const;
 
 export const BANK_SMS = {
