@@ -37,6 +37,30 @@ export interface AutoOpenSummary {
   failed: number;
   /** Live deltas published after the commits. */
   published: number;
+  /**
+   * Waiting events that stayed closed, by the first F7b condition that failed, in the order they
+   * are checked (docs/plans/review-queue-automation.md, step 4): `kickoff:<reasons>` (K2 not
+   * confirmed, the assessment's reasons joined by `+`), `no_evidence`, `changed` (the event changed
+   * under the lock), `not_waiting`, `kickoff_question` (an open F4 item), `reprice_held` (O3),
+   * `policy` (auto_open switched off), `person_decided`, `uncalibrated` (O1 and O1m both fail),
+   * `price_checks` (O2).
+   */
+  held: Record<string, number>;
+}
+
+/** The held counts go to the info log at most this often while events wait (opening logs at once). */
+const HELD_LOG_EVERY_MS = 15 * 60_000;
+let lastHeldLogAt: number | null = null;
+
+function heldLogDue(summary: AutoOpenSummary, now: Date): boolean {
+  if (Object.keys(summary.held).length === 0) return false;
+  if (lastHeldLogAt !== null && now.getTime() - lastHeldLogAt < HELD_LOG_EVERY_MS) return false;
+  lastHeldLogAt = now.getTime();
+  return true;
+}
+
+function kickoffHold(assessment: KickoffAssessment): string {
+  return `kickoff:${assessment.reasons.length > 0 ? assessment.reasons.join('+') : 'unconfirmed'}`;
 }
 
 /** The audit actions that record a change of an event's betting, by a person or by the scraper. */
@@ -81,7 +105,10 @@ const CHUNK = 200;
  */
 export async function openConfirmedEvents(ctx: ScraperContext): Promise<AutoOpenSummary> {
   const now = ctx.clock();
-  const summary: AutoOpenSummary = { checked: 0, opened: 0, failed: 0, published: 0 };
+  const summary: AutoOpenSummary = { checked: 0, opened: 0, failed: 0, published: 0, held: {} };
+  const hold = (reason: string) => {
+    summary.held[reason] = (summary.held[reason] ?? 0) + 1;
+  };
   const autoOpen = await autoOpenCompetitions(ctx.db);
   if (autoOpen.size === 0) return summary;
 
@@ -100,15 +127,25 @@ export async function openConfirmedEvents(ctx: ScraperContext): Promise<AutoOpen
     }
     for (const eventId of ids) {
       const found = evidence.get(eventId);
-      if (found === undefined) continue;
+      if (found === undefined) {
+        hold('no_evidence');
+        continue;
+      }
       summary.checked += 1;
       try {
         // A first look without locks: most waiting events are not confirmed yet.
-        if (!assess(found, now).confirmed) continue;
-        const messages = await openOne(ctx, eventId, now);
-        if (messages === null) continue;
+        const first = assess(found, now);
+        if (!first.confirmed) {
+          hold(kickoffHold(first));
+          continue;
+        }
+        const outcome = await openOne(ctx, eventId, now);
+        if (typeof outcome === 'string') {
+          hold(outcome);
+          continue;
+        }
         summary.opened += 1;
-        summary.published += await publishAfterCommit(ctx.redis, messages, ctx.channel, ctx.logger);
+        summary.published += await publishAfterCommit(ctx.redis, outcome, ctx.channel, ctx.logger);
       } catch (error) {
         summary.failed += 1;
         ctx.logger.error({ err: error, eventId }, 'opening betting on a confirmed kickoff failed');
@@ -116,7 +153,8 @@ export async function openConfirmedEvents(ctx: ScraperContext): Promise<AutoOpen
     }
   }
 
-  ctx.logger[summary.opened + summary.failed > 0 ? 'info' : 'debug'](
+  // heldLogDue last: it records the time of the info line it allows.
+  ctx.logger[summary.opened + summary.failed > 0 || heldLogDue(summary, now) ? 'info' : 'debug'](
     { ...summary },
     'auto open run',
   );
@@ -197,13 +235,13 @@ async function waitingEvents(
  * F7b for one event, in one transaction: the event row is locked first, then its review items (the
  * order of K1, the re-price step and the review actions, which all lock the event before they write
  * an item; the reverse order could deadlock with a trader's `open_betting`), and every condition is
- * read again. Returns the live deltas, or null when a condition no longer holds.
+ * read again. Returns the live deltas, or the hold (AutoOpenSummary.held) when a condition fails.
  */
 async function openOne(
   ctx: ScraperContext,
   eventId: string,
   now: Date,
-): Promise<LiveMessage[] | null> {
+): Promise<LiveMessage[] | string> {
   return ctx.db.transaction(async (tx) => {
     const [event] = await tx
       .select({
@@ -229,7 +267,7 @@ async function openOne(
       event.resultedAt !== null ||
       event.startTime.getTime() <= now.getTime() + MIN_LEAD_MS
     ) {
-      return null;
+      return 'changed';
     }
     const feedRef = event.feedRef;
     const earlierSubject = `${feedRef}${EARLIER_SUBJECT_SUFFIX}`;
@@ -260,8 +298,10 @@ async function openOne(
     const repriceHeld = items.some(
       (item) => item.kind === 'odds_approval' && item.subjectKey === repriceSubject,
     );
-    if (!waitsForPerson || kickoffQuestion || repriceHeld) return null;
-    if (!(await autoOpenCompetitions(tx)).has(event.competitionId)) return null;
+    if (!waitsForPerson) return 'not_waiting';
+    if (kickoffQuestion) return 'kickoff_question';
+    if (repriceHeld) return 'reprice_held';
+    if (!(await autoOpenCompetitions(tx)).has(event.competitionId)) return 'policy';
 
     // No person decided on its betting: the latest change is none, or K1's automatic closure.
     const [latest] = await tx
@@ -277,15 +317,15 @@ async function openOne(
       // The id is a sequence: insertion order, unlike created_at (the transaction's start).
       .orderBy(desc(auditLog.id))
       .limit(1);
-    if (latest !== undefined && latest.action !== K1_CLOSURE) return null;
+    if (latest !== undefined && latest.action !== K1_CLOSURE) return 'person_decided';
 
     // K2, read again under the lock.
     const evidence = (
       await loadKickoffEvidence(tx, { eventIds: [eventId], ...loaderOptions(now) })
     ).get(eventId);
-    if (evidence === undefined) return null;
+    if (evidence === undefined) return 'no_evidence';
     const assessment = assess(evidence, now);
-    if (!assessment.confirmed) return null;
+    if (!assessment.confirmed) return kickoffHold(assessment);
 
     // O1 (or O1m) and O2, as for a person who opens betting (assertScrapedEventMayOpen in the API).
     const rated = await getTeamRatings(tx, [event.homeTeamId, event.awayTeamId]);
@@ -307,7 +347,7 @@ async function openOne(
         // And it carries the factory's markets (plan task 2.3), so ask the same again.
         factoryMarkets: ctx.config.scraper.factoryMarkets && policy.factoryMarkets,
       });
-      if (!backed) return null;
+      if (!backed) return 'uncalibrated';
       calibration = 'market';
     }
     const bettable: GateMarket[] = (await marketsWithSelections(tx, eventId))
@@ -317,10 +357,10 @@ async function openOne(
         line: market.line,
         selections: market.selections.map((s) => ({ code: s.code, oddsMilli: s.oddsMilli })),
       }));
-    if (!checkMarkets(bettable).ok) return null;
+    if (!checkMarkets(bettable).ok) return 'price_checks';
 
     const change = await setEventBettingOpen(tx, eventId, true);
-    if (!change.changed) return null;
+    if (!change.changed) return 'changed';
     await auditScraper(tx, {
       action: 'scrape.fixture.betting_opened',
       targetType: 'event',

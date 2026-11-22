@@ -191,7 +191,7 @@ async function confirmable(): Promise<{ eventId: string; feedRef: string }> {
   return { eventId, feedRef };
 }
 
-const NONE = { checked: 0, opened: 0, failed: 0, published: 0 };
+const NONE = { checked: 0, opened: 0, failed: 0, published: 0, held: {} };
 
 describe('F7b: automatic opening on a confirmed kickoff', () => {
   it(
@@ -272,6 +272,7 @@ describe('F7b: automatic opening on a confirmed kickoff', () => {
         opened: 0,
         failed: 0,
         published: 0,
+        held: { 'kickoff:not_stable': 1 },
       });
       h.at(new Date(KICKOFF.getTime() - 71 * HOUR));
       await h.run('src-a');
@@ -282,6 +283,7 @@ describe('F7b: automatic opening on a confirmed kickoff', () => {
         opened: 1,
         failed: 0,
         published: 1,
+        held: {},
       });
       expect((await eventRow(eventId)).betting_open).toBe(true);
       expect(await openConfirmedEvents(h.ctx)).toEqual(NONE);
@@ -325,7 +327,12 @@ describe('F7b: a person decides', () => {
       // Trading's open/close does not resolve the item (the review queue's open_betting does), so
       // it still waits and only the latest audit (the trader's close) stops the opening.
       expect(await openItems(feedRef, 'odds_approval')).toHaveLength(1);
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { person_decided: 1 },
+      });
       expect((await eventRow(eventId)).betting_open).toBe(false);
       expect(await audits('scrape.fixture.betting_opened')).toHaveLength(0);
     },
@@ -358,7 +365,12 @@ describe('F7b: the gates', () => {
     async () => {
       const { eventId, feedRef } = await confirmable();
       await setRatings('Chelsea', { attack: 1.2, defence: 0.9, matches: 2 });
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { uncalibrated: 1 },
+      });
       expect(await openItems(feedRef, 'odds_approval')).toHaveLength(1);
       expect((await eventRow(eventId)).betting_open).toBe(false);
 
@@ -395,7 +407,12 @@ describe('F7b: the gates', () => {
       await h.pool.query(`UPDATE selections SET odds_milli = 5000 WHERE id = ANY($1::uuid[])`, [
         originals.map((r) => r.id),
       ]);
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { price_checks: 1 },
+      });
       expect((await eventRow(eventId)).betting_open).toBe(false);
       for (const row of originals) {
         await h.pool.query(`UPDATE selections SET odds_milli = $2 WHERE id = $1`, [
@@ -424,7 +441,12 @@ describe('F7b: the gates', () => {
         }),
       );
       expect(await openItems(feedRef, 'odds_approval')).toHaveLength(1);
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { kickoff_question: 1 },
+      });
       expect((await eventRow(eventId)).betting_open).toBe(false);
       await h.ctx.db.transaction((tx) =>
         resolveReviewItem(tx, item.id, { status: 'resolved', resolution: 'checked', actor: STAFF }),
@@ -448,7 +470,12 @@ describe('F7b: the gates', () => {
       expect(await openItems(feedRef, 'odds_approval')).toHaveLength(1);
       expect(await oneXTwo(eventId)).toEqual(oldPrices);
 
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { reprice_held: 1 },
+      });
       expect((await eventRow(eventId)).betting_open).toBe(false);
 
       await h.ctx.db.transaction((tx) =>

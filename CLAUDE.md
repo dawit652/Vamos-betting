@@ -46,8 +46,9 @@ possible:
    `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).
    **Deployed 22 Nov 22:36:** `b94684f` (live telebirr / CBE SMS read). **Pushed, not deployed:**
    `1f9f4ea`, `8ea2ab5`, `b2c231f` (Today / Upcoming lists, 30 days), `d1d25ee`
-   (`scripts/review-study.sh`). **Next:** the review queue plan
-   (`docs/plans/review-queue-automation.md`, decisions D1-D7, nothing built yet); handover of 23 Nov
+   (`scripts/review-study.sh`), `18d99c8`, `9b17600` (re-price rule A-2), `c53b4f2` (sweeper Q2c), the
+   auto-open `held` counts. **Next:** step 3 of the review queue plan
+   (`docs/plans/review-queue-automation.md`; owner said go; steps 1, 2, 4-diagnostics built); handover of 23 Nov
    at the top of `docs/plans/remaining-tasks.md`. Newest branch `claude/eager-cerf-ox9vkq`.
    Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
    `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if

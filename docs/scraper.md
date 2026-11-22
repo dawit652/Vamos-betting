@@ -279,7 +279,12 @@ Every rule has an id; tests cite the id in their names. Constants are in
   writes are `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened`
   (`rule: 'F7b'`, the basis, the evidence key, `afterK1`, `calibration`) and the waiting items resolved by the
   scraper; the live delta is published after the COMMIT. A trader's close, a dismissed item, a
-  held re-price or `auto_open` off keeps the event closed.
+  held re-price or `auto_open` off keeps the event closed. Each pass counts the waiting events it
+  left closed by the first condition that failed (`held` in the `auto open run` log line, at info
+  every 15 minutes while events wait): `kickoff:<reasons>` (not confirmed, e.g.
+  `kickoff:not_stable`), `kickoff_question`, `reprice_held`, `person_decided`, `uncalibrated`
+  (neither O1 nor O1m), `price_checks` (O2), `policy`, `not_waiting`, `changed`, `no_evidence`.
+  `scripts/review-study.sh` (section M) shows the last lines.
 
 ### 6.1b Two kickoff sources everywhere (plan task 1.4)
 

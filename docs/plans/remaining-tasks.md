@@ -14,7 +14,11 @@ account at a time.** Next free migration: **0085**.
   deposit says "Waiting for your payment"), `8ea2ab5` (telebirr's Amharic "money sent" message is a
   debit; the account's own number is never a payer or recipient), `b2c231f` (Today = today only:
   no day chips, started matches leave, stale "live" ones after 4 h; Upcoming = 30 days with a
-  sideways row of 30 days; fixture horizon 30 days; e2e green), `d1d25ee` (`scripts/review-study.sh`).
+  sideways row of 30 days; fixture horizon 30 days; e2e green), `d1d25ee` (`scripts/review-study.sh`),
+  `18d99c8` (the review queue plan), `9b17600` (re-price rule A-2: a strong market replaces the
+  stored prices whatever the move; held re-prices of such matches apply on the next pass),
+  `c53b4f2` (sweeper Q2c: closes kickoff / fixture items of played, cancelled or gone matches) and
+  the auto-open `held` counts (why each waiting match stays closed, in the `auto open run` log).
   After the deploy, staff press **Read again** in Back office → SMS rail on the three unparsed
   messages (CBE 00:26 for the ETB 10.40 deposit; telebirr 00:35 and 00:42).
 - **Server state the owner set on 23 Nov:** switches `narobet_pricing` on (since 21 Nov) and
@@ -22,8 +26,10 @@ account at a time.** Next free migration: **0085**.
   `/opt/mr-z/.env` (was 40; still at most 1,200 requests an hour, stops on any refusal).
 - **Next (owner's request of 23 Nov): the review queue** (665 open items, many matches with
   betting closed): plan with the server's numbers, decisions D1-D7 and build order in
-  [review-queue-automation.md](review-queue-automation.md). **Nothing is built: the owner asked
-  for the plan first.** D1 (extra time off for leagues, back office only) is the biggest win: with
+  [review-queue-automation.md](review-queue-automation.md). **The owner said go ("implement the
+  plan"): steps 1, 2 and the step 4 diagnostics are built; next step 3 (earliest fresh kickoff),
+  then 4a / 4b after the owner deploys and the study runs again (D4, D5).** D1 (extra time off for
+  leagues, back office only, the owner's job) is the biggest win: with
   `extra_time` on everywhere no result is applied by itself. Warnings there: The Odds API credits
   run out in about 5 days; 129 matches priced above the best bookmaker price.
 - Smaller leftovers: the home page is 0.2 KB over its page-weight budget (168.2 / 168.0 KB, e2e

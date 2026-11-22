@@ -1,6 +1,6 @@
 # Review queue: what can resolve by itself (plan)
 
-Written 23 Nov 2026 by the first account. **Status: the owner said go (23 Nov: "implement the plan"); steps 1 and 2 built, the rest in order.** The owner asked to
+Written 23 Nov 2026 by the first account. **Status: the owner said go (23 Nov: "implement the plan"); steps 1, 2 and the step 4 diagnostics built, the rest in order.** The owner asked to
 "optimize the algorithm to fix most of the issues by itself", then "before implementing make a
 plan". Every step below waits for the owner's go (decisions D1-D7 at the end). Build on top of the
 server's branch: before every push,
@@ -114,7 +114,7 @@ Code: `decideExisting` in `packages/scraper/src/gates/fixture.ts` (F4) and the i
 off instead:** it may be the first to show December's TV kickoff times, and its earlier times are
 what keeps betting from staying open past a real kickoff.
 
-### Step 4. Why F7b does not open (diagnostics first, then D4 / D5)
+### Step 4. Why F7b does not open (diagnostics built 23 Nov, then D4 / D5)
 
 Add per-condition counts to the "auto open run" log (`apps/scraper/src/pipeline/auto-open.ts`):
 kickoff not confirmed, open `kickoff_change`, held re-price, a person decided, teams uncalibrated
