@@ -5,6 +5,7 @@ import { ApiClientError } from '@/lib/api/errors';
 import {
   DEPOSIT_QUICK_AMOUNTS,
   DEPOSIT_STATUS_LABEL,
+  depositStatusKey,
   WITHDRAWAL_STATUS_LABEL,
   checkAmount,
   clipboardAccount,
@@ -91,6 +92,18 @@ describe('deposits', () => {
     expect(isDepositFinal('succeeded')).toBe(true);
     expect(isDepositFinal('failed')).toBe(true);
     expect(isDepositFinal('expired')).toBe(true);
+  });
+  it('a transfer waits for the payment, never "for approval"; a flagged one is with staff', () => {
+    const transfer = { sendAmount: '1040' } as unknown as NonNullable<
+      Parameters<typeof depositStatusKey>[0]['transfer']
+    >;
+    const key = (status: 'created' | 'pending' | 'succeeded', underReview: boolean, t: boolean) =>
+      depositStatusKey({ status, underReview, transfer: t ? transfer : null });
+    expect(key('pending', false, true)).toBe('account.payments.deposit.status.awaitingPayment');
+    expect(key('created', false, true)).toBe('account.payments.deposit.status.awaitingPayment');
+    expect(key('pending', true, true)).toBe('account.payments.deposit.status.review');
+    expect(key('pending', false, false)).toBe('account.payments.deposit.status.pending');
+    expect(key('succeeded', false, true)).toBe('account.payments.deposit.status.succeeded');
   });
   it('polls every 2 s at first and never slower than 5 s', () => {
     expect(depositPollDelayMs(0)).toBe(2000);
@@ -234,6 +247,8 @@ describe('paymentErrorMessage', () => {
 describe('message keys exist in every shipped language', () => {
   const keys = [
     ...Object.values(DEPOSIT_STATUS_LABEL),
+    'account.payments.deposit.status.awaitingPayment',
+    'account.payments.deposit.status.review',
     ...Object.values(WITHDRAWAL_STATUS_LABEL),
     'account.payments.dev.wrongPin',
     'account.payments.deposit.failure.generic',

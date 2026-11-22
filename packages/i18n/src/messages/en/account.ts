@@ -427,6 +427,10 @@ export const account = {
         succeeded: 'Received',
         failed: 'Failed',
         expired: 'Expired',
+        /** A transfer (telebirr or bank): credited by itself when the money arrives. */
+        awaitingPayment: 'Waiting for your payment',
+        /** Flagged: a person checks it before anything is credited. */
+        review: 'Staff are checking',
       },
       failure: {
         declined: 'The payment was declined on your phone.',

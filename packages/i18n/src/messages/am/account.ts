@@ -410,6 +410,8 @@ export const account: Messages['account'] = {
         succeeded: 'ደርሷል',
         failed: 'አልተሳካም',
         expired: 'ጊዜው አልፏል',
+        awaitingPayment: 'ክፍያዎን በመጠበቅ ላይ',
+        review: 'ሠራተኞች እያረጋገጡ ነው',
       },
       failure: {
         declined: 'ክፍያው በስልክዎ ላይ ተቀባይነት አላገኘም።',
