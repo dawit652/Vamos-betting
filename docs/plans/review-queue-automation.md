@@ -114,6 +114,35 @@ Code: `decideExisting` in `packages/scraper/src/gates/fixture.ts` (F4) and the i
 off instead:** it may be the first to show December's TV kickoff times, and its earlier times are
 what keeps betting from staying open past a real kickoff.
 
+Design (23 Nov, first account; build exactly this):
+
+1. **Pure rule F4d** `earliestFreshKickoff({ start, now, statements })` in
+   `packages/scraper/src/gates/kickoff.ts`, on K2's statements (listed rows of enabled sources with
+   `sourceFresh`; a row a date-keyed source such as openfootball no longer lists does not count,
+   which avoids the stale-row trap of `docs/scraper-plan/known-limits.md`). Statements outside
+   `KICKOFF_EVIDENCE_WINDOW_MS` are ignored. Any statement that is not a scheduled fixture (result,
+   void status, invalid date) → `hold`. E = earliest fresh scheduled kickoff; none → `hold`;
+   |E - start| within `KICKOFF_TOLERANCE_MS` → `keep`; E later than the start → `hold` (moving later
+   stays F4a's, with every source agreeing); start or E at or before `now + MIN_LEAD_MS` → `hold`;
+   else `move` to E (upstreams of the fresh statements at E). Unit tests next to `kickoff.test.ts`.
+2. **K2 change** (`assessKickoff`): a later scheduled fixture no longer blocks C1, C2 or C3 (it
+   cannot keep betting open past the real kickoff); it is still named (`sources_disagree`) among
+   the reasons of a kickoff that is not confirmed. Earlier statements, results, void statuses and
+   invalid dates still block. Update docs/scraper.md 6.1a (K2) and kickoff-safety.md.
+3. **promote-fixtures:** when the gate's decision is a hold whose only review is a `kickoff_change`
+   `sources_disagree` for one existing event (F4 single cluster, and F4c several clusters), and the
+   competition is enabled: load the event's evidence (`loadKickoffEvidence` + `asStatements`, as
+   auto-open does) and apply F4d: `keep` → no item, close an open one (resolution "the event starts
+   at the earliest kickoff a fresh source gives (F4d)"); `move` → `applyKickoff` with rule `F4d`
+   (add it to `FixtureUpdateKickoff.rule`; the move closes the item); `hold` or a move refused under
+   the lock → open the hold as today.
+4. **Tests that assume a person is asked** (`kickoff-item-close.test.ts` `oneSourceSaysEarlier`,
+   `auto-open.test.ts` F7b/F4 and F7b/K1/F4, possibly `fixture-conflict-close`, `review-payload`,
+   `review-findings`): open the F4 item by hand where the test is about item mechanics, or expect
+   the F4d move / keep. New integration tests in `apps/scraper/test/kickoff-earliest.test.ts`:
+   earlier fresh source → moved (audit rule F4d); later source → kept, open item closed, then F7b
+   opens on C2; competition disabled → held; earlier time within the lead → held.
+
 ### Step 4. Why F7b does not open (diagnostics built 23 Nov, then D4 / D5)
 
 Add per-condition counts to the "auto open run" log (`apps/scraper/src/pipeline/auto-open.ts`):
