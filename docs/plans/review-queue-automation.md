@@ -1,6 +1,6 @@
 # Review queue: what can resolve by itself (plan)
 
-Written 23 Nov 2026 by the first account. **Status: the owner said go (23 Nov: "implement the plan"); step 2 built, the rest in order.** The owner asked to
+Written 23 Nov 2026 by the first account. **Status: the owner said go (23 Nov: "implement the plan"); steps 1 and 2 built, the rest in order.** The owner asked to
 "optimize the algorithm to fix most of the issues by itself", then "before implementing make a
 plan". Every step below waits for the owner's go (decisions D1-D7 at the end). Build on top of the
 server's branch: before every push,
@@ -60,7 +60,7 @@ uefa-champions-league, uefa-europa-league, uefa-conference-league, caf-champions
 caf-confederation-cup), and leave nba, atp-tour, volleyball and the `hl-` / `nb-` boards as they are.
 Results confirmed by two independent sources then settle on time, and finished matches stop waiting.
 
-### Step 1. Close items that no longer matter (safe; Q1b)
+### Step 1. Close items that no longer matter (built 23 Nov as Q2c)
 
 Extend the sweeper (`apps/scraper/src/pipeline/review-sweep.ts`, rule Q1, which today closes only
 `odds_approval` / `ratings_uncalibrated` of gone, started, resulted or cancelled matches) to:

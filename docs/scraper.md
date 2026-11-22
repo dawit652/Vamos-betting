@@ -940,7 +940,7 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   again. Nothing else changes (no event, market, price, bet or `scrape_event_pricing`), and a second
   pass closes nothing.
 - **Q2 Stale review items.** The second part of the sweeper (`sweepStaleReviewItems`, right after Q1
-  in the promotion pass). Two cases, same style as Q1 (resolution `auto: <reason>`, resolved by the
+  in the promotion pass). Three cases, same style as Q1 (resolution `auto: <reason>`, resolved by the
   scraper, audit `scrape.review.swept` with `rule: 'Q2'` per item, a transaction per subject or item
   that locks and reads again, idempotent, nothing else changes):
   `source_disabled`: `source_broken` and `source_stale` items on `source|<id>` whose `scrape_sources`
@@ -950,6 +950,13 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   so no source showed the name for a week). The items are resolved, not dismissed: no
   `payload.dismissals` is added, so a name that appears again opens a new item and N4 auto-aliasing
   treats it as new.
+  **Q2c (owner, 23 Nov 2026)**, questions the match has answered (`matchItemReason`):
+  `kickoff_change` (also K1's `|earlier`) once the match has a result, was cancelled or kicked off,
+  but never when a bet has a leg on it (a person checks for bets after the real kickoff);
+  `fixture_missing` once it has a result or was cancelled (a match past its start without a result
+  stays, `result_overdue` follows it); `fixture_conflict` once it kicked off or ended, and for a
+  fixture never created `FIXTURE_DAY_PAST_MS` (2 days) after the day in its feed_ref. Reasons
+  `event_resulted`, `event_cancelled`, `event_started`, `fixture_past`. Results are never swept.
 - **M1 Prices at betting close (2026-11, M-1 of `docs/feed-quality-plan.md`; measurement only).** The
   promotion pass (`captureClosePrices`, after F7b) records once, for every scraped, scheduled,
   unresulted event with betting open whose betting closes within `CLOSE_CAPTURE_WINDOW_MS` (10 min;
