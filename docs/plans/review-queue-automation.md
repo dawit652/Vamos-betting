@@ -1,6 +1,6 @@
 # Review queue: what can resolve by itself (plan)
 
-Written 23 Nov 2026 by the first account. **Status: plan only, nothing built.** The owner asked to
+Written 23 Nov 2026 by the first account. **Status: the owner said go (23 Nov: "implement the plan"); step 2 built, the rest in order.** The owner asked to
 "optimize the algorithm to fix most of the issues by itself", then "before implementing make a
 plan". Every step below waits for the owner's go (decisions D1-D7 at the end). Build on top of the
 server's branch: before every push,
@@ -69,7 +69,7 @@ was cancelled or is gone; `unknown_team` whose `payload.fixture.kickoff` passed 
 Never `result_*` (they are about settling) and never `source_*`. Expected now: about 35 items.
 Tests: `apps/scraper/test/review-sweep-stale.test.ts`.
 
-### Step 2. A strong market replaces the stored prices (money: needs D2)
+### Step 2. A strong market replaces the stored prices (built 23 Nov)
 
 New rule A-2 in `apps/scraper/src/pipeline/reprice.ts`, next to A-1 (`firstMarketPrice`): in a
 competition with `pricing_source = market`, when the new prices come from a strong market

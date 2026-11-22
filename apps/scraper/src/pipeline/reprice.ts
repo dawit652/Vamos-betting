@@ -531,12 +531,18 @@ async function repriceOne(
         minMatches: ctx.config.scraper.minRatingMatches,
       });
     let state = settled(stamp, key, price.source, policy);
-    // A-1: a pending hold of a first market price A-1 lets through is looked at again.
+    // A-2 (owner, 23 Nov 2026: most holds resolve by themselves): in a competition priced from the
+    // market first, a strong market (O1m: at least 3 books, one of them sharp) replaces the stored
+    // prices whatever the size of the move, since the stored prices are then the stale ones. A weak
+    // market, or the model's own move, is still held for a person.
+    const strongMarket =
+      price.source === 'market' && price.backsOpening && policy.pricingSource === 'market';
+    // A-1 / A-2: a pending hold they let through is looked at again.
     if (
       state === 'current' &&
       stamp?.ratingsKey !== key &&
       (await holdPending(tx, event.feedRef)) &&
-      (await firstMarket())
+      (strongMarket || (await firstMarket()))
     ) {
       state = 'go';
     }
@@ -557,12 +563,18 @@ async function repriceOne(
     const previous = open.map((m) => asGate(m.type, m.line, m.selections));
     const next = price.markets.filter((m) => !frozen.has(anyMarketKey(m.type, m.line)));
     const check = checkReprice(previous, next);
-    // A-1: only the size of the move stands in the way of a first market price A-1 lets through.
-    const waived =
-      !check.ok &&
-      enabled &&
-      check.issues.every((issue) => issue.code === 'price_move_too_large') &&
-      (await firstMarket());
+    // A-1 / A-2: only the size of the move stands in the way of a market price they let through
+    // (A-1, the older rule, is named when both apply).
+    const sizeOnly =
+      !check.ok && enabled && check.issues.every((issue) => issue.code === 'price_move_too_large');
+    const waivedBy: 'A-1' | 'A-2' | null = !sizeOnly
+      ? null
+      : (await firstMarket())
+        ? 'A-1'
+        : strongMarket
+          ? 'A-2'
+          : null;
+    const waived = waivedBy !== null;
 
     if ((check.ok || waived) && enabled) {
       const result = await upsertFixture(
@@ -583,9 +595,12 @@ async function repriceOne(
       await recordEventPriced(tx, event.eventId, key, now);
       await closeReviewItemsBySubject(tx, `${row.feedRef}${REPRICE_SUBJECT_SUFFIX}`, {
         kinds: ['odds_approval'],
-        resolution: waived
-          ? "the first market prices replaced the model's (A-1)"
-          : 'the prices were re-priced within the bounds',
+        resolution:
+          waivedBy === 'A-2'
+            ? 'a strong market (3+ books, one sharp) replaced the prices (A-2)'
+            : waivedBy === 'A-1'
+              ? "the first market prices replaced the model's (A-1)"
+              : 'the prices were re-priced within the bounds',
         now,
       });
       if (result.oddsChanged > 0 || result.marketsAdded > 0) {
@@ -599,7 +614,7 @@ async function repriceOne(
             ratingsKey: key,
             previousRatingsKey: stamp?.ratingsKey ?? null,
             oddsChanged: result.oddsChanged,
-            ...(waived ? { boundWaived: 'A-1' } : {}),
+            ...(waivedBy === null ? {} : { boundWaived: waivedBy }),
             ...pricingAudit(price),
           },
         });
