@@ -17,6 +17,7 @@ import {
   ShopTicketCheckResponse,
   ShopTicketListResponse,
   ShopTicketPrintResponse,
+  ShopSellTicketResponse,
   ShopTicketResponse,
   ShopPayTicketResponse,
   TicketLimitsResponse,
@@ -369,8 +370,20 @@ describe('shop tickets through the shop app', () => {
     await asStaff(ctx, admin, 'PUT', `/admin/agents/${agent.id}/ticket-limits`, {
       hqApprovalAbove: '15000',
     });
-    const small = ShopTicketResponse.parse((await sell(desk, '5000')).json()).ticket;
-    const big = ShopTicketResponse.parse((await sell(desk, '10000')).json()).ticket;
+    const smallKey = randomUUID();
+    const smallSale = ShopSellTicketResponse.parse((await sell(desk, '5000', smallKey)).json());
+    const small = smallSale.ticket;
+    const bigSale = ShopSellTicketResponse.parse((await sell(desk, '10000')).json());
+    const big = bigSale.ticket;
+    // The payout code comes once, with the sale, to be printed; never in a view, a reprint or a
+    // replay of the sale.
+    const smallCode = smallSale.payoutCode!;
+    expect(smallCode).toMatch(/^[1-9]\d{5}$/);
+    expect(small).toMatchObject({ payoutCodeRequired: true, payoutCodeLocked: false });
+    const replayedSale = ShopSellTicketResponse.parse((await sell(desk, '5000', smallKey)).json());
+    expect(replayedSale).toMatchObject({ replayed: true, payoutCode: null });
+    const reprint = await asDesk(desk, 'POST', `/shop/desk/tickets/${small.id}/print`);
+    expect(reprint.body).not.toContain(smallCode);
     await db.transaction((tx) =>
       resultEvent(tx, match.eventId, { status: 'finished', score: { home: 2, away: 0 } }),
     );
@@ -382,24 +395,40 @@ describe('shop tickets through the shop app', () => {
       `/shop/desk/tickets/lookup?number=${small.number.toLowerCase()}`,
     );
     expect(looked.statusCode, looked.body).toBe(200);
+    expect(looked.body).not.toContain(smallCode);
     const smallNow = ShopTicketResponse.parse(looked.json()).ticket;
     expect(smallNow).toMatchObject({ payState: 'payable' });
-    const pay = (number: string, key = randomUUID()) =>
+    const pay = (number: string, key = randomUUID(), payoutCode?: string) =>
       asDesk(desk, 'POST', '/shop/desk/tickets/payouts', {
         shiftId: desk.shiftId,
         number,
         idempotencyKey: `payout-${key}`,
+        ...(payoutCode === undefined ? {} : { payoutCode }),
       });
+    // Without the code, or with a wrong one (counted), nothing is paid.
+    const noCode = await pay(small.number);
+    expect(noCode.statusCode).toBe(409);
+    expect(code(noCode.body)).toBe('payout_code_required');
+    const wrongCode = smallCode === '999999' ? '111111' : '999999';
+    const wrong = await pay(small.number, randomUUID(), wrongCode);
+    expect(wrong.statusCode).toBe(409);
+    expect(ApiErrorSchema.parse(wrong.json()).error).toMatchObject({
+      code: 'payout_code_wrong',
+      details: { attemptsLeft: 4, locked: false },
+    });
     const key = randomUUID();
-    const paid = await pay(small.number, key);
+    const spoken = `${smallCode.slice(0, 3)} ${smallCode.slice(3)}`;
+    const paid = await pay(small.number, key, spoken);
     expect(paid.statusCode, paid.body).toBe(200);
     expect(ShopPayTicketResponse.parse(paid.json())).toMatchObject({
       outcome: 'paid',
       amount: smallNow.payAmount,
       ticket: { status: 'paid', payState: 'paid' },
     });
-    expect(ShopPayTicketResponse.parse((await pay(small.number, key)).json()).replayed).toBe(true);
-    const again = await pay(small.number);
+    expect(
+      ShopPayTicketResponse.parse((await pay(small.number, key, spoken)).json()).replayed,
+    ).toBe(true);
+    const again = await pay(small.number, randomUUID(), spoken);
     expect(again.statusCode).toBe(409);
     expect(code(again.body)).toBe('ticket_not_payable');
 
@@ -411,7 +440,27 @@ describe('shop tickets through the shop app', () => {
     ).toBe(404);
 
     // Above an old "HQ approval" limit the cashier still pays at once; the approval routes are gone.
-    expect(ShopPayTicketResponse.parse((await pay(big.number)).json())).toMatchObject({
+    // Five wrong codes lock a ticket; HQ unlocks it (agents.manage, with a reason).
+    for (let i = 0; i < 5; i += 1) await pay(big.number, randomUUID(), wrongCode);
+    const locked = await pay(big.number, randomUUID(), bigSale.payoutCode!);
+    expect(code(locked.body)).toBe('payout_code_locked');
+    const unlocked = await asStaff(
+      ctx,
+      admin,
+      'POST',
+      `/admin/retail-tickets/${big.id}/payout-code`,
+      {
+        action: 'unlock',
+        reason: 'Customer mistyped at the counter',
+      },
+    );
+    expect(unlocked.statusCode, unlocked.body).toBe(200);
+    expect(ShopTicketResponse.parse(unlocked.json()).ticket.payoutCodeLocked).toBe(false);
+    expect(
+      ShopPayTicketResponse.parse(
+        (await pay(big.number, randomUUID(), bigSale.payoutCode!)).json(),
+      ),
+    ).toMatchObject({
       outcome: 'paid',
       ticket: { status: 'paid', payState: 'paid' },
     });

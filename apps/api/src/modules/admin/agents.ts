@@ -18,6 +18,7 @@ import {
   RecordAgentTopupRequest,
   RetailAlertThresholds,
   ShopTicketCancelRequest,
+  ResolvePayoutCodeRequest,
   ShopTicketResponse,
   TicketLimitsRequest,
   TicketLimitsResponse,
@@ -36,6 +37,7 @@ import {
   setRetailAlertThresholds,
   agentTicketLimits,
   cancelRetailTicket,
+  resolvePayoutCode,
   getRetailTicket,
   loadGameSettings,
   setAgentTicketLimits,
@@ -429,6 +431,36 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
           ticketId,
           actor: { staffId: actor.adminId, role: 'admin' },
           reason: input.reason ?? null,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      const row = await getRetailTicket(deps.db, ticketId);
+      if (row === null) throw notFound('Ticket');
+      const settings = await loadGameSettings(deps.db);
+      return wire(ShopTicketResponse, {
+        ticket: await ticketView(deps.db, row, { cashOut: settings.cashOut, now: deps.clock() }),
+        replayed: false,
+      });
+    },
+  );
+
+  // HQ's answer to a shop ticket locked by wrong payout codes, or to a lost paper (docs/plans/
+  // counter-codes-and-deposit-recovery.md, G3): unlock (the code is asked for again) or waive (no
+  // code any more, after checking the holder's ID). A reason is required; audited.
+  app.post<IdParams>(
+    '/admin/retail-tickets/:id/payout-code',
+    { config: { staff: 'agents.manage' } },
+    async (request) => {
+      const ticketId = parseUuid(request.params.id, 'Ticket');
+      const input = parseInput(ResolvePayoutCodeRequest, request.body ?? {});
+      const actor = staffActor(request);
+      await inTx(deps, (tx) =>
+        resolvePayoutCode(tx, {
+          ticketId,
+          action: input.action,
+          reason: input.reason,
+          staffId: actor.adminId,
           now: deps.clock(),
           ip: actor.ip ?? null,
         }),

@@ -28,6 +28,7 @@ import { betLegs, bets } from '../schema/betting';
 import { events } from '../schema/catalog';
 import { agents } from '../schema/retail';
 import { retailTickets } from '../schema/retail-tickets';
+import { newPayoutCode } from './payout-code';
 
 /**
  * Tickets sold at a shop's counter (docs/plans/agent-shops.md, "Phase 3 design"). A ticket is a
@@ -119,6 +120,11 @@ async function soldToday(tx: DbTransaction, agentId: string, now: Date): Promise
  * started match, `odds_changed`, 422 `slip_invalid`, 409 `agent_balance_low`). A booking code
  * given is stored to be printed only when the ticket has exactly its matches (else the ticket shows
  * none). The same idempotency key again answers with the same ticket. Audited, with an outbox event.
+ *
+ * Every new ticket gets a 6-digit payout code (newPayoutCode, docs/plans/counter-codes-and-deposit-
+ * recovery.md, G3): stored only as a salted hash and returned here ONCE, in `payoutCode`, to be
+ * printed on the customer's ticket. An idempotent replay returns `null`: the code is not shown again
+ * (a lost answer means cancelling the ticket in its window and selling it again).
  */
 export async function sellRetailTicket(
   tx: DbTransaction,
@@ -137,7 +143,13 @@ export async function sellRetailTicket(
     randomBytes?: (size: number) => Uint8Array;
     ip?: string | null;
   },
-): Promise<{ ticket: RetailTicket; bet: UserBet; replayed: boolean }> {
+): Promise<{
+  ticket: RetailTicket;
+  bet: UserBet;
+  replayed: boolean;
+  /** The payout code to print, once; null on a replay. */
+  payoutCode: string | null;
+}> {
   const shift = await lockOwnOpenShift(tx, input.shiftId, input.staffId);
   const shop = await getShop(tx, shift.shopId);
   if (shop === null) throw domainNotFound('Shop');
@@ -195,9 +207,10 @@ export async function sellRetailTicket(
         'This Idempotency-Key was already used for another ticket.',
       );
     }
-    return { ticket, bet, replayed: true };
+    return { ticket, bet, replayed: true, payoutCode: null };
   }
 
+  const payout = newPayoutCode(input.randomBytes ?? nodeRandomBytes);
   const [ticket] = await tx
     .insert(retailTickets)
     .values({
@@ -208,6 +221,7 @@ export async function sellRetailTicket(
       shiftId: shift.id,
       customerPhone: input.customerPhone?.trim() || null,
       bookingCode,
+      payoutCodeHash: payout.hash,
       stake: input.stake,
       soldAt: input.now,
     })
@@ -244,7 +258,7 @@ export async function sellRetailTicket(
       potentialNetPayout: bet.potentialNetPayout,
     },
   });
-  return { ticket, bet, replayed: false };
+  return { ticket, bet, replayed: false, payoutCode: payout.code };
 }
 
 /** Who cancels: the selling cashier, the agent's owner, or an admin (back office). */

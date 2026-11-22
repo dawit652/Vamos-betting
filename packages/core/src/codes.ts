@@ -107,6 +107,35 @@ export function formatBookingCode(code: string): string {
 }
 
 /**
+ * The payout code of a shop ticket (owner, 21 Nov 2026, decision O1; docs/plans/
+ * counter-codes-and-deposit-recovery.md, G3): 6 digits printed on the customer's ticket at sale
+ * and asked for when the ticket is paid. Unlike a booking code it is a secret, so it is made from
+ * {@link BOOKING_NUMBER_BYTES} fresh CSPRNG bytes (the reduction's bias is below 1e-8, far below
+ * what could help a guesser, who has five tries per ticket), has no leading zero, and is stored
+ * only as a salted hash.
+ */
+export const PAYOUT_CODE_ATTEMPTS = 5;
+
+export function encodePayoutCode(randomBytes: Uint8Array): string {
+  return encodeBookingNumber(randomBytes);
+}
+
+/** True when `input`, typed with or without a space, is a payout code (6 digits, no leading zero). */
+export function isPayoutCode(input: string): boolean {
+  return isBookingNumber(input);
+}
+
+/** The canonical form of a typed payout code ("482 913" → "482913"), or null when it is not one. */
+export function parsePayoutCode(input: string): string | null {
+  return typeof input === 'string' && isBookingNumber(input) ? normalizeCode(input) : null;
+}
+
+/** How a payout code is printed: "482 913". */
+export function formatPayoutCode(code: string): string {
+  return formatBookingCode(code);
+}
+
+/**
  * Formats a Game ID (an integer 100–999999) as digits, zero-padded to at
  * least four: `123` → `'0123'`, `98765` → `'98765'`. Throws `RangeError`
  * otherwise.

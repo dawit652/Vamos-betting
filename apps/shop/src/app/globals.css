@@ -291,9 +291,25 @@ th.num {
   margin: 6px 0;
 }
 
+/* Printed, never shown on screen (the ticket's payout code). */
+.print-only {
+  display: none;
+}
+
+.ticket-payout-code {
+  border: 1px dashed #000;
+  padding: 4px;
+  margin: 6px 0;
+  text-align: center;
+}
+
 @media print {
   .no-print {
     display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
   }
 
   body {

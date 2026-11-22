@@ -56,6 +56,32 @@ export function newTicketKey(random: () => string = () => crypto.randomUUID()): 
 }
 
 /** The path of the ticket page; `print` records and prints the original when it opens. */
+/**
+ * The payout code of a ticket just sold travels from the sale to its print in this tab only
+ * (sessionStorage), and the ticket page takes it out at once: it is printed on the original, never
+ * kept, and a later visit or reprint cannot show it (docs/plans/counter-codes-and-deposit-recovery.md, G3).
+ */
+const PAYOUT_CODE_KEY = (id: string) => `vamos:payout-code:${id}`;
+
+export function handOverPayoutCode(id: string, code: string | null): void {
+  if (code === null) return;
+  try {
+    sessionStorage.setItem(PAYOUT_CODE_KEY(id), code);
+  } catch {
+    // Storage blocked: the ticket prints without the code; cancel it and sell again.
+  }
+}
+
+export function takePayoutCode(id: string): string | null {
+  try {
+    const code = sessionStorage.getItem(PAYOUT_CODE_KEY(id));
+    sessionStorage.removeItem(PAYOUT_CODE_KEY(id));
+    return code;
+  } catch {
+    return null;
+  }
+}
+
 export function ticketPath(id: string, print = false): string {
   return print ? `/ticket/${id}?print=1` : `/ticket/${id}`;
 }

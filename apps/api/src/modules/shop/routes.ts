@@ -12,6 +12,7 @@ import {
   ShopTicketCheckResponse,
   ShopTicketListResponse,
   ShopTicketPrintResponse,
+  ShopSellTicketResponse,
   ShopTicketResponse,
   CashDepositRequest,
   CashierPlayerQuery,
@@ -525,11 +526,11 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     return wire(ShopTicketCheckResponse, quoteView(slip));
   });
 
-  app.post('/shop/desk/tickets', ticketLimit, async (request) => {
+  app.post('/shop/desk/tickets', ticketLimit, async (request, reply) => {
     const staff = requireDeskStaff(request);
     const input = parseInput(ShopSellTicketRequest, request.body);
     await checkShiftShop(staff, input.shiftId);
-    const { ticket, replayed } = await inTx(deps, async (tx) =>
+    const { ticket, replayed, payoutCode } = await inTx(deps, async (tx) =>
       sellRetailTicket(tx, {
         staffId: staff.id,
         shiftId: input.shiftId,
@@ -547,7 +548,9 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     );
     const row = await getRetailTicket(deps.db, ticket.id);
     if (row === null) throw notFound('Ticket');
-    return wire(ShopTicketResponse, { ticket: await viewOf(row), replayed });
+    // The payout code goes to the shop app once, to be printed on the customer's ticket.
+    void reply.header('cache-control', 'no-store');
+    return wire(ShopSellTicketResponse, { ticket: await viewOf(row), replayed, payoutCode });
   });
 
   /**
@@ -693,16 +696,27 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
         staffId: staff.id,
         shiftId: input.shiftId,
         idempotencyKey: input.idempotencyKey,
+        payoutCode: input.payoutCode ?? null,
         now: deps.clock(),
         ip: request.ip,
       }),
     );
+    // A wrong payout code was counted (committed above); now refuse.
+    if (result.outcome === 'payout_code_wrong') {
+      throw conflict(
+        'payout_code_wrong',
+        result.locked
+          ? 'Wrong payout code. The ticket is now locked: HQ unlocks it.'
+          : 'Wrong payout code. Ask the customer again.',
+        { attemptsLeft: result.attemptsLeft, locked: result.locked },
+      );
+    }
     const row = await getRetailTicket(deps.db, result.ticket.id);
     if (row === null) throw notFound('Ticket');
     return wire(ShopPayTicketResponse, {
       outcome: result.outcome,
       amount: result.amount,
-      replayed: result.outcome === 'paid' ? result.replayed : false,
+      replayed: result.replayed,
       ticket: await viewOf(row),
     });
   });

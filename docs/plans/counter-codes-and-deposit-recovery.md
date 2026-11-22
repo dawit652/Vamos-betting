@@ -80,6 +80,28 @@ The QR code was left out (optional, O9).
   payout checks it with a constant-time compare, attempt counter), the shop's Pay screen, a
   migration (0078: `retail_tickets.payout_code_hash`, `payout_code_attempts`, `booking_code`).
 
+**Built 22 Nov (step 3, migration `0081_retail_ticket_payout_code`):**
+
+- **At sale:** a random 6-digit code (`encodePayoutCode` from CSPRNG bytes, no leading zero), kept
+  only as `<salt>:<sha256>` in `retail_tickets.payout_code_hash`. `POST /shop/desk/tickets`
+  returns it once in `payoutCode` (`ShopSellTicketResponse`, `cache-control: no-store`); an
+  idempotent replay returns `null`, and no view, lookup or reprint ever contains it. The shop app
+  hands it to the ticket page through this tab's sessionStorage, which deletes it on reading; the
+  ticket prints "Payout code · የክፍያ ኮድ 482 913" in a dashed box, **on paper only** (CSS
+  `print-only`: the screen never shows it), for that page view only.
+- **At Pay:** a payable ticket with a code needs `payoutCode` (any spacing): 409
+  `payout_code_required` without it. A wrong one is counted and committed (`payRetailTicket`
+  returns `payout_code_wrong` instead of throwing; the API answers 409 with `{ attemptsLeft,
+locked }`), and the fifth locks the ticket (409 `payout_code_locked`, audited
+  `retail.payout_code_locked`). The code is checked only when the ticket is payable, so a lost,
+  open or paid ticket never tests it. The Pay screen has the code field and shows tries left.
+- **HQ:** `POST /admin/retail-tickets/:id/payout-code` (agents.manage) with `action: unlock` (the
+  count starts again, the code is still asked for) or `waive` (a lost paper, after checking the
+  holder's ID), a reason required, audited (`retail.payout_code_unlocked` / `_waived`). Not yet a
+  button in the back office: call the route, or build the button with the public ticket check.
+- **Tickets sold before the code** (no hash) are paid as before.
+- **Not built yet:** the public "check my ticket" page and Telegram command (step 3b).
+
 ### G4. A 6-digit withdrawal code for logged-in players (cash at a shop)
 
 - In the app: "Withdraw cash at a shop" → amount → a **6-digit withdrawal code**, valid 24 hours.
@@ -223,15 +245,15 @@ Telegram message at once. G5.2 follows this: "propose" and "approve" are one ste
 
 ## Build order (one commit each, with tests; the full checks once before each push)
 
-| Step | What                                                                  | Who                      |
-| ---- | --------------------------------------------------------------------- | ------------------------ |
-| 1    | G7 service health monitor, Telegram rhythm, health page               | Main session             |
-| 2    | G1 numeric booking codes (web, shop) and G2 the code on the ticket    | **Built 22 Nov**         |
-| 3    | G3 payout code (sale, Pay, reprint, lock) and the public ticket check | Main session (money)     |
-| 4    | G5.1-2 provider re-check and manual deposit (one admin, O5)           | Main session (money)     |
-| 5    | G6 "Money not credited" with suggested players; G5.3 claims           | Main session             |
-| 6    | G5.4 Telegram "Deposit problem" (O3: allowed)                         | `routine-coder` + review |
-| 7    | G4 withdrawal code (O2: any shop with player cash on)                 | Main session (money)     |
-| 8    | G8 shift report print; phase 6 when the POS model is chosen           | `routine-coder`          |
+| Step | What                                                                  | Who                               |
+| ---- | --------------------------------------------------------------------- | --------------------------------- |
+| 1    | G7 service health monitor, Telegram rhythm, health page               | Main session                      |
+| 2    | G1 numeric booking codes (web, shop) and G2 the code on the ticket    | **Built 22 Nov**                  |
+| 3    | G3 payout code (sale, Pay, reprint, lock) and the public ticket check | **Built 22 Nov** (check page: 3b) |
+| 4    | G5.1-2 provider re-check and manual deposit (one admin, O5)           | Main session (money)              |
+| 5    | G6 "Money not credited" with suggested players; G5.3 claims           | Main session                      |
+| 6    | G5.4 Telegram "Deposit problem" (O3: allowed)                         | `routine-coder` + review          |
+| 7    | G4 withdrawal code (O2: any shop with player cash on)                 | Main session (money)              |
+| 8    | G8 shift report print; phase 6 when the POS model is chosen           | `routine-coder`                   |
 
 Every decision is made: build the steps in this order.

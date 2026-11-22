@@ -17,6 +17,7 @@ import {
   decideAgentTopup,
   getAgentBalance,
   recordAgentTopup,
+  resolvePayoutCode,
   sellRetailTicket,
 } from '../src/retail/index';
 import { adminUsers, agents, cashierShifts, retailTickets, users } from '../src/schema/index';
@@ -143,13 +144,16 @@ async function counter(options: { balance?: bigint; hq?: boolean; limits?: objec
 
 type Counter = Awaited<ReturnType<typeof counter>>;
 
-const sell = (
+/** The payout code printed on each ticket sold here, by ticket number (what the customer holds). */
+const printedCodes = new Map<string, string>();
+
+const sell = async (
   desk: Counter,
   stake: bigint,
   legs: Array<{ selectionId: string; oddsMilli: number }>,
   options: { key?: string; now?: Date; staffId?: string } = {},
-) =>
-  handle.db.transaction((tx) =>
+) => {
+  const sold = await handle.db.transaction((tx) =>
     sellRetailTicket(tx, {
       staffId: options.staffId ?? desk.cashier,
       shiftId: desk.shift.id,
@@ -162,6 +166,9 @@ const sell = (
       randomBytes: (n) => randomBytes(n),
     }),
   );
+  if (sold.payoutCode !== null) printedCodes.set(sold.bet.shortId, sold.payoutCode);
+  return sold;
+};
 
 const cancel = (
   ticketId: string,
@@ -329,13 +336,24 @@ describe('settling shop tickets', () => {
 });
 
 describe('paying shop tickets (phase 4)', () => {
-  const pay = (desk: Counter, number: string, key = `payout-${randomUUID()}`, staffId?: string) =>
+  const pay = (
+    desk: Counter,
+    number: string,
+    key = `payout-${randomUUID()}`,
+    staffId?: string,
+    code?: string | null,
+  ) =>
     handle.db.transaction((tx) =>
       payRetailTicket(tx, {
         number,
         staffId: staffId ?? desk.cashier,
         shiftId: desk.shift.id,
         idempotencyKey: key,
+        // The customer says the code printed on their ticket (unless the test says otherwise).
+        payoutCode:
+          code === undefined
+            ? (printedCodes.get(number.toUpperCase().replace(/\s/g, '')) ?? null)
+            : code,
         now: new Date(),
       }),
     );
@@ -415,6 +433,136 @@ describe('paying shop tickets (phase 4)', () => {
       .where(eq(retailTickets.id, asked.ticket.id));
     expect((await findTicketByNumber(handle.db, asked.bet.shortId))?.state).toBe('payable');
     expect((await pay(desk, asked.bet.shortId)).outcome).toBe('paid');
+  });
+
+  it('asks for the payout code printed at sale; five wrong ones lock the ticket until HQ unlocks it', async () => {
+    const desk = await counter({ balance: birr(1_000) });
+    const event = await createEvent(handle.db, ids);
+    const key = `ticket-${randomUUID()}`;
+    const winner = await sell(desk, birr(100), [{ selectionId: event.home, oddsMilli: 2000 }], {
+      key,
+    });
+    // Printed once: 6 digits, stored only as a salted hash; a replay of the sale shows none.
+    expect(winner.payoutCode).toMatch(/^[1-9]\d{5}$/);
+    const [row] = await handle.db
+      .select()
+      .from(retailTickets)
+      .where(eq(retailTickets.id, winner.ticket.id));
+    expect(row!.payoutCodeHash).toMatch(/^[0-9a-f]{32}:[0-9a-f]{64}$/);
+    expect(row!.payoutCodeHash).not.toContain(winner.payoutCode!);
+    const replay = await sell(desk, birr(100), [{ selectionId: event.home, oddsMilli: 2000 }], {
+      key,
+    });
+    expect(replay).toMatchObject({ replayed: true, payoutCode: null });
+    await finish(handle.db, event.eventId, 1, 0);
+    await settle(event.eventId);
+    const number = winner.bet.shortId;
+    const code = winner.payoutCode!;
+    const wrong = code === '999999' ? '111111' : '999999';
+
+    expect(await refusal(pay(desk, number, undefined, undefined, null))).toEqual({
+      status: 409,
+      code: 'payout_code_required',
+    });
+    // A wrong code is counted although nothing is paid (the count is committed).
+    for (let left = 4; left >= 1; left -= 1) {
+      expect(await pay(desk, number, undefined, undefined, wrong)).toEqual({
+        outcome: 'payout_code_wrong',
+        attemptsLeft: left,
+        locked: false,
+      });
+    }
+    expect(await pay(desk, number, undefined, undefined, wrong)).toEqual({
+      outcome: 'payout_code_wrong',
+      attemptsLeft: 0,
+      locked: true,
+    });
+    // Locked: even the right code is refused now, and nothing was paid.
+    expect(await refusal(pay(desk, number, undefined, undefined, code))).toEqual({
+      status: 409,
+      code: 'payout_code_locked',
+    });
+    expect(await getAgentBalance(handle.db, desk.agentId)).toBe(birr(900));
+
+    // HQ unlocks (a reason is required): the code is still asked for.
+    expect(
+      await refusal(
+        handle.db.transaction((tx) =>
+          resolvePayoutCode(tx, {
+            ticketId: winner.ticket.id,
+            action: 'unlock',
+            reason: '',
+            staffId: admin,
+            now: new Date(),
+          }),
+        ),
+      ),
+    ).toEqual({ status: 422, code: 'reason_required' });
+    await handle.db.transaction((tx) =>
+      resolvePayoutCode(tx, {
+        ticketId: winner.ticket.id,
+        action: 'unlock',
+        reason: 'Customer mistyped, came to HQ',
+        staffId: admin,
+        now: new Date(),
+      }),
+    );
+    expect(await pay(desk, number, undefined, undefined, wrong)).toMatchObject({
+      outcome: 'payout_code_wrong',
+      attemptsLeft: 4,
+    });
+    // The right code, as the customer says it ("482 913"), pays.
+    const spoken = `${code.slice(0, 3)} ${code.slice(3)}`;
+    expect(await pay(desk, number, undefined, undefined, spoken)).toMatchObject({
+      outcome: 'paid',
+    });
+  });
+
+  it('a lost paper: HQ waives the code after checking an ID; a ticket sold before codes needs none', async () => {
+    const desk = await counter({ balance: birr(1_000) });
+    const event = await createEvent(handle.db, ids);
+    const lostPaper = await sell(desk, birr(100), [{ selectionId: event.home, oddsMilli: 2000 }]);
+    const older = await sell(desk, birr(100), [{ selectionId: event.home, oddsMilli: 2000 }]);
+    // As if sold before migration 0081: no hash.
+    await handle.db
+      .update(retailTickets)
+      .set({ payoutCodeHash: null })
+      .where(eq(retailTickets.id, older.ticket.id));
+    await finish(handle.db, event.eventId, 1, 0);
+    await settle(event.eventId);
+    expect(await pay(desk, older.bet.shortId, undefined, undefined, null)).toMatchObject({
+      outcome: 'paid',
+    });
+    expect(await refusal(pay(desk, lostPaper.bet.shortId, undefined, undefined, null))).toEqual({
+      status: 409,
+      code: 'payout_code_required',
+    });
+    await handle.db.transaction((tx) =>
+      resolvePayoutCode(tx, {
+        ticketId: lostPaper.ticket.id,
+        action: 'waive',
+        reason: 'Paper lost; ID checked at HQ',
+        staffId: admin,
+        now: new Date(),
+      }),
+    );
+    expect(await pay(desk, lostPaper.bet.shortId, undefined, undefined, null)).toMatchObject({
+      outcome: 'paid',
+    });
+    // Nothing to unlock on a paid ticket.
+    expect(
+      await refusal(
+        handle.db.transaction((tx) =>
+          resolvePayoutCode(tx, {
+            ticketId: lostPaper.ticket.id,
+            action: 'unlock',
+            reason: 'too late',
+            staffId: admin,
+            now: new Date(),
+          }),
+        ),
+      ),
+    ).toEqual({ status: 409, code: 'ticket_not_payable' });
   });
 
   it('a winner not paid within the expiry days expires into revenue', async () => {

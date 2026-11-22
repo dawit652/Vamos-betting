@@ -8,7 +8,7 @@ import type {
   ShopPicksResponse,
   ShopSellTicketRequest,
   ShopTicketCheckResponse,
-  ShopTicketResponse,
+  ShopSellTicketResponse,
 } from '@vamos/contracts';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -26,6 +26,7 @@ import {
   newTicketKey,
   parsePickText,
   refusalText,
+  handOverPayoutCode,
   ticketPath,
   type PickInput,
 } from '@/lib/tickets';
@@ -199,7 +200,12 @@ function Seller({ shiftId }: { shiftId: string }) {
     setSelling(true);
     setError(null);
     try {
-      const res = await api<ShopTicketResponse>('/shop/desk/tickets', { method: 'POST', body });
+      const res = await api<ShopSellTicketResponse>('/shop/desk/tickets', {
+        method: 'POST',
+        body,
+      });
+      // The payout code is printed on this ticket's original, and nowhere else.
+      handOverPayoutCode(res.ticket.id, res.payoutCode);
       router.push(ticketPath(res.ticket.id, true));
     } catch (e) {
       setError(describeError(e, TEXT.sellErrors));

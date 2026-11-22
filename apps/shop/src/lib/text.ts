@@ -261,7 +261,21 @@ export const TEXT = {
     ticket_other_shop: 'This ticket is paid at the shop that sold it.',
     ticket_not_found: 'No ticket with this number at your agent.',
     shift_not_open: 'This shift is closed. Open a new shift on the desk.',
+    payout_code_required: 'Ask the customer for the payout code printed on the ticket.',
+    payout_code_locked: 'This ticket is locked after wrong payout codes. HQ unlocks it.',
   } as Readonly<Record<string, string>>,
+  // The payout code (docs/plans/counter-codes-and-deposit-recovery.md, G3).
+  payCode: 'Payout code · የክፍያ ኮድ',
+  payCodeHint: 'The customer says the 6 digits printed on their ticket.',
+  payCodeWrong: (left: number) =>
+    left > 0
+      ? `Wrong payout code. ${left} ${left === 1 ? 'try' : 'tries'} left.`
+      : 'Wrong payout code. The ticket is now locked: HQ unlocks it.',
+  payCodeLocked: 'Locked after wrong payout codes: HQ unlocks it.',
+  ticketPayoutCode: 'Payout code · የክፍያ ኮድ',
+  // Amharic: a native speaker still has to review this wording.
+  ticketPayoutCodeNote:
+    'Keep it secret: you need it to collect a win. · ለማሸነፍያ ክፍያ ያስፈልጋል፤ ለማንም አይስጡ።',
   payoutSlipTitle: 'PAYOUT',
   payoutSlipPaid: 'Paid',
   payoutSlipAmount: 'Amount paid',

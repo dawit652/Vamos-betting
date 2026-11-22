@@ -1,7 +1,7 @@
 'use client';
 
 import type { ShopTicketPrintResponse, ShopTicketResponse, ShopTicketView } from '@vamos/contracts';
-import { formatBookingCode } from '@vamos/core';
+import { formatBookingCode, formatPayoutCode } from '@vamos/core';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -11,7 +11,7 @@ import { describeError } from '@/lib/errors';
 import { formatDateTime, formatEtb } from '@/lib/format';
 import { receiptClass } from '@/lib/forms';
 import { TEXT } from '@/lib/text';
-import { formatOddsMilli } from '@/lib/tickets';
+import { formatOddsMilli, takePayoutCode } from '@/lib/tickets';
 
 /**
  * The printable ticket. Like the cash receipt: opening the page with `?print=1` records the
@@ -25,6 +25,8 @@ function Ticket() {
   const [ticket, setTicket] = useState<ShopTicketView | null>(null);
   const [isCopy, setIsCopy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The payout code of a ticket just sold (handOverPayoutCode): printed only, for this page view.
+  const [payoutCode, setPayoutCode] = useState<string | null>(null);
   const started = useRef(false);
   const printed = useRef(false);
 
@@ -32,6 +34,7 @@ function Ticket() {
     // Strict mode runs effects twice; a print must be counted once.
     if (started.current) return;
     started.current = true;
+    setPayoutCode(takePayoutCode(id));
     const base = `/shop/desk/tickets/${id}`;
     if (print) {
       api<ShopTicketPrintResponse>(`${base}/print`, { method: 'POST', body: {} }).then(
@@ -228,6 +231,15 @@ function Ticket() {
         </div>
         <hr />
         <Barcode text={ticket.number} />
+        {payoutCode !== null && ticket.status !== 'cancelled' && (
+          // On paper only: the screen never shows it (print-only).
+          <div className="print-only ticket-payout-code" data-testid="ticket-payout-code">
+            <div>
+              {TEXT.ticketPayoutCode} <strong>{formatPayoutCode(payoutCode)}</strong>
+            </div>
+            <div className="small">{TEXT.ticketPayoutCodeNote}</div>
+          </div>
+        )}
         {ticket.bookingCode !== null && (
           <div className="small" data-testid="ticket-booking-code">
             {TEXT.ticketBookingCode} {formatBookingCode(ticket.bookingCode)}

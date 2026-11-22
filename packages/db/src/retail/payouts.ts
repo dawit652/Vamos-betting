@@ -1,4 +1,10 @@
-import { BET_SHORT_ID_LENGTH, isValidCode, normalizeCode, toWire } from '@vamos/core';
+import {
+  BET_SHORT_ID_LENGTH,
+  isValidCode,
+  normalizeCode,
+  parsePayoutCode,
+  toWire,
+} from '@vamos/core';
 import { and, eq, sql } from 'drizzle-orm';
 import { assertShopOperates, getShop, lockOwnOpenShift } from '../cashier/desk';
 import { domainConflict, domainNotFound } from '../errors';
@@ -10,6 +16,7 @@ import { betLegs, bets } from '../schema/betting';
 import { events } from '../schema/catalog';
 import { agents } from '../schema/retail';
 import { retailTickets } from '../schema/retail-tickets';
+import { checkPayoutCode } from './payout-code';
 import { ticketCashAccount, type RetailTicket } from './tickets';
 
 /**
@@ -78,12 +85,18 @@ export async function findTicketByNumber(
   return { ticket: row.ticket, number: row.number, betStatus: row.betStatus, amount, state };
 }
 
-export type PayRetailTicketResult = {
-  outcome: 'paid';
-  ticket: RetailTicket;
-  amount: bigint;
-  replayed: boolean;
-};
+export type PayRetailTicketResult =
+  | {
+      outcome: 'paid';
+      ticket: RetailTicket;
+      amount: bigint;
+      replayed: boolean;
+    }
+  /**
+   * The payout code was wrong: counted (and the ticket locked at five). Not thrown, so the caller's
+   * transaction commits the count; answer the cashier from this (409 `payout_code_wrong`).
+   */
+  | { outcome: 'payout_code_wrong'; attemptsLeft: number; locked: boolean };
 
 const NOT_PAYABLE: Record<Exclude<TicketPayState, 'payable'>, string> = {
   open: 'This ticket is not settled yet.',
@@ -100,6 +113,12 @@ const NOT_PAYABLE: Record<Exclude<TicketPayState, 'payable'>, string> = {
  * the same idempotency key again answers with the same payout. The cashier pays any amount alone
  * (owner, 21 Nov 2026: no HQ approval, also for big wins). The posting moves the bet's net payout
  * from retail payable to the shop's cash account; audited, with an outbox event.
+ *
+ * A ticket with a payout code (printed at sale, docs/plans/counter-codes-and-deposit-recovery.md,
+ * G3) is paid only against it: 409 `payout_code_required` without it, 409 `payout_code_locked`
+ * once five wrong ones locked the ticket (HQ unlocks it), and a wrong one is returned as
+ * `payout_code_wrong` (see PayRetailTicketResult). Checked only for a ticket that is payable, so
+ * the code of a lost, paid or open ticket is never tested.
  */
 export async function payRetailTicket(
   tx: DbTransaction,
@@ -108,6 +127,8 @@ export async function payRetailTicket(
     staffId: string;
     shiftId: string;
     idempotencyKey: string;
+    /** The payout code the customer said (any spacing); needed for a ticket that has one. */
+    payoutCode?: string | null;
     now: Date;
     ip?: string | null;
   },
@@ -140,6 +161,26 @@ export async function payRetailTicket(
   const amount = bet.settledNetPayout ?? 0n;
   if (amount <= 0n) {
     throw domainConflict('ticket_not_payable', 'This ticket pays nothing.', { state });
+  }
+  const typed =
+    input.payoutCode === undefined || input.payoutCode === null
+      ? null
+      : parsePayoutCode(input.payoutCode);
+  const check = await checkPayoutCode(tx, ticket, typed, input.now);
+  if (!check.ok) {
+    if (check.reason === 'required') {
+      throw domainConflict(
+        'payout_code_required',
+        'Ask the customer for the payout code printed on the ticket.',
+      );
+    }
+    if (check.reason === 'locked') {
+      throw domainConflict(
+        'payout_code_locked',
+        'This ticket is locked after wrong payout codes. HQ unlocks it.',
+      );
+    }
+    return { outcome: 'payout_code_wrong', attemptsLeft: check.attemptsLeft, locked: check.locked };
   }
 
   const posting = await postTransaction(tx, {

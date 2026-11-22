@@ -27,6 +27,10 @@ import { formatOddsMilli } from '@/lib/tickets';
 
 /** The words for a failed lookup or payout: the page's codes, the not-payable state, the rest. */
 function payError(e: unknown): string {
+  if (e instanceof ApiClientError && e.code === 'payout_code_wrong') {
+    const left = (e.details as { attemptsLeft?: unknown } | null | undefined)?.attemptsLeft;
+    return TEXT.payCodeWrong(typeof left === 'number' ? left : 0);
+  }
   if (e instanceof ApiClientError && e.code === 'ticket_not_payable') {
     const state = (e.details as { state?: unknown } | null | undefined)?.state;
     return notPayableText(state);
@@ -42,6 +46,7 @@ function Payer({ shiftId }: { shiftId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [payoutCode, setPayoutCode] = useState('');
   // One key per ticket, kept until the payout succeeded (a retry after a network error is safe).
   const key = useRef<{ number: string; key: string } | null>(null);
 
@@ -59,6 +64,7 @@ function Payer({ shiftId }: { shiftId: string }) {
         query: { number },
       });
       setError(null);
+      setPayoutCode('');
       setTicket(res.ticket);
     } catch (e) {
       setTicket(null);
@@ -77,6 +83,7 @@ function Payer({ shiftId }: { shiftId: string }) {
       shiftId,
       number: t.number,
       idempotencyKey: key.current.key,
+      ...(t.payoutCodeRequired ? { payoutCode } : {}),
     };
     setBusy(true);
     setMessage(null);
@@ -92,6 +99,12 @@ function Payer({ shiftId }: { shiftId: string }) {
       router.push(payoutSlipPath(res.ticket.id, res.ticket.number, true));
     } catch (e) {
       setError(payError(e));
+      // A wrong code was counted: the next try needs a new payout request.
+      if (e instanceof ApiClientError && e.code.startsWith('payout_code_')) {
+        key.current = null;
+        setPayoutCode('');
+        if (e.code !== 'payout_code_required') void find();
+      }
     } finally {
       setBusy(false);
     }
@@ -125,7 +138,15 @@ function Payer({ shiftId }: { shiftId: string }) {
           {message}
         </p>
       )}
-      {ticket !== null && <TicketCard ticket={ticket} busy={busy} onPay={() => void pay(ticket)} />}
+      {ticket !== null && (
+        <TicketCard
+          ticket={ticket}
+          busy={busy}
+          payoutCode={payoutCode}
+          onPayoutCode={setPayoutCode}
+          onPay={() => void pay(ticket)}
+        />
+      )}
     </div>
   );
 }
@@ -133,12 +154,18 @@ function Payer({ shiftId }: { shiftId: string }) {
 function TicketCard({
   ticket,
   busy,
+  payoutCode,
+  onPayoutCode,
   onPay,
 }: {
   ticket: ShopTicketView;
   busy: boolean;
+  payoutCode: string;
+  onPayoutCode: (code: string) => void;
   onPay: () => void;
 }) {
+  const needsCode = ticket.payoutCodeRequired && !ticket.payoutCodeLocked;
+  const codeReady = !needsCode || /^\d{3}\s?\d{3}$/.test(payoutCode.trim());
   const { bet, shop, payState } = ticket;
   return (
     <div className="card" data-testid="pay-ticket">
@@ -159,13 +186,32 @@ function TicketCard({
           <div className="small">{formatDateTime(ticket.paidAt)}</div>
         )}
       </div>
-      {payState === 'payable' && (
+      {payState === 'payable' && ticket.payoutCodeLocked && (
+        <p className="error" role="alert" data-testid="pay-code-locked">
+          {TEXT.payCodeLocked}
+        </p>
+      )}
+      {payState === 'payable' && needsCode && (
+        <label>
+          {TEXT.payCode}
+          <input
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={7}
+            data-testid="pay-code"
+            value={payoutCode}
+            onChange={(e) => onPayoutCode(e.target.value)}
+          />
+          <span className="muted small">{TEXT.payCodeHint}</span>
+        </label>
+      )}
+      {payState === 'payable' && !ticket.payoutCodeLocked && (
         <p>
           <button
             type="button"
             className="primary"
             data-testid="pay-submit"
-            disabled={busy}
+            disabled={busy || !codeReady}
             onClick={onPay}
           >
             {TEXT.paySubmit} {formatEtb(ticket.payAmount)}

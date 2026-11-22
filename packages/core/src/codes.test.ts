@@ -9,13 +9,18 @@ import {
   CODE_ALPHABET,
   encodeBookingNumber,
   encodeCode,
+  encodePayoutCode,
   formatBookingCode,
   formatGameId,
+  formatPayoutCode,
   isBookingCode,
   isBookingNumber,
+  isPayoutCode,
   isValidCode,
   normalizeCode,
   parseGameId,
+  parsePayoutCode,
+  PAYOUT_CODE_ATTEMPTS,
 } from './codes';
 
 describe('CODE_ALPHABET', () => {
@@ -345,5 +350,35 @@ describe('6-digit booking codes (owner, 21 Nov 2026)', () => {
         expect(normalizeCode(formatBookingCode(code))).toBe(code);
       }),
     );
+  });
+});
+
+describe('payout codes (docs/plans/counter-codes-and-deposit-recovery.md, G3)', () => {
+  const bytes = fc.uint8Array({ minLength: BOOKING_NUMBER_BYTES, maxLength: 12 });
+
+  it('are 6 digits without a leading zero, whatever the random bytes (property)', () => {
+    fc.assert(
+      fc.property(bytes, (b) => {
+        const code = encodePayoutCode(b);
+        expect(code).toMatch(/^[1-9]\d{5}$/);
+        expect(isPayoutCode(code)).toBe(true);
+        expect(parsePayoutCode(formatPayoutCode(code))).toBe(code);
+      }),
+    );
+    expect(() => encodePayoutCode(new Uint8Array(3))).toThrow(RangeError);
+  });
+
+  it('are read as typed or said, and nothing else', () => {
+    expect(parsePayoutCode(' 482 913 ')).toBe('482913');
+    expect(parsePayoutCode('482-913')).toBe('482913');
+    for (const bad of ['082913', '48291', '4829130', '48A913', '', 'K7MX9P']) {
+      expect(parsePayoutCode(bad)).toBeNull();
+      expect(isPayoutCode(bad)).toBe(false);
+    }
+    expect(formatPayoutCode('482913')).toBe('482 913');
+  });
+
+  it('allow five tries', () => {
+    expect(PAYOUT_CODE_ATTEMPTS).toBe(5);
   });
 });

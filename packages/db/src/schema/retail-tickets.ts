@@ -62,6 +62,16 @@ export const retailTickets = pgTable(
      * code can be bought many times, and the barcode (the bet's short id) is what pays.
      */
     bookingCode: text('booking_code'),
+    /**
+     * The payout code printed on the customer's ticket at sale (docs/plans/
+     * counter-codes-and-deposit-recovery.md, G3), kept only as `<salt hex>:<sha256 hex>`; null for a
+     * ticket sold before the code existed, or one HQ waived it for. Paying asks for it.
+     */
+    payoutCodeHash: text('payout_code_hash'),
+    /** Wrong codes since the last unlock; PAYOUT_CODE_ATTEMPTS of them lock the ticket. */
+    payoutCodeAttempts: integer('payout_code_attempts').notNull().default(0),
+    /** Locked by wrong codes until HQ unlocks it; null when not locked. */
+    payoutCodeLockedAt: timestamp('payout_code_locked_at', { withTimezone: true }),
     stake: bigint('stake', { mode: 'bigint' }).notNull(),
     status: retailTicketStatus('status').notNull().default('sold'),
     soldAt: timestamp('sold_at', { withTimezone: true }).notNull(),
@@ -104,6 +114,7 @@ export const retailTickets = pgTable(
       .where(sql`${t.paidAt} IS NOT NULL`),
     check('retail_tickets_stake_positive', sql`${t.stake} > 0`),
     check('retail_tickets_reprints_non_negative', sql`${t.reprints} >= 0`),
+    check('retail_tickets_payout_attempts_non_negative', sql`${t.payoutCodeAttempts} >= 0`),
     // New enum values are compared as text: they cannot be used in the migration that adds them.
     check(
       'retail_tickets_paid',

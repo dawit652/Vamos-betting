@@ -174,6 +174,8 @@ describe("an agent's week", () => {
         staffId: desk.cashier,
         shiftId: desk.shift.id,
         idempotencyKey: `payout-${randomUUID()}`,
+        // The code printed on the customer's ticket.
+        payoutCode: winner.payoutCode,
         now: new Date(),
       }),
     );

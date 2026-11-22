@@ -4,6 +4,7 @@ export * from './owners';
 export * from './topups';
 export * from './tickets';
 export * from './payouts';
+export * from './payout-code';
 export * from './statements';
 export * from './monitor';
 export * from './alerts';

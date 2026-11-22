@@ -99,18 +99,30 @@ export const ShopTicketView = z.object({
   payState: TicketPayStateSchema,
   payAmount: Santim.nullable(),
   paidAt: IsoDateTime.nullable(),
+  /**
+   * Paying asks for the payout code printed on the customer's ticket (docs/plans/
+   * counter-codes-and-deposit-recovery.md, G3); false for a ticket sold before codes, or one HQ
+   * waived it for. The code itself is never in a view.
+   */
+  payoutCodeRequired: z.boolean(),
+  /** Five wrong payout codes locked the ticket; HQ unlocks it. */
+  payoutCodeLocked: z.boolean(),
 });
 export type ShopTicketView = z.infer<typeof ShopTicketView>;
 
 /**
  * POST /shop/desk/tickets/payouts: pays a won or void ticket at the shop that sold it, in the
  * cashier's open shift: hand over `amount` and print the slip (any amount, no HQ approval: owner,
- * 21 Nov 2026). 409 `ticket_other_shop`, `ticket_not_payable` (details.state), `shift_not_open`.
+ * 21 Nov 2026). 409 `ticket_other_shop`, `ticket_not_payable` (details.state), `shift_not_open`;
+ * for a ticket with a payout code: 409 `payout_code_required`, `payout_code_wrong` (details
+ * `{ attemptsLeft, locked }`; the wrong code counts) and `payout_code_locked`.
  */
 export const ShopPayTicketRequest = z
   .object({
     shiftId: z.uuid(),
     number: z.string().trim().min(4).max(20),
+    /** The payout code the customer says (spaces allowed). */
+    payoutCode: z.string().trim().max(20).optional(),
     idempotencyKey: z
       .string()
       .trim()
@@ -131,6 +143,30 @@ export type ShopPayTicketResponse = z.infer<typeof ShopPayTicketResponse>;
 
 export const ShopTicketResponse = z.object({ ticket: ShopTicketView, replayed: z.boolean() });
 export type ShopTicketResponse = z.infer<typeof ShopTicketResponse>;
+
+/**
+ * POST /shop/desk/tickets: the sold ticket, and its payout code ONCE, to be printed on the
+ * customer's ticket (null on an idempotent replay: it is never shown again).
+ */
+export const ShopSellTicketResponse = ShopTicketResponse.extend({
+  payoutCode: z
+    .string()
+    .regex(/^[1-9]\d{5}$/)
+    .nullable(),
+});
+export type ShopSellTicketResponse = z.infer<typeof ShopSellTicketResponse>;
+
+/**
+ * POST /admin/retail-tickets/:id/payout-code (agents.manage): HQ unlocks a ticket locked by wrong
+ * payout codes, or waives the code for a lost paper after checking the holder's ID. Audited.
+ */
+export const ResolvePayoutCodeRequest = z
+  .object({
+    action: z.enum(['unlock', 'waive']),
+    reason: z.string().trim().min(3).max(300),
+  })
+  .strict();
+export type ResolvePayoutCodeRequest = z.infer<typeof ResolvePayoutCodeRequest>;
 
 /** POST /shop/desk/tickets/:id/print: the first print is the original, later ones copies. */
 export const ShopTicketPrintResponse = z.object({ ticket: ShopTicketView, copy: z.boolean() });

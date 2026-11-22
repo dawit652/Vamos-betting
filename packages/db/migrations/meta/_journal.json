@@ -568,6 +568,13 @@
       "when": 1795342404628,
       "tag": "0080_report_days",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1795357446895,
+      "tag": "0081_retail_ticket_payout_code",
+      "breakpoints": true
     }
   ]
 }

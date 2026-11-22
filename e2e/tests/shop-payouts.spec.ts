@@ -174,6 +174,11 @@ test('a cashier pays a settled ticket on the pay screen and prints the payout sl
     await expect(shop.getByTestId('ticket-page')).toBeVisible();
     const number = (await shop.getByTestId('ticket-number').textContent()) ?? '';
     expect(number).toMatch(/^[A-Z0-9]{8}$/);
+    // The payout code is printed on the ticket, never shown on the screen (print-only).
+    const printedCode = shop.getByTestId('ticket-payout-code');
+    await expect(printedCode).toBeHidden();
+    const payoutCode = ((await printedCode.textContent()) ?? '').match(/\d{3} \d{3}/)?.[0] ?? '';
+    expect(payoutCode).toMatch(/^\d{3} \d{3}$/);
 
     // The Pay screen: the ticket is not settled until the match is played.
     await shop
@@ -205,6 +210,9 @@ test('a cashier pays a settled ticket on the pay screen and prints the payout sl
       const printsBefore = await shop.evaluate(
         () => (window as unknown as { __prints: number }).__prints,
       );
+      // The customer says the payout code printed on their ticket.
+      await expect(shop.getByTestId('pay-submit')).toBeDisabled();
+      await shop.getByTestId('pay-code').fill(payoutCode);
       shop.once('dialog', (dialog) => void dialog.accept());
       await shop.getByTestId('pay-submit').click();
       await expect(shop).toHaveURL(/\/payout\/[0-9a-f-]+\?number=.+&print=1$/);
