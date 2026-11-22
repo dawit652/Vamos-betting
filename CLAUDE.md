@@ -58,8 +58,10 @@ possible:
    per board match and results by API-Football fixture id (migration 0077, switch `narobet_events`
    off; `docs/plans/narobet-events.md`), and service-down alerts on Telegram every 15 minutes
    (migration 0078), the shop ticket payout code (migration 0081), the public ticket check and
-   manual deposits by one admin (steps 3, 3b, 4; newest branch `claude/eager-cerf-ox9vkq`; next free
-   migration 0082). Next: steps 5-8 of `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
+   manual deposits by one admin (steps 3, 3b, 4, by the first account), and step 5 by the second
+   account: "My deposit did not arrive" claims and Back office → Money not credited (migration 0082;
+   newest branch `claude/happy-keller-i7cvrh`; next free migration 0083). Next: steps 6-8 of
+   `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
    21 Nov: 6-digit booking, payout and withdrawal codes, deposit recovery, the health page, completing
    the shop app; decisions O1-O5 made), the owner deploys; phase 6 supports many POS devices (owner, 22 Nov: `docs/plans/agent-shops.md`,
    "Phase 6: many POS devices"), built after the owner buys a test unit or says go.
@@ -125,6 +127,10 @@ Node 22 and pnpm 10. Run these from the repository root.
 - **Winnings only** (owner, 21 Nov 2026): a player may withdraw the cash balance less the deposits not yet played through (core `withdrawableAmount` over `remainingWagering`); deposited money is for betting. The server runs in licensed mode, where every real deposit (Chapa, telebirr, the SMS rail, a counter deposit) posts the ledger type `deposit`; a new way of crediting a deposit must post `deposit` too, or it would count as winnings.
 - **Owner reports** (owner, 22 Nov 2026: "never make a mistake"; `docs/plans/owner-reports.md`): every figure comes from the ledger (core `summarizeReport`), periods in Ethiopian time are exact sums of their days, closed days are frozen in `report_days` (insert and read only), and every report runs five checks; a failed check alarms the owner. Never compute a report figure from anything but the ledger.
 - **Manual deposits** (owner, 21 Nov 2026, O5): one admin (`deposits.credit`) credits a deposit that reached us but was not credited, with no second approval: once per provider transaction id, the player's own deposit as itself, ledger type `deposit`, audited, the owner alerted above ETB 5,000 (`packages/db/src/payments/manual-deposits.ts`).
+- **Deposit claims** (G5.3, G6): a player's "My deposit did not arrive" never credits by itself; Back
+  office → Money not credited suggests the player for money that arrived, and an admin credits it
+  with the SMS credit or the manual deposit (`claimId` answers the claim in the same transaction)
+  (`packages/db/src/payments/deposit-claims.ts`).
 - **Shop ticket payout code** (owner, 21 Nov 2026, O1): printed once on the customer's ticket at sale, stored only as a salted hash, never on a screen or a reprint; paying asks for it, five wrong ones lock the ticket until HQ unlocks or waives it (`packages/db/src/retail/payout-code.ts`).
 - **Cashiers pay alone** (owner, 21 Nov 2026): a counter cash withdrawal or a winning shop ticket of any amount, with no supervisor, no HQ approval and no review for its size (exclusions, AML holds and settlement corrections still hold a withdrawal). Counter deposits keep the shop's supervisor threshold.
 - **Fixtures:** SMS parsers and receipt readers are tested against `packages/core/src/smsparse.fixtures.ts` and `packages/payments/src/receipts/fixtures.ts`; a new message shape gets a scrubbed fixture and a test.

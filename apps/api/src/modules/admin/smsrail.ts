@@ -19,6 +19,7 @@ import {
   claimManualPayout,
   claimManualPayoutBatch,
   closeSmsByStaff,
+  creditDepositClaim,
   creditSmsByStaff,
   reparseSmsByStaff,
   failManualPayout,
@@ -151,16 +152,28 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
       const smsId = parseUuid(request.params.id, 'SMS');
       const input = parseInput(CreditSmsRequest, request.body);
       const actor = staffActor(request);
-      const result = await inTx(deps, (tx) =>
-        creditSmsByStaff(tx, {
+      const result = await inTx(deps, async (tx) => {
+        const credited = await creditSmsByStaff(tx, {
           smsId,
           userId: input.userId,
           adminId: actor.adminId,
           note: input.note,
           now: deps.clock(),
           ip: actor.ip ?? null,
-        }),
-      );
+        });
+        // The player's claim this answers (G5.3), in the same transaction as the credit.
+        if (input.claimId !== undefined) {
+          await creditDepositClaim(tx, {
+            claimId: input.claimId,
+            userId: input.userId,
+            intentId: credited.intent.id,
+            adminId: actor.adminId,
+            now: deps.clock(),
+            ip: actor.ip ?? null,
+          });
+        }
+        return credited;
+      });
       return smsBody(result.sms);
     },
   );

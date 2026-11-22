@@ -1,4 +1,6 @@
 import {
+  CloseDepositClaimRequest,
+  MoneyNotCreditedResponse,
   hasPermission,
   ManualDepositRequest,
   ManualDepositResponse,
@@ -15,7 +17,10 @@ import {
 } from '@vamos/contracts';
 import {
   applyDepositEvent,
+  closeDepositClaim,
   creditDepositByAdmin,
+  creditDepositClaim,
+  listMoneyNotCredited,
   getStaffWithdrawal,
   listFlaggedDeposits,
   listStaffWithdrawals,
@@ -202,8 +207,8 @@ export default async function adminPaymentRoutes(app: FastifyInstance): Promise<
       const userId = parseUuid(request.params.id, 'User');
       const input = parseInput(ManualDepositRequest, request.body);
       const actor = staffActor(request);
-      const { intent, created } = await inTx(deps, (tx) =>
-        creditDepositByAdmin(tx, {
+      const { intent, created } = await inTx(deps, async (tx) => {
+        const credited = await creditDepositByAdmin(tx, {
           userId,
           intentId: input.intentId ?? null,
           provider: input.provider,
@@ -214,8 +219,20 @@ export default async function adminPaymentRoutes(app: FastifyInstance): Promise<
           ownerAlerts: deps.config.ownerAlerts,
           now: deps.clock(),
           ip: actor.ip ?? null,
-        }),
-      );
+        });
+        // The player's claim this answers (G5.3), in the same transaction as the credit.
+        if (input.claimId !== undefined) {
+          await creditDepositClaim(tx, {
+            claimId: input.claimId,
+            userId,
+            intentId: credited.intent.id,
+            adminId: actor.adminId,
+            now: deps.clock(),
+            ip: actor.ip ?? null,
+          });
+        }
+        return credited;
+      });
       return wire(ManualDepositResponse, {
         deposit: {
           id: intent.id,
@@ -225,6 +242,52 @@ export default async function adminPaymentRoutes(app: FastifyInstance): Promise<
         },
         created,
       });
+    },
+  );
+
+  /**
+   * "Money not credited" (G6): money that arrived but was not credited, and the players' open
+   * claims, each with the players it may belong to. Never credited automatically.
+   */
+  app.get('/admin/money-not-credited', { config: { staff: 'sms.review' } }, async () => {
+    const list = await listMoneyNotCredited(deps.db);
+    return wire(MoneyNotCreditedResponse, {
+      items: list.items,
+      claims: list.claims.map(({ claim, phone, name, pairs }) => ({
+        id: claim.id,
+        userId: claim.userId,
+        phone,
+        name,
+        method: claim.method,
+        amount: claim.amount,
+        paidAt: claim.paidAt,
+        reference: claim.reference,
+        payerPhone: claim.payerPhone,
+        note: claim.note,
+        createdAt: claim.createdAt,
+        pairs,
+      })),
+      waiting: list.waiting,
+    });
+  });
+
+  app.post<IdParams>(
+    '/admin/deposit-claims/:id/close',
+    { config: { staff: 'sms.review' } },
+    async (request) => {
+      const claimId = parseUuid(request.params.id, 'Claim');
+      const input = parseInput(CloseDepositClaimRequest, request.body);
+      const actor = staffActor(request);
+      const claim = await inTx(deps, (tx) =>
+        closeDepositClaim(tx, {
+          claimId,
+          note: input.note,
+          adminId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      return { id: claim.id, status: claim.status };
     },
   );
 

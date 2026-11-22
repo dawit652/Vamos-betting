@@ -363,3 +363,58 @@ export const paymentEvents = pgTable(
     check('payment_events_target', sql`${t.intentId} IS NULL OR ${t.payoutId} IS NULL`),
   ],
 );
+
+/**
+ * "My deposit did not arrive" (docs/plans/counter-codes-and-deposit-recovery.md, G5.3): a logged-in
+ * player's claim that money they sent was not credited. It never credits anything by itself: the
+ * back office's "Money not credited" page pairs it with the money that arrived (an unmatched SMS,
+ * a flagged provider payment) and an admin credits it (the SMS credit or the manual deposit, which
+ * mark the claim `credited` in the same transaction), or closes it with a note.
+ *
+ * method: what the player says they used (telebirr, cbe, chapa, other). status: open, credited,
+ * closed.
+ */
+export const DEPOSIT_CLAIM_METHODS = ['telebirr', 'cbe', 'chapa', 'other'] as const;
+export const DEPOSIT_CLAIM_STATUSES = ['open', 'credited', 'closed'] as const;
+
+export const depositClaims = pgTable(
+  'deposit_claims',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    method: text('method').notNull(),
+    amount: bigint('amount', { mode: 'bigint' }).notNull(),
+    /** When the player says they paid. */
+    paidAt: timestamp('paid_at', { withTimezone: true }).notNull(),
+    /** The provider's transaction id or the bank SMS reference, as typed (spaces removed). */
+    reference: text('reference'),
+    /** The phone that paid, when not the player's own. */
+    payerPhone: text('payer_phone'),
+    note: text('note'),
+    status: text('status').notNull().default('open'),
+    /** The deposit credited for it (status credited). */
+    creditedIntentId: uuid('credited_intent_id').references(() => paymentIntents.id, {
+      onDelete: 'restrict',
+    }),
+    resolvedBy: uuid('resolved_by'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolutionNote: text('resolution_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index('deposit_claims_user_idx').on(t.userId, t.createdAt),
+    index('deposit_claims_open_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'open'`),
+    check('deposit_claims_amount_positive', sql`${t.amount} > 0`),
+    check('deposit_claims_method', sql`${t.method} IN ('telebirr', 'cbe', 'chapa', 'other')`),
+    check('deposit_claims_status', sql`${t.status} IN ('open', 'credited', 'closed')`),
+    check('deposit_claims_resolved', sql`(${t.status} = 'open') = (${t.resolvedAt} IS NULL)`),
+    check(
+      'deposit_claims_credited',
+      sql`(${t.status} = 'credited') = (${t.creditedIntentId} IS NOT NULL)`,
+    ),
+  ],
+);

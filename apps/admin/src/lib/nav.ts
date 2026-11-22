@@ -26,6 +26,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/retail-monitor', label: 'Shop monitor', permission: 'agents.view' },
   { href: '/retail-alerts', label: 'Shop alerts', permission: 'agents.view' },
   { href: '/sms', label: 'SMS rail', permission: 'sms.review' },
+  { href: '/money-not-credited', label: 'Money not credited', permission: 'sms.review' },
   { href: '/collection-accounts', label: 'Deposit accounts', permission: 'sms.review' },
   { href: '/jackpots', label: 'Jackpots', permission: 'jackpots.view' },
   { href: '/reports', label: 'Reports', permission: 'reports.view' },

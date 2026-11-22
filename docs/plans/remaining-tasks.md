@@ -1,9 +1,15 @@
 # Remaining tasks (read this first; updated 22 Nov 2026)
 
-**Start here (22 Nov, newest):** the newest work is on `claude/eager-cerf-ox9vkq` (the first
-account; it contains all of `claude/happy-keller-i7cvrh` up to `e05d762`; bring happy-keller up to
-it with `git fetch origin claude/eager-cerf-ox9vkq && git merge --ff-only FETCH_HEAD` before working
-there). **Counter codes steps 3, 3b and 4 are built (22 Nov, pushed, NOT deployed):** the payout code
+**Start here (22 Nov, newest):** the second account continues: the newest work is on
+`claude/happy-keller-i7cvrh` (it contains all of `claude/eager-cerf-ox9vkq` up to `55f91d0`; bring
+eager-cerf up to it with `git fetch origin claude/happy-keller-i7cvrh && git merge --ff-only
+FETCH_HEAD` before working there). **Counter codes step 5 is built (22 Nov, pushed, NOT deployed):**
+"My deposit did not arrive" claims on the Deposit page and Back office → Money not credited with
+suggested players (migration `0082_deposit_claims`; **next free migration: 0083**). Next: step 6
+(the Telegram "Deposit problem", O3), step 7 (the cash withdrawal code: `/payments/cash-codes`
+exists already, check what is left), step 8 (the shift report print), the Service health page, and
+the owner's daily "money not credited" line on Telegram.
+**Before that (22 Nov):** the first account's work on `claude/eager-cerf-ox9vkq`. **Counter codes steps 3, 3b and 4 are built (22 Nov, pushed, NOT deployed):** the payout code
 printed on each shop ticket and asked for at Pay (migration `0081_retail_ticket_payout_code`), the
 public ticket check (website `/ticket`, Telegram `/ticket`), and manual deposits by one admin
 (`deposits.credit`) with a re-check button ([counter-codes-and-deposit-recovery.md](counter-codes-and-deposit-recovery.md)).

@@ -1018,6 +1018,8 @@ export const ManualDepositRequest = z
       message: 'amount must be above zero',
     }).optional(),
     reason: AuditText,
+    /** The player's open deposit claim this answers (marked credited in the same transaction). */
+    claimId: z.uuid().optional(),
   })
   .strict();
 export type ManualDepositRequest = z.infer<typeof ManualDepositRequest>;
@@ -1101,7 +1103,12 @@ export const StaffSmsListResponse = z.object({ items: z.array(StaffSmsView) });
 export type StaffSmsListResponse = z.infer<typeof StaffSmsListResponse>;
 
 /** POST /admin/sms/:id/credit: credit what arrived to a player (after checking who paid). */
-export const CreditSmsRequest = z.object({ userId: Uuid, note: AuditText });
+export const CreditSmsRequest = z.object({
+  userId: Uuid,
+  note: AuditText,
+  /** The player's open deposit claim this answers (marked credited in the same transaction). */
+  claimId: Uuid.optional(),
+});
 export type CreditSmsRequest = z.infer<typeof CreditSmsRequest>;
 
 /** POST /admin/sms/:id/close and …/acknowledge-receipt. */

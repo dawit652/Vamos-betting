@@ -15,8 +15,17 @@ import {
   type PaymentWebhookAck,
   type WithdrawalView,
   type WithdrawalsResponse,
+  CreateDepositClaimRequest,
+  DepositClaimListResponse,
+  DepositClaimResponse,
 } from '@vamos/contracts';
-import { createCashCode, withTxRetry } from '@vamos/db';
+import {
+  createCashCode,
+  fileDepositClaim,
+  listPlayerDepositClaims,
+  withTxRetry,
+  type DepositClaim,
+} from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { cashCodeHash, newCashCode } from '../../lib/cash-code';
@@ -70,7 +79,23 @@ export const PAYMENT_RATE_LIMITS = {
   depositCheck: 5,
   /** Per player: adding, confirming and resending payout-account codes. */
   payoutAccounts: 10,
+  /** Per player: "My deposit did not arrive" (G5.3). */
+  depositClaim: 5,
 } as const;
+
+/** A claim as its player sees it (never the staff's note). */
+function claimView(claim: DepositClaim) {
+  return {
+    id: claim.id,
+    method: claim.method as 'telebirr' | 'cbe' | 'chapa' | 'other',
+    amount: claim.amount.toString(),
+    paidAt: claim.paidAt.toISOString(),
+    reference: claim.reference,
+    status: claim.status as 'open' | 'credited' | 'closed',
+    createdAt: claim.createdAt.toISOString(),
+    resolvedAt: claim.resolvedAt?.toISOString() ?? null,
+  };
+}
 
 const ListQuery = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) });
 
@@ -381,6 +406,45 @@ export default async function paymentRoutes(app: FastifyInstance): Promise<void>
 
   // A one-time code to withdraw cash at a shop's desk (docs/plans/cashier-dashboard.md): the
   // player tells the cashier their phone number and this code; the cashier never learns a PIN.
+  // "My deposit did not arrive" (G5.3): a claim for the back office's "Money not credited". It
+  // never credits anything by itself.
+  app.post(
+    '/payments/deposit-claims',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-deposit-claim', PAYMENT_RATE_LIMITS.depositClaim),
+    },
+    async (request, reply): Promise<DepositClaimResponse> => {
+      const user = requireUser(request);
+      const input = parseInput(CreateDepositClaimRequest, request.body);
+      const claim = await withTxRetry(deps.db, (tx) =>
+        fileDepositClaim(tx, {
+          userId: user.id,
+          method: input.method,
+          amount: BigInt(input.amount),
+          paidAt: new Date(input.paidAt),
+          reference: input.reference ?? null,
+          payerPhone: input.payerPhone ?? null,
+          note: input.note ?? null,
+          now: deps.clock(),
+          ip: request.ip,
+        }),
+      );
+      void reply.status(201);
+      return DepositClaimResponse.parse({ claim: claimView(claim) });
+    },
+  );
+
+  app.get(
+    '/payments/deposit-claims',
+    { preHandler: app.requireAuth },
+    async (request): Promise<DepositClaimListResponse> => {
+      const user = requireUser(request);
+      const claims = await listPlayerDepositClaims(deps.db, user.id);
+      return DepositClaimListResponse.parse({ claims: claims.map(claimView) });
+    },
+  );
+
   app.post(
     '/payments/cash-codes',
     {

@@ -19,3 +19,4 @@ export * from './shop';
 export * from './collection-accounts';
 export * from './retail-tickets';
 export * from './reports';
+export * from './deposit-claims';

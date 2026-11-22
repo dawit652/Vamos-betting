@@ -188,3 +188,4 @@ export {
   type CollectionAccountStatus,
 } from './collectionaccounts';
 export * from './manual-deposits';
+export * from './deposit-claims';

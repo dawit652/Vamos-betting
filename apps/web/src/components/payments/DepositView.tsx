@@ -19,6 +19,7 @@ import { formatSantim } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/providers/SessionProvider';
 import { PaymentDemoNotice, PhoneReadOnly, ProviderField, usePaymentOptions } from './PaymentParts';
+import { DepositClaim } from './DepositClaim';
 import { TransferPanel } from './TransferPanel';
 import {
   AMOUNT_ERROR_KEY,
@@ -465,6 +466,7 @@ export function DepositPanel({ resumeId }: { resumeId: string | null }) {
         ) : null}
       </div>
       <RecentDeposits items={recent} />
+      <DepositClaim />
     </div>
   );
 }

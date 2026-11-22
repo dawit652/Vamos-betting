@@ -155,6 +155,13 @@ locked }`), and the fifth locks the ticket (409 `payout_code_locked`, audited
   "Credit by hand" on an uncredited deposit, and the form "Credit a deposit by hand" for a payment
   with no deposit, on the player's page.
 
+**Built 22 Nov (step 5, G5.3):** "My deposit did not arrive" on the player's Deposit page
+(`DepositClaim`): method (telebirr, CBE, Chapa, other), amount, when, the transaction id or SMS
+reference, the paying phone and a note. `POST /payments/deposit-claims` (logged in, 5 a minute) and
+`GET /payments/deposit-claims`; table `deposit_claims` (migration `0082_deposit_claims`). At most 3
+open claims a player, one open claim per reference, payments of the last 30 days. A claim credits
+nothing by itself (`packages/db/src/payments/deposit-claims.ts`).
+
 ### G6. Money sent but not credited, mapped to the player
 
 A back-office page **"Money not credited"** (Finance):
@@ -167,6 +174,19 @@ A back-office page **"Money not credited"** (Finance):
 - an admin confirms and credits (one step, decision O5). **Never credited automatically**: the SMS rail's rule
   stays (another payer's phone or another amount is flagged for staff, never credited).
 - A daily line in the owner's Telegram summary: how much money waits, and the oldest.
+
+**Built 22 Nov (step 5, G6):** Back office → **Money not credited** (`sms.review`;
+`GET /admin/money-not-credited`): unresolved incoming SMS (unmatched, ambiguous, flagged) and
+provider deposits flagged instead of credited, oldest first, with the waiting total and the oldest;
+each with its suggested players and why (the deposit it matched but flagged, the player's own
+flagged deposit, the payer's phone, an SMS deposit of a near amount (ETB 1 or 1 %) opened in the day
+before the money moved, a claim with the same reference or a near amount the same day), strongest
+first; and the open claims with the money they pair with. Crediting uses the existing tools, which
+take an optional `claimId` and answer the claim in the same transaction (409 `claim_other_player`
+when the money would go to another player): "Credit to this player" (the SMS credit) and "Credit
+by hand" (the manual deposit, `deposits.credit`). "Close" answers a claim without a credit, with a
+note (`POST /admin/deposit-claims/:id/close`). Nothing is credited automatically. **Not built yet:**
+the daily line in the owner's Telegram summary.
 
 ### G7. Frequent Telegram alerts when a service fails
 
@@ -274,7 +294,7 @@ Telegram message at once. G5.2 follows this: "propose" and "approve" are one ste
 | 2    | G1 numeric booking codes (web, shop) and G2 the code on the ticket    | **Built 22 Nov**                  |
 | 3    | G3 payout code (sale, Pay, reprint, lock) and the public ticket check | **Built 22 Nov** (check page: 3b) |
 | 4    | G5.1-2 provider re-check and manual deposit (one admin, O5)           | Main session (money)              |
-| 5    | G6 "Money not credited" with suggested players; G5.3 claims           | Main session                      |
+| 5    | G6 "Money not credited" with suggested players; G5.3 claims           | **Built 22 Nov**                  |
 | 6    | G5.4 Telegram "Deposit problem" (O3: allowed)                         | `routine-coder` + review          |
 | 7    | G4 withdrawal code (O2: any shop with player cash on)                 | Main session (money)              |
 | 8    | G8 shift report print; phase 6 when the POS model is chosen           | `routine-coder`                   |

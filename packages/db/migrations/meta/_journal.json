@@ -575,6 +575,13 @@
       "when": 1795357446895,
       "tag": "0081_retail_ticket_payout_code",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1795360526174,
+      "tag": "0082_deposit_claims",
+      "breakpoints": true
     }
   ]
 }

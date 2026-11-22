@@ -9,7 +9,7 @@ import {
   OWNER_ALERT,
 } from '../src/index';
 import { adminUsers, auditLog, ledgerTransactions, outboxEvents } from '../src/schema/index';
-import { createTestDatabase, type TestDatabase } from '../src/testing';
+import { createTestDatabase } from '../src/testing';
 import { dropTestDatabase } from './helpers';
 import { cashOf, createPlayer, domainError, idemKey, NOW, rules } from './payments-fixtures';
 
@@ -20,7 +20,7 @@ import { cashOf, createPlayer, domainError, idemKey, NOW, rules } from './paymen
  * owner told above ETB 5,000.
  */
 
-let db: TestDatabase;
+let db: Awaited<ReturnType<typeof createTestDatabase>>;
 let admin: string;
 const ALERTS = { phones: ['+251911000001'], minIntervalMinutes: 30 };
 
