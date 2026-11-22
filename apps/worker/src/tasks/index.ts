@@ -41,7 +41,7 @@ import { prematchDriftTask, type PrematchDriftOptions } from './prematch-drift';
 import { retentionPruneTask, type RetentionPruneOptions } from './retention-prune';
 import { smsNotifyTask, type SmsNotifyOptions } from './sms-notify';
 import { smsRailTasks, type SmsRailTaskOptions } from './smsrail';
-import { smsRailHealth } from '@vamos/db';
+import { DomainError, fileDepositClaim, smsRailHealth, userIdByPhone } from '@vamos/db';
 import { createCatalogReader } from '../telegram/catalog';
 import { createResetCodeRequester } from '../telegram/reset';
 import { telegramBotTask, type TelegramBotTaskOptions } from '../telegram/task';
@@ -169,6 +169,29 @@ export function createTasks(
           playerMenu: config.telegram.playerMenu,
           demo: config.mode === 'demo',
           status: async () => smsRailHealth(ctx.db),
+          // "Deposit problem" (G5.4, O3): the claim waits in Back office → Money not credited.
+          depositClaim: {
+            playerByPhone: (phone) => userIdByPhone(ctx.db, phone),
+            file: async (input) => {
+              try {
+                await ctx.db.transaction((tx) =>
+                  fileDepositClaim(tx, {
+                    ...input,
+                    paidAt: ctx.clock(),
+                    note: 'Telegram',
+                    source: 'telegram',
+                    now: ctx.clock(),
+                  }),
+                );
+                return 'filed';
+              } catch (error) {
+                if (!(error instanceof DomainError)) throw error;
+                if (error.code === 'claim_exists') return 'exists';
+                if (error.code === 'too_many_open_claims') return 'too_many';
+                return 'invalid';
+              }
+            },
+          },
           // Forgot PIN over Telegram (X12): the API issues the code, the bot sends it.
           resetCode: createResetCodeRequester({
             baseUrl: config.api.internalUrl,

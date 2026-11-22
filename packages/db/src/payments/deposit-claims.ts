@@ -1,5 +1,5 @@
 import { birr, normalizeEthiopianMsisdn } from '@vamos/core';
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne } from 'drizzle-orm';
 import { domainConflict, domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
@@ -70,11 +70,14 @@ export async function fileDepositClaim(
     reference?: string | null;
     payerPhone?: string | null;
     note?: string | null;
+    /** `telegram`: filed through the bot (kept 90 days, decision O3). Default `app`. */
+    source?: 'app' | 'telegram';
     now: Date;
     ip?: string | null;
   },
 ): Promise<DepositClaim> {
   const { now } = input;
+  const source = input.source ?? 'app';
   if (!(DEPOSIT_CLAIM_METHODS as readonly string[]).includes(input.method)) {
     throw domainUnprocessable('claim_method_invalid', 'Choose how you paid.');
   }
@@ -131,6 +134,7 @@ export async function fileDepositClaim(
       reference,
       payerPhone,
       note,
+      source,
       createdAt: now,
     })
     .returning();
@@ -141,7 +145,11 @@ export async function fileDepositClaim(
     action: DEPOSIT_CLAIM_AUDIT.filed,
     targetType: 'deposit_claim',
     targetId: claim.id,
-    metadata: { method: claim.method, amount: claim.amount, reference, payerPhone },
+    // A Telegram claim's reference and phone stay only in the claim (pruned after 90 days, O3).
+    metadata:
+      source === 'telegram'
+        ? { method: claim.method, amount: claim.amount, source }
+        : { method: claim.method, amount: claim.amount, reference, payerPhone, source },
     ip: input.ip ?? null,
   });
   return claim;
@@ -537,4 +545,29 @@ export async function listMoneyNotCredited(exec: DbExecutor): Promise<MoneyNotCr
     null,
   );
   return { items, claims, waiting: { count: items.length, amount, oldestAt } };
+}
+
+/** How long a claim filed through the Telegram bot is kept (decision O3: 90 days). */
+export const TELEGRAM_CLAIM_RETENTION_MS = 90 * 86_400_000;
+
+/** Deletes the Telegram claims filed before `before` (decision O3); returns how many. */
+export async function pruneTelegramDepositClaims(
+  exec: DbExecutor,
+  input: { before: Date },
+): Promise<number> {
+  const deleted = await exec
+    .delete(depositClaims)
+    .where(and(eq(depositClaims.source, 'telegram'), lt(depositClaims.createdAt, input.before)))
+    .returning({ id: depositClaims.id });
+  return deleted.length;
+}
+
+/** The player whose registered phone this is (E.164), or null. */
+export async function userIdByPhone(exec: DbExecutor, phone: string): Promise<string | null> {
+  const [row] = await exec
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.phone, phone))
+    .limit(1);
+  return row?.id ?? null;
 }

@@ -1,10 +1,12 @@
-import { normalizeEthiopianMsisdn } from '@vamos/core';
+import { normalizeEthiopianMsisdn, santimToBirrString } from '@vamos/core';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { CatalogReader } from './catalog';
 import type { TelegramClient, TelegramMessage, TelegramUpdate } from './client';
 import {
   botLocale,
+  depositAskMessage,
+  parseDepositDetails,
   commandArgument,
   leaguesMessage,
   matchListMessage,
@@ -46,7 +48,10 @@ export type ResetCodeResult =
 export interface BotDeps {
   client: TelegramClient;
   catalog: CatalogReader;
-  redis: Pick<Redis, 'incr' | 'expire'>;
+  redis: Pick<Redis, 'incr' | 'expire' | 'get'> & {
+    set(key: string, value: string, mode: 'EX', seconds: number): Promise<unknown>;
+    del(key: string): Promise<number>;
+  };
   logger: Pick<Logger, 'warn' | 'info'>;
   clock: () => Date;
   /** The website (PUBLIC_WEB_URL): every match button opens it there. */
@@ -68,6 +73,40 @@ export interface BotDeps {
   botUsername?: string;
   /** Asks the API for a PIN reset code for a proven number. Unset: no reset in the bot. */
   resetCode?: (input: { phone: string; chatId: number }) => Promise<ResetCodeResult>;
+  /**
+   * "Deposit problem" (docs/plans/counter-codes-and-deposit-recovery.md, G5.4; decision O3: the
+   * bot may store the phone, amount and reference, kept 90 days). Unset: not offered.
+   */
+  depositClaim?: {
+    /** The player whose registered phone this is (E.164), or null. */
+    playerByPhone: (phone: string) => Promise<string | null>;
+    /** Files the player's claim (source telegram). */
+    file: (input: {
+      userId: string;
+      method: string;
+      amount: bigint;
+      reference: string | null;
+    }) => Promise<'filed' | 'exists' | 'too_many' | 'invalid'>;
+  };
+}
+
+/** How long the bot waits for the next answer of a "Deposit problem" conversation. */
+export const DEPOSIT_FLOW_TTL_SECONDS = 15 * 60;
+
+const flowKey = (deps: BotDeps, chatId: number) =>
+  `${deps.rateKeyPrefix ?? 'vamos:telegram:rate:'}flow:${chatId}`;
+
+async function getFlow(deps: BotDeps, chatId: number): Promise<string | null> {
+  return deps.redis.get(flowKey(deps, chatId)).catch(() => null);
+}
+
+async function setFlow(deps: BotDeps, chatId: number, value: string | null): Promise<void> {
+  const key = flowKey(deps, chatId);
+  await (
+    value === null
+      ? deps.redis.del(key)
+      : deps.redis.set(key, value, 'EX', DEPOSIT_FLOW_TTL_SECONDS)
+  ).catch(() => undefined);
 }
 
 /** Messages (and button presses) one chat may send per minute. */
@@ -179,7 +218,13 @@ async function act(
     return;
   }
   if (action === 'reset' && deps.resetCode !== undefined) {
+    await setFlow(deps, chatId, null);
     await send(deps, chatId, resetAskMessage(locale));
+    return;
+  }
+  if (action === 'deposit' && deps.depositClaim !== undefined) {
+    await setFlow(deps, chatId, 'deposit');
+    await send(deps, chatId, depositAskMessage(locale));
     return;
   }
   if (!deps.playerMenu) {
@@ -212,6 +257,7 @@ async function act(
     chatId,
     menuMessage(locale, deps.demo, {
       reset: deps.resetCode !== undefined,
+      deposit: deps.depositClaim !== undefined,
       ...(deps.botUsername === undefined ? {} : { botUsername: deps.botUsername }),
     }),
   );
@@ -263,6 +309,83 @@ async function resetWithContact(
   await send(deps, chatId, { text, replyMarkup: done });
 }
 
+/** "Deposit problem", step 2: the person's own number; then the details are asked for. */
+async function depositWithContact(
+  deps: BotDeps,
+  message: TelegramMessage,
+  locale: BotLocale,
+): Promise<void> {
+  const t = textOf(locale);
+  const chatId = message.chat.id;
+  const contact = message.contact!;
+  if (message.from === undefined || contact.user_id !== message.from.id) {
+    await send(deps, chatId, { ...depositAskMessage(locale), text: t.resetNotOwn });
+    return;
+  }
+  const raw = contact.phone_number.trim();
+  const phone = normalizeEthiopianMsisdn(raw.startsWith('+') ? raw : `+${raw}`);
+  const done = { remove_keyboard: true } as const;
+  let userId: string | null = null;
+  try {
+    userId = phone === null ? null : await deps.depositClaim!.playerByPhone(phone);
+  } catch (error) {
+    deps.logger.warn({ err: error }, 'telegram bot: the player could not be looked up');
+    await send(deps, chatId, { text: t.depositUnavailable, replyMarkup: done });
+    return;
+  }
+  if (userId === null || phone === null) {
+    await setFlow(deps, chatId, null);
+    await send(deps, chatId, { text: t.resetNoAccount, replyMarkup: done });
+    return;
+  }
+  await setFlow(deps, chatId, `deposit:${userId}:${phone}`);
+  await send(deps, chatId, { text: t.depositDetails, replyMarkup: done });
+}
+
+/** "Deposit problem", step 3: amount, method and reference; the claim is filed. */
+async function depositDetails(
+  deps: BotDeps,
+  chatId: number,
+  locale: BotLocale,
+  flow: string,
+  text: string | undefined,
+): Promise<void> {
+  const t = textOf(locale);
+  const [, userId, phone] = flow.split(':');
+  const details = parseDepositDetails(text);
+  if (details === null || userId === undefined || phone === undefined) {
+    await send(deps, chatId, t.depositDetailsAgain);
+    return;
+  }
+  let outcome: 'filed' | 'exists' | 'too_many' | 'invalid';
+  try {
+    outcome = await deps.depositClaim!.file({ userId, ...details });
+  } catch (error) {
+    deps.logger.warn({ err: error }, 'telegram bot: a deposit claim could not be filed');
+    await send(deps, chatId, t.depositUnavailable);
+    return;
+  }
+  if (outcome === 'invalid') {
+    await send(deps, chatId, t.depositDetailsAgain);
+    return;
+  }
+  await setFlow(deps, chatId, null);
+  const amount = `ETB ${santimToBirrString(details.amount)}`;
+  if (outcome !== 'filed') {
+    await send(deps, chatId, outcome === 'exists' ? t.depositExists : t.depositTooMany);
+    return;
+  }
+  await send(deps, chatId, t.depositFiled.replace('{amount}', amount));
+  // The admin chats hear of it at once (the claim waits in Back office → Money not credited).
+  const masked = `${phone.slice(0, 5)}••••${phone.slice(-4)}`;
+  const note = `Deposit problem (Telegram): ${masked} says ${amount} by ${details.method}${
+    details.reference === null ? '' : `, reference ${details.reference}`
+  }. Back office → Money not credited.`;
+  for (const owner of deps.ownerChatIds) {
+    await deps.client.sendMessage(owner, note).catch(() => undefined);
+  }
+}
+
 export async function handleUpdate(deps: BotDeps, update: TelegramUpdate): Promise<void> {
   if (update.callback_query !== undefined) {
     const query = update.callback_query;
@@ -293,13 +416,27 @@ export async function handleUpdate(deps: BotDeps, update: TelegramUpdate): Promi
   if (message.chat.type !== 'private' && !owner) return;
   const locale = botLocale(message.from?.language_code);
   if (message.contact !== undefined) {
-    // A number is only ever shared for the PIN reset, and only in a private chat.
-    if (message.chat.type !== 'private' || deps.resetCode === undefined) return;
+    // A number is only shared for the PIN reset or a deposit problem, in a private chat.
+    if (message.chat.type !== 'private') return;
+    if (deps.depositClaim !== undefined && (await getFlow(deps, chatId)) === 'deposit') {
+      if (!(await withinRate(deps, chatId))) return;
+      await depositWithContact(deps, message, locale);
+      return;
+    }
+    if (deps.resetCode === undefined) return;
     if (!(await withinRate(deps, chatId))) return;
     await resetWithContact(deps, message, locale);
     return;
   }
   const command = parseCommand(message.text);
+  if (command === null && message.chat.type === 'private' && deps.depositClaim !== undefined) {
+    const flow = await getFlow(deps, chatId);
+    if (flow !== null && flow.startsWith('deposit:')) {
+      if (!(await withinRate(deps, chatId))) return;
+      await depositDetails(deps, chatId, locale, flow, message.text);
+      return;
+    }
+  }
   if (command === null && message.chat.type !== 'private') return;
   if (!(await withinRate(deps, chatId))) return;
   const action =

@@ -28,7 +28,10 @@ describe('the daily money-not-credited line', () => {
     'goes once a day from 09:00 in Addis Ababa, only while money waits',
     async () => {
       const real = t.clock.now;
-      const alerts = { ...t.ctx, ownerAlerts: { phones: ['+251911000001'], minIntervalMinutes: 30 } };
+      const alerts = {
+        ...t.ctx,
+        ownerAlerts: { phones: ['+251911000001'], minIntervalMinutes: 30 },
+      };
       try {
         // Nothing waits: nothing is said.
         t.clock.set(new Date('2026-11-23T07:00:00Z')); // 10:00 in Addis Ababa

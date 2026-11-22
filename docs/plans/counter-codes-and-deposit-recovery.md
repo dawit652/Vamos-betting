@@ -136,6 +136,14 @@ locked }`), and the fifth locks the ticket (409 `payout_code_locked`, audited
    reference, creates the same claim and posts it to the admin chats. This makes the bot store what
    a player sends: decision O3, allowed (phone, amount, reference; kept 90 days).
 
+**Built 22 Nov (step 6, G5.4):** the bot's **Deposit problem** button and `/deposit`: the person
+shares their own number (Telegram's one-tap button; another person's card is refused), then sends
+"amount, method, reference" in one message (`500 telebirr CK51X2QZ`). A player with that registered
+number gets a claim (`source` telegram, migration `0083_deposit_claim_source`) in Back office →
+Money not credited, and the owner chats a line with the masked number. Decision O3: a Telegram
+claim keeps only the phone, amount and reference, its reference stays out of the audit log, and the
+worker's retention task deletes it after 90 days. The conversation waits 15 minutes for each answer.
+
 **Built 22 Nov (step 4):**
 
 - **Re-check:** `POST /admin/deposits/:id/recheck` (withdrawals.approve) asks the provider now
@@ -302,7 +310,7 @@ Telegram message at once. G5.2 follows this: "propose" and "approve" are one ste
 | 3    | G3 payout code (sale, Pay, reprint, lock) and the public ticket check | **Built 22 Nov** (check page: 3b) |
 | 4    | G5.1-2 provider re-check and manual deposit (one admin, O5)           | Main session (money)              |
 | 5    | G6 "Money not credited" with suggested players; G5.3 claims           | **Built 22 Nov**                  |
-| 6    | G5.4 Telegram "Deposit problem" (O3: allowed)                         | `routine-coder` + review          |
+| 6    | G5.4 Telegram "Deposit problem" (O3: allowed)                         | **Built 22 Nov**                  |
 | 7    | G4 withdrawal code (O2: any shop with player cash on)                 | Main session (money)              |
 | 8    | G8 shift report print; phase 6 when the POS model is chosen           | `routine-coder`                   |
 

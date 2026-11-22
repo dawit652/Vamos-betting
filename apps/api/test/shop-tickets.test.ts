@@ -493,8 +493,8 @@ describe('shop tickets through the shop app', () => {
       soldCount: 2,
       paidCount: 2,
     });
-    expect(
-      (await asDesk(stranger, 'GET', `/shop/desk/shifts/${desk.shiftId}`)).statusCode,
-    ).toBe(404);
+    expect((await asDesk(stranger, 'GET', `/shop/desk/shifts/${desk.shiftId}`)).statusCode).toBe(
+      404,
+    );
   });
 });

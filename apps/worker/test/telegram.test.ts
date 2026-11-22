@@ -23,6 +23,7 @@ import {
   matchListMessage,
   MAX_MATCHES_PER_MESSAGE,
   parseCommand,
+  parseDepositDetails,
   statusMessage,
 } from '../src/telegram/format';
 import { createResetCodeRequester } from '../src/telegram/reset';
@@ -250,6 +251,7 @@ function memoryRedis() {
       values.set(key, value);
       return 'OK' as const;
     },
+    del: async (key: string) => (values.delete(key) ? 1 : 0),
     values,
   };
 }
@@ -693,5 +695,82 @@ describe('Telegram bot: share with friends', () => {
     await handleUpdate(deps, message(81, '/share'));
     expect(sent[0]!.text).toContain('Welcome to Nahubet');
     expect(JSON.stringify(sent[0]!.replyMarkup)).not.toContain('t.me/share');
+  });
+});
+
+describe('Telegram bot: deposit problem (G5.4)', () => {
+  const PLAYER = '7a1c2f3e-0000-4000-8000-000000000001';
+  const contact = (chatId: number, phone: string, own = true): TelegramUpdate => ({
+    update_id: (updateId += 1),
+    message: {
+      message_id: updateId,
+      chat: { id: chatId, type: 'private' },
+      from: { id: chatId, language_code: 'en' },
+      contact: { phone_number: phone, user_id: own ? chatId : chatId + 1 },
+    },
+  });
+
+  it('asks for the number, then the details, files the claim and tells the admin chats', async () => {
+    const filed: unknown[] = [];
+    const { deps, sent } = botDeps({
+      depositClaim: {
+        playerByPhone: async (phone) => (phone === '+251911223344' ? PLAYER : null),
+        file: async (input) => {
+          filed.push(input);
+          return 'filed';
+        },
+      },
+    });
+    await handleUpdate(deps, message(9, '/deposit'));
+    expect(sent.at(-1)!.text).toContain('share your phone number');
+    // Someone else's card is refused.
+    await handleUpdate(deps, contact(9, '251911223344', false));
+    expect(sent.at(-1)!.text).toContain('your own number');
+    await handleUpdate(deps, contact(9, '251911223344'));
+    expect(sent.at(-1)!.text).toContain('500 telebirr CK51X2QZ');
+    await handleUpdate(deps, message(9, 'I sent money'));
+    expect(sent.at(-1)!.text).toContain('Please send the amount first');
+    await handleUpdate(deps, message(9, '500 telebirr CK51X2QZ'));
+    expect(filed).toEqual([
+      { userId: PLAYER, method: 'telebirr', amount: 50_000n, reference: 'CK51X2QZ' },
+    ]);
+    expect(sent.find((m) => m.chatId === 9 && m.text.includes('ETB 500.00'))).toBeDefined();
+    const toOwner = sent.find((m) => m.chatId === OWNER);
+    expect(toOwner?.text).toContain('Deposit problem (Telegram): +2519••••3344 says ETB 500.00');
+    // The conversation is over: the next text opens the menu.
+    await handleUpdate(deps, message(9, 'hello'));
+    expect(sent.at(-1)!.text).toContain('Welcome to Nahubet');
+  });
+
+  it('says when the number has no account, and keeps a shared number for the reset otherwise', async () => {
+    const reset: string[] = [];
+    const { deps, sent } = botDeps({
+      depositClaim: { playerByPhone: async () => null, file: async () => 'filed' },
+      resetCode: async ({ phone }) => {
+        reset.push(phone);
+        return { status: 'no_account' };
+      },
+    });
+    await handleUpdate(deps, message(11, '/deposit'));
+    await handleUpdate(deps, contact(11, '251911000099'));
+    expect(sent.at(-1)!.text).toContain('No Nahubet account uses this number');
+    expect(reset).toEqual([]);
+    // Without the deposit conversation, a shared number is the PIN reset's.
+    await handleUpdate(deps, contact(11, '251911000099'));
+    expect(reset).toEqual(['+251911000099']);
+  });
+
+  it('reads the details in any order after the amount', () => {
+    expect(parseDepositDetails('1,250.5 CBE FT2611ABCD')).toEqual({
+      amount: 125_050n,
+      method: 'cbe',
+      reference: 'FT2611ABCD',
+    });
+    expect(parseDepositDetails('300')).toEqual({
+      amount: 30_000n,
+      method: 'other',
+      reference: null,
+    });
+    expect(parseDepositDetails('telebirr only')).toBeNull();
   });
 });

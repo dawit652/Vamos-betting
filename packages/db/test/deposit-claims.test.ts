@@ -11,6 +11,9 @@ import {
   listPlayerDepositClaims,
   MAX_OPEN_DEPOSIT_CLAIMS,
   nearAmount,
+  pruneTelegramDepositClaims,
+  TELEGRAM_CLAIM_RETENTION_MS,
+  userIdByPhone,
 } from '../src/payments/index';
 import {
   adminUsers,
@@ -158,6 +161,23 @@ describe('a player files a claim', () => {
     expect(await refused({ reference: 'a!' })).toBe('claim_reference_invalid');
     expect(await refused({ payerPhone: '12' })).toBe('claim_phone_invalid');
     expect(await refused({ reference: 'CK51X2' })).toBe('claim_exists');
+  });
+
+  it('a Telegram claim keeps its reference out of the audit log and is pruned after 90 days', async () => {
+    const player = await createPlayer(db.db);
+    expect(await userIdByPhone(db.db, player.phone)).toBe(player.userId);
+    expect(await userIdByPhone(db.db, '+251900000000')).toBeNull();
+    const claim = await file({ userId: player.userId, reference: 'TG55AA11', source: 'telegram' });
+    expect(claim.source).toBe('telegram');
+    const [audit] = await db.db.select().from(auditLog).where(eq(auditLog.targetId, claim.id));
+    expect(JSON.stringify(audit?.metadata)).not.toContain('TG55AA11');
+    const app = await file({ userId: player.userId, reference: 'AP55AA11' });
+    // Not yet 90 days old: kept.
+    expect(await pruneTelegramDepositClaims(db.db, { before: NOW })).toBe(0);
+    const later = new Date(NOW.getTime() + TELEGRAM_CLAIM_RETENTION_MS + 1);
+    expect(await pruneTelegramDepositClaims(db.db, { before: later })).toBeGreaterThanOrEqual(1);
+    const left = await listPlayerDepositClaims(db.db, player.userId);
+    expect(left.map((c) => c.id)).toEqual([app.id]);
   });
 
   it(`allows at most ${MAX_OPEN_DEPOSIT_CLAIMS} open claims at a time`, async () => {

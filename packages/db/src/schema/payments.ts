@@ -393,6 +393,8 @@ export const depositClaims = pgTable(
     /** The phone that paid, when not the player's own. */
     payerPhone: text('payer_phone'),
     note: text('note'),
+    /** Where it was filed: `app` (logged in) or `telegram` (the bot; kept 90 days, decision O3). */
+    source: text('source').notNull().default('app'),
     status: text('status').notNull().default('open'),
     /** The deposit credited for it (status credited). */
     creditedIntentId: uuid('credited_intent_id').references(() => paymentIntents.id, {
@@ -411,6 +413,10 @@ export const depositClaims = pgTable(
     check('deposit_claims_amount_positive', sql`${t.amount} > 0`),
     check('deposit_claims_method', sql`${t.method} IN ('telebirr', 'cbe', 'chapa', 'other')`),
     check('deposit_claims_status', sql`${t.status} IN ('open', 'credited', 'closed')`),
+    check('deposit_claims_source', sql`${t.source} IN ('app', 'telegram')`),
+    index('deposit_claims_telegram_idx')
+      .on(t.createdAt)
+      .where(sql`${t.source} = 'telegram'`),
     check('deposit_claims_resolved', sql`(${t.status} = 'open') = (${t.resolvedAt} IS NULL)`),
     check(
       'deposit_claims_credited',

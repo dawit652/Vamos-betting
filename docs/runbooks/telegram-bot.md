@@ -87,6 +87,15 @@ the code over the compose network, signed with `SESSION_SECRET` (`/internal/tele
 refused when the signature is wrong or older than 60 seconds). The code and the number are never
 written to a log. Add `reset - Forgot PIN` to the bot's commands in @BotFather (`/setcommands`).
 
+## Deposit problem
+
+A player whose deposit did not arrive presses **Deposit problem** (or sends `/deposit`), shares their
+own number with one tap, then sends the amount, how they paid and the SMS reference in one message
+(`500 telebirr CK51X2QZ`). The claim appears in Back office → **Money not credited**, and the owner
+chats get one line (the number masked). Nothing is credited by the bot: an admin checks and credits
+there. Claims filed this way are deleted after 90 days (owner's decision O3). Add
+`deposit - Deposit problem` to the bot's commands in @BotFather (`/setcommands`).
+
 ## Share with friends
 
 The menu has a **Share with friends** button and `/share` sends it with the bot's link: it opens

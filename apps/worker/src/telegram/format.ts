@@ -39,7 +39,7 @@ const TEXT = {
     more: 'more options',
     footer: '21+ only. Bet responsibly.',
     demo: 'DEMO: play money only.',
-    help: 'Commands: /today, /live, /top, /leagues, /ticket <number>, /share, /id',
+    help: 'Commands: /today, /live, /top, /leagues, /ticket <number>, /deposit, /share, /id',
     chatId: 'This chat’s id:',
     live: 'LIVE',
     statusTitle: 'Nahubet status',
@@ -75,6 +75,18 @@ const TEXT = {
     ticketPaid: 'Paid ({amount}).',
     ticketExpired: 'It expired without being collected.',
     ticketCancelled: 'This ticket was cancelled.',
+    menuDeposit: 'Deposit problem',
+    depositAsk:
+      'Money you sent is not in your Nahubet balance? First share your phone number with the button below: it must be the number of your Nahubet account.',
+    depositDetails:
+      'Now send the amount, how you paid (telebirr, CBE or Chapa) and the reference from the SMS, in one message. For example: 500 telebirr CK51X2QZ',
+    depositDetailsAgain:
+      'Please send the amount first, then how you paid and the reference. For example: 500 telebirr CK51X2QZ',
+    depositFiled:
+      'Thank you. We are checking your payment of {amount} and will credit it once we find it. You can also follow it on the website: Deposit → My deposit did not arrive.',
+    depositExists: 'You already reported this payment. We are checking it.',
+    depositTooMany: 'You have reported several payments already. We will answer them first.',
+    depositUnavailable: 'Your report cannot be taken right now. Try again in a minute.',
   },
   am: {
     welcome:
@@ -95,7 +107,7 @@ const TEXT = {
     more: 'ተጨማሪ አማራጮች',
     footer: 'ዕድሜ 21+ ብቻ። በኃላፊነት ይወራረዱ።',
     demo: 'ማሳያ፦ የጨዋታ ገንዘብ ብቻ።',
-    help: 'ትዕዛዞች፦ /today, /live, /top, /leagues, /ticket <ቁጥር>, /share, /id',
+    help: 'ትዕዛዞች፦ /today, /live, /top, /leagues, /ticket <ቁጥር>, /deposit, /share, /id',
     chatId: 'የዚህ ውይይት መለያ፦',
     live: 'ቀጥታ',
     statusTitle: 'የናሁቤት ሁኔታ',
@@ -129,6 +141,18 @@ const TEXT = {
     ticketPaid: 'ተከፍሏል ({amount})።',
     ticketExpired: 'ሳይወሰድ ጊዜው አልፏል።',
     ticketCancelled: 'ይህ ትኬት ተሰርዟል።',
+    menuDeposit: 'የገቢ ገንዘብ ችግር',
+    depositAsk:
+      'የላኩት ገንዘብ በናሁቤት ቀሪ ሂሳብዎ ላይ የለም? መጀመሪያ ከታች ባለው ቁልፍ ስልክ ቁጥርዎን ያጋሩ፤ የናሁቤት መለያዎ ቁጥር መሆን አለበት።',
+    depositDetails:
+      'አሁን መጠኑን፣ እንዴት እንደከፈሉ (ቴሌብር፣ CBE ወይም ቻፓ) እና ከኤስኤምኤሱ ያለውን ማጣቀሻ በአንድ መልእክት ይላኩ። ለምሳሌ፦ 500 telebirr CK51X2QZ',
+    depositDetailsAgain:
+      'እባክዎ መጀመሪያ መጠኑን፣ ከዚያ እንዴት እንደከፈሉ እና ማጣቀሻውን ይላኩ። ለምሳሌ፦ 500 telebirr CK51X2QZ',
+    depositFiled:
+      'እናመሰግናለን። የ{amount} ክፍያዎን እያረጋገጥን ነው፤ ስናገኘው እናስገባዋለን። በድረ-ገጹ ላይም መከታተል ይችላሉ፦ ገቢ → ያስገባሁት ገንዘብ አልደረሰም።',
+    depositExists: 'ይህን ክፍያ አስቀድመው ሪፖርት አድርገዋል። እያረጋገጥነው ነው።',
+    depositTooMany: 'ብዙ ክፍያዎችን አስቀድመው ሪፖርት አድርገዋል። መጀመሪያ እነሱን እንመልሳለን።',
+    depositUnavailable: 'ሪፖርትዎ አሁን ሊወሰድ አይችልም። ከአንድ ደቂቃ በኋላ እንደገና ይሞክሩ።',
   },
 } as const;
 
@@ -247,10 +271,10 @@ export function shareMessage(botUsername: string, locale: BotLocale): BotMessage
 export function menuMessage(
   locale: BotLocale,
   demo: boolean,
-  options: { reset?: boolean; botUsername?: string } = {},
+  options: { reset?: boolean; deposit?: boolean; botUsername?: string } = {},
 ): BotMessage {
   const t = textOf(locale);
-  const { reset = false, botUsername } = options;
+  const { reset = false, deposit = false, botUsername } = options;
   return {
     text: [...(demo ? [t.demo] : []), t.welcome, '', t.help, '', t.footer].join('\n'),
     replyMarkup: {
@@ -264,6 +288,7 @@ export function menuMessage(
           { text: t.menuLeagues, callback_data: 'm:leagues' },
         ],
         ...(reset ? [[{ text: t.menuReset, callback_data: 'm:reset' }]] : []),
+        ...(deposit ? [[{ text: t.menuDeposit, callback_data: 'm:deposit' }]] : []),
         ...(botUsername === undefined
           ? []
           : [[{ text: t.menuShare, url: shareUrl(botUsername, locale) }]]),
@@ -338,6 +363,62 @@ export function resetAskMessage(locale: BotLocale): BotMessage {
       one_time_keyboard: true,
     },
   };
+}
+
+/** "Deposit problem" (G5.4): asks for the person's own number with the one-tap button. */
+export function depositAskMessage(locale: BotLocale): BotMessage {
+  const t = textOf(locale);
+  return {
+    text: t.depositAsk,
+    replyMarkup: {
+      keyboard: [[{ text: t.resetButton, request_contact: true }]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    },
+  };
+}
+
+const DEPOSIT_METHODS: Readonly<Record<string, 'telebirr' | 'cbe' | 'chapa'>> = {
+  telebirr: 'telebirr',
+  tele: 'telebirr',
+  ቴሌብር: 'telebirr',
+  cbe: 'cbe',
+  bank: 'cbe',
+  ባንክ: 'cbe',
+  chapa: 'chapa',
+  ቻፓ: 'chapa',
+};
+
+/**
+ * "500 telebirr CK51X2QZ" → amount (santim), method and reference, in any order after the amount;
+ * null without an amount. The method defaults to `other`, the reference to none.
+ */
+export function parseDepositDetails(text: string | undefined): {
+  amount: bigint;
+  method: 'telebirr' | 'cbe' | 'chapa' | 'other';
+  reference: string | null;
+} | null {
+  const words = (text ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w !== '');
+  // Thousands separators (1,250.50) and an ETB or birr label are allowed around the amount.
+  const bare = (word: string) => word.replace(/etb|birr|ብር/gi, '').replace(/,/g, '');
+  const amountAt = words.findIndex((w) => /^\d{1,7}(?:\.\d{1,2})?$/.test(bare(w)));
+  if (amountAt < 0) return null;
+  const digits = bare(words[amountAt]!);
+  const [whole, cents = ''] = digits.split('.');
+  const amount = BigInt(whole!) * 100n + BigInt((cents + '00').slice(0, 2));
+  if (amount <= 0n) return null;
+  let method: 'telebirr' | 'cbe' | 'chapa' | 'other' = 'other';
+  let reference: string | null = null;
+  for (const [i, word] of words.entries()) {
+    if (i === amountAt) continue;
+    const known = DEPOSIT_METHODS[word.toLowerCase()];
+    if (known !== undefined) method = known;
+    else if (reference === null && /^[A-Za-z0-9._/-]{4,64}$/.test(word)) reference = word;
+  }
+  return { amount, method, reference };
 }
 
 /** The reset code, with a button to the website's reset page. */
