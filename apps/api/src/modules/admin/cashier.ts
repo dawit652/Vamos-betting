@@ -158,6 +158,7 @@ export async function shiftView(
     closedAt: shift.closedAt,
     deposits: totals.deposits,
     withdrawals: totals.withdrawals,
+    tickets: totals.tickets,
     expectedCash: expected,
     countedCash: shift.countedCash,
     variance: shift.countedCash === null ? null : shift.countedCash - expected,

@@ -485,5 +485,16 @@ describe('shop tickets through the shop app', () => {
       ticket: { status: 'paid', payState: 'paid' },
     });
     expect((await asStaff(ctx, finance, 'GET', '/admin/retail-payouts')).statusCode).toBe(404);
+
+    // The end-of-shift report: the drawer's tickets sold and paid; another cashier sees nothing.
+    const report = await asDesk(desk, 'GET', `/shop/desk/shifts/${desk.shiftId}`);
+    expect(report.statusCode, report.body).toBe(200);
+    expect(ShopShiftResponse.parse(report.json()).shift.tickets).toMatchObject({
+      soldCount: 2,
+      paidCount: 2,
+    });
+    expect(
+      (await asDesk(stranger, 'GET', `/shop/desk/shifts/${desk.shiftId}`)).statusCode,
+    ).toBe(404);
   });
 });

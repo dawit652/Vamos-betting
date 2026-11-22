@@ -233,7 +233,10 @@ statements, live monitor, alerts, PIN reset at a shop). Left:
 2. **G1-G4 at the counter:** sell by the 6-digit booking code; print the booking code; ask for the
    payout code at Pay; reprints without the payout code; player cash withdrawal by code.
 3. **Shift report print** (the cashier's end-of-shift slip: sales, cancels, payouts, cash in and
-   out, expected drawer): if the shift screen does not print it already.
+   out, expected drawer): **built 22 Nov**: "Print the shift report" after closing a shift opens
+   `/shift/<id>?print=1` in the shop app (`GET /shop/desk/shifts/:id`, the cashier's own shifts):
+   opening float, player deposits and withdrawals, tickets sold, cancelled and paid, expected cash,
+   counted, difference, note, and signature lines.
 4. **Phase 6, Android POS:** waits for the owner's model. Recommendation: a POS with a built-in
    58 mm printer that runs Chrome (Sunmi V2s class). The shop app is a web page, so the first step
    is that page in Chrome on the POS, printing through the POS's printer service (RawBT or the

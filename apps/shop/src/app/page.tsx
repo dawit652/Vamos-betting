@@ -261,6 +261,15 @@ function ClosedSummary({ shift }: { shift: CashierShiftView }) {
           {TEXT.variance}: {formatEtb(shift.variance)}
         </span>
       </p>
+      <p className="no-print">
+        <Link
+          href={`/shift/${shift.id}?print=1`}
+          className="button"
+          data-testid="shift-report-link"
+        >
+          {TEXT.shiftReportPrint}
+        </Link>
+      </p>
     </section>
   );
 }

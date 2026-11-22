@@ -75,6 +75,7 @@ import {
   type DbExecutor,
   type StaffPrincipal,
   listAgentStatements,
+  getShift,
 } from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
@@ -378,6 +379,15 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
       return namedShiftView(tx, opened);
     });
     return wire(ShopShiftResponse, { shift });
+  });
+
+  // The end-of-shift report (docs/plans/counter-codes-and-deposit-recovery.md, G8): one of the
+  // cashier's own shifts, open or closed, for its printed slip.
+  app.get<{ Params: { id: string } }>('/shop/desk/shifts/:id', async (request) => {
+    const staff = requireDeskStaff(request);
+    const shift = await getShift(deps.db, parseUuid(request.params.id, 'Shift'));
+    if (shift === null || shift.staffId !== staff.id) throw notFound('Shift');
+    return wire(ShopShiftResponse, { shift: await namedShiftView(deps.db, shift) });
   });
 
   app.post<{ Params: { id: string } }>('/shop/desk/shifts/:id/close', async (request) => {

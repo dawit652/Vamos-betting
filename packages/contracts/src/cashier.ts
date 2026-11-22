@@ -47,7 +47,22 @@ export const CashierShiftView = z.object({
   closedAt: IsoDateTime.nullable(),
   deposits: z.object({ count: z.number().int(), total: Santim }),
   withdrawals: z.object({ count: z.number().int(), total: Santim }),
-  /** Opening float + deposits − withdrawals (fixed at the close). */
+  /**
+   * Shop tickets sold in the shift, those of them cancelled since, and tickets paid out from this
+   * drawer (any shift's).
+   */
+  tickets: z.object({
+    soldCount: z.number().int(),
+    sold: Santim,
+    cancelledCount: z.number().int(),
+    cancelled: Santim,
+    paidCount: z.number().int(),
+    paid: Santim,
+  }),
+  /**
+   * Opening float + deposits − withdrawals + tickets sold − cancelled − tickets paid out (fixed at
+   * the close).
+   */
   expectedCash: Santim,
   countedCash: Santim.nullable(),
   /** Counted − expected, once closed. */
