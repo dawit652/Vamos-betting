@@ -1,11 +1,13 @@
 import {
   boardEventsWithoutResult,
+  cancelStuckBoardEvent,
   markBoardResultApplied,
   narobetEventsWithoutResult,
   recordBoardResultSighting,
   reportServiceFailure,
   reportServiceOk,
   resultEvent,
+  stuckBoardEventsWithoutBets,
 } from '@vamos/db';
 import {
   API_FOOTBALL_FINISHED,
@@ -45,7 +47,8 @@ import { auditScraper } from '../pipeline/common';
  *
  * Nothing else is decided here: no match found, a postponed, cancelled or abandoned match, or a score
  * the event cannot take (a half-time score missing for a half-time market) stays in the back office's
- * "waiting for a result" list for a person.
+ * "waiting for a result" list for a person. Once BOARD_RESULT_WINDOW_MS has passed, such a match
+ * that nobody bet on is cancelled (cancelStuckBoardEvents, owner's decision O-F1 of 23 Nov 2026).
  */
 
 export const BOARD_RESULTS_INTERVAL_MS = 15 * 60_000;
@@ -341,6 +344,69 @@ export async function runNarobetResults(
 }
 
 /** The interval task, or null without an API-Football key in the scraper's environment. */
+/** Stuck board matches cancelled per pass at most (the rest wait for the next pass). */
+const MAX_STUCK_CANCELS_PER_PASS = 100;
+
+export interface StuckBoardEventsSummary {
+  stuck: number;
+  cancelled: number;
+}
+
+/**
+ * Owner's decision of 23 Nov 2026 (O-F1, docs/plans/feed-gaps-2026-11-23.md): a board match
+ * (Hulusport-only or Narobet-only) still without a result BOARD_RESULT_WINDOW_MS after kickoff,
+ * that nobody bet on (no bet leg, online or shop, and no jackpot game), is cancelled: every market
+ * void, no money moves. Audited `scrape.board.stuck_cancelled`. A match with a bet stays in the
+ * back office's "waiting for a result" list for a person.
+ */
+export async function cancelStuckBoardEvents(
+  ctx: ScraperContext,
+): Promise<StuckBoardEventsSummary> {
+  const now = ctx.clock();
+  const stuck = await stuckBoardEventsWithoutBets(ctx.db, {
+    now,
+    olderThanMs: BOARD_RESULT_WINDOW_MS,
+    limit: MAX_STUCK_CANCELS_PER_PASS,
+  });
+  const summary: StuckBoardEventsSummary = { stuck: stuck.length, cancelled: 0 };
+  for (const event of stuck) {
+    const outcome = await ctx.db.transaction(async (tx) => {
+      const result = await cancelStuckBoardEvent(tx, event.eventId, {
+        now,
+        olderThanMs: BOARD_RESULT_WINDOW_MS,
+      });
+      if (result === null) return null;
+      await auditScraper(tx, {
+        action: 'scrape.board.stuck_cancelled',
+        targetType: 'event',
+        targetId: event.eventId,
+        metadata: {
+          feedProvider: event.feedProvider,
+          kickoff: event.kickoff.toISOString(),
+          rule: 'O-F1: no result 3 days after kickoff, no bets',
+          marketsVoided: result.marketsVoided,
+        },
+      });
+      return result;
+    });
+    if (outcome === null) continue;
+    summary.cancelled += 1;
+    await publishAfterCommit(ctx.redis, outcome.messages, ctx.channel, ctx.logger);
+  }
+  if (summary.stuck > 0) ctx.logger.info({ ...summary }, 'stuck board matches cancelled');
+  return summary;
+}
+
+/** Cancels stuck board matches every BOARD_RESULTS_INTERVAL_MS (no key needed: nothing is fetched). */
+export function stuckBoardEventsTask(ctx: ScraperContext): IntervalTask {
+  return intervalTask({
+    name: 'stuck-board-matches',
+    intervalMs: BOARD_RESULTS_INTERVAL_MS,
+    run: () => cancelStuckBoardEvents(ctx),
+    logger: ctx.logger,
+  });
+}
+
 export function boardResultsTask(ctx: ScraperContext): IntervalTask | null {
   if ((process.env[API_FOOTBALL_SECRET] ?? '').trim() === '') return null;
   return intervalTask({

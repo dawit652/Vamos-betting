@@ -9,6 +9,7 @@ import {
   scrapeBoardTeams,
   scrapeSources,
 } from '../schema/scrape';
+import { resultEvent, type ResultEventOutcome } from '../catalog/results';
 import type { BoardName } from './board-odds';
 import { clampLimit } from './common';
 
@@ -428,6 +429,70 @@ export async function boardEventsWithoutResult(
     )
     .orderBy(asc(events.startTime))
     .limit(clampLimit(options.limit, 200, 1000));
+}
+
+export interface StuckBoardEvent {
+  eventId: string;
+  feedProvider: string;
+  kickoff: Date;
+}
+
+/** Nobody bet on the event: no bet leg (online or shop ticket) and no jackpot game. */
+const NOBODY_BET = sql`NOT EXISTS (SELECT 1 FROM bet_legs l WHERE l.event_id = "events"."id")
+  AND NOT EXISTS (SELECT 1 FROM jackpot_games j WHERE j.event_id = "events"."id")`;
+
+/**
+ * Board events (Hulusport-only and Narobet-only matches) still without a result `olderThanMs`
+ * after kickoff that nobody bet on, oldest first (owner's decision of 23 Nov 2026, O-F1 of
+ * docs/plans/feed-gaps-2026-11-23.md: they are cancelled; a match with a bet stays with a person).
+ */
+export async function stuckBoardEventsWithoutBets(
+  exec: DbExecutor,
+  options: { now: Date; olderThanMs: number; limit: number },
+): Promise<StuckBoardEvent[]> {
+  return exec
+    .select({ eventId: events.id, feedProvider: events.feedProvider, kickoff: events.startTime })
+    .from(events)
+    .where(
+      and(
+        inArray(events.feedProvider, [...BOARD_FEED_PROVIDERS]),
+        inArray(events.status, ['scheduled', 'live', 'postponed']),
+        isNull(events.resultedAt),
+        lt(events.startTime, new Date(options.now.getTime() - options.olderThanMs)),
+        NOBODY_BET,
+      ),
+    )
+    .orderBy(asc(events.startTime))
+    .limit(clampLimit(options.limit, 100, 1000));
+}
+
+/**
+ * Cancels one stuck board event (resultEvent with `cancelled`: every market void), after checking
+ * again under the event's lock that it is still a board event with no result, kicked off more
+ * than `olderThanMs` ago, that nobody bet on. Null when it no longer qualifies (left as it is). No
+ * money moves: there is no bet to settle.
+ */
+export async function cancelStuckBoardEvent(
+  tx: DbTransaction,
+  eventId: string,
+  options: { now: Date; olderThanMs: number },
+): Promise<ResultEventOutcome | null> {
+  const [still] = await tx
+    .select({ id: events.id })
+    .from(events)
+    .where(
+      and(
+        eq(events.id, eventId),
+        inArray(events.feedProvider, [...BOARD_FEED_PROVIDERS]),
+        inArray(events.status, ['scheduled', 'live', 'postponed']),
+        isNull(events.resultedAt),
+        lt(events.startTime, new Date(options.now.getTime() - options.olderThanMs)),
+        NOBODY_BET,
+      ),
+    )
+    .for('update');
+  if (still === undefined) return null;
+  return resultEvent(tx, eventId, { status: 'cancelled' });
 }
 
 export interface NarobetEventPendingResult {

@@ -8,7 +8,7 @@ import { priceEvent } from '../src/pipeline/event-pricing';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { repriceScheduledEvents } from '../src/pipeline/reprice';
 import { sweepBoardEvents } from '../src/pipeline/board-events';
-import { runBoardResults } from '../src/tasks/board-results';
+import { cancelStuckBoardEvents, runBoardResults } from '../src/tasks/board-results';
 import { runTeamLogos, teamLogoUrl } from '../src/tasks/team-logos';
 import { HULUSPORT_BOARD_PATH, readHulusportBoard } from '../src/tasks/hulusport';
 import {
@@ -601,6 +601,38 @@ describe('API-Football results for Hulusport-only matches', () => {
 
       // Nothing more to do for the settled one; the postponed one waits for a person.
       expect(await runBoardResults(h.ctx)).toMatchObject({ pending: 1, applied: 0 });
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'cancels a board match nobody bet on that still has no result 3 days after kickoff (O-F1)',
+    async () => {
+      h = await createHarness({ hulusportUrl: MRX });
+      await switchTo(true);
+      const board = {
+        generated_at: h.now().toISOString(),
+        worker: { last_success_at: h.now().toISOString() },
+        matches: [boardMatch(701, 'Nobody United', 'Nowhere Town', h.now())],
+      };
+      expect(
+        (await readHulusportBoard(h.ctx, serveBoard(board).fetchImpl)).boardEvents.created,
+      ).toBe(1);
+      // Two days after kickoff it may still get its result: nothing is cancelled.
+      h.at(new Date(KICKOFF.getTime() + 2 * 86_400_000));
+      expect(await cancelStuckBoardEvents(h.ctx)).toEqual({ stuck: 0, cancelled: 0 });
+      h.at(new Date(KICKOFF.getTime() + 3 * 86_400_000 + MINUTE));
+      expect(await cancelStuckBoardEvents(h.ctx)).toEqual({ stuck: 1, cancelled: 1 });
+      const [event] = await rows<{ status: string }>(
+        `SELECT status FROM events WHERE feed_provider = 'hulusport' AND feed_ref = '701'`,
+      );
+      expect(event?.status).toBe('cancelled');
+      const audit = await rows<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM audit_log WHERE action = 'scrape.board.stuck_cancelled'`,
+      );
+      expect(audit).toHaveLength(1);
+      expect(audit[0]?.metadata).toMatchObject({ feedProvider: 'hulusport' });
+      expect(await cancelStuckBoardEvents(h.ctx)).toEqual({ stuck: 0, cancelled: 0 });
     },
     TEST_TIMEOUT,
   );

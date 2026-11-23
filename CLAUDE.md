@@ -45,8 +45,11 @@ possible:
    server ran `2b53c60` (everything below up to F4d is live). On top of it: a switched-off API is
    not read and its 15-minute "down" alert stops (mr-x with `hulusport_pricing` off); the player
    lists show only matches that can be bet on; efficient compose defaults (half time covered, no
-   third scores read, cap at best price); feed report section 37; plan
-   `docs/plans/feed-gaps-2026-11-23.md` (Odds API exit E1-E5, decisions O-F1, O-F3, O-F4).
+   third scores read, cap at best price); feed report section 37; board matches with no result 3
+   days after kickoff and no bet are cancelled (O-F1, owner yes). Owner, 23 Nov: The Odds API stops
+   when its bought credits end (about 27 Nov), so **next: E2, API-Football odds as the price
+   source**, before then; E1 is the owner's one command and E3 (price expiry) goes on at the
+   switch-over (`docs/plans/feed-gaps-2026-11-23.md`).
    **Deployed 22 Nov 19:02:** `7a15b27` (licensed mode, smoke test 13 passed; migrations up to
    0084: everything listed below is now live; switches `narobet_events`, `narobet_pricing` and
    `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).
