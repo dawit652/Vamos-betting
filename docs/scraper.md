@@ -654,7 +654,8 @@ jk bb as ac ca cd ud sv fsv vfb vfl tsg ssc`, with a number just before one at t
   competition: the team has an event in it, or the competition is one country's (its category has a
   country code) and the team has an event in a competition of the same country. An international
   competition needs the first. Without a resolved competition, with no fitting team or with several,
-  the name stays unknown. A COMPETITION name is learned only when it carries its provider's id, as
+  the name stays unknown. A mapping that looks wrong (`suspiciousAlias`, L3) is never spread, nor a spelling
+  that several catalogue teams' names contain ("dynamo"). A COMPETITION name is learned only when it carries its provider's id, as
   API-Football's do ("England - Premier League [39]"): the same spelling mapped for any other source
   resolves; a plain name ("Ligue 1") never does, since several countries use it.
 - **L3 Guarded learning (23 Nov 2026).** No suggestion (N3), no automatic alias (N4) and no learned resolution

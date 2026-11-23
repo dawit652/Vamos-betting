@@ -1,5 +1,5 @@
 import { legalFormStripped, nameTokens, normalizeName } from './name';
-import { variantConflict } from './variant';
+import { suspiciousAlias, variantConflict } from './variant';
 
 /**
  * Rules N2 and N3 (docs/scraper.md section 6.4): resolving a raw team or
@@ -332,11 +332,12 @@ function learnedTeam(
   if (norm === '') return null;
   const ids = learned.teamsByNorm.get(query.sportId + SEP + norm) ?? [];
   if (ids.length === 0 || sharedSpelling(teams, query.sportId, norm)) return null;
-  // L3: a mapping that links the name to a reserve, youth, women's or national team is not spread.
+  // L3: a mapping that looks wrong (another side of the club, a national team, or a telling word
+  // the team's names lack: the daily alias check's rule) is never spread to other sources.
   const fitting = ids.filter(
     (id) =>
       fitsCompetition(learned, id, competitionId) &&
-      variantConflict(query.raw, learned.namesOf.get(id) ?? []) === null,
+      suspiciousAlias(query.raw, learned.namesOf.get(id) ?? []) === null,
   );
   const only = fitting.length === 1 ? fitting[0] : undefined;
   return only === undefined ? null : { status: 'resolved', id: only, via: 'learned' };

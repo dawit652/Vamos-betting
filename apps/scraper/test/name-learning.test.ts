@@ -49,20 +49,20 @@ const homeTeamOf = async (sourceId: string): Promise<string | null> =>
 
 describe('L1: a mapped name is known from every source', () => {
   it(
-    'src-b spells Arsenal as src-a was taught to: it resolves without a new item',
+    'src-b spells Arsenal as src-a was taught to ("Arsenall"): it resolves without a new item',
     async () => {
       h = await createHarness();
       // Arsenal plays in the Premier League: src-a's fixture creates the event.
       h.serve(URL_A, ofDoc([ARSENAL_CHELSEA_OF]));
       await h.run('src-a');
       expect((await promoteFixtures(h.ctx)).created).toBe(1);
-      // A person mapped "The Gunners" for src-a only (the back office's default scope).
+      // A person mapped the spelling "Arsenall" for src-a only (the back office's default scope).
       await h.ctx.db.transaction((tx) =>
         addTeamAlias(
           tx,
           {
             sportId: 'football',
-            aliasNorm: 'the gunners',
+            aliasNorm: 'arsenall',
             sourceId: 'src-a',
             teamId: h.team('Arsenal'),
           },
@@ -71,7 +71,7 @@ describe('L1: a mapped name is known from every source', () => {
       );
 
       h.advance(MINUTE);
-      h.serve(URL_B, jsonDoc([{ ...ARSENAL_CHELSEA_JSON, h: 'The Gunners' }]));
+      h.serve(URL_B, jsonDoc([{ ...ARSENAL_CHELSEA_JSON, h: 'Arsenall' }]));
       await h.run('src-b');
       expect(await homeTeamOf('src-b')).toBe(h.team('Arsenal'));
       expect(await unknownItems()).toEqual([]);
@@ -87,17 +87,17 @@ describe('L1: a mapped name is known from every source', () => {
       await h.run('src-a');
       expect((await promoteFixtures(h.ctx)).created).toBe(1);
       h.advance(MINUTE);
-      h.serve(URL_B, jsonDoc([{ ...ARSENAL_CHELSEA_JSON, h: 'The Gunners' }]));
+      h.serve(URL_B, jsonDoc([{ ...ARSENAL_CHELSEA_JSON, h: 'Arsenall' }]));
       await h.run('src-b');
       expect(await homeTeamOf('src-b')).toBeNull();
-      expect(await unknownItems()).toEqual(['football|the gunners']);
+      expect(await unknownItems()).toEqual(['football|arsenall']);
 
       await h.ctx.db.transaction((tx) =>
         addTeamAlias(
           tx,
           {
             sportId: 'football',
-            aliasNorm: 'the gunners',
+            aliasNorm: 'arsenall',
             sourceId: 'src-a',
             teamId: h.team('Arsenal'),
           },

@@ -429,20 +429,38 @@ describe('L1 and L2: what other sources teach (docs/plans/name-learning.md)', ()
       ...learnedInput,
       teamAliases: [
         ...learnedInput.teamAliases,
-        { aliasNorm: 'die schwarz gelben', sourceId: 'src-a', teamId: 't-dyn-d' },
-        { aliasNorm: 'die schwarz gelben', sourceId: 'src-b', teamId: 't-dyn-k' },
+        { aliasNorm: 'sgd', sourceId: 'src-a', teamId: 't-dyn-d' },
+        { aliasNorm: 'sgd', sourceId: 'src-b', teamId: 't-dyn-k' },
       ],
     });
     const at = (competitionId: string) =>
       resolveTeam(two, {
         sportId: 'football',
         sourceId: 'src-c',
-        raw: 'Die Schwarz-Gelben',
+        raw: 'SGD',
         competitionId,
       });
     expect(at('c-pokal')).toEqual(learned('t-dyn-d'));
     expect(at('c-uel')).toEqual(learned('t-dyn-k'));
     expect(at('c-epl')).toEqual(unknown);
+  });
+
+  it('L1 a mapping that looks like another club is never spread', () => {
+    const wrong = buildAliasIndex({
+      ...learnedInput,
+      teamAliases: [
+        ...learnedInput.teamAliases,
+        { aliasNorm: 'hoffenheim heidelberg', sourceId: 'src-a', teamId: 't-hof' },
+      ],
+    });
+    expect(
+      resolveTeam(wrong, {
+        sportId: 'football',
+        sourceId: 'src-c',
+        raw: 'Hoffenheim Heidelberg',
+        competitionId: 'c-bl',
+      }),
+    ).toEqual(unknown);
   });
 
   it('L1 a team with no event yet is not learned: a person maps it once more', () => {
