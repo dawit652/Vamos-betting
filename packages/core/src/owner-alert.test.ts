@@ -20,6 +20,7 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   },
   { alarm: 'source_stale', sourceId: 'src-b', sourceName: 'OpenLigaDB', daysUnchanged: 2 },
   { alarm: 'budget_low', creditKey: 'theoddsapi' },
+  { alarm: 'alias_suspicious', count: 2, examples: ['salzburg -> FC Salzburg Frauen (women)'] },
   { alarm: 'budget_exhausted', creditKey: 'theoddsapi' },
   { alarm: 'budget_projection', creditKey: 'theoddsapi', daysUntilEmpty: 3.4 },
   { alarm: 'unauthorized', creditKey: 'theoddsapi' },
@@ -123,6 +124,12 @@ describe('buildOwnerAlert', () => {
       'Bookmaker odds credits are used up: odds reads are stopped until the 1st.',
     );
     expect(text({ alarm: 'budget_low', creditKey: 'k' })).toMatch(/read less often/);
+    expect(
+      text({ alarm: 'alias_suspicious', count: 7, examples: ['salzburg -> FC Salzburg Frauen'] }),
+    ).toBe(
+      '7 team link(s) look wrong (another side or another club), e.g. salzburg -> FC Salzburg ' +
+        'Frauen. Nothing was changed; they are listed under Feed → Aliases.',
+    );
     expect(text({ alarm: 'unauthorized', creditKey: 'k' })).toMatch(
       /reads with that key are stopped/,
     );

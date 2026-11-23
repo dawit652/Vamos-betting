@@ -47,3 +47,6 @@ export type {
   FixtureContextResult,
   FixtureSide,
 } from './fixture-context';
+export { AUTO_ALIAS_MIN_FIXTURES } from './fixture-context';
+export { suspiciousAlias, variantConflict, variantsOf } from './variant';
+export type { TeamVariant } from './variant';

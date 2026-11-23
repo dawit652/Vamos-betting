@@ -3,6 +3,8 @@ import {
   addCompetitionAlias,
   addTeamAlias,
   DomainError,
+  aliasWasRemoved,
+  exportAliases,
   getSource,
   listAliases,
   removeAlias,
@@ -11,7 +13,7 @@ import {
   type Database,
 } from '@vamos/db';
 import { normalizeName } from '@vamos/scraper';
-import { parseCsv } from './csv';
+import { csvLine, parseCsv } from './csv';
 import {
   CliFailure,
   EXIT_OK,
@@ -101,9 +103,17 @@ class Rollback extends Error {}
  * and nothing is written; every bad row is listed.
  */
 export async function aliasesImport(args: string[], env: CliEnv): Promise<number> {
-  const parsed = parseCommandArgs(args, { file: { type: 'string' } });
+  const parsed = parseCommandArgs(args, {
+    file: { type: 'string' },
+    'skip-problems': { type: 'boolean' },
+  });
   noPositionals(parsed);
   const path = requiredString(parsed, 'file');
+  // L4 (docs/plans/name-learning.md): the deploy's mode. A row with a problem is skipped instead of
+  // stopping the import, and an alias someone removed is not added: the file never undoes a
+  // person's decision.
+  const skipProblems = parsed.values['skip-problems'] === true;
+  const skipped: string[] = [];
   const { rows, errors } = readRows(await readInput(env, path, 'aliases file'));
   if (errors.length > 0) throw new CliFailure(`${path} is not valid`, errors);
 
@@ -136,6 +146,10 @@ export async function aliasesImport(args: string[], env: CliEnv): Promise<number
           );
           continue;
         }
+        if (skipProblems && (await aliasWasRemoved(tx, row.kind, row.aliasNorm, row.sourceId))) {
+          skipped.push(`line ${row.line}: "${row.aliasNorm}" was removed by someone`);
+          continue;
+        }
         try {
           const base = { sportId: row.sport, aliasNorm: row.aliasNorm, sourceId: row.sourceId };
           const result =
@@ -153,17 +167,18 @@ export async function aliasesImport(args: string[], env: CliEnv): Promise<number
           } else throw error;
         }
       }
-      if (problems.length > 0) throw new Rollback();
+      if (problems.length > 0 && !skipProblems) throw new Rollback();
     });
   } catch (error) {
     if (!(error instanceof Rollback)) throw error;
   }
-  if (problems.length > 0) {
+  if (problems.length > 0 && !skipProblems) {
     throw new CliFailure(
       `nothing was imported: ${problems.length} problem(s) in ${path}`,
       problems,
     );
   }
+  skipped.push(...problems);
   emit(
     env,
     parsed,
@@ -175,13 +190,16 @@ export async function aliasesImport(args: string[], env: CliEnv): Promise<number
         source: r.sourceId,
       })),
       alreadyPresent: existing,
+      skipped,
     },
     [
       ...created.map(
         (r) =>
           `added ${r.kind} alias "${r.aliasNorm}" -> ${r.target} (${r.sourceId ?? 'all sources'})`,
       ),
-      `${created.length} added, ${existing} already present`,
+      ...skipped.map((line) => `skipped ${line}`),
+      `${created.length} added, ${existing} already present` +
+        (skipProblems ? `, ${skipped.length} skipped` : ''),
     ],
   );
   return EXIT_OK;
@@ -289,5 +307,23 @@ export async function aliasesRemove(args: string[], env: CliEnv): Promise<number
       'observations are re-resolved on the next promotion pass',
     ],
   );
+  return EXIT_OK;
+}
+
+/**
+ * `aliases export`: every alias as the file `aliases import` reads (kind,sport,alias,target,source),
+ * on standard output and nothing else (L4, docs/plans/name-learning.md; the deploy writes it to a
+ * dated file). The count goes to standard error.
+ */
+export async function aliasesExport(args: string[], env: CliEnv): Promise<number> {
+  const parsed = parseCommandArgs(args, {});
+  noPositionals(parsed);
+  const db: Database = await env.database();
+  const rows = await exportAliases(db);
+  env.out(csvLine([...COLUMNS]));
+  for (const row of rows) {
+    env.out(csvLine([row.kind, row.sport, row.aliasNorm, row.target, row.sourceId ?? '']));
+  }
+  env.err(`${rows.length} aliases exported`);
   return EXIT_OK;
 }

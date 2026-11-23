@@ -30,6 +30,11 @@ export type OwnerAlertInput =
   | { alarm: 'source_stale'; sourceId: string; sourceName: string; daysUnchanged: number }
   /** The credit guard is in economy or minimal (a metered odds API). */
   | { alarm: 'budget_low'; creditKey: string }
+  /**
+   * L3 (docs/plans/name-learning.md): team aliases that look wrong (a reserve, youth, women's or
+   * national team, or another club); `examples` are "alias -> team" lines, a few at most.
+   */
+  | { alarm: 'alias_suspicious'; count: number; examples: readonly string[] }
   /** The credit guard stops reading: no credits left. */
   | { alarm: 'budget_exhausted'; creditKey: string }
   /** The last 24 hours of spending would outrun the remaining credits before the reset. */
@@ -174,6 +179,16 @@ function build(input: OwnerAlertInput): OwnerAlert {
       return {
         key: `source_stale|${subjectOf(input.sourceId)}`,
         message: `${name} has shown nothing new for ${days} ${plural(days, 'day', 'days')}. It is marked stale; no result is settled from one source alone.`,
+      };
+    }
+    case 'alias_suspicious': {
+      const first = input.examples[0];
+      const example = first === undefined ? '' : `, e.g. ${clip(plain(first), 45)}`;
+      return {
+        key: 'alias_suspicious',
+        message:
+          `${input.count} team link(s) look wrong (another side or another club)${example}. ` +
+          'Nothing was changed; they are listed under Feed → Aliases.',
       };
     }
     case 'budget_low':
@@ -378,6 +393,8 @@ export const OWNER_ALERT_POLICY: Readonly<Record<OwnerAlertInput['alarm'], Owner
   source_broken: { send: true, repeatMs: 0 },
   source_stale: { send: true, repeatMs: 0 },
   budget_low: { send: true, repeatMs: 0 },
+  // L3: once a day at most, Telegram only.
+  alias_suspicious: { send: true, repeatMs: 24 * HOUR_MS, telegramOnly: true },
   budget_exhausted: { send: true, repeatMs: 0 },
   budget_projection: { send: true, repeatMs: 0 },
   unauthorized: { send: true, repeatMs: 0 },

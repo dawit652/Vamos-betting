@@ -1,4 +1,5 @@
 import { legalFormStripped, nameTokens, normalizeName } from './name';
+import { variantConflict } from './variant';
 
 /**
  * Rules N2 and N3 (docs/scraper.md section 6.4): resolving a raw team or
@@ -129,6 +130,8 @@ interface LearnedIndex {
   competitionsByProviderId: ReadonlyMap<string, readonly string[]>;
   /** Source id -> upstream. */
   upstreamOf: ReadonlyMap<string, string>;
+  /** Team id -> its catalogue names and short name (L3's guard). */
+  namesOf: ReadonlyMap<string, readonly string[]>;
 }
 
 /** Opaque, immutable lookup structure; build it with buildAliasIndex. */
@@ -294,6 +297,7 @@ function buildLearnedIndex(input: AliasIndexInput): LearnedIndex {
     competitionsByNorm: freeze(competitionsByNorm),
     competitionsByProviderId: freeze(competitionsByProviderId),
     upstreamOf,
+    namesOf: new Map(input.teams.map((t) => [t.id, [...t.names, t.shortName]])),
   };
 }
 
@@ -317,13 +321,23 @@ function fitsCompetition(learned: LearnedIndex, teamId: string, competitionId: s
  * (`fitsCompetition`). Without a resolved competition, or with none or several fitting, the name
  * stays unknown and a person is asked, as before.
  */
-function learnedTeam(learned: LearnedIndex, query: ResolveQuery): Resolution | null {
+function learnedTeam(
+  learned: LearnedIndex,
+  teams: EntityIndex,
+  query: ResolveQuery,
+): Resolution | null {
   const competitionId = query.competitionId;
   if (competitionId === undefined || competitionId === null) return null;
   const norm = normalizeName(query.raw);
   if (norm === '') return null;
   const ids = learned.teamsByNorm.get(query.sportId + SEP + norm) ?? [];
-  const fitting = ids.filter((id) => fitsCompetition(learned, id, competitionId));
+  if (ids.length === 0 || sharedSpelling(teams, query.sportId, norm)) return null;
+  // L3: a mapping that links the name to a reserve, youth, women's or national team is not spread.
+  const fitting = ids.filter(
+    (id) =>
+      fitsCompetition(learned, id, competitionId) &&
+      variantConflict(query.raw, learned.namesOf.get(id) ?? []) === null,
+  );
   const only = fitting.length === 1 ? fitting[0] : undefined;
   return only === undefined ? null : { status: 'resolved', id: only, via: 'learned' };
 }
@@ -395,7 +409,22 @@ function relaxedName(index: EntityIndex, sportId: string, norm: string): Resolut
 export function resolveTeam(index: AliasIndex, query: ResolveQuery): Resolution {
   const found = resolve(index.teams, query, true);
   if (found.status !== 'unknown') return found;
-  return learnedTeam(index.learned, query) ?? found;
+  return learnedTeam(index.learned, index.teams, query) ?? found;
+}
+
+/**
+ * L1: whether the names of more than one catalogue team of the sport contain every word of the
+ * spelling ("dynamo": Dynamo Dresden, BFC Dynamo, Dynamo Kyiv). Such a spelling means different
+ * clubs to different sources, even in one country, so a mapping of it is never spread.
+ */
+function sharedSpelling(teams: EntityIndex, sportId: string, norm: string): boolean {
+  const words = nameTokens(norm);
+  let count = 0;
+  for (const entry of teams.catalogue.get(sportId) ?? []) {
+    const has = entry.names.some((n) => words.every((w) => n.tokens.includes(w)));
+    if (has && ++count > 1) return true;
+  }
+  return false;
 }
 
 /** Rule N2 for competitions; then, for an unknown name with a provider id, L1 and L2. */
@@ -472,7 +501,11 @@ export function teamCatalogueNames(index: AliasIndex, sportId: string, teamId: s
   return entry === undefined ? [] : entry.names.map((n) => n.norm);
 }
 
-function suggest(index: EntityIndex, query: SuggestQuery): Suggestion[] {
+function suggest(
+  index: EntityIndex,
+  query: SuggestQuery,
+  keep: (entry: CatalogueEntry) => boolean = () => true,
+): Suggestion[] {
   const norm = normalizeName(query.raw);
   const limit = Math.min(MAX_LIMIT, Math.floor(query.limit ?? 3));
   if (norm === '' || !(limit > 0)) return [];
@@ -492,7 +525,7 @@ function suggest(index: EntityIndex, query: SuggestQuery): Suggestion[] {
         best = { id: entry.id, score, matchedName: name.norm };
       }
     }
-    if (best !== null && best.score >= SUGGESTION_MIN_SCORE) out.push(best);
+    if (best !== null && best.score >= SUGGESTION_MIN_SCORE && keep(entry)) out.push(best);
   }
   out.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return out.slice(0, limit);
@@ -500,7 +533,16 @@ function suggest(index: EntityIndex, query: SuggestQuery): Suggestion[] {
 
 /** Rule N3: up to `limit` (default 3) catalogue teams that look like the raw name. Never applied. */
 export function suggestTeams(index: AliasIndex, query: SuggestQuery): Suggestion[] {
-  return suggest(index.teams, query);
+  // L3: never another side of a club (reserve, youth, women's) or a national team.
+  return suggest(
+    index.teams,
+    query,
+    (entry) =>
+      variantConflict(
+        query.raw,
+        entry.names.map((n) => n.norm),
+      ) === null,
+  );
 }
 
 /** Rule N3 for competitions. */

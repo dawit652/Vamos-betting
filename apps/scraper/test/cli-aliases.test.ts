@@ -218,3 +218,74 @@ describe('aliases list and remove', () => {
     expect((await list('--q', 'spurs')).length).toBe(1);
   });
 });
+
+describe('aliases export and import --skip-problems (L4, docs/plans/name-learning.md)', () => {
+  let db: Awaited<ReturnType<typeof catalogDatabase>>;
+  let cli: ReturnType<typeof cliHarness>;
+  beforeAll(async () => {
+    db = await catalogDatabase();
+    cli = cliHarness({ db: db.db });
+    cli.files.set('src.json', JSON.stringify(OPENFOOTBALL_SOURCE));
+    expect((await cli.run('sources', 'upsert', '--file', 'src.json')).code).toBe(0);
+  }, SETUP_TIMEOUT);
+  afterAll(async () => {
+    await db?.drop();
+  }, SETUP_TIMEOUT);
+
+  const HEADER = 'kind,sport,alias,target,source\n';
+
+  it('exports every alias in the import columns, and the export imports as already present', async () => {
+    cli.files.set(
+      'a.csv',
+      HEADER +
+        'team,football,Spurs,Tottenham,\n' +
+        'team,football,"The Gunners",Arsenal,cli-openfootball\n' +
+        'competition,football,English Premier League,premier-league,*\n',
+    );
+    expect((await cli.run('aliases', 'import', '--file', 'a.csv')).code).toBe(0);
+    const out = await cli.run('aliases', 'export');
+    expect(out.code).toBe(0);
+    expect(out.stdout.split('\n')).toEqual([
+      'kind,sport,alias,target,source',
+      'competition,football,english premier league,premier-league,',
+      'team,football,spurs,Tottenham,',
+      'team,football,the gunners,Arsenal,cli-openfootball',
+    ]);
+    expect(out.stderr).toBe('3 aliases exported');
+    cli.files.set('export.csv', `${out.stdout}\n`);
+    const again = await cli.run('aliases', 'import', '--file', 'export.csv');
+    expect(again.code).toBe(0);
+    expect(again.stdout).toContain('0 added, 3 already present');
+  });
+
+  it('--skip-problems adds what it can, skips the rest and never re-adds a removed alias', async () => {
+    const { rows } = await db.pool.query<{ id: string }>(
+      `SELECT id FROM team_aliases WHERE alias_norm = 'spurs'`,
+    );
+    expect((await cli.run('aliases', 'remove', '--id', rows[0]!.id)).code).toBe(0);
+    cli.files.set(
+      'b.csv',
+      HEADER +
+        'team,football,Spurs,Tottenham,\n' +
+        'team,football,Nobody FC,Nobody,\n' +
+        'team,football,Gooners,Arsenal,\n',
+    );
+    // All or nothing without the flag, as before.
+    expect((await cli.run('aliases', 'import', '--file', 'b.csv')).code).not.toBe(0);
+    const result = await cli.run('aliases', 'import', '--file', 'b.csv', '--skip-problems');
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('skipped line 2: "spurs" was removed by someone');
+    expect(result.stdout).toContain('skipped line 3: no team with short name "Nobody" in football');
+    expect(result.stdout).toContain('1 added, 0 already present, 2 skipped');
+    const count = async (alias: string) =>
+      Number(
+        (
+          await db.pool.query(`SELECT count(*) AS n FROM team_aliases WHERE alias_norm = $1`, [
+            alias,
+          ])
+        ).rows[0].n,
+      );
+    expect(await count('spurs')).toBe(0);
+    expect(await count('gooners')).toBe(1);
+  });
+});

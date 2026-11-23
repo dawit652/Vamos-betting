@@ -1,5 +1,6 @@
 import type { ScraperContext } from '../context';
 import type { ScraperTask } from '../lib/interval';
+import { aliasCheckTask } from './alias-check';
 import { marketFamilyTask } from './market-families';
 import { boardResultsTask, stuckBoardEventsTask } from './board-results';
 import { hulusportTask } from './hulusport';
@@ -31,6 +32,7 @@ export function createTasks(ctx: ScraperContext): ScraperTask[] {
     trustTask(ctx),
     marketFamilyTask(ctx),
     weeklyReportTask(ctx),
+    aliasCheckTask(ctx),
     ...(hulusport === null ? [] : [hulusport]),
     ...(narobet === null ? [] : [narobet]),
     ...(results === null ? [] : [results]),

@@ -25,7 +25,7 @@ the same upstream mapped under any spelling with that id. Team ids: the stored r
 provider team id, and adding one would change every source's records; API-Football's team names
 do not change, and L1 plus N4 cover other spellings. Not built for teams.
 
-## L3. The system keeps learning, with guards (next)
+## L3. The system keeps learning, with guards (built 23 Nov)
 
 - N4 (fixture context: the opponent and kickoff match a known match) switched on for every source
   (`SCRAPER_AUTO_ALIAS` default `on`), needing two agreeing fixtures before it maps by itself.
@@ -33,12 +33,26 @@ do not change, and L1 plus N4 cover other spellings. Not built for teams.
   women's (W, Women, Frauen, Femenino...) or national team unless the raw name says so. It filters
   the suggestions people see (N3) and N4's strong candidate. This morning's 11 wrong links were all
   of this kind.
-- A daily check lists existing aliases that break the guard, for a person.
+- A daily check (every 6 h, aliases of the last 48 h) lists aliases that break the guard or look like
+  another club (a telling word the team's names lack), with one Telegram line a day to the owner
+  (`alias_suspicious`). Of the 11 wrong links of 23 Nov, the guard blocks the 6 reserve, women's and
+  national ones and the check flags 4 of the other 5; "copenhagen" to "AB Copenhagen" looks like a
+  right link to any rule, which is why a person still reads the list.
 - A link a person removed is never learned again (N4 already refuses those).
 
-## L4. A file of all mappings, loaded on every deploy (next)
+## L4. A file of all mappings, loaded on every deploy (built 23 Nov)
 
-`aliases export` / `aliases import` in the scraper CLI. The import is idempotent, never changes an
-existing alias, never re-adds one a person removed, and creates no team. The deploy exports the
-live mappings to a dated backup on the server and imports the file in git, so a new server or a
-restored database starts out knowing every name.
+- `aliases export` prints every alias in the columns `aliases import` reads (kind, sport, alias,
+  target as a team's short name, unique in its sport, or a competition's slug, source).
+- `aliases import --skip-problems` (the deploy's mode) skips a bad row instead of stopping, never
+  adds an alias someone removed (audit `scrape.alias.removed`) and never changes an existing alias
+  (a different target is a conflict, skipped); a team or competition missing on the server is skipped.
+- `infra/scripts/deploy-full.sh`, after the smoke test: the export goes to
+  `/root/vamos-backups/aliases/aliases-<time>.csv` on the server, then
+  `docs/scraper-plan/data/aliases.csv`, when the repository has it, is imported. A failure only warns.
+- To keep the server's mappings in git too: send the newest export to a session, which commits it as
+  `docs/scraper-plan/data/aliases.csv` (a new server then starts out knowing every name):
+
+  ```
+  ls -t /root/vamos-backups/aliases/ | head -1
+  ```

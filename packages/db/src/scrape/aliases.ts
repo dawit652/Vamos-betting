@@ -458,3 +458,85 @@ export async function listAliases(
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))
     .slice(0, limit);
 }
+
+/** L4 (docs/plans/name-learning.md): one alias as the file of mappings holds it. */
+export interface AliasExportRow {
+  kind: AliasKind;
+  sport: string;
+  aliasNorm: string;
+  /** A team's short name (unique in its sport) or a competition's slug. */
+  target: string;
+  sourceId: string | null;
+}
+
+const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * L4: every alias, its target named as the file of mappings names it (a team by its short name,
+ * unique in its sport by `teams_sport_short_name_uq`; a competition by its slug), in a fixed order.
+ */
+export async function exportAliases(exec: DbExecutor): Promise<AliasExportRow[]> {
+  const [teamRows, competitionRows] = await Promise.all([
+    exec
+      .select({
+        sport: teamAliases.sportId,
+        aliasNorm: teamAliases.aliasNorm,
+        sourceId: teamAliases.sourceId,
+        shortName: teams.shortName,
+      })
+      .from(teamAliases)
+      .innerJoin(teams, eq(teams.id, teamAliases.teamId)),
+    exec
+      .select({
+        sport: competitionAliases.sportId,
+        aliasNorm: competitionAliases.aliasNorm,
+        sourceId: competitionAliases.sourceId,
+        slug: competitions.slug,
+      })
+      .from(competitionAliases)
+      .innerJoin(competitions, eq(competitions.id, competitionAliases.competitionId)),
+  ]);
+  const rows: AliasExportRow[] = [];
+  for (const row of teamRows) {
+    rows.push({
+      kind: 'team',
+      sport: row.sport,
+      aliasNorm: row.aliasNorm,
+      target: row.shortName,
+      sourceId: row.sourceId,
+    });
+  }
+  for (const row of competitionRows) {
+    rows.push({
+      kind: 'competition',
+      sport: row.sport,
+      aliasNorm: row.aliasNorm,
+      target: row.slug,
+      sourceId: row.sourceId,
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      byText(a.kind, b.kind) ||
+      byText(a.sport, b.sport) ||
+      byText(a.aliasNorm, b.aliasNorm) ||
+      byText(a.sourceId ?? '', b.sourceId ?? ''),
+  );
+  return rows;
+}
+
+/** L4: whether someone removed an alias of this spelling and scope (audit `scrape.alias.removed`). */
+export async function aliasWasRemoved(
+  exec: DbExecutor,
+  kind: AliasKind,
+  aliasNorm: string,
+  sourceId: string | null,
+): Promise<boolean> {
+  const result = await exec.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM audit_log
+    WHERE action = 'scrape.alias.removed'
+      AND target_type = ${kind === 'team' ? 'team_alias' : 'competition_alias'}
+      AND metadata->>'aliasNorm' = ${aliasNorm}
+      AND coalesce(metadata->>'sourceId', '') = ${sourceId ?? ''}`);
+  return (result.rows[0]?.n ?? 0) > 0;
+}

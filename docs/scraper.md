@@ -657,6 +657,12 @@ jk bb as ac ca cd ud sv fsv vfb vfl tsg ssc`, with a number just before one at t
   the name stays unknown. A COMPETITION name is learned only when it carries its provider's id, as
   API-Football's do ("England - Premier League [39]"): the same spelling mapped for any other source
   resolves; a plain name ("Ligue 1") never does, since several countries use it.
+- **L3 Guarded learning (23 Nov 2026).** No suggestion (N3), no automatic alias (N4) and no learned resolution
+  (L1) links a name to a reserve, youth, women's or national team unless the name says so (`variantConflict`:
+  II, B, 2 at the end, U17-U23, Sub 20, Jong, Primavera, W, Women, Frauen, Femenino..., or a team named only after
+  a country). N4 maps by itself only when two of the name's fixtures in the run agree on the team
+  (`AUTO_ALIAS_MIN_FIXTURES`), and `SCRAPER_AUTO_ALIAS` is on in the production compose. A daily check lists recent
+  aliases that look wrong for the owner (`docs/scraper-operations.md`).
 - **L2 A league by its provider id.** An unknown competition name with a provider id ("... [39]")
   that no spelling knows resolves (`via: provider_id`) to the one competition that a source of the
   SAME upstream mapped under another spelling with the same id: a renamed league is not asked again.
@@ -1251,7 +1257,8 @@ command line is wrong. Commands that need the database use `DATABASE_URL` from
 | `sources upsert --file source.json`                                                | Checks the config with `createAdapter` (the runner's own check, so config errors such as a score without a status map are listed), then upserts.                                                                                                       |
 | `dry-parse --source-file source.json --document page.html`                         | Parses a saved page; prints observations and issues. No database, no network. Options: `--url`, `--at`, `--content-type`, `--limit`.                                                                                                                   |
 | `dry-fetch --source-file source.json`                                              | Fetches the planned URLs through the `PoliteFetcher` (allow-list, robots.txt, rate limit; the `auth` key from its `SCRAPER_SECRET_*` variable) and parses; prints only. Writes nothing.                                                                |
-| `aliases import --file aliases.csv`                                                | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written.                                                                                                                                                    |
+| `aliases import --file aliases.csv [--skip-problems]`                              | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written; with `--skip-problems` (the deploy, L4) bad rows are skipped and an alias someone removed is never added again.                                    |
+| `aliases export`                                                                   | Every alias in the import's columns on standard output (L4).                                                                                                                                                                                           |
 | `aliases list [--kind team\|competition] [--q text]`                               | Aliases newest first with their ids; `--q` matches the name or the target.                                                                                                                                                                             |
 | `aliases remove --id <id>`                                                         | Removes one alias (audited). The next promotion pass re-resolves the observations that used it.                                                                                                                                                        |
 | `ratings backfill --file results.json --competition <slug> [--dry-run]`            | Learns ratings from historical results; prints before and after per team.                                                                                                                                                                              |

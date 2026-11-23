@@ -1,5 +1,13 @@
 # Remaining tasks (read this first; updated 23 Nov 2026)
 
+**Newest (23 Nov, first account, after the 09:00 deploy): name learning**
+([name-learning.md](name-learning.md), owner said go for all four): L1 a mapped name is known from
+every source where the team plays (`decdf17`), L2 leagues by provider id, L3 guarded learning (no
+reserve, youth, women's or national team unless named; N4 needs two agreeing fixtures and is on in
+the compose; a daily alias check on Telegram), L4 `aliases export` / `import --skip-problems` and the
+deploy saving the mappings to `/root/vamos-backups/aliases/`. Not deployed. The next deploy needs
+`ALLOW_DROPPED_SETTINGS=1` again (the compose line of `SCRAPER_AUTO_ALIAS` changed to `on`).
+
 **Deployed 23 Nov 09:00 (first account's session): `26096ab`**, smoke 13 passed. Next, the owner:
 E1 and the 24 odds sources (`docs/plans/feed-gaps-2026-11-23.md`, "E2 built"; the E1 command that
 works fetches the file from GitHub first), Enable them, then the switch once the gap is small.

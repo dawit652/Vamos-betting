@@ -125,7 +125,8 @@ x-app-env: &app-env
   # only where a source gives the half time, no third scores read, prices capped at the best book.
   # A value in .env.prod still wins.
   SCRAPER_HALF_TIME_MARKETS: '${SCRAPER_HALF_TIME_MARKETS:-covered}'
-  SCRAPER_AUTO_ALIAS: '${SCRAPER_AUTO_ALIAS:-off}'
+  # L3 (docs/plans/name-learning.md): learning names by fixture context is on by default.
+  SCRAPER_AUTO_ALIAS: '${SCRAPER_AUTO_ALIAS:-on}'
   SCRAPER_PRIORITY_COMPETITIONS: '${SCRAPER_PRIORITY_COMPETITIONS:-}'
   SCRAPER_SKIP_REDUNDANT_SCORES: '${SCRAPER_SKIP_REDUNDANT_SCORES:-on}'
   SCRAPER_CAP_AT_BEST_PRICE: '${SCRAPER_CAP_AT_BEST_PRICE:-on}'

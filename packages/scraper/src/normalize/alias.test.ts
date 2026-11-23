@@ -230,7 +230,9 @@ describe('N3 suggestions', () => {
   it('N3 never returns a team whose normalised name equals the query', () => {
     expect(s('Arsenal').map((x) => x.id)).not.toContain('t-ars');
     expect(s('Arsenal FC').map((x) => x.id)).not.toContain('t-ars');
-    expect(s('Arsenal').map((x) => x.id)).toContain('t-ars-w');
+    // L3: never another side of the club unless the name says so.
+    expect(s('Arsenal').map((x) => x.id)).not.toContain('t-ars-w');
+    expect(s('Arsenal Ladies').map((x) => x.id)).toContain('t-ars-w');
   });
 
   it('N3 honours the limit (default 3), the minimum score and the sport', () => {
@@ -417,10 +419,30 @@ describe('L1 and L2: what other sources teach (docs/plans/name-learning.md)', ()
     ).toEqual(unknown);
   });
 
+  it('L1 a spelling several catalogue teams share (Dynamo) is never learned, wherever it fits', () => {
+    expect(team('Dynamo', 'c-pokal')).toEqual(unknown);
+    expect(team('Dynamo', 'c-uel')).toEqual(unknown);
+  });
+
   it('L1 one spelling mapped to two teams: only the one that fits the competition, else unknown', () => {
-    expect(team('Dynamo', 'c-pokal')).toEqual(learned('t-dyn-d'));
-    expect(team('Dynamo', 'c-uel')).toEqual(learned('t-dyn-k'));
-    expect(team('Dynamo', 'c-epl')).toEqual(unknown);
+    const two = buildAliasIndex({
+      ...learnedInput,
+      teamAliases: [
+        ...learnedInput.teamAliases,
+        { aliasNorm: 'die schwarz gelben', sourceId: 'src-a', teamId: 't-dyn-d' },
+        { aliasNorm: 'die schwarz gelben', sourceId: 'src-b', teamId: 't-dyn-k' },
+      ],
+    });
+    const at = (competitionId: string) =>
+      resolveTeam(two, {
+        sportId: 'football',
+        sourceId: 'src-c',
+        raw: 'Die Schwarz-Gelben',
+        competitionId,
+      });
+    expect(at('c-pokal')).toEqual(learned('t-dyn-d'));
+    expect(at('c-uel')).toEqual(learned('t-dyn-k'));
+    expect(at('c-epl')).toEqual(unknown);
   });
 
   it('L1 a team with no event yet is not learned: a person maps it once more', () => {
