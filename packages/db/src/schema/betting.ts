@@ -259,6 +259,11 @@ export const bookingCodes = pgTable(
     /** BOOKING_CODE_LENGTH symbols of CODE_ALPHABET. */
     code: text('code').notNull().unique(),
     legs: jsonb('legs').$type<Array<{ selectionId: string }>>().notNull(),
+    /**
+     * The stake a visitor chose (docs/plans/guest-slips-and-staff.md, GS3: a slip ID to pay at a
+     * shop), santim; null for a shared slip without one. The shop fills it in; it is not money yet.
+     */
+    stake: bigint('stake', { mode: 'bigint' }),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -268,5 +273,6 @@ export const bookingCodes = pgTable(
   (t) => [
     index('booking_codes_expires_idx').on(t.expiresAt),
     check('booking_codes_expiry_after_creation', sql`${t.expiresAt} > ${t.createdAt}`),
+    check('booking_codes_stake_positive', sql`${t.stake} IS NULL OR ${t.stake} > 0`),
   ],
 );

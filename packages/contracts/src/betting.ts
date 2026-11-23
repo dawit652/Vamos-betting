@@ -221,6 +221,8 @@ export const CreateBookingCodeRequest = z.object({
     .array(z.object({ selectionId: Id }))
     .min(1)
     .max(MAX_SLIP_LEGS),
+  /** A visitor's slip ID to pay at a shop (GS3): the stake chosen, kept with the code. */
+  stake: Stake.optional(),
 });
 export type CreateBookingCodeRequest = z.infer<typeof CreateBookingCodeRequest>;
 
@@ -229,5 +231,7 @@ export const BookingCodeResponse = z.object({
   createdAt: z.string(),
   expiresAt: z.string(),
   legs: z.array(QuoteLeg),
+  /** The stake of a visitor's slip ID (GS3), or null for a shared slip. */
+  stake: Santim.nullable(),
 });
 export type BookingCodeResponse = z.infer<typeof BookingCodeResponse>;

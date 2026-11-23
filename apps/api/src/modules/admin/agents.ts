@@ -44,6 +44,7 @@ import {
   approveShopDevice,
   createAgent,
   createAgentOwnerAccount,
+  resetAgentOwnerSignIn,
   createShop,
   decideAgentTopup,
   getAgent,
@@ -256,6 +257,23 @@ export default async function adminAgentRoutes(app: FastifyInstance): Promise<vo
         ip: actor.ip ?? null,
       });
       reply.code(201);
+      return wire(CreateAgentOwnerResponse, made);
+    },
+  );
+
+  // A new sign-in for the agent owner (owner, 23 Nov 2026): a generated password that works until
+  // the owner changes it, and a new authenticator secret, both in this answer only.
+  app.post<IdParams>(
+    '/admin/agents/:id/owner-account/reset',
+    { config: { staff: 'agents.manage' } },
+    async (request) => {
+      const agentId = parseUuid(request.params.id, 'Agent');
+      const actor = staffActor(request);
+      const made = await resetAgentOwnerSignIn(staffAuthDeps(deps), {
+        agentId,
+        adminId: actor.adminId,
+        ip: actor.ip ?? null,
+      });
       return wire(CreateAgentOwnerResponse, made);
     },
   );

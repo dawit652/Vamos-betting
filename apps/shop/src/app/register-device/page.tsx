@@ -44,6 +44,9 @@ export default function RegisterDevicePage() {
         </p>
       ) : (
         <form method="post" onSubmit={(e) => void submit(e)} aria-label="Register this device">
+          <p className="muted" data-testid="register-intro">
+            {TEXT.registerIntro}
+          </p>
           <label htmlFor="email">
             {TEXT.email}
             <input

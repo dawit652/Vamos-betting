@@ -152,6 +152,16 @@ export const sportsbook = {
     place: 'Place bet',
     placing: 'Placing…',
     loginToBet: 'Log in to place a bet',
+    guest: {
+      place: 'Place bet · pay at a shop',
+      slipId: 'Slip ID',
+      awaiting: 'Awaiting cash payment: give the slip ID to any Nahubet shop to pay in cash.',
+      newSlip: 'New slip',
+      loginOnline: 'Log in to bet online',
+      checkTitle: 'Check coupon',
+      checkPlaceholder: 'Slip ID or ticket number',
+      check: 'Check',
+    },
     insufficientFunds: 'Your balance is too low for this stake.',
     topUp: 'Top up',
     unavailable: {
@@ -191,7 +201,7 @@ export const sportsbook = {
     },
     booking: {
       share: 'Share',
-      load: 'Load code',
+      load: 'Load coupon',
       code: 'Booking code',
       tellCashier: 'Tell this number to the cashier to buy the ticket.',
       shareText: 'Booking code: {code}',

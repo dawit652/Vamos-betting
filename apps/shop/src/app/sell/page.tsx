@@ -104,9 +104,16 @@ function Seller({ shiftId }: { shiftId: string }) {
    * Adds legs (skipping ones already there) and fetches a preview so names and prices show. Legs
    * from a booking code remember it: the ticket prints it when it has exactly those matches.
    */
-  function addLegs(add: SlipLeg[], bookingCode?: string) {
+  function addLegs(add: SlipLeg[], bookingCode?: string, bookedStake?: string | null) {
     if (bookingCode !== undefined) {
       setBooked({ code: bookingCode, ids: add.map((l) => l.selectionId) });
+    }
+    // A visitor's slip ID carries the stake they chose (GS3): filled in, the cashier may change it.
+    if (bookedStake !== undefined && bookedStake !== null && /^\d+$/.test(bookedStake)) {
+      const santim = BigInt(bookedStake);
+      const birr = santim / 100n;
+      const cents = santim % 100n;
+      setStakeText(cents === 0n ? birr.toString() : `${birr}.${cents.toString().padStart(2, '0')}`);
     }
     const known = new Set(legs.map((l) => l.selectionId));
     const fresh = add.filter(
@@ -482,7 +489,11 @@ function sameSelections(legs: readonly SlipLeg[], ids: readonly string[]): boole
 }
 
 /** A booking code a player made online: its matches come with the prices stored in it. */
-function AddByBooking({ onAdd }: { onAdd: (legs: SlipLeg[], bookingCode: string) => void }) {
+function AddByBooking({
+  onAdd,
+}: {
+  onAdd: (legs: SlipLeg[], bookingCode: string, stake: string | null) => void;
+}) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -504,7 +515,7 @@ function AddByBooking({ onAdd }: { onAdd: (legs: SlipLeg[], bookingCode: string)
       const res = await api<ShopBookingResponse>(
         `/shop/desk/booking-codes/${encodeURIComponent(value)}`,
       );
-      onAdd(res.legs, value);
+      onAdd(res.legs, value, res.stake);
       setCode('');
     } catch (e) {
       if (mounted.current) setError(describeError(e, TEXT.bookingErrors));

@@ -89,6 +89,30 @@ describe('booking codes', () => {
     expect(loaded.legs[0]?.selection?.homeTeam.en).toBe('Arsenal');
   });
 
+  it("keeps a visitor's stake with the slip ID, within the stake limits (GS3)", async () => {
+    const now = new Date();
+    const slipId = await createBookingCode(handle.db, {
+      legs: [{ selectionId: a.home }],
+      now,
+      randomBytes: (n) => randomBytes(n),
+      stake: birr(20),
+    });
+    expect(slipId.stake).toBe(birr(20));
+    expect((await loadBookingCode(handle.db, slipId.code, new Date())).stake).toBe(birr(20));
+    // A shared slip has none.
+    const shared = await create([{ selectionId: a.home }]);
+    expect((await loadBookingCode(handle.db, shared.code, new Date())).stake).toBeNull();
+    // Below the minimum stake: refused like a bet.
+    await expect(
+      createBookingCode(handle.db, {
+        legs: [{ selectionId: a.home }],
+        now,
+        randomBytes: (n) => randomBytes(n),
+        stake: 1n,
+      }),
+    ).rejects.toMatchObject({ code: 'slip_invalid' });
+  });
+
   it('shows legs that became unavailable after booking', async () => {
     const own = await createEvent(handle.db, ids);
     const booked = await create([{ selectionId: own.over }]);

@@ -287,6 +287,8 @@ export async function createSlipBookingCode(
     now: deps.clock(),
     randomBytes: deps.randomBytes,
     rules: settings.betRules,
+    stake: input.stake === undefined ? null : BigInt(input.stake),
+    stakeRules: settings.betRules,
   });
   return bookingCodeView(booking);
 }

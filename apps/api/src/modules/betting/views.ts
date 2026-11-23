@@ -164,6 +164,7 @@ export function bookingCodeView(booking: BookingCode): BookingCodeResponse {
     createdAt: booking.createdAt.toISOString(),
     expiresAt: booking.expiresAt.toISOString(),
     legs: booking.legs.map(bookingLegView),
+    stake: booking.stake === null ? null : booking.stake.toString(),
   };
 }
 

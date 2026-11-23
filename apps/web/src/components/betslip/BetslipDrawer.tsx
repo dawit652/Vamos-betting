@@ -1,6 +1,11 @@
 'use client';
 
-import type { BetView, OddsChangePolicy, UnavailableReason } from '@vamos/contracts';
+import type {
+  BetView,
+  BookingCodeResponse,
+  OddsChangePolicy,
+  UnavailableReason,
+} from '@vamos/contracts';
 import { betslipMessages } from '@vamos/i18n/betslip';
 import type { MessageKey } from '@vamos/i18n/translate';
 import Link from 'next/link';
@@ -21,6 +26,7 @@ import { useSession } from '@/providers/SessionProvider';
 import { BookingCodePanel } from './BookingCodePanel';
 import {
   bonusPercent,
+  bookingCodeRequest,
   oddsChangesFromDetails,
   PLACE_BET_ERROR_KEYS,
   placeBetRequest,
@@ -204,6 +210,9 @@ function SlipBody({ onPlaced }: { onPlaced: (placed: Placed) => void }) {
 
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<PlaceError | null>(null);
+  // A visitor's slip ID to pay at a shop (docs/plans/guest-slips-and-staff.md, GS3).
+  const [guestSlip, setGuestSlip] = useState<GuestSlip | null>(null);
+  const [guestError, setGuestError] = useState<MessageKey | null>(null);
   const [placeUnavailable, setPlaceUnavailable] = useState<ReadonlyMap<string, UnavailableReason>>(
     new Map(),
   );
@@ -225,6 +234,37 @@ function SlipBody({ onPlaced }: { onPlaced: (placed: Placed) => void }) {
     const santim = stakeFromInput(text);
     if (santim !== null) slip.setStake(santim);
   };
+
+  /** A visitor's bet: a slip ID keeping the selections and the stake, paid in cash at a shop. */
+  async function placeAsGuest() {
+    if (stake === null || slip.count === 0 || quote === null) return;
+    setPlacing(true);
+    setGuestError(null);
+    try {
+      const booking = await bettingApi.createBookingCode({
+        ...bookingCodeRequest(slip.legs),
+        stake,
+      });
+      setGuestSlip({
+        booking,
+        stake,
+        totalOddsMilli: quote.totalOddsMilli,
+        potentialWin: quote.grossReturn,
+        legs: slip.legs.map((leg) => ({
+          selectionId: leg.selectionId,
+          match: `${localName(leg.home, locale)} v ${localName(leg.away, locale)}`,
+          pick: `${localName(leg.marketName, locale)}: ${localName(leg.selectionName, locale)}`,
+          oddsMilli: leg.oddsMilli,
+          startTime: leg.startTime,
+        })),
+      });
+      rememberGuestSlip(booking.code, booking.createdAt);
+    } catch (error) {
+      setGuestError(errorMessageKey(error));
+    } finally {
+      setPlacing(false);
+    }
+  }
 
   async function place() {
     if (session.status !== 'authenticated') {
@@ -553,17 +593,49 @@ function SlipBody({ onPlaced }: { onPlaced: (placed: Placed) => void }) {
         </p>
       ) : null}
 
-      {session.status === 'anonymous' ? (
-        <button
-          type="button"
-          className="btn btn-primary w-full"
-          onClick={() => {
+      {session.status === 'anonymous' && guestSlip !== null ? (
+        <GuestSlipCard
+          slip={guestSlip}
+          onNew={() => {
+            setGuestSlip(null);
+            slip.clear();
+          }}
+          onLogin={() => {
             slip.close();
             router.push(loginHref());
           }}
-        >
-          {t('sportsbook.betslip.loginToBet')}
-        </button>
+        />
+      ) : session.status === 'anonymous' ? (
+        <div className="space-y-2">
+          {guestError !== null ? (
+            <p role="alert" className="px-1 text-xs text-danger">
+              {t(guestError)}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-accent min-h-12 w-full text-base font-extrabold"
+            disabled={!canPlace}
+            onClick={() => void placeAsGuest()}
+            data-testid="guest-place"
+          >
+            {placing
+              ? t('sportsbook.betslip.placing')
+              : `${t('sportsbook.betslip.guest.place')}${
+                  stake === null ? '' : ` · ${formatSantim(stake, { currency: true })}`
+                }`}
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline w-full"
+            onClick={() => {
+              slip.close();
+              router.push(loginHref());
+            }}
+          >
+            {t('sportsbook.betslip.guest.loginOnline')}
+          </button>
+        </div>
       ) : needsAccept ? (
         <button type="button" className="btn btn-accent w-full" onClick={slip.acceptOddsChanges}>
           {t('sportsbook.betslip.acceptOdds')}
@@ -712,5 +784,131 @@ function PlacedBet({
         </button>
       </div>
     </div>
+  );
+}
+
+interface GuestSlip {
+  booking: BookingCodeResponse;
+  /** Santim, as the quote and the API carry money (a decimal string). */
+  stake: string;
+  totalOddsMilli: string;
+  potentialWin: string;
+  legs: Array<{
+    selectionId: string;
+    match: string;
+    pick: string;
+    oddsMilli: number;
+    startTime: string;
+  }>;
+}
+
+/** The slip IDs made on this device, newest first (GS6 reads them; never needed to work). */
+const GUEST_SLIPS_KEY = 'nahubet:guest-slips';
+
+function rememberGuestSlip(code: string, createdAt: string): void {
+  try {
+    const raw = window.localStorage.getItem(GUEST_SLIPS_KEY);
+    const parsed: unknown = raw === null ? [] : JSON.parse(raw);
+    const list = (Array.isArray(parsed) ? (parsed as unknown[]) : []).filter(
+      (item): item is { code: string; createdAt: string } =>
+        typeof item === 'object' &&
+        item !== null &&
+        typeof (item as { code?: unknown }).code === 'string' &&
+        typeof (item as { createdAt?: unknown }).createdAt === 'string',
+    );
+    const next = [{ code, createdAt }, ...list.filter((item) => item.code !== code)].slice(0, 20);
+    window.localStorage.setItem(GUEST_SLIPS_KEY, JSON.stringify(next));
+  } catch {
+    // Private mode or full storage: the slip ID on screen is what matters.
+  }
+}
+
+/** "123456" → "123 456": easier to read out at the counter. */
+function spacedCode(code: string): string {
+  return /^\d{6}$/.test(code) ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+}
+
+/** A visitor's slip, as on a placed bet: its ID to give a shop, the picks, stake and possible win. */
+function GuestSlipCard({
+  slip,
+  onNew,
+  onLogin,
+}: {
+  slip: GuestSlip;
+  onNew: () => void;
+  onLogin: () => void;
+}) {
+  const t = useT();
+  const locale = useLocale();
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(slip.booking.code);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+  const when = (iso: string) =>
+    new Date(iso).toLocaleString(locale, {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  return (
+    <section className="card space-y-2" role="status" data-testid="guest-slip">
+      <ul className="space-y-1 text-sm">
+        {slip.legs.map((leg) => (
+          <li key={leg.selectionId} className="flex justify-between gap-2">
+            <span className="min-w-0">
+              <span className="block truncate font-semibold">{leg.match}</span>
+              <span className="block truncate text-xs text-muted">
+                {leg.pick} · {when(leg.startTime)}
+              </span>
+            </span>
+            <span className="font-bold tabular-nums">{formatOddsMilli(leg.oddsMilli)}</span>
+          </li>
+        ))}
+      </ul>
+      <SummaryRow
+        label={t('sportsbook.betslip.stake')}
+        value={formatSantim(slip.stake, { currency: true })}
+      />
+      <SummaryRow
+        label={t('sportsbook.betslip.totalOdds')}
+        value={formatTotalOdds(slip.totalOddsMilli)}
+      />
+      <SummaryRow
+        label={t('sportsbook.betslip.potentialWin')}
+        value={formatSantim(slip.potentialWin)}
+      />
+      <div className="text-center">
+        <p className="text-xxs text-muted">{t('sportsbook.betslip.guest.slipId')}</p>
+        <p
+          className="font-mono text-3xl font-bold tracking-widest tabular-nums"
+          data-testid="guest-slip-id"
+        >
+          {spacedCode(slip.booking.code)}
+        </p>
+        <button type="button" className="btn btn-outline" onClick={() => void copy()}>
+          {copied ? t('sportsbook.betslip.booking.copied') : t('sportsbook.betslip.booking.copy')}
+        </button>
+      </div>
+      <p className="rounded bg-accent/10 p-2 text-sm font-semibold">
+        {t('sportsbook.betslip.guest.awaiting')}
+      </p>
+      <p className="text-xxs text-muted">
+        {t('sportsbook.betslip.booking.validUntil', { time: when(slip.booking.expiresAt) })}
+      </p>
+      <div className="flex gap-2">
+        <button type="button" className="btn btn-accent flex-1" onClick={onNew}>
+          {t('sportsbook.betslip.guest.newSlip')}
+        </button>
+        <button type="button" className="btn btn-outline flex-1" onClick={onLogin}>
+          {t('sportsbook.betslip.guest.loginOnline')}
+        </button>
+      </div>
+    </section>
   );
 }

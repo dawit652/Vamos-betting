@@ -409,6 +409,18 @@ export function generateStaffPassword(randomBytes: (size: number) => Buffer): st
   return randomBytes(18).toString('base64url');
 }
 
+/** A generated password that passes the strength rules for this email (drawn again if not). */
+export function generateValidStaffPassword(
+  randomBytes: (size: number) => Buffer,
+  email: string,
+): string {
+  for (let i = 0; i < 10; i += 1) {
+    const candidate = generateStaffPassword(randomBytes);
+    if (staffPasswordWeakness(candidate, email) === null) return candidate;
+  }
+  throw new Error('no strong password after 10 draws');
+}
+
 export interface CreateStaffUserInput {
   email: string;
   displayName: string;
@@ -423,6 +435,12 @@ export interface CreateStaffUserInput {
    * for the system (CLI, seed) as given, default false.
    */
   requirePasswordChange?: boolean;
+  /**
+   * The password someone else chose works until its owner changes it, instead of
+   * STAFF_INITIAL_PASSWORD_TTL_MS (owner, 23 Nov 2026, for agent owners: "until they change to their
+   * password"). It must still be changed at the first sign-in.
+   */
+  passwordUntilChanged?: boolean;
   actor: StaffAccountActor;
   /**
    * Runs in the account's own transaction after it is written and audited (an agent's owner
@@ -483,9 +501,10 @@ export async function createStaffUser(
         totpSecretEnc: stored,
         totpEnrolledAt: now,
         passwordChangeRequired,
-        passwordExpiresAt: passwordChangeRequired
-          ? new Date(now.getTime() + STAFF_INITIAL_PASSWORD_TTL_MS)
-          : null,
+        passwordExpiresAt:
+          passwordChangeRequired && input.passwordUntilChanged !== true
+            ? new Date(now.getTime() + STAFF_INITIAL_PASSWORD_TTL_MS)
+            : null,
         createdAt: now,
         updatedAt: now,
       })
@@ -742,7 +761,13 @@ export async function resetStaffTotp(
  */
 export async function resetStaffPassword(
   deps: StaffAuthDeps,
-  input: { adminUserId: string; password: string; actor: StaffAccountActor },
+  input: {
+    adminUserId: string;
+    password: string;
+    actor: StaffAccountActor;
+    /** Set by an admin: works until its owner changes it, not STAFF_INITIAL_PASSWORD_TTL_MS. */
+    untilChanged?: boolean;
+  },
 ): Promise<StaffUserView> {
   const actor = auditActor(input.actor);
   const existing = await getStaffUser(deps.db, input.adminUserId);
@@ -758,7 +783,7 @@ export async function resetStaffPassword(
         passwordHash,
         passwordChangeRequired: input.actor.type === 'admin',
         passwordExpiresAt:
-          input.actor.type === 'admin'
+          input.actor.type === 'admin' && input.untilChanged !== true
             ? new Date(now.getTime() + STAFF_INITIAL_PASSWORD_TTL_MS)
             : null,
         failedLoginAttempts: 0,

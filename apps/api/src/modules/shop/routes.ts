@@ -700,6 +700,7 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
             ? []
             : [{ selectionId: leg.selectionId, oddsMilli: leg.currentOddsMilli }],
         ),
+        stake: booking.stake === null ? null : booking.stake.toString(),
       });
     },
   );

@@ -230,6 +230,8 @@ export type ShopPicksResponse = z.infer<typeof ShopPicksResponse>;
 /** GET /shop/desk/booking-codes/:code: the matches of a booking code a player made online. */
 export const ShopBookingResponse = z.object({
   legs: z.array(z.object({ selectionId: z.string(), oddsMilli: z.number().int() })),
+  /** A visitor's slip ID carries the stake chosen (GS3): the sell screen fills it in. */
+  stake: z.string().nullable(),
 });
 export type ShopBookingResponse = z.infer<typeof ShopBookingResponse>;
 

@@ -147,6 +147,16 @@ export const sportsbook: Messages['sportsbook'] = {
     place: 'ተወራረድ',
     placing: 'በመላክ ላይ…',
     loginToBet: 'ለመወራረድ ይግቡ',
+    guest: {
+      place: 'ውርርድ አስገባ · በሱቅ ክፈል',
+      slipId: 'የስሊፕ መለያ',
+      awaiting: 'ክፍያ በመጠበቅ ላይ፦ በጥሬ ገንዘብ ለመክፈል የስሊፕ መለያውን ለማንኛውም የናሁቤት ሱቅ ይስጡ።',
+      newSlip: 'አዲስ ስሊፕ',
+      loginOnline: 'በኦንላይን ለመወራረድ ይግቡ',
+      checkTitle: 'ኩፖን ይፈትሹ',
+      checkPlaceholder: 'የስሊፕ መለያ ወይም የቲኬት ቁጥር',
+      check: 'ፈትሽ',
+    },
     insufficientFunds: 'ቀሪ ሂሳብዎ ለዚህ መጠን በቂ አይደለም።',
     topUp: 'ገንዘብ ጨምር',
     unavailable: {
@@ -186,7 +196,7 @@ export const sportsbook: Messages['sportsbook'] = {
     },
     booking: {
       share: 'አጋራ',
-      load: 'ኮድ ጫን',
+      load: 'ኩፖን ጫን',
       code: 'የቦታ ማስያዣ ኮድ',
       tellCashier: 'ቲኬቱን ለመግዛት ይህን ቁጥር ለገንዘብ ተቀባዩ ይንገሩ።',
       shareText: 'የቦታ ማስያዣ ኮድ፦ {code}',

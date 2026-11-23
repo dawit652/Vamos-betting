@@ -44,7 +44,35 @@ Nov).
   `backedByMarket` in `apps/scraper/src/pipeline/auto-open.ts`. Such a match keeps the ETB 20,000
   payout cap of a board match.
 
+## Also built 23 Nov
+
+- **GS11. Agent owners' passwords** (owner, 23 Nov: "the system must generate and reset password
+  for registered agents until they change to their password").
+  - An agent owner's generated password now works until the owner changes it at the first
+    sign-in, at creation and at a reset: no 72-hour limit for owners (`passwordUntilChanged`,
+    `untilChanged` in `packages/db/src/backoffice/staff-auth.ts`).
+  - Agent page → Owner account → "New password and authenticator" generates both, shows them once,
+    clears a lockout and ends the owner's sessions (`resetAgentOwnerSignIn` in
+    `packages/db/src/retail/owners.ts`, `POST /admin/agents/:id/owner-account/reset`).
+  - Test: `packages/db/test/retail-owners.test.ts`.
+- **The shop's device page explains itself.** Device registration accepts cashier accounts only.
+  An admin's or owner's correct password was answered with a bare "Wrong email or password". The
+  page now says who registers a device; the error says it may not be a cashier's account. It still
+  never reveals which.
+- **GS8 needs no change.** Staff phones need not be unique and an email may be an alias, so one
+  person can already hold an admin, a cashier and an agent owner account, for example
+  `name+cashier@gmail.com`, which Gmail delivers to the same inbox.
+- **GS3, started.** `booking_codes.stake` (migration 0085) and the booking code API keep a
+  visitor's stake. Still to do: the betslip's guest "Place bet", Check coupon, and the shop
+  filling in the stake.
+
 ## State
 
-- **Built:** GS1 and GS2 (see the commits after this plan).
-- **Next:** GS3 and GS4, then the rest in order.
+- **Built:** GS1, GS2, GS11, the device page text, and GS3's database and API part.
+- **Next:**
+  1. GS3's betslip and shop part (`BetslipDrawer.tsx`: for a visitor, "Place bet" calls
+     `createBookingCode` with the stake and shows the slip ID screen; the shop's sell-from-code
+     fills in `stake`).
+  2. GS4 to GS7.
+  3. GS9 and GS10 (money controls: main session).
+  4. 4a/4b.

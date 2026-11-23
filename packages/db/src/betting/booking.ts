@@ -48,6 +48,8 @@ export interface BookingCode {
   createdAt: Date;
   expiresAt: Date;
   legs: BookingLeg[];
+  /** The stake the visitor chose (a slip ID to pay at a shop, GS3), or null. */
+  stake: bigint | null;
 }
 
 function bookingLegs(
@@ -79,6 +81,13 @@ export interface CreateBookingCodeInput {
   rules?: Pick<BetRules, 'maxLegs'>;
   /** Default BOOKING_CODE_TTL_MS. */
   ttlMs?: number;
+  /**
+   * The stake of a visitor's slip ID (GS3), within the rules' minimum and maximum (422
+   * `slip_invalid`); null or absent for a shared slip.
+   */
+  stake?: bigint | null;
+  /** For the stake's range; default DEFAULT_BET_RULES. */
+  stakeRules?: Pick<BetRules, 'minStake' | 'maxStake'>;
 }
 
 /**
@@ -97,19 +106,27 @@ export async function createBookingCode(
   const rules = {
     ...DEFAULT_BET_RULES,
     maxLegs: input.rules?.maxLegs ?? DEFAULT_BET_RULES.maxLegs,
+    minStake: input.stakeRules?.minStake ?? DEFAULT_BET_RULES.minStake,
+    maxStake: input.stakeRules?.maxStake ?? DEFAULT_BET_RULES.maxStake,
   };
+  const stake = input.stake ?? null;
   const ids = input.legs.map((leg) => leg.selectionId);
   const snapshots = await loadSelectionSnapshots(exec, ids);
   const legs = bookingLegs(ids, snapshots, now);
   const errors = validateSlip({
-    stake: rules.minStake,
+    stake: stake ?? rules.minStake,
     legs: legs.map((leg) => ({
       selectionId: leg.selectionId.toLowerCase(),
       eventId: leg.selection?.eventId ?? leg.selectionId,
       oddsMilli: leg.currentOddsMilli ?? rules.minLegOddsMilli,
     })),
     rules,
-  }).filter((error) => STRUCTURAL_ERRORS.has(error.code));
+  }).filter(
+    (error) =>
+      STRUCTURAL_ERRORS.has(error.code) ||
+      (stake !== null &&
+        (error.code === 'stake_below_minimum' || error.code === 'stake_above_maximum')),
+  );
   if (errors.length > 0) throw slipInvalidError(errors);
   const unavailable = legs.filter((leg) => !leg.available);
   if (unavailable.length > 0) {
@@ -130,14 +147,14 @@ export async function createBookingCode(
     const code = encodeBookingNumber(input.randomBytes(BOOKING_NUMBER_BYTES));
     const [row] = await exec
       .insert(bookingCodes)
-      .values({ code, legs: stored, createdByUserId: userId, createdAt: now, expiresAt })
+      .values({ code, legs: stored, stake, createdByUserId: userId, createdAt: now, expiresAt })
       .onConflictDoUpdate({
         target: bookingCodes.code,
-        set: { legs: stored, createdByUserId: userId, createdAt: now, expiresAt },
+        set: { legs: stored, stake, createdByUserId: userId, createdAt: now, expiresAt },
         setWhere: lte(bookingCodes.expiresAt, now),
       })
       .returning({ code: bookingCodes.code });
-    if (row !== undefined) return { code: row.code, createdAt: now, expiresAt, legs };
+    if (row !== undefined) return { code: row.code, createdAt: now, expiresAt, legs, stake };
   }
   throw new Error(`no free booking code after ${MAX_CODE_ATTEMPTS} attempts`);
 }
@@ -171,6 +188,7 @@ export async function loadBookingCode(
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
     legs: bookingLegs(ids, snapshots, now),
+    stake: row.stake,
   };
 }
 

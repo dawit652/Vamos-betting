@@ -20,6 +20,7 @@ import {
   createAgentOwnerAccount,
   getAgent,
   requestShopDevice,
+  resetAgentOwnerSignIn,
   setAgentBlocked,
 } from '../src/retail/index';
 import { adminSessions, adminUsers, agents } from '../src/schema/index';
@@ -186,6 +187,45 @@ describe('an agent owner account', () => {
       }),
     );
     expect((await check()).status).toBe('none');
+  });
+
+  it('a generated password works until the owner changes it, and an admin can generate a new sign-in', async () => {
+    const owner = await ownerOf('Merkato Bets');
+    const [made] = await handle.db
+      .select({ expiresAt: adminUsers.passwordExpiresAt })
+      .from(adminUsers)
+      .where(eq(adminUsers.id, owner.staffId));
+    // Owner, 23 Nov 2026: no 72-hour limit on an agent owner's generated password.
+    expect(made?.expiresAt).toBeNull();
+    now = new Date(now.getTime() + 5 * 86_400_000);
+    expect((await shopLogin(owner.email, owner.password, code(owner.secret))).staff.role).toBe(
+      'agent_owner',
+    );
+
+    // A new sign-in: the old password and authenticator stop, the new ones work, no limit again.
+    const reset = await resetAgentOwnerSignIn(deps(), { agentId: owner.agent.id, adminId });
+    expect(reset.generatedPassword).not.toBe(owner.password);
+    await expect(shopLogin(owner.email, owner.password, code(owner.secret))).rejects.toMatchObject({
+      code: 'invalid_credentials',
+    });
+    const secret = base32Decode(reset.totp.secret);
+    expect((await shopLogin(owner.email, reset.generatedPassword!, code(secret))).staff.role).toBe(
+      'agent_owner',
+    );
+    const [row] = await handle.db
+      .select({
+        expiresAt: adminUsers.passwordExpiresAt,
+        changeRequired: adminUsers.passwordChangeRequired,
+      })
+      .from(adminUsers)
+      .where(eq(adminUsers.id, owner.staffId));
+    expect(row).toEqual({ expiresAt: null, changeRequired: true });
+    // An agent without an owner account: nothing to reset.
+    const lone = await newAgent('No Owner Bets');
+    expect(await refusal(resetAgentOwnerSignIn(deps(), { agentId: lone.id, adminId }))).toEqual({
+      status: 404,
+      code: 'not_found',
+    });
   });
 
   it('changes the password in the shop app with the authenticator code', async () => {
