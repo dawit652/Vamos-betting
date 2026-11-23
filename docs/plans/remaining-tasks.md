@@ -1,5 +1,15 @@
 # Remaining tasks (read this first; updated 23 Nov 2026)
 
+**Newest, 23 Nov evening (second account, `claude/happy-keller-i7cvrh`, pushed, not deployed):**
+`docs/plans/guest-slips-and-staff.md` (owner's request with Narobet samples).
+
+- Built: Football Today by default, no padlocked rows, visitor slip IDs with the stake (migration
+  0085; the shop fills the stake in), agent owner "New password and authenticator" (a generated
+  password works until changed), and the shop device page's clearer text.
+- **Next:** GS4 Check coupon, GS5 several slips, GS6 the device's slip list, GS7 bet details, GS9
+  one admin enough (with the report), GS10 every financial figure by period, then 4a/4b.
+- The owner deploys with the line under "Deploy" (this branch); migration 0085 is new.
+
 **Newest (23 Nov, second account):** `claude/happy-keller-i7cvrh` holds the first account's work
 (merged at `2b53c60`, which the server runs) plus S1-S3 of `docs/plans/feed-gaps-2026-11-23.md`:
 
