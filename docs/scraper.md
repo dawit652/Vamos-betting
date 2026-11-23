@@ -648,6 +648,19 @@ jk bb as ac ca cd ud sv fsv vfb vfl tsg ssc`, with a number just before one at t
   resolves only when exactly one catalogue team of the sport matches (`via: name_relaxed`); otherwise
   the name stays unknown, as before. Competitions are never relaxed. A test on the seeded catalogue
   checks that no team name with a legal form added resolves to another team.
+- **L1 A mapping is learned by every source (owner, 23 Nov 2026; `docs/plans/name-learning.md`).** A
+  TEAM name no level above knows, that a person (or N4) mapped for ANOTHER source (a source-scoped
+  alias), resolves to that team (`via: learned`) when exactly one such team fits the record's
+  competition: the team has an event in it, or the competition is one country's (its category has a
+  country code) and the team has an event in a competition of the same country. An international
+  competition needs the first. Without a resolved competition, with no fitting team or with several,
+  the name stays unknown. A COMPETITION name is learned only when it carries its provider's id, as
+  API-Football's do ("England - Premier League [39]"): the same spelling mapped for any other source
+  resolves; a plain name ("Ligue 1") never does, since several countries use it.
+- **L2 A league by its provider id.** An unknown competition name with a provider id ("... [39]")
+  that no spelling knows resolves (`via: provider_id`) to the one competition that a source of the
+  SAME upstream mapped under another spelling with the same id: a renamed league is not asked again.
+  Team names carry no provider id in the stored rows, so teams are learned by L1 and N4 only.
 - **N2a Aliases act on stored data.** Removing or changing an alias (or a
   catalogue name) changes what is already stored: the promotion pass re-resolves
   the current observations of the sport when the names/aliases changed, un-maps

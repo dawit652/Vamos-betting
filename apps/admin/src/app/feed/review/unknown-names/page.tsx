@@ -92,8 +92,11 @@ export default function UnknownNamesPage() {
       </PageHeader>
       <p className="muted small">
         Open unknown team names, one row per spelling. Pick the catalogue team, tick the rows and
-        choose Map selected. Source-scoped maps the spelling only for the source that sent it; all
-        sources maps it everywhere. Suggestions are never applied without you.
+        choose Map selected. Source-scoped (the safe default) maps the spelling for the source that
+        sent it, and every other source then knows it too wherever the team already plays (its
+        competition, or one of its country): you map a spelling once. All sources maps it everywhere
+        without that check: keep it for names only one club uses. Suggestions are never applied
+        without you.
       </p>
       <div className="row">
         <Field label="Filter">

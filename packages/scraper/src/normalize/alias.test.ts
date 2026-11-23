@@ -327,3 +327,154 @@ describe('N2b resolveTeam falls back to the name without its legal form', () => 
     ).toEqual({ status: 'unknown' });
   });
 });
+
+describe('L1 and L2: what other sources teach (docs/plans/name-learning.md)', () => {
+  const learnedInput: AliasIndexInput = {
+    teams: [
+      { id: 't-hof', sportId: 'football', shortName: 'Hoffenheim', names: ['TSG Hoffenheim'] },
+      { id: 't-dyn-d', sportId: 'football', shortName: 'Dresden', names: ['Dynamo Dresden'] },
+      { id: 't-dyn-k', sportId: 'football', shortName: 'Kyiv', names: ['Dynamo Kyiv'] },
+      { id: 't-new', sportId: 'football', shortName: 'Newly Added', names: ['Newly Added FC'] },
+    ],
+    teamAliases: [
+      { aliasNorm: '1899 hoffenheim', sourceId: 'src-a', teamId: 't-hof' },
+      { aliasNorm: 'dynamo', sourceId: 'src-a', teamId: 't-dyn-d' },
+      { aliasNorm: 'dynamo', sourceId: 'src-b', teamId: 't-dyn-k' },
+      { aliasNorm: 'newbie', sourceId: 'src-a', teamId: 't-new' },
+    ],
+    competitions: [
+      {
+        id: 'c-bl',
+        slug: 'bundesliga',
+        sportId: 'football',
+        names: ['Bundesliga'],
+        countryCategoryId: 'cat-de',
+      },
+      {
+        id: 'c-pokal',
+        slug: 'dfb-pokal',
+        sportId: 'football',
+        names: ['DFB-Pokal'],
+        countryCategoryId: 'cat-de',
+      },
+      {
+        id: 'c-upl',
+        slug: 'ukraine-premier-league',
+        sportId: 'football',
+        names: ['Ukrainian Premier League'],
+        countryCategoryId: 'cat-ua',
+      },
+      {
+        id: 'c-uel',
+        slug: 'uefa-europa-league',
+        sportId: 'football',
+        names: ['Europa League'],
+        countryCategoryId: null,
+      },
+      {
+        id: 'c-epl',
+        slug: 'premier-league',
+        sportId: 'football',
+        names: ['Premier League'],
+        countryCategoryId: 'cat-en',
+      },
+    ],
+    competitionAliases: [
+      { aliasNorm: 'england premier league 39', sourceId: 'af-bydate', competitionId: 'c-epl' },
+      { aliasNorm: 'ligue 1', sourceId: 'src-a', competitionId: 'c-bl' },
+    ],
+    teamCompetitions: [
+      { teamId: 't-hof', competitionId: 'c-bl' },
+      { teamId: 't-dyn-d', competitionId: 'c-pokal' },
+      { teamId: 't-dyn-k', competitionId: 'c-upl' },
+      { teamId: 't-dyn-k', competitionId: 'c-uel' },
+    ],
+    sourceUpstreams: [
+      { sourceId: 'af-bydate', upstream: 'api-sports' },
+      { sourceId: 'af-odds-en1', upstream: 'api-sports' },
+      { sourceId: 'src-c', upstream: 'other' },
+    ],
+  };
+  const idx = buildAliasIndex(learnedInput);
+  const team = (raw: string, competitionId: string | null) =>
+    resolveTeam(idx, { sportId: 'football', sourceId: 'src-c', raw, competitionId });
+  const comp = (raw: string, sourceId: string) =>
+    resolveCompetition(idx, { sportId: 'football', sourceId, raw });
+  const learned = (id: string) => ({ status: 'resolved', id, via: 'learned' });
+  const unknown = { status: 'unknown' };
+
+  it('L1 a team mapped for one source resolves from another, in its competition or a cup of its country', () => {
+    expect(team('1899 Hoffenheim', 'c-bl')).toEqual(learned('t-hof'));
+    expect(team('1899 Hoffenheim', 'c-pokal')).toEqual(learned('t-hof'));
+  });
+
+  it('L1 never in another country, in an international competition it has not played, or without a competition', () => {
+    expect(team('1899 Hoffenheim', 'c-upl')).toEqual(unknown);
+    expect(team('1899 Hoffenheim', 'c-uel')).toEqual(unknown);
+    expect(team('1899 Hoffenheim', null)).toEqual(unknown);
+    expect(
+      resolveTeam(idx, { sportId: 'football', sourceId: 'src-c', raw: '1899 Hoffenheim' }),
+    ).toEqual(unknown);
+  });
+
+  it('L1 one spelling mapped to two teams: only the one that fits the competition, else unknown', () => {
+    expect(team('Dynamo', 'c-pokal')).toEqual(learned('t-dyn-d'));
+    expect(team('Dynamo', 'c-uel')).toEqual(learned('t-dyn-k'));
+    expect(team('Dynamo', 'c-epl')).toEqual(unknown);
+  });
+
+  it('L1 a team with no event yet is not learned: a person maps it once more', () => {
+    expect(team('Newbie', 'c-bl')).toEqual(unknown);
+  });
+
+  it('L1 never overrides a stronger level', () => {
+    expect(team('TSG Hoffenheim', 'c-upl')).toEqual({
+      status: 'resolved',
+      id: 't-hof',
+      via: 'name',
+    });
+  });
+
+  it('L1 a league name that carries its provider id resolves from every source', () => {
+    expect(comp('England - Premier League [39]', 'af-odds-en1')).toEqual(learned('c-epl'));
+    expect(comp('England - Premier League [39]', 'src-c')).toEqual(learned('c-epl'));
+  });
+
+  it('L2 a renamed league resolves by its provider id, only from a source of the same upstream', () => {
+    expect(comp('England - Premier League 2026/27 [39]', 'af-odds-en1')).toEqual({
+      status: 'resolved',
+      id: 'c-epl',
+      via: 'provider_id',
+    });
+    expect(comp('England - Premier League 2026/27 [39]', 'src-c')).toEqual(unknown);
+    expect(comp('World - World Cup [1]', 'af-odds-en1')).toEqual(unknown);
+  });
+
+  it('L1 a plain league name is never learned: several countries use it', () => {
+    expect(comp('Ligue 1', 'src-c')).toEqual(unknown);
+  });
+
+  it('L1 property: a learned team always fits the competition it was learned for', () => {
+    const competitions = ['c-bl', 'c-pokal', 'c-upl', 'c-uel', 'c-epl'];
+    fc.assert(
+      fc.property(
+        fc.constantFrom('1899 Hoffenheim', 'Dynamo', 'Newbie', 'Someone'),
+        fc.constantFrom(...competitions),
+        (raw, competitionId) => {
+          const out = team(raw, competitionId);
+          if (out.status !== 'resolved') return;
+          const plays = (learnedInput.teamCompetitions ?? [])
+            .filter((row) => row.teamId === out.id)
+            .map((row) => row.competitionId);
+          const country = (c: string) =>
+            learnedInput.competitions.find((x) => x.id === c)?.countryCategoryId ?? null;
+          const fitsIt =
+            plays.includes(competitionId) ||
+            (country(competitionId) !== null &&
+              plays.some((c) => country(c) === country(competitionId)));
+          expect(fitsIt).toBe(true);
+        },
+      ),
+    );
+  });
+});

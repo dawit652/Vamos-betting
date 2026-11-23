@@ -167,10 +167,12 @@ export function resolveNames(
   unknown: UnknownName[],
 ): ResolvedIds {
   const query = (raw: string) => ({ sportId: input.sport, sourceId: input.sourceId, raw });
-  const competition = resolveCompetition(index, query(input.competition));
-  const home = resolveTeam(index, query(input.home));
-  const away = resolveTeam(index, query(input.away));
   const idOf = (r: Resolution): string | null => (r.status === 'resolved' ? r.id : null);
+  const competition = resolveCompetition(index, query(input.competition));
+  // L1: a team name another source's mapping taught is checked against this competition.
+  const teamQuery = (raw: string) => ({ ...query(raw), competitionId: idOf(competition) });
+  const home = resolveTeam(index, teamQuery(input.home));
+  const away = resolveTeam(index, teamQuery(input.away));
   const contextOf = (side: 'home' | 'away'): UnknownFixtureContext | null => {
     const competitionId = idOf(competition);
     const opponentId = idOf(side === 'home' ? away : home);

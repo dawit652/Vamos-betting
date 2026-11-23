@@ -1,8 +1,8 @@
 import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 import { domainConflict, domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
-import { competitions, teams, type LocalizedName } from '../schema/catalog';
-import { competitionAliases, teamAliases } from '../schema/scrape';
+import { categories, competitions, teams, type LocalizedName } from '../schema/catalog';
+import { competitionAliases, scrapeSources, teamAliases } from '../schema/scrape';
 import {
   actorLabel,
   auditScrape,
@@ -45,12 +45,23 @@ export interface AliasRecord {
 export interface AliasInputs {
   teams: Array<{ id: string; sportId: string; shortName: string; names: string[] }>;
   teamAliases: Array<{ aliasNorm: string; sourceId: string | null; teamId: string }>;
-  competitions: Array<{ id: string; slug: string; sportId: string; names: string[] }>;
+  competitions: Array<{
+    id: string;
+    slug: string;
+    sportId: string;
+    names: string[];
+    /** L1: the category, when it is one country's (has a country code); else null. */
+    countryCategoryId: string | null;
+  }>;
   competitionAliases: Array<{
     aliasNorm: string;
     sourceId: string | null;
     competitionId: string;
   }>;
+  /** L1: the competitions the targets of source-scoped team aliases have events in. */
+  teamCompetitions: Array<{ teamId: string; competitionId: string }>;
+  /** L2: each source's upstream. */
+  sourceUpstreams: Array<{ sourceId: string; upstream: string }>;
 }
 
 function assertAliasText(aliasNorm: string): void {
@@ -317,7 +328,14 @@ const competitionRecord = (row: typeof competitionAliases.$inferSelect): AliasRe
 
 /** Everything buildAliasIndex needs for one sport: the catalogue's names and every alias. */
 export async function loadAliasInputs(exec: DbExecutor, sportId: string): Promise<AliasInputs> {
-  const [teamRows, teamAliasRows, competitionRows, competitionAliasRows] = await Promise.all([
+  const [
+    teamRows,
+    teamAliasRows,
+    competitionRows,
+    competitionAliasRows,
+    teamCompetitionRows,
+    sourceRows,
+  ] = await Promise.all([
     exec
       .select({
         id: teams.id,
@@ -343,8 +361,11 @@ export async function loadAliasInputs(exec: DbExecutor, sportId: string): Promis
         slug: competitions.slug,
         sportId: competitions.sportId,
         name: competitions.name,
+        categoryId: competitions.categoryId,
+        countryCode: categories.countryCode,
       })
       .from(competitions)
+      .leftJoin(categories, eq(categories.id, competitions.categoryId))
       .where(eq(competitions.sportId, sportId))
       .orderBy(asc(competitions.id)),
     exec
@@ -356,12 +377,34 @@ export async function loadAliasInputs(exec: DbExecutor, sportId: string): Promis
       .from(competitionAliases)
       .where(eq(competitionAliases.sportId, sportId))
       .orderBy(asc(competitionAliases.aliasNorm), asc(competitionAliases.id)),
+    // L1: only the teams some source-scoped alias points to (a few hundred), each once per competition.
+    exec.execute<{ teamId: string; competitionId: string }>(sql`
+      SELECT DISTINCT x.team_id AS "teamId", x.competition_id AS "competitionId"
+      FROM (
+        SELECT home_team_id AS team_id, competition_id FROM events
+        UNION ALL
+        SELECT away_team_id AS team_id, competition_id FROM events
+      ) x
+      WHERE x.team_id IN (
+        SELECT team_id FROM team_aliases WHERE sport_id = ${sportId} AND source_id IS NOT NULL
+      )
+      ORDER BY 1, 2`),
+    exec
+      .select({ sourceId: scrapeSources.id, upstream: scrapeSources.upstream })
+      .from(scrapeSources)
+      .orderBy(asc(scrapeSources.id)),
   ]);
   return {
     teams: teamRows.map(({ name, ...team }) => ({ ...team, names: localizedNames(name) })),
     teamAliases: teamAliasRows,
-    competitions: competitionRows.map(({ name, ...c }) => ({ ...c, names: localizedNames(name) })),
+    competitions: competitionRows.map(({ name, categoryId, countryCode, ...c }) => ({
+      ...c,
+      names: localizedNames(name),
+      countryCategoryId: countryCode === null || countryCode === '' ? null : categoryId,
+    })),
     competitionAliases: competitionAliasRows,
+    teamCompetitions: teamCompetitionRows.rows,
+    sourceUpstreams: sourceRows,
   };
 }
 
