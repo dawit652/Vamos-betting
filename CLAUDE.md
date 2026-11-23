@@ -55,7 +55,9 @@ possible:
    **Deployed 22 Nov 19:02:** `7a15b27` (licensed mode, smoke test 13 passed; migrations up to
    0084: everything listed below is now live; switches `narobet_events`, `narobet_pricing` and
    `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).
-   **Deployed 22 Nov 22:36:** `b94684f` (live telebirr / CBE SMS read). **Pushed, not deployed:**
+   **Deployed 23 Nov 09:00:** `26096ab` (smoke 13 passed; everything pushed up to it is live, E2 on
+   trial with `apifootball_pricing` off; deployed with `ALLOW_DROPPED_SETTINGS=1` for the new feed
+   defaults). **Deployed 22 Nov 22:36:** `b94684f` (live telebirr / CBE SMS read). **Pushed, not deployed:**
    `1f9f4ea`, `8ea2ab5`, `b2c231f` (Today / Upcoming lists, 30 days), `d1d25ee`
    (`scripts/review-study.sh`), `18d99c8`, `9b17600` (re-price rule A-2), `c53b4f2` (sweeper Q2c), the
    auto-open `held` counts, rule F4d (kickoff disagreements: the earliest fresh kickoff). **Next:**

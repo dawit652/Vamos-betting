@@ -1,5 +1,9 @@
 # Remaining tasks (read this first; updated 23 Nov 2026)
 
+**Deployed 23 Nov 09:00 (first account's session): `26096ab`**, smoke 13 passed. Next, the owner:
+E1 and the 24 odds sources (`docs/plans/feed-gaps-2026-11-23.md`, "E2 built"; the E1 command that
+works fetches the file from GitHub first), Enable them, then the switch once the gap is small.
+
 **Newest (23 Nov, second account):** `claude/happy-keller-i7cvrh` holds the first account's work
 (merged at `2b53c60`, which the server runs) plus S1-S3 of `docs/plans/feed-gaps-2026-11-23.md`:
 
