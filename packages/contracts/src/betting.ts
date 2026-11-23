@@ -235,3 +235,20 @@ export const BookingCodeResponse = z.object({
   stake: Santim.nullable(),
 });
 export type BookingCodeResponse = z.infer<typeof BookingCodeResponse>;
+
+/**
+ * GET /booking-codes/:code/status (public; docs/plans/guest-slips-and-staff.md, GS4): Check coupon
+ * for a slip ID. A slip ID can be guessed, so this never names the ticket, the shop or the result:
+ * the ticket number printed on the ticket checks those (GET /tickets/:number).
+ */
+export const BookingCodeStatusResponse = z.object({
+  code: z.string(),
+  state: z.enum(['awaiting_payment', 'sold', 'expired']),
+  /** The visitor's stake (GS3), or null for a shared slip. */
+  stake: Santim.nullable(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  /** When a shop first sold it as a ticket that is not cancelled. */
+  soldAt: z.string().nullable(),
+});
+export type BookingCodeStatusResponse = z.infer<typeof BookingCodeStatusResponse>;

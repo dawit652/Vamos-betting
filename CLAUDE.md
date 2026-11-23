@@ -48,7 +48,8 @@ possible:
    name learning L1-L4 (`docs/plans/name-learning.md`). Deploy line in `docs/plans/remaining-tasks.md`,
    with `ALLOW_DROPPED_SETTINGS=1`. Shop app switched on (`shop.nahubet.com` through the vamos tunnel,
    `/etc/cloudflared/config.yml` -> 127.0.0.1:3002, `COMPOSE_PROFILES=shop`; deployed 21:15 as `26096ab`).
-   **Next: GS4 Check coupon** (`docs/plans/guest-slips-and-staff.md`).
+   Then GS4 Check coupon (migration 0086; next free 0087). **Next: GS5-GS7**, GS9 waits for the
+   owner's answer (`docs/plans/guest-slips-and-staff.md`).
    **23 Nov (second account, deployed at 09:00 as `26096ab`):** the
    server ran `2b53c60` (everything below up to F4d is live). On top of it: a switched-off API is
    not read and its 15-minute "down" alert stops (mr-x with `hulusport_pricing` off); the player
@@ -62,8 +63,8 @@ possible:
    (`docs/plans/feed-gaps-2026-11-23.md`, "E2 built"). Also on 23 Nov: guest slips and staff plan
    `docs/plans/guest-slips-and-staff.md` (GS1 Today default, GS2 no padlocked rows, GS11 agent
    owner password reset until changed, device page text, GS3 visitor slip IDs with the stake,
-   migration 0085; **next: GS4 Check coupon**, then GS5-GS7, GS9-GS10 and 4a/4b). Next free
-   migration 0086.
+   migration 0085; GS4 Check coupon built after the merge, migration 0086; next GS5-GS7, GS9-GS10
+   and 4a/4b). Next free migration 0087.
    **Deployed 22 Nov 19:02:** `7a15b27` (licensed mode, smoke test 13 passed; migrations up to
    0084: everything listed below is now live; switches `narobet_events`, `narobet_pricing` and
    `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).

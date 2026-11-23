@@ -3,6 +3,7 @@ import {
   AgentResponse,
   AgentTopupResponse,
   BookingCodeResponse,
+  BookingCodeStatusResponse,
   ApiErrorSchema,
   CashierShopResponse,
   CreateStaffResponse,
@@ -24,6 +25,7 @@ import {
   TicketLimitsResponse,
 } from '@vamos/contracts';
 import { resultEvent, settleEventBets, type Database } from '@vamos/db';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
 import {
@@ -236,6 +238,83 @@ describe('shop tickets through the shop app', () => {
     const other = await sellWith(await book(match.draw));
     expect(other.statusCode, other.body).toBe(200);
     expect(ShopTicketResponse.parse(other.json()).ticket.bookingCode).toBeNull();
+  });
+
+  it('Check coupon (GS4): a slip ID awaits payment, then shows sold, never the ticket', async () => {
+    const { desk } = await agentDesk('Check Coupon Agent', '500000');
+    const made = await ctx.app.inject({
+      method: 'POST',
+      url: '/booking-codes',
+      payload: { legs: [{ selectionId: match.home }], stake: '10000' },
+    });
+    expect(made.statusCode, made.body).toBe(201);
+    const code = BookingCodeResponse.parse(made.json()).code;
+    const status = (input: string) =>
+      ctx.app.inject({ method: 'GET', url: `/booking-codes/${encodeURIComponent(input)}/status` });
+
+    const before = await status(code);
+    expect(before.statusCode, before.body).toBe(200);
+    expect(BookingCodeStatusResponse.parse(before.json())).toMatchObject({
+      code,
+      state: 'awaiting_payment',
+      stake: '10000',
+      soldAt: null,
+    });
+
+    const sold = await asDesk(desk, 'POST', '/shop/desk/tickets', {
+      shiftId: desk.shiftId,
+      legs: [{ selectionId: match.home, oddsMilli: 1850 }],
+      stake: '10000',
+      bookingCode: code,
+      idempotencyKey: `ticket-${randomUUID()}`,
+    });
+    expect(sold.statusCode, sold.body).toBe(200);
+    const { ticket } = ShopTicketResponse.parse(sold.json());
+    const after = await status(`${code.slice(0, 3)} ${code.slice(3)}`);
+    expect(after.statusCode, after.body).toBe(200);
+    const body: unknown = after.json();
+    expect(BookingCodeStatusResponse.parse(body)).toMatchObject({ code, state: 'sold' });
+    expect(BookingCodeStatusResponse.parse(body).soldAt).not.toBeNull();
+    // A slip ID can be guessed: the answer never names the ticket, its shop or its result.
+    expect(Object.keys(body as object).sort()).toEqual([
+      'code',
+      'createdAt',
+      'expiresAt',
+      'soldAt',
+      'stake',
+      'state',
+    ]);
+    expect(after.body).not.toContain(ticket.number);
+
+    // A cancelled ticket does not count: the slip awaits payment again.
+    const cancelled = await asDesk(desk, 'POST', `/shop/desk/tickets/${ticket.id}/cancel`, {
+      reason: 'customer changed mind',
+    });
+    expect(cancelled.statusCode, cancelled.body).toBe(200);
+    expect(BookingCodeStatusResponse.parse((await status(code)).json()).state).toBe(
+      'awaiting_payment',
+    );
+
+    // An expired number is reused for a new slip: a ticket sold before the slip was made is not its.
+    const resold = await asDesk(desk, 'POST', '/shop/desk/tickets', {
+      shiftId: desk.shiftId,
+      legs: [{ selectionId: match.home, oddsMilli: 1850 }],
+      stake: '10000',
+      bookingCode: code,
+      idempotencyKey: `ticket-${randomUUID()}`,
+    });
+    expect(resold.statusCode, resold.body).toBe(200);
+    await db.execute(
+      sql`UPDATE booking_codes SET created_at = created_at + interval '1 hour',
+            expires_at = expires_at + interval '1 hour' WHERE code = ${code}`,
+    );
+    expect(BookingCodeStatusResponse.parse((await status(code)).json()).state).toBe(
+      'awaiting_payment',
+    );
+
+    for (const unknown of ['ZZZZZZ', 'abc']) {
+      expect((await status(unknown)).statusCode).toBe(404);
+    }
   });
 
   it("lists the next 48 hours' upcoming matches to a signed-in cashier only", async () => {

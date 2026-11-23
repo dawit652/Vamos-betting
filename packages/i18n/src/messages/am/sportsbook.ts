@@ -197,6 +197,10 @@ export const sportsbook: Messages['sportsbook'] = {
     booking: {
       share: 'አጋራ',
       load: 'ኩፖን ጫን',
+      check: 'ኩፖን አረጋግጥ',
+      checkPlaceholder: 'የስሊፕ መለያ ወይም የትኬት ቁጥር',
+      checkSubmit: 'አረጋግጥ',
+      checkInvalid: 'የስሊፕ መለያ ወይም በሱቅ ትኬት ባርኮድ ስር ያለውን ቁጥር ይጻፉ።',
       code: 'የቦታ ማስያዣ ኮድ',
       tellCashier: 'ቲኬቱን ለመግዛት ይህን ቁጥር ለገንዘብ ተቀባዩ ይንገሩ።',
       shareText: 'የቦታ ማስያዣ ኮድ፦ {code}',

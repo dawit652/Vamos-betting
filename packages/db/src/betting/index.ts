@@ -76,10 +76,13 @@ export {
 } from './cashout';
 export {
   bookingCodeForTicket,
+  bookingCodeStatus,
   BOOKING_CODE_TTL_MS,
   createBookingCode,
   loadBookingCode,
   type BookingCode,
+  type BookingCodeState,
+  type BookingCodeStatus,
   type BookingLeg,
   type CreateBookingCodeInput,
 } from './booking';

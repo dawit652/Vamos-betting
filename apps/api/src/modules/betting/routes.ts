@@ -1,4 +1,5 @@
 import {
+  BookingCodeStatusResponse,
   CashOutOffersQuery,
   CashOutRequest,
   CreateBookingCodeRequest,
@@ -16,7 +17,7 @@ import {
 } from '@vamos/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
-import { publicTicketStatus } from '@vamos/db';
+import { bookingCodeStatus, publicTicketStatus } from '@vamos/db';
 import { notFound, parseInput } from '../../lib/errors';
 import { IDEMPOTENT_REPLAYED_HEADER, readIdempotencyKey } from '../../lib/idempotency';
 import { requireUser } from '../../plugins/session';
@@ -47,6 +48,8 @@ export const BETTING_RATE_LIMITS = {
   loadBookingCode: 60,
   /** Per client address: the public check of a shop ticket by its number. */
   ticketCheck: 30,
+  /** Per client address: Check coupon for a slip ID (a device's list checks several at once). */
+  bookingCodeStatus: 60,
   /** Per player: executing a cash-out. */
   cashOut: 30,
   /**
@@ -239,6 +242,28 @@ export default async function bettingRoutes(app: FastifyInstance): Promise<void>
         shop: { label: status.shopLabel, name: status.shopName },
         soldAt: status.soldAt,
         paidAt: status.paidAt,
+      });
+    },
+  );
+
+  /**
+   * Check coupon for a slip ID (no login; docs/plans/guest-slips-and-staff.md, GS4): awaiting cash
+   * payment, sold as a shop ticket, or expired. Never the ticket, the shop or the result.
+   */
+  app.get<{ Params: { code: string } }>(
+    '/booking-codes/:code/status',
+    { config: perClient('booking-code-status', BETTING_RATE_LIMITS.bookingCodeStatus) },
+    async (request, reply): Promise<BookingCodeStatusResponse> => {
+      const status = await bookingCodeStatus(deps.db, request.params.code, deps.clock());
+      if (status === null) throw notFound('Booking code');
+      noStore(reply);
+      return wire(BookingCodeStatusResponse, {
+        code: status.code,
+        state: status.state,
+        stake: status.stake,
+        createdAt: status.createdAt,
+        expiresAt: status.expiresAt,
+        soldAt: status.soldAt,
       });
     },
   );

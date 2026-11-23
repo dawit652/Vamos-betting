@@ -3,6 +3,7 @@ import { birr, isBookingNumber } from '@vamos/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   BOOKING_CODE_TTL_MS,
+  bookingCodeStatus,
   createBookingCode,
   decodeBetCursor,
   DomainError,
@@ -134,6 +135,34 @@ describe('booking codes', () => {
       loadBookingCode(handle.db, booked.code, new Date(now.getTime() + BOOKING_CODE_TTL_MS)),
     );
     expect(expired).toMatchObject({ status: 410, code: 'booking_code_expired' });
+  });
+
+  it('Check coupon (GS4): awaiting payment with its stake until it expires; null if unknown', async () => {
+    for (const code of ['ZZZZZZ', 'abc', '', '012345']) {
+      expect(await bookingCodeStatus(handle.db, code, new Date())).toBeNull();
+    }
+    const now = new Date();
+    const slip = await createBookingCode(handle.db, {
+      legs: [{ selectionId: a.away }],
+      stake: birr(50),
+      now,
+      userId: null,
+      randomBytes: (n) => randomBytes(n),
+    });
+    const spoken = `${slip.code.slice(0, 3)} ${slip.code.slice(3)}`;
+    expect(await bookingCodeStatus(handle.db, spoken, now)).toEqual({
+      code: slip.code,
+      state: 'awaiting_payment',
+      stake: birr(50),
+      createdAt: slip.createdAt,
+      expiresAt: slip.expiresAt,
+      soldAt: null,
+    });
+    const later = new Date(now.getTime() + BOOKING_CODE_TTL_MS);
+    expect(await bookingCodeStatus(handle.db, slip.code, later)).toMatchObject({
+      state: 'expired',
+      soldAt: null,
+    });
   });
 
   it('refuses unavailable selections and malformed slips', async () => {

@@ -46,12 +46,13 @@ export const common = {
     join: 'Join us on Telegram',
   },
   ticketCheck: {
-    title: 'Check a shop ticket',
-    intro: 'Type the number printed under the barcode of your ticket.',
-    number: 'Ticket number',
+    title: 'Check coupon',
+    intro: 'Type a slip ID or the number printed under the barcode of your shop ticket.',
+    number: 'Slip ID or ticket number',
     submit: 'Check',
     checking: 'Checking…',
-    notFound: 'No shop ticket has this number. Check the number under the barcode.',
+    notFound:
+      'No slip or shop ticket has this number. Check the slip ID or the number under the barcode.',
     error: 'The ticket cannot be checked right now. Try again in a minute.',
     soldAt: 'Sold at {shop}',
     open: 'Not settled yet: its matches are still to be played.',
@@ -63,6 +64,12 @@ export const common = {
     expired: 'It expired without being collected.',
     cancelled: 'This ticket was cancelled.',
     secret: 'Never share your payout code: whoever has it with the ticket can collect the win.',
+    slipId: 'Slip ID {code}',
+    slipAwaiting: 'Awaiting cash payment: give the slip ID to any Nahubet shop before {time}.',
+    slipStake: 'Stake {amount}',
+    slipSold:
+      'Sold as a shop ticket on {time}. To see whether it won, check the ticket number printed under its barcode.',
+    slipExpired: 'It expired on {time} without being bought at a shop. Make the slip again to bet.',
   },
   actions: {
     save: 'Save',

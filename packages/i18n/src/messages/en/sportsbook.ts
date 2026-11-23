@@ -202,6 +202,10 @@ export const sportsbook = {
     booking: {
       share: 'Share',
       load: 'Load coupon',
+      check: 'Check coupon',
+      checkPlaceholder: 'Slip ID or ticket number',
+      checkSubmit: 'Check',
+      checkInvalid: 'Type a slip ID or the number under the barcode of a shop ticket.',
       code: 'Booking code',
       tellCashier: 'Tell this number to the cashier to buy the ticket.',
       shareText: 'Booking code: {code}',

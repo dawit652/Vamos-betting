@@ -68,12 +68,33 @@ Nov).
   "Load coupon".
   - Tests: `packages/db/test/betting-booking.test.ts`, `e2e/tests/guest-slip.spec.ts`.
 
+- **GS4, built** (first account, 23 Nov).
+  - Load coupon and Check coupon sit at the top of the betslip, next to Share. Check coupon takes a
+    slip ID or a shop ticket's number and opens `/ticket?number=`, which checks it at once.
+  - `/ticket` ("Check coupon") reads both:
+    - a ticket number as before (G3: state, what it pays, the shop);
+    - a slip ID through `GET /booking-codes/:code/status` (`bookingCodeStatus` in
+      `packages/db/src/betting/booking.ts`): awaiting cash payment (with its stake and expiry),
+      sold as a shop ticket (when), or expired.
+  - A slip ID can be guessed (6 digits), so its check never names the ticket, the shop or the
+    result: the ticket number printed under the barcode checks those.
+  - Only tickets sold since the slip was made count, because an expired number is reused for a new
+    slip; a cancelled ticket does not count.
+  - Migration 0086 indexes `retail_tickets (booking_code, sold_at)`, so the check never scans every
+    ticket. The limit is 60 checks a minute per address, for GS6's list.
+  - On a phone the betslip opens once something is picked; GS6 gives guests a way to it without a
+    pick.
+  - Tests: `packages/db/test/betting-booking.test.ts`, `apps/api/test/shop-tickets.test.ts`
+    ("Check coupon"), `apps/web/src/lib/coupon.test.ts`, `e2e/tests/guest-slip.spec.ts`.
+
 ## State
 
-- **Built:** GS1, GS2, GS3, GS11, the device page text.
+- **Built:** GS1, GS2, GS3, GS4, GS11, the device page text.
 - **Next:**
-  1. GS4 Check coupon: a field in the betslip opening `/ticket` with a slip ID or ticket number;
-     the check API learns the slip ID (not yet paid, sold as ticket, expired).
-  2. GS5 several slips, GS6 the device's slip list (the IDs are already stored), GS7 bet details.
-  3. GS9 and GS10 (money controls: main session).
-  4. 4a/4b.
+  1. GS5 several slips, GS6 the device's slip list (the IDs are already stored in
+     `nahubet:guest-slips`; their states come from `GET /booking-codes/:code/status`), GS7 bet
+     details.
+  2. GS9 and GS10 (money controls: main session). GS9 waits for the owner's answer: which actions
+     keep a second person (advice given: money leaving Nahubet, or an authenticator code typed again
+     plus a Telegram line when the owner is the only admin).
+  3. 4a/4b.

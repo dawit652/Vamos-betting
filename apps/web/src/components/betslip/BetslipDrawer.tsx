@@ -328,6 +328,7 @@ function SlipBody({ onPlaced }: { onPlaced: (placed: Placed) => void }) {
   if (slip.count === 0) {
     return (
       <div className="space-y-3 p-3">
+        <BookingCodePanel />
         <div className="card space-y-2 py-6 text-center text-muted">
           <svg
             viewBox="0 0 24 24"
@@ -345,7 +346,6 @@ function SlipBody({ onPlaced }: { onPlaced: (placed: Placed) => void }) {
           </svg>
           <p>{t('sportsbook.betslip.empty')}</p>
         </div>
-        <BookingCodePanel />
       </div>
     );
   }
@@ -361,6 +361,7 @@ function SlipBody({ onPlaced }: { onPlaced: (placed: Placed) => void }) {
 
   return (
     <div className="space-y-2 p-2">
+      <BookingCodePanel />
       <ul className="panel">
         {slip.legs.map((leg) => {
           const reason = unavailable.get(leg.selectionId);
@@ -654,8 +655,6 @@ function SlipBody({ onPlaced }: { onPlaced: (placed: Placed) => void }) {
               }`}
         </button>
       )}
-
-      <BookingCodePanel />
     </div>
   );
 }

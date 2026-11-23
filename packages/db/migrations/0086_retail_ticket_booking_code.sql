@@ -1,0 +1,1 @@
+CREATE INDEX "retail_tickets_booking_code_idx" ON "retail_tickets" USING btree ("booking_code","sold_at") WHERE "retail_tickets"."booking_code" IS NOT NULL;

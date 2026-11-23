@@ -45,12 +45,12 @@ export const common: Messages['common'] = {
   },
   // UNREVIEWED: a native speaker still has to review this wording.
   ticketCheck: {
-    title: 'የሱቅ ትኬት ያረጋግጡ',
-    intro: 'በትኬትዎ ባርኮድ ስር የታተመውን ቁጥር ይጻፉ።',
-    number: 'የትኬት ቁጥር',
+    title: 'ኩፖን አረጋግጥ',
+    intro: 'የስሊፕ መለያ ወይም በሱቅ ትኬትዎ ባርኮድ ስር የታተመውን ቁጥር ይጻፉ።',
+    number: 'የስሊፕ መለያ ወይም የትኬት ቁጥር',
     submit: 'አረጋግጥ',
     checking: 'በማረጋገጥ ላይ…',
-    notFound: 'በዚህ ቁጥር የሱቅ ትኬት የለም። ከባርኮዱ ስር ያለውን ቁጥር ያረጋግጡ።',
+    notFound: 'በዚህ ቁጥር ስሊፕ ወይም የሱቅ ትኬት የለም። የስሊፕ መለያውን ወይም ከባርኮዱ ስር ያለውን ቁጥር ያረጋግጡ።',
     error: 'ትኬቱ አሁን ሊረጋገጥ አይችልም። ከአንድ ደቂቃ በኋላ እንደገና ይሞክሩ።',
     soldAt: 'የተሸጠው በ{shop}',
     open: 'ገና አልተወሰነም፤ ጨዋታዎቹ ገና ይካሄዳሉ።',
@@ -61,6 +61,11 @@ export const common: Messages['common'] = {
     expired: 'ሳይወሰድ ጊዜው አልፏል።',
     cancelled: 'ይህ ትኬት ተሰርዟል።',
     secret: 'የክፍያ ኮድዎን ለማንም አያጋሩ፤ ኮዱና ትኬቱ ያለው ሰው ክፍያውን ሊወስድ ይችላል።',
+    slipId: 'የስሊፕ መለያ {code}',
+    slipAwaiting: 'ክፍያ በመጠበቅ ላይ፦ ከ{time} በፊት የስሊፕ መለያውን ለማንኛውም የናሁቤት ሱቅ ይስጡ።',
+    slipStake: 'የውርርድ መጠን {amount}',
+    slipSold: 'በ{time} የሱቅ ትኬት ሆኖ ተሽጧል። ማሸነፉን ለማየት ከባርኮዱ ስር የታተመውን የትኬት ቁጥር ያረጋግጡ።',
+    slipExpired: 'በሱቅ ሳይገዛ በ{time} ጊዜው አልፏል። ለመወራረድ ስሊፑን እንደገና ያዘጋጁ።',
   },
   actions: {
     save: 'አስቀምጥ',

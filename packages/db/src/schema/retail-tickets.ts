@@ -106,6 +106,10 @@ export const retailTickets = pgTable(
     index('retail_tickets_shop_sold_idx').on(t.shopId, t.soldAt),
     // The live monitor (phase 5): every shop's newest tickets and the day's counters.
     index('retail_tickets_sold_at_idx').on(t.soldAt),
+    // Check coupon (docs/plans/guest-slips-and-staff.md, GS4): the tickets sold from a slip ID.
+    index('retail_tickets_booking_code_idx')
+      .on(t.bookingCode, t.soldAt)
+      .where(sql`${t.bookingCode} IS NOT NULL`),
     index('retail_tickets_cancelled_at_idx')
       .on(t.cancelledAt)
       .where(sql`${t.cancelledAt} IS NOT NULL`),

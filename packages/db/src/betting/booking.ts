@@ -8,10 +8,11 @@ import {
   type BetRules,
   type SlipError,
 } from '@vamos/core';
-import { eq, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { domainGone, DomainError } from '../errors';
 import type { DbExecutor } from '../ledger/types';
 import { bookingCodes } from '../schema/betting';
+import { retailTickets } from '../schema/retail-tickets';
 import { selectionUnavailableError, slipInvalidError } from './place';
 import {
   isUuid,
@@ -216,4 +217,65 @@ export async function bookingCodeForTicket(
   const ticket = new Set(selectionIds.map((id) => id.toLowerCase()));
   if (booked.size !== ticket.size || [...ticket].some((id) => !booked.has(id))) return null;
   return code;
+}
+
+export type BookingCodeState = 'awaiting_payment' | 'sold' | 'expired';
+
+export interface BookingCodeStatus {
+  code: string;
+  state: BookingCodeState;
+  /** The visitor's stake (GS3), santim; null for a shared slip without one. */
+  stake: bigint | null;
+  createdAt: Date;
+  expiresAt: Date;
+  /** When a shop first sold it as a ticket that is not cancelled; null otherwise. */
+  soldAt: Date | null;
+}
+
+/**
+ * Check coupon for a slip ID (docs/plans/guest-slips-and-staff.md, GS4): sold as a shop ticket,
+ * awaiting cash payment, or expired. A slip ID is short enough to guess, so this never names the
+ * ticket, the shop or the result: the ticket number printed on the ticket checks those. Only
+ * tickets sold since this slip was made count, because an expired number is reused for a new slip;
+ * a shop may still sell a slip after its expiry (bookingCodeForTicket). null for an unknown or
+ * malformed code.
+ */
+export async function bookingCodeStatus(
+  exec: DbExecutor,
+  input: string,
+  now: Date,
+): Promise<BookingCodeStatus | null> {
+  const code = typeof input === 'string' ? normalizeCode(input) : '';
+  if (!isBookingCode(code)) return null;
+  const [row] = await exec
+    .select({
+      code: bookingCodes.code,
+      stake: bookingCodes.stake,
+      createdAt: bookingCodes.createdAt,
+      expiresAt: bookingCodes.expiresAt,
+    })
+    .from(bookingCodes)
+    .where(eq(bookingCodes.code, code))
+    .limit(1);
+  if (row === undefined) return null;
+  const [sale] = await exec
+    .select({ soldAt: retailTickets.soldAt })
+    .from(retailTickets)
+    .where(
+      and(
+        eq(retailTickets.bookingCode, code),
+        gte(retailTickets.soldAt, row.createdAt),
+        isNull(retailTickets.cancelledAt),
+      ),
+    )
+    .orderBy(asc(retailTickets.soldAt))
+    .limit(1);
+  const soldAt = sale?.soldAt ?? null;
+  const state: BookingCodeState =
+    soldAt !== null
+      ? 'sold'
+      : row.expiresAt.getTime() <= now.getTime()
+        ? 'expired'
+        : 'awaiting_payment';
+  return { ...row, state, soldAt };
 }

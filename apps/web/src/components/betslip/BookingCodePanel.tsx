@@ -2,20 +2,24 @@
 
 import type { BookingCodeResponse, EventDetail } from '@vamos/contracts';
 import { formatBookingCode, isBookingCode, normalizeCode } from '@vamos/core';
+import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { useLocale, useT } from '@/i18n/client';
 import { bettingApi } from '@/lib/api/betting';
 import { errorMessageKey, isApiClientError } from '@/lib/api/errors';
+import { parseCoupon } from '@/lib/coupon';
 import { formatDayMonth, formatTime } from '@/lib/format';
+import { routes } from '@/lib/routes';
 import { useBetslip } from '@/providers/BetslipProvider';
 import { BOOKING_ERROR_KEYS, bookingCodeRequest, legsFromBooking } from './requests';
 
 type Message = { tone: 'ok' | 'error'; text: string };
 
 /**
- * Booking codes in the drawer: "Share" turns the slip into a short code
- * (POST /booking-codes) and "Load code" fills the slip from one
- * (GET /booking-codes/:code, then the event pages for the team names).
+ * Booking codes at the top of the drawer: "Share" turns the slip into a short code
+ * (POST /booking-codes), "Load coupon" fills the slip from one (GET /booking-codes/:code, then the
+ * event pages for the team names) and "Check coupon" opens the check of a slip ID or a shop ticket
+ * (docs/plans/guest-slips-and-staff.md, GS4).
  */
 export function BookingCodePanel() {
   const t = useT();
@@ -25,8 +29,10 @@ export function BookingCodePanel() {
     null,
   );
   const [copied, setCopied] = useState(false);
-  const [loadOpen, setLoadOpen] = useState(slip.count === 0);
+  const router = useRouter();
+  const [open, setOpen] = useState<'load' | 'check' | null>(slip.count === 0 ? 'load' : null);
   const [code, setCode] = useState('');
+  const [coupon, setCoupon] = useState('');
   const [busy, setBusy] = useState<'share' | 'load' | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
 
@@ -87,7 +93,7 @@ export function BookingCodePanel() {
       }
       slip.replaceLegs(legs);
       setCode('');
-      setLoadOpen(false);
+      setOpen(null);
       setMessage({
         tone: 'ok',
         text: [
@@ -111,6 +117,23 @@ export function BookingCodePanel() {
     }
   }
 
+  function check(event: FormEvent) {
+    event.preventDefault();
+    const parsed = parseCoupon(coupon);
+    if (parsed === null) {
+      setMessage({ tone: 'error', text: t('sportsbook.betslip.booking.checkInvalid') });
+      return;
+    }
+    const number = parsed.kind === 'slip' ? parsed.code : parsed.number;
+    slip.close();
+    router.push(`${routes.ticketCheck}?number=${encodeURIComponent(number)}`);
+  }
+
+  function toggle(which: 'load' | 'check') {
+    setOpen((current) => (current === which ? null : which));
+    setMessage(null);
+  }
+
   return (
     <section className="space-y-2">
       <div className="flex gap-2">
@@ -127,13 +150,19 @@ export function BookingCodePanel() {
         <button
           type="button"
           className="btn btn-outline flex-1"
-          aria-expanded={loadOpen}
-          onClick={() => {
-            setLoadOpen((open) => !open);
-            setMessage(null);
-          }}
+          aria-expanded={open === 'load'}
+          onClick={() => toggle('load')}
         >
           {t('sportsbook.betslip.booking.load')}
+        </button>
+        <button
+          type="button"
+          className="btn btn-outline flex-1"
+          aria-expanded={open === 'check'}
+          onClick={() => toggle('check')}
+          data-testid="check-coupon"
+        >
+          {t('sportsbook.betslip.booking.check')}
         </button>
       </div>
 
@@ -167,7 +196,7 @@ export function BookingCodePanel() {
         </div>
       ) : null}
 
-      {loadOpen ? (
+      {open === 'load' ? (
         <form className="flex gap-2" onSubmit={(event) => void load(event)}>
           <input
             className="input min-w-0 font-mono uppercase"
@@ -186,6 +215,30 @@ export function BookingCodePanel() {
             disabled={busy !== null || code.trim() === ''}
           >
             {busy === 'load' ? t('common.actions.loading') : t('sportsbook.betslip.booking.load')}
+          </button>
+        </form>
+      ) : null}
+
+      {open === 'check' ? (
+        <form className="flex gap-2" onSubmit={check}>
+          <input
+            className="input min-w-0 font-mono uppercase"
+            value={coupon}
+            maxLength={24}
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label={t('sportsbook.betslip.booking.checkPlaceholder')}
+            placeholder={t('sportsbook.betslip.booking.checkPlaceholder')}
+            onChange={(event) => setCoupon(event.target.value)}
+            data-testid="check-coupon-number"
+          />
+          <button
+            type="submit"
+            className="btn btn-primary flex-none whitespace-nowrap"
+            disabled={coupon.trim() === ''}
+          >
+            {t('sportsbook.betslip.booking.checkSubmit')}
           </button>
         </form>
       ) : null}
