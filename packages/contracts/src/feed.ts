@@ -50,6 +50,8 @@ export const FEED_ROUTE_PERMISSIONS = {
   'GET /admin/feed/narobet': 'trading.view',
   'PUT /admin/feed/narobet': 'settings.edit',
   'PUT /admin/feed/narobet/events': 'settings.edit',
+  'GET /admin/feed/apifootball': 'trading.view',
+  'PUT /admin/feed/apifootball': 'settings.edit',
 } as const satisfies Record<string, StaffPermission>;
 export type FeedRoute = keyof typeof FEED_ROUTE_PERMISSIONS;
 
