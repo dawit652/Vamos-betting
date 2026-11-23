@@ -1,8 +1,10 @@
+import { SCRAPED_FEED_PROVIDER } from '@vamos/core';
 import { closeReviewItemsBySubject } from '@vamos/db';
-import { scrapeReviewItems, scrapeSources } from '@vamos/db/schema';
+import { betLegs, events as eventsTable, scrapeReviewItems, scrapeSources } from '@vamos/db/schema';
 import { and, asc, eq, inArray, like, lt } from 'drizzle-orm';
 import type { ScraperContext } from '../context';
 import { auditScraper } from './common';
+import { EARLIER_SUBJECT_SUFFIX } from './kickoff-safety';
 import type { ReviewSweepSummary } from './review-sweep';
 
 /** An `unknown_team` / `unknown_competition` item nobody saw for this long is closed (rule Q2b). */
@@ -16,6 +18,66 @@ const NAME_KINDS = ['unknown_team', 'unknown_competition'] as const;
 /** Sources are read this many per query (one SQL parameter each). */
 const CHUNK = 200;
 
+/** Q2c: questions about a match that the match itself has answered. */
+const MATCH_KINDS = ['kickoff_change', 'fixture_missing', 'fixture_conflict'] as const;
+type MatchKind = (typeof MATCH_KINDS)[number];
+/** A fixture never created is closed this long after the end of its day (its feed_ref's date). */
+export const FIXTURE_DAY_PAST_MS = 2 * 24 * 3_600_000;
+
+export type MatchSweepReason =
+  'event_resulted' | 'event_cancelled' | 'event_started' | 'fixture_past';
+
+export interface MatchFacts {
+  status: string;
+  resultedAt: Date | null;
+  startTime: Date;
+  /** At least one bet (any status) has a leg on the match. */
+  hasBets: boolean;
+}
+
+/** The end of the UTC day a feed_ref names (`fx|comp|home|away|YYYY-MM-DD`), or null. */
+export function fixtureDayEnd(feedRef: string): Date | null {
+  const day = feedRef.split('|').at(-1) ?? '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const start = Date.parse(`${day}T00:00:00.000Z`);
+  if (Number.isNaN(start) || new Date(start).toISOString().slice(0, 10) !== day) return null;
+  return new Date(start + 24 * 3_600_000);
+}
+
+/**
+ * Q2c (owner, 23 Nov 2026: most review items should resolve by themselves): why an open item about
+ * a match no longer needs a person, or null when it still does.
+ *
+ * - `kickoff_change`: once the match has a result, was cancelled or kicked off, the time question
+ *   is moot, but only when nobody bet on it: with bets, a later real kickoff could mean bets taken
+ *   after it, and a person must look.
+ * - `fixture_missing`: once the match has a result or was cancelled (a scheduled match past its
+ *   start without a result stays: `result_overdue` follows it).
+ * - `fixture_conflict`: once the match kicked off or ended; for a fixture never created, two days
+ *   after its day.
+ */
+export function matchItemReason(
+  kind: MatchKind,
+  event: MatchFacts | undefined,
+  feedRef: string,
+  now: Date,
+): MatchSweepReason | null {
+  if (event === undefined) {
+    const dayEnd = fixtureDayEnd(feedRef);
+    return dayEnd !== null && now.getTime() >= dayEnd.getTime() + FIXTURE_DAY_PAST_MS
+      ? 'fixture_past'
+      : null;
+  }
+  if (kind === 'kickoff_change' && event.hasBets) return null;
+  if (event.resultedAt !== null || event.status === 'finished') return 'event_resulted';
+  if (event.status === 'cancelled' || event.status === 'abandoned') return 'event_cancelled';
+  const started =
+    event.status === 'live' ||
+    (event.status === 'scheduled' && event.startTime.getTime() <= now.getTime());
+  if (started && kind !== 'fixture_missing') return 'event_started';
+  return null;
+}
+
 /**
  * Rule Q2 (docs/scraper.md), the second part of the review queue sweeper (Q1 is `sweepReviewQueue`):
  *
@@ -26,6 +88,9 @@ const CHUNK = 200;
  * - Q2b `name_not_seen`: `unknown_team` and `unknown_competition` items with
  *   `updated_at < now - NAME_NOT_SEEN_MS`. `openReviewItem` moves `updated_at` on every sighting, so
  *   this means no source showed the name for a week.
+ * - Q2c (owner, 23 Nov 2026): `kickoff_change`, `fixture_missing` and `fixture_conflict` items the
+ *   match has answered (`matchItemReason`): it has a result, was cancelled or kicked off; a
+ *   kickoff question with bets on the match, and a missing fixture without a result, stay.
  *
  * Each item (Q2b) or source subject (Q2a) gets its own transaction that locks the row(s) first and
  * reads the condition again with the same `now`. Resolved by the scraper with `auto: <reason>` and
@@ -64,6 +129,17 @@ export async function sweepStaleReviewItems(ctx: ScraperContext): Promise<Review
     .orderBy(asc(scrapeReviewItems.id));
   for (const item of names) {
     await guard({ itemId: item.id }, () => sweepName(ctx, item.id, cutoff, now));
+  }
+
+  const matchItems = await ctx.db
+    .select({ id: scrapeReviewItems.id })
+    .from(scrapeReviewItems)
+    .where(
+      and(eq(scrapeReviewItems.status, 'open'), inArray(scrapeReviewItems.kind, [...MATCH_KINDS])),
+    )
+    .orderBy(asc(scrapeReviewItems.id));
+  for (const item of matchItems) {
+    await guard({ itemId: item.id }, () => sweepMatchItem(ctx, item.id, now));
   }
 
   ctx.logger[summary.closed + summary.failed > 0 ? 'info' : 'debug'](
@@ -190,6 +266,76 @@ async function sweepName(
           kind: row.kind,
           subjectKey: item.subjectKey,
           reason: 'name_not_seen',
+        },
+      });
+    }
+    return closed.length;
+  });
+}
+
+/**
+ * Q2c for one item, in one transaction: the match row first (the order of the review actions and
+ * of Q1), then the item, both locked, and the reason decided again. Returns 1 when it was closed.
+ */
+async function sweepMatchItem(ctx: ScraperContext, itemId: string, now: Date): Promise<number> {
+  return ctx.db.transaction(async (tx) => {
+    const [peek] = await tx
+      .select({ kind: scrapeReviewItems.kind, subjectKey: scrapeReviewItems.subjectKey })
+      .from(scrapeReviewItems)
+      .where(eq(scrapeReviewItems.id, itemId));
+    if (peek === undefined) return 0;
+    const feedRef = peek.subjectKey.endsWith(EARLIER_SUBJECT_SUFFIX)
+      ? peek.subjectKey.slice(0, -EARLIER_SUBJECT_SUFFIX.length)
+      : peek.subjectKey;
+    const [event] = await tx
+      .select({
+        id: eventsTable.id,
+        status: eventsTable.status,
+        resultedAt: eventsTable.resultedAt,
+        startTime: eventsTable.startTime,
+      })
+      .from(eventsTable)
+      .where(
+        and(eq(eventsTable.feedProvider, SCRAPED_FEED_PROVIDER), eq(eventsTable.feedRef, feedRef)),
+      )
+      .for('update');
+    const [item] = await tx
+      .select({ id: scrapeReviewItems.id, kind: scrapeReviewItems.kind })
+      .from(scrapeReviewItems)
+      .where(and(eq(scrapeReviewItems.id, itemId), eq(scrapeReviewItems.status, 'open')))
+      .for('update');
+    // Closed by a person or another pass since the snapshot.
+    if (item === undefined) return 0;
+    const kind = item.kind as MatchKind;
+
+    let facts: MatchFacts | undefined;
+    if (event !== undefined) {
+      const [leg] = await tx
+        .select({ id: betLegs.id })
+        .from(betLegs)
+        .where(eq(betLegs.eventId, event.id))
+        .limit(1);
+      facts = { ...event, hasBets: leg !== undefined };
+    }
+    const reason = matchItemReason(kind, facts, feedRef, now);
+    if (reason === null) return 0;
+
+    const closed = await closeReviewItemsBySubject(tx, peek.subjectKey, {
+      kinds: [kind],
+      resolution: `auto: ${reason}`,
+      now,
+    });
+    for (const row of closed) {
+      await auditScraper(tx, {
+        action: 'scrape.review.swept',
+        targetType: 'scrape_review_item',
+        targetId: row.id,
+        metadata: {
+          rule: 'Q2',
+          kind: row.kind,
+          subjectKey: peek.subjectKey,
+          reason,
+          eventId: event?.id ?? null,
         },
       });
     }

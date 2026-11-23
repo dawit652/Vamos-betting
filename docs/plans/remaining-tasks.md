@@ -1,4 +1,50 @@
-# Remaining tasks (read this first; updated 22 Nov 2026)
+# Remaining tasks (read this first; updated 23 Nov 2026)
+
+**Start here (23 Nov, first account, end of its session; the second account continues).**
+The newest work is on `claude/eager-cerf-ox9vkq` (`d1d25ee` and later); `claude/happy-keller-i7cvrh`
+is behind at `7a15b27`: bring it up with
+`git fetch origin claude/eager-cerf-ox9vkq && git merge --ff-only FETCH_HEAD`. **Work with one
+account at a time.** Next free migration: **0085**.
+
+- **Deployed 22 Nov 22:36:** `b94684f`: the SMS rail reads the live telebirr (Amharic) and CBE
+  credits (CBE's mbreciept and BranchReceipt links). The SMS forwarder on the owner's phone is
+  connected (`cbe:1000438086378`, `telebirr:0911678426`; `SMS_GATEWAY_SECRET` rotated on 23 Nov).
+  Deposits of 10.79 and 10.06 credited by themselves.
+- **Pushed, not deployed** (deploy with the PowerShell line under "Deploy"): `1f9f4ea` (a transfer
+  deposit says "Waiting for your payment"), `8ea2ab5` (telebirr's Amharic "money sent" message is a
+  debit; the account's own number is never a payer or recipient), `b2c231f` (Today = today only:
+  no day chips, started matches leave, stale "live" ones after 4 h; Upcoming = 30 days with a
+  sideways row of 30 days; fixture horizon 30 days; e2e green), `d1d25ee` (`scripts/review-study.sh`),
+  `18d99c8` (the review queue plan), `9b17600` (re-price rule A-2: a strong market replaces the
+  stored prices whatever the move; held re-prices of such matches apply on the next pass),
+  `c53b4f2` (sweeper Q2c: closes kickoff / fixture items of played, cancelled or gone matches) and
+  the auto-open `held` counts (why each waiting match stays closed, in the `auto open run` log),
+  and rule F4d (D3: a kickoff disagreement is answered by the earliest kickoff a fresh source
+  gives: the start is kept or moved earlier, never later; K2 no longer lets a later report block
+  a confirmation; K1 still closes betting on an earlier report first).
+  After the deploy, staff press **Read again** in Back office → SMS rail on the three unparsed
+  messages (CBE 00:26 for the ETB 10.40 deposit; telebirr 00:35 and 00:42).
+- **Server state the owner set on 23 Nov:** switches `narobet_pricing` on (since 21 Nov) and
+  `narobet_events` on (30 days ahead, 325 matches listed); mr-z `DETAIL_BUDGET=60` in
+  `/opt/mr-z/.env` (was 40; still at most 1,200 requests an hour, stops on any refusal).
+- **Next (owner's request of 23 Nov): the review queue** (665 open items, many matches with
+  betting closed): plan with the server's numbers, decisions D1-D7 and build order in
+  [review-queue-automation.md](review-queue-automation.md). **The owner said go ("implement the
+  plan"): steps 1, 2, 3 (F4d) and the step 4 diagnostics are built; next 4a / 4b after the owner
+  deploys and runs the study again (D4, D5, read the `held` counts first); step 5 stays with a
+  person, step 6 needs a settlement design.** D1 (extra time off for
+  leagues, back office only, the owner's job) is the biggest win: with
+  `extra_time` on everywhere no result is applied by itself. Warnings there: The Odds API credits
+  run out in about 5 days; 129 matches priced above the best bookmaker price.
+- Smaller leftovers: the home page is 0.2 KB over its page-weight budget (168.2 / 168.0 KB, e2e
+  `budget.spec.ts`; move the claim and withdrawal-code texts out of the shared bundle); phase 6
+  (many POS devices) when the owner says go.
+
+**22 Nov, evening (first account):** both accounts built counter codes steps 5-7 at the same time.
+The first account dropped its own copies (never pushed) and took the second account's, so
+`claude/eager-cerf-ox9vkq` equals `claude/happy-keller-i7cvrh` at `7a15b27` plus this note (full
+checks green on it). **Work with one account at a time.** The owner's deploy line is under
+"Deploy" below.
 
 **Start here (22 Nov, newest):** the second account continues: the newest work is on
 `claude/happy-keller-i7cvrh` (it contains all of `claude/eager-cerf-ox9vkq` up to `55f91d0`; bring
@@ -76,6 +122,20 @@ about deposits and withdrawals came every few minutes. `OWNER_ALERT_POLICY`
 (`packages/core/src/owner-alert.ts`, runbook `docs/runbooks/sms-rail.md` "Alarms") now texts only
 money alarms, each at most every 6-24 hours, and one summary for contradicted deposits; staff's
 alarms stay log lines and panels. Live after the next deploy.
+
+## Deploy (the owner does it; never from a session)
+
+From the owner's PC (PowerShell), one line: it logs in, starts the deploy in the background on the
+server and shows its log (Ctrl+C stops only the log, not the deploy):
+
+```powershell
+ssh -t root@13.140.208.4 "cd /opt/nahubet && git fetch origin claude/eager-cerf-ox9vkq && (nohup bash -c 'bash <(git show origin/claude/eager-cerf-ox9vkq:infra/scripts/deploy-full.sh) claude/eager-cerf-ox9vkq /opt/nahubet-new/infra/.env.prod vamos' > /root/deploy.log 2>&1 &) ; sleep 3 ; tail -f /root/deploy.log"
+```
+
+The deploy backs up the database, applies the new migrations (0077 to 0084 after the live
+`69f71a8`), runs the smoke test and rolls back by itself if it fails. Nothing new to set in the env
+file; the switches `narobet_events` and `hulusport_pricing` stay off until the owner turns them on
+in the back office; Telegram alerts need `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_IDS`.
 
 ## Next, in order
 

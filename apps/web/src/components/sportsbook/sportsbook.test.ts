@@ -287,11 +287,11 @@ describe('live stream frames', () => {
 describe('list controls parameters', () => {
   const now = new Date('2026-10-08T12:00:00.000Z');
 
-  it('parseDay accepts today to today + 14 only', () => {
+  it('parseDay accepts today to today + 30 only', () => {
     expect(parseDay('2026-10-08', now)).toBe('2026-10-08');
-    expect(parseDay('2026-10-22', now)).toBe('2026-10-22');
+    expect(parseDay('2026-11-07', now)).toBe('2026-11-07');
     expect(parseDay('2026-10-07', now)).toBeUndefined();
-    expect(parseDay('2026-10-23', now)).toBeUndefined();
+    expect(parseDay('2026-11-08', now)).toBeUndefined();
     expect(parseDay('2026-02-30', now)).toBeUndefined();
     expect(parseDay('2026-13-01', now)).toBeUndefined();
     expect(parseDay('nope', now)).toBeUndefined();

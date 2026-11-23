@@ -5,6 +5,7 @@ import {
   KICKOFF_STABLE_MS,
   KICKOFF_TOLERANCE_MS,
   MIN_INDEPENDENT_SOURCES,
+  MIN_LEAD_MS,
 } from '../constants';
 import type { ExistingEvent, FixtureObservation, ResultObservation } from '../types';
 import { countIndependent } from './confirmation';
@@ -142,12 +143,16 @@ export function kickoffEvidenceKey(start: Date, statements: readonly KickoffStat
  *   as dissent);
  * - agreeing: a `scheduled` fixture within `KICKOFF_TOLERANCE_MS` of the start;
  *   every other statement dissents (a result before kickoff contradicts it);
- * - C1: no dissent, and fresh agreeing statements from at least
+ * - blocking dissent: every dissenting statement but a later scheduled fixture (the
+ *   owner's decision D3, 23 Nov 2026: betting closes at the start, before the time
+ *   such a statement gives, so it cannot keep betting open past the real kickoff; it
+ *   is still named, `sources_disagree`, among the reasons of an unconfirmed kickoff);
+ * - C1: no blocking dissent, and fresh agreeing statements from at least
  *   `MIN_INDEPENDENT_SOURCES` independent upstreams;
- * - C2: no dissent, `now >= start - KICKOFF_CONFIRM_LEAD_MS`, and a fresh agreeing
- *   statement unchanged for `KICKOFF_STABLE_MS`;
+ * - C2: no blocking dissent, `now >= start - KICKOFF_CONFIRM_LEAD_MS`, and a fresh
+ *   agreeing statement unchanged for `KICKOFF_STABLE_MS`;
  * - C3: the person's record names this exact start and acknowledges every
- *   dissenting statement (`changedAt <= confirmedAt`).
+ *   blocking dissenting statement (`changedAt <= confirmedAt`).
  *
  * Throws RangeError for an invalid `start` or `now` (programmer errors).
  */
@@ -187,7 +192,9 @@ export function assessKickoff(input: KickoffAssessmentInput): KickoffAssessment 
     countIndependent(voices(freshAgreeing)),
     countIndependent(voices(agreeing)),
   );
-  const noDissent = dissent.length === 0;
+  // D3: a later scheduled fixture does not block (see above).
+  const blocking = dissent.filter((c) => c.cls !== 'later');
+  const noDissent = blocking.length === 0;
   const c1 = noDissent && independent >= MIN_INDEPENDENT_SOURCES;
   const close = nowMs >= startMs - KICKOFF_CONFIRM_LEAD_MS;
   const stable = freshAgreeing.filter((c) => {
@@ -195,7 +202,7 @@ export function assessKickoff(input: KickoffAssessmentInput): KickoffAssessment 
     return changed !== null && changed <= nowMs - KICKOFF_STABLE_MS;
   });
   const c2 = noDissent && close && stable.length > 0;
-  const c3 = personHolds && unacknowledged.length === 0;
+  const c3 = personHolds && blocking.every((c) => c.acknowledged);
   const basis: KickoffBasis | null = c1 ? 'C1' : c2 ? 'C2' : c3 ? 'C3' : null;
 
   const reasons = new Set<KickoffReason>();
@@ -272,4 +279,58 @@ export function earlierKickoffAction(
     return 'close';
   }
   return 'none';
+}
+
+/** What rule F4d does about a kickoff disagreement (`earliestFreshKickoff`). */
+export type KickoffDisagreementAnswer =
+  | { readonly action: 'keep' }
+  | { readonly action: 'move'; readonly to: Date; readonly upstreams: readonly string[] }
+  | { readonly action: 'hold' };
+
+/**
+ * Rule F4d (the owner's decision D3, 23 Nov 2026; docs/plans/review-queue-automation.md, step 3):
+ * the sources disagree about the kickoff of a scheduled event. Where the earliest kickoff a fresh
+ * source gives answers it, no person is asked: betting then closes no later than any fresh source
+ * says the match starts, so a wrong source can only close it early.
+ *
+ * - `keep`: the start already is the earliest fresh kickoff (within KICKOFF_TOLERANCE_MS); K2
+ *   decides on opening (a later statement does not block it);
+ * - `move`: the earliest fresh kickoff is earlier than the start, and both are later than
+ *   `now + MIN_LEAD_MS`; `upstreams` are those of the fresh statements that give it;
+ * - `hold`: everything else stays with a person: no fresh scheduled statement, any statement that
+ *   is not a scheduled fixture (a result, a void status, an invalid date), every fresh source later
+ *   than the start (a later move needs F4a's agreement), a start or a new time too close.
+ *
+ * `statements` are K2's (the rows each enabled source listed at its latest successful read, so a
+ * row a date-keyed source no longer lists does not count); those outside
+ * KICKOFF_EVIDENCE_WINDOW_MS of the start are ignored, as in K2. A stale statement earlier than the
+ * answer still keeps betting closed through K1 and K2. Pure; throws RangeError for an invalid
+ * `start` or `now`.
+ */
+export function earliestFreshKickoff(input: {
+  readonly start: Date;
+  readonly now: Date;
+  readonly statements: readonly KickoffStatement[];
+}): KickoffDisagreementAnswer {
+  const startMs = requireNow(input.start);
+  const nowMs = requireNow(input.now);
+  const fresh: Array<{ ms: number; upstream: string }> = [];
+  for (const statement of input.statements) {
+    const ms = instant(statement.kickoff);
+    if (ms !== null && Math.abs(ms - startMs) > KICKOFF_EVIDENCE_WINDOW_MS) continue;
+    if (ms === null || statement.kind !== 'fixture' || statement.status !== 'scheduled') {
+      return { action: 'hold' };
+    }
+    if (statement.sourceFresh === true) fresh.push({ ms, upstream: statement.upstream });
+  }
+  if (fresh.length === 0) return { action: 'hold' };
+  const earliest = Math.min(...fresh.map((f) => f.ms));
+  if (Math.abs(earliest - startMs) <= KICKOFF_TOLERANCE_MS) return { action: 'keep' };
+  if (earliest > startMs) return { action: 'hold' };
+  const lead = nowMs + MIN_LEAD_MS;
+  if (startMs <= lead || earliest <= lead) return { action: 'hold' };
+  const upstreams = [
+    ...new Set(fresh.filter((f) => f.ms - earliest <= KICKOFF_TOLERANCE_MS).map((f) => f.upstream)),
+  ].sort();
+  return { action: 'move', to: new Date(earliest), upstreams };
 }

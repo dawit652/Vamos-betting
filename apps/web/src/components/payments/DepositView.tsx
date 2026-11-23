@@ -25,7 +25,7 @@ import {
   AMOUNT_ERROR_KEY,
   DEPOSIT_POLL_LIMIT_MS,
   DEPOSIT_QUICK_AMOUNTS,
-  DEPOSIT_STATUS_LABEL,
+  depositStatusKey,
   checkAmount,
   createIntentKeys,
   depositFailureKey,
@@ -133,7 +133,7 @@ function DepositProgress({
     <section className="card space-y-3" aria-live="polite">
       <div className="flex items-center justify-between gap-2">
         <h2 className="font-bold">ETB {formatSantim(deposit.amount)}</h2>
-        <Chip tone={depositTone(deposit.status)}>{t(DEPOSIT_STATUS_LABEL[deposit.status])}</Chip>
+        <Chip tone={depositTone(deposit.status)}>{t(depositStatusKey(deposit))}</Chip>
       </div>
       {deposit.status === 'succeeded' ? (
         <Alert tone="success">
@@ -365,7 +365,7 @@ function RecentDeposits({ items }: { items: readonly Deposit[] }) {
                 <p className="font-semibold tabular-nums">ETB {formatSantim(d.amount)}</p>
                 <p className="text-xxs text-muted">{formatDateTime(d.createdAt, locale)}</p>
               </div>
-              <Chip tone={depositTone(d.status)}>{t(DEPOSIT_STATUS_LABEL[d.status])}</Chip>
+              <Chip tone={depositTone(d.status)}>{t(depositStatusKey(d))}</Chip>
             </li>
           ))}
         </ul>

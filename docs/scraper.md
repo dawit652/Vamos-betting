@@ -229,6 +229,19 @@ Every rule has an id; tests cite the id in their names. Constants are in
   (`sources_disagree`) or `fixture_conflict` is opened and nothing is moved or
   created. A cluster decided alone would flip the kickoff on every pass or
   create the fixture twice.
+- **F4d The earliest fresh kickoff** (the owner's decision D3, 23 Nov 2026;
+  `earliestFreshKickoff`, applied in `promote-fixtures.ts`). When F4 or F4c would ask a person
+  only because the sources disagree (`sources_disagree` about one scheduled event) and the
+  competition is enabled, the statements of K2 (rows each source listed at its latest successful
+  read, so the old-day row a keyless source leaves behind does not count) answer it: the earliest
+  kickoff a fresh source gives within `KICKOFF_TOLERANCE_MS` of the start → the start is kept and
+  an open item closes ("the event starts at the earliest kickoff a fresh source gives (F4d)");
+  earlier than the start, both later than `now + MIN_LEAD_MS` → the event moves there (audit
+  `scrape.fixture.kickoff_moved`, rule `F4d`, the move closes the item). A person is still asked
+  when no fresh source gives a scheduled time, when any statement is a result, a void status or an
+  invalid date, when every fresh source says later (a later move stays F4a's), or when the start
+  or the new time is too close. Betting then closes no later than any fresh source says the match
+  starts: a wrong source can only close it early.
 - **F5 Absence never cancels.** A fixture missing from a source changes
   nothing. An event no enabled source has listed in a successful run for
   `MISSING_AFTER_MS` opens `fixture_missing`. Nothing is cancelled because a
@@ -279,7 +292,12 @@ Every rule has an id; tests cite the id in their names. Constants are in
   writes are `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened`
   (`rule: 'F7b'`, the basis, the evidence key, `afterK1`, `calibration`) and the waiting items resolved by the
   scraper; the live delta is published after the COMMIT. A trader's close, a dismissed item, a
-  held re-price or `auto_open` off keeps the event closed.
+  held re-price or `auto_open` off keeps the event closed. Each pass counts the waiting events it
+  left closed by the first condition that failed (`held` in the `auto open run` log line, at info
+  every 15 minutes while events wait): `kickoff:<reasons>` (not confirmed, e.g.
+  `kickoff:not_stable`), `kickoff_question`, `reprice_held`, `person_decided`, `uncalibrated`
+  (neither O1 nor O1m), `price_checks` (O2), `policy`, `not_waiting`, `changed`, `no_evidence`.
+  `scripts/review-study.sh` (section M) shows the last lines.
 
 ### 6.1b Two kickoff sources everywhere (plan task 1.4)
 
@@ -337,11 +355,14 @@ Definitions (used by every rule below):
   (`startTime`, `confirmedAt`, `evidenceKey`). A statement is _acknowledged_ when the record names exactly the
   event's current `start_time` and `statement.changed_at <= confirmedAt`; a record for another start is
   ignored, so any kickoff move voids it.
-- **Confirmed kickoff** at `now`: **C1** no dissenting statement and agreeing statements of fresh sources
-  from at least `MIN_INDEPENDENT_SOURCES` independent upstreams; or **C2** no dissenting statement,
+- **Blocking dissent:** every dissenting statement except a later scheduled fixture (D3, 23 Nov 2026):
+  betting closes at the start, before the time such a statement gives, so it cannot keep betting open
+  past the real kickoff. It is still named (`sources_disagree`) among the reasons of an unconfirmed kickoff.
+- **Confirmed kickoff** at `now`: **C1** no blocking dissent and agreeing statements of fresh sources
+  from at least `MIN_INDEPENDENT_SOURCES` independent upstreams; or **C2** no blocking dissent,
   `now >= start - KICKOFF_CONFIRM_LEAD_MS` and an agreeing statement of a fresh source with
-  `changed_at <= now - KICKOFF_STABLE_MS`; or **C3** a person record for this start and every dissenting
-  statement acknowledged.
+  `changed_at <= now - KICKOFF_STABLE_MS`; or **C3** a person record for this start and every blocking
+  dissenting statement acknowledged.
 - **Evidence key:** SHA-256 (hex) of the canonical JSON array `[startISO, statements]`, statements sorted by
   source id, kind and kickoff, each `[sourceId, kind, status, kickoffISO, changedAtISO]`: it names exactly
   what a person was shown.
@@ -940,7 +961,7 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   again. Nothing else changes (no event, market, price, bet or `scrape_event_pricing`), and a second
   pass closes nothing.
 - **Q2 Stale review items.** The second part of the sweeper (`sweepStaleReviewItems`, right after Q1
-  in the promotion pass). Two cases, same style as Q1 (resolution `auto: <reason>`, resolved by the
+  in the promotion pass). Three cases, same style as Q1 (resolution `auto: <reason>`, resolved by the
   scraper, audit `scrape.review.swept` with `rule: 'Q2'` per item, a transaction per subject or item
   that locks and reads again, idempotent, nothing else changes):
   `source_disabled`: `source_broken` and `source_stale` items on `source|<id>` whose `scrape_sources`
@@ -950,6 +971,13 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   so no source showed the name for a week). The items are resolved, not dismissed: no
   `payload.dismissals` is added, so a name that appears again opens a new item and N4 auto-aliasing
   treats it as new.
+  **Q2c (owner, 23 Nov 2026)**, questions the match has answered (`matchItemReason`):
+  `kickoff_change` (also K1's `|earlier`) once the match has a result, was cancelled or kicked off,
+  but never when a bet has a leg on it (a person checks for bets after the real kickoff);
+  `fixture_missing` once it has a result or was cancelled (a match past its start without a result
+  stays, `result_overdue` follows it); `fixture_conflict` once it kicked off or ended, and for a
+  fixture never created `FIXTURE_DAY_PAST_MS` (2 days) after the day in its feed_ref. Reasons
+  `event_resulted`, `event_cancelled`, `event_started`, `fixture_past`. Results are never swept.
 - **M1 Prices at betting close (2026-11, M-1 of `docs/feed-quality-plan.md`; measurement only).** The
   promotion pass (`captureClosePrices`, after F7b) records once, for every scraped, scheduled,
   unresulted event with betting open whose betting closes within `CLOSE_CAPTURE_WINDOW_MS` (10 min;

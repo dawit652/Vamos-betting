@@ -17,6 +17,20 @@ export const TELEBIRR_SMS = {
   /** No counterparty number, no receipt link: the sparse variant. */
   creditMinimal:
     'You have received ETB 75.42 on 15/08/2026. Your transaction number is CD456QWERT.',
+  /**
+   * The Amharic credit as telebirr actually sends it (collection handset, 22 Nov 2026; names,
+   * numbers and the reference changed): a masked payer number, the reference after
+   * "የሂሳብ እንቅስቃሴ ቁጥርዎ", the date after "በ".
+   */
+  /**
+   * Money sent from the telebirr collection account to a bank account, as telebirr sends it
+   * (22 Nov 2026; numbers and references changed): the account's own number comes first and is
+   * not the recipient; the bank's FT number follows telebirr's reference; a fee and VAT follow.
+   */
+  debitToBankLive:
+    'ውድ  CUSTOMER \nከቴሌ ብር አካውንትዎ 251900000000 ለ Commercial Bank of Ethiopia አካውንት ቁጥር   1000000000000 10.79 ብር በቀን 23/11/2026 00:35:31 በተሳካ ሁኔታ አስተላልፈዋል፡፡ የቴሌብር ሂሳብ እንቅስቃሴ ቁጥርዎ  DKB2CD3EFG እና የባንክ ሂሳብ እንቅስቃሴ ቁጥርዎ FT26001XYZ99 ነው፡፡ የአገልግሎት ክፍያው 0.87 ብር ፤ የአገልግሎት ክፍያው 15% VAT 0.13 ብር ነዉ። ያለዎት ቀሪ ሂሳብ 1,234.56 ብር ነው፡፡ የክፍያ መረጃዎን ለማግኘት ማስፈንጠርያውን ይጫኑ፡ https://transactioninfo.ethiotelecom.et/receipt/DKB2CD3EFG\nበቴሌብር ስለተገለገሉ እናመሰግናለን፡፡',
+  creditAmharicLive:
+    'ውድ CUSTOMER \nከ sender name(2519****0000) 10.73 ብር በ 22/11/2026 23:53:23 ተቀብለዋል፡፡ የሂሳብ እንቅስቃሴ ቁጥርዎ DKA1BC2DEF ነዉ፡፡ አሁን ያለዎት ቀሪ ሂሳብ  1,234.56 ብር ነዉ፡፡ \nበቴሌብር ስለተገለገሉ እናመሰግናለን \nኢትዮ ቴሌኮም',
 } as const;
 
 export const CBE_SMS = {
@@ -24,6 +38,19 @@ export const CBE_SMS = {
     'Dear Customer, You have received ETB 250.00 from SENDER NAME on 15/08/2026. Your account balance is ETB 3,400.00. Ref No CAA2K819ZY https://apps.cbe.com.et:100/?id=CAA2K819ZY',
   debitEnglish:
     'Dear Customer, Your account has been debited with ETB 150.00 on 15/08/2026. Ref No FT26227ABCD',
+  /**
+   * The credit as CBE actually sends it (collection handset, 22 Nov 2026; names, accounts and the
+   * token changed): no "Ref No", only the receipt link's token, the payer's masked account and name.
+   */
+  creditLive:
+    'Dear CUSTOMER NAME You have received ETB 50.28 from account 1********0000 (Sender Full Name) to your account 1********1111. Your current balance is ETB 1,234.56. Thanks for Banking with CBE. https://mbreciept.cbe.com.et/v2-abCDefGH12ijKL34mnOP for feedback: https://forms.gle/AbCdEf12345',
+  /**
+   * Money sent from telebirr to the CBE account, as CBE reports it (22 Nov 2026; name, accounts
+   * and the reference changed): one decimal, no thousands comma, the FT reference only in the
+   * BranchReceipt link.
+   */
+  creditFromWalletLive:
+    'Dear CUSTOMER NAME your Account 1****1111 has been credited with ETB 10.4. Your Current Balance is ETB 1234.56. Thank you for Banking with CBE! for Reciept https://apps.cbe.com.et:100/BranchReceipt/FT26001ABC12&11111111',
 } as const;
 
 export const BANK_SMS = {

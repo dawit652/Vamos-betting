@@ -57,16 +57,16 @@ describe('EventListQuery new parameters', () => {
 describe('eventListQueryAt', () => {
   const schema = eventListQueryAt(NOW);
 
-  it('takes today up to today + 14 days (Addis Ababa)', () => {
-    for (const day of ['2026-10-09', '2026-10-10', '2026-10-23']) {
+  it('takes today up to today + 30 days (Addis Ababa)', () => {
+    for (const day of ['2026-10-09', '2026-10-10', '2026-10-23', '2026-11-08']) {
       expect(schema.safeParse({ day }).success, day).toBe(true);
       expect(isEventDayInRange(day, NOW)).toBe(true);
     }
     expect(schema.safeParse({}).success).toBe(true);
   });
 
-  it('rejects yesterday and day 15, with the issue on day', () => {
-    for (const day of ['2026-10-08', '2026-10-24']) {
+  it('rejects yesterday and day 31, with the issue on day', () => {
+    for (const day of ['2026-10-08', '2026-11-09']) {
       const result = schema.safeParse({ day });
       expect(result.success, day).toBe(false);
       expect(result.error?.issues[0]?.path).toEqual(['day']);

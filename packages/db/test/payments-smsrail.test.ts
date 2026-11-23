@@ -309,6 +309,29 @@ describe('gateway SMS', () => {
     expect(queue.some((row) => row.rawText === text && row.status === 'unparsed')).toBe(true);
   });
 
+  it("telebirr's live Amharic credit: a masked payer number that fits credits, another is flagged", async () => {
+    /** The shape telebirr sends (22 Nov 2026), with the payer's number masked like "2519****3670". */
+    const amharicCredit = (amount: bigint, maskedPayer: string) =>
+      `ውድ CUSTOMER\nከ sender name(${maskedPayer}) ${santimToBirrString(amount)} ብር በ 10/10/2026 12:01:00 ተቀብለዋል። የሂሳብ እንቅስቃሴ ቁጥርዎ ${nextRef()} ነዉ። አሁን ያለዎት ቀሪ ሂሳብ 1,234.56 ብር ነዉ። በቴሌብር ስለተገለገሉ እናመሰግናለን ኢትዮ ቴሌኮም`;
+    const mask = (phone: string) => `${phone.slice(1, 5)}****${phone.slice(-4)}`;
+
+    const own = await createPlayer(db);
+    const ownDeposit = await openDeposit(own.userId, birr(104));
+    const credited = await gateway(amharicCredit(ownDeposit.amount, mask(own.phone)), {
+      sender: '127',
+    });
+    expect(credited.outcome).toBe('credited');
+    expect(await cashOf(db, own.userId)).toBe(ownDeposit.amount);
+
+    const other = await createPlayer(db);
+    const otherDeposit = await openDeposit(other.userId, birr(105));
+    const stranger = `${other.phone.slice(1, 5)}****${other.phone.slice(-4) === '0000' ? '1111' : '0000'}`;
+    const flagged = await gateway(amharicCredit(otherDeposit.amount, stranger), { sender: '127' });
+    expect(flagged.outcome).toBe('flagged');
+    expect(await cashOf(db, other.userId)).toBe(0n);
+    expect((await getDepositIntent(db, otherDeposit.id))?.flagReason).toBe('third_party_payer');
+  });
+
   it('flags a payment from someone else’s phone instead of crediting it', async () => {
     const player = await createPlayer(db);
     const intent = await openDeposit(player.userId, birr(103));

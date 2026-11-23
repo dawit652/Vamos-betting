@@ -10,8 +10,8 @@ export const DAY_MS = 24 * HOUR_MS;
 
 // --- Fixtures ---------------------------------------------------------------
 
-/** Fixtures further ahead than this are not created. */
-export const FIXTURE_HORIZON_MS = 14 * DAY_MS;
+/** Fixtures further ahead than this are not created (owner, 23 Nov 2026: 30 days, was 14). */
+export const FIXTURE_HORIZON_MS = 30 * DAY_MS;
 /** A fixture must start at least this far ahead to be created or moved to. */
 export const MIN_LEAD_MS = 10 * MINUTE_MS;
 /** Kickoffs closer than this are the same time. */

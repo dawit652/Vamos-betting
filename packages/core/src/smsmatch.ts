@@ -1,5 +1,5 @@
 import type { Santim } from './money';
-import type { ParsedSms } from './smsparse';
+import { smsPhoneFits, type ParsedSms } from './smsparse';
 
 /**
  * Matching SMS to deposits and payouts (SMS deposit rail, pure part). Ported
@@ -158,7 +158,8 @@ export function matchSmsDeposit(
   const exact = live.filter((deposit) => deposit.amount === sms.amount);
   if (exact.length === 1) {
     const deposit = exact[0]!;
-    const phoneMatches = sms.counterpartyPhone !== null && deposit.phone === sms.counterpartyPhone;
+    // A masked number ("+2519****3670") that fits counts too; it never drives the fallback below.
+    const phoneMatches = smsPhoneFits(sms.counterpartyPhone, deposit.phone) === true;
     return {
       type: 'matched',
       intentId: deposit.intentId,

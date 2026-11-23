@@ -41,8 +41,16 @@ possible:
 7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
    `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
 8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
-   **Deployed 21 Nov:** `69f71a8` (licensed mode, smoke test 13 passed; migrations up to 0076:
-   Narobet prices through mr-z, switch `narobet_pricing` off; `SCRAPER_NAROBET_URL` set).
+   **Deployed 22 Nov 19:02:** `7a15b27` (licensed mode, smoke test 13 passed; migrations up to
+   0084: everything listed below is now live; switches `narobet_events`, `narobet_pricing` and
+   `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).
+   **Deployed 22 Nov 22:36:** `b94684f` (live telebirr / CBE SMS read). **Pushed, not deployed:**
+   `1f9f4ea`, `8ea2ab5`, `b2c231f` (Today / Upcoming lists, 30 days), `d1d25ee`
+   (`scripts/review-study.sh`), `18d99c8`, `9b17600` (re-price rule A-2), `c53b4f2` (sweeper Q2c), the
+   auto-open `held` counts, rule F4d (kickoff disagreements: the earliest fresh kickoff). **Next:**
+   4a / 4b of the review queue plan once the owner deploys and reruns the study
+   (`docs/plans/review-queue-automation.md`; steps 1-3 and 4-diagnostics built); handover of 23 Nov
+   at the top of `docs/plans/remaining-tasks.md`. Newest branch `claude/eager-cerf-ox9vkq`.
    Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
    `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if
    it is ahead (`git fetch origin <other> && git merge --ff-only FETCH_HEAD`). Built: agent shops
@@ -62,9 +70,12 @@ possible:
    account: "My deposit did not arrive" claims and Back office → Money not credited (migration 0082),
    the owner's daily "money not credited" Telegram line, Back office → Service health, the shop's
    printed shift report, the Telegram "Deposit problem" (step 6, migration 0083) and the G4
-   withdrawal code (step 7, migration 0084; newest branch `claude/happy-keller-i7cvrh`; next free
-   migration 0085). The counter codes plan is built. `scripts/feed-report.ps1` now reads the whole Feed
-   page (boards, switches, services); next: the owner runs it and pastes it for the feed fix plan, deploys (0077-0084) and
+   withdrawal code (step 7, migration 0084; both branches equal at `7a15b27` on 22 Nov evening;
+   next free migration 0085). **Work with one account at a time:** on 22 Nov both accounts built
+   steps 5-7 at once and the first account dropped its copies. The owner deploys with the
+   PowerShell line in `docs/plans/remaining-tasks.md`, "Deploy". The counter codes plan is built. The server runs `2b53c60`
+   (23 Nov). `scripts/feed-report.sh` reads the whole Feed page on the server; its 23 Nov findings beyond the
+   review queue plan: `docs/plans/feed-gaps-2026-11-23.md`. Next: the owner deploys (migrations 0077-0084) and
    `docs/plans/counter-codes-and-deposit-recovery.md` (owner,
    21 Nov: 6-digit booking, payout and withdrawal codes, deposit recovery, the health page, completing
    the shop app; decisions O1-O5 made), the owner deploys; phase 6 supports many POS devices (owner, 22 Nov: `docs/plans/agent-shops.md`,

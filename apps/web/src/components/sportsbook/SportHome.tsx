@@ -6,7 +6,7 @@ import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { getLocale, getT } from '@/i18n/server';
 import type { LeagueMark } from '@/lib/badges';
 import { flagEmoji } from '@/lib/flag';
-import { formatDayMonth, formatTime, formatWeekday, relativeDay } from '@/lib/format';
+import { formatChipDay, formatDayMonth, formatTime, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes, type Sport } from '@/lib/routes';
 import { dayChips } from './day-chips';
@@ -127,9 +127,9 @@ async function ListTabs({
   );
 }
 
-/** The filters a tab keeps: the day only means something on Today and Upcoming. */
+/** The filters a tab keeps: the day only means something on Upcoming (Today is today alone). */
 function tabFilters(tab: ListTab, filters: ListFilters): ListFilters {
-  return tab === 'today' || tab === 'upcoming' ? filters : { ...filters, day: undefined };
+  return tab === 'upcoming' ? filters : { ...filters, day: undefined };
 }
 
 /** Day chips, country chips and the 1X2 / double chance switch, all plain links. */
@@ -147,7 +147,8 @@ async function ListControls({
   const [t, locale, data] = await Promise.all([getT(), getLocale(), getCompetitions(sport)]);
   const countries = countryChips(data);
   const href = (change: ListFilters) => listHref(path, tab, undefined, { ...filters, ...change });
-  const days = tab === 'today' || tab === 'upcoming' ? dayChips(new Date()) : [];
+  // Only Upcoming has the day chips (owner, 23 Nov 2026): 30 days, scrolled sideways.
+  const days = tab === 'upcoming' ? dayChips(new Date()) : [];
   const market = filters.market ?? '1x2';
   return (
     <div className="mb-3 space-y-2">
@@ -170,25 +171,20 @@ async function ListControls({
       {days.length > 0 ? (
         <nav aria-label={t('sportsbook.controls.days')} className="chip-row">
           {days.map((chip) => {
-            // Today's own list is the tab without a day.
-            const active =
-              filters.day === chip.date || (tab === 'today' && chip.offset === 0 && !filters.day);
+            const active = filters.day === chip.date;
             return (
               <Link
                 key={chip.date}
-                href={href({
-                  within: undefined,
-                  day: tab === 'today' && chip.offset === 0 ? undefined : chip.date,
-                })}
+                href={href({ within: undefined, day: active ? undefined : chip.date })}
                 prefetch={false}
                 aria-current={active ? 'true' : undefined}
-                className="chip min-h-11"
+                className="chip min-h-11 shrink-0 whitespace-nowrap"
               >
                 {chip.offset === 0
                   ? t('sportsbook.controls.today')
                   : chip.offset === 1
                     ? t('sportsbook.controls.tomorrow')
-                    : formatWeekday(chip.date, locale)}
+                    : formatChipDay(chip.date, locale)}
               </Link>
             );
           })}

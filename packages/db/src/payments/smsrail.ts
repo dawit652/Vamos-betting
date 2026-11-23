@@ -9,6 +9,7 @@ import {
   pastedSmsReference,
   proposePayoutForSms,
   smsPaidBy,
+  smsPhoneFits,
   takenAmounts,
   toWire,
   type OpenSmsDeposit,
@@ -363,10 +364,9 @@ async function applyCredit(
   }
 
   const deposit = open.find((candidate) => candidate.intentId === match.intentId);
+  // Another payer's number (full, or masked at the visible places) is flagged, never credited.
   const thirdParty =
-    sms.counterpartyPhone !== null &&
-    deposit !== undefined &&
-    deposit.phone !== sms.counterpartyPhone;
+    deposit !== undefined && smsPhoneFits(sms.counterpartyPhone, deposit.phone) === false;
   const applied = await applyDepositEvent(tx, {
     provider: SMS_PROVIDER,
     event: {
