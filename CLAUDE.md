@@ -53,8 +53,9 @@ possible:
    enables them, and switches the prices on once the gap is small; then E3 (price expiry)
    (`docs/plans/feed-gaps-2026-11-23.md`, "E2 built"). Also on 23 Nov: guest slips and staff plan
    `docs/plans/guest-slips-and-staff.md` (GS1 Today default, GS2 no padlocked rows, GS11 agent
-   owner password reset until changed, device page text, GS3 started with migration 0085;
-   **next: GS3 betslip and shop part**, then GS4 onwards and 4a/4b). Next free migration 0086.
+   owner password reset until changed, device page text, GS3 visitor slip IDs with the stake,
+   migration 0085; **next: GS4 Check coupon**, then GS5-GS7, GS9-GS10 and 4a/4b). Next free
+   migration 0086.
    **Deployed 22 Nov 19:02:** `7a15b27` (licensed mode, smoke test 13 passed; migrations up to
    0084: everything listed below is now live; switches `narobet_events`, `narobet_pricing` and
    `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).

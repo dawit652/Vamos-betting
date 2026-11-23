@@ -62,17 +62,18 @@ Nov).
 - **GS8 needs no change.** Staff phones need not be unique and an email may be an alias, so one
   person can already hold an admin, a cashier and an agent owner account, for example
   `name+cashier@gmail.com`, which Gmail delivers to the same inbox.
-- **GS3, started.** `booking_codes.stake` (migration 0085) and the booking code API keep a
-  visitor's stake. Still to do: the betslip's guest "Place bet", Check coupon, and the shop
-  filling in the stake.
+- **GS3, built.** A visitor's Place bet makes a slip ID: `booking_codes.stake` (migration 0085),
+  the booking code API with `stake`, the betslip's slip ID screen and the device's list of slip
+  IDs (`nahubet:guest-slips`). The shop's sell-from-code fills in the stake. "Load code" now reads
+  "Load coupon".
+  - Tests: `packages/db/test/betting-booking.test.ts`, `e2e/tests/guest-slip.spec.ts`.
 
 ## State
 
-- **Built:** GS1, GS2, GS11, the device page text, and GS3's database and API part.
+- **Built:** GS1, GS2, GS3, GS11, the device page text.
 - **Next:**
-  1. GS3's betslip and shop part (`BetslipDrawer.tsx`: for a visitor, "Place bet" calls
-     `createBookingCode` with the stake and shows the slip ID screen; the shop's sell-from-code
-     fills in `stake`).
-  2. GS4 to GS7.
+  1. GS4 Check coupon: a field in the betslip opening `/ticket` with a slip ID or ticket number;
+     the check API learns the slip ID (not yet paid, sold as ticket, expired).
+  2. GS5 several slips, GS6 the device's slip list (the IDs are already stored), GS7 bet details.
   3. GS9 and GS10 (money controls: main session).
   4. 4a/4b.
