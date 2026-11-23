@@ -604,6 +604,27 @@ describe('GET /events', () => {
     expect(closed).toBeUndefined();
   });
 
+  it('leaves out a match whose 1X2 is suspended, though its other markets are open (GS2)', async () => {
+    const padlocked = await insertEvent(db, {
+      sportId: 'football',
+      competitionId: ids.caf,
+      homeTeamId: ids.ahly,
+      awayTeamId: ids.wydad,
+      startTime: hours(5),
+    });
+    await insertMarket(db, padlocked.id, '1x2', null, ONE_X_TWO, 'suspended');
+    await insertMarket(db, padlocked.id, 'ou', '2.5', [
+      ['over', 1900],
+      ['under', 1900],
+    ]);
+    try {
+      expect(await listIds('/events?filter=upcoming')).not.toContain(padlocked.id);
+      expect(await listIds('/events?filter=today')).not.toContain(padlocked.id);
+    } finally {
+      await db.execute(sql`DELETE FROM events WHERE id = ${padlocked.id}`);
+    }
+  });
+
   it('filters upcoming: scheduled within 30 days, in start order', async () => {
     expect(await listIds('/events?filter=upcoming')).toEqual([
       ev.soon.id,
