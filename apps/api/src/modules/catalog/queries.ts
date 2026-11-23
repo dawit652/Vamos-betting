@@ -8,7 +8,7 @@ import type {
   SearchResponse,
   SportsResponse,
 } from '@vamos/contracts';
-import { parseGameId } from '@vamos/core';
+import { parseGameId, SPORT_MARKETS } from '@vamos/core';
 import type { DbExecutor } from '@vamos/db';
 import { normalizeName } from '@vamos/scraper';
 import {
@@ -113,16 +113,27 @@ function liveNow(now: Date): SQL {
   )!;
 }
 
+/** Each sport's main market (the one a list row shows): its first market type. */
+const MAIN_MARKET_TYPES = Object.entries(SPORT_MARKETS).flatMap(([sport, types]) =>
+  types[0] === undefined ? [] : [{ sport, type: types[0] }],
+);
+
 /**
- * A scheduled match is listed (and counted) only while it can be bet on: betting open and at
- * least one market open (owner, 23 Nov 2026: lists full of padlocks). A match closed for a person
- * to check, or whose prices are all suspended, comes back by itself once it opens; its own page
- * (by link) still shows it.
+ * A scheduled match is listed (and counted) only while it can be bet on: betting open and its main
+ * market (1X2 for football) open (owner, 23 Nov 2026: lists full of padlocks; a suspended 1X2 with
+ * other markets open still showed padlocks on the row). A match closed for a person to check, or
+ * whose main prices are suspended, comes back by itself once it opens; its own page (by link)
+ * still shows it.
  */
 function openForBetting(): SQL {
+  const mainType = sql`CASE ${events.sportId} ${sql.join(
+    MAIN_MARKET_TYPES.map(({ sport, type }) => sql`WHEN ${sport} THEN ${type}`),
+    sql` `,
+  )} END`;
   return and(
     eq(events.bettingOpen, true),
-    sql`EXISTS (SELECT 1 FROM ${markets} WHERE ${markets.eventId} = ${events.id} AND ${markets.status} = 'open')`,
+    sql`EXISTS (SELECT 1 FROM ${markets} WHERE ${markets.eventId} = ${events.id}
+      AND ${markets.status} = 'open' AND ${markets.type} = ${mainType})`,
   )!;
 }
 

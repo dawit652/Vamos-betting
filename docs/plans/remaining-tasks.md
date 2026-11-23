@@ -1,12 +1,29 @@
 # Remaining tasks (read this first; updated 23 Nov 2026)
 
-**Newest (23 Nov, first account, after the 09:00 deploy): name learning**
-([name-learning.md](name-learning.md), owner said go for all four): L1 a mapped name is known from
-every source where the team plays (`decdf17`), L2 leagues by provider id, L3 guarded learning (no
-reserve, youth, women's or national team unless named; N4 needs two agreeing fixtures and is on in
-the compose; a daily alias check on Telegram), L4 `aliases export` / `import --skip-problems` and the
-deploy saving the mappings to `/root/vamos-backups/aliases/`. Not deployed. The next deploy needs
-`ALLOW_DROPPED_SETTINGS=1` again (the compose line of `SCRAPER_AUTO_ALIAS` changed to `on`).
+**Newest, 23 Nov late evening (first account, `claude/eager-cerf-ox9vkq`, pushed, not deployed):**
+both accounts' work is merged on this branch. The second account brings `claude/happy-keller-i7cvrh`
+up with `git fetch origin claude/eager-cerf-ox9vkq && git merge --ff-only FETCH_HEAD` before
+starting; one account at a time. The shop app is on since the 21:15 deploy of `26096ab`
+(`shop.nahubet.com` through the vamos tunnel: `/etc/cloudflared/config.yml` -> `127.0.0.1:3002`,
+`COMPOSE_PROFILES=shop` in the env file).
+
+- From the second account ([guest-slips-and-staff.md](guest-slips-and-staff.md), the owner's
+  request with Narobet samples): Football Today by default, no padlocked rows, visitor slip IDs
+  with the stake (migration 0085; the shop fills the stake in), agent owner "New password and
+  authenticator" (a generated password works until changed), the shop device page's clearer text.
+- From the first account: the shop app's requests are no longer refused ("Your session needs a
+  refresh") in a browser also signed in to the player site (`2a03e5a`: player auth skips `/shop`);
+  name learning ([name-learning.md](name-learning.md), owner said go for all four): L1 a mapped name
+  is known from every source where the team plays, L2 leagues by provider id, L3 guarded learning
+  (no reserve, youth, women's or national team unless named; N4 needs two agreeing fixtures and is
+  on in the compose; a daily alias check on Telegram), L4 `aliases export` /
+  `import --skip-problems` and the deploy saving the mappings to `/root/vamos-backups/aliases/`.
+- The owner deploys with the line under "Deploy" (this branch, with `ALLOW_DROPPED_SETTINGS=1`: the
+  `SCRAPER_AUTO_ALIAS` default changed to `on`, and the check compares with an old copy of the
+  compose file next to the env file, which deploys never update). Migration 0085 is new.
+- **Next:** GS4 Check coupon, GS5 several slips, GS6 the device's slip list, GS7 bet details, GS9
+  one admin enough (owner's answer pending: which actions keep a check), GS10 every financial figure
+  by period, then 4a/4b.
 
 **Deployed 23 Nov 09:00 (first account's session): `26096ab`**, smoke 13 passed. Next, the owner:
 E1 and the 24 odds sources (`docs/plans/feed-gaps-2026-11-23.md`, "E2 built"; the E1 command that
@@ -156,13 +173,16 @@ From the owner's PC (PowerShell), one line: it logs in, starts the deploy in the
 server and shows its log (Ctrl+C stops only the log, not the deploy):
 
 ```powershell
-ssh -t root@13.140.208.4 "cd /opt/nahubet && git fetch origin claude/happy-keller-i7cvrh && (nohup bash -c 'bash <(git show origin/claude/happy-keller-i7cvrh:infra/scripts/deploy-full.sh) claude/happy-keller-i7cvrh /opt/nahubet-new/infra/.env.prod vamos' > /root/deploy.log 2>&1 &) ; sleep 3 ; tail -f /root/deploy.log"
+ssh -t root@13.140.208.4 "cd /opt/nahubet && git fetch origin claude/eager-cerf-ox9vkq && (nohup bash -c 'ALLOW_DROPPED_SETTINGS=1 bash <(git show origin/claude/eager-cerf-ox9vkq:infra/scripts/deploy-full.sh) claude/eager-cerf-ox9vkq /opt/nahubet-new/infra/.env.prod vamos' > /root/deploy.log 2>&1 &) ; sleep 3 ; tail -f /root/deploy.log"
 ```
 
-The deploy backs up the database, applies the new migrations (0077 to 0084 after the live
-`69f71a8`), runs the smoke test and rolls back by itself if it fails. Nothing new to set in the env
-file; the switches `narobet_events` and `hulusport_pricing` stay off until the owner turns them on
-in the back office; Telegram alerts need `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_IDS`.
+The deploy backs up the database, applies the new migrations (0085 after the live `26096ab`),
+runs the smoke test and rolls back by itself if it fails. Nothing new to set in the env file; the
+switches `narobet_events`, `hulusport_pricing` and `apifootball_pricing` stay off until the owner
+turns them on in the back office; Telegram alerts need `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_OWNER_CHAT_IDS`. `ALLOW_DROPPED_SETTINGS=1` lets through the compose lines the branch
+changes on purpose; read the lines the deploy prints first (the check compares with an old copy of
+the compose file next to the env file, so the three feed defaults of 23 Nov show up every time).
 
 ## Next, in order
 

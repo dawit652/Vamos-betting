@@ -41,11 +41,14 @@ possible:
 7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
    `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
 8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
-   **Newest, 23 Nov evening:** shop app switched on (`shop.nahubet.com` through the vamos tunnel,
+   **Newest, 23 Nov late evening:** both accounts' work merged on `claude/eager-cerf-ox9vkq` (pushed,
+   not deployed; the second account fast-forwards `claude/happy-keller-i7cvrh` to it before starting):
+   the second account's GS1-GS3 and GS11 (below) and the first account's shop fix ("session needs a
+   refresh" when the browser is also signed in to the player site: player auth skips `/shop`) and
+   name learning L1-L4 (`docs/plans/name-learning.md`). Deploy line in `docs/plans/remaining-tasks.md`,
+   with `ALLOW_DROPPED_SETTINGS=1`. Shop app switched on (`shop.nahubet.com` through the vamos tunnel,
    `/etc/cloudflared/config.yml` -> 127.0.0.1:3002, `COMPOSE_PROFILES=shop`; deployed 21:15 as `26096ab`).
-   Pushed, not deployed (`claude/eager-cerf-ox9vkq`): the fix for "session needs a refresh" on the shop
-   app when the browser is also signed in to the player site (player auth skips `/shop`), and name
-   learning L1-L4 (`docs/plans/name-learning.md`); next deploy with `ALLOW_DROPPED_SETTINGS=1`.
+   **Next: GS4 Check coupon** (`docs/plans/guest-slips-and-staff.md`).
    **23 Nov (second account, deployed at 09:00 as `26096ab`):** the
    server ran `2b53c60` (everything below up to F4d is live). On top of it: a switched-off API is
    not read and its 15-minute "down" alert stops (mr-x with `hulusport_pricing` off); the player
@@ -56,7 +59,11 @@ possible:
    `apifootball_pricing` (Back office → Feed). Owner, 23 Nov: The Odds API stops when its bought
    credits end (about 27 Nov). **Next:** the owner deploys, runs E1 and the odds-sources command,
    enables them, and switches the prices on once the gap is small; then E3 (price expiry)
-   (`docs/plans/feed-gaps-2026-11-23.md`, "E2 built").
+   (`docs/plans/feed-gaps-2026-11-23.md`, "E2 built"). Also on 23 Nov: guest slips and staff plan
+   `docs/plans/guest-slips-and-staff.md` (GS1 Today default, GS2 no padlocked rows, GS11 agent
+   owner password reset until changed, device page text, GS3 visitor slip IDs with the stake,
+   migration 0085; **next: GS4 Check coupon**, then GS5-GS7, GS9-GS10 and 4a/4b). Next free
+   migration 0086.
    **Deployed 22 Nov 19:02:** `7a15b27` (licensed mode, smoke test 13 passed; migrations up to
    0084: everything listed below is now live; switches `narobet_events`, `narobet_pricing` and
    `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).

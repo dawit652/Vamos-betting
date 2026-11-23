@@ -3,6 +3,10 @@ import type { DbExecutor } from '../ledger/types';
 import { adminUsers } from '../schema/accounts';
 import {
   createStaffUser,
+  generateValidStaffPassword,
+  getStaffUser,
+  resetStaffPassword,
+  resetStaffTotp,
   type CreateStaffUserResult,
   type StaffAuthDeps,
 } from '../backoffice/staff-auth';
@@ -21,7 +25,7 @@ const ownerExists = () =>
 /**
  * Makes an agent's owner account (docs/plans/agent-shops.md, phase 1b step 1): role
  * `agent_owner`, the agent's owner name and phone, a generated password the owner must replace at
- * the first sign-in (it stops working after 72 hours otherwise) and an authenticator secret, both
+ * the first sign-in (it works until then: owner, 23 Nov 2026) and an authenticator secret, both
  * shown once. The account is linked to the agent in the same transaction. Owners sign in to the
  * shop app only (password and authenticator code), never to the back office. 404 for an unknown
  * agent, 409 `agent_is_house` for Nahubet HQ (its people are staff), 409 `agent_owner_exists` when
@@ -45,6 +49,8 @@ export async function createAgentOwnerAccount(
     displayName: agent.ownerName,
     role: 'agent_owner',
     phone: agent.ownerPhone,
+    // Owner, 23 Nov 2026: the generated password works until the owner changes it.
+    passwordUntilChanged: true,
     actor: { type: 'admin', adminId: input.adminId, ip: input.ip ?? null },
     inTransaction: async (tx, user) => {
       // Under the agent's row lock: two admins making an owner at once link exactly one.
@@ -129,4 +135,51 @@ export async function staffBlockedBy(exec: DbExecutor, staffId: string): Promise
     .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
     .limit(1);
   return row?.actorId ?? null;
+}
+
+export const AGENT_OWNER_SIGNIN_RESET = 'agent.owner_signin_reset';
+
+/**
+ * A new sign-in for an agent's owner (owner, 23 Nov 2026: "the system must generate and reset
+ * password for registered agents until they change to their password"): a generated password that
+ * works until the owner changes it at the first sign-in, and a new authenticator secret, both shown
+ * once. Clears a lockout and ends the owner's sessions. 404 for an unknown agent or one without an
+ * owner account. Audited on the agent (`agent.owner_signin_reset`) and on the account
+ * (`staff.password_reset`, `staff.totp_reset`).
+ */
+export async function resetAgentOwnerSignIn(
+  deps: StaffAuthDeps,
+  input: { agentId: string; adminId: string; ip?: string | null },
+): Promise<CreateStaffUserResult> {
+  const agent = await getAgent(deps.db, input.agentId);
+  if (agent === null) throw domainNotFound('Agent');
+  if (agent.ownerStaffId === null) throw domainNotFound('Owner account');
+  const owner = await getStaffUser(deps.db, agent.ownerStaffId);
+  if (owner === null) throw domainNotFound('Owner account');
+  const actor = { type: 'admin' as const, adminId: input.adminId, ip: input.ip ?? null };
+  const password = generateValidStaffPassword(deps.randomBytes, owner.email);
+  const user = await resetStaffPassword(deps, {
+    adminUserId: owner.id,
+    password,
+    actor,
+    untilChanged: true,
+  });
+  const totp = await deps.db.transaction(async (tx) => {
+    const enrolment = await resetStaffTotp(tx, deps, {
+      adminUserId: owner.id,
+      actor,
+      now: deps.clock(),
+    });
+    await writeAudit(tx, {
+      actorType: 'admin',
+      actorId: input.adminId,
+      action: AGENT_OWNER_SIGNIN_RESET,
+      targetType: 'agent',
+      targetId: agent.id,
+      metadata: { staffId: owner.id, email: owner.email },
+      ip: input.ip ?? null,
+    });
+    return enrolment;
+  });
+  return { user, generatedPassword: password, totp };
 }

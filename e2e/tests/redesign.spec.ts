@@ -176,7 +176,7 @@ test('Today has no day chips; Upcoming has 30 days, scrolled sideways, a day is 
 });
 
 test('starts-within chips toggle, and day chips are gone from Highlights', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?tab=highlights');
   await expect(page.getByRole('navigation', { name: 'Match day' })).toHaveCount(0);
   const within = page.getByRole('navigation', { name: 'Starts within' });
   await expect(within.getByRole('link')).toHaveText(['1h', '3h', '6h', '12h', '24h']);
@@ -243,7 +243,8 @@ test('football rows switch to double chance, and the pick lands on the slip', as
     .getByRole('navigation', { name: 'Match lists' })
     .getByRole('link', { name: 'Today' })
     .click();
-  await page.waitForURL(/tab=today.*market=dc/);
+  // Today is the default tab (owner, 23 Nov 2026): no tab in the URL, the market kept.
+  await page.waitForURL(/^(?!.*tab=).*market=dc/);
   await page.goto('/sport/basketball');
   await expect(page.getByRole('navigation', { name: 'Market' })).toHaveCount(0);
 });

@@ -6,7 +6,8 @@ import { isCalendarDate, isEventDayInRange } from '@vamos/contracts';
  */
 export const LIST_TABS = ['highlights', 'today', 'upcoming', 'leagues'] as const;
 export type ListTab = (typeof LIST_TABS)[number];
-export const DEFAULT_TAB: ListTab = 'highlights';
+/** The site opens on Today (owner, 23 Nov 2026: "the default screen should be football-today"). */
+export const DEFAULT_TAB: ListTab = 'today';
 
 type SearchValue = string | string[] | undefined;
 

@@ -300,6 +300,32 @@ function OwnerAccount({
     }
   };
 
+  // Owner, 23 Nov 2026: the system generates a new password (working until the owner changes it)
+  // and a new authenticator, shown once.
+  const resetSignIn = async () => {
+    if (
+      !window.confirm(
+        'Give the owner a new password and authenticator? The old ones stop working at once.',
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await api<CreateAgentOwnerResponse>(
+        `/admin/agents/${agent.id}/owner-account/reset`,
+        { method: 'POST' },
+      );
+      setCreated(response);
+      onChanged();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <h2>Owner account</h2>
@@ -331,6 +357,22 @@ function OwnerAccount({
               <Badge value="Disabled" tone="bad" />
             </p>
           )}
+          {manage && (
+            <p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void resetSignIn()}
+                data-testid="owner-reset-signin"
+              >
+                New password and authenticator
+              </button>{' '}
+              <span className="muted small">
+                Shown once. The old password and authenticator stop working.
+              </span>
+            </p>
+          )}
+          {error !== null && <Notice>{error}</Notice>}
         </section>
       ) : (
         manage && (
@@ -363,8 +405,9 @@ function OwnerAccount({
       )}
       {!agent.isHouse && (
         <p className="muted small">
-          The owner signs in to the shop app with this email, the password and the authenticator
-          code. The password stops working after 72 hours unless it is changed at the first sign-in.
+          The owner signs in to the shop app (https://shop.nahubet.com/login) with this email, the
+          password and the authenticator code; owners do not register a device (that is for
+          cashiers). A generated password works until the owner changes it at the first sign-in.
         </p>
       )}
     </>

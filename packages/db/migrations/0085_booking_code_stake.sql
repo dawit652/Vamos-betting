@@ -1,0 +1,2 @@
+ALTER TABLE "booking_codes" ADD COLUMN "stake" bigint;--> statement-breakpoint
+ALTER TABLE "booking_codes" ADD CONSTRAINT "booking_codes_stake_positive" CHECK ("booking_codes"."stake" IS NULL OR "booking_codes"."stake" > 0);

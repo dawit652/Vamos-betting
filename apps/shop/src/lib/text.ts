@@ -17,6 +17,8 @@ export const TEXT = {
   registerDeviceLink: 'Register this device',
 
   registerTitle: 'Register this device · መሣሪያን መመዝገብ',
+  registerIntro:
+    "For cashiers only: sign in with the cashier's own email and password. Agent owners do not register a device (they sign in with the authenticator code), and admins use the back office.",
   deviceName: 'Device name · የመሣሪያ ስም',
   deviceNamePlaceholder: 'Counter PC 1',
   registerButton: 'Ask for approval · ፈቃድ ጠይቅ',
@@ -30,7 +32,8 @@ export const TEXT = {
     agent_blocked: 'This agent is blocked. Ask the head office.',
     shop_inactive: 'This shop is closed. Ask an admin to reopen it.',
     invalid_device_label: 'Give the device a short name, up to 60 characters.',
-    invalid_credentials: 'Wrong email or password.',
+    invalid_credentials:
+      "Wrong email or password, or not a cashier's account. Only a cashier's account registers a device.",
   } as Readonly<Record<string, string>>,
 
   passwordTitle: 'Choose a new password · አዲስ የይለፍ ቃል',
