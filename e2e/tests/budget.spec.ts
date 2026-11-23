@@ -28,9 +28,14 @@ import { expect, test } from '@playwright/test';
  * CAF...: 4.6 KB of images in 2 requests, 64 px files) and the featured row of big matches
  * (small cards instead of one poster): measured 166.6 KB = JS 132.9 + HTML 19.3 + CSS 8.2 +
  * images 4.6, in 16 requests.
+ * Raised to 171 KB on 23 Nov 2026 for the owner's country flags on the first screen (league rows
+ * and the minimized sidebar, 22 Nov; they load lazily, so only the visible ones count): images 7.8
+ * KB in 17 requests, measured 169.2 KB = JS 133.3 + HTML 18.0 + CSS 8.5 + images 7.8. The visitor
+ * slip ID (GS3) and Check coupon (GS4) load with the betslip, not with the page, and Check coupon's
+ * texts are sent only on /ticket (withoutTicketCheckMessages).
  */
 const TARGET_BYTES = 150 * 1024;
-const BUDGET_BYTES = 168 * 1024; // measured 166.6 KB (17 Nov 2026, logos and featured row): 1.4 KB of room
+const BUDGET_BYTES = 171 * 1024; // measured 169.2 KB (23 Nov 2026, country flags): 1.8 KB of room
 
 interface Transfer {
   url: string;

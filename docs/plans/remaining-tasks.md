@@ -20,7 +20,9 @@ starting; one account at a time. The shop app is on since the 21:15 deploy of `2
   `import --skip-problems` and the deploy saving the mappings to `/root/vamos-backups/aliases/`.
 - GS4 Check coupon (first account, after the merge): Load coupon and Check coupon at the top of the
   betslip; `/ticket` checks a slip ID (awaiting payment, sold, expired; never the ticket) or a
-  ticket number; migration 0086 (an index for it).
+  ticket number; migration 0086 (an index for it). End-to-end on the merge: 46 of 49 passed, 1
+  skipped; `cashier.spec.ts` (shop code payout) timed out once under the full run's load and passed
+  alone; the page budget is 171 KB now (the owner's country flags, `e2e/tests/budget.spec.ts`).
 - The owner deploys with the line under "Deploy" (this branch, with `ALLOW_DROPPED_SETTINGS=1`: the
   `SCRAPER_AUTO_ALIAS` default changed to `on`, and the check compares with an old copy of the
   compose file next to the env file, which deploys never update). Migrations 0085 and 0086 are new.

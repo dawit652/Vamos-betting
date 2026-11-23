@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { StaticPage } from '@/components/account/StaticPage';
 import { TicketCheck } from '@/components/ticket/TicketCheck';
+import { ClientMessages } from '@/i18n/ClientMessages';
 import { getT } from '@/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -22,7 +23,10 @@ export default async function TicketCheckPage(props: PageProps<'/ticket'>) {
   const [searchParams, t] = await Promise.all([props.searchParams, getT()]);
   return (
     <StaticPage title={t('common.ticketCheck.title')} intro={t('common.ticketCheck.intro')}>
-      <TicketCheck initial={firstValue(searchParams.number)} />
+      {/* The root layout leaves Check coupon's texts out of every other page. */}
+      <ClientMessages namespaces={['common']}>
+        <TicketCheck initial={firstValue(searchParams.number)} />
+      </ClientMessages>
     </StaticPage>
   );
 }

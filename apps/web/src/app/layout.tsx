@@ -8,7 +8,7 @@ import { Footer } from '@/components/shell/Footer';
 import { Header } from '@/components/shell/Header';
 import { NavigationProgress } from '@/components/shell/NavigationProgress';
 import { pickNamespaces } from '@/i18n/ClientMessages';
-import { withoutBetslipMessages } from '@/i18n/subsets';
+import { withoutBetslipMessages, withoutTicketCheckMessages } from '@/i18n/subsets';
 import { getLocale, getMessages } from '@/i18n/server';
 import { CSRF_COOKIE, parseTheme, THEME_COLORS, THEME_COOKIE } from '@/lib/cookies';
 import { IS_DEMO } from '@/lib/mode';
@@ -75,7 +75,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       >
         <AppProviders
           locale={locale}
-          messages={withoutBetslipMessages(pickNamespaces(messages, ROOT_CLIENT_NAMESPACES))}
+          messages={withoutTicketCheckMessages(
+            withoutBetslipMessages(pickNamespaces(messages, ROOT_CLIENT_NAMESPACES)),
+          )}
           hasSessionCookie={cookieStore.has(CSRF_COOKIE)}
         >
           <Suspense fallback={null}>
