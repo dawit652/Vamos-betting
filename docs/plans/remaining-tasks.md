@@ -144,7 +144,7 @@ From the owner's PC (PowerShell), one line: it logs in, starts the deploy in the
 server and shows its log (Ctrl+C stops only the log, not the deploy):
 
 ```powershell
-ssh -t root@13.140.208.4 "cd /opt/nahubet && git fetch origin claude/eager-cerf-ox9vkq && (nohup bash -c 'bash <(git show origin/claude/eager-cerf-ox9vkq:infra/scripts/deploy-full.sh) claude/eager-cerf-ox9vkq /opt/nahubet-new/infra/.env.prod vamos' > /root/deploy.log 2>&1 &) ; sleep 3 ; tail -f /root/deploy.log"
+ssh -t root@13.140.208.4 "cd /opt/nahubet && git fetch origin claude/happy-keller-i7cvrh && (nohup bash -c 'bash <(git show origin/claude/happy-keller-i7cvrh:infra/scripts/deploy-full.sh) claude/happy-keller-i7cvrh /opt/nahubet-new/infra/.env.prod vamos' > /root/deploy.log 2>&1 &) ; sleep 3 ; tail -f /root/deploy.log"
 ```
 
 The deploy backs up the database, applies the new migrations (0077 to 0084 after the live
