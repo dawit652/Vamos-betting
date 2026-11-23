@@ -653,6 +653,25 @@ Built and switched off. Deploy and switch-on steps, the ETB 20,000 cap per match
 for Hulusport-only and Narobet-only matches") and what to do with results waiting for a person:
 [docs/plans/narobet-events.md](plans/narobet-events.md), "Deploy and switch on" and "Running it".
 
+## Switches, alerts and efficient feed defaults (owner, 23 Nov 2026)
+
+- **A board switched off is not read and raises no alert.** With `hulusport_pricing` off, the
+  scraper does not call mr-x at all. With both `narobet_pricing` and `narobet_events` off, it does
+  not read mr-z's board; the results cross-check of Narobet-only matches goes on.
+- **The "is down" Telegram alert (every 15 minutes) stops at once** for a service that is switched
+  off. That covers a board as above, a feed source switched off in Back office → Feed, and a payment
+  provider not in `PAYMENT_PROVIDERS`. Its health is forgotten, so switching it on again starts
+  clean. Back office → Service health shows it as "Switched off (no alerts)".
+- **Player lists show only matches that can be bet on:** betting open and at least one market open.
+  A match closed for a person to check, or with all its prices suspended, leaves the lists and the
+  counts until it opens again; its own page still opens by link.
+- **Efficient scraper defaults** in `infra/docker-compose.prod.yml`. A value in `.env.prod` still
+  wins.
+  - `SCRAPER_HALF_TIME_MARKETS=covered`: half-time markets only where a source gives the half time.
+  - `SCRAPER_SKIP_REDUNDANT_SCORES=on`: no third scores read, which saves The Odds API credits.
+  - `SCRAPER_CAP_AT_BEST_PRICE=on`: never above the best bookmaker price.
+- Findings and the rest of the plan: [docs/plans/feed-gaps-2026-11-23.md](plans/feed-gaps-2026-11-23.md).
+
 ## Competition logos and Top leagues (owner's choice, 16 Nov 2026)
 
 - **Top leagues: a fixed list.** The desktop left column and the phone "Top leagues" panel (the

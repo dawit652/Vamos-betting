@@ -1,6 +1,7 @@
 import {
   fillBoardCategoryCountries,
   findEventByTeams,
+  getBoardPricing,
   reportServiceFailure,
   reportServiceOk,
   upsertBoardOdds,
@@ -191,7 +192,19 @@ export async function readHulusportBoard(
   return summary;
 }
 
-/** The interval task, or null when SCRAPER_HULUSPORT_URL is not set. */
+/**
+ * Whether mr-x is read at all: only while the back office switch `hulusport_pricing` is on (owner,
+ * 23 Nov 2026: an API switched off is not called and raises no alert). Off, nothing would use the
+ * board anyway: no price and no Hulusport-only match is made from it.
+ */
+export async function hulusportReadWanted(ctx: Pick<ScraperContext, 'db'>): Promise<boolean> {
+  return (await getBoardPricing(ctx.db, 'hulusport')).enabled;
+}
+
+/**
+ * The interval task, or null when SCRAPER_HULUSPORT_URL is not set. While `hulusport_pricing` is
+ * off it does not call mr-x; it only closes the stale prices of Hulusport-only matches.
+ */
 export function hulusportTask(ctx: ScraperContext): IntervalTask | null {
   const { url, intervalMs } = ctx.config.scraper.hulusport;
   if (url === null) return null;
@@ -200,6 +213,7 @@ export function hulusportTask(ctx: ScraperContext): IntervalTask | null {
     intervalMs,
     run: async () => {
       try {
+        if (!(await hulusportReadWanted(ctx))) return;
         await readHulusportBoard(ctx);
       } catch (error) {
         await reportServiceFailure(ctx.db, 'mrx', ctx.clock(), (error as Error).message);

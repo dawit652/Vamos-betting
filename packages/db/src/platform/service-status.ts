@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { DbExecutor } from '../ledger/types';
 import { serviceStatus } from '../schema/platform';
 import { scrapeRuns, scrapeSources } from '../schema/scrape';
+import { getBoardPricing, getNarobetEvents } from '../scrape/board-odds';
 
 /**
  * The health of the services Nahubet depends on (table service_status, docs/plans/
@@ -81,6 +82,86 @@ export async function listServiceStatus(exec: DbExecutor): Promise<ServiceStatus
     })
     .from(serviceStatus)
     .orderBy(serviceStatus.service);
+}
+
+/**
+ * Which of `services` are switched off (owner, 23 Nov 2026: "when an API is switched off in the
+ * settings, its frequent Telegram alert must stop"). A switched-off service is neither watched nor
+ * alerted about, and its health is forgotten (resetServiceHealth), so switching it on again starts
+ * clean instead of with an old outage:
+ *
+ * - `mrx` while the back office switch `hulusport_pricing` is off (the scraper then does not read
+ *   mr-x at all);
+ * - `mrz` while both `narobet_pricing` and `narobet_events` are off (nor mr-z's board);
+ * - `source:<id>` while that feed source is switched off;
+ * - `payments:<name>` while the provider is not in PAYMENT_PROVIDERS (`paymentProviders`).
+ */
+export async function servicesSwitchedOff(
+  exec: DbExecutor,
+  services: readonly string[],
+  options: { paymentProviders: readonly string[] },
+): Promise<Set<string>> {
+  const off = new Set<string>();
+  if (services.includes('mrx') && !(await getBoardPricing(exec, 'hulusport')).enabled) {
+    off.add('mrx');
+  }
+  if (
+    services.includes('mrz') &&
+    !(await getBoardPricing(exec, 'narobet')).enabled &&
+    !(await getNarobetEvents(exec)).enabled
+  ) {
+    off.add('mrz');
+  }
+  const sourceIds = services
+    .filter((service) => service.startsWith('source:'))
+    .map((service) => service.slice('source:'.length));
+  if (sourceIds.length > 0) {
+    const enabled = await exec
+      .select({ id: scrapeSources.id })
+      .from(scrapeSources)
+      .where(and(inArray(scrapeSources.id, sourceIds), eq(scrapeSources.enabled, true)));
+    const on = new Set(enabled.map((row) => row.id));
+    for (const id of sourceIds) if (!on.has(id)) off.add(`source:${id}`);
+  }
+  for (const service of services) {
+    if (
+      service.startsWith('payments:') &&
+      !options.paymentProviders.includes(service.slice('payments:'.length))
+    ) {
+      off.add(service);
+    }
+  }
+  return off;
+}
+
+/**
+ * Forgets a switched-off service's health (last success, failure and the outage alerted), so it
+ * reads "not reported yet" until it reports again. True when there was something to forget.
+ */
+export async function resetServiceHealth(
+  exec: DbExecutor,
+  service: string,
+  at: Date,
+): Promise<boolean> {
+  const rows = await exec
+    .update(serviceStatus)
+    .set({
+      lastOkAt: null,
+      failingSince: null,
+      lastFailureAt: null,
+      lastError: null,
+      alertedDownSince: null,
+      updatedAt: at,
+    })
+    .where(
+      and(
+        eq(serviceStatus.service, service),
+        sql`(${serviceStatus.lastOkAt} IS NOT NULL OR ${serviceStatus.failingSince} IS NOT NULL
+          OR ${serviceStatus.lastFailureAt} IS NOT NULL OR ${serviceStatus.alertedDownSince} IS NOT NULL)`,
+      ),
+    )
+    .returning({ service: serviceStatus.service });
+  return rows.length > 0;
 }
 
 /** Records the outage the owner was told about (or none: null), creating the row if needed. */

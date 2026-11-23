@@ -4,7 +4,13 @@ import {
   SERVICE_STALE_AFTER_MS as STALE_AFTER_MS,
   serviceHealth,
 } from '@vamos/core';
-import { listServiceStatus, setServiceAlerted, sourceRunReports } from '@vamos/db';
+import {
+  listServiceStatus,
+  resetServiceHealth,
+  servicesSwitchedOff,
+  setServiceAlerted,
+  sourceRunReports,
+} from '@vamos/db';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import { raiseOwnerAlert } from '../lib/owner-alert';
 import type { TaskContext } from './context';
@@ -17,6 +23,8 @@ export const SERVICE_HEALTH_INTERVAL_MS = 60_000;
 export interface ServiceHealthSummary {
   down: string[];
   recovered: string[];
+  /** Switched off in the back office or not used here: not watched (servicesSwitchedOff). */
+  off: string[];
 }
 
 /**
@@ -25,10 +33,14 @@ export interface ServiceHealthSummary {
  * last runs). A service down for SERVICE_DOWN_AFTER_MS raises `service_down`, which reaches the
  * owner's Telegram every 15 minutes while it lasts (OWNER_ALERT_POLICY); when it works again,
  * `service_recovered` once. Each new outage is one `error` line with an `alarm` field.
+ *
+ * A service switched off (owner, 23 Nov 2026: mr-x with `hulusport_pricing` off, mr-z with both
+ * Narobet switches off, a feed source switched off, a payment provider not in PAYMENT_PROVIDERS)
+ * is skipped: no alert at all, its health forgotten, so the 15-minute "down" alert stops at once.
  */
 export async function runServiceHealth(ctx: TaskContext): Promise<ServiceHealthSummary> {
   const now = ctx.clock();
-  const summary: ServiceHealthSummary = { down: [], recovered: [] };
+  const summary: ServiceHealthSummary = { down: [], recovered: [], off: [] };
   const rows = await listServiceStatus(ctx.db);
   const known = new Map(rows.map((row) => [row.service, row]));
   const reports = rows.map((row) => ({
@@ -52,7 +64,19 @@ export async function runServiceHealth(ctx: TaskContext): Promise<ServiceHealthS
     if (index === -1) reports.push(report);
     else reports[index] = report;
   }
+  const off = await servicesSwitchedOff(
+    ctx.db,
+    reports.map((r) => r.service),
+    { paymentProviders: ctx.payments.names },
+  );
   for (const r of reports) {
+    if (off.has(r.service)) {
+      summary.off.push(r.service);
+      if (await resetServiceHealth(ctx.db, r.service, now)) {
+        ctx.logger.info({ service: r.service }, 'service switched off: not watched, no alerts');
+      }
+      continue;
+    }
     const staleAfterMs = STALE_AFTER_MS[r.service];
     const health = serviceHealth(r, now, staleAfterMs === undefined ? {} : { staleAfterMs });
     if (health.status === 'down') {

@@ -12,8 +12,13 @@ import { formatDateTime } from '@/lib/format';
  * Refreshes every minute.
  */
 
-const TONE = { up: 'good', down: 'bad', unknown: 'muted' } as const;
-const WORD = { up: 'Up', down: 'Down', unknown: 'Not reported yet' } as const;
+const TONE = { up: 'good', down: 'bad', unknown: 'muted', off: 'muted' } as const;
+const WORD = {
+  up: 'Up',
+  down: 'Down',
+  unknown: 'Not reported yet',
+  off: 'Switched off (no alerts)',
+} as const;
 
 export default function ServiceHealthPage() {
   const view = useFetch<ServiceHealthResponse>('/admin/service-health');

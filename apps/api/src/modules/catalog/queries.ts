@@ -114,14 +114,32 @@ function liveNow(now: Date): SQL {
 }
 
 /**
- * Scheduled and starting in [from, to), or live now. `from` is the present: a scheduled match
- * whose kick-off has passed is not listed (it cannot be bet on, and API-Football never reports
- * in-play, so it would stay until its result arrived: owner, 23 Nov 2026).
+ * A scheduled match is listed (and counted) only while it can be bet on: betting open and at
+ * least one market open (owner, 23 Nov 2026: lists full of padlocks). A match closed for a person
+ * to check, or whose prices are all suspended, comes back by itself once it opens; its own page
+ * (by link) still shows it.
+ */
+function openForBetting(): SQL {
+  return and(
+    eq(events.bettingOpen, true),
+    sql`EXISTS (SELECT 1 FROM ${markets} WHERE ${markets.eventId} = ${events.id} AND ${markets.status} = 'open')`,
+  )!;
+}
+
+/**
+ * Scheduled, open for betting and starting in [from, to), or live now. `from` is the present: a
+ * scheduled match whose kick-off has passed is not listed (it cannot be bet on, and API-Football
+ * never reports in-play, so it would stay until its result arrived: owner, 23 Nov 2026).
  */
 function liveOrStartingBetween(from: Date, to: Date): SQL {
   return or(
     liveNow(from),
-    and(eq(events.status, 'scheduled'), gte(events.startTime, from), lt(events.startTime, to)),
+    and(
+      eq(events.status, 'scheduled'),
+      openForBetting(),
+      gte(events.startTime, from),
+      lt(events.startTime, to),
+    ),
   )!;
 }
 
@@ -404,6 +422,7 @@ function filterCondition(query: EventListQuery, now: Date, featuredOnly = true):
         )!
       : and(
           eq(events.status, 'scheduled'),
+          openForBetting(),
           gte(events.startTime, now > start ? now : start),
           lt(events.startTime, end),
         )!;
@@ -425,6 +444,7 @@ function filterCondition(query: EventListQuery, now: Date, featuredOnly = true):
     case 'upcoming':
       return and(
         eq(events.status, 'scheduled'),
+        openForBetting(),
         gte(events.startTime, now),
         lt(events.startTime, new Date(now.getTime() + UPCOMING_WINDOW_MS)),
       )!;

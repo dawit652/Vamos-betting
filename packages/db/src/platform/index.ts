@@ -19,6 +19,8 @@ export {
   recordServiceOk,
   reportServiceFailure,
   reportServiceOk,
+  resetServiceHealth,
+  servicesSwitchedOff,
   setServiceAlerted,
   sourceRunReports,
   type ServiceStatusRow,

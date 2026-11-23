@@ -1,6 +1,8 @@
 import {
   boardOddsTimes,
   findEventByTeams,
+  getBoardPricing,
+  getNarobetEvents,
   reportServiceFailure,
   reportServiceOk,
   upsertBoardOdds,
@@ -196,7 +198,21 @@ export async function mrzPollerProblem(
   }
 }
 
-/** The interval task, or null when SCRAPER_NAROBET_URL is not set. */
+/**
+ * Whether mr-z's board is read: while `narobet_pricing` or `narobet_events` is on (owner, 23 Nov
+ * 2026: an API switched off is not called and raises no alert). The results cross-check of
+ * Narobet-only matches reads mr-z's stored results apart (board-results.ts) and goes on.
+ */
+export async function narobetReadWanted(ctx: Pick<ScraperContext, 'db'>): Promise<boolean> {
+  return (
+    (await getBoardPricing(ctx.db, 'narobet')).enabled || (await getNarobetEvents(ctx.db)).enabled
+  );
+}
+
+/**
+ * The interval task, or null when SCRAPER_NAROBET_URL is not set. While both Narobet switches are
+ * off it does not call mr-z; it only closes the stale prices of Narobet-only matches.
+ */
 export function narobetTask(ctx: ScraperContext): IntervalTask | null {
   const { url, intervalMs } = ctx.config.scraper.narobet;
   if (url === null) return null;
@@ -205,6 +221,7 @@ export function narobetTask(ctx: ScraperContext): IntervalTask | null {
     intervalMs,
     run: async () => {
       try {
+        if (!(await narobetReadWanted(ctx))) return;
         await readNarobetBoard(ctx);
         // mr-z's health (service-health task, docs/plans/counter-codes-and-deposit-recovery.md G7).
         const problem = await mrzPollerProblem(ctx);

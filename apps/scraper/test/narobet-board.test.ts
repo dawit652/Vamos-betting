@@ -11,7 +11,8 @@ import { priceEvent } from '../src/pipeline/event-pricing';
 import { promoteFixtures } from '../src/pipeline/promote-fixtures';
 import { sweepNarobetEvents } from '../src/pipeline/board-events';
 import { runNarobetResults } from '../src/tasks/board-results';
-import { readNarobetBoard } from '../src/tasks/narobet';
+import { hulusportReadWanted } from '../src/tasks/hulusport';
+import { narobetReadWanted, readNarobetBoard } from '../src/tasks/narobet';
 import {
   ARSENAL_CHELSEA_JSON,
   ARSENAL_CHELSEA_OF,
@@ -485,6 +486,31 @@ describe('Narobet-only results', () => {
       });
       h.advance(16 * MINUTE);
       expect((await runNarobetResults(h.ctx, async () => null)).applied).toBe(0);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'a board is read only while one of its switches is on (owner, 23 Nov 2026)',
+    async () => {
+      h = await createHarness({ narobetUrl: MRZ });
+      const pricing = (board: 'hulusport' | 'narobet', enabled: boolean) =>
+        h.ctx.db.transaction((tx) => setBoardPricing(tx, board, enabled, actor));
+      const events = (enabled: boolean) =>
+        h.ctx.db.transaction((tx) => setNarobetEvents(tx, { enabled }, actor));
+      // Every switch is off by default: neither mr-x nor mr-z is called.
+      expect(await hulusportReadWanted(h.ctx)).toBe(false);
+      expect(await narobetReadWanted(h.ctx)).toBe(false);
+      await pricing('hulusport', true);
+      expect(await hulusportReadWanted(h.ctx)).toBe(true);
+      // mr-z: either Narobet switch is enough.
+      await events(true);
+      expect(await narobetReadWanted(h.ctx)).toBe(true);
+      await events(false);
+      await pricing('narobet', true);
+      expect(await narobetReadWanted(h.ctx)).toBe(true);
+      await pricing('narobet', false);
+      expect(await narobetReadWanted(h.ctx)).toBe(false);
     },
     TEST_TIMEOUT,
   );

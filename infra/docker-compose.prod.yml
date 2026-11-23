@@ -120,12 +120,15 @@ x-app-env: &app-env
   SCRAPER_MAX_CONCURRENCY: '${SCRAPER_MAX_CONCURRENCY:-4}'
   SCRAPER_RESULT_CONFIRM_MINUTES: '${SCRAPER_RESULT_CONFIRM_MINUTES:-15}'
   SCRAPER_MIN_RATING_MATCHES: '${SCRAPER_MIN_RATING_MATCHES:-8}'
-  # Feed-quality switches (docs/scraper-operations.md); the defaults keep the behaviour before them.
-  SCRAPER_HALF_TIME_MARKETS: '${SCRAPER_HALF_TIME_MARKETS:-all}'
+  # Feed-quality switches (docs/scraper-operations.md).
+  # Efficient defaults (owner, 23 Nov 2026; docs/plans/feed-gaps-2026-11-23.md): half-time markets
+  # only where a source gives the half time, no third scores read, prices capped at the best book.
+  # A value in .env.prod still wins.
+  SCRAPER_HALF_TIME_MARKETS: '${SCRAPER_HALF_TIME_MARKETS:-covered}'
   SCRAPER_AUTO_ALIAS: '${SCRAPER_AUTO_ALIAS:-off}'
   SCRAPER_PRIORITY_COMPETITIONS: '${SCRAPER_PRIORITY_COMPETITIONS:-}'
-  SCRAPER_SKIP_REDUNDANT_SCORES: '${SCRAPER_SKIP_REDUNDANT_SCORES:-off}'
-  SCRAPER_CAP_AT_BEST_PRICE: '${SCRAPER_CAP_AT_BEST_PRICE:-off}'
+  SCRAPER_SKIP_REDUNDANT_SCORES: '${SCRAPER_SKIP_REDUNDANT_SCORES:-on}'
+  SCRAPER_CAP_AT_BEST_PRICE: '${SCRAPER_CAP_AT_BEST_PRICE:-on}'
   SCRAPER_PRICE_EXPIRY_MINUTES: '${SCRAPER_PRICE_EXPIRY_MINUTES:-0}'
   SCRAPER_FACTORY_MARKETS: '${SCRAPER_FACTORY_MARKETS:-off}'
   # The mr-x board of Hulusport prices (docs/plans/hulusport-feed.md); empty: not read.

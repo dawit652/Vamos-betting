@@ -1,5 +1,11 @@
 import type { OwnerAlertsConfig } from '@vamos/config';
-import { OWNER_ALERT, recordServiceFailure, recordServiceOk, schema } from '@vamos/db';
+import {
+  OWNER_ALERT,
+  recordServiceFailure,
+  recordServiceOk,
+  schema,
+  setBoardPricing,
+} from '@vamos/db';
 import { and, asc, eq, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { TaskContext } from '../src/tasks/context';
@@ -120,8 +126,53 @@ describe('service health', () => {
         'test-provider works again, after 18 min down.',
       );
       t.clock.advance(20 * MINUTE);
-      expect(await runServiceHealth(ctx)).toEqual({ down: [], recovered: [] });
+      expect(await runServiceHealth(ctx)).toEqual({ down: [], recovered: [], off: [] });
       expect(await alertRows('service_down|test-provider')).toHaveLength(2);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'a service switched off raises nothing more, at once, and starts clean when switched on',
+    async () => {
+      const ctx = ctxWith();
+      const SYSTEM = { system: 'test' };
+      const hulusport = (enabled: boolean) =>
+        t.db.db.transaction((tx) => setBoardPricing(tx, 'hulusport', enabled, SYSTEM));
+      const t0 = new Date('2026-11-23T10:00:00Z');
+      t.clock.set(t0);
+      await hulusport(true);
+      await recordServiceFailure(t.db.db, 'mrx', t0, 'mr-x has not read Hulusport lately');
+      // A payment provider this deployment does not use (PAYMENT_PROVIDERS) is never watched.
+      await recordServiceFailure(t.db.db, 'payments:chapa', t0, 'HTTP 503');
+      t.clock.advance(4 * MINUTE);
+      const first = await runServiceHealth(ctx);
+      expect(first.down).toContain('mrx');
+      expect(first.off).toContain('payments:chapa');
+      expect(await alertRows('service_down|mr-x')).toHaveLength(1);
+      expect(await alertRows('service_down|Chapa')).toHaveLength(0);
+
+      // The owner switches Hulusport off: no "down" and no "works again", and its health is forgotten.
+      await hulusport(false);
+      t.clock.advance(15 * MINUTE);
+      const off = await runServiceHealth(ctx);
+      expect(off.down).not.toContain('mrx');
+      expect(off.recovered).toEqual([]);
+      expect(off.off).toContain('mrx');
+      expect(await alertRows('service_down|mr-x')).toHaveLength(1);
+      expect(await alertRows('service_recovered|mr-x')).toHaveLength(0);
+      const [row] = await t.db.db
+        .select()
+        .from(schema.serviceStatus)
+        .where(eq(schema.serviceStatus.service, 'mrx'));
+      expect(row).toMatchObject({ lastOkAt: null, failingSince: null, alertedDownSince: null });
+
+      // Switched on again: "not reported yet" until mr-x is read, so the old outage is not alerted.
+      await hulusport(true);
+      t.clock.advance(MINUTE);
+      expect((await runServiceHealth(ctx)).down).not.toContain('mrx');
+      expect(await alertRows('service_down|mr-x')).toHaveLength(1);
+      await hulusport(false);
     },
     TEST_TIMEOUT,
   );

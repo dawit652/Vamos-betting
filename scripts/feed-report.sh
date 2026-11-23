@@ -167,6 +167,17 @@ select status, count(*), to_char(max(last_seen_at), 'MM-DD HH24:MI') as latest f
 \else
 \echo (not on this server yet)
 \endif
+\echo ===== 37. Open bets waiting on matches 3 hours past kickoff with no result, by feed (stake in ETB; a bet with legs in two feeds counts in both)
+with waiting as (
+  select b.id as bet_id, b.stake, e.id as event_id, e.feed_provider, e.start_time
+  from bets b join bet_legs l on l.bet_id = b.id join events e on e.id = l.event_id
+  where b.status::text = 'open' and e.resulted_at is null and e.start_time < now() - interval '3 hours'
+)
+select w.feed_provider, count(distinct w.event_id) as matches, count(distinct w.bet_id) as open_bets,
+  (select round(sum(s.stake) / 100.0, 2) from (select distinct x.bet_id, x.stake from waiting x
+    where x.feed_provider = w.feed_provider) s) as stake_etb,
+  to_char(min(w.start_time), 'MM-DD') as oldest_kickoff
+from waiting w group by w.feed_provider order by 3 desc;
 SQL
 echo "===== 15. Warnings and errors in the scraper and worker logs (last 24 hours, newest 25)"
 docker compose logs --since 24h --no-color scraper worker 2>&1 | grep -E '"level":(40|50)|[Ee]rror' | tail -25 | cut -c1-230

@@ -41,6 +41,12 @@ possible:
 7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
    `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
 8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
+   **Newest, 23 Nov (second account, `claude/happy-keller-i7cvrh`, pushed, not deployed):** the
+   server ran `2b53c60` (everything below up to F4d is live). On top of it: a switched-off API is
+   not read and its 15-minute "down" alert stops (mr-x with `hulusport_pricing` off); the player
+   lists show only matches that can be bet on; efficient compose defaults (half time covered, no
+   third scores read, cap at best price); feed report section 37; plan
+   `docs/plans/feed-gaps-2026-11-23.md` (Odds API exit E1-E5, decisions O-F1, O-F3, O-F4).
    **Deployed 22 Nov 19:02:** `7a15b27` (licensed mode, smoke test 13 passed; migrations up to
    0084: everything listed below is now live; switches `narobet_events`, `narobet_pricing` and
    `hulusport_pricing` off; BotFather `/setcommands` needs `deposit - Deposit problem`).
@@ -50,7 +56,7 @@ possible:
    auto-open `held` counts, rule F4d (kickoff disagreements: the earliest fresh kickoff). **Next:**
    4a / 4b of the review queue plan once the owner deploys and reruns the study
    (`docs/plans/review-queue-automation.md`; steps 1-3 and 4-diagnostics built); handover of 23 Nov
-   at the top of `docs/plans/remaining-tasks.md`. Newest branch `claude/eager-cerf-ox9vkq`.
+   at the top of `docs/plans/remaining-tasks.md`. Newest branch `claude/happy-keller-i7cvrh`.
    Two branch names hold the same work: `claude/eager-cerf-ox9vkq` (first account) and
    `claude/happy-keller-i7cvrh` (second account); before starting, bring yours up to the other if
    it is ahead (`git fetch origin <other> && git merge --ff-only FETCH_HEAD`). Built: agent shops

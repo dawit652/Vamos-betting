@@ -121,7 +121,8 @@ export const ServiceHealthResponse = z.object({
     z.object({
       service: z.string(),
       name: z.string(),
-      status: z.enum(['up', 'down', 'unknown']),
+      /** `off`: switched off in the back office or not used here, so not watched. */
+      status: z.enum(['up', 'down', 'unknown', 'off']),
       /** Down since (null unless down). */
       since: IsoDateTime.nullable(),
       lastOkAt: IsoDateTime.nullable(),

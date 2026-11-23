@@ -1,5 +1,16 @@
 # Remaining tasks (read this first; updated 23 Nov 2026)
 
+**Newest (23 Nov, second account):** `claude/happy-keller-i7cvrh` holds the first account's work
+(merged at `2b53c60`, which the server runs) plus S1-S3 of `docs/plans/feed-gaps-2026-11-23.md`:
+
+- a switched-off API is neither read nor alerted about (mr-x while `hulusport_pricing` is off);
+- player lists show only matches that can be bet on;
+- efficient compose defaults.
+
+Next: the owner deploys. Then the Odds API exit (E1-E5) and the first account's 4a/4b, each on the
+owner's go. The first account brings its branch up with
+`git fetch origin claude/happy-keller-i7cvrh && git merge --ff-only FETCH_HEAD`.
+
 **Start here (23 Nov, first account, end of its session; the second account continues).**
 The newest work is on `claude/eager-cerf-ox9vkq` (`d1d25ee` and later); `claude/happy-keller-i7cvrh`
 is behind at `7a15b27`: bring it up with
