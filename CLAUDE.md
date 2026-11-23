@@ -41,8 +41,11 @@ possible:
 7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
    `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
 8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
-   **Newest, 23 Nov (first account, `claude/eager-cerf-ox9vkq`, pushed, not deployed):** name
-   learning L1-L4 (`docs/plans/name-learning.md`; next deploy with `ALLOW_DROPPED_SETTINGS=1`).
+   **Newest, 23 Nov evening:** shop app switched on (`shop.nahubet.com` through the vamos tunnel,
+   `/etc/cloudflared/config.yml` -> 127.0.0.1:3002, `COMPOSE_PROFILES=shop`; deployed 21:15 as `26096ab`).
+   Pushed, not deployed (`claude/eager-cerf-ox9vkq`): the fix for "session needs a refresh" on the shop
+   app when the browser is also signed in to the player site (player auth skips `/shop`), and name
+   learning L1-L4 (`docs/plans/name-learning.md`); next deploy with `ALLOW_DROPPED_SETTINGS=1`.
    **23 Nov (second account, deployed at 09:00 as `26096ab`):** the
    server ran `2b53c60` (everything below up to F4d is live). On top of it: a switched-off API is
    not read and its 15-minute "down" alert stops (mr-x with `hulusport_pricing` off); the player

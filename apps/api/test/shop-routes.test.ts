@@ -12,7 +12,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { corsOriginsFor } from '../src/app';
 import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
-import { createTestContext, type TestContext } from './helpers';
+import { createTestContext, registerAndLogin, type TestContext } from './helpers';
 
 /** The shop app's API (docs/plans/agent-shops.md phase 1b): device, sign-in, session, sign-out. */
 
@@ -187,6 +187,35 @@ describe('/shop', () => {
     expect(
       (await ctx.app.inject({ method: 'GET', url: '/shop/me', headers: { cookie } })).statusCode,
     ).toBe(401);
+  });
+
+  it('works in a browser also signed in to the player site (its cookie is on the API host)', async () => {
+    const { email } = await setUp('Shop Player Cookie');
+    const player = await registerAndLogin(ctx);
+    const asked = await post(
+      '/shop/devices/request',
+      { email, password: PASSWORD, label: 'Owner laptop' },
+      player.cookie,
+    );
+    expect(asked.statusCode).toBe(201);
+    const deviceCookie = asked.cookies.find((c) => c.name.endsWith('vamos_device'));
+    const { device } = ShopDeviceAskResponse.parse(asked.json());
+    expect(
+      (await asStaff(ctx, admin, 'POST', `/admin/shop-devices/${device.id}/approve`)).statusCode,
+    ).toBe(200);
+    const login = await post(
+      '/shop/auth/login',
+      { email, password: PASSWORD },
+      `${player.cookie}; ${deviceCookie!.name}=${deviceCookie!.value}`,
+    );
+    expect(login.statusCode).toBe(200);
+    // The player session itself is untouched.
+    const me = await ctx.app.inject({
+      method: 'GET',
+      url: '/me',
+      headers: { cookie: player.cookie },
+    });
+    expect(me.statusCode).toBe(200);
   });
 
   it('ends the session at once when the agent is blocked', async () => {
