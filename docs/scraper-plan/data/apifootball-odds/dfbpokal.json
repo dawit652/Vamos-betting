@@ -1,0 +1,14 @@
+{
+  "id": "apifootball-odds-dfbpokal",
+  "name": "API-Football odds: DFB-Pokal (on trial until its switch is on)",
+  "adapter": "apifootball",
+  "upstream": "api-sports",
+  "config": {
+    "allowedHosts": ["v3.football.api-sports.io"],
+    "secret": "SCRAPER_SECRET_API_FOOTBALL",
+    "sport": "football",
+    "mode": "odds",
+    "league": 81,
+    "pages": 3
+  }
+}

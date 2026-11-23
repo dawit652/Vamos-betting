@@ -1,6 +1,6 @@
 {
   "id": "apifootball-bydate",
-  "name": "API-Football by date, our leagues: fixtures and results (replaces The Odds API's fixtures and scores)",
+  "name": "API-Football by date, our leagues: fixtures and results (replaces The Odds API fixtures and scores)",
   "adapter": "apifootball",
   "upstream": "api-sports",
   "config": {
@@ -11,7 +11,7 @@
     "daysAhead": 7,
     "leagueIds": [
       39, 40, 41, 42, 45, 48, 140, 143, 135, 137, 78, 81, 61, 66, 88, 94, 144, 179, 203, 207, 2, 3,
-      848, 71, 307, 12, 20
+      848, 71
     ]
   }
 }

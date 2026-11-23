@@ -275,6 +275,7 @@ export class PoliteFetcher {
         item.accept === 'image' ? 'image' : 'document',
         { attempts: 0 },
         auth.resolved,
+        item.revalidate !== false,
       );
     } catch (e) {
       // A bug, not an expected failure: report it, but do not let it blame the server.
@@ -381,6 +382,7 @@ export class PoliteFetcher {
     mode: Mode,
     state: { attempts: number },
     auth: ResolvedAuth | null = null,
+    revalidate = true,
   ): Promise<FetchResult> {
     let url = start;
     for (let hops = 0; ; hops += 1) {
@@ -398,7 +400,7 @@ export class PoliteFetcher {
       }
       // The key goes to the origin it was meant for; a redirect (even inside the allow-list) loses it.
       const hopAuth = auth !== null && url.origin === auth.origin ? auth : null;
-      const hop = await this.#hop(url, planHeaders, mode, state, crawlDelayMs, hopAuth);
+      const hop = await this.#hop(url, planHeaders, mode, state, crawlDelayMs, hopAuth, revalidate);
       if (hop.kind === 'result') return hop.result;
       if (hops + 1 > this.#maxRedirects) return { kind: 'refused', reason: 'too_many_redirects' };
       try {
@@ -428,8 +430,9 @@ export class PoliteFetcher {
     state: { attempts: number },
     crawlDelayMs: number,
     auth: ResolvedAuth | null,
+    revalidate = true,
   ): Promise<Hop> {
-    const validators = mode === 'document' ? await this.#validatorsFor(url) : null;
+    const validators = mode === 'document' && revalidate ? await this.#validatorsFor(url) : null;
     const headers = this.#requestHeaders(
       planHeaders,
       validators,

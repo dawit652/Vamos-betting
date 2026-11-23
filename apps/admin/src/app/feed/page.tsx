@@ -8,6 +8,7 @@ import type {
   FeedReviewKind,
   HulusportPricingResponse,
   NarobetPricingResponse,
+  ApiFootballPricingResponse,
   SetSourceEnabledResponse,
   SourceHealthView,
   UpdateCompetitionPolicyResponse,
@@ -368,6 +369,64 @@ const minutesText = (minutes: number) =>
   minutes % 60 === 0 && minutes >= 60 ? `${minutes / 60} hours` : `${minutes} minutes`;
 
 /**
+ * API-Football's bookmaker prices (docs/plans/feed-gaps-2026-11-23.md, E2): on trial while off,
+ * stored and compared with the other upstreams' prices but never used. Switch on once the gap is
+ * small, before The Odds API's credits end.
+ */
+function ApiFootballPanel() {
+  const { can } = useSession();
+  const view = useFetch<ApiFootballPricingResponse>('/admin/feed/apifootball');
+  const data = view.data;
+  const toggle = async () => {
+    if (data === null) return;
+    await api<ApiFootballPricingResponse>('/admin/feed/apifootball', {
+      method: 'PUT',
+      body: { enabled: !data.enabled },
+    });
+    view.reload();
+  };
+  // Turning on needs settings access; turning off (back to trial) trading access is enough.
+  const allowed = data !== null && (data.enabled ? can('trading.status') : can('settings.edit'));
+  return (
+    <>
+      <h2>API-Football prices</h2>
+      <Loading loading={view.loading && data === null} error={view.error} />
+      {data !== null && (
+        <section className="panel" aria-label="API-Football prices" style={{ marginBottom: 12 }}>
+          <p>
+            <Badge
+              value={data.enabled ? 'On: its prices are used' : 'Trial: stored, not used'}
+              tone={data.enabled ? 'warn' : 'good'}
+            />{' '}
+            {allowed ? (
+              <ActionButton
+                label={data.enabled ? 'Back to trial' : 'Use API-Football prices'}
+                onAction={toggle}
+              />
+            ) : (
+              <span className="muted small">no access</span>
+            )}
+          </p>
+          <p className="muted small">
+            {data.updatedAt === null
+              ? 'Never switched.'
+              : `Last switched ${formatDateTime(data.updatedAt)} by ${data.updatedBy ?? ''}.`}{' '}
+            Bookmaker prices of the 1X2 and over/under, like The Odds API&apos;s.
+          </p>
+          <p data-testid="apifootball-summary">
+            Last 3 hours: {data.sources} odds source(s), {data.rows} prices, {data.matches}{' '}
+            match(es) priced; {data.compared} also priced by another source
+            {data.medianDiffPercent === null
+              ? '.'
+              : `, median gap ${data.medianDiffPercent}% (a few percent is normal).`}
+          </p>
+        </section>
+      )}
+    </>
+  );
+}
+
+/**
  * Narobet prices through mr-z (docs/plans/narobet-feed.md): the on/off switch and what mr-z's board
  * delivers. On, a match we already price takes Narobet's fresh prices (with our margin) for the
  * markets it already has, unless fresh mr-x prices come first; off, or when the prices go stale,
@@ -584,6 +643,7 @@ export default function FeedOverviewPage() {
       </PageHeader>
       <HulusportPanel />
       <NarobetPanel />
+      <ApiFootballPanel />
       <Loading loading={health.loading && data === null} error={health.error} />
       {data !== null && (
         <>

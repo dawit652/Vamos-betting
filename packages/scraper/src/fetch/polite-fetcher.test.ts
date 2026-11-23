@@ -426,6 +426,23 @@ describe('conditional requests', () => {
     expect(store.get(`https://${H}/fixtures.json`)).toBeUndefined();
   });
 
+  it('a plan item with revalidate: false always asks for the full body', async () => {
+    const store = new InMemoryConditionalStore();
+    const { fetcher, f } = setup(
+      (_u, call) =>
+        call.headers['if-none-match'] === '"v1"'
+          ? res(null, 304)
+          : json('{}', 200, { etag: '"v1"' }),
+      { conditionalStore: store },
+    );
+    await fetcher.fetch(item(), CTX);
+    expect(store.get(`https://${H}/fixtures.json`)).toEqual({ etag: '"v1"', lastModified: null });
+    const full = await fetcher.fetch({ ...item(), revalidate: false }, CTX);
+    expect(full.kind).toBe('ok');
+    expect(f.calls[1]?.headers['if-none-match']).toBeUndefined();
+    expect(f.calls[1]?.headers['if-modified-since']).toBeUndefined();
+  });
+
   it('forgetValidators makes the next request unconditional (a page that was not accepted)', async () => {
     const store = new InMemoryConditionalStore();
     const { fetcher, f } = setup(

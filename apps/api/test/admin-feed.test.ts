@@ -18,6 +18,7 @@ import {
   FeedCompetitionsResponse,
   FeedHealthResponse,
   MarketFamilyStatesResponse,
+  ApiFootballPricingResponse,
   NarobetPricingResponse,
   ResetMarketFamilyResponse,
   ResolveReviewResponse,
@@ -418,6 +419,40 @@ describe('Narobet prices (docs/plans/narobet-feed.md)', () => {
     );
     expect(off.enabled).toBe(false);
     expect(await auditActions('scrape.narobet_pricing.updated')).toHaveLength(2);
+  });
+
+  it('API-Football prices: on trial by default; on needs settings.edit, off trading.status (E2)', async () => {
+    const view = ApiFootballPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'GET', '/admin/feed/apifootball')),
+    );
+    expect(view).toMatchObject({
+      enabled: false,
+      updatedAt: null,
+      sources: 0,
+      rows: 0,
+      matches: 0,
+      compared: 0,
+      medianDiffPercent: null,
+    });
+    const refused = await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/apifootball', {
+      enabled: true,
+    });
+    expect(refused.statusCode).toBe(403);
+    expect(errorOf(refused).details).toEqual({ permission: 'settings.edit' });
+    const on = ApiFootballPricingResponse.parse(
+      expectOk(
+        await asStaff(ctx, as('admin'), 'PUT', '/admin/feed/apifootball', { enabled: true }),
+      ),
+    );
+    expect(on.enabled).toBe(true);
+    expect(await auditActions('scrape.apifootball_pricing.updated')).toHaveLength(1);
+    const off = ApiFootballPricingResponse.parse(
+      expectOk(
+        await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/apifootball', { enabled: false }),
+      ),
+    );
+    expect(off.enabled).toBe(false);
+    expect(await auditActions('scrape.apifootball_pricing.updated')).toHaveLength(2);
   });
 
   it('Narobet-only matches: off by default, 30 days; on or a new horizon needs settings.edit, off trading.status', async () => {

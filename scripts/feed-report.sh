@@ -178,6 +178,26 @@ select w.feed_provider, count(distinct w.event_id) as matches, count(distinct w.
     where x.feed_provider = w.feed_provider) s) as stake_etb,
   to_char(min(w.start_time), 'MM-DD') as oldest_kickoff
 from waiting w group by w.feed_provider order by 3 desc;
+\echo ===== 38. API-Football prices on trial (switch apifootball_pricing), last 3 hours, next to the other sources
+select coalesce((select value->>'enabled' from settings where key = 'apifootball_pricing'), 'false (never set)') as switch_on;
+with af as (
+  select m.event_id, m.selection, avg(m.price_milli) as price
+  from scrape_market_odds m join scrape_sources s on s.id = m.source_id
+  where s.upstream = 'api-sports' and m.market = '1x2' and m.event_id is not null
+    and m.observed_at >= now() - interval '3 hours' group by 1, 2
+), other as (
+  select m.event_id, m.selection, avg(m.price_milli) as price
+  from scrape_market_odds m join scrape_sources s on s.id = m.source_id
+  where s.upstream <> 'api-sports' and s.enabled and m.market = '1x2' and m.event_id is not null
+    and m.observed_at >= now() - interval '3 hours' group by 1, 2
+), diff as (
+  select af.event_id, avg(abs(af.price - other.price) / other.price) as d
+  from af join other on other.event_id = af.event_id and other.selection = af.selection group by 1
+)
+select (select count(*) from scrape_sources where upstream = 'api-sports' and enabled and config->>'mode' = 'odds') as odds_sources_on,
+  (select count(distinct event_id) from af) as matches, (select count(*) from diff) as compared,
+  round((select percentile_cont(0.5) within group (order by d) from diff)::numeric * 100, 1) as median_gap_pct,
+  round((select max(d) from diff)::numeric * 100, 1) as worst_gap_pct;
 SQL
 echo "===== 15. Warnings and errors in the scraper and worker logs (last 24 hours, newest 25)"
 docker compose logs --since 24h --no-color scraper worker 2>&1 | grep -E '"level":(40|50)|[Ee]rror' | tail -25 | cut -c1-230

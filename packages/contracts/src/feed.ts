@@ -390,6 +390,24 @@ export type NarobetPricingResponse = z.infer<typeof NarobetPricingResponse>;
 export const SetNarobetPricingRequest = z.strictObject({ enabled: z.boolean() });
 export type SetNarobetPricingRequest = z.infer<typeof SetNarobetPricingRequest>;
 
+/** API-Football's bookmaker prices on trial (docs/plans/feed-gaps-2026-11-23.md, E2). */
+export const ApiFootballPricingResponse = z.object({
+  /** On: its prices count like The Odds API's. Off (the default): stored and compared only. */
+  enabled: z.boolean(),
+  updatedAt: IsoDateTime.nullable(),
+  updatedBy: z.string().nullable(),
+  /** Over the last 3 hours. */
+  sources: z.number().int(),
+  rows: z.number().int(),
+  matches: z.number().int(),
+  compared: z.number().int(),
+  medianDiffPercent: z.number().nullable(),
+});
+export type ApiFootballPricingResponse = z.infer<typeof ApiFootballPricingResponse>;
+
+export const SetApiFootballPricingRequest = z.strictObject({ enabled: z.boolean() });
+export type SetApiFootballPricingRequest = z.infer<typeof SetApiFootballPricingRequest>;
+
 /** PUT /admin/feed/narobet/events: the switch and/or the horizon (1..30 days). */
 export const SetNarobetEventsRequest = z
   .strictObject({

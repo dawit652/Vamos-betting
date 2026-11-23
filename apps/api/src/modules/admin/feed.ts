@@ -18,6 +18,7 @@ import {
   isRepriceItem,
   MapBatchRequest,
   NarobetPricingResponse,
+  ApiFootballPricingResponse,
   OpenBatchRequest,
   type OpenBatchResult,
   OpenBatchResponse,
@@ -44,6 +45,7 @@ import {
   SetHulusportPricingRequest,
   SetNarobetEventsRequest,
   SetNarobetPricingRequest,
+  SetApiFootballPricingRequest,
   SetSourceEnabledRequest,
   SetSourceEnabledResponse,
   UpdateCompetitionPolicyRequest,
@@ -79,6 +81,8 @@ import {
   countReviewItemsByKind,
   DomainError,
   getBoardPricing,
+  getApiFootballPricing,
+  apiFootballPriceSummary,
   getNarobetEvents,
   getHulusportPricing,
   getReviewItem,
@@ -101,6 +105,7 @@ import {
   ScrapeAliasConflictError,
   ScrapeReviewStateError,
   setBoardPricing,
+  setApiFootballPricing,
   setNarobetEvents,
   setCompetitionPolicy,
   setEventBettingOpen,
@@ -740,6 +745,53 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
       },
     });
   };
+
+  // -------------------------------------------------------------------------
+  // API-Football's bookmaker prices on trial (docs/plans/feed-gaps-2026-11-23.md, E2).
+
+  const apiFootballView = async (exec: DbExecutor, now: Date) => {
+    const [pricing, summary] = await Promise.all([
+      getApiFootballPricing(exec),
+      apiFootballPriceSummary(exec, { now, maxAgeMs: 3 * 3_600_000 }),
+    ]);
+    return wire(ApiFootballPricingResponse, {
+      enabled: pricing.enabled,
+      updatedAt: pricing.updatedAt,
+      updatedBy: pricing.updatedBy,
+      ...summary,
+    });
+  };
+
+  app.get('/admin/feed/apifootball', { config: { staff: 'trading.view' } }, async () =>
+    apiFootballView(deps.db, deps.clock()),
+  );
+
+  /** Turns API-Football's prices on or off, with the same permissions as the board switches. */
+  app.put(
+    '/admin/feed/apifootball',
+    { config: { staff: 'settings.edit', staffOr: 'trading.status' } },
+    async (request) => {
+      const staff = requireStaff(request);
+      let input: SetApiFootballPricingRequest;
+      if (hasPermission(staff.role, 'settings.edit')) {
+        input = parseInput(SetApiFootballPricingRequest, request.body);
+      } else {
+        // Without settings access only a valid request that turns the prices off is allowed.
+        const parsed = SetApiFootballPricingRequest.safeParse(request.body);
+        if (!parsed.success || parsed.data.enabled) {
+          throw forbidden('forbidden', 'Your role does not allow this.', {
+            permission: 'settings.edit',
+          });
+        }
+        input = parsed.data;
+      }
+      const actor = staffActor(request);
+      return inTx(deps, async (tx) => {
+        await setApiFootballPricing(tx, input.enabled, actor);
+        return apiFootballView(tx, deps.clock());
+      });
+    },
+  );
 
   app.get('/admin/feed/narobet', { config: { staff: 'trading.view' } }, async () =>
     narobetView(deps.db, deps.clock()),

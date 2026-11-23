@@ -9,9 +9,10 @@
 
 Also built: board matches with no result 3 days after kickoff that nobody bet on are cancelled
 (O-F1, owner said yes). Owner, 23 Nov: The Odds API stops when its bought credits end, about 27 Nov.
-**Next: E2 (API-Football pre-match odds as the price source) before then**. E1 is one command for the
-owner, and E3 (price expiry) goes on at the switch-over. See the plan, "The switch-over before the
-credits end". Then the first account's 4a/4b. The first account brings its branch up with
+E2 (API-Football pre-match odds as the price source) is built and on trial behind the switch
+`apifootball_pricing`. **Next:** the owner deploys and runs the steps in the plan, "E2 built"
+(E1 command, odds-sources command, Enable, switch on once the gap is small). Then E3 (price expiry)
+at the switch-over, then the first account's 4a/4b. The first account brings its branch up with
 `git fetch origin claude/happy-keller-i7cvrh && git merge --ff-only FETCH_HEAD`.
 
 **Start here (23 Nov, first account, end of its session; the second account continues).**

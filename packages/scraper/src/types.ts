@@ -252,6 +252,12 @@ export interface FetchPlanItem {
    * the rate limit and the size cap apply as for a document. Default `document`.
    */
   accept?: 'document' | 'image';
+  /**
+   * `false`: always the full body, never a conditional request (no If-None-Match or
+   * If-Modified-Since), for a page that another page of the same run depends on (a 304 would
+   * leave nothing to read it with).
+   */
+  revalidate?: false;
 }
 
 /**

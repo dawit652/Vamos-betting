@@ -11,6 +11,9 @@ import {
   touchMarketOddsOfRaw,
   upsertMarketOdds,
   type MarketOddsInput,
+  apiFootballPriceSummary,
+  getApiFootballPricing,
+  setApiFootballPricing,
 } from '../src/index';
 import { scrapeMarketOdds } from '../src/schema/index';
 import { dropTestDatabase, pgCode } from './helpers';
@@ -457,6 +460,42 @@ describe('latestMarketOdds: what the pricing step may read', () => {
     expect(await latest([event.eventId], at(5))).toEqual([]);
     await ctx.handle.db.transaction((tx) => setSourceEnabled(tx, 'off-1', true, SYSTEM));
     expect(await latest([event.eventId], at(5))).toHaveLength(3);
+  });
+
+  it("API-Football's prices are on trial: stored, but used only once its switch is on (E2)", async () => {
+    const event = await newEvent();
+    await addSource(ctx.handle.db, 'apifootball-odds-en1', { upstream: 'api-sports' });
+    const run = (await addRun(ctx.handle.db, 'apifootball-odds-en1', 'ok', at(0))).id;
+    await write('apifootball-odds-en1', run, book(event.eventId, '23', at(0)));
+    expect((await getApiFootballPricing(ctx.handle.db)).enabled).toBe(false);
+    expect(await latest([event.eventId], at(5))).toEqual([]);
+    await ctx.handle.db.transaction((tx) => setApiFootballPricing(tx, true, SYSTEM));
+    expect(await latest([event.eventId], at(5))).toHaveLength(3);
+    await ctx.handle.db.transaction((tx) => setApiFootballPricing(tx, false, SYSTEM));
+    expect(await latest([event.eventId], at(5))).toEqual([]);
+  });
+
+  it('apiFootballPriceSummary compares its 1X2 with the other upstreams on the same matches', async () => {
+    const event = await newEvent();
+    await addSource(ctx.handle.db, 'af-cmp', { upstream: 'api-sports' });
+    await addSource(ctx.handle.db, 'odds-cmp', { upstream: 'theoddsapi' });
+    const afRun = (await addRun(ctx.handle.db, 'af-cmp', 'ok', at(0))).id;
+    const oddsRun = (await addRun(ctx.handle.db, 'odds-cmp', 'ok', at(0))).id;
+    // API-Football 10 % above on every selection.
+    await write(
+      'af-cmp',
+      afRun,
+      book(event.eventId, 'pinnacle', at(0), { prices: [2200, 3740, 4180] }),
+    );
+    await write('odds-cmp', oddsRun, book(event.eventId, 'pinnacle', at(0)));
+    const summary = await apiFootballPriceSummary(ctx.handle.db, {
+      now: at(5),
+      maxAgeMs: 3 * 3_600_000,
+    });
+    // The trial test above left API-Football rows of another match (priced by it alone).
+    expect(summary).toMatchObject({ compared: 1, medianDiffPercent: 10 });
+    expect(summary.rows).toBeGreaterThanOrEqual(3);
+    expect(summary.matches).toBeGreaterThanOrEqual(1);
   });
 
   it('rows with no event are never returned; an empty list of events returns nothing', async () => {

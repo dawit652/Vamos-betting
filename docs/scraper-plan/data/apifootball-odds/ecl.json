@@ -1,0 +1,14 @@
+{
+  "id": "apifootball-odds-ecl",
+  "name": "API-Football odds: UEFA Conference League (on trial until its switch is on)",
+  "adapter": "apifootball",
+  "upstream": "api-sports",
+  "config": {
+    "allowedHosts": ["v3.football.api-sports.io"],
+    "secret": "SCRAPER_SECRET_API_FOOTBALL",
+    "sport": "football",
+    "mode": "odds",
+    "league": 848,
+    "pages": 4
+  }
+}

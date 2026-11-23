@@ -1,0 +1,15 @@
+{
+  "id": "apifootball-odds-br1",
+  "name": "API-Football odds: Brasileirao Serie A (on trial until its switch is on)",
+  "adapter": "apifootball",
+  "upstream": "api-sports",
+  "config": {
+    "allowedHosts": ["v3.football.api-sports.io"],
+    "secret": "SCRAPER_SECRET_API_FOOTBALL",
+    "sport": "football",
+    "mode": "odds",
+    "league": 71,
+    "pages": 3,
+    "calendarYear": true
+  }
+}
