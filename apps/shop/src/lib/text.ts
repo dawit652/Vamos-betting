@@ -368,7 +368,7 @@ export const TEXT = {
   ownerBlockConfirm: (name: string) => `Block ${name}? They cannot sign in until unblocked.`,
   ownerUnblockConfirm: (name: string) => `Unblock ${name}?`,
   ownerCashierErrors: {
-    staff_email_taken: 'This email already has an account.',
+    staff_email_taken: 'This email already has a cashier account.',
     weak_password: 'The password is too weak. Use 12 characters or more that are hard to guess.',
   } as Readonly<Record<string, string>>,
   ownerStatements: 'Weekly statements · ሳምንታዊ መግለጫ',

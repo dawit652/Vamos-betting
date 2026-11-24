@@ -610,6 +610,13 @@
       "when": 1795473586644,
       "tag": "0086_retail_ticket_booking_code",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1795519890533,
+      "tag": "0087_staff_email_per_kind",
+      "breakpoints": true
     }
   ]
 }

@@ -59,9 +59,19 @@ Nov).
   An admin's or owner's correct password was answered with a bare "Wrong email or password". The
   page now says who registers a device; the error says it may not be a cashier's account. It still
   never reveals which.
-- **GS8 needs no change.** Staff phones need not be unique and an email may be an alias, so one
-  person can already hold an admin, a cashier and an agent owner account, for example
-  `name+cashier@gmail.com`, which Gmail delivers to the same inbox.
+- **GS8, built** (first account, 24 Nov; the owner asked for one person's accounts under one email,
+  not aliases). An email is unique per kind of account, not overall: one back-office account (any
+  role but the two below), one agent owner's and one cashier's (migration 0087: the index
+  `admin_users_email_kind_uq` over `admin_account_kind(role)`, an IMMUTABLE function because a fresh
+  database adds those roles in the same migration run).
+  - Sign-in looks for its own kind (`loginStaff`): the back office the back-office account, else the
+    cashier's (head-office cashiers work its desk), never an owner's; the shop app the agent owner
+    when the authenticator code is typed, else the cashier; a device request the cashier.
+  - Creating a second account of a kind, or a role change into a kind the email already has, is 409
+    `staff_email_taken`. Each account keeps its own password, authenticator and lockouts.
+  - `pnpm admin:unlock` and `pnpm admin:reset` take `--account staff|agent_owner|cashier` (default
+    the back-office account).
+  - Test: `packages/db/test/shop-signin.test.ts` ("one person, several accounts").
 - **GS3, built.** A visitor's Place bet makes a slip ID: `booking_codes.stake` (migration 0085),
   the booking code API with `stake`, the betslip's slip ID screen and the device's list of slip
   IDs (`nahubet:guest-slips`). The shop's sell-from-code fills in the stake. "Load code" now reads
@@ -89,7 +99,9 @@ Nov).
 
 ## State
 
-- **Built:** GS1, GS2, GS3, GS4, GS11, the device page text.
+- **Built:** GS1, GS2, GS3, GS4, GS8, GS11, the device page text, the matchweek gap (24 Nov: a
+  band between rounds of a league in every match list, `startsNewRound` in
+  `apps/web/src/components/sportsbook/groups.ts`).
 - **Next:**
   1. GS5 several slips, GS6 the device's slip list (the IDs are already stored in
      `nahubet:guest-slips`; their states come from `GET /booking-codes/:code/status`), GS7 bet

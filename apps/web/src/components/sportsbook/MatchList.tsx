@@ -8,7 +8,7 @@ import { formatDayMonth, formatTime, relativeDay } from '@/lib/format';
 import { localName } from '@/lib/localized';
 import { routes } from '@/lib/routes';
 import { eventRef, oddsMarket } from './events';
-import { groupByCompetition } from './groups';
+import { groupByCompetition, startsNewRound } from './groups';
 import { LeagueIcon } from './LeagueIcon';
 import { leagueMark } from './leagues';
 import { teamFlagCodes } from './team-marks';
@@ -44,8 +44,12 @@ export async function MatchList({
 }) {
   const [t, locale] = await Promise.all([getT(), getLocale()]);
   const now = new Date();
+  // A band of page colour before the first match of a new matchweek (startsNewRound).
   const rows = (list: readonly EventSummary[], withCompetition: boolean) =>
-    list.map((event) => (
+    list.flatMap((event, i) => [
+      ...(startsNewRound(list[i - 1], event)
+        ? [<li key={`${event.id}-round`} aria-hidden="true" className="round-break" />]
+        : []),
       <MatchRow
         key={event.id}
         event={event}
@@ -53,8 +57,8 @@ export async function MatchList({
         t={t}
         locale={locale}
         now={now}
-      />
-    ));
+      />,
+    ]);
   if (!grouped) {
     return <ul className="panel mx-3 lg:mx-0">{rows(events, showCompetition)}</ul>;
   }

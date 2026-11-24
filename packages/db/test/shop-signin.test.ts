@@ -10,6 +10,7 @@ import {
   authenticateStaffSession,
   base32Decode,
   createAgent,
+  createAgentOwnerAccount,
   createShop,
   createStaffUser,
   hashDeviceSecret,
@@ -19,6 +20,7 @@ import {
   setAgentBlocked,
   totpCode,
   updateShop,
+  updateStaffUser,
   type StaffAuthDeps,
   type StaffRole,
 } from '../src/index';
@@ -223,6 +225,81 @@ describe('the shop sign-in', () => {
       }),
     );
     expect(await check(s3.session.token, 'shop')).toEqual({ status: 'none' });
+  });
+});
+
+describe('one person, several accounts (GS8)', () => {
+  it('one email holds a back-office, an agent owner and a cashier account; each sign-in finds its own', async () => {
+    const { agent, shop } = await counter_('One Person Agent');
+    const email = `one.person-${counter}@shop.example.com`;
+    const make = (role: StaffRole) =>
+      createStaffUser(deps(), {
+        email,
+        displayName: `One Person ${role}`,
+        role,
+        password: PASSWORD,
+        ...(role === 'cashier' ? { phone: '0911223344' } : {}),
+        actor: { type: 'system', via: 'test' },
+      });
+    const admin = await make('admin');
+    const cashier = await make('cashier');
+    const owner = await createAgentOwnerAccount(deps(), { agentId: agent.id, email, adminId });
+    // One of each kind: a second back-office account (any role) or cashier is refused.
+    for (const role of ['admin', 'finance', 'cashier'] as const) {
+      expect(await refusal(make(role)), role).toEqual({ status: 409, code: 'staff_email_taken' });
+    }
+
+    // The back office signs in the back-office account.
+    const office = await loginStaff(deps(), {
+      email,
+      password: PASSWORD,
+      code: totpCode(base32Decode(admin.totp.secret), now.getTime()),
+      ip: '10.0.1.1',
+    });
+    expect(office.staff).toMatchObject({ id: admin.user.id, channel: 'admin', role: 'admin' });
+
+    // The cashier registers a device and signs in with it, as the cashier.
+    await handle.db.transaction((tx) =>
+      assignStaffShop(tx, { staffId: cashier.user.id, shopId: shop.id, adminId, now }),
+    );
+    const secret = randomBytes(32).toString('base64url');
+    const device = await requestShopDeviceWithPassword(deps(), {
+      email,
+      password: PASSWORD,
+      label: 'Owner laptop',
+      secretHash: hashDeviceSecret(secret),
+      ip: '10.0.1.2',
+    });
+    expect(device.requestedBy).toBe(cashier.user.id);
+    await handle.db.transaction((tx) =>
+      approveShopDevice(tx, { deviceId: device.id, adminId, now }),
+    );
+    const counterDesk = await shopLogin(email, hashDeviceSecret(secret), PASSWORD, '10.0.1.3');
+    expect(counterDesk.staff).toMatchObject({ id: cashier.user.id, role: 'cashier' });
+
+    // The shop app with the authenticator code signs in the agent owner.
+    const ownerLogin = await loginStaff(deps(), {
+      email,
+      password: owner.generatedPassword ?? '',
+      code: totpCode(base32Decode(owner.totp.secret), now.getTime()),
+      channel: 'shop',
+      ip: '10.0.1.4',
+    });
+    expect(ownerLogin.staff).toMatchObject({ id: owner.user.id, role: 'agent_owner' });
+
+    // A role change may not give the email a second account of a kind.
+    expect(
+      await refusal(
+        handle.db.transaction((tx) =>
+          updateStaffUser(tx, {
+            adminUserId: cashier.user.id,
+            role: 'finance',
+            actor: { type: 'system', via: 'test' },
+            now,
+          }),
+        ),
+      ),
+    ).toEqual({ status: 409, code: 'staff_email_taken' });
   });
 });
 

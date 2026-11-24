@@ -186,13 +186,15 @@ export const rgExclusions = pgTable(
 
 /**
  * Back-office staff. They sign in with email, password and a TOTP code
- * (packages/db/src/backoffice/staff-auth.ts). Emails are stored lowercased.
+ * (packages/db/src/backoffice/staff-auth.ts). Emails are stored lowercased. One person may hold
+ * one account of each kind under the same email (docs/plans/guest-slips-and-staff.md, GS8): a
+ * back-office account, an agent owner's and a cashier's; each sign-in looks for its own kind.
  */
 export const adminUsers = pgTable(
   'admin_users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    email: text('email').notNull().unique(),
+    email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),
     displayName: text('display_name').notNull(),
     /**
@@ -247,6 +249,12 @@ export const adminUsers = pgTable(
   },
   (t) => [
     check('admin_users_email_lower', sql`${t.email} = lower(${t.email})`),
+    uniqueIndex('admin_users_email_kind_uq').on(
+      t.email,
+      // admin_account_kind (migration 0087): 'agent_owner', 'cashier' or 'staff'. A function, so
+      // a fresh database, which adds those roles in the same migration run, can build the index.
+      sql`admin_account_kind(${t.role})`,
+    ),
     check('admin_users_failed_attempts', sql`${t.failedLoginAttempts} >= 0`),
     check(
       'admin_users_phone_format',

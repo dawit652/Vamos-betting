@@ -65,6 +65,28 @@ import { base32Encode, TOTP_SECRET_BYTES, totpUri, verifyTotp } from './totp';
  */
 
 export type StaffRole = (typeof adminRole.enumValues)[number];
+
+/**
+ * The kinds of account one email may hold, one of each (docs/plans/guest-slips-and-staff.md, GS8):
+ * a back-office account (every role but the two below), an agent owner's and a cashier's, so one
+ * person can be an admin, an agent owner and a cashier under one email. Each sign-in looks for its
+ * own kind. Matches the index admin_users_email_kind_uq.
+ */
+export type StaffAccountKind = 'staff' | 'agent_owner' | 'cashier';
+
+export function staffAccountKind(role: StaffRole): StaffAccountKind {
+  return role === 'agent_owner' || role === 'cashier' ? role : 'staff';
+}
+
+/** The account of this kind with this (normalised) email. */
+function emailOfKind(email: string, kind: StaffAccountKind) {
+  return and(
+    eq(adminUsers.email, email),
+    kind === 'staff'
+      ? and(ne(adminUsers.role, 'agent_owner'), ne(adminUsers.role, 'cashier'))
+      : eq(adminUsers.role, kind),
+  );
+}
 export const STAFF_ROLES: readonly StaffRole[] = adminRole.enumValues;
 
 /** Failed sign-ins in a row from one client address that lock that address out of the account. */
@@ -508,10 +530,13 @@ export async function createStaffUser(
         createdAt: now,
         updatedAt: now,
       })
-      .onConflictDoNothing({ target: adminUsers.email })
+      .onConflictDoNothing()
       .returning();
     if (row === undefined) {
-      throw domainConflict('staff_email_taken', 'A staff account with this email already exists.');
+      throw domainConflict(
+        'staff_email_taken',
+        'This email already has an account of this kind (back office, agent owner or cashier).',
+      );
     }
     await writeAudit(tx, {
       ...actor,
@@ -660,6 +685,21 @@ export async function updateStaffUser(
     );
   }
   if (roleChanged) await assertNotLastAdmin(tx, user);
+  // One account of each kind per email (GS8): a cashier made an admin, or the reverse, must not
+  // meet the person's other account of that kind.
+  if (roleChanged && staffAccountKind(role) !== staffAccountKind(user.role)) {
+    const [other] = await tx
+      .select({ id: adminUsers.id })
+      .from(adminUsers)
+      .where(and(emailOfKind(user.email, staffAccountKind(role)), ne(adminUsers.id, user.id)))
+      .limit(1);
+    if (other !== undefined) {
+      throw domainConflict(
+        'staff_email_taken',
+        'This email already has an account of this kind (back office, agent owner or cashier).',
+      );
+    }
+  }
   const [row] = await tx
     .update(adminUsers)
     .set({
@@ -843,32 +883,36 @@ export async function unlockStaffUser(
   return staffView(row);
 }
 
-/** unlockStaffUser by email (the CLI's out-of-band recovery); null when there is no such account. */
+/**
+ * unlockStaffUser by email (the CLI's out-of-band recovery): the account of `kind` (default the
+ * back-office one; GS8); null when there is no such account.
+ */
 export async function unlockStaffUserByEmail(
   db: Database,
-  input: { email: string; actor: StaffAccountActor; now: Date },
+  input: { email: string; kind?: StaffAccountKind; actor: StaffAccountActor; now: Date },
 ): Promise<StaffUserView | null> {
   const email = normalizeStaffEmail(input.email);
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select({ id: adminUsers.id })
       .from(adminUsers)
-      .where(eq(adminUsers.email, email))
+      .where(emailOfKind(email, input.kind ?? 'staff'))
       .limit(1);
     if (row === undefined) return null;
     return unlockStaffUser(tx, { adminUserId: row.id, actor: input.actor, now: input.now });
   });
 }
 
-/** The staff account with this email, or null (the CLI's lookup). */
+/** The staff account of `kind` (default the back-office one; GS8) with this email, or null (the CLI's lookup). */
 export async function findStaffUserByEmail(
   db: Database,
   email: string,
+  kind: StaffAccountKind = 'staff',
 ): Promise<StaffUserView | null> {
   const [row] = await db
     .select({ id: adminUsers.id })
     .from(adminUsers)
-    .where(eq(adminUsers.email, normalizeStaffEmail(email)))
+    .where(emailOfKind(normalizeStaffEmail(email), kind))
     .limit(1);
   return row === undefined ? null : getStaffUser(db, row.id);
 }
@@ -1158,11 +1202,26 @@ export async function loginStaff(
   const ip = input.ip ?? null;
   const clientKey = clientKeyOf(input);
   const now = deps.clock();
-
+  const channel: StaffSessionChannel = input.channel === 'shop' ? 'shop' : 'admin';
+  // One email may hold one account of each kind (GS8). The back office signs in the back-office
+  // account, else the cashier's (head-office cashiers work its desk); agent owners never sign in
+  // there. The shop app signs in the agent owner (who types the authenticator code) or the cashier
+  // (whose approved device is the second factor).
   const [user] =
     email.length === 0 || email.length > STAFF_EMAIL_MAX_LENGTH
       ? []
-      : await deps.db.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
+      : channel === 'admin'
+        ? await deps.db
+            .select()
+            .from(adminUsers)
+            .where(and(eq(adminUsers.email, email), ne(adminUsers.role, 'agent_owner')))
+            .orderBy(sql`${adminUsers.role} = 'cashier'`)
+            .limit(1)
+        : await deps.db
+            .select()
+            .from(adminUsers)
+            .where(emailOfKind(email, code.length === 0 ? 'cashier' : 'agent_owner'))
+            .limit(1);
   if (user === undefined) {
     await dummyVerify(deps.passwords, password);
     await deps.db.transaction((tx) =>
@@ -1178,7 +1237,6 @@ export async function loginStaff(
     );
     throw staffInvalidCredentialsError();
   }
-  const channel: StaffSessionChannel = input.channel === 'shop' ? 'shop' : 'admin';
   // The shop app: a cashier proves an approved device (its cookie); an agent owner types the
   // authenticator code instead.
   const factor: StaffFactor =
@@ -1289,10 +1347,11 @@ export async function requestShopDeviceWithPassword(
   const clientKey = clientKeyOf(input);
   const now = deps.clock();
   const context = 'shop_device';
+  // Devices are registered by cashiers: the person's cashier account (GS8).
   const [user] =
     email.length === 0 || email.length > STAFF_EMAIL_MAX_LENGTH
       ? []
-      : await deps.db.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
+      : await deps.db.select().from(adminUsers).where(emailOfKind(email, 'cashier')).limit(1);
   if (user === undefined) {
     await dummyVerify(deps.passwords, password);
     await deps.db.transaction((tx) =>

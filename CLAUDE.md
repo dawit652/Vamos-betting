@@ -48,8 +48,9 @@ possible:
    name learning L1-L4 (`docs/plans/name-learning.md`). Deploy line in `docs/plans/remaining-tasks.md`,
    with `ALLOW_DROPPED_SETTINGS=1`. Shop app switched on (`shop.nahubet.com` through the vamos tunnel,
    `/etc/cloudflared/config.yml` -> 127.0.0.1:3002, `COMPOSE_PROFILES=shop`; deployed 21:15 as `26096ab`).
-   Then GS4 Check coupon (migration 0086; next free 0087). **Next: GS5-GS7**, GS9 waits for the
-   owner's answer (`docs/plans/guest-slips-and-staff.md`).
+   Then GS4 Check coupon (migration 0086); 24 Nov GS8 one email, several staff accounts (back office,
+   agent owner, cashier; migration 0087, next free 0088) and a band between matchweeks. **Next:
+   GS5-GS7**, GS9 waits for the owner's answer (`docs/plans/guest-slips-and-staff.md`).
    **23 Nov (second account, deployed at 09:00 as `26096ab`):** the
    server ran `2b53c60` (everything below up to F4d is live). On top of it: a switched-off API is
    not read and its 15-minute "down" alert stops (mr-x with `hulusport_pricing` off); the player

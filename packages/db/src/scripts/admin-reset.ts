@@ -24,6 +24,7 @@ import {
   resetStaffPassword,
   resetStaffTotp,
   setStaffDisabled,
+  type StaffAccountKind,
 } from '../backoffice/staff-auth';
 import { createDb } from '../client';
 import { DomainError } from '../errors';
@@ -34,7 +35,9 @@ type Action = (typeof ACTIONS)[number];
 const USAGE =
   'usage: [ADMIN_PASSWORD=<12+ characters>] pnpm admin:reset --email <email> --action <' +
   ACTIONS.join('|') +
-  '>';
+  '> [--account staff|agent_owner|cashier]';
+/** One email may hold a back-office, an agent owner's and a cashier's account (GS8). */
+const KINDS: readonly StaffAccountKind[] = ['staff', 'agent_owner', 'cashier'];
 
 function fail(message: string): never {
   console.error(message);
@@ -42,7 +45,12 @@ function fail(message: string): never {
 }
 
 const { values } = parseArgs({
-  options: { email: { type: 'string' }, action: { type: 'string' }, help: { type: 'boolean' } },
+  options: {
+    email: { type: 'string' },
+    action: { type: 'string' },
+    account: { type: 'string' },
+    help: { type: 'boolean' },
+  },
   strict: true,
 });
 if (values.help) {
@@ -50,6 +58,8 @@ if (values.help) {
   process.exit(0);
 }
 if (!values.email || !values.action) fail(USAGE);
+const kind = (values.account ?? 'staff') as StaffAccountKind;
+if (!KINDS.includes(kind)) fail(USAGE);
 if (!(ACTIONS as readonly string[]).includes(values.action)) fail(USAGE);
 const action = values.action as Action;
 const password = process.env.ADMIN_PASSWORD?.trim() ? process.env.ADMIN_PASSWORD : undefined;
@@ -62,9 +72,9 @@ const config = loadConfig();
 const handle = createDb(config.databaseUrl, { max: 1 });
 const actor = { type: 'system', via: 'cli' } as const;
 try {
-  const user = await findStaffUserByEmail(handle.db, values.email);
+  const user = await findStaffUserByEmail(handle.db, values.email, kind);
   if (user === null) {
-    console.error(`no staff account with the email ${values.email}`);
+    console.error(`no ${kind} account with the email ${values.email}`);
     process.exitCode = 1;
   } else {
     const authDeps = {

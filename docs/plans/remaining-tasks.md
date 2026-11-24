@@ -18,6 +18,8 @@ starting; one account at a time. The shop app is on since the 21:15 deploy of `2
   (no reserve, youth, women's or national team unless named; N4 needs two agreeing fixtures and is
   on in the compose; a daily alias check on Telegram), L4 `aliases export` /
   `import --skip-problems` and the deploy saving the mappings to `/root/vamos-backups/aliases/`.
+- 24 Nov (first account): GS8 one person, several staff accounts under one email (back office,
+  agent owner, cashier; migration 0087) and a band between matchweeks in the match lists.
 - GS4 Check coupon (first account, after the merge): Load coupon and Check coupon at the top of the
   betslip; `/ticket` checks a slip ID (awaiting payment, sold, expired; never the ticket) or a
   ticket number; migration 0086 (an index for it). End-to-end on the merge: 46 of 49 passed, 1
@@ -25,7 +27,7 @@ starting; one account at a time. The shop app is on since the 21:15 deploy of `2
   alone; the page budget is 171 KB now (the owner's country flags, `e2e/tests/budget.spec.ts`).
 - The owner deploys with the line under "Deploy" (this branch, with `ALLOW_DROPPED_SETTINGS=1`: the
   `SCRAPER_AUTO_ALIAS` default changed to `on`, and the check compares with an old copy of the
-  compose file next to the env file, which deploys never update). Migrations 0085 and 0086 are new.
+  compose file next to the env file, which deploys never update). Migrations 0085 to 0087 are new.
 - **Next:** GS5 several slips, GS6 the device's slip list, GS7 bet details, GS9
   one admin enough (owner's answer pending: which actions keep a check), GS10 every financial figure
   by period, then 4a/4b.
@@ -181,7 +183,7 @@ server and shows its log (Ctrl+C stops only the log, not the deploy):
 ssh -t root@13.140.208.4 "cd /opt/nahubet && git fetch origin claude/eager-cerf-ox9vkq && (nohup bash -c 'ALLOW_DROPPED_SETTINGS=1 bash <(git show origin/claude/eager-cerf-ox9vkq:infra/scripts/deploy-full.sh) claude/eager-cerf-ox9vkq /opt/nahubet-new/infra/.env.prod vamos' > /root/deploy.log 2>&1 &) ; sleep 3 ; tail -f /root/deploy.log"
 ```
 
-The deploy backs up the database, applies the new migrations (0085 and 0086 after the live `26096ab`),
+The deploy backs up the database, applies the new migrations (0085 to 0087 after the live `26096ab`),
 runs the smoke test and rolls back by itself if it fails. Nothing new to set in the env file; the
 switches `narobet_events`, `hulusport_pricing` and `apifootball_pricing` stay off until the owner
 turns them on in the back office; Telegram alerts need `TELEGRAM_BOT_TOKEN` and

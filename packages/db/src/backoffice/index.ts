@@ -71,6 +71,8 @@ export {
   startOwnStaffTotpEnrolment,
   unlockStaffUser,
   findStaffUserByEmail,
+  staffAccountKind,
+  type StaffAccountKind,
   unlockStaffUserByEmail,
   updateStaffUser,
   warmUpStaffPasswordHashing,
