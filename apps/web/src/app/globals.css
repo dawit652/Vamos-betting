@@ -510,7 +510,7 @@
   }
   /* A new matchweek of the same league (startsNewRound): a band of page colour between rows. */
   .round-break {
-    height: 0.625rem;
+    height: 0.875rem;
     border-bottom: 1px solid var(--color-line);
     background: var(--color-page);
   }

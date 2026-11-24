@@ -19,7 +19,10 @@ starting; one account at a time. The shop app is on since the 21:15 deploy of `2
   on in the compose; a daily alias check on Telegram), L4 `aliases export` /
   `import --skip-problems` and the deploy saving the mappings to `/root/vamos-backups/aliases/`.
 - 24 Nov (first account): GS8 one person, several staff accounts under one email (back office,
-  agent owner, cashier; migration 0087) and a band between matchweeks in the match lists.
+  agent owner, cashier; migration 0087) and a band between matchweeks in the match lists. Fixed:
+  the payout worker's job claimed shop-cash withdrawals (withdrawal codes, approved at once since
+  O6) and hand-paid payouts by id and failed them before the cashier could pay; `claimPayout` now
+  skips them like the sweep (`apps/worker/test/payments.test.ts`).
 - GS4 Check coupon (first account, after the merge): Load coupon and Check coupon at the top of the
   betslip; `/ticket` checks a slip ID (awaiting payment, sold, expired; never the ticket) or a
   ticket number; migration 0086 (an index for it). End-to-end on the merge: 46 of 49 passed, 1

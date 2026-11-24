@@ -48,6 +48,7 @@ export {
   AUTO_APPROVER,
   cancelWithdrawal,
   claimDuePayouts,
+  DESK_PROVIDERS,
   clearPayoutFlag,
   flagPayoutForStaff,
   getPayout,

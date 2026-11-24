@@ -543,6 +543,30 @@ describe('payout worker', () => {
     await publishAll();
   });
 
+  it('never takes a shop-cash withdrawal: approved at once, it waits for the cashier (G4)', async () => {
+    const player = await createPlayer();
+    await deposit(player.userId, 100_000n);
+    const { payout: atShop } = await t.db.db.transaction((tx) =>
+      requestWithdrawal(tx, {
+        userId: player.userId,
+        amount: 20_000n,
+        phone: player.phone,
+        provider: 'cash',
+        idempotencyKey: `cashcode:${randomUUID()}`,
+        now: t.clock.now,
+        rules: RULES,
+        counter: true,
+      }),
+    );
+    expect(atShop.status).toBe('approved');
+    await publishAll();
+    expect(await processPayoutJob(t.ctx, { payoutId: atShop.id })).toEqual({
+      payoutId: atShop.id,
+      outcome: 'skipped',
+    });
+    expect(await payout(atShop.id)).toMatchObject({ status: 'approved', attempts: 0 });
+  });
+
   it('fails a payout whose provider is no longer enabled, before anything was sent', async () => {
     const none: PaymentProviderRegistry = {
       names: [],
