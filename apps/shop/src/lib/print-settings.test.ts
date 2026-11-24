@@ -3,13 +3,14 @@ import {
   DEFAULT_PRINT_SETTINGS,
   parsePrintSettings,
   printSettingsVariables,
+  type PrintThickness,
 } from './print-settings';
 
 describe('parsePrintSettings', () => {
   it('gives the defaults for nothing stored or something malformed', () => {
     expect(parsePrintSettings(null)).toEqual(DEFAULT_PRINT_SETTINGS);
     expect(parsePrintSettings('bold')).toEqual(DEFAULT_PRINT_SETTINGS);
-    expect(parsePrintSettings({ font: 'comic', paper: 72, bold: 'yes' })).toEqual(
+    expect(parsePrintSettings({ font: 'comic', paper: 72, thickness: 'max' })).toEqual(
       DEFAULT_PRINT_SETTINGS,
     );
   });
@@ -18,7 +19,7 @@ describe('parsePrintSettings', () => {
     expect(
       parsePrintSettings({
         fontSize: 40,
-        bold: true,
+        thickness: 'heavy',
         lineHeight: 'wide',
         font: 'sans',
         paper: '58',
@@ -27,7 +28,7 @@ describe('parsePrintSettings', () => {
       }),
     ).toEqual({
       fontSize: 22,
-      bold: true,
+      thickness: 'heavy',
       lineHeight: 'wide',
       font: 'sans',
       paper: '58',
@@ -45,6 +46,8 @@ describe('printSettingsVariables', () => {
     expect(printSettingsVariables(DEFAULT_PRINT_SETTINGS)).toEqual({
       '--print-font-size': '13px',
       '--print-font-weight': '400',
+      '--print-text-stroke': '0px',
+      '--print-rule-width': '1px',
       '--print-line-height': 'normal',
       '--print-font-family': "ui-monospace, 'Courier New', monospace",
       '--print-side-margin': '0mm',
@@ -52,11 +55,29 @@ describe('printSettingsVariables', () => {
     });
   });
 
+  it('reads a setting saved before the thickness levels: bold on is Bold', () => {
+    expect(parsePrintSettings({ bold: true }).thickness).toBe('bold');
+    expect(parsePrintSettings({ bold: false }).thickness).toBe('normal');
+    expect(parsePrintSettings({ bold: true, thickness: 'thin' }).thickness).toBe('thin');
+  });
+
+  it('makes each thickness thicker than the one before', () => {
+    const at = (thickness: PrintThickness) =>
+      printSettingsVariables({ ...DEFAULT_PRINT_SETTINGS, thickness });
+    expect(at('thin')['--print-font-weight']).toBe('300');
+    expect(at('normal')['--print-font-weight']).toBe('400');
+    expect(at('bold')['--print-font-weight']).toBe('700');
+    expect(at('heavy')['--print-text-stroke']).toBe('0.3px');
+    expect(at('heaviest')['--print-font-weight']).toBe('900');
+    expect(at('heaviest')['--print-text-stroke']).toBe('0.6px');
+    expect(at('heaviest')['--print-rule-width']).toBe('3px');
+  });
+
   it('makes bold, large and wide settings', () => {
     const vars = printSettingsVariables({
       ...DEFAULT_PRINT_SETTINGS,
       fontSize: 16,
-      bold: true,
+      thickness: 'bold',
       lineHeight: 'wide',
       sideMarginMm: 3,
       barcode: 'large',

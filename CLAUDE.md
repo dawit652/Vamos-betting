@@ -46,7 +46,8 @@ possible:
    for a separate Check, and disabled buttons showed the busy cursor), the ticket under the code box
    (league, kick-off, market, pick, odds), the agent's top-up balance on the desk and Sell page (low:
    ask the owner to top up; empty: no sale), print settings per device on the Printer page
-   (`docs/plans/agent-shops.md`, last section). No migration (next free 0088); the deploy line in
+   (`docs/plans/agent-shops.md`, last section); then the empty second sheet after every print
+   (only the receipt was on its named page; now the whole body is). No migration (next free 0088); the deploy line in
    `docs/plans/remaining-tasks.md` now names this branch. **Next:** GS5-GS7 (GS9 waits).
    **Earlier, 23 Nov late evening:** both accounts' work merged on `claude/eager-cerf-ox9vkq` (pushed,
    not deployed; the second account fast-forwards `claude/happy-keller-i7cvrh` to it before starting):

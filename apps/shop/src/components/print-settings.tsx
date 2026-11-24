@@ -8,8 +8,10 @@ import {
   PRINT_FONT_SIZE,
   PRINT_SETTINGS_KEY,
   PRINT_SIDE_MARGIN_MM,
+  PRINT_THICKNESSES,
   savePrintSettings,
   type PrintSettings,
+  type PrintThickness,
 } from '@/lib/print-settings';
 import { TEXT } from '@/lib/text';
 
@@ -156,15 +158,20 @@ export function PrintSettingsForm({ shopWidthMm }: { shopWidthMm: 58 | 80 }) {
           </select>
         </label>
       </div>
-      <label className="check" htmlFor="print-bold">
-        <input
-          id="print-bold"
-          type="checkbox"
-          data-testid="print-bold"
-          checked={settings.bold}
-          onChange={(e) => change({ bold: e.target.checked })}
-        />
-        {TEXT.printBold}
+      <label htmlFor="print-thickness">
+        {TEXT.printThickness}
+        <select
+          id="print-thickness"
+          data-testid="print-thickness"
+          value={settings.thickness}
+          onChange={(e) => change({ thickness: e.target.value as PrintThickness })}
+        >
+          {PRINT_THICKNESSES.map((value) => (
+            <option key={value} value={value}>
+              {TEXT.printThicknesses[value]}
+            </option>
+          ))}
+        </select>
       </label>
       <p className="actions">
         <button

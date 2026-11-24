@@ -347,7 +347,14 @@ export const TEXT = {
   printSettingsNote:
     'Saved on this computer or POS only, and used for every ticket, receipt, payout slip and shift report it prints.',
   printFontSize: 'Text size',
-  printBold: 'Bold text (darker on thermal paper)',
+  printThickness: 'Print thickness (thicker prints darker) · ውፍረት',
+  printThicknesses: {
+    thin: 'Thin',
+    normal: 'Normal (standard)',
+    bold: 'Bold',
+    heavy: 'Heavy',
+    heaviest: 'Heaviest',
+  } as Readonly<Record<string, string>>,
   printLineHeight: 'Line spacing',
   printLineHeights: { compact: 'Compact', normal: 'Normal', wide: 'Wide' } as Readonly<
     Record<string, string>

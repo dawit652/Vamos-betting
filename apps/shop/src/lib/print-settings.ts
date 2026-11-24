@@ -8,8 +8,12 @@
 export interface PrintSettings {
   /** Text size in px. */
   fontSize: number;
-  /** Every line bold: darker on a light thermal head. */
-  bold: boolean;
+  /**
+   * How thick the characters and lines print, thin to heaviest: thicker is darker on a light
+   * thermal head. The two heaviest also outline every character, so a font without a black weight
+   * (the receipt's monospace has only bold) still prints thicker.
+   */
+  thickness: PrintThickness;
   lineHeight: 'compact' | 'normal' | 'wide';
   font: 'mono' | 'sans' | 'serif';
   /** The paper roll: as set for the shop (back office), or this printer's own. */
@@ -19,12 +23,15 @@ export interface PrintSettings {
   barcode: 'normal' | 'large';
 }
 
+export const PRINT_THICKNESSES = ['thin', 'normal', 'bold', 'heavy', 'heaviest'] as const;
+export type PrintThickness = (typeof PRINT_THICKNESSES)[number];
+
 export const PRINT_FONT_SIZE = { min: 10, max: 22 } as const;
 export const PRINT_SIDE_MARGIN_MM = { min: 0, max: 6 } as const;
 
 export const DEFAULT_PRINT_SETTINGS: Readonly<PrintSettings> = {
   fontSize: 13,
-  bold: false,
+  thickness: 'normal',
   lineHeight: 'normal',
   font: 'mono',
   paper: 'shop',
@@ -46,6 +53,17 @@ const FONTS: Readonly<Record<PrintSettings['font'], string>> = {
   mono: "ui-monospace, 'Courier New', monospace",
   sans: "Arial, 'Noto Sans Ethiopic', 'Nyala', sans-serif",
   serif: "'Times New Roman', 'Noto Serif Ethiopic', serif",
+};
+
+/** Per thickness: the font weight, the outline drawn round each character, the rule lines. */
+const THICKNESS: Readonly<
+  Record<PrintThickness, { weight: string; stroke: string; rule: string }>
+> = {
+  thin: { weight: '300', stroke: '0px', rule: '1px' },
+  normal: { weight: '400', stroke: '0px', rule: '1px' },
+  bold: { weight: '700', stroke: '0px', rule: '2px' },
+  heavy: { weight: '700', stroke: '0.3px', rule: '2px' },
+  heaviest: { weight: '900', stroke: '0.6px', rule: '3px' },
 };
 
 const BARCODE_HEIGHTS: Readonly<Record<PrintSettings['barcode'], string>> = {
@@ -70,7 +88,12 @@ export function parsePrintSettings(raw: unknown): PrintSettings {
   const d = DEFAULT_PRINT_SETTINGS;
   return {
     fontSize: whole(value.fontSize, PRINT_FONT_SIZE, d.fontSize),
-    bold: typeof value.bold === 'boolean' ? value.bold : d.bold,
+    // Saved before the levels existed: bold on or off.
+    thickness: oneOf(
+      value.thickness,
+      PRINT_THICKNESSES,
+      value.bold === true ? 'bold' : d.thickness,
+    ),
     lineHeight: oneOf(value.lineHeight, ['compact', 'normal', 'wide'], d.lineHeight),
     font: oneOf(value.font, ['mono', 'sans', 'serif'], d.font),
     paper: oneOf(value.paper, ['shop', '58', '80'], d.paper),
@@ -83,7 +106,9 @@ export function parsePrintSettings(raw: unknown): PrintSettings {
 export function printSettingsVariables(settings: PrintSettings): Record<string, string> {
   return {
     '--print-font-size': `${settings.fontSize}px`,
-    '--print-font-weight': settings.bold ? '700' : '400',
+    '--print-font-weight': THICKNESS[settings.thickness].weight,
+    '--print-text-stroke': THICKNESS[settings.thickness].stroke,
+    '--print-rule-width': THICKNESS[settings.thickness].rule,
     '--print-line-height': LINE_HEIGHTS[settings.lineHeight],
     '--print-font-family': FONTS[settings.font],
     '--print-side-margin': `${settings.sideMarginMm}mm`,

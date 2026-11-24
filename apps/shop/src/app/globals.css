@@ -293,6 +293,8 @@ th.num {
 :root {
   --print-font-size: 13px;
   --print-font-weight: 400;
+  --print-text-stroke: 0px;
+  --print-rule-width: 1px;
   --print-line-height: normal;
   --print-font-family: ui-monospace, 'Courier New', monospace;
   --print-side-margin: 0mm;
@@ -308,6 +310,7 @@ th.num {
   font-size: var(--print-font-size);
   font-weight: var(--print-font-weight);
   line-height: var(--print-line-height);
+  -webkit-text-stroke: var(--print-text-stroke) #000;
   text-align: center;
   border: 1px dashed var(--line);
 }
@@ -325,7 +328,7 @@ th.num {
 
 .receipt hr {
   border: 0;
-  border-top: 1px dashed #000;
+  border-top: var(--print-rule-width) dashed #000;
   margin: 8px 0;
 }
 
@@ -374,6 +377,32 @@ th.num {
 
   .receipt {
     border: 0;
+  }
+
+  /*
+   * The whole document prints on the receipt's page. With only the receipt on its named page,
+   * Chrome started a new default page after it (an empty sheet with the date and title line).
+   */
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body:has(.receipt-80) {
+    page: receipt80;
+  }
+
+  body:has(.receipt-58) {
+    page: receipt58;
+  }
+
+  :root[data-print-paper='80'] body:has(.receipt) {
+    page: receipt80;
+  }
+
+  :root[data-print-paper='58'] body:has(.receipt) {
+    page: receipt58;
   }
 }
 /* The sell page's slip and the printed ticket. */

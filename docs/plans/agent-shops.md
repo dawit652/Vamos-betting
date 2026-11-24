@@ -640,11 +640,17 @@ refill before it runs out, and when it is empty the shop cannot sell."
   the balance (409 `agent_balance_low`), and the Sell page warns when the stake is above it. The
   owner's overview shows the same warnings. `GET /shop/desk` has `agentBalanceLowAt`,
   `GET /shop/owner` has `balanceLowAt`.
-- **Print settings on each device** (Printer page): text size (10 to 22 px), bold, line spacing,
+- **Print settings on each device** (Printer page): text size (10 to 22 px), print thickness (thin,
+  normal, bold, heavy, heaviest: heavy and heaviest also outline each character and thicken the
+  rule lines, for a light thermal head; a setting saved as "bold on" reads as Bold), line spacing,
   font (monospace, sans-serif for clear Amharic, serif), paper width (the shop's, or 58 / 80 mm for
   this printer), side margin (0 to 6 mm) and barcode size. They are kept in the browser
   (`nahubet:print-settings`) and applied as CSS variables to every ticket, receipt, payout slip and
   shift report; the preview and the test print show them before saving.
+- **No empty second sheet.** Only the receipt was on its named page (`receipt80`/`receipt58`, 2 mm
+  margins), so Chrome started a default page after it: a blank sheet with the date and title line.
+  On paper the body now takes the receipt's page name (`body:has(.receipt-80)`), so nothing follows.
+  In the print dialog, untick "Headers and footers" (More settings) and keep margins at None.
 - Tests: `apps/shop/src/lib/topup.test.ts`, `print-settings.test.ts`, `tickets.test.ts`,
   `apps/api/test/shop-desk.test.ts`, `shop-owner.test.ts`, `betting.test.ts`,
   `e2e/tests/shop-tickets.spec.ts` (empty top-up, the slip ID sold in one press, no reprint on a

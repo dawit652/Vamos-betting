@@ -283,6 +283,15 @@ test('a cashier sells a ticket by Game ID, prints it with a barcode and cancels 
     await expect
       .poll(() => shop.evaluate(() => (window as unknown as { __prints: number }).__prints))
       .toBe(printsBefore + 1);
+    // On paper the whole document is the receipt's page: no empty sheet after the ticket.
+    await shop.emulateMedia({ media: 'print' });
+    expect(
+      await shop.evaluate(() => [
+        getComputedStyle(document.body).getPropertyValue('page'),
+        getComputedStyle(document.querySelector('[data-testid=ticket]')!).getPropertyValue('page'),
+      ]),
+    ).toEqual(['receipt80', 'receipt80']);
+    await shop.emulateMedia({ media: 'screen' });
     // Opening the same page again prints nothing by itself (the Print button makes a copy).
     await shop.reload();
     await expect(shop.getByTestId('ticket-page')).toBeVisible();
@@ -298,7 +307,7 @@ test('a cashier sells a ticket by Game ID, prints it with a barcode and cancels 
       .click();
     const settings = shop.getByTestId('print-settings');
     await settings.getByTestId('print-font-size').selectOption('16');
-    await settings.getByTestId('print-bold').check();
+    await settings.getByTestId('print-thickness').selectOption('bold');
     await settings.getByTestId('print-save').click();
     await expect(settings.getByTestId('print-saved')).toBeVisible();
     const receiptStyle = () =>
@@ -311,6 +320,16 @@ test('a cashier sells a ticket by Game ID, prints it with a barcode and cancels 
     await expect(shop.getByTestId('print-settings')).toBeVisible();
     await expect.poll(receiptStyle).toBe('16px 700');
     await expect(shop.getByTestId('print-font-size')).toHaveValue('16');
+    await expect(shop.getByTestId('print-thickness')).toHaveValue('bold');
+    // The heaviest thickness also outlines every character (thicker on a thermal head).
+    await shop.getByTestId('print-thickness').selectOption('heaviest');
+    await expect
+      .poll(() =>
+        shop
+          .getByTestId('test-receipt')
+          .evaluate((el) => getComputedStyle(el).getPropertyValue('-webkit-text-stroke-width')),
+      )
+      .toBe('0.6px');
     await shop.getByTestId('print-reset').click();
     await expect.poll(receiptStyle).toBe('13px 400');
   } finally {
