@@ -52,6 +52,50 @@ export type {
   OwnGoalRule,
   ParsedEvents,
 } from './apifootball';
+export {
+  HULUSPORT_COREDATA_PATH,
+  HULUSPORT_HOST,
+  HULUSPORT_MATCHES_PATH,
+  HULUSPORT_SOURCE_ID,
+  hulusportMatchPath,
+  parseHulusportCoredata,
+  parseHulusportMatch,
+  parseHulusportMatchList,
+  parseMrxBoard,
+} from './hulusport';
+export type {
+  BoardMarket,
+  BoardMatch,
+  MrxBoard,
+  HulusportCoredata,
+  HulusportLeague,
+  HulusportListedMatch,
+  HulusportMatch,
+} from './hulusport';
+export {
+  MRZ_MATCHES_PATH,
+  mrzResultsPath,
+  NAROBET_BOARD,
+  parseMrzMatches,
+  parseMrzResults,
+} from './narobet';
+export type { MrzMatchList, NarobetMatch } from './narobet';
+export {
+  API_FOOTBALL_FINISHED,
+  API_FOOTBALL_HOST,
+  API_FOOTBALL_KEY_HEADER,
+  API_FOOTBALL_MAX_IDS,
+  API_FOOTBALL_SECRET,
+  apiFootballFixturesByIdsUrl,
+  apiFootballFixturesUrl,
+  decideNarobetResult,
+  LATE_KICKOFF_TOLERANCE_MS,
+  matchApiFootballFixture,
+  parseApiFootballFixtures,
+  RESULT_MATCH_KICKOFF_MS,
+  sameTeamName,
+} from './apifootball-results';
+export type { ApiFootballFixture, MrzResult, NarobetResultDecision } from './apifootball-results';
 export { americanToMilli, decimalToMilli, exactDecimal, priceToMilli } from './odds-price';
 export type { PriceFormat, PriceProblem, PriceResult } from './odds-price';
 export * from './capabilities';

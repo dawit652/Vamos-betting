@@ -163,9 +163,22 @@ test('deposit by exact-amount transfer, staff credit a third-party payment, save
     await expect(page.getByLabel(/Commercial Bank of Ethiopia · 1000123456789/)).toBeEnabled();
   });
 
-  await test.step('a withdrawal still waits for the deposits to be played through', async () => {
+  await test.step('deposited money is not withdrawn: only winnings (owner, 21 Nov)', async () => {
     await page.locator('#withdraw-amount').fill(typedBirr('5000'));
     await page.getByRole('button', { name: 'Withdraw ETB 50.00' }).click();
-    await expect(page.getByText(/more before you can withdraw/).last()).toBeVisible();
+    await expect(page.getByText(/only winnings can be withdrawn/).last()).toBeVisible();
+  });
+
+  await test.step('a transfer deposit through the second institution shows its account', async () => {
+    const methods = options.smsRail?.methods ?? [];
+    expect(methods.map((m) => m.institution).slice(0, 2)).toEqual(['telebirr', 'cbe']);
+    await page.goto('/wallet/deposit');
+    await page.locator('#deposit-provider').selectOption('sms');
+    await page.locator('#deposit-institution').selectOption('cbe');
+    await page.locator('#deposit-amount').fill('200');
+    await page.getByRole('button', { name: 'Deposit ETB 200.00' }).click();
+    await expect(page.getByText(/^Send exactly ETB [\d,.]+$/)).toBeVisible();
+    await expect(page.getByText('1000000000000')).toBeVisible();
+    await expect(page.getByText('0900000000')).toHaveCount(0);
   });
 });

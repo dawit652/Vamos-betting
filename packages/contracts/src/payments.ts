@@ -25,6 +25,18 @@ export const PaymentProviderNameSchema = z.enum([
 ]);
 export type PaymentProviderName = z.infer<typeof PaymentProviderNameSchema>;
 
+/**
+ * The provider a deposit or withdrawal record carries: an online provider, or `cash` (taken or
+ * paid at a shop's desk, docs/plans/cashier-dashboard.md). Never something a player requests.
+ */
+export const PaymentRecordProviderSchema = z.enum([
+  ...PaymentProviderNameSchema.options,
+  'cash',
+  // Player cash at an agent's shop: the agent's prepaid balance pays (agent-shops.md phase 2).
+  'agent_cash',
+]);
+export type PaymentRecordProvider = z.infer<typeof PaymentRecordProviderSchema>;
+
 /** A positive amount of santim (decimal string). */
 export const PositiveSantim = Santim.refine(
   (value) => !value.startsWith('-') && /[1-9]/.test(value) && value.length <= 15,
@@ -105,6 +117,14 @@ export const CreateDepositRequest = z.object({
   provider: PaymentProviderNameSchema.optional(),
   /** Must be the registered phone (the default). */
   phone: PhoneInput.optional(),
+  /**
+   * SMS rail: the institution the player pays through (one of `smsRail.methods`; default the
+   * first). The server gives the deposit one of that institution's collection accounts only.
+   */
+  institution: z
+    .string()
+    .regex(/^[a-z]{2,20}$/)
+    .optional(),
 });
 export type CreateDepositRequest = z.infer<typeof CreateDepositRequest>;
 
@@ -122,7 +142,7 @@ export const DepositInitiationKindSchema = z.enum(['push', 'redirect', 'ussd', '
 
 export const DepositView = z.object({
   id: z.string(),
-  provider: PaymentProviderNameSchema,
+  provider: PaymentRecordProviderSchema,
   amount: Santim,
   currency: z.literal('ETB'),
   /** The paying (registered) phone. */
@@ -147,7 +167,26 @@ export const DepositView = z.object({
    * amount plus a few santim: they identify the deposit) to one of the
    * collection accounts of GET /payments/options.
    */
-  transfer: z.object({ requestedAmount: Santim, sendAmount: Santim }).nullable(),
+  transfer: z
+    .object({
+      requestedAmount: Santim,
+      sendAmount: Santim,
+      /**
+       * The one collection account this deposit's exact amount belongs to: pay only there.
+       * Null for older deposits and when no accounts are configured (then any account of
+       * GET /payments/options). Optional so an older client's parse still passes.
+       */
+      account: z
+        .object({
+          institution: z.string(),
+          account: z.string(),
+          name: z.string(),
+          hint: z.string().nullable(),
+        })
+        .nullable()
+        .optional(),
+    })
+    .nullable(),
   expiresAt: IsoDateTime,
   createdAt: IsoDateTime,
   completedAt: IsoDateTime.nullable(),
@@ -251,8 +290,9 @@ export type ConfirmPayoutAccountRequest = z.infer<typeof ConfirmPayoutAccountReq
  *   player's bets could not be posted yet (it would overdraw the balance);
  *   withdrawals wait until it is (details `{ betId }`);
  * - 422 payout_phone_mismatch, withdrawal_amount_out_of_range,
- *   withdrawal_daily_cap_exceeded, wagering_requirement_not_met (details
- *   `{ remaining }`), insufficient_funds, payment_provider_unavailable.
+ *   withdrawal_daily_cap_exceeded, wagering_requirement_not_met (more than the
+ *   winnings; details `{ remaining, withdrawable }`), insufficient_funds,
+ *   payment_provider_unavailable.
  */
 export const WithdrawalErrorCodeSchema = z.enum([
   'kyc_required',
@@ -315,7 +355,7 @@ export type WithdrawalStep = z.infer<typeof WithdrawalStep>;
 
 export const WithdrawalView = z.object({
   id: z.string(),
-  provider: PaymentProviderNameSchema,
+  provider: PaymentRecordProviderSchema,
   amount: Santim,
   currency: z.literal('ETB'),
   /** The player's registered phone, where the money goes. */
@@ -349,8 +389,10 @@ export type WithdrawalView = z.infer<typeof WithdrawalView>;
 
 export const WithdrawalsResponse = z.object({
   items: z.array(WithdrawalView),
-  /** Stakes still needed before a withdrawal is allowed (0 = none). */
+  /** Deposited money not yet played through: it stays for betting (0 = none). */
   wageringRemaining: Santim,
+  /** What may be withdrawn now: winnings only, never deposited money (owner, 21 Nov 2026). */
+  withdrawable: Santim,
 });
 export type WithdrawalsResponse = z.infer<typeof WithdrawalsResponse>;
 
@@ -376,8 +418,26 @@ export const SmsGatewayRequest = z.object({
   /** Epoch milliseconds from the handset (informational; our clock is used). */
   receivedAt: z.number().int().positive().optional(),
   secret: z.string().max(200).optional(),
+  /**
+   * The id of the collection account this handset receives for (SMS_COLLECTION_ACCOUNTS `id`,
+   * default `<institution>:<account>`). Left out, it is the only account when there is one.
+   */
+  account: z.string().trim().min(1).max(64).optional(),
 });
 export type SmsGatewayRequest = z.infer<typeof SmsGatewayRequest>;
+
+/**
+ * POST /payments/webhooks/sms/heartbeat: the forwarder on a collection handset says it is alive
+ * (every few minutes), with its battery when it can read it. Same guards as the gateway; `account`
+ * is resolved the same way (it may be left out when there is one collection account).
+ */
+export const SmsHeartbeatRequest = z.object({
+  account: z.string().trim().min(1).max(64).optional(),
+  battery: z.number().int().min(0).max(100).optional(),
+  charging: z.boolean().optional(),
+  secret: z.string().max(200).optional(),
+});
+export type SmsHeartbeatRequest = z.infer<typeof SmsHeartbeatRequest>;
 
 // ---------------------------------------------------------------- dev only
 

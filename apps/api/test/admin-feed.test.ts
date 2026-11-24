@@ -18,12 +18,13 @@ import {
   FeedCompetitionsResponse,
   FeedHealthResponse,
   MarketFamilyStatesResponse,
+  ApiFootballPricingResponse,
+  NarobetPricingResponse,
   ResetMarketFamilyResponse,
   ResolveReviewResponse,
   ReviewDetailResponse,
   ReviewListResponse,
   SetSourceEnabledResponse,
-  STAFF_ROLES,
   UpdateCompetitionPolicyResponse,
   type StaffRole,
 } from '@vamos/contracts';
@@ -42,6 +43,7 @@ import {
 } from '@vamos/core';
 import {
   finishRun,
+  getHulusportPricing,
   loadAliasInputs,
   openReviewItem,
   recordEventHeld,
@@ -49,6 +51,7 @@ import {
   setSourceEnabled,
   setTeamRatings,
   startRun,
+  upsertBoardOdds,
   upsertMarketOdds,
   upsertSource,
   type Database,
@@ -67,7 +70,13 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { listAdminRoutes } from '../src/modules/admin/common';
-import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
+import {
+  BACK_OFFICE_ROLES,
+  asStaff,
+  seedStaff,
+  staffLogin,
+  type StaffSession,
+} from './admin-helpers';
 import {
   insertCategory,
   insertCompetition,
@@ -99,7 +108,7 @@ beforeAll(async () => {
   ctx = await createTestContext();
   db = ctx.db.db;
   await seedStaff(ctx);
-  for (const role of STAFF_ROLES) staff.set(role, await staffLogin(ctx, role));
+  for (const role of BACK_OFFICE_ROLES) staff.set(role, await staffLogin(ctx, role));
   player = await registerAndLogin(ctx);
 
   await insertSport(db, 'football', { en: 'Football' }, 10);
@@ -307,7 +316,7 @@ describe('/admin/feed RBAC', () => {
         headers: { authorization: `Bearer ${player.sessionToken}` },
       });
       expect(asPlayer.statusCode, url).toBe(401);
-      for (const role of STAFF_ROLES) {
+      for (const role of BACK_OFFICE_ROLES) {
         // An empty body: refused by validation (400) once past the guard.
         const response = await asStaff(
           ctx,
@@ -336,6 +345,160 @@ describe('/admin/feed RBAC', () => {
     );
     expect(trader.statusCode).toBe(403);
     expect(errorOf(trader).details).toEqual({ permission: 'settings.edit' });
+  });
+});
+
+describe('Narobet prices (docs/plans/narobet-feed.md)', () => {
+  it('shows the switch (off by default) and mr-z board; turning it on needs settings.edit, off trading.status', async () => {
+    const now = ctx.clock.now;
+    const linked = await newEvent(10 * HOUR);
+    const row = (key: string, extra: { eventId: string | null; pricesAgoMs: number }) => ({
+      sourceKey: `narobet:${key}`,
+      board: 'narobet' as const,
+      competitionRaw: 'Ethiopia - Premier League',
+      homeRaw: 'Saint George',
+      awayRaw: key === 'unlinked' ? 'Nobody FC' : 'Fasil Kenema',
+      kickoff: linked.startTime,
+      homeTeamId: null,
+      awayTeamId: null,
+      eventId: extra.eventId,
+      markets: [
+        {
+          type: '1x2' as const,
+          line: null,
+          prices: [
+            { code: '1', priceMilli: 2000 },
+            { code: 'X', priceMilli: 3300 },
+            { code: '2', priceMilli: 3600 },
+          ],
+        },
+      ],
+      pricesAt: new Date(now.getTime() - extra.pricesAgoMs),
+      observedAt: now,
+    });
+    // Kickoff in 10 hours: Narobet prices up to 45 minutes old are used.
+    await db.transaction((tx) =>
+      upsertBoardOdds(tx, [
+        row('fresh', { eventId: linked.id, pricesAgoMs: 40 * MINUTE }),
+        row('stale', { eventId: linked.id, pricesAgoMs: 50 * MINUTE }),
+        row('unlinked', { eventId: null, pricesAgoMs: 5 * MINUTE }),
+      ]),
+    );
+
+    const view = NarobetPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'GET', '/admin/feed/narobet')),
+    );
+    expect(view).toMatchObject({ enabled: false, updatedAt: null, updatedBy: null });
+    expect(view.freshness).toEqual([
+      { withinMinutes: 180, maxAgeMinutes: 20 },
+      { withinMinutes: 1440, maxAgeMinutes: 45 },
+      { withinMinutes: null, maxAgeMinutes: 420 },
+    ]);
+    expect(view.board).toMatchObject({ upcoming: 3, linked: 2, fresh: 1 });
+    expect(view.board.unlinked.map((u) => u.away)).toEqual(['Nobody FC']);
+
+    // A trader may not turn it on, only off.
+    const refused = await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/narobet', {
+      enabled: true,
+    });
+    expect(refused.statusCode).toBe(403);
+    expect(errorOf(refused).details).toEqual({ permission: 'settings.edit' });
+
+    const on = NarobetPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('admin'), 'PUT', '/admin/feed/narobet', { enabled: true })),
+    );
+    expect(on.enabled).toBe(true);
+    expect(on.updatedBy).not.toBeNull();
+    const audits = await auditActions('scrape.narobet_pricing.updated');
+    expect(audits).toHaveLength(1);
+    // Hulusport's switch is a separate one.
+    expect((await getHulusportPricing(db)).enabled).toBe(false);
+
+    const off = NarobetPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/narobet', { enabled: false })),
+    );
+    expect(off.enabled).toBe(false);
+    expect(await auditActions('scrape.narobet_pricing.updated')).toHaveLength(2);
+  });
+
+  it('API-Football prices: on trial by default; on needs settings.edit, off trading.status (E2)', async () => {
+    const view = ApiFootballPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'GET', '/admin/feed/apifootball')),
+    );
+    expect(view).toMatchObject({
+      enabled: false,
+      updatedAt: null,
+      sources: 0,
+      rows: 0,
+      matches: 0,
+      compared: 0,
+      medianDiffPercent: null,
+    });
+    const refused = await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/apifootball', {
+      enabled: true,
+    });
+    expect(refused.statusCode).toBe(403);
+    expect(errorOf(refused).details).toEqual({ permission: 'settings.edit' });
+    const on = ApiFootballPricingResponse.parse(
+      expectOk(
+        await asStaff(ctx, as('admin'), 'PUT', '/admin/feed/apifootball', { enabled: true }),
+      ),
+    );
+    expect(on.enabled).toBe(true);
+    expect(await auditActions('scrape.apifootball_pricing.updated')).toHaveLength(1);
+    const off = ApiFootballPricingResponse.parse(
+      expectOk(
+        await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/apifootball', { enabled: false }),
+      ),
+    );
+    expect(off.enabled).toBe(false);
+    expect(await auditActions('scrape.apifootball_pricing.updated')).toHaveLength(2);
+  });
+
+  it('Narobet-only matches: off by default, 30 days; on or a new horizon needs settings.edit, off trading.status', async () => {
+    const view = NarobetPricingResponse.parse(
+      expectOk(await asStaff(ctx, as('trader'), 'GET', '/admin/feed/narobet')),
+    );
+    expect(view.events).toMatchObject({
+      enabled: false,
+      horizonDays: 30,
+      upcoming: 0,
+      awaitingResultTotal: 0,
+    });
+
+    for (const body of [
+      { enabled: true },
+      { horizonDays: 7 },
+      { enabled: false, horizonDays: 7 },
+    ]) {
+      const refused = await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/narobet/events', body);
+      expect(refused.statusCode).toBe(403);
+    }
+    for (const body of [{}, { horizonDays: 0 }, { horizonDays: 31 }, { enabled: 'yes' }]) {
+      const bad = await asStaff(ctx, as('admin'), 'PUT', '/admin/feed/narobet/events', body);
+      expect(bad.statusCode).toBe(400);
+    }
+
+    const on = NarobetPricingResponse.parse(
+      expectOk(
+        await asStaff(ctx, as('admin'), 'PUT', '/admin/feed/narobet/events', {
+          enabled: true,
+          horizonDays: 7,
+        }),
+      ),
+    );
+    expect(on.events).toMatchObject({ enabled: true, horizonDays: 7 });
+    expect(on.events.updatedBy).not.toBeNull();
+    // The price switch is a separate one.
+    expect(on.enabled).toBe(false);
+
+    const off = NarobetPricingResponse.parse(
+      expectOk(
+        await asStaff(ctx, as('trader'), 'PUT', '/admin/feed/narobet/events', { enabled: false }),
+      ),
+    );
+    expect(off.events).toMatchObject({ enabled: false, horizonDays: 7 });
+    expect(await auditActions('scrape.narobet_events.updated')).toHaveLength(2);
   });
 });
 
@@ -890,7 +1053,7 @@ describe('POST /admin/feed/review/:id/resolve', () => {
     expect(errorOf(wrong).code).toBe('decision_not_allowed');
 
     const fresh = await openItem('unknown_team', payload('Quiet Town'));
-    for (const role of STAFF_ROLES.filter((r) => r !== 'admin' && r !== 'trader')) {
+    for (const role of BACK_OFFICE_ROLES.filter((r) => r !== 'admin' && r !== 'trader')) {
       const refused = await resolve(role, fresh, {
         decision: 'add_team',
         name: { en: 'Quiet Town' },

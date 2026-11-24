@@ -1,9 +1,11 @@
 import {
+  BookingCodeStatusResponse,
   CashOutOffersQuery,
   CashOutRequest,
   CreateBookingCodeRequest,
   MyBetsQuery,
   PlaceBetRequest,
+  PublicTicketStatusResponse,
   QuoteRequest,
   type BetView,
   type BookingCodeResponse,
@@ -15,9 +17,11 @@ import {
 } from '@vamos/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clientAddressKey } from '../../lib/client-address';
-import { parseInput } from '../../lib/errors';
+import { bookingCodeStatus, publicTicketStatus } from '@vamos/db';
+import { notFound, parseInput } from '../../lib/errors';
 import { IDEMPOTENT_REPLAYED_HEADER, readIdempotencyKey } from '../../lib/idempotency';
 import { requireUser } from '../../plugins/session';
+import { wire } from '../admin/common';
 import {
   cashOutPlayerBet,
   createSlipBookingCode,
@@ -42,6 +46,10 @@ export const BETTING_RATE_LIMITS = {
   createBookingCode: 30,
   /** Per client address (codes are short, so lookups are capped against guessing). */
   loadBookingCode: 60,
+  /** Per client address: the public check of a shop ticket by its number. */
+  ticketCheck: 30,
+  /** Per client address: Check coupon for a slip ID (a device's list checks several at once). */
+  bookingCodeStatus: 60,
   /** Per player: executing a cash-out. */
   cashOut: 30,
   /**
@@ -211,6 +219,52 @@ export default async function bettingRoutes(app: FastifyInstance): Promise<void>
       const body = await createSlipBookingCode(deps, input, request.user?.id ?? null);
       void reply.status(201);
       return body;
+    },
+  );
+
+  /**
+   * A shop ticket's state for whoever holds it (no login; docs/plans/
+   * counter-codes-and-deposit-recovery.md, G3): open, lost, payable (and how much), paid, expired
+   * or cancelled, and the shop that pays it. Never the payout code. Rate limited per address; the
+   * number (8 symbols of 32) cannot be guessed.
+   */
+  app.get<{ Params: { number: string } }>(
+    '/tickets/:number',
+    { config: perClient('ticket-check', BETTING_RATE_LIMITS.ticketCheck) },
+    async (request, reply): Promise<PublicTicketStatusResponse> => {
+      const status = await publicTicketStatus(deps.db, request.params.number);
+      if (status === null) throw notFound('Ticket');
+      noStore(reply);
+      return wire(PublicTicketStatusResponse, {
+        number: status.number,
+        state: status.state,
+        amount: status.amount,
+        shop: { label: status.shopLabel, name: status.shopName },
+        soldAt: status.soldAt,
+        paidAt: status.paidAt,
+      });
+    },
+  );
+
+  /**
+   * Check coupon for a slip ID (no login; docs/plans/guest-slips-and-staff.md, GS4): awaiting cash
+   * payment, sold as a shop ticket, or expired. Never the ticket, the shop or the result.
+   */
+  app.get<{ Params: { code: string } }>(
+    '/booking-codes/:code/status',
+    { config: perClient('booking-code-status', BETTING_RATE_LIMITS.bookingCodeStatus) },
+    async (request, reply): Promise<BookingCodeStatusResponse> => {
+      const status = await bookingCodeStatus(deps.db, request.params.code, deps.clock());
+      if (status === null) throw notFound('Booking code');
+      noStore(reply);
+      return wire(BookingCodeStatusResponse, {
+        code: status.code,
+        state: status.state,
+        stake: status.stake,
+        createdAt: status.createdAt,
+        expiresAt: status.expiresAt,
+        soldAt: status.soldAt,
+      });
     },
   );
 

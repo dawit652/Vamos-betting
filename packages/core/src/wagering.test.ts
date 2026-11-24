@@ -6,6 +6,7 @@ import {
   applyWageringEvent,
   remainingWagering,
   wageringRequirementOf,
+  withdrawableAmount,
   type WageringEvent,
 } from './wagering';
 
@@ -174,5 +175,43 @@ describe('DEFAULT_PAYMENT_RULES', () => {
       depositIntentTtlMinutes: 30,
       payoutMaxAttempts: 5,
     });
+  });
+});
+
+describe('withdrawableAmount (owner, 21 Nov 2026: winnings only)', () => {
+  it('keeps the deposits not yet played through, and frees the winnings at once', () => {
+    // Deposit 1,000, stake 200 and win 600: balance 1,400, 800 of the deposit still unplayed.
+    const events = [
+      { kind: 'funding', amount: birr(1000) },
+      { kind: 'stake', amount: birr(200) },
+    ] as const;
+    const remaining = remainingWagering(events, 10_000);
+    expect(remaining).toBe(birr(800));
+    expect(withdrawableAmount(birr(1400), remaining)).toBe(birr(600));
+    // Nothing won yet: nothing to withdraw.
+    expect(withdrawableAmount(birr(800), remaining)).toBe(0n);
+    // Everything played through: the whole balance.
+    expect(withdrawableAmount(birr(1100), 0n)).toBe(birr(1100));
+    expect(withdrawableAmount(0n, 0n)).toBe(0n);
+  });
+
+  it('refuses a negative requirement', () => {
+    expect(() => withdrawableAmount(birr(10), -1n)).toThrow(RangeError);
+  });
+
+  it('is never negative, never more than the balance, and never frees unplayed deposits', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: -1_000_000n, max: 10_000_000n }),
+        fc.bigInt({ min: 0n, max: 10_000_000n }),
+        (balance, remaining) => {
+          const free = withdrawableAmount(balance, remaining);
+          expect(free >= 0n).toBe(true);
+          expect(free <= (balance > 0n ? balance : 0n)).toBe(true);
+          // What stays after withdrawing everything allowed still covers the unplayed deposits.
+          if (free > 0n) expect(balance - free).toBe(remaining);
+        },
+      ),
+    );
   });
 });

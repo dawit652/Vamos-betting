@@ -12,3 +12,14 @@ export function withoutBetslipMessages(messages: ClientMessages): ClientMessages
   const { betslip: _betslip, ...sportsbook } = messages.sportsbook;
   return { ...messages, sportsbook: sportsbook as NonNullable<ClientMessages['sportsbook']> };
 }
+
+/**
+ * The client's common messages without Check coupon's texts (`common.ticketCheck.*`, about 1 KB
+ * per page, more in Amharic): only /ticket's TicketCheck reads them in the browser, and that page
+ * sends the full namespace again (<ClientMessages namespaces={['common']}>).
+ */
+export function withoutTicketCheckMessages(messages: ClientMessages): ClientMessages {
+  if (messages.common === undefined) return messages;
+  const { ticketCheck: _ticketCheck, ...common } = messages.common;
+  return { ...messages, common: common as NonNullable<ClientMessages['common']> };
+}

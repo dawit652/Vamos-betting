@@ -1,0 +1,17 @@
+{
+  "id": "apifootball-bydate",
+  "name": "API-Football by date, our leagues: fixtures and results (replaces The Odds API fixtures and scores)",
+  "adapter": "apifootball",
+  "upstream": "api-sports",
+  "config": {
+    "allowedHosts": ["v3.football.api-sports.io"],
+    "secret": "SCRAPER_SECRET_API_FOOTBALL",
+    "sport": "football",
+    "daysBack": 1,
+    "daysAhead": 7,
+    "leagueIds": [
+      39, 40, 41, 42, 45, 48, 140, 143, 135, 137, 78, 81, 61, 66, 88, 94, 144, 179, 203, 207, 2, 3,
+      848, 71
+    ]
+  }
+}

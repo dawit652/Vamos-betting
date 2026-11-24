@@ -1,0 +1,3 @@
+CREATE INDEX "retail_tickets_sold_at_idx" ON "retail_tickets" USING btree ("sold_at");--> statement-breakpoint
+CREATE INDEX "retail_tickets_cancelled_at_idx" ON "retail_tickets" USING btree ("cancelled_at") WHERE "retail_tickets"."cancelled_at" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX "retail_tickets_paid_at_idx" ON "retail_tickets" USING btree ("paid_at") WHERE "retail_tickets"."paid_at" IS NOT NULL;

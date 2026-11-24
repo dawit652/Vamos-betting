@@ -1,4 +1,4 @@
-import type { OwnerAlertsConfig } from '@vamos/config';
+import { ownerAlertTargetCount, type OwnerAlertTargets } from '@vamos/config';
 import type { OutOfLineSelection, OwnerAlertInput } from '@vamos/core';
 import {
   closeReviewItemsBySubject,
@@ -53,7 +53,7 @@ export interface AlarmRef {
   runId: string;
   now: Date;
   /** The owner's alert settings (config.ownerAlerts): without a number no alert is written. */
-  alerts?: Pick<OwnerAlertsConfig, 'phones'>;
+  alerts?: OwnerAlertTargets;
 }
 
 export const creditAlarmSubject = (
@@ -95,7 +95,8 @@ async function raise(
   extra: Record<string, unknown>,
   alert?: OwnerAlertInput,
 ): Promise<void> {
-  const owner = ref.alerts !== undefined && ref.alerts.phones.length > 0 ? ref.alerts : undefined;
+  const owner =
+    ref.alerts !== undefined && ownerAlertTargetCount(ref.alerts) > 0 ? ref.alerts : undefined;
   const before =
     owner !== undefined && alert !== undefined ? await openReason(tx, subjectKey) : null;
   const { created } = await openReviewItem(tx, {

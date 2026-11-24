@@ -258,6 +258,9 @@ describe('factory markets on market-priced events', () => {
       for (const s of selections) byKey.set(s.key, (byKey.get(s.key) ?? new Set()).add(s.code));
       const present = FACTORY.filter((m) => keys.has(keyOf(m)));
       expect(present.length).toBeGreaterThan(100);
+      // The owner's target (16 Nov 2026, like Hulusport's "500+" per match): about 500 options per
+      // match, counting today's markets and the factory's.
+      expect(selections.length).toBeGreaterThanOrEqual(500);
       for (const m of present) {
         expect([...byKey.get(keyOf(m))!].sort(), keyOf(m)).toEqual([...m.selections].sort());
       }
@@ -409,6 +412,58 @@ describe('factory markets on market-priced events', () => {
 });
 
 /** Plan task 2.5: margins per family from the settings, and the weekly family job. */
+describe('factory markets on model-priced events (16 Nov 2026)', () => {
+  it(
+    'a league priced from team ratings gets them from the model, with the suffix; switched off they are suspended',
+    async () => {
+      h = await createHarness({ calibrated: true, factoryMarkets: true });
+      h.serve(URL_A, ofDoc([ARSENAL_CHELSEA_OF]));
+      h.serve(URL_B, jsonDoc([ARSENAL_CHELSEA_JSON]));
+      await h.run('src-a');
+      await h.run('src-b');
+      await h.ctx.db.transaction((tx) =>
+        setCompetitionPolicy(
+          tx,
+          h.premier,
+          { pricingSource: 'model', factoryMarkets: true },
+          actor,
+        ),
+      );
+      expect((await promoteFixtures(h.ctx)).created).toBe(1);
+      const [event] = await rows<{ id: string }>(
+        `SELECT id FROM events WHERE feed_provider = 'scraped'`,
+      );
+      const eventId = event!.id;
+      // Created with them already (promoteFixtures prices the new event with the flag).
+      let stored = await storedMarkets(eventId);
+      if (!stored.some((m) => factoryKeys.has(m.key))) {
+        expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ failed: 0 });
+        stored = await storedMarkets(eventId);
+      }
+      const factory = stored.filter((m) => factoryKeys.has(m.key));
+      expect(factory.length).toBeGreaterThan(100);
+      expect(factory.every((m) => m.status === 'open')).toBe(true);
+      expect(await stampKey(eventId)).toMatch(/^\[.*\|fm1$/);
+      const [count] = await rows<{ n: string }>(
+        `SELECT count(*) AS n FROM selections s JOIN markets m ON m.id = s.market_id
+          WHERE m.event_id = $1`,
+        [eventId],
+      );
+      expect(Number(count!.n)).toBeGreaterThanOrEqual(500);
+
+      // The competition's switch off: the next re-price suspends them (feed) and drops the suffix.
+      await h.ctx.db.transaction((tx) =>
+        setCompetitionPolicy(tx, h.premier, { factoryMarkets: false }, actor),
+      );
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ failed: 0 });
+      const off = (await storedMarkets(eventId)).filter((m) => factoryKeys.has(m.key));
+      expect(off.every((m) => m.status === 'suspended' && m.suspended_by === 'feed')).toBe(true);
+      expect(await stampKey(eventId)).not.toContain('|fm1');
+    },
+    TEST_TIMEOUT,
+  );
+});
+
 describe('market families', () => {
   const htftOdds = async (eventId: string) =>
     rows<{ code: string; odds_milli: number }>(

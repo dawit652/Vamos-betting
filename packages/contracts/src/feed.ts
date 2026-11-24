@@ -24,6 +24,8 @@ import { Id, IsoDateTime, OddsMilli, Santim } from './common';
  * - `PUT /admin/feed/competitions/:id` is listed with its strictest permission,
  *   `settings.edit`; a request that only turns flags off needs just
  *   `trading.status` (`competitionPolicyPermission`).
+ * - `PUT /admin/feed/hulusport` and `PUT /admin/feed/narobet` likewise: turning a board's prices on
+ *   needs `settings.edit`, turning them off (back to our own prices) just `trading.status`.
  */
 export const FEED_ROUTE_PERMISSIONS = {
   'GET /admin/feed/health': 'trading.view',
@@ -43,6 +45,13 @@ export const FEED_ROUTE_PERMISSIONS = {
   'PUT /admin/feed/competitions/:id': 'settings.edit',
   'GET /admin/feed/market-families': 'trading.view',
   'POST /admin/feed/market-families/:family/reset': 'settings.edit',
+  'GET /admin/feed/hulusport': 'trading.view',
+  'PUT /admin/feed/hulusport': 'settings.edit',
+  'GET /admin/feed/narobet': 'trading.view',
+  'PUT /admin/feed/narobet': 'settings.edit',
+  'PUT /admin/feed/narobet/events': 'settings.edit',
+  'GET /admin/feed/apifootball': 'trading.view',
+  'PUT /admin/feed/apifootball': 'settings.edit',
 } as const satisfies Record<string, StaffPermission>;
 export type FeedRoute = keyof typeof FEED_ROUTE_PERMISSIONS;
 
@@ -271,6 +280,146 @@ export type SetSourceEnabledRequest = z.infer<typeof SetSourceEnabledRequest>;
 
 export const SetSourceEnabledResponse = z.object({ source: SourceHealthView });
 export type SetSourceEnabledResponse = z.infer<typeof SetSourceEnabledResponse>;
+
+// ---------------------------------------------------------------------------
+// Hulusport prices (GET /admin/feed/hulusport, PUT /admin/feed/hulusport; docs/plans/hulusport-feed.md).
+
+/** What the scraper last read from the mr-x board of Hulusport prices. */
+export const HulusportBoardView = z.object({
+  /** Upcoming matches on the board (with odds mr-x has read). */
+  upcoming: z.number().int().nonnegative(),
+  /** Of those, linked to a Nahubet match by their two teams and kickoff. */
+  linked: z.number().int().nonnegative(),
+  /** Linked, with prices fresh enough to use. */
+  fresh: z.number().int().nonnegative(),
+  lastReadAt: IsoDateTime.nullable(),
+  newestPricesAt: IsoDateTime.nullable(),
+  /** Upcoming matches that did not link, soonest first: names to map with an alias. */
+  unlinked: z.array(
+    z.object({
+      competition: z.string(),
+      home: z.string(),
+      away: z.string(),
+      kickoff: IsoDateTime,
+      /** Both team names resolved, but no single Nahubet match has them at that time. */
+      teamsResolved: z.boolean(),
+    }),
+  ),
+});
+export type HulusportBoardView = z.infer<typeof HulusportBoardView>;
+
+export const HulusportPricingResponse = z.object({
+  /** On: matches with fresh Hulusport prices take them, with our margin. Off: our own prices. */
+  enabled: z.boolean(),
+  updatedAt: IsoDateTime.nullable(),
+  updatedBy: z.string().nullable(),
+  /** Hulusport prices older than this are not used. */
+  maxAgeMinutes: z.number().int().positive(),
+  board: HulusportBoardView,
+  /** Hulusport matches Nahubet does not list itself, shown as matches of their own. */
+  events: z.object({
+    upcoming: z.number().int().nonnegative(),
+    bettingOpen: z.number().int().nonnegative(),
+    /** Kicked off more than two hours ago and no result yet: a person enters it. */
+    awaitingResultTotal: z.number().int().nonnegative(),
+    awaitingResult: z.array(
+      z.object({
+        eventId: z.string(),
+        gameId: z.number().int(),
+        competition: z.string(),
+        home: z.string(),
+        away: z.string(),
+        kickoff: IsoDateTime,
+      }),
+    ),
+  }),
+});
+export type HulusportPricingResponse = z.infer<typeof HulusportPricingResponse>;
+
+export const SetHulusportPricingRequest = z.strictObject({ enabled: z.boolean() });
+export type SetHulusportPricingRequest = z.infer<typeof SetHulusportPricingRequest>;
+
+// ---------------------------------------------------------------------------
+// Narobet prices (GET /admin/feed/narobet, PUT /admin/feed/narobet; docs/plans/narobet-feed.md).
+
+export const NarobetPricingResponse = z.object({
+  /**
+   * On: matches Nahubet already prices take Narobet's fresh prices for the markets we price, with
+   * our margin (Hulusport's come first while its switch is on). Off: our own prices.
+   */
+  enabled: z.boolean(),
+  updatedAt: IsoDateTime.nullable(),
+  updatedBy: z.string().nullable(),
+  /**
+   * How old Narobet prices may be, by the time left to the kickoff: a step applies to kickoffs
+   * within `withinMinutes`; the last step (`withinMinutes` null) to every later kickoff.
+   */
+  freshness: z.array(
+    z.object({
+      withinMinutes: z.number().int().positive().nullable(),
+      maxAgeMinutes: z.number().int().positive(),
+    }),
+  ),
+  /** What the scraper last read from mr-z (the same counts as Hulusport's board). */
+  board: HulusportBoardView,
+  /**
+   * Narobet matches Nahubet does not list, shown as matches of their own (switch `narobet_events`,
+   * docs/plans/narobet-events.md): off by default; listed up to `horizonDays` ahead.
+   */
+  events: z.object({
+    enabled: z.boolean(),
+    horizonDays: z.number().int().min(1).max(30),
+    updatedAt: IsoDateTime.nullable(),
+    updatedBy: z.string().nullable(),
+    upcoming: z.number().int().nonnegative(),
+    bettingOpen: z.number().int().nonnegative(),
+    /** Kicked off more than two hours ago and no result yet. */
+    awaitingResultTotal: z.number().int().nonnegative(),
+    awaitingResult: z.array(
+      z.object({
+        eventId: z.string(),
+        gameId: z.number().int(),
+        competition: z.string(),
+        home: z.string(),
+        away: z.string(),
+        kickoff: IsoDateTime,
+      }),
+    ),
+  }),
+});
+export type NarobetPricingResponse = z.infer<typeof NarobetPricingResponse>;
+
+export const SetNarobetPricingRequest = z.strictObject({ enabled: z.boolean() });
+export type SetNarobetPricingRequest = z.infer<typeof SetNarobetPricingRequest>;
+
+/** API-Football's bookmaker prices on trial (docs/plans/feed-gaps-2026-11-23.md, E2). */
+export const ApiFootballPricingResponse = z.object({
+  /** On: its prices count like The Odds API's. Off (the default): stored and compared only. */
+  enabled: z.boolean(),
+  updatedAt: IsoDateTime.nullable(),
+  updatedBy: z.string().nullable(),
+  /** Over the last 3 hours. */
+  sources: z.number().int(),
+  rows: z.number().int(),
+  matches: z.number().int(),
+  compared: z.number().int(),
+  medianDiffPercent: z.number().nullable(),
+});
+export type ApiFootballPricingResponse = z.infer<typeof ApiFootballPricingResponse>;
+
+export const SetApiFootballPricingRequest = z.strictObject({ enabled: z.boolean() });
+export type SetApiFootballPricingRequest = z.infer<typeof SetApiFootballPricingRequest>;
+
+/** PUT /admin/feed/narobet/events: the switch and/or the horizon (1..30 days). */
+export const SetNarobetEventsRequest = z
+  .strictObject({
+    enabled: z.boolean().optional(),
+    horizonDays: z.number().int().min(1).max(30).optional(),
+  })
+  .refine((body) => body.enabled !== undefined || body.horizonDays !== undefined, {
+    message: 'enabled or horizonDays is required',
+  });
+export type SetNarobetEventsRequest = z.infer<typeof SetNarobetEventsRequest>;
 
 // ---------------------------------------------------------------------------
 // Competition policy (GET /admin/feed/competitions, PUT /admin/feed/competitions/:id).

@@ -1,0 +1,1 @@
+ALTER TABLE "retail_tickets" ADD COLUMN "booking_code" text;

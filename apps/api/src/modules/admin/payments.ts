@@ -1,6 +1,11 @@
 import {
+  CloseDepositClaimRequest,
+  MoneyNotCreditedResponse,
   hasPermission,
+  ManualDepositRequest,
+  ManualDepositResponse,
   PayoutNoteRequest,
+  RecheckDepositResponse,
   RejectWithdrawalRequest,
   ResolveDepositRequest,
   SettlePayoutRequest,
@@ -11,6 +16,11 @@ import {
   StaffWithdrawalView,
 } from '@vamos/contracts';
 import {
+  applyDepositEvent,
+  closeDepositClaim,
+  creditDepositByAdmin,
+  creditDepositClaim,
+  listMoneyNotCredited,
   getStaffWithdrawal,
   listFlaggedDeposits,
   listStaffWithdrawals,
@@ -20,11 +30,14 @@ import {
   staffRejectWithdrawal,
   staffResolveDeposit,
   staffSettlePayout,
+  schema,
   type DbTransaction,
   type StaffActor,
 } from '@vamos/db';
+import { eventFromStatusQuery, PaymentProviderError } from '@vamos/payments';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { notFound, parseInput } from '../../lib/errors';
+import { conflict, notFound, parseInput, serviceUnavailable } from '../../lib/errors';
 import { requireStaff, staffActor } from '../../plugins/staff-session';
 import { inTx, parseUuid, wire } from './common';
 
@@ -179,6 +192,154 @@ export default async function adminPaymentRoutes(app: FastifyInstance): Promise<
         }),
       );
       return { id: intent.id, status: intent.status };
+    },
+  );
+
+  /**
+   * A deposit that reached Nahubet but was not credited, credited by one admin (owner's decision
+   * O5; docs/plans/counter-codes-and-deposit-recovery.md, G5.2): once per provider transaction id,
+   * the player's own deposit as itself, audited, the owner told above ETB 5,000.
+   */
+  app.post<IdParams>(
+    '/admin/users/:id/manual-deposits',
+    { config: { staff: 'deposits.credit' } },
+    async (request) => {
+      const userId = parseUuid(request.params.id, 'User');
+      const input = parseInput(ManualDepositRequest, request.body);
+      const actor = staffActor(request);
+      const { intent, created } = await inTx(deps, async (tx) => {
+        const credited = await creditDepositByAdmin(tx, {
+          userId,
+          intentId: input.intentId ?? null,
+          provider: input.provider,
+          providerTransactionId: input.providerTransactionId,
+          amount: input.amount === undefined ? null : BigInt(input.amount),
+          reason: input.reason,
+          adminId: actor.adminId,
+          ownerAlerts: deps.config.ownerAlerts,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        });
+        // The player's claim this answers (G5.3), in the same transaction as the credit.
+        if (input.claimId !== undefined) {
+          await creditDepositClaim(tx, {
+            claimId: input.claimId,
+            userId,
+            intentId: credited.intent.id,
+            adminId: actor.adminId,
+            now: deps.clock(),
+            ip: actor.ip ?? null,
+          });
+        }
+        return credited;
+      });
+      return wire(ManualDepositResponse, {
+        deposit: {
+          id: intent.id,
+          provider: intent.provider,
+          amount: intent.amount,
+          status: intent.status,
+        },
+        created,
+      });
+    },
+  );
+
+  /**
+   * "Money not credited" (G6): money that arrived but was not credited, and the players' open
+   * claims, each with the players it may belong to. Never credited automatically.
+   */
+  app.get('/admin/money-not-credited', { config: { staff: 'sms.review' } }, async () => {
+    const list = await listMoneyNotCredited(deps.db);
+    return wire(MoneyNotCreditedResponse, {
+      items: list.items,
+      claims: list.claims.map(({ claim, phone, name, pairs }) => ({
+        id: claim.id,
+        userId: claim.userId,
+        phone,
+        name,
+        method: claim.method,
+        amount: claim.amount,
+        paidAt: claim.paidAt,
+        reference: claim.reference,
+        payerPhone: claim.payerPhone,
+        note: claim.note,
+        createdAt: claim.createdAt,
+        pairs,
+      })),
+      waiting: list.waiting,
+    });
+  });
+
+  app.post<IdParams>(
+    '/admin/deposit-claims/:id/close',
+    { config: { staff: 'sms.review' } },
+    async (request) => {
+      const claimId = parseUuid(request.params.id, 'Claim');
+      const input = parseInput(CloseDepositClaimRequest, request.body);
+      const actor = staffActor(request);
+      const claim = await inTx(deps, (tx) =>
+        closeDepositClaim(tx, {
+          claimId,
+          note: input.note,
+          adminId: actor.adminId,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        }),
+      );
+      return { id: claim.id, status: claim.status };
+    },
+  );
+
+  /**
+   * Asks the provider now about a deposit not yet credited (the worker also does it on its own
+   * schedule): a payment the provider confirms is credited the normal way, exactly once.
+   */
+  app.post<IdParams>(
+    '/admin/deposits/:id/recheck',
+    { config: { staff: 'withdrawals.approve' } },
+    async (request) => {
+      const intentId = parseUuid(request.params.id, 'Deposit');
+      const [intent] = await deps.db
+        .select()
+        .from(schema.paymentIntents)
+        .where(eq(schema.paymentIntents.id, intentId))
+        .limit(1);
+      if (!intent) throw notFound('Deposit');
+      if (intent.status === 'succeeded') {
+        return wire(RecheckDepositResponse, { outcome: 'already_credited', status: intent.status });
+      }
+      const provider = deps.payments.get(intent.provider);
+      if (provider === undefined || intent.providerRef === null) {
+        throw conflict(
+          'recheck_unavailable',
+          'This deposit cannot be checked with its provider (no reference or no provider).',
+        );
+      }
+      let result;
+      try {
+        result = await provider.queryDeposit(intent.providerRef);
+      } catch (error) {
+        if (!(error instanceof PaymentProviderError)) throw error;
+        throw serviceUnavailable(
+          'payment_provider_unavailable',
+          'The payment service is not answering. Try again in a moment.',
+        );
+      }
+      if (result.status === 'pending') {
+        return wire(RecheckDepositResponse, { outcome: 'pending', status: intent.status });
+      }
+      if (result.providerRef !== intent.providerRef) {
+        throw conflict('recheck_mismatch', 'The provider answered for another reference.');
+      }
+      const event = eventFromStatusQuery('deposit', result);
+      const applied = await inTx(deps, (tx) =>
+        applyDepositEvent(tx, { provider: intent.provider, event, now: deps.clock() }),
+      );
+      return wire(RecheckDepositResponse, {
+        outcome: applied.outcome,
+        status: applied.intent.status,
+      });
     },
   );
 }

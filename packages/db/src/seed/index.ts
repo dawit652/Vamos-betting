@@ -1,5 +1,6 @@
 import {
   DEFAULT_BET_RULES,
+  DEFAULT_BOARD_RISK_LIMITS,
   DEFAULT_CASH_OUT,
   DEFAULT_JACKPOTS,
   DEFAULT_LIVE_BET_DELAY_MS,
@@ -58,6 +59,7 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, unknown>> = {
   jackpots: DEFAULT_JACKPOTS,
   payments: DEFAULT_PAYMENT_RULES,
   risk_limits: DEFAULT_RISK_LIMITS,
+  board_risk_limits: DEFAULT_BOARD_RISK_LIMITS,
   market_families: DEFAULT_MARKET_FAMILIES,
 };
 

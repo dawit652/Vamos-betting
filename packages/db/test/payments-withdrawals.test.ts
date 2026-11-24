@@ -422,7 +422,7 @@ describe('requestWithdrawal', () => {
   });
 });
 
-describe('wagering requirement (multiplier 1.0)', () => {
+describe('winnings only: deposits are never withdrawn (owner, 21 Nov 2026; multiplier 1.0)', () => {
   const wagering = rules({ wageringMultiplierBps: 10_000 });
 
   it('requires each deposit to be staked once; winnings of wagered deposits are withdrawable', async () => {
@@ -432,7 +432,7 @@ describe('wagering requirement (multiplier 1.0)', () => {
     ).toMatchObject({
       status: 422,
       code: 'wagering_requirement_not_met',
-      details: { remaining: '20000' },
+      details: { remaining: '20000', withdrawable: '0' },
     });
 
     const event = await createEvent(handle.db, ids, { odds: { home: 2000 } });
@@ -444,7 +444,7 @@ describe('wagering requirement (multiplier 1.0)', () => {
     expect(await getRemainingWagering(handle.db, player.userId, 10_000)).toBe(birr(50));
     expect(
       (await domainError(withdraw(handle.db, player, birr(50), { rules: wagering }))).details,
-    ).toEqual({ remaining: '5000' });
+    ).toEqual({ remaining: '5000', withdrawable: '0' });
 
     await place(handle.db, player.userId, {
       stake: birr(50),
@@ -497,13 +497,47 @@ describe('wagering requirement (multiplier 1.0)', () => {
     // Total staked (100) >= total funded (150) fails anyway here; the running
     // rule also refuses when old turnover would exceed it.
     expect(await getRemainingWagering(handle.db, player.userId, 10_000)).toBe(birr(50));
+    // The 180 won stays withdrawable; the new 50 is for betting.
     expect(
-      (await domainError(withdraw(handle.db, player, birr(100), { rules: wagering }))).details,
-    ).toEqual({ remaining: '5000' });
-    // At multiplier 0 there is no requirement.
-    expect((await withdraw(handle.db, player, birr(100), { rules: rules() })).payout.status).toBe(
+      (await domainError(withdraw(handle.db, player, birr(200), { rules: wagering }))).details,
+    ).toEqual({ remaining: '5000', withdrawable: '18000' });
+    expect((await withdraw(handle.db, player, birr(180), { rules: wagering })).payout.status).toBe(
       'approved',
     );
+    expect(
+      (await domainError(withdraw(handle.db, player, birr(50), { rules: wagering }))).details,
+    ).toEqual({ remaining: '5000', withdrawable: '0' });
+    // At multiplier 0 there is no requirement.
+    expect((await withdraw(handle.db, player, birr(50), { rules: rules() })).payout.status).toBe(
+      'approved',
+    );
+  });
+
+  it('pays the winnings at once while part of the deposit is still unplayed', async () => {
+    // Deposit 1,000 and stake 200 at 4.00: the 800 not staked stays for betting, what the bet
+    // returned (after tax) is withdrawable straight away.
+    const player = await fundedPlayer(birr(1000));
+    const event = await createEvent(handle.db, ids, { odds: { home: 4000 } });
+    await place(handle.db, player.userId, {
+      stake: birr(200),
+      legs: [{ selectionId: event.home, oddsMilli: 4000 }],
+      settings,
+    });
+    await finish(handle.db, event.eventId, 1, 0);
+    await handle.db.transaction((tx) => settleEventBets(tx, event.eventId, new Date()));
+    expect(await getRemainingWagering(handle.db, player.userId, 10_000)).toBe(birr(800));
+    const won = (await cashOf(handle.db, player.userId)) - birr(800);
+    expect(won > 0n).toBe(true);
+    expect(
+      (await domainError(withdraw(handle.db, player, won + 1n, { rules: wagering }))).details,
+    ).toEqual({ remaining: '80000', withdrawable: won.toString() });
+    expect((await withdraw(handle.db, player, won, { rules: wagering })).payout.status).toBe(
+      'approved',
+    );
+    expect(await cashOf(handle.db, player.userId)).toBe(birr(800));
+    expect(
+      (await domainError(withdraw(handle.db, player, birr(100), { rules: wagering }))).code,
+    ).toBe('wagering_requirement_not_met');
   });
 
   it('is waived during an exclusion, which sends every withdrawal to review instead', async () => {

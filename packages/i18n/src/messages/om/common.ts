@@ -13,4 +13,7 @@ export const common: DeepPartial<Messages['common']> = {
   rg: {
     ageNotice: 'Umuriin 21 fi isaa ol qofa. Itti gaafatamummaan qabsiisaa.',
   },
+  telegram: {
+    join: 'Telegiraama irratti nutti makamaa',
+  },
 };

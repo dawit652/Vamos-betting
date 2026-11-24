@@ -13,7 +13,7 @@ import {
   type Telemetry,
   type TrustProxySetting,
 } from '@vamos/config';
-import { STAFF_CSRF_HEADER, type HealthResponse } from '@vamos/contracts';
+import { SHOP_CSRF_HEADER, STAFF_CSRF_HEADER, type HealthResponse } from '@vamos/contracts';
 import { DomainError } from '@vamos/db';
 import Fastify, {
   LogController,
@@ -28,6 +28,7 @@ import { AppError } from './lib/errors';
 import { IDEMPOTENCY_KEY_HEADER, IDEMPOTENT_REPLAYED_HEADER } from './lib/idempotency';
 import { DEFAULT_AUTH_LIMITS, type AuthLimits } from './lib/rate-limits';
 import { registerModules } from './modules/index';
+import { installMetrics } from './plugins/metrics';
 import { CSRF_HEADER, sessionPlugin } from './plugins/session';
 
 export type { AppDeps } from './deps';
@@ -87,7 +88,17 @@ export function isAdminPath(url: string): boolean {
  * read the staff CSRF token from `/admin/session` and drive the staff API.
  */
 export function corsOriginsFor(config: AppConfig, url: string): string[] {
+  if (isShopPath(url)) {
+    // The shop app (docs/plans/agent-shops.md phase 1b): its own origin, /shop/* only.
+    return config.web.shopUrl === null ? [] : [new URL(config.web.shopUrl).origin];
+  }
   return [new URL(isAdminPath(url) ? config.web.adminUrl : config.web.publicUrl).origin];
+}
+
+/** Whether `url` is in the shop app's API (/shop/*). */
+export function isShopPath(url: string): boolean {
+  const path = url.split(/[?#]/, 1)[0] ?? '';
+  return path === '/shop' || path.startsWith('/shop/');
 }
 
 interface LoggedRequest {
@@ -230,6 +241,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     await app.background.idle();
   });
 
+  // Before any route: the response hook then covers every route, and the stream plugins find
+  // `app.metrics`. GET /metrics itself exists only with METRICS_TOKEN.
+  installMetrics(app, deps);
+
   void app.register(fastifyCookie);
   void app.register(fastifyHelmet, securityHeaderOptions(config));
   const corsOptions = {
@@ -240,6 +255,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       'authorization',
       CSRF_HEADER,
       STAFF_CSRF_HEADER,
+      // The shop app's unsafe calls (docs/plans/agent-shops.md phase 1b).
+      SHOP_CSRF_HEADER,
       'x-request-id',
       IDEMPOTENCY_KEY_HEADER,
     ],

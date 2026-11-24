@@ -4,6 +4,7 @@ import {
   check,
   index,
   integer,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -11,7 +12,7 @@ import {
   uuid,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
-import { users } from './accounts';
+import { adminUsers, users } from './accounts';
 import { paymentIntents, payouts } from './payments';
 
 /**
@@ -75,6 +76,8 @@ export const receivedSms = pgTable(
     balance: bigint('balance', { mode: 'bigint' }),
     occurredAt: timestamp('occurred_at', { withTimezone: true }),
     /** When the api received it (our clock: the matching and audit clock). */
+    /** The collection account (SMS_COLLECTION_ACCOUNTS id) the message arrived on; null: not known. */
+    collectionAccount: text('collection_account'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull(),
     /** When the handset says it received it (informational). */
     deviceReceivedAt: timestamp('device_received_at', { withTimezone: true }),
@@ -202,5 +205,73 @@ export const payoutAccounts = pgTable(
       .on(t.userId, t.institution, t.account)
       .where(sql`${t.removedAt} IS NULL`),
     index('payout_accounts_user_idx').on(t.userId, t.createdAt),
+  ],
+);
+
+export const collectionAccountStatus = pgEnum('collection_account_status', [
+  'pending',
+  'active',
+  'rejected',
+  'deleted',
+]);
+
+/**
+ * The SMS rail's collection accounts (where players send deposits), managed in the back office.
+ * An admin adds one (pending); a second person approves it before any player is shown it, or
+ * rejects it (four eyes: a new account sends player money somewhere new). Its institution and
+ * number never change, since deposits, SMS and the handset's forwarder name it by `account_id`;
+ * the holder name and hint may. Deleting stops new deposits on it at once, while SMS, receipts and
+ * open deposits on it still count for a week (@vamos/db loadRailAccounts). Rows are never removed.
+ * SMS_COLLECTION_ACCOUNTS fills an empty table once (created_by null).
+ */
+export const collectionAccounts = pgTable(
+  'collection_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The rail's id of the account (`<institution>:<number>`): deposits and SMS carry it. */
+    accountId: text('account_id').notNull(),
+    institution: text('institution').notNull(),
+    /** The number players send to: a wallet's phone number or a bank account number. */
+    account: text('account').notNull(),
+    /** The holder's name as players see it (licensed: the operator's legal name). */
+    name: text('name').notNull(),
+    hint: text('hint'),
+    status: collectionAccountStatus('status').notNull().default('pending'),
+    /** Who added it (null: filled from SMS_COLLECTION_ACCOUNTS). */
+    createdBy: uuid('created_by').references(() => adminUsers.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    /** The second person, who approved or rejected it. */
+    decidedBy: uuid('decided_by').references(() => adminUsers.id, { onDelete: 'restrict' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    updatedBy: uuid('updated_by').references(() => adminUsers.id, { onDelete: 'restrict' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }),
+    deletedBy: uuid('deleted_by').references(() => adminUsers.id, { onDelete: 'restrict' }),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => [
+    // One live row per account: by id, and by institution and number (one account, one space of
+    // exact amounts).
+    uniqueIndex('collection_accounts_account_id_uq')
+      .on(t.accountId)
+      .where(sql`${t.status} IN ('pending', 'active')`),
+    uniqueIndex('collection_accounts_number_uq')
+      .on(t.institution, t.account)
+      .where(sql`${t.status} IN ('pending', 'active')`),
+    check(
+      'collection_accounts_four_eyes',
+      sql`${t.decidedBy} IS NULL OR ${t.createdBy} IS NULL OR ${t.decidedBy} <> ${t.createdBy}`,
+    ),
+    check(
+      'collection_accounts_decided',
+      sql`${t.status} NOT IN ('active', 'rejected') OR ${t.createdBy} IS NULL OR ${t.decidedAt} IS NOT NULL`,
+    ),
+    check(
+      'collection_accounts_pending',
+      sql`${t.status} <> 'pending' OR (${t.decidedBy} IS NULL AND ${t.decidedAt} IS NULL)`,
+    ),
+    check(
+      'collection_accounts_deleted',
+      sql`(${t.status} = 'deleted') = (${t.deletedAt} IS NOT NULL)`,
+    ),
   ],
 );

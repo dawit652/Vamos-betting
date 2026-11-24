@@ -62,7 +62,7 @@ The scraper reads these from the environment (`packages/config/src/config.ts`; e
 | `SCRAPER_RESULT_CONFIRM_MINUTES` | `15`             | R4 wait, minimum 5                                                                                  |
 | `SCRAPER_MIN_RATING_MATCHES`     | `8`              | O1                                                                                                  |
 | `SCRAPER_HALF_TIME_MARKETS`      | `all`            | O6: `all`, or `covered`: half-time markets only where a source gives half time                      |
-| `SCRAPER_AUTO_ALIAS`             | `off`            | N4: `on` maps a strong fixture-context suggestion as an alias for that source only (see below)      |
+| `SCRAPER_AUTO_ALIAS`             | `on` (compose)   | N4: `on` maps a strong fixture-context suggestion as an alias for that source only (see below)      |
 | `SCRAPER_PRIORITY_COMPETITIONS`  | unset            | C-2: slugs of priority competitions; others' odds read 30 min / 2 h / 170 min (see below)           |
 | `SCRAPER_SKIP_REDUNDANT_SCORES`  | `off`            | C-2: `on` stops reading a scores source that would be a third full-time upstream (see below)        |
 | `SCRAPER_CAP_AT_BEST_PRICE`      | `off`            | O7: `off` (flag only), or `on`: cap the 1X2 and over/under prices at the best fresh book price      |
@@ -85,9 +85,11 @@ switched off. Try values before setting them: `sources budget --priority premier
 `redundant` for a skipped one, and names priority slugs no metered source reads (a typo shows there). Details:
 docs/theoddsapi-plan/README.md 4.5.
 
-**`SCRAPER_AUTO_ALIAS` (rule N4, off by default).** With `on`, a strong fixture-context suggestion for an unknown
+**`SCRAPER_AUTO_ALIAS` (rule N4; `on` in the production compose since L3, 23 Nov 2026, `off` when unset).** With `on`, a strong fixture-context suggestion for an unknown
 team name is written as an alias for the source that showed the name, never for every source, by `system:scraper`.
-It is applied only when the name is unknown (not ambiguous), the competition has at least two independent
+It is applied only when at least two of the name's fixtures in the run agree on the team (L3,
+`AUTO_ALIAS_MIN_FIXTURES`), never to a reserve, youth, women's or national team the name does not name (L3's
+guard, `variantConflict`), when the name is unknown (not ambiguous), the competition has at least two independent
 full-time upstreams among the enabled sources (rule R2, as `sources coverage` counts them: a source that takes its
 competition from each record counts for none), no person dismissed the name before and no person removed an alias
 of that spelling. Each one is audited twice: `scrape.alias.added` and `scrape.alias.auto`, whose metadata holds the
@@ -95,7 +97,14 @@ evidence (review item, raw name, team, similarity, full-time upstreams, and each
 competition and opponent). The source's observations re-resolve at once and the `unknown_team` item closes when
 every row with the name resolves. To undo one: `aliases list`, then `aliases remove --id <id>`; N4 never re-adds a
 spelling a person removed. Only the fetch of a source applies N4; the promotion pass only suggests. Switch it on
-once the review queue shows the strong suggestions are right (plan U-4).
+once the review queue shows the strong suggestions are right (plan U-4). Its aliases are scoped to the source, and
+rule L1 reuses them from every other source where the team plays (`docs/plans/name-learning.md`).
+
+**The daily alias check (L3).** Every 6 hours the scraper lists the team aliases written in the last 48 hours, by a
+person or by N4, that look wrong (`suspiciousAlias`: a reserve, youth, women's or national team the spelling does not
+name, or a telling word of the spelling that no name of the team has, "viktoria plzen" to "FC Viktoria Cologne"). They
+are logged (`team aliases look wrong`, `alarm: alias_suspicious`) and the owner gets one Telegram line a day at most.
+Nothing is changed; a person removes a wrong alias in Back office → Feed → Aliases. It may list a right nickname.
 
 API keys of sources are not settings of this table: they are the `SCRAPER_SECRET_<NAME>` variables of
 section 7.

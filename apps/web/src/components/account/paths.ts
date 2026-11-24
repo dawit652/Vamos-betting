@@ -7,6 +7,7 @@ import { routes } from '@/lib/routes';
 export const accountPaths = {
   verify: '/verify',
   resetPassword: '/reset-password',
+  resetAtShop: '/reset-at-shop',
   betDetail: (id: string): string => `${routes.myBets}/${encodeURIComponent(id)}`,
   settledBets: `${routes.myBets}?tab=settled`,
   jackpotBets: `${routes.myBets}?tab=jackpot`,
@@ -46,6 +47,7 @@ const AUTH_PATHS: ReadonlySet<string> = new Set([
   routes.forgotPassword,
   accountPaths.verify,
   accountPaths.resetPassword,
+  accountPaths.resetAtShop,
 ]);
 
 /** `/login?next=…` for a page that needs a session (no `next` for the home page). */

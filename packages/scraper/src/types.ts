@@ -246,6 +246,18 @@ export interface FetchPlanItem {
   headers?: Record<string, string>;
   /** Sent only to the origin of `url`; a redirect to another origin drops it. */
   auth?: RequestAuthRef;
+  /**
+   * `image`: the answer must be a PNG, JPEG, WebP or GIF image (anything else is refused); it is
+   * returned as bytes, never as a validated or block-checked page. robots.txt, the allow-list,
+   * the rate limit and the size cap apply as for a document. Default `document`.
+   */
+  accept?: 'document' | 'image';
+  /**
+   * `false`: always the full body, never a conditional request (no If-None-Match or
+   * If-Modified-Since), for a page that another page of the same run depends on (a 304 would
+   * leave nothing to read it with).
+   */
+  revalidate?: false;
 }
 
 /**

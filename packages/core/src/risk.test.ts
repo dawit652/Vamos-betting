@@ -3,14 +3,17 @@ import { describe, expect, it } from 'vitest';
 import { quoteBet } from './betslip';
 import { birr } from './money';
 import {
+  DEFAULT_BOARD_RISK_LIMITS,
   DEFAULT_RISK_LIMITS,
   FACTORY_SELECTION_LIABILITY_SHARE_BPS,
   hasRiskLimits,
   largestStakeWithin,
   liabilityBreach,
   type LiabilityExposure,
+  needsLiabilityCheck,
   type RiskLimits,
   selectionLiabilityCap,
+  strictestCap,
 } from './risk';
 import { DEFAULT_BET_RULES, DEFAULT_MULTI_BONUS, DEFAULT_TAX } from './rules';
 
@@ -166,6 +169,164 @@ describe('liabilityBreach', () => {
             limits: limitsBoth,
           });
           expect(b).toEqual(a);
+        },
+      ),
+    );
+  });
+});
+
+describe('board caps (settings board_risk_limits)', () => {
+  const none: RiskLimits = { maxSelectionLiability: null, maxEventLiability: null };
+  const board = (
+    limits: RiskLimits,
+    events: readonly string[] = ['b'],
+    selections: readonly string[] = ['bs'],
+  ) => ({ limits, events: new Set(events), selections: new Set(selections) });
+
+  it('defaults to ETB 20,000 per match and no selection cap (owner, 21 Nov 2026)', () => {
+    expect(DEFAULT_BOARD_RISK_LIMITS).toEqual({
+      maxSelectionLiability: null,
+      maxEventLiability: birr(20_000),
+    });
+  });
+
+  it('strictestCap keeps the lower cap and treats null as no cap', () => {
+    expect(strictestCap(null, null)).toBeNull();
+    expect(strictestCap(5n, null)).toBe(5n);
+    expect(strictestCap(null, 7n)).toBe(7n);
+    expect(strictestCap(9n, 4n)).toBe(4n);
+    expect(strictestCap(4n, 9n)).toBe(4n);
+  });
+
+  it('needs a check only for plain caps, or for board caps on a bet with a board match', () => {
+    expect(needsLiabilityCheck(none)).toBe(false);
+    expect(needsLiabilityCheck(none, board(DEFAULT_BOARD_RISK_LIMITS, []))).toBe(false);
+    expect(needsLiabilityCheck(none, board(none))).toBe(false);
+    expect(needsLiabilityCheck(none, board(DEFAULT_BOARD_RISK_LIMITS))).toBe(true);
+    expect(needsLiabilityCheck({ ...none, maxEventLiability: 1n })).toBe(true);
+  });
+
+  it('caps a board match at the board cap and leaves other matches alone', () => {
+    const input = {
+      payout: birr(15_000),
+      selections: [exposure('bs', 0n), exposure('s', 0n)],
+      events: [exposure('b', birr(6_000)), exposure('e', birr(6_000))],
+      limits: none,
+      board: board(DEFAULT_BOARD_RISK_LIMITS),
+    };
+    // 6 000 + 15 000 > 20 000 on the board match; the other match has no cap at all.
+    expect(liabilityBreach(input)).toEqual({
+      scope: 'event',
+      id: 'b',
+      cap: birr(20_000),
+      current: birr(6_000),
+      headroom: birr(14_000),
+    });
+    expect(liabilityBreach({ ...input, payout: birr(14_000) })).toBeNull();
+    expect(liabilityBreach({ ...input, board: undefined })).toBeNull();
+  });
+
+  it('applies the stricter of the plain and the board cap', () => {
+    const events = [exposure('b', 0n)];
+    const plainLower = { maxSelectionLiability: null, maxEventLiability: birr(5_000) };
+    expect(
+      liabilityBreach({
+        payout: birr(6_000),
+        selections: [],
+        events,
+        limits: plainLower,
+        board: board(DEFAULT_BOARD_RISK_LIMITS),
+      })?.cap,
+    ).toBe(birr(5_000));
+    const boardSelection = { maxSelectionLiability: birr(1_000), maxEventLiability: null };
+    expect(
+      liabilityBreach({
+        payout: birr(1_500),
+        selections: [exposure('bs', 0n), exposure('s', 0n)],
+        events: [],
+        limits: { maxSelectionLiability: birr(3_000), maxEventLiability: null },
+        board: board(boardSelection),
+      }),
+    ).toEqual({
+      scope: 'selection',
+      id: 'bs',
+      cap: birr(1_000),
+      current: 0n,
+      headroom: birr(1_000),
+    });
+  });
+
+  const amount = fc.bigInt({ min: 0n, max: birr(30_000) });
+  const capArb = fc.option(fc.bigInt({ min: 1n, max: birr(30_000) }), { nil: null });
+  const ids = fc.uniqueArray(fc.constantFrom<string>('a', 'b', 'c', 'd'), { maxLength: 4 });
+
+  it('without a board match, the board caps change nothing (property)', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 1n, max: birr(30_000) }),
+        fc.array(amount, { maxLength: 4 }),
+        fc.array(amount, { maxLength: 4 }),
+        capArb,
+        capArb,
+        capArb,
+        capArb,
+        (payout, sel, evt, ps, pe, bs, be) => {
+          const selections = sel.map((current, i) => exposure(`s${i}`, current));
+          const events = evt.map((current, i) => exposure(`e${i}`, current));
+          const limits = { maxSelectionLiability: ps, maxEventLiability: pe };
+          const without = liabilityBreach({ payout, selections, events, limits });
+          const withBoard = liabilityBreach({
+            payout,
+            selections,
+            events,
+            limits,
+            board: board({ maxSelectionLiability: bs, maxEventLiability: be }, ['x'], ['y']),
+          });
+          expect(withBoard).toEqual(without);
+        },
+      ),
+    );
+  });
+
+  it('a board cap can only refuse more, never less (property)', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 1n, max: birr(30_000) }),
+        fc.array(amount, { minLength: 4, maxLength: 4 }),
+        fc.array(amount, { minLength: 4, maxLength: 4 }),
+        capArb,
+        capArb,
+        capArb,
+        capArb,
+        ids,
+        ids,
+        (payout, sel, evt, ps, pe, bs, be, boardEvents, boardSelections) => {
+          const names = ['a', 'b', 'c', 'd'];
+          const selections = sel.map((current, i) => exposure(names[i]!, current));
+          const events = evt.map((current, i) => exposure(names[i]!, current));
+          const limits = { maxSelectionLiability: ps, maxEventLiability: pe };
+          const without = liabilityBreach({ payout, selections, events, limits });
+          const withBoard = liabilityBreach({
+            payout,
+            selections,
+            events,
+            limits,
+            board: board(
+              { maxSelectionLiability: bs, maxEventLiability: be },
+              boardEvents,
+              boardSelections,
+            ),
+          });
+          if (without !== null) {
+            expect(withBoard).not.toBeNull();
+            expect(withBoard!.headroom <= without.headroom).toBe(true);
+          }
+          // A board match over its board cap is always refused.
+          for (const e of events) {
+            if (be !== null && boardEvents.includes(e.id) && e.current + payout > be) {
+              expect(withBoard).not.toBeNull();
+            }
+          }
         },
       ),
     );

@@ -1,12 +1,15 @@
 import { addisAbabaDate } from '@vamos/contracts';
 
-/** Today, Tomorrow, then the next five days (named by weekday). */
-export const DAY_CHIP_COUNT = 7;
+/**
+ * The Upcoming tab's days: today and the next 29 (owner, 23 Nov 2026: up to 30 days, scrolled
+ * sideways). The API accepts a day up to EVENT_DAY_MAX_AHEAD (30) ahead.
+ */
+export const DAY_CHIP_COUNT = 30;
 
 export interface DayChip {
   /** Addis Ababa calendar date, YYYY-MM-DD. */
   date: string;
-  /** Days after today: 0 and 1 are labelled Today and Tomorrow, 2 to 6 by weekday. */
+  /** Days after today: 0 and 1 are labelled Today and Tomorrow, the others weekday and date. */
   offset: number;
 }
 

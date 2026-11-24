@@ -1,5 +1,9 @@
 import type { AppConfig } from '@vamos/config';
-import type { WalletResponse, WalletTransactionsResponse } from '@vamos/contracts';
+import {
+  WalletTransactionType,
+  type WalletResponse,
+  type WalletTransactionsResponse,
+} from '@vamos/contracts';
 import { CURRENCY, birr, formatBirr, maxSantim, toWire, type Santim } from '@vamos/core';
 import {
   accountKey,
@@ -88,7 +92,7 @@ export async function listWalletTransactions(
   });
   const items = rows.slice(0, page.limit).map((row) => ({
     id: row.entryId.toString(),
-    type: row.type,
+    type: playerType(row.type),
     amount: toWire(row.amount),
     balanceAfter: toWire(row.balanceAfter),
     refType: row.refType,
@@ -101,6 +105,17 @@ export async function listWalletTransactions(
     items,
     nextCursor: rows.length > page.limit && last !== undefined ? last.id : null,
   };
+}
+
+/**
+ * A player's statement only ever has player movements; an agent's top-up or take-back
+ * (agent-shops.md phase 2) posts to agent and house accounts, never to a player's.
+ */
+type WalletTransactionKind = (typeof WalletTransactionType.options)[number];
+const PLAYER_TYPES: ReadonlySet<string> = new Set(WalletTransactionType.options);
+function playerType(type: string): WalletTransactionKind {
+  if (!PLAYER_TYPES.has(type)) throw new Error(`ledger type ${type} on a player account`);
+  return type as WalletTransactionKind;
 }
 
 export interface DemoTopUpInput {

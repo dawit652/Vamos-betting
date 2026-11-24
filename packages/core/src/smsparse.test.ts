@@ -13,6 +13,7 @@ import {
   parseSmsWithSpec,
   pastedSmsReference,
   smsBirrToSantim,
+  smsPhoneFits,
 } from './smsparse';
 
 const telebirr = institutionById('telebirr')!;
@@ -76,6 +77,111 @@ describe('telebirr messages', () => {
       reference: 'CD456QWERT',
       counterpartyPhone: null,
     });
+  });
+});
+
+describe('the live telebirr and CBE credits (22 Nov 2026)', () => {
+  it("reads telebirr's Amharic credit: amount, reference, masked payer, date", () => {
+    for (const hint of ['127', 'telebirr', null]) {
+      const sms = parseSms(TELEBIRR_SMS.creditAmharicLive, hint)!;
+      expect(sms).toMatchObject({
+        institution: 'telebirr',
+        direction: 'credit',
+        amount: 1073n,
+        reference: 'DKA1BC2DEF',
+        counterpartyName: 'sender name',
+        counterpartyPhone: '+2519****0000',
+        balance: 123456n,
+      });
+      // 23:53:23 in Addis Ababa.
+      expect(sms.occurredAt?.toISOString()).toBe('2026-11-22T20:53:00.000Z');
+    }
+  });
+
+  it("reads CBE's credit by its receipt token; the payer is a name, never a phone", () => {
+    for (const hint of ['CBE', null]) {
+      const sms = parseSms(CBE_SMS.creditLive, hint)!;
+      expect(sms).toMatchObject({
+        institution: 'cbe',
+        direction: 'credit',
+        amount: 5028n,
+        reference: 'ABCDEFGH12IJKL34MNOP',
+        counterpartyName: 'Sender Full Name',
+        counterpartyPhone: null,
+        balance: 123456n,
+        occurredAt: null,
+      });
+    }
+  });
+
+  it("reads CBE's credit of money sent from telebirr by its BranchReceipt FT reference", () => {
+    for (const hint of ['CBE', null]) {
+      expect(parseSms(CBE_SMS.creditFromWalletLive, hint)).toMatchObject({
+        institution: 'cbe',
+        direction: 'credit',
+        amount: 1040n,
+        reference: 'FT26001ABC12',
+        counterpartyPhone: null,
+        balance: 123456n,
+      });
+    }
+  });
+
+  it('a masked number fits only the phones that agree at every visible place', () => {
+    expect(smsPhoneFits('+2519****0000', '+251911110000')).toBe(true);
+    expect(smsPhoneFits('+2519****0000', '+251911110001')).toBe(false);
+    expect(smsPhoneFits('+2519****0000', '+251711110000')).toBe(false);
+    expect(smsPhoneFits('+251911110000', '+251911110000')).toBe(true);
+    expect(smsPhoneFits('+251911110000', '+251911110001')).toBe(false);
+    expect(smsPhoneFits(null, '+251911110000')).toBeNull();
+    fc.assert(
+      fc.property(
+        fc.stringMatching(/^\+2519\d{8}$/),
+        fc.array(fc.integer({ min: 5, max: 12 }), { maxLength: 6 }),
+        fc.integer({ min: 4, max: 12 }),
+        (phone, masked, changed) => {
+          const mask = [...phone].map((c, i) => (masked.includes(i) ? '*' : c)).join('');
+          if (!smsPhoneFits(mask, phone)) return false;
+          // Another digit at a visible place never fits.
+          if (masked.includes(changed)) return true;
+          const other = [...phone]
+            .map((c, i) => (i === changed ? String((Number(c) + 1) % 10) : c))
+            .join('');
+          return smsPhoneFits(mask, other) === false;
+        },
+      ),
+    );
+  });
+
+  it("reads telebirr's transfer out to a bank as a debit; its own number is not the recipient", () => {
+    for (const hint of ['127', null]) {
+      const sms = parseSms(TELEBIRR_SMS.debitToBankLive, hint)!;
+      expect(sms).toMatchObject({
+        institution: 'telebirr',
+        direction: 'debit',
+        amount: 1079n,
+        reference: 'DKB2CD3EFG',
+        counterpartyPhone: null,
+        balance: 123456n,
+      });
+      // 00:35:31 on 23 Nov in Addis Ababa.
+      expect(sms.occurredAt?.toISOString()).toBe('2026-11-22T21:35:00.000Z');
+    }
+  });
+
+  it("never reads the collection account's own number as the payer", () => {
+    const sms = parseSms(
+      'Dear Customer, your account 0911000000 has been credited with ETB 10.50 from SENDER NAME. Ref AB12345678',
+      'CBE',
+    );
+    expect(sms).toMatchObject({ direction: 'credit', amount: 1050n, counterpartyPhone: null });
+  });
+
+  it('keeps a masked number only for credits, and needs four visible digits', () => {
+    const debit = TELEBIRR_SMS.creditAmharicLive.replace('ተቀብለዋል', 'ልከዋል');
+    expect(parseSms(debit, '127')).toMatchObject({ direction: 'debit', counterpartyPhone: null });
+    const hidden = TELEBIRR_SMS.creditAmharicLive.replace('2519****0000', '251*******00');
+    expect(parseSms(hidden, '127')?.counterpartyPhone).toBeNull();
   });
 });
 

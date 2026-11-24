@@ -14,6 +14,7 @@ import {
   teamCatalogueNames,
   FIXTURE_CONTEXT_WINDOW_MS,
   MIN_INDEPENDENT_SOURCES,
+  AUTO_ALIAS_MIN_FIXTURES,
   type AliasIndex,
   type CatalogueFixture,
   type FixtureContextResult,
@@ -136,6 +137,8 @@ export interface FixtureContextLookup {
   /** The sightings looked up (at most MAX_FIXTURE_SIGHTINGS). */
   sightings: UnknownFixtureContext[];
   result: FixtureContextResult;
+  /** L3: how many sightings name the strong candidate (0 without one). */
+  agreeing: number;
 }
 
 /** Rule N4 for one unknown team name: the combined suggestion over its sightings. */
@@ -151,7 +154,13 @@ export async function lookupFixtureContext(
     const fixtures = await catalogueFixtures(tx, index, name.sport, name.sourceId, at);
     results.push(fixtureContextSuggestions({ raw: name.raw, ...at }, fixtures));
   }
-  return { sightings, result: combineFixtureContexts(results) };
+  const result = combineFixtureContexts(results);
+  const strongId = result.strong?.teamId;
+  const agreeing =
+    strongId === undefined
+      ? 0
+      : results.filter((r) => r.candidates.some((c) => c.teamId === strongId)).length;
+  return { sightings, result, agreeing };
 }
 
 /** A person removed an alias of this spelling (for this source or all): N4 never re-adds it. */
@@ -194,6 +203,8 @@ export async function decideAutoAlias(
 ): Promise<AutoAliasDecision | null> {
   const strong = lookup.result.strong;
   if (!policy.enabled || strong === null || !name.unknown || name.dismissedBefore) return null;
+  // L3: two of the name's fixtures must agree on the team before it is mapped without a person.
+  if (lookup.agreeing < AUTO_ALIAS_MIN_FIXTURES) return null;
   let upstreams = Infinity;
   for (const competitionId of new Set(lookup.sightings.map((s) => s.competitionId))) {
     upstreams = Math.min(upstreams, await policy.fullTimeUpstreams(competitionId));

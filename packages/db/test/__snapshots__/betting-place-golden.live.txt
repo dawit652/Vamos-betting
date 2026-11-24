@@ -1,0 +1,364 @@
+{
+  "placed": {
+    "bet": {
+      "acceptAfter": "NOW+6000",
+      "acceptedAt": null,
+      "betType": "single",
+      "bonusPercentBps": 0,
+      "cashedOut": null,
+      "channel": "sms",
+      "id": "<bet>",
+      "legs": [
+        {
+          "eventId": "<live event>",
+          "id": "<uuid 49>",
+          "isLive": true,
+          "marketId": "<live event 1x2>",
+          "oddsMilli": 3200,
+          "position": 0,
+          "requestedOddsMilli": 3200,
+          "selection": {
+            "awayTeam": {
+              "en": "Chelsea"
+            },
+            "bettingOpen": true,
+            "closeLeadMs": 0,
+            "code": "X",
+            "competitionActive": true,
+            "competitionId": "<uuid 50>",
+            "competitionName": {
+              "am": "ፕሪሚየር ሊግ",
+              "en": "Premier League"
+            },
+            "eventId": "<live event>",
+            "eventStatus": "live",
+            "feedProvider": "test-feed",
+            "gameId": "<game id>",
+            "homeTeam": {
+              "en": "Arsenal"
+            },
+            "marketId": "<live event 1x2>",
+            "marketKey": "1x2",
+            "marketLine": null,
+            "marketStatus": "open",
+            "marketType": "1x2",
+            "oddsMilli": 3200,
+            "priceValidUntil": null,
+            "result": null,
+            "scoreAway": 0,
+            "scoreHome": 0,
+            "selectionId": "<live event draw>",
+            "selectionStatus": "open",
+            "sportActive": true,
+            "sportId": "football",
+            "startTime": "NOW+10800000"
+          },
+          "selectionId": "<live event draw>",
+          "state": "open"
+        }
+      ],
+      "oddsChangePolicy": "none",
+      "placedAt": "NOW+0",
+      "potentialBonus": "0n",
+      "potentialGrossPayout": "6400n",
+      "potentialNetPayout": "6400n",
+      "potentialTax": "0n",
+      "rejectReason": null,
+      "settledAt": null,
+      "settledGrossPayout": null,
+      "settledNetPayout": null,
+      "settledTax": null,
+      "settlementVersion": 0,
+      "shortId": "X6DLT29G",
+      "stake": "2000n",
+      "status": "pending_acceptance",
+      "terms": {
+        "betRules": {
+          "maxLegs": 40,
+          "maxPayout": "50000000n",
+          "maxStake": "10000000n",
+          "maxTotalOddsMilli": "1000000000n",
+          "minLegOddsMilli": 1010,
+          "minStake": "500n"
+        },
+        "multiBonus": {
+          "enabled": true,
+          "maxBonus": "5000000n",
+          "minLegOddsMilli": 1300,
+          "tiers": [
+            {
+              "minLegs": 3,
+              "percentBps": 300
+            },
+            {
+              "minLegs": 4,
+              "percentBps": 500
+            },
+            {
+              "minLegs": 5,
+              "percentBps": 800
+            },
+            {
+              "minLegs": 6,
+              "percentBps": 1000
+            },
+            {
+              "minLegs": 7,
+              "percentBps": 1500
+            },
+            {
+              "minLegs": 8,
+              "percentBps": 2000
+            },
+            {
+              "minLegs": 9,
+              "percentBps": 2500
+            },
+            {
+              "minLegs": 10,
+              "percentBps": 3000
+            },
+            {
+              "minLegs": 12,
+              "percentBps": 4000
+            },
+            {
+              "minLegs": 15,
+              "percentBps": 5000
+            },
+            {
+              "minLegs": 20,
+              "percentBps": 10000
+            },
+            {
+              "minLegs": 25,
+              "percentBps": 15000
+            },
+            {
+              "minLegs": 30,
+              "percentBps": 20000
+            }
+          ]
+        },
+        "tax": {
+          "base": "net_winnings",
+          "exemptBelow": "10000n",
+          "rateBps": 2000
+        }
+      },
+      "totalOddsMilli": "3200n",
+      "userId": "<user>"
+    },
+    "replayed": false
+  },
+  "written": {
+    "audit": [
+      {
+        "action": "bet.placed",
+        "actorId": "<user>",
+        "actorType": "user",
+        "createdAt": "<db time>",
+        "id": "<serial>",
+        "ip": null,
+        "metadata": {
+          "channel": "sms",
+          "legs": 1,
+          "oddsChanged": 0,
+          "policy": "none",
+          "shortId": "X6DLT29G",
+          "stake": "2000",
+          "status": "pending_acceptance"
+        },
+        "targetId": "<bet>",
+        "targetType": "bet"
+      }
+    ],
+    "bet": {
+      "acceptAfter": "NOW+6000",
+      "acceptedAt": null,
+      "betType": "single",
+      "bonusPercentBps": 0,
+      "channel": "sms",
+      "id": "<bet>",
+      "idempotencyKey": "golden-live-0001",
+      "oddsChangePolicy": "none",
+      "placedAt": "NOW+0",
+      "potentialBonus": "0n",
+      "potentialGrossPayout": "6400n",
+      "potentialNetPayout": "6400n",
+      "potentialTax": "0n",
+      "rejectReason": null,
+      "settledAt": null,
+      "settledGrossPayout": null,
+      "settledNetPayout": null,
+      "settledTax": null,
+      "settlementRetryAt": null,
+      "settlementVersion": 0,
+      "shortId": "X6DLT29G",
+      "stake": "2000n",
+      "status": "pending_acceptance",
+      "terms": {
+        "betRules": {
+          "maxLegs": 40,
+          "maxPayout": "50000000",
+          "maxStake": "10000000",
+          "maxTotalOddsMilli": "1000000000",
+          "minLegOddsMilli": 1010,
+          "minStake": "500"
+        },
+        "multiBonus": {
+          "enabled": true,
+          "maxBonus": "5000000",
+          "minLegOddsMilli": 1300,
+          "tiers": [
+            {
+              "minLegs": 3,
+              "percentBps": 300
+            },
+            {
+              "minLegs": 4,
+              "percentBps": 500
+            },
+            {
+              "minLegs": 5,
+              "percentBps": 800
+            },
+            {
+              "minLegs": 6,
+              "percentBps": 1000
+            },
+            {
+              "minLegs": 7,
+              "percentBps": 1500
+            },
+            {
+              "minLegs": 8,
+              "percentBps": 2000
+            },
+            {
+              "minLegs": 9,
+              "percentBps": 2500
+            },
+            {
+              "minLegs": 10,
+              "percentBps": 3000
+            },
+            {
+              "minLegs": 12,
+              "percentBps": 4000
+            },
+            {
+              "minLegs": 15,
+              "percentBps": 5000
+            },
+            {
+              "minLegs": 20,
+              "percentBps": 10000
+            },
+            {
+              "minLegs": 25,
+              "percentBps": 15000
+            },
+            {
+              "minLegs": 30,
+              "percentBps": 20000
+            }
+          ]
+        },
+        "tax": {
+          "base": "net_winnings",
+          "exemptBelow": "10000",
+          "rateBps": 2000
+        }
+      },
+      "totalOddsMilli": "3200n",
+      "updatedAt": "NOW+0",
+      "userId": "<user>"
+    },
+    "entries": [
+      {
+        "account": "house:stakes",
+        "entry": {
+          "accountId": "<uuid 51>",
+          "amount": "2000n",
+          "balanceAfter": "17000n",
+          "createdAt": "<db time>",
+          "id": "<serial>",
+          "transactionId": "<uuid 52>"
+        }
+      },
+      {
+        "account": "user:<user>:cash",
+        "entry": {
+          "accountId": "<uuid 53>",
+          "amount": "-2000n",
+          "balanceAfter": "98000n",
+          "createdAt": "<db time>",
+          "id": "<serial>",
+          "transactionId": "<uuid 52>"
+        }
+      }
+    ],
+    "legs": [
+      {
+        "betId": "<bet>",
+        "eventId": "<live event>",
+        "id": "<uuid 49>",
+        "isLive": true,
+        "marketId": "<live event 1x2>",
+        "oddsMilli": 3200,
+        "position": 0,
+        "requestedOddsMilli": 3200,
+        "selectionId": "<live event draw>",
+        "state": "open",
+        "updatedAt": "NOW+0"
+      }
+    ],
+    "outbox": [
+      {
+        "aggregateId": "<bet>",
+        "aggregateType": "bet",
+        "attempts": 0,
+        "createdAt": "<db time>",
+        "id": "<serial>",
+        "jobKey": "<uuid 54>",
+        "lastError": null,
+        "nextAttemptAt": null,
+        "payload": {
+          "acceptAfter": "2031-03-04T10:00:06.000Z",
+          "betId": "<bet>",
+          "channel": "sms",
+          "legs": [
+            {
+              "eventId": "<live event>",
+              "isLive": true,
+              "oddsMilli": 3200,
+              "selectionId": "<live event draw>"
+            }
+          ],
+          "potentialNetPayout": "6400",
+          "shortId": "X6DLT29G",
+          "stake": "2000",
+          "status": "pending_acceptance",
+          "totalOddsMilli": "3200",
+          "userId": "<user>"
+        },
+        "publishedAt": null,
+        "type": "bet.placed"
+      }
+    ],
+    "transactions": [
+      {
+        "actorId": "<user>",
+        "actorType": "user",
+        "createdAt": "<db time>",
+        "description": "Bet stake (single)",
+        "id": "<uuid 52>",
+        "idempotencyKey": "bet:<user>:golden-live-0001",
+        "refId": "<bet>",
+        "refType": "bet",
+        "type": "bet_stake"
+      }
+    ]
+  }
+}

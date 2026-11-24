@@ -12,6 +12,7 @@ import { newIdempotencyKey } from '@/lib/api/idempotency';
 import { paymentsApi } from '@/lib/api/payments';
 import { formatSantim } from '@/lib/format';
 import { useSession } from '@/providers/SessionProvider';
+import { CashAtShop } from './CashAtShop';
 import { PaymentDemoNotice, PhoneReadOnly, ProviderField, usePaymentOptions } from './PaymentParts';
 import { PayoutAccountPicker } from './PayoutAccounts';
 import {
@@ -140,10 +141,12 @@ function Rules({
   options,
   kycStatus,
   wageringRemaining,
+  withdrawable,
 }: {
   options: PaymentOptionsResponse;
   kycStatus: string | null;
   wageringRemaining: string | null;
+  withdrawable: string | null;
 }) {
   const t = useT();
   const { limits } = options;
@@ -160,6 +163,7 @@ function Rules({
         return todo
           ? t('account.payments.withdraw.rules.wageringTodo', {
               remaining: formatSantim(wageringRemaining),
+              withdrawable: formatSantim(withdrawable),
             })
           : t('account.payments.withdraw.rules.wageringOk');
       case 'ownPhone':
@@ -356,6 +360,7 @@ export function WithdrawPanel() {
   const { state, reload } = usePaymentOptions();
   const [items, setItems] = useState<WithdrawalView[]>([]);
   const [wagering, setWagering] = useState<string | null>(null);
+  const [withdrawable, setWithdrawable] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [notice, setNotice] = useState<'requested' | 'cancelled' | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
@@ -368,6 +373,7 @@ export function WithdrawPanel() {
         const res = await paymentsApi.withdrawals(signal);
         setItems(res.items);
         setWagering(res.wageringRemaining);
+        setWithdrawable(res.withdrawable);
         setLoaded(true);
         // A payout that finished (or came back) moved money: refresh the header balance.
         const moved = res.items.some((w) => {
@@ -438,6 +444,7 @@ export function WithdrawPanel() {
             options={state.options}
             kycStatus={me?.kyc.status ?? null}
             wageringRemaining={loaded ? wagering : null}
+            withdrawable={loaded ? withdrawable : null}
           />
           {notice === 'requested' ? (
             <Alert tone="success">{t('account.payments.withdraw.requested')}</Alert>
@@ -457,6 +464,7 @@ export function WithdrawPanel() {
           />
         </>
       ) : null}
+      <CashAtShop />
       <section className="space-y-2" aria-live="polite">
         <h2 className="font-bold">{t('account.payments.withdraw.listTitle')}</h2>
         {!loaded ? <Skeleton lines={3} /> : null}

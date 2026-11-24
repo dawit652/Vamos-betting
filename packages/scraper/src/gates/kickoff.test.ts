@@ -14,6 +14,7 @@ import { countIndependent } from './confirmation';
 import {
   assessKickoff,
   earlierKickoffAction,
+  earliestFreshKickoff,
   kickoffEvidenceKey,
   type KickoffAssessment,
   type KickoffPersonRecord,
@@ -22,10 +23,10 @@ import {
 import { KICKOFF, makeEvent } from './testkit';
 
 const START = KICKOFF;
-/** Inside the lead window (72 h before the start), so C2 can apply. */
+/** Inside the lead window (KICKOFF_CONFIRM_LEAD_MS before the start), so C2 can apply. */
 const NEAR = START - 24 * HOUR_MS;
-/** Far from the start: only C1 or C3 can confirm. */
-const FAR = START - 10 * DAY_MS;
+/** Far from the start, beyond the lead window (30 days since 22 Nov 2026): only C1 or C3 confirm. */
+const FAR = START - KICKOFF_CONFIRM_LEAD_MS - 10 * DAY_MS;
 
 interface Spec {
   source?: string;
@@ -47,7 +48,7 @@ function st(spec: Spec = {}): KickoffStatement {
     kind: spec.kind ?? 'fixture',
     status: spec.status ?? 'scheduled',
     kickoff: new Date(START + (spec.offset ?? 0)),
-    changedAt: new Date(spec.changedAt ?? START - 20 * DAY_MS),
+    changedAt: new Date(spec.changedAt ?? FAR - 20 * DAY_MS),
     sourceFresh: spec.fresh ?? true,
   };
 }
@@ -227,16 +228,16 @@ describe('C1 two upstreams', () => {
     expect(a.basis).toBe('C1');
   });
 
-  it('C1 any dissenting statement blocks it', () => {
+  it('C1 any blocking dissent blocks it; a later scheduled fixture does not (D3)', () => {
     const two = [st({ source: 'a' }), st({ source: 'b' })];
     for (const dissent of [
-      st({ source: 'c', offset: HOUR_MS }),
       st({ source: 'c', offset: -HOUR_MS, fresh: false }),
       st({ source: 'c', status: 'postponed' }),
       st({ source: 'c', kind: 'result', status: 'finished', offset: -2 * DAY_MS }),
     ]) {
       expect(assess([...two, dissent]).confirmed).toBe(false);
     }
+    expect(assess([...two, st({ source: 'c', offset: HOUR_MS })]).basis).toBe('C1');
   });
 
   it('C1 a not-fresh row naming another upstream for a source cannot widen independence', () => {
@@ -339,15 +340,19 @@ describe('C2 close and stable', () => {
     expect(a.reasons).toEqual(['not_stable']);
   });
 
-  it('C2 any dissent blocks it', () => {
+  it('C2 any blocking dissent blocks it; a later scheduled fixture does not (D3)', () => {
     for (const dissent of [
-      st({ source: 'b', offset: HOUR_MS }),
       st({ source: 'b', offset: -HOUR_MS }),
       st({ source: 'b', status: 'cancelled' }),
       st({ source: 'b', kind: 'result', status: 'finished', offset: -DAY_MS }),
-      st({ source: 'b', fresh: false, offset: KICKOFF_TOLERANCE_MS + 1 }),
     ]) {
       expect(assess([st({ source: 'a' }), dissent], { now: NEAR }).confirmed).toBe(false);
+    }
+    for (const later of [
+      st({ source: 'b', offset: HOUR_MS }),
+      st({ source: 'b', fresh: false, offset: KICKOFF_TOLERANCE_MS + 1 }),
+    ]) {
+      expect(assess([st({ source: 'a' }), later], { now: NEAR }).basis).toBe('C2');
     }
   });
 
@@ -855,5 +860,115 @@ describe('properties', () => {
     expect(seen.C2).toBeGreaterThan(0);
     expect(seen.C3).toBeGreaterThan(0);
     expect(seen.none).toBeGreaterThan(0);
+  });
+});
+
+describe('D3 (owner, 23 Nov 2026): later statements do not block K2, and F4d answers a disagreement', () => {
+  const answer = (statements: readonly KickoffStatement[], opts: { now?: number } = {}) =>
+    earliestFreshKickoff({ start: new Date(START), now: new Date(opts.now ?? NEAR), statements });
+
+  it('K2: a later scheduled fixture no longer blocks C1 or C2; it is named while unconfirmed', () => {
+    const later = st({ source: 'c', offset: 3 * HOUR_MS });
+    expect(assess([st({ source: 'a' }), st({ source: 'b' }), later], { now: FAR })).toMatchObject({
+      confirmed: true,
+      basis: 'C1',
+      reasons: [],
+    });
+    expect(assess([st({ source: 'a' }), later], { now: NEAR })).toMatchObject({
+      confirmed: true,
+      basis: 'C2',
+    });
+    expect(assess([st({ source: 'a' }), later], { now: FAR }).reasons).toEqual([
+      'sources_disagree',
+      'too_early_for_single_source',
+    ]);
+    // An earlier statement still blocks (K1).
+    const earlier = st({ source: 'c', offset: -3 * HOUR_MS });
+    expect(
+      assess([st({ source: 'a' }), st({ source: 'b' }), earlier], { now: FAR }).confirmed,
+    ).toBe(false);
+  });
+
+  it('K2/C3: a later statement after the person looked keeps C3; an earlier one does not', () => {
+    const person: KickoffPersonRecord = {
+      startTime: new Date(START),
+      confirmedAt: new Date(FAR - DAY_MS),
+      evidenceKey: 'k',
+    };
+    const later = st({ source: 'c', offset: 3 * HOUR_MS, changedAt: FAR });
+    expect(assess([later], { now: FAR, person })).toMatchObject({ confirmed: true, basis: 'C3' });
+    const earlier = st({ source: 'c', offset: -3 * HOUR_MS, changedAt: FAR });
+    expect(assess([earlier], { now: FAR, person }).confirmed).toBe(false);
+  });
+
+  it('F4d keep: the start already is the earliest fresh kickoff (within the tolerance)', () => {
+    expect(answer([st({ source: 'a' }), st({ source: 'b', offset: 3 * HOUR_MS })])).toEqual({
+      action: 'keep',
+    });
+    const within = -(KICKOFF_TOLERANCE_MS - MINUTE_MS);
+    expect(
+      answer([st({ source: 'a', offset: within }), st({ source: 'b', offset: 3 * HOUR_MS })]),
+    ).toEqual({ action: 'keep' });
+    // A stale source's earlier time does not count (K1 keeps betting closed on it).
+    expect(
+      answer([st({ source: 'a', offset: -2 * HOUR_MS, fresh: false }), st({ source: 'b' })]),
+    ).toEqual({ action: 'keep' });
+    // Outside the evidence window: ignored, as in K2.
+    expect(
+      answer([st({ source: 'a', offset: -KICKOFF_EVIDENCE_WINDOW_MS - 1 }), st({ source: 'b' })]),
+    ).toEqual({ action: 'keep' });
+  });
+
+  it('F4d move: a fresh source gives an earlier time; upstreams are those that give it', () => {
+    expect(
+      answer([
+        st({ source: 'a', upstream: 'u2', offset: -2 * HOUR_MS }),
+        st({ source: 'b', upstream: 'u3' }),
+        st({ source: 'c', upstream: 'u1', offset: -2 * HOUR_MS + MINUTE_MS }),
+      ]),
+    ).toEqual({ action: 'move', to: new Date(START - 2 * HOUR_MS), upstreams: ['u1', 'u2'] });
+  });
+
+  it('F4d hold: no fresh statement, a result, a void status, an invalid date, later only, too close', () => {
+    const early = st({ source: 'a', offset: -2 * HOUR_MS });
+    expect(answer([])).toEqual({ action: 'hold' });
+    expect(answer([st({ fresh: false, offset: -2 * HOUR_MS })])).toEqual({ action: 'hold' });
+    const result = st({ source: 'r', kind: 'result', status: 'finished', offset: -DAY_MS });
+    expect(answer([early, result])).toEqual({ action: 'hold' });
+    expect(answer([early, st({ source: 'b', status: 'postponed' })])).toEqual({ action: 'hold' });
+    const invalid = { ...st({ source: 'b' }), kickoff: new Date(Number.NaN) };
+    expect(answer([early, invalid])).toEqual({ action: 'hold' });
+    expect(
+      answer([st({ source: 'a', offset: 2 * HOUR_MS }), st({ source: 'b', offset: 3 * HOUR_MS })]),
+    ).toEqual({ action: 'hold' });
+    // The new time at or before now + MIN_LEAD_MS (10 minutes).
+    expect(answer([early, st({ source: 'b' })], { now: START - 2 * HOUR_MS - MINUTE_MS })).toEqual({
+      action: 'hold',
+    });
+  });
+
+  it('F4d property: a move only goes earlier, to the earliest fresh kickoff', () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            offset: fc.integer({ min: -3 * DAY_MS, max: 3 * DAY_MS }),
+            fresh: fc.boolean(),
+            up: fc.integer({ min: 0, max: 3 }),
+          }),
+          { minLength: 1, maxLength: 6 },
+        ),
+        (specs) => {
+          const statements = specs.map((x, i) =>
+            st({ source: `s${i}`, upstream: `u${x.up}`, offset: x.offset, fresh: x.fresh }),
+          );
+          const out = answer(statements);
+          if (out.action !== 'move') return;
+          const fresh = statements.filter((s) => s.sourceFresh).map((s) => s.kickoff.getTime());
+          expect(out.to.getTime()).toBe(Math.min(...fresh));
+          expect(out.to.getTime()).toBeLessThan(START - KICKOFF_TOLERANCE_MS);
+        },
+      ),
+    );
   });
 });

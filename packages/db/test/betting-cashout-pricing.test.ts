@@ -27,6 +27,7 @@ const NOW = new Date('2026-10-13T12:00:00.000Z');
 
 function snapshot(overrides: Partial<SelectionSnapshot>): SelectionSnapshot {
   return {
+    feedProvider: 'test-feed',
     selectionId: randomUUID(),
     code: '1',
     oddsMilli: 2000,

@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { normalizeEthiopianMsisdn } from '@vamos/core';
 import { isCommonPassword } from '@vamos/core/common-passwords';
 import { and, asc, desc, eq, gt, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import type { Database } from '../client';
@@ -13,6 +14,14 @@ import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { adminLoginThrottles, adminSessions, adminUsers } from '../schema/accounts';
 import { adminRole } from '../schema/enums';
+import { getShop } from '../cashier/desk';
+import {
+  findApprovedStaffDevice,
+  isShopDeviceUsable,
+  requestShopDevice,
+  type ShopDevice,
+} from '../retail/devices';
+import { isOwnerAgentActive } from '../retail/agents';
 import { decryptTotpSecret, encryptTotpSecret, TotpSecretError } from './secret-box';
 import { base32Encode, TOTP_SECRET_BYTES, totpUri, verifyTotp } from './totp';
 
@@ -56,6 +65,28 @@ import { base32Encode, TOTP_SECRET_BYTES, totpUri, verifyTotp } from './totp';
  */
 
 export type StaffRole = (typeof adminRole.enumValues)[number];
+
+/**
+ * The kinds of account one email may hold, one of each (docs/plans/guest-slips-and-staff.md, GS8):
+ * a back-office account (every role but the two below), an agent owner's and a cashier's, so one
+ * person can be an admin, an agent owner and a cashier under one email. Each sign-in looks for its
+ * own kind. Matches the index admin_users_email_kind_uq.
+ */
+export type StaffAccountKind = 'staff' | 'agent_owner' | 'cashier';
+
+export function staffAccountKind(role: StaffRole): StaffAccountKind {
+  return role === 'agent_owner' || role === 'cashier' ? role : 'staff';
+}
+
+/** The account of this kind with this (normalised) email. */
+function emailOfKind(email: string, kind: StaffAccountKind) {
+  return and(
+    eq(adminUsers.email, email),
+    kind === 'staff'
+      ? and(ne(adminUsers.role, 'agent_owner'), ne(adminUsers.role, 'cashier'))
+      : eq(adminUsers.role, kind),
+  );
+}
 export const STAFF_ROLES: readonly StaffRole[] = adminRole.enumValues;
 
 /** Failed sign-ins in a row from one client address that lock that address out of the account. */
@@ -124,6 +155,8 @@ export interface StaffUserView {
   id: string;
   email: string;
   displayName: string;
+  /** Mobile number (E.164) or null: cashiers and agent owners have one. */
+  phone: string | null;
   role: StaffRole;
   disabledAt: Date | null;
   lastLoginAt: Date | null;
@@ -151,7 +184,14 @@ export interface StaffPrincipal {
   expiresAt: Date;
   /** When the session ends without further requests. */
   idleExpiresAt: Date;
+  /** `admin` (back office) or `shop` (the shop app, on an approved device). */
+  channel?: StaffSessionChannel;
+  /** The approved shop device of a `shop` session. */
+  deviceId?: string | null;
 }
+
+/** Where a staff session works (docs/plans/agent-shops.md phase 1b): never on the other side. */
+export type StaffSessionChannel = 'admin' | 'shop';
 
 export interface IssuedStaffSession {
   id: string;
@@ -173,12 +213,19 @@ export interface TotpEnrolment {
 export interface StaffLoginInput {
   email: string;
   password: string;
-  /** The 6-digit TOTP code. */
+  /** The 6-digit TOTP code (the back office; ignored by the shop app). */
   code: string;
   ip?: string | null;
   /** The client address the per-address lockout counts by (default: `ip`). */
   clientKey?: string | null;
   userAgent?: string | null;
+  /**
+   * `shop`: the shop app, where an approved device of the cashier's own shop
+   * (`deviceSecretHash`, hashDeviceSecret of its cookie) is the second factor instead of the
+   * TOTP code. Default `admin`.
+   */
+  channel?: StaffSessionChannel;
+  deviceSecretHash?: string | null;
 }
 
 export interface StaffLoginResult {
@@ -219,6 +266,19 @@ function checkedEmail(email: string): string {
     throw domainUnprocessable('invalid_staff_email', 'Enter a valid email address.');
   }
   return normalized;
+}
+
+/** A staff mobile number normalised to E.164 (`+2519…`), null for none; 422 when not a mobile. */
+function checkedPhone(phone: string | null | undefined): string | null {
+  if (phone === undefined || phone === null || phone.trim() === '') return null;
+  const normalised = normalizeEthiopianMsisdn(phone);
+  if (normalised === null) {
+    throw domainUnprocessable(
+      'invalid_staff_phone',
+      'Use an Ethiopian mobile number (09… or 07…).',
+    );
+  }
+  return normalised;
 }
 
 function checkedDisplayName(name: string): string {
@@ -304,6 +364,7 @@ function staffView(row: typeof adminUsers.$inferSelect): StaffUserView {
     id: row.id,
     email: row.email,
     displayName: row.displayName,
+    phone: row.phone,
     role: row.role,
     disabledAt: row.disabledAt,
     lastLoginAt: row.lastLoginAt,
@@ -370,19 +431,44 @@ export function generateStaffPassword(randomBytes: (size: number) => Buffer): st
   return randomBytes(18).toString('base64url');
 }
 
+/** A generated password that passes the strength rules for this email (drawn again if not). */
+export function generateValidStaffPassword(
+  randomBytes: (size: number) => Buffer,
+  email: string,
+): string {
+  for (let i = 0; i < 10; i += 1) {
+    const candidate = generateStaffPassword(randomBytes);
+    if (staffPasswordWeakness(candidate, email) === null) return candidate;
+  }
+  throw new Error('no strong password after 10 draws');
+}
+
 export interface CreateStaffUserInput {
   email: string;
   displayName: string;
   role: StaffRole;
   /** Omitted: a random password is generated and returned. */
   password?: string;
+  /** Mobile number in any Ethiopian form (normalised to E.164); omitted or null for none. */
+  phone?: string | null;
   /**
    * Whether the new staff member must change the password at first sign-in.
    * Always so when an admin creates the account (they know the password);
    * for the system (CLI, seed) as given, default false.
    */
   requirePasswordChange?: boolean;
+  /**
+   * The password someone else chose works until its owner changes it, instead of
+   * STAFF_INITIAL_PASSWORD_TTL_MS (owner, 23 Nov 2026, for agent owners: "until they change to their
+   * password"). It must still be changed at the first sign-in.
+   */
+  passwordUntilChanged?: boolean;
   actor: StaffAccountActor;
+  /**
+   * Runs in the account's own transaction after it is written and audited (an agent's owner
+   * account is linked to its agent there): a throw creates nothing.
+   */
+  inTransaction?: (tx: DbTransaction, user: AdminUserRow) => Promise<void>;
 }
 
 export interface CreateStaffUserResult {
@@ -406,6 +492,7 @@ export async function createStaffUser(
   const email = checkedEmail(input.email);
   const displayName = checkedDisplayName(input.displayName);
   const role = checkedRole(input.role);
+  const phone = checkedPhone(input.phone);
   const actor = auditActor(input.actor);
   let generatedPassword: string | null = null;
   if (input.password === undefined) {
@@ -431,20 +518,25 @@ export async function createStaffUser(
         email,
         passwordHash,
         displayName,
+        phone,
         role,
         totpSecretEnc: stored,
         totpEnrolledAt: now,
         passwordChangeRequired,
-        passwordExpiresAt: passwordChangeRequired
-          ? new Date(now.getTime() + STAFF_INITIAL_PASSWORD_TTL_MS)
-          : null,
+        passwordExpiresAt:
+          passwordChangeRequired && input.passwordUntilChanged !== true
+            ? new Date(now.getTime() + STAFF_INITIAL_PASSWORD_TTL_MS)
+            : null,
         createdAt: now,
         updatedAt: now,
       })
-      .onConflictDoNothing({ target: adminUsers.email })
+      .onConflictDoNothing()
       .returning();
     if (row === undefined) {
-      throw domainConflict('staff_email_taken', 'A staff account with this email already exists.');
+      throw domainConflict(
+        'staff_email_taken',
+        'This email already has an account of this kind (back office, agent owner or cashier).',
+      );
     }
     await writeAudit(tx, {
       ...actor,
@@ -455,9 +547,11 @@ export async function createStaffUser(
         email,
         role,
         displayName,
+        phone,
         ...(input.actor.type === 'system' ? { via: input.actor.via } : {}),
       },
     });
+    if (input.inTransaction !== undefined) await input.inTransaction(tx, row);
     return row;
   });
   return { user: staffView(user), generatedPassword, totp: enrolment };
@@ -567,6 +661,8 @@ export async function updateStaffUser(
     adminUserId: string;
     role?: StaffRole;
     displayName?: string;
+    /** A new mobile number, or null to remove it; omitted to keep it. */
+    phone?: string | null;
     actor: StaffAccountActor;
     now: Date;
   },
@@ -575,16 +671,41 @@ export async function updateStaffUser(
   const role = input.role === undefined ? undefined : checkedRole(input.role);
   const displayName =
     input.displayName === undefined ? undefined : checkedDisplayName(input.displayName);
+  const phone = input.phone === undefined ? undefined : checkedPhone(input.phone);
   const user = await lockStaffUser(tx, input.adminUserId);
   const roleChanged = role !== undefined && role !== user.role;
   const nameChanged = displayName !== undefined && displayName !== user.displayName;
-  if (!roleChanged && !nameChanged) return staffView(user);
+  const phoneChanged = phone !== undefined && phone !== user.phone;
+  if (!roleChanged && !nameChanged && !phoneChanged) return staffView(user);
+  // An agent owner is made on the agent's page and linked to it: the role never changes either way.
+  if (roleChanged && (role === 'agent_owner' || user.role === 'agent_owner')) {
+    throw domainConflict(
+      'owner_role_fixed',
+      "An agent owner's role does not change; owners are made on their agent's page.",
+    );
+  }
   if (roleChanged) await assertNotLastAdmin(tx, user);
+  // One account of each kind per email (GS8): a cashier made an admin, or the reverse, must not
+  // meet the person's other account of that kind.
+  if (roleChanged && staffAccountKind(role) !== staffAccountKind(user.role)) {
+    const [other] = await tx
+      .select({ id: adminUsers.id })
+      .from(adminUsers)
+      .where(and(emailOfKind(user.email, staffAccountKind(role)), ne(adminUsers.id, user.id)))
+      .limit(1);
+    if (other !== undefined) {
+      throw domainConflict(
+        'staff_email_taken',
+        'This email already has an account of this kind (back office, agent owner or cashier).',
+      );
+    }
+  }
   const [row] = await tx
     .update(adminUsers)
     .set({
       ...(roleChanged ? { role } : {}),
       ...(nameChanged ? { displayName } : {}),
+      ...(phoneChanged ? { phone } : {}),
       updatedAt: input.now,
     })
     .where(eq(adminUsers.id, user.id))
@@ -597,8 +718,8 @@ export async function updateStaffUser(
     targetType: 'admin_user',
     targetId: user.id,
     metadata: {
-      before: { role: user.role, displayName: user.displayName },
-      after: { role: row.role, displayName: row.displayName },
+      before: { role: user.role, displayName: user.displayName, phone: user.phone },
+      after: { role: row.role, displayName: row.displayName, phone: row.phone },
       revokedSessions: revoked,
     },
   });
@@ -680,7 +801,13 @@ export async function resetStaffTotp(
  */
 export async function resetStaffPassword(
   deps: StaffAuthDeps,
-  input: { adminUserId: string; password: string; actor: StaffAccountActor },
+  input: {
+    adminUserId: string;
+    password: string;
+    actor: StaffAccountActor;
+    /** Set by an admin: works until its owner changes it, not STAFF_INITIAL_PASSWORD_TTL_MS. */
+    untilChanged?: boolean;
+  },
 ): Promise<StaffUserView> {
   const actor = auditActor(input.actor);
   const existing = await getStaffUser(deps.db, input.adminUserId);
@@ -696,7 +823,7 @@ export async function resetStaffPassword(
         passwordHash,
         passwordChangeRequired: input.actor.type === 'admin',
         passwordExpiresAt:
-          input.actor.type === 'admin'
+          input.actor.type === 'admin' && input.untilChanged !== true
             ? new Date(now.getTime() + STAFF_INITIAL_PASSWORD_TTL_MS)
             : null,
         failedLoginAttempts: 0,
@@ -756,32 +883,36 @@ export async function unlockStaffUser(
   return staffView(row);
 }
 
-/** unlockStaffUser by email (the CLI's out-of-band recovery); null when there is no such account. */
+/**
+ * unlockStaffUser by email (the CLI's out-of-band recovery): the account of `kind` (default the
+ * back-office one; GS8); null when there is no such account.
+ */
 export async function unlockStaffUserByEmail(
   db: Database,
-  input: { email: string; actor: StaffAccountActor; now: Date },
+  input: { email: string; kind?: StaffAccountKind; actor: StaffAccountActor; now: Date },
 ): Promise<StaffUserView | null> {
   const email = normalizeStaffEmail(input.email);
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select({ id: adminUsers.id })
       .from(adminUsers)
-      .where(eq(adminUsers.email, email))
+      .where(emailOfKind(email, input.kind ?? 'staff'))
       .limit(1);
     if (row === undefined) return null;
     return unlockStaffUser(tx, { adminUserId: row.id, actor: input.actor, now: input.now });
   });
 }
 
-/** The staff account with this email, or null (the CLI's lookup). */
+/** The staff account of `kind` (default the back-office one; GS8) with this email, or null (the CLI's lookup). */
 export async function findStaffUserByEmail(
   db: Database,
   email: string,
+  kind: StaffAccountKind = 'staff',
 ): Promise<StaffUserView | null> {
   const [row] = await db
     .select({ id: adminUsers.id })
     .from(adminUsers)
-    .where(eq(adminUsers.email, normalizeStaffEmail(email)))
+    .where(emailOfKind(normalizeStaffEmail(email), kind))
     .limit(1);
   return row === undefined ? null : getStaffUser(db, row.id);
 }
@@ -801,19 +932,39 @@ type LoginFailureReason =
   | 'totp_not_enrolled'
   | 'totp_unreadable'
   | 'totp_invalid'
-  | 'totp_replay';
+  | 'totp_replay'
+  /** The shop app: no approved device of the cashier's own shop behind the cookie. */
+  | 'device_unknown'
+  /** The shop app: the device's shop is closed or its agent blocked. */
+  | 'shop_closed'
+  /**
+   * The wrong side for this role: the shop app's device sign-in is for cashiers and its
+   * authenticator sign-in for agent owners; agent owners never sign in to the back office.
+   */
+  | 'channel_role';
 
 /** Reasons that count toward the lockout. */
 const COUNTED_FAILURES: ReadonlySet<LoginFailureReason> = new Set([
   'password',
   'totp_invalid',
   'totp_replay',
+  'device_unknown',
 ]);
 
 type AdminUserRow = typeof adminUsers.$inferSelect;
 type ThrottleRow = typeof adminLoginThrottles.$inferSelect;
 
-type FactorCheck = { ok: true; step: number } | { ok: false; reason: LoginFailureReason };
+/**
+ * The accepted second factor: a TOTP step (`step`), or an approved shop device (`deviceId`, the
+ * shop app), or neither for a password-only check (a shop device asking to be registered).
+ */
+type FactorCheck =
+  | { ok: true; step: number | null; deviceId: string | null }
+  | { ok: false; reason: LoginFailureReason };
+
+/** What proves the attempt besides the password. */
+type StaffFactor =
+  { kind: 'totp'; code: string } | { kind: 'device'; secretHash: string } | { kind: 'password' };
 
 const isFuture = (date: Date | null | undefined, now: Date): boolean =>
   date !== null && date !== undefined && date.getTime() > now.getTime();
@@ -859,6 +1010,27 @@ function backoffRefuses(row: AdminUserRow, throttle: ThrottleRow | undefined, no
 }
 
 /**
+ * Whether a shop-app session (or a sign-in about to open one) may work: a cashier's needs its
+ * approved device at their own open shop of an active agent; an agent owner's has no device and
+ * needs their agent not blocked. Anyone else never has a shop session.
+ */
+async function shopSessionUsable(
+  exec: DbExecutor,
+  input: { staffId: string; role: string; deviceId: string | null },
+): Promise<boolean> {
+  if (input.role === 'cashier') {
+    return (
+      input.deviceId !== null &&
+      (await isShopDeviceUsable(exec, { staffId: input.staffId, deviceId: input.deviceId }))
+    );
+  }
+  if (input.role === 'agent_owner') {
+    return input.deviceId === null && (await isOwnerAgentActive(exec, input.staffId));
+  }
+  return false;
+}
+
+/**
  * Checks the password and the TOTP code of `user` (as read, outside any
  * transaction): refused at once (after a throwaway hash, so it costs the
  * same) while the address is locked out, or while the account-wide delay
@@ -869,8 +1041,9 @@ async function verifyAttempt(
   user: AdminUserRow,
   clientKey: string,
   password: string,
-  code: string,
+  factor: StaffFactor,
   now: Date,
+  channel: StaffSessionChannel = 'admin',
 ): Promise<FactorCheck> {
   const throttle = await readThrottle(deps.db, user.id, clientKey);
   if (isFuture(throttle?.lockedUntil, now) || backoffRefuses(user, throttle, now)) {
@@ -890,6 +1063,26 @@ async function verifyAttempt(
   ) {
     return { ok: false, reason: 'password_expired' };
   }
+  if (factor.kind !== 'totp') {
+    // The shop app (docs/plans/agent-shops.md phase 1b): cashiers only; the second factor is an
+    // approved device of the cashier's own shop, whose shop works.
+    if (user.role !== 'cashier') return { ok: false, reason: 'channel_role' };
+    if (factor.kind === 'password') return { ok: true, step: null, deviceId: null };
+    const device = /^[0-9a-f]{64}$/.test(factor.secretHash)
+      ? await findApprovedStaffDevice(deps.db, { staffId: user.id, secretHash: factor.secretHash })
+      : null;
+    if (device === null) return { ok: false, reason: 'device_unknown' };
+    const shop = await getShop(deps.db, device.shopId);
+    if (shop === null || !shop.active || shop.agentStatus === 'blocked') {
+      return { ok: false, reason: 'shop_closed' };
+    }
+    return { ok: true, step: null, deviceId: device.id };
+  }
+  // Password and authenticator: the back office for staff, the shop app for agent owners only.
+  if ((channel === 'shop') !== (user.role === 'agent_owner')) {
+    return { ok: false, reason: 'channel_role' };
+  }
+  const code = factor.code;
   if (user.totpSecretEnc === null) return { ok: false, reason: 'totp_not_enrolled' };
   let secret: Buffer;
   try {
@@ -903,7 +1096,7 @@ async function verifyAttempt(
     const replay = verifyTotp(secret, code, now.getTime()) !== null;
     return { ok: false, reason: replay ? 'totp_replay' : 'totp_invalid' };
   }
-  return { ok: true, step };
+  return { ok: true, step, deviceId: null };
 }
 
 /**
@@ -926,7 +1119,9 @@ function recheckAttempt(
   if (isFuture(throttle?.lockedUntil, now)) return 'locked';
   if (backoffRefuses(row, throttle, now)) return 'account_backoff';
   if (!check.ok) return check.reason;
-  if (row.totpLastStep !== null && check.step <= row.totpLastStep) return 'totp_replay';
+  if (check.step !== null && row.totpLastStep !== null && check.step <= row.totpLastStep) {
+    return 'totp_replay';
+  }
   return null;
 }
 
@@ -947,7 +1142,12 @@ async function commitAttempt<T>(
     /** Where the attempt came from, when not the sign-in form (audit metadata). */
     context?: string;
   },
-  onSuccess: (tx: DbTransaction, row: AdminUserRow, step: number) => Promise<T>,
+  onSuccess: (
+    tx: DbTransaction,
+    row: AdminUserRow,
+    step: number | null,
+    deviceId: string | null,
+  ) => Promise<T>,
 ): Promise<{ ok: true; value: T } | { ok: false }> {
   const { before, check, clientKey, now, ip } = attempt;
   return deps.db.transaction(async (tx): Promise<{ ok: true; value: T } | { ok: false }> => {
@@ -980,7 +1180,7 @@ async function commitAttempt<T>(
           eq(adminLoginThrottles.clientKey, clientKey),
         ),
       );
-    return { ok: true, value: await onSuccess(tx, row, check.step) };
+    return { ok: true, value: await onSuccess(tx, row, check.step, check.deviceId) };
   });
 }
 
@@ -1002,11 +1202,26 @@ export async function loginStaff(
   const ip = input.ip ?? null;
   const clientKey = clientKeyOf(input);
   const now = deps.clock();
-
+  const channel: StaffSessionChannel = input.channel === 'shop' ? 'shop' : 'admin';
+  // One email may hold one account of each kind (GS8). The back office signs in the back-office
+  // account, else the cashier's (head-office cashiers work its desk); agent owners never sign in
+  // there. The shop app signs in the agent owner (who types the authenticator code) or the cashier
+  // (whose approved device is the second factor).
   const [user] =
     email.length === 0 || email.length > STAFF_EMAIL_MAX_LENGTH
       ? []
-      : await deps.db.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
+      : channel === 'admin'
+        ? await deps.db
+            .select()
+            .from(adminUsers)
+            .where(and(eq(adminUsers.email, email), ne(adminUsers.role, 'agent_owner')))
+            .orderBy(sql`${adminUsers.role} = 'cashier'`)
+            .limit(1)
+        : await deps.db
+            .select()
+            .from(adminUsers)
+            .where(emailOfKind(email, code.length === 0 ? 'cashier' : 'agent_owner'))
+            .limit(1);
   if (user === undefined) {
     await dummyVerify(deps.passwords, password);
     await deps.db.transaction((tx) =>
@@ -1022,7 +1237,13 @@ export async function loginStaff(
     );
     throw staffInvalidCredentialsError();
   }
-  const check = await verifyAttempt(deps, user, clientKey, password, code, now);
+  // The shop app: a cashier proves an approved device (its cookie); an agent owner types the
+  // authenticator code instead.
+  const factor: StaffFactor =
+    channel === 'shop' && code.length === 0
+      ? { kind: 'device', secretHash: input.deviceSecretHash ?? '' }
+      : { kind: 'totp', code };
+  const check = await verifyAttempt(deps, user, clientKey, password, factor, now, channel);
   // A hash made before the pepper was set is replaced on this successful sign-in (hashed here,
   // outside the transaction; commitAttempt makes sure the stored hash did not change meanwhile).
   const rehashed =
@@ -1032,7 +1253,15 @@ export async function loginStaff(
   const outcome = await commitAttempt(
     deps,
     { before: user, check, clientKey, now, ip },
-    async (tx, row, step): Promise<StaffLoginResult> => {
+    async (tx, row, step, deviceId): Promise<StaffLoginResult> => {
+      // A device revoked (or its shop closed, or the owner's agent blocked) while this attempt
+      // was checked opens nothing.
+      if (
+        channel === 'shop' &&
+        !(await shopSessionUsable(tx, { staffId: row.id, role: row.role, deviceId }))
+      ) {
+        throw staffInvalidCredentialsError();
+      }
       // A password that no longer meets the rules (a common one, ASVS 2.1.7) must be
       // replaced before anything but the session and self-service routes.
       const weakPassword = staffPasswordWeakness(password, row.email) !== null;
@@ -1042,7 +1271,7 @@ export async function loginStaff(
         .set({
           failedLoginAttempts: 0,
           lockedUntil: null,
-          totpLastStep: step,
+          ...(step === null ? {} : { totpLastStep: step }),
           lastLoginAt: now,
           passwordChangeRequired,
           ...(rehashed === null ? {} : { passwordHash: rehashed }),
@@ -1054,6 +1283,8 @@ export async function loginStaff(
         now,
         ip,
         userAgent: input.userAgent ?? null,
+        channel,
+        deviceId: channel === 'shop' ? deviceId : null,
       });
       await writeAudit(tx, {
         actorType: 'admin',
@@ -1061,7 +1292,11 @@ export async function loginStaff(
         action: 'staff.login',
         targetType: 'admin_user',
         targetId: row.id,
-        metadata: { sessionId: session.id, ...(weakPassword ? { weakPassword: true } : {}) },
+        metadata: {
+          sessionId: session.id,
+          ...(channel === 'shop' ? { channel, deviceId } : {}),
+          ...(weakPassword ? { weakPassword: true } : {}),
+        },
         ip,
       });
       return {
@@ -1076,8 +1311,80 @@ export async function loginStaff(
           csrfToken: session.csrfToken,
           expiresAt: session.expiresAt,
           idleExpiresAt: session.idleExpiresAt,
+          channel,
+          deviceId: channel === 'shop' ? deviceId : null,
         },
       };
+    },
+  );
+  if (!outcome.ok) throw staffInvalidCredentialsError();
+  return outcome.value;
+}
+
+/**
+ * The shop app (docs/plans/agent-shops.md phase 1b): a cashier's device asks to be registered at
+ * the cashier's shop. The email and password are checked like a sign-in (the same address
+ * lockout, account backoff and audit, `context: shop_device`; cashiers only) and then
+ * requestShopDevice runs in the same transaction; no session is opened. 401
+ * `invalid_credentials` for any sign-in failure; requestShopDevice's refusals (409, 422) pass
+ * through.
+ */
+export async function requestShopDeviceWithPassword(
+  deps: StaffAuthDeps,
+  input: {
+    email: string;
+    password: string;
+    label: string;
+    secretHash: string;
+    userAgent?: string | null;
+    ip?: string | null;
+    clientKey?: string | null;
+  },
+): Promise<ShopDevice> {
+  const email = typeof input.email === 'string' ? normalizeStaffEmail(input.email) : '';
+  const password = typeof input.password === 'string' ? input.password : '';
+  const ip = input.ip ?? null;
+  const clientKey = clientKeyOf(input);
+  const now = deps.clock();
+  const context = 'shop_device';
+  // Devices are registered by cashiers: the person's cashier account (GS8).
+  const [user] =
+    email.length === 0 || email.length > STAFF_EMAIL_MAX_LENGTH
+      ? []
+      : await deps.db.select().from(adminUsers).where(emailOfKind(email, 'cashier')).limit(1);
+  if (user === undefined) {
+    await dummyVerify(deps.passwords, password);
+    await deps.db.transaction((tx) =>
+      recordLoginFailure(tx, {
+        user: undefined,
+        throttle: undefined,
+        clientKey,
+        email,
+        reason: 'unknown_email',
+        now,
+        ip,
+        context,
+      }),
+    );
+    throw staffInvalidCredentialsError();
+  }
+  const check = await verifyAttempt(deps, user, clientKey, password, { kind: 'password' }, now);
+  const outcome = await commitAttempt(
+    deps,
+    { before: user, check, clientKey, now, ip, context },
+    async (tx, row) => {
+      await tx
+        .update(adminUsers)
+        .set({ failedLoginAttempts: 0, lockedUntil: null, updatedAt: now })
+        .where(eq(adminUsers.id, row.id));
+      return requestShopDevice(tx, {
+        staffId: row.id,
+        label: input.label,
+        secretHash: input.secretHash,
+        userAgent: input.userAgent ?? '',
+        now,
+        ip,
+      });
     },
   );
   if (!outcome.ok) throw staffInvalidCredentialsError();
@@ -1194,10 +1501,16 @@ export async function changeOwnStaffPassword(
     adminUserId: string;
     sessionId: string;
     currentPassword: string;
+    /** The TOTP code (the back office); not used on a shop session. */
     code: string;
     newPassword: string;
     ip?: string | null;
     clientKey?: string | null;
+    /**
+     * `shop`: the shop app, whose session already proved an approved device of the cashier's own
+     * shop: the current password alone re-authenticates (cashiers only). Default `admin`.
+     */
+    channel?: StaffSessionChannel;
   },
 ): Promise<StaffUserView> {
   const user = await readStaffRow(deps.db, input.adminUserId);
@@ -1213,8 +1526,13 @@ export async function changeOwnStaffPassword(
     user,
     clientKey,
     input.currentPassword,
-    input.code.trim(),
+    // A cashier's shop session already proved its device: the current password re-authenticates.
+    // Everyone else (staff, and agent owners in the shop app) types the authenticator code too.
+    input.channel === 'shop' && user.role === 'cashier'
+      ? { kind: 'password' }
+      : { kind: 'totp', code: input.code.trim() },
     now,
+    input.channel ?? 'admin',
   );
   const passwordHash = check.ok ? await deps.passwords.hash(input.newPassword) : null;
   const outcome = await commitAttempt(
@@ -1227,7 +1545,7 @@ export async function changeOwnStaffPassword(
           passwordHash: passwordHash ?? row.passwordHash,
           passwordChangeRequired: false,
           passwordExpiresAt: null,
-          totpLastStep: step,
+          ...(step === null ? {} : { totpLastStep: step }),
           failedLoginAttempts: 0,
           lockedUntil: null,
           updatedAt: now,
@@ -1267,7 +1585,14 @@ export async function startOwnStaffTotpEnrolment(
   const now = deps.clock();
   const clientKey = clientKeyOf(input);
   const ip = input.ip ?? null;
-  const check = await verifyAttempt(deps, user, clientKey, input.password, input.code.trim(), now);
+  const check = await verifyAttempt(
+    deps,
+    user,
+    clientKey,
+    input.password,
+    { kind: 'totp', code: input.code.trim() },
+    now,
+  );
   const { stored, enrolment } = newEnrolment(deps, user.id, user.email);
   const outcome = await commitAttempt(
     deps,
@@ -1278,7 +1603,7 @@ export async function startOwnStaffTotpEnrolment(
         .set({
           totpPendingSecretEnc: stored,
           totpPendingAt: now,
-          totpLastStep: step,
+          ...(step === null ? {} : { totpLastStep: step }),
           failedLoginAttempts: 0,
           lockedUntil: null,
           updatedAt: now,
@@ -1378,8 +1703,20 @@ export async function confirmOwnStaffTotpEnrolment(
 export async function createStaffSession(
   tx: DbTransaction,
   deps: Pick<StaffAuthDeps, 'randomBytes'>,
-  input: { adminUserId: string; now: Date; ip?: string | null; userAgent?: string | null },
+  input: {
+    adminUserId: string;
+    now: Date;
+    ip?: string | null;
+    userAgent?: string | null;
+    /** Default `admin`; a `shop` session carries its approved device. */
+    channel?: StaffSessionChannel;
+    deviceId?: string | null;
+  },
 ): Promise<IssuedStaffSession> {
+  const channel = input.channel ?? 'admin';
+  if (channel === 'admin' && input.deviceId !== undefined && input.deviceId !== null) {
+    throw new Error('an admin session has no device');
+  }
   const token = deps.randomBytes(32).toString('base64url');
   if (!TOKEN_RE.test(token)) throw new RangeError('randomBytes returned too few bytes');
   const csrfToken = staffCsrfTokenFor(token);
@@ -1397,6 +1734,8 @@ export async function createStaffSession(
       createdAt: now,
       lastSeenAt: now,
       expiresAt,
+      channel,
+      deviceId: channel === 'shop' ? (input.deviceId ?? null) : null,
     })
     .returning({ id: adminSessions.id });
   if (row === undefined) throw new Error('admin_sessions insert returned no row');
@@ -1424,8 +1763,19 @@ export type StaffSessionCheck =
  */
 export async function authenticateStaffSession(
   deps: Pick<StaffAuthDeps, 'db' | 'clock'>,
-  input: { token: string | null | undefined; csrfToken?: string | null; checkCsrf: boolean },
+  input: {
+    token: string | null | undefined;
+    csrfToken?: string | null;
+    checkCsrf: boolean;
+    /**
+     * The side asking (default `admin`): a session of the other side is `none`. A `shop` session
+     * also needs its device approved, the device's shop open and its agent not blocked, and the
+     * cashier still at that shop (checked on every request: a block or a revoke works at once).
+     */
+    channel?: StaffSessionChannel;
+  },
 ): Promise<StaffSessionCheck> {
+  const channel = input.channel ?? 'admin';
   const { token } = input;
   if (typeof token !== 'string' || !TOKEN_RE.test(token)) return { status: 'none' };
   const now = deps.clock();
@@ -1443,12 +1793,20 @@ export async function authenticateStaffSession(
       role: adminUsers.role,
       passwordChangeRequired: adminUsers.passwordChangeRequired,
       disabledAt: adminUsers.disabledAt,
+      channel: adminSessions.channel,
+      deviceId: adminSessions.deviceId,
     })
     .from(adminSessions)
     .innerJoin(adminUsers, eq(adminUsers.id, adminSessions.adminUserId))
     .where(eq(adminSessions.tokenHash, sha256Hex(token)))
     .limit(1);
-  if (row === undefined || !isLive(row, now)) return { status: 'none' };
+  if (row === undefined || !isLive(row, now) || row.channel !== channel) return { status: 'none' };
+  if (
+    channel === 'shop' &&
+    !(await shopSessionUsable(deps.db, { staffId: row.id, role: row.role, deviceId: row.deviceId }))
+  ) {
+    return { status: 'none' };
+  }
 
   if (input.checkCsrf) {
     const csrf = typeof input.csrfToken === 'string' ? input.csrfToken : '';
@@ -1479,6 +1837,8 @@ export async function authenticateStaffSession(
       idleExpiresAt: new Date(
         Math.min(lastSeenAt.getTime() + STAFF_SESSION_IDLE_MS, row.expiresAt.getTime()),
       ),
+      channel,
+      deviceId: row.deviceId,
     },
   };
 }
@@ -1620,14 +1980,26 @@ export async function revokeOwnStaffSessions(
   const now = deps.clock();
   const clientKey = clientKeyOf(input);
   const ip = input.ip ?? null;
-  const check = await verifyAttempt(deps, user, clientKey, input.password, input.code.trim(), now);
+  const check = await verifyAttempt(
+    deps,
+    user,
+    clientKey,
+    input.password,
+    { kind: 'totp', code: input.code.trim() },
+    now,
+  );
   const outcome = await commitAttempt(
     deps,
     { before: user, check, clientKey, now, ip, context: 'sessions_revoke' },
     async (tx, row, step) => {
       await tx
         .update(adminUsers)
-        .set({ totpLastStep: step, failedLoginAttempts: 0, lockedUntil: null, updatedAt: now })
+        .set({
+          ...(step === null ? {} : { totpLastStep: step }),
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          updatedAt: now,
+        })
         .where(eq(adminUsers.id, row.id));
       const target =
         input.targetSessionId === undefined || !UUID_RE.test(input.targetSessionId)

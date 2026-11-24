@@ -1126,6 +1126,99 @@ describe('uncalibrated teams and the market', () => {
   );
 });
 
+describe('A-2: a strong market replaces the stored prices (owner, 23 Nov 2026)', () => {
+  /** The stored 1X2 moved far beyond MAX_PRICE_MOVE_RATIO: home shortened, away lengthened. */
+  const moved = ([home, draw, away]: Prices): Prices => [
+    Math.floor(home * 0.7),
+    draw,
+    Math.floor(away * 1.6),
+  ];
+  const repriceItems = async () =>
+    (await items('odds_approval')).filter((i) => i.subject_key.endsWith('|reprice'));
+  const repricedAudits = () =>
+    rows<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM audit_log WHERE action = 'scrape.fixture.repriced' ORDER BY id`,
+    );
+
+  it(
+    'applies a large move of calibrated teams when 3 books, one sharp, agree',
+    async () => {
+      const { eventId } = await createdEvent({ calibrated: true });
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      const far = moved(await storedOneXTwo(eventId));
+      await listEvent(eventId, 'feed-a', { pinnacle: far, betsson: far, unibet_se: far });
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1, held: 0 });
+      expect((await stamp(eventId))!.ratings_key!.startsWith(MARKET_PRICING_KEY_PREFIX)).toBe(true);
+      expect(await repriceItems()).toHaveLength(0);
+      expect((await repricedAudits()).at(-1)!.metadata).toMatchObject({ boundWaived: 'A-2' });
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'applies it while betting is open too: the old prices are the stale ones',
+    async () => {
+      const open = await createdEvent({ calibrated: false });
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      await h.ctx.db.transaction((tx) =>
+        setEventBettingOpen(tx, open.eventId, true, {
+          adminId: '6a5b4c3d-2e1f-4a0b-9c8d-7e6f5a4b3c2d',
+        }),
+      );
+      const far = moved(await storedOneXTwo(open.eventId));
+      await listEvent(open.eventId, 'feed-a', { pinnacle: far, betsson: far, unibet_se: far });
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1, held: 0 });
+      expect(await bettingOpen()).toBe(true);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'releases a pending hold on the next strong market price',
+    async () => {
+      const { eventId, feedRef } = await createdEvent({ calibrated: true });
+      await setPolicy({ pricingSource: 'market' });
+      await addFeed('feed-a');
+      const far = moved(await storedOneXTwo(eventId));
+      // No sharp book yet: held.
+      await listEvent(eventId, 'feed-a', { onexbet: far, betsson: far, unibet_se: far });
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ held: 1 });
+      expect(await repriceItems()).toHaveLength(1);
+      // The market moves on and Pinnacle joins: a new, strong consensus.
+      h.advance(MINUTE);
+      const later: Prices = [far[0] + 40, far[1], far[2] - 80];
+      await listEvent(eventId, 'feed-a', { pinnacle: later, betsson: later, unibet_se: later });
+      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ repriced: 1, held: 0 });
+      expect(await repriceItems()).toHaveLength(0);
+      const [resolved] = await rows<{ resolution: string }>(
+        `SELECT resolution FROM scrape_review_items WHERE subject_key = $1`,
+        [`${feedRef}|reprice`],
+      );
+      expect(resolved!.resolution).toBe(
+        'a strong market (3+ books, one sharp) replaced the prices (A-2)',
+      );
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'never waives the bound for the model, nor in a competition priced from the model',
+    async () => {
+      const { eventId } = await createdEvent({ calibrated: true });
+      await setPolicy({ pricingSource: 'model' });
+      await addFeed('feed-a');
+      const far = moved(await storedOneXTwo(eventId));
+      await listEvent(eventId, 'feed-a', { pinnacle: far, betsson: far, unibet_se: far });
+      const summary = await repriceScheduledEvents(h.ctx);
+      expect(summary.repriced).toBe(0);
+      expect(await repriceItems()).toHaveLength(0);
+    },
+    TEST_TIMEOUT,
+  );
+});
+
 describe('A-1: the first market price of uncalibrated teams', () => {
   /** The stored 1X2 moved far beyond MAX_PRICE_MOVE_RATIO: home shortened, away lengthened. */
   const moved = ([home, draw, away]: Prices): Prices => [
@@ -1163,18 +1256,8 @@ describe('A-1: the first market price of uncalibrated teams', () => {
   );
 
   it(
-    'is still held for calibrated teams, for a thin market, and once betting is open',
+    'is still held for a thin market (no sharp book), whatever the teams',
     async () => {
-      // Calibrated teams: the model's prices are real, the move is a question for a trader.
-      const { eventId } = await createdEvent({ calibrated: true });
-      await setPolicy({ pricingSource: 'market' });
-      await addFeed('feed-a');
-      const far = moved(await storedOneXTwo(eventId));
-      await listEvent(eventId, 'feed-a', { pinnacle: far, betsson: far, unibet_se: far });
-      expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ held: 1, repriced: 0 });
-      await h.close();
-
-      // Uncalibrated teams but no sharp book.
       const thin = await createdEvent({ calibrated: false });
       await setPolicy({ pricingSource: 'market' });
       await addFeed('feed-a');
@@ -1183,17 +1266,11 @@ describe('A-1: the first market price of uncalibrated teams', () => {
       expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ held: 1, repriced: 0 });
       await h.close();
 
-      // Uncalibrated teams, a strong market, but betting is open.
-      const open = await createdEvent({ calibrated: false });
+      const calibrated = await createdEvent({ calibrated: true });
       await setPolicy({ pricingSource: 'market' });
       await addFeed('feed-a');
-      await h.ctx.db.transaction((tx) =>
-        setEventBettingOpen(tx, open.eventId, true, {
-          adminId: '6a5b4c3d-2e1f-4a0b-9c8d-7e6f5a4b3c2d',
-        }),
-      );
-      const far3 = moved(await storedOneXTwo(open.eventId));
-      await listEvent(open.eventId, 'feed-a', { pinnacle: far3, betsson: far3, unibet_se: far3 });
+      const far = moved(await storedOneXTwo(calibrated.eventId));
+      await listEvent(calibrated.eventId, 'feed-a', { onexbet: far, betsson: far, unibet_se: far });
       expect(await repriceScheduledEvents(h.ctx)).toMatchObject({ held: 1, repriced: 0 });
     },
     TEST_TIMEOUT,

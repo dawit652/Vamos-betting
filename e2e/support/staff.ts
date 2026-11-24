@@ -10,7 +10,8 @@ import { ADMIN_URL, API_URL } from './env';
  * does not depend on the db package. Never used outside demo mode.
  */
 
-export type StaffRole = 'admin' | 'trader' | 'finance' | 'kyc' | 'support' | 'compliance';
+export type StaffRole =
+  'admin' | 'trader' | 'finance' | 'kyc' | 'support' | 'compliance' | 'cashier';
 
 export const DEMO_STAFF_PASSWORD = 'vamos-demo-staff';
 /** Base32 TOTP secret shared by every demo staff user. */
@@ -140,6 +141,7 @@ export interface StaffApi {
   session: StaffSessionResponse;
   get(path: string): ReturnType<APIRequestContext['get']>;
   post(path: string, data?: unknown): ReturnType<APIRequestContext['post']>;
+  put(path: string, data: unknown): ReturnType<APIRequestContext['put']>;
 }
 
 /** The staff API for an already signed-in request context (a browser context's `request`). */
@@ -157,6 +159,11 @@ function bindStaffApi(request: APIRequestContext, session: StaffSessionResponse)
       request.post(`${API_URL}${path}`, {
         headers: { [STAFF_CSRF_HEADER]: session.csrfToken },
         data: data ?? {},
+      }),
+    put: (path, data) =>
+      request.put(`${API_URL}${path}`, {
+        headers: { [STAFF_CSRF_HEADER]: session.csrfToken },
+        data,
       }),
   };
 }
@@ -178,5 +185,31 @@ export async function loginApi(request: APIRequestContext, role: StaffRole): Pro
       );
     }
     lastStepUsed.set(email, Math.floor(Date.now() / 1000 / STEP_S));
+  }
+}
+
+/**
+ * Assigns the demo cashier to the HQ shop (1000-01). Other specs add shops, and while more than
+ * one shop is open an unassigned cashier cannot open a shift. It stays assigned (harmless: HQ is
+ * the demo cashier's shop).
+ */
+export async function assignDemoCashierToHq(admin: StaffApi): Promise<void> {
+  const { shops } = (await (await admin.get('/admin/cashier/shops')).json()) as {
+    shops: Array<{ id: string; label: string }>;
+  };
+  const { staff } = (await (await admin.get('/admin/cashier/staff')).json()) as {
+    staff: Array<{ id: string; email: string; shopId: string | null }>;
+  };
+  const hq = shops.find((shop) => shop.label === '1000-01');
+  const cashier = staff.find((member) => member.email === staffEmail('cashier'));
+  if (hq === undefined || cashier === undefined) {
+    throw new Error('the HQ shop 1000-01 or the demo cashier is missing (pnpm db:seed?)');
+  }
+  if (cashier.shopId === hq.id) return;
+  const response = await admin.put(`/admin/cashier/staff/${cashier.id}/shop`, { shopId: hq.id });
+  if (!response.ok()) {
+    throw new Error(
+      `assigning the demo cashier failed: ${response.status()} ${await response.text()}`,
+    );
   }
 }

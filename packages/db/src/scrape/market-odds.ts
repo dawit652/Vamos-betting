@@ -4,11 +4,12 @@ import {
   type ScrapeOddsMarket,
   type ScrapeOddsSelection,
 } from '@vamos/core';
-import { and, asc, eq, gt, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { events } from '../schema/catalog';
+import { settings } from '../schema/platform';
 import { scrapeMarketOdds, scrapeSources } from '../schema/scrape';
-import { clampLimit } from './common';
+import { actorLabel, auditScrape, clampLimit, type ScrapeActor } from './common';
 
 /**
  * Bookmaker prices from a licensed market feed (docs/scraper.md 3.1, table scrape_market_odds).
@@ -342,6 +343,126 @@ export interface LatestMarketOddsQuery {
   maxAgeMs: number;
 }
 
+// ---------------------------------------------------------------------------
+// API-Football's prices on trial (docs/plans/feed-gaps-2026-11-23.md, E2)
+
+/** The upstream of API-Football's sources (its odds mode yields bookmaker prices). */
+export const API_FOOTBALL_UPSTREAM = 'api-sports';
+export const APIFOOTBALL_PRICING_SETTING = 'apifootball_pricing';
+
+export interface ApiFootballPricing {
+  /** On: API-Football's bookmaker prices count like The Odds API's. Off (the default): stored only. */
+  enabled: boolean;
+  updatedAt: Date | null;
+  updatedBy: string | null;
+}
+
+/** The switch; no row, or anything but `{ "enabled": true }`, is off (fail closed). */
+export async function getApiFootballPricing(exec: DbExecutor): Promise<ApiFootballPricing> {
+  const [row] = await exec
+    .select({ value: settings.value, updatedAt: settings.updatedAt, updatedBy: settings.updatedBy })
+    .from(settings)
+    .where(eq(settings.key, APIFOOTBALL_PRICING_SETTING));
+  if (row === undefined) return { enabled: false, updatedAt: null, updatedBy: null };
+  const value = row.value as { enabled?: unknown } | null;
+  return {
+    enabled: typeof value === 'object' && value !== null && value.enabled === true,
+    updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy,
+  };
+}
+
+/**
+ * Turns API-Football's prices on or off, audited (`scrape.apifootball_pricing.updated`) with
+ * before and after; a call that changes nothing writes nothing.
+ */
+export async function setApiFootballPricing(
+  tx: DbTransaction,
+  enabled: boolean,
+  actor: ScrapeActor,
+): Promise<ApiFootballPricing> {
+  const key = APIFOOTBALL_PRICING_SETTING;
+  await tx
+    .insert(settings)
+    .values({ key, value: { enabled: false }, updatedBy: actorLabel(actor) })
+    .onConflictDoNothing();
+  await tx.select({ key: settings.key }).from(settings).where(eq(settings.key, key)).for('update');
+  const before = await getApiFootballPricing(tx);
+  if (before.enabled === enabled) return before;
+  await tx
+    .update(settings)
+    .set({ value: { enabled }, updatedAt: sql`now()`, updatedBy: actorLabel(actor) })
+    .where(eq(settings.key, key));
+  await auditScrape(tx, actor, {
+    action: `scrape.${key}.updated`,
+    targetType: 'setting',
+    targetId: key,
+    metadata: { before: { enabled: before.enabled }, after: { enabled } },
+  });
+  return getApiFootballPricing(tx);
+}
+
+export interface ApiFootballPriceSummary {
+  /** Enabled API-Football sources in odds mode. */
+  sources: number;
+  /** Its price rows listed within the window. */
+  rows: number;
+  /** Our matches it priced within the window. */
+  matches: number;
+  /** Of those, matches another upstream priced too (the comparison). */
+  compared: number;
+  /** Median gap between its average 1X2 prices and the other upstreams', in percent; null: none. */
+  medianDiffPercent: number | null;
+}
+
+/**
+ * What API-Football's prices look like next to the others (E2, its trial): within `maxAgeMs`,
+ * per match and 1X2 selection the average price of each side, and the median of the matches'
+ * average relative gap. A few percent is normal (different books); a large gap means a fault.
+ */
+export async function apiFootballPriceSummary(
+  exec: DbExecutor,
+  options: { now: Date; maxAgeMs: number },
+): Promise<ApiFootballPriceSummary> {
+  const cutoff = new Date(options.now.getTime() - options.maxAgeMs).toISOString();
+  const up = API_FOOTBALL_UPSTREAM;
+  const result = await exec.execute(sql`
+    WITH af AS (
+      SELECT m.event_id, m.selection, avg(m.price_milli) AS price
+      FROM scrape_market_odds m JOIN scrape_sources s ON s.id = m.source_id
+      WHERE s.upstream = ${up} AND m.market = '1x2' AND m.event_id IS NOT NULL
+        AND m.observed_at >= ${cutoff}::timestamptz
+      GROUP BY 1, 2
+    ), other AS (
+      SELECT m.event_id, m.selection, avg(m.price_milli) AS price
+      FROM scrape_market_odds m JOIN scrape_sources s ON s.id = m.source_id
+      WHERE s.upstream <> ${up} AND s.enabled AND m.market = '1x2' AND m.event_id IS NOT NULL
+        AND m.observed_at >= ${cutoff}::timestamptz
+      GROUP BY 1, 2
+    ), diff AS (
+      SELECT af.event_id, avg(abs(af.price - other.price) / other.price) AS d
+      FROM af JOIN other ON other.event_id = af.event_id AND other.selection = af.selection
+      GROUP BY 1
+    )
+    SELECT
+      (SELECT count(*) FROM scrape_sources
+        WHERE upstream = ${up} AND enabled AND config->>'mode' = 'odds')::int AS sources,
+      (SELECT count(*) FROM scrape_market_odds m JOIN scrape_sources s ON s.id = m.source_id
+        WHERE s.upstream = ${up} AND m.observed_at >= ${cutoff}::timestamptz)::int AS rows,
+      (SELECT count(DISTINCT event_id) FROM af)::int AS matches,
+      (SELECT count(*) FROM diff)::int AS compared,
+      (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY d) FROM diff)::float8 AS median`);
+  const row: Record<string, unknown> = result.rows[0] ?? {};
+  const median = typeof row.median === 'number' ? row.median : null;
+  return {
+    sources: Number(row.sources ?? 0),
+    rows: Number(row.rows ?? 0),
+    matches: Number(row.matches ?? 0),
+    compared: Number(row.compared ?? 0),
+    medianDiffPercent: median === null ? null : Math.round(median * 1000) / 10,
+  };
+}
+
 /**
  * The market prices the pricing step may use, by event: for each (event, source) only what that
  * source's NEWEST sighting of the event listed, kept only if it was listed at or after
@@ -352,7 +473,8 @@ export interface LatestMarketOddsQuery {
  * - a bookmaker that the source's latest fetch of the event no longer lists drops out whole (its
  *   rows keep an older `observed_at`); an event the latest successful run no longer lists at all
  *   (it started, or every book was dropped) drops out too;
- * - a disabled source never votes (S4);
+ * - a disabled source never votes (S4), nor API-Football's while its switch is off (E2: on trial,
+ *   its prices are stored and compared, never used);
  * - rows with no event yet are never returned: pricing reads by event id only.
  *
  * It answers for the present: the table holds the current state, not a history to replay.
@@ -365,6 +487,7 @@ export async function latestMarketOdds(
 ): Promise<LatestMarketOdd[]> {
   if (query.eventIds.length === 0) return [];
   const cutoff = new Date(query.now.getTime() - query.maxAgeMs);
+  const onTrial = !(await getApiFootballPricing(exec)).enabled;
   const rows = await exec
     .select({
       eventId: scrapeMarketOdds.eventId,
@@ -384,6 +507,7 @@ export async function latestMarketOdds(
       and(
         inArray(scrapeMarketOdds.eventId, [...new Set(query.eventIds)]),
         eq(scrapeSources.enabled, true),
+        onTrial ? ne(scrapeSources.upstream, API_FOOTBALL_UPSTREAM) : undefined,
         gte(scrapeMarketOdds.observedAt, cutoff),
         sql`${scrapeMarketOdds.observedAt} = (
           SELECT max(m.observed_at) FROM scrape_market_odds m

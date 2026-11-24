@@ -9,38 +9,43 @@ export const account = {
   fields: {
     phone: 'Phone number',
     phoneHint: 'Ethio telecom (09…) or Safaricom (07…) number',
-    password: 'Password',
-    passwordHint: 'At least 12 characters (a few words work well), not a common password',
-    newPassword: 'New password',
-    confirmPassword: 'Repeat the new password',
     dateOfBirth: 'Date of birth',
     fullName: 'Full name',
     code: 'SMS code',
     showPassword: 'Show password',
+    pin: '4-digit PIN',
+    pinHint: 'Exactly 4 digits. Not 1111, 1234 or the last 4 digits of your phone number.',
+    newPin: 'New 4-digit PIN',
+    confirmPin: 'Repeat the new PIN',
+    pinLogin: 'PIN',
   },
   validation: {
     phoneRequired: 'Enter your phone number.',
     phone: 'Enter an Ethiopian mobile number starting with 09 or 07, e.g. 0911 234 567.',
-    passwordRequired: 'Enter your password.',
-    passwordShort: 'The password needs at least 12 characters.',
-    passwordLong: 'The password can have at most 128 characters.',
+    passwordRequired: 'Enter your PIN.',
+    pinFormat: 'The PIN must be exactly 4 digits.',
     weakPassword:
-      'This password is too easy to guess. Avoid simple sequences and your phone number.',
-    passwordMismatch: 'The two passwords do not match.',
+      'This PIN is too easy to guess. Do not use one digit four times (1111), digits in a row (1234) or the last 4 digits of your phone number.',
+    pinRepeated: 'A PIN of one digit repeated (like 1111) is too easy to guess. Choose another.',
+    pinSequence:
+      'A PIN of digits in a row (like 1234 or 9876) is too easy to guess. Choose another.',
+    pinPhone: 'Do not use the last 4 digits of your phone number as your PIN. Choose another.',
+    passwordMismatch: 'The two PINs do not match.',
     dateOfBirthRequired: 'Enter your date of birth.',
     dateOfBirth: 'Enter a real date of birth.',
     underage: 'You must be 21 or older to use Nahubet.',
     terms: 'Accept the terms and confirm that you are 21 or older.',
     otp: 'Enter the 6-digit code.',
     otpExpired: 'This code has expired or was already used. Request a new code.',
-    otpInvalid: 'That code is not correct. Check the SMS and try again.',
+    otpInvalid:
+      'That code is not correct. Use the newest code you received (SMS or Telegram) and try again.',
     fayda: 'Enter your 12-digit FIN or 16-digit FAN.',
     fullName: 'Enter your full name (at least 2 letters).',
     amount: 'Enter an amount in birr, e.g. 500 or 250.50.',
   },
   errors: {
     phoneTaken: 'An account with this number already exists. Log in instead.',
-    invalidCredentials: 'Wrong phone number or password.',
+    invalidCredentials: 'Wrong phone number or PIN.',
     phoneNotVerified:
       'This number is not verified yet. Register again with the same number to get a new code.',
     accountDisabled: 'This account is disabled. Please contact support.',
@@ -50,14 +55,7 @@ export const account = {
     registrationExpired:
       'This sign-up is no longer valid. Register again with the same number to get a new code.',
     passwordResetRequired:
-      'Your password no longer meets our security rules. Reset it with an SMS code to continue.',
-  },
-  strength: {
-    label: 'Password strength',
-    short: 'Too short',
-    fair: 'Fair',
-    good: 'Good',
-    strong: 'Strong',
+      'Your PIN no longer meets our security rules. Reset it with an SMS code to continue.',
   },
   demo: {
     smsNotice: 'Demo: no real SMS is sent.',
@@ -69,10 +67,10 @@ export const account = {
   login: {
     title: 'Log in',
     submit: 'Log in',
-    forgot: 'Forgot password?',
+    forgot: 'Forgot PIN?',
     noAccount: 'New to Nahubet?',
     register: 'Create an account',
-    passwordChanged: 'Your password was changed. Log in with the new password.',
+    passwordChanged: 'Your PIN was changed. Log in with the new PIN.',
     signedIn: 'You are logged in.',
   },
   register: {
@@ -81,7 +79,8 @@ export const account = {
     submit: 'Register',
     ageNotice:
       'Nahubet is for people aged 21 and over. We may check your age with your Fayda ID; under-21 accounts are closed.',
-    acceptTerms: 'I am 21 or older and I accept the terms and conditions and the privacy notice.',
+    acceptTerms:
+      'By tapping Register you confirm that you are 21 or older and accept the terms and conditions and the privacy notice.',
     readTerms: 'Read the terms',
     readPrivacy: 'Read the privacy notice',
     haveAccount: 'Already have an account?',
@@ -102,15 +101,44 @@ export const account = {
     welcome: 'Your account is ready.',
   },
   forgot: {
-    title: 'Forgot your password?',
+    title: 'Forgot your PIN?',
     intro: 'Enter your phone number. If it has an account, we will send a code by SMS.',
     submit: 'Send code',
+    telegramTitle: 'Or get the code on Telegram',
+    telegramHint:
+      'Open the Nahubet bot on Telegram and share your phone number with it. It sends you the code; then enter it here with a new PIN.',
+    telegram: 'Get the code on Telegram',
+    haveCode: 'I have a code',
   },
   reset: {
-    title: 'Choose a new password',
-    intro: 'Enter the code we sent by SMS and choose a new password.',
-    submit: 'Change password',
+    title: 'Choose a new PIN',
+    intro: 'Enter the code we sent you (by SMS or on Telegram) and choose a new 4-digit PIN.',
+    submit: 'Change PIN',
     requestAgain: 'Did not get a code? Request a new one',
+  },
+  shopReset: {
+    title: 'Reset your PIN at a shop',
+    intro:
+      'No SMS or Telegram? Reset your PIN at a Nahubet shop with your Fayda ID card. This works only if your identity is verified on your account.',
+    start: 'Get a desk code',
+    codeTitle: 'Your desk code',
+    codeHelp:
+      'Go to a Nahubet shop with your Fayda ID card and tell the cashier this code. Keep this page open on this phone: your new PIN can only be set here.',
+    validUntil: 'Valid until {time}',
+    waitingDesk: 'Waiting for the cashier…',
+    waitingApproval: 'The cashier sent your request. Waiting for a supervisor to approve it…',
+    approved: 'Approved. Choose your new PIN now, within 30 minutes.',
+    submit: 'Set new PIN',
+    rejected: 'The shop did not approve this request. You can start again.',
+    expired: 'This request has expired. You can start again.',
+    done: 'Your PIN was changed. Log in with your new PIN.',
+    startAgain: 'Start again',
+    logIn: 'Log in',
+    linkTitle: 'No SMS or Telegram?',
+    linkHint: 'Reset your PIN at a Nahubet shop with your Fayda ID card.',
+    link: 'Reset at a shop',
+    limit: 'Too many requests for this number. Try again in an hour.',
+    lost: 'This request is not known any more. Start again.',
   },
   gate: {
     title: 'Log in to continue',
@@ -146,14 +174,14 @@ export const account = {
   },
   security: {
     title: 'Password and devices',
-    passwordTitle: 'Change password',
+    passwordTitle: 'Change PIN',
     passwordIntro:
-      'Enter your current password and choose a new one. Every other device is logged out, and we send you an SMS.',
-    currentPassword: 'Current password',
-    submit: 'Change password',
-    changed: 'Your password was changed. Your other devices were logged out.',
-    wrongPassword: 'The password you entered is not correct.',
-    unchanged: 'Choose a password different from the current one.',
+      'Enter your current PIN (or password) and choose a new 4-digit PIN. Every other device is logged out, and we send you an SMS.',
+    currentPassword: 'Current PIN',
+    submit: 'Change PIN',
+    changed: 'Your PIN was changed. Your other devices were logged out.',
+    wrongPassword: 'The PIN you entered is not correct.',
+    unchanged: 'Choose a PIN different from the current one.',
     sessionsTitle: 'Where you are logged in',
     sessionsIntro:
       'You are logged out after 30 minutes without activity, and 12 hours after logging in.',
@@ -161,7 +189,7 @@ export const account = {
     unknownDevice: 'Unknown device',
     lastActive: 'Last active {time}',
     signedIn: 'Logged in {time}',
-    password: 'Your password',
+    password: 'Your PIN',
     passwordHint: 'Needed to log out your other devices.',
     endOne: 'Log out',
     endOthers: 'Log out all other devices',
@@ -322,6 +350,52 @@ export const account = {
       'mpesa-et': 'M-Pesa',
       sms: 'Transfer (telebirr or bank)',
     },
+    cashAtShop: {
+      title: 'Withdraw cash at a shop',
+      intro:
+        'Choose the amount and get a withdrawal code. At any Nahubet shop, tell the cashier the code and show your ID: you are paid in cash. The money is set aside now; the code works for 24 hours, then the money comes back to your balance.',
+      amount: 'Amount (ETB)',
+      get: 'Get a withdrawal code',
+      getNew: 'Get a new code (the old one stops working)',
+      codeLabel: 'Your withdrawal code',
+      validUntil: 'Valid until {time}',
+      review: 'We check this withdrawal first. The cashier can pay it once it is approved.',
+      live: 'You have a withdrawal code for {amount}, valid until {time}. Lost it? Get a new one.',
+    },
+    depositClaim: {
+      title: 'My deposit did not arrive',
+      intro:
+        'Sent money that is not in your balance? Tell us how you paid. We check it against the money that arrived and credit it; this form alone credits nothing.',
+      method: 'How you paid',
+      methods: {
+        telebirr: 'telebirr',
+        cbe: 'CBE (bank)',
+        chapa: 'Chapa',
+        other: 'Other',
+      },
+      amount: 'Amount you sent (ETB)',
+      paidAt: 'When you paid',
+      reference: 'Transaction id or SMS reference',
+      referenceHint: 'From the telebirr or bank SMS, for example FT2611ABCD.',
+      payerPhone: 'Phone that paid (if not yours)',
+      note: 'Anything else (optional)',
+      submit: 'Report the payment',
+      sent: 'Thank you. We are checking your payment.',
+      listTitle: 'Payments you reported',
+      status: {
+        open: 'Being checked',
+        credited: 'Credited',
+        closed: 'Closed: not found',
+      },
+      errors: {
+        exists: 'You already reported this payment. We are checking it.',
+        tooMany: 'You have reported several payments already. We will answer them first.',
+        tooOld: 'A report is for a payment of the last 30 days. For an older one, contact support.',
+        time: 'Check when you paid: it cannot be in the future.',
+        reference: 'Enter the transaction id or SMS reference as it is written.',
+        phone: 'Enter the phone number that paid, for example 0911223344.',
+      },
+    },
     loading: 'Loading payment options…',
     unavailable: 'Payments are not available right now. Try again in a moment.',
     notAvailableForYou: 'No payment method is enabled for this action yet.',
@@ -353,6 +427,10 @@ export const account = {
         succeeded: 'Received',
         failed: 'Failed',
         expired: 'Expired',
+        /** A transfer (telebirr or bank): credited by itself when the money arrives. */
+        awaitingPayment: 'Waiting for your payment',
+        /** Flagged: a person checks it before anything is credited. */
+        review: 'Staff are checking',
       },
       failure: {
         declined: 'The payment was declined on your phone.',
@@ -377,6 +455,8 @@ export const account = {
         step1: 'Open your telebirr or bank app, or dial the code above.',
         step2: 'Send exactly ETB {amount} to the account above, from your own account.',
         step3: 'Your balance updates by itself within a minute of paying.',
+        onlyThisAccount:
+          'Pay only to this account: your exact amount is reserved for it and would not be found on another.',
         anyBank:
           'You can pay from any Ethiopian bank: transfers into this account arrive from every bank.',
         expires: 'Pay before {time}. A payment that arrives a little later is still credited.',
@@ -410,9 +490,10 @@ export const account = {
         kyc: 'Your identity must be verified.',
         kycTodo: 'Verify your identity first.',
         kycLink: 'Verify now',
-        wagering: 'Deposits must be bet at least once before you withdraw.',
-        wageringOk: 'You have bet your deposits at least once.',
-        wageringTodo: 'Bet ETB {remaining} more before you can withdraw.',
+        wagering: 'Only winnings can be withdrawn. Money you deposit is for betting.',
+        wageringOk: 'Your whole balance can be withdrawn.',
+        wageringTodo:
+          'You can withdraw up to ETB {withdrawable} now. ETB {remaining} of your deposits is for betting only.',
         ownPhone: 'Payouts go only to your own registered phone. No other numbers or wallets.',
         ownAccounts:
           'Payouts go only to you: your registered phone wallet, or a bank account in your own name.',
@@ -497,7 +578,8 @@ export const account = {
       providerUnavailable:
         'The payment provider did not answer. Try again in a moment: you will not be charged twice.',
       kycRequired: 'Verify your identity before you withdraw.',
-      wagering: 'Bet ETB {remaining} more before you can withdraw.',
+      wagering:
+        'You can withdraw up to ETB {withdrawable} now: only winnings can be withdrawn, deposits are for betting.',
       dailyCap: 'This would go over the daily withdrawal limit.',
       insufficientFunds: 'Your balance is too low for this amount.',
       notCancellable: 'This withdrawal can no longer be cancelled.',
@@ -773,8 +855,8 @@ export const account = {
           a: 'Open My Bets. Open bets are still running; settled bets show what was paid out.',
         },
         password: {
-          q: 'I forgot my password',
-          a: 'On the login page tap Forgot password. We send a code to your phone so you can choose a new password.',
+          q: 'I forgot my PIN',
+          a: 'On the login page tap Forgot PIN. We send a code to your phone so you can choose a new 4-digit PIN.',
         },
         age: {
           q: 'Who can play?',

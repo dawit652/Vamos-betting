@@ -3,11 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_SANTIM_OFFSET,
   allocateSmsAmount,
+  countFreeSmsAmounts,
+  latestClaimForSms,
   SMS_HANDSET_CLOCK_SKEW_MS,
   SMS_INSTITUTION_CLOCK_SKEW_MS,
   matchSmsDeposit,
   proposePayoutForSms,
   smsPaidBy,
+  takenAmounts,
   type ManualPayoutCandidate,
   type OpenSmsDeposit,
 } from './smsmatch';
@@ -155,7 +158,34 @@ describe('allocateSmsAmount', () => {
     );
   });
 
-  it('never collides and stays within 1..MAX_SANTIM_OFFSET santim above the base', () => {
+  it('offers 99 amounts above a whole-birr request, all with its birr figure', () => {
+    expect(MAX_SANTIM_OFFSET).toBe(99);
+    const taken = new Set<bigint>();
+    for (let i = 0; i < MAX_SANTIM_OFFSET; i++) {
+      const amount = allocateSmsAmount(10000n, taken, () => 1);
+      expect(amount).not.toBeNull();
+      taken.add(amount!);
+    }
+    expect(taken.size).toBe(99);
+    expect([...taken].every((amount) => amount / 100n === 100n && amount % 100n !== 0n)).toBe(true);
+    expect(allocateSmsAmount(10000n, taken, () => 1)).toBeNull();
+  });
+
+  it('never reserves a whole-birr amount, which another payer might send by chance', () => {
+    // 100.01 + 99 santim would be 101.00: skipped, the next free amount is taken instead.
+    expect(allocateSmsAmount(10001n, new Set(), () => 99)).toBe(10002n);
+    // 100.50 + 50 santim would be 101.00.
+    expect(allocateSmsAmount(10050n, new Set(), () => 50)).toBe(10101n);
+    // With every other offset taken there is nothing left: refused, not 101.00.
+    const others = new Set(
+      Array.from({ length: MAX_SANTIM_OFFSET }, (_, i) => 10001n + BigInt(i + 1)).filter(
+        (amount) => amount !== 10100n,
+      ),
+    );
+    expect(allocateSmsAmount(10001n, others, () => 1)).toBeNull();
+  });
+
+  it('never collides, never lands on a whole birr, and stays within the offset range', () => {
     fc.assert(
       fc.property(
         fc.bigInt({ min: 100n, max: 10n ** 9n }),
@@ -166,10 +196,16 @@ describe('allocateSmsAmount', () => {
         (base, start, takenOffsets) => {
           const taken = new Set(takenOffsets.map((o) => base + BigInt(o)));
           const amount = allocateSmsAmount(base, taken, () => start);
-          if (takenOffsets.length === MAX_SANTIM_OFFSET) return amount === null;
+          // Usable offsets: 1..MAX whose amount is not a whole birr and not taken.
+          const usable = Array.from(
+            { length: MAX_SANTIM_OFFSET },
+            (_, i) => base + BigInt(i + 1),
+          ).filter((candidate) => candidate % 100n !== 0n && !taken.has(candidate));
+          if (usable.length === 0) return amount === null;
           return (
             amount !== null &&
             !taken.has(amount) &&
+            amount % 100n !== 0n &&
             amount > base &&
             amount <= base + BigInt(MAX_SANTIM_OFFSET)
           );
@@ -301,6 +337,213 @@ describe('smsPaidBy', () => {
           floors.push(deviceReceivedAt.getTime() + SMS_HANDSET_CLOCK_SKEW_MS);
         }
         expect(bound).toBeGreaterThanOrEqual(Math.min(...floors));
+      }),
+    );
+  });
+});
+
+describe('latestClaimForSms', () => {
+  const receivedAt = new Date('2026-08-15T13:00:00Z'); // 16:00 EAT
+  const minutes = (n: number) => n * 60_000;
+
+  it('allows a claim up to the skew after our receive time, and no later', () => {
+    const latest = latestClaimForSms({ occurredAt: null, deviceReceivedAt: null, receivedAt });
+    expect(latest).toEqual(new Date(receivedAt.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS));
+  });
+
+  it('refuses a claim made after the institution says the money moved', () => {
+    const occurredAt = new Date(receivedAt.getTime() - minutes(60)); // sent an hour before
+    const latest = latestClaimForSms({ occurredAt, deviceReceivedAt: null, receivedAt });
+    expect(latest).toEqual(new Date(occurredAt.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS));
+    expect(latest.getTime()).toBeLessThan(receivedAt.getTime());
+  });
+
+  it('gives a date without a time the whole day, and the handset its larger skew', () => {
+    const dayOnly = new Date('2026-08-14T21:00:00Z'); // "on 15/08/2026"
+    expect(latestClaimForSms({ occurredAt: dayOnly, deviceReceivedAt: null, receivedAt })).toEqual(
+      new Date(receivedAt.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS),
+    );
+    const device = new Date(receivedAt.getTime() - minutes(90));
+    expect(latestClaimForSms({ occurredAt: null, deviceReceivedAt: device, receivedAt })).toEqual(
+      new Date(device.getTime() + SMS_HANDSET_CLOCK_SKEW_MS),
+    );
+  });
+
+  it('never lets a claim after receipt plus skew, or after any clock plus its skew, pass', () => {
+    const time = fc.date({
+      min: new Date('2026-01-01T00:00:00Z'),
+      max: new Date('2027-01-01T00:00:00Z'),
+      noInvalidDate: true,
+    });
+    fc.assert(
+      fc.property(
+        fc.option(time),
+        fc.option(time),
+        time,
+        time,
+        (occurredAt, deviceReceivedAt, received, claimedAt) => {
+          const latest = latestClaimForSms({ occurredAt, deviceReceivedAt, receivedAt: received });
+          if (claimedAt.getTime() > latest.getTime()) return;
+          // A claim that passes is no later than our receive time plus the skew ...
+          expect(claimedAt.getTime()).toBeLessThanOrEqual(
+            received.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS,
+          );
+          // ... nor than a handset time (not in our future) plus the handset skew.
+          if (
+            deviceReceivedAt !== null &&
+            deviceReceivedAt.getTime() <= received.getTime() + SMS_INSTITUTION_CLOCK_SKEW_MS
+          ) {
+            expect(claimedAt.getTime()).toBeLessThanOrEqual(
+              deviceReceivedAt.getTime() + SMS_HANDSET_CLOCK_SKEW_MS,
+            );
+          }
+        },
+      ),
+    );
+  });
+});
+
+describe('collection accounts', () => {
+  const onA = { ...credit, collectionAccountId: 'A' };
+  const dep = (o: Partial<OpenSmsDeposit>) => deposit(o);
+
+  it('matches a deposit of the account the SMS arrived on', () => {
+    const result = matchSmsDeposit(onA, [dep({ collectionAccountId: 'A' })], NOW);
+    expect(result).toMatchObject({
+      type: 'matched',
+      intentId: 'i1',
+      confidence: 'amount_and_phone',
+    });
+  });
+
+  it('never credits a deposit of another account, even for the same amount and phone', () => {
+    const result = matchSmsDeposit(onA, [dep({ collectionAccountId: 'B' })], NOW);
+    expect(result).toEqual({ type: 'unmatched', reason: 'no_open_deposit' });
+  });
+
+  it('keeps the same amount on two accounts apart', () => {
+    const open = [
+      dep({ intentId: 'a', userId: 'ua', collectionAccountId: 'A', phone: '+251911111111' }),
+      dep({ intentId: 'b', userId: 'ub', collectionAccountId: 'B', phone: '+251922222222' }),
+    ];
+    const onB = { ...credit, collectionAccountId: 'B' };
+    expect(matchSmsDeposit(onA, open, NOW)).toMatchObject({ type: 'matched', intentId: 'a' });
+    expect(matchSmsDeposit(onB, open, NOW)).toMatchObject({ type: 'matched', intentId: 'b' });
+  });
+
+  it('the phone fallback does not look at other accounts either', () => {
+    const open = [dep({ collectionAccountId: 'B', amount: 10_999n })];
+    expect(matchSmsDeposit({ ...onA, amount: 10_000n }, open, NOW)).toEqual({
+      type: 'unmatched',
+      reason: 'no_open_deposit',
+    });
+  });
+
+  it('a deposit without an account (an older row) matches as before, on any account', () => {
+    expect(matchSmsDeposit(onA, [dep({})], NOW)).toMatchObject({ type: 'matched' });
+    expect(matchSmsDeposit(onA, [dep({ collectionAccountId: null })], NOW)).toMatchObject({
+      type: 'matched',
+    });
+    expect(matchSmsDeposit(credit, [dep({})], NOW)).toMatchObject({ type: 'matched' });
+  });
+
+  it('an SMS of unknown account never credits a deposit that names an account', () => {
+    expect(matchSmsDeposit(credit, [dep({ collectionAccountId: 'A' })], NOW)).toEqual({
+      type: 'unmatched',
+      reason: 'no_open_deposit',
+    });
+  });
+
+  it('takenAmounts: the account own amounts and those without an account, nothing of other accounts', () => {
+    const open = [
+      { amount: 10_001n, collectionAccountId: 'A' },
+      { amount: 10_002n, collectionAccountId: 'B' },
+      { amount: 10_003n, collectionAccountId: null },
+      { amount: 10_004n },
+    ];
+    expect([...takenAmounts(open, 'A')].sort()).toEqual([10_001n, 10_003n, 10_004n]);
+    expect([...takenAmounts(open, 'B')].sort()).toEqual([10_002n, 10_003n, 10_004n]);
+    // With no account every amount is taken, as before accounts existed.
+    expect(takenAmounts(open, null).size).toBe(4);
+  });
+
+  it('two accounts give twice the open deposits of one for the same base', () => {
+    const open: { amount: bigint; collectionAccountId: string }[] = [];
+    let full = 0;
+    for (const account of ['A', 'B']) {
+      for (let i = 0; i < MAX_SANTIM_OFFSET + 5; i++) {
+        const amount = allocateSmsAmount(10_000n, takenAmounts(open, account), () => 1 + (i % 99));
+        if (amount === null) full++;
+        else open.push({ amount, collectionAccountId: account });
+      }
+    }
+    expect(open).toHaveLength(2 * MAX_SANTIM_OFFSET);
+    expect(full).toBe(10);
+  });
+
+  it('property: no collision within an account, and an SMS only ever pays its own account', () => {
+    const accounts = ['A', 'B', 'C'];
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            account: fc.constantFrom(...accounts),
+            base: fc.constantFrom(10_000n, 20_000n),
+            offset: fc.integer({ min: 1, max: MAX_SANTIM_OFFSET }),
+          }),
+          { maxLength: 400 },
+        ),
+        (requests) => {
+          const open: OpenSmsDeposit[] = [];
+          for (const [i, r] of requests.entries()) {
+            const amount = allocateSmsAmount(r.base, takenAmounts(open, r.account), () => r.offset);
+            if (amount === null) continue;
+            open.push(
+              deposit({
+                intentId: `d${i}`,
+                userId: `u${i}`,
+                amount,
+                collectionAccountId: r.account,
+                phone: `+2519${String(i).padStart(8, '0')}`,
+              }),
+            );
+          }
+          for (const account of accounts) {
+            const amounts = open
+              .filter((d) => d.collectionAccountId === account)
+              .map((d) => d.amount);
+            expect(new Set(amounts).size).toBe(amounts.length);
+          }
+          for (const d of open) {
+            const sms = {
+              direction: 'credit' as const,
+              amount: d.amount,
+              counterpartyPhone: null,
+              collectionAccountId: d.collectionAccountId,
+            };
+            const result = matchSmsDeposit(sms, open, NOW);
+            expect(result).toMatchObject({ type: 'matched', intentId: d.intentId });
+          }
+        },
+      ),
+    );
+  });
+});
+
+describe('countFreeSmsAmounts', () => {
+  it('counts the offsets allocateSmsAmount can still hand out', () => {
+    expect(countFreeSmsAmounts(10_000n, new Set())).toBe(MAX_SANTIM_OFFSET);
+    expect(countFreeSmsAmounts(10_000n, new Set([10_001n, 10_002n, 20_000n]))).toBe(97);
+    // 100.01 skips 101.00, the whole-birr amount in its range.
+    expect(countFreeSmsAmounts(10_001n, new Set())).toBe(MAX_SANTIM_OFFSET - 1);
+  });
+
+  it('is zero exactly when allocateSmsAmount refuses', () => {
+    fc.assert(
+      fc.property(fc.array(fc.integer({ min: 1, max: 99 }), { maxLength: 120 }), (offsets) => {
+        const taken = new Set(offsets.map((o) => 10_000n + BigInt(o)));
+        const free = countFreeSmsAmounts(10_000n, taken);
+        expect(free === 0).toBe(allocateSmsAmount(10_000n, taken, () => 1) === null);
       }),
     );
   });

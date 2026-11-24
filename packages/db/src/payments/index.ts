@@ -48,6 +48,7 @@ export {
   AUTO_APPROVER,
   cancelWithdrawal,
   claimDuePayouts,
+  DESK_PROVIDERS,
   clearPayoutFlag,
   flagPayoutForStaff,
   getPayout,
@@ -87,6 +88,7 @@ export {
   COUNTED_BET_STATUSES,
   COUNTED_JACKPOT_ENTRY_STATUSES,
   getRemainingWagering,
+  getWithdrawable,
   loadWageringEvents,
   WAGERING_FUNDING_TYPES,
   WAGERING_STAKE_TYPES,
@@ -119,7 +121,10 @@ export {
   listSmsReviewQueue,
   recordReceiptCheck,
   recordReceiptPaymentForPlayer,
+  reparseSmsByStaff,
   smsRailHealth,
+  listSilentCollectionAccounts,
+  type SilentCollectionAccount,
   type CreateSmsDepositInput,
   type IngestSmsInput,
   type ReceiptCheckStatus,
@@ -134,6 +139,14 @@ export {
   type VerifiedReceiptPayment,
 } from './smsrail';
 export {
+  listLastKnownBalances,
+  listOpenBetPayouts,
+  loadFloatForecast,
+  type FloatForecastReport,
+  type LastKnownBalance,
+  type OpenBetPayout,
+} from './floatforecast';
+export {
   MAX_PAYOUT_ACCOUNTS,
   addPayoutAccount,
   ensureOwnWalletPayoutAccount,
@@ -147,10 +160,33 @@ export {
 } from './payoutaccounts';
 export {
   claimManualPayout,
+  claimManualPayoutBatch,
   failManualPayout,
+  listIdleManualClaims,
   listManualPayoutQueue,
   releaseManualPayout,
   settleManualPayout,
+  MANUAL_PAYOUT_CLAIM_BATCH_MAX,
+  type ClaimManualPayoutBatchResult,
   type ManualPayoutActor,
   type SettleManualPayoutInput,
 } from './manualpayouts';
+export {
+  COLLECTION_ACCOUNT_AUDIT,
+  DELETED_ACCOUNT_GRACE_MS,
+  decideCollectionAccount,
+  deleteCollectionAccount,
+  editCollectionAccount,
+  listCollectionAccounts,
+  loadRailAccounts,
+  normalizeCollectionAccountNumber,
+  requestCollectionAccount,
+  seedCollectionAccounts,
+  syncRailAccounts,
+  type CollectionAccountRecord,
+  type RailAccountsSink,
+  type CollectionAccountRow,
+  type CollectionAccountStatus,
+} from './collectionaccounts';
+export * from './manual-deposits';
+export * from './deposit-claims';

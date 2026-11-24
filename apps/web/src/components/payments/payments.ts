@@ -101,6 +101,20 @@ export const DEPOSIT_STATUS_LABEL: Readonly<Record<DepositStatus, MessageKey>> =
   expired: 'account.payments.deposit.status.expired',
 };
 
+/**
+ * The status chip of a deposit. A transfer (telebirr or bank, the SMS rail) is credited by itself
+ * when the money arrives, so while it waits it says so ("Waiting for your payment"), never
+ * "Waiting for approval"; a flagged one says that staff are checking it.
+ */
+export function depositStatusKey(
+  deposit: Pick<DepositView, 'status' | 'underReview' | 'transfer'>,
+): MessageKey {
+  const open = deposit.status === 'created' || deposit.status === 'pending';
+  if (open && deposit.underReview) return 'account.payments.deposit.status.review';
+  if (open && deposit.transfer) return 'account.payments.deposit.status.awaitingPayment';
+  return DEPOSIT_STATUS_LABEL[deposit.status];
+}
+
 const DEPOSIT_FAILURE_LABEL: Readonly<Record<string, MessageKey>> = {
   declined_by_provider: 'account.payments.deposit.failure.declined',
   refused_by_provider: 'account.payments.deposit.failure.refused',
@@ -284,7 +298,7 @@ export function paymentErrorMessage(error: unknown): Message {
     case 'wagering_requirement_not_met':
       return {
         key: 'account.payments.errors.wagering',
-        vars: { remaining: formatSantim(detailString(error, 'remaining')) },
+        vars: { withdrawable: formatSantim(detailString(error, 'withdrawable')) },
       };
     case 'withdrawal_daily_cap_exceeded':
       return { key: 'account.payments.errors.dailyCap' };

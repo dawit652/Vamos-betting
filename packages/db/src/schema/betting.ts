@@ -35,12 +35,15 @@ export const betStatus = pgEnum('bet_status', [
   'void',
   'cashed_out',
   'rejected',
+  // A shop ticket cancelled before its first kick-off: the stake went back (phase 3).
+  'cancelled',
 ]);
 
 /** OddsChangePolicy in @vamos/core. */
 export const oddsChangePolicy = pgEnum('odds_change_policy', ['none', 'higher', 'any']);
 
-export const betChannel = pgEnum('bet_channel', ['web', 'sms', 'ussd']);
+// `shop`: a ticket sold at a shop's counter (docs/plans/agent-shops.md phase 3).
+export const betChannel = pgEnum('bet_channel', ['web', 'sms', 'ussd', 'shop']);
 
 /** LegState in @vamos/core. */
 export const betLegState = pgEnum('bet_leg_state', ['open', 'won', 'lost', 'void']);
@@ -256,6 +259,11 @@ export const bookingCodes = pgTable(
     /** BOOKING_CODE_LENGTH symbols of CODE_ALPHABET. */
     code: text('code').notNull().unique(),
     legs: jsonb('legs').$type<Array<{ selectionId: string }>>().notNull(),
+    /**
+     * The stake a visitor chose (docs/plans/guest-slips-and-staff.md, GS3: a slip ID to pay at a
+     * shop), santim; null for a shared slip without one. The shop fills it in; it is not money yet.
+     */
+    stake: bigint('stake', { mode: 'bigint' }),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -265,5 +273,6 @@ export const bookingCodes = pgTable(
   (t) => [
     index('booking_codes_expires_idx').on(t.expiresAt),
     check('booking_codes_expiry_after_creation', sql`${t.expiresAt} > ${t.createdAt}`),
+    check('booking_codes_stake_positive', sql`${t.stake} IS NULL OR ${t.stake} > 0`),
   ],
 );

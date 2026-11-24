@@ -22,7 +22,8 @@ export const Stake = Santim.refine((value) => !value.startsWith('-') && /[1-9]/.
 export const OddsChangePolicySchema = z.enum(['none', 'higher', 'any']);
 export type OddsChangePolicy = z.infer<typeof OddsChangePolicySchema>;
 
-export const BetChannelSchema = z.enum(['web', 'sms', 'ussd']);
+/** `shop`: a ticket sold at a shop's counter (agent-shops.md phase 3). */
+export const BetChannelSchema = z.enum(['web', 'sms', 'ussd', 'shop']);
 export type BetChannel = z.infer<typeof BetChannelSchema>;
 
 export const BetStatusSchema = z.enum([
@@ -33,6 +34,8 @@ export const BetStatusSchema = z.enum([
   'void',
   'cashed_out',
   'rejected',
+  /** A shop ticket cancelled before its first kick-off (the stake went back). */
+  'cancelled',
 ]);
 export type BetStatus = z.infer<typeof BetStatusSchema>;
 
@@ -218,6 +221,8 @@ export const CreateBookingCodeRequest = z.object({
     .array(z.object({ selectionId: Id }))
     .min(1)
     .max(MAX_SLIP_LEGS),
+  /** A visitor's slip ID to pay at a shop (GS3): the stake chosen, kept with the code. */
+  stake: Stake.optional(),
 });
 export type CreateBookingCodeRequest = z.infer<typeof CreateBookingCodeRequest>;
 
@@ -226,5 +231,24 @@ export const BookingCodeResponse = z.object({
   createdAt: z.string(),
   expiresAt: z.string(),
   legs: z.array(QuoteLeg),
+  /** The stake of a visitor's slip ID (GS3), or null for a shared slip. */
+  stake: Santim.nullable(),
 });
 export type BookingCodeResponse = z.infer<typeof BookingCodeResponse>;
+
+/**
+ * GET /booking-codes/:code/status (public; docs/plans/guest-slips-and-staff.md, GS4): Check coupon
+ * for a slip ID. A slip ID can be guessed, so this never names the ticket, the shop or the result:
+ * the ticket number printed on the ticket checks those (GET /tickets/:number).
+ */
+export const BookingCodeStatusResponse = z.object({
+  code: z.string(),
+  state: z.enum(['awaiting_payment', 'sold', 'expired']),
+  /** The visitor's stake (GS3), or null for a shared slip. */
+  stake: Santim.nullable(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  /** When a shop first sold it as a ticket that is not cancelled. */
+  soldAt: z.string().nullable(),
+});
+export type BookingCodeStatusResponse = z.infer<typeof BookingCodeStatusResponse>;

@@ -4,9 +4,11 @@ import {
   recordEventPriced,
   schema,
   setCompetitionPolicy,
+  setHulusportPricing,
   setSourceEnabled,
   setTeamRatings,
   startRun,
+  upsertBoardOdds,
   upsertMarketOdds,
   upsertSource,
   type Database,
@@ -372,5 +374,65 @@ describe('O1m: market prices stand in for uncalibrated ratings', () => {
       await pricingSource('market');
     }
     expect((await setBetting(eventId, true)).statusCode).toBe(200);
+  });
+});
+
+describe('rule O1h: a person opens a match priced from a fresh Hulusport board', () => {
+  /** The board's 1X2 and 2.5 line for `eventId`, confirmed `ageMs` ago, and the O1h stamp. */
+  async function boardPriced(eventId: string, ageMs: number): Promise<void> {
+    const at = new Date(ctx.clock.now.getTime() - ageMs);
+    await db.transaction(async (tx) => {
+      await setHulusportPricing(tx, true, { system: 'test' });
+      await upsertBoardOdds(tx, [
+        {
+          sourceKey: `hulusport:${eventId}`,
+          board: 'hulusport',
+          competitionRaw: 'Ethiopian Premier League',
+          homeRaw: 'Home',
+          awayRaw: 'Away',
+          kickoff: new Date(ctx.clock.now.getTime() + 3 * DAY),
+          homeTeamId: null,
+          awayTeamId: null,
+          eventId,
+          markets: [
+            {
+              type: '1x2',
+              line: null,
+              prices: [
+                { code: '1', priceMilli: 2050 },
+                { code: 'X', priceMilli: 3400 },
+                { code: '2', priceMilli: 3600 },
+              ],
+            },
+            {
+              type: 'ou',
+              line: '2.5',
+              prices: [
+                { code: 'over', priceMilli: 1900 },
+                { code: 'under', priceMilli: 1900 },
+              ],
+            },
+          ],
+          pricesAt: at,
+          observedAt: at,
+        },
+      ]);
+      await recordEventPriced(tx, eventId, 'brd1|0123456789abcdef|hl:fedcba9876543210', at);
+    });
+  }
+
+  it('opens with a fresh board, and refuses once the board is stale', async () => {
+    const fresh = await newEvent({ feed: 'scraped', home: await newTeam(), away: await newTeam() });
+    await boardPriced(fresh, 60_000);
+    const opened = await setBetting(fresh, true);
+    expect(opened.statusCode, opened.body).toBe(200);
+    expect(await bettingOpen(fresh)).toBe(true);
+
+    const stale = await newEvent({ feed: 'scraped', home: await newTeam(), away: await newTeam() });
+    await boardPriced(stale, 31 * 60_000);
+    const refused = await setBetting(stale, true);
+    expect(refused.statusCode).toBe(422);
+    expect(errorOf(refused).code).toBe('teams_uncalibrated');
+    expect(await bettingOpen(stale)).toBe(false);
   });
 });

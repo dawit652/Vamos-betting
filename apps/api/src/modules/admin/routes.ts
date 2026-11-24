@@ -1,10 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { staffSessionPlugin } from '../../plugins/staff-session';
+import adminAgentRoutes from './agents';
 import adminAuditRoutes from './audit';
 import adminAuthRoutes from './auth';
 import adminBetRoutes from './bets';
+import adminCashierRoutes from './cashier';
+import adminCollectionAccountRoutes from './collection-accounts';
 import { guardAdminRoutes } from './common';
 import adminComplianceRoutes from './compliance';
+import adminReportRoutes from './reports';
+import adminServiceHealthRoutes from './service-health';
 import adminFeedRoutes from './feed';
 import adminJackpotRoutes from './jackpots';
 import adminPaymentRoutes from './payments';
@@ -29,9 +34,14 @@ export default async function adminRoutes(app: FastifyInstance): Promise<void> {
   await app.register(adminBetRoutes);
   await app.register(adminPaymentRoutes);
   await app.register(adminSmsRailRoutes);
+  await app.register(adminCollectionAccountRoutes);
+  await app.register(adminCashierRoutes);
+  await app.register(adminAgentRoutes);
   await app.register(adminJackpotRoutes);
   await app.register(adminSettingsRoutes);
   await app.register(adminAuditRoutes);
   await app.register(adminComplianceRoutes);
+  await app.register(adminReportRoutes);
+  await app.register(adminServiceHealthRoutes);
   await app.register(adminFeedRoutes);
 }

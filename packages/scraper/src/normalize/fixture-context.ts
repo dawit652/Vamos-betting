@@ -1,4 +1,5 @@
 import { nameSimilarity } from './alias';
+import { variantConflict } from './variant';
 
 /**
  * Rule N4 (docs/scraper.md section 6.4, U-4 of docs/feed-quality-plan.md): fixture-context
@@ -15,6 +16,8 @@ import { nameSimilarity } from './alias';
 export const FIXTURE_CONTEXT_WINDOW_MS = 24 * 3_600_000;
 /** A lone candidate needs at least this name similarity (0..1) to be strong. */
 export const STRONG_FIXTURE_SIMILARITY = 0.6;
+/** L3: N4 maps by itself only when this many of the name's fixtures agree on the team. */
+export const AUTO_ALIAS_MIN_FIXTURES = 2;
 
 export type FixtureSide = 'home' | 'away';
 
@@ -84,10 +87,10 @@ export function fixtureContextSuggestions(
     const opponent = query.side === 'home' ? f.awayTeamId : f.homeTeamId;
     const teamId = query.side === 'home' ? f.homeTeamId : f.awayTeamId;
     if (opponent !== query.opponentId || teamId === query.opponentId) continue;
-    const { score, matchedName } = nameSimilarity(
-      query.raw,
-      query.side === 'home' ? f.homeNames : f.awayNames,
-    );
+    const names = query.side === 'home' ? f.homeNames : f.awayNames;
+    // L3: never another side of a club or a national team, however similar.
+    if (variantConflict(query.raw, names) !== null) continue;
+    const { score, matchedName } = nameSimilarity(query.raw, names);
     const candidate = { teamId, score: score / 1000, matchedName, kickoff: f.kickoff };
     const have = byTeam.get(teamId);
     if (

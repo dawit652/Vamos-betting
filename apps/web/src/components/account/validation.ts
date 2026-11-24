@@ -3,6 +3,9 @@ import {
   isOfAge,
   normalizeEthiopianMsisdn,
   parseIsoDate,
+  PIN_LENGTH,
+  pinWeaknessReason,
+  type PinWeakness,
 } from '@vamos/core';
 import type { MessageKey } from '@vamos/i18n/translate';
 
@@ -13,34 +16,17 @@ import type { MessageKey } from '@vamos/i18n/translate';
  */
 
 export const MIN_AGE = DEFAULT_RESPONSIBLE_GAMBLING.minAge;
-export const MIN_PASSWORD_LENGTH = 12;
+export { PIN_LENGTH };
+/** Login and "current password" fields take any password: old accounts may still have a long one. */
 export const MAX_PASSWORD_LENGTH = 128;
 
 /**
- * The length a password counts for, like the API (effectivePasswordLength in
- * @vamos/contracts): Unicode characters, a run of spaces counting once.
+ * True when a well-formed PIN is too easy to guess (the API refuses these with
+ * `weak_password`). `phone` is the number the player typed, if any: its last
+ * four digits are refused too. The rule is shared with the API (@vamos/core pin).
  */
-export function effectivePasswordLength(password: string): number {
-  return Array.from(password.replace(/ {2,}/g, ' ')).length;
-}
-
-export type PasswordStrength = 'short' | 'fair' | 'good' | 'strong';
-
-/**
- * A rough strength for the meter under a new password (ASVS 2.1.8): length
- * first, then the kinds of characters and how many different ones. It never
- * blocks anything; the API refuses short and common passwords.
- */
-export function passwordStrength(password: string): PasswordStrength {
-  const length = effectivePasswordLength(password);
-  if (length < MIN_PASSWORD_LENGTH) return 'short';
-  const kinds = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) =>
-    re.test(password),
-  ).length;
-  if (new Set(password.toLowerCase()).size < 6) return 'fair';
-  if (length >= 20 || (length >= 16 && kinds >= 2) || kinds >= 3) return 'strong';
-  if (length >= 14 || kinds >= 2) return 'good';
-  return 'fair';
+export function isWeakPin(pin: string, phone?: string): boolean {
+  return pinWeaknessReason(pin, phone ?? null) !== null;
 }
 
 export type FieldErrors<F extends string> = Partial<Record<F, MessageKey>>;
@@ -59,11 +45,19 @@ export function phoneError(input: string): MessageKey | undefined {
   return normalizePhone(input) === null ? 'account.validation.phone' : undefined;
 }
 
-export function passwordError(input: string): MessageKey | undefined {
+/** Why an easy PIN is refused, in the player's words (the reasons of @vamos/core pinWeaknessReason). */
+const PIN_WEAKNESS_MESSAGES: Readonly<Record<PinWeakness, MessageKey>> = {
+  repeated: 'account.validation.pinRepeated',
+  sequence: 'account.validation.pinSequence',
+  phone: 'account.validation.pinPhone',
+};
+
+/** A new PIN: exactly four digits and not an easy one (the message says which rule it breaks). */
+export function pinError(input: string, phone?: string): MessageKey | undefined {
   if (input.length === 0) return 'account.validation.passwordRequired';
-  if (effectivePasswordLength(input) < MIN_PASSWORD_LENGTH)
-    return 'account.validation.passwordShort';
-  if (input.length > MAX_PASSWORD_LENGTH) return 'account.validation.passwordLong';
+  if (!new RegExp(`^\\d{${PIN_LENGTH}}$`).test(input)) return 'account.validation.pinFormat';
+  const weakness = pinWeaknessReason(input, phone ?? null);
+  if (weakness !== null) return PIN_WEAKNESS_MESSAGES[weakness];
   return undefined;
 }
 
@@ -91,14 +85,13 @@ export function latestBirthDate(now: Date, minAge: number = MIN_AGE): string {
 }
 
 /**
- * Registration asks for no date of birth: the player confirms 21+ with the
- * terms checkbox and KYC checks the age on the ID (the API still checks a date
- * an older client sends).
+ * Registration asks for no date of birth and has no tick box (owner, 16 Nov 2026): tapping Register
+ * confirms 21+ and the terms, as the sentence above the button says, and the form sends
+ * `acceptTerms: true`. KYC checks the age on the ID (the API still checks a date an older client sends).
  */
 export interface RegisterInput {
   phone: string;
   password: string;
-  acceptTerms: boolean;
 }
 
 export type RegisterField = keyof RegisterInput;
@@ -107,9 +100,8 @@ export function validateRegister(input: RegisterInput): FieldErrors<RegisterFiel
   const errors: FieldErrors<RegisterField> = {};
   const phone = phoneError(input.phone);
   if (phone) errors.phone = phone;
-  const password = passwordError(input.password);
+  const password = pinError(input.password, input.phone);
   if (password) errors.password = password;
-  if (!input.acceptTerms) errors.acceptTerms = 'account.validation.terms';
   return errors;
 }
 
@@ -146,7 +138,7 @@ export function validateReset(input: ResetInput): FieldErrors<keyof ResetInput> 
   if (phone) errors.phone = phone;
   const code = otpError(input.code);
   if (code) errors.code = code;
-  const password = passwordError(input.newPassword);
+  const password = pinError(input.newPassword, input.phone);
   if (password) errors.newPassword = password;
   else if (input.confirmPassword !== input.newPassword) {
     errors.confirmPassword = 'account.validation.passwordMismatch';

@@ -1,9 +1,4 @@
-import {
-  OpenBatchResponse,
-  OpenCheckResponse,
-  STAFF_ROLES,
-  type StaffRole,
-} from '@vamos/contracts';
+import { OpenBatchResponse, OpenCheckResponse, type StaffRole } from '@vamos/contracts';
 import { SCRAPED_FEED_PROVIDER, type ScrapeReviewKind } from '@vamos/core';
 import {
   finishRun,
@@ -18,7 +13,13 @@ import {
 } from '@vamos/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
+import {
+  BACK_OFFICE_ROLES,
+  asStaff,
+  seedStaff,
+  staffLogin,
+  type StaffSession,
+} from './admin-helpers';
 import {
   insertCategory,
   insertCompetition,
@@ -43,7 +44,7 @@ beforeAll(async () => {
   ctx = await createTestContext();
   db = ctx.db.db;
   await seedStaff(ctx);
-  for (const role of STAFF_ROLES) staff.set(role, await staffLogin(ctx, role));
+  for (const role of BACK_OFFICE_ROLES) staff.set(role, await staffLogin(ctx, role));
   await insertSport(db, 'football', { en: 'Football' }, 10);
   const category = await insertCategory(db, 'football', 'ethiopia', { en: 'Ethiopia' }, 10);
   ids.league = await insertCompetition(db, {
@@ -213,7 +214,7 @@ describe('POST /admin/feed/review/open-batch', () => {
       (await ctx.app.inject({ method: 'POST', url, payload: { itemIds: [one.itemId] } }))
         .statusCode,
     ).toBe(401);
-    for (const role of STAFF_ROLES) {
+    for (const role of BACK_OFFICE_ROLES) {
       const response = await batch(role, [one.itemId]);
       expect(response.statusCode, role).toBe(role === 'admin' || role === 'trader' ? 200 : 403);
     }

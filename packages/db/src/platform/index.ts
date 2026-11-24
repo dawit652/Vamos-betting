@@ -5,12 +5,27 @@ export {
   enqueueOutbox,
   markOutboxFailed,
   markOutboxPublished,
+  readOutboxBacklog,
   redriveOutboxEvents,
+  type OutboxBacklog,
   type OutboxEvent,
   type OutboxEventInput,
   type OutboxFailureOptions,
 } from './outbox';
 export { enqueueOwnerAlert, OWNER_ALERT, type OwnerAlertPayload } from './owner-alerts';
+export {
+  listServiceStatus,
+  recordServiceFailure,
+  recordServiceOk,
+  reportServiceFailure,
+  reportServiceOk,
+  resetServiceHealth,
+  servicesSwitchedOff,
+  setServiceAlerted,
+  sourceRunReports,
+  type ServiceStatusRow,
+  type SourceRunReport,
+} from './service-status';
 export { writeAudit, type AuditEntry } from './audit';
 export { getSetting, setSetting } from './settings';
 export {

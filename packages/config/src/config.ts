@@ -68,6 +68,7 @@ const bool = z.stringbool();
 
 /** An E.164 number: a plus, then 8 to 15 digits, the first not 0. */
 const OWNER_ALERT_PHONE_RE = /^\+[1-9]\d{7,14}$/;
+const TELEGRAM_CHAT_ID_RE = /^-?[1-9]\d{0,14}$/;
 
 /** Fastify `trustProxy`: false, or the addresses / CIDRs of the trusted proxies. */
 export type TrustProxySetting = false | string[];
@@ -165,11 +166,39 @@ const envSchema = z.object({
   /** Overrides the service name of the exported traces (default vamos-api / vamos-worker). */
   OTEL_SERVICE_NAME: secret,
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+  /**
+   * Seconds the API keeps the answers of the public catalogue lists (sports,
+   * competitions, event lists) per distinct query. 0 turns the cache off.
+   * Never applies to event pages, search, anything per player or betting.
+   */
+  /**
+   * Which routes this API process serves: `all` (everything, the default),
+   * `streams` (only /health, GET /live/stream and GET /me/stream) or
+   * `no-streams` (everything else). The roles run the same code, so open
+   * streams can sit on processes of their own behind a proxy that routes the
+   * two stream paths to them (docs/deployment.md, "Live streams on their own processes").
+   */
+  API_ROLE: z.enum(['all', 'streams', 'no-streams']).default('all'),
+  CATALOG_CACHE_SECONDS: z.coerce.number().int().min(0).max(30).default(2),
+  /**
+   * How long a player stays signed in after signing in (hours; default a year). The owner's choice
+   * (16 Nov 2026): a player stays signed in until they sign out. Signing out, a password change or
+   * reset, self-exclusion or a disabled account still end every session at once. Staff sessions
+   * are not affected (12 hours, 30 minutes idle).
+   */
+  PLAYER_SESSION_HOURS: z.coerce.number().int().min(1).max(17_520).default(8_760),
+  /** Minutes without a request after which a player session ends; 0 (default): never. */
+  PLAYER_SESSION_IDLE_MINUTES: z.coerce.number().int().min(0).max(525_600).default(0),
   PUBLIC_WEB_URL: z.url().default('http://localhost:3000'),
   ADMIN_WEB_URL: z.url().default('http://localhost:3001'),
+  /** The shop app's origin (docs/plans/agent-shops.md phase 1b); unset: /shop/* takes no CORS. */
+  // Empty (compose passes `SHOP_WEB_URL=` while the shop app is not set up) is the same as unset.
+  SHOP_WEB_URL: secret.pipe(z.url().optional()),
   PUBLIC_API_URL: z.url().default('http://localhost:4000'),
 
   DATABASE_URL: z.string().min(1).default('postgres://vamos:vamos@localhost:5432/vamos'),
+  /** Connections one API process keeps open (the worker and the other tools size their own pools). */
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
   /** Key prefix of the worker's BullMQ queues (tests and parallel stacks use their own). */
   QUEUE_PREFIX: z
@@ -184,6 +213,13 @@ const envSchema = z.object({
    * development and tests.
    */
   PASSWORD_PEPPER: secret.refine((value) => value === undefined || value.length >= 32, {
+    message: 'must have at least 32 characters',
+  }),
+  /**
+   * Bearer token of GET /metrics (Prometheus). Unset: the route answers 404 as if it did
+   * not exist. Its own secret: it only reads counters, so it is not shared with anything else.
+   */
+  METRICS_TOKEN: secret.refine((value) => value === undefined || value.length >= 32, {
     message: 'must have at least 32 characters',
   }),
   /** Encrypts staff TOTP secrets at rest: 32 bytes as 64 hex characters or base64. */
@@ -303,6 +339,58 @@ const envSchema = z.object({
   /** The same owner alert (same key) is texted at most once per this many minutes. */
   OWNER_ALERT_MIN_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
 
+  /**
+   * The Telegram bot (create it with @BotFather). Unset (the default): no bot. With a token the
+   * worker (a) sends the owner alerts to TELEGRAM_OWNER_CHAT_IDS next to the SMS and (b) answers
+   * players' read-only questions (matches and odds) when TELEGRAM_PLAYER_MENU is on. The bot
+   * never moves money and never sees an account. Never log it.
+   */
+  TELEGRAM_BOT_TOKEN: secret,
+  /**
+   * Chat ids (integers; a group's id is negative, at most 10) that get the owner alerts and may use
+   * the owner commands (/status). Ask the bot `/id` to learn a chat's id. Use private chats: every
+   * member of a group chat listed here may run the owner commands.
+   */
+  TELEGRAM_OWNER_CHAT_IDS: csv
+    .refine((ids) => ids.every((id) => TELEGRAM_CHAT_ID_RE.test(id)), {
+      message:
+        'must be comma-separated Telegram chat ids (integers such as 123456789 or -1001234567890)',
+    })
+    .refine((ids) => ids.length <= 10, { message: 'at most 10 chat ids' })
+    .default([]),
+  /** `on` (default with a token): players may ask the bot for matches and odds. `off`: alerts only. */
+  TELEGRAM_PLAYER_MENU: z.enum(['on', 'off']).default('on'),
+  /**
+   * Where the worker reads the public catalogue for the bot (the API over the private network,
+   * e.g. http://api:4000). Default: PUBLIC_API_URL.
+   */
+  API_INTERNAL_URL: z.url().optional(),
+  /**
+   * The owner's mr-x service, which serves Hulusport's board (docs/plans/hulusport-feed.md), e.g.
+   * `http://127.0.0.1:3100`. Unset (the default): the board is not read. Whether its prices are
+   * used is the back office switch `hulusport_pricing`, not this setting.
+   */
+  SCRAPER_HULUSPORT_URL: secret.refine(
+    (value) => value === undefined || /^https?:\/\/[^/\s?#]+\/?$/.test(value),
+    { message: 'SCRAPER_HULUSPORT_URL must be an http(s) origin such as http://127.0.0.1:3100' },
+  ),
+  /** Seconds between two reads of the mr-x board (30 to 3600, default 120). */
+  SCRAPER_HULUSPORT_INTERVAL_SECONDS: z.coerce.number().int().min(30).max(3600).default(120),
+  /**
+   * The owner's mr-z service, which serves Narobet's odds (docs/plans/narobet-feed.md), e.g.
+   * `http://mrz:3200` on the server. Unset (the default): not read. Whether its prices are used is
+   * the back office switch `narobet_pricing`, not this setting.
+   */
+  SCRAPER_NAROBET_URL: secret.refine(
+    (value) => value === undefined || /^https?:\/\/[^/\s?#]+\/?$/.test(value),
+    { message: 'SCRAPER_NAROBET_URL must be an http(s) origin such as http://mrz:3200' },
+  ),
+  /**
+   * Seconds between two reads of mr-z (60 to 3600, default 300: mr-z re-reads a match at most
+   * every 10 minutes).
+   */
+  SCRAPER_NAROBET_INTERVAL_SECONDS: z.coerce.number().int().min(60).max(3600).default(300),
+
   PAYMENT_PROVIDERS: csv.default(['mock']),
   /**
    * Public base URL of the API that payment providers call back (webhooks,
@@ -350,7 +438,32 @@ const envSchema = z.object({
    */
   RECEIPT_VERIFY: z.enum(['off', 'audit']).default('audit'),
   RECEIPT_VERIFY_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(6_000),
+  /**
+   * Payout float forecast (plan task C10): the share of the possible payouts of open bets that end
+   * within the horizon that players are expected to withdraw, and the alarm `payout_float_low`
+   * when a collection account's last known balance is below it.
+   */
+  FLOAT_FORECAST_HORIZON_HOURS: z.coerce.number().int().min(1).max(48).default(6),
+  FLOAT_FORECAST_WITHDRAWN_PERCENT: z.coerce.number().int().min(0).max(100).default(20),
+  /** How long a match is assumed to last from its start (the catalogue has no end time). */
+  FLOAT_FORECAST_EVENT_MINUTES: z.coerce.number().int().min(30).max(600).default(120),
+  /**
+   * How long a collection handset's forwarder may go without a heartbeat before the worker raises
+   * `sms_handset_heartbeat_missed`. Only an account that has sent a heartbeat is judged.
+   */
+  SMS_HEARTBEAT_ALARM_MINUTES: z.coerce.number().int().min(5).max(1440).default(20),
   /** Settle a manual payout only against the collection account's outgoing SMS. */
+  /**
+   * Cashier desk: an approved cash withdrawal the player does not collect goes back to their
+   * balance after this many days (the worker fails it: the hold is returned); 0 keeps it forever.
+   */
+  CASH_WITHDRAWAL_COLLECT_DAYS: z.coerce.number().int().min(0).max(365).default(7),
+  /**
+   * The desk PIN reset (cashier phase 2). Off by default: the second-model review of 18 Nov found
+   * that the desk sees the one-time code, so a cashier could set the PIN first; it stays off until
+   * only the player's own device can use the code (docs/plans/cashier-dashboard.md).
+   */
+  CASHIER_PIN_RESET: z.enum(['off', 'on']).default('off'),
   PAYOUT_REQUIRE_PROOF: bool.default(false),
   /** Licensed mode without PAYOUT_REQUIRE_PROOF: an explicit, logged waiver. */
   PAYOUT_PROOF_WAIVED: bool.default(false),
@@ -401,6 +514,9 @@ const envSchema = z.object({
 
 export type OperatingMode = 'demo' | 'licensed';
 
+/** Which routes an API process serves (API_ROLE). */
+export type ApiRole = 'all' | 'streams' | 'no-streams';
+
 export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
   mode: OperatingMode;
@@ -411,18 +527,30 @@ export interface AppConfig {
     publicUrl: string;
     /** TRUST_PROXY: whose X-Forwarded-For may set the client address (false: nobody). */
     trustProxy: TrustProxySetting;
+    /** API_ROLE: which routes this process serves (all, streams only, or all but streams). */
+    role: ApiRole;
+    /** API_INTERNAL_URL (default publicUrl): where the worker reads the catalogue for the bot. */
+    internalUrl: string;
+    /** CATALOG_CACHE_SECONDS: how long catalogue list answers are reused (0 = off). */
+    catalogCacheSeconds: number;
+    /** PLAYER_SESSION_*: how long a player session lasts, and its idle limit (null: none). */
+    playerSession: { absoluteMs: number; idleMs: number | null };
   };
   /** The worker's health server (WORKER_HEALTH_*; port 0 = off). */
   worker: { healthHost: string; healthPort: number };
   /** OpenTelemetry tracing: on only when `otlpEndpoint` is set. */
   telemetry: { otlpEndpoint: string | undefined; serviceName: string | undefined };
-  web: { publicUrl: string; adminUrl: string };
+  web: { publicUrl: string; adminUrl: string; shopUrl: string | null };
   databaseUrl: string;
+  /** DB_POOL_MAX: the size of one API process's database pool. */
+  dbPoolMax: number;
   redisUrl: string;
   queuePrefix: string;
   sessionSecret: string;
   /** PASSWORD_PEPPER: argon2's secret key for player and staff passwords (unset: none). */
   passwordPepper: string | undefined;
+  /** METRICS_TOKEN: bearer token of GET /metrics (unset: the route is off). */
+  metricsToken: string | undefined;
   /** The back office (staff accounts). */
   admin: {
     /** AES-256-GCM key (32 bytes) of the staff TOTP secrets (ADMIN_TOTP_KEY). */
@@ -463,6 +591,8 @@ export interface AppConfig {
   channels: ChannelsConfig;
   /** OWNER_ALERT_*: short SMS alerts to the owner (plan task 1.11), off by default. */
   ownerAlerts: OwnerAlertsConfig;
+  /** TELEGRAM_*: the Telegram bot (none without a token). */
+  telegram: TelegramConfig;
 }
 
 export interface ScraperConfig {
@@ -496,6 +626,10 @@ export interface ScraperConfig {
   priceExpiryMinutes: number;
   /** SCRAPER_FACTORY_MARKETS=on: market-priced events also get the factory's markets (default off). */
   factoryMarkets: boolean;
+  /** The mr-x board of Hulusport prices (SCRAPER_HULUSPORT_*); `url` null: not read. */
+  hulusport: { url: string | null; intervalMs: number };
+  /** The mr-z board of Narobet prices (SCRAPER_NAROBET_*); `url` null: not read. */
+  narobet: { url: string | null; intervalMs: number };
 }
 
 /** The User-Agent header sent to sources: `NahubetBot/1.0 (+ops@example.com)` when a contact is set. */
@@ -505,10 +639,36 @@ export function scraperUserAgent(scraper: Pick<ScraperConfig, 'userAgent' | 'con
     : `${scraper.userAgent} (+${scraper.contact})`;
 }
 
-/** Alerts to the owner's phone (plan task 1.11). Off while `phones` is empty. */
+/** Who gets owner alerts: phone numbers (SMS) and Telegram chats. */
+export interface OwnerAlertTargets {
+  phones: readonly string[];
+  telegramChatIds?: readonly number[];
+}
+
+/** How many places an owner alert goes to; 0 means alerts are off. */
+export function ownerAlertTargetCount(alerts: OwnerAlertTargets): number {
+  return alerts.phones.length + (alerts.telegramChatIds?.length ?? 0);
+}
+
+/** The Telegram bot (TELEGRAM_*). */
+export interface TelegramConfig {
+  /** TELEGRAM_BOT_TOKEN: undefined means no bot. */
+  botToken: string | undefined;
+  /** TELEGRAM_OWNER_CHAT_IDS: the owner alert chats (also the owner commands' audience). */
+  ownerChatIds: number[];
+  /** TELEGRAM_PLAYER_MENU: players may ask for matches and odds. */
+  playerMenu: boolean;
+}
+
+/**
+ * Alerts to the owner (plan task 1.11), by SMS and by Telegram. Off while there is no number and
+ * no chat id.
+ */
 export interface OwnerAlertsConfig {
-  /** OWNER_ALERT_PHONES: E.164 numbers, no duplicates; empty (default) turns alerts off. */
+  /** OWNER_ALERT_PHONES: E.164 numbers, no duplicates; empty (default) turns the SMS off. */
   phones: string[];
+  /** TELEGRAM_OWNER_CHAT_IDS when TELEGRAM_BOT_TOKEN is set, else empty (absent: none). */
+  telegramChatIds?: number[];
   /** OWNER_ALERT_MIN_INTERVAL_MINUTES: the same alert key is sent at most once per interval. */
   minIntervalMinutes: number;
 }
@@ -534,6 +694,12 @@ export interface ChannelsConfig {
 
 /** A collection account of the SMS rail (what players pay into). */
 export interface CollectionAccount {
+  /**
+   * Stable id of this account: the handset that receives its SMS sends it, and every
+   * SMS deposit records it (each account has its own space of exact amounts). Default
+   * `<institution>:<account>`. Never change it while deposits are open.
+   */
+  id: string;
   /** Institution id (core INSTITUTIONS: telebirr, cbe…). */
   institution: string;
   /** The number or account players send to, as they type it. */
@@ -549,8 +715,8 @@ export interface CollectionAccount {
  * dev simulator composes the SMS).
  */
 export const DEMO_COLLECTION_ACCOUNTS: readonly CollectionAccount[] = [
-  { institution: 'telebirr', account: '0900000000', name: 'Vamos Demo' },
-  { institution: 'cbe', account: '1000000000000', name: 'Vamos Demo' },
+  { id: 'telebirr:0900000000', institution: 'telebirr', account: '0900000000', name: 'Vamos Demo' },
+  { id: 'cbe:1000000000000', institution: 'cbe', account: '1000000000000', name: 'Vamos Demo' },
 ];
 
 export interface SmsRailConfig {
@@ -561,6 +727,10 @@ export interface SmsRailConfig {
   operatorLegalName: string | undefined;
   receiptVerify: 'off' | 'audit';
   receiptVerifyTimeoutMs: number;
+  /** FLOAT_FORECAST_*: the assumptions of the payout float forecast (same shape as core's rules). */
+  floatForecast: { eventDurationMs: number; horizonMs: number; withdrawnShareBps: number };
+  /** SMS_HEARTBEAT_ALARM_MINUTES, in milliseconds. */
+  heartbeatAlarmMs: number;
   requirePayoutProof: boolean;
   payoutProofWaived: boolean;
 }
@@ -571,6 +741,10 @@ export interface PaymentProvidersConfig {
   /** The SMS deposit rail (`sms` provider): see SMS_RAIL_MODE. */
   sms: SmsRailConfig;
   mock: { webhookSecret: string };
+  /** CASH_WITHDRAWAL_COLLECT_DAYS in milliseconds; 0: an approved cash withdrawal never expires. */
+  cashCollectMs: number;
+  /** CASHIER_PIN_RESET=on: Forgot PIN at a shop (the player's phone and the desk's request; default off). */
+  deskPinReset: boolean;
   chapa: { baseUrl: string; secretKey: string | undefined; webhookSecret: string | undefined };
   telebirr: {
     baseUrl: string | undefined;
@@ -627,7 +801,7 @@ export function licensedModeViolations(config: AppConfig): string[] {
 }
 
 /** Case, spacing and punctuation do not distinguish two spellings of one legal name. */
-function normalizeLegalName(name: string): string {
+export function normalizeLegalName(name: string): string {
   return name
     .normalize('NFKC')
     .toUpperCase()
@@ -663,9 +837,8 @@ function smsRailLicensedViolations(_config: AppConfig): string[] {
       'OPERATOR_LEGAL_NAME is required: live collection accounts must be in the operator’s name',
     );
   }
-  if (sms.collectionAccounts.length === 0) {
-    problems.push('SMS_COLLECTION_ACCOUNTS must list the live collection accounts');
-  }
+  // SMS_COLLECTION_ACCOUNTS may be empty: the accounts can be managed in the back office instead
+  // (it only fills an empty list there). Accounts listed here must still be the operator's.
   const legal = normalizeLegalName(sms.operatorLegalName ?? '');
   for (const account of sms.collectionAccounts) {
     if (legal.length > 0 && normalizeLegalName(account.name) !== legal) {
@@ -685,21 +858,29 @@ function smsRailLicensedViolations(_config: AppConfig): string[] {
   return problems;
 }
 
-const COLLECTION_ACCOUNTS_SCHEMA = z
-  .array(
-    z.object({
-      institution: z
-        .string()
-        .regex(/^[a-z]{2,20}$/, 'an institution id such as "telebirr" or "cbe"'),
-      account: z
-        .string()
-        .trim()
-        .regex(/^\+?[0-9A-Za-z -]{5,30}$/, 'a phone or account number'),
-      name: z.string().trim().min(2).max(120),
-      hint: z.string().trim().max(120).optional(),
-    }),
-  )
-  .max(10);
+/** The id of a collection account that names none: `<institution>:<account>`. */
+export function defaultCollectionAccountId(institution: string, account: string): string {
+  return `${institution}:${account}`;
+}
+
+// No cap on the number: the back office takes as many accounts as the operator has, and this
+// only fills it once.
+const COLLECTION_ACCOUNTS_SCHEMA = z.array(
+  z.object({
+    id: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9:_+.-]{1,64}$/, 'an id of letters, digits and : _ + . -')
+      .optional(),
+    institution: z.string().regex(/^[a-z]{2,20}$/, 'an institution id such as "telebirr" or "cbe"'),
+    account: z
+      .string()
+      .trim()
+      .regex(/^\+?[0-9A-Za-z -]{5,30}$/, 'a phone or account number'),
+    name: z.string().trim().min(2).max(120),
+    hint: z.string().trim().max(120).optional(),
+  }),
+);
 
 /** Parses SMS_COLLECTION_ACCOUNTS (JSON); a ConfigError for anything else. */
 function parseCollectionAccounts(raw: string | undefined): CollectionAccount[] {
@@ -718,12 +899,19 @@ function parseCollectionAccounts(raw: string | undefined): CollectionAccount[] {
       ),
     );
   }
-  return parsed.data.map((a) => ({
+  const accounts: CollectionAccount[] = parsed.data.map((a) => ({
+    id: a.id ?? defaultCollectionAccountId(a.institution, a.account),
     institution: a.institution,
     account: a.account,
     name: a.name,
     ...(a.hint === undefined ? {} : { hint: a.hint }),
   }));
+  const ids = accounts.map((a) => a.id);
+  const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
+  if (duplicate !== undefined) {
+    throw new ConfigError([`SMS_COLLECTION_ACCOUNTS: the id "${duplicate}" is used twice`]);
+  }
+  return accounts;
 }
 
 function isHttpsUrl(url: string): boolean {
@@ -769,15 +957,28 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       port: e.API_PORT,
       publicUrl: e.PUBLIC_API_URL,
       trustProxy: parseTrustProxy(e.TRUST_PROXY),
+      role: e.API_ROLE,
+      internalUrl: e.API_INTERNAL_URL ?? e.PUBLIC_API_URL,
+      catalogCacheSeconds: e.CATALOG_CACHE_SECONDS,
+      playerSession: {
+        absoluteMs: e.PLAYER_SESSION_HOURS * 3_600_000,
+        idleMs: e.PLAYER_SESSION_IDLE_MINUTES === 0 ? null : e.PLAYER_SESSION_IDLE_MINUTES * 60_000,
+      },
     },
     worker: { healthHost: e.WORKER_HEALTH_HOST, healthPort: e.WORKER_HEALTH_PORT },
     telemetry: { otlpEndpoint: e.OTEL_EXPORTER_OTLP_ENDPOINT, serviceName: e.OTEL_SERVICE_NAME },
-    web: { publicUrl: e.PUBLIC_WEB_URL, adminUrl: e.ADMIN_WEB_URL },
+    web: {
+      publicUrl: e.PUBLIC_WEB_URL,
+      adminUrl: e.ADMIN_WEB_URL,
+      shopUrl: e.SHOP_WEB_URL ?? null,
+    },
     databaseUrl: e.DATABASE_URL,
+    dbPoolMax: e.DB_POOL_MAX,
     redisUrl: e.REDIS_URL,
     queuePrefix: e.QUEUE_PREFIX,
     sessionSecret: e.SESSION_SECRET,
     passwordPepper: e.PASSWORD_PEPPER,
+    metricsToken: e.METRICS_TOKEN,
     admin: { totpKey: adminTotpKeyOf(e.ADMIN_TOTP_KEY) },
     feed: {
       provider: e.FEED_PROVIDER,
@@ -807,11 +1008,29 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       capAtBestPrice: e.SCRAPER_CAP_AT_BEST_PRICE === 'on',
       priceExpiryMinutes: e.SCRAPER_PRICE_EXPIRY_MINUTES,
       factoryMarkets: e.SCRAPER_FACTORY_MARKETS === 'on',
+      hulusport: {
+        url:
+          e.SCRAPER_HULUSPORT_URL === undefined ? null : e.SCRAPER_HULUSPORT_URL.replace(/\/$/, ''),
+        intervalMs: e.SCRAPER_HULUSPORT_INTERVAL_SECONDS * 1000,
+      },
+      narobet: {
+        url: e.SCRAPER_NAROBET_URL === undefined ? null : e.SCRAPER_NAROBET_URL.replace(/\/$/, ''),
+        intervalMs: e.SCRAPER_NAROBET_INTERVAL_SECONDS * 1000,
+      },
     },
     providers: { payments: e.PAYMENT_PROVIDERS, kyc: e.KYC_PROVIDER, sms: e.SMS_PROVIDER },
     ownerAlerts: {
       phones: [...new Set(e.OWNER_ALERT_PHONES)],
+      telegramChatIds:
+        e.TELEGRAM_BOT_TOKEN === undefined
+          ? []
+          : [...new Set(e.TELEGRAM_OWNER_CHAT_IDS.map(Number))],
       minIntervalMinutes: e.OWNER_ALERT_MIN_INTERVAL_MINUTES,
+    },
+    telegram: {
+      botToken: e.TELEGRAM_BOT_TOKEN,
+      ownerChatIds: [...new Set(e.TELEGRAM_OWNER_CHAT_IDS.map(Number))],
+      playerMenu: e.TELEGRAM_PLAYER_MENU === 'on',
     },
     payments: {
       callbackBaseUrl: e.PAYMENT_CALLBACK_BASE_URL ?? e.PUBLIC_API_URL,
@@ -819,18 +1038,29 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         mode: e.SMS_RAIL_MODE,
         gatewaySecret: e.SMS_GATEWAY_SECRET,
         gatewayAllowlist: e.SMS_GATEWAY_ALLOWLIST,
-        // Demo accounts only for the simulated rail: the live rail never shows them to players.
+        // Demo accounts only for the simulated rail in demo mode: neither the live rail nor
+        // licensed mode ever shows them to players (licensed: the back office's accounts only).
         collectionAccounts:
-          e.SMS_RAIL_MODE === 'simulated' && e.SMS_COLLECTION_ACCOUNTS === undefined
+          e.OPERATING_MODE === 'demo' &&
+          e.SMS_RAIL_MODE === 'simulated' &&
+          e.SMS_COLLECTION_ACCOUNTS === undefined
             ? DEMO_COLLECTION_ACCOUNTS.map((a) => ({ ...a }))
             : parseCollectionAccounts(e.SMS_COLLECTION_ACCOUNTS),
         operatorLegalName: e.OPERATOR_LEGAL_NAME,
         receiptVerify: e.RECEIPT_VERIFY,
         receiptVerifyTimeoutMs: e.RECEIPT_VERIFY_TIMEOUT_MS,
+        floatForecast: {
+          eventDurationMs: e.FLOAT_FORECAST_EVENT_MINUTES * 60_000,
+          horizonMs: e.FLOAT_FORECAST_HORIZON_HOURS * 3_600_000,
+          withdrawnShareBps: e.FLOAT_FORECAST_WITHDRAWN_PERCENT * 100,
+        },
+        heartbeatAlarmMs: e.SMS_HEARTBEAT_ALARM_MINUTES * 60_000,
         requirePayoutProof: e.PAYOUT_REQUIRE_PROOF,
         payoutProofWaived: e.PAYOUT_PROOF_WAIVED,
       },
       mock: { webhookSecret: e.MOCK_PAYMENT_WEBHOOK_SECRET },
+      cashCollectMs: e.CASH_WITHDRAWAL_COLLECT_DAYS * 86_400_000,
+      deskPinReset: e.CASHIER_PIN_RESET === 'on',
       chapa: {
         baseUrl: e.CHAPA_BASE_URL,
         secretKey: e.CHAPA_SECRET_KEY,
@@ -878,6 +1108,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     // the player site cannot drive the staff API. One shared origin would undo that.
     problems.push('ADMIN_WEB_URL must be on a different origin from PUBLIC_WEB_URL');
   }
+  if (
+    config.web.shopUrl !== null &&
+    [config.web.publicUrl, config.web.adminUrl].some(
+      (url) => new URL(url).origin === new URL(config.web.shopUrl ?? url).origin,
+    )
+  ) {
+    // CORS gives the shop app /shop/* only: sharing an origin would let one app drive the other's API.
+    problems.push('SHOP_WEB_URL must be on its own origin (not PUBLIC_WEB_URL or ADMIN_WEB_URL)');
+  }
   if (config.nodeEnv === 'production') {
     // CORS allows exactly these origins with credentials, and the session cookies are Secure in
     // production: plain http would leak them (and browsers drop Secure cookies over http).
@@ -885,6 +1124,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       ['PUBLIC_WEB_URL', config.web.publicUrl],
       ['ADMIN_WEB_URL', config.web.adminUrl],
       ['PUBLIC_API_URL', config.api.publicUrl],
+      ...(config.web.shopUrl === null ? [] : [['SHOP_WEB_URL', config.web.shopUrl] as const]),
     ] as const) {
       if (!isProductionSafeUrl(url)) {
         problems.push(`${name} must be an https URL in production (got ${url})`);
@@ -946,6 +1186,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     }
   } else {
     problems.push(...licensedModeViolations(config));
+  }
+  if (e.TELEGRAM_BOT_TOKEN === undefined && e.TELEGRAM_OWNER_CHAT_IDS.length > 0) {
+    problems.push('TELEGRAM_OWNER_CHAT_IDS needs TELEGRAM_BOT_TOKEN (a bot to send from)');
+  }
+  if (
+    e.TELEGRAM_BOT_TOKEN !== undefined &&
+    !/^\d{5,15}:[A-Za-z0-9_-]{30,60}$/.test(e.TELEGRAM_BOT_TOKEN)
+  ) {
+    // Never echo the value: it is a secret.
+    problems.push('TELEGRAM_BOT_TOKEN is not a bot token (BotFather gives <digits>:<letters>)');
   }
   if (problems.length > 0) {
     throw new ConfigError(problems);

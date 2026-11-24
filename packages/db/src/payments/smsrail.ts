@@ -2,11 +2,15 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import {
   MAX_SANTIM_OFFSET,
   allocateSmsAmount,
+  countFreeSmsAmounts,
+  latestClaimForSms,
   matchSmsDeposit,
   parseSms,
   pastedSmsReference,
   proposePayoutForSms,
   smsPaidBy,
+  smsPhoneFits,
+  takenAmounts,
   toWire,
   type OpenSmsDeposit,
   type ParsedSms,
@@ -44,7 +48,7 @@ import {
 } from './deposits';
 import { DEPOSIT_SUCCEEDED } from './events';
 import { depositEntries, depositLedgerKey } from './postings';
-import { assertAmount, type PaymentIntent } from './types';
+import { assertAmount, comparableDestination, type PaymentIntent } from './types';
 
 /**
  * The SMS deposit rail (ported from Melabingo): players transfer an exact
@@ -100,12 +104,18 @@ export interface CreateSmsDepositInput {
   ip?: string | null;
   /** Tests inject a fixed offset; production uses a CSPRNG. */
   randomOffset?: () => number;
+  /**
+   * The ids of the live collection accounts (SMS_COLLECTION_ACCOUNTS). The deposit is given the
+   * one with the most free amounts for this request, and records it; each account has its own
+   * space of exact amounts. Omitted or empty: no account is recorded (one space, as before).
+   */
+  collectionAccounts?: readonly string[];
 }
 
 /**
  * Opens an SMS deposit in the caller's transaction and returns it `pending`
  * with `amount` set to the exact amount the player must send (the requested
- * amount plus 1–50 santim, unique among open SMS deposits and those expired
+ * amount plus 1–99 santim, never a whole birr, unique among open SMS deposits and those expired
  * within SMS_AMOUNT_QUARANTINE_MS).
  *
  * 1. one advisory lock serialises every SMS amount allocation: ranges of
@@ -115,7 +125,7 @@ export interface CreateSmsDepositInput {
  *    transaction;
  * 2. a replayed idempotency key returns the existing deposit (422
  *    `idempotency_key_reused` for another amount or provider);
- * 3. 409 `sms_amount_unavailable` when all 50 offsets are taken (the player
+ * 3. 409 `sms_amount_unavailable` when all 99 offsets are taken (the player
  *    picks a slightly different amount); never a colliding amount;
  * 4. createDepositIntent (range against the requested amount, responsible
  *    gambling limits against the exact amount, audit), then
@@ -151,7 +161,10 @@ export async function createSmsDepositIntent(
 
   const reservedSince = new Date(now.getTime() - SMS_AMOUNT_QUARANTINE_MS);
   const takenRows = await tx
-    .select({ amount: paymentIntents.amount })
+    .select({
+      amount: paymentIntents.amount,
+      collectionAccountId: paymentIntents.collectionAccount,
+    })
     .from(paymentIntents)
     .where(
       and(
@@ -164,11 +177,24 @@ export async function createSmsDepositIntent(
         ),
       ),
     );
-  const exact = allocateSmsAmount(
-    amount,
-    new Set(takenRows.map((row) => row.amount)),
-    input.randomOffset ?? secureOffset,
-  );
+  // The account with the most free amounts for this request (the first of a tie); without
+  // accounts, one space for everything.
+  const accounts = input.collectionAccounts ?? [];
+  let collectionAccount: string | null = null;
+  let taken = takenAmounts(takenRows, null);
+  if (accounts.length > 0) {
+    let bestFree = -1;
+    for (const account of accounts) {
+      const candidate = takenAmounts(takenRows, account);
+      const free = countFreeSmsAmounts(amount, candidate);
+      if (free > bestFree) {
+        bestFree = free;
+        collectionAccount = account;
+        taken = candidate;
+      }
+    }
+  }
+  const exact = allocateSmsAmount(amount, taken, input.randomOffset ?? secureOffset);
   if (exact === null) {
     throw domainConflict(
       'sms_amount_unavailable',
@@ -186,6 +212,12 @@ export async function createSmsDepositIntent(
     rules: input.rules,
     ip: input.ip ?? null,
   });
+  if (collectionAccount !== null) {
+    await tx
+      .update(paymentIntents)
+      .set({ collectionAccount })
+      .where(eq(paymentIntents.id, created.intent.id));
+  }
   const intent = await markDepositInitiated(tx, {
     intentId: created.intent.id,
     initiation: { kind: 'transfer', providerRef: created.intent.id },
@@ -210,6 +242,7 @@ async function openSmsDeposits(
       intentId: paymentIntents.id,
       userId: paymentIntents.userId,
       amount: paymentIntents.amount,
+      collectionAccountId: paymentIntents.collectionAccount,
       phone: users.phone,
       expiresAt: paymentIntents.expiresAt,
     })
@@ -311,7 +344,8 @@ async function applyCredit(
   open: readonly OpenSmsDeposit[],
   now: Date,
 ): Promise<SmsResult> {
-  const match = matchSmsDeposit(sms, open, now);
+  // Only deposits of the account the message arrived on (or deposits without one) can match.
+  const match = matchSmsDeposit({ ...sms, collectionAccountId: row.collectionAccount }, open, now);
   if (match.type === 'ambiguous') {
     const updated = await updateSms(tx, row.id, {
       status: 'ambiguous',
@@ -330,10 +364,9 @@ async function applyCredit(
   }
 
   const deposit = open.find((candidate) => candidate.intentId === match.intentId);
+  // Another payer's number (full, or masked at the visible places) is flagged, never credited.
   const thirdParty =
-    sms.counterpartyPhone !== null &&
-    deposit !== undefined &&
-    deposit.phone !== sms.counterpartyPhone;
+    deposit !== undefined && smsPhoneFits(sms.counterpartyPhone, deposit.phone) === false;
   const applied = await applyDepositEvent(tx, {
     provider: SMS_PROVIDER,
     event: {
@@ -384,7 +417,10 @@ async function applyCredit(
 
 /**
  * Proposes the manual payout an outgoing (debit) SMS appears to have paid:
- * approved or claimed manual payouts not yet proposed by another message.
+ * claimed (`processing`) manual payouts not yet proposed by another message,
+ * claimed no later than the money moved (core latestClaimForSms). An
+ * approved payout nobody claimed has not been sent, and a transfer older
+ * than the claim did not pay it: such a debit stays `ignored_debit`.
  */
 async function applyDebit(
   tx: DbTransaction,
@@ -392,10 +428,16 @@ async function applyDebit(
   sms: ParsedSms,
   now: Date,
 ): Promise<SmsResult> {
+  const claimedBy = latestClaimForSms({
+    occurredAt: row.occurredAt,
+    deviceReceivedAt: row.deviceReceivedAt,
+    receivedAt: row.receivedAt,
+  });
   const candidates = await tx
     .select({
       payoutId: payouts.id,
       amount: payouts.amount,
+      destinationInstitution: payouts.destinationInstitution,
       destinationAccount: payouts.destinationAccount,
     })
     .from(payouts)
@@ -403,7 +445,8 @@ async function applyDebit(
     .where(
       and(
         eq(payouts.manual, true),
-        inArray(payouts.status, ['approved', 'processing']),
+        eq(payouts.status, 'processing'),
+        lte(payouts.processingAt, claimedBy),
         eq(payouts.amount, sms.amount),
         isNull(receivedSms.id),
       ),
@@ -411,7 +454,12 @@ async function applyDebit(
     .limit(200);
   const proposal = proposePayoutForSms(
     sms,
-    candidates.map((c) => ({ ...c, destinationAccount: c.destinationAccount ?? '' })),
+    candidates.map((c) => ({
+      payoutId: c.payoutId,
+      amount: c.amount,
+      // Wallets in E.164, as a parsed SMS names them.
+      destinationAccount: comparableDestination(c.destinationInstitution, c.destinationAccount),
+    })),
   );
   if (proposal.type !== 'proposed') {
     const updated = await updateSms(tx, row.id, {
@@ -437,6 +485,8 @@ export interface IngestSmsInput {
   text: string;
   /** When the handset says it received the message. */
   deviceReceivedAt?: Date | null;
+  /** The collection account (SMS_COLLECTION_ACCOUNTS id) the handset that forwarded it belongs to. */
+  collectionAccount?: string | null;
   now: Date;
 }
 
@@ -463,6 +513,7 @@ export async function ingestSms(tx: DbTransaction, input: IngestSmsInput): Promi
       sender,
       rawText: text,
       textHash: textHash([sender ?? '', text]),
+      collectionAccount: input.collectionAccount ?? null,
       institution: sms?.institution ?? null,
       direction: sms?.direction ?? null,
       amount: sms?.amount ?? null,
@@ -609,7 +660,13 @@ export interface VerifiedReceiptPayment {
  */
 export async function recordReceiptPaymentForPlayer(
   tx: DbTransaction,
-  input: { userId: string; receipt: VerifiedReceiptPayment; now: Date },
+  input: {
+    userId: string;
+    receipt: VerifiedReceiptPayment;
+    /** The collection account the receipt's receiver is (SMS_COLLECTION_ACCOUNTS id), when known. */
+    collectionAccount?: string | null;
+    now: Date;
+  },
 ): Promise<SmsCheckResult> {
   const { receipt, now } = input;
   assertAmount(receipt.amount, 'receipt amount');
@@ -620,6 +677,7 @@ export async function recordReceiptPaymentForPlayer(
     .insert(receivedSms)
     .values({
       source: 'receipt',
+      collectionAccount: input.collectionAccount ?? null,
       sender: receipt.institution,
       rawText: summary.slice(0, MAX_RAW_LENGTH),
       textHash: textHash(['receipt', receipt.institution, receipt.reference]),
@@ -874,6 +932,72 @@ export async function creditSmsByStaff(
 }
 
 /**
+ * Staff re-read a message no parser could read, after a parser was fixed (the stored text is
+ * parsed again). Still unreadable: nothing changes (`unparsed`). Readable: its parsed fields are
+ * filled in once (the guard allows this for an `unparsed` row only) and it is then handled
+ * exactly as when it arrived: a credit is matched against the deposits that existed when the
+ * money moved (bounded by the time we received it, never by today), a debit proposes a payout.
+ * A deposit that has meanwhile left its quarantine is no longer matched: the message goes to
+ * the review queue as `unmatched`. 409 `sms_not_reparseable` unless it is unparsed and
+ * unresolved; 409 `sms_duplicate_reference` when another message already carries the reference.
+ */
+export async function reparseSmsByStaff(
+  tx: DbTransaction,
+  input: { smsId: string; adminId: string; now: Date; ip?: string | null },
+): Promise<SmsResult> {
+  const { now } = input;
+  const row = await lockSms(tx, input.smsId);
+  if (row.status !== 'unparsed' || row.resolvedAt !== null) {
+    throw domainConflict('sms_not_reparseable', 'Only an unread message can be read again.', {
+      status: row.status,
+    });
+  }
+  const sms = parseSms(row.rawText, row.sender);
+  if (sms === null) return { sms: row, outcome: 'unparsed' };
+  const [other] = await tx
+    .select({ id: receivedSms.id })
+    .from(receivedSms)
+    .where(eq(receivedSms.reference, sms.reference))
+    .limit(1);
+  if (other) {
+    throw domainConflict(
+      'sms_duplicate_reference',
+      'Another message already carries this transaction number.',
+      { otherSmsId: other.id },
+    );
+  }
+  const parsed = await updateSms(tx, row.id, {
+    institution: sms.institution,
+    direction: sms.direction,
+    amount: sms.amount,
+    reference: sms.reference,
+    counterpartyName: sms.counterpartyName,
+    counterpartyPhone: sms.counterpartyPhone,
+    balance: sms.balance,
+    occurredAt: sms.occurredAt,
+    status: 'unmatched',
+    statusReason: 'reparsed',
+    updatedAt: now,
+  });
+  await writeAudit(tx, {
+    actorType: 'admin',
+    actorId: input.adminId,
+    action: 'payment.sms_reparsed',
+    targetType: 'received_sms',
+    targetId: row.id,
+    metadata: { reference: sms.reference, direction: sms.direction, amount: sms.amount },
+    ip: input.ip ?? null,
+  });
+  if (sms.direction === 'debit') return applyDebit(tx, parsed, sms, now);
+  const createdBefore = smsPaidBy({
+    occurredAt: sms.occurredAt,
+    deviceReceivedAt: row.deviceReceivedAt,
+    now: row.receivedAt,
+  });
+  return applyCredit(tx, parsed, sms, await openSmsDeposits(tx, { now, createdBefore }), now);
+}
+
+/**
  * Staff close an SMS that should not credit anyone (not our money, refunded
  * to the sender outside Vamos, a test message…), with a note. A deposit it
  * matched but flagged is closed too. 409 `sms_not_closable` for a message
@@ -1083,6 +1207,51 @@ export async function listBalanceInstitutions(
     .from(receivedSms)
     .where(and(isNotNull(receivedSms.balance), gt(receivedSms.receivedAt, options.since)));
   return rows.flatMap((row) => (row.institution === null ? [] : [row.institution]));
+}
+
+export interface SilentCollectionAccount {
+  account: string;
+  /** The newest gateway message on this account, or null. */
+  lastGatewaySmsAt: Date | null;
+  /** Open deposits to this account created before the silence began. */
+  waitingDeposits: number;
+}
+
+/**
+ * The collection accounts whose handset looks dead: players have been waiting longer than
+ * `silenceMs` on an open deposit to the account and no gateway message arrived on it within that
+ * time. A quiet account nobody is paying into is not silent. Read-only.
+ */
+export async function listSilentCollectionAccounts(
+  exec: DbExecutor,
+  input: { accounts: readonly string[]; now: Date; silenceMs: number },
+): Promise<SilentCollectionAccount[]> {
+  const since = new Date(input.now.getTime() - input.silenceMs);
+  const silent: SilentCollectionAccount[] = [];
+  for (const account of input.accounts) {
+    const [last] = await exec
+      .select({ at: sql<Date | null>`max(${receivedSms.receivedAt})` })
+      .from(receivedSms)
+      .where(and(eq(receivedSms.source, 'gateway'), eq(receivedSms.collectionAccount, account)));
+    const lastAt = last?.at === null || last?.at === undefined ? null : new Date(last.at);
+    if (lastAt !== null && lastAt.getTime() > since.getTime()) continue;
+    const [waiting] = await exec
+      .select({ count: sql<number>`count(*)::int` })
+      .from(paymentIntents)
+      .where(
+        and(
+          eq(paymentIntents.provider, SMS_PROVIDER),
+          eq(paymentIntents.collectionAccount, account),
+          inArray(paymentIntents.status, ['created', 'pending']),
+          isNull(paymentIntents.flaggedAt),
+          lte(paymentIntents.createdAt, since),
+        ),
+      );
+    if ((waiting?.count ?? 0) > 0) {
+      silent.push({ account, lastGatewaySmsAt: lastAt, waitingDeposits: waiting?.count ?? 0 });
+    }
+  }
+  return silent;
 }
 
 export interface SmsRailHealth {

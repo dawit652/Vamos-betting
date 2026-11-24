@@ -1,4 +1,4 @@
-import { birr, santimToBirrString, type PaymentRules } from '@vamos/core';
+import { birr, MAX_SANTIM_OFFSET, santimToBirrString, type PaymentRules } from '@vamos/core';
 import { count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -35,6 +35,7 @@ import {
   SMS_AMOUNT_QUARANTINE_MS,
   smsRailHealth,
   verifyPayoutAccount,
+  withdrawalPaidLedgerKey,
   type PaymentIntent,
 } from '../src/index';
 import type { Database } from '../src/client';
@@ -100,11 +101,20 @@ function telebirrCredit(
   };
 }
 
-/** A telebirr debit confirmation (money leaving the collection account). */
-function telebirrDebit(amount: bigint, toPhone: string, ref = nextRef('CB')) {
+/**
+ * A telebirr debit confirmation (money leaving the collection account); `toPhone` null for the
+ * sparse variant without the recipient's number, `time` the institution's time (EAT).
+ */
+function telebirrDebit(
+  amount: bigint,
+  toPhone: string | null,
+  ref = nextRef('CB'),
+  time = '1:00:00 PM',
+) {
+  const to = toPhone === null ? 'RECIPIENT' : `RECIPIENT (${toPhone.slice(1)})`;
   return {
     reference: ref,
-    text: `Dear CUSTOMER, you have transferred ETB ${santimToBirrString(amount)} to RECIPIENT (${toPhone.slice(1)}) on 10/10/2026 at 1:00:00 PM. Your transaction number is ${ref}.`,
+    text: `Dear CUSTOMER, you have transferred ETB ${santimToBirrString(amount)} to ${to} on 10/10/2026 at ${time}. Your transaction number is ${ref}.`,
   };
 }
 
@@ -155,7 +165,7 @@ async function depositViaSms(
 }
 
 describe('SMS deposit intents', () => {
-  it('reserves an exact amount 1–50 santim above the request and opens it as a transfer', async () => {
+  it('reserves an exact amount 1–99 santim above the request and opens it as a transfer', async () => {
     const player = await createPlayer(db);
     const intent = await openDeposit(player.userId, birr(100), { offset: 37 });
     expect(intent).toMatchObject({
@@ -190,17 +200,26 @@ describe('SMS deposit intents', () => {
     );
   });
 
-  it('never hands out the same exact amount twice, even concurrently, and refuses the 51st', async () => {
+  it('never hands out the same exact amount twice, even concurrently, and refuses the 100th', async () => {
     const base = birr(333);
-    const players = await Promise.all(Array.from({ length: 50 }, () => createPlayer(db)));
+    const players = await Promise.all(
+      Array.from({ length: MAX_SANTIM_OFFSET }, () => createPlayer(db)),
+    );
     const intents = await Promise.all(players.map((p) => openDeposit(p.userId, base)));
     const amounts = new Set(intents.map((i) => i.amount));
-    expect(amounts.size).toBe(50);
+    expect(amounts.size).toBe(99);
     for (const amount of amounts) {
-      expect(amount > base && amount <= base + 50n).toBe(true);
+      expect(amount > base && amount <= base + 99n).toBe(true);
     }
     const late = await createPlayer(db);
     expect((await domainError(openDeposit(late.userId, base))).code).toBe('sms_amount_unavailable');
+  });
+
+  it('never reserves a whole-birr amount for a request that is not a whole birr', async () => {
+    const player = await createPlayer(db);
+    // 555.01 + 99 santim would be 556.00, which anyone might send by chance: the next one is taken.
+    const intent = await openDeposit(player.userId, birr(555) + 1n, { offset: 99 });
+    expect(intent.amount).toBe(birr(555) + 2n);
   });
 
   it('serialises allocations across overlapping bases (444.00 and 444.25 share 444.26–444.50)', async () => {
@@ -288,6 +307,29 @@ describe('gateway SMS', () => {
     expect((await gateway(text)).outcome).toBe('duplicate');
     const queue = await listSmsReviewQueue(db);
     expect(queue.some((row) => row.rawText === text && row.status === 'unparsed')).toBe(true);
+  });
+
+  it("telebirr's live Amharic credit: a masked payer number that fits credits, another is flagged", async () => {
+    /** The shape telebirr sends (22 Nov 2026), with the payer's number masked like "2519****3670". */
+    const amharicCredit = (amount: bigint, maskedPayer: string) =>
+      `ውድ CUSTOMER\nከ sender name(${maskedPayer}) ${santimToBirrString(amount)} ብር በ 10/10/2026 12:01:00 ተቀብለዋል። የሂሳብ እንቅስቃሴ ቁጥርዎ ${nextRef()} ነዉ። አሁን ያለዎት ቀሪ ሂሳብ 1,234.56 ብር ነዉ። በቴሌብር ስለተገለገሉ እናመሰግናለን ኢትዮ ቴሌኮም`;
+    const mask = (phone: string) => `${phone.slice(1, 5)}****${phone.slice(-4)}`;
+
+    const own = await createPlayer(db);
+    const ownDeposit = await openDeposit(own.userId, birr(104));
+    const credited = await gateway(amharicCredit(ownDeposit.amount, mask(own.phone)), {
+      sender: '127',
+    });
+    expect(credited.outcome).toBe('credited');
+    expect(await cashOf(db, own.userId)).toBe(ownDeposit.amount);
+
+    const other = await createPlayer(db);
+    const otherDeposit = await openDeposit(other.userId, birr(105));
+    const stranger = `${other.phone.slice(1, 5)}****${other.phone.slice(-4) === '0000' ? '1111' : '0000'}`;
+    const flagged = await gateway(amharicCredit(otherDeposit.amount, stranger), { sender: '127' });
+    expect(flagged.outcome).toBe('flagged');
+    expect(await cashOf(db, other.userId)).toBe(0n);
+    expect((await getDepositIntent(db, otherDeposit.id))?.flagReason).toBe('third_party_payer');
   });
 
   it('flags a payment from someone else’s phone instead of crediting it', async () => {
@@ -471,7 +513,7 @@ describe('the player check', () => {
     const victimPayment = telebirrCredit(birr(111) + 3n, { phone: null });
     expect((await gateway(victimPayment.text)).outcome).toBe('unmatched');
     const thief = await createPlayer(db);
-    // The offset is pinned: a random one is 3 santim once in 50 runs, and then the deposit (opened
+    // The offset is pinned: a random one is 3 santim once in 99 runs, and then the deposit (opened
     // before the SMS's time) has the payment's exact amount, which by the rail's own rule is a
     // genuine match. This test is about a deposit of another amount.
     await openDeposit(thief.userId, birr(111), { offset: 7 });
@@ -1021,6 +1063,305 @@ describe('manual payouts', () => {
       ),
     );
     expect(error.code).toBe('settlement_reference_mismatch');
+  });
+
+  describe('a debit SMS only proves the transfer it shows (insider fraud)', () => {
+    async function claim(payoutId: string, staffId: string, minute: number) {
+      return db.transaction((tx) => claimManualPayout(tx, { payoutId, staffId, now: at(minute) }));
+    }
+
+    function settle(
+      payoutId: string,
+      proof: { reference: string } | { smsId: string },
+      options: { staffId?: string; minute?: number; holderNameConfirmed?: boolean } = {},
+    ) {
+      return db.transaction((tx) =>
+        settleManualPayout(tx, {
+          payoutId,
+          staffId: options.staffId ?? 'op-b',
+          ...proof,
+          holderNameConfirmed: options.holderNameConfirmed ?? false,
+          requireProof: false,
+          now: at(options.minute ?? 30),
+        }),
+      );
+    }
+
+    /** The payout's paid posting (the hold is a posting of its own): none while it is unpaid. */
+    async function paidPostings(payoutId: string): Promise<number> {
+      const [row] = await db
+        .select({ n: count() })
+        .from(ledgerTransactions)
+        .where(eq(ledgerTransactions.idempotencyKey, withdrawalPaidLedgerKey(payoutId)));
+      return row?.n ?? 0;
+    }
+
+    async function smsRow(id: string) {
+      const [row] = await db.select().from(receivedSms).where(eq(receivedSms.id, id));
+      return row!;
+    }
+
+    async function expectUnpaid(payoutId: string, claimer: string) {
+      expect(await getPayout(db, payoutId)).toMatchObject({
+        status: 'processing',
+        payingBy: claimer,
+        settlementReference: null,
+        settlementSmsId: null,
+      });
+      expect(await paidPostings(payoutId)).toBe(0);
+    }
+
+    it('never settles a player’s payout with a same-amount debit to another number', async () => {
+      const player = await playerWithMoney(birr(800));
+      const { payout } = await manualWithdraw(player, player.walletId, birr(433));
+      await claim(payout.id, 'op-b', 13);
+      const before = await getBalance(db, PENDING);
+      // The claimer pays themselves the same amount from the collection account.
+      const own = await gateway(telebirrDebit(birr(433), '+251933333333').text, { now: at(14) });
+      expect(own.outcome).toBe('ignored_debit');
+      expect(own.sms.statusReason).toBe('no_candidate');
+
+      const error = await domainError(settle(payout.id, { reference: own.sms.reference! }));
+      expect(error.code).toBe('settlement_destination_mismatch');
+      expect(error.message).toMatch(/another number/);
+      await expectUnpaid(payout.id, 'op-b');
+      expect(await getBalance(db, PENDING)).toBe(before);
+      expect((await smsRow(own.sms.id)).status).toBe('ignored_debit');
+      expect((await outboxOf(db, payout.id)).map(([type]) => type)).not.toContain(
+        'payment.withdrawal_paid',
+      );
+      await expectBooksBalanced(db);
+    });
+
+    it('refuses a debit to the right number that predates the claim', async () => {
+      const player = await playerWithMoney(birr(800));
+      const { payout } = await manualWithdraw(player, player.walletId, birr(434));
+      // Sent while the payout was only approved: nobody had claimed it, so it is proposed for nothing.
+      const early = await gateway(telebirrDebit(birr(434), player.phone).text, { now: at(11) });
+      expect(early.outcome).toBe('ignored_debit');
+      await claim(payout.id, 'op-b', 20);
+      const error = await domainError(settle(payout.id, { reference: early.sms.reference! }));
+      expect(error.code).toBe('settlement_proof_too_old');
+      await expectUnpaid(payout.id, 'op-b');
+
+      // Forwarded after the claim, but the institution says the money moved before it.
+      const backlog = await gateway(
+        telebirrDebit(birr(434), player.phone, nextRef('CB'), '12:05:00 PM').text, // 09:05Z, at(5)
+        { now: at(25) },
+      );
+      expect(backlog.outcome).toBe('ignored_debit');
+      expect(
+        (await domainError(settle(payout.id, { reference: backlog.sms.reference! }))).code,
+      ).toBe('settlement_proof_too_old');
+      await expectUnpaid(payout.id, 'op-b');
+    });
+
+    it('settles with the reference of a debit to the player’s number after the claim', async () => {
+      const player = await playerWithMoney(birr(1000));
+      // Two payouts of one amount to one number: the debit fits both, so it is proposed for neither.
+      const one = (await manualWithdraw(player, player.walletId, birr(435))).payout;
+      const two = (await manualWithdraw(player, player.walletId, birr(435))).payout;
+      await claim(one.id, 'op-b', 13);
+      await claim(two.id, 'op-b', 13);
+      const debit = await gateway(telebirrDebit(birr(435), player.phone).text, { now: at(14) });
+      expect(debit.outcome).toBe('ignored_debit');
+      expect(debit.sms.statusReason).toBe('ambiguous');
+      const paid = await settle(one.id, { reference: debit.sms.reference! });
+      expect(paid).toMatchObject({
+        status: 'paid',
+        settledBy: 'op-b',
+        settlementReference: debit.sms.reference,
+        settlementSmsId: debit.sms.id,
+      });
+      expect(await paidPostings(one.id)).toBe(1);
+      expect(await smsRow(debit.sms.id)).toMatchObject({
+        status: 'settled',
+        proposedPayoutId: one.id,
+      });
+      await expectUnpaid(two.id, 'op-b');
+      await expectBooksBalanced(db);
+    });
+
+    it('settles a proposal by its typed reference, with or without the number in the SMS', async () => {
+      const player = await playerWithMoney(birr(1000));
+      const named = (await manualWithdraw(player, player.walletId, birr(436))).payout;
+      await claim(named.id, 'op-b', 13);
+      const withNumber = await gateway(telebirrDebit(birr(436), player.phone).text, {
+        now: at(14),
+      });
+      expect(withNumber.sms).toMatchObject({
+        status: 'settlement_proposed',
+        statusReason: 'amount_and_account',
+        proposedPayoutId: named.id,
+      });
+      expect(await settle(named.id, { reference: withNumber.sms.reference! })).toMatchObject({
+        status: 'paid',
+        settlementSmsId: withNumber.sms.id,
+      });
+
+      // The sparse SMS without a number: the matcher proposed it as the only payout of its amount.
+      const sparse = (await manualWithdraw(player, player.walletId, birr(436) + 1n)).payout;
+      await claim(sparse.id, 'op-b', 13);
+      const anonymous = await gateway(telebirrDebit(birr(436) + 1n, null).text, { now: at(14) });
+      expect(anonymous.sms).toMatchObject({
+        status: 'settlement_proposed',
+        statusReason: 'amount_only',
+        proposedPayoutId: sparse.id,
+        counterpartyPhone: null,
+      });
+      expect(await settle(sparse.id, { reference: anonymous.sms.reference! })).toMatchObject({
+        status: 'paid',
+        settlementSmsId: anonymous.sms.id,
+      });
+      await expectBooksBalanced(db);
+    });
+
+    it('refuses an ignored debit without a number as proof of a wallet payout', async () => {
+      const first = await playerWithMoney(birr(800));
+      const second = await playerWithMoney(birr(800));
+      const a = (await manualWithdraw(first, first.walletId, birr(437))).payout;
+      const b = (await manualWithdraw(second, second.walletId, birr(437))).payout;
+      await claim(a.id, 'op-b', 13);
+      await claim(b.id, 'op-b', 13);
+      const anonymous = await gateway(telebirrDebit(birr(437), null).text, { now: at(14) });
+      expect(anonymous.sms).toMatchObject({ status: 'ignored_debit', statusReason: 'ambiguous' });
+      const error = await domainError(settle(a.id, { reference: anonymous.sms.reference! }));
+      expect(error.code).toBe('settlement_proof_mismatch');
+      await expectUnpaid(a.id, 'op-b');
+      await expectUnpaid(b.id, 'op-b');
+    });
+
+    it('never proposes a debit for a payout nobody has claimed', async () => {
+      const player = await playerWithMoney(birr(800));
+      const { payout } = await manualWithdraw(player, player.walletId, birr(438));
+      expect(payout.status).toBe('approved');
+      const debit = await gateway(telebirrDebit(birr(438), player.phone).text, { now: at(14) });
+      expect(debit.sms).toMatchObject({
+        status: 'ignored_debit',
+        statusReason: 'no_candidate',
+        proposedPayoutId: null,
+      });
+      // Claimed afterwards, that older transfer still does not pay it.
+      await claim(payout.id, 'op-b', 30);
+      expect((await domainError(settle(payout.id, { reference: debit.sms.reference! }))).code).toBe(
+        'settlement_proof_too_old',
+      );
+    });
+
+    it('gives two payouts of one amount to different numbers each their own debit', async () => {
+      const first = await playerWithMoney(birr(800));
+      const second = await playerWithMoney(birr(800));
+      const a = (await manualWithdraw(first, first.walletId, birr(439))).payout;
+      const b = (await manualWithdraw(second, second.walletId, birr(439))).payout;
+      await claim(a.id, 'op-b', 13);
+      await claim(b.id, 'op-d', 13);
+      const toSecond = await gateway(telebirrDebit(birr(439), second.phone).text, { now: at(14) });
+      const toFirst = await gateway(telebirrDebit(birr(439), first.phone).text, { now: at(15) });
+      expect(toSecond.sms.proposedPayoutId).toBe(b.id);
+      expect(toFirst.sms.proposedPayoutId).toBe(a.id);
+      // Each operator's reference proves only their own payout.
+      expect((await domainError(settle(a.id, { reference: toSecond.sms.reference! }))).code).toBe(
+        'settlement_reference_mismatch',
+      );
+      expect(await settle(a.id, { smsId: toFirst.sms.id })).toMatchObject({ status: 'paid' });
+      expect(
+        await settle(b.id, { reference: toSecond.sms.reference! }, { staffId: 'op-d' }),
+      ).toMatchObject({ status: 'paid', settlementSmsId: toSecond.sms.id });
+      await expectBooksBalanced(db);
+    });
+
+    it('refuses a proposal made under an earlier claim to the next claimer', async () => {
+      const player = await playerWithMoney(birr(800));
+      const { payout } = await manualWithdraw(player, player.walletId, birr(440));
+      await claim(payout.id, 'op-b', 13);
+      const debit = await gateway(telebirrDebit(birr(440), player.phone).text, { now: at(14) });
+      expect(debit.sms.proposedPayoutId).toBe(payout.id);
+      await db.transaction((tx) =>
+        releaseManualPayout(tx, { payoutId: payout.id, staffId: 'op-b', note: 'x', now: at(15) }),
+      );
+      await claim(payout.id, 'op-d', 40);
+      const error = await domainError(
+        settle(payout.id, { smsId: debit.sms.id }, { staffId: 'op-d' }),
+      );
+      expect(error.code).toBe('settlement_proof_too_old');
+      await expectUnpaid(payout.id, 'op-d');
+    });
+
+    it('never settles a bank payout with a debit that went to a mobile number, whatever the claimer confirms', async () => {
+      const player = await playerWithMoney(birr(800));
+      const bank = await db.transaction((tx) =>
+        addPayoutAccount(tx, {
+          userId: player.userId,
+          institution: 'cbe',
+          account: '1000777777777',
+          accountName: 'Abebe Kebede',
+          now: NOW,
+        }),
+      );
+      await db.transaction((tx) =>
+        verifyPayoutAccount(tx, {
+          userId: player.userId,
+          payoutAccountId: bank.account.id,
+          now: NOW,
+        }),
+      );
+      const { payout } = await manualWithdraw(player, bank.account.id, birr(447));
+      await claim(payout.id, 'op-b', 13);
+      const before = await getBalance(db, PENDING);
+      // The claimer sends the amount to their own wallet and points at that debit.
+      const own = await gateway(telebirrDebit(birr(447), '+251944444444').text, { now: at(14) });
+      expect(own.outcome).toBe('ignored_debit');
+      const error = await domainError(
+        settle(payout.id, { reference: own.sms.reference! }, { holderNameConfirmed: true }),
+      );
+      expect(error.code).toBe('settlement_destination_mismatch');
+      expect(error.message).toMatch(/mobile number/);
+      await expectUnpaid(payout.id, 'op-b');
+      expect(await getBalance(db, PENDING)).toBe(before);
+      expect((await smsRow(own.sms.id)).status).toBe('ignored_debit');
+      await expectBooksBalanced(db);
+    });
+
+    it('keeps the bank rule: a debit without a number settles a bank payout after the claim', async () => {
+      const player = await playerWithMoney(birr(800));
+      const bank = await db.transaction((tx) =>
+        addPayoutAccount(tx, {
+          userId: player.userId,
+          institution: 'cbe',
+          account: '1000888888888',
+          accountName: 'Abebe Kebede',
+          now: NOW,
+        }),
+      );
+      await db.transaction((tx) =>
+        verifyPayoutAccount(tx, {
+          userId: player.userId,
+          payoutAccountId: bank.account.id,
+          now: NOW,
+        }),
+      );
+      const early = (await manualWithdraw(player, bank.account.id, birr(441))).payout;
+      const ref = 'FT26283BANK1';
+      const cbeDebit = (reference: string) =>
+        `Dear Customer, Your account has been debited with ETB 441.00 on 10/10/2026. Ref No ${reference}`;
+      // A debit received before the claim (beyond the skew) is refused for a bank too.
+      const before = await gateway(cbeDebit('FT26283BANK0'), { sender: 'CBE', now: at(11) });
+      expect(before.outcome).toBe('ignored_debit');
+      await claim(early.id, 'op-b', 20);
+      expect(
+        (
+          await domainError(
+            settle(early.id, { reference: 'FT26283BANK0' }, { holderNameConfirmed: true }),
+          )
+        ).code,
+      ).toBe('settlement_proof_too_old');
+
+      const after = await gateway(cbeDebit(ref), { sender: 'CBE', now: at(25) });
+      expect(after.sms).toMatchObject({ direction: 'debit', counterpartyPhone: null });
+      expect(
+        await settle(early.id, { reference: ref }, { holderNameConfirmed: true }),
+      ).toMatchObject({ status: 'paid', settlementSmsId: after.sms.id, holderNameConfirmed: true });
+    });
   });
 
   it('needs the holder-name confirmation for a bank payout', async () => {

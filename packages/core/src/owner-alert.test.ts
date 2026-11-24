@@ -1,6 +1,12 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { buildOwnerAlert, OWNER_ALERT_MAX_LENGTH, type OwnerAlertInput } from './owner-alert';
+import {
+  buildOwnerAlert,
+  OWNER_ALERT_MAX_LENGTH,
+  OWNER_ALERT_POLICY,
+  ownerAlertDelivery,
+  type OwnerAlertInput,
+} from './owner-alert';
 
 /** One input per alarm (with both reasons or directions where the wording differs). */
 const SAMPLES: readonly OwnerAlertInput[] = [
@@ -14,6 +20,7 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   },
   { alarm: 'source_stale', sourceId: 'src-b', sourceName: 'OpenLigaDB', daysUnchanged: 2 },
   { alarm: 'budget_low', creditKey: 'theoddsapi' },
+  { alarm: 'alias_suspicious', count: 2, examples: ['salzburg -> FC Salzburg Frauen (women)'] },
   { alarm: 'budget_exhausted', creditKey: 'theoddsapi' },
   { alarm: 'budget_projection', creditKey: 'theoddsapi', daysUntilEmpty: 3.4 },
   { alarm: 'unauthorized', creditKey: 'theoddsapi' },
@@ -27,12 +34,25 @@ const SAMPLES: readonly OwnerAlertInput[] = [
   { alarm: 'sms_receipt_rejected', smsId: '0b0c7f5e-3c55-4a8e-9d36-3f1b6a5a8e11' },
   { alarm: 'sms_balance_drift', institution: 'telebirr', direction: 'credited_more_than_arrived' },
   { alarm: 'sms_balance_drift', institution: 'cbe', direction: 'missed_incoming' },
+  { alarm: 'payout_float_low', institution: 'telebirr' },
   { alarm: 'sms_gateway_silent' },
+  { alarm: 'sms_account_silent', account: 'telebirr:0911000001' },
+  { alarm: 'sms_handset_heartbeat_missed', account: 'telebirr:0911000001' },
+  { alarm: 'sms_handset_battery_low', account: 'telebirr:0911000001' },
   { alarm: 'sms_review_backlog' },
   { alarm: 'manual_payout_waiting' },
+  { alarm: 'manual_payout_claim_idle' },
+  { alarm: 'collection_account_changed', account: 'cbe:1000123456789', change: 'requested' },
+  { alarm: 'collection_account_changed', account: 'cbe:1000123456789', change: 'approved' },
+  { alarm: 'collection_account_changed', account: 'cbe:1000123456789', change: 'edited' },
+  { alarm: 'collection_account_changed', account: 'cbe:1000123456789', change: 'deleted' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'suspend', week: '2026-W45' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'return', week: '2026-W48' },
   { alarm: 'market_family_moved', family: 'htft_ou', move: 'off', week: '2026-W52' },
+  { alarm: 'service_down', service: 'Chapa', minutesDown: 3, detail: null },
+  { alarm: 'service_down', service: 'mr-z (Narobet)', minutesDown: 47, detail: 'HTTP 502' },
+  { alarm: 'service_recovered', service: 'Chapa', minutesDown: 12, downSinceMs: 1_795_000_000_000 },
+  { alarm: 'manual_deposit_credited', intentId: 'i-1', amountEtb: '6,000.00', provider: 'chapa' },
 ];
 
 /** Words of a request or an obligation, wherever they stand. */
@@ -104,6 +124,12 @@ describe('buildOwnerAlert', () => {
       'Bookmaker odds credits are used up: odds reads are stopped until the 1st.',
     );
     expect(text({ alarm: 'budget_low', creditKey: 'k' })).toMatch(/read less often/);
+    expect(
+      text({ alarm: 'alias_suspicious', count: 7, examples: ['salzburg -> FC Salzburg Frauen'] }),
+    ).toBe(
+      '7 team link(s) look wrong (another side or another club), e.g. salzburg -> FC Salzburg ' +
+        'Frauen. Nothing was changed; they are listed under Feed → Aliases.',
+    );
     expect(text({ alarm: 'unauthorized', creditKey: 'k' })).toMatch(
       /reads with that key are stopped/,
     );
@@ -153,7 +179,90 @@ describe('buildOwnerAlert', () => {
     });
     expect(message).not.toMatch(/\d{5,}/);
     expect(message).not.toContain('0b0c7f5e');
-    expect(key).toContain('0b0c7f5e');
+    // One key for every contradicted SMS: a summary, never a text per deposit (owner, 20 Nov).
+    expect(key).toBe('sms_receipt_rejected');
+  });
+
+  it('texts only the important alarms, and money alarms at most every few hours', () => {
+    const minute = 60_000;
+    const hour = 60 * minute;
+    for (const alarm of [
+      'sms_handset_heartbeat_missed',
+      'sms_handset_battery_low',
+      'sms_review_backlog',
+      'manual_payout_claim_idle',
+    ] as const) {
+      expect(OWNER_ALERT_POLICY[alarm].send, alarm).toBe(false);
+    }
+    for (const alarm of [
+      'sms_gateway_silent',
+      'sms_account_silent',
+      'manual_payout_waiting',
+      'payout_float_low',
+      'sms_receipt_rejected',
+      'sms_balance_drift',
+    ] as const) {
+      expect(OWNER_ALERT_POLICY[alarm].send, alarm).toBe(true);
+      expect(OWNER_ALERT_POLICY[alarm].repeatMs, alarm).toBeGreaterThanOrEqual(6 * hour);
+    }
+    // A configured interval only ever lengthens the alarm's own window.
+    expect(ownerAlertDelivery({ alarm: 'sms_gateway_silent' }, 3 * minute)).toEqual({
+      send: true,
+      intervalMs: 6 * hour,
+      telegramOnly: false,
+    });
+    expect(ownerAlertDelivery({ alarm: 'sms_gateway_silent' }, 12 * hour).intervalMs).toBe(
+      12 * hour,
+    );
+    expect(ownerAlertDelivery({ alarm: 'sms_review_backlog' }, 30 * minute).send).toBe(false);
+  });
+
+  it('says once a day on Telegram how much money waits to be credited', () => {
+    const line = {
+      alarm: 'money_not_credited',
+      date: '2026-11-23',
+      count: 3,
+      amountEtb: '1250.00',
+      oldestDate: '2026-11-20',
+    } as const;
+    expect(buildOwnerAlert(line)).toEqual({
+      key: 'money_not_credited|2026-11-23',
+      message:
+        'Money not credited: 3 payment(s), ETB 1250.00, the oldest from 2026-11-20. Open Money not credited in the back office.',
+    });
+    expect(ownerAlertDelivery(line, 30 * 60_000)).toMatchObject({ send: true, telegramOnly: true });
+  });
+
+  it('repeats a service-down alert every 15 minutes on Telegram only, then says it works again', () => {
+    const minute = 60_000;
+    const down = {
+      alarm: 'service_down' as const,
+      service: 'Chapa',
+      minutesDown: 18,
+      detail: 'payment initiation fails',
+    };
+    // Exactly 15 minutes, even when OWNER_ALERT_MIN_INTERVAL_MINUTES is longer.
+    expect(ownerAlertDelivery(down, 30 * minute)).toEqual({
+      send: true,
+      intervalMs: 15 * minute,
+      telegramOnly: true,
+    });
+    expect(buildOwnerAlert(down)).toEqual({
+      key: 'service_down|Chapa',
+      message:
+        'Chapa is down for 18 min: payment initiation fails. Repeated every 15 min until it works again.',
+    });
+    const back = {
+      alarm: 'service_recovered' as const,
+      service: 'Chapa',
+      minutesDown: 42,
+      downSinceMs: 1_795_000_000_000,
+    };
+    expect(buildOwnerAlert(back)).toEqual({
+      key: 'service_recovered|Chapa|1795000000000',
+      message: 'Chapa works again, after 42 min down.',
+    });
+    expect(ownerAlertDelivery(back, 30 * minute).telegramOnly).toBe(true);
   });
 
   it('uses the singular for one day', () => {
@@ -198,6 +307,10 @@ describe('buildOwnerAlert', () => {
         ),
       }),
       fc.record({ alarm: fc.constant('sms_receipt_rejected' as const), smsId: textArb }),
+      fc.record({ alarm: fc.constant('payout_float_low' as const), institution: textArb }),
+      fc.record({ alarm: fc.constant('sms_account_silent' as const), account: textArb }),
+      fc.record({ alarm: fc.constant('sms_handset_heartbeat_missed' as const), account: textArb }),
+      fc.record({ alarm: fc.constant('sms_handset_battery_low' as const), account: textArb }),
     );
     fc.assert(
       fc.property(inputArb, (input) => {

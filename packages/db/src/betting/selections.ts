@@ -51,6 +51,8 @@ export interface SelectionSnapshot {
   scoreAway: number | null;
   sportActive: boolean;
   competitionActive: boolean;
+  /** events.feed_provider: a competitor board's own match (hulusport, narobet) takes the board caps. */
+  feedProvider: string;
 }
 
 /**
@@ -161,6 +163,7 @@ export async function loadSelectionSnapshots(
       scoreAway: events.scoreAway,
       sportActive: sports.active,
       competitionActive: competitions.active,
+      feedProvider: events.feedProvider,
     })
     .from(selections)
     .innerJoin(markets, eq(markets.id, selections.marketId))

@@ -1,6 +1,6 @@
 import { PERMISSION_ROLES, STAFF_ROLES, permissionsOf } from '@vamos/contracts';
 import { describe, expect, it } from 'vitest';
-import { NAV_ITEMS, canView, navFor, permissionForPath } from './nav';
+import { NAV_ITEMS, canView, homeFor, navFor, permissionForPath } from './nav';
 
 const labels = (role: string) => navFor(permissionsOf(role)).map((i) => i.label);
 
@@ -25,6 +25,8 @@ describe('navigation by role', () => {
   it('trader sees trading and risk, finance sees withdrawals, kyc sees the queue', () => {
     expect(labels('trader')).toEqual(expect.arrayContaining(['Trading', 'Risk']));
     expect(labels('finance')).toContain('Withdrawals');
+    // No ticket payout approvals any more (owner, 21 Nov 2026: cashiers pay any winning ticket).
+    expect(labels('finance')).not.toContain('Ticket payouts');
     expect(labels('kyc')).toContain('KYC queue');
     expect(labels('compliance')).toContain('Audit log');
   });
@@ -45,8 +47,41 @@ describe('navigation by role', () => {
     expect(permissionForPath('/feed/review/abc')).toBe('trading.view');
   });
 
-  it('every role sees the dashboard, and an unknown role sees nothing', () => {
-    for (const role of STAFF_ROLES) expect(labels(role)).toContain('Dashboard');
+  it('the cashier pages follow cashier.desk and cashier.reports', () => {
+    expect(labels('cashier')).toEqual(['Cashier desk']);
+    expect(labels('finance')).toEqual(expect.arrayContaining(['Cashier desk', 'Cash shifts']));
+    expect(permissionForPath('/cashier')).toBe('cashier.desk');
+    expect(permissionForPath('/cashier/receipt/abc')).toBe('cashier.desk');
+    expect(permissionForPath('/cashier/shifts')).toBe('cashier.reports');
+    expect(permissionForPath('/cashier/shifts/abc/report')).toBe('cashier.reports');
+  });
+
+  it('Agents follows agents.view: admin, finance and compliance', () => {
+    for (const role of ['admin', 'finance', 'compliance']) expect(labels(role)).toContain('Agents');
+    for (const role of ['cashier', 'support', 'trader'])
+      expect(labels(role)).not.toContain('Agents');
+    expect(permissionForPath('/agents/abc')).toBe('agents.view');
+  });
+
+  it('the staff pages follow staff.manage, which only the admin holds', () => {
+    expect(labels('admin')).toContain('Staff');
+    for (const role of ['finance', 'support', 'cashier'])
+      expect(labels(role)).not.toContain('Staff');
+    expect(permissionForPath('/staff/abc')).toBe('staff.manage');
+  });
+
+  it('homeFor is the first visible page, else the account page', () => {
+    expect(homeFor(['cashier.desk'])).toBe('/cashier');
+    expect(homeFor(permissionsOf('admin'))).toBe('/');
+    expect(homeFor(['dashboard.view', 'cashier.desk'])).toBe('/');
+    expect(homeFor([])).toBe('/account');
+  });
+
+  it('every role but the cashier and the agent owner sees the dashboard; an unknown role sees nothing', () => {
+    // The agent owner works in the shop app only and never signs in here.
+    expect(labels('agent_owner')).toEqual([]);
+    for (const role of STAFF_ROLES.filter((r) => r !== 'cashier' && r !== 'agent_owner'))
+      expect(labels(role)).toContain('Dashboard');
     expect(navFor([])).toEqual([]);
   });
 });

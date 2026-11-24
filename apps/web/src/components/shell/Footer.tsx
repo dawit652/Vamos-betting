@@ -2,12 +2,15 @@ import Link from 'next/link';
 import { getT } from '@/i18n/server';
 import type { Theme } from '@/lib/cookies';
 import { routes } from '@/lib/routes';
+import { telegramUrl } from '@/lib/telegram';
 import { LocaleSwitcher } from './LocaleSwitcher';
+import { TelegramLink } from './TelegramLink';
 import { ThemeToggle } from './ThemeToggle';
 
 /** Footer card: logo and tagline, language, legal links and the age notice. */
 export async function Footer({ theme }: { theme: Theme }) {
   const t = await getT();
+  const telegram = telegramUrl();
   return (
     <footer className="mx-auto mt-8 max-w-7xl px-3 pb-6 lg:px-4">
       <div className="card space-y-4 p-4 text-xs text-muted">
@@ -39,6 +42,9 @@ export async function Footer({ theme }: { theme: Theme }) {
           <Link href={routes.responsibleGambling} prefetch={false}>
             {t('common.nav.responsibleGambling')}
           </Link>
+          {telegram !== null ? (
+            <TelegramLink href={telegram} label={t('common.telegram.join')} className="text-ink" />
+          ) : null}
         </nav>
         <p className="flex items-center gap-2 font-semibold text-ink">
           <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full border border-line text-xxs font-extrabold">

@@ -1,4 +1,6 @@
 import {
+  ClaimManualPayoutBatchRequest,
+  ClaimManualPayoutBatchResponse,
   CreditSmsRequest,
   FailManualPayoutRequest,
   ReleaseManualPayoutRequest,
@@ -11,15 +13,20 @@ import {
   StaffWithdrawalChangeResponse,
   StaffWithdrawalListResponse,
 } from '@vamos/contracts';
+import { floatIsLow, parseSmsHeartbeat, smsHeartbeatKey, smsHeartbeatLate } from '@vamos/core';
 import {
   acknowledgeReceiptAlarm,
   claimManualPayout,
+  claimManualPayoutBatch,
   closeSmsByStaff,
+  creditDepositClaim,
   creditSmsByStaff,
+  reparseSmsByStaff,
   failManualPayout,
   getStaffWithdrawal,
   listReceivedSms,
   listSmsReviewQueue,
+  loadFloatForecast,
   listStaffWithdrawals,
   releaseManualPayout,
   settleManualPayout,
@@ -105,11 +112,35 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
       const stored = await readBalanceResult(deps, institution);
       if (stored !== null) balance.push(stored);
     }
+    const now = deps.clock();
+    const heartbeats = [];
+    for (const account of provider?.collectionAccountIds ?? []) {
+      const beat = parseSmsHeartbeat(await deps.redis.get(smsHeartbeatKey(account)));
+      if (beat === null) continue;
+      heartbeats.push({
+        account,
+        ...beat,
+        late: smsHeartbeatLate(beat, now, deps.config.payments.sms.heartbeatAlarmMs),
+      });
+    }
+    const rules = deps.config.payments.sms.floatForecast;
+    const float = await loadFloatForecast(deps.db, { now: deps.clock(), rules });
     return wire(SmsRailHealthResponse, {
       ...health,
+      payoutFloat: {
+        horizonHours: Math.round(rules.horizonMs / 3_600_000),
+        withdrawnPercent: Math.round(rules.withdrawnShareBps / 100),
+        expectedWithdrawals: float.forecast.expectedWithdrawals,
+        possiblePayouts: float.forecast.possiblePayouts,
+        betsCounted: float.forecast.betsCounted,
+        balances: float.balances
+          .filter((b) => institutions.includes(b.institution))
+          .map((b) => ({ ...b, low: floatIsLow(b.balance, float.forecast) })),
+      },
       mode: provider?.mode ?? 'simulated',
       receiptVerify: deps.config.payments.sms.receiptVerify,
       receiptBreaker: deps.receipts?.state().breaker ?? null,
+      heartbeats,
       balance,
     });
   });
@@ -121,12 +152,44 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
       const smsId = parseUuid(request.params.id, 'SMS');
       const input = parseInput(CreditSmsRequest, request.body);
       const actor = staffActor(request);
-      const result = await inTx(deps, (tx) =>
-        creditSmsByStaff(tx, {
+      const result = await inTx(deps, async (tx) => {
+        const credited = await creditSmsByStaff(tx, {
           smsId,
           userId: input.userId,
           adminId: actor.adminId,
           note: input.note,
+          now: deps.clock(),
+          ip: actor.ip ?? null,
+        });
+        // The player's claim this answers (G5.3), in the same transaction as the credit.
+        if (input.claimId !== undefined) {
+          await creditDepositClaim(tx, {
+            claimId: input.claimId,
+            userId: input.userId,
+            intentId: credited.intent.id,
+            adminId: actor.adminId,
+            now: deps.clock(),
+            ip: actor.ip ?? null,
+          });
+        }
+        return credited;
+      });
+      return smsBody(result.sms);
+    },
+  );
+
+  // Reads a message again that no parser could read (after the parser was fixed): handled as when
+  // it arrived. A credit is matched only against deposits that existed when the money moved.
+  app.post<IdParams>(
+    '/admin/sms/:id/reparse',
+    { config: { staff: 'sms.review' } },
+    async (request) => {
+      const smsId = parseUuid(request.params.id, 'SMS');
+      const actor = staffActor(request);
+      const result = await inTx(deps, (tx) =>
+        reparseSmsByStaff(tx, {
+          smsId,
+          adminId: actor.adminId,
           now: deps.clock(),
           ip: actor.ip ?? null,
         }),
@@ -206,6 +269,28 @@ export default async function adminSmsRailRoutes(app: FastifyInstance): Promise<
     });
     return wire(StaffWithdrawalChangeResponse, { changed: true, withdrawal });
   };
+
+  /**
+   * Claims several payouts at once (the operator's pick list). Each claim
+   * commits on its own through the single claim, so a refused row never
+   * blocks the others and the four-eyes rule holds per payout.
+   */
+  app.post(
+    '/admin/manual-payouts/claim-batch',
+    { config: { staff: 'payouts.settle_manual' } },
+    async (request) => {
+      const input = parseInput(ClaimManualPayoutBatchRequest, request.body ?? {});
+      const actor = staffActor(request);
+      const results = await claimManualPayoutBatch(deps.db, {
+        staffId: actor.adminId,
+        ip: actor.ip ?? null,
+        now: deps.clock(),
+        limit: input.limit,
+        ...(input.ids === undefined ? {} : { ids: input.ids }),
+      });
+      return wire(ClaimManualPayoutBatchResponse, { results });
+    },
+  );
 
   app.post<IdParams>(
     '/admin/manual-payouts/:id/claim',

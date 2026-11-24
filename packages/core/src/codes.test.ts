@@ -3,12 +3,24 @@ import { describe, expect, it } from 'vitest';
 import {
   BET_SHORT_ID_LENGTH,
   BOOKING_CODE_LENGTH,
+  BOOKING_NUMBER_BYTES,
+  BOOKING_NUMBER_MAX,
+  BOOKING_NUMBER_MIN,
   CODE_ALPHABET,
+  encodeBookingNumber,
   encodeCode,
+  encodePayoutCode,
+  formatBookingCode,
   formatGameId,
+  formatPayoutCode,
+  isBookingCode,
+  isBookingNumber,
+  isPayoutCode,
   isValidCode,
   normalizeCode,
   parseGameId,
+  parsePayoutCode,
+  PAYOUT_CODE_ATTEMPTS,
 } from './codes';
 
 describe('CODE_ALPHABET', () => {
@@ -286,5 +298,87 @@ describe('parseGameId', () => {
         return gameId === null || formatGameId(gameId) === String(gameId).padStart(4, '0');
       }),
     );
+  });
+});
+
+describe('6-digit booking codes (owner, 21 Nov 2026)', () => {
+  const bytesArb = fc.uint8Array({ minLength: BOOKING_NUMBER_BYTES, maxLength: 12 });
+
+  it('maps the random bytes into 100000-999999', () => {
+    expect(encodeBookingNumber(new Uint8Array(BOOKING_NUMBER_BYTES))).toBe('100000');
+    // 2^48 - 1 = 281474976710655; mod 900000 = 110655.
+    expect(encodeBookingNumber(new Uint8Array(BOOKING_NUMBER_BYTES).fill(255))).toBe('210655');
+    expect(encodeBookingNumber(Uint8Array.from([0, 0, 0, 0, 3, 232]))).toBe('101000');
+    expect(() => encodeBookingNumber(new Uint8Array(BOOKING_NUMBER_BYTES - 1))).toThrow(RangeError);
+  });
+
+  it('always gives a valid 6-digit code in range, read only from the first six bytes', () => {
+    fc.assert(
+      fc.property(bytesArb, (bytes) => {
+        const code = encodeBookingNumber(bytes);
+        const n = Number(code);
+        expect(code).toMatch(/^[1-9]\d{5}$/);
+        expect(n >= BOOKING_NUMBER_MIN && n <= BOOKING_NUMBER_MAX).toBe(true);
+        expect(isBookingNumber(code)).toBe(true);
+        expect(isBookingCode(code)).toBe(true);
+        expect(encodeBookingNumber(bytes.slice(0, BOOKING_NUMBER_BYTES))).toBe(code);
+      }),
+    );
+  });
+
+  it('accepts a number as typed or said, and older letter codes', () => {
+    for (const typed of ['482913', ' 482 913 ', '482-913']) {
+      expect(isBookingNumber(typed)).toBe(true);
+      expect(isBookingCode(typed)).toBe(true);
+    }
+    for (const bad of ['082913', '48291', '4829130', '48A913', '']) {
+      expect(isBookingNumber(bad)).toBe(false);
+    }
+    // Older codes keep loading until they expire; 0, 1, I and O were never in them.
+    expect(isBookingCode('k7m x9p')).toBe(true);
+    expect(isBookingNumber('K7MX9P')).toBe(false);
+    expect(isBookingCode('0O1I23')).toBe(false);
+  });
+
+  it('groups a number in threes for the betslip and the ticket; an older code stays as it is', () => {
+    expect(formatBookingCode('482913')).toBe('482 913');
+    expect(formatBookingCode(' 482-913 ')).toBe('482 913');
+    expect(formatBookingCode('k7mx9p')).toBe('K7MX9P');
+    fc.assert(
+      fc.property(bytesArb, (bytes) => {
+        const code = encodeBookingNumber(bytes);
+        expect(normalizeCode(formatBookingCode(code))).toBe(code);
+      }),
+    );
+  });
+});
+
+describe('payout codes (docs/plans/counter-codes-and-deposit-recovery.md, G3)', () => {
+  const bytes = fc.uint8Array({ minLength: BOOKING_NUMBER_BYTES, maxLength: 12 });
+
+  it('are 6 digits without a leading zero, whatever the random bytes (property)', () => {
+    fc.assert(
+      fc.property(bytes, (b) => {
+        const code = encodePayoutCode(b);
+        expect(code).toMatch(/^[1-9]\d{5}$/);
+        expect(isPayoutCode(code)).toBe(true);
+        expect(parsePayoutCode(formatPayoutCode(code))).toBe(code);
+      }),
+    );
+    expect(() => encodePayoutCode(new Uint8Array(3))).toThrow(RangeError);
+  });
+
+  it('are read as typed or said, and nothing else', () => {
+    expect(parsePayoutCode(' 482 913 ')).toBe('482913');
+    expect(parsePayoutCode('482-913')).toBe('482913');
+    for (const bad of ['082913', '48291', '4829130', '48A913', '', 'K7MX9P']) {
+      expect(parsePayoutCode(bad)).toBeNull();
+      expect(isPayoutCode(bad)).toBe(false);
+    }
+    expect(formatPayoutCode('482913')).toBe('482 913');
+  });
+
+  it('allow five tries', () => {
+    expect(PAYOUT_CODE_ATTEMPTS).toBe(5);
   });
 });

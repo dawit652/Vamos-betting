@@ -1,3 +1,4 @@
+import { ownerAlertTargetCount } from '@vamos/config';
 import type { OwnerAlertSmsJobData } from './outbox-dispatch';
 import { claimAlertSlot, releaseAlertSlot } from '../lib/owner-alert';
 import type { TaskContext } from './context';
@@ -5,7 +6,7 @@ import type { TaskContext } from './context';
 /**
  * The `owner.alert` handler (plan task 1.11). The outbox dispatcher hands each owner.alert row to the
  * `sms` queue; this sends its text, as it is, to every number of OWNER_ALERT_PHONES through the SMS
- * gateway (the mock one in demo mode). To know, not to act: the safe action was taken before the
+ * gateway (the mock one in demo mode), and to every chat of TELEGRAM_OWNER_CHAT_IDS through the bot. To know, not to act: the safe action was taken before the
  * alert was written.
  *
  * - With no number configured it does nothing.
@@ -28,12 +29,17 @@ export async function processOwnerAlertJob(
   data: OwnerAlertSmsJobData,
 ): Promise<OwnerAlertResult> {
   const alerts = ctx.ownerAlerts;
-  if (alerts === undefined || alerts.phones.length === 0) {
+  if (alerts === undefined || ownerAlertTargetCount(alerts) === 0) {
     return { sent: false, reason: 'owner_alerts_off' };
   }
   const parsed = Date.parse(data.raisedAt);
   const raisedAt = Number.isNaN(parsed) ? ctx.clock().getTime() : parsed;
-  const intervalMs = alerts.minIntervalMinutes * 60_000;
+  // The alarm's own repeat window (owner's rule: only what matters, not every few minutes); a
+  // service-down alert keeps its own 15 minutes exactly (owner, 21 Nov 2026).
+  const intervalMs =
+    data.exactRepeat === true
+      ? (data.repeatMs ?? 0)
+      : Math.max(alerts.minIntervalMinutes * 60_000, data.repeatMs ?? 0);
   if (!(await claimAlertSlot(ctx.redis, 'sent', data.key, raisedAt, intervalMs))) {
     ctx.logger.info(
       {
@@ -45,15 +51,25 @@ export async function processOwnerAlertJob(
     );
     return { sent: false, reason: 'suppressed' };
   }
+  // Service alerts go to Telegram only (one every 15 minutes would cost an SMS each).
+  const phones = data.telegramOnly === true ? [] : alerts.phones;
   const results = await Promise.allSettled(
-    alerts.phones.map((to) =>
-      ctx.sms.send({ to, body: data.message, template: OWNER_ALERT_TEMPLATE }),
-    ),
+    phones.map((to) => ctx.sms.send({ to, body: data.message, template: OWNER_ALERT_TEMPLATE })),
+  );
+  // The same text to the owner's Telegram chats (when the bot is configured).
+  const telegram = ctx.telegram;
+  const chats = telegram === undefined ? [] : (alerts.telegramChatIds ?? []);
+  const telegramResults = await Promise.allSettled(
+    chats.map((chatId) => telegram!.sendMessage(chatId, data.message)),
   );
   const ids: string[] = [];
   const failures: unknown[] = [];
   for (const result of results) {
     if (result.status === 'fulfilled') ids.push(result.value.id);
+    else failures.push(result.reason);
+  }
+  for (const [i, result] of telegramResults.entries()) {
+    if (result.status === 'fulfilled') ids.push(`telegram:${i}:${result.value.message_id}`);
     else failures.push(result.reason);
   }
   const [firstId] = ids;

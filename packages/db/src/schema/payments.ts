@@ -84,7 +84,7 @@ export const paymentIntents = pgTable(
     currency: text('currency').notNull().default('ETB'),
     /**
      * SMS rail: the amount the player asked to deposit. `amount` is then the
-     * exact amount they were told to send (requested + 1–50 santim, unique
+     * exact amount they were told to send (requested + 1–99 santim, unique
      * among open SMS deposits: the santim are the payment reference). Null
      * for other providers.
      */
@@ -94,6 +94,12 @@ export const paymentIntents = pgTable(
     status: paymentIntentStatus('status').notNull().default('created'),
     /** The provider's reference (DepositInitiation.providerRef); unique per provider. */
     providerRef: text('provider_ref'),
+    /**
+     * SMS rail: the collection account (SMS_COLLECTION_ACCOUNTS id) the player was told to pay.
+     * Each account has its own space of exact amounts. Null: a deposit from before accounts were
+     * recorded (an SMS on any account can still pay it).
+     */
+    collectionAccount: text('collection_account'),
     initiationKind: depositInitiationKind('initiation_kind'),
     redirectUrl: text('redirect_url'),
     instructions: text('instructions'),
@@ -142,8 +148,9 @@ export const paymentIntents = pgTable(
     // SMS rail: the exact amount is the payment reference, so no two open
     // SMS deposits may share one (allocateSmsAmount also keeps it reserved
     // for a while after expiry; this is the backstop).
+    // One exact amount per collection account (null counts as one account of its own).
     uniqueIndex('payment_intents_sms_amount_open_uq')
-      .on(t.amount)
+      .on(sql`coalesce(${t.collectionAccount}, '')`, t.amount)
       .where(sql`${t.provider} = 'sms' AND ${t.status} IN ('created', 'pending')`),
     index('payment_intents_sms_open_idx')
       .on(t.amount)
@@ -354,5 +361,66 @@ export const paymentEvents = pgTable(
     index('payment_events_intent_idx').on(t.intentId),
     index('payment_events_payout_idx').on(t.payoutId),
     check('payment_events_target', sql`${t.intentId} IS NULL OR ${t.payoutId} IS NULL`),
+  ],
+);
+
+/**
+ * "My deposit did not arrive" (docs/plans/counter-codes-and-deposit-recovery.md, G5.3): a logged-in
+ * player's claim that money they sent was not credited. It never credits anything by itself: the
+ * back office's "Money not credited" page pairs it with the money that arrived (an unmatched SMS,
+ * a flagged provider payment) and an admin credits it (the SMS credit or the manual deposit, which
+ * mark the claim `credited` in the same transaction), or closes it with a note.
+ *
+ * method: what the player says they used (telebirr, cbe, chapa, other). status: open, credited,
+ * closed.
+ */
+export const DEPOSIT_CLAIM_METHODS = ['telebirr', 'cbe', 'chapa', 'other'] as const;
+export const DEPOSIT_CLAIM_STATUSES = ['open', 'credited', 'closed'] as const;
+
+export const depositClaims = pgTable(
+  'deposit_claims',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    method: text('method').notNull(),
+    amount: bigint('amount', { mode: 'bigint' }).notNull(),
+    /** When the player says they paid. */
+    paidAt: timestamp('paid_at', { withTimezone: true }).notNull(),
+    /** The provider's transaction id or the bank SMS reference, as typed (spaces removed). */
+    reference: text('reference'),
+    /** The phone that paid, when not the player's own. */
+    payerPhone: text('payer_phone'),
+    note: text('note'),
+    /** Where it was filed: `app` (logged in) or `telegram` (the bot; kept 90 days, decision O3). */
+    source: text('source').notNull().default('app'),
+    status: text('status').notNull().default('open'),
+    /** The deposit credited for it (status credited). */
+    creditedIntentId: uuid('credited_intent_id').references(() => paymentIntents.id, {
+      onDelete: 'restrict',
+    }),
+    resolvedBy: uuid('resolved_by'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolutionNote: text('resolution_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index('deposit_claims_user_idx').on(t.userId, t.createdAt),
+    index('deposit_claims_open_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'open'`),
+    check('deposit_claims_amount_positive', sql`${t.amount} > 0`),
+    check('deposit_claims_method', sql`${t.method} IN ('telebirr', 'cbe', 'chapa', 'other')`),
+    check('deposit_claims_status', sql`${t.status} IN ('open', 'credited', 'closed')`),
+    check('deposit_claims_source', sql`${t.source} IN ('app', 'telegram')`),
+    index('deposit_claims_telegram_idx')
+      .on(t.createdAt)
+      .where(sql`${t.source} = 'telegram'`),
+    check('deposit_claims_resolved', sql`(${t.status} = 'open') = (${t.resolvedAt} IS NULL)`),
+    check(
+      'deposit_claims_credited',
+      sql`(${t.status} = 'credited') = (${t.creditedIntentId} IS NOT NULL)`,
+    ),
   ],
 );

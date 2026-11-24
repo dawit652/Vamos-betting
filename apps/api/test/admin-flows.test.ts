@@ -15,6 +15,8 @@ import {
   SetOddsResponse,
   StaffBetDetailView,
   StaffBetListResponse,
+  ManualDepositResponse,
+  RecheckDepositResponse,
   StaffDepositListResponse,
   StaffJackpotEntryListResponse,
   StaffJackpotRoundListResponse,
@@ -565,6 +567,34 @@ describe('settings and withdrawals', () => {
     expect(cleared.settings.riskLimits).toEqual(none);
   });
 
+  it('edits the board caps (Hulusport and Narobet matches): ETB 20,000 per match by default', async () => {
+    const view = StaffSettingsResponse.parse(
+      expectOk(await asStaff(ctx, s.finance, 'GET', '/admin/settings')),
+    );
+    const byDefault = { maxSelectionLiability: null, maxEventLiability: '2000000' };
+    expect(view.settings.boardRiskLimits).toEqual(byDefault);
+    const caps = { maxSelectionLiability: null, maxEventLiability: '5000000' };
+    const updated = StaffSettingsResponse.parse(
+      expectOk(
+        await asStaff(ctx, s.admin, 'PUT', '/admin/settings/board_risk_limits', { value: caps }),
+      ),
+    );
+    expect(updated.settings.boardRiskLimits).toEqual(caps);
+    expect(await staffAudit(s.admin, 'board_risk_limits')).toEqual(['settings.updated']);
+    const refused = await asStaff(ctx, s.admin, 'PUT', '/admin/settings/board_risk_limits', {
+      value: { maxSelectionLiability: null, maxEventLiability: '0' },
+    });
+    expect(refused.statusCode).toBe(422);
+    expect(
+      (await asStaff(ctx, s.finance, 'PUT', '/admin/settings/board_risk_limits', { value: caps }))
+        .statusCode,
+    ).toBe(403);
+    // Back to the default, so the rest of this file is unaffected.
+    expectOk(
+      await asStaff(ctx, s.admin, 'PUT', '/admin/settings/board_risk_limits', { value: byDefault }),
+    );
+  });
+
   it('edits the market families (plan task 2.5): validated, audited, today by default', async () => {
     const view = StaffSettingsResponse.parse(
       expectOk(await asStaff(ctx, s.finance, 'GET', '/admin/settings')),
@@ -718,6 +748,40 @@ describe('settings and withdrawals', () => {
     StaffDepositListResponse.parse(
       expectOk(await asStaff(ctx, s.finance, 'GET', '/admin/deposits/flagged')),
     );
+  });
+
+  it('a deposit credited by hand: one admin (finance may not), once per transaction id', async () => {
+    const player = await registerAndLogin(ctx);
+    const url = `/admin/users/${player.userId}/manual-deposits`;
+    const body = {
+      provider: 'telebirr',
+      providerTransactionId: 'TBX-API-0001',
+      amount: '25000',
+      reason: 'Telebirr receipt shown; the callback never came',
+    };
+    expect((await asStaff(ctx, s.finance, 'POST', url, body)).statusCode).toBe(403);
+    const credited = ManualDepositResponse.parse(
+      expectOk(await asStaff(ctx, s.admin, 'POST', url, body)),
+    );
+    expect(credited).toMatchObject({
+      created: true,
+      deposit: { provider: 'telebirr', amount: '25000', status: 'succeeded' },
+    });
+    expect(await cashOf(player)).toBe(birr(250));
+    const again = await asStaff(ctx, s.admin, 'POST', url, body);
+    expect(again.statusCode).toBe(409);
+    expect(ApiErrorSchema.parse(again.json()).error.code).toBe('already_credited');
+    expect(await staffAudit(s.admin, credited.deposit.id)).toContain(
+      'payment.deposit_credited_by_admin',
+    );
+    // A credited deposit needs no re-check.
+    expect(
+      RecheckDepositResponse.parse(
+        expectOk(
+          await asStaff(ctx, s.finance, 'POST', `/admin/deposits/${credited.deposit.id}/recheck`),
+        ),
+      ).outcome,
+    ).toBe('already_credited');
   });
 });
 

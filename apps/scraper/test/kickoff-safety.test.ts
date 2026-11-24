@@ -603,19 +603,15 @@ describe('K1: an earlier kickoff closes betting', () => {
 
 describe('K2/K4 through the pipeline', () => {
   it(
-    'C2: within 72 hours, a fresh source unchanged for 24 hours confirms the kickoff; one listed match left unscored 48 hours after its end makes the source not fresh',
+    'C2: a fresh source unchanged for 24 hours confirms the kickoff, also more than 72 hours ahead (owner, 22 Nov 2026: the window is 30 days)',
     async () => {
       await start();
       // A source that has shown a past result is known; nothing waits on it: fresh.
       const eventId = await createdEvent([OLD_OF, ARSENAL_CHELSEA_OF]);
-      // 73 hours before kickoff the lead window has not started.
+      // 73 hours before kickoff: no longer too early for a single source.
       h.at(new Date(KICKOFF.getTime() - 73 * HOUR));
       await h.run('src-a');
-      expect(await assessNow(eventId)).toMatchObject({
-        confirmed: false,
-        basis: null,
-        reasons: ['too_early_for_single_source'],
-      });
+      expect(await assessNow(eventId)).toMatchObject({ confirmed: true, basis: 'C2', reasons: [] });
       // 71 hours before kickoff, the statement has been unchanged for more than a day.
       h.at(new Date(KICKOFF.getTime() - 71 * HOUR));
       await h.run('src-a');

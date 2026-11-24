@@ -10,8 +10,8 @@ export const DAY_MS = 24 * HOUR_MS;
 
 // --- Fixtures ---------------------------------------------------------------
 
-/** Fixtures further ahead than this are not created. */
-export const FIXTURE_HORIZON_MS = 14 * DAY_MS;
+/** Fixtures further ahead than this are not created (owner, 23 Nov 2026: 30 days, was 14). */
+export const FIXTURE_HORIZON_MS = 30 * DAY_MS;
 /** A fixture must start at least this far ahead to be created or moved to. */
 export const MIN_LEAD_MS = 10 * MINUTE_MS;
 /** Kickoffs closer than this are the same time. */
@@ -54,8 +54,13 @@ export const SOURCE_STALE_AFTER_MS = 48 * HOUR_MS;
 
 // --- Kickoff safety (docs/scraper.md 6.1a, docs/scraper-plan/kickoff-safety.md) -----------
 
-/** C2: a single fresh source can confirm a kickoff only this close to it (0 wrong opens at 72 h and 96 h). */
-export const KICKOFF_CONFIRM_LEAD_MS = 72 * HOUR_MS;
+/**
+ * C2: a single fresh source can confirm a kickoff only this close to it. Owner's decision of 22 Nov
+ * 2026: odds of matches more than 72 hours away are no longer locked, so the window covers every
+ * match we list (it was 72 h: 0 wrong opens measured at 72 h and 96 h). C2's other conditions stay:
+ * no source disagrees, the source is fresh, and its kickoff held for KICKOFF_STABLE_MS.
+ */
+export const KICKOFF_CONFIRM_LEAD_MS = 30 * DAY_MS;
 /** C2: the confirming statement must have held its value this long (insurance against a source mid-edit). */
 export const KICKOFF_STABLE_MS = 24 * HOUR_MS;
 /** A statement about an event has a kickoff at most this far from the event's start (largest measured early move 4.9 days). */
@@ -87,6 +92,48 @@ export const MARKET_ODDS_MAX_AGE_MS = 3 * HOUR_MS;
 export const MARKET_CLOSE_LEAD_MS = 5 * MINUTE_MS;
 /** A price row is linked to the event of the same competition and teams that starts within this of its kickoff. */
 export const MARKET_ODDS_LINK_WINDOW_MS = 6 * HOUR_MS;
+/**
+ * A competitor board's prices (Hulusport via mr-x, docs/plans/hulusport-feed.md) confirmed upstream
+ * or read by us longer ago than this are not used: the event goes back to our own prices. mr-x
+ * reads each match about every 7 minutes.
+ */
+export const BOARD_PRICES_MAX_AGE_MS = 30 * MINUTE_MS;
+
+/**
+ * How old Narobet's prices (mr-z, docs/plans/narobet-feed.md) may be for the pricing step, by the
+ * time left to the kickoff: mr-z re-reads a match's markets every 10 minutes in its last 3 hours,
+ * every 30 minutes in its last 24 hours and every 6 hours before that; each limit leaves slack for
+ * one late read. Older prices are not used: the event goes back to our own prices.
+ */
+export const NAROBET_FRESHNESS_STEPS: ReadonlyArray<{ aheadMs: number; maxAgeMs: number }> = [
+  { aheadMs: 3 * 60 * MINUTE_MS, maxAgeMs: 20 * MINUTE_MS },
+  { aheadMs: 24 * 60 * MINUTE_MS, maxAgeMs: 45 * MINUTE_MS },
+];
+/** Beyond the last of NAROBET_FRESHNESS_STEPS. */
+export const NAROBET_PRICES_MAX_AGE_FAR_MS = 7 * 60 * MINUTE_MS;
+
+export function narobetPricesMaxAgeMs(kickoff: Date, now: Date): number {
+  const ahead = kickoff.getTime() - now.getTime();
+  for (const step of NAROBET_FRESHNESS_STEPS) {
+    if (ahead <= step.aheadMs) return step.maxAgeMs;
+  }
+  return NAROBET_PRICES_MAX_AGE_FAR_MS;
+}
+/**
+ * Narobet-only matches (docs/plans/narobet-events.md): at most this many new events per read of
+ * mr-z, so the first fill of 30 days spreads over a few hours instead of landing at once.
+ */
+export const NAROBET_EVENTS_MAX_NEW_PER_READ = 100;
+/**
+ * A Narobet-only match gets the market factory's markets (about 500 options) only this close to its
+ * kickoff; further out it has Narobet's own markets only (our server's load at 30 days ahead).
+ */
+export const NAROBET_FACTORY_WITHIN_MS = 72 * HOUR_MS;
+/**
+ * API-Football leagues never listed from Narobet, by the owner's decision D5 (21 Nov 2026): club
+ * friendlies (667, "Friendlies Clubs"). National-team (10) and women's (666) friendlies stay.
+ */
+export const NAROBET_EXCLUDED_LEAGUE_IDS: ReadonlySet<number> = new Set([667]);
 /**
  * A2: an event priced from the market that starts within MARKET_LAPSE_LEAD_MS stays bettable only
  * while the market prices it from prices listed in the last MARKET_LAPSE_MAX_AGE_MS; otherwise the

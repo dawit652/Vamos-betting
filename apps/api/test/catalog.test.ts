@@ -8,7 +8,14 @@ import {
   type EventSummary,
 } from '@vamos/contracts';
 import type { Database } from '@vamos/db';
-import { competitionAliases, events, sports, teamAliases } from '@vamos/db/schema';
+import {
+  categories,
+  competitionAliases,
+  competitions,
+  events,
+  sports,
+  teamAliases,
+} from '@vamos/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { normalizeName } from '@vamos/scraper';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -76,8 +83,15 @@ const ev = {} as Record<
 const atpEvents: string[] = [];
 let soonMarkets: Record<string, Awaited<ReturnType<typeof insertMarket>>> = {};
 
+/** A match that is listed: open for betting with an open 1X2 (the lists show nothing else). */
+async function listedEvent(db: Database, fixture: Parameters<typeof insertEvent>[1]) {
+  const event = await insertEvent(db, fixture);
+  await insertMarket(db, event.id, '1x2', null, ONE_X_TWO);
+  return event;
+}
 beforeAll(async () => {
-  ctx = await createTestContext();
+  // These tests change the data and count queries, so they run with the list cache off.
+  ctx = await createTestContext({ CATALOG_CACHE_SECONDS: '0' });
   ctx.clock.now = NOW;
   db = ctx.db.db;
 
@@ -267,12 +281,16 @@ beforeAll(async () => {
     awayTeamId: ids.wydad,
     startTime: hours(3),
   });
+  // Listed matches are open for betting with an open market (owner, 23 Nov 2026).
+  await insertMarket(db, ev.caf.id, '1x2', null, ONE_X_TWO);
   ev.far = await insertEvent(db, {
     ...pl,
     homeTeamId: ids.chelsea,
     awayTeamId: ids.liverpool,
-    startTime: hours(80),
+    // Beyond the 30-day upcoming window (UPCOMING_WINDOW_MS).
+    startTime: hours(31 * 24),
   });
+  await insertMarket(db, ev.far.id, '1x2', null, ONE_X_TWO);
   ev.finished = await insertEvent(db, {
     ...pl,
     homeTeamId: ids.chelsea,
@@ -335,6 +353,10 @@ beforeAll(async () => {
     awayTeamId: ids.celtics,
     startTime: hours(5),
   });
+  await insertMarket(db, ev.nbaSoon.id, 'ml', null, [
+    ['1', 1500],
+    ['2', 2500],
+  ]);
 
   // 25 tennis matches for pagination: pairs share a start time, and two start
   // within the same millisecond (microsecond precision must survive the cursor).
@@ -395,19 +417,19 @@ async function allPages(
 }
 
 describe('GET /sports', () => {
-  it('lists active sports with live and next-72h scheduled counts', async () => {
+  it('lists active sports with live and next-30-day scheduled counts', async () => {
     const response = await get('/sports');
     expect(response.statusCode).toBe(200);
     expect(response.headers['cache-control']).toBe('public, max-age=5');
     const body = SportsResponse.parse(response.json());
     expect(body.items).toEqual([
-      // live: the PL match. upcoming: soon, tomorrow, caf, closedBetting (not far,
+      // live: the PL match. upcoming: soon, tomorrow, caf (not closedBetting, not far,
       // finished, cancelled, or the inactive competition's match).
       {
         id: 'football',
         name: { en: 'Football', am: 'እግር ኳስ' },
         liveCount: 1,
-        upcomingCount: 4,
+        upcomingCount: 3,
       },
       {
         id: 'basketball',
@@ -428,12 +450,13 @@ describe('GET /sports/:sport/competitions', () => {
     const body = CompetitionsResponse.parse(response.json());
     expect(body.items).toEqual([
       {
-        category: { slug: 'england', name: { en: 'England' }, countryCode: 'GB' },
+        // Names without Amharic get it from amharicName (@vamos/core).
+        category: { slug: 'england', name: { en: 'England', am: 'እንግሊዝ' }, countryCode: 'GB' },
         competitions: [
           {
             slug: 'premier-league',
             name: { en: 'Premier League', am: 'ፕሪሚየር ሊግ' },
-            eventCount: 3, // live, tomorrow, closedBetting
+            eventCount: 2, // live, tomorrow (closedBetting is not listed: betting closed)
             featured: true,
           },
         ],
@@ -454,17 +477,17 @@ describe('GET /sports/:sport/competitions', () => {
         ],
       },
       {
-        category: { slug: 'africa', name: { en: 'Africa' }, countryCode: null },
+        category: { slug: 'africa', name: { en: 'Africa', am: 'አፍሪካ' }, countryCode: null },
         competitions: [
           {
             slug: 'caf-champions-league',
-            name: { en: 'CAF Champions League' },
+            name: { en: 'CAF Champions League', am: 'የካፍ ሻምፒየንስ ሊግ' },
             eventCount: 1,
             featured: false,
           },
           {
             slug: 'caf-confederation-cup',
-            name: { en: 'CAF Confederation Cup' },
+            name: { en: 'CAF Confederation Cup', am: 'የካፍ ኮንፌዴሬሽን ዋንጫ' },
             eventCount: 0,
             featured: false,
           },
@@ -488,12 +511,38 @@ describe('GET /events', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['cache-control']).toBe('public, max-age=5');
     const body = EventListResponse.parse(response.json());
-    expect(body.items.map((item) => item.id)).toEqual([
-      ev.live.id,
-      ev.soon.id,
-      ev.closedBetting.id,
-    ]);
+    expect(body.items.map((item) => item.id)).toEqual([ev.live.id, ev.soon.id]);
     expect(body.nextCursor).toBeNull();
+  });
+
+  it('falls back to every league when no featured one has a match within 24h', async () => {
+    const featured = await db.execute<{ id: string }>(
+      sql`UPDATE competitions SET featured = false WHERE featured RETURNING id`,
+    );
+    try {
+      const body = EventListResponse.parse(
+        (await get('/events?filter=highlights&limit=100')).json(),
+      );
+      const ids = body.items.map((item) => item.id);
+      // The featured leagues' matches are still there, and the others' too (the CAF match).
+      expect(ids).toEqual(expect.arrayContaining([ev.live.id, ev.soon.id]));
+      expect(ids).not.toContain(ev.closedBetting.id);
+      expect(ids).toContain(ev.caf.id);
+      // Not tomorrow's match beyond 24h, and in start order (live first).
+      expect(ids).not.toContain(ev.tomorrow.id);
+      const starts = body.items.map((item) => item.startTime);
+      expect([...starts].sort()).toEqual(starts);
+    } finally {
+      const back = featured.rows.map((r) => r.id);
+      if (back.length > 0) {
+        await db.execute(
+          sql`UPDATE competitions SET featured = true WHERE id IN (${sql.join(
+            back.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})`,
+        );
+      }
+    }
   });
 
   it('builds list rows with the main market, "+N markets" and game id', async () => {
@@ -517,6 +566,8 @@ describe('GET /events', () => {
       score: { home: 1, away: 0 },
       // ou 2.5 (open) and btts (suspended); not cs (closed) or dnb (settled).
       marketCount: 2,
+      // ou 2.5 (2) and btts (2).
+      optionCount: 4,
     });
     expect(live?.mainMarket).toMatchObject({
       type: '1x2',
@@ -539,6 +590,8 @@ describe('GET /events', () => {
       liveMinute: null,
       // dc, ou 1.5 (suspended), ou 2.5, ht_1x2, cs; not the unknown market type.
       marketCount: 5,
+      // Their selections: dc 3, ou 1.5 2, ou 2.5 2, ht_1x2 3, cs 3.
+      optionCount: 13,
     });
     expect(soon?.home.name).toEqual({ en: 'Saint George', am: 'ቅዱስ ጊዮርጊስ' });
     expect(soon?.mainMarket?.selections.map((s) => [s.code, s.label.am, s.open])).toEqual([
@@ -547,15 +600,35 @@ describe('GET /events', () => {
       ['2', 'ፋሲል ከነማ', false],
     ]);
 
-    expect(closed?.mainMarket?.selections.every((s) => !s.open)).toBe(true);
-    expect(closed?.marketCount).toBe(0);
+    // Betting closed: not listed at all (owner, 23 Nov 2026), rather than a row of padlocks.
+    expect(closed).toBeUndefined();
   });
 
-  it('filters upcoming: scheduled within 72h, in start order', async () => {
+  it('leaves out a match whose 1X2 is suspended, though its other markets are open (GS2)', async () => {
+    const padlocked = await insertEvent(db, {
+      sportId: 'football',
+      competitionId: ids.caf,
+      homeTeamId: ids.ahly,
+      awayTeamId: ids.wydad,
+      startTime: hours(5),
+    });
+    await insertMarket(db, padlocked.id, '1x2', null, ONE_X_TWO, 'suspended');
+    await insertMarket(db, padlocked.id, 'ou', '2.5', [
+      ['over', 1900],
+      ['under', 1900],
+    ]);
+    try {
+      expect(await listIds('/events?filter=upcoming')).not.toContain(padlocked.id);
+      expect(await listIds('/events?filter=today')).not.toContain(padlocked.id);
+    } finally {
+      await db.execute(sql`DELETE FROM events WHERE id = ${padlocked.id}`);
+    }
+  });
+
+  it('filters upcoming: scheduled within 30 days, in start order', async () => {
     expect(await listIds('/events?filter=upcoming')).toEqual([
       ev.soon.id,
       ev.caf.id,
-      ev.closedBetting.id,
       ev.tomorrow.id,
     ]);
     expect(await listIds('/events?filter=upcoming&sport=basketball')).toEqual([ev.nbaSoon.id]);
@@ -573,7 +646,6 @@ describe('GET /events', () => {
 
   it('filters by competition slug', async () => {
     expect(await listIds('/events?filter=upcoming&competition=premier-league')).toEqual([
-      ev.closedBetting.id,
       ev.tomorrow.id,
     ]);
     expect(await listIds('/events?filter=upcoming&competition=nope')).toEqual([]);
@@ -591,16 +663,12 @@ describe('GET /events', () => {
     expect(await listIds('/events?filter=upcoming&startsWithinHours=24')).toEqual([
       ev.soon.id,
       ev.caf.id,
-      ev.closedBetting.id,
     ]);
-    const pages = await allPages('/events?filter=upcoming&startsWithinHours=24', 2);
-    expect(pages.map((page) => page.map((item) => item.id))).toEqual([
-      [ev.soon.id, ev.caf.id],
-      [ev.closedBetting.id],
-    ]);
+    const pages = await allPages('/events?filter=upcoming&startsWithinHours=24', 1);
+    expect(pages.map((page) => page.map((item) => item.id))).toEqual([[ev.soon.id], [ev.caf.id]]);
   });
 
-  it('filters by Addis Ababa day: today, a later day, and up to today + 14', async () => {
+  it('filters by Addis Ababa day: today, a later day, and up to today + 30', async () => {
     // Today's tab: live or scheduled today; upcoming never lists what has started.
     expect(await listIds('/events?filter=today&day=2026-10-08')).toEqual(
       await listIds('/events?filter=today'),
@@ -608,23 +676,37 @@ describe('GET /events', () => {
     expect(await listIds('/events?filter=upcoming&day=2026-10-08')).toEqual([
       ev.soon.id,
       ev.caf.id,
-      ev.closedBetting.id,
     ]);
-    // 21:00 Addis on the 9th; the 11th is outside the 72h upcoming window's own reach.
+    // 21:00 Addis on the 9th.
     expect(await listIds('/events?filter=upcoming&day=2026-10-09')).toEqual([ev.tomorrow.id]);
     expect(await listIds('/events?filter=today&day=2026-10-09')).toEqual([ev.tomorrow.id]);
-    expect(await listIds('/events?filter=upcoming&day=2026-10-11')).toEqual([ev.far.id]);
-    expect(await listIds('/events?filter=upcoming&day=2026-10-12')).toEqual([]);
-    expect(await listIds('/events?filter=upcoming&day=2026-10-22')).toEqual([]); // today + 14
+    expect(await listIds('/events?filter=upcoming&day=2026-10-11')).toEqual([]);
+    expect(await listIds('/events?filter=upcoming&day=2026-11-07')).toEqual([]); // today + 30
+    // A match four weeks away is in Upcoming, on its day and in the whole 30-day list.
+    const inFourWeeks = await listedEvent(db, {
+      sportId: 'football',
+      competitionId: ids.caf,
+      homeTeamId: ids.ahly,
+      awayTeamId: ids.wydad,
+      startTime: hours(28 * 24),
+    });
+    try {
+      expect(await listIds('/events?filter=upcoming&day=2026-11-05')).toEqual([inFourWeeks.id]);
+      expect(await listIds('/events?filter=upcoming&competition=caf-champions-league')).toContain(
+        inFourWeeks.id,
+      );
+    } finally {
+      await db.delete(events).where(eq(events.id, inFourWeeks.id));
+    }
     // Midnight Addis is 21:00 UTC: the day boundaries follow the Addis calendar.
-    const lateOnNinth = await insertEvent(db, {
+    const lateOnNinth = await listedEvent(db, {
       sportId: 'football',
       competitionId: ids.caf,
       homeTeamId: ids.wydad,
       awayTeamId: ids.ahly,
       startTime: new Date('2026-10-09T20:59:59.999Z'),
     });
-    const earlyOnTenth = await insertEvent(db, {
+    const earlyOnTenth = await listedEvent(db, {
       sportId: 'football',
       competitionId: ids.caf,
       homeTeamId: ids.ahly,
@@ -646,10 +728,7 @@ describe('GET /events', () => {
   it('filters by country (category slug)', async () => {
     expect(await listIds('/events?filter=highlights&country=ethiopia')).toEqual([ev.soon.id]);
     expect(await listIds('/events?filter=today&country=africa')).toEqual([ev.caf.id]);
-    expect(await listIds('/events?filter=highlights&country=england')).toEqual([
-      ev.live.id,
-      ev.closedBetting.id,
-    ]);
+    expect(await listIds('/events?filter=highlights&country=england')).toEqual([ev.live.id]);
     expect(await listIds('/events?filter=today&country=nope')).toEqual([]);
     // A category of another sport matches nothing.
     expect(await listIds('/events?filter=live&country=usa')).toEqual([]);
@@ -657,6 +736,40 @@ describe('GET /events', () => {
     expect(await listIds('/events?filter=upcoming&country=england&day=2026-10-09')).toEqual([
       ev.tomorrow.id,
     ]);
+  });
+
+  it("takes in every category of the same country: ours and the board's are one chip", async () => {
+    const board = await insertCategory(db, 'football', 'hl-england', { en: 'England' }, 900, 'GB');
+    const boardLeague = await insertCompetition(db, {
+      sportId: 'football',
+      categoryId: board,
+      slug: 'hl-national-league',
+      name: { en: 'National League' },
+      sortOrder: 10,
+    });
+    const extra = await insertEvent(db, {
+      sportId: 'football',
+      competitionId: boardLeague,
+      homeTeamId: ids.arsenal,
+      awayTeamId: ids.chelsea,
+      startTime: minutes(-20),
+      status: 'live',
+      liveMinute: 20,
+      period: '1H',
+      score: [0, 0],
+    });
+    try {
+      for (const slug of ['england', 'hl-england']) {
+        const found = await listIds(`/events?filter=live&country=${slug}`);
+        expect(found, slug).toEqual(expect.arrayContaining([ev.live.id, extra.id]));
+      }
+      // A category without a country code stays only itself.
+      expect(await listIds('/events?filter=today&country=africa')).toEqual([ev.caf.id]);
+    } finally {
+      await db.delete(events).where(eq(events.id, extra.id));
+      await db.delete(competitions).where(eq(competitions.id, boardLeague));
+      await db.delete(categories).where(eq(categories.id, board));
+    }
   });
 
   it('returns the double chance market as mainMarket with market=dc', async () => {
@@ -672,7 +785,7 @@ describe('GET /events', () => {
     });
     // No double chance market: null, the event is still listed.
     expect(byId.get(ev.live.id)?.mainMarket).toBeNull();
-    expect(byId.size).toBe(3);
+    expect(byId.size).toBe(2);
     // The default and '1x2' are the 1X2.
     for (const url of ['/events?filter=highlights', '/events?filter=highlights&market=1x2']) {
       const items = EventListResponse.parse((await get(url)).json()).items;
@@ -691,21 +804,16 @@ describe('GET /events', () => {
       start: new Date('2026-10-07T21:00:00.000Z'),
       end: new Date('2026-10-08T21:00:00.000Z'),
     });
-    expect(await listIds('/events?filter=today')).toEqual([
-      ev.live.id,
-      ev.soon.id,
-      ev.caf.id,
-      ev.closedBetting.id,
-    ]);
+    expect(await listIds('/events?filter=today')).toEqual([ev.live.id, ev.soon.id, ev.caf.id]);
 
-    const beforeMidnight = await insertEvent(db, {
+    const beforeMidnight = await listedEvent(db, {
       sportId: 'football',
       competitionId: ids.caf,
       homeTeamId: ids.wydad,
       awayTeamId: ids.ahly,
       startTime: new Date('2026-10-08T20:59:59.999Z'),
     });
-    const atMidnight = await insertEvent(db, {
+    const atMidnight = await listedEvent(db, {
       sportId: 'football',
       competitionId: ids.caf,
       homeTeamId: ids.ahly,
@@ -721,9 +829,10 @@ describe('GET /events', () => {
       expect(await listIds('/events?filter=today&competition=caf-champions-league')).toEqual([
         atMidnight.id,
       ]);
+      // The CAF match kicked off at 15:00 UTC: by 20:59 it is no longer listed (not bettable,
+      // and API-Football never reports in-play), the later one still is.
       ctx.clock.now = new Date('2026-10-08T20:59:59.999Z');
       expect(await listIds('/events?filter=today&competition=caf-champions-league')).toEqual([
-        ev.caf.id,
         beforeMidnight.id,
       ]);
     } finally {
@@ -815,7 +924,7 @@ describe('GET /events', () => {
     }
     const days = [
       '2026-10-07', // yesterday (Addis)
-      '2026-10-23', // today + 15
+      '2026-11-08', // today + 31
       '2026-02-30', // not a calendar date
       '2026-1-9',
       '20261009',
@@ -851,7 +960,7 @@ describe('GET /events', () => {
     try {
       const response = await get('/events?sport=tennis&filter=upcoming&limit=25');
       expect(EventListResponse.parse(response.json()).items).toHaveLength(25);
-      expect(queries).toBe(3); // events, markets, main-market selections
+      expect(queries).toBe(4); // events, markets, option counts, main-market selections
     } finally {
       (pool as { query: unknown }).query = original;
     }
@@ -867,6 +976,7 @@ describe('GET /events/:id and /events/by-game-id/:gameId', () => {
     expect(body.gameId).toBe('0123');
     expect(body.htScore).toBeNull();
     expect(body.marketCount).toBe(5);
+    expect(body.optionCount).toBe(13);
     expect(body.mainMarket?.id).toBe(soonMarkets.oneXTwo!.id);
     expect(body.markets.map((m) => [m.type, m.line, m.status, m.name.en])).toEqual([
       ['1x2', null, 'open', 'Match Result'],
@@ -1014,9 +1124,8 @@ describe('selection open flag', () => {
       const detail = EventDetail.parse((await get(`/events/${late.id}`)).json());
       expect(detail.status).toBe('scheduled');
       expect(detail.markets[0]?.selections.map((s) => s.open)).toEqual([false, false, false]);
-      const today = EventListResponse.parse((await get('/events?filter=today')).json());
-      const row = today.items.find((item) => item.id === late.id);
-      expect(row?.mainMarket?.selections.every((s) => !s.open)).toBe(true);
+      // Past its start it leaves the lists (owner, 23 Nov 2026), its page stays closed.
+      expect(await listIds('/events?filter=today')).not.toContain(late.id);
       expect(await listIds('/events?filter=highlights')).not.toContain(late.id);
       // Until its start time the same event is open.
       ctx.clock.now = minutes(-31);
@@ -1053,9 +1162,9 @@ describe('GET /search', () => {
 
   it('finds matches by team name, case-insensitively, with odds, in start order', async () => {
     const body = await search('ARSEN');
-    // Live, then closed-betting (+4h), then tomorrow (+30h); not finished, cancelled or inactive.
-    expect(body.events.map((e) => e.id)).toEqual([ev.live.id, ev.closedBetting.id, ev.tomorrow.id]);
-    expect(body.events[2]?.mainMarket?.selections).toHaveLength(3);
+    // Live, then tomorrow (+30h); not closed-betting, finished, cancelled or inactive.
+    expect(body.events.map((e) => e.id)).toEqual([ev.live.id, ev.tomorrow.id]);
+    expect(body.events[1]?.mainMarket?.selections).toHaveLength(3);
     expect(body.competitions).toEqual([]);
   });
 
@@ -1075,8 +1184,8 @@ describe('GET /search', () => {
       slug: 'premier-league',
       sport: 'football',
       name: { en: 'Premier League', am: 'ፕሪሚየር ሊግ' },
-      category: { slug: 'england', name: { en: 'England' }, countryCode: 'GB' },
-      eventCount: 3,
+      category: { slug: 'england', name: { en: 'England', am: 'እንግሊዝ' }, countryCode: 'GB' },
+      eventCount: 2,
     });
     const amharic = await search('ፕሪምየር');
     expect(amharic.competitions.map((c) => c.slug)).toEqual(['ethiopian-premier-league']);
@@ -1118,7 +1227,7 @@ describe('GET /search', () => {
       competitionId: ids.premier,
       homeTeamId: ids.wydad,
       awayTeamId: ids.ahly,
-      startTime: hours(15 * 24),
+      startTime: hours(31 * 24),
     });
     try {
       expect((await search('wydad ac')).events.map((e) => e.id)).toEqual([ev.caf.id]);

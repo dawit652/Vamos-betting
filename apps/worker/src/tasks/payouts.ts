@@ -1,6 +1,7 @@
 import {
   applyPayoutAttempt,
   claimDuePayouts,
+  DESK_PROVIDERS,
   loadGameSettings,
   markPayoutProcessing,
   recordPayoutAttemptError,
@@ -10,7 +11,7 @@ import {
 } from '@vamos/db';
 import { attemptPayout, payoutRetryDelayMs, type PayoutAttemptResult } from '@vamos/payments';
 import type { Job } from 'bullmq';
-import { and, eq, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, notInArray, or } from 'drizzle-orm';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import { createQueueWorker, QUEUE_NAMES, type QueueWorker } from '../lib/queues';
 import { withTxRetry } from '../lib/retry';
@@ -84,7 +85,10 @@ function leaseUntil(now: Date, attempts: number): Date {
 
 /**
  * Claims one payout if it is due (see 1. above); null when it is not
- * approved / processing, flagged, not due yet, or another worker holds it.
+ * approved / processing, flagged, not due yet, or another worker holds it, and
+ * never one the worker does not send, as in claimDuePayouts: paid by hand by an
+ * operator, or in cash at a shop's desk (a withdrawal code is approved at once
+ * and waits there for the cashier).
  */
 export async function claimPayout(ctx: TaskContext, payoutId: string): Promise<Payout | null> {
   const now = ctx.clock();
@@ -98,6 +102,8 @@ export async function claimPayout(ctx: TaskContext, payoutId: string): Promise<P
           eq(payouts.id, payoutId),
           inArray(payouts.status, [...DUE_STATUSES]),
           isNull(payouts.flaggedAt),
+          eq(payouts.manual, false),
+          notInArray(payouts.provider, [...DESK_PROVIDERS]),
           or(isNull(payouts.nextAttemptAt), lte(payouts.nextAttemptAt, now)),
         ),
       )

@@ -43,6 +43,8 @@ x-app-env: &app-env
   TRUST_PROXY: '${TRUST_PROXY:-}'
   PUBLIC_WEB_URL: '${PUBLIC_WEB_URL:?set PUBLIC_WEB_URL}'
   ADMIN_WEB_URL: '${ADMIN_WEB_URL:?set ADMIN_WEB_URL}'
+  # The shop app's origin (https://shop.example.et) once it is set up; empty: no CORS for /shop/*.
+  SHOP_WEB_URL: '${SHOP_WEB_URL:-}'
   PUBLIC_API_URL: '${PUBLIC_API_URL:?set PUBLIC_API_URL}'
   PAYMENT_CALLBACK_BASE_URL:
   DATABASE_URL: 'postgres://vamos_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-vamos}'
@@ -60,9 +62,17 @@ x-app-env: &app-env
   KYC_PROVIDER: '${KYC_PROVIDER:-mock}'
   SMS_PROVIDER: '${SMS_PROVIDER:-mock}'
   REGISTRATION_SMS_VERIFICATION: '${REGISTRATION_SMS_VERIFICATION:-required}'
+  # Forgot PIN at a shop (docs/plans/cashier-dashboard.md, "Assisted PIN reset"): off by default.
+  CASHIER_PIN_RESET: '${CASHIER_PIN_RESET:-off}'
   # Alerts to the owner's phone (plan task 1.11): off while the list is empty.
   OWNER_ALERT_PHONES: '${OWNER_ALERT_PHONES:-}'
   OWNER_ALERT_MIN_INTERVAL_MINUTES: '${OWNER_ALERT_MIN_INTERVAL_MINUTES:-30}'
+  # The Telegram bot (docs/runbooks/telegram-bot.md): off without a token. The worker polls
+  # Telegram (no inbound connection) and reads the catalogue from the API over this network.
+  TELEGRAM_BOT_TOKEN: '${TELEGRAM_BOT_TOKEN:-}'
+  TELEGRAM_OWNER_CHAT_IDS: '${TELEGRAM_OWNER_CHAT_IDS:-}'
+  TELEGRAM_PLAYER_MENU: '${TELEGRAM_PLAYER_MENU:-on}'
+  API_INTERNAL_URL: 'http://api:4000'
   CHAPA_BASE_URL: '${CHAPA_BASE_URL:-https://api.chapa.co/v1}'
   CHAPA_SECRET_KEY: '${CHAPA_SECRET_KEY:-}'
   CHAPA_WEBHOOK_SECRET: '${CHAPA_WEBHOOK_SECRET:-}'
@@ -110,14 +120,26 @@ x-app-env: &app-env
   SCRAPER_MAX_CONCURRENCY: '${SCRAPER_MAX_CONCURRENCY:-4}'
   SCRAPER_RESULT_CONFIRM_MINUTES: '${SCRAPER_RESULT_CONFIRM_MINUTES:-15}'
   SCRAPER_MIN_RATING_MATCHES: '${SCRAPER_MIN_RATING_MATCHES:-8}'
-  # Feed-quality switches (docs/scraper-operations.md); the defaults keep the behaviour before them.
-  SCRAPER_HALF_TIME_MARKETS: '${SCRAPER_HALF_TIME_MARKETS:-all}'
-  SCRAPER_AUTO_ALIAS: '${SCRAPER_AUTO_ALIAS:-off}'
+  # Feed-quality switches (docs/scraper-operations.md).
+  # Efficient defaults (owner, 23 Nov 2026; docs/plans/feed-gaps-2026-11-23.md): half-time markets
+  # only where a source gives the half time, no third scores read, prices capped at the best book.
+  # A value in .env.prod still wins.
+  SCRAPER_HALF_TIME_MARKETS: '${SCRAPER_HALF_TIME_MARKETS:-covered}'
+  # L3 (docs/plans/name-learning.md): learning names by fixture context is on by default.
+  SCRAPER_AUTO_ALIAS: '${SCRAPER_AUTO_ALIAS:-on}'
   SCRAPER_PRIORITY_COMPETITIONS: '${SCRAPER_PRIORITY_COMPETITIONS:-}'
-  SCRAPER_SKIP_REDUNDANT_SCORES: '${SCRAPER_SKIP_REDUNDANT_SCORES:-off}'
-  SCRAPER_CAP_AT_BEST_PRICE: '${SCRAPER_CAP_AT_BEST_PRICE:-off}'
+  SCRAPER_SKIP_REDUNDANT_SCORES: '${SCRAPER_SKIP_REDUNDANT_SCORES:-on}'
+  SCRAPER_CAP_AT_BEST_PRICE: '${SCRAPER_CAP_AT_BEST_PRICE:-on}'
   SCRAPER_PRICE_EXPIRY_MINUTES: '${SCRAPER_PRICE_EXPIRY_MINUTES:-0}'
   SCRAPER_FACTORY_MARKETS: '${SCRAPER_FACTORY_MARKETS:-off}'
+  # The mr-x board of Hulusport prices (docs/plans/hulusport-feed.md); empty: not read.
+  SCRAPER_HULUSPORT_URL: '${SCRAPER_HULUSPORT_URL:-}'
+  SCRAPER_HULUSPORT_INTERVAL_SECONDS: '${SCRAPER_HULUSPORT_INTERVAL_SECONDS:-120}'
+  # mr-z, Narobet's odds (docs/plans/narobet-feed.md): http://mrz:3200 on the server; empty: not read.
+  SCRAPER_NAROBET_URL: '${SCRAPER_NAROBET_URL:-}'
+  SCRAPER_NAROBET_INTERVAL_SECONDS: '${SCRAPER_NAROBET_INTERVAL_SECONDS:-300}'
+  # Team logos from API-Football (docs/plans/team-logos.md): on with SCRAPER_SECRET_API_FOOTBALL.
+  SCRAPER_TEAM_LOGOS: '${SCRAPER_TEAM_LOGOS:-on}'
 
 x-build-args: &build-args
   NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL}
@@ -336,6 +358,10 @@ services:
       # Server-side rendering calls the API over the private network; the browser uses the
       # public URL that was baked into the bundle at build time (PUBLIC_API_URL).
       - API_INTERNAL_URL=http://api:4000
+      # Run-time setting (no rebuild): the Telegram link in the footer. Empty = no link.
+      - TELEGRAM_PUBLIC_URL=${TELEGRAM_PUBLIC_URL:-}
+      # Run-time setting: "Reset at a shop" on Forgot PIN, with the API's same switch.
+      - CASHIER_PIN_RESET=${CASHIER_PIN_RESET:-off}
     ports:
       - '${BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000'
     networks: [vamos]
@@ -371,6 +397,36 @@ services:
         condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3001/login']
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+
+  # The shop app (agent shops' counter screen; docs/plans/agent-shops.md). Off until it is set up:
+  # COMPOSE_PROFILES=shop (with SHOP_WEB_URL and the proxy site; docs/deployment.md, "Shop app").
+  shop:
+    image: vamos-shop:${VAMOS_VERSION:-local}
+    profiles: [shop]
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile
+      target: shop
+      args: *build-args
+    <<: *hardening
+    # The code is root-owned in the image; only Next's cache directory is writable (uid 1000 = node).
+    read_only: true
+    tmpfs: ['/tmp', '/app/apps/shop/.next/cache:uid=1000,gid=1000,mode=0700']
+    environment:
+      - PORT=3002
+      - NODE_ENV=production
+    ports:
+      - '${BIND_ADDRESS:-127.0.0.1}:${SHOP_PORT:-3002}:3002'
+    networks: [vamos]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3002/login']
       interval: 15s
       timeout: 5s
       retries: 4

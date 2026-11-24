@@ -1,0 +1,69 @@
+# Opt-in overlay: several API processes behind Caddy, with PgBouncer in front of Postgres.
+# Nothing here changes docker-compose.prod.yml, its volumes or its database: the overlay only adds
+# a stateless pgbouncer service and changes how the `api` service runs. Start it with both files:
+#
+#   docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.scale.yml \
+#     --profile proxy up -d
+#
+# and go back by starting with the base file alone (docs/deployment.md, "Scaling out the API").
+# Needs Docker Compose 2.24 or newer (`!reset`).
+#
+# - pgbouncer: transaction pooling; the application role vamos_app logs in through it.
+# - api: API_REPLICAS processes (default 3), no host port (the proxy reaches them on the compose
+#   network), each with a pool of API_DB_POOL_MAX connections (default 20) to PgBouncer.
+# - web: WEB_REPLICAS processes (default 2), no host port. One web process renders about 40 to 60
+#   pages a second and was the first thing to break under load (docs/load-testing.md, A1b).
+# - worker, scraper and the migrate job keep their direct connection to Postgres: they hold
+#   long-lived work and the migrate job needs the owner role.
+# - proxy: Caddyfile.scale finds every API and web replica by DNS and balances by least connections.
+#
+# Postgres' max_connections is 200: PgBouncer's pool (PGB_POOL_SIZE, default 40) plus the worker,
+# scraper and migrate job stay far below it however many API replicas run.
+services:
+  pgbouncer:
+    image: vamos-pgbouncer:${VAMOS_VERSION:-local}
+    build:
+      context: ..
+      dockerfile: infra/docker/pgbouncer.Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ['/tmp']
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    pids_limit: 128
+    environment:
+      PGB_DATABASE: '${POSTGRES_DB:-vamos}'
+      PGB_USER: vamos_app
+      PGB_PASSWORD: '${APP_DB_PASSWORD:?set APP_DB_PASSWORD}'
+      PGB_POOL_SIZE: '${PGB_POOL_SIZE:-40}'
+      PGB_MAX_CLIENT_CONN: '${PGB_MAX_CLIENT_CONN:-3000}'
+    networks: [vamos]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        # The migrate job gives vamos_app its login: PgBouncer must not start before it.
+        condition: service_completed_successfully
+
+  api:
+    # No host port: several replicas cannot share one.
+    ports: !reset []
+    environment:
+      DATABASE_URL: 'postgres://vamos_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD}@pgbouncer:6432/${POSTGRES_DB:-vamos}'
+      DB_POOL_MAX: '${API_DB_POOL_MAX:-20}'
+    deploy:
+      replicas: ${API_REPLICAS:-3}
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+  web:
+    # No host port: several replicas cannot share one; the proxy finds them by DNS.
+    ports: !reset []
+    deploy:
+      replicas: ${WEB_REPLICAS:-2}
+
+  proxy:
+    volumes:
+      - ./caddy/Caddyfile.scale:/etc/caddy/Caddyfile:ro

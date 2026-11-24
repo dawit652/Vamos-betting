@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { createTelegramClient } from './telegram/client';
 import {
   baseLoggerOptions,
   ConfigError,
@@ -15,6 +16,7 @@ import {
   getDatabaseInstallationId,
   LIVE_CHANNEL,
   OperatingModeMismatchError,
+  readOutboxBacklog,
 } from '@vamos/db';
 import {
   createPaymentProviders,
@@ -24,8 +26,10 @@ import {
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
 import { startHealthServer, workerReadinessChecks, type HealthServer } from './lib/health';
+import { cachedQueueMetrics } from './lib/metrics';
 import {
   bindQueuePrefix,
+  createQueueSet,
   QueuePrefixBoundError,
   setQueueTelemetry,
   withTimeout,
@@ -143,6 +147,12 @@ async function main(): Promise<void> {
         : {}),
       sms,
       ownerAlerts: config.ownerAlerts,
+      // The Telegram bot (TELEGRAM_BOT_TOKEN): owner alerts to its chats, and the bot task.
+      ...(config.telegram.botToken === undefined
+        ? {}
+        : { telegram: createTelegramClient({ token: config.telegram.botToken }) }),
+      floatForecast: config.payments.sms.floatForecast,
+      smsHeartbeatAlarmMs: config.payments.sms.heartbeatAlarmMs,
       demo: config.mode === 'demo',
     },
     {
@@ -159,6 +169,11 @@ async function main(): Promise<void> {
   // GET /health and /ready for the orchestrator (WORKER_HEALTH_PORT; 0 = off). A port in use is
   // logged, not fatal: the worker's jobs matter more than its probe.
   let health: HealthServer | null = null;
+  // GET /metrics (queue depth and age) only with METRICS_TOKEN; it reads through its own queue set.
+  const metricsQueues =
+    config.metricsToken === undefined
+      ? null
+      : createQueueSet({ redisUrl: config.redisUrl, prefix: config.queuePrefix }, logger);
   if (config.worker.healthPort > 0) {
     try {
       health = await startHealthServer({
@@ -166,6 +181,19 @@ async function main(): Promise<void> {
         port: config.worker.healthPort,
         checks: workerReadinessChecks({ db: handle.db, redis }),
         logger,
+        ...(config.metricsToken !== undefined && metricsQueues !== null
+          ? {
+              metrics: {
+                token: config.metricsToken,
+                render: cachedQueueMetrics(
+                  metricsQueues,
+                  () => new Date(),
+                  undefined,
+                  () => readOutboxBacklog(handle.db),
+                ),
+              },
+            }
+          : {}),
       });
       logger.info({ port: health.port }, 'health server listening (/health, /ready)');
     } catch (error) {
@@ -201,6 +229,7 @@ async function main(): Promise<void> {
         },
       },
       { name: 'health server', run: async () => health?.close() },
+      { name: 'metrics queues', run: async () => metricsQueues?.close() },
       { name: 'database and redis', run: closeConnections },
       { name: 'telemetry', run: () => telemetry.shutdown() },
     ],

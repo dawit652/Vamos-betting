@@ -1,0 +1,14 @@
+{
+  "id": "apifootball-odds-facup",
+  "name": "API-Football odds: FA Cup (on trial until its switch is on)",
+  "adapter": "apifootball",
+  "upstream": "api-sports",
+  "config": {
+    "allowedHosts": ["v3.football.api-sports.io"],
+    "secret": "SCRAPER_SECRET_API_FOOTBALL",
+    "sport": "football",
+    "mode": "odds",
+    "league": 45,
+    "pages": 4
+  }
+}

@@ -14,6 +14,10 @@ const HOUSE_KEYS = {
   house_promotions: 'house:promotions',
   house_jackpot: 'house:jackpot',
   house_withdrawals_pending: 'house:withdrawals_pending',
+  house_cash_variance: 'house:cash_variance',
+  house_agent_funding: 'house:agent_funding',
+  house_retail_payable: 'house:retail_payable',
+  house_retail_cash: 'house:retail_cash',
 } as const;
 
 /**
@@ -37,6 +41,12 @@ export function accountKey(ref: AccountRef): string {
       }
       return `house:psp:${ref.provider}`;
     }
+    case 'agent_balance': {
+      if (typeof ref.agentId !== 'string' || !UUID_RE.test(ref.agentId)) {
+        throw new LedgerError(`invalid agent id for ledger account: ${String(ref.agentId)}`);
+      }
+      return `agent:${ref.agentId.toLowerCase()}:balance`;
+    }
     default: {
       const key = (HOUSE_KEYS as Record<string, string | undefined>)[ref.kind];
       if (key === undefined) {
@@ -51,6 +61,7 @@ interface AccountAttributes {
   key: string;
   ownerType: 'user' | 'house';
   userId: string | null;
+  agentId: string | null;
   kind: LedgerAccountKind;
   provider: string | null;
   allowNegative: boolean;
@@ -63,6 +74,19 @@ function accountAttributes(ref: AccountRef): AccountAttributes {
       key,
       ownerType: 'user',
       userId: ref.userId.toLowerCase(),
+      agentId: null,
+      kind: ref.kind,
+      provider: null,
+      allowNegative: false,
+    };
+  }
+  if (ref.kind === 'agent_balance') {
+    // What Nahubet owes the agent (a house-side liability), prepaid: never below zero.
+    return {
+      key,
+      ownerType: 'house',
+      userId: null,
+      agentId: ref.agentId.toLowerCase(),
       kind: ref.kind,
       provider: null,
       allowNegative: false,
@@ -72,9 +96,12 @@ function accountAttributes(ref: AccountRef): AccountAttributes {
     key,
     ownerType: 'house',
     userId: null,
+    agentId: null,
     kind: ref.kind,
     provider: ref.kind === 'house_psp_clearing' ? ref.provider : null,
-    allowNegative: true,
+    // What ticket holders are owed: like a wallet, never below zero (a correction after a ticket
+    // was paid is blocked, as a player's is).
+    allowNegative: ref.kind !== 'house_retail_payable',
   };
 }
 

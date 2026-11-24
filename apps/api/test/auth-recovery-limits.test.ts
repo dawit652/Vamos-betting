@@ -13,7 +13,7 @@ beforeAll(async () => {
 afterAll(async () => ctx?.close());
 
 const MINUTE = 60_000;
-const NEW_PASSWORD = 'Haile-gebrselassie-1973';
+const NEW_PASSWORD = '7031';
 
 /** A 6-digit code that is not `code`. */
 const wrong = (code: string) => (code === '000000' ? '111111' : '000000');
@@ -86,9 +86,9 @@ describe('locking a player out (A3)', () => {
   it('lets the owner request codes past a stranger, reset, and log in despite the login lock', async () => {
     const victim = await registerAndLogin(ctx);
     const owner = '198.51.100.7';
-    // A stranger sends 20 wrong passwords from two addresses: the per-number login lock is on.
+    // A stranger sends 6 wrong passwords from two addresses: the per-number login lock is on.
     for (const ip of ['192.0.2.1', '192.0.2.2']) {
-      for (let i = 0; i < 10; i += 1) {
+      for (let i = 0; i < 3; i += 1) {
         const response = await post(
           ctx,
           '/auth/login',
@@ -178,4 +178,13 @@ describe('locking a player out (A3)', () => {
     expect(over.statusCode).toBe(429);
     expect(over.json().error.code).toBe('otp_limit');
   }, 60_000);
+  it('keeps "Reset at a shop" closed while CASHIER_PIN_RESET is off (the default)', async () => {
+    for (const [url, body] of [
+      ['/auth/password/shop-reset', { phone: '0911223344', secretHash: 'a'.repeat(64) }],
+      ['/auth/password/shop-reset/status', { secret: 'b'.repeat(43) }],
+      ['/auth/password/shop-reset/complete', { secret: 'b'.repeat(43), newPassword: '5739' }],
+    ] as const) {
+      expect((await post(ctx, url, body)).statusCode, url).toBe(404);
+    }
+  });
 });

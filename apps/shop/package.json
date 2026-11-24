@@ -1,0 +1,26 @@
+{
+  "name": "@vamos/shop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nahubet shop app – the cashier's counter screen of an agent shop",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3002",
+    "build": "next build",
+    "start": "next start --port 3002",
+    "typecheck": "next typegen && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@vamos/contracts": "workspace:*",
+    "@vamos/core": "workspace:*",
+    "next": "16.4.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
+  }
+}

@@ -1,5 +1,6 @@
 import {
   SmsGatewayRequest,
+  SmsHeartbeatRequest,
   type AddPayoutAccountResponse,
   type DepositCheckResponse,
   type PaymentOptionsResponse,
@@ -11,9 +12,12 @@ import {
   MAX_SANTIM_OFFSET,
   PAYOUT_DESTINATIONS,
   RECEIPT_VERIFIABLE_INSTITUTIONS,
+  SMS_HEARTBEAT_TTL_SECONDS,
   depositMethodFor,
   normalizeEthiopianMsisdn,
   payoutDestination,
+  smsHeartbeatKey,
+  type SmsHeartbeat,
 } from '@vamos/core';
 import {
   addPayoutAccount,
@@ -76,10 +80,10 @@ export function smsRailOptions(deps: Pick<AppDeps, 'payments'>): PaymentOptionsR
   };
 }
 
-function checkResponse(result: SmsCheckResult): DepositCheckResponse {
+function checkResponse(result: SmsCheckResult, provider: SmsRailProvider): DepositCheckResponse {
   return {
     status: result.status,
-    deposit: result.intent === undefined ? null : depositView(result.intent),
+    deposit: result.intent === undefined ? null : depositView(result.intent, provider),
   };
 }
 
@@ -130,7 +134,7 @@ export async function checkPlayerSmsDeposit(
     deps.receipts === undefined ||
     deps.config.payments.sms.receiptVerify === 'off'
   ) {
-    return checkResponse(result);
+    return checkResponse(result, provider);
   }
   const reference = result.reference;
   for (const spec of RECEIPT_VERIFIABLE_INSTITUTIONS) {
@@ -161,12 +165,37 @@ export async function checkPlayerSmsDeposit(
           paidAt: verdict.facts.occurredAt,
           raw: '',
         },
+        collectionAccount: provider.collectionAccountIdAt(spec.id, verdict.facts.receiverAccount),
         now: deps.clock(),
       }),
     );
-    return checkResponse(recorded);
+    return checkResponse(recorded, provider);
   }
-  return checkResponse(result);
+  return checkResponse(result, provider);
+}
+
+/**
+ * Each handset names its account; a deployment with one account needs no name. An unknown
+ * account is refused, never guessed: its message would be matched against the wrong amounts.
+ * A heartbeat has to name its account when there are several (`required`).
+ */
+function resolveGatewayAccount(
+  provider: SmsRailProvider,
+  account: string | undefined,
+  required: boolean,
+): string | null {
+  const ids = provider.collectionAccountIds;
+  if (account !== undefined && !ids.includes(account)) {
+    throw badRequest('unknown_collection_account', 'No collection account has this id.');
+  }
+  const resolved = account ?? (ids.length === 1 ? ids[0]! : null);
+  if (resolved === null && required) {
+    throw badRequest(
+      'collection_account_required',
+      'This heartbeat must name its collection account.',
+    );
+  }
+  return resolved;
 }
 
 function headerString(value: string | string[] | undefined): string | undefined {
@@ -209,9 +238,11 @@ export async function receiveGatewaySms(
     throw new AppError(401, 'webhook_signature_invalid', 'The gateway secret is not valid.');
   }
   const body = parsed.data;
+  const collectionAccount = resolveGatewayAccount(provider, body.account, false);
   const result = await withTxRetry(deps.db, (tx) =>
     ingestSms(tx, {
       source: 'gateway',
+      collectionAccount,
       sender: body.sender ?? null,
       text: body.text,
       deviceReceivedAt: body.receivedAt === undefined ? null : new Date(body.receivedAt),
@@ -219,6 +250,54 @@ export async function receiveGatewaySms(
     }),
   );
   return { received: true, outcome: result.outcome };
+}
+
+/**
+ * POST /payments/webhooks/sms/heartbeat: the forwarder says the handset is alive, with its
+ * battery. Same guards as the gateway (live rail only, allowlist, shared secret). The last one per
+ * account is kept in Redis for a week; the worker alarms on a late one or a low battery.
+ */
+export async function receiveGatewayHeartbeat(
+  deps: Pick<AppDeps, 'clock' | 'payments' | 'redis'>,
+  input: {
+    headers: Readonly<Record<string, string | string[] | undefined>>;
+    rawBody: Buffer;
+    ip: string;
+  },
+  log?: Pick<FastifyBaseLogger, 'warn'>,
+): Promise<{ ok: true }> {
+  const provider = smsProviderOf(deps);
+  if (provider === null || provider.mode !== 'live') throw notFound('Payment provider');
+  if (!provider.gatewayAddressAllowed(input.ip)) {
+    log?.warn({ ip: input.ip }, 'sms heartbeat from an address outside the allowlist');
+    throw forbidden('gateway_forbidden', 'This address may not post to the SMS gateway.');
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(input.rawBody.toString('utf8'));
+  } catch {
+    throw badRequest('webhook_malformed', 'The webhook body could not be read.');
+  }
+  const parsed = SmsHeartbeatRequest.safeParse(json);
+  if (!parsed.success) throw badRequest('webhook_malformed', 'The webhook body could not be read.');
+  const header = headerString(input.headers[SMS_GATEWAY_SECRET_HEADER]);
+  if (!provider.gatewaySecretMatches(header ?? parsed.data.secret)) {
+    log?.warn({ ip: input.ip }, 'sms heartbeat without a valid secret');
+    throw new AppError(401, 'webhook_signature_invalid', 'The gateway secret is not valid.');
+  }
+  const account = resolveGatewayAccount(provider, parsed.data.account, true)!;
+  const stored: SmsHeartbeat = {
+    at: deps.clock().toISOString(),
+    battery: parsed.data.battery ?? null,
+    charging: parsed.data.charging ?? null,
+  };
+  await deps.redis.set(
+    smsHeartbeatKey(account),
+    JSON.stringify(stored),
+    'EX',
+    SMS_HEARTBEAT_TTL_SECONDS,
+  );
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- payout accounts

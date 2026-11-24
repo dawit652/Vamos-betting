@@ -1,8 +1,8 @@
 import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 import { domainConflict, domainNotFound, domainUnprocessable } from '../errors';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
-import { competitions, teams, type LocalizedName } from '../schema/catalog';
-import { competitionAliases, teamAliases } from '../schema/scrape';
+import { categories, competitions, teams, type LocalizedName } from '../schema/catalog';
+import { competitionAliases, scrapeSources, teamAliases } from '../schema/scrape';
 import {
   actorLabel,
   auditScrape,
@@ -45,12 +45,23 @@ export interface AliasRecord {
 export interface AliasInputs {
   teams: Array<{ id: string; sportId: string; shortName: string; names: string[] }>;
   teamAliases: Array<{ aliasNorm: string; sourceId: string | null; teamId: string }>;
-  competitions: Array<{ id: string; slug: string; sportId: string; names: string[] }>;
+  competitions: Array<{
+    id: string;
+    slug: string;
+    sportId: string;
+    names: string[];
+    /** L1: the category, when it is one country's (has a country code); else null. */
+    countryCategoryId: string | null;
+  }>;
   competitionAliases: Array<{
     aliasNorm: string;
     sourceId: string | null;
     competitionId: string;
   }>;
+  /** L1: the competitions the targets of source-scoped team aliases have events in. */
+  teamCompetitions: Array<{ teamId: string; competitionId: string }>;
+  /** L2: each source's upstream. */
+  sourceUpstreams: Array<{ sourceId: string; upstream: string }>;
 }
 
 function assertAliasText(aliasNorm: string): void {
@@ -317,7 +328,14 @@ const competitionRecord = (row: typeof competitionAliases.$inferSelect): AliasRe
 
 /** Everything buildAliasIndex needs for one sport: the catalogue's names and every alias. */
 export async function loadAliasInputs(exec: DbExecutor, sportId: string): Promise<AliasInputs> {
-  const [teamRows, teamAliasRows, competitionRows, competitionAliasRows] = await Promise.all([
+  const [
+    teamRows,
+    teamAliasRows,
+    competitionRows,
+    competitionAliasRows,
+    teamCompetitionRows,
+    sourceRows,
+  ] = await Promise.all([
     exec
       .select({
         id: teams.id,
@@ -343,8 +361,11 @@ export async function loadAliasInputs(exec: DbExecutor, sportId: string): Promis
         slug: competitions.slug,
         sportId: competitions.sportId,
         name: competitions.name,
+        categoryId: competitions.categoryId,
+        countryCode: categories.countryCode,
       })
       .from(competitions)
+      .leftJoin(categories, eq(categories.id, competitions.categoryId))
       .where(eq(competitions.sportId, sportId))
       .orderBy(asc(competitions.id)),
     exec
@@ -356,12 +377,34 @@ export async function loadAliasInputs(exec: DbExecutor, sportId: string): Promis
       .from(competitionAliases)
       .where(eq(competitionAliases.sportId, sportId))
       .orderBy(asc(competitionAliases.aliasNorm), asc(competitionAliases.id)),
+    // L1: only the teams some source-scoped alias points to (a few hundred), each once per competition.
+    exec.execute<{ teamId: string; competitionId: string }>(sql`
+      SELECT DISTINCT x.team_id AS "teamId", x.competition_id AS "competitionId"
+      FROM (
+        SELECT home_team_id AS team_id, competition_id FROM events
+        UNION ALL
+        SELECT away_team_id AS team_id, competition_id FROM events
+      ) x
+      WHERE x.team_id IN (
+        SELECT team_id FROM team_aliases WHERE sport_id = ${sportId} AND source_id IS NOT NULL
+      )
+      ORDER BY 1, 2`),
+    exec
+      .select({ sourceId: scrapeSources.id, upstream: scrapeSources.upstream })
+      .from(scrapeSources)
+      .orderBy(asc(scrapeSources.id)),
   ]);
   return {
     teams: teamRows.map(({ name, ...team }) => ({ ...team, names: localizedNames(name) })),
     teamAliases: teamAliasRows,
-    competitions: competitionRows.map(({ name, ...c }) => ({ ...c, names: localizedNames(name) })),
+    competitions: competitionRows.map(({ name, categoryId, countryCode, ...c }) => ({
+      ...c,
+      names: localizedNames(name),
+      countryCategoryId: countryCode === null || countryCode === '' ? null : categoryId,
+    })),
     competitionAliases: competitionAliasRows,
+    teamCompetitions: teamCompetitionRows.rows,
+    sourceUpstreams: sourceRows,
   };
 }
 
@@ -414,4 +457,86 @@ export async function listAliases(
   return out
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))
     .slice(0, limit);
+}
+
+/** L4 (docs/plans/name-learning.md): one alias as the file of mappings holds it. */
+export interface AliasExportRow {
+  kind: AliasKind;
+  sport: string;
+  aliasNorm: string;
+  /** A team's short name (unique in its sport) or a competition's slug. */
+  target: string;
+  sourceId: string | null;
+}
+
+const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * L4: every alias, its target named as the file of mappings names it (a team by its short name,
+ * unique in its sport by `teams_sport_short_name_uq`; a competition by its slug), in a fixed order.
+ */
+export async function exportAliases(exec: DbExecutor): Promise<AliasExportRow[]> {
+  const [teamRows, competitionRows] = await Promise.all([
+    exec
+      .select({
+        sport: teamAliases.sportId,
+        aliasNorm: teamAliases.aliasNorm,
+        sourceId: teamAliases.sourceId,
+        shortName: teams.shortName,
+      })
+      .from(teamAliases)
+      .innerJoin(teams, eq(teams.id, teamAliases.teamId)),
+    exec
+      .select({
+        sport: competitionAliases.sportId,
+        aliasNorm: competitionAliases.aliasNorm,
+        sourceId: competitionAliases.sourceId,
+        slug: competitions.slug,
+      })
+      .from(competitionAliases)
+      .innerJoin(competitions, eq(competitions.id, competitionAliases.competitionId)),
+  ]);
+  const rows: AliasExportRow[] = [];
+  for (const row of teamRows) {
+    rows.push({
+      kind: 'team',
+      sport: row.sport,
+      aliasNorm: row.aliasNorm,
+      target: row.shortName,
+      sourceId: row.sourceId,
+    });
+  }
+  for (const row of competitionRows) {
+    rows.push({
+      kind: 'competition',
+      sport: row.sport,
+      aliasNorm: row.aliasNorm,
+      target: row.slug,
+      sourceId: row.sourceId,
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      byText(a.kind, b.kind) ||
+      byText(a.sport, b.sport) ||
+      byText(a.aliasNorm, b.aliasNorm) ||
+      byText(a.sourceId ?? '', b.sourceId ?? ''),
+  );
+  return rows;
+}
+
+/** L4: whether someone removed an alias of this spelling and scope (audit `scrape.alias.removed`). */
+export async function aliasWasRemoved(
+  exec: DbExecutor,
+  kind: AliasKind,
+  aliasNorm: string,
+  sourceId: string | null,
+): Promise<boolean> {
+  const result = await exec.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM audit_log
+    WHERE action = 'scrape.alias.removed'
+      AND target_type = ${kind === 'team' ? 'team_alias' : 'competition_alias'}
+      AND metadata->>'aliasNorm' = ${aliasNorm}
+      AND coalesce(metadata->>'sourceId', '') = ${sourceId ?? ''}`);
+  return (result.rows[0]?.n ?? 0) > 0;
 }

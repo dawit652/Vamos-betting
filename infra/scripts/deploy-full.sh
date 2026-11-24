@@ -121,6 +121,24 @@ scripts/smoke.sh --production \
   --admin "http://$HOST:${ADMIN_PORT:-3001}" \
   --worker "http://$HOST:${WORKER_PORT:-4100}" || rollback
 
+# L4 (docs/plans/name-learning.md): the learned names, kept as a dated file on the server, and the
+# file in git loaded (it never changes an alias, never re-adds a removed one, never guesses a team).
+# A failure here does not undo the deploy: the database keeps every alias anyway.
+ALIASES_DIR="$BACKUP_DIR/aliases"
+mkdir -p "$ALIASES_DIR"
+if docker compose run --rm --no-deps -T scraper node dist/cli.js aliases export \
+  > "$ALIASES_DIR/aliases-$STAMP.csv"; then
+  echo "aliases saved to $ALIASES_DIR/aliases-$STAMP.csv"
+else
+  echo "warning: the alias export failed (the database still holds every alias)" >&2
+fi
+if [[ -f docs/scraper-plan/data/aliases.csv ]]; then
+  docker compose run --rm --no-deps -T \
+    -v "$PWD/docs/scraper-plan/data/aliases.csv:/in/aliases.csv:ro" \
+    scraper node dist/cli.js aliases import --file /in/aliases.csv --skip-problems \
+    || echo "warning: the alias import failed" >&2
+fi
+
 echo "done: the whole stack runs $(git log -1 --format='%h'). To go back to the previous images:"
 for service in "${!BACKUP[@]}"; do
   echo "  docker tag ${BACKUP[$service]} ${IMAGE[$service]}"

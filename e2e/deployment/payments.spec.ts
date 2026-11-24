@@ -75,7 +75,6 @@ async function registerWithOnScreenCode(page: Page, phone: string): Promise<void
   await page.goto('/register');
   await page.locator('#reg-phone').fill(phone);
   await page.locator('#reg-password').fill(PASSWORD);
-  await page.locator('input[name="acceptTerms"]').check();
   await page.getByRole('button', { name: 'Register', exact: true }).click();
 
   await page.waitForURL('**/verify');

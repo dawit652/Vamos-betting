@@ -41,6 +41,7 @@ export const routes = {
   register: '/register',
   forgotPassword: '/forgot-password',
   help: '/help',
+  ticketCheck: '/ticket',
   terms: '/terms',
   privacy: '/privacy',
   responsibleGambling: '/responsible-gambling',

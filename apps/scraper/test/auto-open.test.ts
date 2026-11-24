@@ -191,11 +191,11 @@ async function confirmable(): Promise<{ eventId: string; feedRef: string }> {
   return { eventId, feedRef };
 }
 
-const NONE = { checked: 0, opened: 0, failed: 0, published: 0 };
+const NONE = { checked: 0, opened: 0, failed: 0, published: 0, held: {} };
 
 describe('F7b: automatic opening on a confirmed kickoff', () => {
   it(
-    'F7b: production case: one fresh source and one never-fresh source open betting 71 hours before kickoff, and only then',
+    'F7b: production case: one fresh source and one never-fresh source open betting once the kickoff has held for 24 hours, far ahead too (owner, 22 Nov: no 72-hour lock)',
     async () => {
       await start({ keepB: true });
       h.at(new Date(KICKOFF.getTime() - 13 * DAY));
@@ -216,17 +216,14 @@ describe('F7b: automatic opening on a confirmed kickoff', () => {
       const [item] = await openItems(feedRef, 'odds_approval');
       expect(item!.payload).toMatchObject({ reason: 'kickoff_unconfirmed' });
 
-      for (const at of [KICKOFF.getTime() - 7 * DAY, KICKOFF.getTime() - 73 * HOUR]) {
-        h.at(new Date(at));
-        await pass();
-        expect((await eventRow(eventId)).betting_open).toBe(false);
-        expect(await assessNow(eventId)).toMatchObject({
-          confirmed: false,
-          reasons: ['too_early_for_single_source'],
-        });
-      }
+      // 23 hours after the source first showed the kickoff: not stable yet.
+      h.at(new Date(KICKOFF.getTime() - 13 * DAY + 23 * HOUR));
+      await pass();
+      expect((await eventRow(eventId)).betting_open).toBe(false);
+      expect(await assessNow(eventId)).toMatchObject({ confirmed: false, reasons: ['not_stable'] });
 
-      h.at(new Date(KICKOFF.getTime() - 71 * HOUR));
+      // Held for 24 hours, 12 days before the match: C2 confirms it (the window is 30 days now).
+      h.at(new Date(KICKOFF.getTime() - 13 * DAY + 25 * HOUR));
       await h.run('src-a');
       await h.run('src-b');
       expect(await assessNow(eventId)).toMatchObject({ confirmed: true, basis: 'C2' });
@@ -275,6 +272,7 @@ describe('F7b: automatic opening on a confirmed kickoff', () => {
         opened: 0,
         failed: 0,
         published: 0,
+        held: { 'kickoff:not_stable': 1 },
       });
       h.at(new Date(KICKOFF.getTime() - 71 * HOUR));
       await h.run('src-a');
@@ -285,6 +283,7 @@ describe('F7b: automatic opening on a confirmed kickoff', () => {
         opened: 1,
         failed: 0,
         published: 1,
+        held: {},
       });
       expect((await eventRow(eventId)).betting_open).toBe(true);
       expect(await openConfirmedEvents(h.ctx)).toEqual(NONE);
@@ -328,7 +327,12 @@ describe('F7b: a person decides', () => {
       // Trading's open/close does not resolve the item (the review queue's open_betting does), so
       // it still waits and only the latest audit (the trader's close) stops the opening.
       expect(await openItems(feedRef, 'odds_approval')).toHaveLength(1);
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { person_decided: 1 },
+      });
       expect((await eventRow(eventId)).betting_open).toBe(false);
       expect(await audits('scrape.fixture.betting_opened')).toHaveLength(0);
     },
@@ -361,7 +365,12 @@ describe('F7b: the gates', () => {
     async () => {
       const { eventId, feedRef } = await confirmable();
       await setRatings('Chelsea', { attack: 1.2, defence: 0.9, matches: 2 });
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { uncalibrated: 1 },
+      });
       expect(await openItems(feedRef, 'odds_approval')).toHaveLength(1);
       expect((await eventRow(eventId)).betting_open).toBe(false);
 
@@ -398,7 +407,12 @@ describe('F7b: the gates', () => {
       await h.pool.query(`UPDATE selections SET odds_milli = 5000 WHERE id = ANY($1::uuid[])`, [
         originals.map((r) => r.id),
       ]);
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { price_checks: 1 },
+      });
       expect((await eventRow(eventId)).betting_open).toBe(false);
       for (const row of originals) {
         await h.pool.query(`UPDATE selections SET odds_milli = $2 WHERE id = $1`, [
@@ -427,7 +441,12 @@ describe('F7b: the gates', () => {
         }),
       );
       expect(await openItems(feedRef, 'odds_approval')).toHaveLength(1);
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { kickoff_question: 1 },
+      });
       expect((await eventRow(eventId)).betting_open).toBe(false);
       await h.ctx.db.transaction((tx) =>
         resolveReviewItem(tx, item.id, { status: 'resolved', resolution: 'checked', actor: STAFF }),
@@ -451,7 +470,12 @@ describe('F7b: the gates', () => {
       expect(await openItems(feedRef, 'odds_approval')).toHaveLength(1);
       expect(await oneXTwo(eventId)).toEqual(oldPrices);
 
-      expect(await openConfirmedEvents(h.ctx)).toMatchObject({ checked: 1, opened: 0, failed: 0 });
+      expect(await openConfirmedEvents(h.ctx)).toMatchObject({
+        checked: 1,
+        opened: 0,
+        failed: 0,
+        held: { reprice_held: 1 },
+      });
       expect((await eventRow(eventId)).betting_open).toBe(false);
 
       await h.ctx.db.transaction((tx) =>
@@ -547,15 +571,20 @@ describe('F7b: after K1', () => {
   );
 
   it(
-    'F7b/K1/F4: on a source keyed by date (openfootball) the earlier observation stays behind; its F4 question keeps betting closed through a full pass although the kickoff is confirmed',
+    'F7b/K1/F4d: on a source keyed by date (openfootball) an earlier report closes betting (K1) and moves the event there (F4d); when the source goes back, a later move waits for a person and betting stays closed',
     async () => {
       const { eventId, feedRef } = await closedByK1();
+      // K1 closed betting first, then F4d moved the event to the earliest fresh kickoff.
+      expect((await eventRow(eventId)).start_time).toEqual(new Date('2026-11-01T20:00:00Z'));
+      expect(await audits('scrape.fixture.kickoff_moved')).toHaveLength(1);
       h.at(new Date(KICKOFF.getTime() - 48 * HOUR));
       await h.run('src-a');
-      // The earlier row is no longer listed, so it does not dissent: only the F4 question stops it.
-      expect(await assessNow(eventId)).toMatchObject({ confirmed: true, basis: 'C2' });
+      // The source gives 2 Nov 15:00 again: later than the start, so nothing agrees with it.
+      expect(await assessNow(eventId)).toMatchObject({ confirmed: false });
       await runPromotion(h.ctx);
       expect((await eventRow(eventId)).betting_open).toBe(false);
+      expect((await eventRow(eventId)).start_time).toEqual(new Date('2026-11-01T20:00:00Z'));
+      // F4c's question (the old row and the new one) stays with a person: a later move is not F4d's.
       expect(await openItems(feedRef, 'kickoff_change')).toHaveLength(1);
       expect(await openItems(`${feedRef}|earlier`, 'kickoff_change')).toHaveLength(1);
       expect(await audits('scrape.fixture.betting_opened')).toHaveLength(0);

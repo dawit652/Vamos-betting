@@ -75,7 +75,7 @@ export async function seedDemoStaff(
           createdAt: now,
           updatedAt: now,
         })
-        .onConflictDoNothing({ target: adminUsers.email })
+        .onConflictDoNothing()
         .returning({ id: adminUsers.id });
       if (rows.length === 0) continue;
       created += 1;

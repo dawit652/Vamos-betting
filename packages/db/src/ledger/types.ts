@@ -18,13 +18,21 @@ export type HouseAccountKind =
   | 'house_demo_funding'
   | 'house_promotions'
   | 'house_jackpot'
-  | 'house_withdrawals_pending';
+  | 'house_withdrawals_pending'
+  | 'house_cash_variance'
+  | 'house_agent_funding'
+  /** Won or void shop tickets not paid yet (agent-shops.md phase 3): never below zero. */
+  | 'house_retail_payable'
+  /** Ticket cash in Nahubet HQ's own drawers. */
+  | 'house_retail_cash';
 
 /** Identifies a ledger account independently of its database id. */
 export type AccountRef =
   | { kind: 'player_cash' | 'player_bonus'; userId: string }
   | { kind: HouseAccountKind }
-  | { kind: 'house_psp_clearing'; provider: string };
+  | { kind: 'house_psp_clearing'; provider: string }
+  /** An agent's prepaid balance (docs/plans/agent-shops.md phase 2): never below zero. */
+  | { kind: 'agent_balance'; agentId: string };
 
 export interface PostingEntry {
   account: AccountRef;

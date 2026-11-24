@@ -121,8 +121,11 @@ export interface FixtureUpdateKickoff {
   readonly feedRef: string;
   readonly from: Date;
   readonly to: Date;
-  /** F4a: independent upstreams agree; F4b: one source, small later shift, no bets, betting closed (K4). */
-  readonly rule: 'F4a' | 'F4b';
+  /**
+   * F4a: independent upstreams agree; F4b: one source, small later shift, no bets, betting closed
+   * (K4); F4d: sources disagree, the earliest fresh kickoff is earlier (D3, `earliestFreshKickoff`).
+   */
+  readonly rule: 'F4a' | 'F4b' | 'F4d';
   readonly upstreams: readonly string[];
 }
 

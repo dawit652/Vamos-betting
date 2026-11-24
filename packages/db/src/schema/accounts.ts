@@ -186,15 +186,22 @@ export const rgExclusions = pgTable(
 
 /**
  * Back-office staff. They sign in with email, password and a TOTP code
- * (packages/db/src/backoffice/staff-auth.ts). Emails are stored lowercased.
+ * (packages/db/src/backoffice/staff-auth.ts). Emails are stored lowercased. One person may hold
+ * one account of each kind under the same email (docs/plans/guest-slips-and-staff.md, GS8): a
+ * back-office account, an agent owner's and a cashier's; each sign-in looks for its own kind.
  */
 export const adminUsers = pgTable(
   'admin_users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    email: text('email').notNull().unique(),
+    email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),
     displayName: text('display_name').notNull(),
+    /**
+     * Mobile number (E.164, `+2519…`): required for new cashiers (and agent owners), optional for
+     * office staff (owner, 19 Nov 2026: every agent's people have a name and a phone number).
+     */
+    phone: text('phone'),
     role: adminRole('role').notNull(),
     /**
      * TOTP secret, AES-256-GCM encrypted with ADMIN_TOTP_KEY and bound to the
@@ -242,7 +249,17 @@ export const adminUsers = pgTable(
   },
   (t) => [
     check('admin_users_email_lower', sql`${t.email} = lower(${t.email})`),
+    uniqueIndex('admin_users_email_kind_uq').on(
+      t.email,
+      // admin_account_kind (migration 0087): 'agent_owner', 'cashier' or 'staff'. A function, so
+      // a fresh database, which adds those roles in the same migration run, can build the index.
+      sql`admin_account_kind(${t.role})`,
+    ),
     check('admin_users_failed_attempts', sql`${t.failedLoginAttempts} >= 0`),
+    check(
+      'admin_users_phone_format',
+      sql`${t.phone} IS NULL OR ${t.phone} ~ '^\\+251[79][0-9]{8}$'`,
+    ),
   ],
 );
 
@@ -292,6 +309,20 @@ export const adminSessions = pgTable(
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /**
+     * Where the session works: `admin` (the back office, signed in with a TOTP code) or `shop` (the
+     * shop app, signed in on an approved shop device; docs/plans/agent-shops.md phase 1b). A session
+     * never works on the other side.
+     */
+    channel: text('channel').notNull().default('admin'),
+    /** The approved shop device a `shop` session was opened on (shop_devices.id). */
+    deviceId: uuid('device_id'),
   },
-  (t) => [index('admin_sessions_user_idx').on(t.adminUserId)],
+  (t) => [
+    index('admin_sessions_user_idx').on(t.adminUserId),
+    check('admin_sessions_channel', sql`${t.channel} IN ('admin', 'shop')`),
+    // A cashier's shop session carries its approved device; an agent owner's (password and
+    // authenticator) has none; a back-office session never has one.
+    check('admin_sessions_shop_device', sql`${t.channel} = 'shop' OR ${t.deviceId} IS NULL`),
+  ],
 );

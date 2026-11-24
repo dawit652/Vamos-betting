@@ -426,6 +426,23 @@ describe('conditional requests', () => {
     expect(store.get(`https://${H}/fixtures.json`)).toBeUndefined();
   });
 
+  it('a plan item with revalidate: false always asks for the full body', async () => {
+    const store = new InMemoryConditionalStore();
+    const { fetcher, f } = setup(
+      (_u, call) =>
+        call.headers['if-none-match'] === '"v1"'
+          ? res(null, 304)
+          : json('{}', 200, { etag: '"v1"' }),
+      { conditionalStore: store },
+    );
+    await fetcher.fetch(item(), CTX);
+    expect(store.get(`https://${H}/fixtures.json`)).toEqual({ etag: '"v1"', lastModified: null });
+    const full = await fetcher.fetch({ ...item(), revalidate: false }, CTX);
+    expect(full.kind).toBe('ok');
+    expect(f.calls[1]?.headers['if-none-match']).toBeUndefined();
+    expect(f.calls[1]?.headers['if-modified-since']).toBeUndefined();
+  });
+
   it('forgetValidators makes the next request unconditional (a page that was not accepted)', async () => {
     const store = new InMemoryConditionalStore();
     const { fetcher, f } = setup(
@@ -624,6 +641,35 @@ describe('limits', () => {
       kind: 'refused',
       reason: 'content_type_not_allowed',
     });
+  });
+
+  it('an image request takes raster images only, as bytes, still under robots.txt', async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2]);
+    const image = { ...item('/teams/42.png'), accept: 'image' as const };
+    for (const ct of ['image/png', 'image/jpeg', 'image/webp', 'image/gif; q=1']) {
+      const { fetcher, f } = setup(() => res(png, 200, { 'content-type': ct }));
+      const r = await fetcher.fetch(image, CTX);
+      expect(r).toMatchObject({ kind: 'ok', status: 200 });
+      if (r.kind === 'ok') expect([...r.body]).toEqual([...png]);
+      expect(f.calls[0]?.headers.accept).toBe('image/png,image/jpeg,image/webp,image/gif');
+    }
+    for (const ct of ['image/svg+xml', 'text/html; charset=utf-8', 'application/json']) {
+      expect(
+        await setup(() => res('<svg/>', 200, { 'content-type': ct })).fetcher.fetch(image, CTX),
+      ).toEqual({ kind: 'refused', reason: 'content_type_not_allowed' });
+    }
+    const robots = setup(
+      (u) =>
+        u.pathname === '/robots.txt'
+          ? res('User-agent: *\nDisallow: /teams', 200, { 'content-type': 'text/plain' })
+          : res(png, 200, { 'content-type': 'image/png' }),
+      { robots: 'enforce' },
+    );
+    expect(await robots.fetcher.fetch(image, CTX)).toMatchObject({
+      kind: 'blocked',
+      reason: 'robots',
+    });
+    expect(robots.f.paths()).toEqual(['/robots.txt']);
   });
 
   it('refuses on a declared Content-Length above the cap, before reading', async () => {

@@ -1,3 +1,4 @@
+import { normalizePayoutDestination } from '@vamos/core';
 import { domainBadRequest } from '../errors';
 import type { paymentIntents, payouts } from '../schema/payments';
 
@@ -52,4 +53,15 @@ export function assertAmount(amount: unknown, label: string): asserts amount is 
   if (typeof amount !== 'bigint' || amount <= 0n) {
     throw new RangeError(`${label} must be a positive bigint santim amount`);
   }
+}
+
+/**
+ * A payout destination in the form a parsed SMS names it: E.164 for a wallet,
+ * the cleaned account number for a bank (core normalizePayoutDestination).
+ * Destinations are stored canonical already; this keeps a comparison exact
+ * even for a row written in another format. Unreadable: the value as stored.
+ */
+export function comparableDestination(institution: string | null, account: string | null): string {
+  if (account === null) return '';
+  return normalizePayoutDestination(institution ?? '', account)?.account ?? account;
 }

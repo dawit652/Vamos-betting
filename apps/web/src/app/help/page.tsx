@@ -32,6 +32,9 @@ export default async function HelpPage() {
         ))}
       </div>
       <nav className="flex flex-wrap gap-2">
+        <Link href={routes.ticketCheck} prefetch={false} className="chip">
+          {t('common.ticketCheck.title')}
+        </Link>
         <Link href={routes.terms} prefetch={false} className="chip">
           {t('common.nav.terms')}
         </Link>

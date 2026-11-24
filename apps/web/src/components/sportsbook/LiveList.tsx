@@ -4,7 +4,7 @@ import { getCompetitions, getEvents } from '@/lib/api/catalog';
 import { routes, type Sport } from '@/lib/routes';
 import { streamEventIds } from './events';
 import { LiveProvider, LiveStatusBar } from './LiveProvider';
-import { competitionFlags } from './leagues';
+import { competitionMarks } from './leagues';
 import { MatchList } from './MatchList';
 import { SportsbookFrame } from './SportsbookFrame';
 import { listHref } from './tabs';
@@ -50,7 +50,7 @@ export async function LiveList({ sport }: { sport: Sport }) {
           )}
         >
           <LiveStatusBar />
-          <MatchList events={page.items} grouped flags={competitionFlags(competitions)} />
+          <MatchList events={page.items} grouped marks={competitionMarks(competitions)} />
         </LiveProvider>
       )}
     </SportsbookFrame>

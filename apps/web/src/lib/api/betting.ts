@@ -1,6 +1,7 @@
 import type {
   BetView,
   BookingCodeResponse,
+  BookingCodeStatusResponse,
   CreateBookingCodeRequest,
   EventDetail,
   PlaceBetRequest,
@@ -31,6 +32,10 @@ export const bettingApi = {
 
   bookingCode: (code: string) =>
     api.get<BookingCodeResponse>(`/booking-codes/${encodeURIComponent(code)}`),
+
+  /** Check coupon for a slip ID (GS4): awaiting payment, sold as a shop ticket, or expired. */
+  bookingCodeStatus: (code: string) =>
+    api.get<BookingCodeStatusResponse>(`/booking-codes/${encodeURIComponent(code)}/status`),
 
   /** Public event page data (team names and markets for a loaded booking code). */
   event: (eventId: string) => api.get<EventDetail>(`/events/${encodeURIComponent(eventId)}`),

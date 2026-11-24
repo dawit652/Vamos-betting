@@ -157,19 +157,19 @@ describe('list tabs', () => {
     expect(parseTab(undefined)).toBe(DEFAULT_TAB);
     expect(parseTab('today')).toBe('today');
     expect(parseTab(['leagues', 'today'])).toBe('leagues');
-    expect(parseTab('live')).toBe('highlights');
+    expect(parseTab('live')).toBe('today');
     expect(parseCursor('WyIyMDI2Il0')).toBe('WyIyMDI2Il0');
     expect(parseCursor('a b')).toBeUndefined();
     expect(parseCursor(undefined)).toBeUndefined();
   });
 
   it('builds list links', () => {
-    expect(listHref('/', 'highlights')).toBe('/');
-    expect(listHref('/', 'today')).toBe('/?tab=today');
+    expect(listHref('/', 'today')).toBe('/');
+    expect(listHref('/', 'highlights')).toBe('/?tab=highlights');
     expect(listHref('/sport/tennis', 'upcoming', 'abc')).toBe(
       '/sport/tennis?tab=upcoming&cursor=abc',
     );
-    expect(listHref('/', 'highlights', 'abc')).toBe('/?cursor=abc');
+    expect(listHref('/', 'today', 'abc')).toBe('/?cursor=abc');
   });
 
   it('caps the live stream filter at 50 unique events', () => {
@@ -287,11 +287,11 @@ describe('live stream frames', () => {
 describe('list controls parameters', () => {
   const now = new Date('2026-10-08T12:00:00.000Z');
 
-  it('parseDay accepts today to today + 14 only', () => {
+  it('parseDay accepts today to today + 30 only', () => {
     expect(parseDay('2026-10-08', now)).toBe('2026-10-08');
-    expect(parseDay('2026-10-22', now)).toBe('2026-10-22');
+    expect(parseDay('2026-11-07', now)).toBe('2026-11-07');
     expect(parseDay('2026-10-07', now)).toBeUndefined();
-    expect(parseDay('2026-10-23', now)).toBeUndefined();
+    expect(parseDay('2026-11-08', now)).toBeUndefined();
     expect(parseDay('2026-02-30', now)).toBeUndefined();
     expect(parseDay('2026-13-01', now)).toBeUndefined();
     expect(parseDay('nope', now)).toBeUndefined();
@@ -318,20 +318,20 @@ describe('list controls parameters', () => {
   });
 
   it('listHref writes within and leaves it out when absent', () => {
-    expect(listHref('/', 'today', undefined, { within: 3 })).toBe('/?tab=today&within=3');
+    expect(listHref('/', 'today', undefined, { within: 3 })).toBe('/?within=3');
     expect(listHref('/', 'highlights', 'abc', { within: 12, country: 'england' })).toBe(
-      '/?within=12&country=england&cursor=abc',
+      '/?tab=highlights&within=12&country=england&cursor=abc',
     );
-    expect(listHref('/', 'today', undefined, { within: undefined })).toBe('/?tab=today');
+    expect(listHref('/', 'today', undefined, { within: undefined })).toBe('/');
   });
 
   it('listHref keeps day, country and market and drops defaults', () => {
-    expect(listHref('/', 'today', undefined, { market: '1x2' })).toBe('/?tab=today');
+    expect(listHref('/', 'today', undefined, { market: '1x2' })).toBe('/');
     expect(
       listHref('/', 'upcoming', undefined, { day: '2026-10-09', country: 'england', market: 'dc' }),
     ).toBe('/?tab=upcoming&day=2026-10-09&country=england&market=dc');
     expect(listHref('/', 'today', 'abc', { country: 'england' })).toBe(
-      '/?tab=today&country=england&cursor=abc',
+      '/?country=england&cursor=abc',
     );
   });
 });

@@ -1,4 +1,5 @@
-import { buildOwnerAlert, type OwnerAlertInput } from '@vamos/core';
+import { buildOwnerAlert, ownerAlertDelivery, type OwnerAlertInput } from '@vamos/core';
+import { ownerAlertTargetCount } from '@vamos/config';
 import { enqueueOwnerAlert } from '@vamos/db';
 import type { Redis } from 'ioredis';
 import type { TaskContext } from '../tasks/context';
@@ -64,9 +65,9 @@ export async function releaseAlertSlot(
   await redis.eval(RELEASE_SCRIPT, 1, slotKey(side, key), String(atMs));
 }
 
-/** True when owner alerts are on (an owner number is set). */
+/** True when owner alerts are on (an owner number or Telegram chat is set). */
 export const ownerAlertsOn = (ctx: Pick<TaskContext, 'ownerAlerts'>): boolean =>
-  ctx.ownerAlerts !== undefined && ctx.ownerAlerts.phones.length > 0;
+  ctx.ownerAlerts !== undefined && ownerAlertTargetCount(ctx.ownerAlerts) > 0;
 
 /**
  * Raises an alert from worker code (the SMS rail's alarms, which are log lines): an `owner.alert`
@@ -78,10 +79,13 @@ export const ownerAlertsOn = (ctx: Pick<TaskContext, 'ownerAlerts'>): boolean =>
  */
 export async function raiseOwnerAlert(ctx: TaskContext, input: OwnerAlertInput): Promise<boolean> {
   const alerts = ctx.ownerAlerts;
-  if (alerts === undefined || alerts.phones.length === 0) return false;
+  if (alerts === undefined || ownerAlertTargetCount(alerts) === 0) return false;
+  // Only important alarms reach the owner, each at most once per its repeat window.
+  const delivery = ownerAlertDelivery(input, alerts.minIntervalMinutes * 60_000);
+  if (!delivery.send) return false;
   const now = ctx.clock();
   const { key } = buildOwnerAlert(input);
-  const intervalMs = alerts.minIntervalMinutes * 60_000;
+  const intervalMs = delivery.intervalMs;
   let claimed = false;
   try {
     claimed = await claimAlertSlot(ctx.redis, 'raised', key, now.getTime(), intervalMs);

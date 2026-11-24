@@ -25,16 +25,11 @@ import { OTP_HOURLY_PHONE_CEILING, OTP_TTL_MS } from '../src/lib/otp';
 import { DEFAULT_AUTH_LIMITS } from '../src/lib/rate-limits';
 import type { DevSmsResponse } from '../src/modules/dev/routes';
 import { assertCanGamble, getActiveExclusion } from '../src/modules/rg/guard';
-import {
-  SESSION_ABSOLUTE_MS,
-  SESSION_IDLE_MS,
-  csrfTokenFor,
-  secureCookies,
-  type SessionUser,
-} from '../src/plugins/session';
+import { csrfTokenFor, secureCookies, type SessionUser } from '../src/plugins/session';
 import type { SmsMessage, SmsProvider } from '../src/providers/sms';
 import {
   ADULT_DOB,
+  STRICT_PLAYER_SESSION,
   TEST_PASSWORD,
   cookieHeader,
   createTestContext,
@@ -43,6 +38,7 @@ import {
   post,
   randomPhone,
   registerAndLogin,
+  withPlayerSession,
   type TestContext,
 } from './helpers';
 
@@ -272,36 +268,55 @@ describe('auth', () => {
       expect(refused.statusCode).toBe(400);
     });
 
-    it.each(['qwerty123456', 'PASSWORD1234', 'Iloveyou1234', ' 1qaz2wsx3edc '])(
-      'rejects the common password %s',
+    it.each(['1234', '0000', '7777', '9876', '7890'])('rejects the easy PIN %s', async (pw) => {
+      const response = await post(
+        ctx,
+        '/auth/register',
+        registerPayload(randomPhone(), { password: pw }),
+      );
+      expect(response.statusCode).toBe(400);
+      expect(apiError(response).code).toBe('weak_password');
+    });
+
+    it.each(['1212', '1122', '2580', '2000', '1990'])(
+      'takes the PIN %s (owner, 16 Nov 2026)',
       async (pw) => {
         const response = await post(
           ctx,
           '/auth/register',
           registerPayload(randomPhone(), { password: pw }),
         );
-        expect(response.statusCode).toBe(400);
-        expect(apiError(response).code).toBe('weak_password');
+        expect(response.statusCode, response.body).toBe(201);
       },
     );
 
-    it('rejects the phone number as password', async () => {
-      const phone = randomPhone();
-      for (const password of [phone, phone.slice(1), `00${phone.slice(1)}`]) {
-        const response = await post(ctx, '/auth/register', registerPayload(phone, { password }));
-        expect(response.statusCode).toBe(400);
-        expect(apiError(response).code).toBe('weak_password');
+    it('rejects the last 4 digits of the phone number as PIN', async () => {
+      let phone = randomPhone();
+      // A phone whose ending is not an easy PIN anyway, so the phone rule is what refuses it.
+      while (
+        /^(\d)\1+$|0123|1234|2345|3456|4567|5678|6789|9876|8765|7654|6543|5432|4321|3210/.test(
+          phone.slice(-4),
+        )
+      ) {
+        phone = randomPhone();
       }
-      // The shorter forms fail the length rule first.
-      for (const password of [localForm(phone), phone.slice(4)]) {
-        const response = await post(ctx, '/auth/register', registerPayload(phone, { password }));
-        expect(response.statusCode).toBe(400);
-        expect(apiError(response).code).toBe('validation_error');
+      const response = await post(
+        ctx,
+        '/auth/register',
+        registerPayload(phone, { password: phone.slice(-4) }),
+      );
+      expect(response.statusCode).toBe(400);
+      expect(apiError(response).code).toBe('weak_password');
+      // The whole number is no PIN at all.
+      for (const password of [phone, localForm(phone), phone.slice(4)]) {
+        const refused = await post(ctx, '/auth/register', registerPayload(phone, { password }));
+        expect(refused.statusCode).toBe(400);
+        expect(apiError(refused).code).toBe('validation_error');
       }
     });
 
-    it('needs 12 characters, counting a run of spaces once (ASVS 2.1.1)', async () => {
-      for (const password of ['Abebe-bik-1', 'Abebe     bik-1']) {
+    it('takes exactly a 4-digit PIN as the new password', async () => {
+      for (const password of ['483', '48260', 'abcd', '48 6', '４８２６', 'Abebe-bikila-1960']) {
         const response = await post(
           ctx,
           '/auth/register',
@@ -310,25 +325,12 @@ describe('auth', () => {
         expect(response.statusCode, password).toBe(400);
         expect(apiError(response).code).toBe('validation_error');
       }
-      const twelve = await post(
+      const pin = await post(
         ctx,
         '/auth/register',
-        registerPayload(randomPhone(), { password: 'Abebe-bik-19' }),
+        registerPayload(randomPhone(), { password: '9150' }),
       );
-      expect(twelve.statusCode).toBe(201);
-      // Any characters, including Ethiopic and spaces, up to 128.
-      const ethiopic = await post(
-        ctx,
-        '/auth/register',
-        registerPayload(randomPhone(), { password: 'ሰላም ለኢትዮጵያ ሀገሬ' }),
-      );
-      expect(ethiopic.statusCode).toBe(201);
-      const tooLong = await post(
-        ctx,
-        '/auth/register',
-        registerPayload(randomPhone(), { password: 'x'.repeat(129) }),
-      );
-      expect(apiError(tooLong).code).toBe('validation_error');
+      expect(pin.statusCode).toBe(201);
     });
 
     it('returns 409 phone_taken for a number with an account', async () => {
@@ -361,7 +363,7 @@ describe('auth', () => {
       expect((await findUser(phone))!.fullName).toBe('Tirunesh Dibaba');
 
       ctx.clock.advance(61_000);
-      const newPassword = 'Derartu-Tulu-1992';
+      const newPassword = '7031';
       const second = await register(phone, {
         password: newPassword,
         fullName: 'Derartu Tulu',
@@ -404,8 +406,8 @@ describe('auth', () => {
         const codeSentTo = (phone: string) =>
           /\b(\d{6})\b/.exec(gateway.sent.filter((m) => m.to === phone).at(-1)!.body)![1]!;
         const phone = randomPhone();
-        const ownerPassword = 'Victim-Secret-2024';
-        const attackerPassword = 'Attacker-Knows-This-1';
+        const ownerPassword = '3804';
+        const attackerPassword = '6195';
 
         const owner = RegisterResponse.parse(
           (
@@ -528,12 +530,15 @@ describe('auth', () => {
         status: 'active',
         locale: 'am',
       });
+      // A player stays signed in until they sign out (PLAYER_SESSION_*: a year, no idle limit).
+      expect(ctx.deps.config.api.playerSession).toEqual({
+        absoluteMs: 365 * 24 * 60 * 60_000,
+        idleMs: null,
+      });
       expect(new Date(body.expiresAt).getTime()).toBe(
-        ctx.clock.now.getTime() + SESSION_ABSOLUTE_MS,
+        ctx.clock.now.getTime() + ctx.deps.config.api.playerSession.absoluteMs,
       );
-      expect(new Date(body.idleExpiresAt).getTime()).toBe(
-        ctx.clock.now.getTime() + SESSION_IDLE_MS,
-      );
+      expect(new Date(body.idleExpiresAt).getTime()).toBe(new Date(body.expiresAt).getTime());
       // The CSRF token is derived from the session token, so GET /auth/session can hand it out.
       expect(body.csrfToken).toBe(csrfTokenFor(body.sessionToken));
 
@@ -1030,31 +1035,55 @@ describe('auth', () => {
       expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(401);
     });
 
+    it('keeps a player signed in for weeks without a request, until the session ends or they sign out', async () => {
+      const player = await registerAndLogin(ctx);
+      const signedInAt = ctx.clock.now.getTime();
+      ctx.clock.advance(45 * 24 * 60 * 60_000); // 45 days without a request
+      expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(200);
+      ctx.clock.advance(
+        signedInAt + ctx.deps.config.api.playerSession.absoluteMs - ctx.clock.now.getTime() - 1000,
+      );
+      expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(200);
+      ctx.clock.advance(1000);
+      expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(401);
+      // Signing out ends it at once.
+      const other = await registerAndLogin(ctx);
+      ctx.clock.advance(10 * 24 * 60 * 60_000);
+      expect(
+        (await post(ctx, '/auth/logout', {}, { headers: bearer(other.sessionToken) })).statusCode,
+      ).toBe(200);
+      expect((await whoami(bearer(other.sessionToken))).statusCode).toBe(401);
+    });
+
     it('rejects missing, unknown and expired sessions', async () => {
       const noAuth = await post(ctx, '/auth/logout', {});
       expect(noAuth.statusCode).toBe(401);
       expect((await whoami(bearer('not-a-real-token'))).statusCode).toBe(401);
+      await withPlayerSession(ctx, STRICT_PLAYER_SESSION, async () => {
+        const { absoluteMs: SESSION_ABSOLUTE_MS, idleMs: SESSION_IDLE_MS } = STRICT_PLAYER_SESSION;
 
-      // 12 hours after sign-in at the latest, however active (ASVS 3.3.2).
-      const player = await registerAndLogin(ctx);
-      const signedInAt = ctx.clock.now.getTime();
-      while (ctx.clock.now.getTime() + SESSION_IDLE_MS / 2 < signedInAt + SESSION_ABSOLUTE_MS) {
-        ctx.clock.advance(SESSION_IDLE_MS / 2);
+        // With the strict limits (PLAYER_SESSION_HOURS=12, PLAYER_SESSION_IDLE_MINUTES=30):
+        // 12 hours after sign-in at the latest, however active (ASVS 3.3.2).
+        const player = await registerAndLogin(ctx);
+        const signedInAt = ctx.clock.now.getTime();
+        while (ctx.clock.now.getTime() + SESSION_IDLE_MS / 2 < signedInAt + SESSION_ABSOLUTE_MS) {
+          ctx.clock.advance(SESSION_IDLE_MS / 2);
+          expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(200);
+        }
+        ctx.clock.advance(signedInAt + SESSION_ABSOLUTE_MS - ctx.clock.now.getTime() - 1000);
         expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(200);
-      }
-      ctx.clock.advance(signedInAt + SESSION_ABSOLUTE_MS - ctx.clock.now.getTime() - 1000);
-      expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(200);
-      ctx.clock.advance(1000);
-      expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(401);
+        ctx.clock.advance(1000);
+        expect((await whoami(bearer(player.sessionToken))).statusCode).toBe(401);
 
-      // 30 minutes without a request.
-      const idle = await registerAndLogin(ctx);
-      ctx.clock.advance(SESSION_IDLE_MS - 1000);
-      expect((await whoami(bearer(idle.sessionToken))).statusCode).toBe(200);
-      ctx.clock.advance(SESSION_IDLE_MS - 1000);
-      expect((await whoami(bearer(idle.sessionToken))).statusCode).toBe(200);
-      ctx.clock.advance(SESSION_IDLE_MS);
-      expect((await whoami(bearer(idle.sessionToken))).statusCode).toBe(401);
+        // 30 minutes without a request.
+        const idle = await registerAndLogin(ctx);
+        ctx.clock.advance(SESSION_IDLE_MS - 1000);
+        expect((await whoami(bearer(idle.sessionToken))).statusCode).toBe(200);
+        ctx.clock.advance(SESSION_IDLE_MS - 1000);
+        expect((await whoami(bearer(idle.sessionToken))).statusCode).toBe(200);
+        ctx.clock.advance(SESSION_IDLE_MS);
+        expect((await whoami(bearer(idle.sessionToken))).statusCode).toBe(401);
+      });
     });
 
     it('marks cookies Secure in production, in licensed mode and behind HTTPS', async () => {
@@ -1141,11 +1170,11 @@ describe('auth', () => {
         );
       expect(sms).toBeDefined();
 
-      const newPassword = 'Haile-Gebrselassie-1973';
+      const newPassword = '9150';
       const weak = await post(ctx, '/auth/password/reset', {
         phone: player.phone,
         code,
-        newPassword: '123456789012',
+        newPassword: '1234',
       });
       expect(apiError(weak).code).toBe('weak_password');
 
@@ -1186,7 +1215,7 @@ describe('auth', () => {
       const reused = await post(ctx, '/auth/password/reset', {
         phone: player.phone,
         code,
-        newPassword: 'Another-Password-1',
+        newPassword: '2690',
       });
       expect(apiError(reused).code).toBe('otp_expired');
     });
@@ -1237,7 +1266,7 @@ describe('auth', () => {
       const guess = await post(ctx, '/auth/password/reset', {
         phone: unknownPhone,
         code: '123456',
-        newPassword: 'Whatever-Password-9',
+        newPassword: '5072',
       });
       expect(guess.statusCode).toBe(400);
       expect(apiError(guess).code).toBe('otp_invalid');
@@ -1281,67 +1310,95 @@ describe('auth', () => {
   });
 
   describe('rate limiting', () => {
+    /** An app whose per-number login limits are out of the way, to test the per-address ones. */
+    const perAddressApp = () =>
+      buildApp(ctx.deps, {
+        logger: false,
+        rateLimitNameSpace: `per-address-${randomUUID()}:`,
+        authLimits: {
+          loginPerPhone: { max: 1000, timeWindow: 15 * 60_000 },
+          loginPerPhoneDaily: { max: 1000, timeWindow: 24 * 60 * 60_000 },
+        },
+      });
+
     it('limits login attempts per IP and phone number with 429 rate_limited', async () => {
-      const phone = randomPhone();
-      const remoteAddress = '192.0.2.10';
-      for (let i = 0; i < 10; i += 1) {
-        const response = await post(
+      const app = perAddressApp();
+      const post = (
+        _ctx: TestContext,
+        url: string,
+        payload: Record<string, unknown>,
+        extra: { remoteAddress?: string } = {},
+      ) => app.inject({ method: 'POST', url, payload, ...extra });
+      try {
+        const phone = randomPhone();
+        const remoteAddress = '192.0.2.10';
+        for (let i = 0; i < 10; i += 1) {
+          const response = await post(
+            ctx,
+            '/auth/login',
+            { phone, password: 'wrong-password' },
+            { remoteAddress },
+          );
+          expect(response.statusCode).toBe(401);
+        }
+        const limited = await post(
           ctx,
           '/auth/login',
           { phone, password: 'wrong-password' },
           { remoteAddress },
         );
-        expect(response.statusCode).toBe(401);
-      }
-      const limited = await post(
-        ctx,
-        '/auth/login',
-        { phone, password: 'wrong-password' },
-        { remoteAddress },
-      );
-      expect(limited.statusCode).toBe(429);
-      expect(apiError(limited).code).toBe('rate_limited');
-      expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
+        expect(limited.statusCode).toBe(429);
+        expect(apiError(limited).code).toBe('rate_limited');
+        expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
 
-      // Another number from the same address, or the same number from elsewhere, is unaffected.
-      const otherPhone = await post(
-        ctx,
-        '/auth/login',
-        { phone: randomPhone(), password: 'wrong-password' },
-        { remoteAddress },
-      );
-      expect(otherPhone.statusCode).toBe(401);
-      const otherIp = await post(
-        ctx,
-        '/auth/login',
-        { phone, password: 'wrong-password' },
-        { remoteAddress: '192.0.2.11' },
-      );
-      expect(otherIp.statusCode).toBe(401);
+        // Another number from the same address, or the same number from elsewhere, is unaffected.
+        const otherPhone = await post(
+          ctx,
+          '/auth/login',
+          { phone: randomPhone(), password: 'wrong-password' },
+          { remoteAddress },
+        );
+        expect(otherPhone.statusCode).toBe(401);
+        const otherIp = await post(
+          ctx,
+          '/auth/login',
+          { phone, password: 'wrong-password' },
+          { remoteAddress: '192.0.2.11' },
+        );
+        expect(otherIp.statusCode).toBe(401);
+      } finally {
+        await app.close();
+      }
     });
 
     it('ignores X-Forwarded-For from clients: it cannot dodge the limit or forge the logged IP', async () => {
-      const phone = randomPhone();
-      const remoteAddress = '192.0.2.30';
-      const attempt = (i: number) =>
-        post(
-          ctx,
-          '/auth/login',
-          { phone, password: `wrong-password-${i}` },
-          { remoteAddress, headers: { 'x-forwarded-for': `198.51.100.${i}` } },
-        );
-      for (let i = 0; i < 10; i += 1) {
-        expect((await attempt(i)).statusCode).toBe(401);
-      }
-      const limited = await attempt(10);
-      expect(limited.statusCode).toBe(429);
-      expect(apiError(limited).code).toBe('rate_limited');
+      const app = perAddressApp();
+      try {
+        const phone = randomPhone();
+        const remoteAddress = '192.0.2.30';
+        const attempt = (i: number) =>
+          app.inject({
+            method: 'POST',
+            url: '/auth/login',
+            payload: { phone, password: `wrong-password-${i}` },
+            remoteAddress,
+            headers: { 'x-forwarded-for': `198.51.100.${i}` },
+          });
+        for (let i = 0; i < 10; i += 1) {
+          expect((await attempt(i)).statusCode).toBe(401);
+        }
+        const limited = await attempt(10);
+        expect(limited.statusCode).toBe(429);
+        expect(apiError(limited).code).toBe('rate_limited');
 
-      const failures = await ctx.db.db
-        .select({ ip: auditLog.ip })
-        .from(auditLog)
-        .where(and(eq(auditLog.action, 'user.login_failed'), eq(auditLog.ip, remoteAddress)));
-      expect(failures).toHaveLength(10);
+        const failures = await ctx.db.db
+          .select({ ip: auditLog.ip })
+          .from(auditLog)
+          .where(and(eq(auditLog.action, 'user.login_failed'), eq(auditLog.ip, remoteAddress)));
+        expect(failures).toHaveLength(10);
+      } finally {
+        await app.close();
+      }
     });
 
     it('reads the client address from X-Forwarded-For only when a trusted proxy sends it', async () => {
@@ -1349,6 +1406,10 @@ describe('auth', () => {
         logger: false,
         rateLimitNameSpace: `proxy-${randomUUID()}:`,
         trustProxy: ['10.0.0.0/8'],
+        authLimits: {
+          loginPerPhone: { max: 1000, timeWindow: 15 * 60_000 },
+          loginPerPhoneDaily: { max: 1000, timeWindow: 24 * 60 * 60_000 },
+        },
       });
       try {
         const phone = randomPhone();
@@ -1384,8 +1445,59 @@ describe('auth', () => {
       }
     });
 
+    it('caps login attempts per number per day (PINs), and the SMS reset lifts that cap too', async () => {
+      const app = buildApp(ctx.deps, {
+        logger: false,
+        rateLimitNameSpace: `per-phone-day-${randomUUID()}:`,
+        authLimits: {
+          loginPerPhone: { max: 100, timeWindow: 15 * 60_000 },
+          loginPerPhoneDaily: { max: 3, timeWindow: 24 * 60 * 60_000 },
+        },
+      });
+      try {
+        const player = await registerAndLogin(ctx);
+        const login = (password: string, i: number) =>
+          app.inject({
+            method: 'POST',
+            url: '/auth/login',
+            payload: { phone: player.phone, password },
+            remoteAddress: `198.51.101.${i}`,
+          });
+        for (let i = 0; i < 3; i += 1) {
+          expect((await login('9150', i)).statusCode).toBe(401);
+        }
+        // The fourth attempt of the day waits, even with the right PIN, from any address.
+        expect((await login(player.password, 3)).statusCode).toBe(429);
+        // The owner proves the number with an SMS code: the day's lock is lifted at once.
+        const forgot = await app.inject({
+          method: 'POST',
+          url: '/auth/password/forgot',
+          payload: { phone: player.phone },
+          remoteAddress: '198.51.101.10',
+        });
+        expect(forgot.statusCode).toBe(200);
+        // This app sends the code in its own background: wait for it, not only for ctx.app's.
+        await app.background.idle();
+        const code = await latestOtp(ctx, player.phone);
+        const reset = await app.inject({
+          method: 'POST',
+          url: '/auth/password/reset',
+          payload: { phone: player.phone, code, newPassword: '7031' },
+          remoteAddress: '198.51.101.10',
+        });
+        expect(reset.statusCode).toBe(200);
+        expect((await login('7031', 11)).statusCode).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+
     it('locks a phone number after too many login attempts from any addresses', async () => {
-      expect(DEFAULT_AUTH_LIMITS.loginPerPhone).toEqual({ max: 20, timeWindow: 15 * 60_000 });
+      expect(DEFAULT_AUTH_LIMITS.loginPerPhone).toEqual({ max: 6, timeWindow: 15 * 60_000 });
+      expect(DEFAULT_AUTH_LIMITS.loginPerPhoneDaily).toEqual({
+        max: 15,
+        timeWindow: 24 * 60 * 60_000,
+      });
       const app = buildApp(ctx.deps, {
         logger: false,
         rateLimitNameSpace: `per-phone-${randomUUID()}:`,

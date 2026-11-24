@@ -9,6 +9,7 @@
  * - Phase 11: SMS / USSD channels (inbound messages, USSD sessions)
  * - Data scraper: sources, runs, observations, aliases, review queue (docs/scraper.md)
  * - SMS deposit rail: received SMS, payout accounts
+ * - Cashier desk: shops, shifts, cash operations (receipts)
  */
 export * from './enums';
 export * from './accounts';
@@ -22,3 +23,10 @@ export * from './compliance';
 export * from './channels';
 export * from './scrape';
 export * from './smsrail';
+export * from './cashier';
+export * from './retail';
+export * from './retail-tickets';
+export * from './retail-statements';
+export * from './retail-alerts';
+export * from './devices';
+export * from './reports';

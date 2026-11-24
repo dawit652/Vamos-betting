@@ -3,7 +3,7 @@ import { maskMsisdn } from '@vamos/core';
 import type { OtpSentResponse } from '@vamos/contracts';
 import type { Database, DbTransaction } from '@vamos/db';
 import { otpChallenges, type otpPurpose } from '@vamos/db/schema';
-import { and, asc, desc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, not, like, or, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AppDeps } from '../deps';
 import { otpSmsBody } from '../providers/sms';
@@ -14,6 +14,17 @@ import type { Locale } from './locale';
 export type OtpPurpose = (typeof otpPurpose.enumValues)[number];
 
 export const OTP_TTL_MS = 5 * 60_000;
+
+/**
+ * The requester key of a code issued by the Telegram bot (`telegram:<chat id>`). Such a code stays
+ * valid while a code asked for on the website is issued (owner, 17 Nov 2026: the reset page's
+ * "Send code" button, pressed after the Telegram code arrived, silently killed it), and consumeOtp
+ * accepts any live code of the number.
+ */
+export const TELEGRAM_REQUESTER_PREFIX = 'telegram:';
+
+/** How many live codes of one number consumeOtp looks at (the newest, plus a live Telegram code). */
+const LIVE_CODES_CHECKED = 3;
 export const OTP_MAX_ATTEMPTS = 5;
 /** Minimum time between two challenges for the same (phone, purpose) from one client address. */
 export const OTP_RESEND_COOLDOWN_MS = 60_000;
@@ -122,7 +133,9 @@ async function failureBudgetExhausted(
 
 /**
  * Creates a challenge for (phone, purpose) inside `tx` and retires any older
- * unconsumed challenge for the same purpose. Enforced first (429):
+ * unconsumed challenge for the same purpose, except that a request that does not come from the
+ * Telegram bot leaves a still-valid Telegram code alone (TELEGRAM_REQUESTER_PREFIX). Enforced
+ * first (429):
  * - `otp_cooldown`: a code for (phone, purpose) went to the same client
  *   address (`requesterKey`, see clientAddressKey) less than
  *   OTP_RESEND_COOLDOWN_MS ago;
@@ -192,6 +205,7 @@ export async function createOtpChallenge(
   const exhausted = await failureBudgetExhausted(tx, phone, purpose, now);
   if (exhausted !== null) throw otpLimit(exhausted);
 
+  const keepTelegram = !requesterKey.startsWith(TELEGRAM_REQUESTER_PREFIX);
   await tx
     .update(otpChallenges)
     .set({ consumedAt: now })
@@ -200,6 +214,15 @@ export async function createOtpChallenge(
         eq(otpChallenges.phone, phone),
         eq(otpChallenges.purpose, purpose),
         isNull(otpChallenges.consumedAt),
+        ...(keepTelegram
+          ? [
+              or(
+                isNull(otpChallenges.requesterKey),
+                not(like(otpChallenges.requesterKey, `${TELEGRAM_REQUESTER_PREFIX}%`)),
+                sql`${otpChallenges.expiresAt} <= ${now}`,
+              ),
+            ]
+          : []),
       ),
     );
 
@@ -223,16 +246,17 @@ export async function createOtpChallenge(
 }
 
 /**
- * Checks `code` against the latest unconsumed challenge for (phone, purpose)
- * and, when it matches, consumes it and runs `onValid` in the same
+ * Checks `code` against the live challenges for (phone, purpose) (normally one, the latest;
+ * two when a Telegram code is still valid next to a newer one) and, when it matches one,
+ * consumes it (and any other live code of the number) and runs `onValid` in the same
  * transaction (so the challenge is only spent if `onValid` commits).
  *
  * - the purpose's daily failure budget is used up (OTP_DAILY_FAILURE_BUDGET):
  *   429 `otp_limit`, before any code is compared (even the right one);
  * - no live challenge (missing, consumed, expired or out of attempts):
  *   400 `otp_expired`;
- * - wrong code: the attempt is recorded (and committed) and 400 `otp_invalid`
- *   is thrown with `details.attemptsLeft`. At zero the challenge is dead.
+ * - wrong code: one attempt is recorded on the newest live challenge (and committed) and 400
+ *   `otp_invalid` is thrown with `details.attemptsLeft`. At zero that challenge is dead.
  */
 export async function consumeOtp<T>(
   db: Database,
@@ -255,7 +279,7 @@ export async function consumeOtp<T>(
       const exhausted = await failureBudgetExhausted(tx, phone, purpose, now);
       if (exhausted !== null) return { kind: 'exhausted', retryAfter: exhausted } as const;
     }
-    const [challenge] = await tx
+    const live = await tx
       .select()
       .from(otpChallenges)
       .where(
@@ -266,30 +290,40 @@ export async function consumeOtp<T>(
         ),
       )
       .orderBy(desc(otpChallenges.createdAt))
-      .limit(1)
+      .limit(LIVE_CODES_CHECKED)
       .for('update');
-    if (
-      !challenge ||
-      challenge.expiresAt.getTime() <= now.getTime() ||
-      challenge.attempts >= challenge.maxAttempts ||
-      (params.binding !== undefined && challenge.binding !== params.binding)
-    ) {
-      return { kind: 'expired' } as const;
-    }
+    const usable = live.filter(
+      (row) =>
+        row.expiresAt.getTime() > now.getTime() &&
+        row.attempts < row.maxAttempts &&
+        (params.binding === undefined || row.binding === params.binding),
+    );
+    const newest = usable[0];
+    if (newest === undefined) return { kind: 'expired' } as const;
 
-    if (!safeEqualHex(hashOtpCode(secret, phone, purpose, code), challenge.codeHash)) {
-      const attempts = challenge.attempts + 1;
-      await tx.update(otpChallenges).set({ attempts }).where(eq(otpChallenges.id, challenge.id));
+    const hash = (row: (typeof usable)[number]) =>
+      safeEqualHex(hashOtpCode(secret, phone, purpose, code), row.codeHash);
+    const matches = usable.filter(hash);
+    if (matches.length === 0) {
+      const attempts = newest.attempts + 1;
+      await tx.update(otpChallenges).set({ attempts }).where(eq(otpChallenges.id, newest.id));
       return {
         kind: 'invalid',
-        attemptsLeft: Math.max(0, challenge.maxAttempts - attempts),
+        attemptsLeft: Math.max(0, newest.maxAttempts - attempts),
       } as const;
     }
 
+    // Spent: the matching code and every other live code of the number.
     await tx
       .update(otpChallenges)
       .set({ consumedAt: now })
-      .where(eq(otpChallenges.id, challenge.id));
+      .where(
+        and(
+          eq(otpChallenges.phone, phone),
+          eq(otpChallenges.purpose, purpose),
+          isNull(otpChallenges.consumedAt),
+        ),
+      );
     return { kind: 'valid', value: await onValid(tx) } as const;
   });
 

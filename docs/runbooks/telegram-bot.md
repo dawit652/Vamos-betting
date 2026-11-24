@@ -1,0 +1,125 @@
+# Telegram bot
+
+The worker runs a Telegram bot when `TELEGRAM_BOT_TOKEN` is set. It is **read-only**: it never places
+a bet, moves money, reads an account or stores who wrote to it.
+
+- **Owner alerts:** every owner alert (the SMS rail's alarms, the float forecast, failed sources, the
+  credit budget...) goes to the chats in `TELEGRAM_OWNER_CHAT_IDS`, next to the SMS to
+  `OWNER_ALERT_PHONES`. Either list alone is enough. The same alert is sent at most once per
+  `OWNER_ALERT_MIN_INTERVAL_MINUTES`.
+- **Services down** (owner, 21 Nov 2026): when a payment provider, mr-x, mr-z, API-Football or a
+  feed source has failed for 3 minutes, the owner chats get "… is down for N min" every 15 minutes
+  until it works again, then "… works again" once. Telegram only, never an SMS. What to do: the
+  message names the service and its last error; see `docs/plans/counter-codes-and-deposit-recovery.md`,
+  G7.
+- **Players** (`TELEGRAM_PLAYER_MENU=on`, the default): `/today`, `/live`, `/top`, `/leagues` and the
+  menu buttons list football matches with the main odds, the number of options, and a button that
+  opens the match on the website, where the bet is placed. Messages follow the language of the
+  player's Telegram app (Amharic or English) and end with "21+ only. Bet responsibly."; in demo mode
+  they start with DEMO.
+- **Anyone:** `/id` answers the chat's id (to fill in `TELEGRAM_OWNER_CHAT_IDS`).
+- **Owner chats only:** `/status` shows the last SMS from the collection handset, the SMS waiting
+  for staff and the open manual payouts.
+
+How it runs: the worker asks Telegram for new messages (long polling), so nothing on the server
+accepts connections from Telegram and Caddy is unchanged. It reads the matches from the API over the
+compose network (`API_INTERNAL_URL`, `http://api:4000`), with the API's catalogue cache. Private
+chats only; group chats are answered only when they are owner chats. Each chat gets at most 20
+answers a minute.
+
+## Set it up (once)
+
+1. In Telegram, open **@BotFather**, send `/newbot`, choose a name (for example "Nahubet") and a
+   username ending in `bot` (for example `NahubetSportsBot`). BotFather answers with a **token** like
+   `123456789:AAH...`. Keep it secret: whoever has it controls the bot.
+2. On the server, add it to the env file and leave the chat list empty for now:
+
+   ```bash
+   nano /opt/nahubet-new/infra/.env.prod
+   ```
+
+   ```bash
+   TELEGRAM_BOT_TOKEN=123456789:AAH...
+   ```
+
+3. Deploy (or, if this code is already deployed, recreate the worker so it reads the new setting):
+
+   ```bash
+   cd /opt/nahubet && COMPOSE_FILE=infra/docker-compose.prod.yml COMPOSE_ENV_FILES=/opt/nahubet-new/infra/.env.prod COMPOSE_PROJECT_NAME=vamos docker compose up -d --no-deps --force-recreate worker
+   ```
+
+4. In Telegram, open your bot and send `/id`. It answers "This chat's id: 123456789".
+5. Put that number in the env file and recreate the worker again (step 3):
+
+   ```bash
+   TELEGRAM_OWNER_CHAT_IDS=123456789
+   ```
+
+6. Send `/status` to the bot: an owner chat gets the status. The next owner alert arrives here too.
+
+Optional, in @BotFather: `/setdescription` and `/setcommands` (paste
+`today - Today's matches`, `live - Live now`, `top - Top matches`, `leagues - Top leagues`,
+`id - This chat's id`), and `/setuserpic`.
+
+To send alerts only, with no player menu: `TELEGRAM_PLAYER_MENU=off`.
+
+## Forgot PIN over Telegram
+
+The live server has no SMS gateway, so a forgotten PIN is reset through the bot (owner, 17 Nov 2026):
+
+1. On the website's Forgot PIN page the player taps **Get the code on Telegram** (shown while
+   `TELEGRAM_PUBLIC_URL` is set; it must be the **bot's** link, `https://t.me/<bot username>`, not a
+   channel). The bot opens on the reset step. In the bot, `/reset` or the **Forgot PIN** menu
+   button does the same.
+2. The bot asks the player to share their phone number with one tap. Only their own Telegram
+   number counts (Telegram verified it); a card forwarded from someone else is refused.
+3. The bot sends a 6-digit code in the chat (5 minutes; the same limits as SMS codes: one a minute,
+   five an hour per number) with a button to the reset page, where the player enters their phone
+   number, the code and a new PIN.
+
+A reset code asked for on the website afterwards (the Forgot PIN form's "Send code") does not cancel
+a Telegram code that is still valid, and any live code of the number is accepted; a newer Telegram
+code replaces an older one (always use the newest). Found on 17 Nov 2026 when the owner's Telegram
+code was refused after pressing "Send code".
+
+Players need Telegram on the phone number of their Nahubet account. The worker asks the API for
+the code over the compose network, signed with `SESSION_SECRET` (`/internal/telegram/password-reset`,
+refused when the signature is wrong or older than 60 seconds). The code and the number are never
+written to a log. Add `reset - Forgot PIN` to the bot's commands in @BotFather (`/setcommands`).
+
+## Deposit problem
+
+A player whose deposit did not arrive presses **Deposit problem** (or sends `/deposit`), shares their
+own number with one tap, then sends the amount, how they paid and the SMS reference in one message
+(`500 telebirr CK51X2QZ`). The claim appears in Back office → **Money not credited**, and the owner
+chats get one line (the number masked). Nothing is credited by the bot: an admin checks and credits
+there. Claims filed this way are deleted after 90 days (owner's decision O3). Add
+`deposit - Deposit problem` to the bot's commands in @BotFather (`/setcommands`).
+
+## Share with friends
+
+The menu has a **Share with friends** button and `/share` sends it with the bot's link: it opens
+Telegram's share page so a player can send the bot to their friends' chats (owner, 17 Nov 2026).
+The bot learns its own username at start (getMe); if that fails the button is left out. Add
+`share - Share with friends` to the bot's commands in @BotFather.
+
+## Showing the Telegram link on the site
+
+To show "Join us on Telegram" in the player site's footer, left column and phone league panel, set
+`TELEGRAM_PUBLIC_URL` in the env file to the bot or channel players should join, for example
+`https://t.me/NahubetBot`, and recreate the web container (it is read at run time: no rebuild).
+Only an `https://t.me/<name>` address (letters, digits, underscore, an optional path) is accepted;
+anything else is ignored and the web log says so. Unset: no link is shown.
+
+## When something is wrong
+
+| Sign                                                                            | Cause and what was done                                                                                           | Fix                                                                                                                           |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Alarm `telegram_bot_unauthorized` (worker `error` line)                         | Telegram refused the token (revoked in BotFather, or mistyped). The worker retries every minute; alerts go by SMS | Put the right token in the env file and recreate the worker                                                                   |
+| Worker log "another process polls this bot, or a webhook is set"                | Two workers (or another program) use the same token, or a webhook was set on it                                   | Run one worker with this token. To drop a webhook: open `https://api.telegram.org/bot<token>/deleteWebhook` once in a browser |
+| The worker refuses to start: "TELEGRAM_OWNER_CHAT_IDS needs TELEGRAM_BOT_TOKEN" | A chat list without a token                                                                                       | Set the token, or empty the list                                                                                              |
+| The bot never answers, no alarm                                                 | The worker cannot reach `api.telegram.org` (firewall)                                                             | Allow outbound HTTPS from the server to `api.telegram.org`                                                                    |
+| "Matches are not available right now"                                           | The worker could not read the API (`API_INTERNAL_URL`)                                                            | Check the api container is healthy                                                                                            |
+
+The token is never written to a log or an error message. If it may have leaked, revoke it in
+@BotFather (`/revoke`), put the new one in the env file and recreate the worker.

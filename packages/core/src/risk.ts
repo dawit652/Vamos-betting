@@ -25,9 +25,44 @@ export const DEFAULT_RISK_LIMITS: RiskLimits = {
   maxEventLiability: null,
 };
 
+/**
+ * The caps of a competitor board's own matches (Hulusport's and Narobet's, docs/plans/
+ * narobet-events.md): one price source and one results source, mostly small leagues. Owner's
+ * decision D4 of 21 Nov 2026: at most ETB 20,000 paid out per match. Staff change it in the back
+ * office (settings `board_risk_limits`). It applies on top of `risk_limits`: the stricter cap wins.
+ */
+export const DEFAULT_BOARD_RISK_LIMITS: RiskLimits = {
+  maxSelectionLiability: null,
+  maxEventLiability: 20_000n * SANTIM_PER_BIRR,
+};
+
 /** True when at least one cap is set (otherwise placing a bet needs no exposure check). */
 export function hasRiskLimits(limits: RiskLimits): boolean {
   return limits.maxSelectionLiability !== null || limits.maxEventLiability !== null;
+}
+
+/** The stricter of two caps (null = no cap). */
+export function strictestCap(a: Santim | null, b: Santim | null): Santim | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return a < b ? a : b;
+}
+
+/**
+ * The board caps of one bet (see DEFAULT_BOARD_RISK_LIMITS): the caps, and which of the bet's
+ * matches and selections are on a board's own matches. Absent, or with no board match, the bet
+ * has only the plain caps.
+ */
+export interface BoardRiskInput {
+  limits: RiskLimits;
+  events: ReadonlySet<string>;
+  selections: ReadonlySet<string>;
+}
+
+/** True when a bet must be checked against the caps (plain, or board caps on a board match). */
+export function needsLiabilityCheck(limits: RiskLimits, board?: BoardRiskInput): boolean {
+  if (hasRiskLimits(limits)) return true;
+  return board !== undefined && board.events.size > 0 && hasRiskLimits(board.limits);
 }
 
 export type LiabilityScope = 'selection' | 'event';
@@ -68,8 +103,13 @@ export function liabilityBreach(input: {
    * `market_families.factoryLiabilityShareBps`); default FACTORY_SELECTION_LIABILITY_SHARE_BPS.
    */
   factoryShareBps?: number;
+  /**
+   * The board caps (settings `board_risk_limits`) and the board matches and selections among the
+   * scopes: those take the stricter of their plain cap and their board cap.
+   */
+  board?: BoardRiskInput;
 }): LiabilityBreach | null {
-  const { payout, selections, events, limits, factorySelections, factoryShareBps } = input;
+  const { payout, selections, events, limits, factorySelections, factoryShareBps, board } = input;
   if (payout < 0n) throw new RangeError(`payout must not be negative (got ${payout})`);
   let tightest: LiabilityBreach | null = null;
   const consider = (
@@ -86,10 +126,17 @@ export function liabilityBreach(input: {
       if (tightest === null || isTighter(candidate, tightest)) tightest = candidate;
     }
   };
-  consider('selection', selections, (id) =>
-    selectionLiabilityCap(limits, factorySelections?.has(id) === true, factoryShareBps),
+  consider('selection', selections, (id) => {
+    const factory = factorySelections?.has(id) === true;
+    const plain = selectionLiabilityCap(limits, factory, factoryShareBps);
+    if (board === undefined || !board.selections.has(id)) return plain;
+    return strictestCap(plain, selectionLiabilityCap(board.limits, factory, factoryShareBps));
+  });
+  consider('event', events, (id) =>
+    board !== undefined && board.events.has(id)
+      ? strictestCap(limits.maxEventLiability, board.limits.maxEventLiability)
+      : limits.maxEventLiability,
   );
-  consider('event', events, () => limits.maxEventLiability);
   return tightest;
 }
 

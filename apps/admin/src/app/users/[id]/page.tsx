@@ -1,10 +1,19 @@
 'use client';
 
-import type { PlayerDetailView, StaffLimitSlotView } from '@vamos/contracts';
+import type {
+  PlayerDetailView,
+  SetPlayerStatusRequest,
+  SetPlayerStatusResponse,
+  StaffLimitSlotView,
+} from '@vamos/contracts';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import { useFetch } from '@/components/hooks';
-import { Badge, DefList, Loading, PageHeader } from '@/components/ui';
+import { ManualDepositForm, RecheckDepositButton } from '@/components/manual-deposit';
+import { useSession } from '@/components/session';
+import { Badge, DefList, Loading, PageHeader, ReasonAction } from '@/components/ui';
+import { api } from '@/lib/api';
 import { formatDateTime, formatEtb, formatOdds, humanize } from '@/lib/format';
 
 function limit(slot: StaffLimitSlotView): string {
@@ -16,7 +25,22 @@ function limit(slot: StaffLimitSlotView): string {
 
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: p, error, loading } = useFetch<PlayerDetailView>(`/admin/users/${id}`);
+  const { data: p, error, loading, reload } = useFetch<PlayerDetailView>(`/admin/users/${id}`);
+  const { can } = useSession();
+  // A deposit an admin is crediting by hand from the payments list (owner's decision O5).
+  const [crediting, setCrediting] = useState<{
+    id: string;
+    provider: string;
+    amount: string;
+  } | null>(null);
+
+  async function setStatus(status: SetPlayerStatusRequest['status'], reason: string) {
+    await api<SetPlayerStatusResponse>(`/admin/users/${id}/status`, {
+      method: 'POST',
+      body: { status, reason } satisfies SetPlayerStatusRequest,
+    });
+    reload();
+  }
 
   return (
     <>
@@ -40,6 +64,25 @@ export default function UserDetailPage() {
                 ['Open bets', `${p.openBets.count} (${formatEtb(p.openBets.amount)} staked)`],
               ]}
             />
+            {can('users.status') && p.status === 'active' && (
+              <div className="actions">
+                <ReasonAction
+                  label="Block player"
+                  submitLabel="Block"
+                  danger
+                  onSubmit={(reason) => setStatus('suspended', reason)}
+                />
+              </div>
+            )}
+            {can('users.status') && p.status === 'suspended' && (
+              <div className="actions">
+                <ReasonAction
+                  label="Unblock player"
+                  submitLabel="Unblock"
+                  onSubmit={(reason) => setStatus('active', reason)}
+                />
+              </div>
+            )}
           </section>
           <h2>KYC</h2>
           <section className="panel">
@@ -130,24 +173,69 @@ export default function UserDetailPage() {
                   <th className="num">Amount</th>
                   <th>Status</th>
                   <th>Created</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
-                {p.recentPayments.map((x) => (
-                  <tr key={x.id}>
-                    <td>{x.kind}</td>
-                    <td>{x.provider}</td>
-                    <td className="num">{formatEtb(x.amount)}</td>
-                    <td>
-                      <Badge value={x.status} />
-                      {x.flagged && <Badge value="flagged" tone="warn" />}
-                    </td>
-                    <td>{formatDateTime(x.createdAt)}</td>
-                  </tr>
-                ))}
+                {p.recentPayments.map((x) => {
+                  const uncredited =
+                    x.kind === 'deposit' &&
+                    x.status !== 'succeeded' &&
+                    ['chapa', 'telebirr', 'sms'].includes(x.provider);
+                  return (
+                    <tr key={x.id}>
+                      <td>{x.kind}</td>
+                      <td>{x.provider}</td>
+                      <td className="num">{formatEtb(x.amount)}</td>
+                      <td>
+                        <Badge value={x.status} />
+                        {x.flagged && <Badge value="flagged" tone="warn" />}
+                      </td>
+                      <td>{formatDateTime(x.createdAt)}</td>
+                      <td>
+                        {uncredited && x.provider !== 'sms' && can('withdrawals.approve') && (
+                          <RecheckDepositButton intentId={x.id} onDone={reload} />
+                        )}
+                        {uncredited && can('deposits.credit') && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCrediting({ id: x.id, provider: x.provider, amount: x.amount })
+                            }
+                          >
+                            Credit by hand
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          {can('deposits.credit') && (
+            <>
+              <h2>
+                {crediting === null ? 'Credit a deposit by hand' : 'Credit this deposit by hand'}
+              </h2>
+              {crediting !== null && (
+                <p>
+                  <button type="button" onClick={() => setCrediting(null)}>
+                    A payment with no deposit instead
+                  </button>
+                </p>
+              )}
+              <ManualDepositForm
+                key={crediting?.id ?? 'new'}
+                userId={id}
+                {...(crediting === null ? {} : { intent: crediting })}
+                onDone={() => {
+                  setCrediting(null);
+                  reload();
+                }}
+              />
+            </>
+          )}
           <h2>Recent cash transactions</h2>
           <pre className="panel small">{JSON.stringify(p.recentTransactions, null, 1)}</pre>
         </>

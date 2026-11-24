@@ -1,3 +1,5 @@
+export { SAME_MATCH_KICKOFF_MS, sameMatchLikely } from './same-match';
+export type { MatchListing } from './same-match';
 export { clusterObservations, reversedPairs } from './cluster';
 export type { ClusterItem, FixtureCluster, ReversedPair } from './cluster';
 export { kickoffSpread, matchEvent, sameKickoff } from './event';

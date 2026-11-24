@@ -105,3 +105,10 @@ export {
   type ScheduledFeedEvent,
   type SimulationCandidate,
 } from './queries';
+export {
+  eventsNeedingTeamLogos,
+  markTeamLogosChecked,
+  storeTeamLogo,
+  type LogoCandidate,
+  type LogoTeam,
+} from './team-logos';

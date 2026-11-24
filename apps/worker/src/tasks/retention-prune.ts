@@ -1,4 +1,10 @@
-import { pruneExpiredSecurityRecords, RETENTION_BATCH_SIZE, type RetentionResult } from '@vamos/db';
+import {
+  pruneExpiredSecurityRecords,
+  pruneTelegramDepositClaims,
+  RETENTION_BATCH_SIZE,
+  TELEGRAM_CLAIM_RETENTION_MS,
+  type RetentionResult,
+} from '@vamos/db';
 import { intervalTask, type IntervalTask } from '../lib/interval';
 import type { TaskContext } from './context';
 
@@ -18,7 +24,7 @@ export interface RetentionPruneOptions {
 }
 
 /**
- * Deletes ended player and staff sessions and old one-time SMS codes once
+ * Deletes ended player and staff sessions, old one-time SMS codes and Telegram deposit claims once
  * they are past their retention (pruneExpiredSecurityRecords, ASVS 8.3.8),
  * in bounded batches. Returns the rows deleted per table.
  */
@@ -47,6 +53,11 @@ export async function runRetentionPrune(
   if (total.sessions + total.staffSessions + total.otpChallenges > 0) {
     ctx.logger.info({ deleted: total }, 'pruned records past their retention');
   }
+  // Deposit claims filed through the Telegram bot are kept 90 days (decision O3).
+  const claims = await pruneTelegramDepositClaims(ctx.db, {
+    before: new Date(now.getTime() - TELEGRAM_CLAIM_RETENTION_MS),
+  });
+  if (claims > 0) ctx.logger.info({ deleted: claims }, 'pruned Telegram deposit claims (90 days)');
   return total;
 }
 

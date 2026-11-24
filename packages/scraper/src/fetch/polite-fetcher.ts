@@ -80,7 +80,8 @@ export interface FetchContext {
   sourceKey: string;
 }
 
-type Mode = 'document' | 'robots';
+/** `image`: a document's rules, but the answer must be a raster image (FetchPlanItem.accept). */
+type Mode = 'document' | 'image' | 'robots';
 
 type Exchange =
   | { kind: 'response'; status: number; headers: Headers; body: Uint8Array; durationMs: number }
@@ -99,6 +100,13 @@ const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([408, 429, 500, 502, 503
 const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
 const DEFAULT_ACCEPT =
   'text/html,application/json,application/xml,text/calendar;q=0.9,text/*;q=0.8';
+const IMAGE_TYPES: ReadonlySet<string> = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+]);
+const IMAGE_ACCEPT = [...IMAGE_TYPES].join(',');
 
 /** Content types we will read: text/*, JSON (also +json), XML, iCalendar (text/*). */
 export function isAllowedContentType(contentType: string | null): boolean {
@@ -110,6 +118,12 @@ export function isAllowedContentType(contentType: string | null): boolean {
     mime === 'application/xml' ||
     /^application\/[a-z0-9.-]+\+json$/.test(mime)
   );
+}
+
+/** Content types an image request takes: raster images only (SVG is a document that can run code). */
+export function isImageContentType(contentType: string | null): boolean {
+  if (contentType === null) return false;
+  return IMAGE_TYPES.has((contentType.split(';')[0] ?? '').trim().toLowerCase());
 }
 
 function positive(name: string, value: number, integer = false): number {
@@ -258,9 +272,10 @@ export class PoliteFetcher {
         start,
         item.headers ?? {},
         ctx,
-        'document',
+        item.accept === 'image' ? 'image' : 'document',
         { attempts: 0 },
         auth.resolved,
+        item.revalidate !== false,
       );
     } catch (e) {
       // A bug, not an expected failure: report it, but do not let it blame the server.
@@ -367,6 +382,7 @@ export class PoliteFetcher {
     mode: Mode,
     state: { attempts: number },
     auth: ResolvedAuth | null = null,
+    revalidate = true,
   ): Promise<FetchResult> {
     let url = start;
     for (let hops = 0; ; hops += 1) {
@@ -375,7 +391,7 @@ export class PoliteFetcher {
         if (refusal) return refusal;
       }
       let crawlDelayMs = 0;
-      if (mode === 'document' && this.#robotsMode === 'enforce') {
+      if (mode !== 'robots' && this.#robotsMode === 'enforce') {
         const entry = await this.#robotsFor(url, ctx);
         if (!isAllowed(entry.rules, this.#robotsToken, url.pathname + url.search)) {
           return { kind: 'blocked', reason: 'robots', retryAt: new Date(entry.expiresAt) };
@@ -384,7 +400,7 @@ export class PoliteFetcher {
       }
       // The key goes to the origin it was meant for; a redirect (even inside the allow-list) loses it.
       const hopAuth = auth !== null && url.origin === auth.origin ? auth : null;
-      const hop = await this.#hop(url, planHeaders, mode, state, crawlDelayMs, hopAuth);
+      const hop = await this.#hop(url, planHeaders, mode, state, crawlDelayMs, hopAuth, revalidate);
       if (hop.kind === 'result') return hop.result;
       if (hops + 1 > this.#maxRedirects) return { kind: 'refused', reason: 'too_many_redirects' };
       try {
@@ -414,9 +430,15 @@ export class PoliteFetcher {
     state: { attempts: number },
     crawlDelayMs: number,
     auth: ResolvedAuth | null,
+    revalidate = true,
   ): Promise<Hop> {
-    const validators = mode === 'document' ? await this.#validatorsFor(url) : null;
-    const headers = this.#requestHeaders(planHeaders, validators, auth);
+    const validators = mode === 'document' && revalidate ? await this.#validatorsFor(url) : null;
+    const headers = this.#requestHeaders(
+      planHeaders,
+      validators,
+      auth,
+      mode === 'image' ? IMAGE_ACCEPT : DEFAULT_ACCEPT,
+    );
     const conditional = 'if-none-match' in headers || 'if-modified-since' in headers;
     const done = (result: FetchResult): Hop => ({ kind: 'result', result });
 
@@ -568,8 +590,9 @@ export class PoliteFetcher {
     plan: Record<string, string>,
     validators: { etag: string | null; lastModified: string | null } | null,
     auth: ResolvedAuth | null,
+    accept: string,
   ): Record<string, string> {
-    const headers: Record<string, string> = { accept: DEFAULT_ACCEPT };
+    const headers: Record<string, string> = { accept };
     for (const [name, value] of Object.entries(plan)) {
       const key = name.toLowerCase();
       if (!FORBIDDEN_REQUEST_HEADERS.has(key) && /^[\x20-\x7e]*$/.test(value)) headers[key] = value;
@@ -664,13 +687,17 @@ export class PoliteFetcher {
           durationMs: this.#now() - startedAt,
         };
       }
-      if (mode === 'document' && !isAllowedContentType(res.headers.get('content-type'))) {
+      const contentType = res.headers.get('content-type');
+      const readable =
+        mode === 'robots' ||
+        (mode === 'image' ? isImageContentType(contentType) : isAllowedContentType(contentType));
+      if (!readable) {
         swallow(res.body?.cancel());
         return { kind: 'refused', reason: 'content_type_not_allowed' };
       }
       const declared = Number(res.headers.get('content-length'));
       if (
-        mode === 'document' &&
+        mode !== 'robots' &&
         !res.headers.has('content-encoding') &&
         Number.isFinite(declared) &&
         declared > this.#maxBytes

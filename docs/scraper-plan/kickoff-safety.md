@@ -280,7 +280,9 @@ the result gates. K2 is a refusal. The licensed-mode guard and `OPERATING_MODE` 
   healthy, so it confirms nothing. Content-stale source (S5 sense): not fresh, confirms nothing. A source that
   drops the match: no statement, nothing confirms; open betting stays open (absence is not evidence of an earlier
   kickoff; F5's `fixture_missing` covers it).
-- **Two sources disagree.** Dissent: no C1/C2; K1 if either is earlier; F4/F4c items as today.
+- **Two sources disagree.** An earlier statement blocks C1/C2 and K1 closes betting; a later one does not
+  block (D3, 23 Nov 2026). F4d answers the disagreement with the earliest fresh kickoff where it can (keep
+  the start, or move earlier); otherwise F4/F4c ask a person as before.
 - **Kickoff already in the past.** Event start passed: K1 skips it (prematch betting already closed by
   `isSelectionBettable`). Earlier statement in the past while our start is ahead (the match was played): K1
   closes; `apply_kickoff` refuses (too close), the trader leaves betting closed and results the match as usual.

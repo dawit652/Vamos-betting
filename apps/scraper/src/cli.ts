@@ -8,7 +8,7 @@ import {
 } from '@vamos/config';
 import { claimOperatingMode, createDb, DomainError, type Database, type DbHandle } from '@vamos/db';
 import { PoliteFetcher } from '@vamos/scraper';
-import { aliasesImport, aliasesList, aliasesRemove } from './cli/aliases';
+import { aliasesExport, aliasesImport, aliasesList, aliasesRemove } from './cli/aliases';
 import { dryFetch, dryParse } from './cli/dry-run';
 import { evalScorecard } from './cli/eval';
 import { evalMarket } from './cli/eval-market';
@@ -70,9 +70,12 @@ commands:
   dry-fetch --source-file source.json [--limit <n>]
       Fetches through the polite fetcher (allow-list, robots.txt, rate limit) and parses.
       Prints only; writes nothing to the database or the archive.
-  aliases import --file aliases.csv
+  aliases import --file aliases.csv [--skip-problems]
       Bulk team and competition aliases (columns: kind,sport,alias,target,source). Idempotent;
-      all or nothing.
+      all or nothing, or with --skip-problems each bad row skipped (and an alias someone removed
+      never added again).
+  aliases export
+      Every alias in the import's columns, on standard output.
   aliases list [--kind team|competition] [--q text]
       Aliases, newest first, with their ids (the name or the target contains the text).
   aliases remove --id <id>
@@ -142,6 +145,7 @@ const COMMANDS: Record<string, Command> = {
   'sources truth-check': sourcesTruthCheck,
   'dry-parse': dryParse,
   'dry-fetch': dryFetch,
+  'aliases export': aliasesExport,
   'aliases import': aliasesImport,
   'aliases list': aliasesList,
   'aliases remove': aliasesRemove,

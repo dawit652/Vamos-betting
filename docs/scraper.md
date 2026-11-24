@@ -229,6 +229,19 @@ Every rule has an id; tests cite the id in their names. Constants are in
   (`sources_disagree`) or `fixture_conflict` is opened and nothing is moved or
   created. A cluster decided alone would flip the kickoff on every pass or
   create the fixture twice.
+- **F4d The earliest fresh kickoff** (the owner's decision D3, 23 Nov 2026;
+  `earliestFreshKickoff`, applied in `promote-fixtures.ts`). When F4 or F4c would ask a person
+  only because the sources disagree (`sources_disagree` about one scheduled event) and the
+  competition is enabled, the statements of K2 (rows each source listed at its latest successful
+  read, so the old-day row a keyless source leaves behind does not count) answer it: the earliest
+  kickoff a fresh source gives within `KICKOFF_TOLERANCE_MS` of the start → the start is kept and
+  an open item closes ("the event starts at the earliest kickoff a fresh source gives (F4d)");
+  earlier than the start, both later than `now + MIN_LEAD_MS` → the event moves there (audit
+  `scrape.fixture.kickoff_moved`, rule `F4d`, the move closes the item). A person is still asked
+  when no fresh source gives a scheduled time, when any statement is a result, a void status or an
+  invalid date, when every fresh source says later (a later move stays F4a's), or when the start
+  or the new time is too close. Betting then closes no later than any fresh source says the match
+  starts: a wrong source can only close it early.
 - **F5 Absence never cancels.** A fixture missing from a source changes
   nothing. An event no enabled source has listed in a successful run for
   `MISSING_AFTER_MS` opens `fixture_missing`. Nothing is cancelled because a
@@ -279,7 +292,12 @@ Every rule has an id; tests cite the id in their names. Constants are in
   writes are `betting_open = true` (no actor), the audit `scrape.fixture.betting_opened`
   (`rule: 'F7b'`, the basis, the evidence key, `afterK1`, `calibration`) and the waiting items resolved by the
   scraper; the live delta is published after the COMMIT. A trader's close, a dismissed item, a
-  held re-price or `auto_open` off keeps the event closed.
+  held re-price or `auto_open` off keeps the event closed. Each pass counts the waiting events it
+  left closed by the first condition that failed (`held` in the `auto open run` log line, at info
+  every 15 minutes while events wait): `kickoff:<reasons>` (not confirmed, e.g.
+  `kickoff:not_stable`), `kickoff_question`, `reprice_held`, `person_decided`, `uncalibrated`
+  (neither O1 nor O1m), `price_checks` (O2), `policy`, `not_waiting`, `changed`, `no_evidence`.
+  `scripts/review-study.sh` (section M) shows the last lines.
 
 ### 6.1b Two kickoff sources everywhere (plan task 1.4)
 
@@ -337,20 +355,27 @@ Definitions (used by every rule below):
   (`startTime`, `confirmedAt`, `evidenceKey`). A statement is _acknowledged_ when the record names exactly the
   event's current `start_time` and `statement.changed_at <= confirmedAt`; a record for another start is
   ignored, so any kickoff move voids it.
-- **Confirmed kickoff** at `now`: **C1** no dissenting statement and agreeing statements of fresh sources
-  from at least `MIN_INDEPENDENT_SOURCES` independent upstreams; or **C2** no dissenting statement,
+- **Blocking dissent:** every dissenting statement except a later scheduled fixture (D3, 23 Nov 2026):
+  betting closes at the start, before the time such a statement gives, so it cannot keep betting open
+  past the real kickoff. It is still named (`sources_disagree`) among the reasons of an unconfirmed kickoff.
+- **Confirmed kickoff** at `now`: **C1** no blocking dissent and agreeing statements of fresh sources
+  from at least `MIN_INDEPENDENT_SOURCES` independent upstreams; or **C2** no blocking dissent,
   `now >= start - KICKOFF_CONFIRM_LEAD_MS` and an agreeing statement of a fresh source with
-  `changed_at <= now - KICKOFF_STABLE_MS`; or **C3** a person record for this start and every dissenting
-  statement acknowledged.
+  `changed_at <= now - KICKOFF_STABLE_MS`; or **C3** a person record for this start and every blocking
+  dissenting statement acknowledged.
 - **Evidence key:** SHA-256 (hex) of the canonical JSON array `[startISO, statements]`, statements sorted by
   source id, kind and kickoff, each `[sourceId, kind, status, kickoffISO, changedAtISO]`: it names exactly
   what a person was shown.
 
 | Constant                     | Value  | Used by    |
 | ---------------------------- | ------ | ---------- |
-| `KICKOFF_CONFIRM_LEAD_MS`    | 72 h   | C2         |
+| `KICKOFF_CONFIRM_LEAD_MS`    | 30 d   | C2         |
 | `KICKOFF_STABLE_MS`          | 24 h   | C2         |
 | `KICKOFF_EVIDENCE_WINDOW_MS` | 7 days | statements |
+
+`KICKOFF_CONFIRM_LEAD_MS` was 72 h until the owner's decision of 22 Nov 2026 to unlock the odds of
+matches more than 72 hours away: a single fresh source that has held the kickoff for 24 hours, with
+no source disagreeing, now confirms it up to 30 days ahead (every match we list).
 
 Reused: `KICKOFF_TOLERANCE_MS`, `MIN_INDEPENDENT_SOURCES`, `SOURCE_STALE_AFTER_MS`, `MIN_MATCH_DURATION_MS`,
 `MIN_LEAD_MS`.
@@ -589,15 +614,15 @@ do, in one line of at most 160 characters with no personal data (`buildOwnerAler
 Nothing the alarming code does changes; the alert is added in the same transaction that opens the item
 (a small one of its own where the alarm was only a log line).
 
-| Alarm                                                                                                            | Written when                                               | Alert key                                    |
-| ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------- |
-| `source_broken` (shape, or invalid configuration)                                                                | the item opens                                             | `source_broken\|<source id>`                 |
-| `source_stale` (S5)                                                                                              | the item opens                                             | `source_stale\|<source id>`                  |
-| `budget_low`, `budget_exhausted`, `budget_projection`, `unauthorized`, `unexpected_cost` (4.8)                   | the item opens, or `budget_low` becomes `budget_exhausted` | `<reason>\|<credit key>`                     |
-| `rate_limit_low` (6.7a)                                                                                          | the item opens                                             | `rate_limit_low\|<key variable>`             |
-| `ladder_shadow_failed`                                                                                           | once per pass that fails                                   | `ladder_shadow_failed`                       |
-| `market_family_moved` (6.5a)                                                                                     | the weekly family job suspends, returns or ends a family   | `market_family_moved\|<family>\|<week>`      |
-| `sms_receipt_rejected`, `sms_balance_drift`, `sms_gateway_silent`, `sms_review_backlog`, `manual_payout_waiting` | the check finds it, at most once per interval and key      | `<alarm>` (plus the SMS, or the institution) |
+| Alarm                                                                                                                                        | Written when                                               | Alert key                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------- |
+| `source_broken` (shape, or invalid configuration)                                                                                            | the item opens                                             | `source_broken\|<source id>`                 |
+| `source_stale` (S5)                                                                                                                          | the item opens                                             | `source_stale\|<source id>`                  |
+| `budget_low`, `budget_exhausted`, `budget_projection`, `unauthorized`, `unexpected_cost` (4.8)                                               | the item opens, or `budget_low` becomes `budget_exhausted` | `<reason>\|<credit key>`                     |
+| `rate_limit_low` (6.7a)                                                                                                                      | the item opens                                             | `rate_limit_low\|<key variable>`             |
+| `ladder_shadow_failed`                                                                                                                       | once per pass that fails                                   | `ladder_shadow_failed`                       |
+| `market_family_moved` (6.5a)                                                                                                                 | the weekly family job suspends, returns or ends a family   | `market_family_moved\|<family>\|<week>`      |
+| `sms_receipt_rejected`, `sms_balance_drift`, `sms_gateway_silent`, `sms_review_backlog`, `manual_payout_waiting`, `manual_payout_claim_idle` | the check finds it, at most once per interval and key      | `<alarm>` (plus the SMS, or the institution) |
 
 `market_stale` and `odds_out_of_line` are per match and do not alert. Deduplication: the worker texts one
 key at most once per `OWNER_ALERT_MIN_INTERVAL_MINUTES` (default 30), counted from the time the alarm was
@@ -623,6 +648,26 @@ jk bb as ac ca cd ud sv fsv vfb vfl tsg ssc`, with a number just before one at t
   resolves only when exactly one catalogue team of the sport matches (`via: name_relaxed`); otherwise
   the name stays unknown, as before. Competitions are never relaxed. A test on the seeded catalogue
   checks that no team name with a legal form added resolves to another team.
+- **L1 A mapping is learned by every source (owner, 23 Nov 2026; `docs/plans/name-learning.md`).** A
+  TEAM name no level above knows, that a person (or N4) mapped for ANOTHER source (a source-scoped
+  alias), resolves to that team (`via: learned`) when exactly one such team fits the record's
+  competition: the team has an event in it, or the competition is one country's (its category has a
+  country code) and the team has an event in a competition of the same country. An international
+  competition needs the first. Without a resolved competition, with no fitting team or with several,
+  the name stays unknown. A mapping that looks wrong (`suspiciousAlias`, L3) is never spread, nor a spelling
+  that several catalogue teams' names contain ("dynamo"). A COMPETITION name is learned only when it carries its provider's id, as
+  API-Football's do ("England - Premier League [39]"): the same spelling mapped for any other source
+  resolves; a plain name ("Ligue 1") never does, since several countries use it.
+- **L3 Guarded learning (23 Nov 2026).** No suggestion (N3), no automatic alias (N4) and no learned resolution
+  (L1) links a name to a reserve, youth, women's or national team unless the name says so (`variantConflict`:
+  II, B, 2 at the end, U17-U23, Sub 20, Jong, Primavera, W, Women, Frauen, Femenino..., or a team named only after
+  a country). N4 maps by itself only when two of the name's fixtures in the run agree on the team
+  (`AUTO_ALIAS_MIN_FIXTURES`), and `SCRAPER_AUTO_ALIAS` is on in the production compose. A daily check lists recent
+  aliases that look wrong for the owner (`docs/scraper-operations.md`).
+- **L2 A league by its provider id.** An unknown competition name with a provider id ("... [39]")
+  that no spelling knows resolves (`via: provider_id`) to the one competition that a source of the
+  SAME upstream mapped under another spelling with the same id: a renamed league is not asked again.
+  Team names carry no provider id in the stored rows, so teams are learned by L1 and N4 only.
 - **N2a Aliases act on stored data.** Removing or changing an alias (or a
   catalogue name) changes what is already stored: the promotion pass re-resolves
   the current observations of the sport when the names/aliases changed, un-maps
@@ -655,6 +700,17 @@ jk bb as ac ca cd ud sv fsv vfb vfl tsg ssc`, with a number just before one at t
 - **O1 Calibrated teams.** Both teams' `ratings` must carry `matches >=
 MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   ratings are never used to price real bets.
+- **O1h Board backing (18 Nov 2026, the owner's locked odds).** Teams that are not both calibrated
+  and a fresh Hulusport board linked to the event (switch `hulusport_pricing` on,
+  BOARD_PRICES_MAX_AGE_MS) that explains its own 1X2 and goal line (`boardGoalsFit`, the conditions
+  of O5): the WHOLE book is priced from the board's expected goals (`priceFootball`, then the
+  factory's markets from the same goals, then `boardRule` over the markets the board quotes), key
+  `brd1|<digest>` (`isBoardPricedKey`). It counts as a market price that backs opening: the re-price
+  takes it (A-1 waives the bound for the first one on a closed match without bets), the hand-over
+  closes `ratings_uncalibrated` and asks to open, F7b and a person may open it (O1m's
+  `backedByMarket` and `assertScrapedEventMayOpen` accept the board key in any competition), and A2
+  suspends it (`market_lapsed`) as soon as the board is no longer fresh. Calibrated teams keep the
+  model with `boardRule`.
 - **O1m Market backing (2026-11, R-1 of `docs/feed-quality-plan.md`).** Opening betting (F7b, a
   trader's "Open betting" and the Trading switch) needs O1 **or** O1m. O1m: its competition's policy
   takes market prices, the event's stored prices
@@ -924,6 +980,24 @@ MIN_RATING_MATCHES` (or `manual = 1`, set by a trader). Neutral default
   closed in one transaction that locks the event row, then its items, and checks the conditions
   again. Nothing else changes (no event, market, price, bet or `scrape_event_pricing`), and a second
   pass closes nothing.
+- **Q2 Stale review items.** The second part of the sweeper (`sweepStaleReviewItems`, right after Q1
+  in the promotion pass). Three cases, same style as Q1 (resolution `auto: <reason>`, resolved by the
+  scraper, audit `scrape.review.swept` with `rule: 'Q2'` per item, a transaction per subject or item
+  that locks and reads again, idempotent, nothing else changes):
+  `source_disabled`: `source_broken` and `source_stale` items on `source|<id>` whose `scrape_sources`
+  row does not exist or has `enabled = false` (other subjects, such as credit alarms, are left
+  alone); `name_not_seen`: `unknown_team` and `unknown_competition` items with
+  `updated_at < now - NAME_NOT_SEEN_MS` (7 days; `openReviewItem` moves `updated_at` on every sighting,
+  so no source showed the name for a week). The items are resolved, not dismissed: no
+  `payload.dismissals` is added, so a name that appears again opens a new item and N4 auto-aliasing
+  treats it as new.
+  **Q2c (owner, 23 Nov 2026)**, questions the match has answered (`matchItemReason`):
+  `kickoff_change` (also K1's `|earlier`) once the match has a result, was cancelled or kicked off,
+  but never when a bet has a leg on it (a person checks for bets after the real kickoff);
+  `fixture_missing` once it has a result or was cancelled (a match past its start without a result
+  stays, `result_overdue` follows it); `fixture_conflict` once it kicked off or ended, and for a
+  fixture never created `FIXTURE_DAY_PAST_MS` (2 days) after the day in its feed_ref. Reasons
+  `event_resulted`, `event_cancelled`, `event_started`, `fixture_past`. Results are never swept.
 - **M1 Prices at betting close (2026-11, M-1 of `docs/feed-quality-plan.md`; measurement only).** The
   promotion pass (`captureClosePrices`, after F7b) records once, for every scraped, scheduled,
   unresulted event with betting open whose betting closes within `CLOSE_CAPTURE_WINDOW_MS` (10 min;
@@ -1184,7 +1258,8 @@ command line is wrong. Commands that need the database use `DATABASE_URL` from
 | `sources upsert --file source.json`                                                | Checks the config with `createAdapter` (the runner's own check, so config errors such as a score without a status map are listed), then upserts.                                                                                                       |
 | `dry-parse --source-file source.json --document page.html`                         | Parses a saved page; prints observations and issues. No database, no network. Options: `--url`, `--at`, `--content-type`, `--limit`.                                                                                                                   |
 | `dry-fetch --source-file source.json`                                              | Fetches the planned URLs through the `PoliteFetcher` (allow-list, robots.txt, rate limit; the `auth` key from its `SCRAPER_SECRET_*` variable) and parses; prints only. Writes nothing.                                                                |
-| `aliases import --file aliases.csv`                                                | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written.                                                                                                                                                    |
+| `aliases import --file aliases.csv [--skip-problems]`                              | Bulk team and competition aliases. Idempotent; one bad row stops the import and nothing is written; with `--skip-problems` (the deploy, L4) bad rows are skipped and an alias someone removed is never added again.                                    |
+| `aliases export`                                                                   | Every alias in the import's columns on standard output (L4).                                                                                                                                                                                           |
 | `aliases list [--kind team\|competition] [--q text]`                               | Aliases newest first with their ids; `--q` matches the name or the target.                                                                                                                                                                             |
 | `aliases remove --id <id>`                                                         | Removes one alias (audited). The next promotion pass re-resolves the observations that used it.                                                                                                                                                        |
 | `ratings backfill --file results.json --competition <slug> [--dry-run]`            | Learns ratings from historical results; prints before and after per team.                                                                                                                                                                              |

@@ -24,9 +24,18 @@ import { expect, test } from '@playwright/test';
  * starts-within chips it is 159.6 KB with 12 rows. The budget leaves a little room for the
  * HTML, which grows with the listed matches (about 0.4 KB per row, 20 rows
  * per tab). Lower it when the page gets lighter; raise it only with a reason.
+ * Raised to 168 KB on 17 Nov 2026 for the owner's competition logos (Champions League,
+ * CAF...: 4.6 KB of images in 2 requests, 64 px files) and the featured row of big matches
+ * (small cards instead of one poster): measured 166.6 KB = JS 132.9 + HTML 19.3 + CSS 8.2 +
+ * images 4.6, in 16 requests.
+ * Raised to 171 KB on 23 Nov 2026 for the owner's country flags on the first screen (league rows
+ * and the minimized sidebar, 22 Nov; they load lazily, so only the visible ones count): images 7.8
+ * KB in 17 requests, measured 169.2 KB = JS 133.3 + HTML 18.0 + CSS 8.5 + images 7.8. The visitor
+ * slip ID (GS3) and Check coupon (GS4) load with the betslip, not with the page, and Check coupon's
+ * texts are sent only on /ticket (withoutTicketCheckMessages).
  */
 const TARGET_BYTES = 150 * 1024;
-const BUDGET_BYTES = 160 * 1024; // measured 159.6 KB (15 Nov 2026, with the starts-within chips): 0.4 KB of room
+const BUDGET_BYTES = 171 * 1024; // measured 169.2 KB (23 Nov 2026, country flags): 1.8 KB of room
 
 interface Transfer {
   url: string;

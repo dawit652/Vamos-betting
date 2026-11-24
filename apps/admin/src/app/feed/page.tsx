@@ -6,6 +6,9 @@ import type {
   FeedCompetitionsResponse,
   FeedHealthResponse,
   FeedReviewKind,
+  HulusportPricingResponse,
+  NarobetPricingResponse,
+  ApiFootballPricingResponse,
   SetSourceEnabledResponse,
   SourceHealthView,
   UpdateCompetitionPolicyResponse,
@@ -229,6 +232,397 @@ function CreditPanel({ credit }: { credit: CreditKeyView }) {
   );
 }
 
+/**
+ * Hulusport prices (docs/plans/hulusport-feed.md): the on/off switch and what the mr-x board
+ * delivers. On, every match with fresh Hulusport prices takes them (with our margin) for the
+ * markets it already has; off, or when the prices go stale, our own prices come back.
+ */
+function HulusportPanel() {
+  const { can } = useSession();
+  const view = useFetch<HulusportPricingResponse>('/admin/feed/hulusport');
+  const data = view.data;
+  const toggle = async () => {
+    if (data === null) return;
+    await api<HulusportPricingResponse>('/admin/feed/hulusport', {
+      method: 'PUT',
+      body: { enabled: !data.enabled },
+    });
+    view.reload();
+  };
+  // Turning on needs settings access; turning off (back to our prices) trading access is enough.
+  const allowed = data !== null && (data.enabled ? can('trading.status') : can('settings.edit'));
+  return (
+    <>
+      <h2>mr-x prices</h2>
+      <Loading loading={view.loading && data === null} error={view.error} />
+      {data !== null && (
+        <section className="panel" aria-label="mr-x prices" style={{ marginBottom: 12 }}>
+          <p>
+            <Badge
+              value={data.enabled ? 'On: mr-x prices' : 'Off: our own prices'}
+              tone={data.enabled ? 'warn' : 'good'}
+            />{' '}
+            {allowed ? (
+              <ActionButton
+                label={data.enabled ? 'Switch to our prices' : 'Use mr-x prices'}
+                onAction={toggle}
+              />
+            ) : (
+              <span className="muted small">no access</span>
+            )}
+          </p>
+          <p className="muted small">
+            {data.updatedAt === null
+              ? 'Never switched.'
+              : `Last switched ${formatDateTime(data.updatedAt)} by ${data.updatedBy ?? ''}.`}{' '}
+            mr-x prices older than {data.maxAgeMinutes} minutes are not used.
+          </p>
+          <p>
+            Board last read: {ageText(data.board.lastReadAt)}. Newest mr-x price:{' '}
+            {ageText(data.board.newestPricesAt)}. Upcoming matches: {data.board.upcoming}, linked to
+            our matches: {data.board.linked}, with fresh prices: {data.board.fresh}.
+          </p>
+          <p>
+            mr-x-only matches on the site: {data.events.upcoming} upcoming,{' '}
+            {data.events.bettingOpen} open for betting. Their results are entered by hand.
+          </p>
+          {data.events.awaitingResultTotal > 0 && (
+            <details open>
+              <summary>
+                <Badge
+                  value={`${data.events.awaitingResultTotal} waiting for a result`}
+                  tone="warn"
+                />
+              </summary>
+              <p className="muted small">
+                Open a match and enter its final score (and half-time score) to settle its bets.
+              </p>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kickoff</th>
+                      <th>Game</th>
+                      <th>League</th>
+                      <th>Match</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.events.awaitingResult.map((e) => (
+                      <tr key={e.eventId}>
+                        <td>{formatDateTime(e.kickoff)}</td>
+                        <td>
+                          <Link href={`/trading/${e.eventId}`}>{e.gameId}</Link>
+                        </td>
+                        <td>{e.competition}</td>
+                        <td>
+                          {e.home} v {e.away}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+          {data.board.unlinked.length > 0 && (
+            <details>
+              <summary>Not linked ({data.board.unlinked.length} shown)</summary>
+              <p className="muted small">
+                Add an alias under Aliases for a team name we do not know; a match whose names are
+                known but that we do not list is simply not priced from mr-x.
+              </p>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kickoff</th>
+                      <th>mr-x league</th>
+                      <th>Match</th>
+                      <th>Names known</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.board.unlinked.map((m) => (
+                      <tr key={`${m.kickoff}|${m.home}|${m.away}`}>
+                        <td>{formatDateTime(m.kickoff)}</td>
+                        <td>{m.competition}</td>
+                        <td>
+                          {m.home} v {m.away}
+                        </td>
+                        <td>{m.teamsResolved ? 'yes (we do not list it)' : 'no'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+        </section>
+      )}
+    </>
+  );
+}
+
+/** "20 minutes" or "7 hours". */
+const minutesText = (minutes: number) =>
+  minutes % 60 === 0 && minutes >= 60 ? `${minutes / 60} hours` : `${minutes} minutes`;
+
+/**
+ * API-Football's bookmaker prices (docs/plans/feed-gaps-2026-11-23.md, E2): on trial while off,
+ * stored and compared with the other upstreams' prices but never used. Switch on once the gap is
+ * small, before The Odds API's credits end.
+ */
+function ApiFootballPanel() {
+  const { can } = useSession();
+  const view = useFetch<ApiFootballPricingResponse>('/admin/feed/apifootball');
+  const data = view.data;
+  const toggle = async () => {
+    if (data === null) return;
+    await api<ApiFootballPricingResponse>('/admin/feed/apifootball', {
+      method: 'PUT',
+      body: { enabled: !data.enabled },
+    });
+    view.reload();
+  };
+  // Turning on needs settings access; turning off (back to trial) trading access is enough.
+  const allowed = data !== null && (data.enabled ? can('trading.status') : can('settings.edit'));
+  return (
+    <>
+      <h2>API-Football prices</h2>
+      <Loading loading={view.loading && data === null} error={view.error} />
+      {data !== null && (
+        <section className="panel" aria-label="API-Football prices" style={{ marginBottom: 12 }}>
+          <p>
+            <Badge
+              value={data.enabled ? 'On: its prices are used' : 'Trial: stored, not used'}
+              tone={data.enabled ? 'warn' : 'good'}
+            />{' '}
+            {allowed ? (
+              <ActionButton
+                label={data.enabled ? 'Back to trial' : 'Use API-Football prices'}
+                onAction={toggle}
+              />
+            ) : (
+              <span className="muted small">no access</span>
+            )}
+          </p>
+          <p className="muted small">
+            {data.updatedAt === null
+              ? 'Never switched.'
+              : `Last switched ${formatDateTime(data.updatedAt)} by ${data.updatedBy ?? ''}.`}{' '}
+            Bookmaker prices of the 1X2 and over/under, like The Odds API&apos;s.
+          </p>
+          <p data-testid="apifootball-summary">
+            Last 3 hours: {data.sources} odds source(s), {data.rows} prices, {data.matches}{' '}
+            match(es) priced; {data.compared} also priced by another source
+            {data.medianDiffPercent === null
+              ? '.'
+              : `, median gap ${data.medianDiffPercent}% (a few percent is normal).`}
+          </p>
+        </section>
+      )}
+    </>
+  );
+}
+
+/**
+ * Narobet prices through mr-z (docs/plans/narobet-feed.md): the on/off switch and what mr-z's board
+ * delivers. On, a match we already price takes Narobet's fresh prices (with our margin) for the
+ * markets it already has, unless fresh mr-x prices come first; off, or when the prices go stale,
+ * our own prices come back. Narobet-only matches (docs/plans/narobet-events.md) have a switch of
+ * their own and a horizon in days.
+ */
+function NarobetPanel() {
+  const { can } = useSession();
+  const view = useFetch<NarobetPricingResponse>('/admin/feed/narobet');
+  const data = view.data;
+  const toggle = async () => {
+    if (data === null) return;
+    await api<NarobetPricingResponse>('/admin/feed/narobet', {
+      method: 'PUT',
+      body: { enabled: !data.enabled },
+    });
+    view.reload();
+  };
+  // Turning on needs settings access; turning off (back to our prices) trading access is enough.
+  const allowed = data !== null && (data.enabled ? can('trading.status') : can('settings.edit'));
+  const [horizon, setHorizon] = useState('');
+  const setEvents = async (body: { enabled?: boolean; horizonDays?: number }) => {
+    await api<NarobetPricingResponse>('/admin/feed/narobet/events', { method: 'PUT', body });
+    setHorizon('');
+    view.reload();
+  };
+  const eventsAllowed =
+    data !== null && (data.events.enabled ? can('trading.status') : can('settings.edit'));
+  const horizonDays = Number.parseInt(horizon, 10);
+  const horizonValid = Number.isInteger(horizonDays) && horizonDays >= 1 && horizonDays <= 30;
+  return (
+    <>
+      <h2>mr-z prices</h2>
+      <Loading loading={view.loading && data === null} error={view.error} />
+      {data !== null && (
+        <section className="panel" aria-label="mr-z prices" style={{ marginBottom: 12 }}>
+          <p>
+            <Badge
+              value={data.enabled ? 'On: mr-z prices' : 'Off: our own prices'}
+              tone={data.enabled ? 'warn' : 'good'}
+            />{' '}
+            {allowed ? (
+              <ActionButton
+                label={data.enabled ? 'Switch to our prices' : 'Use mr-z prices'}
+                onAction={toggle}
+              />
+            ) : (
+              <span className="muted small">no access</span>
+            )}
+          </p>
+          <p className="muted small">
+            {data.updatedAt === null
+              ? 'Never switched.'
+              : `Last switched ${formatDateTime(data.updatedAt)} by ${data.updatedBy ?? ''}.`}{' '}
+            Only matches we already list, and only the markets we price; fresh mr-x prices come
+            first. mr-z prices are used up to{' '}
+            {data.freshness
+              .map((step) =>
+                step.withinMinutes === null
+                  ? `${minutesText(step.maxAgeMinutes)} old for later kickoffs`
+                  : `${minutesText(step.maxAgeMinutes)} old for kickoffs within ${minutesText(step.withinMinutes)}`,
+              )
+              .join(', ')}
+            .
+          </p>
+          <p>
+            Board last read: {ageText(data.board.lastReadAt)}. Newest mr-z price:{' '}
+            {ageText(data.board.newestPricesAt)}. Upcoming matches: {data.board.upcoming}, linked to
+            our matches: {data.board.linked}, with fresh prices: {data.board.fresh}.
+          </p>
+          <h3>Narobet-only matches</h3>
+          <p>
+            <Badge
+              value={
+                data.events.enabled
+                  ? `On: listed up to ${data.events.horizonDays} days ahead`
+                  : 'Off: not listed'
+              }
+              tone={data.events.enabled ? 'warn' : 'good'}
+            />{' '}
+            {eventsAllowed ? (
+              <ActionButton
+                label={data.events.enabled ? 'Stop listing them' : 'List them'}
+                onAction={() => setEvents({ enabled: !data.events.enabled })}
+              />
+            ) : (
+              <span className="muted small">no access</span>
+            )}
+          </p>
+          <p className="muted small">
+            Narobet matches in leagues we do not list, priced from mr-z with our margin, never with
+            our league or team and never club friendlies. Each pays out at most the cap under
+            Settings, &ldquo;Caps for Hulusport-only and Narobet-only matches&rdquo;. Results come
+            from API-Football.{' '}
+            {data.events.updatedAt === null
+              ? 'Never switched.'
+              : `Last changed ${formatDateTime(data.events.updatedAt)} by ${data.events.updatedBy ?? ''}.`}
+          </p>
+          {can('settings.edit') && (
+            <p>
+              <label>
+                Days ahead (1-30){' '}
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={horizon}
+                  placeholder={String(data.events.horizonDays)}
+                  onChange={(e) => setHorizon(e.target.value)}
+                  style={{ width: 70 }}
+                />
+              </label>{' '}
+              {horizonValid && (
+                <ActionButton label="Save" onAction={() => setEvents({ horizonDays })} />
+              )}
+            </p>
+          )}
+          <p>
+            Upcoming Narobet-only matches: {data.events.upcoming}, with betting open:{' '}
+            {data.events.bettingOpen}.
+          </p>
+          {data.events.awaitingResultTotal > 0 && (
+            <details open>
+              <summary>
+                <Badge
+                  value={`${data.events.awaitingResultTotal} waiting for a result`}
+                  tone="warn"
+                />
+              </summary>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kickoff</th>
+                      <th>Game</th>
+                      <th>League</th>
+                      <th>Match</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.events.awaitingResult.map((e) => (
+                      <tr key={e.eventId}>
+                        <td>{formatDateTime(e.kickoff)}</td>
+                        <td>
+                          <Link href={`/trading/${e.eventId}`}>{e.gameId}</Link>
+                        </td>
+                        <td>{e.competition}</td>
+                        <td>
+                          {e.home} v {e.away}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+          {data.board.unlinked.length > 0 && (
+            <details>
+              <summary>Not linked ({data.board.unlinked.length} shown)</summary>
+              <p className="muted small">
+                Add an alias under Aliases for a team name we do not know. A match we do not list is
+                priced from mr-z only as a Narobet-only match (above).
+              </p>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kickoff</th>
+                      <th>mr-z league</th>
+                      <th>Match</th>
+                      <th>Names known</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.board.unlinked.map((m) => (
+                      <tr key={`${m.kickoff}|${m.home}|${m.away}`}>
+                        <td>{formatDateTime(m.kickoff)}</td>
+                        <td>{m.competition}</td>
+                        <td>
+                          {m.home} v {m.away}
+                        </td>
+                        <td>{m.teamsResolved ? 'yes (we do not list it)' : 'no'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+        </section>
+      )}
+    </>
+  );
+}
+
 export default function FeedOverviewPage() {
   const health = useFetch<FeedHealthResponse>('/admin/feed/health');
   const competitions = useFetch<FeedCompetitionsResponse>('/admin/feed/competitions');
@@ -247,6 +641,9 @@ export default function FeedOverviewPage() {
         <Link href="/feed/aliases">Aliases</Link>
         <Link href="/feed/families">Market families</Link>
       </PageHeader>
+      <HulusportPanel />
+      <NarobetPanel />
+      <ApiFootballPanel />
       <Loading loading={health.loading && data === null} error={health.error} />
       {data !== null && (
         <>

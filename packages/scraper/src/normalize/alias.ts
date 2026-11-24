@@ -1,4 +1,5 @@
 import { legalFormStripped, nameTokens, normalizeName } from './name';
+import { suspiciousAlias, variantConflict } from './variant';
 
 /**
  * Rules N2 and N3 (docs/scraper.md section 6.4): resolving a raw team or
@@ -22,6 +23,11 @@ export interface AliasCompetition {
   slug: string;
   sportId: string;
   names: readonly string[];
+  /**
+   * L1: the competition's country, when it is one country's (its category has a country code);
+   * null or absent for an international or regional competition.
+   */
+  countryCategoryId?: string | null;
 }
 
 /** `sourceId` null = valid for every source. */
@@ -37,15 +43,35 @@ export interface CompetitionAliasRow {
   competitionId: string;
 }
 
+/** L1: a competition a team has an event in (any status). */
+export interface TeamCompetitionRow {
+  teamId: string;
+  competitionId: string;
+}
+
+/** L2: who produces a source's data (`scrape_sources.upstream`). */
+export interface SourceUpstreamRow {
+  sourceId: string;
+  upstream: string;
+}
+
 export interface AliasIndexInput {
   teams: readonly AliasTeam[];
   teamAliases: readonly TeamAliasRow[];
   competitions: readonly AliasCompetition[];
   competitionAliases: readonly CompetitionAliasRow[];
+  /** L1: where the targets of source-scoped team aliases play; without it L1 learns nothing. */
+  teamCompetitions?: readonly TeamCompetitionRow[];
+  /** L2: the upstream of each source; without it L2 learns nothing. */
+  sourceUpstreams?: readonly SourceUpstreamRow[];
 }
 
 export type Resolution =
-  | { status: 'resolved'; id: string; via: 'source_alias' | 'alias' | 'name' | 'name_relaxed' }
+  | {
+      status: 'resolved';
+      id: string;
+      via: 'source_alias' | 'alias' | 'name' | 'name_relaxed' | 'learned' | 'provider_id';
+    }
   | { status: 'unknown' }
   | { status: 'ambiguous'; ids: string[] };
 
@@ -53,6 +79,8 @@ export interface ResolveQuery {
   sportId: string;
   sourceId: string;
   raw: string;
+  /** L1: the record's resolved competition; without it a team name is not learned. */
+  competitionId?: string | null;
 }
 
 export interface SuggestQuery {
@@ -88,10 +116,29 @@ interface CatalogueEntry {
   names: readonly { norm: string; tokens: readonly string[] }[];
 }
 
+/** Rules L1 and L2 (docs/plans/name-learning.md): what other sources' mappings teach. */
+interface LearnedIndex {
+  /** Source-scoped team aliases of every source: `sport SEP norm` -> team ids. */
+  teamsByNorm: ReadonlyMap<string, readonly string[]>;
+  /** The competitions each of those teams has an event in. */
+  playsIn: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Competition -> its country's category, for one country's competitions only. */
+  countryOf: ReadonlyMap<string, string>;
+  /** Source-scoped competition aliases with a provider id: `sport SEP norm` -> competition ids. */
+  competitionsByNorm: ReadonlyMap<string, readonly string[]>;
+  /** The same, by provider: `sport SEP upstream SEP id` -> competition ids. */
+  competitionsByProviderId: ReadonlyMap<string, readonly string[]>;
+  /** Source id -> upstream. */
+  upstreamOf: ReadonlyMap<string, string>;
+  /** Team id -> its catalogue names and short name (L3's guard). */
+  namesOf: ReadonlyMap<string, readonly string[]>;
+}
+
 /** Opaque, immutable lookup structure; build it with buildAliasIndex. */
 export interface AliasIndex {
   readonly teams: EntityIndex;
   readonly competitions: EntityIndex;
+  readonly learned: LearnedIndex;
 }
 
 const SEP = '\u0001';
@@ -181,6 +228,7 @@ function buildEntityIndex(
 /** Builds the immutable lookup structure. Aliases are re-normalised on load. */
 export function buildAliasIndex(input: AliasIndexInput): AliasIndex {
   return Object.freeze({
+    learned: buildLearnedIndex(input),
     teams: buildEntityIndex(
       input.teams.map((t) => ({ id: t.id, sportId: t.sportId, names: [...t.names, t.shortName] })),
       input.teamAliases.map((a) => ({
@@ -198,6 +246,124 @@ export function buildAliasIndex(input: AliasIndexInput): AliasIndex {
       })),
     ),
   });
+}
+
+/** A competition name that carries its provider's id, as API-Football's do: "England - Premier League [39]". */
+const PROVIDER_ID = /\[(\d{1,9})\]\s*$/;
+
+function providerIdOf(raw: string): string | null {
+  return PROVIDER_ID.exec(raw)?.[1] ?? null;
+}
+
+function buildLearnedIndex(input: AliasIndexInput): LearnedIndex {
+  const sportOfTeam = new Map(input.teams.map((t) => [t.id, t.sportId]));
+  const sportOfCompetition = new Map(input.competitions.map((c) => [c.id, c.sportId]));
+  const upstreamOf = new Map((input.sourceUpstreams ?? []).map((s) => [s.sourceId, s.upstream]));
+  const teamsByNorm = new Map<string, Set<string>>();
+  for (const alias of input.teamAliases) {
+    const sportId = sportOfTeam.get(alias.teamId);
+    const norm = normalizeName(alias.aliasNorm);
+    if (alias.sourceId === null || sportId === undefined || norm === '') continue;
+    addTo(teamsByNorm, sportId + SEP + norm, alias.teamId);
+  }
+  const playsIn = new Map<string, Set<string>>();
+  for (const row of input.teamCompetitions ?? []) addTo(playsIn, row.teamId, row.competitionId);
+  const countryOf = new Map<string, string>();
+  for (const c of input.competitions) {
+    if (c.countryCategoryId !== undefined && c.countryCategoryId !== null) {
+      countryOf.set(c.id, c.countryCategoryId);
+    }
+  }
+  const competitionsByNorm = new Map<string, Set<string>>();
+  const competitionsByProviderId = new Map<string, Set<string>>();
+  for (const alias of input.competitionAliases) {
+    const sportId = sportOfCompetition.get(alias.competitionId);
+    const norm = normalizeName(alias.aliasNorm);
+    if (alias.sourceId === null || sportId === undefined || norm === '') continue;
+    // Only a spelling whose last word is a number can carry a provider id; the stored alias is
+    // normalised (the brackets are gone), so the query side checks for them (learnedCompetition).
+    const id = /(?:^| )(\d{1,9})$/.exec(norm)?.[1];
+    if (id === undefined) continue;
+    addTo(competitionsByNorm, sportId + SEP + norm, alias.competitionId);
+    const upstream = upstreamOf.get(alias.sourceId);
+    if (upstream !== undefined) {
+      addTo(competitionsByProviderId, sportId + SEP + upstream + SEP + id, alias.competitionId);
+    }
+  }
+  return {
+    teamsByNorm: freeze(teamsByNorm),
+    playsIn,
+    countryOf,
+    competitionsByNorm: freeze(competitionsByNorm),
+    competitionsByProviderId: freeze(competitionsByProviderId),
+    upstreamOf,
+    namesOf: new Map(input.teams.map((t) => [t.id, [...t.names, t.shortName]])),
+  };
+}
+
+/**
+ * Whether team T fits competition C for L1: T has an event in C, or C is one country's and T has
+ * an event in a competition of the same country. An international competition needs the first.
+ */
+function fitsCompetition(learned: LearnedIndex, teamId: string, competitionId: string): boolean {
+  const plays = learned.playsIn.get(teamId);
+  if (plays === undefined) return false;
+  if (plays.has(competitionId)) return true;
+  const country = learned.countryOf.get(competitionId);
+  if (country === undefined) return false;
+  for (const other of plays) if (learned.countryOf.get(other) === country) return true;
+  return false;
+}
+
+/**
+ * Rule L1 for teams: a name no level knows, mapped for ANOTHER source by a person (or by N4),
+ * resolves to that team when exactly one such team fits the record's competition
+ * (`fitsCompetition`). Without a resolved competition, or with none or several fitting, the name
+ * stays unknown and a person is asked, as before.
+ */
+function learnedTeam(
+  learned: LearnedIndex,
+  teams: EntityIndex,
+  query: ResolveQuery,
+): Resolution | null {
+  const competitionId = query.competitionId;
+  if (competitionId === undefined || competitionId === null) return null;
+  const norm = normalizeName(query.raw);
+  if (norm === '') return null;
+  const ids = learned.teamsByNorm.get(query.sportId + SEP + norm) ?? [];
+  if (ids.length === 0 || sharedSpelling(teams, query.sportId, norm)) return null;
+  // L3: a mapping that looks wrong (another side of the club, a national team, or a telling word
+  // the team's names lack: the daily alias check's rule) is never spread to other sources.
+  const fitting = ids.filter(
+    (id) =>
+      fitsCompetition(learned, id, competitionId) &&
+      suspiciousAlias(query.raw, learned.namesOf.get(id) ?? []) === null,
+  );
+  const only = fitting.length === 1 ? fitting[0] : undefined;
+  return only === undefined ? null : { status: 'resolved', id: only, via: 'learned' };
+}
+
+/**
+ * Rules L1 and L2 for competitions, only for a name that carries its provider's id
+ * ("England - Premier League [39]"): the same spelling mapped for another source (L1), else the
+ * same id from a source of the same upstream under another spelling (L2, a renamed league). A
+ * plain name such as "Ligue 1" is never learned: several countries use it.
+ */
+function learnedCompetition(learned: LearnedIndex, query: ResolveQuery): Resolution | null {
+  const id = providerIdOf(query.raw);
+  if (id === null) return null;
+  const norm = normalizeName(query.raw);
+  const sameSpelling = learned.competitionsByNorm.get(query.sportId + SEP + norm);
+  if (sameSpelling !== undefined && sameSpelling.length === 1) {
+    return { status: 'resolved', id: sameSpelling[0] as string, via: 'learned' };
+  }
+  if (sameSpelling !== undefined) return null;
+  const upstream = learned.upstreamOf.get(query.sourceId);
+  if (upstream === undefined) return null;
+  const byId = learned.competitionsByProviderId.get(query.sportId + SEP + upstream + SEP + id);
+  return byId !== undefined && byId.length === 1
+    ? { status: 'resolved', id: byId[0] as string, via: 'provider_id' }
+    : null;
 }
 
 function fromLevel(
@@ -238,15 +404,35 @@ function relaxedName(index: EntityIndex, sportId: string, norm: string): Resolut
 
 /**
  * Rule N2 for teams: source alias, then global alias, then catalogue name, exactly; then, for a
- * name none of them knows, the catalogue name without the legal form (N2b).
+ * name none of them knows, the catalogue name without the legal form (N2b); then what other
+ * sources' mappings teach (L1, `learnedTeam`).
  */
 export function resolveTeam(index: AliasIndex, query: ResolveQuery): Resolution {
-  return resolve(index.teams, query, true);
+  const found = resolve(index.teams, query, true);
+  if (found.status !== 'unknown') return found;
+  return learnedTeam(index.learned, index.teams, query) ?? found;
 }
 
-/** Rule N2 for competitions. */
+/**
+ * L1: whether the names of more than one catalogue team of the sport contain every word of the
+ * spelling ("dynamo": Dynamo Dresden, BFC Dynamo, Dynamo Kyiv). Such a spelling means different
+ * clubs to different sources, even in one country, so a mapping of it is never spread.
+ */
+function sharedSpelling(teams: EntityIndex, sportId: string, norm: string): boolean {
+  const words = nameTokens(norm);
+  let count = 0;
+  for (const entry of teams.catalogue.get(sportId) ?? []) {
+    const has = entry.names.some((n) => words.every((w) => n.tokens.includes(w)));
+    if (has && ++count > 1) return true;
+  }
+  return false;
+}
+
+/** Rule N2 for competitions; then, for an unknown name with a provider id, L1 and L2. */
 export function resolveCompetition(index: AliasIndex, query: ResolveQuery): Resolution {
-  return resolve(index.competitions, query, false);
+  const found = resolve(index.competitions, query, false);
+  if (found.status !== 'unknown') return found;
+  return learnedCompetition(index.learned, query) ?? found;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +502,11 @@ export function teamCatalogueNames(index: AliasIndex, sportId: string, teamId: s
   return entry === undefined ? [] : entry.names.map((n) => n.norm);
 }
 
-function suggest(index: EntityIndex, query: SuggestQuery): Suggestion[] {
+function suggest(
+  index: EntityIndex,
+  query: SuggestQuery,
+  keep: (entry: CatalogueEntry) => boolean = () => true,
+): Suggestion[] {
   const norm = normalizeName(query.raw);
   const limit = Math.min(MAX_LIMIT, Math.floor(query.limit ?? 3));
   if (norm === '' || !(limit > 0)) return [];
@@ -336,7 +526,7 @@ function suggest(index: EntityIndex, query: SuggestQuery): Suggestion[] {
         best = { id: entry.id, score, matchedName: name.norm };
       }
     }
-    if (best !== null && best.score >= SUGGESTION_MIN_SCORE) out.push(best);
+    if (best !== null && best.score >= SUGGESTION_MIN_SCORE && keep(entry)) out.push(best);
   }
   out.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return out.slice(0, limit);
@@ -344,7 +534,16 @@ function suggest(index: EntityIndex, query: SuggestQuery): Suggestion[] {
 
 /** Rule N3: up to `limit` (default 3) catalogue teams that look like the raw name. Never applied. */
 export function suggestTeams(index: AliasIndex, query: SuggestQuery): Suggestion[] {
-  return suggest(index.teams, query);
+  // L3: never another side of a club (reserve, youth, women's) or a national team.
+  return suggest(
+    index.teams,
+    query,
+    (entry) =>
+      variantConflict(
+        query.raw,
+        entry.names.map((n) => n.norm),
+      ) === null,
+  );
 }
 
 /** Rule N3 for competitions. */

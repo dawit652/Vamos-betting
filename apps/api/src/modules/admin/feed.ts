@@ -14,8 +14,11 @@ import {
   FeedCompetitionsResponse,
   FeedHealthResponse,
   hasPermission,
+  HulusportPricingResponse,
   isRepriceItem,
   MapBatchRequest,
+  NarobetPricingResponse,
+  ApiFootballPricingResponse,
   OpenBatchRequest,
   type OpenBatchResult,
   OpenBatchResponse,
@@ -39,6 +42,10 @@ import {
   type ReviewItemView,
   ReviewListQuery,
   ReviewListResponse,
+  SetHulusportPricingRequest,
+  SetNarobetEventsRequest,
+  SetNarobetPricingRequest,
+  SetApiFootballPricingRequest,
   SetSourceEnabledRequest,
   SetSourceEnabledResponse,
   UpdateCompetitionPolicyRequest,
@@ -54,6 +61,7 @@ import {
   familyMarginBps,
   familyMarginClass,
   MARKET_FAMILIES,
+  hasBoardPrices,
   MARKET_PRICING_KEY_PREFIX,
   anyMarketKey,
   type SportCode,
@@ -68,8 +76,15 @@ import {
   addTeamAlias,
   addTeamWithAlias,
   apiCreditUsage,
+  boardEventsSummary,
+  boardOddsSummary,
   countReviewItemsByKind,
   DomainError,
+  getBoardPricing,
+  getApiFootballPricing,
+  apiFootballPriceSummary,
+  getNarobetEvents,
+  getHulusportPricing,
   getReviewItem,
   getSource,
   getTeamRatings,
@@ -89,8 +104,12 @@ import {
   resolveReviewItem,
   ScrapeAliasConflictError,
   ScrapeReviewStateError,
+  setBoardPricing,
+  setApiFootballPricing,
+  setNarobetEvents,
   setCompetitionPolicy,
   setEventBettingOpen,
+  setHulusportPricing,
   setSourceEnabled,
   setTeamRatings,
   sourceHealth,
@@ -106,6 +125,7 @@ import {
 } from '@vamos/db';
 import { competitions, events, teams } from '@vamos/db/schema';
 import {
+  BOARD_PRICES_MAX_AGE_MS,
   checkReprice,
   createAdapter,
   creditKeyOf,
@@ -116,6 +136,8 @@ import {
   isCalibrated,
   MIN_LEAD_MS,
   MIN_RATING_MATCHES,
+  NAROBET_FRESHNESS_STEPS,
+  NAROBET_PRICES_MAX_AGE_FAR_MS,
   normalizeName,
   ratingsKey,
   REPRICE_SUBJECT_SUFFIX,
@@ -580,6 +602,269 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
   );
 
   // -------------------------------------------------------------------------
+  // Hulusport prices (docs/plans/hulusport-feed.md): the switch, and what the board delivers.
+
+  const hulusportView = async (exec: DbExecutor, now: Date) => {
+    const [pricing, board, listed] = await Promise.all([
+      getHulusportPricing(exec),
+      boardOddsSummary(exec, { now, maxAgeMs: BOARD_PRICES_MAX_AGE_MS, limit: 50 }),
+      boardEventsSummary(exec, { now, resultLagMs: 2 * 3_600_000, limit: 50 }),
+    ]);
+    return wire(HulusportPricingResponse, {
+      enabled: pricing.enabled,
+      updatedAt: pricing.updatedAt?.toISOString() ?? null,
+      updatedBy: pricing.updatedBy,
+      maxAgeMinutes: Math.round(BOARD_PRICES_MAX_AGE_MS / 60_000),
+      board: {
+        upcoming: board.upcoming,
+        linked: board.linked,
+        fresh: board.fresh,
+        lastReadAt: board.lastReadAt?.toISOString() ?? null,
+        newestPricesAt: board.newestPricesAt?.toISOString() ?? null,
+        unlinked: board.unlinked.map((row) => ({
+          competition: row.competitionRaw,
+          home: row.homeRaw,
+          away: row.awayRaw,
+          kickoff: row.kickoff.toISOString(),
+          teamsResolved: row.teamsResolved,
+        })),
+      },
+      events: {
+        upcoming: listed.upcoming,
+        bettingOpen: listed.bettingOpen,
+        awaitingResultTotal: listed.awaitingResultTotal,
+        awaitingResult: listed.awaitingResult.map((row) => ({
+          eventId: row.eventId,
+          gameId: row.gameId,
+          competition: row.competition,
+          home: row.home,
+          away: row.away,
+          kickoff: row.kickoff.toISOString(),
+        })),
+      },
+    });
+  };
+
+  app.get('/admin/feed/hulusport', { config: { staff: 'trading.view' } }, async () =>
+    hulusportView(deps.db, deps.clock()),
+  );
+
+  /**
+   * Turns Hulusport prices on or off. Turning them on changes where prices come from, so it needs
+   * `settings.edit`; turning them off (back to our own prices) is a kill switch a trader with
+   * `trading.status` may also use, as for a competition's policy.
+   */
+  app.put(
+    '/admin/feed/hulusport',
+    { config: { staff: 'settings.edit', staffOr: 'trading.status' } },
+    async (request) => {
+      const staff = requireStaff(request);
+      let input: SetHulusportPricingRequest;
+      if (hasPermission(staff.role, 'settings.edit')) {
+        input = parseInput(SetHulusportPricingRequest, request.body);
+      } else {
+        // Without settings access only a valid request that turns the prices off is allowed.
+        const parsed = SetHulusportPricingRequest.safeParse(request.body);
+        if (!parsed.success || parsed.data.enabled) {
+          throw forbidden('forbidden', 'Your role does not allow this.', {
+            permission: 'settings.edit',
+          });
+        }
+        input = parsed.data;
+      }
+      const actor = staffActor(request);
+      return inTx(deps, async (tx) => {
+        await setHulusportPricing(tx, input.enabled, actor);
+        return hulusportView(tx, deps.clock());
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Narobet prices (docs/plans/narobet-feed.md): the switch, and what mr-z's board delivers.
+
+  const narobetView = async (exec: DbExecutor, now: Date) => {
+    const [pricing, board, eventsSwitch, listed] = await Promise.all([
+      getBoardPricing(exec, 'narobet'),
+      boardOddsSummary(exec, {
+        now,
+        maxAgeMs: NAROBET_PRICES_MAX_AGE_FAR_MS,
+        steps: NAROBET_FRESHNESS_STEPS,
+        limit: 50,
+        board: 'narobet',
+      }),
+      getNarobetEvents(exec),
+      boardEventsSummary(exec, {
+        now,
+        resultLagMs: 2 * 3_600_000,
+        limit: 50,
+        feedProvider: 'narobet',
+      }),
+    ]);
+    return wire(NarobetPricingResponse, {
+      enabled: pricing.enabled,
+      updatedAt: pricing.updatedAt?.toISOString() ?? null,
+      updatedBy: pricing.updatedBy,
+      freshness: [
+        ...NAROBET_FRESHNESS_STEPS.map((step) => ({
+          withinMinutes: Math.round(step.aheadMs / 60_000),
+          maxAgeMinutes: Math.round(step.maxAgeMs / 60_000),
+        })),
+        { withinMinutes: null, maxAgeMinutes: Math.round(NAROBET_PRICES_MAX_AGE_FAR_MS / 60_000) },
+      ],
+      board: {
+        upcoming: board.upcoming,
+        linked: board.linked,
+        fresh: board.fresh,
+        lastReadAt: board.lastReadAt?.toISOString() ?? null,
+        newestPricesAt: board.newestPricesAt?.toISOString() ?? null,
+        unlinked: board.unlinked.map((row) => ({
+          competition: row.competitionRaw,
+          home: row.homeRaw,
+          away: row.awayRaw,
+          kickoff: row.kickoff.toISOString(),
+          teamsResolved: row.teamsResolved,
+        })),
+      },
+      events: {
+        enabled: eventsSwitch.enabled,
+        horizonDays: eventsSwitch.horizonDays,
+        updatedAt: eventsSwitch.updatedAt?.toISOString() ?? null,
+        updatedBy: eventsSwitch.updatedBy,
+        upcoming: listed.upcoming,
+        bettingOpen: listed.bettingOpen,
+        awaitingResultTotal: listed.awaitingResultTotal,
+        awaitingResult: listed.awaitingResult.map((row) => ({
+          eventId: row.eventId,
+          gameId: row.gameId,
+          competition: row.competition,
+          home: row.home,
+          away: row.away,
+          kickoff: row.kickoff.toISOString(),
+        })),
+      },
+    });
+  };
+
+  // -------------------------------------------------------------------------
+  // API-Football's bookmaker prices on trial (docs/plans/feed-gaps-2026-11-23.md, E2).
+
+  const apiFootballView = async (exec: DbExecutor, now: Date) => {
+    const [pricing, summary] = await Promise.all([
+      getApiFootballPricing(exec),
+      apiFootballPriceSummary(exec, { now, maxAgeMs: 3 * 3_600_000 }),
+    ]);
+    return wire(ApiFootballPricingResponse, {
+      enabled: pricing.enabled,
+      updatedAt: pricing.updatedAt,
+      updatedBy: pricing.updatedBy,
+      ...summary,
+    });
+  };
+
+  app.get('/admin/feed/apifootball', { config: { staff: 'trading.view' } }, async () =>
+    apiFootballView(deps.db, deps.clock()),
+  );
+
+  /** Turns API-Football's prices on or off, with the same permissions as the board switches. */
+  app.put(
+    '/admin/feed/apifootball',
+    { config: { staff: 'settings.edit', staffOr: 'trading.status' } },
+    async (request) => {
+      const staff = requireStaff(request);
+      let input: SetApiFootballPricingRequest;
+      if (hasPermission(staff.role, 'settings.edit')) {
+        input = parseInput(SetApiFootballPricingRequest, request.body);
+      } else {
+        // Without settings access only a valid request that turns the prices off is allowed.
+        const parsed = SetApiFootballPricingRequest.safeParse(request.body);
+        if (!parsed.success || parsed.data.enabled) {
+          throw forbidden('forbidden', 'Your role does not allow this.', {
+            permission: 'settings.edit',
+          });
+        }
+        input = parsed.data;
+      }
+      const actor = staffActor(request);
+      return inTx(deps, async (tx) => {
+        await setApiFootballPricing(tx, input.enabled, actor);
+        return apiFootballView(tx, deps.clock());
+      });
+    },
+  );
+
+  app.get('/admin/feed/narobet', { config: { staff: 'trading.view' } }, async () =>
+    narobetView(deps.db, deps.clock()),
+  );
+
+  /** Turns Narobet prices on or off, with the same permissions as Hulusport's switch. */
+  app.put(
+    '/admin/feed/narobet',
+    { config: { staff: 'settings.edit', staffOr: 'trading.status' } },
+    async (request) => {
+      const staff = requireStaff(request);
+      let input: SetNarobetPricingRequest;
+      if (hasPermission(staff.role, 'settings.edit')) {
+        input = parseInput(SetNarobetPricingRequest, request.body);
+      } else {
+        // Without settings access only a valid request that turns the prices off is allowed.
+        const parsed = SetNarobetPricingRequest.safeParse(request.body);
+        if (!parsed.success || parsed.data.enabled) {
+          throw forbidden('forbidden', 'Your role does not allow this.', {
+            permission: 'settings.edit',
+          });
+        }
+        input = parsed.data;
+      }
+      const actor = staffActor(request);
+      return inTx(deps, async (tx) => {
+        await setBoardPricing(tx, 'narobet', input.enabled, actor);
+        return narobetView(tx, deps.clock());
+      });
+    },
+  );
+
+  /**
+   * Narobet-only matches (docs/plans/narobet-events.md): turning them on or changing the horizon
+   * needs settings.edit; turning them off needs only trading.status, like the price switches.
+   */
+  app.put(
+    '/admin/feed/narobet/events',
+    { config: { staff: 'settings.edit', staffOr: 'trading.status' } },
+    async (request) => {
+      const staff = requireStaff(request);
+      let input: SetNarobetEventsRequest;
+      if (hasPermission(staff.role, 'settings.edit')) {
+        input = parseInput(SetNarobetEventsRequest, request.body);
+      } else {
+        const parsed = SetNarobetEventsRequest.safeParse(request.body);
+        if (
+          !parsed.success ||
+          parsed.data.enabled !== false ||
+          parsed.data.horizonDays !== undefined
+        ) {
+          throw forbidden('forbidden', 'Your role does not allow this.', {
+            permission: 'settings.edit',
+          });
+        }
+        input = parsed.data;
+      }
+      const actor = staffActor(request);
+      return inTx(deps, async (tx) => {
+        await setNarobetEvents(
+          tx,
+          {
+            ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+            ...(input.horizonDays === undefined ? {} : { horizonDays: input.horizonDays }),
+          },
+          actor,
+        );
+        return narobetView(tx, deps.clock());
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // Review queue.
 
   app.get('/admin/feed/review', { config: { staff: 'trading.view' } }, async (request) => {
@@ -821,9 +1106,13 @@ export default async function adminFeedRoutes(app: FastifyInstance): Promise<voi
             // newer proposal replaces it (the scraper refreshes the open item).
             const rated = await getTeamRatings(tx, [event!.homeTeamId, event!.awayTeamId]);
             let currentKey: string;
-            if (payload.ratingsKey.startsWith(`${MARKET_PRICING_KEY_PREFIX}|`)) {
+            if (
+              payload.ratingsKey.startsWith(`${MARKET_PRICING_KEY_PREFIX}|`) ||
+              hasBoardPrices(payload.ratingsKey)
+            ) {
               // A market proposal is current while it is the one the scraper last raised for the
-              // event (a newer proposal replaces it; applying or auto re-pricing clears it).
+              // event (a newer proposal replaces it; applying or auto re-pricing clears it). So is
+              // a proposal with a competitor board's prices: the ratings alone cannot remake it.
               const held = (await listEventPricing(tx, [event!.id])).get(event!.id)?.heldKey;
               if (
                 held !== heldKeyOf(payload.ratingsKey, true) &&

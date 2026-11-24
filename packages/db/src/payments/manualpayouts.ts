@@ -1,21 +1,24 @@
 import {
   assessManualPayout,
   bareSmsReference,
+  latestClaimForSms,
   payoutDestination,
   type ManualPayoutAction,
 } from '@vamos/core';
-import { and, asc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, ne, or } from 'drizzle-orm';
+import type { Database } from '../client';
 import { amlHoldsWithdrawals } from '../compliance/aml';
-import { domainConflict, domainUnprocessable } from '../errors';
+import { DomainError, domainConflict, domainUnprocessable } from '../errors';
 import { postTransaction } from '../ledger/post';
 import type { DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { enqueueOutbox } from '../platform/outbox';
+import { withTxRetry } from '../retry';
 import { payouts } from '../schema/payments';
 import { receivedSms } from '../schema/smsrail';
 import { WITHDRAWAL_FAILED, WITHDRAWAL_PAID } from './events';
 import { withdrawalPaidEntries, withdrawalPaidLedgerKey } from './postings';
-import type { Payout } from './types';
+import { comparableDestination, type Payout } from './types';
 import {
   blockedSettlementCorrection,
   correctionPending,
@@ -49,6 +52,8 @@ const DENIAL_MESSAGES = {
   wrong_status: 'This withdrawal is not in a state that allows this.',
   approver_cannot_pay: 'You approved this withdrawal, so someone else must pay it.',
   claimed_by_someone_else: 'Another operator is paying this withdrawal.',
+  not_automatic: 'Only the automatic double-proof check may record this settlement.',
+  not_a_person: 'A person must settle this withdrawal; an automatic process cannot.',
 } as const;
 
 async function lockManualPayout(
@@ -92,6 +97,30 @@ export async function listManualPayoutQueue(
     .limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
 }
 
+/** Claimed manual payouts still unpaid since before `claimedBefore`, oldest claim first (the idle-claim alarm). */
+export async function listIdleManualClaims(
+  exec: DbExecutor,
+  options: { claimedBefore: Date; limit?: number },
+): Promise<{ id: string; processingAt: Date; payingBy: string | null }[]> {
+  const rows = await exec
+    .select({ id: payouts.id, processingAt: payouts.processingAt, payingBy: payouts.payingBy })
+    .from(payouts)
+    .where(
+      and(
+        eq(payouts.manual, true),
+        eq(payouts.status, 'processing'),
+        lt(payouts.processingAt, options.claimedBefore),
+      ),
+    )
+    .orderBy(asc(payouts.processingAt), asc(payouts.id))
+    .limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
+  return rows.flatMap((row) =>
+    row.processingAt === null
+      ? []
+      : [{ id: row.id, processingAt: row.processingAt, payingBy: row.payingBy }],
+  );
+}
+
 /**
  * An operator takes an approved manual payout to send it (`approved` →
  * `processing`, paying_by = the operator). Re-checked at the moment money
@@ -130,6 +159,83 @@ export async function claimManualPayout(
     ip: input.ip ?? null,
   });
   return updated;
+}
+
+/** The most payouts one batch claim takes (the API caps its request at the same number). */
+export const MANUAL_PAYOUT_CLAIM_BATCH_MAX = 20;
+/**
+ * Without ids a batch looks at up to this many times `limit` candidates to find `limit` it can
+ * claim: payouts under an AML hold or a blocked correction are refused one by one and must not
+ * use up the batch, nor a payout another operator took a moment earlier.
+ */
+const CLAIM_SCAN_FACTOR = 5;
+
+export interface ClaimManualPayoutBatchResult {
+  payoutId: string;
+  claimed: boolean;
+  /** The refusal's code (`manual_payout_approver_cannot_pay`, `aml_review_pending`, ...) when not claimed. */
+  reason?: string;
+}
+
+/**
+ * Claims several approved manual payouts for one operator: exactly the given
+ * `ids`, or else the oldest approved payouts nobody holds, skipping the ones this
+ * operator approved themselves (they could never claim those), until `limit` are
+ * claimed or CLAIM_SCAN_FACTOR times `limit` candidates have been tried. Every payout
+ * goes through claimManualPayout in a transaction of its own, so each claim keeps its
+ * row lock, its rules (the approver never claims, AML hold, status) and its audit
+ * line, and a refused payout never blocks the others. Two operators racing for the
+ * same rows each win a disjoint set: the loser of a row is told
+ * `manual_payout_wrong_status` and goes on to the next one.
+ */
+export async function claimManualPayoutBatch(
+  db: Database,
+  input: ManualPayoutActor & { now: Date; limit?: number; ids?: readonly string[] },
+): Promise<ClaimManualPayoutBatchResult[]> {
+  let ids: string[];
+  let want = Number.POSITIVE_INFINITY;
+  if (input.ids !== undefined) {
+    ids = [...new Set(input.ids)].slice(0, MANUAL_PAYOUT_CLAIM_BATCH_MAX);
+  } else {
+    want = Math.min(Math.max(input.limit ?? 10, 1), MANUAL_PAYOUT_CLAIM_BATCH_MAX);
+    const rows = await db
+      .select({ id: payouts.id })
+      .from(payouts)
+      .where(
+        and(
+          eq(payouts.manual, true),
+          eq(payouts.status, 'approved'),
+          isNull(payouts.payingBy),
+          // 'system:auto' and other staff approvals stay claimable; only the caller's own are not.
+          or(isNull(payouts.approvedBy), ne(payouts.approvedBy, input.staffId)),
+        ),
+      )
+      .orderBy(asc(payouts.approvedAt), asc(payouts.id))
+      .limit(want * CLAIM_SCAN_FACTOR);
+    ids = rows.map((row) => row.id);
+  }
+  const results: ClaimManualPayoutBatchResult[] = [];
+  let claimed = 0;
+  for (const payoutId of ids) {
+    if (claimed >= want) break;
+    try {
+      await withTxRetry(db, (tx) =>
+        claimManualPayout(tx, {
+          payoutId,
+          staffId: input.staffId,
+          ip: input.ip ?? null,
+          now: input.now,
+        }),
+      );
+      results.push({ payoutId, claimed: true });
+      claimed += 1;
+    } catch (error) {
+      // Only business refusals are reported; anything else is a fault and surfaces.
+      if (!(error instanceof DomainError)) throw error;
+      results.push({ payoutId, claimed: false, reason: error.code });
+    }
+  }
+  return results;
 }
 
 /** The claimer hands a payout back unpaid (`processing` → `approved`), with a note. */
@@ -182,6 +288,16 @@ export interface SettleManualPayoutInput extends ManualPayoutActor {
  *   not proposed for another payout (409 `settlement_reference_mismatch`),
  *   and is then linked as the proof; 409 `settlement_proof_required` with
  *   `requireProof` and no SMS; 422 `invalid_settlement_reference`;
+ * - a typed reference for a wallet payout: the SMS must name the payout's
+ *   number (409 `settlement_destination_mismatch`); one that names no number
+ *   counts only as the matcher's own proposal for this payout, never as an
+ *   `ignored_debit` (409 `settlement_proof_mismatch`). A bank payout rests on
+ *   the holder-name confirmation, but an SMS that names a mobile number is of
+ *   a wallet transfer and never proves it (409 `settlement_destination_mismatch`);
+ * - either way, the SMS must be of a transfer made after this claim (core
+ *   latestClaimForSms: claim minus the clock skew), else 409
+ *   `settlement_proof_too_old`. Otherwise the claimer could pay themselves
+ *   the same amount and point at that debit as the player's payment;
  * - 409 `settlement_reference_used` when the reference settled another payout.
  */
 export async function settleManualPayout(
@@ -219,6 +335,7 @@ export async function settleManualPayout(
         'That SMS is not the proposed proof of this withdrawal.',
       );
     }
+    assertSentAfterClaim(payout, sms);
     proof = { id: sms.id, reference: sms.reference };
   } else {
     const typed = input.reference === undefined ? null : bareSmsReference(input.reference);
@@ -246,6 +363,9 @@ export async function settleManualPayout(
           'We hold an SMS with that reference that is not this payment. Check the reference.',
         );
       }
+      if (destination?.kind === 'wallet') assertSentToWallet(payout, sms);
+      else assertNotSentToAnotherNumber(payout, sms);
+      assertSentAfterClaim(payout, sms);
       proof = { id: sms.id, reference: typed };
     } else if (input.requireProof) {
       throw domainConflict(
@@ -257,6 +377,71 @@ export async function settleManualPayout(
     }
   }
   return pay(tx, payout, input, { reference: proof.reference, smsId: proof.id });
+}
+
+type ReceivedSmsRow = typeof receivedSms.$inferSelect;
+
+/**
+ * A typed reference for a wallet payout: the debit SMS must show the money
+ * going to the payout's own number (both compared in E.164). An SMS without a
+ * number proves nothing about where the money went, unless the matcher already
+ * proposed it for this payout as its only same-amount candidate (`amount_only`).
+ */
+function assertSentToWallet(payout: Payout, sms: ReceivedSmsRow): void {
+  if (sms.counterpartyPhone === null) {
+    if (sms.status === 'settlement_proposed' && sms.proposedPayoutId === payout.id) return;
+    throw domainConflict(
+      'settlement_proof_mismatch',
+      "That SMS does not show the number the money went to, so it cannot prove this withdrawal. Ask a supervisor to check the transfer in the collection account's history.",
+    );
+  }
+  const sentTo = comparableDestination(payout.destinationInstitution, sms.counterpartyPhone);
+  const owed = comparableDestination(payout.destinationInstitution, payout.destinationAccount);
+  if (sentTo !== owed) {
+    throw domainConflict(
+      'settlement_destination_mismatch',
+      'That SMS shows money sent to another number: check the reference and the number you paid.',
+    );
+  }
+}
+
+/**
+ * A typed reference for a bank payout (or one whose destination kind is unknown): a debit SMS
+ * that names a mobile number shows money sent to a wallet, so it cannot be the transfer to this
+ * bank account, whatever the claimer confirms about the holder name. Without this the claimer
+ * could send the amount to their own wallet and settle the player's bank payout with that debit
+ * (the wallet rule above, for banks). An SMS that names no number proves nothing about the
+ * destination either way: a bank payout then rests on the holder-name confirmation, as before.
+ */
+function assertNotSentToAnotherNumber(payout: Payout, sms: ReceivedSmsRow): void {
+  if (sms.counterpartyPhone === null) return;
+  const sentTo = comparableDestination(payout.destinationInstitution, sms.counterpartyPhone);
+  const owed = comparableDestination(payout.destinationInstitution, payout.destinationAccount);
+  if (sentTo !== owed) {
+    throw domainConflict(
+      'settlement_destination_mismatch',
+      'That SMS shows money sent to a mobile number, not to this bank account: check the reference and where you paid.',
+    );
+  }
+}
+
+/**
+ * The SMS must be of a transfer made after this payout was claimed (minus the
+ * clock skew; core latestClaimForSms): an older debit of the same amount, or one
+ * made under an earlier claim, did not pay this claim.
+ */
+function assertSentAfterClaim(payout: Payout, sms: ReceivedSmsRow): void {
+  const latest = latestClaimForSms({
+    occurredAt: sms.occurredAt,
+    deviceReceivedAt: sms.deviceReceivedAt,
+    receivedAt: sms.receivedAt,
+  });
+  if (payout.processingAt === null || payout.processingAt.getTime() > latest.getTime()) {
+    throw domainConflict(
+      'settlement_proof_too_old',
+      'That SMS is of a transfer made before you claimed this withdrawal, so it is not this payment. Check the reference of the transfer you sent after claiming.',
+    );
+  }
 }
 
 async function pay(

@@ -22,6 +22,7 @@ export {
   selectionUnavailableError,
   slipInvalidError,
   type GameSettingsForBets,
+  type BetFunding,
   type PlaceBetInput,
   type PlaceBetResult,
   type QuotedLeg,
@@ -74,10 +75,14 @@ export {
   type PrepareCashOutInput,
 } from './cashout';
 export {
+  bookingCodeForTicket,
+  bookingCodeStatus,
   BOOKING_CODE_TTL_MS,
   createBookingCode,
   loadBookingCode,
   type BookingCode,
+  type BookingCodeState,
+  type BookingCodeStatus,
   type BookingLeg,
   type CreateBookingCodeInput,
 } from './booking';

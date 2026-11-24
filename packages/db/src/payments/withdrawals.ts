@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import {
   normalizeEthiopianMsisdn,
   payoutDestination,
+  santimToBirrString,
   toWire,
+  withdrawableAmount,
   type AmlRules,
   type PaymentRules,
 } from '@vamos/core';
@@ -30,7 +32,8 @@ import {
 } from '../errors';
 import { InsufficientFundsError } from '../ledger/errors';
 import { postTransaction } from '../ledger/post';
-import type { DbExecutor, DbTransaction } from '../ledger/types';
+import { getBalance } from '../ledger/queries';
+import type { AccountRef, DbExecutor, DbTransaction } from '../ledger/types';
 import { writeAudit } from '../platform/audit';
 import { toJsonSafe } from '../platform/json';
 import { enqueueOutbox } from '../platform/outbox';
@@ -153,6 +156,12 @@ export interface RequestWithdrawalInput {
    */
   amlRules?: AmlRules;
   ip?: string | null;
+  /**
+   * Paid in cash at a shop's counter (cashWithdrawal): the cashier pays any amount alone (owner,
+   * 21 Nov 2026), so the amount never sends it to review (`autoApproveBelow` does not apply). An
+   * exclusion, an AML hold or a pending settlement correction still does.
+   */
+  counter?: boolean;
 }
 
 export interface RequestWithdrawalResult {
@@ -170,6 +179,12 @@ export interface PayoutChange {
 
 const wire = (amount: bigint): string => toWire(amount);
 const isOpen = (payout: Payout) => payout.status === 'approved' || payout.status === 'processing';
+
+/**
+ * Paid in cash at a shop's desk, never by the payout worker or the back office's settle:
+ * `cash` (Nahubet HQ's shops) and `agent_cash` (an agent's shop, out of the agent's drawer).
+ */
+export const DESK_PROVIDERS: ReadonlySet<string> = new Set(['cash', 'agent_cash']);
 
 /**
  * 409 `manual_payout` for a payout an operator pays by hand (SMS rail): it
@@ -380,8 +395,10 @@ async function flagPayout(
  * 6. 422 `withdrawal_amount_out_of_range` outside [minWithdrawal, maxWithdrawal];
  * 7. 422 `withdrawal_daily_cap_exceeded` when the open and paid withdrawals
  *    requested in the last 24 hours plus `amount` exceed dailyWithdrawalCap;
- * 8. 422 `wagering_requirement_not_met` (details `{ remaining }`) while the
- *    deposits are not wagered (see core `remainingWagering`), unless an
+ * 8. 422 `wagering_requirement_not_met` (details `{ remaining, withdrawable }`)
+ *    when `amount` is more than the winnings (owner, 21 Nov 2026: deposited
+ *    money is never withdrawn): the balance less the deposits not yet played
+ *    through (core `remainingWagering`, `withdrawableAmount`), unless an
  *    exclusion is active (see below);
  * 9. the hold: player_cash -amount, house_withdrawals_pending +amount
  *    (422 `insufficient_funds`), so the money cannot be bet or withdrawn twice;
@@ -389,7 +406,8 @@ async function flagPayout(
  *    evaluated (flags raised in this transaction); a player with an open or
  *    escalated high-severity flag is held for review (`aml_review`);
  * 11. the payout row: `approved` (by `system:auto`) when amount <
- *    autoApproveBelow, no exclusion is active and no AML hold applies,
+ *    autoApproveBelow (any amount at a shop's counter, `counter`), no
+ *    exclusion is active and no AML hold applies,
  *    else `requested` for manual review; outbox `payment.withdrawal_requested` (and
  *    `payment.withdrawal_approved` when auto-approved) and the audit record.
  *
@@ -549,11 +567,16 @@ export async function requestWithdrawal(
   if (exclusion === null) {
     const remaining = await getRemainingWagering(tx, userId, rules.wageringMultiplierBps);
     if (remaining > 0n) {
-      throw domainUnprocessable(
-        'wagering_requirement_not_met',
-        'Your deposits must be played through before you can withdraw.',
-        { remaining: wire(remaining) },
-      );
+      // Winnings only (owner, 21 Nov 2026). lockUser above keeps the balance and the stakes still.
+      const balance = await getBalance(tx, { kind: 'player_cash', userId });
+      const withdrawable = withdrawableAmount(balance, remaining);
+      if (amount > withdrawable) {
+        throw domainUnprocessable(
+          'wagering_requirement_not_met',
+          `Only winnings can be withdrawn: at most ETB ${santimToBirrString(withdrawable)} now. Deposited money is for betting.`,
+          { remaining: wire(remaining), withdrawable: wire(withdrawable) },
+        );
+      }
     }
   }
 
@@ -601,7 +624,7 @@ export async function requestWithdrawal(
       ? 'active_exclusion'
       : amlHold
         ? 'aml_review'
-        : amount >= rules.autoApproveBelow
+        : amount >= rules.autoApproveBelow && input.counter !== true
           ? 'above_auto_approve_threshold'
           : null;
   const autoApproved = reviewReason === null;
@@ -874,6 +897,8 @@ export async function claimDuePayouts(
         isNull(payouts.flaggedAt),
         // Paid by hand by an operator: no provider to send them to.
         eq(payouts.manual, false),
+        // Paid in cash at a shop's desk (cashier/withdrawals.ts): never sent by the worker.
+        notInArray(payouts.provider, [...DESK_PROVIDERS]),
         or(isNull(payouts.nextAttemptAt), lte(payouts.nextAttemptAt, options.now)),
       ),
     )
@@ -957,11 +982,31 @@ function notOpenError(payout: Payout): DomainError {
  */
 export async function markPayoutPaid(
   tx: DbTransaction,
-  input: { payoutId: string; providerRef?: string; now: Date; admin?: AdminActor },
+  input: {
+    payoutId: string;
+    providerRef?: string;
+    now: Date;
+    admin?: AdminActor;
+    /** The cashier desk paying a `cash` payout (cashier/withdrawals.ts), with its receipt. */
+    cashDesk?: boolean;
+    /**
+     * The desk only: the account the paid money goes to instead of the provider's clearing
+     * account. An agent's shop pays out of its own drawer: `agent:<id>:balance` (agent-shops.md
+     * phase 2 step 4, provider `agent_cash`).
+     */
+    paidTo?: AccountRef;
+  },
 ): Promise<PayoutChange> {
   const payout = await lockPayout(tx, input.payoutId);
   if (payout.status === 'paid') return { payout, changed: false };
   assertNotManual(payout);
+  // Cash is paid only at a desk, with a shift and a receipt: never settled from the back office.
+  if (DESK_PROVIDERS.has(payout.provider) && input.cashDesk !== true) {
+    throw domainConflict(
+      'cash_payout_desk_only',
+      "A cash withdrawal is paid at a shop's desk, with a receipt.",
+    );
+  }
   if (!isOpen(payout)) throw notOpenError(payout);
   if (input.admin !== undefined) assertStaffMaySettle(payout);
   if (
@@ -981,7 +1026,13 @@ export async function markPayoutPaid(
     refId: payout.id,
     description: `Withdrawal paid via ${payout.provider}`,
     actor: input.admin ? { type: 'admin', id: input.admin.adminId } : { type: 'system' },
-    entries: withdrawalPaidEntries(payout.provider, payout.amount),
+    entries:
+      input.paidTo !== undefined && input.cashDesk === true
+        ? [
+            { account: { kind: 'house_withdrawals_pending' }, amount: -payout.amount },
+            { account: input.paidTo, amount: payout.amount },
+          ]
+        : withdrawalPaidEntries(payout.provider, payout.amount),
   });
   const updated = await updatePayout(tx, payout.id, {
     status: 'paid',

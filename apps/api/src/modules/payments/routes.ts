@@ -1,5 +1,6 @@
 import {
   AddPayoutAccountRequest,
+  type CashCodeResponse,
   ConfirmPayoutAccountRequest,
   CreateDepositRequest,
   CreateWithdrawalRequest,
@@ -14,9 +15,32 @@ import {
   type PaymentWebhookAck,
   type WithdrawalView,
   type WithdrawalsResponse,
+  CreateDepositClaimRequest,
+  LiveWithdrawalCodeResponse,
+  WithdrawalCodeRequest,
+  WithdrawalCodeResponse,
+  DepositClaimListResponse,
+  DepositClaimResponse,
 } from '@vamos/contracts';
+import {
+  createCashCode,
+  createWithdrawalCode,
+  getLiveWithdrawalCode,
+  loadComplianceSettings,
+  loadGameSettings,
+  fileDepositClaim,
+  listPlayerDepositClaims,
+  withTxRetry,
+  type DepositClaim,
+} from '@vamos/db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import {
+  cashCodeHash,
+  newCashCode,
+  newWithdrawalCode,
+  withdrawalCodeHash,
+} from '../../lib/cash-code';
 import { clientAddressKey } from '../../lib/client-address';
 import { parseInput } from '../../lib/errors';
 import { IDEMPOTENT_REPLAYED_HEADER, readIdempotencyKey } from '../../lib/idempotency';
@@ -37,6 +61,7 @@ import {
   checkPlayerSmsDeposit,
   confirmPlayerPayoutAccount,
   listPlayerPayoutAccounts,
+  receiveGatewayHeartbeat,
   receiveGatewaySms,
   removePlayerPayoutAccount,
   resendPayoutAccountCode,
@@ -58,13 +83,43 @@ export const PAYMENT_RATE_LIMITS = {
   createWithdrawal: 10,
   /** Per player. */
   cancelWithdrawal: 20,
+  /** Per player: shop codes for cash withdrawals at a desk. */
+  createCashCode: 10,
   /** Per (provider, client address): providers call from a few addresses. */
   webhook: 600,
   /** Per player: each check may ask the institution's receipt page. */
   depositCheck: 5,
   /** Per player: adding, confirming and resending payout-account codes. */
   payoutAccounts: 10,
+  /** Per player: "My deposit did not arrive" (G5.3). */
+  depositClaim: 5,
 } as const;
+
+/** A Postgres unique violation (23505), however the driver wrapped it. */
+function isUniqueViolation(error: unknown): boolean {
+  for (
+    let e: unknown = error;
+    e !== null && typeof e === 'object';
+    e = (e as { cause?: unknown }).cause
+  ) {
+    if ((e as { code?: unknown }).code === '23505') return true;
+  }
+  return false;
+}
+
+/** A claim as its player sees it (never the staff's note). */
+function claimView(claim: DepositClaim) {
+  return {
+    id: claim.id,
+    method: claim.method as 'telebirr' | 'cbe' | 'chapa' | 'other',
+    amount: claim.amount.toString(),
+    paidAt: claim.paidAt.toISOString(),
+    reference: claim.reference,
+    status: claim.status as 'open' | 'credited' | 'closed',
+    createdAt: claim.createdAt.toISOString(),
+    resolvedAt: claim.resolvedAt?.toISOString() ?? null,
+  };
+}
 
 const ListQuery = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) });
 
@@ -119,6 +174,32 @@ async function webhookRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply): Promise<PaymentWebhookAck> => {
       const rawBody = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
       const ack = await receiveGatewaySms(
+        deps,
+        { headers: request.headers, rawBody, ip: request.ip },
+        request.log,
+      );
+      noStore(reply);
+      return ack;
+    },
+  );
+
+  // The forwarder's heartbeat: the same guards, its own rate-limit bucket.
+  app.post(
+    '/payments/webhooks/sms/heartbeat',
+    {
+      bodyLimit: SMS_GATEWAY_BODY_LIMIT,
+      config: {
+        rateLimit: {
+          max: PAYMENT_RATE_LIMITS.webhook,
+          timeWindow: MINUTE_MS,
+          keyGenerator: (request: FastifyRequest) =>
+            `payment-webhook|sms-heartbeat|${clientAddressKey(request.ip)}`,
+        },
+      },
+    },
+    async (request, reply): Promise<{ ok: true }> => {
+      const rawBody = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
+      const ack = await receiveGatewayHeartbeat(
         deps,
         { headers: request.headers, rawBody, ip: request.ip },
         request.log,
@@ -344,6 +425,132 @@ export default async function paymentRoutes(app: FastifyInstance): Promise<void>
       }
       noStore(reply);
       return result.withdrawal;
+    },
+  );
+
+  // A one-time code to withdraw cash at a shop's desk (docs/plans/cashier-dashboard.md): the
+  // player tells the cashier their phone number and this code; the cashier never learns a PIN.
+  // "My deposit did not arrive" (G5.3): a claim for the back office's "Money not credited". It
+  // never credits anything by itself.
+  app.post(
+    '/payments/deposit-claims',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-deposit-claim', PAYMENT_RATE_LIMITS.depositClaim),
+    },
+    async (request, reply): Promise<DepositClaimResponse> => {
+      const user = requireUser(request);
+      const input = parseInput(CreateDepositClaimRequest, request.body);
+      const claim = await withTxRetry(deps.db, (tx) =>
+        fileDepositClaim(tx, {
+          userId: user.id,
+          method: input.method,
+          amount: BigInt(input.amount),
+          paidAt: new Date(input.paidAt),
+          reference: input.reference ?? null,
+          payerPhone: input.payerPhone ?? null,
+          note: input.note ?? null,
+          now: deps.clock(),
+          ip: request.ip,
+        }),
+      );
+      void reply.status(201);
+      return DepositClaimResponse.parse({ claim: claimView(claim) });
+    },
+  );
+
+  app.get(
+    '/payments/deposit-claims',
+    { preHandler: app.requireAuth },
+    async (request): Promise<DepositClaimListResponse> => {
+      const user = requireUser(request);
+      const claims = await listPlayerDepositClaims(deps.db, user.id);
+      return DepositClaimListResponse.parse({ claims: claims.map(claimView) });
+    },
+  );
+
+  // Withdrawal codes (G4): cash at any shop with player cash on. The withdrawal is requested now
+  // (the money held) and its 6-digit code shown this once; it lives 24 hours.
+  app.post(
+    '/payments/withdrawal-codes',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-withdrawal-code', PAYMENT_RATE_LIMITS.createCashCode),
+    },
+    async (request, reply): Promise<WithdrawalCodeResponse> => {
+      const user = requireUser(request);
+      const input = parseInput(WithdrawalCodeRequest, request.body);
+      // Six digits can clash with another live code: new digits, up to three times.
+      for (let attempt = 1; ; attempt += 1) {
+        const code = newWithdrawalCode();
+        try {
+          const made = await withTxRetry(deps.db, async (tx) => {
+            const { payments } = await loadGameSettings(tx);
+            const { amlRules } = await loadComplianceSettings(tx);
+            return createWithdrawalCode(tx, {
+              userId: user.id,
+              amount: BigInt(input.amount),
+              codeHash: withdrawalCodeHash(deps.config.sessionSecret, code),
+              idempotencyKey: input.idempotencyKey,
+              rules: payments,
+              amlRules,
+              now: deps.clock(),
+              ip: request.ip,
+            });
+          });
+          void reply.status(201);
+          return WithdrawalCodeResponse.parse({
+            code,
+            amount: made.payout.amount.toString(),
+            expiresAt: made.code.expiresAt.toISOString(),
+            status: made.payout.status === 'approved' ? 'ready' : 'review',
+          });
+        } catch (error) {
+          if (attempt < 3 && isUniqueViolation(error)) continue;
+          throw error;
+        }
+      }
+    },
+  );
+
+  app.get(
+    '/payments/withdrawal-codes',
+    { preHandler: app.requireAuth },
+    async (request): Promise<LiveWithdrawalCodeResponse> => {
+      const user = requireUser(request);
+      const live = await getLiveWithdrawalCode(deps.db, { userId: user.id, now: deps.clock() });
+      return LiveWithdrawalCodeResponse.parse({
+        live:
+          live === null
+            ? null
+            : {
+                amount: live.payout.amount.toString(),
+                expiresAt: live.code.expiresAt.toISOString(),
+                status: live.payout.status === 'approved' ? 'ready' : 'review',
+              },
+      });
+    },
+  );
+
+  app.post(
+    '/payments/cash-codes',
+    {
+      preHandler: app.requireAuth,
+      config: perPlayer('payments-cash-code', PAYMENT_RATE_LIMITS.createCashCode),
+    },
+    async (request, reply): Promise<CashCodeResponse> => {
+      const user = requireUser(request);
+      const code = newCashCode();
+      const made = await withTxRetry(deps.db, (tx) =>
+        createCashCode(tx, {
+          userId: user.id,
+          codeHash: cashCodeHash(deps.config.sessionSecret, user.id, code),
+          now: deps.clock(),
+        }),
+      );
+      void reply.status(201);
+      noStore(reply);
+      return { code, expiresAt: made.expiresAt.toISOString() };
     },
   );
 

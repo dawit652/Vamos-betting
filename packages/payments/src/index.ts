@@ -70,6 +70,7 @@ export {
   SMS_GATEWAY_SECRET_HEADER,
   SmsRailProvider,
   type SmsRailProviderOptions,
+  type CollectionAccountSet,
 } from './providers/smsrail';
 export { receiptAccountMatches, receiptMatchesAnyAccount } from './receipts/accountmatch';
 export {

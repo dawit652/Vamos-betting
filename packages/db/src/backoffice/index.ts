@@ -38,6 +38,7 @@ export {
   listOwnStaffSessions,
   listStaffUsers,
   loginStaff,
+  requestShopDeviceWithPassword,
   logoutStaff,
   MAX_LISTED_STAFF_SESSIONS,
   normalizeStaffEmail,
@@ -70,6 +71,8 @@ export {
   startOwnStaffTotpEnrolment,
   unlockStaffUser,
   findStaffUserByEmail,
+  staffAccountKind,
+  type StaffAccountKind,
   unlockStaffUserByEmail,
   updateStaffUser,
   warmUpStaffPasswordHashing,
@@ -82,6 +85,7 @@ export {
   type StaffLoginInput,
   type StaffLoginResult,
   type StaffPrincipal,
+  type StaffSessionChannel,
   type StaffSessionListItem,
   type StaffRole,
   type StaffSessionCheck,
@@ -192,3 +196,9 @@ export {
   type DemoStaffAccount,
   type SeedDemoStaffResult,
 } from './demo-staff';
+export {
+  PLAYER_REACTIVATED,
+  PLAYER_SUSPENDED,
+  setPlayerStatus,
+  type PlayerStatusChange,
+} from './player-status';

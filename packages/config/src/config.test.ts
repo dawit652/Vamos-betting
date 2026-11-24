@@ -191,6 +191,29 @@ describe('loadConfig', () => {
     ).toEqual([]);
   });
 
+  it('takes an empty SHOP_WEB_URL as unset and keeps the shop app on its own origin', () => {
+    // Compose passes `SHOP_WEB_URL=` until the shop app is set up: the API must still start.
+    expect(problemsOf({ SHOP_WEB_URL: '' })).toEqual([]);
+    expect(loadConfig({ SHOP_WEB_URL: '' }).web.shopUrl).toBeNull();
+    expect(loadConfig({ SHOP_WEB_URL: 'http://localhost:3002' }).web.shopUrl).toBe(
+      'http://localhost:3002',
+    );
+    expect(
+      problemsOf({
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://admin.nahubet.com',
+        SHOP_WEB_URL: 'https://admin.nahubet.com',
+      }).join('\n'),
+    ).toMatch(/SHOP_WEB_URL/);
+    expect(
+      problemsOf({
+        PUBLIC_WEB_URL: 'https://nahubet.com',
+        ADMIN_WEB_URL: 'https://admin.nahubet.com',
+        SHOP_WEB_URL: 'https://shop.nahubet.com',
+      }),
+    ).toEqual([]);
+  });
+
   it('requires PASSWORD_PEPPER (32+ characters, not the session secret) in production', () => {
     const production = {
       NODE_ENV: 'production',
@@ -219,6 +242,24 @@ describe('loadConfig', () => {
       'PASSWORD_PEPPER must be set in production (32+ characters)',
     ]);
     expect(problemsOf({ ...licensed, NODE_ENV: 'development' })).toEqual([]);
+  });
+
+  it('reads METRICS_TOKEN trimmed (32+ characters), and has none by default', () => {
+    const token = 'm'.repeat(32);
+    expect(loadConfig({}).metricsToken).toBeUndefined();
+    expect(loadConfig({ METRICS_TOKEN: '   ' }).metricsToken).toBeUndefined();
+    expect(loadConfig({ METRICS_TOKEN: `  ${token}\n` }).metricsToken).toBe(token);
+    expect(problemsOf({ METRICS_TOKEN: 'm'.repeat(31) }).join('\n')).toMatch(
+      /METRICS_TOKEN: must have at least 32 characters/,
+    );
+  });
+
+  it('sizes the database pool of one API process with DB_POOL_MAX (1 to 200, default 10)', () => {
+    expect(loadConfig({}).dbPoolMax).toBe(10);
+    expect(loadConfig({ DB_POOL_MAX: '25' }).dbPoolMax).toBe(25);
+    for (const bad of ['0', '201', '2.5', 'many']) {
+      expect(problemsOf({ DB_POOL_MAX: bad }).join('\n')).toMatch(/DB_POOL_MAX/);
+    }
   });
 
   it('refuses the development session secret in production', () => {
@@ -324,16 +365,34 @@ describe('loadConfig', () => {
         gatewaySecret: undefined,
         gatewayAllowlist: [],
         collectionAccounts: [
-          { institution: 'telebirr', account: '0900000000', name: 'Vamos Demo' },
-          { institution: 'cbe', account: '1000000000000', name: 'Vamos Demo' },
+          {
+            id: 'telebirr:0900000000',
+            institution: 'telebirr',
+            account: '0900000000',
+            name: 'Vamos Demo',
+          },
+          {
+            id: 'cbe:1000000000000',
+            institution: 'cbe',
+            account: '1000000000000',
+            name: 'Vamos Demo',
+          },
         ],
         operatorLegalName: undefined,
         receiptVerify: 'audit',
         receiptVerifyTimeoutMs: 6000,
+        heartbeatAlarmMs: 1_200_000,
+        floatForecast: {
+          eventDurationMs: 7_200_000,
+          horizonMs: 21_600_000,
+          withdrawnShareBps: 2000,
+        },
         requirePayoutProof: false,
         payoutProofWaived: false,
       },
       mock: { webhookSecret: DEV_MOCK_PAYMENT_WEBHOOK_SECRET },
+      cashCollectMs: 7 * 86_400_000,
+      deskPinReset: false,
       chapa: { baseUrl: 'https://api.chapa.co/v1', secretKey: undefined, webhookSecret: undefined },
       telebirr: {
         baseUrl: undefined,
@@ -596,6 +655,8 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       capAtBestPrice: false,
       priceExpiryMinutes: 0,
       factoryMarkets: false,
+      hulusport: { url: null, intervalMs: 120_000 },
+      narobet: { url: null, intervalMs: 300_000 },
     });
     // There is no setting for the number of sources a result needs (MIN_INDEPENDENT_SOURCES).
     expect(Object.keys(loadConfig({}).scraper)).not.toContain('minSources');
@@ -618,6 +679,10 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       SCRAPER_CAP_AT_BEST_PRICE: 'on',
       SCRAPER_PRICE_EXPIRY_MINUTES: '90',
       SCRAPER_FACTORY_MARKETS: 'on',
+      SCRAPER_HULUSPORT_URL: ' http://127.0.0.1:3100/ ',
+      SCRAPER_HULUSPORT_INTERVAL_SECONDS: '60',
+      SCRAPER_NAROBET_URL: 'http://mrz:3200/',
+      SCRAPER_NAROBET_INTERVAL_SECONDS: '600',
     });
     expect(config.scraper).toEqual({
       archiveDir: '/data/scraper',
@@ -635,6 +700,8 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       capAtBestPrice: true,
       priceExpiryMinutes: 90,
       factoryMarkets: true,
+      hulusport: { url: 'http://127.0.0.1:3100', intervalMs: 60_000 },
+      narobet: { url: 'http://mrz:3200', intervalMs: 600_000 },
     });
     // A blank contact (as in an env file) is "not set".
     expect(loadConfig({ SCRAPER_CONTACT: '' }).scraper.contact).toBeUndefined();
@@ -658,6 +725,11 @@ describe('data scraper settings (docs/scraper.md section 7)', () => {
       ['SCRAPER_CAP_AT_BEST_PRICE', ['true', 'ON', '1', '']],
       ['SCRAPER_PRICE_EXPIRY_MINUTES', ['-1', '1441', 'abc', '1.5']],
       ['SCRAPER_FACTORY_MARKETS', ['true', 'ON', '1', '']],
+      [
+        'SCRAPER_HULUSPORT_URL',
+        ['127.0.0.1:3100', 'ftp://mrx', 'http://mrx/api/board', 'http://a b'],
+      ],
+      ['SCRAPER_HULUSPORT_INTERVAL_SECONDS', ['29', '3601', '90.5', 'often']],
       ['SCRAPER_ARCHIVE_DIR', ['   ']],
       ['SCRAPER_USER_AGENT', ['   ', 'Bot\r\nX-Evil: 1', 'Bøt/1.0']],
       [
@@ -756,6 +828,16 @@ describe('the SMS deposit rail', () => {
     ]);
   });
 
+  it('never gives licensed mode the demo collection accounts, even on the simulated rail', () => {
+    const config = loadConfig({
+      ...LICENSED_ENV,
+      PAYMENT_PROVIDERS: 'sms',
+      SMS_RAIL_MODE: 'simulated',
+    });
+    expect(config.mode).toBe('licensed');
+    expect(config.payments.sms.collectionAccounts).toEqual([]);
+  });
+
   it('refuses the live rail and real collection accounts in demo mode', () => {
     expect(problemsOf({ PAYMENT_PROVIDERS: 'sms', SMS_RAIL_MODE: 'live' }).join('\n')).toMatch(
       /demo mode only allows the "mock" payment provider and the simulated SMS rail \(got: sms\)/,
@@ -763,6 +845,41 @@ describe('the SMS deposit rail', () => {
     expect(
       problemsOf({ PAYMENT_PROVIDERS: 'sms', SMS_COLLECTION_ACCOUNTS: LIVE_ACCOUNTS }).join('\n'),
     ).toMatch(/SMS_COLLECTION_ACCOUNTS is for the live SMS rail/);
+  });
+
+  it('gives each collection account an id: its own, or institution:account', () => {
+    const accounts = JSON.stringify([
+      { id: 'handset-1', institution: 'telebirr', account: '0911000001', name: 'Vamos PLC' },
+      { institution: 'cbe', account: '1000123456789', name: 'Vamos PLC' },
+    ]);
+    const config = loadConfig({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: accounts });
+    expect(config.payments.sms.collectionAccounts.map((a) => a.id)).toEqual([
+      'handset-1',
+      'cbe:1000123456789',
+    ]);
+  });
+
+  it('refuses two collection accounts with the same id', () => {
+    const accounts = JSON.stringify([
+      { id: 'a', institution: 'telebirr', account: '0911000001', name: 'Vamos PLC' },
+      { id: 'a', institution: 'cbe', account: '1000123456789', name: 'Vamos PLC' },
+    ]);
+    expect(
+      problemsOf({ ...LICENSED_ENV, ...LIVE_SMS, SMS_COLLECTION_ACCOUNTS: accounts }).join('\n'),
+    ).toMatch(/the id "a" is used twice/);
+  });
+
+  it('reads SMS_HEARTBEAT_ALARM_MINUTES (default 20, 5..1440)', () => {
+    expect(loadConfig({ ...LICENSED_ENV, ...LIVE_SMS }).payments.sms.heartbeatAlarmMs).toBe(
+      20 * 60_000,
+    );
+    const set = (v: string) =>
+      loadConfig({ ...LICENSED_ENV, ...LIVE_SMS, SMS_HEARTBEAT_ALARM_MINUTES: v }).payments.sms
+        .heartbeatAlarmMs;
+    expect(set('5')).toBe(5 * 60_000);
+    expect(set('1440')).toBe(1440 * 60_000);
+    expect(() => set('4')).toThrow();
+    expect(() => set('1441')).toThrow();
   });
 
   it('accepts a fully configured live rail in licensed mode', () => {
@@ -828,7 +945,11 @@ describe('the SMS deposit rail', () => {
 
 describe('owner alerts (plan task 1.11)', () => {
   it('is off by default, with a 30 minute interval', () => {
-    expect(loadConfig({}).ownerAlerts).toEqual({ phones: [], minIntervalMinutes: 30 });
+    expect(loadConfig({}).ownerAlerts).toEqual({
+      phones: [],
+      telegramChatIds: [],
+      minIntervalMinutes: 30,
+    });
     // A blank value (as in an env file) is "not set".
     expect(loadConfig({ OWNER_ALERT_PHONES: ' , ' }).ownerAlerts.phones).toEqual([]);
   });
@@ -840,8 +961,49 @@ describe('owner alerts (plan task 1.11)', () => {
     });
     expect(config.ownerAlerts).toEqual({
       phones: ['+251911234567', '+251922345678'],
+      telegramChatIds: [],
       minIntervalMinutes: 60,
     });
+  });
+
+  it('reads the Telegram bot: token, owner chats (also as alert targets) and the player menu', () => {
+    expect(loadConfig({}).telegram).toEqual({
+      botToken: undefined,
+      ownerChatIds: [],
+      playerMenu: true,
+    });
+    const token = '123456789:AAH' + 'x'.repeat(32);
+    const config = loadConfig({
+      TELEGRAM_BOT_TOKEN: token,
+      TELEGRAM_OWNER_CHAT_IDS: '123456789, -1001234567890,123456789',
+      TELEGRAM_PLAYER_MENU: 'off',
+    });
+    expect(config.telegram).toEqual({
+      botToken: token,
+      ownerChatIds: [123456789, -1001234567890],
+      playerMenu: false,
+    });
+    expect(config.ownerAlerts.telegramChatIds).toEqual([123456789, -1001234567890]);
+  });
+
+  it('refuses owner chats without a token, bad chat ids and a malformed token, never echoing it', () => {
+    expect(() => loadConfig({ TELEGRAM_OWNER_CHAT_IDS: '123456789' })).toThrow(
+      /TELEGRAM_OWNER_CHAT_IDS needs TELEGRAM_BOT_TOKEN/,
+    );
+    expect(() =>
+      loadConfig({
+        TELEGRAM_BOT_TOKEN: '123456789:AAH' + 'x'.repeat(32),
+        TELEGRAM_OWNER_CHAT_IDS: 'abc',
+      }),
+    ).toThrow(/TELEGRAM_OWNER_CHAT_IDS/);
+    let message = '';
+    try {
+      loadConfig({ TELEGRAM_BOT_TOKEN: 'not-a-token-secret-value' });
+    } catch (error) {
+      message = String(error);
+    }
+    expect(message).toMatch(/TELEGRAM_BOT_TOKEN is not a bot token/);
+    expect(message).not.toContain('not-a-token-secret-value');
   });
 
   it('refuses numbers that are not E.164 and intervals out of range', () => {
@@ -867,5 +1029,19 @@ describe('owner alerts (plan task 1.11)', () => {
         );
       }
     }
+  });
+});
+
+describe('API_ROLE', () => {
+  it('defaults to all and accepts streams and no-streams', () => {
+    expect(loadConfig({}).api.role).toBe('all');
+    expect(loadConfig({ API_ROLE: 'streams' }).api.role).toBe('streams');
+    expect(loadConfig({ API_ROLE: 'no-streams' }).api.role).toBe('no-streams');
+  });
+
+  it('refuses any other value', () => {
+    expect(problemsOf({ OPERATING_MODE: 'demo', API_ROLE: 'stream' }).join('\n')).toContain(
+      'API_ROLE',
+    );
   });
 });

@@ -10,6 +10,7 @@ import {
   URL_A,
   URL_B,
   type Harness,
+  type JsonEvent,
 } from './helpers';
 
 /**
@@ -58,14 +59,32 @@ async function catalogue(extra: Array<typeof ARSENAL_CHELSEA_OF> = []): Promise<
   await h.run('src-a');
 }
 
-/** src-b shows the match with a home name nobody knows yet. */
-async function unknownHome(): Promise<void> {
+/** src-b shows the match with a home name nobody knows yet (and optionally more matches). */
+async function unknownHome(extra: JsonEvent[] = []): Promise<void> {
   h.serve(
     URL_B,
-    jsonDoc([{ id: 1, kick: '2026-11-02T15:00:00Z', h: 'Arsenal London', a: 'Chelsea', st: 'NS' }]),
+    jsonDoc([
+      { id: 1, kick: '2026-11-02T15:00:00Z', h: 'Arsenal London', a: 'Chelsea', st: 'NS' },
+      ...extra,
+    ]),
   );
   await h.run('src-b');
 }
+
+/** A second match of Arsenal, on both sides (L3: N4 maps by itself after two agreeing fixtures). */
+const ARSENAL_LIVERPOOL_OF = {
+  date: '2026-11-08',
+  time: '16:30',
+  team1: 'Arsenal FC',
+  team2: 'Liverpool FC',
+};
+const ARSENAL_LONDON_LIVERPOOL: JsonEvent = {
+  id: 2,
+  kick: '2026-11-08T16:30:00Z',
+  h: 'Arsenal London',
+  a: 'Liverpool',
+  st: 'NS',
+};
 
 /** A second full-time upstream for the Premier League (src-b takes its competition per record). */
 async function secondUpstream(): Promise<void> {
@@ -146,12 +165,12 @@ describe('N4: fixture-context suggestions for unknown team names', () => {
   );
 
   it(
-    'setting on and two full-time upstreams: a src-b alias, audited, and the rows re-resolve',
+    'setting on, two full-time upstreams and two agreeing fixtures: a src-b alias, audited, and the rows re-resolve',
     async () => {
       h = await createHarness({ autoAlias: true });
       await secondUpstream();
-      await catalogue();
-      await unknownHome();
+      await catalogue([ARSENAL_LIVERPOOL_OF]);
+      await unknownHome([ARSENAL_LONDON_LIVERPOOL]);
 
       const { rows: aliases } = await h.pool.query<{
         id: string;
@@ -195,6 +214,12 @@ describe('N4: fixture-context suggestions for unknown team names', () => {
               opponentId: h.team('Chelsea'),
               competitionId: h.premier,
             },
+            {
+              side: 'home',
+              kickoff: '2026-11-08T16:30:00.000Z',
+              opponentId: h.team('Liverpool'),
+              competitionId: h.premier,
+            },
           ],
         },
       });
@@ -227,7 +252,7 @@ describe('N4: fixture-context suggestions for unknown team names', () => {
       expect(items).toEqual([{ status: 'resolved', resolved_by: 'system:scraper' }]);
 
       // A second run resolves the name directly: no new item, no second alias.
-      await unknownHome();
+      await unknownHome([ARSENAL_LONDON_LIVERPOOL]);
       expect(
         await h.count(`SELECT count(*) AS n FROM scrape_review_items WHERE subject_key = $1`, [
           SUBJECT,
@@ -235,6 +260,22 @@ describe('N4: fixture-context suggestions for unknown team names', () => {
       ).toBe(1);
       expect(await aliasCount()).toBe(1);
       expect(await autoAudits()).toBe(1);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'setting on and two upstreams, but one agreeing fixture only (L3 needs two): suggest only',
+    async () => {
+      h = await createHarness({ autoAlias: true });
+      await secondUpstream();
+      await catalogue();
+      await unknownHome();
+      const found = await item();
+      expect(found?.payload.fixture?.strong).toBe(h.team('Arsenal'));
+      expect(found?.status).toBe('open');
+      expect(await aliasCount()).toBe(0);
+      expect(await autoAudits()).toBe(0);
     },
     TEST_TIMEOUT,
   );

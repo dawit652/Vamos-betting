@@ -1,7 +1,55 @@
-# Handoff: redesign merged onto the live branch
+# Handoff
+
+## Start here (16 Nov 2026, evening)
+
+**Working branch:** `claude/eager-cerf-ox9vkq` (pull request 5 to the default branch, not merged: ask the
+owner first). It holds the redesign, the "scale and payments" work and the owner's requests of 16 Nov.
+**The ordered list of what is left, with the model and effort for each, is section 9 of
+[`docs/plans/scale-and-payments-handover.md`](docs/plans/scale-and-payments-handover.md)**; its section 0
+is the prompt to paste into a new session.
+
+**On the branch, not deployed yet:** registration without a date of birth; flags on every league;
+the Leagues tab ordered (top leagues, Ethiopia, international, countries A to Z); a Hulusport-style
+left column on wide screens; match rows that count options ("64+", about "650+" with the market
+factory on); a **4-digit player PIN**, login limits per number (6 per 15 minutes, 15 per day) and
+players staying signed in until they sign out (trade-offs in `docs/deployment.md`, "Player sign-in");
+the SMS rail per collection account (B2a to B2d, migration 0053), the `sms_credits` reconciliation check
+and re-read of unread SMS (B6, migration 0054), the float forecast alarm (C10), worker metrics,
+catalogue cache, live streams on their own processes and web replicas (opt-in overlays).
+
+**To deploy it (the owner, at the server):**
+
+1. Put the server's own changes on GitHub first (they exist only in `/opt/nahubet-live-save`, branch
+   `live/nahubet-new-2026-11-15`, and the server's GitHub key is read-only): on the server,
+   `git -C /opt/nahubet-live-save show --stat --oneline HEAD` (no `.env` file or key may be in it) and
+   `git -C /opt/nahubet-live-save bundle create /root/nahubet-live.bundle live/nahubet-new-2026-11-15`;
+   copy it to the PC with `scp`, `git fetch` the bundle into the PC's clone and `git push origin
+live/nahubet-new-2026-11-15`. A session then merges it into the working branch (handover section 9,
+   code task 1) so the deploy keeps the server's settings.
+2. For about 500 options per match, add `SCRAPER_FACTORY_MARKETS=on` and `FEATURE_FACTORY_MARKETS=true`
+   to `/opt/nahubet-new/infra/.env.prod`, and after the deploy switch "Market factory markets" on per
+   league in the back office (Feed).
+3. For the **Telegram bot**, create it with @BotFather and add `TELEGRAM_BOT_TOKEN=...` to the env file
+   (then `/id` in the bot gives the chat id for `TELEGRAM_OWNER_CHAT_IDS`): `docs/runbooks/telegram-bot.md`.
+4. Deploy the whole stack with `infra/scripts/deploy-full.sh` (command below in "Continue here"): it keeps
+   the licensed env file, the compose project `vamos` and its volumes, dumps the database first and
+   puts the previous images back if the smoke test fails.
+
+The sections below are the history of the earlier sessions (14 and 15 Nov); where they disagree with
+this one, this one is newer.
+
+# History: redesign merged onto the live branch
 
 Written at the end of a Claude Code session on 14 Nov 2026 so another session (or account) can continue.
 Read this first, then `docs/frontend-redesign-plan.md` (the full plan, with done and open items).
+
+## Scale and payments: a separate stream (15 Nov 2026)
+
+A plan for 10,000 people at a time and for deposits and withdrawals without manual work is on branch
+`claude/eager-cerf-ox9vkq` (the default branch plus a dark and light theme for the back office). Start
+from [`docs/plans/scale-and-payments-handover.md`](docs/plans/scale-and-payments-handover.md): it has
+the prompt to paste into a new session, the setup and the ordered tasks. Nothing of that plan is built
+yet, and it touches neither the server nor the deploy steps below.
 
 ## Continue here (updated 15 Nov 2026, afternoon)
 

@@ -9,7 +9,6 @@ import {
   ReconciliationRunDetailResponse,
   ReconciliationRunListResponse,
   ReviewAmlFlagResponse,
-  STAFF_ROLES,
   type StaffRole,
 } from '@vamos/contracts';
 import { businessDateOf } from '@vamos/core';
@@ -18,7 +17,13 @@ import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listAdminRoutes } from '../src/modules/admin/common';
 import { PSP_STATEMENT_BODY_LIMIT } from '../src/modules/admin/compliance';
-import { asStaff, seedStaff, staffLogin, type StaffSession } from './admin-helpers';
+import {
+  BACK_OFFICE_ROLES,
+  asStaff,
+  seedStaff,
+  staffLogin,
+  type StaffSession,
+} from './admin-helpers';
 import {
   createTestContext,
   registerAndLogin,
@@ -34,7 +39,7 @@ const as = (role: StaffRole) => staff.get(role)!;
 beforeAll(async () => {
   ctx = await createTestContext();
   await seedStaff(ctx);
-  for (const role of STAFF_ROLES) staff.set(role, await staffLogin(ctx, role));
+  for (const role of BACK_OFFICE_ROLES) staff.set(role, await staffLogin(ctx, role));
   player = await registerAndLogin(ctx);
 }, 60_000);
 
@@ -91,7 +96,7 @@ describe('/admin/compliance RBAC', () => {
         headers: { authorization: `Bearer ${player.sessionToken}` },
       });
       expect(asPlayer.statusCode, url).toBe(401);
-      for (const role of STAFF_ROLES) {
+      for (const role of BACK_OFFICE_ROLES) {
         const response = await asStaff(ctx, as(role), method, url);
         const label = `${role} ${method} ${url}`;
         if (allowed.includes(role)) {

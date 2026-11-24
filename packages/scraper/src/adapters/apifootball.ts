@@ -9,6 +9,7 @@ import type {
   SourceAdapter,
   SourceDescriptor,
 } from '../types';
+import { createApiFootballOddsAdapter } from './apifootball-odds';
 import {
   allowedHostsSchema,
   cleanName,
@@ -87,12 +88,42 @@ export const ApiFootballConfigSchema = z
     sport: sportSchema,
     /** Days before today (UTC) read each run: late results and corrections. */
     daysBack: z.number().int().min(0).max(3).default(1),
-    /** Days after today (UTC) read each run: upcoming fixtures. */
-    daysAhead: z.number().int().min(0).max(28).default(2),
+    /**
+     * Days after today (UTC) read each run: upcoming fixtures. Each day is one request on every
+     * run, so a long reach costs the API-Football plan's daily requests (owner may set up to 30).
+     */
+    daysAhead: z.number().int().min(0).max(30).default(2),
     /** Only these league ids are read; omitted, every league of the day. */
     leagueIds: z.array(z.number().int().min(1).max(10_000_000)).min(1).max(2000).optional(),
+    /**
+     * `fixtures` (default): every fixture and result of the day, by date. `odds`: one league's
+     * pre-match bookmaker prices (apifootball-odds.ts; docs/plans/feed-gaps-2026-11-23.md, E2).
+     */
+    mode: z.enum(['fixtures', 'odds']).default('fixtures'),
+    /** Odds mode: the league (API-Football's league id). */
+    league: z.number().int().min(1).max(10_000_000).optional(),
+    /** Odds mode: the season (its first year); omitted, worked out from the date. */
+    season: z.number().int().min(2000).max(2100).optional(),
+    /** Odds mode: the league's season is a calendar year (Brasileirão), not August to May. */
+    calendarYear: z.boolean().default(false),
+    /** Odds mode: odds pages read each run (10 matches a page, the past week's included). */
+    pages: z.number().int().min(1).max(10).default(3),
+    /** Odds mode: matches this many days ahead at most. */
+    horizonDays: z.number().int().min(1).max(14).default(14),
+    /** Odds mode: a match's odds last refreshed longer ago than this are not used. */
+    maxOddsAgeMinutes: z.number().int().min(30).max(1440).default(240),
   })
   .superRefine((c, ctx) => {
+    if (c.mode === 'odds' && c.league === undefined) {
+      ctx.addIssue({ code: 'custom', message: 'odds mode needs a league', path: ['league'] });
+    }
+    if (c.mode === 'odds' && c.leagueIds !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'odds mode reads one league: use league, not leagueIds',
+        path: ['leagueIds'],
+      });
+    }
     if (urlProblem(`https://${APIFOOTBALL_HOST}/`, c.allowedHosts)) {
       ctx.addIssue({
         code: 'custom',
@@ -182,6 +213,23 @@ export function createApiFootballAdapter(
   descriptor: SourceDescriptor,
   config: ApiFootballConfig,
 ): SourceAdapter {
+  if (config.mode === 'odds') {
+    return createApiFootballOddsAdapter({
+      descriptor,
+      allowedHosts: config.allowedHosts,
+      host: APIFOOTBALL_HOST,
+      authHeader: APIFOOTBALL_AUTH_HEADER,
+      secret: config.secret,
+      sport: config.sport,
+      league: config.league!,
+      season: config.season,
+      calendarYear: config.calendarYear,
+      pages: config.pages,
+      horizonDays: config.horizonDays,
+      maxOddsAgeMinutes: config.maxOddsAgeMinutes,
+      readRateLimit: readApiFootballRateLimit,
+    });
+  }
   const wanted = config.leagueIds === undefined ? null : new Set(config.leagueIds);
 
   return {
