@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { connection } from 'next/server';
 import type { ReactNode } from 'react';
+import { PrintSettingsApplier } from '@/components/print-settings';
 import { SessionProvider } from '@/components/session';
 import { Shell } from '@/components/shell';
 import './globals.css';
@@ -19,6 +20,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html lang="en">
       <body>
+        <PrintSettingsApplier />
         <SessionProvider>
           <Shell>{children}</Shell>
         </SessionProvider>

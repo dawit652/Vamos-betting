@@ -268,6 +268,9 @@ describe('POST /betslip/quote', () => {
           available: true,
           reason: null,
           live: false,
+          // The bet details a slip shows per match (GS7): its league and kick-off.
+          competitionName: { en: 'Ethiopian Premier League' },
+          startTime: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
         },
         expect.objectContaining({
           selectionId: sel.bAway,

@@ -118,6 +118,18 @@ export const TEXT = {
     'Player cash is not switched on for this shop yet. The head office switches it on in the back office; until then no deposits or withdrawals are taken here.',
   agentBalance: 'Agent balance',
   agentBalanceNote: 'A deposit above this balance is refused.',
+  // Amharic: a native speaker still has to review this wording.
+  topUpTitle: 'Top-up balance · ቀሪ ሂሳብ',
+  topUpNote:
+    "Ticket stakes and player deposits are paid from the agent's balance, topped up by Nahubet HQ.",
+  topUpLow:
+    'The top-up balance is low. Tell the agent owner to top up at Nahubet HQ before it runs out. · ቀሪ ሂሳብ እያለቀ ነው፤ ባለቤቱ እንዲሞላ ይንገሩ።',
+  topUpEmpty:
+    'The top-up balance is empty: no ticket can be sold until the agent owner tops up at Nahubet HQ. · ቀሪ ሂሳብ አልቋል፤ እስኪሞላ ትኬት መሸጥ አይቻልም።',
+  topUpAboveStake:
+    'This stake is above the top-up balance, so the sale will be refused. Ask the agent owner to top up.',
+  ownerBalanceLow: 'Your balance is low: top up at Nahubet HQ so your shops keep selling tickets.',
+  ownerBalanceEmpty: 'Your balance is empty: your shops cannot sell tickets until you top up.',
   playerPhone: 'Player phone · የተጫዋች ስልክ',
   playerPhonePlaceholder: '09…, 9… or +2519…',
   playerLookup: 'Find · ፈልግ',
@@ -168,9 +180,9 @@ export const TEXT = {
   picksTextAdd: 'Add all',
   pickInvalid: 'Could not read:',
   pickNeedBoth: 'Enter a Game ID and a pick.',
-  bookingTitle: 'Booking code',
-  bookingLabel: 'Booking code from the player',
-  bookingLoad: 'Load',
+  bookingTitle: 'Booking code or slip ID · ኮድ',
+  bookingLabel: 'Booking code or slip ID from the customer',
+  bookingLoad: 'Load · ጫን',
   bookingErrors: {
     booking_code_not_found: 'No booking code like that.',
     booking_code_expired: 'This booking code has expired.',
@@ -199,9 +211,17 @@ export const TEXT = {
   tax: 'Tax',
   netPay: 'Net pay',
   checkClean: 'Checked: this ticket can be sold.',
-  checkNeeded: 'Check the ticket before selling.',
+  sellHint: 'Sell and print checks the odds first, then sells and prints.',
+  sellNeedLegs: 'Add a match: a booking code, a Game ID or a pick from the list.',
+  sellNeedStake: 'Type the stake.',
+  sellStopped: 'Not sold: see the ticket above, remove or accept what changed, then sell again.',
+  sellSlow: 'Still waiting for Nahubet… Keep this page open.',
+  sellRetry: 'Press Sell and print again: the same ticket is never sold twice.',
   sellButton: 'Sell and print · ሽጥ እና አትም',
   selling: 'Selling…',
+  sellOpening: 'Sold. Opening the ticket…',
+  sellOpenTicket: 'Open the ticket',
+  ticketBarShow: 'Show ticket ↑',
   sellErrors: {
     agent_balance_low: "The agent's balance is too low for this stake. Ask the agent to top up.",
     selection_unavailable: 'A match is no longer available. Check the ticket again.',
@@ -224,6 +244,8 @@ export const TEXT = {
   ticketCancelReason: 'Reason for cancelling (optional)',
   ticketCancelConfirm: 'Cancel this ticket? The stake goes back to the agent balance.',
   ticketCancelled: 'CANCELLED · ተሰርዟል',
+  ticketCodeLost:
+    'The payout code of this ticket did not reach this page, so the ticket is not printed: without the code it cannot be paid. Cancel it and sell it again.',
   ticketCancelNote: 'This ticket is cancelled and pays nothing.',
   ticketCopy: 'COPY',
   ticketAgent: 'Agent',
@@ -321,6 +343,33 @@ export const TEXT = {
   testReceiptAmharic: 'የሙከራ ህትመት',
   testReceiptChars: '0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ',
   testReceiptFooter: 'If every line above is complete, the printer is ready.',
+  printSettingsTitle: 'Print settings on this device · የህትመት ቅንብር',
+  printSettingsNote:
+    'Saved on this computer or POS only, and used for every ticket, receipt, payout slip and shift report it prints.',
+  printFontSize: 'Text size',
+  printBold: 'Bold text (darker on thermal paper)',
+  printLineHeight: 'Line spacing',
+  printLineHeights: { compact: 'Compact', normal: 'Normal', wide: 'Wide' } as Readonly<
+    Record<string, string>
+  >,
+  printFont: 'Font',
+  printFonts: {
+    mono: 'Monospace (receipt)',
+    sans: 'Sans-serif (clear Amharic)',
+    serif: 'Serif',
+  } as Readonly<Record<string, string>>,
+  printPaper: 'Paper width',
+  printPaperShop: 'As set for this shop',
+  printSideMargin: 'Side margin, mm',
+  printBarcode: 'Barcode size',
+  printBarcodes: { normal: 'Normal', large: 'Large' } as Readonly<Record<string, string>>,
+  printStandard: 'standard',
+  printSave: 'Save · አስቀምጥ',
+  printSaved: 'Saved on this device.',
+  printSaveBlocked:
+    'This browser does not keep settings (a private window or blocked storage): they apply to this page only.',
+  printReset: 'Back to the standard settings',
+  printPreview: 'Preview (prints with the settings above)',
 
   ownerTitle: 'Overview · አጠቃላይ',
   ownerAgent: 'Agent',
@@ -391,6 +440,12 @@ export const TEXT = {
   csrfInvalid: 'Your session needs a refresh. Reload the page.',
   passwordChangeRequired: 'Choose your own password first.',
 } as const;
+
+/** The bar at the foot of a phone's Sell page while the ticket is scrolled away. */
+export function ticketBarLabel(matches: number, totalOdds: string | null): string {
+  const count = matches === 1 ? '1 match' : `${matches} matches`;
+  return totalOdds === null ? `Ticket: ${count}` : `Ticket: ${count} · odds ${totalOdds}`;
+}
 
 /** The paper size line printed on the test receipt. */
 export function paperWidthLabel(widthMm: 58 | 80): string {

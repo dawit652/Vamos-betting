@@ -101,8 +101,16 @@ export const ShopDeskResponse = z.object({
    * agent's once an admin switched it on (409 `agent_player_cash_off` otherwise).
    */
   playerCash: z.boolean(),
-  /** The agent's balance (an agent's shop): deposits above it are refused. Null at HQ shops. */
+  /**
+   * The agent's balance, the top-up from Nahubet HQ (an agent's shop): a ticket's stake and a
+   * player's deposit leave it, and neither is taken above it. Null at HQ shops.
+   */
   agentBalance: Santim.nullable(),
+  /**
+   * At or below this balance the desk tells the cashier to ask the agent owner to top up (HQ's
+   * low-balance alert threshold, Back office → Agents → Alerts). Null at HQ shops.
+   */
+  agentBalanceLowAt: Santim.nullable(),
 });
 export type ShopDeskResponse = z.infer<typeof ShopDeskResponse>;
 
@@ -125,6 +133,8 @@ export const ShopOwnerResponse = z.object({
   agent: AgentView,
   /** The agent's prepaid balance (santim). */
   balance: z.string(),
+  /** At or below this balance the owner is asked to top up (HQ's low-balance threshold). */
+  balanceLowAt: Santim,
   shops: z.array(CashierShopView),
   cashiers: z.array(AgentCashierView),
   devices: z.array(ShopDeviceView),

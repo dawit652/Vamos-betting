@@ -6,10 +6,12 @@ import { loginApi, loginInBrowser, staffApiOf } from '../support/staff';
 
 /**
  * The shop app's ticket screens (docs/plans/agent-shops.md phase 3): a cashier with an open shift
- * sells an ETB 20 single from a Game ID and the pick `1`, lands on the printable ticket (number and
- * barcode, the original printed once), cancels it inside the cancel window and sees CANCELLED; then
- * sells a ticket from a 6-digit booking code, which the ticket prints. The agent, shop, cashier and
- * balance are created here, so the spec needs no other spec's data.
+ * sees the agent's top-up balance empty until HQ tops it up, sells an ETB 20 single from a Game ID
+ * and the pick `1`, lands on the printable ticket (number and barcode, the original printed once),
+ * cancels it inside the cancel window and sees CANCELLED; then sells a ticket from a 6-digit
+ * booking code, which the ticket prints, and a visitor's slip ID with its stake in one press of
+ * Sell and print (owner, 24 Nov 2026); last, this device's print settings. The agent, shop,
+ * cashier and balance are created here, so the spec needs no other spec's data.
  */
 
 const SHOP_URL = (
@@ -124,6 +126,10 @@ test('a cashier sells a ticket by Game ID, prints it with a barcode and cancels 
     await open.getByRole('button', { name: /^Open shift/ }).click();
     await expect(shop.getByTestId('shift-summary')).toContainText('ETB 500.00');
     await expect(shop.getByTestId('desk-tickets')).toContainText('No tickets in this shift yet.');
+    // The agent's top-up balance is empty: no ticket can be sold until the owner tops up.
+    await expect(shop.getByTestId('topup-card')).toHaveAttribute('data-state', 'empty');
+    await expect(shop.getByTestId('topup-balance')).toHaveText('ETB 0.00');
+    await expect(shop.getByTestId('topup-empty')).toContainText('no ticket can be sold');
 
     // The admin tops the agent up (finance approves: four eyes): the stake leaves this balance.
     const adminApi = await staffApiOf(staff.request);
@@ -156,6 +162,9 @@ test('a cashier sells a ticket by Game ID, prints it with a barcode and cancels 
       .getByRole('link', { name: /^Sell/ })
       .click();
     await expect(shop.getByTestId('sell-page')).toBeVisible();
+    // Topped up with ETB 5,000, above HQ's low-balance threshold (ETB 1,000).
+    await expect(shop.getByTestId('topup-card')).toHaveAttribute('data-state', 'ok');
+    await expect(shop.getByTestId('topup-balance')).toHaveText('ETB 5,000.00');
 
     // The match list: search the home team; a pick adds that leg (removed again here).
     const panel = shop.getByTestId('matches-panel');
@@ -233,6 +242,77 @@ test('a cashier sells a ticket by Game ID, prints it with a barcode and cancels 
     await expect(shop.getByTestId('ticket-page')).toBeVisible();
     await expect(shop.getByTestId('ticket-booking-code')).toContainText(`Booking code`);
     await expect(shop.getByTestId('ticket-booking-code')).toContainText(said);
+
+    // A visitor's slip ID keeps their stake (GS3): loaded, the ticket names the match, the market
+    // and the pick at once, the stake is filled in, and one press of Sell and print checks and
+    // sells (no separate Check).
+    const guest = await counter.request.post(`${API_URL}/booking-codes`, {
+      data: { legs: [{ selectionId: home.id }], stake: '3000' },
+    });
+    expect(guest.status()).toBe(201);
+    const slipId = ((await guest.json()) as { code: string }).code;
+    await shop
+      .getByRole('navigation', { name: 'Main' })
+      .getByRole('link', { name: /^Sell/ })
+      .click();
+    await expect(shop.getByTestId('sell-page')).toBeVisible();
+    await expect(shop.getByTestId('sell-submit')).toBeDisabled();
+    await expect(shop.getByTestId('sell-hint')).toContainText('Add a match');
+    await shop.getByTestId('booking-code').fill(slipId);
+    await shop.getByTestId('booking-load').click();
+    const loaded = shop.getByTestId('slip-leg');
+    await expect(loaded).toHaveCount(1);
+    await expect(loaded.getByTestId('slip-leg-match')).toHaveText(
+      `${event!.home.name.en} vs ${event!.away.name.en}`,
+    );
+    await expect(loaded.getByTestId('slip-leg-about')).toContainText(`#${event!.gameId}`);
+    await expect(loaded.getByTestId('slip-leg-pick')).toContainText(event!.home.name.en);
+    await expect(shop.getByTestId('slip-stake')).toHaveValue('30');
+    await expect(shop.getByTestId('sell-submit')).toBeEnabled();
+    const printsBefore = await shop.evaluate(
+      () => (window as unknown as { __prints: number }).__prints,
+    );
+    await shop.getByTestId('sell-submit').click();
+    await expect(shop.getByTestId('ticket-page')).toBeVisible();
+    await expect(shop).toHaveURL(/\/ticket\/[0-9a-f-]+\?print=1$/);
+    await expect(shop.getByTestId('ticket')).toContainText('ETB 30.00');
+    await expect(shop.getByTestId('ticket-booking-code')).toContainText(
+      `${slipId.slice(0, 3)} ${slipId.slice(3)}`,
+    );
+    await expect(shop.getByTestId('ticket-payout-code')).toHaveCount(1);
+    await expect
+      .poll(() => shop.evaluate(() => (window as unknown as { __prints: number }).__prints))
+      .toBe(printsBefore + 1);
+    // Opening the same page again prints nothing by itself (the Print button makes a copy).
+    await shop.reload();
+    await expect(shop.getByTestId('ticket-page')).toBeVisible();
+    await expect(shop.getByTestId('ticket-copy-badge')).toBeVisible();
+    await expect(shop.getByTestId('ticket-code-lost')).toHaveCount(0);
+    await shop.waitForTimeout(500);
+    expect(await shop.evaluate(() => (window as unknown as { __prints: number }).__prints)).toBe(0);
+
+    // This device's print settings: bigger and bold, saved here, used by every print.
+    await shop
+      .getByRole('navigation', { name: 'Main' })
+      .getByRole('link', { name: /^Printer/ })
+      .click();
+    const settings = shop.getByTestId('print-settings');
+    await settings.getByTestId('print-font-size').selectOption('16');
+    await settings.getByTestId('print-bold').check();
+    await settings.getByTestId('print-save').click();
+    await expect(settings.getByTestId('print-saved')).toBeVisible();
+    const receiptStyle = () =>
+      shop.getByTestId('test-receipt').evaluate((el) => {
+        const style = getComputedStyle(el);
+        return `${style.fontSize} ${style.fontWeight}`;
+      });
+    await expect.poll(receiptStyle).toBe('16px 700');
+    await shop.reload();
+    await expect(shop.getByTestId('print-settings')).toBeVisible();
+    await expect.poll(receiptStyle).toBe('16px 700');
+    await expect(shop.getByTestId('print-font-size')).toHaveValue('16');
+    await shop.getByTestId('print-reset').click();
+    await expect.poll(receiptStyle).toBe('13px 400');
   } finally {
     // Close the shop again so a second open shop does not stop other specs' cashiers.
     if (agentUrl !== null) {

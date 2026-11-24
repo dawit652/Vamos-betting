@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CashedOutView, CashOutOfferView } from './cashout';
 import { LocalizedNameSchema, SportCodeSchema } from './catalog';
-import { Id, OddsMilli, PageQuery, Santim } from './common';
+import { Id, IsoDateTime, OddsMilli, PageQuery, Santim } from './common';
 
 /**
  * Betslip, bet placement, booking codes and "My bets".
@@ -112,6 +112,10 @@ export const QuoteLeg = z.object({
   reason: UnavailableReasonSchema.nullable(),
   /** The event is live: a bet waits for delayed acceptance. */
   live: z.boolean(),
+  /** The match's competition (null when the selection does not exist); always sent by the API. */
+  competitionName: LocalizedNameSchema.nullable().optional(),
+  /** The match's kick-off (null when the selection does not exist); always sent by the API. */
+  startTime: IsoDateTime.nullable().optional(),
 });
 export type QuoteLeg = z.infer<typeof QuoteLeg>;
 

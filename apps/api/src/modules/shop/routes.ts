@@ -57,6 +57,7 @@ import {
   closeShift,
   getAgent,
   getAgentBalance,
+  loadRetailAlertRules,
   getOpenShift,
   getOwnerAgent,
   getShop,
@@ -328,6 +329,7 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
     return wire(ShopOwnerResponse, {
       agent,
       balance: (await getAgentBalance(deps.db, agent.id)).toString(),
+      balanceLowAt: (await loadRetailAlertRules(deps.db)).lowBalance,
       shops: shops.map(shopView),
       cashiers: await listAgentCashiers(deps.db, agent.id),
       devices: await listAgentDevices(deps.db, agent.id),
@@ -363,8 +365,12 @@ export default async function shopRoutes(app: FastifyInstance): Promise<void> {
       operations,
       // Player cash: always at Nahubet HQ's shops; at an agent's once an admin switched it on.
       playerCash: shop.agentIsHouse || shop.agentPlayerCash,
-      // An agent's deposits are paid from its balance: the cashier sees how much is left.
+      // An agent's tickets and deposits are paid from its balance (the top-up from HQ): the
+      // cashier sees how much is left, and when to ask the agent owner for a top-up.
       agentBalance: shop.agentIsHouse ? null : await getAgentBalance(deps.db, shop.agentId),
+      agentBalanceLowAt: shop.agentIsHouse
+        ? null
+        : (await loadRetailAlertRules(deps.db)).lowBalance,
     });
   });
 

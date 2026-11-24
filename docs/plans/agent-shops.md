@@ -603,6 +603,53 @@ The shop app's Printer page chooses the way per device (remembered on the device
 test units before building the direct printing: an Android terminal with a built-in 58 mm printer
 and a cheap Bluetooth 58 mm printer, next to the PC with a USB 80 mm printer that works today.
 
+## Sell page, top-up balance and print settings (owner, 24 Nov 2026)
+
+The owner's report from the live shop: "insert booking code or slip id, insert stake and when I hit
+Sell and print the button gets busy and deactivated; the printer works (test print). Also it does
+not show which matches and odds are selected. The cashier should adjust print font, bold and other
+parameters. The desk should show the top-up from HQ, tell the cashier to ask the agent owner to
+refill before it runs out, and when it is empty the shop cannot sell."
+
+- **Why the button looked busy.** "Sell and print" stayed disabled until the ticket was checked
+  again with the typed stake (the separate Check button), and every disabled button showed the
+  busy cursor (`cursor: wait`). Nothing was sold or stuck. The ticket (the loaded matches) sat at the
+  very bottom, under a list of 20 or more matches, so on a phone it was never seen.
+- **Sell and print in one press.** Enabled as soon as the ticket has a match and a stake; it checks
+  the odds with that stake and, when nothing changed, sells and opens the ticket to print. A change
+  (odds, a closed match, a stake rule) stops it and shows on the ticket, with Accept new odds. The
+  ticket is also checked by itself half a second after the last change, so the possible win shows
+  and the press usually sells at once. Under the button: why it cannot sell yet ("Add a match",
+  "Type the stake"). A disabled button shows "not allowed", only a working one the busy cursor.
+- **The ticket where it is seen.** Order: booking code or slip ID, the ticket, Game ID, the match
+  list. On a wide screen the ticket stays beside them (sticky); on a phone a bar at the foot
+  ("Ticket: 2 matches · odds 4.36 · Show ticket") leads back to it. Each match shows its league,
+  Game ID, kick-off, the match, the market, the pick and the odds (`QuoteLeg.competitionName`,
+  `startTime`, sent by the API with every quote).
+- **A slow answer.** After 8 seconds the page says it is still waiting. No answer, or a server error:
+  pressing again is safe (the same idempotency key replays the sale). The sold ticket opens through
+  the app's own navigation, and the browser loads it directly if that takes more than 4 seconds.
+- **The payout code** reaches the ticket page in memory and in sessionStorage (it is printed once).
+  When it did not arrive (a replayed sale, whose answer has no code), the original is not printed:
+  the page says so and the cashier cancels and sells again. Opening a ticket page again later
+  prints nothing by itself; the Print button makes a counted copy.
+- **Top-up balance** at the top of the desk and the Sell page (agent shops; HQ's own shops have
+  none): the amount, and at or below HQ's low-balance threshold (Back office → Agents → Alerts,
+  ETB 1,000 by default) "tell the agent owner to top up at Nahubet HQ before it runs out"; at zero
+  "no ticket can be sold until the agent owner tops up". The ledger already refuses a ticket above
+  the balance (409 `agent_balance_low`), and the Sell page warns when the stake is above it. The
+  owner's overview shows the same warnings. `GET /shop/desk` has `agentBalanceLowAt`,
+  `GET /shop/owner` has `balanceLowAt`.
+- **Print settings on each device** (Printer page): text size (10 to 22 px), bold, line spacing,
+  font (monospace, sans-serif for clear Amharic, serif), paper width (the shop's, or 58 / 80 mm for
+  this printer), side margin (0 to 6 mm) and barcode size. They are kept in the browser
+  (`nahubet:print-settings`) and applied as CSS variables to every ticket, receipt, payout slip and
+  shift report; the preview and the test print show them before saving.
+- Tests: `apps/shop/src/lib/topup.test.ts`, `print-settings.test.ts`, `tickets.test.ts`,
+  `apps/api/test/shop-desk.test.ts`, `shop-owner.test.ts`, `betting.test.ts`,
+  `e2e/tests/shop-tickets.spec.ts` (empty top-up, the slip ID sold in one press, no reprint on a
+  reload, print settings kept after a reload).
+
 ## Rules for every session of this work
 
 - **Build on top of the server's branch.** Before every push:

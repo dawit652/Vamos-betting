@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { useFetch } from '@/components/hooks';
+import { TopUpCard } from '@/components/topup';
 import { api } from '@/lib/api';
 import { ApiClientError, describeError } from '@/lib/errors';
 import {
@@ -51,10 +52,11 @@ export default function DeskPage() {
       </div>
     );
   }
-  const { shift, operations, playerCash, agentBalance } = desk.data;
+  const { shift, operations, playerCash, agentBalance, agentBalanceLowAt } = desk.data;
   return (
     <>
       <h1 className="no-print">{TEXT.deskTitle}</h1>
+      <TopUpCard balance={agentBalance} lowAt={agentBalanceLowAt} />
       {shift === null ? (
         <>
           {closed === null ? null : <ClosedSummary shift={closed} />}

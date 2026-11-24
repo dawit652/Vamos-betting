@@ -1,14 +1,15 @@
 'use client';
 
+import { PrintSettingsForm } from '@/components/print-settings';
 import { useSession } from '@/components/session';
 import { receiptClass } from '@/lib/forms';
 import { formatDateTime } from '@/lib/format';
 import { paperWidthLabel, TEXT } from '@/lib/text';
 
 /**
- * The receipt printer guide and a test print: the receipt layout at the shop's paper width,
- * marked as a test. It writes nothing (no receipt, no ledger entry), so it can be printed as
- * often as needed.
+ * The receipt printer guide, this device's print settings (text size, bold, spacing, font, paper,
+ * margins, barcode) and a test print: the receipt layout with those settings, marked as a test.
+ * It writes nothing (no receipt, no ledger entry), so it can be printed as often as needed.
  */
 export default function PrinterPage() {
   const { session } = useSession();
@@ -29,11 +30,18 @@ export default function PrinterPage() {
         <p>
           {TEXT.printerWidth}: <strong>{width} mm</strong>
         </p>
-        <button type="button" className="primary" onClick={() => window.print()}>
+        <button
+          type="button"
+          className="primary"
+          data-testid="print-test"
+          onClick={() => window.print()}
+        >
           {TEXT.printTest}
         </button>
         <p className="muted small">{TEXT.testPrintNote}</p>
       </div>
+      <PrintSettingsForm shopWidthMm={width} />
+      <p className="muted small no-print printer-preview-label">{TEXT.printPreview}</p>
       <div className={receiptClass(width)} data-testid="test-receipt">
         <div className="receipt-copy">{TEXT.testReceiptTitle}</div>
         <strong>

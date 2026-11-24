@@ -3,11 +3,14 @@ import {
   BARCODE_QUIET_MODULES,
   barcodeLayout,
   formatOddsMilli,
+  handOverPayoutCode,
   legReasonText,
   newTicketKey,
   parsePickText,
   refusalText,
+  takePayoutCode,
   ticketPath,
+  ticketSellable,
 } from './tickets';
 
 describe('parsePickText', () => {
@@ -89,5 +92,34 @@ describe('barcodeLayout', () => {
 
   it('refuses text Code 128 set B cannot hold', () => {
     expect(() => barcodeLayout('')).toThrow();
+  });
+});
+
+describe('ticketSellable', () => {
+  const leg = { available: true, oddsChanged: false };
+
+  it('sells a checked ticket with no error, every match open and no price changed', () => {
+    expect(ticketSellable({ errors: [], legs: [leg, leg] })).toBe(true);
+  });
+
+  it('stops on an error, a closed match, a changed price or no match', () => {
+    expect(ticketSellable({ errors: [{ code: 'stake_too_low' }], legs: [leg] })).toBe(false);
+    expect(ticketSellable({ errors: [], legs: [leg, { ...leg, available: false }] })).toBe(false);
+    expect(ticketSellable({ errors: [], legs: [{ ...leg, oddsChanged: true }] })).toBe(false);
+    expect(ticketSellable({ errors: [], legs: [] })).toBe(false);
+  });
+});
+
+describe('the payout code hand-over', () => {
+  // No sessionStorage here (as in a browser that blocks it): memory still carries the code.
+  it('gives the code to the ticket page once', () => {
+    handOverPayoutCode('t1', '123456');
+    expect(takePayoutCode('t1')).toBe('123456');
+    expect(takePayoutCode('t1')).toBeNull();
+  });
+
+  it('keeps nothing for a replayed sale without a code', () => {
+    handOverPayoutCode('t2', null);
+    expect(takePayoutCode('t2')).toBeNull();
   });
 });

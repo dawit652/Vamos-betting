@@ -1,4 +1,17 @@
-# Remaining tasks (read this first; updated 23 Nov 2026)
+# Remaining tasks (read this first; updated 24 Nov 2026)
+
+**Newest, 24 Nov (second account, `claude/happy-keller-i7cvrh`, pushed, not deployed):** on top of
+the first account's `78d3526` (both branches were equal), the owner's shop report
+([agent-shops.md](agent-shops.md), "Sell page, top-up balance and print settings"): "Sell and
+print" looked busy because it waited for a separate Check (and disabled buttons showed the busy
+cursor); now one press checks and sells, the ticket with each match's league, kick-off, market,
+pick and odds sits right under the code box (beside the list on a PC, a "Show ticket" bar on a
+phone), the cashier dashboard and Sell page show the agent's top-up balance with "tell the agent
+owner to top up" when low and "no ticket can be sold" when empty, and the Printer page has print
+settings per device (text size, bold, spacing, font, paper, margin, barcode). No migration and no
+new setting: deploy with the line under "Deploy" (now this branch). The first account brings
+`claude/eager-cerf-ox9vkq` up with `git fetch origin claude/happy-keller-i7cvrh && git merge
+--ff-only FETCH_HEAD` before starting.
 
 **Newest, 23 Nov late evening (first account, `claude/eager-cerf-ox9vkq`, pushed, not deployed):**
 both accounts' work is merged on this branch. The second account brings `claude/happy-keller-i7cvrh`
@@ -183,7 +196,7 @@ From the owner's PC (PowerShell), one line: it logs in, starts the deploy in the
 server and shows its log (Ctrl+C stops only the log, not the deploy):
 
 ```powershell
-ssh -t root@13.140.208.4 "cd /opt/nahubet && git fetch origin claude/eager-cerf-ox9vkq && (nohup bash -c 'ALLOW_DROPPED_SETTINGS=1 bash <(git show origin/claude/eager-cerf-ox9vkq:infra/scripts/deploy-full.sh) claude/eager-cerf-ox9vkq /opt/nahubet-new/infra/.env.prod vamos' > /root/deploy.log 2>&1 &) ; sleep 3 ; tail -f /root/deploy.log"
+ssh -t root@13.140.208.4 "cd /opt/nahubet && git fetch origin claude/happy-keller-i7cvrh && (nohup bash -c 'ALLOW_DROPPED_SETTINGS=1 bash <(git show origin/claude/happy-keller-i7cvrh:infra/scripts/deploy-full.sh) claude/happy-keller-i7cvrh /opt/nahubet-new/infra/.env.prod vamos' > /root/deploy.log 2>&1 &) ; sleep 3 ; tail -f /root/deploy.log"
 ```
 
 The deploy backs up the database, applies the new migrations (0085 to 0087 after the live `26096ab`),

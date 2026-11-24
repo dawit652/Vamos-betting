@@ -14,9 +14,13 @@ import { TEXT } from '@/lib/text';
 import { formatOddsMilli, takePayoutCode } from '@/lib/tickets';
 
 /**
- * The printable ticket. Like the cash receipt: opening the page with `?print=1` records the
- * original print once and opens the print dialog; the Print button afterwards is a counted copy
- * that says COPY. A cancelled ticket shows CANCELLED and cannot be printed.
+ * The printable ticket. Like the cash receipt: opening the page with `?print=1` right after the
+ * sale records the original print once and opens the print dialog; the Print button afterwards is
+ * a counted copy that says COPY. A cancelled ticket shows CANCELLED and cannot be printed. The
+ * original carries the payout code handed over by the sale: when it did not arrive (the sale's
+ * answer was lost and a second press replayed it), the original is not printed, because it could
+ * never be paid, and the cashier cancels it and sells again. Opening the page again later prints
+ * nothing by itself.
  */
 function Ticket() {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +31,9 @@ function Ticket() {
   const [error, setError] = useState<string | null>(null);
   // The payout code of a ticket just sold (handOverPayoutCode): printed only, for this page view.
   const [payoutCode, setPayoutCode] = useState<string | null>(null);
+  // The original was recorded by this page view: its print dialog opens once.
+  const [autoPrint, setAutoPrint] = useState(false);
+  const [codeLost, setCodeLost] = useState(false);
   const started = useRef(false);
   const printed = useRef(false);
 
@@ -34,29 +41,38 @@ function Ticket() {
     // Strict mode runs effects twice; a print must be counted once.
     if (started.current) return;
     started.current = true;
-    setPayoutCode(takePayoutCode(id));
+    const code = takePayoutCode(id);
+    setPayoutCode(code);
     const base = `/shop/desk/tickets/${id}`;
-    if (print) {
-      api<ShopTicketPrintResponse>(`${base}/print`, { method: 'POST', body: {} }).then(
-        (res) => {
-          setIsCopy(res.copy);
-          setTicket(res.ticket);
-        },
-        // A cancelled ticket cannot be printed: show it instead.
-        () =>
-          api<ShopTicketResponse>(base).then(
-            (res) => setTicket(res.ticket),
-            (e: unknown) => setError(describeError(e, TEXT.ticketErrors)),
-          ),
-      );
-    } else {
+    const show = () =>
       api<ShopTicketResponse>(base).then(
         (res) => {
           setIsCopy(res.ticket.originalPrintedAt !== null);
           setTicket(res.ticket);
+          // Just sold and never printed, but without its payout code: never print that original.
+          if (
+            print &&
+            code === null &&
+            res.ticket.originalPrintedAt === null &&
+            res.ticket.status !== 'cancelled'
+          ) {
+            setCodeLost(true);
+          }
         },
         (e: unknown) => setError(describeError(e, TEXT.ticketErrors)),
       );
+    if (print && code !== null) {
+      api<ShopTicketPrintResponse>(`${base}/print`, { method: 'POST', body: {} }).then(
+        (res) => {
+          setIsCopy(res.copy);
+          setTicket(res.ticket);
+          setAutoPrint(true);
+        },
+        // A cancelled ticket cannot be printed: show it instead.
+        () => void show(),
+      );
+    } else {
+      void show();
     }
   }, [id, print]);
 
@@ -68,12 +84,14 @@ function Ticket() {
   }, []);
 
   useEffect(() => {
-    if (ticket === null || !print || printed.current || ticket.status === 'cancelled') return;
-    printed.current = true;
+    if (ticket === null || !autoPrint || printed.current || ticket.status === 'cancelled') return;
     // After the paint, so the dialog shows the ticket.
-    const timer = setTimeout(() => window.print(), 100);
+    const timer = setTimeout(() => {
+      printed.current = true;
+      window.print();
+    }, 100);
     return () => clearTimeout(timer);
-  }, [ticket, print]);
+  }, [ticket, autoPrint]);
 
   /** The Print button: the original if never printed, else a counted copy. */
   async function printAgain() {
@@ -102,6 +120,7 @@ function Ticket() {
         body,
       });
       setError(null);
+      setCodeLost(false);
       setTicket(res.ticket);
     } catch (e) {
       setError(describeError(e, TEXT.ticketErrors));
@@ -133,7 +152,12 @@ function Ticket() {
   return (
     <div data-testid="ticket-page">
       <div className="no-print">
-        {!cancelled && (
+        {codeLost && !cancelled && (
+          <p className="error" role="alert" data-testid="ticket-code-lost">
+            {TEXT.ticketCodeLost}
+          </p>
+        )}
+        {!cancelled && !codeLost && (
           <>
             <button
               type="button"

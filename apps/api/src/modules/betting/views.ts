@@ -121,7 +121,18 @@ function slipLegView(
     available: leg.available,
     reason: leg.reason,
     live: leg.isLive,
+    competitionName: selection === null ? null : localized(selection.competitionName),
+    startTime: selection === null ? null : selection.startTime.toISOString(),
   };
+}
+
+/** A stored LocalizedName on the wire: only the languages it has. */
+function localized(name: SelectionSnapshot['competitionName']): LocalizedNameValue {
+  const out: LocalizedNameValue = { en: name.en };
+  if (name.am !== undefined) out.am = name.am;
+  if (name.om !== undefined) out.om = name.om;
+  if (name.ti !== undefined) out.ti = name.ti;
+  return out;
 }
 
 /** POST /betslip/quote. */

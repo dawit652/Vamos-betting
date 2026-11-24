@@ -55,35 +55,57 @@ export function newTicketKey(random: () => string = () => crypto.randomUUID()): 
   return `ticket-${random()}`;
 }
 
-/** The path of the ticket page; `print` records and prints the original when it opens. */
 /**
- * The payout code of a ticket just sold travels from the sale to its print in this tab only
- * (sessionStorage), and the ticket page takes it out at once: it is printed on the original, never
- * kept, and a later visit or reprint cannot show it (docs/plans/counter-codes-and-deposit-recovery.md, G3).
+ * The payout code of a ticket just sold travels from the sale to its print in this tab only, and
+ * the ticket page takes it out at once: it is printed on the original, never kept, and a later
+ * visit or reprint cannot show it (docs/plans/counter-codes-and-deposit-recovery.md, G3). It is
+ * held in memory (the app's own navigation) and in sessionStorage (a full page load, when the
+ * app's navigation is slow), and taking it clears both.
  */
 const PAYOUT_CODE_KEY = (id: string) => `vamos:payout-code:${id}`;
+const handedOver = new Map<string, string>();
 
 export function handOverPayoutCode(id: string, code: string | null): void {
   if (code === null) return;
+  handedOver.set(id, code);
   try {
     sessionStorage.setItem(PAYOUT_CODE_KEY(id), code);
   } catch {
-    // Storage blocked: the ticket prints without the code; cancel it and sell again.
+    // Storage blocked: the code still reaches the ticket page through memory.
   }
 }
 
 export function takePayoutCode(id: string): string | null {
+  const held = handedOver.get(id) ?? null;
+  handedOver.delete(id);
+  let stored: string | null = null;
   try {
-    const code = sessionStorage.getItem(PAYOUT_CODE_KEY(id));
+    stored = sessionStorage.getItem(PAYOUT_CODE_KEY(id));
     sessionStorage.removeItem(PAYOUT_CODE_KEY(id));
-    return code;
   } catch {
-    return null;
+    // Storage blocked: only memory had it.
   }
+  return held ?? stored;
 }
 
+/** The path of the ticket page; `print` records and prints the original when it opens. */
 export function ticketPath(id: string, print = false): string {
   return print ? `/ticket/${id}?print=1` : `/ticket/${id}`;
+}
+
+/** What a check answers that decides a sale (ShopTicketCheckResponse, its shape only). */
+export interface CheckedTicket {
+  errors: readonly unknown[];
+  legs: readonly { available: boolean; oddsChanged: boolean }[];
+}
+
+/** A checked ticket sells as it is: no error, every match available, no price changed. */
+export function ticketSellable(check: CheckedTicket): boolean {
+  return (
+    check.legs.length > 0 &&
+    check.errors.length === 0 &&
+    check.legs.every((leg) => leg.available && !leg.oddsChanged)
+  );
 }
 
 /** Why a pick could not be taken, in words for the counter. */

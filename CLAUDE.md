@@ -41,7 +41,14 @@ possible:
 7. Switch model and effort by task (see "Working with Claude Code" below): mechanical steps to
    `quick-task`, routine coding to `routine-coder`, the money path and design in the main session.
 8. **Where we are** (update this item first after every limit, cheaply; see "The token budget").
-   **Newest, 23 Nov late evening:** both accounts' work merged on `claude/eager-cerf-ox9vkq` (pushed,
+   **Newest, 24 Nov (second account, `claude/happy-keller-i7cvrh`, pushed, not deployed):** the
+   first account's `78d3526` plus the owner's shop report: "Sell and print" in one press (it waited
+   for a separate Check, and disabled buttons showed the busy cursor), the ticket under the code box
+   (league, kick-off, market, pick, odds), the agent's top-up balance on the desk and Sell page (low:
+   ask the owner to top up; empty: no sale), print settings per device on the Printer page
+   (`docs/plans/agent-shops.md`, last section). No migration (next free 0088); the deploy line in
+   `docs/plans/remaining-tasks.md` now names this branch. **Next:** GS5-GS7 (GS9 waits).
+   **Earlier, 23 Nov late evening:** both accounts' work merged on `claude/eager-cerf-ox9vkq` (pushed,
    not deployed; the second account fast-forwards `claude/happy-keller-i7cvrh` to it before starting):
    the second account's GS1-GS3 and GS11 (below) and the first account's shop fix ("session needs a
    refresh" when the browser is also signed in to the player site: player auth skips `/shop`) and

@@ -211,7 +211,11 @@ describe('player cash at the shop app desk', () => {
   it('at an HQ shop: finds the player, takes a deposit, pays with the shop code, prints receipts', async () => {
     const shop = await hqShop('shopapp-01');
     const desk = await deskAt(shop.id, 'HQ Shop App');
-    expect(await deskView(desk)).toMatchObject({ playerCash: true, agentBalance: null });
+    expect(await deskView(desk)).toMatchObject({
+      playerCash: true,
+      agentBalance: null,
+      agentBalanceLowAt: null,
+    });
 
     const player = await verifiedPlayerWith(100_000n);
     const found = await asDesk(
@@ -265,7 +269,12 @@ describe('player cash at the shop app desk', () => {
   it("at an agent's shop: refused until switched on, then paid from the agent balance", async () => {
     const { agent, shop } = await agentShop('Desk Cash Agent');
     const desk = await deskAt(shop.id, 'Agent Shop App');
-    expect(await deskView(desk)).toMatchObject({ playerCash: false, agentBalance: '0' });
+    // The top-up balance and HQ's low-balance threshold (ETB 1,000 by default) for the desk.
+    expect(await deskView(desk)).toMatchObject({
+      playerCash: false,
+      agentBalance: '0',
+      agentBalanceLowAt: '100000',
+    });
     const player = await registerAndLogin(ctx);
 
     const off = await deposit(desk, player.userId, '20000');

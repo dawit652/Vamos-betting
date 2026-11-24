@@ -182,6 +182,8 @@ describe('agent owner accounts', () => {
     expect(ShopOwnerResponse.parse(overview.json())).toMatchObject({
       agent: { id: owner.agent.id },
       balance: '0',
+      // HQ's low-balance threshold (ETB 1,000 by default): the owner is asked to top up.
+      balanceLowAt: '100000',
       shops: [],
       cashiers: [],
       devices: [],

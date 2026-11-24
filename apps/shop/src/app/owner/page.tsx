@@ -15,6 +15,7 @@ import { api } from '@/lib/api';
 import { describeError } from '@/lib/errors';
 import { formatDateTime, formatEtb } from '@/lib/format';
 import { TEXT } from '@/lib/text';
+import { topUpState } from '@/lib/topup';
 
 /** The agent owner's read-only overview: the agent's shops, cashiers and devices. */
 export default function OwnerPage() {
@@ -42,7 +43,8 @@ export default function OwnerPage() {
       </div>
     );
   }
-  const { agent, balance, shops, cashiers, devices } = owner.data;
+  const { agent, balance, balanceLowAt, shops, cashiers, devices } = owner.data;
+  const balanceState = topUpState(balance, balanceLowAt ?? null);
   return (
     <>
       <h1>{TEXT.ownerTitle}</h1>
@@ -59,6 +61,15 @@ export default function OwnerPage() {
         <p>
           {TEXT.ownerBalance}: <strong data-testid="owner-balance">{formatEtb(balance)}</strong>
         </p>
+        {balanceState === 'empty' ? (
+          <p className="error" role="alert" data-testid="owner-balance-empty">
+            {TEXT.ownerBalanceEmpty}
+          </p>
+        ) : balanceState === 'low' ? (
+          <p className="topup-warning" role="status" data-testid="owner-balance-low">
+            {TEXT.ownerBalanceLow}
+          </p>
+        ) : null}
         <p className="muted small">{TEXT.ownerBalanceNote}</p>
       </div>
 

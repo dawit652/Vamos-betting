@@ -125,6 +125,30 @@ label {
   font-weight: 600;
 }
 
+select {
+  font: inherit;
+  min-height: 52px;
+  padding: 10px 14px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+label.check input {
+  min-height: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+
 input,
 textarea {
   font: inherit;
@@ -166,9 +190,14 @@ button.primary {
   color: var(--accent-ink);
 }
 
+/* A disabled button says "not now"; only a button doing work shows the busy cursor. */
 button:disabled {
   opacity: 0.6;
-  cursor: wait;
+  cursor: not-allowed;
+}
+
+button[aria-busy='true'] {
+  cursor: progress;
 }
 
 .error {
@@ -260,15 +289,38 @@ th.num {
   width: 54mm;
 }
 
+/* This device's print settings (Printer page, lib/print-settings.ts) set these on the root. */
+:root {
+  --print-font-size: 13px;
+  --print-font-weight: 400;
+  --print-line-height: normal;
+  --print-font-family: ui-monospace, 'Courier New', monospace;
+  --print-side-margin: 0mm;
+  --print-barcode-height: 40px;
+}
+
 .receipt {
   margin: 0 auto;
-  padding: 8px;
+  padding: 8px calc(8px + var(--print-side-margin));
   background: #fff;
   color: #000;
-  font-family: ui-monospace, 'Courier New', monospace;
-  font-size: 13px;
+  font-family: var(--print-font-family);
+  font-size: var(--print-font-size);
+  font-weight: var(--print-font-weight);
+  line-height: var(--print-line-height);
   text-align: center;
   border: 1px dashed var(--line);
+}
+
+/* A printer whose roll differs from the shop's (print settings, "Paper width"). */
+:root[data-print-paper='58'] .receipt {
+  page: receipt58;
+  width: 54mm;
+}
+
+:root[data-print-paper='80'] .receipt {
+  page: receipt80;
+  width: 76mm;
 }
 
 .receipt hr {
@@ -406,6 +458,7 @@ textarea {
   display: block;
   margin: 0 auto;
   max-width: 100%;
+  height: var(--print-barcode-height);
 }
 
 .barcode .barcode-text {
@@ -454,4 +507,112 @@ textarea {
   margin-top: 28px;
   border-top: 1px solid #000;
   padding-top: 4px;
+}
+
+/* The agent's top-up balance on the desk and the Sell page. */
+.topup .topup-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.topup h2 {
+  margin: 0;
+}
+
+.topup .topup-amount {
+  font-size: 1.6em;
+}
+
+.topup p {
+  margin: 10px 0 0;
+}
+
+.topup-low {
+  border: 2px solid #b26a00;
+  background: #fff6e0;
+}
+
+.topup-warning {
+  color: #6b4100;
+  font-weight: 700;
+}
+
+.topup-empty {
+  border: 2px solid var(--danger);
+  background: var(--danger-soft);
+}
+
+/*
+ * The Sell page: the customer's code, then the ticket, then the other ways to add matches. On a
+ * wide screen the ticket stays in view beside them.
+ */
+.sell-grid {
+  display: grid;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.sell-grid .card {
+  max-width: none;
+  width: 100%;
+}
+
+.sell-button {
+  width: 100%;
+  font-size: 1.15em;
+}
+
+@media (min-width: 980px) {
+  .sell-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 460px);
+    grid-template-areas:
+      'booking ticket'
+      'game ticket'
+      'matches ticket';
+    column-gap: 20px;
+    align-items: start;
+  }
+
+  .sell-booking {
+    grid-area: booking;
+  }
+
+  .sell-game {
+    grid-area: game;
+  }
+
+  .sell-matches {
+    grid-area: matches;
+  }
+
+  .sell-ticket {
+    grid-area: ticket;
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+
+  .ticket-bar {
+    display: none !important;
+  }
+}
+
+/* On a phone, while the ticket is scrolled away: how many matches, and a way back to it. */
+.ticket-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -20px -20px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-top: 2px solid var(--accent);
+  font-weight: 700;
 }
